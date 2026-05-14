@@ -282,6 +282,7 @@ function renderHomeSkill(input: SomaContextInput, somaHome: string): string {
     "- Use the `soma_context` tool with `action: algorithm_work_index` for canonical Algorithm work state.",
     "- Use the `soma_context` tool with `action: pai_imports` to find detailed migrated PAI source files.",
     "- Use the `soma_context` tool with `action: source_file` for detailed identity, voice, telos, values, goals, strategies, and decision-context source files under Soma.",
+    "- Do not assume a global `soma` binary exists; the SomaExtension calls the repo CLI via `~/.pi/agent/soma/soma-repo.txt`.",
     "- Treat Pi.dev as the execution substrate, not the source of truth.",
     "",
     "## Current Projection",

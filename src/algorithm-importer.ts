@@ -73,7 +73,7 @@ function renderRunWorkflow(): string {
     "## Portable Contract",
     "",
     "1. Restate the user's intent in one sentence before planning.",
-    "2. Create a harness run with `soma algorithm new` or the equivalent library call when the substrate can execute Soma tools.",
+    "2. Create a harness run with the installed Soma lifecycle tool or repo CLI. For Codex use `cd $(cat ~/.codex/memories/soma/soma-repo.txt) && bun run soma algorithm new ...`; for Pi.dev use `cd $(cat ~/.pi/agent/soma/soma-repo.txt) && bun run soma algorithm new ...`. Do not assume a global `soma` binary exists.",
     "3. Choose the smallest sufficient effort tier: E1, E2, E3, E4, or E5.",
     "4. Treat the work as a transition from current state to ideal state.",
     "5. Create or update the ISA that belongs to the thing being articulated.",

@@ -111,9 +111,12 @@ test("installs codex home projection into a substrate home", async () => {
     );
     expect(skill).toContain("name: soma");
     expect(skill).toContain("pai-imports.md");
+    expect(skill).toContain("Do not assume a global `soma` binary exists");
     expect(profile).toContain("ISC-PORTABLE-1");
     expect(paiImports).toContain(`${homeDir}/.soma/profile/imports/claude/DA_IDENTITY.md`);
     expect(lifecycle).toContain("Soma Lifecycle Projection");
+    expect(lifecycle).toContain("soma-repo.txt");
+    expect(lifecycle).toContain("Do not use `command -v soma`");
   });
 });
 
@@ -139,6 +142,7 @@ test("installs pi.dev home projection into a substrate home", async () => {
     expect(extension).toContain("resources_discover");
     expect(profile).toContain("ISC-PORTABLE-1");
     expect(paiImports).toContain(`${homeDir}/.soma/profile/imports/claude/DA_IDENTITY.md`);
+    expect(skill).toContain("Do not assume a global `soma` binary exists");
     expect(skill).toContain("name: soma");
   });
 });
