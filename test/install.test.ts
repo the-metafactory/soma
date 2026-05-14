@@ -101,6 +101,8 @@ test("installs soma source home and pi.dev home projection", async () => {
     expect(extension).toContain("soma_context");
     expect(extension).toContain("before_agent_start");
     expect(extension).toContain("startup_context");
+    expect(extension).toContain("Soma Prompt Classification");
+    expect(extension).toContain("runSomaClassification");
     expect(extension).toContain("session_shutdown");
     expect(extension).toContain("tool_execution_end");
     expect(profile).toContain("Name: soma");
