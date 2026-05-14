@@ -1,4 +1,5 @@
 import type { SomaAdapter, SomaContextBundle, SomaContextInput, SomaTask } from "../types";
+import { SOMA_POLICY_CONTENT_SENTINELS } from "../policy";
 import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "./shared";
 
 function renderCodexPolicy(): string {
@@ -223,10 +224,14 @@ function renderCodexHooksJson(): string {
 
 function renderCodexPolicyHookRuntime(): string[] {
   return [
-    'const SOMA_POLICY_SENTINELS = [".soma/", "~/.soma/", ".codex/memories/soma", ".codex/skills/soma", ".pi/agent/soma", ".pi/agent/skills/soma"];',
+    `const SOMA_POLICY_SENTINELS = ${JSON.stringify(SOMA_POLICY_CONTENT_SENTINELS)};`,
     "",
     "function hasSomaPolicySentinel(content) {",
     "  return SOMA_POLICY_SENTINELS.some((marker) => content.includes(marker));",
+    "}",
+    "",
+    "function matchingSomaPolicyContent(content) {",
+    '  return (content || "").split("\\n").filter((line) => hasSomaPolicySentinel(line)).slice(0, 200).join("\\n");',
     "}",
     "",
     "function runSomaPolicyCheck(target) {",
@@ -239,7 +244,7 @@ function renderCodexPolicyHookRuntime(): string[] {
     "    cwd: somaRepoPath(),",
     '    encoding: "utf8",',
     "    timeout: 25000,",
-    '    env: { ...process.env, SOMA_POLICY_CONTENT: target.content || "" }',
+    "    env: { ...process.env, SOMA_POLICY_CONTENT: matchingSomaPolicyContent(target.content) }",
     "  });",
     "}",
     "",
@@ -342,6 +347,7 @@ function renderCodexLifecycleHook(somaHome: string): string {
     "",
     '  if (toolName === "apply_patch") {',
     "    const content = toolInput.patch || toolInput.command || JSON.stringify(toolInput);",
+    "    if (!hasSomaPolicySentinel(content)) return [];",
     "    const paths = extractPatchPaths(content, cwd);",
     "    return (paths.length > 0 ? paths : [cwd]).map((path) => ({ filePath: path, content }));",
     "  }",

@@ -115,7 +115,7 @@ export {
 export { appendSomaMemoryEvent, searchSomaMemory, somaMemoryEventsPath } from "./memory";
 export { promoteAlgorithmRunMemory } from "./memory-promotion";
 export { importPaiIdentity, planPaiImport } from "./pai-importer";
-export { checkSomaPolicy, evaluateSomaPolicy, somaPolicyPrivateMarkers, somaPolicyPrivateRoots } from "./policy";
+export { checkSomaPolicy, evaluateSomaPolicy, SOMA_POLICY_CONTENT_SENTINELS, somaPolicyPrivateMarkers, somaPolicyPrivateRoots } from "./policy";
 export { bootstrapSomaHome, loadSomaHome } from "./soma-home";
 
 export const SOMA_VERSION = "0.1.0";

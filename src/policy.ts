@@ -4,12 +4,21 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { appendSomaMemoryEvent } from "./memory";
 import type { SomaPolicyCheckOptions, SomaPolicyCheckResult, SomaPolicyFinding } from "./types";
 
+export const SOMA_POLICY_CONTENT_SENTINELS = [
+  ".soma/",
+  "~/.soma/",
+  ".codex/memories/soma",
+  ".codex/skills/soma",
+  ".pi/agent/soma",
+  ".pi/agent/skills/soma",
+] as const;
+
 function resolveSomaHome(options: Pick<SomaPolicyCheckOptions, "homeDir" | "somaHome"> = {}): string {
   return resolve(options.somaHome ?? join(options.homeDir ?? homedir(), ".soma"));
 }
 
-function normalizePath(path: string, baseDir = process.cwd()): string {
-  const expanded = path.startsWith("~/") ? join(homedir(), path.slice(2)) : path;
+function normalizePath(path: string, baseDir = process.cwd(), homeDir?: string): string {
+  const expanded = path.startsWith("~/") ? join(homeDir ?? homedir(), path.slice(2)) : path;
   return resolve(isAbsolute(expanded) ? expanded : join(baseDir, expanded));
 }
 
@@ -68,9 +77,9 @@ function findPrivateMarkers(content: string, somaHome: string, homeDir?: string)
 
 export function evaluateSomaPolicy(options: SomaPolicyCheckOptions): SomaPolicyCheckResult {
   const somaHome = resolveSomaHome(options);
-  const destinationPath = normalizePath(options.destinationPath);
+  const destinationPath = normalizePath(options.destinationPath, process.cwd(), options.homeDir);
   const destinationScopePath = realScopePath(destinationPath);
-  const sourcePath = options.sourcePath ? normalizePath(options.sourcePath) : undefined;
+  const sourcePath = options.sourcePath ? normalizePath(options.sourcePath, process.cwd(), options.homeDir) : undefined;
   const sourceScopePath = sourcePath ? realScopePath(sourcePath) : undefined;
   const roots = somaPolicyPrivateRoots(somaHome, options.homeDir);
   const rootScopes = roots.map((root) => realScopePath(root));
@@ -116,7 +125,10 @@ export async function checkSomaPolicy(options: SomaPolicyCheckOptions): Promise<
     substrate: options.substrate ?? "custom",
     kind: "policy.check",
     summary: `${result.decision}: ${result.reason}`,
-    artifactPaths: [normalizePath(options.destinationPath), ...(options.sourcePath ? [normalizePath(options.sourcePath)] : [])],
+    artifactPaths: [
+      normalizePath(options.destinationPath, process.cwd(), options.homeDir),
+      ...(options.sourcePath ? [normalizePath(options.sourcePath, process.cwd(), options.homeDir)] : []),
+    ],
     metadata: {
       action: options.action,
       findings: result.findings,

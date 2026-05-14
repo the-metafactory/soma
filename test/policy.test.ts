@@ -100,6 +100,26 @@ test("uses home-dir when detecting projected Codex private markers", async () =>
   });
 });
 
+test("expands tilde paths from configured home-dir", async () => {
+  await withTempHome(async (homeDir) => {
+    await bootstrapSomaHome({ homeDir });
+    const result = await checkSomaPolicy({
+      homeDir,
+      action: "write",
+      destinationPath: "~/work/public/summary.md",
+      sourcePath: "~/.soma/profile/imports/claude/DA_IDENTITY.md",
+      content: "Summarized identity.",
+      record: "none",
+    });
+
+    expect(result.decision).toBe("deny");
+    expect(result.reason).toContain(join(homeDir, "work/public/summary.md"));
+    expect(result.findings[0]).toMatchObject({
+      kind: "private-source",
+    });
+  });
+});
+
 test("treats private-looking symlink destinations by their real public scope", async () => {
   await withTempHome(async (homeDir) => {
     const { somaHome } = await bootstrapSomaHome({ homeDir });
