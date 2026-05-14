@@ -113,9 +113,28 @@ test("expands tilde paths from configured home-dir", async () => {
     });
 
     expect(result.decision).toBe("deny");
-    expect(result.reason).toContain(join(homeDir, "work/public/summary.md"));
+    expect(result.reason).toContain("~/work/public/summary.md");
     expect(result.findings[0]).toMatchObject({
       kind: "private-source",
+    });
+  });
+});
+
+test("detects configured-home tilde private markers in content", async () => {
+  await withTempHome(async (homeDir) => {
+    await bootstrapSomaHome({ homeDir });
+    const result = await checkSomaPolicy({
+      homeDir,
+      action: "write",
+      destinationPath: "~/work/public/summary.md",
+      content: "Do not publish ~/.soma/memory/RELATIONSHIP/private.md.",
+      record: "none",
+    });
+
+    expect(result.decision).toBe("deny");
+    expect(result.findings[0]).toMatchObject({
+      kind: "private-marker",
+      detail: "~/.soma/memory",
     });
   });
 });

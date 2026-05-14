@@ -4,15 +4,6 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { appendSomaMemoryEvent } from "./memory";
 import type { SomaPolicyCheckOptions, SomaPolicyCheckResult, SomaPolicyFinding } from "./types";
 
-export const SOMA_POLICY_CONTENT_SENTINELS = [
-  ".soma/",
-  "~/.soma/",
-  ".codex/memories/soma",
-  ".codex/skills/soma",
-  ".pi/agent/soma",
-  ".pi/agent/skills/soma",
-] as const;
-
 function resolveSomaHome(options: Pick<SomaPolicyCheckOptions, "homeDir" | "somaHome"> = {}): string {
   return resolve(options.somaHome ?? join(options.homeDir ?? homedir(), ".soma"));
 }
@@ -27,7 +18,7 @@ function isInside(path: string, root: string): boolean {
   return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
-export function somaPolicyPrivateRoots(somaHome: string, homeDir?: string): string[] {
+function somaPolicyPrivateRoots(somaHome: string, homeDir?: string): string[] {
   const home = resolve(homeDir ?? homedir());
 
   return [
@@ -55,13 +46,13 @@ function realScopePath(path: string): string {
   return suffix.length > 0 ? resolve(realCursor, ...suffix) : realCursor;
 }
 
-function markerFor(path: string): string {
-  return path.replace(homedir(), "~");
+function markerFor(path: string, homeDir?: string): string {
+  return path.replace(resolve(homeDir ?? homedir()), "~");
 }
 
-export function somaPolicyPrivateMarkers(somaHome: string, homeDir?: string): string[] {
+function somaPolicyPrivateMarkers(somaHome: string, homeDir?: string): string[] {
   const roots = somaPolicyPrivateRoots(somaHome, homeDir);
-  return Array.from(new Set(roots.flatMap((root) => [root, markerFor(root)]))).sort((left, right) => right.length - left.length);
+  return Array.from(new Set(roots.flatMap((root) => [root, markerFor(root, homeDir)]))).sort((left, right) => right.length - left.length);
 }
 
 function findPrivateMarkers(content: string, somaHome: string, homeDir?: string): SomaPolicyFinding[] {
@@ -90,7 +81,7 @@ export function evaluateSomaPolicy(options: SomaPolicyCheckOptions): SomaPolicyC
   if (destinationIsPublic && sourcePath && roots.some((root, index) => isInside(sourcePath, root) || isInside(sourceScopePath ?? sourcePath, rootScopes[index]))) {
     findings.push({
       kind: "private-source",
-      detail: markerFor(sourcePath),
+      detail: markerFor(sourcePath, options.homeDir),
     });
   }
 
@@ -101,8 +92,8 @@ export function evaluateSomaPolicy(options: SomaPolicyCheckOptions): SomaPolicyC
   const decision = findings.length > 0 ? "deny" : "allow";
   const reason =
     decision === "deny"
-      ? `Private Soma context cannot be written to public destination ${markerFor(destinationPath)}.`
-      : `No private Soma source markers found for ${markerFor(destinationPath)}.`;
+      ? `Private Soma context cannot be written to public destination ${markerFor(destinationPath, options.homeDir)}.`
+      : `No private Soma source markers found for ${markerFor(destinationPath, options.homeDir)}.`;
 
   return {
     somaHome,
