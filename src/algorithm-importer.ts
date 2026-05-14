@@ -31,7 +31,7 @@ function renderSkill(): string {
   return [
     "---",
     "name: the-algorithm",
-    "description: Use when work should run through the PAI Algorithm: current-state to ideal-state, ISA/ISC creation or refinement, effort tiers, seven-phase execution, verification-first planning, euphoric-surprise goals, substantial build/design/refactor/migration work, or explicit Algorithm requests.",
+    'description: "Use when work should run through the PAI Algorithm: current-state to ideal-state, ISA/ISC creation or refinement, effort tiers, seven-phase execution, verification-first planning, euphoric-surprise goals, substantial build/design/refactor/migration work, or explicit Algorithm requests."',
     "metadata:",
     "  short-description: PAI Algorithm execution doctrine",
     "---",
