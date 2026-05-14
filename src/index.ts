@@ -20,6 +20,9 @@ export type {
   SomaInstallOptions,
   SomaInstallPlan,
   SomaInstallResult,
+  PaiImportOptions,
+  PaiImportPlan,
+  PaiImportResult,
   SomaMemoryEvent,
   SomaMemoryEventInput,
   WrittenContextBundle,
@@ -38,6 +41,7 @@ export { writeContextBundle } from "./context-bundle";
 export { buildCodexHomeProjection, installCodexHomeProjection, resolveHomeProjectionPaths } from "./home-projection";
 export { installSomaForCodex, planSomaForCodexInstall } from "./install";
 export { appendSomaMemoryEvent, somaMemoryEventsPath } from "./memory";
+export { importPaiIdentity, planPaiImport } from "./pai-importer";
 export { bootstrapSomaHome, loadSomaHome } from "./soma-home";
 
 export const SOMA_VERSION = "0.1.0";

@@ -35,6 +35,18 @@ Soma is meant to be installed into a substrate's user-level home so it is
 available by default. Project-local context is an overlay, not the main install
 path.
 
+The PAI importer migrates durable identity material from an existing Claude PAI
+home into Soma:
+
+```bash
+bun run soma import pai --dry-run
+bun run soma import pai --apply
+```
+
+It imports the principal profile, Ivy assistant identity, and TELOS summary into
+`~/.soma/profile/`, while keeping source snapshots under
+`~/.soma/profile/imports/claude/`.
+
 ## What Soma Is
 
 Soma is a small runtime-independent kernel for personal AI assistants.

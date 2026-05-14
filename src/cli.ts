@@ -1,5 +1,5 @@
-import { installSomaForCodex, planSomaForCodexInstall } from "./index";
-import type { SomaInstallOptions, SomaInstallPlan, SomaInstallResult } from "./types";
+import { importPaiIdentity, installSomaForCodex, planPaiImport, planSomaForCodexInstall } from "./index";
+import type { PaiImportOptions, PaiImportPlan, PaiImportResult, SomaInstallOptions, SomaInstallPlan, SomaInstallResult } from "./types";
 
 interface ParsedInstallArgs {
   command: "install";
@@ -7,6 +7,15 @@ interface ParsedInstallArgs {
   apply: boolean;
   options: SomaInstallOptions;
 }
+
+interface ParsedImportArgs {
+  command: "import";
+  source: "pai";
+  apply: boolean;
+  options: PaiImportOptions;
+}
+
+type ParsedArgs = ParsedInstallArgs | ParsedImportArgs;
 
 function readOption(args: string[], index: number, name: string): string {
   const value = args[index + 1];
@@ -63,6 +72,69 @@ function parseInstallArgs(args: string[]): ParsedInstallArgs {
   };
 }
 
+function parseImportArgs(args: string[]): ParsedImportArgs {
+  const [command, source, ...rest] = args;
+
+  if (command !== "import" || source !== "pai") {
+    throw new Error("Usage: soma import pai [--dry-run] [--apply] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>]");
+  }
+
+  const options: PaiImportOptions = {};
+  let apply = false;
+
+  for (let index = 0; index < rest.length; index += 1) {
+    const arg = rest[index];
+
+    switch (arg) {
+      case "--dry-run":
+        apply = false;
+        break;
+      case "--apply":
+        apply = true;
+        break;
+      case "--home-dir":
+        options.homeDir = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--claude-home":
+        options.claudeHome = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--soma-home":
+        options.somaHome = readOption(rest, index, arg);
+        index += 1;
+        break;
+      default:
+        throw new Error(`Unknown option: ${arg}`);
+    }
+  }
+
+  return {
+    command,
+    source,
+    apply,
+    options,
+  };
+}
+
+function parseArgs(args: string[]): ParsedArgs {
+  if (args[0] === "install") {
+    return parseInstallArgs(args);
+  }
+
+  if (args[0] === "import") {
+    return parseImportArgs(args);
+  }
+
+  throw new Error(
+    [
+      "Usage:",
+      "  soma install codex [--dry-run] [--apply] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
+      "  soma import pai [--dry-run] [--apply] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>]",
+    ].join("\n"),
+  );
+}
+
 function formatPlan(plan: SomaInstallPlan): string {
   return [
     "Soma install plan",
@@ -97,8 +169,43 @@ function formatInstallResult(result: SomaInstallResult): string {
   ].join("\n");
 }
 
+function formatPaiImportPlan(plan: PaiImportPlan): string {
+  return [
+    "Soma PAI import plan",
+    "source: pai",
+    `mode: ${plan.apply ? "apply" : "dry-run"}`,
+    `claudeHome: ${plan.claudeHome}`,
+    `somaHome: ${plan.somaHome}`,
+    "",
+    "Source files:",
+    ...plan.sourceFiles.map((path) => `- ${path}`),
+    "",
+    "Target files:",
+    ...plan.targetFiles.map((path) => `- ${path}`),
+  ].join("\n");
+}
+
+function formatPaiImportResult(result: PaiImportResult): string {
+  return [
+    "Soma PAI import applied",
+    `claudeHome: ${result.claudeHome}`,
+    `somaHome: ${result.somaHome}`,
+    "",
+    "Files:",
+    ...result.files.map((path) => `- ${path}`),
+  ].join("\n");
+}
+
 export async function runSomaCli(args: string[]): Promise<string> {
-  const parsed = parseInstallArgs(args);
+  const parsed = parseArgs(args);
+
+  if (parsed.command === "import") {
+    if (!parsed.apply) {
+      return formatPaiImportPlan(planPaiImport(parsed.options));
+    }
+
+    return formatPaiImportResult(await importPaiIdentity(parsed.options));
+  }
 
   if (!parsed.apply) {
     return formatPlan(planSomaForCodexInstall(parsed.options));
