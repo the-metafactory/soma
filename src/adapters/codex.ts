@@ -74,12 +74,40 @@ function renderHomeSkill(input: SomaContextInput, somaHome: string): string {
     "",
     "- Treat `~/.codex/rules/soma.rules` as a parse-safe manifest marker, not as natural-language model context.",
     "- Read `~/.codex/memories/soma/profile.md` for the current projected assistant profile.",
+    "- Read `~/.codex/memories/soma/pai-imports.md` when the task needs detailed migrated PAI identity, voice, relationship, telos, or decision-context material.",
     "- Read `~/.codex/memories/soma/memory-layout.md` before using persistent memory.",
     "- Treat project-local `.codex/soma/` context as an overlay.",
     "",
     "## Current Projection",
     "",
     renderAssistantCore(input),
+  ].join("\n");
+}
+
+function renderPaiImportIndex(somaHome: string): string {
+  const importRoot = `${somaHome}/profile/imports/claude`;
+
+  return [
+    "# Soma PAI Import Index",
+    "",
+    "The projected profile is intentionally concise. Detailed migrated PAI source snapshots remain in Soma and should be read when the task depends on personal identity, assistant voice, telos, values, goals, strategies, or decision context.",
+    "",
+    "## Source Root",
+    "",
+    importRoot,
+    "",
+    "## Read For Detail",
+    "",
+    `- Principal identity: ${importRoot}/PRINCIPAL_IDENTITY.md`,
+    `- Ivy assistant identity and voice: ${importRoot}/DA_IDENTITY.md`,
+    `- Mission: ${importRoot}/TELOS/MISSION.md`,
+    `- Goals: ${importRoot}/TELOS/GOALS.md`,
+    `- Strategies: ${importRoot}/TELOS/STRATEGIES.md`,
+    `- Beliefs and values: ${importRoot}/TELOS/BELIEFS.md`,
+    "",
+    "## Use Rule",
+    "",
+    "Use `profile.md` for fast orientation. Read the imported source files before making durable claims about Jens-Christian, Ivy, values, goals, priorities, or preferred collaboration style.",
   ].join("\n");
 }
 
@@ -132,6 +160,10 @@ export function buildCodexHomeContext(input: SomaContextInput, somaHome: string)
       {
         path: "memories/soma/memory-layout.md",
         content: renderMemoryLayout(input),
+      },
+      {
+        path: "memories/soma/pai-imports.md",
+        content: renderPaiImportIndex(somaHome),
       },
       {
         path: "memories/soma/skills.md",

@@ -27,6 +27,7 @@ const CODEX_HOME_FILES = [
   "skills/soma/SKILL.md",
   "memories/soma/profile.md",
   "memories/soma/memory-layout.md",
+  "memories/soma/pai-imports.md",
   "memories/soma/skills.md",
   "memories/soma/policy.md",
 ] as const;

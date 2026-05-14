@@ -21,7 +21,7 @@ test("installs soma source home and codex home projection", async () => {
     expect(result.substrate).toBe("codex");
     expect(result.somaHome.somaHome).toBe(join(homeDir, ".soma"));
     expect(result.substrateHome.rootDir).toBe(join(homeDir, ".codex"));
-    expect(result.substrateHome.files).toHaveLength(6);
+    expect(result.substrateHome.files).toHaveLength(7);
 
     const telos = await readFile(join(homeDir, ".soma/profile/telos.md"), "utf8");
     const rules = await readFile(join(homeDir, ".codex/rules/soma.rules"), "utf8");

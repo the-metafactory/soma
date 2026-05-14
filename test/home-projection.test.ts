@@ -37,6 +37,7 @@ test("builds codex home projection bundle for default availability", () => {
     "skills/soma/SKILL.md",
     "memories/soma/profile.md",
     "memories/soma/memory-layout.md",
+    "memories/soma/pai-imports.md",
     "memories/soma/skills.md",
     "memories/soma/policy.md",
   ]);
@@ -50,17 +51,20 @@ test("installs codex home projection into a substrate home", async () => {
 
     expect(result.substrate).toBe("codex");
     expect(result.rootDir).toBe(join(homeDir, ".codex"));
-    expect(result.files).toHaveLength(6);
+    expect(result.files).toHaveLength(7);
 
     const rules = await readFile(join(homeDir, ".codex/rules/soma.rules"), "utf8");
     const skill = await readFile(join(homeDir, ".codex/skills/soma/SKILL.md"), "utf8");
     const profile = await readFile(join(homeDir, ".codex/memories/soma/profile.md"), "utf8");
+    const paiImports = await readFile(join(homeDir, ".codex/memories/soma/pai-imports.md"), "utf8");
 
     expect(rules).toContain("Use Soma as the portable personal assistant context");
     expect(rules.split("\n").filter((line) => line.trim() !== "")).toSatisfy((lines: string[]) =>
       lines.every((line) => line.startsWith("#")),
     );
     expect(skill).toContain("name: soma");
+    expect(skill).toContain("pai-imports.md");
     expect(profile).toContain("ISC-PORTABLE-1");
+    expect(paiImports).toContain(`${homeDir}/.soma/profile/imports/claude/DA_IDENTITY.md`);
   });
 });
