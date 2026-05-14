@@ -166,6 +166,21 @@ test("detects configured-home tilde private markers in content", async () => {
   });
 });
 
+test("does not treat private marker string prefixes as private paths", async () => {
+  await withTempHome(async (homeDir) => {
+    await bootstrapSomaHome({ homeDir });
+    const result = await checkSomaPolicy({
+      homeDir,
+      action: "write",
+      destinationPath: "~/work/public/summary.md",
+      content: "Public backup path: ~/.soma-backup/export.md.",
+      record: "none",
+    });
+
+    expect(result.decision).toBe("allow");
+  });
+});
+
 test("does not render tilde for paths that only share the home prefix", () => {
   const homeDir = "/tmp/soma-home";
   const result = evaluateSomaPolicy({

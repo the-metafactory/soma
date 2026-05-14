@@ -29,6 +29,14 @@ function somaPolicyPrivateRoots(somaHome: string, homeDir?: string): string[] {
   ].map((path) => resolve(path));
 }
 
+const SOMA_POLICY_PORTABLE_MARKERS = [
+  "~/.soma",
+  "~/.codex/memories/soma",
+  "~/.codex/skills/soma",
+  "~/.pi/agent/soma",
+  "~/.pi/agent/skills/soma",
+] as const;
+
 interface SomaPolicyScope {
   destinationPath: string;
   destinationScopePath: string;
@@ -77,14 +85,29 @@ function markerFor(path: string, homeDir?: string): string {
 
 export function somaPolicyPrivateMarkers(somaHome: string, homeDir?: string): string[] {
   const roots = somaPolicyPrivateRoots(somaHome, homeDir);
-  return Array.from(new Set(roots.flatMap((root) => [root, markerFor(root, homeDir)]))).sort((left, right) => right.length - left.length);
+  return Array.from(new Set([...roots.flatMap((root) => [root, markerFor(root, homeDir)]), ...SOMA_POLICY_PORTABLE_MARKERS])).sort((left, right) => right.length - left.length);
+}
+
+export function hasSomaPolicyPrivateMarker(content: string | undefined, marker: string): boolean {
+  if (!content) return false;
+
+  let index = content.indexOf(marker);
+  while (index !== -1) {
+    const next = content[index + marker.length];
+    if (index + marker.length >= content.length || next === "/" || /[\s"'`),.;:]/.test(next)) {
+      return true;
+    }
+    index = content.indexOf(marker, index + marker.length);
+  }
+
+  return false;
 }
 
 function findPrivateMarkers(content: string, somaHome: string, homeDir?: string): SomaPolicyFinding[] {
   if (!content) return [];
 
   return somaPolicyPrivateMarkers(somaHome, homeDir)
-    .filter((marker) => content.includes(marker))
+    .filter((marker) => hasSomaPolicyPrivateMarker(content, marker))
     .map((marker) => ({
       kind: "private-marker" as const,
       detail: marker,

@@ -174,6 +174,25 @@ test("installed codex hook denies private Soma source writes to public destinati
   });
 });
 
+test("installed codex hook denies portable tilde private markers", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const target = join(homeDir, "work/public.md");
+    const input = {
+      tool_name: "Write",
+      tool_input: {
+        file_path: target,
+        content: "Do not publish ~/.soma/memory/RELATIONSHIP/private.md.",
+      },
+    };
+    const result = runCodexPreToolUseHook(hook, homeDir, input);
+
+    expect(result.status).toBe(0);
+    expect(result.output.hookSpecificOutput?.permissionDecision).toBe("deny");
+  });
+});
+
 test("installed codex hook checks apply_patch file destinations", async () => {
   await withTempHome(async (homeDir) => {
     await installSomaForCodex({ homeDir });
