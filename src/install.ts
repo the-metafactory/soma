@@ -127,11 +127,13 @@ async function enableCodexHooksFeature(codexHome: string): Promise<string> {
   let next = existing;
 
   if (!/^\[features\]$/m.test(next)) {
-    next = `${next.trimEnd()}\n\n[features]\ncodex_hooks = true\n`;
-  } else if (!/^codex_hooks\s*=/m.test(next)) {
-    next = next.replace(/^\[features\]$/m, "[features]\ncodex_hooks = true");
+    next = `${next.trimEnd()}\n\n[features]\nhooks = true\n`;
+  } else if (/^codex_hooks\s*=/m.test(next)) {
+    next = next.replace(/^codex_hooks\s*=.*$/m, "hooks = true");
+  } else if (!/^hooks\s*=/m.test(next)) {
+    next = next.replace(/^\[features\]$/m, "[features]\nhooks = true");
   } else {
-    next = next.replace(/^codex_hooks\s*=.*$/m, "codex_hooks = true");
+    next = next.replace(/^hooks\s*=.*$/m, "hooks = true");
   }
 
   await mkdir(dirname(path), { recursive: true });

@@ -33,11 +33,26 @@ test("installs soma source home and codex home projection", async () => {
 
     expect(telos).toContain("Keep personal assistant context portable across substrates.");
     expect(rules).toContain(`Soma source of truth: ${join(homeDir, ".soma")}`);
-    expect(config).toContain("codex_hooks = true");
+    expect(config).toContain("hooks = true");
+    expect(config).not.toContain("codex_hooks");
     expect(hooks).toContain("soma-lifecycle.mjs");
     expect(somaRepo).toContain("soma");
     expect(skill).toContain("name: soma");
     expect(startupContext).toContain("Soma Startup Context");
+  });
+});
+
+test("install migrates deprecated codex hooks feature flag", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    await writeFile(join(homeDir, ".codex/config.toml"), "[features]\ncodex_hooks = true\n", "utf8");
+
+    await installSomaForCodex({ homeDir });
+
+    const config = await readFile(join(homeDir, ".codex/config.toml"), "utf8");
+    expect(config).toContain("[features]");
+    expect(config).toContain("hooks = true");
+    expect(config).not.toContain("codex_hooks");
   });
 });
 
