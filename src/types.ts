@@ -346,6 +346,32 @@ export interface SomaMemoryPromotionResult {
   event: SomaMemoryEvent;
 }
 
+export type SomaPolicyDecision = "allow" | "deny";
+
+export interface SomaPolicyCheckOptions {
+  homeDir?: string;
+  somaHome?: string;
+  substrate?: SubstrateId;
+  action: "write";
+  destinationPath: string;
+  content?: string;
+  sourcePath?: string;
+  timestamp?: string;
+}
+
+export interface SomaPolicyFinding {
+  kind: "private-source" | "private-marker";
+  detail: string;
+}
+
+export interface SomaPolicyCheckResult {
+  somaHome: string;
+  decision: SomaPolicyDecision;
+  reason: string;
+  findings: SomaPolicyFinding[];
+  event?: SomaMemoryEvent;
+}
+
 export type SomaLifecycleEventName = "session_start" | "algorithm_updated" | "session_end";
 
 export interface SomaLifecycleOptions {

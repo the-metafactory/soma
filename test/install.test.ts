@@ -1,4 +1,5 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
@@ -67,6 +68,35 @@ test("install preserves existing soma profile edits before projecting to codex",
 
     expect(second.somaHome.context.profile.principal.name).toBe("jc");
     expect(projectedProfile).toContain("Name: jc");
+  });
+});
+
+test("installed codex hook denies private Soma source writes to public destinations", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const target = join(homeDir, "work/public.md");
+    const privateMarker = join(homeDir, ".soma/memory/RELATIONSHIP/private.md");
+    const input = {
+      tool_name: "Write",
+      tool_input: {
+        file_path: target,
+        content: `Copying ${privateMarker} would leak private context.`,
+      },
+    };
+    const result = spawnSync("node", [hook, "pre-tool-use"], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        HOME: homeDir,
+      },
+      input: JSON.stringify(input),
+      encoding: "utf8",
+    });
+    const output = JSON.parse(result.stdout) as { hookSpecificOutput?: { permissionDecision?: string } };
+
+    expect(result.status).toBe(0);
+    expect(output.hookSpecificOutput?.permissionDecision).toBe("deny");
   });
 });
 

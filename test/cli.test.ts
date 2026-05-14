@@ -328,6 +328,29 @@ test("cli promotes Algorithm run memory", async () => {
   });
 });
 
+test("cli checks private source policy", async () => {
+  await withTempHome(async (homeDir) => {
+    const output = await runSomaCli([
+      "policy",
+      "check",
+      "--home-dir",
+      homeDir,
+      "--substrate",
+      "codex",
+      "--action",
+      "write",
+      "--destination",
+      join(homeDir, "work/public.md"),
+      "--content",
+      `${join(homeDir, ".soma/memory/RELATIONSHIP/private.md")} should not be public.`,
+    ]);
+
+    expect(output).toContain("Soma policy check");
+    expect(output).toContain("decision: deny");
+    expect(output).toContain("private-marker");
+  });
+});
+
 test("cli applies codex install only with explicit apply flag", async () => {
   await withTempHome(async (homeDir) => {
     const output = await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir]);

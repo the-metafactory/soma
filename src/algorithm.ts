@@ -12,7 +12,10 @@ import { classifyAlgorithmPrompt } from "./algorithm-classifier";
 const PHASES: AlgorithmPhase[] = ["observe", "think", "plan", "build", "execute", "verify", "learn", "complete"];
 
 function createRunId(): string {
-  return `alg_${Date.now().toString(36)}_${crypto.randomUUID()}`;
+  const date = new Date().toISOString().slice(0, 10).replaceAll("-", "");
+  const suffix = crypto.randomUUID().slice(0, 8);
+
+  return `${date}_alg_${suffix}`;
 }
 
 function assertNonEmpty(value: string, field: string): void {
