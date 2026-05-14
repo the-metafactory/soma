@@ -26,6 +26,37 @@ test("cli dry-runs codex install without writing files", async () => {
   });
 });
 
+test("cli creates persisted Algorithm runs", async () => {
+  await withTempHome(async (homeDir) => {
+    const output = await runSomaCli([
+      "algorithm",
+      "new",
+      "--home-dir",
+      homeDir,
+      "--prompt",
+      "Port TheAlgorithm",
+      "--intent",
+      "Make Algorithm deterministic.",
+      "--current-state",
+      "Algorithm is declarative.",
+      "--goal",
+      "Harness exists.",
+      "--criterion",
+      "C1:Harness state is written.",
+    ]);
+
+    expect(output).toContain("Soma Algorithm run created");
+    expect(output).toContain("phase: observe");
+    const path = output
+      .split("\n")
+      .find((line) => line.startsWith("path: "))
+      ?.slice("path: ".length);
+
+    expect(path?.startsWith(join(homeDir, ".soma/memory/WORK/algorithm-runs"))).toBe(true);
+    await expect(readFile(path ?? "", "utf8")).resolves.toContain('"goal": "Harness exists."');
+  });
+});
+
 test("cli applies codex install only with explicit apply flag", async () => {
   await withTempHome(async (homeDir) => {
     const output = await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir]);
