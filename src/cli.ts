@@ -229,6 +229,24 @@ function parseCriterion(value: string): { id: string; text: string; verification
   };
 }
 
+function isAntiCriterion(criterion: { id: string }): boolean {
+  return criterion.id.toLowerCase() === "anti" || criterion.id.toLowerCase().startsWith("anti-");
+}
+
+function validateAlgorithmRunInput(run: Partial<AlgorithmRunInput> & { criteria: AlgorithmRunInput["criteria"] }): void {
+  const missing: string[] = [];
+
+  if (!run.prompt) missing.push("--prompt");
+  if (!run.intent) missing.push("--intent");
+  if (!run.currentState) missing.push("--current-state");
+  if (!run.goal) missing.push("--goal");
+  if (run.criteria.length === 0) missing.push("--criterion");
+
+  if (missing.length > 0) {
+    throw new Error(`soma algorithm new is missing required option(s): ${missing.join(", ")}.`);
+  }
+}
+
 function parseEffort(value: string): AlgorithmEffortTier {
   if (value === "E1" || value === "E2" || value === "E3" || value === "E4" || value === "E5") {
     return value;
@@ -306,6 +324,7 @@ function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
 
   const run: Partial<AlgorithmRunInput> & { criteria: AlgorithmRunInput["criteria"] } = {
     criteria: [],
+    antiCriteria: [],
   };
   const options: AlgorithmCliOptions = {};
   const capabilities: string[] = [];
@@ -349,7 +368,18 @@ function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
         index += 1;
         break;
       case "--criterion":
-        run.criteria.push(parseCriterion(readOption(rest, index, arg)));
+        {
+          const criterion = parseCriterion(readOption(rest, index, arg));
+          if (isAntiCriterion(criterion)) {
+            run.antiCriteria?.push(criterion);
+          } else {
+            run.criteria.push(criterion);
+          }
+        }
+        index += 1;
+        break;
+      case "--anti-criterion":
+        run.antiCriteria?.push(parseCriterion(readOption(rest, index, arg)));
         index += 1;
         break;
       case "--capability":
@@ -391,10 +421,8 @@ function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
     }
   }
 
-  if (action === "new" && (!run.prompt || !run.intent || !run.currentState || !run.goal || run.criteria.length === 0)) {
-    throw new Error(
-      "Usage: soma algorithm <new|list|show|capabilities|plan|decision|change|step|verify|learn|advance> ...",
-    );
+  if (action === "new") {
+    validateAlgorithmRunInput(run);
   }
 
   if (action === "new") {
