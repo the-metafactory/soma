@@ -51,7 +51,7 @@ test("installs soma source home and codex home projection", async () => {
 
     expect(telos).toContain("Keep personal assistant context portable across substrates.");
     expect(rules).toContain(`Soma source of truth: ${join(homeDir, ".soma")}`);
-    expect(config).toContain('sandbox_mode = "workspace-write"');
+    expect(config).not.toContain("sandbox_mode");
     expect(config).toContain(`[sandbox_workspace_write]\nwritable_roots = ["${join(homeDir, ".soma")}"]`);
     expect(config).toContain("hooks = true");
     expect(config).not.toContain("codex_hooks");
@@ -96,7 +96,7 @@ test("install preserves existing codex writable roots", async () => {
   });
 });
 
-test("install handles section-scoped sandbox mode and multiline writable roots", async () => {
+test("install handles section-scoped hooks and multiline writable roots", async () => {
   await withTempHome(async (homeDir) => {
     await mkdir(join(homeDir, ".codex"), { recursive: true });
     await writeFile(
@@ -104,6 +104,7 @@ test("install handles section-scoped sandbox mode and multiline writable roots",
       [
         "[projects.\"/tmp/example\"]",
         'sandbox_mode = "read-only"',
+        "hooks = false",
         "",
         "[sandbox_workspace_write]",
         "writable_roots = [",
@@ -120,9 +121,9 @@ test("install handles section-scoped sandbox mode and multiline writable roots",
     await installSomaForCodex({ homeDir });
 
     const config = await readFile(join(homeDir, ".codex/config.toml"), "utf8");
-    expect(config.startsWith('sandbox_mode = "workspace-write"')).toBe(true);
+    expect(config.startsWith("[projects.\"/tmp/example\"]")).toBe(true);
     expect(config).toContain(`writable_roots = ["/tmp/existing", "${join(homeDir, ".soma")}"]`);
-    expect(config).toContain("[projects.\"/tmp/example\"]\nsandbox_mode = \"read-only\"");
+    expect(config).toContain("[projects.\"/tmp/example\"]\nsandbox_mode = \"read-only\"\nhooks = false");
     expect(config).toContain("hooks = true");
     expect(config.match(/^writable_roots\s*=/gm)).toHaveLength(1);
   });
