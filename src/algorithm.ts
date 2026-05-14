@@ -6,6 +6,7 @@ import type {
   AlgorithmRunInput,
   IdealStateCriterion,
 } from "./types";
+import { classifyAlgorithmPrompt } from "./algorithm-classifier";
 
 const PHASES: AlgorithmPhase[] = ["observe", "think", "plan", "build", "execute", "verify", "learn", "complete"];
 
@@ -69,6 +70,11 @@ export function createAlgorithmRun(input: AlgorithmRunInput): AlgorithmRun {
 
   const timestamp = input.timestamp ?? new Date().toISOString();
   const criteria = input.criteria.map(criterionFromInput);
+  const classification = classifyAlgorithmPrompt(input.prompt);
+  const effort = input.effort ?? classification.effort ?? "E1";
+  const effortSource = input.effortSource ?? (input.effort ? "explicit" : classification.source);
+  const mode = input.mode ?? "algorithm";
+  const classificationReason = input.classificationReason ?? classification.reason;
 
   return {
     id: input.id ?? createRunId(),
@@ -77,7 +83,10 @@ export function createAlgorithmRun(input: AlgorithmRunInput): AlgorithmRun {
     substrate: input.substrate,
     prompt: input.prompt,
     intent: input.intent,
-    effort: input.effort ?? "E2",
+    effort,
+    effortSource,
+    mode,
+    classificationReason,
     currentState: input.currentState,
     phase: "observe",
     isa: {

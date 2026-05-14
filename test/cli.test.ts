@@ -57,6 +57,19 @@ test("cli creates persisted Algorithm runs", async () => {
   });
 });
 
+test("cli classifies Algorithm prompt effort", async () => {
+  const output = await runSomaCli([
+    "algorithm",
+    "classify",
+    "--prompt",
+    "Port a multi-file PAI adapter into Soma",
+  ]);
+
+  expect(output).toContain("mode: algorithm");
+  expect(output).toContain("effort: E3");
+  expect(output).toContain("source: auto");
+});
+
 test("cli drives Algorithm runs through gated mutations", async () => {
   await withTempHome(async (homeDir) => {
     await runSomaCli([

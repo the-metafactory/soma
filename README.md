@@ -64,6 +64,7 @@ OBSERVE -> THINK -> PLAN -> BUILD -> EXECUTE -> VERIFY -> LEARN -> COMPLETE
 Substrates can create persisted runs with:
 
 ```bash
+bun run soma algorithm classify --prompt "..."
 bun run soma algorithm new --prompt "..." --intent "..." --current-state "..." --goal "..." --criterion "C1:..."
 ```
 
@@ -81,6 +82,9 @@ bun run soma algorithm step --id <run-id> --step-id P1 --status done --evidence 
 bun run soma algorithm verify --id <run-id> --criterion-id C1 --status passed --evidence "bun test"
 bun run soma algorithm learn --id <run-id> --text "Harness gates should be explicit."
 ```
+
+When `--effort` is omitted, `algorithm new` classifies the prompt and assigns
+E1-E5 automatically. Explicit `/eN`, `EN`, or `--effort EN` remains an override.
 
 Lifecycle commands provide the substrate-neutral version of PAI's hooks:
 

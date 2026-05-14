@@ -1,11 +1,14 @@
 export type {
   AlgorithmEffortTier,
+  AlgorithmEffortSource,
   AlgorithmImportOptions,
   AlgorithmImportPlan,
   AlgorithmImportResult,
   AlgorithmLogEntry,
+  AlgorithmMode,
   AlgorithmPhase,
   AlgorithmPlanStep,
+  AlgorithmPromptClassification,
   AlgorithmRun,
   AlgorithmRunInput,
   AlgorithmRunSummary,
@@ -55,6 +58,7 @@ export {
   updateAlgorithmPlanStep,
   verifyAlgorithmCriterion,
 } from "./algorithm";
+export { classifyAlgorithmPrompt } from "./algorithm-classifier";
 export {
   algorithmRunPath,
   algorithmRunPathById,
