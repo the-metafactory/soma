@@ -48,10 +48,13 @@ test("builds codex home projection bundle for default availability", () => {
   expect(projection.somaHome).toBe("/tmp/soma-test-home/.soma");
   expect(projection.bundle.files.map((file) => file.path)).toEqual([
     "rules/soma.rules",
+    "hooks.json",
+    "hooks/soma-lifecycle.mjs",
     "skills/soma/SKILL.md",
     "memories/soma/profile.md",
     "memories/soma/memory-layout.md",
     "memories/soma/pai-imports.md",
+    "memories/soma/lifecycle.md",
     "memories/soma/skills.md",
     "memories/soma/policy.md",
   ]);
@@ -86,14 +89,19 @@ test("installs codex home projection into a substrate home", async () => {
 
     expect(result.substrate).toBe("codex");
     expect(result.rootDir).toBe(join(homeDir, ".codex"));
-    expect(result.files).toHaveLength(7);
+    expect(result.files).toHaveLength(10);
 
     const rules = await readFile(join(homeDir, ".codex/rules/soma.rules"), "utf8");
+    const hooks = await readFile(join(homeDir, ".codex/hooks.json"), "utf8");
+    const hookScript = await readFile(join(homeDir, ".codex/hooks/soma-lifecycle.mjs"), "utf8");
     const skill = await readFile(join(homeDir, ".codex/skills/soma/SKILL.md"), "utf8");
     const profile = await readFile(join(homeDir, ".codex/memories/soma/profile.md"), "utf8");
     const paiImports = await readFile(join(homeDir, ".codex/memories/soma/pai-imports.md"), "utf8");
+    const lifecycle = await readFile(join(homeDir, ".codex/memories/soma/lifecycle.md"), "utf8");
 
     expect(rules).toContain("Use Soma as the portable personal assistant context");
+    expect(hooks).toContain("SessionStart");
+    expect(hookScript).toContain("hookSpecificOutput");
     expect(rules.split("\n").filter((line) => line.trim() !== "")).toSatisfy((lines: string[]) =>
       lines.every((line) => line.startsWith("#")),
     );
@@ -101,6 +109,7 @@ test("installs codex home projection into a substrate home", async () => {
     expect(skill).toContain("pai-imports.md");
     expect(profile).toContain("ISC-PORTABLE-1");
     expect(paiImports).toContain(`${homeDir}/.soma/profile/imports/claude/DA_IDENTITY.md`);
+    expect(lifecycle).toContain("Soma Lifecycle Projection");
   });
 });
 
@@ -120,6 +129,8 @@ test("installs pi.dev home projection into a substrate home", async () => {
     expect(extension).toContain("registerTool");
     expect(extension).toContain("before_agent_start");
     expect(extension).toContain("soma_context");
+    expect(extension).toContain("startup_context");
+    expect(extension).toContain("algorithm_work_index");
     expect(profile).toContain("ISC-PORTABLE-1");
     expect(paiImports).toContain(`${homeDir}/.soma/profile/imports/claude/DA_IDENTITY.md`);
     expect(skill).toContain("name: soma");

@@ -21,15 +21,23 @@ test("installs soma source home and codex home projection", async () => {
     expect(result.substrate).toBe("codex");
     expect(result.somaHome.somaHome).toBe(join(homeDir, ".soma"));
     expect(result.substrateHome.rootDir).toBe(join(homeDir, ".codex"));
-    expect(result.substrateHome.files).toHaveLength(7);
+    expect(result.substrateHome.files).toHaveLength(13);
 
     const telos = await readFile(join(homeDir, ".soma/profile/telos.md"), "utf8");
     const rules = await readFile(join(homeDir, ".codex/rules/soma.rules"), "utf8");
+    const config = await readFile(join(homeDir, ".codex/config.toml"), "utf8");
+    const hooks = await readFile(join(homeDir, ".codex/hooks.json"), "utf8");
+    const somaRepo = await readFile(join(homeDir, ".codex/memories/soma/soma-repo.txt"), "utf8");
     const skill = await readFile(join(homeDir, ".codex/skills/soma/SKILL.md"), "utf8");
+    const startupContext = await readFile(join(homeDir, ".codex/memories/soma/startup-context.md"), "utf8");
 
     expect(telos).toContain("Keep personal assistant context portable across substrates.");
     expect(rules).toContain(`Soma source of truth: ${join(homeDir, ".soma")}`);
+    expect(config).toContain("codex_hooks = true");
+    expect(hooks).toContain("soma-lifecycle.mjs");
+    expect(somaRepo).toContain("soma");
     expect(skill).toContain("name: soma");
+    expect(startupContext).toContain("Soma Startup Context");
   });
 });
 
@@ -67,13 +75,16 @@ test("installs soma source home and pi.dev home projection", async () => {
     expect(result.substrate).toBe("pi-dev");
     expect(result.somaHome.somaHome).toBe(join(homeDir, ".soma"));
     expect(result.substrateHome.rootDir).toBe(join(homeDir, ".pi"));
-    expect(result.substrateHome.files).toHaveLength(9);
+    expect(result.substrateHome.files).toHaveLength(10);
 
     const extension = await readFile(join(homeDir, ".pi/agent/extensions/soma.ts"), "utf8");
     const profile = await readFile(join(homeDir, ".pi/agent/soma/profile.md"), "utf8");
+    const startupContext = await readFile(join(homeDir, ".pi/agent/soma/startup-context.md"), "utf8");
 
     expect(extension).toContain("soma_context");
     expect(extension).toContain("before_agent_start");
+    expect(extension).toContain("startup_context");
     expect(profile).toContain("Name: soma");
+    expect(startupContext).toContain("Soma Startup Context");
   });
 });
