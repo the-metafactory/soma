@@ -104,7 +104,7 @@ async function installSomaForSubstrate(
     substrate === "codex"
       ? await installCodexHomeProjection(somaHome.context, projectionOptions)
       : await installPiDevHomeProjection(somaHome.context, projectionOptions);
-  const configFiles = substrate === "codex" ? [await enableCodexHooksFeature(substrateHome.rootDir)] : [];
+  const configFiles = substrate === "codex" ? [await configureCodexInstall(substrateHome.rootDir, somaHome.somaHome)] : [];
   const lifecycleFiles = await installLifecycleProjection(substrate, substrateHome.rootDir, {
     homeDir: options.homeDir,
     somaHome: somaHome.somaHome,
@@ -121,10 +121,20 @@ async function installSomaForSubstrate(
   };
 }
 
-async function enableCodexHooksFeature(codexHome: string): Promise<string> {
+async function configureCodexInstall(codexHome: string, somaHome: string): Promise<string> {
   const path = join(codexHome, "config.toml");
   const existing = await readFile(path, "utf8").catch(() => "");
-  let next = existing;
+  let next = enableCodexHooksFeature(existing);
+  next = enableCodexWorkspaceWrite(next, somaHome);
+
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, next.trimEnd() + "\n", "utf8");
+
+  return path;
+}
+
+function enableCodexHooksFeature(config: string): string {
+  let next = config;
 
   if (!/^\[features\]$/m.test(next)) {
     next = `${next.trimEnd()}\n\n[features]\nhooks = true\n`;
@@ -136,10 +146,90 @@ async function enableCodexHooksFeature(codexHome: string): Promise<string> {
     next = next.replace(/^hooks\s*=.*$/m, "hooks = true");
   }
 
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, next.trimEnd() + "\n", "utf8");
+  return next;
+}
 
-  return path;
+function enableCodexWorkspaceWrite(config: string, somaHome: string): string {
+  let next = ensureTopLevelCodexSandboxMode(config);
+  next = upsertCodexWritableRoot(next, somaHome);
+
+  return next;
+}
+
+function ensureTopLevelCodexSandboxMode(config: string): string {
+  if (/^sandbox_mode\s*=/m.test(config)) {
+    return config;
+  }
+
+  const trimmed = config.trimStart();
+  const leading = config.slice(0, config.length - trimmed.length);
+  return `${leading}sandbox_mode = "workspace-write"\n\n${trimmed}`;
+}
+
+function upsertCodexWritableRoot(config: string, somaHome: string): string {
+  const section = findTomlSection(config, "sandbox_workspace_write");
+
+  if (section === undefined) {
+    return `${config.trimEnd()}\n\n[sandbox_workspace_write]\nwritable_roots = [${quoteTomlString(somaHome)}]\n`;
+  }
+
+  const body = config.slice(section.bodyStart, section.bodyEnd);
+  const match = /^writable_roots\s*=\s*(\[.*\])\s*$/m.exec(body);
+
+  if (match === null) {
+    const insertAt = section.headerEnd;
+    return `${config.slice(0, insertAt)}writable_roots = [${quoteTomlString(somaHome)}]\n${config.slice(insertAt)}`;
+  }
+
+  const roots = parseTomlStringArray(match[1]);
+  if (!roots.includes(somaHome)) {
+    roots.push(somaHome);
+  }
+
+  const replacement = `writable_roots = [${roots.map(quoteTomlString).join(", ")}]`;
+  const start = section.bodyStart + match.index;
+  const end = start + match[0].length;
+  return `${config.slice(0, start)}${replacement}${config.slice(end)}`;
+}
+
+function findTomlSection(config: string, name: string): { bodyStart: number; bodyEnd: number; headerEnd: number } | undefined {
+  const headerPattern = new RegExp(`^\\[${escapeRegExp(name)}\\]\\s*$`, "m");
+  const header = headerPattern.exec(config);
+
+  if (header === null) {
+    return undefined;
+  }
+
+  const headerEnd = header.index + header[0].length + (config[header.index + header[0].length] === "\n" ? 1 : 0);
+  const rest = config.slice(headerEnd);
+  const nextHeader = /^\[[^\]]+\]\s*$/m.exec(rest);
+  const bodyEnd = nextHeader?.index === undefined ? config.length : headerEnd + nextHeader.index;
+
+  return {
+    bodyStart: headerEnd,
+    bodyEnd,
+    headerEnd,
+  };
+}
+
+function parseTomlStringArray(value: string): string[] {
+  const roots: string[] = [];
+  const stringPattern = /"((?:\\.|[^"\\])*)"/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = stringPattern.exec(value)) !== null) {
+    roots.push(match[1].replace(/\\"/g, '"').replace(/\\\\/g, "\\"));
+  }
+
+  return roots;
+}
+
+function quoteTomlString(value: string): string {
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 async function writeProjectionFile(root: string, relativePath: string, content: string): Promise<string> {

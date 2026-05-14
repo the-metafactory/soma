@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -51,6 +51,8 @@ test("installs soma source home and codex home projection", async () => {
 
     expect(telos).toContain("Keep personal assistant context portable across substrates.");
     expect(rules).toContain(`Soma source of truth: ${join(homeDir, ".soma")}`);
+    expect(config).toContain('sandbox_mode = "workspace-write"');
+    expect(config).toContain(`[sandbox_workspace_write]\nwritable_roots = ["${join(homeDir, ".soma")}"]`);
     expect(config).toContain("hooks = true");
     expect(config).not.toContain("codex_hooks");
     expect(hooks).toContain("soma-lifecycle.mjs");
@@ -70,8 +72,27 @@ test("install migrates deprecated codex hooks feature flag", async () => {
 
     const config = await readFile(join(homeDir, ".codex/config.toml"), "utf8");
     expect(config).toContain("[features]");
+    expect(config).toContain(`[sandbox_workspace_write]\nwritable_roots = ["${join(homeDir, ".soma")}"]`);
     expect(config).toContain("hooks = true");
     expect(config).not.toContain("codex_hooks");
+  });
+});
+
+test("install preserves existing codex writable roots", async () => {
+  await withTempHome(async (homeDir) => {
+    await mkdir(join(homeDir, ".codex"), { recursive: true });
+    await writeFile(
+      join(homeDir, ".codex/config.toml"),
+      ['sandbox_mode = "workspace-write"', "", "[sandbox_workspace_write]", 'writable_roots = ["/tmp/existing"]', "", "[features]", "hooks = false", ""].join("\n"),
+      "utf8",
+    );
+
+    await installSomaForCodex({ homeDir });
+
+    const config = await readFile(join(homeDir, ".codex/config.toml"), "utf8");
+    expect(config).toContain('sandbox_mode = "workspace-write"');
+    expect(config).toContain(`writable_roots = ["/tmp/existing", "${join(homeDir, ".soma")}"]`);
+    expect(config).toContain("hooks = true");
   });
 });
 
