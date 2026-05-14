@@ -57,6 +57,15 @@ test("classifies prompts into Algorithm mode and effort tiers", () => {
     effort: "E3",
     source: "auto",
   });
+  expect(
+    classifyAlgorithmPrompt(
+      "Identify a genuinely surprising, telos-aligned outcome of Jens-Christian's AI-consulting work, with clear reasoning and implications.",
+    ),
+  ).toMatchObject({
+    mode: "algorithm",
+    effort: "E2",
+    source: "auto",
+  });
   expect(classifyAlgorithmPrompt("/e4 redesign the policy enforcement architecture")).toMatchObject({
     mode: "algorithm",
     effort: "E4",

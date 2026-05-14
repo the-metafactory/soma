@@ -105,7 +105,10 @@ test("installs codex home projection into a substrate home", async () => {
 
     expect(rules).toContain("Use Soma as the portable personal assistant context");
     expect(hooks).toContain("SessionStart");
+    expect(hooks).toContain("UserPromptSubmit");
     expect(hookScript).toContain("hookSpecificOutput");
+    expect(hookScript).toContain("runSomaClassification");
+    expect(hookScript).toContain("Soma Prompt Classification");
     expect(rules.split("\n").filter((line) => line.trim() !== "")).toSatisfy((lines: string[]) =>
       lines.every((line) => line.startsWith("#")),
     );

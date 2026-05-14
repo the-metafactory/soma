@@ -36,6 +36,7 @@ test("installs soma source home and codex home projection", async () => {
     expect(config).toContain("hooks = true");
     expect(config).not.toContain("codex_hooks");
     expect(hooks).toContain("soma-lifecycle.mjs");
+    expect(hooks).toContain("UserPromptSubmit");
     expect(somaRepo).toContain("soma");
     expect(skill).toContain("name: soma");
     expect(startupContext).toContain("Soma Startup Context");
