@@ -19,9 +19,10 @@ function hasSomaPolicyMarker(config, content) {
   return config.policyMarkers.some((marker) => hasSomaPolicyPrivateMarker(content, marker));
 }
 
-function hasPotentialPrivateSourceReference(content) {
+function hasPotentialPrivateSourceReference(config, content) {
   if (!content) return false;
-  return content.includes(".soma/") || content.includes(".codex/memories/soma") || content.includes(".codex/skills/soma") || content.includes(".pi/agent/soma");
+  if (hasSomaPolicyMarker(config, content)) return true;
+  return config.policyMarkers.some((marker) => marker.startsWith("/") && content.includes(marker.slice(marker.lastIndexOf("/"))));
 }
 
 function policyRelevantContent(config, content) {
@@ -160,9 +161,16 @@ function extractWriteTargets(config, input) {
 
   if (toolName === "apply_patch") {
     const content = typeof rawToolInput === "string" ? rawToolInput : toolInput.patch || toolInput.command || toolInput.cmd || JSON.stringify(toolInput);
-    if (!hasSomaPolicyMarker(config, content) && !hasPotentialPrivateSourceReference(content)) return [];
+    if (!hasPotentialPrivateSourceReference(config, content)) return [];
     const targets = extractPatchTargets(config, content, cwd);
     return targets.length > 0 ? targets : [{ filePath: cwd, content: policyRelevantContent(config, content) }];
+  }
+
+  if (toolName === "Bash" || toolName === "Shell" || toolName === "exec_command") {
+    const command = typeof rawToolInput === "string" ? rawToolInput : toolInput.command || toolInput.cmd || "";
+    if (hasPotentialPrivateSourceReference(config, command)) {
+      return [{ filePath: cwd, sourcePath: command, content: "" }];
+    }
   }
 
   return [];
@@ -170,6 +178,16 @@ function extractWriteTargets(config, input) {
 
 function shouldCheckPolicyTarget(config, target) {
   return Boolean(target.sourcePath) || hasSomaPolicyMarker(config, target.content);
+}
+
+function privateShellCommand(config, input) {
+  const toolName = input.tool_name || input.toolName || "";
+  if (toolName !== "Bash" && toolName !== "Shell" && toolName !== "exec_command") return "";
+
+  const rawToolInput = input.tool_input ?? input.toolInput;
+  const toolInput = rawToolInput && typeof rawToolInput === "object" && !Array.isArray(rawToolInput) ? rawToolInput : {};
+  const command = typeof rawToolInput === "string" ? rawToolInput : toolInput.command || toolInput.cmd || "";
+  return hasPotentialPrivateSourceReference(config, command) ? command : "";
 }
 
 function parseClassification(output) {
@@ -234,6 +252,9 @@ function readProjectedStartupContext() {
 function handlePreToolUse(config, input) {
   if (input.__somaParseError) {
     denyPreToolUse(`Soma policy check failed closed: malformed hook input (${input.__somaParseError})`);
+  }
+  if (privateShellCommand(config, input)) {
+    denyPreToolUse("Soma private context policy denied this shell command because it references private Soma context.");
   }
   const targets = extractWriteTargets(config, input).filter((target) => shouldCheckPolicyTarget(config, target));
   if (targets.length > 0) {

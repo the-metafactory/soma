@@ -1215,6 +1215,9 @@ export async function runSomaCli(args: string[]): Promise<string> {
       } catch {
         throw new Error(`--targets-env ${parsed.targetsEnv} must contain valid JSON targets.`);
       }
+      if (!Array.isArray(targets) || targets.some((target) => typeof target.filePath !== "string")) {
+        throw new Error(`--targets-env ${parsed.targetsEnv} must contain an array of targets with string filePath values.`);
+      }
       const result = await checkSomaPolicyBatch({
         homeDir: parsed.options.homeDir,
         somaHome: parsed.options.somaHome,

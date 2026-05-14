@@ -484,6 +484,23 @@ test("installed codex hook checks explicit soma home markers", async () => {
   });
 });
 
+test("installed codex hook denies shell commands referencing private Soma context", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const result = runCodexPreToolUseHook(hook, homeDir, {
+      cwd: homeDir,
+      tool_name: "Shell",
+      tool_input: {
+        command: "cp ~/.soma/memory/WORK/private.md ./README.md",
+      },
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.output.hookSpecificOutput?.permissionDecision).toBe("deny");
+  });
+});
+
 test("install supports explicit soma and substrate homes", async () => {
   await withTempHome(async (homeDir) => {
     const somaHome = join(homeDir, "portable-home");

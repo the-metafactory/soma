@@ -416,6 +416,28 @@ test("cli rejects malformed policy targets env", async () => {
   });
 });
 
+test("cli rejects non-array policy targets env", async () => {
+  await withTempHome(async (homeDir) => {
+    process.env.SOMA_BAD_POLICY_TARGETS = "{}";
+    try {
+      await expect(
+        runSomaCli([
+          "policy",
+          "check",
+          "--home-dir",
+          homeDir,
+          "--action",
+          "write",
+          "--targets-env",
+          "SOMA_BAD_POLICY_TARGETS",
+        ]),
+      ).rejects.toThrow("--targets-env SOMA_BAD_POLICY_TARGETS must contain an array of targets with string filePath values.");
+    } finally {
+      delete process.env.SOMA_BAD_POLICY_TARGETS;
+    }
+  });
+});
+
 test("cli applies codex install only with explicit apply flag", async () => {
   await withTempHome(async (homeDir) => {
     const output = await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir]);

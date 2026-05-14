@@ -181,7 +181,7 @@ function renderCodexHooksJson(): string {
         ],
         PreToolUse: [
           {
-            matcher: "Edit|Write|MultiEdit|apply_patch",
+            matcher: "Edit|Write|MultiEdit|apply_patch|Bash|Shell|exec_command",
             hooks: [
               {
                 type: "command",
