@@ -115,7 +115,7 @@ test("installs codex home projection into a substrate home", async () => {
     expect(hookScript).toContain("runSomaClassification");
   expect(hookScript).toContain("runSomaPolicyCheck");
   expect(hookScript).toContain("permissionDecision");
-    expect(hookScript).toContain("runSomaPolicyCheck(target)");
+    expect(hookScript).toContain("runSomaPolicyCheck(targets)");
     expect(hookScript).not.toContain("function privateRoots");
   expect(hookScript).toContain("Soma Prompt Classification");
     expect(rules.split("\n").filter((line) => line.trim() !== "")).toSatisfy((lines: string[]) =>

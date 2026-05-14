@@ -133,7 +133,17 @@ interface ParsedPolicyArgs {
   json: boolean;
 }
 
-type ParsedArgs = ParsedInstallArgs | ParsedImportArgs | ParsedAlgorithmArgs | ParsedLifecycleArgs | ParsedMemoryArgs | ParsedPolicyArgs;
+interface ParsedPolicyBatchArgs {
+  command: "policy";
+  action: "check-batch";
+  options: Pick<SomaPolicyCheckOptions, "homeDir" | "somaHome" | "substrate" | "action" | "record">;
+  targetsEnv: string;
+  json: boolean;
+}
+
+type ParsedPolicyCommandArgs = ParsedPolicyArgs | ParsedPolicyBatchArgs;
+
+type ParsedArgs = ParsedInstallArgs | ParsedImportArgs | ParsedAlgorithmArgs | ParsedLifecycleArgs | ParsedMemoryArgs | ParsedPolicyCommandArgs;
 
 function readOption(args: string[], index: number, name: string): string {
   const value = args[index + 1];
@@ -722,15 +732,18 @@ function parseMemoryArgs(args: string[]): ParsedMemoryArgs {
   };
 }
 
-function parsePolicyArgs(args: string[]): ParsedPolicyArgs {
+function parsePolicyArgs(args: string[]): ParsedPolicyCommandArgs {
   const [command, action, ...rest] = args;
 
-  if (command !== "policy" || action !== "check") {
-    throw new Error("Usage: soma policy check --action write --destination <path> [--content <text>|--content-env <name>] [--source <path>]");
+  if (command !== "policy" || (action !== "check" && action !== "check-batch")) {
+    throw new Error(
+      "Usage: soma policy check --action write --destination <path> [--content <text>|--content-env <name>] [--source <path>]",
+    );
   }
 
   const options: Partial<SomaPolicyCheckOptions> = {};
   let json = false;
+  let targetsEnv = "";
 
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
@@ -789,6 +802,10 @@ function parsePolicyArgs(args: string[]): ParsedPolicyArgs {
       case "--json":
         json = true;
         break;
+      case "--targets-env":
+        targetsEnv = readOption(rest, index, arg);
+        index += 1;
+        break;
       default:
         throw new Error(`Unknown option: ${arg}`);
     }
@@ -796,9 +813,20 @@ function parsePolicyArgs(args: string[]): ParsedPolicyArgs {
 
   const missing: string[] = [];
   if (!options.action) missing.push("--action");
-  if (!options.destinationPath) missing.push("--destination");
+  if (action === "check" && !options.destinationPath) missing.push("--destination");
+  if (action === "check-batch" && !targetsEnv) missing.push("--targets-env");
   if (missing.length > 0) {
-    throw new Error(`soma policy check is missing required option(s): ${missing.join(", ")}.`);
+    throw new Error(`soma policy ${action} is missing required option(s): ${missing.join(", ")}.`);
+  }
+
+  if (action === "check-batch") {
+    return {
+      command,
+      action,
+      options: options as ParsedPolicyBatchArgs["options"],
+      targetsEnv,
+      json,
+    };
   }
 
   return {
@@ -1193,6 +1221,32 @@ export async function runSomaCli(args: string[]): Promise<string> {
   }
 
   if (parsed.command === "policy") {
+    if (parsed.action === "check-batch") {
+      const envContent = process.env[parsed.targetsEnv];
+      if (envContent === undefined) {
+        throw new Error(`--targets-env ${parsed.targetsEnv} is not set.`);
+      }
+      const targets = JSON.parse(envContent) as { filePath: string; content?: string; sourcePath?: string }[];
+      const results = await Promise.all(
+        targets.map((target) =>
+          checkSomaPolicy({
+            ...parsed.options,
+            destinationPath: target.filePath,
+            sourcePath: target.sourcePath,
+            content: target.content,
+          }),
+        ),
+      );
+      const denied = results.find((result) => result.decision === "deny");
+      const result = {
+        decision: denied ? "deny" : "allow",
+        reason: denied?.reason ?? "No private Soma source markers found in batch.",
+        results,
+      };
+
+      return parsed.json ? `${JSON.stringify(result, null, 2)}\n` : `${result.decision}: ${result.reason}\n`;
+    }
+
     const result = await checkSomaPolicy(parsed.options);
     return parsed.json ? `${JSON.stringify(result, null, 2)}\n` : formatPolicyCheckResult(result);
   }
