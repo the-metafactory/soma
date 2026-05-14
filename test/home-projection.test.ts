@@ -64,6 +64,7 @@ test("builds codex home projection bundle for default availability", () => {
   expect(projection.bundle.instructions).toContain("/tmp/soma-test-home/.soma");
   expect(projection.bundle.files.find((file) => file.path === "hooks/soma-lifecycle.mjs")?.content).toContain("policyMarkers");
   expect(projection.bundle.files.find((file) => file.path === "hooks/codex-hook-entry.mjs")?.content).toContain("runSomaPolicyCheck");
+  expect(projection.bundle.files.find((file) => file.path === "hooks/codex-hook-entry.mjs")?.content).toContain('"./policy-marker.mjs"');
 });
 
 test("builds pi.dev home projection bundle for default availability", () => {

@@ -6,5 +6,6 @@ export function readCodexHookAsset(name: "codex-hook-entry.mjs" | "policy-marker
       ? new URL("./codex-hook-entry.mjs", import.meta.url)
       : new URL("../policy-marker.mjs", import.meta.url);
 
-  return readFileSync(assetUrl, "utf8");
+  const content = readFileSync(assetUrl, "utf8");
+  return name === "codex-hook-entry.mjs" ? content.replace('"../policy-marker.mjs"', '"./policy-marker.mjs"') : content;
 }

@@ -1209,7 +1209,12 @@ export async function runSomaCli(args: string[]): Promise<string> {
       if (envContent === undefined) {
         throw new Error(`--targets-env ${parsed.targetsEnv} is not set.`);
       }
-      const targets = JSON.parse(envContent) as SomaPolicyBatchTarget[];
+      let targets: SomaPolicyBatchTarget[];
+      try {
+        targets = JSON.parse(envContent) as SomaPolicyBatchTarget[];
+      } catch {
+        throw new Error(`--targets-env ${parsed.targetsEnv} must contain valid JSON targets.`);
+      }
       const result = await checkSomaPolicyBatch({
         homeDir: parsed.options.homeDir,
         somaHome: parsed.options.somaHome,
