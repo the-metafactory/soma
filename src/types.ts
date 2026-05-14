@@ -115,6 +115,26 @@ export interface SomaInstallResult {
   substrateHome: WrittenContextBundle;
 }
 
+export interface SomaMemoryEventInput {
+  id?: string;
+  timestamp?: string;
+  substrate: SubstrateId;
+  kind: string;
+  summary: string;
+  artifactPaths?: string[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface SomaMemoryEvent {
+  id: string;
+  timestamp: string;
+  substrate: SubstrateId;
+  kind: string;
+  summary: string;
+  artifactPaths?: string[];
+  metadata?: Record<string, unknown>;
+}
+
 export interface SomaTask {
   id: string;
   substrate: SubstrateId;

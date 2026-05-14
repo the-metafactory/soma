@@ -22,7 +22,13 @@ The initial portable operations are:
 - read named files
 - search text with deterministic tooling
 - summarize selected files into substrate context
+- append substrate events to `memory/STATE/events.jsonl`
 - append learning notes through explicit tools or patches
+
+`memory/STATE/events.jsonl` is the first writeback contract. Substrates append
+one JSON object per line with `id`, `timestamp`, `substrate`, `kind`, `summary`,
+and optional artifact paths or metadata. Consolidation into `KNOWLEDGE`,
+`LEARNING`, or other durable stores is a later step.
 
 Vector search, long-running recall daemons, and automatic consolidation are
 later layers. They must preserve the file contract.
