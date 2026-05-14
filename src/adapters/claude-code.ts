@@ -84,18 +84,18 @@ export function buildClaudeCodeContext(input: SomaContextInput): SomaContextBund
 
 export const claudeCodeAdapter: SomaAdapter = {
   name: "claude-code",
-  async detect() {
-    return Boolean(process.env.CLAUDE_CODE || process.env.CLAUDECODE);
+  detect() {
+    return Promise.resolve(Boolean(process.env.CLAUDE_CODE ?? process.env.CLAUDECODE));
   },
-  async buildContext(input) {
-    return buildClaudeCodeContext(input);
+  buildContext(input) {
+    return Promise.resolve(buildClaudeCodeContext(input));
   },
-  async run(task: SomaTask) {
-    return {
+  run(task: SomaTask) {
+    return Promise.resolve({
       taskId: task.id,
       substrate: "claude-code",
       status: "failed",
       summary: "Claude Code execution is not implemented yet; use buildContext() to generate the context projection.",
-    };
+    });
   },
 };

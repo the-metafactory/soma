@@ -16,9 +16,7 @@ function renderInstructions(input: SomaContextInput): string {
     "- Read memory from the declared file layout before inventing persistent facts.",
     "- Keep personal context out of public templates unless explicitly requested.",
     "- Report verification performed and any substrate limitation encountered.",
-  ]
-    .filter((line): line is string => line !== undefined)
-    .join("\n");
+  ].join("\n");
 }
 
 export function buildCodexContext(input: SomaContextInput): SomaContextBundle {
@@ -54,18 +52,18 @@ export function buildCodexContext(input: SomaContextInput): SomaContextBundle {
 
 export const codexAdapter: SomaAdapter = {
   name: "codex",
-  async detect() {
-    return Boolean(process.env.CODEX_SANDBOX || process.env.CODEX_HOME);
+  detect() {
+    return Promise.resolve(Boolean(process.env.CODEX_SANDBOX ?? process.env.CODEX_HOME));
   },
-  async buildContext(input) {
-    return buildCodexContext(input);
+  buildContext(input) {
+    return Promise.resolve(buildCodexContext(input));
   },
-  async run(task: SomaTask) {
-    return {
+  run(task: SomaTask) {
+    return Promise.resolve({
       taskId: task.id,
       substrate: "codex",
       status: "failed",
       summary: "Codex execution is not implemented yet; use buildContext() to generate the substrate bundle.",
-    };
+    });
   },
 };

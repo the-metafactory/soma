@@ -3,7 +3,7 @@ task: Extract portable Personal AI Assistant core
 slug: soma
 effort: e3
 phase: verify
-progress: 21/21
+progress: 22/22
 mode: design
 started: 2026-05-14
 updated: 2026-05-14
@@ -83,6 +83,7 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 - [x] ISC-19: Codex adapter builds a deterministic context bundle from a Soma profile.
 - [x] ISC-20: Pi.dev adapter builds an extension-shaped context bundle from the same Soma input.
 - [x] ISC-21: Claude Code adapter builds a Claude-shaped context bundle from the same Soma input.
+- [x] ISC-22: ESLint setup follows the Arc/Myelin flat-config pattern and passes on Soma.
 
 ## Test Strategy
 
@@ -109,6 +110,7 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 | ISC-19 | unit | Codex context bundle contains profile, telos, memory, skills, and ISA | bun test |
 | ISC-20 | unit | Pi.dev context bundle contains profile, telos, memory, skills, ISA, and tool contract | bun test |
 | ISC-21 | unit | Claude Code context bundle contains profile, telos, memory, skills, ISA, and hook plan | bun test |
+| ISC-22 | static | ESLint flat config and package scripts are installed | bun run lint |
 
 ## Features
 
@@ -126,6 +128,7 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 | Codex context adapter | ISC-19 | type contracts | no |
 | Pi.dev context adapter | ISC-20 | type contracts | yes |
 | Claude Code context adapter | ISC-21 | type contracts | yes |
+| ESLint baseline | ISC-22 | package metadata | no |
 
 ## Decisions
 
@@ -142,13 +145,15 @@ Pi.dev, Claude Code, and Cortex/Myelin.
   substrate.
 - 2026-05-14: Implemented Pi.dev and Claude Code as context generation first.
   The same Soma input is now projected into three substrate-specific bundles.
+- 2026-05-14: Adopted the Arc/Myelin ESLint flat-config pattern using
+  `@eslint/js`, `typescript-eslint`, type-aware rules, and test overrides.
 
 ## Changelog
 
 - conjecture: A portable assistant core should live outside any one substrate.
   refuted-by: pending implementation experience.
   learned: Initial repository should make boundaries and contracts explicit.
-  criterion-now: ISC-1 through ISC-21.
+  criterion-now: ISC-1 through ISC-22.
 
 ## Verification
 
@@ -164,3 +169,5 @@ Pi.dev, Claude Code, and Cortex/Myelin.
   and Claude Code context adapters.
 - 2026-05-14: `bun run typecheck` passed after adding Pi.dev and Claude Code
   context adapters.
+- 2026-05-14: `bun run lint`, `bun run typecheck`, and `bun test` passed after
+  adding ESLint.

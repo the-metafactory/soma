@@ -92,18 +92,18 @@ export function buildPiDevContext(input: SomaContextInput): SomaContextBundle {
 
 export const piDevAdapter: SomaAdapter = {
   name: "pi-dev",
-  async detect() {
-    return Boolean(process.env.PI_DEV_HOME || process.env.PIDEV_HOME);
+  detect() {
+    return Promise.resolve(Boolean(process.env.PI_DEV_HOME ?? process.env.PIDEV_HOME));
   },
-  async buildContext(input) {
-    return buildPiDevContext(input);
+  buildContext(input) {
+    return Promise.resolve(buildPiDevContext(input));
   },
-  async run(task: SomaTask) {
-    return {
+  run(task: SomaTask) {
+    return Promise.resolve({
       taskId: task.id,
       substrate: "pi-dev",
       status: "failed",
       summary: "Pi.dev execution is not implemented yet; use buildContext() to generate the extension bundle.",
-    };
+    });
   },
 };

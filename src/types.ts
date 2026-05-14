@@ -67,10 +67,10 @@ export interface SomaContextInput {
 export interface SomaContextBundle {
   substrate: SubstrateId;
   instructions: string;
-  files: Array<{
+  files: {
     path: string;
     content: string;
-  }>;
+  }[];
 }
 
 export interface SomaTask {
@@ -94,4 +94,3 @@ export interface SomaAdapter {
   buildContext(input: SomaContextInput): Promise<SomaContextBundle>;
   run(task: SomaTask): Promise<SomaRunResult>;
 }
-

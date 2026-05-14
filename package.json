@@ -5,12 +5,16 @@
   "type": "module",
   "description": "Substrate-portable Personal AI Assistant core.",
   "scripts": {
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/bun": "latest",
+    "eslint": "^10.3.0",
+    "typescript-eslint": "^8.59.3",
     "typescript": "^5.8.3"
   }
 }
-
