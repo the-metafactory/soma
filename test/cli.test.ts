@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
@@ -239,6 +239,31 @@ test("cli handles lifecycle events", async () => {
     expect(output).toContain("event: session_start");
     expect(output).toContain("# Soma Startup Context");
     await expect(readFile(join(homeDir, ".soma/memory/STATE/events.jsonl"), "utf8")).resolves.toContain("lifecycle.session_start");
+  });
+});
+
+test("cli searches Soma memory", async () => {
+  await withTempHome(async (homeDir) => {
+    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir]);
+    await mkdir(join(homeDir, ".soma/memory/LEARNING/consulting"), { recursive: true });
+    await writeFile(
+      join(homeDir, ".soma/memory/LEARNING/consulting/agency.md"),
+      "Measure consulting success by transferred autonomy, not dependency.\n",
+      "utf8",
+    );
+
+    const output = await runSomaCli([
+      "memory",
+      "search",
+      "--home-dir",
+      homeDir,
+      "--query",
+      "transferred autonomy consulting",
+    ]);
+
+    expect(output).toContain("Soma memory search");
+    expect(output).toContain("agency.md:1");
+    expect(output).toContain("transferred autonomy");
   });
 });
 

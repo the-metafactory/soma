@@ -40,6 +40,9 @@ export type {
   SomaLifecycleResult,
   SomaMemoryEvent,
   SomaMemoryEventInput,
+  SomaMemorySearchMatch,
+  SomaMemorySearchOptions,
+  SomaMemorySearchResult,
   PaiImportOptions,
   PaiImportPlan,
   PaiImportResult,
@@ -102,7 +105,7 @@ export {
   runSomaLifecycleSessionStart,
   writeAlgorithmWorkIndex,
 } from "./lifecycle";
-export { appendSomaMemoryEvent, somaMemoryEventsPath } from "./memory";
+export { appendSomaMemoryEvent, searchSomaMemory, somaMemoryEventsPath } from "./memory";
 export { importPaiIdentity, planPaiImport } from "./pai-importer";
 export { bootstrapSomaHome, loadSomaHome } from "./soma-home";
 
