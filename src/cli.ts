@@ -612,6 +612,10 @@ function parseMemoryArgs(args: string[]): ParsedMemoryArgs {
         options.somaHome = readOption(rest, index, arg);
         index += 1;
         break;
+      case "--substrate":
+        options.substrate = parseSubstrate(readOption(rest, index, arg));
+        index += 1;
+        break;
       case "--query":
         options.query = readOption(rest, index, arg);
         index += 1;

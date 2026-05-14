@@ -32,10 +32,12 @@ not semantic memory yet; it is the portable file-backed retrieval floor that
 substrates can call before answering.
 
 The first implemented promotion surface is
-`soma memory promote --from-run <id> --store <learning|knowledge|relationship|work>`.
+`soma memory promote --from-run <id> --store <learning|knowledge|relationship|work> --substrate <substrate>`.
 It writes a concise Markdown note under `memory/<STORE>/PROMOTED/` and appends a
 `memory.promotion` event to `memory/STATE/events.jsonl`. Promotion is explicit
 because durable memory stores are source-of-truth material, not scratch space.
+Promotion requires verified source work: at least one verification entry or
+passed criterion must exist on the source Algorithm run.
 
 `memory/STATE/events.jsonl` is the first writeback contract. Substrates append
 one JSON object per line with `id`, `timestamp`, `substrate`, `kind`, `summary`,

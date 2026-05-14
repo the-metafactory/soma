@@ -189,6 +189,10 @@ function promotionLesson(run: AlgorithmRun, explicitLesson?: string): string {
   return run.isa.goal;
 }
 
+function hasPromotionVerification(run: AlgorithmRun): boolean {
+  return run.verification.length > 0 || run.isa.criteria.some((criterion) => criterion.status === "passed");
+}
+
 function renderPromotionContent(input: {
   run: AlgorithmRun;
   runPath: string;
@@ -242,6 +246,11 @@ export async function promoteAlgorithmRunMemory(options: SomaMemoryPromotionOpti
   const timestamp = options.timestamp ?? new Date().toISOString();
   const { path: sourceRunPath, run } = await readAlgorithmRunById(options.fromRun, { somaHome });
   const lesson = promotionLesson(run, options.lesson);
+
+  if (!hasPromotionVerification(run)) {
+    throw new Error(`Algorithm run ${run.id} has no verification evidence or passed criteria; refusing memory promotion.`);
+  }
+
   const relativeStore = PROMOTION_STORE_DIRS[options.store];
   const path = join(somaHome, "memory", relativeStore, "PROMOTED", `${slugify(options.title)}-${run.id}.md`);
   const exists = await readFile(path, "utf8").then(
@@ -270,7 +279,7 @@ export async function promoteAlgorithmRunMemory(options: SomaMemoryPromotionOpti
 
   const event = await appendSomaMemoryEvent(somaHome, {
     timestamp,
-    substrate: "custom",
+    substrate: options.substrate ?? run.substrate ?? "custom",
     kind: "memory.promotion",
     summary: `Promoted Algorithm run ${run.id} to ${options.store}: ${options.title}`,
     artifactPaths: [path, sourceRunPath],

@@ -287,11 +287,27 @@ test("cli promotes Algorithm run memory", async () => {
       "--criterion",
       "C1:Promotion file exists.",
     ]);
+    await runSomaCli([
+      "algorithm",
+      "verify",
+      "--home-dir",
+      homeDir,
+      "--id",
+      "promote-run",
+      "--criterion-id",
+      "C1",
+      "--status",
+      "passed",
+      "--evidence",
+      "Promotion file criteria verified.",
+    ]);
     const output = await runSomaCli([
       "memory",
       "promote",
       "--home-dir",
       homeDir,
+      "--substrate",
+      "codex",
       "--from-run",
       "promote-run",
       "--store",

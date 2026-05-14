@@ -152,6 +152,20 @@ test("promotes an Algorithm run into durable Soma memory", async () => {
           goal: "Consulting lesson becomes durable memory.",
           criteria: [{ id: "C1", text: "Lesson is promoted." }],
         }),
+        isa: {
+          slug: "consulting-lesson",
+          phase: "complete",
+          goal: "Consulting lesson becomes durable memory.",
+          criteria: [
+            {
+              id: "C1",
+              text: "Lesson is promoted.",
+              status: "passed",
+              verification: "Promotion evidence is present.",
+            },
+          ],
+        },
+        verification: [{ timestamp: "2026-05-14T12:05:00.000Z", phase: "verify", text: "Promotion evidence is present." }],
         learning: [{ timestamp: "2026-05-14T12:00:00.000Z", phase: "learn", text: "Measure autonomy transfer, not dependency." }],
       },
       { homeDir },
@@ -161,6 +175,7 @@ test("promotes an Algorithm run into durable Soma memory", async () => {
       homeDir,
       fromRun: "consulting-lesson",
       store: "knowledge",
+      substrate: "codex",
       title: "Consulting autonomy metric",
       appliesWhen: "Recall when designing AI consulting offers.",
       timestamp: "2026-05-14T12:30:00.000Z",
@@ -172,8 +187,35 @@ test("promotes an Algorithm run into durable Soma memory", async () => {
     expect(content).toContain("Measure autonomy transfer, not dependency.");
     expect(content).toContain("Recall when designing AI consulting offers.");
     expect(events[0]).toMatchObject({
+      substrate: "codex",
       kind: "memory.promotion",
       summary: "Promoted Algorithm run consulting-lesson to knowledge: Consulting autonomy metric",
     });
+  });
+});
+
+test("refuses to promote unverified Algorithm runs", async () => {
+  await withTempHome(async (homeDir) => {
+    await bootstrapSomaHome({ homeDir });
+    await writeAlgorithmRun(
+      createAlgorithmRun({
+        id: "unverified-run",
+        prompt: "Promote early",
+        intent: "Attempt to promote draft work.",
+        currentState: "No evidence exists.",
+        goal: "Draft stays out of durable memory.",
+        criteria: [{ id: "C1", text: "Verification exists." }],
+      }),
+      { homeDir },
+    );
+
+    await expect(
+      promoteAlgorithmRunMemory({
+        homeDir,
+        fromRun: "unverified-run",
+        store: "learning",
+        title: "Draft lesson",
+      }),
+    ).rejects.toThrow("has no verification evidence or passed criteria");
   });
 });

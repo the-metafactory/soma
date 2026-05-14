@@ -329,6 +329,7 @@ export type SomaMemoryPromotionStore = "learning" | "knowledge" | "relationship"
 export interface SomaMemoryPromotionOptions {
   homeDir?: string;
   somaHome?: string;
+  substrate?: SubstrateId;
   fromRun: string;
   store: SomaMemoryPromotionStore;
   title: string;
