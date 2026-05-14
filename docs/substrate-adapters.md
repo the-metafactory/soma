@@ -40,6 +40,11 @@ The first useful Pi adapter can be a `soma-core` extension with:
 - `capture_learning`
 - `policy_check`
 
+Initial implementation: `buildPiDevContext` generates a `soma-core` extension
+projection under `.pi/extensions/soma-core/`. It includes an extension manifest,
+portable context, tool contract, memory layout, skills, and policy projection.
+The tools are named as the adapter contract; execution is not wired yet.
+
 ## Claude Code
 
 Claude Code has the richest native surface:
@@ -55,6 +60,10 @@ Claude Code has the richest native surface:
 The Claude adapter can be the highest-fidelity implementation, but the core must
 not depend on Claude-only primitives. Hooks should improve behavior; they should
 not be required for the storage contract to function.
+
+Initial implementation: `buildClaudeCodeContext` generates a Claude-shaped
+projection with `CLAUDE.md` plus `.claude/soma/` context files. Hooks are
+documented as optional enhancements, not requirements for the portable core.
 
 ## Cortex / Myelin
 

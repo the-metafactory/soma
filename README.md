@@ -101,6 +101,7 @@ soma/
     Workflows/
       DesignAssistantCore.md
   src/
+    adapters/
     index.ts
     types.ts
   test/

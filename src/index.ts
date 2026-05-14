@@ -15,6 +15,6 @@ export type {
   Telos,
 } from "./types";
 
-export { buildCodexContext, codexAdapter } from "./adapters";
+export { buildClaudeCodeContext, buildCodexContext, buildPiDevContext, claudeCodeAdapter, codexAdapter, piDevAdapter } from "./adapters";
 
 export const SOMA_VERSION = "0.1.0";

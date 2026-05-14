@@ -3,7 +3,7 @@ task: Extract portable Personal AI Assistant core
 slug: soma
 effort: e3
 phase: verify
-progress: 19/19
+progress: 21/21
 mode: design
 started: 2026-05-14
 updated: 2026-05-14
@@ -81,6 +81,8 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 - [x] ISC-17: Portability proof defines the first same-input, two-substrate workflow.
 - [x] ISC-18: Memory and policy v0 are scoped before richer stores or enforcement.
 - [x] ISC-19: Codex adapter builds a deterministic context bundle from a Soma profile.
+- [x] ISC-20: Pi.dev adapter builds an extension-shaped context bundle from the same Soma input.
+- [x] ISC-21: Claude Code adapter builds a Claude-shaped context bundle from the same Soma input.
 
 ## Test Strategy
 
@@ -105,6 +107,8 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 | ISC-17 | file | portability proof names workflow and pass conditions | read |
 | ISC-18 | file | memory/policy v0 separates file memory from enforcement | read |
 | ISC-19 | unit | Codex context bundle contains profile, telos, memory, skills, and ISA | bun test |
+| ISC-20 | unit | Pi.dev context bundle contains profile, telos, memory, skills, ISA, and tool contract | bun test |
+| ISC-21 | unit | Claude Code context bundle contains profile, telos, memory, skills, ISA, and hook plan | bun test |
 
 ## Features
 
@@ -120,6 +124,8 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 | Portability proof | ISC-17 | adapter contract | yes |
 | Memory/policy v0 | ISC-18 | architecture | yes |
 | Codex context adapter | ISC-19 | type contracts | no |
+| Pi.dev context adapter | ISC-20 | type contracts | yes |
+| Claude Code context adapter | ISC-21 | type contracts | yes |
 
 ## Decisions
 
@@ -134,13 +140,15 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 - 2026-05-14: Implemented Codex as context generation first. Running Codex tasks
   remains out of scope until context projection is proven across a second
   substrate.
+- 2026-05-14: Implemented Pi.dev and Claude Code as context generation first.
+  The same Soma input is now projected into three substrate-specific bundles.
 
 ## Changelog
 
 - conjecture: A portable assistant core should live outside any one substrate.
   refuted-by: pending implementation experience.
   learned: Initial repository should make boundaries and contracts explicit.
-  criterion-now: ISC-1 through ISC-19.
+  criterion-now: ISC-1 through ISC-21.
 
 ## Verification
 
@@ -152,3 +160,7 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 - 2026-05-14: `bun test` passed with 4 tests across 2 files after adding the
   Codex context adapter and Luna review follow-up docs.
 - 2026-05-14: `bun run typecheck` passed after adding the Codex context adapter.
+- 2026-05-14: `bun test` passed with 8 tests across 3 files after adding Pi.dev
+  and Claude Code context adapters.
+- 2026-05-14: `bun run typecheck` passed after adding Pi.dev and Claude Code
+  context adapters.

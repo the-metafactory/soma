@@ -32,6 +32,6 @@ The first workflow is a ledger update:
 The first implemented slice is context generation:
 
 - `src/adapters/codex.ts` renders a Codex context bundle.
-- A later `src/adapters/claude-code.ts` should render the same input into a
-  Claude Code context bundle.
-- Tests compare bundle semantics before any daemon or plugin work begins.
+- `src/adapters/pi-dev.ts` renders a Pi.dev extension-shaped context bundle.
+- `src/adapters/claude-code.ts` renders a Claude Code context bundle.
+- Tests compare shared bundle semantics before any daemon or plugin work begins.
