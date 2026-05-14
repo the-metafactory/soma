@@ -1,4 +1,13 @@
 export type {
+  AlgorithmEffortTier,
+  AlgorithmImportOptions,
+  AlgorithmImportPlan,
+  AlgorithmImportResult,
+  AlgorithmLogEntry,
+  AlgorithmPhase,
+  AlgorithmPlanStep,
+  AlgorithmRun,
+  AlgorithmRunInput,
   AssistantIdentity,
   IdealStateArtifact,
   IdealStateCriterion,
@@ -20,14 +29,35 @@ export type {
   SomaInstallOptions,
   SomaInstallPlan,
   SomaInstallResult,
+  SomaMemoryEvent,
+  SomaMemoryEventInput,
   PaiImportOptions,
   PaiImportPlan,
   PaiImportResult,
-  SomaMemoryEvent,
-  SomaMemoryEventInput,
   WrittenContextBundle,
 } from "./types";
 
+export {
+  addAlgorithmCapabilities,
+  advanceAlgorithmRun,
+  algorithmPhaseOrder,
+  createAlgorithmRun,
+  nextAlgorithmPhase,
+  recordAlgorithmChange,
+  recordAlgorithmDecision,
+  recordAlgorithmLearning,
+  setAlgorithmPlan,
+  updateAlgorithmPlanStep,
+  verifyAlgorithmCriterion,
+} from "./algorithm";
+export {
+  algorithmRunPath,
+  readAlgorithmRun,
+  resolveAlgorithmRunsDir,
+  writeAlgorithmRun,
+  type AlgorithmStoreOptions,
+  type WrittenAlgorithmRun,
+} from "./algorithm-store";
 export {
   buildClaudeCodeContext,
   buildCodexContext,
@@ -46,6 +76,7 @@ export {
   resolveHomeProjectionPaths,
 } from "./home-projection";
 export { installSomaForCodex, installSomaForPiDev, planSomaForCodexInstall, planSomaForPiDevInstall } from "./install";
+export { importAlgorithm, planAlgorithmImport } from "./algorithm-importer";
 export { appendSomaMemoryEvent, somaMemoryEventsPath } from "./memory";
 export { importPaiIdentity, planPaiImport } from "./pai-importer";
 export { bootstrapSomaHome, loadSomaHome } from "./soma-home";

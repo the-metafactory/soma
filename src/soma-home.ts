@@ -1,7 +1,7 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import type { SomaContextInput, SomaHomeBootstrapOptions, SomaHomeBootstrapResult } from "./types";
+import { dirname, join, relative, resolve, sep } from "node:path";
+import type { SomaContextInput, SomaHomeBootstrapOptions, SomaHomeBootstrapResult, SomaSkill } from "./types";
 
 const MEMORY_DIRS = ["WORK", "KNOWLEDGE", "LEARNING", "RELATIONSHIP", "STATE"] as const;
 
@@ -104,11 +104,81 @@ function recordFromBullets(items: string[]): Record<string, string | boolean> {
   );
 }
 
+function frontmatterValue(content: string, key: string, fallback: string): string {
+  const match = new RegExp(`^${key}:\\s*(.+)$`, "m").exec(content);
+  return match?.[1]?.trim().replace(/^["']|["']$/g, "") ?? fallback;
+}
+
+async function collectSkillFiles(root: string, current = root): Promise<{ path: string; content: string }[]> {
+  const entries = await readdir(current, { withFileTypes: true }).catch(() => []);
+  const files: { path: string; content: string }[] = [];
+
+  for (const entry of entries) {
+    if (entry.name.startsWith(".")) {
+      continue;
+    }
+
+    const fullPath = join(current, entry.name);
+
+    if (entry.isDirectory()) {
+      files.push(...(await collectSkillFiles(root, fullPath)));
+      continue;
+    }
+
+    if (!entry.isFile()) {
+      continue;
+    }
+
+    const relativePath = relative(root, fullPath);
+
+    if (relativePath.startsWith("..") || relativePath.includes(`..${sep}`)) {
+      continue;
+    }
+
+    files.push({
+      path: relativePath,
+      content: await readFile(fullPath, "utf8"),
+    });
+  }
+
+  return files.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+async function loadSomaSkills(somaHome: string): Promise<SomaSkill[]> {
+  const skillsRoot = join(somaHome, "skills");
+  const entries = await readdir(skillsRoot, { withFileTypes: true }).catch(() => []);
+  const skills: SomaSkill[] = [];
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    const skillRoot = join(skillsRoot, entry.name);
+    const skillContent = await readFile(join(skillRoot, "SKILL.md"), "utf8").catch(() => undefined);
+
+    if (!skillContent) {
+      continue;
+    }
+
+    skills.push({
+      name: frontmatterValue(skillContent, "name", entry.name),
+      path: skillRoot,
+      description: frontmatterValue(skillContent, "description", ""),
+      triggers: sectionBullets(skillContent, "Triggers"),
+      files: await collectSkillFiles(skillRoot),
+    });
+  }
+
+  return skills.sort((a, b) => a.name.localeCompare(b.name));
+}
+
 export async function loadSomaHome(somaHome: string): Promise<SomaContextInput> {
   const assistant = await readFile(join(somaHome, "profile/assistant.md"), "utf8");
   const principal = await readFile(join(somaHome, "profile/principal.md"), "utf8");
   const telos = await readFile(join(somaHome, "profile/telos.md"), "utf8");
   const memoryRoot = join(somaHome, "memory");
+  const skills = await loadSomaSkills(somaHome);
 
   return {
     profile: {
@@ -136,7 +206,7 @@ export async function loadSomaHome(somaHome: string): Promise<SomaContextInput> 
         relationship: join(memoryRoot, "RELATIONSHIP"),
         state: join(memoryRoot, "STATE"),
       },
-      skills: [],
+      skills,
     },
   };
 }

@@ -140,6 +140,12 @@ export function buildCodexContext(input: SomaContextInput): SomaContextBundle {
 
 export function buildCodexHomeContext(input: SomaContextInput, somaHome: string): SomaContextBundle {
   const instructions = renderHomeRules(input, somaHome);
+  const portableSkillFiles = input.profile.skills.flatMap((skill) =>
+    (skill.files ?? []).map((file) => ({
+      path: `skills/${skill.name}/${file.path}`,
+      content: file.content,
+    })),
+  );
 
   return {
     substrate: "codex",
@@ -173,6 +179,7 @@ export function buildCodexHomeContext(input: SomaContextInput, somaHome: string)
         path: "memories/soma/policy.md",
         content: renderCodexPolicy(),
       },
+      ...portableSkillFiles,
     ],
   };
 }

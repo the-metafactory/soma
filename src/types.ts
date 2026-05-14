@@ -34,11 +34,74 @@ export interface IdealStateArtifact {
   criteria: IdealStateCriterion[];
 }
 
+export type AlgorithmPhase = IdealStateArtifact["phase"];
+
+export type AlgorithmEffortTier = "E1" | "E2" | "E3" | "E4" | "E5";
+
+export interface AlgorithmPlanStep {
+  id: string;
+  text: string;
+  criteriaIds: string[];
+  status: "open" | "done" | "blocked";
+  evidence?: string;
+}
+
+export interface AlgorithmLogEntry {
+  timestamp: string;
+  phase: AlgorithmPhase;
+  text: string;
+}
+
+export interface AlgorithmRun {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  substrate?: SubstrateId;
+  prompt: string;
+  intent: string;
+  effort: AlgorithmEffortTier;
+  currentState: string;
+  phase: AlgorithmPhase;
+  isa: IdealStateArtifact;
+  antiCriteria: IdealStateCriterion[];
+  capabilities: string[];
+  planSteps: AlgorithmPlanStep[];
+  decisions: AlgorithmLogEntry[];
+  changelog: AlgorithmLogEntry[];
+  verification: AlgorithmLogEntry[];
+  learning: AlgorithmLogEntry[];
+}
+
+export interface AlgorithmRunInput {
+  id?: string;
+  timestamp?: string;
+  substrate?: SubstrateId;
+  prompt: string;
+  intent: string;
+  effort?: AlgorithmEffortTier;
+  currentState: string;
+  goal: string;
+  criteria: {
+    id: string;
+    text: string;
+    verification?: string;
+  }[];
+  antiCriteria?: {
+    id: string;
+    text: string;
+    verification?: string;
+  }[];
+}
+
 export interface SomaSkill {
   name: string;
   path: string;
   description: string;
   triggers: string[];
+  files?: {
+    path: string;
+    content: string;
+  }[];
 }
 
 export interface SomaMemoryLayout {
@@ -141,6 +204,26 @@ export interface PaiImportPlan {
 
 export interface PaiImportResult {
   claudeHome: string;
+  somaHome: string;
+  files: string[];
+}
+
+export interface AlgorithmImportOptions {
+  homeDir?: string;
+  paiAlgorithmDir?: string;
+  somaHome?: string;
+}
+
+export interface AlgorithmImportPlan {
+  apply: boolean;
+  paiAlgorithmDir: string;
+  somaHome: string;
+  sourceFiles: string[];
+  targetFiles: string[];
+}
+
+export interface AlgorithmImportResult {
+  paiAlgorithmDir: string;
   somaHome: string;
   files: string[];
 }

@@ -240,6 +240,12 @@ export function buildPiDevContext(input: SomaContextInput): SomaContextBundle {
 
 export function buildPiDevHomeContext(input: SomaContextInput, somaHome: string): SomaContextBundle {
   const instructions = renderInstructions(input);
+  const portableSkillFiles = input.profile.skills.flatMap((skill) =>
+    (skill.files ?? []).map((file) => ({
+      path: `agent/skills/${skill.name}/${file.path}`,
+      content: file.content,
+    })),
+  );
 
   return {
     substrate: "pi-dev",
@@ -285,6 +291,7 @@ export function buildPiDevHomeContext(input: SomaContextInput, somaHome: string)
         path: "agent/skills/soma/SKILL.md",
         content: renderHomeSkill(input, somaHome),
       },
+      ...portableSkillFiles,
     ],
   };
 }

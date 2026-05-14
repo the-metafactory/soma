@@ -35,6 +35,25 @@ Ideal State Artifacts define work. An ISA is both the articulation of done and
 the verification contract. Project ISAs live with projects. Task ISAs live under
 Soma memory.
 
+### Algorithm Harness
+
+The Algorithm harness is the deterministic execution layer around ISA. PAI used
+TheAlgorithm mostly as doctrine inside Claude context; Soma keeps that doctrine
+as a portable skill, but also exposes typed run state and phase gates that a
+substrate or daemon can call directly.
+
+An Algorithm run moves in one direction only:
+
+```text
+OBSERVE -> THINK -> PLAN -> BUILD -> EXECUTE -> VERIFY -> LEARN -> COMPLETE
+```
+
+Each transition has a gate. For example, PLAN requires selected capabilities,
+BUILD requires a criterion-mapped plan, VERIFY requires every plan step to be
+done or blocked, and LEARN requires every criterion to be passed or dropped.
+This is the part that adds determinism: the LLM can propose content, but Soma
+decides whether the process is allowed to advance.
+
 ### Skills
 
 Skills are portable capability folders. A skill may contain a `SKILL.md`,

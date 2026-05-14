@@ -47,6 +47,29 @@ It imports the principal profile, Ivy assistant identity, and TELOS summary into
 `~/.soma/profile/`, while keeping source snapshots under
 `~/.soma/profile/imports/claude/`.
 
+The Algorithm importer ports PAI's Algorithm doctrine into a portable Soma skill:
+
+```bash
+bun run soma import algorithm --dry-run
+bun run soma import algorithm --apply
+```
+
+Soma also exposes a deterministic Algorithm harness. The harness wraps ISA work
+in a one-way phase machine:
+
+```text
+OBSERVE -> THINK -> PLAN -> BUILD -> EXECUTE -> VERIFY -> LEARN -> COMPLETE
+```
+
+Substrates can create persisted runs with:
+
+```bash
+bun run soma algorithm new --prompt "..." --intent "..." --current-state "..." --goal "..." --criterion "C1:..."
+```
+
+The LLM can propose state, criteria, plans, and evidence; Soma decides whether
+the run is allowed to advance.
+
 ## What Soma Is
 
 Soma is a small runtime-independent kernel for personal AI assistants.

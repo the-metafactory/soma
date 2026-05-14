@@ -1,12 +1,28 @@
 import {
+  createAlgorithmRun,
+  importAlgorithm,
   importPaiIdentity,
   installSomaForCodex,
   installSomaForPiDev,
+  planAlgorithmImport,
   planPaiImport,
   planSomaForCodexInstall,
   planSomaForPiDevInstall,
+  writeAlgorithmRun,
 } from "./index";
-import type { PaiImportOptions, PaiImportPlan, PaiImportResult, SomaInstallOptions, SomaInstallPlan, SomaInstallResult } from "./types";
+import type {
+  AlgorithmEffortTier,
+  AlgorithmImportOptions,
+  AlgorithmImportPlan,
+  AlgorithmImportResult,
+  AlgorithmRunInput,
+  PaiImportOptions,
+  PaiImportPlan,
+  PaiImportResult,
+  SomaInstallOptions,
+  SomaInstallPlan,
+  SomaInstallResult,
+} from "./types";
 
 interface ParsedInstallArgs {
   command: "install";
@@ -17,12 +33,22 @@ interface ParsedInstallArgs {
 
 interface ParsedImportArgs {
   command: "import";
-  source: "pai";
+  source: "pai" | "algorithm";
   apply: boolean;
-  options: PaiImportOptions;
+  options: PaiImportOptions | AlgorithmImportOptions;
 }
 
-type ParsedArgs = ParsedInstallArgs | ParsedImportArgs;
+interface ParsedAlgorithmArgs {
+  command: "algorithm";
+  action: "new";
+  options: {
+    homeDir?: string;
+    somaHome?: string;
+    run: AlgorithmRunInput;
+  };
+}
+
+type ParsedArgs = ParsedInstallArgs | ParsedImportArgs | ParsedAlgorithmArgs;
 
 function readOption(args: string[], index: number, name: string): string {
   const value = args[index + 1];
@@ -82,11 +108,17 @@ function parseInstallArgs(args: string[]): ParsedInstallArgs {
 function parseImportArgs(args: string[]): ParsedImportArgs {
   const [command, source, ...rest] = args;
 
-  if (command !== "import" || source !== "pai") {
-    throw new Error("Usage: soma import pai [--dry-run] [--apply] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>]");
+  if (command !== "import" || (source !== "pai" && source !== "algorithm")) {
+    throw new Error(
+      [
+        "Usage:",
+        "  soma import pai [--dry-run] [--apply] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>]",
+        "  soma import algorithm [--dry-run] [--apply] [--home-dir <dir>] [--pai-algorithm-dir <dir>] [--soma-home <dir>]",
+      ].join("\n"),
+    );
   }
 
-  const options: PaiImportOptions = {};
+  const options: PaiImportOptions & AlgorithmImportOptions = {};
   let apply = false;
 
   for (let index = 0; index < rest.length; index += 1) {
@@ -104,7 +136,17 @@ function parseImportArgs(args: string[]): ParsedImportArgs {
         index += 1;
         break;
       case "--claude-home":
+        if (source !== "pai") {
+          throw new Error("--claude-home is only valid for soma import pai.");
+        }
         options.claudeHome = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--pai-algorithm-dir":
+        if (source !== "algorithm") {
+          throw new Error("--pai-algorithm-dir is only valid for soma import algorithm.");
+        }
+        options.paiAlgorithmDir = readOption(rest, index, arg);
         index += 1;
         break;
       case "--soma-home":
@@ -124,7 +166,104 @@ function parseImportArgs(args: string[]): ParsedImportArgs {
   };
 }
 
+function parseCriterion(value: string): { id: string; text: string; verification?: string } {
+  const separator = value.indexOf(":");
+
+  if (separator === -1) {
+    throw new Error("--criterion requires id:text.");
+  }
+
+  return {
+    id: value.slice(0, separator).trim(),
+    text: value.slice(separator + 1).trim(),
+  };
+}
+
+function parseEffort(value: string): AlgorithmEffortTier {
+  if (value === "E1" || value === "E2" || value === "E3" || value === "E4" || value === "E5") {
+    return value;
+  }
+
+  throw new Error("--effort must be one of E1, E2, E3, E4, or E5.");
+}
+
+function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
+  const [command, action, ...rest] = args;
+
+  if (command !== "algorithm" || action !== "new") {
+    throw new Error(
+      "Usage: soma algorithm new --prompt <text> --intent <text> --current-state <text> --goal <text> --criterion <id:text> [--effort <E1|E2|E3|E4|E5>] [--home-dir <dir>] [--soma-home <dir>]",
+    );
+  }
+
+  const run: Partial<AlgorithmRunInput> & { criteria: AlgorithmRunInput["criteria"] } = {
+    criteria: [],
+  };
+  const options: ParsedAlgorithmArgs["options"] = {
+    run: run as AlgorithmRunInput,
+  };
+
+  for (let index = 0; index < rest.length; index += 1) {
+    const arg = rest[index];
+
+    switch (arg) {
+      case "--home-dir":
+        options.homeDir = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--soma-home":
+        options.somaHome = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--prompt":
+        run.prompt = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--intent":
+        run.intent = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--current-state":
+        run.currentState = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--goal":
+        run.goal = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--effort":
+        run.effort = parseEffort(readOption(rest, index, arg));
+        index += 1;
+        break;
+      case "--criterion":
+        run.criteria.push(parseCriterion(readOption(rest, index, arg)));
+        index += 1;
+        break;
+      default:
+        throw new Error(`Unknown option: ${arg}`);
+    }
+  }
+
+  if (!run.prompt || !run.intent || !run.currentState || !run.goal || run.criteria.length === 0) {
+    throw new Error(
+      "Usage: soma algorithm new --prompt <text> --intent <text> --current-state <text> --goal <text> --criterion <id:text> [--effort <E1|E2|E3|E4|E5>] [--home-dir <dir>] [--soma-home <dir>]",
+    );
+  }
+
+  options.run = run as AlgorithmRunInput;
+
+  return {
+    command,
+    action,
+    options,
+  };
+}
+
 function parseArgs(args: string[]): ParsedArgs {
+  if (args[0] === "algorithm") {
+    return parseAlgorithmArgs(args);
+  }
+
   if (args[0] === "install") {
     return parseInstallArgs(args);
   }
@@ -136,8 +275,10 @@ function parseArgs(args: string[]): ParsedArgs {
   throw new Error(
     [
       "Usage:",
+      "  soma algorithm new --prompt <text> --intent <text> --current-state <text> --goal <text> --criterion <id:text> [--effort <E1|E2|E3|E4|E5>] [--home-dir <dir>] [--soma-home <dir>]",
       "  soma install <codex|pi-dev> [--dry-run] [--apply] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
       "  soma import pai [--dry-run] [--apply] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>]",
+      "  soma import algorithm [--dry-run] [--apply] [--home-dir <dir>] [--pai-algorithm-dir <dir>] [--soma-home <dir>]",
     ].join("\n"),
   );
 }
@@ -203,15 +344,73 @@ function formatPaiImportResult(result: PaiImportResult): string {
   ].join("\n");
 }
 
+function formatAlgorithmImportPlan(plan: AlgorithmImportPlan): string {
+  return [
+    "Soma Algorithm import plan",
+    "source: algorithm",
+    `mode: ${plan.apply ? "apply" : "dry-run"}`,
+    `paiAlgorithmDir: ${plan.paiAlgorithmDir}`,
+    `somaHome: ${plan.somaHome}`,
+    "",
+    "Source files:",
+    ...plan.sourceFiles.map((path) => `- ${path}`),
+    "",
+    "Target files:",
+    ...plan.targetFiles.map((path) => `- ${path}`),
+  ].join("\n");
+}
+
+function formatAlgorithmImportResult(result: AlgorithmImportResult): string {
+  return [
+    "Soma Algorithm import applied",
+    `paiAlgorithmDir: ${result.paiAlgorithmDir}`,
+    `somaHome: ${result.somaHome}`,
+    "",
+    "Files:",
+    ...result.files.map((path) => `- ${path}`),
+  ].join("\n");
+}
+
+function formatAlgorithmRunResult(result: { path: string; run: { id: string; phase: string; effort: string } }): string {
+  return [
+    "Soma Algorithm run created",
+    `id: ${result.run.id}`,
+    `phase: ${result.run.phase}`,
+    `effort: ${result.run.effort}`,
+    `path: ${result.path}`,
+  ].join("\n");
+}
+
 export async function runSomaCli(args: string[]): Promise<string> {
   const parsed = parseArgs(args);
 
+  if (parsed.command === "algorithm") {
+    return formatAlgorithmRunResult(
+      await writeAlgorithmRun(createAlgorithmRun(parsed.options.run), {
+        homeDir: parsed.options.homeDir,
+        somaHome: parsed.options.somaHome,
+      }),
+    );
+  }
+
   if (parsed.command === "import") {
-    if (!parsed.apply) {
-      return formatPaiImportPlan(planPaiImport(parsed.options));
+    if (parsed.source === "algorithm") {
+      const options = parsed.options as AlgorithmImportOptions;
+
+      if (!parsed.apply) {
+        return formatAlgorithmImportPlan(planAlgorithmImport(options));
+      }
+
+      return formatAlgorithmImportResult(await importAlgorithm(options));
     }
 
-    return formatPaiImportResult(await importPaiIdentity(parsed.options));
+    const options = parsed.options as PaiImportOptions;
+
+    if (!parsed.apply) {
+      return formatPaiImportPlan(planPaiImport(options));
+    }
+
+    return formatPaiImportResult(await importPaiIdentity(options));
   }
 
   if (!parsed.apply) {
