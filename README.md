@@ -103,11 +103,14 @@ Recall commands provide deterministic file-backed memory retrieval:
 
 ```bash
 bun run soma memory search --query "client sovereignty agency"
+bun run soma memory promote --from-run <run-id> --store learning --title "Reusable lesson" --substrate codex
 ```
 
 Search covers Soma profile/imports plus WORK, KNOWLEDGE, LEARNING,
 RELATIONSHIP, and STATE memory stores, returning source paths, line numbers, and
-short snippets.
+short snippets. Promotion turns verified Algorithm work into concise durable
+memory notes with source run links, criteria, decisions, verification, and recall
+guidance. It refuses runs with no verification entries and no passed criteria.
 
 ## What Soma Is
 

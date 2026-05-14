@@ -31,13 +31,28 @@ and selected STATE files, then returns cited path/line/snippet matches. This is
 not semantic memory yet; it is the portable file-backed retrieval floor that
 substrates can call before answering.
 
+The first implemented promotion surface is
+`soma memory promote --from-run <id> --store <learning|knowledge|relationship|work> --substrate <substrate>`.
+It writes a concise Markdown note under `memory/<STORE>/PROMOTED/` and appends a
+`memory.promotion` event to `memory/STATE/events.jsonl`. Promotion is explicit
+because durable memory stores are source-of-truth material, not scratch space.
+Promotion requires verified source work: at least one verification entry or
+passed criterion must exist on the source Algorithm run.
+
+`PROMOTED/` has V0 merge semantics. Promoted notes are immutable additive
+records, keyed by sanitized title plus source run id. Creation is atomic and a
+duplicate promotion is refused rather than merged or overwritten. These notes do
+not merge into canonical store files automatically; later consolidation must read
+the source note and `memory.promotion` event explicitly.
+
 `memory/STATE/events.jsonl` is the first writeback contract. Substrates append
 one JSON object per line with `id`, `timestamp`, `substrate`, `kind`, `summary`,
 and optional artifact paths or metadata. Consolidation into `KNOWLEDGE`,
 `LEARNING`, or other durable stores is a later step.
 
-Durable memory writes are intentionally blocked until each store has explicit
-merge semantics. See [writeback-and-policy.md](./writeback-and-policy.md).
+Durable memory writes outside the append-only `PROMOTED/` subspace are
+intentionally blocked until each store has explicit merge semantics. See
+[writeback-and-policy.md](./writeback-and-policy.md).
 Promotion from events into durable stores is a future design decision, not an
 automatic background behavior.
 

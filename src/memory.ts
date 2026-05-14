@@ -1,7 +1,12 @@
 import { mkdir, appendFile, readFile, readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
-import type { SomaMemoryEvent, SomaMemoryEventInput, SomaMemorySearchOptions, SomaMemorySearchResult } from "./types";
+import type {
+  SomaMemoryEvent,
+  SomaMemoryEventInput,
+  SomaMemorySearchOptions,
+  SomaMemorySearchResult,
+} from "./types";
 
 const SEARCH_ROOTS = [
   "profile",

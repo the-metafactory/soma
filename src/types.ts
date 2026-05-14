@@ -324,6 +324,28 @@ export interface SomaMemorySearchResult {
   matches: SomaMemorySearchMatch[];
 }
 
+export type SomaMemoryPromotionStore = "learning" | "knowledge" | "relationship" | "work";
+
+export interface SomaMemoryPromotionOptions {
+  homeDir?: string;
+  somaHome?: string;
+  substrate?: SubstrateId;
+  fromRun: string;
+  store: SomaMemoryPromotionStore;
+  title: string;
+  lesson?: string;
+  appliesWhen?: string;
+  timestamp?: string;
+}
+
+export interface SomaMemoryPromotionResult {
+  somaHome: string;
+  store: SomaMemoryPromotionStore;
+  path: string;
+  sourceRunPath: string;
+  event: SomaMemoryEvent;
+}
+
 export type SomaLifecycleEventName = "session_start" | "algorithm_updated" | "session_end";
 
 export interface SomaLifecycleOptions {
