@@ -286,6 +286,75 @@ export interface AlgorithmImportResult {
   files: string[];
 }
 
+export interface PaiPackImportOptions {
+  homeDir?: string;
+  paiPackDir?: string;
+  somaHome?: string;
+  skillName?: string;
+  overwrite?: boolean;
+  includeSubstrateSpecific?: boolean;
+}
+
+export interface PaiPackImportFileBase {
+  target: string;
+  classification: "portable" | "template" | "source-doc" | "substrate-specific";
+}
+
+export interface PaiPackSourceImportFile extends PaiPackImportFileBase {
+  origin: "source";
+  source: string;
+}
+
+export interface PaiPackGeneratedImportFile extends PaiPackImportFileBase {
+  origin: "generated";
+  generator: "pai-pack-importer";
+}
+
+export type PaiPackImportFile = PaiPackSourceImportFile | PaiPackGeneratedImportFile;
+
+export interface PaiPackManifestFileBase {
+  target: string;
+  classification: PaiPackImportFileBase["classification"];
+  origin: PaiPackImportFile["origin"];
+}
+
+export interface PaiPackManifestSourceFile extends PaiPackManifestFileBase {
+  origin: "source";
+  source: string;
+}
+
+export interface PaiPackManifestGeneratedFile extends PaiPackManifestFileBase {
+  origin: "generated";
+  generator: "pai-pack-importer";
+}
+
+export type PaiPackManifestFile = PaiPackManifestSourceFile | PaiPackManifestGeneratedFile;
+
+export interface PaiPackManifest {
+  schema: "soma.pai-pack-import.v1";
+  skillName: string;
+  packName: string;
+  description: string;
+  files: PaiPackManifestFile[];
+}
+
+export interface PaiPackImportPlan {
+  apply: boolean;
+  paiPackDir: string;
+  somaHome: string;
+  skillName: string;
+  packName: string;
+  description: string;
+  files: PaiPackImportFile[];
+}
+
+export interface PaiPackImportResult {
+  paiPackDir: string;
+  somaHome: string;
+  skillName: string;
+  files: string[];
+}
+
 export interface SomaMemoryEventInput {
   id?: string;
   timestamp?: string;
