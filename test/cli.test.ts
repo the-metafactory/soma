@@ -57,6 +57,55 @@ test("cli creates persisted Algorithm runs", async () => {
   });
 });
 
+test("cli reports missing Algorithm new fields", async () => {
+  await expect(
+    runSomaCli([
+      "algorithm",
+      "new",
+      "--prompt",
+      "Need a run",
+      "--intent",
+      "Create useful state.",
+      "--current-state",
+      "No run exists.",
+      "--criterion",
+      "C1:Run exists.",
+    ]),
+  ).rejects.toThrow("missing required option(s): --goal");
+});
+
+test("cli routes Anti criteria to antiCriteria", async () => {
+  await withTempHome(async (homeDir) => {
+    const output = await runSomaCli([
+      "algorithm",
+      "new",
+      "--home-dir",
+      homeDir,
+      "--prompt",
+      "Identify a surprising telos-aligned consulting outcome.",
+      "--intent",
+      "Find a non-obvious outcome.",
+      "--current-state",
+      "Prior run found client sovereignty.",
+      "--goal",
+      "A deeper compounding outcome is identified and verified.",
+      "--criterion",
+      "C1:Outcome is distinct from ordinary business success.",
+      "--criterion",
+      "Anti:Do not reduce the outcome to a learning loop.",
+    ]);
+    const path = output
+      .split("\n")
+      .find((line) => line.startsWith("path: "))
+      ?.slice("path: ".length);
+    const content = await readFile(path ?? "", "utf8");
+
+    expect(content).toContain('"antiCriteria"');
+    expect(content).toContain('"id": "Anti"');
+    expect(content).toContain('"text": "Do not reduce the outcome to a learning loop."');
+  });
+});
+
 test("cli classifies Algorithm prompt effort", async () => {
   const output = await runSomaCli([
     "algorithm",
