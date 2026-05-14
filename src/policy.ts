@@ -94,7 +94,7 @@ export function hasSomaPolicyPrivateMarker(content: string | undefined, marker: 
   let index = content.indexOf(marker);
   while (index !== -1) {
     const next = content[index + marker.length];
-    if (index + marker.length >= content.length || next === "/" || /[\s"'`),.;:]/.test(next)) {
+    if (index + marker.length >= content.length || next === "/" || !/[A-Za-z0-9._~%:@+-]/.test(next)) {
       return true;
     }
     index = content.indexOf(marker, index + marker.length);

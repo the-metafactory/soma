@@ -181,6 +181,21 @@ test("does not treat private marker string prefixes as private paths", async () 
   });
 });
 
+test("detects private markers followed by structured data delimiters", async () => {
+  await withTempHome(async (homeDir) => {
+    await bootstrapSomaHome({ homeDir });
+    const result = await checkSomaPolicy({
+      homeDir,
+      action: "write",
+      destinationPath: "~/work/public/summary.md",
+      content: 'Config includes { "path": "~/.soma" }.',
+      record: "none",
+    });
+
+    expect(result.decision).toBe("deny");
+  });
+});
+
 test("does not render tilde for paths that only share the home prefix", () => {
   const homeDir = "/tmp/soma-home";
   const result = evaluateSomaPolicy({

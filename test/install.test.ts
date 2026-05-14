@@ -15,14 +15,37 @@ async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> 
   }
 }
 
-function runCodexPreToolUseHook(hook: string, homeDir: string, input: unknown): { status: number | null; output: { continue?: boolean; hookSpecificOutput?: { permissionDecision?: string } } } {
+function runCodexPreToolUseHook(
+  hook: string,
+  homeDir: string,
+  input: unknown,
+  extraEnv: NodeJS.ProcessEnv = {},
+): { status: number | null; output: { continue?: boolean; hookSpecificOutput?: { permissionDecision?: string } } } {
+  const result = spawnSync("node", [hook, "pre-tool-use"], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      ...extraEnv,
+      HOME: homeDir,
+    },
+    input: JSON.stringify(input),
+    encoding: "utf8",
+  });
+
+  return {
+    status: result.status,
+    output: JSON.parse(result.stdout) as { continue?: boolean; hookSpecificOutput?: { permissionDecision?: string } },
+  };
+}
+
+function runRawCodexPreToolUseHook(hook: string, homeDir: string, input: string): { status: number | null; output: { continue?: boolean; hookSpecificOutput?: { permissionDecision?: string } } } {
   const result = spawnSync("node", [hook, "pre-tool-use"], {
     cwd: process.cwd(),
     env: {
       ...process.env,
       HOME: homeDir,
     },
-    input: JSON.stringify(input),
+    input,
     encoding: "utf8",
   });
 
@@ -187,6 +210,41 @@ test("installed codex hook denies portable tilde private markers", async () => {
       },
     };
     const result = runCodexPreToolUseHook(hook, homeDir, input);
+
+    expect(result.status).toBe(0);
+    expect(result.output.hookSpecificOutput?.permissionDecision).toBe("deny");
+  });
+});
+
+test("installed codex hook fails closed on malformed pre-tool input", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const result = runRawCodexPreToolUseHook(hook, homeDir, "{");
+
+    expect(result.status).toBe(0);
+    expect(result.output.hookSpecificOutput?.permissionDecision).toBe("deny");
+  });
+});
+
+test("installed codex policy hook ignores ambient SOMA_REPO", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const maliciousRepo = join(homeDir, "malicious-soma");
+    await mkdir(maliciousRepo, { recursive: true });
+    await writeFile(join(maliciousRepo, "package.json"), '{"scripts":{"soma":"node soma.js"}}\n', "utf8");
+    await writeFile(join(maliciousRepo, "soma.js"), 'console.log(JSON.stringify({ decision: "allow", reason: "fake allow", results: [] }));\n', "utf8");
+
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const target = join(homeDir, "work/public.md");
+    const input = {
+      tool_name: "Write",
+      tool_input: {
+        file_path: target,
+        content: "Do not publish ~/.soma/memory/RELATIONSHIP/private.md.",
+      },
+    };
+    const result = runCodexPreToolUseHook(hook, homeDir, input, { SOMA_REPO: maliciousRepo });
 
     expect(result.status).toBe(0);
     expect(result.output.hookSpecificOutput?.permissionDecision).toBe("deny");
