@@ -172,6 +172,55 @@ test("cli drives Algorithm runs through gated mutations", async () => {
   });
 });
 
+test("cli batches routine Algorithm run mutations", async () => {
+  await withTempHome(async (homeDir) => {
+    await runSomaCli([
+      "algorithm",
+      "new",
+      "--home-dir",
+      homeDir,
+      "--id",
+      "batch-run",
+      "--prompt",
+      "Use batch harness",
+      "--intent",
+      "Record routine evidence with one command.",
+      "--current-state",
+      "Mutation commands are separate.",
+      "--goal",
+      "Batch command records decision, change, and step evidence.",
+      "--criterion",
+      "C1:Batch command works.",
+    ]);
+    await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "batch-run"]);
+    await runSomaCli(["algorithm", "capabilities", "--home-dir", homeDir, "--id", "batch-run", "--capability", "FeedbackMemoryConsult"]);
+    await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "batch-run"]);
+    await runSomaCli(["algorithm", "plan", "--home-dir", homeDir, "--id", "batch-run", "--step", "P1:C1:Exercise batch command."]);
+    await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "batch-run"]);
+
+    const output = await runSomaCli([
+      "algorithm",
+      "batch",
+      "--home-dir",
+      homeDir,
+      "--id",
+      "batch-run",
+      "--op",
+      "decision:Use one command for routine evidence.",
+      "--op",
+      "change:Added batch command.",
+      "--op",
+      "step:P1:done:Batch operation persisted step evidence.",
+    ]);
+
+    expect(output).toContain("[done] P1");
+    expect(output).toContain("phase: build");
+    await expect(readFile(join(homeDir, ".soma/memory/WORK/algorithm-runs/batch-run.json"), "utf8")).resolves.toContain(
+      "Use one command for routine evidence.",
+    );
+  });
+});
+
 test("cli handles lifecycle events", async () => {
   await withTempHome(async (homeDir) => {
     await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir]);

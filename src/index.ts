@@ -1,6 +1,7 @@
 export type {
   AlgorithmEffortTier,
   AlgorithmEffortSource,
+  AlgorithmBatchOperation,
   AlgorithmImportOptions,
   AlgorithmImportPlan,
   AlgorithmImportResult,
@@ -47,6 +48,7 @@ export type {
 
 export {
   addAlgorithmCapabilities,
+  applyAlgorithmBatch,
   advanceAlgorithmRun,
   algorithmPhaseOrder,
   createAlgorithmRun,

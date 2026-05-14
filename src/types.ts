@@ -124,6 +124,31 @@ export interface AlgorithmRunInput {
   }[];
 }
 
+export type AlgorithmBatchOperation =
+  | {
+      kind: "decision" | "change" | "learn";
+      text: string;
+    }
+  | {
+      kind: "step";
+      stepId: string;
+      status: AlgorithmPlanStep["status"];
+      evidence?: string;
+    }
+  | {
+      kind: "verify";
+      criterionId: string;
+      status: "passed" | "failed" | "dropped";
+      evidence: string;
+    }
+  | {
+      kind: "capability";
+      capability: string;
+    }
+  | {
+      kind: "advance";
+    };
+
 export interface SomaSkill {
   name: string;
   path: string;
