@@ -171,11 +171,12 @@ function findTomlLineEnd(config: string, start: number): number {
 
 function parseTomlStringArray(value: string): string[] {
   const roots: string[] = [];
-  const stringPattern = /"((?:\\.|[^"\\])*)"/g;
+  const stringPattern = /"((?:\\.|[^"\\])*)"|'([^']*)'/g;
   let match: RegExpExecArray | null;
 
   while ((match = stringPattern.exec(value)) !== null) {
-    roots.push(match[1].replace(/\\"/g, '"').replace(/\\\\/g, "\\"));
+    const root = match[0].startsWith("'") ? match[2] : match[1];
+    roots.push(root.replace(/\\"/g, '"').replace(/\\\\/g, "\\"));
   }
 
   return roots;

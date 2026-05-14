@@ -1,4 +1,4 @@
-import { existsSync, realpathSync } from "node:fs";
+import { access, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { appendSomaMemoryEvent } from "./memory";
@@ -30,19 +30,38 @@ function somaPolicyPrivateRoots(somaHome: string, homeDir?: string): string[] {
   ].map((path) => resolve(path));
 }
 
-function realScopePath(path: string): string {
+interface SomaPolicyScope {
+  destinationPath: string;
+  destinationScopePath: string;
+  sourcePath?: string;
+  sourceScopePath?: string;
+  roots: string[];
+  rootScopes: string[];
+  somaHome: string;
+}
+
+async function realScopePath(path: string): Promise<string> {
   let cursor = path;
   const suffix: string[] = [];
 
-  while (!existsSync(cursor)) {
+  while (!(await pathExists(cursor))) {
     const parent = dirname(cursor);
     if (parent === cursor) return path;
     suffix.unshift(cursor.slice(parent.length + 1));
     cursor = parent;
   }
 
-  const realCursor = realpathSync(cursor);
+  const realCursor = await realpath(cursor);
   return suffix.length > 0 ? resolve(realCursor, ...suffix) : realCursor;
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function markerFor(path: string, homeDir?: string): string {
@@ -65,14 +84,22 @@ function findPrivateMarkers(content: string, somaHome: string, homeDir?: string)
     }));
 }
 
-export function evaluateSomaPolicy(options: SomaPolicyCheckOptions): SomaPolicyCheckResult {
+function unresolvedPolicyScope(options: SomaPolicyCheckOptions): Omit<SomaPolicyScope, "destinationScopePath" | "sourceScopePath" | "rootScopes"> {
   const somaHome = resolveSomaHome(options);
   const destinationPath = normalizePath(options.destinationPath, process.cwd(), options.homeDir);
-  const destinationScopePath = realScopePath(destinationPath);
   const sourcePath = options.sourcePath ? normalizePath(options.sourcePath, process.cwd(), options.homeDir) : undefined;
-  const sourceScopePath = sourcePath ? realScopePath(sourcePath) : undefined;
   const roots = somaPolicyPrivateRoots(somaHome, options.homeDir);
-  const rootScopes = roots.map((root) => realScopePath(root));
+
+  return {
+    destinationPath,
+    sourcePath,
+    roots,
+    somaHome,
+  };
+}
+
+function evaluateResolvedSomaPolicy(options: SomaPolicyCheckOptions, scope: SomaPolicyScope): SomaPolicyCheckResult {
+  const { destinationPath, destinationScopePath, sourcePath, sourceScopePath, roots, rootScopes, somaHome } = scope;
   const findings: SomaPolicyFinding[] = [];
   const destinationIsPrivate = roots.some((root, index) => isInside(destinationPath, root) && isInside(destinationScopePath, rootScopes[index]));
   const destinationIsPublic = !destinationIsPrivate;
@@ -102,8 +129,64 @@ export function evaluateSomaPolicy(options: SomaPolicyCheckOptions): SomaPolicyC
   };
 }
 
+export function evaluateSomaPolicy(options: SomaPolicyCheckOptions): SomaPolicyCheckResult {
+  const scope = unresolvedPolicyScope(options);
+
+  return evaluateResolvedSomaPolicy(options, {
+    ...scope,
+    destinationScopePath: scope.destinationPath,
+    sourceScopePath: scope.sourcePath,
+    rootScopes: scope.roots,
+  });
+}
+
+async function evaluateSomaPolicyWithFilesystem(options: SomaPolicyCheckOptions, rootScopes?: string[]): Promise<SomaPolicyCheckResult> {
+  const scope = unresolvedPolicyScope(options);
+
+  return evaluateResolvedSomaPolicy(options, {
+    ...scope,
+    destinationScopePath: await realScopePath(scope.destinationPath),
+    sourceScopePath: scope.sourcePath ? await realScopePath(scope.sourcePath) : undefined,
+    rootScopes: rootScopes ?? (await Promise.all(scope.roots.map((root) => realScopePath(root)))),
+  });
+}
+
 export async function checkSomaPolicy(options: SomaPolicyCheckOptions): Promise<SomaPolicyCheckResult> {
-  const result = evaluateSomaPolicy(options);
+  return checkSomaPolicyWithRootScopes(options);
+}
+
+export async function checkSomaPolicyBatch(options: SomaPolicyBatchCheckOptions): Promise<SomaPolicyBatchCheckResult> {
+  const somaHome = resolveSomaHome(options);
+  const rootScopes = await Promise.all(somaPolicyPrivateRoots(somaHome, options.homeDir).map((root) => realScopePath(root)));
+  const results = await Promise.all(
+    options.targets.map((target) =>
+      checkSomaPolicyWithRootScopes(
+        {
+          homeDir: options.homeDir,
+          somaHome: options.somaHome,
+          substrate: options.substrate,
+          action: options.action,
+          destinationPath: target.filePath,
+          sourcePath: target.sourcePath,
+          content: target.content,
+          record: options.record,
+          timestamp: options.timestamp,
+        },
+        rootScopes,
+      ),
+    ),
+  );
+  const denied = results.find((result) => result.decision === "deny");
+
+  return {
+    decision: denied ? "deny" : "allow",
+    reason: denied?.reason ?? "No private Soma source markers found in batch.",
+    results,
+  };
+}
+
+async function checkSomaPolicyWithRootScopes(options: SomaPolicyCheckOptions, rootScopes?: string[]): Promise<SomaPolicyCheckResult> {
+  const result = await evaluateSomaPolicyWithFilesystem(options, rootScopes);
   const record = options.record ?? "all";
 
   if (record === "none" || (record === "deny" && result.decision !== "deny")) {
@@ -128,30 +211,5 @@ export async function checkSomaPolicy(options: SomaPolicyCheckOptions): Promise<
   return {
     ...result,
     event,
-  };
-}
-
-export async function checkSomaPolicyBatch(options: SomaPolicyBatchCheckOptions): Promise<SomaPolicyBatchCheckResult> {
-  const results = await Promise.all(
-    options.targets.map((target) =>
-      checkSomaPolicy({
-        homeDir: options.homeDir,
-        somaHome: options.somaHome,
-        substrate: options.substrate,
-        action: options.action,
-        destinationPath: target.filePath,
-        sourcePath: target.sourcePath,
-        content: target.content,
-        record: options.record,
-        timestamp: options.timestamp,
-      }),
-    ),
-  );
-  const denied = results.find((result) => result.decision === "deny");
-
-  return {
-    decision: denied ? "deny" : "allow",
-    reason: denied?.reason ?? "No private Soma source markers found in batch.",
-    results,
   };
 }

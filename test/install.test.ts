@@ -96,6 +96,18 @@ test("install preserves existing codex writable roots", async () => {
   });
 });
 
+test("install preserves single-quoted codex writable roots", async () => {
+  await withTempHome(async (homeDir) => {
+    await mkdir(join(homeDir, ".codex"), { recursive: true });
+    await writeFile(join(homeDir, ".codex/config.toml"), "[sandbox_workspace_write]\nwritable_roots = ['/tmp/existing']\n", "utf8");
+
+    await installSomaForCodex({ homeDir });
+
+    const config = await readFile(join(homeDir, ".codex/config.toml"), "utf8");
+    expect(config).toContain(`writable_roots = ["/tmp/existing", "${join(homeDir, ".soma")}"]`);
+  });
+});
+
 test("install handles section-scoped hooks and multiline writable roots", async () => {
   await withTempHome(async (homeDir) => {
     await mkdir(join(homeDir, ".codex"), { recursive: true });
