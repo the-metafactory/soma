@@ -96,6 +96,38 @@ test("install preserves existing codex writable roots", async () => {
   });
 });
 
+test("install handles section-scoped sandbox mode and multiline writable roots", async () => {
+  await withTempHome(async (homeDir) => {
+    await mkdir(join(homeDir, ".codex"), { recursive: true });
+    await writeFile(
+      join(homeDir, ".codex/config.toml"),
+      [
+        "[projects.\"/tmp/example\"]",
+        'sandbox_mode = "read-only"',
+        "",
+        "[sandbox_workspace_write]",
+        "writable_roots = [",
+        '  "/tmp/existing",',
+        "]",
+        "",
+        "[features]",
+        "hooks = false",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    await installSomaForCodex({ homeDir });
+
+    const config = await readFile(join(homeDir, ".codex/config.toml"), "utf8");
+    expect(config.startsWith('sandbox_mode = "workspace-write"')).toBe(true);
+    expect(config).toContain(`writable_roots = ["/tmp/existing", "${join(homeDir, ".soma")}"]`);
+    expect(config).toContain("[projects.\"/tmp/example\"]\nsandbox_mode = \"read-only\"");
+    expect(config).toContain("hooks = true");
+    expect(config.match(/^writable_roots\s*=/gm)).toHaveLength(1);
+  });
+});
+
 test("install preserves existing soma profile edits before projecting to codex", async () => {
   await withTempHome(async (homeDir) => {
     const first = await installSomaForCodex({ homeDir });

@@ -157,7 +157,9 @@ function enableCodexWorkspaceWrite(config: string, somaHome: string): string {
 }
 
 function ensureTopLevelCodexSandboxMode(config: string): string {
-  if (/^sandbox_mode\s*=/m.test(config)) {
+  const topLevel = config.slice(0, findFirstTomlSectionStart(config));
+
+  if (findTomlKey(topLevel, "sandbox_mode") !== undefined) {
     return config;
   }
 
@@ -174,21 +176,21 @@ function upsertCodexWritableRoot(config: string, somaHome: string): string {
   }
 
   const body = config.slice(section.bodyStart, section.bodyEnd);
-  const match = /^writable_roots\s*=\s*(\[.*\])\s*$/m.exec(body);
+  const key = findTomlKey(body, "writable_roots");
 
-  if (match === null) {
+  if (key === undefined) {
     const insertAt = section.headerEnd;
     return `${config.slice(0, insertAt)}writable_roots = [${quoteTomlString(somaHome)}]\n${config.slice(insertAt)}`;
   }
 
-  const roots = parseTomlStringArray(match[1]);
+  const roots = parseTomlStringArray(key.value);
   if (!roots.includes(somaHome)) {
     roots.push(somaHome);
   }
 
   const replacement = `writable_roots = [${roots.map(quoteTomlString).join(", ")}]`;
-  const start = section.bodyStart + match.index;
-  const end = start + match[0].length;
+  const start = section.bodyStart + key.start;
+  const end = section.bodyStart + key.end;
   return `${config.slice(0, start)}${replacement}${config.slice(end)}`;
 }
 
@@ -210,6 +212,68 @@ function findTomlSection(config: string, name: string): { bodyStart: number; bod
     bodyEnd,
     headerEnd,
   };
+}
+
+function findFirstTomlSectionStart(config: string): number {
+  const section = /^\[[^\]]+\]\s*$/m.exec(config);
+  return section?.index ?? config.length;
+}
+
+function findTomlKey(config: string, key: string): { start: number; end: number; value: string } | undefined {
+  const keyPattern = new RegExp(`^\\s*${escapeRegExp(key)}\\s*=\\s*`, "m");
+  const match = keyPattern.exec(config);
+
+  if (match === null) {
+    return undefined;
+  }
+
+  const valueStart = match.index + match[0].length;
+  const end = config[valueStart] === "[" ? findTomlArrayEnd(config, valueStart) : findTomlLineEnd(config, valueStart);
+
+  return {
+    start: match.index,
+    end,
+    value: config.slice(valueStart, end).trim(),
+  };
+}
+
+function findTomlArrayEnd(config: string, start: number): number {
+  let inString = false;
+  let escaped = false;
+  let depth = 0;
+
+  for (let index = start; index < config.length; index += 1) {
+    const char = config[index];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+    } else if (char === "[") {
+      depth += 1;
+    } else if (char === "]") {
+      depth -= 1;
+      if (depth === 0) {
+        return index + 1;
+      }
+    }
+  }
+
+  return findTomlLineEnd(config, start);
+}
+
+function findTomlLineEnd(config: string, start: number): number {
+  const newline = config.indexOf("\n", start);
+  return newline === -1 ? config.length : newline;
 }
 
 function parseTomlStringArray(value: string): string[] {

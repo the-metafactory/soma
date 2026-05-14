@@ -22,8 +22,7 @@ function somaPolicyPrivateRoots(somaHome: string, homeDir?: string): string[] {
   const home = resolve(homeDir ?? homedir());
 
   return [
-    join(somaHome, "profile"),
-    join(somaHome, "memory"),
+    somaHome,
     join(home, ".codex", "memories", "soma"),
     join(home, ".codex", "skills", "soma"),
     join(home, ".pi", "agent", "soma"),

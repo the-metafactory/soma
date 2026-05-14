@@ -83,6 +83,33 @@ test("denies private source paths to public destinations", async () => {
   });
 });
 
+test("treats the whole Soma home as private source material", async () => {
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    const result = await checkSomaPolicy({
+      homeDir,
+      action: "write",
+      destinationPath: join(homeDir, "work/public/summary.md"),
+      sourcePath: join(somaHome, "policy/README.md"),
+      content: `Do not copy ${somaHome}/skills/README.md into public docs.`,
+      record: "none",
+    });
+
+    expect(result.decision).toBe("deny");
+    expect(result.findings).toContainEqual(
+      expect.objectContaining({
+        kind: "private-source",
+      }),
+    );
+    expect(result.findings).toContainEqual(
+      expect.objectContaining({
+        kind: "private-marker",
+        detail: somaHome,
+      }),
+    );
+  });
+});
+
 test("uses home-dir when detecting projected Codex private markers", async () => {
   await withTempHome(async (homeDir) => {
     await bootstrapSomaHome({ homeDir });
@@ -134,7 +161,7 @@ test("detects configured-home tilde private markers in content", async () => {
     expect(result.decision).toBe("deny");
     expect(result.findings[0]).toMatchObject({
       kind: "private-marker",
-      detail: "~/.soma/memory",
+      detail: "~/.soma",
     });
   });
 });
