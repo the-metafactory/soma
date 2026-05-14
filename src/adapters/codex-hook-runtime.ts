@@ -1,5 +1,68 @@
 import { somaPolicyPrivateMarkers } from "../policy";
 
+export function renderCodexLifecycleHook(somaHome: string, homeDir?: string): string {
+  return [
+    ...renderRuntimeHeader(somaHome),
+    ...renderLifecycleCommands(),
+    ...renderCodexPolicyHookRuntime(somaHome, homeDir),
+    ...renderPolicyTargetRuntime(),
+    ...renderPromptClassificationRuntime(),
+    ...renderStartupProjectionRuntime(),
+    ...renderEventDispatchRuntime(),
+  ].join("\n");
+}
+
+function renderRuntimeHeader(somaHome: string): string[] {
+  return [
+    "#!/usr/bin/env node",
+    'import { spawnSync } from "node:child_process";',
+    'import { readFileSync, writeFileSync } from "node:fs";',
+    'import { isAbsolute, resolve } from "node:path";',
+    "",
+    `const SOMA_HOME = ${JSON.stringify(somaHome)};`,
+    "",
+    "function readHookInput() {",
+    "  try {",
+    '    return JSON.parse(readFileSync(0, "utf8"));',
+    "  } catch {",
+    "    return {};",
+    "  }",
+    "}",
+    "",
+    "function somaRepoPath() {",
+    "  if (process.env.SOMA_REPO) return process.env.SOMA_REPO;",
+    "  try {",
+    '    return readFileSync(`${process.env.HOME}/.codex/memories/soma/soma-repo.txt`, "utf8").trim();',
+    "  } catch {",
+    "    return process.cwd();",
+    "  }",
+    "}",
+    "",
+  ];
+}
+
+function renderLifecycleCommands(): string[] {
+  return [
+    "function runSomaLifecycle(event, sessionId) {",
+    '  const args = ["run", "soma", "lifecycle", event, "--soma-home", SOMA_HOME, "--substrate", "codex"];',
+    "  if (sessionId) {",
+    '    args.push("--session-id", sessionId);',
+    "  }",
+    "",
+    '  return spawnSync("bun", args, { cwd: somaRepoPath(), encoding: "utf8", timeout: 25000 });',
+    "}",
+    "",
+    "function runSomaClassification(prompt) {",
+    '  return spawnSync("bun", ["run", "soma", "algorithm", "classify", "--prompt", prompt || ""], {',
+    "    cwd: somaRepoPath(),",
+    '    encoding: "utf8",',
+    "    timeout: 25000",
+    "  });",
+    "}",
+    "",
+  ];
+}
+
 function renderCodexPolicyHookRuntime(somaHome: string, homeDir?: string): string[] {
   const policyMarkers = somaPolicyPrivateMarkers(somaHome, homeDir);
 
@@ -35,54 +98,12 @@ function renderCodexPolicyHookRuntime(somaHome: string, homeDir?: string): strin
     "  }));",
     "  process.exit(0);",
     "}",
+    "",
   ];
 }
 
-export function renderCodexLifecycleHook(somaHome: string, homeDir?: string): string {
+function renderPolicyTargetRuntime(): string[] {
   return [
-    "#!/usr/bin/env node",
-    'import { spawnSync } from "node:child_process";',
-    'import { readFileSync, writeFileSync } from "node:fs";',
-    'import { isAbsolute, resolve } from "node:path";',
-    "",
-    `const SOMA_HOME = ${JSON.stringify(somaHome)};`,
-    "",
-    "function readHookInput() {",
-    "  try {",
-    '    return JSON.parse(readFileSync(0, "utf8"));',
-    "  } catch {",
-    "    return {};",
-    "  }",
-    "}",
-    "",
-    "function somaRepoPath() {",
-    "  if (process.env.SOMA_REPO) return process.env.SOMA_REPO;",
-    "  try {",
-    '    return readFileSync(`${process.env.HOME}/.codex/memories/soma/soma-repo.txt`, "utf8").trim();',
-    "  } catch {",
-    "    return process.cwd();",
-    "  }",
-    "}",
-    "",
-    "function runSomaLifecycle(event, sessionId) {",
-    '  const args = ["run", "soma", "lifecycle", event, "--soma-home", SOMA_HOME, "--substrate", "codex"];',
-    "  if (sessionId) {",
-    '    args.push("--session-id", sessionId);',
-    "  }",
-    "",
-    '  return spawnSync("bun", args, { cwd: somaRepoPath(), encoding: "utf8", timeout: 25000 });',
-    "}",
-    "",
-    "function runSomaClassification(prompt) {",
-    '  return spawnSync("bun", ["run", "soma", "algorithm", "classify", "--prompt", prompt || ""], {',
-    "    cwd: somaRepoPath(),",
-    '    encoding: "utf8",',
-    "    timeout: 25000",
-    "  });",
-    "}",
-    "",
-    ...renderCodexPolicyHookRuntime(somaHome, homeDir),
-    "",
     "function resolveToolPath(path, cwd) {",
     "  return isAbsolute(path) ? path : resolve(cwd || process.cwd(), path);",
     "}",
@@ -139,6 +160,11 @@ export function renderCodexLifecycleHook(somaHome: string, homeDir?: string): st
     "  return [];",
     "}",
     "",
+  ];
+}
+
+function renderPromptClassificationRuntime(): string[] {
+  return [
     "function parseClassification(output) {",
     "  const fields = {};",
     '  for (const line of output.split("\\n")) {',
@@ -181,6 +207,11 @@ export function renderCodexLifecycleHook(somaHome: string, homeDir?: string): st
     '  return lines.join("\\n");',
     "}",
     "",
+  ];
+}
+
+function renderStartupProjectionRuntime(): string[] {
+  return [
     "function writeProjectedStartupContext(output) {",
     '  const marker = "# Soma Startup Context";',
     "  const index = output.indexOf(marker);",
@@ -198,6 +229,11 @@ export function renderCodexLifecycleHook(somaHome: string, homeDir?: string): st
     "  }",
     "}",
     "",
+  ];
+}
+
+function renderEventDispatchRuntime(): string[] {
+  return [
     "const event = process.argv[2];",
     "const input = readHookInput();",
     "",
@@ -293,5 +329,5 @@ export function renderCodexLifecycleHook(somaHome: string, homeDir?: string): st
     "}",
     "",
     "console.log(JSON.stringify({ continue: true }));",
-  ].join("\n");
+  ];
 }

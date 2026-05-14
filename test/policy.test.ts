@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import { bootstrapSomaHome, checkSomaPolicy, somaMemoryEventsPath } from "../src/index";
+import { bootstrapSomaHome, checkSomaPolicy, evaluateSomaPolicy, somaMemoryEventsPath } from "../src/index";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-policy-"));
@@ -164,6 +164,20 @@ test("detects configured-home tilde private markers in content", async () => {
       detail: "~/.soma",
     });
   });
+});
+
+test("does not render tilde for paths that only share the home prefix", () => {
+  const homeDir = "/tmp/soma-home";
+  const result = evaluateSomaPolicy({
+    homeDir,
+    action: "write",
+    destinationPath: "/tmp/soma-home2/public.md",
+    content: "Generic public project notes.",
+    record: "none",
+  });
+
+  expect(result.reason).toContain("/tmp/soma-home2/public.md");
+  expect(result.reason).not.toContain("~2");
 });
 
 test("treats private-looking symlink destinations by their real public scope", async () => {
