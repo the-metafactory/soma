@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { readAlgorithmRunById } from "./algorithm-store";
@@ -147,6 +147,9 @@ export async function promoteAlgorithmRunMemory(options: SomaMemoryPromotionOpti
       runId: run.id,
       store: options.store,
     },
+  }).catch(async (error: unknown) => {
+    await unlink(path).catch(() => undefined);
+    throw new Error(`Soma memory promotion event append failed; removed promotion note: ${path}`, { cause: error });
   });
 
   return {
