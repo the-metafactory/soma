@@ -1,4 +1,4 @@
-import { somaPolicyPrivateMarkers } from "../policy";
+import { renderSomaPolicyPrivateMarkerRuntime, somaPolicyPrivateMarkers } from "../policy";
 import { defaultSomaRepoPath } from "../repo-path";
 
 export function renderCodexLifecycleHook(somaHome: string, homeDir?: string, somaRepoPath = defaultSomaRepoPath()): string {
@@ -36,12 +36,7 @@ function renderRuntimeHeader(somaHome: string, somaRepoPath: string): string[] {
     "}",
     "",
     "function somaRepoPath() {",
-    "  if (process.env.SOMA_REPO) return process.env.SOMA_REPO;",
-    "  try {",
-    '    return readFileSync(`${process.env.HOME}/.codex/memories/soma/soma-repo.txt`, "utf8").trim();',
-    "  } catch {",
-    "    return process.cwd();",
-    "  }",
+    "  return TRUSTED_SOMA_REPO;",
     "}",
     "",
     "function trustedSomaRepoPath() {",
@@ -79,16 +74,7 @@ function renderCodexPolicyHookRuntime(somaHome: string, homeDir?: string): strin
   return [
     `const SOMA_POLICY_MARKERS = ${JSON.stringify(policyMarkers)};`,
     "",
-    "function hasSomaPolicyPrivateMarker(content, marker) {",
-    "  if (!content) return false;",
-    "  let index = content.indexOf(marker);",
-    "  while (index !== -1) {",
-    "    const next = content[index + marker.length];",
-    "    if (index + marker.length >= content.length || next === \"/\" || !/[A-Za-z0-9._~%:@+-]/.test(next)) return true;",
-    "    index = content.indexOf(marker, index + marker.length);",
-    "  }",
-    "  return false;",
-    "}",
+    ...renderSomaPolicyPrivateMarkerRuntime(),
     "",
     "function hasSomaPolicyMarker(content) {",
     "  return SOMA_POLICY_MARKERS.some((marker) => hasSomaPolicyPrivateMarker(content, marker));",

@@ -36,6 +36,7 @@ const SOMA_POLICY_PORTABLE_MARKERS = [
   "~/.pi/agent/soma",
   "~/.pi/agent/skills/soma",
 ] as const;
+const SOMA_POLICY_PATH_CONTINUATION_PATTERN = /[A-Za-z0-9._~%:@+-]/;
 
 interface SomaPolicyScope {
   destinationPath: string;
@@ -94,13 +95,30 @@ export function hasSomaPolicyPrivateMarker(content: string | undefined, marker: 
   let index = content.indexOf(marker);
   while (index !== -1) {
     const next = content[index + marker.length];
-    if (index + marker.length >= content.length || next === "/" || !/[A-Za-z0-9._~%:@+-]/.test(next)) {
+    if (index + marker.length >= content.length || next === "/" || !SOMA_POLICY_PATH_CONTINUATION_PATTERN.test(next)) {
       return true;
     }
     index = content.indexOf(marker, index + marker.length);
   }
 
   return false;
+}
+
+export function renderSomaPolicyPrivateMarkerRuntime(functionName = "hasSomaPolicyPrivateMarker"): string[] {
+  return [
+    `const SOMA_POLICY_PATH_CONTINUATION_PATTERN = /${SOMA_POLICY_PATH_CONTINUATION_PATTERN.source}/;`,
+    "",
+    `function ${functionName}(content, marker) {`,
+    "  if (!content) return false;",
+    "  let index = content.indexOf(marker);",
+    "  while (index !== -1) {",
+    "    const next = content[index + marker.length];",
+    "    if (index + marker.length >= content.length || next === \"/\" || !SOMA_POLICY_PATH_CONTINUATION_PATTERN.test(next)) return true;",
+    "    index = content.indexOf(marker, index + marker.length);",
+    "  }",
+    "  return false;",
+    "}",
+  ];
 }
 
 function findPrivateMarkers(content: string, somaHome: string, homeDir?: string): SomaPolicyFinding[] {

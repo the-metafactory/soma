@@ -102,7 +102,7 @@ function findTomlSection(config: string, name: string): TomlSection | undefined 
 
   const headerEnd = header.index + header[0].length + (config[header.index + header[0].length] === "\n" ? 1 : 0);
   const rest = config.slice(headerEnd);
-  const nextHeader = /^\[[^\]]+\]\s*$/m.exec(rest);
+  const nextHeader = /^(?:\[[^\]\n]+\]|\[\[[^\]\n]+\]\])\s*$/m.exec(rest);
   const bodyEnd = nextHeader?.index === undefined ? config.length : headerEnd + nextHeader.index;
 
   return {

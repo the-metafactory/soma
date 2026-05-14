@@ -43,6 +43,30 @@ function runRawCodexPreToolUseHook(hook: string, homeDir: string, input: string)
   return runCodexPreToolUseHook(hook, homeDir, input, {}, true);
 }
 
+function runCodexHook(
+  hook: string,
+  event: string,
+  homeDir: string,
+  input: unknown,
+  extraEnv: NodeJS.ProcessEnv = {},
+): { status: number | null; output: { continue?: boolean; hookSpecificOutput?: { additionalContext?: string; permissionDecision?: string } } } {
+  const result = spawnSync("node", [hook, event], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      ...extraEnv,
+      HOME: homeDir,
+    },
+    input: JSON.stringify(input),
+    encoding: "utf8",
+  });
+
+  return {
+    status: result.status,
+    output: JSON.parse(result.stdout) as { continue?: boolean; hookSpecificOutput?: { additionalContext?: string; permissionDecision?: string } },
+  };
+}
+
 test("installs soma source home and codex home projection", async () => {
   await withTempHome(async (homeDir) => {
     const result = await installSomaForCodex({ homeDir });
@@ -149,6 +173,24 @@ test("install handles section-scoped hooks and multiline writable roots", async 
     expect(config).toContain("[projects.\"/tmp/example\"]\nsandbox_mode = \"read-only\"\nhooks = false");
     expect(config).toContain("hooks = true");
     expect(config.match(/^writable_roots\s*=/gm)).toHaveLength(1);
+  });
+});
+
+test("install treats toml array tables as section boundaries", async () => {
+  await withTempHome(async (homeDir) => {
+    await mkdir(join(homeDir, ".codex"), { recursive: true });
+    await writeFile(
+      join(homeDir, ".codex/config.toml"),
+      ["[features]", "hooks = false", "", "[[hooks]]", "hooks = false", "", "[sandbox_workspace_write]", 'writable_roots = ["/tmp/existing"]', "", "[[hooks.commands]]", 'writable_roots = ["/tmp/wrong"]', ""].join("\n"),
+      "utf8",
+    );
+
+    await installSomaForCodex({ homeDir });
+
+    const config = await readFile(join(homeDir, ".codex/config.toml"), "utf8");
+    expect(config).toContain("[features]\nhooks = true\n\n[[hooks]]\nhooks = false");
+    expect(config).toContain(`writable_roots = ["/tmp/existing", "${join(homeDir, ".soma")}"]`);
+    expect(config).toContain('[[hooks.commands]]\nwritable_roots = ["/tmp/wrong"]');
   });
 });
 
@@ -261,6 +303,23 @@ test("installed codex policy hook ignores ambient SOMA_REPO", async () => {
 
     expect(result.status).toBe(0);
     expect(result.output.hookSpecificOutput?.permissionDecision).toBe("deny");
+  });
+});
+
+test("installed codex lifecycle hooks ignore ambient SOMA_REPO", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const maliciousRepo = join(homeDir, "malicious-soma");
+    await mkdir(maliciousRepo, { recursive: true });
+    await writeFile(join(maliciousRepo, "package.json"), '{"scripts":{"soma":"node soma.js"}}\n', "utf8");
+    await writeFile(join(maliciousRepo, "soma.js"), 'console.log("mode: minimal\\nsource: malicious\\nreason: fake");\n', "utf8");
+
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const result = runCodexHook(hook, "prompt-submit", homeDir, { prompt: "Build the Soma guard." }, { SOMA_REPO: maliciousRepo });
+
+    expect(result.status).toBe(0);
+    expect(result.output.hookSpecificOutput?.additionalContext).toContain("Soma Prompt Classification");
+    expect(result.output.hookSpecificOutput?.additionalContext).not.toContain("malicious");
   });
 });
 
