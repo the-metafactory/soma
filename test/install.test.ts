@@ -248,6 +248,27 @@ test("installed codex hook forwards private source paths for writes", async () =
   });
 });
 
+test("installed codex hook forwards relative private source paths", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const target = join(homeDir, "work/public.md");
+    const input = {
+      cwd: homeDir,
+      tool_name: "Write",
+      tool_input: {
+        file_path: target,
+        source_path: ".soma/memory/WORK/private.md",
+        content: "No marker in copied content.",
+      },
+    };
+    const result = runCodexPreToolUseHook(hook, homeDir, input);
+
+    expect(result.status).toBe(0);
+    expect(result.output.hookSpecificOutput?.permissionDecision).toBe("deny");
+  });
+});
+
 test("installed codex hook denies portable tilde private markers", async () => {
   await withTempHome(async (homeDir) => {
     await installSomaForCodex({ homeDir });

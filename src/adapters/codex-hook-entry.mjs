@@ -19,6 +19,11 @@ function hasSomaPolicyMarker(config, content) {
   return config.policyMarkers.some((marker) => hasSomaPolicyPrivateMarker(content, marker));
 }
 
+function hasPotentialPrivateSourceReference(content) {
+  if (!content) return false;
+  return content.includes(".soma/") || content.includes(".codex/memories/soma") || content.includes(".codex/skills/soma") || content.includes(".pi/agent/soma");
+}
+
 function policyRelevantContent(config, content) {
   if (!hasSomaPolicyMarker(config, content)) return "";
   return (content || "").split("\n").filter((line) => hasSomaPolicyMarker(config, line)).join("\n");
@@ -137,7 +142,8 @@ function extractWriteTargets(config, input) {
   const toolInput = rawToolInput && typeof rawToolInput === "object" && !Array.isArray(rawToolInput) ? rawToolInput : {};
   const cwd = input.cwd || process.cwd();
   const filePath = resolveToolPath(toolInput.file_path || toolInput.filePath || cwd, cwd);
-  const sourcePath = toolInput.source_path || toolInput.sourcePath;
+  const rawSourcePath = toolInput.source_path || toolInput.sourcePath;
+  const sourcePath = rawSourcePath ? resolveToolPath(rawSourcePath, cwd) : undefined;
 
   if (toolName === "Write") {
     return [{ filePath, sourcePath, content: policyRelevantContent(config, toolInput.content || "") }];
@@ -154,6 +160,7 @@ function extractWriteTargets(config, input) {
 
   if (toolName === "apply_patch") {
     const content = typeof rawToolInput === "string" ? rawToolInput : toolInput.patch || toolInput.command || toolInput.cmd || JSON.stringify(toolInput);
+    if (!hasSomaPolicyMarker(config, content) && !hasPotentialPrivateSourceReference(content)) return [];
     const targets = extractPatchTargets(config, content, cwd);
     return targets.length > 0 ? targets : [{ filePath: cwd, content: policyRelevantContent(config, content) }];
   }
@@ -162,7 +169,7 @@ function extractWriteTargets(config, input) {
 }
 
 function shouldCheckPolicyTarget(config, target) {
-  return hasSomaPolicyMarker(config, target.content) || hasSomaPolicyMarker(config, target.sourcePath);
+  return Boolean(target.sourcePath) || hasSomaPolicyMarker(config, target.content);
 }
 
 function parseClassification(output) {
