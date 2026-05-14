@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
-import { extractWriteTargets, privateShellCommand, shouldCheckPolicyTarget } from "./codex-policy-hook.mjs";
+import { extractWriteTargets, shouldCheckPolicyTarget } from "./codex-policy-hook.mjs";
 
 function readHookInput() {
   try {
@@ -135,9 +135,6 @@ function readProjectedStartupContext() {
 function handlePreToolUse(config, input) {
   if (input.__somaParseError) {
     denyPreToolUse(`Soma policy check failed closed: malformed hook input (${input.__somaParseError})`);
-  }
-  if (privateShellCommand(config, input)) {
-    denyPreToolUse("Soma private context policy denied this shell command because it references private Soma context.");
   }
   const targets = extractWriteTargets(config, input).filter((target) => shouldCheckPolicyTarget(config, target));
   if (targets.length > 0) {

@@ -23,6 +23,55 @@ function resolveToolPath(path, cwd) {
   return isAbsolute(path) ? path : resolve(cwd || process.cwd(), path);
 }
 
+function resolveShellPath(config, path, cwd) {
+  if (path.startsWith("~/.soma")) {
+    return `${config.somaHome}${path.slice("~/.soma".length)}`;
+  }
+
+  if (path.startsWith("~/") && config.somaHome.endsWith("/.soma")) {
+    return `${config.somaHome.slice(0, -"/.soma".length)}/${path.slice(2)}`;
+  }
+
+  return path.startsWith("~/") ? path : resolveToolPath(path, cwd);
+}
+
+function cleanShellToken(token) {
+  return token.replace(/^[<>"']+|[>"']+$/g, "");
+}
+
+function tokenizeShellCommand(command) {
+  return [...(command || "").matchAll(/"([^"]*)"|'([^']*)'|[^\s]+/g)].map((match) => cleanShellToken(match[1] || match[2] || match[0])).filter(Boolean);
+}
+
+function hasPrivatePathReference(config, token, cwd) {
+  if (!token) return false;
+  if (hasSomaPolicyMarker(config, token)) return true;
+  if (token === ".soma" || token.startsWith(".soma/") || token.startsWith("./.soma/")) return true;
+  if (token.startsWith(".codex/memories/soma/") || token.startsWith("./.codex/memories/soma/")) return true;
+  if (token.startsWith(".pi/agent/soma/") || token.startsWith("./.pi/agent/soma/")) return true;
+  const resolved = resolveToolPath(token, cwd);
+  return config.policyMarkers.some((marker) => {
+    if (!marker.startsWith("/")) return false;
+    const root = marker.endsWith("/") ? marker.slice(0, -1) : marker;
+    return resolved === root || resolved.startsWith(`${root}/`);
+  });
+}
+
+function firstPrivatePathToken(config, tokens, cwd) {
+  return tokens.find((token) => hasPrivatePathReference(config, token, cwd));
+}
+
+function lastPathToken(tokens) {
+  return [...tokens].reverse().find((token) => token && !token.startsWith("-") && token !== "--");
+}
+
+function redirectionTarget(tokens) {
+  const redirectIndex = tokens.findIndex((token) => token === ">" || token === ">>");
+  if (redirectIndex !== -1) return tokens[redirectIndex + 1];
+  const redirectToken = tokens.find((token) => token.startsWith(">") && token.length > 1);
+  return redirectToken ? redirectToken.replace(/^>+/, "") : undefined;
+}
+
 function normalizeToolInvocation(input) {
   const toolName = input.tool_name || input.toolName || "";
   const rawToolInput = input.tool_input ?? input.toolInput;
@@ -114,8 +163,28 @@ function extractApplyPatchTargets(config, context) {
 }
 
 function extractShellTarget(config, context) {
-  if (hasPotentialPrivateSourceReference(config, context.command)) {
-    return [{ filePath: context.cwd, sourcePath: context.command, content: "" }];
+  const tokens = tokenizeShellCommand(context.command);
+  const privateSource = firstPrivatePathToken(config, tokens, context.cwd);
+  if (!privateSource) return [];
+
+  const command = tokens[0] || "";
+  if (command === "cp" || command === "mv" || command === "rsync") {
+    const destination = lastPathToken(tokens.slice(1));
+    if (destination && destination !== privateSource) {
+      return [{ filePath: resolveShellPath(config, destination, context.cwd), sourcePath: resolveShellPath(config, privateSource, context.cwd), content: "" }];
+    }
+  }
+
+  const redirectedDestination = redirectionTarget(tokens);
+  if (redirectedDestination) {
+    return [{ filePath: resolveShellPath(config, redirectedDestination, context.cwd), sourcePath: resolveShellPath(config, privateSource, context.cwd), content: "" }];
+  }
+
+  if (command === "tee") {
+    const destination = lastPathToken(tokens.slice(1));
+    if (destination && destination !== privateSource) {
+      return [{ filePath: resolveShellPath(config, destination, context.cwd), sourcePath: resolveShellPath(config, privateSource, context.cwd), content: "" }];
+    }
   }
 
   return [];
@@ -139,10 +208,4 @@ export function extractWriteTargets(config, input) {
 
 export function shouldCheckPolicyTarget(config, target) {
   return Boolean(target.sourcePath) || hasSomaPolicyMarker(config, target.content);
-}
-
-export function privateShellCommand(config, input) {
-  const context = normalizeToolInvocation(input);
-  if (context.toolName !== "Bash" && context.toolName !== "Shell" && context.toolName !== "exec_command") return "";
-  return hasPotentialPrivateSourceReference(config, context.command) ? context.command : "";
 }
