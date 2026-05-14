@@ -99,6 +99,16 @@ Algorithm runs, recent learning, and relationship notes. `algorithm-updated`
 writes `~/.soma/memory/STATE/algorithm-work-index.json`. `session-end` refreshes
 the index and captures completed Algorithm runs into `~/.soma/memory/LEARNING/`.
 
+Recall commands provide deterministic file-backed memory retrieval:
+
+```bash
+bun run soma memory search --query "client sovereignty agency"
+```
+
+Search covers Soma profile/imports plus WORK, KNOWLEDGE, LEARNING,
+RELATIONSHIP, and STATE memory stores, returning source paths, line numbers, and
+short snippets.
+
 ## What Soma Is
 
 Soma is a small runtime-independent kernel for personal AI assistants.

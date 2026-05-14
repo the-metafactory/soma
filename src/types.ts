@@ -304,6 +304,26 @@ export interface SomaMemoryEvent {
   metadata?: Record<string, unknown>;
 }
 
+export interface SomaMemorySearchOptions {
+  homeDir?: string;
+  somaHome?: string;
+  query: string;
+  limit?: number;
+}
+
+export interface SomaMemorySearchMatch {
+  path: string;
+  line: number;
+  score: number;
+  snippet: string;
+}
+
+export interface SomaMemorySearchResult {
+  query: string;
+  somaHome: string;
+  matches: SomaMemorySearchMatch[];
+}
+
 export type SomaLifecycleEventName = "session_start" | "algorithm_updated" | "session_end";
 
 export interface SomaLifecycleOptions {

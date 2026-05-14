@@ -20,6 +20,7 @@ import {
   runSomaLifecycleAlgorithmUpdated,
   runSomaLifecycleSessionEnd,
   runSomaLifecycleSessionStart,
+  searchSomaMemory,
   setAlgorithmPlan,
   updateAlgorithmPlanStep,
   updateAlgorithmRunById,
@@ -43,6 +44,8 @@ import type {
   SomaInstallResult,
   SomaLifecycleOptions,
   SomaLifecycleResult,
+  SomaMemorySearchOptions,
+  SomaMemorySearchResult,
   SubstrateId,
 } from "./types";
 
@@ -102,7 +105,13 @@ interface ParsedLifecycleArgs {
   options: SomaLifecycleOptions;
 }
 
-type ParsedArgs = ParsedInstallArgs | ParsedImportArgs | ParsedAlgorithmArgs | ParsedLifecycleArgs;
+interface ParsedMemoryArgs {
+  command: "memory";
+  action: "search";
+  options: SomaMemorySearchOptions;
+}
+
+type ParsedArgs = ParsedInstallArgs | ParsedImportArgs | ParsedAlgorithmArgs | ParsedLifecycleArgs | ParsedMemoryArgs;
 
 function readOption(args: string[], index: number, name: string): string {
   const value = args[index + 1];
@@ -568,9 +577,61 @@ function parseLifecycleArgs(args: string[]): ParsedLifecycleArgs {
   };
 }
 
+function parseMemoryArgs(args: string[]): ParsedMemoryArgs {
+  const [command, action, ...rest] = args;
+
+  if (command !== "memory" || action !== "search") {
+    throw new Error("Usage: soma memory search --query <text> [--limit <n>] [--home-dir <dir>] [--soma-home <dir>]");
+  }
+
+  const options: Partial<SomaMemorySearchOptions> = {};
+
+  for (let index = 0; index < rest.length; index += 1) {
+    const arg = rest[index];
+
+    switch (arg) {
+      case "--home-dir":
+        options.homeDir = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--soma-home":
+        options.somaHome = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--query":
+        options.query = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--limit":
+        options.limit = Number.parseInt(readOption(rest, index, arg), 10);
+        if (!Number.isFinite(options.limit) || options.limit < 1) {
+          throw new Error("--limit must be a positive integer.");
+        }
+        index += 1;
+        break;
+      default:
+        throw new Error(`Unknown option: ${arg}`);
+    }
+  }
+
+  if (!options.query) {
+    throw new Error("soma memory search is missing required option: --query.");
+  }
+
+  return {
+    command,
+    action,
+    options: options as SomaMemorySearchOptions,
+  };
+}
+
 function parseArgs(args: string[]): ParsedArgs {
   if (args[0] === "lifecycle") {
     return parseLifecycleArgs(args);
+  }
+
+  if (args[0] === "memory") {
+    return parseMemoryArgs(args);
   }
 
   if (args[0] === "algorithm") {
@@ -592,6 +653,7 @@ function parseArgs(args: string[]): ParsedArgs {
       "  soma algorithm classify --prompt <text>",
       "  soma algorithm batch --id <run-id> --op <kind:...> [--op <kind:...>]",
       "  soma algorithm <list|show|capabilities|plan|decision|change|step|verify|learn|advance> --id <run-id> [...]",
+      "  soma memory search --query <text> [--limit <n>] [--home-dir <dir>] [--soma-home <dir>]",
       "  soma lifecycle <session-start|algorithm-updated|session-end> [--home-dir <dir>] [--soma-home <dir>] [--substrate <id>] [--session-id <id>]",
       "  soma install <codex|pi-dev> [--dry-run] [--apply] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
       "  soma import pai [--dry-run] [--apply] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>]",
@@ -726,6 +788,19 @@ function formatLifecycleResult(result: SomaLifecycleResult): string {
   }
 
   return lines.join("\n");
+}
+
+function formatMemorySearchResult(result: SomaMemorySearchResult): string {
+  return [
+    "Soma memory search",
+    `query: ${result.query}`,
+    `somaHome: ${result.somaHome}`,
+    "",
+    "Matches:",
+    ...(result.matches.length > 0
+      ? result.matches.map((match) => `- ${match.path}:${match.line} [score ${match.score}] ${match.snippet}`)
+      : ["- none"]),
+  ].join("\n");
 }
 
 function formatAlgorithmRun(run: AlgorithmRun, path: string): string {
@@ -892,6 +967,10 @@ export async function runSomaCli(args: string[]): Promise<string> {
 
   if (parsed.command === "algorithm") {
     return runAlgorithmCli(parsed);
+  }
+
+  if (parsed.command === "memory") {
+    return formatMemorySearchResult(await searchSomaMemory(parsed.options));
   }
 
   if (parsed.command === "import") {

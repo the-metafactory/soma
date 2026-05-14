@@ -1,8 +1,8 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import { appendSomaMemoryEvent, bootstrapSomaHome, somaMemoryEventsPath, type SomaMemoryEvent } from "../src/index";
+import { appendSomaMemoryEvent, bootstrapSomaHome, searchSomaMemory, somaMemoryEventsPath, type SomaMemoryEvent } from "../src/index";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-memory-"));
@@ -102,5 +102,30 @@ test("rejects memory events missing required text fields", async () => {
         summary: "Missing kind.",
       }),
     ).rejects.toThrow("kind must not be empty");
+  });
+});
+
+test("searches Soma memory and profile files with cited snippets", async () => {
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    await mkdir(join(somaHome, "memory/KNOWLEDGE/consulting"), { recursive: true });
+    await writeFile(
+      join(somaHome, "memory/KNOWLEDGE/consulting/autonomy.md"),
+      "# Autonomy Consulting\n\nClient sovereignty increases when consulting transfers agency instead of dependency.\n",
+      "utf8",
+    );
+
+    const result = await searchSomaMemory({
+      homeDir,
+      query: "client sovereignty agency",
+      limit: 3,
+    });
+
+    expect(result.matches[0]).toMatchObject({
+      line: 3,
+      score: 3,
+    });
+    expect(result.matches[0]?.path).toEndWith("memory/KNOWLEDGE/consulting/autonomy.md");
+    expect(result.matches[0]?.snippet).toContain("Client sovereignty");
   });
 });

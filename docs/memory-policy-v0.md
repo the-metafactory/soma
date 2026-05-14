@@ -25,6 +25,12 @@ The initial portable operations are:
 - append substrate events to `memory/STATE/events.jsonl`
 - append learning notes through explicit tools or patches
 
+The first implemented recall surface is `soma memory search --query <text>`.
+It searches profile/import files plus WORK, KNOWLEDGE, LEARNING, RELATIONSHIP,
+and selected STATE files, then returns cited path/line/snippet matches. This is
+not semantic memory yet; it is the portable file-backed retrieval floor that
+substrates can call before answering.
+
 `memory/STATE/events.jsonl` is the first writeback contract. Substrates append
 one JSON object per line with `id`, `timestamp`, `substrate`, `kind`, `summary`,
 and optional artifact paths or metadata. Consolidation into `KNOWLEDGE`,
