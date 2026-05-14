@@ -219,3 +219,37 @@ test("refuses to promote unverified Algorithm runs", async () => {
     ).rejects.toThrow("has no verification evidence or passed criteria");
   });
 });
+
+test("sanitizes Algorithm run ids in promotion filenames", async () => {
+  await withTempHome(async (homeDir) => {
+    await bootstrapSomaHome({ homeDir });
+    await writeAlgorithmRun(
+      {
+        ...createAlgorithmRun({
+          id: "nested/run:id",
+          prompt: "Promote nested run id",
+          intent: "Keep promotion paths flat.",
+          currentState: "Run id contains path-shaped characters.",
+          goal: "Promotion filename is path-safe.",
+          criteria: [{ id: "C1", text: "Filename is safe." }],
+        }),
+        isa: {
+          slug: "nested-run-id",
+          phase: "complete",
+          goal: "Promotion filename is path-safe.",
+          criteria: [{ id: "C1", text: "Filename is safe.", status: "passed", verification: "Path is flat." }],
+        },
+      },
+      { homeDir },
+    );
+
+    const result = await promoteAlgorithmRunMemory({
+      homeDir,
+      fromRun: "nested/run:id",
+      store: "learning",
+      title: "Nested ID lesson",
+    });
+
+    expect(result.path).toEndWith("memory/LEARNING/PROMOTED/nested-id-lesson-nested-run-id.md");
+  });
+});

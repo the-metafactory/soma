@@ -109,11 +109,19 @@ interface ParsedLifecycleArgs {
   options: SomaLifecycleOptions;
 }
 
-interface ParsedMemoryArgs {
+interface ParsedMemorySearchArgs {
   command: "memory";
-  action: "search" | "promote";
-  options: SomaMemorySearchOptions | SomaMemoryPromotionOptions;
+  action: "search";
+  options: SomaMemorySearchOptions;
 }
+
+interface ParsedMemoryPromoteArgs {
+  command: "memory";
+  action: "promote";
+  options: SomaMemoryPromotionOptions;
+}
+
+type ParsedMemoryArgs = ParsedMemorySearchArgs | ParsedMemoryPromoteArgs;
 
 type ParsedArgs = ParsedInstallArgs | ParsedImportArgs | ParsedAlgorithmArgs | ParsedLifecycleArgs | ParsedMemoryArgs;
 
@@ -589,59 +597,27 @@ function parseLifecycleArgs(args: string[]): ParsedLifecycleArgs {
   };
 }
 
-function parseMemoryArgs(args: string[]): ParsedMemoryArgs {
-  const [command, action, ...rest] = args;
+function parseMemorySearchArgs(args: string[]): SomaMemorySearchOptions {
+  const options: Partial<SomaMemorySearchOptions> = {};
 
-  if (command !== "memory" || (action !== "search" && action !== "promote")) {
-    throw new Error(
-      "Usage: soma memory <search|promote> ...",
-    );
-  }
-
-  const options: Partial<SomaMemorySearchOptions & SomaMemoryPromotionOptions> = {};
-
-  for (let index = 0; index < rest.length; index += 1) {
-    const arg = rest[index];
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
 
     switch (arg) {
       case "--home-dir":
-        options.homeDir = readOption(rest, index, arg);
+        options.homeDir = readOption(args, index, arg);
         index += 1;
         break;
       case "--soma-home":
-        options.somaHome = readOption(rest, index, arg);
-        index += 1;
-        break;
-      case "--substrate":
-        options.substrate = parseSubstrate(readOption(rest, index, arg));
+        options.somaHome = readOption(args, index, arg);
         index += 1;
         break;
       case "--query":
-        options.query = readOption(rest, index, arg);
-        index += 1;
-        break;
-      case "--from-run":
-        options.fromRun = readOption(rest, index, arg);
-        index += 1;
-        break;
-      case "--store":
-        options.store = parseMemoryPromotionStore(readOption(rest, index, arg));
-        index += 1;
-        break;
-      case "--title":
-        options.title = readOption(rest, index, arg);
-        index += 1;
-        break;
-      case "--lesson":
-        options.lesson = readOption(rest, index, arg);
-        index += 1;
-        break;
-      case "--applies-when":
-        options.appliesWhen = readOption(rest, index, arg);
+        options.query = readOption(args, index, arg);
         index += 1;
         break;
       case "--limit":
-        options.limit = Number.parseInt(readOption(rest, index, arg), 10);
+        options.limit = Number.parseInt(readOption(args, index, arg), 10);
         if (!Number.isFinite(options.limit) || options.limit < 1) {
           throw new Error("--limit must be a positive integer.");
         }
@@ -652,24 +628,87 @@ function parseMemoryArgs(args: string[]): ParsedMemoryArgs {
     }
   }
 
-  if (action === "search" && !options.query) {
+  if (!options.query) {
     throw new Error("soma memory search is missing required option: --query.");
   }
 
-  if (action === "promote") {
-    const missing: string[] = [];
-    if (!options.fromRun) missing.push("--from-run");
-    if (!options.store) missing.push("--store");
-    if (!options.title) missing.push("--title");
-    if (missing.length > 0) {
-      throw new Error(`soma memory promote is missing required option(s): ${missing.join(", ")}.`);
+  return options as SomaMemorySearchOptions;
+}
+
+function parseMemoryPromoteArgs(args: string[]): SomaMemoryPromotionOptions {
+  const options: Partial<SomaMemoryPromotionOptions> = {};
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+
+    switch (arg) {
+      case "--home-dir":
+        options.homeDir = readOption(args, index, arg);
+        index += 1;
+        break;
+      case "--soma-home":
+        options.somaHome = readOption(args, index, arg);
+        index += 1;
+        break;
+      case "--substrate":
+        options.substrate = parseSubstrate(readOption(args, index, arg));
+        index += 1;
+        break;
+      case "--from-run":
+        options.fromRun = readOption(args, index, arg);
+        index += 1;
+        break;
+      case "--store":
+        options.store = parseMemoryPromotionStore(readOption(args, index, arg));
+        index += 1;
+        break;
+      case "--title":
+        options.title = readOption(args, index, arg);
+        index += 1;
+        break;
+      case "--lesson":
+        options.lesson = readOption(args, index, arg);
+        index += 1;
+        break;
+      case "--applies-when":
+        options.appliesWhen = readOption(args, index, arg);
+        index += 1;
+        break;
+      default:
+        throw new Error(`Unknown option: ${arg}`);
     }
+  }
+
+  const missing: string[] = [];
+  if (!options.fromRun) missing.push("--from-run");
+  if (!options.store) missing.push("--store");
+  if (!options.title) missing.push("--title");
+  if (missing.length > 0) {
+    throw new Error(`soma memory promote is missing required option(s): ${missing.join(", ")}.`);
+  }
+
+  return options as SomaMemoryPromotionOptions;
+}
+
+function parseMemoryArgs(args: string[]): ParsedMemoryArgs {
+  const [command, action, ...rest] = args;
+
+  if (command !== "memory" || (action !== "search" && action !== "promote")) {
+    throw new Error("Usage: soma memory <search|promote> ...");
+  }
+
+  if (action === "search") {
+    return {
+      command,
+      action,
+      options: parseMemorySearchArgs(rest),
+    };
   }
 
   return {
     command,
     action,
-    options: options as SomaMemorySearchOptions | SomaMemoryPromotionOptions,
+    options: parseMemoryPromoteArgs(rest),
   };
 }
 
@@ -1030,10 +1069,10 @@ export async function runSomaCli(args: string[]): Promise<string> {
 
   if (parsed.command === "memory") {
     if (parsed.action === "promote") {
-      return formatMemoryPromotionResult(await promoteAlgorithmRunMemory(parsed.options as SomaMemoryPromotionOptions));
+      return formatMemoryPromotionResult(await promoteAlgorithmRunMemory(parsed.options));
     }
 
-    return formatMemorySearchResult(await searchSomaMemory(parsed.options as SomaMemorySearchOptions));
+    return formatMemorySearchResult(await searchSomaMemory(parsed.options));
   }
 
   if (parsed.command === "import") {

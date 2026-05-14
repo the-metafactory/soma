@@ -108,7 +108,8 @@ export {
   runSomaLifecycleSessionStart,
   writeAlgorithmWorkIndex,
 } from "./lifecycle";
-export { appendSomaMemoryEvent, promoteAlgorithmRunMemory, searchSomaMemory, somaMemoryEventsPath } from "./memory";
+export { appendSomaMemoryEvent, searchSomaMemory, somaMemoryEventsPath } from "./memory";
+export { promoteAlgorithmRunMemory } from "./memory-promotion";
 export { importPaiIdentity, planPaiImport } from "./pai-importer";
 export { bootstrapSomaHome, loadSomaHome } from "./soma-home";
 
