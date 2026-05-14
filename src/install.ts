@@ -32,6 +32,7 @@ const CODEX_HOME_FILES = [
   "hooks.json",
   "hooks/soma-lifecycle.mjs",
   "hooks/codex-hook-entry.mjs",
+  "hooks/codex-policy-hook.mjs",
   "hooks/policy-marker.mjs",
   "skills/soma/SKILL.md",
   "memories/soma/profile.md",

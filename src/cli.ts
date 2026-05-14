@@ -1029,6 +1029,36 @@ function formatPolicyCheckResult(result: SomaPolicyCheckResult): string {
     .join("\n");
 }
 
+function readPolicyTargetsEnv(envName: string): SomaPolicyBatchTarget[] {
+  const envContent = process.env[envName];
+  if (envContent === undefined) {
+    throw new Error(`--targets-env ${envName} is not set.`);
+  }
+
+  let targets: unknown;
+  try {
+    targets = JSON.parse(envContent);
+  } catch {
+    throw new Error(`--targets-env ${envName} must contain valid JSON targets.`);
+  }
+
+  if (
+    !Array.isArray(targets) ||
+    targets.some(
+      (target) =>
+        !target ||
+        typeof target !== "object" ||
+        typeof (target as SomaPolicyBatchTarget).filePath !== "string" ||
+        ((target as SomaPolicyBatchTarget).content !== undefined && typeof (target as SomaPolicyBatchTarget).content !== "string") ||
+        ((target as SomaPolicyBatchTarget).sourcePath !== undefined && typeof (target as SomaPolicyBatchTarget).sourcePath !== "string"),
+    )
+  ) {
+    throw new Error(`--targets-env ${envName} must contain an array of targets with string filePath values and optional string content/sourcePath values.`);
+  }
+
+  return targets as SomaPolicyBatchTarget[];
+}
+
 function formatAlgorithmRun(run: AlgorithmRun, path: string): string {
   return [
     "Soma Algorithm run",
@@ -1205,27 +1235,7 @@ export async function runSomaCli(args: string[]): Promise<string> {
 
   if (parsed.command === "policy") {
     if (parsed.targetsEnv) {
-      const envContent = process.env[parsed.targetsEnv];
-      if (envContent === undefined) {
-        throw new Error(`--targets-env ${parsed.targetsEnv} is not set.`);
-      }
-      let targets: SomaPolicyBatchTarget[];
-      try {
-        targets = JSON.parse(envContent) as SomaPolicyBatchTarget[];
-      } catch {
-        throw new Error(`--targets-env ${parsed.targetsEnv} must contain valid JSON targets.`);
-      }
-      if (
-        !Array.isArray(targets) ||
-        targets.some(
-          (target) =>
-            typeof target.filePath !== "string" ||
-            (target.content !== undefined && typeof target.content !== "string") ||
-            (target.sourcePath !== undefined && typeof target.sourcePath !== "string"),
-        )
-      ) {
-        throw new Error(`--targets-env ${parsed.targetsEnv} must contain an array of targets with string filePath values and optional string content/sourcePath values.`);
-      }
+      const targets = readPolicyTargetsEnv(parsed.targetsEnv);
       const result = await checkSomaPolicyBatch({
         homeDir: parsed.options.homeDir,
         somaHome: parsed.options.somaHome,

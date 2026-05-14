@@ -1,7 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
-import { hasSomaPolicyPrivateMarker } from "./policy-marker.mjs";
+import { extractWriteTargets, privateShellCommand, shouldCheckPolicyTarget } from "./codex-policy-hook.mjs";
 
 function readHookInput() {
   try {
@@ -13,21 +12,6 @@ function readHookInput() {
   } catch (error) {
     return { __somaParseError: error instanceof Error ? error.message : String(error) };
   }
-}
-
-function hasSomaPolicyMarker(config, content) {
-  return config.policyMarkers.some((marker) => hasSomaPolicyPrivateMarker(content, marker));
-}
-
-function hasPotentialPrivateSourceReference(config, content) {
-  if (!content) return false;
-  if (hasSomaPolicyMarker(config, content)) return true;
-  return config.policyMarkers.some((marker) => marker.startsWith("/") && content.includes(marker.slice(marker.lastIndexOf("/"))));
-}
-
-function policyRelevantContent(config, content) {
-  if (!hasSomaPolicyMarker(config, content)) return "";
-  return (content || "").split("\n").filter((line) => hasSomaPolicyMarker(config, line)).join("\n");
 }
 
 function runSomaCommand(config, args, env = {}) {
@@ -87,107 +71,6 @@ function denyPreToolUse(reason) {
       permissionDecisionReason: reason,
     },
   });
-}
-
-function resolveToolPath(path, cwd) {
-  return isAbsolute(path) ? path : resolve(cwd || process.cwd(), path);
-}
-
-function pushPatchTarget(config, targets, target) {
-  if (!target) return;
-  targets.push({
-    filePath: target.filePath,
-    sourcePath: target.sourcePath,
-    content: target.lines.filter((line) => hasSomaPolicyMarker(config, line)).join("\n"),
-  });
-}
-
-function extractPatchTargets(config, patch, cwd) {
-  const targets = [];
-  let current;
-  const pattern = /^\*\*\* (?:Add|Update|Delete) File: (.+)$/;
-  const movePattern = /^\*\*\* Move to: (.+)$/;
-
-  for (const line of (patch || "").split("\n")) {
-    const moveMatch = line.match(movePattern);
-    if (moveMatch) {
-      if (current) {
-        const originalFilePath = current.filePath;
-        current.filePath = resolveToolPath(moveMatch[1].trim(), cwd);
-        current.sourcePath = current.sourcePath || originalFilePath;
-      } else {
-        current = { filePath: resolveToolPath(moveMatch[1].trim(), cwd), sourcePath: config.somaHome, lines: [] };
-      }
-      continue;
-    }
-
-    const fileMatch = line.match(pattern);
-    if (fileMatch) {
-      pushPatchTarget(config, targets, current);
-      current = { filePath: resolveToolPath(fileMatch[1].trim(), cwd), lines: [] };
-      continue;
-    }
-
-    if (current && line.startsWith("+") && !line.startsWith("+++")) {
-      current.lines.push(line.slice(1));
-    }
-  }
-
-  pushPatchTarget(config, targets, current);
-  return targets;
-}
-
-function extractWriteTargets(config, input) {
-  const toolName = input.tool_name || input.toolName || "";
-  const rawToolInput = input.tool_input ?? input.toolInput;
-  const toolInput = rawToolInput && typeof rawToolInput === "object" && !Array.isArray(rawToolInput) ? rawToolInput : {};
-  const cwd = input.cwd || process.cwd();
-  const filePath = resolveToolPath(toolInput.file_path || toolInput.filePath || cwd, cwd);
-  const rawSourcePath = toolInput.source_path || toolInput.sourcePath;
-  const sourcePath = rawSourcePath ? resolveToolPath(rawSourcePath, cwd) : undefined;
-
-  if (toolName === "Write") {
-    return [{ filePath, sourcePath, content: policyRelevantContent(config, toolInput.content || "") }];
-  }
-
-  if (toolName === "Edit") {
-    return [{ filePath, sourcePath, content: policyRelevantContent(config, toolInput.new_string || toolInput.newString || "") }];
-  }
-
-  if (toolName === "MultiEdit") {
-    const edits = Array.isArray(toolInput.edits) ? toolInput.edits : [];
-    return edits.map((edit) => ({ filePath, sourcePath, content: policyRelevantContent(config, edit?.new_string || edit?.newString || "") }));
-  }
-
-  if (toolName === "apply_patch") {
-    const content = typeof rawToolInput === "string" ? rawToolInput : toolInput.patch || toolInput.command || toolInput.cmd || JSON.stringify(toolInput);
-    if (!hasPotentialPrivateSourceReference(config, content) && !content.includes("*** Move to:")) return [];
-    const targets = extractPatchTargets(config, content, cwd);
-    return targets.length > 0 ? targets : [{ filePath: cwd, content: policyRelevantContent(config, content) }];
-  }
-
-  if (toolName === "Bash" || toolName === "Shell" || toolName === "exec_command") {
-    const command = typeof rawToolInput === "string" ? rawToolInput : toolInput.command || toolInput.cmd || "";
-    if (hasPotentialPrivateSourceReference(config, command)) {
-      return [{ filePath: cwd, sourcePath: command, content: "" }];
-    }
-  }
-
-  return [];
-}
-
-function shouldCheckPolicyTarget(config, target) {
-  return Boolean(target.sourcePath) || hasSomaPolicyMarker(config, target.content);
-}
-
-function privateShellCommand(config, input) {
-  const toolName = input.tool_name || input.toolName || "";
-  if (toolName !== "Bash" && toolName !== "Shell" && toolName !== "exec_command") return "";
-
-  const rawToolInput = input.tool_input ?? input.toolInput;
-  const toolInput = rawToolInput && typeof rawToolInput === "object" && !Array.isArray(rawToolInput) ? rawToolInput : {};
-  const command = typeof rawToolInput === "string" ? rawToolInput : toolInput.command || toolInput.cmd || "";
-  return hasPotentialPrivateSourceReference(config, command) ? command : "";
 }
 
 function parseClassification(output) {

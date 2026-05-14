@@ -281,6 +281,10 @@ export function buildCodexHomeContext(input: SomaContextInput, somaHome: string,
         content: readCodexHookAsset("codex-hook-entry.mjs"),
       },
       {
+        path: "hooks/codex-policy-hook.mjs",
+        content: readCodexHookAsset("codex-policy-hook.mjs"),
+      },
+      {
         path: "hooks/policy-marker.mjs",
         content: readCodexHookAsset("policy-marker.mjs"),
       },
