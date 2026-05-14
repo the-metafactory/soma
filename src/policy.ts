@@ -2,7 +2,7 @@ import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { appendSomaMemoryEvent } from "./memory";
-import type { SomaPolicyCheckOptions, SomaPolicyCheckResult, SomaPolicyFinding } from "./types";
+import type { SomaPolicyBatchCheckOptions, SomaPolicyBatchCheckResult, SomaPolicyCheckOptions, SomaPolicyCheckResult, SomaPolicyFinding } from "./types";
 
 function resolveSomaHome(options: Pick<SomaPolicyCheckOptions, "homeDir" | "somaHome"> = {}): string {
   return resolve(options.somaHome ?? join(options.homeDir ?? homedir(), ".soma"));
@@ -129,5 +129,30 @@ export async function checkSomaPolicy(options: SomaPolicyCheckOptions): Promise<
   return {
     ...result,
     event,
+  };
+}
+
+export async function checkSomaPolicyBatch(options: SomaPolicyBatchCheckOptions): Promise<SomaPolicyBatchCheckResult> {
+  const results = await Promise.all(
+    options.targets.map((target) =>
+      checkSomaPolicy({
+        homeDir: options.homeDir,
+        somaHome: options.somaHome,
+        substrate: options.substrate,
+        action: options.action,
+        destinationPath: target.filePath,
+        sourcePath: target.sourcePath,
+        content: target.content,
+        record: options.record,
+        timestamp: options.timestamp,
+      }),
+    ),
+  );
+  const denied = results.find((result) => result.decision === "deny");
+
+  return {
+    decision: denied ? "deny" : "allow",
+    reason: denied?.reason ?? "No private Soma source markers found in batch.",
+    results,
   };
 }

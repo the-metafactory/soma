@@ -222,8 +222,8 @@ function renderCodexHooksJson(): string {
   )}\n`;
 }
 
-function renderCodexPolicyHookRuntime(somaHome: string): string[] {
-  const policyMarkers = somaPolicyPrivateMarkers(somaHome);
+function renderCodexPolicyHookRuntime(somaHome: string, homeDir?: string): string[] {
+  const policyMarkers = somaPolicyPrivateMarkers(somaHome, homeDir);
 
   return [
     `const SOMA_POLICY_MARKERS = ${JSON.stringify(policyMarkers)};`,
@@ -260,7 +260,7 @@ function renderCodexPolicyHookRuntime(somaHome: string): string[] {
   ];
 }
 
-function renderCodexLifecycleHook(somaHome: string): string {
+function renderCodexLifecycleHook(somaHome: string, homeDir?: string): string {
   return [
     "#!/usr/bin/env node",
     'import { spawnSync } from "node:child_process";',
@@ -303,14 +303,14 @@ function renderCodexLifecycleHook(somaHome: string): string {
     "  });",
     "}",
     "",
-    ...renderCodexPolicyHookRuntime(somaHome),
+    ...renderCodexPolicyHookRuntime(somaHome, homeDir),
     "",
     "function resolveToolPath(path, cwd) {",
     "  return isAbsolute(path) ? path : resolve(cwd || process.cwd(), path);",
     "}",
     "",
     "function pushPatchTarget(targets, target) {",
-    "  if (target) targets.push({ filePath: target.filePath, content: target.lines.join(\"\\n\") });",
+    "  if (target) targets.push({ filePath: target.filePath, content: target.lines.filter((line) => hasSomaPolicyMarker(line)).join(\"\\n\") });",
     "}",
     "",
     "function extractPatchTargets(patch, cwd) {",
@@ -545,7 +545,7 @@ export function buildCodexContext(input: SomaContextInput): SomaContextBundle {
   };
 }
 
-export function buildCodexHomeContext(input: SomaContextInput, somaHome: string): SomaContextBundle {
+export function buildCodexHomeContext(input: SomaContextInput, somaHome: string, homeDir?: string): SomaContextBundle {
   const instructions = renderHomeRules(input, somaHome);
   const portableSkillFiles = input.profile.skills.flatMap((skill) =>
     (skill.files ?? []).map((file) => ({
@@ -568,7 +568,7 @@ export function buildCodexHomeContext(input: SomaContextInput, somaHome: string)
       },
       {
         path: "hooks/soma-lifecycle.mjs",
-        content: renderCodexLifecycleHook(somaHome),
+        content: renderCodexLifecycleHook(somaHome, homeDir),
       },
       {
         path: "skills/soma/SKILL.md",

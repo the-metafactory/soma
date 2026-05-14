@@ -48,6 +48,9 @@ export type {
   SomaMemorySearchResult,
   SomaPolicyCheckOptions,
   SomaPolicyCheckResult,
+  SomaPolicyBatchCheckOptions,
+  SomaPolicyBatchCheckResult,
+  SomaPolicyBatchTarget,
   SomaPolicyDecision,
   SomaPolicyFinding,
   PaiImportOptions,
@@ -115,7 +118,7 @@ export {
 export { appendSomaMemoryEvent, searchSomaMemory, somaMemoryEventsPath } from "./memory";
 export { promoteAlgorithmRunMemory } from "./memory-promotion";
 export { importPaiIdentity, planPaiImport } from "./pai-importer";
-export { checkSomaPolicy, evaluateSomaPolicy } from "./policy";
+export { checkSomaPolicy, checkSomaPolicyBatch, evaluateSomaPolicy } from "./policy";
 export { bootstrapSomaHome, loadSomaHome } from "./soma-home";
 
 export const SOMA_VERSION = "0.1.0";

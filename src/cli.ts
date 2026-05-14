@@ -2,6 +2,7 @@ import {
   addAlgorithmCapabilities,
   applyAlgorithmBatch,
   advanceAlgorithmRun,
+  checkSomaPolicyBatch,
   checkSomaPolicy,
   classifyAlgorithmPrompt,
   createAlgorithmRun,
@@ -53,6 +54,7 @@ import type {
   SomaMemorySearchResult,
   SomaPolicyCheckOptions,
   SomaPolicyCheckResult,
+  SomaPolicyBatchTarget,
   SubstrateId,
 } from "./types";
 
@@ -1207,23 +1209,16 @@ export async function runSomaCli(args: string[]): Promise<string> {
       if (envContent === undefined) {
         throw new Error(`--targets-env ${parsed.targetsEnv} is not set.`);
       }
-      const targets = JSON.parse(envContent) as { filePath: string; content?: string; sourcePath?: string }[];
-      const results = await Promise.all(
-        targets.map((target) =>
-          checkSomaPolicy({
-            ...parsed.options,
-            destinationPath: target.filePath,
-            sourcePath: target.sourcePath,
-            content: target.content,
-          }),
-        ),
-      );
-      const denied = results.find((result) => result.decision === "deny");
-      const result = {
-        decision: denied ? "deny" : "allow",
-        reason: denied?.reason ?? "No private Soma source markers found in batch.",
-        results,
-      };
+      const targets = JSON.parse(envContent) as SomaPolicyBatchTarget[];
+      const result = await checkSomaPolicyBatch({
+        homeDir: parsed.options.homeDir,
+        somaHome: parsed.options.somaHome,
+        substrate: parsed.options.substrate,
+        action: parsed.options.action,
+        record: parsed.options.record,
+        timestamp: parsed.options.timestamp,
+        targets,
+      });
 
       return parsed.json ? `${JSON.stringify(result, null, 2)}\n` : `${result.decision}: ${result.reason}\n`;
     }

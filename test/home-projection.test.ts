@@ -60,6 +60,7 @@ test("builds codex home projection bundle for default availability", () => {
   ]);
   expect(projection.bundle.instructions).toContain("Soma default availability");
   expect(projection.bundle.instructions).toContain("/tmp/soma-test-home/.soma");
+  expect(projection.bundle.files.find((file) => file.path === "hooks/soma-lifecycle.mjs")?.content).toContain("/tmp/soma-test-home/.codex/memories/soma");
 });
 
 test("builds pi.dev home projection bundle for default availability", () => {

@@ -360,6 +360,16 @@ export interface SomaPolicyCheckOptions {
   timestamp?: string;
 }
 
+export interface SomaPolicyBatchTarget {
+  filePath: string;
+  content?: string;
+  sourcePath?: string;
+}
+
+export interface SomaPolicyBatchCheckOptions extends Pick<SomaPolicyCheckOptions, "homeDir" | "somaHome" | "substrate" | "action" | "record" | "timestamp"> {
+  targets: SomaPolicyBatchTarget[];
+}
+
 export interface SomaPolicyFinding {
   kind: "private-source" | "private-marker";
   detail: string;
@@ -371,6 +381,12 @@ export interface SomaPolicyCheckResult {
   reason: string;
   findings: SomaPolicyFinding[];
   event?: SomaMemoryEvent;
+}
+
+export interface SomaPolicyBatchCheckResult {
+  decision: SomaPolicyDecision;
+  reason: string;
+  results: SomaPolicyCheckResult[];
 }
 
 export type SomaLifecycleEventName = "session_start" | "algorithm_updated" | "session_end";
