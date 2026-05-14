@@ -31,7 +31,7 @@ function policyRelevantContent(config, content) {
 }
 
 function runSomaCommand(config, args, env = {}) {
-  return spawnSync("bun", args, {
+  return spawnSync(config.bunPath, args, {
     cwd: config.trustedSomaRepo,
     encoding: "utf8",
     timeout: 25000,

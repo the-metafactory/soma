@@ -12,6 +12,7 @@ export function renderCodexLifecycleHook(somaHome: string, homeDir?: string, som
     "runCodexHook({",
     `  somaHome: ${JSON.stringify(somaHome)},`,
     `  trustedSomaRepo: ${JSON.stringify(somaRepoPath)},`,
+    `  bunPath: ${JSON.stringify(process.execPath)},`,
     `  policyMarkers: ${JSON.stringify(policyMarkers)},`,
     "});",
   ].join("\n");

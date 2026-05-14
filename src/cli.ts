@@ -1215,8 +1215,16 @@ export async function runSomaCli(args: string[]): Promise<string> {
       } catch {
         throw new Error(`--targets-env ${parsed.targetsEnv} must contain valid JSON targets.`);
       }
-      if (!Array.isArray(targets) || targets.some((target) => typeof target.filePath !== "string")) {
-        throw new Error(`--targets-env ${parsed.targetsEnv} must contain an array of targets with string filePath values.`);
+      if (
+        !Array.isArray(targets) ||
+        targets.some(
+          (target) =>
+            typeof target.filePath !== "string" ||
+            (target.content !== undefined && typeof target.content !== "string") ||
+            (target.sourcePath !== undefined && typeof target.sourcePath !== "string"),
+        )
+      ) {
+        throw new Error(`--targets-env ${parsed.targetsEnv} must contain an array of targets with string filePath values and optional string content/sourcePath values.`);
       }
       const result = await checkSomaPolicyBatch({
         homeDir: parsed.options.homeDir,

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { bootstrapSomaHome, checkSomaPolicy, evaluateSomaPolicy, somaMemoryEventsPath } from "../src/index";
-import { hasSomaPolicyPrivateMarker as hasSomaPolicyPrivateMarkerTs } from "../src/policy-marker";
+import { hasSomaPolicyPrivateMarker as hasSomaPolicyPrivateMarkerTs, renderPolicyMarkerMjs } from "../src/policy-marker";
 import { hasSomaPolicyPrivateMarker as hasSomaPolicyPrivateMarkerJs } from "../src/adapters/policy-marker.mjs";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
@@ -28,6 +28,11 @@ test("keeps TypeScript and hook marker matchers in parity", () => {
   for (const [content, marker] of cases) {
     expect(hasSomaPolicyPrivateMarkerJs(content, marker)).toBe(hasSomaPolicyPrivateMarkerTs(content, marker));
   }
+});
+
+test("keeps hook marker asset generated from TypeScript source", async () => {
+  const asset = await readFile(join(import.meta.dir, "../src/adapters/policy-marker.mjs"), "utf8");
+  expect(asset).toBe(renderPolicyMarkerMjs());
 });
 
 test("allows public writes without private Soma markers", async () => {

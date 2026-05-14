@@ -431,7 +431,29 @@ test("cli rejects non-array policy targets env", async () => {
           "--targets-env",
           "SOMA_BAD_POLICY_TARGETS",
         ]),
-      ).rejects.toThrow("--targets-env SOMA_BAD_POLICY_TARGETS must contain an array of targets with string filePath values.");
+      ).rejects.toThrow("--targets-env SOMA_BAD_POLICY_TARGETS must contain an array of targets with string filePath values and optional string content/sourcePath values.");
+    } finally {
+      delete process.env.SOMA_BAD_POLICY_TARGETS;
+    }
+  });
+});
+
+test("cli rejects malformed policy target fields", async () => {
+  await withTempHome(async (homeDir) => {
+    process.env.SOMA_BAD_POLICY_TARGETS = JSON.stringify([{ filePath: join(homeDir, "work/public.md"), content: {} }]);
+    try {
+      await expect(
+        runSomaCli([
+          "policy",
+          "check",
+          "--home-dir",
+          homeDir,
+          "--action",
+          "write",
+          "--targets-env",
+          "SOMA_BAD_POLICY_TARGETS",
+        ]),
+      ).rejects.toThrow("--targets-env SOMA_BAD_POLICY_TARGETS must contain an array of targets with string filePath values and optional string content/sourcePath values.");
     } finally {
       delete process.env.SOMA_BAD_POLICY_TARGETS;
     }

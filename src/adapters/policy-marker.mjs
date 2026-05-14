@@ -1,3 +1,4 @@
+// Generated from src/policy-marker.ts. Do not edit by hand.
 const PATH_CONTINUATION_PATTERN = /[A-Za-z0-9._~%:@+-]/;
 
 /**
