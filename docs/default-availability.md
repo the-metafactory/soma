@@ -126,10 +126,24 @@ Claude home; Soma should be less invasive.
 
 ### Pi.dev
 
-Pi.dev should receive a user-level extension projection when its home directory
-and extension conventions are confirmed. Until then, Soma can generate a
-workspace-shaped `.pi/extensions/soma-core/` bundle and keep the home target as
-an adapter-specific open item.
+Pi.dev receives a user-level extension projection under the observed Pi.dev home
+layout:
+
+```text
+~/.pi/
+  agent/extensions/soma.ts
+  agent/soma/context.md
+  agent/soma/profile.md
+  agent/soma/memory-layout.md
+  agent/soma/pai-imports.md
+  agent/soma/tools.md
+  agent/soma/skills.md
+  agent/soma/policy.md
+```
+
+The extension registers a `soma_context` tool for reading the projected profile,
+memory layout, PAI import index, and selected source files under `~/.soma`.
+The context files remain generated snapshots; `~/.soma` is still authoritative.
 
 ### Cortex / Myelin
 

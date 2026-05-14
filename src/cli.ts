@@ -1,9 +1,16 @@
-import { importPaiIdentity, installSomaForCodex, planPaiImport, planSomaForCodexInstall } from "./index";
+import {
+  importPaiIdentity,
+  installSomaForCodex,
+  installSomaForPiDev,
+  planPaiImport,
+  planSomaForCodexInstall,
+  planSomaForPiDevInstall,
+} from "./index";
 import type { PaiImportOptions, PaiImportPlan, PaiImportResult, SomaInstallOptions, SomaInstallPlan, SomaInstallResult } from "./types";
 
 interface ParsedInstallArgs {
   command: "install";
-  substrate: "codex";
+  substrate: "codex" | "pi-dev";
   apply: boolean;
   options: SomaInstallOptions;
 }
@@ -30,8 +37,8 @@ function readOption(args: string[], index: number, name: string): string {
 function parseInstallArgs(args: string[]): ParsedInstallArgs {
   const [command, substrate, ...rest] = args;
 
-  if (command !== "install" || substrate !== "codex") {
-    throw new Error("Usage: soma install codex [--dry-run] [--apply] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]");
+  if (command !== "install" || (substrate !== "codex" && substrate !== "pi-dev")) {
+    throw new Error("Usage: soma install <codex|pi-dev> [--dry-run] [--apply] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]");
   }
 
   const options: SomaInstallOptions = {};
@@ -129,7 +136,7 @@ function parseArgs(args: string[]): ParsedArgs {
   throw new Error(
     [
       "Usage:",
-      "  soma install codex [--dry-run] [--apply] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
+      "  soma install <codex|pi-dev> [--dry-run] [--apply] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
       "  soma import pai [--dry-run] [--apply] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>]",
     ].join("\n"),
   );
@@ -208,10 +215,14 @@ export async function runSomaCli(args: string[]): Promise<string> {
   }
 
   if (!parsed.apply) {
-    return formatPlan(planSomaForCodexInstall(parsed.options));
+    return formatPlan(
+      parsed.substrate === "codex" ? planSomaForCodexInstall(parsed.options) : planSomaForPiDevInstall(parsed.options),
+    );
   }
 
-  return formatInstallResult(await installSomaForCodex(parsed.options));
+  return formatInstallResult(
+    parsed.substrate === "codex" ? await installSomaForCodex(parsed.options) : await installSomaForPiDev(parsed.options),
+  );
 }
 
 if (import.meta.main) {

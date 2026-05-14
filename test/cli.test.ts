@@ -38,6 +38,22 @@ test("cli applies codex install only with explicit apply flag", async () => {
   });
 });
 
+test("cli dry-runs and applies pi.dev install", async () => {
+  await withTempHome(async (homeDir) => {
+    const dryRun = await runSomaCli(["install", "pi-dev", "--home-dir", homeDir]);
+
+    expect(dryRun).toContain("substrate: pi-dev");
+    expect(dryRun).toContain(join(homeDir, ".pi/agent/extensions/soma.ts"));
+    await expect(stat(join(homeDir, ".pi"))).rejects.toThrow();
+
+    const output = await runSomaCli(["install", "pi-dev", "--apply", "--home-dir", homeDir]);
+
+    expect(output).toContain("Soma install applied");
+    expect(output).toContain(`substrate: pi-dev`);
+    await expect(readFile(join(homeDir, ".pi/agent/extensions/soma.ts"), "utf8")).resolves.toContain("soma_context");
+  });
+});
+
 test("cli rejects unsupported commands", async () => {
   await expect(runSomaCli(["install", "claude-code"])).rejects.toThrow("Usage:");
 });

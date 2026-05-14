@@ -51,6 +51,96 @@ function renderToolContract(): string {
   ].join("\n");
 }
 
+function renderPaiImportIndex(somaHome: string): string {
+  const importRoot = `${somaHome}/profile/imports/claude`;
+
+  return [
+    "# Soma PAI Import Index",
+    "",
+    "The projected profile is intentionally concise. Detailed migrated PAI source snapshots remain in Soma and should be read when the task depends on personal identity, assistant voice, telos, values, goals, strategies, or decision context.",
+    "",
+    "## Source Root",
+    "",
+    importRoot,
+    "",
+    "## Read For Detail",
+    "",
+    `- Principal identity: ${importRoot}/PRINCIPAL_IDENTITY.md`,
+    `- Ivy assistant identity and voice: ${importRoot}/DA_IDENTITY.md`,
+    `- Mission: ${importRoot}/TELOS/MISSION.md`,
+    `- Goals: ${importRoot}/TELOS/GOALS.md`,
+    `- Strategies: ${importRoot}/TELOS/STRATEGIES.md`,
+    `- Beliefs and values: ${importRoot}/TELOS/BELIEFS.md`,
+    "",
+    "## Use Rule",
+    "",
+    "Use `profile.md` for fast orientation. Read the imported source files before making durable claims about Jens-Christian, Ivy, values, goals, priorities, or preferred collaboration style.",
+  ].join("\n");
+}
+
+function renderHomeExtension(somaHome: string): string {
+  return [
+    'import { readFileSync } from "node:fs";',
+    'import { StringEnum } from "@mariozechner/pi-ai";',
+    'import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";',
+    'import { Type } from "@sinclair/typebox";',
+    "",
+    `const SOMA_HOME = ${JSON.stringify(somaHome)};`,
+    'const PI_SOMA_HOME = `${process.env.HOME}/.pi/agent/soma`;',
+    "",
+    "const SomaContextParams = Type.Object({",
+    '\taction: StringEnum(["profile", "memory_layout", "pai_imports", "source_file"] as const),',
+    '\tpath: Type.Optional(Type.String({ description: "Absolute Soma source file path for action=source_file" })),',
+    "});",
+    "",
+    "function readText(path: string): string {",
+    '\treturn readFileSync(path, "utf8");',
+    "}",
+    "",
+    "export default function (pi: ExtensionAPI) {",
+    "\tpi.registerTool({",
+    '\t\tname: "soma_context",',
+    '\t\tlabel: "Soma Context",',
+    '\t\tdescription: "Read projected Soma personal assistant context and migrated PAI source snapshots.",',
+    "\t\tparameters: SomaContextParams,",
+    "",
+    "\t\tasync execute(_toolCallId, params) {",
+    "\t\t\tconst target =",
+    '\t\t\t\tparams.action === "profile"',
+    '\t\t\t\t\t? `${PI_SOMA_HOME}/profile.md`',
+    '\t\t\t\t\t: params.action === "memory_layout"',
+    '\t\t\t\t\t\t? `${PI_SOMA_HOME}/memory-layout.md`',
+    '\t\t\t\t\t\t: params.action === "pai_imports"',
+    '\t\t\t\t\t\t\t? `${PI_SOMA_HOME}/pai-imports.md`',
+    "\t\t\t\t\t\t\t: params.path;",
+    "",
+    "\t\t\tif (!target) {",
+    '\t\t\t\treturn { content: [{ type: "text", text: "Error: path is required for source_file" }] };',
+    "\t\t\t}",
+    "",
+    "\t\t\tif (params.action === \"source_file\" && !target.startsWith(SOMA_HOME)) {",
+    '\t\t\t\treturn { content: [{ type: "text", text: `Error: refusing to read outside Soma home: ${target}` }] };',
+    "\t\t\t}",
+    "",
+    "\t\t\ttry {",
+    '\t\t\t\treturn { content: [{ type: "text", text: readText(target) }] };',
+    "\t\t\t} catch (error) {",
+    '\t\t\t\treturn { content: [{ type: "text", text: `Error reading ${target}: ${error instanceof Error ? error.message : String(error)}` }] };',
+    "\t\t\t}",
+    "\t\t},",
+    "\t});",
+    "",
+    '\tpi.registerCommand("soma", {',
+    '\t\tdescription: "Show Soma profile, memory layout, and PAI import pointers",',
+    "\t\thandler: async (_args, ctx) => {",
+    '\t\t\tconst text = [readText(`${PI_SOMA_HOME}/profile.md`), "", readText(`${PI_SOMA_HOME}/pai-imports.md`)].join("\\n");',
+    "\t\t\tctx.ui.notify(text, \"info\");",
+    "\t\t},",
+    "\t});",
+    "}",
+  ].join("\n");
+}
+
 export function buildPiDevContext(input: SomaContextInput): SomaContextBundle {
   const instructions = renderInstructions(input);
 
@@ -81,6 +171,53 @@ export function buildPiDevContext(input: SomaContextInput): SomaContextBundle {
       {
         path: ".pi/extensions/soma-core/policy.md",
         content: renderPolicyProjection("pi-dev", ["Registered extension tools once installed"], [
+          "Model-provider behavior",
+          "Host permission prompts",
+          "Verification reporting",
+        ]),
+      },
+    ],
+  };
+}
+
+export function buildPiDevHomeContext(input: SomaContextInput, somaHome: string): SomaContextBundle {
+  const instructions = renderInstructions(input);
+
+  return {
+    substrate: "pi-dev",
+    instructions,
+    files: [
+      {
+        path: "agent/extensions/soma.ts",
+        content: renderHomeExtension(somaHome),
+      },
+      {
+        path: "agent/soma/context.md",
+        content: instructions,
+      },
+      {
+        path: "agent/soma/profile.md",
+        content: ["# Soma Profile Projection", "", renderAssistantCore(input)].join("\n"),
+      },
+      {
+        path: "agent/soma/memory-layout.md",
+        content: renderMemoryLayout(input),
+      },
+      {
+        path: "agent/soma/pai-imports.md",
+        content: renderPaiImportIndex(somaHome),
+      },
+      {
+        path: "agent/soma/tools.md",
+        content: renderToolContract(),
+      },
+      {
+        path: "agent/soma/skills.md",
+        content: renderSkills(input),
+      },
+      {
+        path: "agent/soma/policy.md",
+        content: renderPolicyProjection("pi-dev", ["soma_context extension tool reads projected context and Soma source snapshots"], [
           "Model-provider behavior",
           "Host permission prompts",
           "Verification reporting",

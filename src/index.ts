@@ -38,8 +38,14 @@ export {
   piDevAdapter,
 } from "./adapters";
 export { writeContextBundle } from "./context-bundle";
-export { buildCodexHomeProjection, installCodexHomeProjection, resolveHomeProjectionPaths } from "./home-projection";
-export { installSomaForCodex, planSomaForCodexInstall } from "./install";
+export {
+  buildCodexHomeProjection,
+  buildPiDevHomeProjection,
+  installCodexHomeProjection,
+  installPiDevHomeProjection,
+  resolveHomeProjectionPaths,
+} from "./home-projection";
+export { installSomaForCodex, installSomaForPiDev, planSomaForCodexInstall, planSomaForPiDevInstall } from "./install";
 export { appendSomaMemoryEvent, somaMemoryEventsPath } from "./memory";
 export { importPaiIdentity, planPaiImport } from "./pai-importer";
 export { bootstrapSomaHome, loadSomaHome } from "./soma-home";

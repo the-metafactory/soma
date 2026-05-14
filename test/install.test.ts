@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import { installSomaForCodex } from "../src/index";
+import { installSomaForCodex, installSomaForPiDev } from "../src/index";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-install-"));
@@ -57,5 +57,22 @@ test("install supports explicit soma and substrate homes", async () => {
 
     await expect(readFile(join(somaHome, "profile/assistant.md"), "utf8")).resolves.toContain("Name: soma");
     await expect(readFile(join(substrateHome, "rules/soma.rules"), "utf8")).resolves.toContain(`Soma source of truth: ${somaHome}`);
+  });
+});
+
+test("installs soma source home and pi.dev home projection", async () => {
+  await withTempHome(async (homeDir) => {
+    const result = await installSomaForPiDev({ homeDir });
+
+    expect(result.substrate).toBe("pi-dev");
+    expect(result.somaHome.somaHome).toBe(join(homeDir, ".soma"));
+    expect(result.substrateHome.rootDir).toBe(join(homeDir, ".pi"));
+    expect(result.substrateHome.files).toHaveLength(8);
+
+    const extension = await readFile(join(homeDir, ".pi/agent/extensions/soma.ts"), "utf8");
+    const profile = await readFile(join(homeDir, ".pi/agent/soma/profile.md"), "utf8");
+
+    expect(extension).toContain("soma_context");
+    expect(profile).toContain("Name: soma");
   });
 });

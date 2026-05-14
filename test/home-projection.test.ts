@@ -2,7 +2,13 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import { buildCodexHomeProjection, installCodexHomeProjection, resolveHomeProjectionPaths } from "../src/index";
+import {
+  buildCodexHomeProjection,
+  buildPiDevHomeProjection,
+  installCodexHomeProjection,
+  installPiDevHomeProjection,
+  resolveHomeProjectionPaths,
+} from "../src/index";
 import { portableContextInput } from "./fixtures";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
@@ -21,6 +27,14 @@ test("resolves codex home projection paths from a home directory", () => {
   expect(paths.substrate).toBe("codex");
   expect(paths.somaHome).toBe("/tmp/soma-test-home/.soma");
   expect(paths.substrateHome).toBe("/tmp/soma-test-home/.codex");
+});
+
+test("resolves pi.dev home projection paths from a home directory", () => {
+  const paths = resolveHomeProjectionPaths("pi-dev", { homeDir: "/tmp/soma-test-home" });
+
+  expect(paths.substrate).toBe("pi-dev");
+  expect(paths.somaHome).toBe("/tmp/soma-test-home/.soma");
+  expect(paths.substrateHome).toBe("/tmp/soma-test-home/.pi");
 });
 
 test("rejects unimplemented home projection substrates", () => {
@@ -45,6 +59,24 @@ test("builds codex home projection bundle for default availability", () => {
   expect(projection.bundle.instructions).toContain("/tmp/soma-test-home/.soma");
 });
 
+test("builds pi.dev home projection bundle for default availability", () => {
+  const projection = buildPiDevHomeProjection(portableContextInput, { homeDir: "/tmp/soma-test-home" });
+
+  expect(projection.substrateHome).toBe("/tmp/soma-test-home/.pi");
+  expect(projection.somaHome).toBe("/tmp/soma-test-home/.soma");
+  expect(projection.bundle.files.map((file) => file.path)).toEqual([
+    "agent/extensions/soma.ts",
+    "agent/soma/context.md",
+    "agent/soma/profile.md",
+    "agent/soma/memory-layout.md",
+    "agent/soma/pai-imports.md",
+    "agent/soma/tools.md",
+    "agent/soma/skills.md",
+    "agent/soma/policy.md",
+  ]);
+  expect(projection.bundle.files.find((file) => file.path === "agent/extensions/soma.ts")?.content).toContain("soma_context");
+});
+
 test("installs codex home projection into a substrate home", async () => {
   await withTempHome(async (homeDir) => {
     const result = await installCodexHomeProjection(portableContextInput, { homeDir });
@@ -64,6 +96,25 @@ test("installs codex home projection into a substrate home", async () => {
     );
     expect(skill).toContain("name: soma");
     expect(skill).toContain("pai-imports.md");
+    expect(profile).toContain("ISC-PORTABLE-1");
+    expect(paiImports).toContain(`${homeDir}/.soma/profile/imports/claude/DA_IDENTITY.md`);
+  });
+});
+
+test("installs pi.dev home projection into a substrate home", async () => {
+  await withTempHome(async (homeDir) => {
+    const result = await installPiDevHomeProjection(portableContextInput, { homeDir });
+
+    expect(result.substrate).toBe("pi-dev");
+    expect(result.rootDir).toBe(join(homeDir, ".pi"));
+    expect(result.files).toHaveLength(8);
+
+    const extension = await readFile(join(homeDir, ".pi/agent/extensions/soma.ts"), "utf8");
+    const profile = await readFile(join(homeDir, ".pi/agent/soma/profile.md"), "utf8");
+    const paiImports = await readFile(join(homeDir, ".pi/agent/soma/pai-imports.md"), "utf8");
+
+    expect(extension).toContain("registerTool");
+    expect(extension).toContain("soma_context");
     expect(profile).toContain("ISC-PORTABLE-1");
     expect(paiImports).toContain(`${homeDir}/.soma/profile/imports/claude/DA_IDENTITY.md`);
   });

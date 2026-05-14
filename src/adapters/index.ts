@@ -1,3 +1,3 @@
 export { buildClaudeCodeContext, claudeCodeAdapter } from "./claude-code";
 export { buildCodexContext, buildCodexHomeContext, codexAdapter } from "./codex";
-export { buildPiDevContext, piDevAdapter } from "./pi-dev";
+export { buildPiDevContext, buildPiDevHomeContext, piDevAdapter } from "./pi-dev";

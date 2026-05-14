@@ -44,13 +44,16 @@ The first useful Pi adapter can be a `soma-core` extension with:
 - `capture_learning`
 - `policy_check`
 
-Initial implementation: `buildPiDevContext` generates a `soma-core` extension
-projection under `.pi/extensions/soma-core/`. It includes an extension manifest,
-portable context, tool contract, memory layout, skills, and policy projection.
-The tools are named as the adapter contract; execution is not wired yet.
+Initial implementation: `buildPiDevContext` generates a workspace-shaped
+`soma-core` extension projection under `.pi/extensions/soma-core/`. It includes
+an extension manifest, portable context, tool contract, memory layout, skills,
+and policy projection. The tools are named as the adapter contract; execution is
+not wired yet.
 
-The user-level Pi.dev extension home still needs confirmation. Once confirmed,
-the Pi adapter should support home installation before project-local overlays.
+Home implementation: `buildPiDevHomeContext` projects into `~/.pi/agent/`:
+`agent/extensions/soma.ts` registers the `soma_context` tool, while
+`agent/soma/` holds generated context snapshots. The tool can read projected
+profile/context files and detailed imported PAI source files under `~/.soma`.
 
 ## Claude Code
 
