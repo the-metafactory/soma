@@ -110,8 +110,37 @@ test("installed codex hook checks apply_patch file destinations", async () => {
     const input = {
       cwd: join(homeDir, ".soma/memory"),
       tool_name: "apply_patch",
+      tool_input: patch,
+    };
+    const result = spawnSync("node", [hook, "pre-tool-use"], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        HOME: homeDir,
+      },
+      input: JSON.stringify(input),
+      encoding: "utf8",
+    });
+    const output = JSON.parse(result.stdout) as { hookSpecificOutput?: { permissionDecision?: string } };
+
+    expect(result.status).toBe(0);
+    expect(output.hookSpecificOutput?.permissionDecision).toBe("deny");
+  });
+});
+
+test("installed codex hook checks explicit soma home markers", async () => {
+  await withTempHome(async (homeDir) => {
+    const somaHome = join(homeDir, "private-soma-home");
+    const substrateHome = join(homeDir, "codex-home");
+    await installSomaForCodex({ somaHome, substrateHome });
+    const hook = join(substrateHome, "hooks/soma-lifecycle.mjs");
+    const target = join(homeDir, "work/public.md");
+    const privateMarker = join(somaHome, "memory/RELATIONSHIP/private.md");
+    const input = {
+      tool_name: "Write",
       tool_input: {
-        patch,
+        file_path: target,
+        content: `Copying ${privateMarker} would leak private context.`,
       },
     };
     const result = spawnSync("node", [hook, "pre-tool-use"], {

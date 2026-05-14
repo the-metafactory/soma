@@ -1,4 +1,5 @@
 import type { SomaAdapter, SomaContextBundle, SomaContextInput, SomaTask } from "../types";
+import { somaPolicyPrivateMarkers } from "../policy";
 import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "./shared";
 
 function renderCodexPolicy(): string {
@@ -221,10 +222,18 @@ function renderCodexHooksJson(): string {
   )}\n`;
 }
 
-function renderCodexPolicyHookRuntime(): string[] {
+function renderCodexPolicyHookRuntime(somaHome: string): string[] {
+  const policyMarkers = somaPolicyPrivateMarkers(somaHome);
+
   return [
+    `const SOMA_POLICY_MARKERS = ${JSON.stringify(policyMarkers)};`,
+    "",
     "function hasSomaPolicyMarker(content) {",
-    '  return (content || "").includes(".soma/") || (content || "").includes("~/.soma/") || (content || "").includes(".codex/memories/soma") || (content || "").includes(".codex/skills/soma") || (content || "").includes(".pi/agent/soma");',
+    '  return SOMA_POLICY_MARKERS.some((marker) => (content || "").includes(marker));',
+    "}",
+    "",
+    "function policyRelevantContent(content) {",
+    '  return (content || "").split("\\n").filter((line) => hasSomaPolicyMarker(line)).join("\\n");',
     "}",
     "",
     "function runSomaPolicyCheck(targets) {",
@@ -294,7 +303,7 @@ function renderCodexLifecycleHook(somaHome: string): string {
     "  });",
     "}",
     "",
-    ...renderCodexPolicyHookRuntime(),
+    ...renderCodexPolicyHookRuntime(somaHome),
     "",
     "function resolveToolPath(path, cwd) {",
     "  return isAbsolute(path) ? path : resolve(cwd || process.cwd(), path);",
@@ -316,7 +325,7 @@ function renderCodexLifecycleHook(somaHome: string): string {
     "  const toolName = input.tool_name || input.toolName || \"\";",
     "  const toolInput = input.tool_input || input.toolInput || {};",
     "  const cwd = input.cwd || process.cwd();",
-    "  const filePath = resolveToolPath(toolInput.file_path || toolInput.filePath || cwd, cwd);",
+    "  const filePath = typeof toolInput === \"object\" ? resolveToolPath(toolInput.file_path || toolInput.filePath || cwd, cwd) : cwd;",
     "",
     '  if (toolName === "Write") {',
     "    return [{ filePath, content: toolInput.content || \"\" }];",
@@ -332,9 +341,10 @@ function renderCodexLifecycleHook(somaHome: string): string {
     "  }",
     "",
     '  if (toolName === "apply_patch") {',
-    "    const content = toolInput.patch || toolInput.command || JSON.stringify(toolInput);",
+    "    const content = typeof toolInput === \"string\" ? toolInput : toolInput.patch || toolInput.command || JSON.stringify(toolInput);",
+    "    const relevantContent = policyRelevantContent(content);",
     "    const paths = extractPatchPaths(content, cwd);",
-    "    return (paths.length > 0 ? paths : [cwd]).map((path) => ({ filePath: path, content }));",
+    "    return (paths.length > 0 ? paths : [cwd]).map((path) => ({ filePath: path, content: relevantContent }));",
     "  }",
     "",
     "  return [];",

@@ -50,7 +50,7 @@ function markerFor(path: string, homeDir?: string): string {
   return path.replace(resolve(homeDir ?? homedir()), "~");
 }
 
-function somaPolicyPrivateMarkers(somaHome: string, homeDir?: string): string[] {
+export function somaPolicyPrivateMarkers(somaHome: string, homeDir?: string): string[] {
   const roots = somaPolicyPrivateRoots(somaHome, homeDir);
   return Array.from(new Set(roots.flatMap((root) => [root, markerFor(root, homeDir)]))).sort((left, right) => right.length - left.length);
 }
