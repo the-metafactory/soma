@@ -1,4 +1,5 @@
 import { renderSomaPolicyPrivateMarkerRuntime, somaPolicyPrivateMarkers } from "../policy";
+import { somaProjectionPrivateRoots } from "../projection-private-roots";
 import { defaultSomaRepoPath } from "../repo-path";
 
 export function renderCodexLifecycleHook(somaHome: string, homeDir?: string, somaRepoPath = defaultSomaRepoPath()): string {
@@ -69,7 +70,7 @@ function renderLifecycleCommands(): string[] {
 }
 
 function renderCodexPolicyHookRuntime(somaHome: string, homeDir?: string): string[] {
-  const policyMarkers = somaPolicyPrivateMarkers(somaHome, homeDir);
+  const policyMarkers = somaPolicyPrivateMarkers(somaHome, homeDir, somaProjectionPrivateRoots({ homeDir, substrate: "codex" }));
 
   return [
     `const SOMA_POLICY_MARKERS = ${JSON.stringify(policyMarkers)};`,
@@ -132,8 +133,9 @@ function renderPolicyTargetRuntime(): string[] {
     "    const moveMatch = line.match(movePattern);",
     "    if (moveMatch) {",
     "      if (current) {",
-    "        current.sourcePath = current.filePath;",
+    "        const originalFilePath = current.filePath;",
     "        current.filePath = resolveToolPath(moveMatch[1].trim(), cwd);",
+    "        current.sourcePath = current.sourcePath || originalFilePath;",
     "      } else {",
     "        current = { filePath: resolveToolPath(moveMatch[1].trim(), cwd), lines: [] };",
     "      }",
@@ -161,16 +163,16 @@ function renderPolicyTargetRuntime(): string[] {
     "  const filePath = resolveToolPath(toolInput.file_path || toolInput.filePath || cwd, cwd);",
     "",
     '  if (toolName === "Write") {',
-    "    return [{ filePath, content: toolInput.content || \"\" }];",
+    "    return [{ filePath, content: policyRelevantContent(toolInput.content || \"\") }];",
     "  }",
     "",
     '  if (toolName === "Edit") {',
-    "    return [{ filePath, content: toolInput.new_string || toolInput.newString || \"\" }];",
+    "    return [{ filePath, content: policyRelevantContent(toolInput.new_string || toolInput.newString || \"\") }];",
     "  }",
     "",
     '  if (toolName === "MultiEdit") {',
     "    const edits = Array.isArray(toolInput.edits) ? toolInput.edits : [];",
-    "    return edits.map((edit) => ({ filePath, content: edit?.new_string || edit?.newString || \"\" }));",
+    "    return edits.map((edit) => ({ filePath, content: policyRelevantContent(edit?.new_string || edit?.newString || \"\") }));",
     "  }",
     "",
     '  if (toolName === "apply_patch") {',

@@ -1,17 +1,20 @@
 import { appendSomaMemoryEvent } from "./memory";
 import { evaluateSomaPolicyBatch, evaluateSomaPolicyWithFilesystem, normalizeSomaPolicyPath, policyOptionsForTarget } from "./policy";
+import { somaProjectionPrivateRoots } from "./projection-private-roots";
 import type { SomaPolicyBatchCheckOptions, SomaPolicyBatchCheckResult, SomaPolicyCheckOptions, SomaPolicyCheckResult } from "./types";
 
 export async function checkSomaPolicy(options: SomaPolicyCheckOptions): Promise<SomaPolicyCheckResult> {
-  const result = await evaluateSomaPolicyWithFilesystem(options);
-  return recordSomaPolicyCheck(options, result);
+  const checkOptions = withProjectionPrivateRoots(options);
+  const result = await evaluateSomaPolicyWithFilesystem(checkOptions);
+  return recordSomaPolicyCheck(checkOptions, result);
 }
 
 export async function checkSomaPolicyBatch(options: SomaPolicyBatchCheckOptions): Promise<SomaPolicyBatchCheckResult> {
-  const batch = await evaluateSomaPolicyBatch(options);
+  const checkOptions = withProjectionPrivateRoots(options);
+  const batch = await evaluateSomaPolicyBatch(checkOptions);
   const results = await Promise.all(
     batch.results.map((result, index) =>
-      recordSomaPolicyCheck(policyOptionsForTarget(options, options.targets[index]), result),
+      recordSomaPolicyCheck(policyOptionsForTarget(checkOptions, checkOptions.targets[index]), result),
     ),
   );
   const denied = results.find((result) => result.decision === "deny");
@@ -20,6 +23,13 @@ export async function checkSomaPolicyBatch(options: SomaPolicyBatchCheckOptions)
     decision: denied ? "deny" : "allow",
     reason: denied?.reason ?? batch.reason,
     results,
+  };
+}
+
+function withProjectionPrivateRoots<T extends SomaPolicyCheckOptions | SomaPolicyBatchCheckOptions>(options: T): T {
+  return {
+    ...options,
+    privateRoots: [...(options.privateRoots ?? []), ...somaProjectionPrivateRoots(options)],
   };
 }
 

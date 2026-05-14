@@ -353,6 +353,7 @@ export type SomaPolicyDecision = "allow" | "deny";
 export interface SomaPolicyCheckOptions {
   homeDir?: string;
   somaHome?: string;
+  privateRoots?: string[];
   substrate?: SubstrateId;
   action: "write";
   destinationPath: string;
@@ -369,6 +370,7 @@ export interface SomaPolicyBatchTarget {
 }
 
 export interface SomaPolicyBatchCheckOptions extends Pick<SomaPolicyCheckOptions, "homeDir" | "somaHome" | "substrate" | "action" | "record" | "timestamp"> {
+  privateRoots?: string[];
   targets: SomaPolicyBatchTarget[];
 }
 

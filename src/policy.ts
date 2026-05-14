@@ -17,16 +17,8 @@ function isInside(path: string, root: string): boolean {
   return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
-function somaPolicyPrivateRoots(somaHome: string, homeDir?: string): string[] {
-  const home = resolve(homeDir ?? homedir());
-
-  return [
-    somaHome,
-    join(home, ".codex", "memories", "soma"),
-    join(home, ".codex", "skills", "soma"),
-    join(home, ".pi", "agent", "soma"),
-    join(home, ".pi", "agent", "skills", "soma"),
-  ].map((path) => resolve(path));
+function somaPolicyPrivateRoots(somaHome: string, privateRoots: string[] = []): string[] {
+  return [somaHome, ...privateRoots].map((path) => resolve(path));
 }
 
 const SOMA_POLICY_PORTABLE_MARKERS = [
@@ -84,8 +76,8 @@ function markerFor(path: string, homeDir?: string): string {
   return rel === "" ? "~" : `~/${rel}`;
 }
 
-export function somaPolicyPrivateMarkers(somaHome: string, homeDir?: string): string[] {
-  const roots = somaPolicyPrivateRoots(somaHome, homeDir);
+export function somaPolicyPrivateMarkers(somaHome: string, homeDir?: string, privateRoots: string[] = []): string[] {
+  const roots = somaPolicyPrivateRoots(somaHome, privateRoots);
   return Array.from(new Set([...roots.flatMap((root) => [root, markerFor(root, homeDir)]), ...SOMA_POLICY_PORTABLE_MARKERS])).sort((left, right) => right.length - left.length);
 }
 
@@ -121,10 +113,10 @@ export function renderSomaPolicyPrivateMarkerRuntime(functionName = "hasSomaPoli
   ];
 }
 
-function findPrivateMarkers(content: string, somaHome: string, homeDir?: string): SomaPolicyFinding[] {
+function findPrivateMarkers(content: string, somaHome: string, homeDir?: string, privateRoots: string[] = []): SomaPolicyFinding[] {
   if (!content) return [];
 
-  return somaPolicyPrivateMarkers(somaHome, homeDir)
+  return somaPolicyPrivateMarkers(somaHome, homeDir, privateRoots)
     .filter((marker) => hasSomaPolicyPrivateMarker(content, marker))
     .map((marker) => ({
       kind: "private-marker" as const,
@@ -136,7 +128,7 @@ function unresolvedPolicyScope(options: SomaPolicyCheckOptions): Omit<SomaPolicy
   const somaHome = resolveSomaHome(options);
   const destinationPath = normalizeSomaPolicyPath(options.destinationPath, process.cwd(), options.homeDir);
   const sourcePath = options.sourcePath ? normalizeSomaPolicyPath(options.sourcePath, process.cwd(), options.homeDir) : undefined;
-  const roots = somaPolicyPrivateRoots(somaHome, options.homeDir);
+  const roots = somaPolicyPrivateRoots(somaHome, options.privateRoots);
 
   return {
     destinationPath,
@@ -160,7 +152,7 @@ function evaluateResolvedSomaPolicy(options: SomaPolicyCheckOptions, scope: Soma
   }
 
   if (destinationIsPublic) {
-    findings.push(...findPrivateMarkers(options.content ?? "", somaHome, options.homeDir));
+    findings.push(...findPrivateMarkers(options.content ?? "", somaHome, options.homeDir, roots.filter((root) => root !== somaHome)));
   }
 
   const decision = findings.length > 0 ? "deny" : "allow";
@@ -201,7 +193,7 @@ export async function evaluateSomaPolicyWithFilesystem(options: SomaPolicyCheckO
 
 export async function evaluateSomaPolicyBatch(options: SomaPolicyBatchCheckOptions): Promise<SomaPolicyBatchCheckResult> {
   const somaHome = resolveSomaHome(options);
-  const rootScopes = await Promise.all(somaPolicyPrivateRoots(somaHome, options.homeDir).map((root) => realScopePath(root)));
+  const rootScopes = await Promise.all(somaPolicyPrivateRoots(somaHome, options.privateRoots).map((root) => realScopePath(root)));
   const results = await Promise.all(
     options.targets.map((target) => evaluateSomaPolicyWithFilesystem(policyOptionsForTarget(options, target), rootScopes)),
   );
@@ -218,6 +210,7 @@ export function policyOptionsForTarget(options: Omit<SomaPolicyBatchCheckOptions
   return {
     homeDir: options.homeDir,
     somaHome: options.somaHome,
+    privateRoots: options.privateRoots,
     substrate: options.substrate,
     action: options.action,
     destinationPath: target.filePath,
