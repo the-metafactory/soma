@@ -57,6 +57,27 @@ test("cli creates persisted Algorithm runs", async () => {
   });
 });
 
+test("cli handles lifecycle events", async () => {
+  await withTempHome(async (homeDir) => {
+    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir]);
+    const output = await runSomaCli([
+      "lifecycle",
+      "session-start",
+      "--home-dir",
+      homeDir,
+      "--substrate",
+      "codex",
+      "--session-id",
+      "cli-session",
+    ]);
+
+    expect(output).toContain("Soma lifecycle event handled");
+    expect(output).toContain("event: session_start");
+    expect(output).toContain("# Soma Startup Context");
+    await expect(readFile(join(homeDir, ".soma/memory/STATE/events.jsonl"), "utf8")).resolves.toContain("lifecycle.session_start");
+  });
+});
+
 test("cli applies codex install only with explicit apply flag", async () => {
   await withTempHome(async (homeDir) => {
     const output = await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir]);

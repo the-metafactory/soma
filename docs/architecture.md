@@ -151,3 +151,20 @@ be treated as a projection unless a sync contract says otherwise.
 Default availability is specified in [default-availability.md](./default-availability.md).
 Soma should follow PAI's lesson that the assistant needs a durable substrate
 home, while avoiding PAI's Claude-only coupling.
+
+## Lifecycle Harness
+
+PAI's Claude implementation gets much of its value from hooks. Soma ports that
+idea as a substrate-neutral lifecycle harness instead of copying Claude hook
+files.
+
+The V0 lifecycle surface has three events:
+
+| Event | Purpose |
+|-------|---------|
+| `session_start` | Build startup context from identity, active Algorithm runs, learning, and relationship notes. |
+| `algorithm_updated` | Write the canonical Algorithm work index under `memory/STATE/`. |
+| `session_end` | Refresh the work index and capture completed Algorithm runs into `memory/LEARNING/`. |
+
+Substrates can call these events through the CLI or library. Cortex can later
+subscribe to the same lifecycle surface as bus-visible work state.

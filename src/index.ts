@@ -8,6 +8,8 @@ export type {
   AlgorithmPlanStep,
   AlgorithmRun,
   AlgorithmRunInput,
+  AlgorithmRunSummary,
+  AlgorithmWorkIndex,
   AssistantIdentity,
   IdealStateArtifact,
   IdealStateCriterion,
@@ -29,6 +31,9 @@ export type {
   SomaInstallOptions,
   SomaInstallPlan,
   SomaInstallResult,
+  SomaLifecycleEventName,
+  SomaLifecycleOptions,
+  SomaLifecycleResult,
   SomaMemoryEvent,
   SomaMemoryEventInput,
   PaiImportOptions,
@@ -52,8 +57,11 @@ export {
 } from "./algorithm";
 export {
   algorithmRunPath,
+  listAlgorithmRunSummaries,
+  listAlgorithmRuns,
   readAlgorithmRun,
   resolveAlgorithmRunsDir,
+  summarizeAlgorithmRun,
   writeAlgorithmRun,
   type AlgorithmStoreOptions,
   type WrittenAlgorithmRun,
@@ -77,6 +85,14 @@ export {
 } from "./home-projection";
 export { installSomaForCodex, installSomaForPiDev, planSomaForCodexInstall, planSomaForPiDevInstall } from "./install";
 export { importAlgorithm, planAlgorithmImport } from "./algorithm-importer";
+export {
+  buildSomaStartupContext,
+  captureCompletedAlgorithmLearnings,
+  runSomaLifecycleAlgorithmUpdated,
+  runSomaLifecycleSessionEnd,
+  runSomaLifecycleSessionStart,
+  writeAlgorithmWorkIndex,
+} from "./lifecycle";
 export { appendSomaMemoryEvent, somaMemoryEventsPath } from "./memory";
 export { importPaiIdentity, planPaiImport } from "./pai-importer";
 export { bootstrapSomaHome, loadSomaHome } from "./soma-home";
