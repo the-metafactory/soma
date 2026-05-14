@@ -267,6 +267,51 @@ test("cli searches Soma memory", async () => {
   });
 });
 
+test("cli promotes Algorithm run memory", async () => {
+  await withTempHome(async (homeDir) => {
+    await runSomaCli([
+      "algorithm",
+      "new",
+      "--home-dir",
+      homeDir,
+      "--id",
+      "promote-run",
+      "--prompt",
+      "Promote this lesson",
+      "--intent",
+      "Make a reusable memory note.",
+      "--current-state",
+      "Lesson is only in work state.",
+      "--goal",
+      "Lesson is promoted into learning memory.",
+      "--criterion",
+      "C1:Promotion file exists.",
+    ]);
+    const output = await runSomaCli([
+      "memory",
+      "promote",
+      "--home-dir",
+      homeDir,
+      "--from-run",
+      "promote-run",
+      "--store",
+      "learning",
+      "--title",
+      "Promotion CLI lesson",
+      "--lesson",
+      "Promoted memories should be concise and searchable.",
+      "--applies-when",
+      "Recall when closing Algorithm runs.",
+    ]);
+
+    expect(output).toContain("Soma memory promotion created");
+    expect(output).toContain("memory/LEARNING/PROMOTED/promotion-cli-lesson-promote-run.md");
+    await expect(readFile(join(homeDir, ".soma/memory/LEARNING/PROMOTED/promotion-cli-lesson-promote-run.md"), "utf8")).resolves.toContain(
+      "Promoted memories should be concise and searchable.",
+    );
+  });
+});
+
 test("cli applies codex install only with explicit apply flag", async () => {
   await withTempHome(async (homeDir) => {
     const output = await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir]);

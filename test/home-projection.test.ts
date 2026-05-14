@@ -86,6 +86,7 @@ test("builds pi.dev home projection bundle for default availability", () => {
   expect(projection.bundle.files.find((file) => file.path === "agent/extensions/soma.ts")?.content).toContain("soma_context");
   expect(projection.bundle.files.find((file) => file.path === "agent/extensions/soma.ts")?.content).toContain("runSomaClassification");
   expect(projection.bundle.files.find((file) => file.path === "agent/extensions/soma.ts")?.content).toContain("Soma Prompt Classification");
+  expect(projection.bundle.files.find((file) => file.path === "agent/extensions/soma.ts")?.content).toContain("memory_promote");
   expect(projection.bundle.files.find((file) => file.path === "agent/skills/soma/SKILL.md")?.content).toContain("name: soma");
 });
 
@@ -145,6 +146,7 @@ test("installs pi.dev home projection into a substrate home", async () => {
     expect(extension).toContain("algorithm_work_index");
     expect(extension).toContain("runSomaClassification");
     expect(extension).toContain("Soma Prompt Classification");
+    expect(extension).toContain("memory_promote");
     expect(extension).toContain("session_shutdown");
     expect(extension).toContain("resources_discover");
     expect(profile).toContain("ISC-PORTABLE-1");

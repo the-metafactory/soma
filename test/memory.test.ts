@@ -2,7 +2,16 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import { appendSomaMemoryEvent, bootstrapSomaHome, searchSomaMemory, somaMemoryEventsPath, type SomaMemoryEvent } from "../src/index";
+import {
+  appendSomaMemoryEvent,
+  bootstrapSomaHome,
+  createAlgorithmRun,
+  promoteAlgorithmRunMemory,
+  searchSomaMemory,
+  somaMemoryEventsPath,
+  writeAlgorithmRun,
+  type SomaMemoryEvent,
+} from "../src/index";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-memory-"));
@@ -127,5 +136,44 @@ test("searches Soma memory and profile files with cited snippets", async () => {
     });
     expect(result.matches[0]?.path).toEndWith("memory/KNOWLEDGE/consulting/autonomy.md");
     expect(result.matches[0]?.snippet).toContain("Client sovereignty");
+  });
+});
+
+test("promotes an Algorithm run into durable Soma memory", async () => {
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    await writeAlgorithmRun(
+      {
+        ...createAlgorithmRun({
+          id: "consulting-lesson",
+          prompt: "Find the consulting lesson",
+          intent: "Capture a reusable consulting insight.",
+          currentState: "Insight is inside a run.",
+          goal: "Consulting lesson becomes durable memory.",
+          criteria: [{ id: "C1", text: "Lesson is promoted." }],
+        }),
+        learning: [{ timestamp: "2026-05-14T12:00:00.000Z", phase: "learn", text: "Measure autonomy transfer, not dependency." }],
+      },
+      { homeDir },
+    );
+
+    const result = await promoteAlgorithmRunMemory({
+      homeDir,
+      fromRun: "consulting-lesson",
+      store: "knowledge",
+      title: "Consulting autonomy metric",
+      appliesWhen: "Recall when designing AI consulting offers.",
+      timestamp: "2026-05-14T12:30:00.000Z",
+    });
+    const content = await readFile(result.path, "utf8");
+    const events = parseEvents(await readFile(somaMemoryEventsPath(somaHome), "utf8"));
+
+    expect(result.path).toEndWith("memory/KNOWLEDGE/PROMOTED/consulting-autonomy-metric-consulting-lesson.md");
+    expect(content).toContain("Measure autonomy transfer, not dependency.");
+    expect(content).toContain("Recall when designing AI consulting offers.");
+    expect(events[0]).toMatchObject({
+      kind: "memory.promotion",
+      summary: "Promoted Algorithm run consulting-lesson to knowledge: Consulting autonomy metric",
+    });
   });
 });

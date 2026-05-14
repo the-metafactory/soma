@@ -31,6 +31,12 @@ and selected STATE files, then returns cited path/line/snippet matches. This is
 not semantic memory yet; it is the portable file-backed retrieval floor that
 substrates can call before answering.
 
+The first implemented promotion surface is
+`soma memory promote --from-run <id> --store <learning|knowledge|relationship|work>`.
+It writes a concise Markdown note under `memory/<STORE>/PROMOTED/` and appends a
+`memory.promotion` event to `memory/STATE/events.jsonl`. Promotion is explicit
+because durable memory stores are source-of-truth material, not scratch space.
+
 `memory/STATE/events.jsonl` is the first writeback contract. Substrates append
 one JSON object per line with `id`, `timestamp`, `substrate`, `kind`, `summary`,
 and optional artifact paths or metadata. Consolidation into `KNOWLEDGE`,
