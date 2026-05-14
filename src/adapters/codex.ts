@@ -1,7 +1,6 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import type { SomaAdapter, SomaContextBundle, SomaContextInput, SomaTask } from "../types";
 import { defaultSomaRepoPath } from "../repo-path";
+import { readCodexHookAsset } from "./codex-hook-assets";
 import { renderCodexLifecycleHook } from "./codex-hook-runtime";
 import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "./shared";
 
@@ -225,10 +224,6 @@ function renderCodexHooksJson(): string {
   )}\n`;
 }
 
-function readCodexHookRuntime(relativePath: string): string {
-  return readFileSync(join(defaultSomaRepoPath(), relativePath), "utf8");
-}
-
 export function buildCodexContext(input: SomaContextInput): SomaContextBundle {
   const instructions = renderInstructions(input);
 
@@ -283,11 +278,11 @@ export function buildCodexHomeContext(input: SomaContextInput, somaHome: string,
       },
       {
         path: "hooks/codex-hook-entry.mjs",
-        content: readCodexHookRuntime("src/adapters/codex-hook-entry.mjs"),
+        content: readCodexHookAsset("codex-hook-entry.mjs"),
       },
       {
-        path: "hooks/policy-marker-runtime.mjs",
-        content: readCodexHookRuntime("src/policy-marker-runtime.mjs"),
+        path: "hooks/policy-marker.mjs",
+        content: readCodexHookAsset("policy-marker.mjs"),
       },
       {
         path: "skills/soma/SKILL.md",

@@ -51,7 +51,7 @@ test("builds codex home projection bundle for default availability", () => {
     "hooks.json",
     "hooks/soma-lifecycle.mjs",
     "hooks/codex-hook-entry.mjs",
-    "hooks/policy-marker-runtime.mjs",
+    "hooks/policy-marker.mjs",
     "skills/soma/SKILL.md",
     "memories/soma/profile.md",
     "memories/soma/memory-layout.md",

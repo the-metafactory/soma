@@ -15,49 +15,21 @@ async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> 
   }
 }
 
-function runCodexPreToolUseHook(
-  hook: string,
-  homeDir: string,
-  input: unknown,
-  extraEnv: NodeJS.ProcessEnv = {},
-  rawInput = false,
-): { status: number | null; output: { continue?: boolean; hookSpecificOutput?: { permissionDecision?: string } } } {
-  const result = spawnSync("node", [hook, "pre-tool-use"], {
-    cwd: process.cwd(),
-    env: {
-      ...process.env,
-      ...extraEnv,
-      HOME: homeDir,
-    },
-    input: rawInput ? String(input) : JSON.stringify(input),
-    encoding: "utf8",
-  });
-
-  return {
-    status: result.status,
-    output: JSON.parse(result.stdout) as { continue?: boolean; hookSpecificOutput?: { permissionDecision?: string } },
-  };
-}
-
-function runRawCodexPreToolUseHook(hook: string, homeDir: string, input: string): { status: number | null; output: { continue?: boolean; hookSpecificOutput?: { permissionDecision?: string } } } {
-  return runCodexPreToolUseHook(hook, homeDir, input, {}, true);
-}
-
 function runCodexHook(
   hook: string,
   event: string,
   homeDir: string,
   input: unknown,
-  extraEnv: NodeJS.ProcessEnv = {},
+  options: { extraEnv?: NodeJS.ProcessEnv; rawInput?: boolean } = {},
 ): { status: number | null; output: { continue?: boolean; hookSpecificOutput?: { additionalContext?: string; permissionDecision?: string } } } {
   const result = spawnSync("node", [hook, event], {
     cwd: process.cwd(),
     env: {
       ...process.env,
-      ...extraEnv,
+      ...options.extraEnv,
       HOME: homeDir,
     },
-    input: JSON.stringify(input),
+    input: options.rawInput ? String(input) : JSON.stringify(input),
     encoding: "utf8",
   });
 
@@ -65,6 +37,19 @@ function runCodexHook(
     status: result.status,
     output: JSON.parse(result.stdout) as { continue?: boolean; hookSpecificOutput?: { additionalContext?: string; permissionDecision?: string } },
   };
+}
+
+function runCodexPreToolUseHook(
+  hook: string,
+  homeDir: string,
+  input: unknown,
+  extraEnv: NodeJS.ProcessEnv = {},
+): { status: number | null; output: { continue?: boolean; hookSpecificOutput?: { permissionDecision?: string } } } {
+  return runCodexHook(hook, "pre-tool-use", homeDir, input, { extraEnv });
+}
+
+function runRawCodexPreToolUseHook(hook: string, homeDir: string, input: string): { status: number | null; output: { continue?: boolean; hookSpecificOutput?: { permissionDecision?: string } } } {
+  return runCodexHook(hook, "pre-tool-use", homeDir, input, { rawInput: true });
 }
 
 test("installs soma source home and codex home projection", async () => {
@@ -242,6 +227,27 @@ test("installed codex hook denies private Soma source writes to public destinati
   });
 });
 
+test("installed codex hook forwards private source paths for writes", async () => {
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await installSomaForCodex({ homeDir });
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const target = join(homeDir, "work/public.md");
+    const privateSource = join(somaHome.somaHome, "memory/WORK/private.md");
+    const input = {
+      tool_name: "Write",
+      tool_input: {
+        file_path: target,
+        source_path: privateSource,
+        content: "No marker in copied content.",
+      },
+    };
+    const result = runCodexPreToolUseHook(hook, homeDir, input);
+
+    expect(result.status).toBe(0);
+    expect(result.output.hookSpecificOutput?.permissionDecision).toBe("deny");
+  });
+});
+
 test("installed codex hook denies portable tilde private markers", async () => {
   await withTempHome(async (homeDir) => {
     await installSomaForCodex({ homeDir });
@@ -330,7 +336,7 @@ test("installed codex lifecycle hooks ignore ambient SOMA_REPO", async () => {
     await writeFile(join(maliciousRepo, "soma.js"), 'console.log("mode: minimal\\nsource: malicious\\nreason: fake");\n', "utf8");
 
     const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
-    const result = runCodexHook(hook, "prompt-submit", homeDir, { prompt: "Build the Soma guard." }, { SOMA_REPO: maliciousRepo });
+    const result = runCodexHook(hook, "prompt-submit", homeDir, { prompt: "Build the Soma guard." }, { extraEnv: { SOMA_REPO: maliciousRepo } });
 
     expect(result.status).toBe(0);
     expect(result.output.hookSpecificOutput?.additionalContext).toContain("Soma Prompt Classification");

@@ -1,7 +1,7 @@
 import { access, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { hasSomaPolicyPrivateMarker } from "./policy-marker-runtime.mjs";
+import { hasSomaPolicyPrivateMarker } from "./policy-marker.mjs";
 import type { SomaPolicyBatchCheckOptions, SomaPolicyBatchCheckResult, SomaPolicyBatchTarget, SomaPolicyCheckOptions, SomaPolicyCheckResult, SomaPolicyFinding } from "./types";
 
 function resolveSomaHome(options: Pick<SomaPolicyCheckOptions, "homeDir" | "somaHome"> = {}): string {

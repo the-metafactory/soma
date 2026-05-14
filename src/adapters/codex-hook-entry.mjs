@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
-import { hasSomaPolicyPrivateMarker } from "./policy-marker-runtime.mjs";
+import { hasSomaPolicyPrivateMarker } from "./policy-marker.mjs";
 
 function readHookInput() {
   try {
@@ -24,21 +24,26 @@ function policyRelevantContent(config, content) {
   return (content || "").split("\n").filter((line) => hasSomaPolicyMarker(config, line)).join("\n");
 }
 
+function runSomaCommand(config, args, env = {}) {
+  return spawnSync("bun", args, {
+    cwd: config.trustedSomaRepo,
+    encoding: "utf8",
+    timeout: 25000,
+    env: { ...process.env, ...env },
+  });
+}
+
 function runSomaLifecycle(config, event, sessionId) {
   const args = ["run", "soma", "lifecycle", event, "--soma-home", config.somaHome, "--substrate", "codex"];
   if (sessionId) {
     args.push("--session-id", sessionId);
   }
 
-  return spawnSync("bun", args, { cwd: config.trustedSomaRepo, encoding: "utf8", timeout: 25000 });
+  return runSomaCommand(config, args);
 }
 
 function runSomaClassification(config, prompt) {
-  return spawnSync("bun", ["run", "soma", "algorithm", "classify", "--prompt", prompt || ""], {
-    cwd: config.trustedSomaRepo,
-    encoding: "utf8",
-    timeout: 25000,
-  });
+  return runSomaCommand(config, ["run", "soma", "algorithm", "classify", "--prompt", prompt || ""]);
 }
 
 function runSomaPolicyCheck(config, targets) {
@@ -60,23 +65,22 @@ function runSomaPolicyCheck(config, targets) {
     "--json",
   ];
 
-  return spawnSync("bun", args, {
-    cwd: config.trustedSomaRepo,
-    encoding: "utf8",
-    timeout: 25000,
-    env: { ...process.env, SOMA_POLICY_TARGETS: JSON.stringify(targets) },
-  });
+  return runSomaCommand(config, args, { SOMA_POLICY_TARGETS: JSON.stringify(targets) });
+}
+
+function emitAndExit(payload) {
+  console.log(JSON.stringify(payload));
+  process.exit(0);
 }
 
 function denyPreToolUse(reason) {
-  console.log(JSON.stringify({
+  emitAndExit({
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
       permissionDecision: "deny",
       permissionDecisionReason: reason,
     },
-  }));
-  process.exit(0);
+  });
 }
 
 function resolveToolPath(path, cwd) {
@@ -133,18 +137,19 @@ function extractWriteTargets(config, input) {
   const toolInput = rawToolInput && typeof rawToolInput === "object" && !Array.isArray(rawToolInput) ? rawToolInput : {};
   const cwd = input.cwd || process.cwd();
   const filePath = resolveToolPath(toolInput.file_path || toolInput.filePath || cwd, cwd);
+  const sourcePath = toolInput.source_path || toolInput.sourcePath;
 
   if (toolName === "Write") {
-    return [{ filePath, content: policyRelevantContent(config, toolInput.content || "") }];
+    return [{ filePath, sourcePath, content: policyRelevantContent(config, toolInput.content || "") }];
   }
 
   if (toolName === "Edit") {
-    return [{ filePath, content: policyRelevantContent(config, toolInput.new_string || toolInput.newString || "") }];
+    return [{ filePath, sourcePath, content: policyRelevantContent(config, toolInput.new_string || toolInput.newString || "") }];
   }
 
   if (toolName === "MultiEdit") {
     const edits = Array.isArray(toolInput.edits) ? toolInput.edits : [];
-    return edits.map((edit) => ({ filePath, content: policyRelevantContent(config, edit?.new_string || edit?.newString || "") }));
+    return edits.map((edit) => ({ filePath, sourcePath, content: policyRelevantContent(config, edit?.new_string || edit?.newString || "") }));
   }
 
   if (toolName === "apply_patch") {
@@ -241,31 +246,28 @@ function handlePreToolUse(config, input) {
       denyPreToolUse(reason);
     }
   }
-  console.log(JSON.stringify({ continue: true }));
-  process.exit(0);
+  emitAndExit({ continue: true });
 }
 
 function handlePromptSubmit(config, input) {
   const result = runSomaClassification(config, input.prompt);
   if (result.status !== 0) {
-    console.log(JSON.stringify({
+    emitAndExit({
       continue: true,
       hookSpecificOutput: {
         hookEventName: "UserPromptSubmit",
         additionalContext: `Soma prompt classification failed; if this prompt is substantial, use the-algorithm manually. ${result.stderr || result.stdout || ""}`,
       },
-    }));
-    process.exit(0);
+    });
   }
   const context = renderPromptClassificationContext(parseClassification(result.stdout));
-  console.log(JSON.stringify({
+  emitAndExit({
     continue: true,
     hookSpecificOutput: {
       hookEventName: "UserPromptSubmit",
       additionalContext: context,
     },
-  }));
-  process.exit(0);
+  });
 }
 
 function handleLifecycleEvent(config, event, input) {
@@ -274,35 +276,31 @@ function handleLifecycleEvent(config, event, input) {
   if (result.status !== 0) {
     if (event === "session-start") {
       const context = readProjectedStartupContext();
-      console.log(JSON.stringify({
+      emitAndExit({
         continue: true,
         systemMessage: `Soma lifecycle hook fell back to projected context: ${result.stderr || result.stdout || "unknown error"}`,
         hookSpecificOutput: {
           hookEventName: "SessionStart",
           additionalContext: context || "Soma lifecycle context is unavailable; read ~/.codex/memories/soma/ when needed.",
         },
-      }));
-      process.exit(0);
+      });
     }
 
-    console.log(JSON.stringify({ continue: true, systemMessage: `Soma lifecycle hook failed: ${result.stderr || result.stdout || "unknown error"}` }));
-    process.exit(0);
+    emitAndExit({ continue: true, systemMessage: `Soma lifecycle hook failed: ${result.stderr || result.stdout || "unknown error"}` });
   }
 
   if (event === "session-start") {
     const context = writeProjectedStartupContext(result.stdout) || readProjectedStartupContext();
-    console.log(JSON.stringify({
+    emitAndExit({
       continue: true,
       hookSpecificOutput: {
         hookEventName: "SessionStart",
         additionalContext: context || result.stdout,
       },
-    }));
-    process.exit(0);
+    });
   }
 
-  console.log(JSON.stringify({ continue: true, systemMessage: result.stdout.trim() }));
-  process.exit(0);
+  emitAndExit({ continue: true, systemMessage: result.stdout.trim() });
 }
 
 export function runCodexHook(config, event = process.argv[2], input = readHookInput()) {
