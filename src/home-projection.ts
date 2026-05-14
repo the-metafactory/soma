@@ -24,11 +24,10 @@ export function resolveHomeProjectionPaths(
 
 export function buildCodexHomeProjection(input: SomaContextInput, options: SomaHomeProjectionOptions = {}): SomaHomeProjection {
   const paths = resolveHomeProjectionPaths("codex", options);
-  const homeDir = resolve(options.homeDir ?? homedir());
 
   return {
     ...paths,
-    bundle: buildCodexHomeContext(input, paths.somaHome, homeDir),
+    bundle: buildCodexHomeContext(input, paths.somaHome),
   };
 }
 

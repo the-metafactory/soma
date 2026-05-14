@@ -100,6 +100,36 @@ test("installed codex hook denies private Soma source writes to public destinati
   });
 });
 
+test("installed codex hook checks apply_patch file destinations", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const target = join(homeDir, "work/public.md");
+    const privateMarker = join(homeDir, ".soma/memory/RELATIONSHIP/private.md");
+    const patch = ["*** Begin Patch", `*** Add File: ${target}`, `+Copying ${privateMarker} would leak private context.`, "*** End Patch"].join("\n");
+    const input = {
+      cwd: join(homeDir, ".soma/memory"),
+      tool_name: "apply_patch",
+      tool_input: {
+        patch,
+      },
+    };
+    const result = spawnSync("node", [hook, "pre-tool-use"], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        HOME: homeDir,
+      },
+      input: JSON.stringify(input),
+      encoding: "utf8",
+    });
+    const output = JSON.parse(result.stdout) as { hookSpecificOutput?: { permissionDecision?: string } };
+
+    expect(result.status).toBe(0);
+    expect(output.hookSpecificOutput?.permissionDecision).toBe("deny");
+  });
+});
+
 test("install supports explicit soma and substrate homes", async () => {
   await withTempHome(async (homeDir) => {
     const somaHome = join(homeDir, "portable-home");

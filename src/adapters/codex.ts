@@ -1,5 +1,4 @@
 import type { SomaAdapter, SomaContextBundle, SomaContextInput, SomaTask } from "../types";
-import { somaPolicyPrivateMarkers } from "../policy";
 import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "./shared";
 
 function renderCodexPolicy(): string {
@@ -222,16 +221,53 @@ function renderCodexHooksJson(): string {
   )}\n`;
 }
 
-function renderCodexLifecycleHook(somaHome: string, homeDir?: string): string {
-  const policyMarkers = somaPolicyPrivateMarkers(somaHome, homeDir);
+function renderCodexPolicyHookRuntime(): string[] {
+  return [
+    'const SOMA_POLICY_SENTINELS = [".soma/", "~/.soma/", ".codex/memories/soma", ".codex/skills/soma", ".pi/agent/soma", ".pi/agent/skills/soma"];',
+    "",
+    "function hasSomaPolicySentinel(content) {",
+    "  return SOMA_POLICY_SENTINELS.some((marker) => content.includes(marker));",
+    "}",
+    "",
+    "function runSomaPolicyCheck(target) {",
+    '  const args = ["run", "soma", "policy", "check", "--soma-home", SOMA_HOME, "--substrate", "codex", "--action", "write", "--destination", target.filePath, "--content-env", "SOMA_POLICY_CONTENT", "--record", "deny", "--json"];',
+    "  if (target.sourcePath) {",
+    '    args.push("--source", target.sourcePath);',
+    "  }",
+    "",
+    '  return spawnSync("bun", args, {',
+    "    cwd: somaRepoPath(),",
+    '    encoding: "utf8",',
+    "    timeout: 25000,",
+    '    env: { ...process.env, SOMA_POLICY_CONTENT: target.content || "" }',
+    "  });",
+    "}",
+    "",
+    "function needsPolicyCheck(target) {",
+    "  return hasSomaPolicySentinel(target.content || \"\");",
+    "}",
+    "",
+    "function denyPreToolUse(reason) {",
+    "  console.log(JSON.stringify({",
+    "    hookSpecificOutput: {",
+    '      hookEventName: "PreToolUse",',
+    '      permissionDecision: "deny",',
+    "      permissionDecisionReason: reason",
+    "    }",
+    "  }));",
+    "  process.exit(0);",
+    "}",
+  ];
+}
 
+function renderCodexLifecycleHook(somaHome: string): string {
   return [
     "#!/usr/bin/env node",
     'import { spawnSync } from "node:child_process";',
     'import { readFileSync, writeFileSync } from "node:fs";',
+    'import { isAbsolute, resolve } from "node:path";',
     "",
     `const SOMA_HOME = ${JSON.stringify(somaHome)};`,
-    `const POLICY_PRIVATE_MARKERS = ${JSON.stringify(policyMarkers)};`,
     "",
     "function readHookInput() {",
     "  try {",
@@ -267,41 +303,29 @@ function renderCodexLifecycleHook(somaHome: string, homeDir?: string): string {
     "  });",
     "}",
     "",
-    "function runSomaPolicyCheck(target) {",
-    '  const args = ["run", "soma", "policy", "check", "--soma-home", SOMA_HOME, "--substrate", "codex", "--action", "write", "--destination", target.filePath, "--content-env", "SOMA_POLICY_CONTENT", "--record", "deny", "--json"];',
-    "  if (target.sourcePath) {",
-    '    args.push("--source", target.sourcePath);',
+    ...renderCodexPolicyHookRuntime(),
+    "",
+    "function resolveToolPath(path, cwd) {",
+    "  return isAbsolute(path) ? path : resolve(cwd || process.cwd(), path);",
+    "}",
+    "",
+    "function extractPatchPaths(patch, cwd) {",
+    "  const paths = [];",
+    '  const pattern = /^\\*\\*\\* (?:Add|Update|Delete) File: (.+)$/;',
+    '  const movePattern = /^\\*\\*\\* Move to: (.+)$/;',
+    '  for (const line of (patch || "").split("\\n")) {',
+    "    const match = line.match(pattern) || line.match(movePattern);",
+    "    if (!match) continue;",
+    "    paths.push(resolveToolPath(match[1].trim(), cwd));",
     "  }",
-    "",
-    '  return spawnSync("bun", args, {',
-    "    cwd: somaRepoPath(),",
-    '    encoding: "utf8",',
-    "    timeout: 25000,",
-    '    env: { ...process.env, SOMA_POLICY_CONTENT: target.content || "" }',
-    "  });",
-    "}",
-    "",
-    "function needsPolicyCheck(target) {",
-    "  const content = target.content || \"\";",
-    "  return POLICY_PRIVATE_MARKERS.some((marker) => marker && content.includes(marker));",
-    "}",
-    "",
-    "function denyPreToolUse(reason) {",
-    "  console.log(JSON.stringify({",
-    "    hookSpecificOutput: {",
-    '      hookEventName: "PreToolUse",',
-    '      permissionDecision: "deny",',
-    "      permissionDecisionReason: reason",
-    "    }",
-    "  }));",
-    "  process.exit(0);",
+    "  return paths;",
     "}",
     "",
     "function extractWriteTargets(input) {",
     "  const toolName = input.tool_name || input.toolName || \"\";",
     "  const toolInput = input.tool_input || input.toolInput || {};",
-    "  const fallbackPath = input.cwd || process.cwd();",
-    "  const filePath = toolInput.file_path || toolInput.filePath || fallbackPath;",
+    "  const cwd = input.cwd || process.cwd();",
+    "  const filePath = resolveToolPath(toolInput.file_path || toolInput.filePath || cwd, cwd);",
     "",
     '  if (toolName === "Write") {',
     "    return [{ filePath, content: toolInput.content || \"\" }];",
@@ -317,7 +341,9 @@ function renderCodexLifecycleHook(somaHome: string, homeDir?: string): string {
     "  }",
     "",
     '  if (toolName === "apply_patch") {',
-    "    return [{ filePath, content: toolInput.patch || toolInput.command || JSON.stringify(toolInput) }];",
+    "    const content = toolInput.patch || toolInput.command || JSON.stringify(toolInput);",
+    "    const paths = extractPatchPaths(content, cwd);",
+    "    return (paths.length > 0 ? paths : [cwd]).map((path) => ({ filePath: path, content }));",
     "  }",
     "",
     "  return [];",
@@ -507,7 +533,7 @@ export function buildCodexContext(input: SomaContextInput): SomaContextBundle {
   };
 }
 
-export function buildCodexHomeContext(input: SomaContextInput, somaHome: string, homeDir?: string): SomaContextBundle {
+export function buildCodexHomeContext(input: SomaContextInput, somaHome: string): SomaContextBundle {
   const instructions = renderHomeRules(input, somaHome);
   const portableSkillFiles = input.profile.skills.flatMap((skill) =>
     (skill.files ?? []).map((file) => ({
@@ -530,7 +556,7 @@ export function buildCodexHomeContext(input: SomaContextInput, somaHome: string,
       },
       {
         path: "hooks/soma-lifecycle.mjs",
-        content: renderCodexLifecycleHook(somaHome, homeDir),
+        content: renderCodexLifecycleHook(somaHome),
       },
       {
         path: "skills/soma/SKILL.md",
