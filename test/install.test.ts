@@ -435,6 +435,24 @@ test("installed codex hook reads structured apply_patch cmd input", async () => 
   });
 });
 
+test("installed codex hook denies malformed apply_patch moves", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const publicTarget = join(homeDir, "work/public-note.md");
+    const patch = ["*** Begin Patch", `*** Move to: ${publicTarget}`, "*** End Patch"].join("\n");
+    const input = {
+      cwd: homeDir,
+      tool_name: "apply_patch",
+      tool_input: patch,
+    };
+    const result = runCodexPreToolUseHook(hook, homeDir, input);
+
+    expect(result.status).toBe(0);
+    expect(result.output.hookSpecificOutput?.permissionDecision).toBe("deny");
+  });
+});
+
 test("installed codex hook allows mixed apply_patch when only private destination has marker", async () => {
   await withTempHome(async (homeDir) => {
     await installSomaForCodex({ homeDir });

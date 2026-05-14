@@ -116,7 +116,7 @@ function extractPatchTargets(config, patch, cwd) {
         current.filePath = resolveToolPath(moveMatch[1].trim(), cwd);
         current.sourcePath = current.sourcePath || originalFilePath;
       } else {
-        current = { filePath: resolveToolPath(moveMatch[1].trim(), cwd), lines: [] };
+        current = { filePath: resolveToolPath(moveMatch[1].trim(), cwd), sourcePath: config.somaHome, lines: [] };
       }
       continue;
     }
@@ -161,7 +161,7 @@ function extractWriteTargets(config, input) {
 
   if (toolName === "apply_patch") {
     const content = typeof rawToolInput === "string" ? rawToolInput : toolInput.patch || toolInput.command || toolInput.cmd || JSON.stringify(toolInput);
-    if (!hasPotentialPrivateSourceReference(config, content)) return [];
+    if (!hasPotentialPrivateSourceReference(config, content) && !content.includes("*** Move to:")) return [];
     const targets = extractPatchTargets(config, content, cwd);
     return targets.length > 0 ? targets : [{ filePath: cwd, content: policyRelevantContent(config, content) }];
   }

@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { bootstrapSomaHome, checkSomaPolicy, evaluateSomaPolicy, somaMemoryEventsPath } from "../src/index";
+import { hasSomaPolicyPrivateMarker as hasSomaPolicyPrivateMarkerTs } from "../src/policy-marker";
+import { hasSomaPolicyPrivateMarker as hasSomaPolicyPrivateMarkerJs } from "../src/adapters/policy-marker.mjs";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-policy-"));
@@ -13,6 +15,20 @@ async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> 
     await rm(homeDir, { recursive: true, force: true });
   }
 }
+
+test("keeps TypeScript and hook marker matchers in parity", () => {
+  const cases = [
+    ["Copy ~/.soma/memory/private.md", "~/.soma"],
+    ["Ignore ~/.soma-backup/private.md", "~/.soma"],
+    ["JSON {\"path\":\"~/.soma\"}", "~/.soma"],
+    ["/tmp/home/.soma2/file", "/tmp/home/.soma"],
+    ["/tmp/home/.soma/file", "/tmp/home/.soma"],
+  ] as const;
+
+  for (const [content, marker] of cases) {
+    expect(hasSomaPolicyPrivateMarkerJs(content, marker)).toBe(hasSomaPolicyPrivateMarkerTs(content, marker));
+  }
+});
 
 test("allows public writes without private Soma markers", async () => {
   await withTempHome(async (homeDir) => {
