@@ -44,6 +44,7 @@ test("cli dry-runs and applies pi.dev install", async () => {
 
     expect(dryRun).toContain("substrate: pi-dev");
     expect(dryRun).toContain(join(homeDir, ".pi/agent/extensions/soma.ts"));
+    expect(dryRun).toContain(join(homeDir, ".pi/agent/skills/soma/SKILL.md"));
     await expect(stat(join(homeDir, ".pi"))).rejects.toThrow();
 
     const output = await runSomaCli(["install", "pi-dev", "--apply", "--home-dir", homeDir]);
@@ -51,6 +52,7 @@ test("cli dry-runs and applies pi.dev install", async () => {
     expect(output).toContain("Soma install applied");
     expect(output).toContain(`substrate: pi-dev`);
     await expect(readFile(join(homeDir, ".pi/agent/extensions/soma.ts"), "utf8")).resolves.toContain("soma_context");
+    await expect(readFile(join(homeDir, ".pi/agent/skills/soma/SKILL.md"), "utf8")).resolves.toContain("name: soma");
   });
 });
 

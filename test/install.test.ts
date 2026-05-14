@@ -67,12 +67,13 @@ test("installs soma source home and pi.dev home projection", async () => {
     expect(result.substrate).toBe("pi-dev");
     expect(result.somaHome.somaHome).toBe(join(homeDir, ".soma"));
     expect(result.substrateHome.rootDir).toBe(join(homeDir, ".pi"));
-    expect(result.substrateHome.files).toHaveLength(8);
+    expect(result.substrateHome.files).toHaveLength(9);
 
     const extension = await readFile(join(homeDir, ".pi/agent/extensions/soma.ts"), "utf8");
     const profile = await readFile(join(homeDir, ".pi/agent/soma/profile.md"), "utf8");
 
     expect(extension).toContain("soma_context");
+    expect(extension).toContain("before_agent_start");
     expect(profile).toContain("Name: soma");
   });
 });

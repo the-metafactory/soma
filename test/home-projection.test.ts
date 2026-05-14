@@ -73,8 +73,11 @@ test("builds pi.dev home projection bundle for default availability", () => {
     "agent/soma/tools.md",
     "agent/soma/skills.md",
     "agent/soma/policy.md",
+    "agent/skills/soma/SKILL.md",
   ]);
+  expect(projection.bundle.files.find((file) => file.path === "agent/extensions/soma.ts")?.content).toContain("before_agent_start");
   expect(projection.bundle.files.find((file) => file.path === "agent/extensions/soma.ts")?.content).toContain("soma_context");
+  expect(projection.bundle.files.find((file) => file.path === "agent/skills/soma/SKILL.md")?.content).toContain("name: soma");
 });
 
 test("installs codex home projection into a substrate home", async () => {
@@ -107,15 +110,18 @@ test("installs pi.dev home projection into a substrate home", async () => {
 
     expect(result.substrate).toBe("pi-dev");
     expect(result.rootDir).toBe(join(homeDir, ".pi"));
-    expect(result.files).toHaveLength(8);
+    expect(result.files).toHaveLength(9);
 
     const extension = await readFile(join(homeDir, ".pi/agent/extensions/soma.ts"), "utf8");
     const profile = await readFile(join(homeDir, ".pi/agent/soma/profile.md"), "utf8");
     const paiImports = await readFile(join(homeDir, ".pi/agent/soma/pai-imports.md"), "utf8");
+    const skill = await readFile(join(homeDir, ".pi/agent/skills/soma/SKILL.md"), "utf8");
 
     expect(extension).toContain("registerTool");
+    expect(extension).toContain("before_agent_start");
     expect(extension).toContain("soma_context");
     expect(profile).toContain("ISC-PORTABLE-1");
     expect(paiImports).toContain(`${homeDir}/.soma/profile/imports/claude/DA_IDENTITY.md`);
+    expect(skill).toContain("name: soma");
   });
 });

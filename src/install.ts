@@ -41,6 +41,7 @@ const PI_DEV_HOME_FILES = [
   "agent/soma/tools.md",
   "agent/soma/skills.md",
   "agent/soma/policy.md",
+  "agent/skills/soma/SKILL.md",
 ] as const;
 
 function resolveInstallHomes(substrate: "codex" | "pi-dev", options: SomaInstallOptions): { somaHome: string; substrateHome: string } {

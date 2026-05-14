@@ -139,11 +139,15 @@ layout:
   agent/soma/tools.md
   agent/soma/skills.md
   agent/soma/policy.md
+  agent/skills/soma/SKILL.md
 ```
 
 The extension registers a `soma_context` tool for reading the projected profile,
 memory layout, PAI import index, and selected source files under `~/.soma`.
-The context files remain generated snapshots; `~/.soma` is still authoritative.
+It also appends Soma identity context to Pi.dev's system prompt during
+`before_agent_start`, because tools alone are not enough for default identity
+behavior. The context files remain generated snapshots; `~/.soma` is still
+authoritative.
 
 ### Cortex / Myelin
 

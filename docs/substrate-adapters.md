@@ -52,7 +52,9 @@ not wired yet.
 
 Home implementation: `buildPiDevHomeContext` projects into `~/.pi/agent/`:
 `agent/extensions/soma.ts` registers the `soma_context` tool, while
-`agent/soma/` holds generated context snapshots. The tool can read projected
+`agent/soma/` holds generated context snapshots and `agent/skills/soma/SKILL.md`
+advertises the Soma skill. The extension appends Soma identity context to the
+system prompt on `before_agent_start`; the tool can read projected
 profile/context files and detailed imported PAI source files under `~/.soma`.
 
 ## Claude Code
