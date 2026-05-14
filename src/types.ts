@@ -73,6 +73,12 @@ export interface SomaContextBundle {
   }[];
 }
 
+export interface WrittenContextBundle {
+  substrate: SubstrateId;
+  rootDir: string;
+  files: string[];
+}
+
 export interface SomaTask {
   id: string;
   substrate: SubstrateId;

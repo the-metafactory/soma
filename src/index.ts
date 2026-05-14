@@ -13,8 +13,10 @@ export type {
   SomaTask,
   SubstrateId,
   Telos,
+  WrittenContextBundle,
 } from "./types";
 
 export { buildClaudeCodeContext, buildCodexContext, buildPiDevContext, claudeCodeAdapter, codexAdapter, piDevAdapter } from "./adapters";
+export { writeContextBundle } from "./context-bundle";
 
 export const SOMA_VERSION = "0.1.0";
