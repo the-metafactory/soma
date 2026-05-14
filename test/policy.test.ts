@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
@@ -91,6 +91,31 @@ test("uses home-dir when detecting projected Codex private markers", async () =>
       action: "write",
       destinationPath: join(homeDir, "work/public/summary.md"),
       content: `${join(homeDir, ".codex/memories/soma/profile.md")} is projected private context.`,
+    });
+
+    expect(result.decision).toBe("deny");
+    expect(result.findings[0]).toMatchObject({
+      kind: "private-marker",
+    });
+  });
+});
+
+test("treats private-looking symlink destinations by their real public scope", async () => {
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    const publicDir = join(homeDir, "work/public");
+    const publicFile = join(publicDir, "summary.md");
+    const privateLookingLink = join(somaHome, "memory/WORK/public-summary.md");
+
+    await mkdir(publicDir, { recursive: true });
+    await writeFile(publicFile, "", "utf8");
+    await symlink(publicFile, privateLookingLink);
+
+    const result = await checkSomaPolicy({
+      homeDir,
+      action: "write",
+      destinationPath: privateLookingLink,
+      content: `${somaHome}/memory/RELATIONSHIP/private.md`,
     });
 
     expect(result.decision).toBe("deny");

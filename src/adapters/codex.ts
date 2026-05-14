@@ -1,4 +1,5 @@
 import type { SomaAdapter, SomaContextBundle, SomaContextInput, SomaTask } from "../types";
+import { somaPolicyPrivateMarkers } from "../policy";
 import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "./shared";
 
 function renderCodexPolicy(): string {
@@ -221,13 +222,16 @@ function renderCodexHooksJson(): string {
   )}\n`;
 }
 
-function renderCodexLifecycleHook(somaHome: string): string {
+function renderCodexLifecycleHook(somaHome: string, homeDir?: string): string {
+  const policyMarkers = somaPolicyPrivateMarkers(somaHome, homeDir);
+
   return [
     "#!/usr/bin/env node",
     'import { spawnSync } from "node:child_process";',
     'import { readFileSync, writeFileSync } from "node:fs";',
     "",
     `const SOMA_HOME = ${JSON.stringify(somaHome)};`,
+    `const POLICY_PRIVATE_MARKERS = ${JSON.stringify(policyMarkers)};`,
     "",
     "function readHookInput() {",
     "  try {",
@@ -277,36 +281,20 @@ function renderCodexLifecycleHook(somaHome: string): string {
     "  });",
     "}",
     "",
-    "function privateRoots() {",
-    "  const home = process.env.HOME || \"\";",
-    "  return [",
-    '    `${SOMA_HOME}/profile`,',
-    '    `${SOMA_HOME}/memory`,',
-    '    `${home}/.codex/memories/soma`,',
-    '    `${home}/.codex/skills/soma`,',
-    '    `${home}/.pi/agent/soma`,',
-    '    `${home}/.pi/agent/skills/soma`',
-    "  ];",
-    "}",
-    "",
-    "function isInside(path, root) {",
-    "  const prefix = root.endsWith(\"/\") ? root : `${root}/`;",
-    "  return path === root || path.startsWith(prefix);",
-    "}",
-    "",
-    "function isPublicDestination(path) {",
-    "  return !privateRoots().some((root) => isInside(path, root));",
-    "}",
-    "",
-    "function privateMarkers() {",
-    "  const home = process.env.HOME || \"\";",
-    "  return privateRoots().flatMap((root) => [root, root.replace(home, \"~\")]);",
-    "}",
-    "",
     "function needsPolicyCheck(target) {",
-    "  if (!isPublicDestination(target.filePath)) return false;",
     "  const content = target.content || \"\";",
-    "  return privateMarkers().some((marker) => marker && content.includes(marker));",
+    "  return POLICY_PRIVATE_MARKERS.some((marker) => marker && content.includes(marker));",
+    "}",
+    "",
+    "function denyPreToolUse(reason) {",
+    "  console.log(JSON.stringify({",
+    "    hookSpecificOutput: {",
+    '      hookEventName: "PreToolUse",',
+    '      permissionDecision: "deny",',
+    "      permissionDecisionReason: reason",
+    "    }",
+    "  }));",
+    "  process.exit(0);",
     "}",
     "",
     "function extractWriteTargets(input) {",
@@ -325,7 +313,7 @@ function renderCodexLifecycleHook(somaHome: string): string {
     "",
     '  if (toolName === "MultiEdit") {',
     "    const edits = Array.isArray(toolInput.edits) ? toolInput.edits : [];",
-    "    return [{ filePath, content: edits.map((edit) => edit?.new_string || edit?.newString || \"\").join(\"\\n\") }];",
+    "    return edits.map((edit) => ({ filePath, content: edit?.new_string || edit?.newString || \"\" }));",
     "  }",
     "",
     '  if (toolName === "apply_patch") {',
@@ -403,38 +391,17 @@ function renderCodexLifecycleHook(somaHome: string): string {
     "    const result = runSomaPolicyCheck(target);",
     "    const output = result.stdout || result.stderr || \"\";",
     "    if (result.status !== 0) {",
-    "      console.log(JSON.stringify({",
-    "        hookSpecificOutput: {",
-    '          hookEventName: "PreToolUse",',
-    '          permissionDecision: "deny",',
-    "          permissionDecisionReason: `Soma policy check failed closed: ${output || \"unknown error\"}`",
-    "        }",
-    "      }));",
-    "      process.exit(0);",
+    "      denyPreToolUse(`Soma policy check failed closed: ${output || \"unknown error\"}`);",
     "    }",
     "    let policy;",
     "    try {",
     "      policy = JSON.parse(output);",
     "    } catch {",
-    "      console.log(JSON.stringify({",
-    "        hookSpecificOutput: {",
-    '          hookEventName: "PreToolUse",',
-    '          permissionDecision: "deny",',
-    "          permissionDecisionReason: `Soma policy check returned invalid JSON: ${output || \"empty output\"}`",
-    "        }",
-    "      }));",
-    "      process.exit(0);",
+    "      denyPreToolUse(`Soma policy check returned invalid JSON: ${output || \"empty output\"}`);",
     "    }",
     '    if (policy.decision === "deny") {',
     "      const reason = policy.reason || \"Soma private context policy denied this write.\";",
-    "      console.log(JSON.stringify({",
-    "        hookSpecificOutput: {",
-    '          hookEventName: "PreToolUse",',
-    '          permissionDecision: "deny",',
-    "          permissionDecisionReason: reason",
-    "        }",
-    "      }));",
-    "      process.exit(0);",
+    "      denyPreToolUse(reason);",
     "    }",
     "  }",
     "  console.log(JSON.stringify({ continue: true }));",
@@ -540,7 +507,7 @@ export function buildCodexContext(input: SomaContextInput): SomaContextBundle {
   };
 }
 
-export function buildCodexHomeContext(input: SomaContextInput, somaHome: string): SomaContextBundle {
+export function buildCodexHomeContext(input: SomaContextInput, somaHome: string, homeDir?: string): SomaContextBundle {
   const instructions = renderHomeRules(input, somaHome);
   const portableSkillFiles = input.profile.skills.flatMap((skill) =>
     (skill.files ?? []).map((file) => ({
@@ -563,7 +530,7 @@ export function buildCodexHomeContext(input: SomaContextInput, somaHome: string)
       },
       {
         path: "hooks/soma-lifecycle.mjs",
-        content: renderCodexLifecycleHook(somaHome),
+        content: renderCodexLifecycleHook(somaHome, homeDir),
       },
       {
         path: "skills/soma/SKILL.md",

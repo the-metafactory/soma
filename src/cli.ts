@@ -769,7 +769,11 @@ function parsePolicyArgs(args: string[]): ParsedPolicyArgs {
         break;
       case "--content-env": {
         const envName = readOption(rest, index, arg);
-        options.content = process.env[envName] ?? "";
+        const envContent = process.env[envName];
+        if (envContent === undefined) {
+          throw new Error(`--content-env ${envName} is not set.`);
+        }
+        options.content = envContent;
         index += 1;
         break;
       }

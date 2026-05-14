@@ -375,6 +375,25 @@ test("cli can emit policy checks as JSON without recording", async () => {
   });
 });
 
+test("cli rejects missing policy content env", async () => {
+  await withTempHome(async (homeDir) => {
+    await expect(
+      runSomaCli([
+        "policy",
+        "check",
+        "--home-dir",
+        homeDir,
+        "--action",
+        "write",
+        "--destination",
+        join(homeDir, "work/public.md"),
+        "--content-env",
+        "SOMA_MISSING_POLICY_CONTENT",
+      ]),
+    ).rejects.toThrow("--content-env SOMA_MISSING_POLICY_CONTENT is not set.");
+  });
+});
+
 test("cli applies codex install only with explicit apply flag", async () => {
   await withTempHome(async (homeDir) => {
     const output = await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir]);

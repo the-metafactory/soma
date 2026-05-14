@@ -1,5 +1,6 @@
+import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { appendSomaMemoryEvent } from "./memory";
 import type { SomaPolicyCheckOptions, SomaPolicyCheckResult, SomaPolicyFinding } from "./types";
 
@@ -17,7 +18,7 @@ function isInside(path: string, root: string): boolean {
   return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
-function privateRoots(somaHome: string, homeDir?: string): string[] {
+export function somaPolicyPrivateRoots(somaHome: string, homeDir?: string): string[] {
   const home = resolve(homeDir ?? homedir());
 
   return [
@@ -30,19 +31,34 @@ function privateRoots(somaHome: string, homeDir?: string): string[] {
   ].map((path) => resolve(path));
 }
 
+function realScopePath(path: string): string {
+  let cursor = path;
+  const suffix: string[] = [];
+
+  while (!existsSync(cursor)) {
+    const parent = dirname(cursor);
+    if (parent === cursor) return path;
+    suffix.unshift(cursor.slice(parent.length + 1));
+    cursor = parent;
+  }
+
+  const realCursor = realpathSync(cursor);
+  return suffix.length > 0 ? resolve(realCursor, ...suffix) : realCursor;
+}
+
 function markerFor(path: string): string {
   return path.replace(homedir(), "~");
 }
 
-function privateMarkers(somaHome: string, homeDir?: string): string[] {
-  const roots = privateRoots(somaHome, homeDir);
+export function somaPolicyPrivateMarkers(somaHome: string, homeDir?: string): string[] {
+  const roots = somaPolicyPrivateRoots(somaHome, homeDir);
   return Array.from(new Set(roots.flatMap((root) => [root, markerFor(root)]))).sort((left, right) => right.length - left.length);
 }
 
 function findPrivateMarkers(content: string, somaHome: string, homeDir?: string): SomaPolicyFinding[] {
   if (!content) return [];
 
-  return privateMarkers(somaHome, homeDir)
+  return somaPolicyPrivateMarkers(somaHome, homeDir)
     .filter((marker) => content.includes(marker))
     .map((marker) => ({
       kind: "private-marker" as const,
@@ -53,12 +69,16 @@ function findPrivateMarkers(content: string, somaHome: string, homeDir?: string)
 export function evaluateSomaPolicy(options: SomaPolicyCheckOptions): SomaPolicyCheckResult {
   const somaHome = resolveSomaHome(options);
   const destinationPath = normalizePath(options.destinationPath);
+  const destinationScopePath = realScopePath(destinationPath);
   const sourcePath = options.sourcePath ? normalizePath(options.sourcePath) : undefined;
-  const roots = privateRoots(somaHome, options.homeDir);
+  const sourceScopePath = sourcePath ? realScopePath(sourcePath) : undefined;
+  const roots = somaPolicyPrivateRoots(somaHome, options.homeDir);
+  const rootScopes = roots.map((root) => realScopePath(root));
   const findings: SomaPolicyFinding[] = [];
-  const destinationIsPublic = !roots.some((root) => isInside(destinationPath, root));
+  const destinationIsPrivate = roots.some((root, index) => isInside(destinationPath, root) && isInside(destinationScopePath, rootScopes[index]));
+  const destinationIsPublic = !destinationIsPrivate;
 
-  if (destinationIsPublic && sourcePath && roots.some((root) => isInside(sourcePath, root))) {
+  if (destinationIsPublic && sourcePath && roots.some((root, index) => isInside(sourcePath, root) || isInside(sourceScopePath ?? sourcePath, rootScopes[index]))) {
     findings.push({
       kind: "private-source",
       detail: markerFor(sourcePath),
