@@ -79,6 +79,10 @@ test("builds pi.dev home projection bundle for default availability", () => {
     "agent/skills/soma/SKILL.md",
   ]);
   expect(projection.bundle.files.find((file) => file.path === "agent/extensions/soma.ts")?.content).toContain("before_agent_start");
+  expect(projection.bundle.files.find((file) => file.path === "agent/extensions/soma.ts")?.content).toContain("session_start");
+  expect(projection.bundle.files.find((file) => file.path === "agent/extensions/soma.ts")?.content).toContain("tool_execution_end");
+  expect(projection.bundle.files.find((file) => file.path === "agent/extensions/soma.ts")?.content).toContain("session_shutdown");
+  expect(projection.bundle.files.find((file) => file.path === "agent/extensions/soma.ts")?.content).toContain("resources_discover");
   expect(projection.bundle.files.find((file) => file.path === "agent/extensions/soma.ts")?.content).toContain("soma_context");
   expect(projection.bundle.files.find((file) => file.path === "agent/skills/soma/SKILL.md")?.content).toContain("name: soma");
 });
@@ -131,6 +135,8 @@ test("installs pi.dev home projection into a substrate home", async () => {
     expect(extension).toContain("soma_context");
     expect(extension).toContain("startup_context");
     expect(extension).toContain("algorithm_work_index");
+    expect(extension).toContain("session_shutdown");
+    expect(extension).toContain("resources_discover");
     expect(profile).toContain("ISC-PORTABLE-1");
     expect(paiImports).toContain(`${homeDir}/.soma/profile/imports/claude/DA_IDENTITY.md`);
     expect(skill).toContain("name: soma");
