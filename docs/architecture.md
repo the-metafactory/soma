@@ -56,9 +56,12 @@ decides whether the process is allowed to advance.
 
 The harness is driven through explicit mutations rather than substrate-specific
 conversation tricks. The portable command surface covers `new`, `list`, `show`,
-`capabilities`, `plan`, `decision`, `change`, `step`, `verify`, `learn`, and
-`advance`. This adapts the useful part of PAI's Algorithm tool while leaving
-Claude-only PRD parsing, prompt curls, and loop execution outside the kernel.
+`classify`, `capabilities`, `plan`, `decision`, `change`, `step`, `verify`,
+`learn`, and `advance`. `classify` is Soma's portable version of PAI's
+UserPromptSubmit mode classifier: it chooses MINIMAL, NATIVE, or ALGORITHM and
+maps Algorithm prompts to E1-E5 before a run is created. This adapts the useful
+part of PAI's Algorithm tool while leaving Claude-only PRD parsing, prompt
+curls, and loop execution outside the kernel.
 
 ### Skills
 

@@ -38,6 +38,17 @@ export type AlgorithmPhase = IdealStateArtifact["phase"];
 
 export type AlgorithmEffortTier = "E1" | "E2" | "E3" | "E4" | "E5";
 
+export type AlgorithmMode = "minimal" | "native" | "algorithm";
+
+export type AlgorithmEffortSource = "explicit" | "classifier" | "context-override" | "auto" | "fail-safe";
+
+export interface AlgorithmPromptClassification {
+  mode: AlgorithmMode;
+  effort?: AlgorithmEffortTier;
+  source: AlgorithmEffortSource;
+  reason: string;
+}
+
 export interface AlgorithmPlanStep {
   id: string;
   text: string;
@@ -60,6 +71,9 @@ export interface AlgorithmRun {
   prompt: string;
   intent: string;
   effort: AlgorithmEffortTier;
+  effortSource: AlgorithmEffortSource;
+  mode: AlgorithmMode;
+  classificationReason: string;
   currentState: string;
   phase: AlgorithmPhase;
   isa: IdealStateArtifact;
@@ -93,6 +107,9 @@ export interface AlgorithmRunInput {
   prompt: string;
   intent: string;
   effort?: AlgorithmEffortTier;
+  effortSource?: AlgorithmEffortSource;
+  mode?: AlgorithmMode;
+  classificationReason?: string;
   currentState: string;
   goal: string;
   criteria: {

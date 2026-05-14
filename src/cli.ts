@@ -1,6 +1,7 @@
 import {
   addAlgorithmCapabilities,
   advanceAlgorithmRun,
+  classifyAlgorithmPrompt,
   createAlgorithmRun,
   importAlgorithm,
   importPaiIdentity,
@@ -59,7 +60,19 @@ interface ParsedImportArgs {
 
 interface ParsedAlgorithmArgs {
   command: "algorithm";
-  action: "new" | "list" | "show" | "capabilities" | "plan" | "decision" | "change" | "step" | "verify" | "learn" | "advance";
+  action:
+    | "new"
+    | "classify"
+    | "list"
+    | "show"
+    | "capabilities"
+    | "plan"
+    | "decision"
+    | "change"
+    | "step"
+    | "verify"
+    | "learn"
+    | "advance";
   options: AlgorithmCliOptions;
 }
 
@@ -68,6 +81,7 @@ interface AlgorithmCliOptions {
   somaHome?: string;
   run?: AlgorithmRunInput;
   id?: string;
+  prompt?: string;
   capabilities?: string[];
   planSteps?: AlgorithmPlanStep[];
   text?: string;
@@ -271,6 +285,7 @@ function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
 
   const validActions = new Set([
     "new",
+    "classify",
     "list",
     "show",
     "capabilities",
@@ -314,6 +329,7 @@ function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
         break;
       case "--prompt":
         run.prompt = readOption(rest, index, arg);
+        options.prompt = run.prompt;
         index += 1;
         break;
       case "--intent":
@@ -465,6 +481,7 @@ function parseArgs(args: string[]): ParsedArgs {
     [
       "Usage:",
       "  soma algorithm new --prompt <text> --intent <text> --current-state <text> --goal <text> --criterion <id:text> [--effort <E1|E2|E3|E4|E5>] [--home-dir <dir>] [--soma-home <dir>]",
+      "  soma algorithm classify --prompt <text>",
       "  soma algorithm <list|show|capabilities|plan|decision|change|step|verify|learn|advance> --id <run-id> [...]",
       "  soma lifecycle <session-start|algorithm-updated|session-end> [--home-dir <dir>] [--soma-home <dir>] [--substrate <id>] [--session-id <id>]",
       "  soma install <codex|pi-dev> [--dry-run] [--apply] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
@@ -572,6 +589,18 @@ function formatAlgorithmRunResult(result: { path: string; run: { id: string; pha
   ].join("\n");
 }
 
+function formatAlgorithmClassification(prompt: string): string {
+  const classification = classifyAlgorithmPrompt(prompt);
+
+  return [
+    "Soma Algorithm prompt classification",
+    `mode: ${classification.mode}`,
+    `effort: ${classification.effort ?? "none"}`,
+    `source: ${classification.source}`,
+    `reason: ${classification.reason}`,
+  ].join("\n");
+}
+
 function formatLifecycleResult(result: SomaLifecycleResult): string {
   const lines = [
     "Soma lifecycle event handled",
@@ -596,6 +625,9 @@ function formatAlgorithmRun(run: AlgorithmRun, path: string): string {
     `id: ${run.id}`,
     `phase: ${run.phase}`,
     `effort: ${run.effort}`,
+    `effortSource: ${run.effortSource}`,
+    `mode: ${run.mode}`,
+    `classificationReason: ${run.classificationReason}`,
     `path: ${path}`,
     `goal: ${run.isa.goal}`,
     "",
@@ -649,6 +681,11 @@ async function updateAndReportAlgorithmRun(
 
 async function runAlgorithmCli(parsed: ParsedAlgorithmArgs): Promise<string> {
   const options = parsed.options;
+
+  if (parsed.action === "classify") {
+    if (!options.prompt) throw new Error("--prompt is required.");
+    return formatAlgorithmClassification(options.prompt);
+  }
 
   if (parsed.action === "new") {
     const written = await writeAlgorithmRun(createAlgorithmRun(requireAlgorithmRunInput(options)), {

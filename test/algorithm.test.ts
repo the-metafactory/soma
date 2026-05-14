@@ -5,6 +5,7 @@ import { expect, test } from "bun:test";
 import {
   addAlgorithmCapabilities,
   advanceAlgorithmRun,
+  classifyAlgorithmPrompt,
   createAlgorithmRun,
   setAlgorithmPlan,
   updateAlgorithmPlanStep,
@@ -34,10 +35,33 @@ test("creates deterministic Algorithm runs around ISA criteria", () => {
   });
 
   expect(run.phase).toBe("observe");
-  expect(run.effort).toBe("E2");
+  expect(run.effort).toBe("E1");
+  expect(run.effortSource).toBe("auto");
+  expect(run.classificationReason).toContain("E1");
   expect(run.isa.phase).toBe("observe");
   expect(run.isa.criteria[0]?.status).toBe("open");
   expect(run.decisions[0]?.text).toContain("Bring ledger state current");
+});
+
+test("classifies prompts into Algorithm mode and effort tiers", () => {
+  expect(classifyAlgorithmPrompt("ok")).toMatchObject({
+    mode: "minimal",
+    source: "auto",
+  });
+  expect(classifyAlgorithmPrompt("run the tests")).toMatchObject({
+    mode: "native",
+    source: "auto",
+  });
+  expect(classifyAlgorithmPrompt("Implement a multi-file migration for the adapter")).toMatchObject({
+    mode: "algorithm",
+    effort: "E3",
+    source: "auto",
+  });
+  expect(classifyAlgorithmPrompt("/e4 redesign the policy enforcement architecture")).toMatchObject({
+    mode: "algorithm",
+    effort: "E4",
+    source: "explicit",
+  });
 });
 
 test("enforces Algorithm phase gates", () => {
