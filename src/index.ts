@@ -57,11 +57,14 @@ export {
 } from "./algorithm";
 export {
   algorithmRunPath,
+  algorithmRunPathById,
   listAlgorithmRunSummaries,
   listAlgorithmRuns,
+  readAlgorithmRunById,
   readAlgorithmRun,
   resolveAlgorithmRunsDir,
   summarizeAlgorithmRun,
+  updateAlgorithmRunById,
   writeAlgorithmRun,
   type AlgorithmStoreOptions,
   type WrittenAlgorithmRun,

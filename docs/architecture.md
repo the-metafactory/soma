@@ -54,6 +54,12 @@ done or blocked, and LEARN requires every criterion to be passed or dropped.
 This is the part that adds determinism: the LLM can propose content, but Soma
 decides whether the process is allowed to advance.
 
+The harness is driven through explicit mutations rather than substrate-specific
+conversation tricks. The portable command surface covers `new`, `list`, `show`,
+`capabilities`, `plan`, `decision`, `change`, `step`, `verify`, `learn`, and
+`advance`. This adapts the useful part of PAI's Algorithm tool while leaving
+Claude-only PRD parsing, prompt curls, and loop execution outside the kernel.
+
 ### Skills
 
 Skills are portable capability folders. A skill may contain a `SKILL.md`,

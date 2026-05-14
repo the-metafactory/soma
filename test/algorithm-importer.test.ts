@@ -49,6 +49,9 @@ test("imports Algorithm doctrine as a portable Soma skill", async () => {
     await expect(readFile(join(homeDir, ".soma/skills/the-algorithm/Workflows/RunAlgorithm.md"), "utf8")).resolves.toContain(
       "Create a harness run",
     );
+    await expect(readFile(join(homeDir, ".soma/skills/the-algorithm/Workflows/RunAlgorithm.md"), "utf8")).resolves.toContain(
+      "algorithm capabilities --id <run-id>",
+    );
 
     const context = await loadSomaHome(join(homeDir, ".soma"));
     expect(context.profile.skills.some((skill) => skill.name === "the-algorithm")).toBe(true);

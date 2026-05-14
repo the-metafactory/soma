@@ -67,8 +67,20 @@ Substrates can create persisted runs with:
 bun run soma algorithm new --prompt "..." --intent "..." --current-state "..." --goal "..." --criterion "C1:..."
 ```
 
-The LLM can propose state, criteria, plans, and evidence; Soma decides whether
-the run is allowed to advance.
+The LLM can propose state, criteria, plans, decisions, changes, and evidence;
+Soma decides whether the run is allowed to advance. PAI's original tool has many
+Claude-specific commands and PRD conveniences; Soma keeps the portable part as a
+typed mutation surface:
+
+```bash
+bun run soma algorithm capabilities --id <run-id> --capability FeedbackMemoryConsult
+bun run soma algorithm plan --id <run-id> --step "P1:C1:Implement the harness."
+bun run soma algorithm advance --id <run-id>
+bun run soma algorithm change --id <run-id> --text "Added the deterministic CLI."
+bun run soma algorithm step --id <run-id> --step-id P1 --status done --evidence "Tests pass."
+bun run soma algorithm verify --id <run-id> --criterion-id C1 --status passed --evidence "bun test"
+bun run soma algorithm learn --id <run-id> --text "Harness gates should be explicit."
+```
 
 Lifecycle commands provide the substrate-neutral version of PAI's hooks:
 

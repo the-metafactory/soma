@@ -57,6 +57,59 @@ test("cli creates persisted Algorithm runs", async () => {
   });
 });
 
+test("cli drives Algorithm runs through gated mutations", async () => {
+  await withTempHome(async (homeDir) => {
+    await runSomaCli([
+      "algorithm",
+      "new",
+      "--home-dir",
+      homeDir,
+      "--id",
+      "cli-run",
+      "--prompt",
+      "Use the harness",
+      "--intent",
+      "Drive work through gates.",
+      "--current-state",
+      "Only create exists.",
+      "--goal",
+      "Run reaches learn phase.",
+      "--criterion",
+      "C1:Mutation commands work.",
+    ]);
+
+    await expect(readFile(join(homeDir, ".soma/memory/STATE/algorithm-work-index.json"), "utf8")).resolves.toContain("cli-run");
+
+    await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "cli-run"]);
+    await runSomaCli(["algorithm", "capabilities", "--home-dir", homeDir, "--id", "cli-run", "--capability", "FeedbackMemoryConsult"]);
+    await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "cli-run"]);
+    await runSomaCli(["algorithm", "plan", "--home-dir", homeDir, "--id", "cli-run", "--step", "P1:C1:Exercise mutation commands."]);
+    await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "cli-run"]);
+    await runSomaCli(["algorithm", "change", "--home-dir", homeDir, "--id", "cli-run", "--text", "Added CLI mutation commands."]);
+    await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "cli-run"]);
+    await runSomaCli(["algorithm", "step", "--home-dir", homeDir, "--id", "cli-run", "--step-id", "P1", "--status", "done", "--evidence", "Step command persisted state."]);
+    await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "cli-run"]);
+    await runSomaCli([
+      "algorithm",
+      "verify",
+      "--home-dir",
+      homeDir,
+      "--id",
+      "cli-run",
+      "--criterion-id",
+      "C1",
+      "--status",
+      "passed",
+      "--evidence",
+      "CLI commands advanced through gates.",
+    ]);
+    const output = await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "cli-run"]);
+
+    expect(output).toContain("phase: learn");
+    expect(output).toContain("[passed] C1");
+  });
+});
+
 test("cli handles lifecycle events", async () => {
   await withTempHome(async (homeDir) => {
     await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir]);

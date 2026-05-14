@@ -24,6 +24,10 @@ export function algorithmRunPath(run: Pick<AlgorithmRun, "id">, options: Algorit
   return join(resolveAlgorithmRunsDir(options), `${run.id}.json`);
 }
 
+export function algorithmRunPathById(id: string, options: AlgorithmStoreOptions = {}): string {
+  return join(resolveAlgorithmRunsDir(options), `${id}.json`);
+}
+
 export async function writeAlgorithmRun(run: AlgorithmRun, options: AlgorithmStoreOptions = {}): Promise<WrittenAlgorithmRun> {
   const path = algorithmRunPath(run, options);
 
@@ -35,6 +39,23 @@ export async function writeAlgorithmRun(run: AlgorithmRun, options: AlgorithmSto
 
 export async function readAlgorithmRun(path: string): Promise<AlgorithmRun> {
   return JSON.parse(await readFile(path, "utf8")) as AlgorithmRun;
+}
+
+export async function readAlgorithmRunById(id: string, options: AlgorithmStoreOptions = {}): Promise<{ path: string; run: AlgorithmRun }> {
+  const path = algorithmRunPathById(id, options);
+  return {
+    path,
+    run: await readAlgorithmRun(path),
+  };
+}
+
+export async function updateAlgorithmRunById(
+  id: string,
+  options: AlgorithmStoreOptions,
+  update: (run: AlgorithmRun) => AlgorithmRun,
+): Promise<WrittenAlgorithmRun> {
+  const { run } = await readAlgorithmRunById(id, options);
+  return writeAlgorithmRun(update(run), options);
 }
 
 export function summarizeAlgorithmRun(run: AlgorithmRun, path: string): AlgorithmRunSummary {
