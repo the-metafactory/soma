@@ -3,7 +3,7 @@ task: Extract portable Personal AI Assistant core
 slug: soma
 effort: e3
 phase: verify
-progress: 23/23
+progress: 24/24
 mode: design
 started: 2026-05-14
 updated: 2026-05-14
@@ -85,6 +85,7 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 - [x] ISC-21: Claude Code adapter builds a Claude-shaped context bundle from the same Soma input.
 - [x] ISC-22: ESLint setup follows the Arc/Myelin flat-config pattern and passes on Soma.
 - [x] ISC-23: Context bundles can be written to disk with path escape protection.
+- [x] ISC-24: Default availability is defined as home installation with workspace overlays.
 
 ## Test Strategy
 
@@ -113,6 +114,7 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 | ISC-21 | unit | Claude Code context bundle contains profile, telos, memory, skills, ISA, and hook plan | bun test |
 | ISC-22 | static | ESLint flat config and package scripts are installed | bun run lint |
 | ISC-23 | unit | Bundle writer creates substrate files and rejects unsafe paths | bun test |
+| ISC-24 | file | Default availability doc distinguishes home projection from workspace overlay | read |
 
 ## Features
 
@@ -132,6 +134,7 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 | Claude Code context adapter | ISC-21 | type contracts | yes |
 | ESLint baseline | ISC-22 | package metadata | no |
 | Context bundle writer | ISC-23 | context adapters | no |
+| Default availability design | ISC-24 | PAI integration review | no |
 
 ## Decisions
 
@@ -152,13 +155,15 @@ Pi.dev, Claude Code, and Cortex/Myelin.
   `@eslint/js`, `typescript-eslint`, type-aware rules, and test overrides.
 - 2026-05-14: Added a filesystem writer for materializing generated context
   bundles into a workspace root.
+- 2026-05-14: Reframed installation around default substrate-home availability,
+  using PAI's `~/.claude/` integration as the reference pattern.
 
 ## Changelog
 
 - conjecture: A portable assistant core should live outside any one substrate.
   refuted-by: pending implementation experience.
   learned: Initial repository should make boundaries and contracts explicit.
-  criterion-now: ISC-1 through ISC-23.
+  criterion-now: ISC-1 through ISC-24.
 
 ## Verification
 
@@ -179,3 +184,6 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 - 2026-05-14: `bun run lint`, `bun run typecheck`, and `bun test` passed after
   adding the context bundle writer. `bun test` passed with 12 tests across 4
   files.
+- 2026-05-14: Reviewed PAI v5.0.0 Claude integration shape: global
+  `CLAUDE.md`, `settings.json`, hooks, skills, agents, commands, USER, MEMORY,
+  and Pulse under `~/.claude/`.

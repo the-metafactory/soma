@@ -22,6 +22,10 @@ returns deterministic files under `.codex/soma/` plus an instruction string.
 Codex execution and plugins come later, after the same input can be projected
 into at least one second substrate.
 
+Next answer: add a home projection for `~/.codex/` so Soma is available by
+default. Workspace-local `.codex/soma/` files should become project overlays,
+not the main install surface.
+
 ## Pi.dev
 
 Pi.dev is model-agnostic and supports extensions and skills. The adapter should
@@ -45,6 +49,9 @@ projection under `.pi/extensions/soma-core/`. It includes an extension manifest,
 portable context, tool contract, memory layout, skills, and policy projection.
 The tools are named as the adapter contract; execution is not wired yet.
 
+The user-level Pi.dev extension home still needs confirmation. Once confirmed,
+the Pi adapter should support home installation before project-local overlays.
+
 ## Claude Code
 
 Claude Code has the richest native surface:
@@ -64,6 +71,12 @@ not be required for the storage contract to function.
 Initial implementation: `buildClaudeCodeContext` generates a Claude-shaped
 projection with `CLAUDE.md` plus `.claude/soma/` context files. Hooks are
 documented as optional enhancements, not requirements for the portable core.
+
+The Claude Code adapter should support a home projection into `~/.claude/`.
+This is how PAI is deeply integrated: global `CLAUDE.md`, settings, hooks,
+skills, agents, commands, user identity, memory, and daemon support are available
+at every Claude Code startup. Soma should project into that shape without making
+Claude Code the source of truth.
 
 ## Cortex / Myelin
 

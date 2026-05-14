@@ -85,6 +85,13 @@ Examples:
 
 ## Runtime Modes
 
+### Home Install Mode
+
+Used to make Soma available by default in a substrate. Soma writes or updates
+user-level substrate projections from `~/.soma/` into homes such as `~/.codex/`,
+`~/.claude/`, Pi.dev's extension home, or Cortex's agent registry. This is the
+primary install path.
+
 ### Library Mode
 
 Used by a substrate CLI. Soma builds context and exposes tools, but the substrate
@@ -98,6 +105,11 @@ subjects, owns state, and publishes envelopes.
 ### Export Mode
 
 Used to generate substrate-specific configuration without running anything.
+
+### Workspace Overlay Mode
+
+Used to add project-local context to a workspace. Workspace overlays complement
+the home install; they are not the primary way Soma becomes available.
 
 ## Relationship To Meta Factory
 
@@ -116,3 +128,7 @@ components.
 The detailed source-of-truth contract lives in [boundaries.md](./boundaries.md).
 When a concept appears in more than one repo or substrate, the other copy must
 be treated as a projection unless a sync contract says otherwise.
+
+Default availability is specified in [default-availability.md](./default-availability.md).
+Soma should follow PAI's lesson that the assistant needs a durable substrate
+home, while avoiding PAI's Claude-only coupling.

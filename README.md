@@ -31,6 +31,10 @@ CLI. The valuable part is the surrounding operating system:
 Soma makes those parts explicit and portable. A substrate should be replaceable.
 The personal assistant core should remain.
 
+Soma is meant to be installed into a substrate's user-level home so it is
+available by default. Project-local context is an overlay, not the main install
+path.
+
 ## What Soma Is
 
 Soma is a small runtime-independent kernel for personal AI assistants.
@@ -58,6 +62,8 @@ Myelin, Arc, Signal, Spawn, and Compass.
 
 See [docs/boundaries.md](docs/boundaries.md) for the source-of-truth split across
 Soma, Compass, Cortex/Myelin, Arc, Signal, Spawn, and substrate adapters.
+See [docs/default-availability.md](docs/default-availability.md) for the home
+install versus workspace overlay model.
 
 ## Architecture Sketch
 
