@@ -1,5 +1,5 @@
 import { appendSomaMemoryEvent } from "./memory";
-import { evaluateSomaPolicyBatch, evaluateSomaPolicyWithFilesystem, normalizeSomaPolicyPath } from "./policy";
+import { evaluateSomaPolicyBatch, evaluateSomaPolicyWithFilesystem, normalizeSomaPolicyPath, policyOptionsForTarget } from "./policy";
 import type { SomaPolicyBatchCheckOptions, SomaPolicyBatchCheckResult, SomaPolicyCheckOptions, SomaPolicyCheckResult } from "./types";
 
 export async function checkSomaPolicy(options: SomaPolicyCheckOptions): Promise<SomaPolicyCheckResult> {
@@ -11,20 +11,7 @@ export async function checkSomaPolicyBatch(options: SomaPolicyBatchCheckOptions)
   const batch = await evaluateSomaPolicyBatch(options);
   const results = await Promise.all(
     batch.results.map((result, index) =>
-      recordSomaPolicyCheck(
-        {
-          homeDir: options.homeDir,
-          somaHome: options.somaHome,
-          substrate: options.substrate,
-          action: options.action,
-          destinationPath: options.targets[index].filePath,
-          sourcePath: options.targets[index].sourcePath,
-          content: options.targets[index].content,
-          record: options.record,
-          timestamp: options.timestamp,
-        },
-        result,
-      ),
+      recordSomaPolicyCheck(policyOptionsForTarget(options, options.targets[index]), result),
     ),
   );
   const denied = results.find((result) => result.decision === "deny");

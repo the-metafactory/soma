@@ -1,7 +1,7 @@
 import { access, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import type { SomaPolicyBatchCheckOptions, SomaPolicyBatchCheckResult, SomaPolicyCheckOptions, SomaPolicyCheckResult, SomaPolicyFinding } from "./types";
+import type { SomaPolicyBatchCheckOptions, SomaPolicyBatchCheckResult, SomaPolicyBatchTarget, SomaPolicyCheckOptions, SomaPolicyCheckResult, SomaPolicyFinding } from "./types";
 
 function resolveSomaHome(options: Pick<SomaPolicyCheckOptions, "homeDir" | "somaHome"> = {}): string {
   return resolve(options.somaHome ?? join(options.homeDir ?? homedir(), ".soma"));
@@ -162,22 +162,7 @@ export async function evaluateSomaPolicyBatch(options: SomaPolicyBatchCheckOptio
   const somaHome = resolveSomaHome(options);
   const rootScopes = await Promise.all(somaPolicyPrivateRoots(somaHome, options.homeDir).map((root) => realScopePath(root)));
   const results = await Promise.all(
-    options.targets.map((target) =>
-      evaluateSomaPolicyWithFilesystem(
-        {
-          homeDir: options.homeDir,
-          somaHome: options.somaHome,
-          substrate: options.substrate,
-          action: options.action,
-          destinationPath: target.filePath,
-          sourcePath: target.sourcePath,
-          content: target.content,
-          record: options.record,
-          timestamp: options.timestamp,
-        },
-        rootScopes,
-      ),
-    ),
+    options.targets.map((target) => evaluateSomaPolicyWithFilesystem(policyOptionsForTarget(options, target), rootScopes)),
   );
   const denied = results.find((result) => result.decision === "deny");
 
@@ -185,5 +170,19 @@ export async function evaluateSomaPolicyBatch(options: SomaPolicyBatchCheckOptio
     decision: denied ? "deny" : "allow",
     reason: denied?.reason ?? "No private Soma source markers found in batch.",
     results,
+  };
+}
+
+export function policyOptionsForTarget(options: Omit<SomaPolicyBatchCheckOptions, "targets">, target: SomaPolicyBatchTarget): SomaPolicyCheckOptions {
+  return {
+    homeDir: options.homeDir,
+    somaHome: options.somaHome,
+    substrate: options.substrate,
+    action: options.action,
+    destinationPath: target.filePath,
+    sourcePath: target.sourcePath,
+    content: target.content,
+    record: options.record,
+    timestamp: options.timestamp,
   };
 }
