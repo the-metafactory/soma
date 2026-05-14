@@ -125,6 +125,26 @@ export interface SomaInstallPlan {
   substrateFiles: string[];
 }
 
+export interface PaiImportOptions {
+  homeDir?: string;
+  claudeHome?: string;
+  somaHome?: string;
+}
+
+export interface PaiImportPlan {
+  apply: boolean;
+  claudeHome: string;
+  somaHome: string;
+  sourceFiles: string[];
+  targetFiles: string[];
+}
+
+export interface PaiImportResult {
+  claudeHome: string;
+  somaHome: string;
+  files: string[];
+}
+
 export interface SomaMemoryEventInput {
   id?: string;
   timestamp?: string;
