@@ -1,6 +1,7 @@
 import { access, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { hasSomaPolicyPrivateMarker } from "./policy-marker-runtime.mjs";
 import type { SomaPolicyBatchCheckOptions, SomaPolicyBatchCheckResult, SomaPolicyBatchTarget, SomaPolicyCheckOptions, SomaPolicyCheckResult, SomaPolicyFinding } from "./types";
 
 function resolveSomaHome(options: Pick<SomaPolicyCheckOptions, "homeDir" | "somaHome"> = {}): string {
@@ -28,7 +29,6 @@ const SOMA_POLICY_PORTABLE_MARKERS = [
   "~/.pi/agent/soma",
   "~/.pi/agent/skills/soma",
 ] as const;
-const SOMA_POLICY_PATH_CONTINUATION_PATTERN = /[A-Za-z0-9._~%:@+-]/;
 
 interface SomaPolicyScope {
   destinationPath: string;
@@ -81,37 +81,7 @@ export function somaPolicyPrivateMarkers(somaHome: string, homeDir?: string, pri
   return Array.from(new Set([...roots.flatMap((root) => [root, markerFor(root, homeDir)]), ...SOMA_POLICY_PORTABLE_MARKERS])).sort((left, right) => right.length - left.length);
 }
 
-export function hasSomaPolicyPrivateMarker(content: string | undefined, marker: string): boolean {
-  if (!content) return false;
-
-  let index = content.indexOf(marker);
-  while (index !== -1) {
-    const next = content[index + marker.length];
-    if (index + marker.length >= content.length || next === "/" || !SOMA_POLICY_PATH_CONTINUATION_PATTERN.test(next)) {
-      return true;
-    }
-    index = content.indexOf(marker, index + marker.length);
-  }
-
-  return false;
-}
-
-export function renderSomaPolicyPrivateMarkerRuntime(functionName = "hasSomaPolicyPrivateMarker"): string[] {
-  return [
-    `const SOMA_POLICY_PATH_CONTINUATION_PATTERN = /${SOMA_POLICY_PATH_CONTINUATION_PATTERN.source}/;`,
-    "",
-    `function ${functionName}(content, marker) {`,
-    "  if (!content) return false;",
-    "  let index = content.indexOf(marker);",
-    "  while (index !== -1) {",
-    "    const next = content[index + marker.length];",
-    "    if (index + marker.length >= content.length || next === \"/\" || !SOMA_POLICY_PATH_CONTINUATION_PATTERN.test(next)) return true;",
-    "    index = content.indexOf(marker, index + marker.length);",
-    "  }",
-    "  return false;",
-    "}",
-  ];
-}
+export { hasSomaPolicyPrivateMarker };
 
 function findPrivateMarkers(content: string, somaHome: string, homeDir?: string, privateRoots: string[] = []): SomaPolicyFinding[] {
   if (!content) return [];

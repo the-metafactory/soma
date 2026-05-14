@@ -74,7 +74,7 @@ test("installs soma source home and codex home projection", async () => {
     expect(result.substrate).toBe("codex");
     expect(result.somaHome.somaHome).toBe(join(homeDir, ".soma"));
     expect(result.substrateHome.rootDir).toBe(join(homeDir, ".codex"));
-    expect(result.substrateHome.files).toHaveLength(13);
+    expect(result.substrateHome.files).toHaveLength(15);
 
     const telos = await readFile(join(homeDir, ".soma/profile/telos.md"), "utf8");
     const rules = await readFile(join(homeDir, ".codex/rules/soma.rules"), "utf8");
@@ -191,6 +191,21 @@ test("install treats toml array tables as section boundaries", async () => {
     expect(config).toContain("[features]\nhooks = true\n\n[[hooks]]\nhooks = false");
     expect(config).toContain(`writable_roots = ["/tmp/existing", "${join(homeDir, ".soma")}"]`);
     expect(config).toContain('[[hooks.commands]]\nwritable_roots = ["/tmp/wrong"]');
+  });
+});
+
+test("install handles header-only codex config sections", async () => {
+  await withTempHome(async (homeDir) => {
+    await mkdir(join(homeDir, ".codex"), { recursive: true });
+    await writeFile(join(homeDir, ".codex/config.toml"), "[features]\n\n[sandbox_workspace_write]", "utf8");
+
+    await installSomaForCodex({ homeDir });
+
+    const config = await readFile(join(homeDir, ".codex/config.toml"), "utf8");
+    expect(config).toContain("hooks = true\n[sandbox_workspace_write]");
+    expect(config).toContain(`[sandbox_workspace_write]\nwritable_roots = ["${join(homeDir, ".soma")}"]`);
+    expect(config).not.toContain("[features]hooks");
+    expect(config).not.toContain("[sandbox_workspace_write]writable_roots");
   });
 });
 

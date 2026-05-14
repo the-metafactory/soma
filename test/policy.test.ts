@@ -234,3 +234,26 @@ test("treats private-looking symlink destinations by their real public scope", a
     });
   });
 });
+
+test("treats new paths under private symlinks by their real public scope", async () => {
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    const publicDir = join(homeDir, "work/public");
+    const privateLookingLink = join(somaHome, "memory/WORK/public-dir");
+
+    await mkdir(publicDir, { recursive: true });
+    await symlink(publicDir, privateLookingLink);
+
+    const result = await checkSomaPolicy({
+      homeDir,
+      action: "write",
+      destinationPath: join(privateLookingLink, "new-summary.md"),
+      content: `${somaHome}/memory/RELATIONSHIP/private.md`,
+    });
+
+    expect(result.decision).toBe("deny");
+    expect(result.findings[0]).toMatchObject({
+      kind: "private-marker",
+    });
+  });
+});

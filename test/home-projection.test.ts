@@ -50,6 +50,8 @@ test("builds codex home projection bundle for default availability", () => {
     "rules/soma.rules",
     "hooks.json",
     "hooks/soma-lifecycle.mjs",
+    "hooks/codex-hook-entry.mjs",
+    "hooks/policy-marker-runtime.mjs",
     "skills/soma/SKILL.md",
     "memories/soma/profile.md",
     "memories/soma/memory-layout.md",
@@ -60,7 +62,8 @@ test("builds codex home projection bundle for default availability", () => {
   ]);
   expect(projection.bundle.instructions).toContain("Soma default availability");
   expect(projection.bundle.instructions).toContain("/tmp/soma-test-home/.soma");
-  expect(projection.bundle.files.find((file) => file.path === "hooks/soma-lifecycle.mjs")?.content).toContain("/tmp/soma-test-home/.codex/memories/soma");
+  expect(projection.bundle.files.find((file) => file.path === "hooks/soma-lifecycle.mjs")?.content).toContain("policyMarkers");
+  expect(projection.bundle.files.find((file) => file.path === "hooks/codex-hook-entry.mjs")?.content).toContain("runSomaPolicyCheck");
 });
 
 test("builds pi.dev home projection bundle for default availability", () => {
@@ -98,7 +101,7 @@ test("installs codex home projection into a substrate home", async () => {
 
     expect(result.substrate).toBe("codex");
     expect(result.rootDir).toBe(join(homeDir, ".codex"));
-    expect(result.files).toHaveLength(10);
+    expect(result.files).toHaveLength(12);
 
     const rules = await readFile(join(homeDir, ".codex/rules/soma.rules"), "utf8");
     const hooks = await readFile(join(homeDir, ".codex/hooks.json"), "utf8");

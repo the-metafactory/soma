@@ -31,6 +31,8 @@ const CODEX_HOME_FILES = [
   "rules/soma.rules",
   "hooks.json",
   "hooks/soma-lifecycle.mjs",
+  "hooks/codex-hook-entry.mjs",
+  "hooks/policy-marker-runtime.mjs",
   "skills/soma/SKILL.md",
   "memories/soma/profile.md",
   "memories/soma/startup-context.md",

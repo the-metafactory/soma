@@ -33,7 +33,7 @@ function enableCodexHooksFeature(config: string): string {
   } else if (deprecatedHooks !== undefined) {
     next = replaceSectionKey(next, current, deprecatedHooks, "hooks = true");
   } else {
-    next = `${next.slice(0, current.headerEnd)}hooks = true\n${next.slice(current.headerEnd)}`;
+    next = insertSectionKey(next, current, "hooks = true");
   }
 
   current = findTomlSection(next, "features");
@@ -55,8 +55,7 @@ function upsertCodexWritableRoot(config: string, somaHome: string): string {
   const key = findTomlKey(body, "writable_roots");
 
   if (key === undefined) {
-    const insertAt = section.headerEnd;
-    return `${config.slice(0, insertAt)}writable_roots = [${quoteTomlString(somaHome)}]\n${config.slice(insertAt)}`;
+    return insertSectionKey(config, section, `writable_roots = [${quoteTomlString(somaHome)}]`);
   }
 
   const roots = parseTomlStringArray(key.value);
@@ -78,6 +77,12 @@ function removeSectionKey(config: string, section: TomlSection, key: TomlKey): s
   let end = section.bodyStart + key.end;
   if (config[end] === "\n") end += 1;
   return `${config.slice(0, start)}${config.slice(end)}`;
+}
+
+function insertSectionKey(config: string, section: TomlSection, line: string): string {
+  const needsHeaderNewline = section.headerEnd === 0 || config[section.headerEnd - 1] !== "\n";
+  const prefix = `${config.slice(0, section.headerEnd)}${needsHeaderNewline ? "\n" : ""}`;
+  return `${prefix}${line}\n${config.slice(section.headerEnd)}`;
 }
 
 interface TomlSection {
