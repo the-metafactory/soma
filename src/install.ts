@@ -163,6 +163,10 @@ async function installLifecycleProjection(
     files.push(await writeProjectionFile(substrateHome, "memories/soma/soma-repo.txt", process.cwd()));
   }
 
+  if (substrate === "pi-dev") {
+    files.push(await writeProjectionFile(substrateHome, "agent/soma/soma-repo.txt", process.cwd()));
+  }
+
   return files;
 }
 
