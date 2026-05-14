@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
-import { hasSomaPolicyPrivateMarker } from "../policy-marker.mjs";
+import { hasSomaPolicyPrivateMarker } from "./policy-marker.mjs";
 
 function readHookInput() {
   try {
