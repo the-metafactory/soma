@@ -72,6 +72,20 @@ export interface AlgorithmRun {
   learning: AlgorithmLogEntry[];
 }
 
+export interface AlgorithmRunSummary {
+  id: string;
+  path: string;
+  updatedAt: string;
+  phase: AlgorithmPhase;
+  effort: AlgorithmEffortTier;
+  goal: string;
+  openCriteria: number;
+  passedCriteria: number;
+  failedCriteria: number;
+  droppedCriteria: number;
+  progress: string;
+}
+
 export interface AlgorithmRunInput {
   id?: string;
   timestamp?: string;
@@ -246,6 +260,40 @@ export interface SomaMemoryEvent {
   summary: string;
   artifactPaths?: string[];
   metadata?: Record<string, unknown>;
+}
+
+export type SomaLifecycleEventName = "session_start" | "algorithm_updated" | "session_end";
+
+export interface SomaLifecycleOptions {
+  homeDir?: string;
+  somaHome?: string;
+  substrate?: SubstrateId;
+  sessionId?: string;
+  timestamp?: string;
+}
+
+export interface SomaStartupContext {
+  somaHome: string;
+  timestamp: string;
+  substrate: SubstrateId;
+  sessionId?: string;
+  context: string;
+  activeRuns: AlgorithmRunSummary[];
+  recentLearnings: string[];
+  relationshipNotes: string[];
+}
+
+export interface AlgorithmWorkIndex {
+  updatedAt: string;
+  runs: AlgorithmRunSummary[];
+}
+
+export interface SomaLifecycleResult {
+  event: SomaLifecycleEventName;
+  somaHome: string;
+  timestamp: string;
+  files: string[];
+  context?: string;
 }
 
 export interface SomaTask {

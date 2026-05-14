@@ -8,6 +8,9 @@ import {
   planPaiImport,
   planSomaForCodexInstall,
   planSomaForPiDevInstall,
+  runSomaLifecycleAlgorithmUpdated,
+  runSomaLifecycleSessionEnd,
+  runSomaLifecycleSessionStart,
   writeAlgorithmRun,
 } from "./index";
 import type {
@@ -22,6 +25,9 @@ import type {
   SomaInstallOptions,
   SomaInstallPlan,
   SomaInstallResult,
+  SomaLifecycleOptions,
+  SomaLifecycleResult,
+  SubstrateId,
 } from "./types";
 
 interface ParsedInstallArgs {
@@ -48,7 +54,13 @@ interface ParsedAlgorithmArgs {
   };
 }
 
-type ParsedArgs = ParsedInstallArgs | ParsedImportArgs | ParsedAlgorithmArgs;
+interface ParsedLifecycleArgs {
+  command: "lifecycle";
+  event: "session-start" | "algorithm-updated" | "session-end";
+  options: SomaLifecycleOptions;
+}
+
+type ParsedArgs = ParsedInstallArgs | ParsedImportArgs | ParsedAlgorithmArgs | ParsedLifecycleArgs;
 
 function readOption(args: string[], index: number, name: string): string {
   const value = args[index + 1];
@@ -187,6 +199,14 @@ function parseEffort(value: string): AlgorithmEffortTier {
   throw new Error("--effort must be one of E1, E2, E3, E4, or E5.");
 }
 
+function parseSubstrate(value: string): SubstrateId {
+  if (value === "codex" || value === "pi-dev" || value === "claude-code" || value === "cortex" || value === "custom") {
+    return value;
+  }
+
+  throw new Error("--substrate must be one of codex, pi-dev, claude-code, cortex, or custom.");
+}
+
 function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
   const [command, action, ...rest] = args;
 
@@ -259,7 +279,54 @@ function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
   };
 }
 
+function parseLifecycleArgs(args: string[]): ParsedLifecycleArgs {
+  const [command, event, ...rest] = args;
+
+  if (command !== "lifecycle" || (event !== "session-start" && event !== "algorithm-updated" && event !== "session-end")) {
+    throw new Error(
+      "Usage: soma lifecycle <session-start|algorithm-updated|session-end> [--home-dir <dir>] [--soma-home <dir>] [--substrate <id>] [--session-id <id>]",
+    );
+  }
+
+  const options: SomaLifecycleOptions = {};
+
+  for (let index = 0; index < rest.length; index += 1) {
+    const arg = rest[index];
+
+    switch (arg) {
+      case "--home-dir":
+        options.homeDir = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--soma-home":
+        options.somaHome = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--substrate":
+        options.substrate = parseSubstrate(readOption(rest, index, arg));
+        index += 1;
+        break;
+      case "--session-id":
+        options.sessionId = readOption(rest, index, arg);
+        index += 1;
+        break;
+      default:
+        throw new Error(`Unknown option: ${arg}`);
+    }
+  }
+
+  return {
+    command,
+    event,
+    options,
+  };
+}
+
 function parseArgs(args: string[]): ParsedArgs {
+  if (args[0] === "lifecycle") {
+    return parseLifecycleArgs(args);
+  }
+
   if (args[0] === "algorithm") {
     return parseAlgorithmArgs(args);
   }
@@ -276,6 +343,7 @@ function parseArgs(args: string[]): ParsedArgs {
     [
       "Usage:",
       "  soma algorithm new --prompt <text> --intent <text> --current-state <text> --goal <text> --criterion <id:text> [--effort <E1|E2|E3|E4|E5>] [--home-dir <dir>] [--soma-home <dir>]",
+      "  soma lifecycle <session-start|algorithm-updated|session-end> [--home-dir <dir>] [--soma-home <dir>] [--substrate <id>] [--session-id <id>]",
       "  soma install <codex|pi-dev> [--dry-run] [--apply] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
       "  soma import pai [--dry-run] [--apply] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>]",
       "  soma import algorithm [--dry-run] [--apply] [--home-dir <dir>] [--pai-algorithm-dir <dir>] [--soma-home <dir>]",
@@ -381,8 +449,38 @@ function formatAlgorithmRunResult(result: { path: string; run: { id: string; pha
   ].join("\n");
 }
 
+function formatLifecycleResult(result: SomaLifecycleResult): string {
+  const lines = [
+    "Soma lifecycle event handled",
+    `event: ${result.event}`,
+    `somaHome: ${result.somaHome}`,
+    `timestamp: ${result.timestamp}`,
+    "",
+    "Files:",
+    ...result.files.map((path) => `- ${path}`),
+  ];
+
+  if (result.context) {
+    lines.push("", result.context);
+  }
+
+  return lines.join("\n");
+}
+
 export async function runSomaCli(args: string[]): Promise<string> {
   const parsed = parseArgs(args);
+
+  if (parsed.command === "lifecycle") {
+    if (parsed.event === "session-start") {
+      return formatLifecycleResult(await runSomaLifecycleSessionStart(parsed.options));
+    }
+
+    if (parsed.event === "algorithm-updated") {
+      return formatLifecycleResult(await runSomaLifecycleAlgorithmUpdated(parsed.options));
+    }
+
+    return formatLifecycleResult(await runSomaLifecycleSessionEnd(parsed.options));
+  }
 
   if (parsed.command === "algorithm") {
     return formatAlgorithmRunResult(

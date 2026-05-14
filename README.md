@@ -70,6 +70,19 @@ bun run soma algorithm new --prompt "..." --intent "..." --current-state "..." -
 The LLM can propose state, criteria, plans, and evidence; Soma decides whether
 the run is allowed to advance.
 
+Lifecycle commands provide the substrate-neutral version of PAI's hooks:
+
+```bash
+bun run soma lifecycle session-start --substrate codex
+bun run soma lifecycle algorithm-updated --substrate codex
+bun run soma lifecycle session-end --substrate codex
+```
+
+`session-start` emits a startup context block from Soma identity, active
+Algorithm runs, recent learning, and relationship notes. `algorithm-updated`
+writes `~/.soma/memory/STATE/algorithm-work-index.json`. `session-end` refreshes
+the index and captures completed Algorithm runs into `~/.soma/memory/LEARNING/`.
+
 ## What Soma Is
 
 Soma is a small runtime-independent kernel for personal AI assistants.
