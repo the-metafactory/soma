@@ -28,7 +28,7 @@ function renderInstructions(input: SomaContextInput): string {
 }
 
 function renderHomeRules(input: SomaContextInput, somaHome: string): string {
-  return [
+  const contextLines = [
     "# Soma default availability",
     "",
     "Use Soma as the portable personal assistant context when the task involves identity, telos, ISA, skills, memory, policy, or assistant continuity.",
@@ -42,6 +42,16 @@ function renderHomeRules(input: SomaContextInput, somaHome: string): string {
     "- Treat project-local `.codex/soma/` files as overlays on this home projection.",
     "- Keep substrate-specific behavior behind Codex adapter boundaries.",
     "- Record verification and any Codex-specific limitation in the task result.",
+  ];
+
+  const context = contextLines.join("\n");
+
+  return [
+    "# This file is parsed by Codex as Starlark permission rules.",
+    "# Soma keeps it comment-only so it can mark the projection without changing permissions.",
+    "# The actual assistant context lives in ~/.codex/skills/soma/SKILL.md and ~/.codex/memories/soma/.",
+    "",
+    ...context.split("\n").map((line) => (line === "" ? "#" : `# ${line}`)),
   ].join("\n");
 }
 
@@ -62,7 +72,7 @@ function renderHomeSkill(input: SomaContextInput, somaHome: string): string {
     "",
     "## Use",
     "",
-    "- Read `~/.codex/rules/soma.rules` for always-on operating context.",
+    "- Treat `~/.codex/rules/soma.rules` as a parse-safe manifest marker, not as natural-language model context.",
     "- Read `~/.codex/memories/soma/profile.md` for the current projected assistant profile.",
     "- Read `~/.codex/memories/soma/memory-layout.md` before using persistent memory.",
     "- Treat project-local `.codex/soma/` context as an overlay.",

@@ -79,6 +79,11 @@ directories, and returns a `SomaContextInput` loaded from those files.
 Observed Codex user-level surfaces include `~/.codex/config.toml`,
 `~/.codex/rules/`, `~/.codex/skills/`, and `~/.codex/memories/`.
 
+Codex `*.rules` files are parsed as Starlark permission rules, not Markdown
+assistant instructions. Soma therefore keeps `rules/soma.rules` comment-only as
+a parse-safe projection marker. Natural-language assistant context lives in the
+projected skill and memory files.
+
 Initial Soma projection target:
 
 ```text

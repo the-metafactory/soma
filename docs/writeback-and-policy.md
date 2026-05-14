@@ -61,7 +61,7 @@ Each line is one event:
   "substrate": "codex",
   "kind": "verification",
   "summary": "Codex projection installed.",
-  "artifactPaths": ["~/.codex/rules/soma.rules"],
+  "artifactPaths": ["~/.codex/skills/soma/SKILL.md"],
   "metadata": {}
 }
 ```

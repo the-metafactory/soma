@@ -57,6 +57,9 @@ test("installs codex home projection into a substrate home", async () => {
     const profile = await readFile(join(homeDir, ".codex/memories/soma/profile.md"), "utf8");
 
     expect(rules).toContain("Use Soma as the portable personal assistant context");
+    expect(rules.split("\n").filter((line) => line.trim() !== "")).toSatisfy((lines: string[]) =>
+      lines.every((line) => line.startsWith("#")),
+    );
     expect(skill).toContain("name: soma");
     expect(profile).toContain("ISC-PORTABLE-1");
   });
