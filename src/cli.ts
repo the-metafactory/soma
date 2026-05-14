@@ -130,20 +130,11 @@ interface ParsedPolicyArgs {
   command: "policy";
   action: "check";
   options: SomaPolicyCheckOptions;
+  targetsEnv?: string;
   json: boolean;
 }
 
-interface ParsedPolicyBatchArgs {
-  command: "policy";
-  action: "check-batch";
-  options: Pick<SomaPolicyCheckOptions, "homeDir" | "somaHome" | "substrate" | "action" | "record">;
-  targetsEnv: string;
-  json: boolean;
-}
-
-type ParsedPolicyCommandArgs = ParsedPolicyArgs | ParsedPolicyBatchArgs;
-
-type ParsedArgs = ParsedInstallArgs | ParsedImportArgs | ParsedAlgorithmArgs | ParsedLifecycleArgs | ParsedMemoryArgs | ParsedPolicyCommandArgs;
+type ParsedArgs = ParsedInstallArgs | ParsedImportArgs | ParsedAlgorithmArgs | ParsedLifecycleArgs | ParsedMemoryArgs | ParsedPolicyArgs;
 
 function readOption(args: string[], index: number, name: string): string {
   const value = args[index + 1];
@@ -732,10 +723,10 @@ function parseMemoryArgs(args: string[]): ParsedMemoryArgs {
   };
 }
 
-function parsePolicyArgs(args: string[]): ParsedPolicyCommandArgs {
+function parsePolicyArgs(args: string[]): ParsedPolicyArgs {
   const [command, action, ...rest] = args;
 
-  if (command !== "policy" || (action !== "check" && action !== "check-batch")) {
+  if (command !== "policy" || action !== "check") {
     throw new Error(
       "Usage: soma policy check --action write --destination <path> [--content <text>|--content-env <name>] [--source <path>]",
     );
@@ -813,26 +804,16 @@ function parsePolicyArgs(args: string[]): ParsedPolicyCommandArgs {
 
   const missing: string[] = [];
   if (!options.action) missing.push("--action");
-  if (action === "check" && !options.destinationPath) missing.push("--destination");
-  if (action === "check-batch" && !targetsEnv) missing.push("--targets-env");
+  if (!options.destinationPath && !targetsEnv) missing.push("--destination");
   if (missing.length > 0) {
     throw new Error(`soma policy ${action} is missing required option(s): ${missing.join(", ")}.`);
-  }
-
-  if (action === "check-batch") {
-    return {
-      command,
-      action,
-      options: options as ParsedPolicyBatchArgs["options"],
-      targetsEnv,
-      json,
-    };
   }
 
   return {
     command,
     action,
     options: options as SomaPolicyCheckOptions,
+    targetsEnv: targetsEnv || undefined,
     json,
   };
 }
@@ -1221,7 +1202,7 @@ export async function runSomaCli(args: string[]): Promise<string> {
   }
 
   if (parsed.command === "policy") {
-    if (parsed.action === "check-batch") {
+    if (parsed.targetsEnv) {
       const envContent = process.env[parsed.targetsEnv];
       if (envContent === undefined) {
         throw new Error(`--targets-env ${parsed.targetsEnv} is not set.`);

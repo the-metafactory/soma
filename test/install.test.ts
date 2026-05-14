@@ -15,6 +15,23 @@ async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> 
   }
 }
 
+function runCodexPreToolUseHook(hook: string, homeDir: string, input: unknown): { status: number | null; output: { continue?: boolean; hookSpecificOutput?: { permissionDecision?: string } } } {
+  const result = spawnSync("node", [hook, "pre-tool-use"], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      HOME: homeDir,
+    },
+    input: JSON.stringify(input),
+    encoding: "utf8",
+  });
+
+  return {
+    status: result.status,
+    output: JSON.parse(result.stdout) as { continue?: boolean; hookSpecificOutput?: { permissionDecision?: string } },
+  };
+}
+
 test("installs soma source home and codex home projection", async () => {
   await withTempHome(async (homeDir) => {
     const result = await installSomaForCodex({ homeDir });
@@ -84,19 +101,10 @@ test("installed codex hook denies private Soma source writes to public destinati
         content: `Copying ${privateMarker} would leak private context.`,
       },
     };
-    const result = spawnSync("node", [hook, "pre-tool-use"], {
-      cwd: process.cwd(),
-      env: {
-        ...process.env,
-        HOME: homeDir,
-      },
-      input: JSON.stringify(input),
-      encoding: "utf8",
-    });
-    const output = JSON.parse(result.stdout) as { hookSpecificOutput?: { permissionDecision?: string } };
+    const result = runCodexPreToolUseHook(hook, homeDir, input);
 
     expect(result.status).toBe(0);
-    expect(output.hookSpecificOutput?.permissionDecision).toBe("deny");
+    expect(result.output.hookSpecificOutput?.permissionDecision).toBe("deny");
   });
 });
 
@@ -112,19 +120,37 @@ test("installed codex hook checks apply_patch file destinations", async () => {
       tool_name: "apply_patch",
       tool_input: patch,
     };
-    const result = spawnSync("node", [hook, "pre-tool-use"], {
-      cwd: process.cwd(),
-      env: {
-        ...process.env,
-        HOME: homeDir,
-      },
-      input: JSON.stringify(input),
-      encoding: "utf8",
-    });
-    const output = JSON.parse(result.stdout) as { hookSpecificOutput?: { permissionDecision?: string } };
+    const result = runCodexPreToolUseHook(hook, homeDir, input);
 
     expect(result.status).toBe(0);
-    expect(output.hookSpecificOutput?.permissionDecision).toBe("deny");
+    expect(result.output.hookSpecificOutput?.permissionDecision).toBe("deny");
+  });
+});
+
+test("installed codex hook allows mixed apply_patch when only private destination has marker", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const publicTarget = join(homeDir, "work/public.md");
+    const privateTarget = join(homeDir, ".soma/memory/WORK/private.md");
+    const privateMarker = join(homeDir, ".soma/memory/RELATIONSHIP/private.md");
+    const patch = [
+      "*** Begin Patch",
+      `*** Add File: ${privateTarget}`,
+      `+Copying ${privateMarker} stays inside private Soma memory.`,
+      `*** Add File: ${publicTarget}`,
+      "+Generic public content.",
+      "*** End Patch",
+    ].join("\n");
+    const input = {
+      cwd: homeDir,
+      tool_name: "apply_patch",
+      tool_input: patch,
+    };
+    const result = runCodexPreToolUseHook(hook, homeDir, input);
+
+    expect(result.status).toBe(0);
+    expect(result.output.continue).toBe(true);
   });
 });
 
@@ -143,19 +169,10 @@ test("installed codex hook checks explicit soma home markers", async () => {
         content: `Copying ${privateMarker} would leak private context.`,
       },
     };
-    const result = spawnSync("node", [hook, "pre-tool-use"], {
-      cwd: process.cwd(),
-      env: {
-        ...process.env,
-        HOME: homeDir,
-      },
-      input: JSON.stringify(input),
-      encoding: "utf8",
-    });
-    const output = JSON.parse(result.stdout) as { hookSpecificOutput?: { permissionDecision?: string } };
+    const result = runCodexPreToolUseHook(hook, homeDir, input);
 
     expect(result.status).toBe(0);
-    expect(output.hookSpecificOutput?.permissionDecision).toBe("deny");
+    expect(result.output.hookSpecificOutput?.permissionDecision).toBe("deny");
   });
 });
 
