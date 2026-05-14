@@ -85,6 +85,8 @@ bun run soma algorithm learn --id <run-id> --text "Harness gates should be expli
 
 When `--effort` is omitted, `algorithm new` classifies the prompt and assigns
 E1-E5 automatically. Explicit `/eN`, `EN`, or `--effort EN` remains an override.
+Generated Algorithm run ids are date-first (`YYYYMMDD_alg_<suffix>`) so work
+indexes sort chronologically. Explicit `--id` values are preserved as provided.
 
 Lifecycle commands provide the substrate-neutral version of PAI's hooks:
 
@@ -111,6 +113,16 @@ RELATIONSHIP, and STATE memory stores, returning source paths, line numbers, and
 short snippets. Promotion turns verified Algorithm work into concise durable
 memory notes with source run links, criteria, decisions, verification, and recall
 guidance. It refuses runs with no verification entries and no passed criteria.
+
+Policy commands provide the first deterministic privacy guard:
+
+```bash
+bun run soma policy check --action write --destination ./README.md --content "..."
+```
+
+The V0 guard blocks obvious movement of private Soma/projection source material
+into public destinations and records `policy.check` events. See
+[docs/private-source-guard-v0.md](docs/private-source-guard-v0.md).
 
 ## What Soma Is
 

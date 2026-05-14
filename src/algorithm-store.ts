@@ -28,11 +28,29 @@ export function algorithmRunPathById(id: string, options: AlgorithmStoreOptions 
   return join(resolveAlgorithmRunsDir(options), `${id}.json`);
 }
 
+function algorithmStoreWriteError(path: string, error: unknown): Error {
+  if (error && typeof error === "object" && "code" in error && (error.code === "EPERM" || error.code === "EACCES")) {
+    return new Error(
+      [
+        `Cannot write Soma Algorithm run at ${path}.`,
+        "The current substrate sandbox does not have write access to the Soma home.",
+        "In Codex, rerun the Soma command with filesystem approval or configure the Soma home as a writable root; do not fall back to substrate-local scratch state.",
+      ].join(" "),
+    );
+  }
+
+  return error instanceof Error ? error : new Error(String(error));
+}
+
 export async function writeAlgorithmRun(run: AlgorithmRun, options: AlgorithmStoreOptions = {}): Promise<WrittenAlgorithmRun> {
   const path = algorithmRunPath(run, options);
 
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(run, null, 2)}\n`, "utf8");
+  try {
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, `${JSON.stringify(run, null, 2)}\n`, "utf8");
+  } catch (error) {
+    throw algorithmStoreWriteError(path, error);
+  }
 
   return { path, run };
 }

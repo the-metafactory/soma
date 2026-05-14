@@ -328,6 +328,138 @@ test("cli promotes Algorithm run memory", async () => {
   });
 });
 
+test("cli checks private source policy", async () => {
+  await withTempHome(async (homeDir) => {
+    const output = await runSomaCli([
+      "policy",
+      "check",
+      "--home-dir",
+      homeDir,
+      "--substrate",
+      "codex",
+      "--action",
+      "write",
+      "--destination",
+      join(homeDir, "work/public.md"),
+      "--content",
+      `${join(homeDir, ".soma/memory/RELATIONSHIP/private.md")} should not be public.`,
+    ]);
+
+    expect(output).toContain("Soma policy check");
+    expect(output).toContain("decision: deny");
+    expect(output).toContain("private-marker");
+  });
+});
+
+test("cli can emit policy checks as JSON without recording", async () => {
+  await withTempHome(async (homeDir) => {
+    const output = await runSomaCli([
+      "policy",
+      "check",
+      "--home-dir",
+      homeDir,
+      "--action",
+      "write",
+      "--destination",
+      join(homeDir, "work/public.md"),
+      "--content",
+      "Generic content.",
+      "--record",
+      "none",
+      "--json",
+    ]);
+    const result = JSON.parse(output) as { decision: string; event?: unknown };
+
+    expect(result.decision).toBe("allow");
+    expect(result.event).toBeUndefined();
+  });
+});
+
+test("cli rejects missing policy content env", async () => {
+  await withTempHome(async (homeDir) => {
+    await expect(
+      runSomaCli([
+        "policy",
+        "check",
+        "--home-dir",
+        homeDir,
+        "--action",
+        "write",
+        "--destination",
+        join(homeDir, "work/public.md"),
+        "--content-env",
+        "SOMA_MISSING_POLICY_CONTENT",
+      ]),
+    ).rejects.toThrow("--content-env SOMA_MISSING_POLICY_CONTENT is not set.");
+  });
+});
+
+test("cli rejects malformed policy targets env", async () => {
+  await withTempHome(async (homeDir) => {
+    process.env.SOMA_BAD_POLICY_TARGETS = "{";
+    try {
+      await expect(
+        runSomaCli([
+          "policy",
+          "check",
+          "--home-dir",
+          homeDir,
+          "--action",
+          "write",
+          "--targets-env",
+          "SOMA_BAD_POLICY_TARGETS",
+        ]),
+      ).rejects.toThrow("--targets-env SOMA_BAD_POLICY_TARGETS must contain valid JSON targets.");
+    } finally {
+      delete process.env.SOMA_BAD_POLICY_TARGETS;
+    }
+  });
+});
+
+test("cli rejects non-array policy targets env", async () => {
+  await withTempHome(async (homeDir) => {
+    process.env.SOMA_BAD_POLICY_TARGETS = "{}";
+    try {
+      await expect(
+        runSomaCli([
+          "policy",
+          "check",
+          "--home-dir",
+          homeDir,
+          "--action",
+          "write",
+          "--targets-env",
+          "SOMA_BAD_POLICY_TARGETS",
+        ]),
+      ).rejects.toThrow("--targets-env SOMA_BAD_POLICY_TARGETS must contain an array of targets with string filePath values and optional string content/sourcePath values.");
+    } finally {
+      delete process.env.SOMA_BAD_POLICY_TARGETS;
+    }
+  });
+});
+
+test("cli rejects malformed policy target fields", async () => {
+  await withTempHome(async (homeDir) => {
+    process.env.SOMA_BAD_POLICY_TARGETS = JSON.stringify([{ filePath: join(homeDir, "work/public.md"), content: {} }]);
+    try {
+      await expect(
+        runSomaCli([
+          "policy",
+          "check",
+          "--home-dir",
+          homeDir,
+          "--action",
+          "write",
+          "--targets-env",
+          "SOMA_BAD_POLICY_TARGETS",
+        ]),
+      ).rejects.toThrow("--targets-env SOMA_BAD_POLICY_TARGETS must contain an array of targets with string filePath values and optional string content/sourcePath values.");
+    } finally {
+      delete process.env.SOMA_BAD_POLICY_TARGETS;
+    }
+  });
+});
+
 test("cli applies codex install only with explicit apply flag", async () => {
   await withTempHome(async (homeDir) => {
     const output = await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir]);

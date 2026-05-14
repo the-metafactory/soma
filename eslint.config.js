@@ -48,6 +48,20 @@ export default tseslint.config(
   },
 
   {
+    files: ["src/**/*.mjs"],
+    extends: [tseslint.configs.disableTypeChecked],
+    languageOptions: {
+      globals: {
+        console: "readonly",
+        process: "readonly",
+      },
+    },
+    rules: {
+      "@typescript-eslint/prefer-nullish-coalescing": "off",
+    },
+  },
+
+  {
     files: ["test/**/*.ts", "**/*.test.ts"],
     rules: {
       "@typescript-eslint/no-explicit-any": "off",

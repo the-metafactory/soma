@@ -202,6 +202,7 @@ export interface SomaHomeProjectionOptions {
   homeDir?: string;
   somaHome?: string;
   substrateHome?: string;
+  somaRepoPath?: string;
 }
 
 export interface SomaHomeProjection {
@@ -226,6 +227,7 @@ export interface SomaInstallOptions {
   homeDir?: string;
   somaHome?: string;
   substrateHome?: string;
+  somaRepoPath?: string;
 }
 
 export interface SomaInstallResult {
@@ -344,6 +346,51 @@ export interface SomaMemoryPromotionResult {
   path: string;
   sourceRunPath: string;
   event: SomaMemoryEvent;
+}
+
+export type SomaPolicyDecision = "allow" | "deny";
+
+export interface SomaPolicyCheckOptions {
+  homeDir?: string;
+  somaHome?: string;
+  privateRoots?: string[];
+  substrate?: SubstrateId;
+  action: "write";
+  destinationPath: string;
+  content?: string;
+  sourcePath?: string;
+  record?: "all" | "deny" | "none";
+  timestamp?: string;
+}
+
+export interface SomaPolicyBatchTarget {
+  filePath: string;
+  content?: string;
+  sourcePath?: string;
+}
+
+export interface SomaPolicyBatchCheckOptions extends Pick<SomaPolicyCheckOptions, "homeDir" | "somaHome" | "substrate" | "action" | "record" | "timestamp"> {
+  privateRoots?: string[];
+  targets: SomaPolicyBatchTarget[];
+}
+
+export interface SomaPolicyFinding {
+  kind: "private-source" | "private-marker";
+  detail: string;
+}
+
+export interface SomaPolicyCheckResult {
+  somaHome: string;
+  decision: SomaPolicyDecision;
+  reason: string;
+  findings: SomaPolicyFinding[];
+  event?: SomaMemoryEvent;
+}
+
+export interface SomaPolicyBatchCheckResult {
+  decision: SomaPolicyDecision;
+  reason: string;
+  results: SomaPolicyCheckResult[];
 }
 
 export type SomaLifecycleEventName = "session_start" | "algorithm_updated" | "session_end";

@@ -43,6 +43,19 @@ test("creates deterministic Algorithm runs around ISA criteria", () => {
   expect(run.decisions[0]?.text).toContain("Bring ledger state current");
 });
 
+test("generates date-first Algorithm run ids", () => {
+  const run = createAlgorithmRun({
+    timestamp: "2026-05-14T10:00:00.000Z",
+    prompt: "Name a run",
+    intent: "Exercise generated ids.",
+    currentState: "No id provided.",
+    goal: "Generated id is sortable.",
+    criteria: [{ id: "C1", text: "Id starts with date." }],
+  });
+
+  expect(run.id).toMatch(/^20260514_alg_[a-f0-9]{8}$/);
+});
+
 test("classifies prompts into Algorithm mode and effort tiers", () => {
   expect(classifyAlgorithmPrompt("ok")).toMatchObject({
     mode: "minimal",

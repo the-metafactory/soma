@@ -2,6 +2,8 @@ import {
   addAlgorithmCapabilities,
   applyAlgorithmBatch,
   advanceAlgorithmRun,
+  checkSomaPolicyBatch,
+  checkSomaPolicy,
   classifyAlgorithmPrompt,
   createAlgorithmRun,
   importAlgorithm,
@@ -50,6 +52,9 @@ import type {
   SomaMemoryPromotionStore,
   SomaMemorySearchOptions,
   SomaMemorySearchResult,
+  SomaPolicyCheckOptions,
+  SomaPolicyCheckResult,
+  SomaPolicyBatchTarget,
   SubstrateId,
 } from "./types";
 
@@ -123,7 +128,15 @@ interface ParsedMemoryPromoteArgs {
 
 type ParsedMemoryArgs = ParsedMemorySearchArgs | ParsedMemoryPromoteArgs;
 
-type ParsedArgs = ParsedInstallArgs | ParsedImportArgs | ParsedAlgorithmArgs | ParsedLifecycleArgs | ParsedMemoryArgs;
+interface ParsedPolicyArgs {
+  command: "policy";
+  action: "check";
+  options: SomaPolicyCheckOptions;
+  targetsEnv?: string;
+  json: boolean;
+}
+
+type ParsedArgs = ParsedInstallArgs | ParsedImportArgs | ParsedAlgorithmArgs | ParsedLifecycleArgs | ParsedMemoryArgs | ParsedPolicyArgs;
 
 function readOption(args: string[], index: number, name: string): string {
   const value = args[index + 1];
@@ -712,6 +725,101 @@ function parseMemoryArgs(args: string[]): ParsedMemoryArgs {
   };
 }
 
+function parsePolicyArgs(args: string[]): ParsedPolicyArgs {
+  const [command, action, ...rest] = args;
+
+  if (command !== "policy" || action !== "check") {
+    throw new Error(
+      "Usage: soma policy check --action write --destination <path> [--content <text>|--content-env <name>] [--source <path>]",
+    );
+  }
+
+  const options: Partial<SomaPolicyCheckOptions> = {};
+  let json = false;
+  let targetsEnv = "";
+
+  for (let index = 0; index < rest.length; index += 1) {
+    const arg = rest[index];
+
+    switch (arg) {
+      case "--home-dir":
+        options.homeDir = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--soma-home":
+        options.somaHome = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--substrate":
+        options.substrate = parseSubstrate(readOption(rest, index, arg));
+        index += 1;
+        break;
+      case "--action": {
+        const value = readOption(rest, index, arg);
+        if (value !== "write") throw new Error("--action must be write.");
+        options.action = value;
+        index += 1;
+        break;
+      }
+      case "--destination":
+        options.destinationPath = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--source":
+        options.sourcePath = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--content":
+        options.content = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--content-env": {
+        const envName = readOption(rest, index, arg);
+        const envContent = process.env[envName];
+        if (envContent === undefined) {
+          throw new Error(`--content-env ${envName} is not set.`);
+        }
+        options.content = envContent;
+        index += 1;
+        break;
+      }
+      case "--record": {
+        const value = readOption(rest, index, arg);
+        if (value !== "all" && value !== "deny" && value !== "none") {
+          throw new Error("--record must be one of all, deny, or none.");
+        }
+        options.record = value;
+        index += 1;
+        break;
+      }
+      case "--json":
+        json = true;
+        break;
+      case "--targets-env":
+        targetsEnv = readOption(rest, index, arg);
+        index += 1;
+        break;
+      default:
+        throw new Error(`Unknown option: ${arg}`);
+    }
+  }
+
+  const missing: string[] = [];
+  if (!options.action) missing.push("--action");
+  if (!options.destinationPath && !targetsEnv) missing.push("--destination");
+  if (missing.length > 0) {
+    throw new Error(`soma policy ${action} is missing required option(s): ${missing.join(", ")}.`);
+  }
+
+  return {
+    command,
+    action,
+    options: options as SomaPolicyCheckOptions,
+    targetsEnv: targetsEnv || undefined,
+    json,
+  };
+}
+
 function parseArgs(args: string[]): ParsedArgs {
   if (args[0] === "lifecycle") {
     return parseLifecycleArgs(args);
@@ -723,6 +831,10 @@ function parseArgs(args: string[]): ParsedArgs {
 
   if (args[0] === "algorithm") {
     return parseAlgorithmArgs(args);
+  }
+
+  if (args[0] === "policy") {
+    return parsePolicyArgs(args);
   }
 
   if (args[0] === "install") {
@@ -742,6 +854,7 @@ function parseArgs(args: string[]): ParsedArgs {
       "  soma algorithm <list|show|capabilities|plan|decision|change|step|verify|learn|advance> --id <run-id> [...]",
       "  soma memory search --query <text> [--limit <n>] [--home-dir <dir>] [--soma-home <dir>]",
       "  soma memory promote --from-run <run-id> --store <learning|knowledge|relationship|work> --title <text> [--lesson <text>] [--applies-when <text>]",
+      "  soma policy check --action write --destination <path> [--content <text>|--content-env <name>] [--source <path>] [--substrate <id>] [--record <all|deny|none>] [--json]",
       "  soma lifecycle <session-start|algorithm-updated|session-end> [--home-dir <dir>] [--soma-home <dir>] [--substrate <id>] [--session-id <id>]",
       "  soma install <codex|pi-dev> [--dry-run] [--apply] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
       "  soma import pai [--dry-run] [--apply] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>]",
@@ -899,6 +1012,51 @@ function formatMemoryPromotionResult(result: SomaMemoryPromotionResult): string 
     `sourceRunPath: ${result.sourceRunPath}`,
     `event: ${result.event.id}`,
   ].join("\n");
+}
+
+function formatPolicyCheckResult(result: SomaPolicyCheckResult): string {
+  return [
+    "Soma policy check",
+    `decision: ${result.decision}`,
+    `reason: ${result.reason}`,
+    `somaHome: ${result.somaHome}`,
+    result.event ? `event: ${result.event.id}` : undefined,
+    "",
+    "Findings:",
+    ...(result.findings.length > 0 ? result.findings.map((finding) => `- ${finding.kind}: ${finding.detail}`) : ["- none"]),
+  ]
+    .filter((line): line is string => line !== undefined)
+    .join("\n");
+}
+
+function readPolicyTargetsEnv(envName: string): SomaPolicyBatchTarget[] {
+  const envContent = process.env[envName];
+  if (envContent === undefined) {
+    throw new Error(`--targets-env ${envName} is not set.`);
+  }
+
+  let targets: unknown;
+  try {
+    targets = JSON.parse(envContent);
+  } catch {
+    throw new Error(`--targets-env ${envName} must contain valid JSON targets.`);
+  }
+
+  if (
+    !Array.isArray(targets) ||
+    targets.some(
+      (target) =>
+        !target ||
+        typeof target !== "object" ||
+        typeof (target as SomaPolicyBatchTarget).filePath !== "string" ||
+        ((target as SomaPolicyBatchTarget).content !== undefined && typeof (target as SomaPolicyBatchTarget).content !== "string") ||
+        ((target as SomaPolicyBatchTarget).sourcePath !== undefined && typeof (target as SomaPolicyBatchTarget).sourcePath !== "string"),
+    )
+  ) {
+    throw new Error(`--targets-env ${envName} must contain an array of targets with string filePath values and optional string content/sourcePath values.`);
+  }
+
+  return targets as SomaPolicyBatchTarget[];
 }
 
 function formatAlgorithmRun(run: AlgorithmRun, path: string): string {
@@ -1073,6 +1231,26 @@ export async function runSomaCli(args: string[]): Promise<string> {
     }
 
     return formatMemorySearchResult(await searchSomaMemory(parsed.options));
+  }
+
+  if (parsed.command === "policy") {
+    if (parsed.targetsEnv) {
+      const targets = readPolicyTargetsEnv(parsed.targetsEnv);
+      const result = await checkSomaPolicyBatch({
+        homeDir: parsed.options.homeDir,
+        somaHome: parsed.options.somaHome,
+        substrate: parsed.options.substrate,
+        action: parsed.options.action,
+        record: parsed.options.record,
+        timestamp: parsed.options.timestamp,
+        targets,
+      });
+
+      return parsed.json ? `${JSON.stringify(result, null, 2)}\n` : `${result.decision}: ${result.reason}\n`;
+    }
+
+    const result = await checkSomaPolicy(parsed.options);
+    return parsed.json ? `${JSON.stringify(result, null, 2)}\n` : formatPolicyCheckResult(result);
   }
 
   if (parsed.command === "import") {

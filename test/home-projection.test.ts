@@ -9,6 +9,7 @@ import {
   installPiDevHomeProjection,
   resolveHomeProjectionPaths,
 } from "../src/index";
+import { renderCodexLifecycleHook } from "../src/adapters/codex-hook-runtime";
 import { portableContextInput } from "./fixtures";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
@@ -50,6 +51,9 @@ test("builds codex home projection bundle for default availability", () => {
     "rules/soma.rules",
     "hooks.json",
     "hooks/soma-lifecycle.mjs",
+    "hooks/codex-hook-entry.mjs",
+    "hooks/codex-policy-hook.mjs",
+    "hooks/policy-marker.mjs",
     "skills/soma/SKILL.md",
     "memories/soma/profile.md",
     "memories/soma/memory-layout.md",
@@ -60,6 +64,17 @@ test("builds codex home projection bundle for default availability", () => {
   ]);
   expect(projection.bundle.instructions).toContain("Soma default availability");
   expect(projection.bundle.instructions).toContain("/tmp/soma-test-home/.soma");
+  expect(projection.bundle.files.find((file) => file.path === "hooks/soma-lifecycle.mjs")?.content).toContain("policyMarkers");
+  expect(projection.bundle.files.find((file) => file.path === "hooks/codex-hook-entry.mjs")?.content).toContain("runSomaPolicyCheck");
+  expect(projection.bundle.files.find((file) => file.path === "hooks/codex-hook-entry.mjs")?.content).toContain('"./codex-policy-hook.mjs"');
+  expect(projection.bundle.files.find((file) => file.path === "hooks/codex-policy-hook.mjs")?.content).toContain('"./policy-marker.mjs"');
+});
+
+test("renders codex lifecycle hook with an explicit Bun executable", () => {
+  const hook = renderCodexLifecycleHook("/tmp/soma-test-home/.soma", "/tmp/soma-test-home", "/tmp/soma-repo", "/opt/homebrew/bin/bun");
+
+  expect(hook).toContain('bunPath: "/opt/homebrew/bin/bun"');
+  expect(hook).not.toContain("process.execPath");
 });
 
 test("builds pi.dev home projection bundle for default availability", () => {
@@ -97,11 +112,12 @@ test("installs codex home projection into a substrate home", async () => {
 
     expect(result.substrate).toBe("codex");
     expect(result.rootDir).toBe(join(homeDir, ".codex"));
-    expect(result.files).toHaveLength(10);
+    expect(result.files).toHaveLength(13);
 
     const rules = await readFile(join(homeDir, ".codex/rules/soma.rules"), "utf8");
     const hooks = await readFile(join(homeDir, ".codex/hooks.json"), "utf8");
     const hookScript = await readFile(join(homeDir, ".codex/hooks/soma-lifecycle.mjs"), "utf8");
+    const policyHook = await readFile(join(homeDir, ".codex/hooks/codex-policy-hook.mjs"), "utf8");
     const skill = await readFile(join(homeDir, ".codex/skills/soma/SKILL.md"), "utf8");
     const profile = await readFile(join(homeDir, ".codex/memories/soma/profile.md"), "utf8");
     const paiImports = await readFile(join(homeDir, ".codex/memories/soma/pai-imports.md"), "utf8");
@@ -110,9 +126,14 @@ test("installs codex home projection into a substrate home", async () => {
     expect(rules).toContain("Use Soma as the portable personal assistant context");
     expect(hooks).toContain("SessionStart");
     expect(hooks).toContain("UserPromptSubmit");
-    expect(hookScript).toContain("hookSpecificOutput");
-    expect(hookScript).toContain("runSomaClassification");
-    expect(hookScript).toContain("Soma Prompt Classification");
+    expect(hooks).toContain("PreToolUse");
+    expect(hookScript).toContain("runCodexHook");
+    expect(hookScript).toContain("trustedSomaRepo");
+    expect(hookScript).toContain("policyMarkers");
+    expect(hookScript).toContain("bunPath");
+    expect(policyHook).toContain("targetExtractors");
+    expect(policyHook).toContain("normalizeToolInvocation");
+    expect(hookScript).not.toContain("function privateRoots");
     expect(rules.split("\n").filter((line) => line.trim() !== "")).toSatisfy((lines: string[]) =>
       lines.every((line) => line.startsWith("#")),
     );
