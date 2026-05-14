@@ -130,6 +130,7 @@ interface ParsedPolicyArgs {
   command: "policy";
   action: "check";
   options: SomaPolicyCheckOptions;
+  json: boolean;
 }
 
 type ParsedArgs = ParsedInstallArgs | ParsedImportArgs | ParsedAlgorithmArgs | ParsedLifecycleArgs | ParsedMemoryArgs | ParsedPolicyArgs;
@@ -729,6 +730,7 @@ function parsePolicyArgs(args: string[]): ParsedPolicyArgs {
   }
 
   const options: Partial<SomaPolicyCheckOptions> = {};
+  let json = false;
 
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
@@ -771,6 +773,18 @@ function parsePolicyArgs(args: string[]): ParsedPolicyArgs {
         index += 1;
         break;
       }
+      case "--record": {
+        const value = readOption(rest, index, arg);
+        if (value !== "all" && value !== "deny" && value !== "none") {
+          throw new Error("--record must be one of all, deny, or none.");
+        }
+        options.record = value;
+        index += 1;
+        break;
+      }
+      case "--json":
+        json = true;
+        break;
       default:
         throw new Error(`Unknown option: ${arg}`);
     }
@@ -787,6 +801,7 @@ function parsePolicyArgs(args: string[]): ParsedPolicyArgs {
     command,
     action,
     options: options as SomaPolicyCheckOptions,
+    json,
   };
 }
 
@@ -824,7 +839,7 @@ function parseArgs(args: string[]): ParsedArgs {
       "  soma algorithm <list|show|capabilities|plan|decision|change|step|verify|learn|advance> --id <run-id> [...]",
       "  soma memory search --query <text> [--limit <n>] [--home-dir <dir>] [--soma-home <dir>]",
       "  soma memory promote --from-run <run-id> --store <learning|knowledge|relationship|work> --title <text> [--lesson <text>] [--applies-when <text>]",
-      "  soma policy check --action write --destination <path> [--content <text>|--content-env <name>] [--source <path>] [--substrate <id>]",
+      "  soma policy check --action write --destination <path> [--content <text>|--content-env <name>] [--source <path>] [--substrate <id>] [--record <all|deny|none>] [--json]",
       "  soma lifecycle <session-start|algorithm-updated|session-end> [--home-dir <dir>] [--soma-home <dir>] [--substrate <id>] [--session-id <id>]",
       "  soma install <codex|pi-dev> [--dry-run] [--apply] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
       "  soma import pai [--dry-run] [--apply] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>]",
@@ -1174,7 +1189,8 @@ export async function runSomaCli(args: string[]): Promise<string> {
   }
 
   if (parsed.command === "policy") {
-    return formatPolicyCheckResult(await checkSomaPolicy(parsed.options));
+    const result = await checkSomaPolicy(parsed.options);
+    return parsed.json ? `${JSON.stringify(result, null, 2)}\n` : formatPolicyCheckResult(result);
   }
 
   if (parsed.command === "import") {

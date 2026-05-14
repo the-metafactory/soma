@@ -53,7 +53,7 @@ test("generates date-first Algorithm run ids", () => {
     criteria: [{ id: "C1", text: "Id starts with date." }],
   });
 
-  expect(run.id).toMatch(/^\d{8}_alg_[a-f0-9]{8}$/);
+  expect(run.id).toMatch(/^20260514_alg_[a-f0-9]{8}$/);
 });
 
 test("classifies prompts into Algorithm mode and effort tiers", () => {

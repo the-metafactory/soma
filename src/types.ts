@@ -356,6 +356,7 @@ export interface SomaPolicyCheckOptions {
   destinationPath: string;
   content?: string;
   sourcePath?: string;
+  record?: "all" | "deny" | "none";
   timestamp?: string;
 }
 

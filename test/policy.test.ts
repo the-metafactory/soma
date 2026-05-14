@@ -82,3 +82,20 @@ test("denies private source paths to public destinations", async () => {
     });
   });
 });
+
+test("uses home-dir when detecting projected Codex private markers", async () => {
+  await withTempHome(async (homeDir) => {
+    await bootstrapSomaHome({ homeDir });
+    const result = await checkSomaPolicy({
+      homeDir,
+      action: "write",
+      destinationPath: join(homeDir, "work/public/summary.md"),
+      content: `${join(homeDir, ".codex/memories/soma/profile.md")} is projected private context.`,
+    });
+
+    expect(result.decision).toBe("deny");
+    expect(result.findings[0]).toMatchObject({
+      kind: "private-marker",
+    });
+  });
+});

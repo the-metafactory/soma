@@ -18,7 +18,10 @@ bun run soma policy check --action write --destination ./README.md --content "..
 ```
 
 The checker returns `decision: allow` or `decision: deny` and appends a
-`policy.check` event to `~/.soma/memory/STATE/events.jsonl`.
+`policy.check` event to `~/.soma/memory/STATE/events.jsonl` by default. Use
+`--record deny` for write hooks that should audit denials only, or
+`--record none` for pure evaluation. Use `--json` when another process depends
+on the result.
 
 ## Deny Conditions
 
@@ -49,8 +52,11 @@ The Codex home projection installs a `PreToolUse` hook for `Write`, `Edit`,
 bun run soma policy check --soma-home <home> --substrate codex --action write --destination <path> --content-env SOMA_POLICY_CONTENT
 ```
 
-When the decision is `deny`, the hook returns a Codex `PreToolUse`
-`permissionDecision: deny`.
+The hook first performs a cheap in-process marker precheck. If the proposed
+write does not mention private Soma/projection roots, it does not start the CLI
+or write an audit event. If a private marker is present, it calls the checker in
+JSON mode with `--record deny`. Denials and checker failures both return a Codex
+`PreToolUse` `permissionDecision: deny`.
 
 ## Non-Goals
 

@@ -11,8 +11,8 @@ import { classifyAlgorithmPrompt } from "./algorithm-classifier";
 
 const PHASES: AlgorithmPhase[] = ["observe", "think", "plan", "build", "execute", "verify", "learn", "complete"];
 
-function createRunId(): string {
-  const date = new Date().toISOString().slice(0, 10).replaceAll("-", "");
+function createRunId(timestamp: string): string {
+  const date = timestamp.slice(0, 10).replaceAll("-", "");
   const suffix = crypto.randomUUID().slice(0, 8);
 
   return `${date}_alg_${suffix}`;
@@ -81,7 +81,7 @@ export function createAlgorithmRun(input: AlgorithmRunInput): AlgorithmRun {
   const classificationReason = input.classificationReason ?? classification.reason;
 
   return {
-    id: input.id ?? createRunId(),
+    id: input.id ?? createRunId(timestamp),
     createdAt: timestamp,
     updatedAt: timestamp,
     substrate: input.substrate,

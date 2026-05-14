@@ -17,8 +17,8 @@ function isInside(path: string, root: string): boolean {
   return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
-function privateRoots(somaHome: string): string[] {
-  const home = homedir();
+function privateRoots(somaHome: string, homeDir?: string): string[] {
+  const home = resolve(homeDir ?? homedir());
 
   return [
     join(somaHome, "profile"),
@@ -30,23 +30,19 @@ function privateRoots(somaHome: string): string[] {
   ].map((path) => resolve(path));
 }
 
-function publicDestination(path: string, somaHome: string): boolean {
-  return !privateRoots(somaHome).some((root) => isInside(path, root));
-}
-
 function markerFor(path: string): string {
   return path.replace(homedir(), "~");
 }
 
-function privateMarkers(somaHome: string): string[] {
-  const roots = privateRoots(somaHome);
+function privateMarkers(somaHome: string, homeDir?: string): string[] {
+  const roots = privateRoots(somaHome, homeDir);
   return Array.from(new Set(roots.flatMap((root) => [root, markerFor(root)]))).sort((left, right) => right.length - left.length);
 }
 
-function findPrivateMarkers(content: string, somaHome: string): SomaPolicyFinding[] {
+function findPrivateMarkers(content: string, somaHome: string, homeDir?: string): SomaPolicyFinding[] {
   if (!content) return [];
 
-  return privateMarkers(somaHome)
+  return privateMarkers(somaHome, homeDir)
     .filter((marker) => content.includes(marker))
     .map((marker) => ({
       kind: "private-marker" as const,
@@ -54,14 +50,15 @@ function findPrivateMarkers(content: string, somaHome: string): SomaPolicyFindin
     }));
 }
 
-export async function checkSomaPolicy(options: SomaPolicyCheckOptions): Promise<SomaPolicyCheckResult> {
+export function evaluateSomaPolicy(options: SomaPolicyCheckOptions): SomaPolicyCheckResult {
   const somaHome = resolveSomaHome(options);
   const destinationPath = normalizePath(options.destinationPath);
   const sourcePath = options.sourcePath ? normalizePath(options.sourcePath) : undefined;
+  const roots = privateRoots(somaHome, options.homeDir);
   const findings: SomaPolicyFinding[] = [];
-  const destinationIsPublic = publicDestination(destinationPath, somaHome);
+  const destinationIsPublic = !roots.some((root) => isInside(destinationPath, root));
 
-  if (destinationIsPublic && sourcePath && privateRoots(somaHome).some((root) => isInside(sourcePath, root))) {
+  if (destinationIsPublic && sourcePath && roots.some((root) => isInside(sourcePath, root))) {
     findings.push({
       kind: "private-source",
       detail: markerFor(sourcePath),
@@ -69,7 +66,7 @@ export async function checkSomaPolicy(options: SomaPolicyCheckOptions): Promise<
   }
 
   if (destinationIsPublic) {
-    findings.push(...findPrivateMarkers(options.content ?? "", somaHome));
+    findings.push(...findPrivateMarkers(options.content ?? "", somaHome, options.homeDir));
   }
 
   const decision = findings.length > 0 ? "deny" : "allow";
@@ -77,23 +74,37 @@ export async function checkSomaPolicy(options: SomaPolicyCheckOptions): Promise<
     decision === "deny"
       ? `Private Soma context cannot be written to public destination ${markerFor(destinationPath)}.`
       : `No private Soma source markers found for ${markerFor(destinationPath)}.`;
-  const event = await appendSomaMemoryEvent(somaHome, {
-    timestamp: options.timestamp,
-    substrate: options.substrate ?? "custom",
-    kind: "policy.check",
-    summary: `${decision}: ${reason}`,
-    artifactPaths: [destinationPath, ...(sourcePath ? [sourcePath] : [])],
-    metadata: {
-      action: options.action,
-      findings,
-    },
-  });
 
   return {
     somaHome,
     decision,
     reason,
     findings,
+  };
+}
+
+export async function checkSomaPolicy(options: SomaPolicyCheckOptions): Promise<SomaPolicyCheckResult> {
+  const result = evaluateSomaPolicy(options);
+  const record = options.record ?? "all";
+
+  if (record === "none" || (record === "deny" && result.decision !== "deny")) {
+    return result;
+  }
+
+  const event = await appendSomaMemoryEvent(result.somaHome, {
+    timestamp: options.timestamp,
+    substrate: options.substrate ?? "custom",
+    kind: "policy.check",
+    summary: `${result.decision}: ${result.reason}`,
+    artifactPaths: [normalizePath(options.destinationPath), ...(options.sourcePath ? [normalizePath(options.sourcePath)] : [])],
+    metadata: {
+      action: options.action,
+      findings: result.findings,
+    },
+  });
+
+  return {
+    ...result,
     event,
   };
 }

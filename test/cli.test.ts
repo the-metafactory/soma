@@ -351,6 +351,30 @@ test("cli checks private source policy", async () => {
   });
 });
 
+test("cli can emit policy checks as JSON without recording", async () => {
+  await withTempHome(async (homeDir) => {
+    const output = await runSomaCli([
+      "policy",
+      "check",
+      "--home-dir",
+      homeDir,
+      "--action",
+      "write",
+      "--destination",
+      join(homeDir, "work/public.md"),
+      "--content",
+      "Generic content.",
+      "--record",
+      "none",
+      "--json",
+    ]);
+    const result = JSON.parse(output) as { decision: string; event?: unknown };
+
+    expect(result.decision).toBe("allow");
+    expect(result.event).toBeUndefined();
+  });
+});
+
 test("cli applies codex install only with explicit apply flag", async () => {
   await withTempHome(async (homeDir) => {
     const output = await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir]);
