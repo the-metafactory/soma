@@ -54,6 +54,20 @@ bun run soma import algorithm --dry-run
 bun run soma import algorithm --apply
 ```
 
+The PAI Pack importer ports PAI skill packs into Soma skills. Dry-run is the
+default so the file classification can be reviewed before writing:
+
+```bash
+bun run soma import pai-pack --pai-pack-dir /Users/fischer/work/PAI/Packs/Telos
+bun run soma import pai-pack --apply --pai-pack-dir /Users/fischer/work/PAI/Packs/Telos
+```
+
+It preserves PAI pack source docs as references, copies portable workflows and
+tools under `~/.soma/skills/<skill>/`, and records a `soma-pack.json` manifest.
+Existing skills require `--overwrite`; substrate-specific files require
+`--include-substrate-specific`; likely secret files are denied. See
+[docs/pai-pack-importer.md](docs/pai-pack-importer.md).
+
 Soma also exposes a deterministic Algorithm harness. The harness wraps ISA work
 in a one-way phase machine:
 

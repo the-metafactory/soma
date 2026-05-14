@@ -56,6 +56,12 @@ export type {
   PaiImportOptions,
   PaiImportPlan,
   PaiImportResult,
+  PaiPackImportFile,
+  PaiPackImportOptions,
+  PaiPackImportPlan,
+  PaiPackImportResult,
+  PaiPackManifest,
+  PaiPackManifestFile,
   WrittenContextBundle,
 } from "./types";
 
@@ -118,6 +124,7 @@ export {
 export { appendSomaMemoryEvent, searchSomaMemory, somaMemoryEventsPath } from "./memory";
 export { promoteAlgorithmRunMemory } from "./memory-promotion";
 export { importPaiIdentity, planPaiImport } from "./pai-importer";
+export { importPaiPack, planPaiPackImport } from "./pai-pack-importer";
 export { checkSomaPolicy, checkSomaPolicyBatch } from "./policy-audit";
 export { evaluateSomaPolicy } from "./policy";
 export { bootstrapSomaHome, loadSomaHome } from "./soma-home";

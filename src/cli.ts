@@ -8,11 +8,13 @@ import {
   createAlgorithmRun,
   importAlgorithm,
   importPaiIdentity,
+  importPaiPack,
   installSomaForCodex,
   installSomaForPiDev,
   listAlgorithmRunSummaries,
   planAlgorithmImport,
   planPaiImport,
+  planPaiPackImport,
   planSomaForCodexInstall,
   planSomaForPiDevInstall,
   promoteAlgorithmRunMemory,
@@ -42,6 +44,9 @@ import type {
   PaiImportOptions,
   PaiImportPlan,
   PaiImportResult,
+  PaiPackImportOptions,
+  PaiPackImportPlan,
+  PaiPackImportResult,
   SomaInstallOptions,
   SomaInstallPlan,
   SomaInstallResult,
@@ -67,9 +72,9 @@ interface ParsedInstallArgs {
 
 interface ParsedImportArgs {
   command: "import";
-  source: "pai" | "algorithm";
+  source: "pai" | "algorithm" | "pai-pack";
   apply: boolean;
-  options: PaiImportOptions | AlgorithmImportOptions;
+  options: PaiImportOptions | AlgorithmImportOptions | PaiPackImportOptions;
 }
 
 interface ParsedAlgorithmArgs {
@@ -196,17 +201,18 @@ function parseInstallArgs(args: string[]): ParsedInstallArgs {
 function parseImportArgs(args: string[]): ParsedImportArgs {
   const [command, source, ...rest] = args;
 
-  if (command !== "import" || (source !== "pai" && source !== "algorithm")) {
+  if (command !== "import" || (source !== "pai" && source !== "algorithm" && source !== "pai-pack")) {
     throw new Error(
       [
         "Usage:",
         "  soma import pai [--dry-run] [--apply] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>]",
         "  soma import algorithm [--dry-run] [--apply] [--home-dir <dir>] [--pai-algorithm-dir <dir>] [--soma-home <dir>]",
+        "  soma import pai-pack [--dry-run] [--apply] [--home-dir <dir>] --pai-pack-dir <dir> [--soma-home <dir>] [--skill-name <name>] [--overwrite] [--include-substrate-specific]",
       ].join("\n"),
     );
   }
 
-  const options: PaiImportOptions & AlgorithmImportOptions = {};
+  const options: PaiImportOptions & AlgorithmImportOptions & PaiPackImportOptions = {};
   let apply = false;
 
   for (let index = 0; index < rest.length; index += 1) {
@@ -236,6 +242,32 @@ function parseImportArgs(args: string[]): ParsedImportArgs {
         }
         options.paiAlgorithmDir = readOption(rest, index, arg);
         index += 1;
+        break;
+      case "--pai-pack-dir":
+        if (source !== "pai-pack") {
+          throw new Error("--pai-pack-dir is only valid for soma import pai-pack.");
+        }
+        options.paiPackDir = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--skill-name":
+        if (source !== "pai-pack") {
+          throw new Error("--skill-name is only valid for soma import pai-pack.");
+        }
+        options.skillName = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--overwrite":
+        if (source !== "pai-pack") {
+          throw new Error("--overwrite is only valid for soma import pai-pack.");
+        }
+        options.overwrite = true;
+        break;
+      case "--include-substrate-specific":
+        if (source !== "pai-pack") {
+          throw new Error("--include-substrate-specific is only valid for soma import pai-pack.");
+        }
+        options.includeSubstrateSpecific = true;
         break;
       case "--soma-home":
         options.somaHome = readOption(rest, index, arg);
@@ -951,6 +983,48 @@ function formatAlgorithmImportResult(result: AlgorithmImportResult): string {
   ].join("\n");
 }
 
+function formatPaiPackImportPlan(plan: PaiPackImportPlan): string {
+  const counts = plan.files.reduce<Partial<Record<string, number>>>((acc, file) => {
+    acc[file.classification] = (acc[file.classification] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  return [
+    "Soma PAI Pack import plan",
+    "source: pai-pack",
+    `mode: ${plan.apply ? "apply" : "dry-run"}`,
+    `paiPackDir: ${plan.paiPackDir}`,
+    `somaHome: ${plan.somaHome}`,
+    `skillName: ${plan.skillName}`,
+    `packName: ${plan.packName}`,
+    `description: ${plan.description}`,
+    "",
+    "Classification:",
+    `- portable: ${counts.portable ?? 0}`,
+    `- template: ${counts.template ?? 0}`,
+    `- source-doc: ${counts["source-doc"] ?? 0}`,
+    `- substrate-specific: ${counts["substrate-specific"] ?? 0}`,
+    "",
+    "Files:",
+    ...plan.files.map((file) => {
+      const source = file.origin === "source" ? file.source : `generated:${file.generator}`;
+      return `- [${file.classification}] ${source} -> ${file.target}`;
+    }),
+  ].join("\n");
+}
+
+function formatPaiPackImportResult(result: PaiPackImportResult): string {
+  return [
+    "Soma PAI Pack import applied",
+    `paiPackDir: ${result.paiPackDir}`,
+    `somaHome: ${result.somaHome}`,
+    `skillName: ${result.skillName}`,
+    "",
+    "Files:",
+    ...result.files.map((path) => `- ${path}`),
+  ].join("\n");
+}
+
 function formatAlgorithmRunResult(result: { path: string; run: { id: string; phase: string; effort: string } }): string {
   return [
     "Soma Algorithm run created",
@@ -1262,6 +1336,16 @@ export async function runSomaCli(args: string[]): Promise<string> {
       }
 
       return formatAlgorithmImportResult(await importAlgorithm(options));
+    }
+
+    if (parsed.source === "pai-pack") {
+      const options = parsed.options as PaiPackImportOptions;
+
+      if (!parsed.apply) {
+        return formatPaiPackImportPlan(await planPaiPackImport(options));
+      }
+
+      return formatPaiPackImportResult(await importPaiPack(options));
     }
 
     const options = parsed.options as PaiImportOptions;
