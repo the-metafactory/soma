@@ -1,5 +1,6 @@
 import type {
   AlgorithmLogEntry,
+  AlgorithmBatchOperation,
   AlgorithmPhase,
   AlgorithmPlanStep,
   AlgorithmRun,
@@ -319,6 +320,34 @@ export function updateAlgorithmPlanStep(
     updatedAt: timestamp,
     planSteps,
   };
+}
+
+export function applyAlgorithmBatch(run: AlgorithmRun, operations: AlgorithmBatchOperation[]): AlgorithmRun {
+  if (operations.length === 0) {
+    throw new Error("Algorithm batch requires at least one operation.");
+  }
+
+  return operations.reduce((current, operation) => {
+    switch (operation.kind) {
+      case "decision":
+        return recordAlgorithmDecision(current, operation.text);
+      case "change":
+        return recordAlgorithmChange(current, operation.text);
+      case "learn":
+        return recordAlgorithmLearning(current, operation.text);
+      case "step":
+        return updateAlgorithmPlanStep(current, operation.stepId, operation.status, operation.evidence);
+      case "verify":
+        return verifyAlgorithmCriterion(current, operation.criterionId, operation.status, operation.evidence);
+      case "capability":
+        return addAlgorithmCapabilities(current, [operation.capability]);
+      case "advance":
+        return advanceAlgorithmRun(current);
+      default:
+        operation satisfies never;
+        return current;
+    }
+  }, run);
 }
 
 export function algorithmPhaseOrder(): AlgorithmPhase[] {

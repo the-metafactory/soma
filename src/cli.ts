@@ -1,5 +1,6 @@
 import {
   addAlgorithmCapabilities,
+  applyAlgorithmBatch,
   advanceAlgorithmRun,
   classifyAlgorithmPrompt,
   createAlgorithmRun,
@@ -27,6 +28,7 @@ import {
 } from "./index";
 import type {
   AlgorithmEffortTier,
+  AlgorithmBatchOperation,
   AlgorithmImportOptions,
   AlgorithmImportPlan,
   AlgorithmImportResult,
@@ -72,6 +74,7 @@ interface ParsedAlgorithmArgs {
     | "step"
     | "verify"
     | "learn"
+    | "batch"
     | "advance";
   options: AlgorithmCliOptions;
 }
@@ -90,6 +93,7 @@ interface AlgorithmCliOptions {
   criterionId?: string;
   criterionStatus?: "passed" | "failed" | "dropped";
   evidence?: string;
+  batchOperations?: AlgorithmBatchOperation[];
 }
 
 interface ParsedLifecycleArgs {
@@ -290,6 +294,68 @@ function parsePlanStep(value: string): AlgorithmPlanStep {
   };
 }
 
+function parseBatchOperation(value: string): AlgorithmBatchOperation {
+  const [kind, ...rest] = value.split(":");
+  const payload = rest.join(":").trim();
+
+  if (kind === "decision" || kind === "change" || kind === "learn") {
+    if (!payload) throw new Error(`--op ${kind} requires text.`);
+    return { kind, text: payload };
+  }
+
+  if (kind === "capability") {
+    if (!payload) throw new Error("--op capability requires a capability name.");
+    return { kind, capability: payload };
+  }
+
+  if (kind === "advance") {
+    return { kind };
+  }
+
+  if (kind === "step") {
+    const [stepId, status, ...evidenceParts] = payload.split(":");
+    if (!stepId || !status) throw new Error("--op step requires step:<step-id>:<open|done|blocked>[:evidence].");
+    return {
+      kind,
+      stepId: stepId.trim(),
+      status: parseStepStatus(status.trim()),
+      evidence: evidenceParts.join(":").trim() || undefined,
+    };
+  }
+
+  if (kind === "verify") {
+    const [criterionId, status, ...evidenceParts] = payload.split(":");
+    const evidence = evidenceParts.join(":").trim();
+    if (!criterionId || !status || !evidence) {
+      throw new Error("--op verify requires verify:<criterion-id>:<passed|failed|dropped>:<evidence>.");
+    }
+    return {
+      kind,
+      criterionId: criterionId.trim(),
+      status: parseCriterionStatus(status.trim()),
+      evidence,
+    };
+  }
+
+  throw new Error("--op must start with decision, change, learn, capability, step, verify, or advance.");
+}
+
+function parseBatchOperationsJson(value: string): AlgorithmBatchOperation[] {
+  const parsed = JSON.parse(value) as unknown;
+
+  if (!Array.isArray(parsed)) {
+    throw new Error("--ops-json must be a JSON array.");
+  }
+
+  return parsed.map((operation) => {
+    if (!operation || typeof operation !== "object" || !("kind" in operation)) {
+      throw new Error("--ops-json entries must be objects with kind.");
+    }
+
+    return operation as AlgorithmBatchOperation;
+  });
+}
+
 function parseSubstrate(value: string): SubstrateId {
   if (value === "codex" || value === "pi-dev" || value === "claude-code" || value === "cortex" || value === "custom") {
     return value;
@@ -313,6 +379,7 @@ function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
     "step",
     "verify",
     "learn",
+    "batch",
     "advance",
   ]);
 
@@ -329,6 +396,7 @@ function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
   const options: AlgorithmCliOptions = {};
   const capabilities: string[] = [];
   const planSteps: AlgorithmPlanStep[] = [];
+  const batchOperations: AlgorithmBatchOperation[] = [];
 
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
@@ -416,6 +484,14 @@ function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
         options.evidence = readOption(rest, index, arg);
         index += 1;
         break;
+      case "--op":
+        batchOperations.push(parseBatchOperation(readOption(rest, index, arg)));
+        index += 1;
+        break;
+      case "--ops-json":
+        batchOperations.push(...parseBatchOperationsJson(readOption(rest, index, arg)));
+        index += 1;
+        break;
       default:
         throw new Error(`Unknown option: ${arg}`);
     }
@@ -436,6 +512,10 @@ function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
 
   if (planSteps.length > 0) {
     options.planSteps = planSteps;
+  }
+
+  if (batchOperations.length > 0) {
+    options.batchOperations = batchOperations;
   }
 
   return {
@@ -510,6 +590,7 @@ function parseArgs(args: string[]): ParsedArgs {
       "Usage:",
       "  soma algorithm new --prompt <text> --intent <text> --current-state <text> --goal <text> --criterion <id:text> [--effort <E1|E2|E3|E4|E5>] [--home-dir <dir>] [--soma-home <dir>]",
       "  soma algorithm classify --prompt <text>",
+      "  soma algorithm batch --id <run-id> --op <kind:...> [--op <kind:...>]",
       "  soma algorithm <list|show|capabilities|plan|decision|change|step|verify|learn|advance> --id <run-id> [...]",
       "  soma lifecycle <session-start|algorithm-updated|session-end> [--home-dir <dir>] [--soma-home <dir>] [--substrate <id>] [--session-id <id>]",
       "  soma install <codex|pi-dev> [--dry-run] [--apply] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
@@ -784,6 +865,11 @@ async function runAlgorithmCli(parsed: ParsedAlgorithmArgs): Promise<string> {
   if (parsed.action === "learn") {
     const text = requireText(options);
     return updateAndReportAlgorithmRun(options, (run) => recordAlgorithmLearning(run, text));
+  }
+
+  if (parsed.action === "batch") {
+    const operations = options.batchOperations ?? [];
+    return updateAndReportAlgorithmRun(options, (run) => applyAlgorithmBatch(run, operations));
   }
 
   return updateAndReportAlgorithmRun(options, (run) => advanceAlgorithmRun(run));
