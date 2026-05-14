@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { readAlgorithmRunById } from "./algorithm-store";
@@ -116,29 +116,26 @@ export async function promoteAlgorithmRunMemory(options: SomaMemoryPromotionOpti
 
   const relativeStore = PROMOTION_STORE_DIRS[options.store];
   const path = join(somaHome, "memory", relativeStore, "PROMOTED", `${slugify(options.title)}-${slugify(run.id)}.md`);
-  const exists = await readFile(path, "utf8").then(
-    () => true,
-    () => false,
-  );
-
-  if (exists) {
-    throw new Error(`Soma memory promotion already exists: ${path}`);
-  }
+  const content = `${renderPromotionContent({
+    run,
+    runPath: sourceRunPath,
+    title: options.title,
+    store: options.store,
+    lesson,
+    appliesWhen: options.appliesWhen,
+    timestamp,
+  })}\n`;
 
   await mkdir(dirname(path), { recursive: true });
-  await writeFile(
-    path,
-    `${renderPromotionContent({
-      run,
-      runPath: sourceRunPath,
-      title: options.title,
-      store: options.store,
-      lesson,
-      appliesWhen: options.appliesWhen,
-      timestamp,
-    })}\n`,
-    "utf8",
-  );
+  try {
+    await writeFile(path, content, { encoding: "utf8", flag: "wx" });
+  } catch (error) {
+    const code = error instanceof Error && "code" in error ? error.code : undefined;
+    if (code === "EEXIST") {
+      throw new Error(`Soma memory promotion already exists: ${path}`, { cause: error });
+    }
+    throw error;
+  }
 
   const event = await appendSomaMemoryEvent(somaHome, {
     timestamp,
