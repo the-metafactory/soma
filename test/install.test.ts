@@ -20,6 +20,7 @@ function runCodexPreToolUseHook(
   homeDir: string,
   input: unknown,
   extraEnv: NodeJS.ProcessEnv = {},
+  rawInput = false,
 ): { status: number | null; output: { continue?: boolean; hookSpecificOutput?: { permissionDecision?: string } } } {
   const result = spawnSync("node", [hook, "pre-tool-use"], {
     cwd: process.cwd(),
@@ -28,7 +29,7 @@ function runCodexPreToolUseHook(
       ...extraEnv,
       HOME: homeDir,
     },
-    input: JSON.stringify(input),
+    input: rawInput ? String(input) : JSON.stringify(input),
     encoding: "utf8",
   });
 
@@ -39,20 +40,7 @@ function runCodexPreToolUseHook(
 }
 
 function runRawCodexPreToolUseHook(hook: string, homeDir: string, input: string): { status: number | null; output: { continue?: boolean; hookSpecificOutput?: { permissionDecision?: string } } } {
-  const result = spawnSync("node", [hook, "pre-tool-use"], {
-    cwd: process.cwd(),
-    env: {
-      ...process.env,
-      HOME: homeDir,
-    },
-    input,
-    encoding: "utf8",
-  });
-
-  return {
-    status: result.status,
-    output: JSON.parse(result.stdout) as { continue?: boolean; hookSpecificOutput?: { permissionDecision?: string } },
-  };
+  return runCodexPreToolUseHook(hook, homeDir, input, {}, true);
 }
 
 test("installs soma source home and codex home projection", async () => {
@@ -227,6 +215,31 @@ test("installed codex hook fails closed on malformed pre-tool input", async () =
   });
 });
 
+test("installed codex hook fails closed on non-object pre-tool input", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const result = runRawCodexPreToolUseHook(hook, homeDir, "null");
+
+    expect(result.status).toBe(0);
+    expect(result.output.hookSpecificOutput?.permissionDecision).toBe("deny");
+  });
+});
+
+test("installed codex hook handles null tool input", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const result = runCodexPreToolUseHook(hook, homeDir, {
+      tool_name: "Write",
+      tool_input: null,
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.output.continue).toBe(true);
+  });
+});
+
 test("installed codex policy hook ignores ambient SOMA_REPO", async () => {
   await withTempHome(async (homeDir) => {
     await installSomaForCodex({ homeDir });
@@ -248,6 +261,19 @@ test("installed codex policy hook ignores ambient SOMA_REPO", async () => {
 
     expect(result.status).toBe(0);
     expect(result.output.hookSpecificOutput?.permissionDecision).toBe("deny");
+  });
+});
+
+test("installed codex hook uses explicit soma repo path", async () => {
+  await withTempHome(async (homeDir) => {
+    const explicitRepo = join(homeDir, "trusted-soma-repo");
+    await installSomaForCodex({ homeDir, somaRepoPath: explicitRepo });
+    const hook = await readFile(join(homeDir, ".codex/hooks/soma-lifecycle.mjs"), "utf8");
+    const somaRepo = await readFile(join(homeDir, ".codex/memories/soma/soma-repo.txt"), "utf8");
+
+    expect(hook).toContain(JSON.stringify(explicitRepo));
+    expect(hook).not.toContain(JSON.stringify(process.cwd()));
+    expect(somaRepo).toBe(`${explicitRepo}\n`);
   });
 });
 

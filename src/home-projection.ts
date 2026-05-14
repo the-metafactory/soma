@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { buildCodexHomeContext, buildPiDevHomeContext } from "./adapters";
 import { writeContextBundle } from "./context-bundle";
+import { defaultSomaRepoPath } from "./repo-path";
 import type { SomaContextInput, SomaHomeProjection, SomaHomeProjectionOptions, SubstrateId, WrittenContextBundle } from "./types";
 
 export function resolveHomeProjectionPaths(
@@ -25,10 +26,11 @@ export function resolveHomeProjectionPaths(
 export function buildCodexHomeProjection(input: SomaContextInput, options: SomaHomeProjectionOptions = {}): SomaHomeProjection {
   const paths = resolveHomeProjectionPaths("codex", options);
   const homeDir = resolve(options.homeDir ?? homedir());
+  const somaRepoPath = resolve(options.somaRepoPath ?? defaultSomaRepoPath());
 
   return {
     ...paths,
-    bundle: buildCodexHomeContext(input, paths.somaHome, homeDir),
+    bundle: buildCodexHomeContext(input, paths.somaHome, homeDir, somaRepoPath),
   };
 }
 

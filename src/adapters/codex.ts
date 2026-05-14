@@ -1,4 +1,5 @@
 import type { SomaAdapter, SomaContextBundle, SomaContextInput, SomaTask } from "../types";
+import { defaultSomaRepoPath } from "../repo-path";
 import { renderCodexLifecycleHook } from "./codex-hook-runtime";
 import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "./shared";
 
@@ -249,7 +250,7 @@ export function buildCodexContext(input: SomaContextInput): SomaContextBundle {
   };
 }
 
-export function buildCodexHomeContext(input: SomaContextInput, somaHome: string, homeDir?: string): SomaContextBundle {
+export function buildCodexHomeContext(input: SomaContextInput, somaHome: string, homeDir?: string, somaRepoPath = defaultSomaRepoPath()): SomaContextBundle {
   const instructions = renderHomeRules(input, somaHome);
   const portableSkillFiles = input.profile.skills.flatMap((skill) =>
     (skill.files ?? []).map((file) => ({
@@ -272,7 +273,7 @@ export function buildCodexHomeContext(input: SomaContextInput, somaHome: string,
       },
       {
         path: "hooks/soma-lifecycle.mjs",
-        content: renderCodexLifecycleHook(somaHome, homeDir),
+        content: renderCodexLifecycleHook(somaHome, homeDir, somaRepoPath),
       },
       {
         path: "skills/soma/SKILL.md",

@@ -202,6 +202,7 @@ export interface SomaHomeProjectionOptions {
   homeDir?: string;
   somaHome?: string;
   substrateHome?: string;
+  somaRepoPath?: string;
 }
 
 export interface SomaHomeProjection {
@@ -226,6 +227,7 @@ export interface SomaInstallOptions {
   homeDir?: string;
   somaHome?: string;
   substrateHome?: string;
+  somaRepoPath?: string;
 }
 
 export interface SomaInstallResult {

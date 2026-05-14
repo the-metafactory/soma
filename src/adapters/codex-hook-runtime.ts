@@ -1,8 +1,9 @@
-import { hasSomaPolicyPrivateMarker, somaPolicyPrivateMarkers } from "../policy";
+import { somaPolicyPrivateMarkers } from "../policy";
+import { defaultSomaRepoPath } from "../repo-path";
 
-export function renderCodexLifecycleHook(somaHome: string, homeDir?: string): string {
+export function renderCodexLifecycleHook(somaHome: string, homeDir?: string, somaRepoPath = defaultSomaRepoPath()): string {
   return [
-    ...renderRuntimeHeader(somaHome),
+    ...renderRuntimeHeader(somaHome, somaRepoPath),
     ...renderLifecycleCommands(),
     ...renderCodexPolicyHookRuntime(somaHome, homeDir),
     ...renderPolicyTargetRuntime(),
@@ -12,7 +13,7 @@ export function renderCodexLifecycleHook(somaHome: string, homeDir?: string): st
   ].join("\n");
 }
 
-function renderRuntimeHeader(somaHome: string): string[] {
+function renderRuntimeHeader(somaHome: string, somaRepoPath: string): string[] {
   return [
     "#!/usr/bin/env node",
     'import { spawnSync } from "node:child_process";',
@@ -20,11 +21,15 @@ function renderRuntimeHeader(somaHome: string): string[] {
     'import { isAbsolute, resolve } from "node:path";',
     "",
     `const SOMA_HOME = ${JSON.stringify(somaHome)};`,
-    `const TRUSTED_SOMA_REPO = ${JSON.stringify(process.cwd())};`,
+    `const TRUSTED_SOMA_REPO = ${JSON.stringify(somaRepoPath)};`,
     "",
     "function readHookInput() {",
     "  try {",
-    '    return JSON.parse(readFileSync(0, "utf8"));',
+    '    const parsed = JSON.parse(readFileSync(0, "utf8"));',
+    '    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {',
+    '      return { __somaParseError: "hook input must be a JSON object" };',
+    "    }",
+    "    return parsed;",
     "  } catch (error) {",
     "    return { __somaParseError: error instanceof Error ? error.message : String(error) };",
     "  }",
@@ -74,10 +79,19 @@ function renderCodexPolicyHookRuntime(somaHome: string, homeDir?: string): strin
   return [
     `const SOMA_POLICY_MARKERS = ${JSON.stringify(policyMarkers)};`,
     "",
-    `const SOMA_POLICY_MARKER_BOUNDARY_PATTERN = ${hasSomaPolicyPrivateMarker.toString()};`,
+    "function hasSomaPolicyPrivateMarker(content, marker) {",
+    "  if (!content) return false;",
+    "  let index = content.indexOf(marker);",
+    "  while (index !== -1) {",
+    "    const next = content[index + marker.length];",
+    "    if (index + marker.length >= content.length || next === \"/\" || !/[A-Za-z0-9._~%:@+-]/.test(next)) return true;",
+    "    index = content.indexOf(marker, index + marker.length);",
+    "  }",
+    "  return false;",
+    "}",
     "",
     "function hasSomaPolicyMarker(content) {",
-    "  return SOMA_POLICY_MARKERS.some((marker) => SOMA_POLICY_MARKER_BOUNDARY_PATTERN(content, marker));",
+    "  return SOMA_POLICY_MARKERS.some((marker) => hasSomaPolicyPrivateMarker(content, marker));",
     "}",
     "",
     "function policyRelevantContent(content) {",
@@ -155,9 +169,10 @@ function renderPolicyTargetRuntime(): string[] {
     "",
     "function extractWriteTargets(input) {",
     "  const toolName = input.tool_name || input.toolName || \"\";",
-    "  const toolInput = input.tool_input || input.toolInput || {};",
+    "  const rawToolInput = input.tool_input ?? input.toolInput;",
+    "  const toolInput = rawToolInput && typeof rawToolInput === \"object\" && !Array.isArray(rawToolInput) ? rawToolInput : {};",
     "  const cwd = input.cwd || process.cwd();",
-    "  const filePath = typeof toolInput === \"object\" ? resolveToolPath(toolInput.file_path || toolInput.filePath || cwd, cwd) : cwd;",
+    "  const filePath = resolveToolPath(toolInput.file_path || toolInput.filePath || cwd, cwd);",
     "",
     '  if (toolName === "Write") {',
     "    return [{ filePath, content: toolInput.content || \"\" }];",
@@ -173,7 +188,7 @@ function renderPolicyTargetRuntime(): string[] {
     "  }",
     "",
     '  if (toolName === "apply_patch") {',
-    "    const content = typeof toolInput === \"string\" ? toolInput : toolInput.patch || toolInput.command || JSON.stringify(toolInput);",
+    "    const content = typeof rawToolInput === \"string\" ? rawToolInput : toolInput.patch || toolInput.command || JSON.stringify(toolInput);",
     "    const targets = extractPatchTargets(content, cwd);",
     "    return targets.length > 0 ? targets : [{ filePath: cwd, content: policyRelevantContent(content) }];",
     "  }",

@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { configureCodexInstall } from "./adapters/codex-config";
 import { installCodexHomeProjection, installPiDevHomeProjection } from "./home-projection";
 import { buildSomaStartupContext, runSomaLifecycleAlgorithmUpdated } from "./lifecycle";
+import { defaultSomaRepoPath } from "./repo-path";
 import { bootstrapSomaHome } from "./soma-home";
 import type { SomaInstallOptions, SomaInstallPlan, SomaInstallResult } from "./types";
 
@@ -100,6 +101,7 @@ async function installSomaForSubstrate(
     homeDir: options.homeDir,
     somaHome: options.somaHome,
     substrateHome: options.substrateHome,
+    somaRepoPath: options.somaRepoPath ?? defaultSomaRepoPath(),
   };
   const substrateHome =
     substrate === "codex"
@@ -109,6 +111,7 @@ async function installSomaForSubstrate(
   const lifecycleFiles = await installLifecycleProjection(substrate, substrateHome.rootDir, {
     homeDir: options.homeDir,
     somaHome: somaHome.somaHome,
+    somaRepoPath: projectionOptions.somaRepoPath,
     substrate,
   });
 
@@ -134,7 +137,7 @@ async function writeProjectionFile(root: string, relativePath: string, content: 
 async function installLifecycleProjection(
   substrate: "codex" | "pi-dev",
   substrateHome: string,
-  options: { homeDir?: string; somaHome: string; substrate: "codex" | "pi-dev" },
+  options: { homeDir?: string; somaHome: string; somaRepoPath: string; substrate: "codex" | "pi-dev" },
 ): Promise<string[]> {
   await runSomaLifecycleAlgorithmUpdated(options);
   const startup = await buildSomaStartupContext(options);
@@ -142,11 +145,11 @@ async function installLifecycleProjection(
   const files = [await writeProjectionFile(substrateHome, relativePath, startup.context)];
 
   if (substrate === "codex") {
-    files.push(await writeProjectionFile(substrateHome, "memories/soma/soma-repo.txt", process.cwd()));
+    files.push(await writeProjectionFile(substrateHome, "memories/soma/soma-repo.txt", options.somaRepoPath));
   }
 
   if (substrate === "pi-dev") {
-    files.push(await writeProjectionFile(substrateHome, "agent/soma/soma-repo.txt", process.cwd()));
+    files.push(await writeProjectionFile(substrateHome, "agent/soma/soma-repo.txt", options.somaRepoPath));
   }
 
   return files;
