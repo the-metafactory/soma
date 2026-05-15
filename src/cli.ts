@@ -167,6 +167,8 @@ type ParsedArgs =
   | ParsedFeedbackArgs
   | ParsedPolicyArgs;
 
+const TOP_LEVEL_COMMANDS = ["algorithm", "feedback", "import", "install", "lifecycle", "memory", "policy"] as const;
+
 function readOption(args: string[], index: number, name: string): string {
   const value = args[index + 1];
 
@@ -990,7 +992,7 @@ function parseArgs(args: string[]): ParsedArgs {
     return parseImportArgs(args);
   }
 
-  throw new Error(renderUsage());
+  throw new Error(renderUnknownCommand(args[0]));
 }
 
 function renderUsage(): string {
@@ -1009,6 +1011,54 @@ function renderUsage(): string {
     "  soma import pai [--dry-run] [--apply] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>]",
     "  soma import algorithm [--dry-run] [--apply] [--home-dir <dir>] [--pai-algorithm-dir <dir>] [--soma-home <dir>]",
   ].join("\n");
+}
+
+function renderUnknownCommand(command: string): string {
+  const suggestion = suggestTopLevelCommand(command);
+
+  return [
+    `Unknown command: ${command}`,
+    suggestion ? `Did you mean: ${suggestion}?` : undefined,
+    "",
+    renderUsage(),
+  ]
+    .filter((line) => line !== undefined)
+    .join("\n");
+}
+
+function suggestTopLevelCommand(command: string): string | undefined {
+  const ranked = TOP_LEVEL_COMMANDS.map((candidate) => ({
+    candidate,
+    distance: editDistance(command, candidate),
+  })).sort((left, right) => left.distance - right.distance || left.candidate.localeCompare(right.candidate));
+
+  const best = ranked[0];
+  if (!best) return undefined;
+
+  const threshold = Math.max(2, Math.floor(best.candidate.length / 3));
+  return best.distance <= threshold ? best.candidate : undefined;
+}
+
+function editDistance(left: string, right: string): number {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  const current = Array<number>(right.length + 1);
+
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    current[0] = leftIndex;
+
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      const substitutionCost = left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1;
+      current[rightIndex] = Math.min(
+        previous[rightIndex] + 1,
+        current[rightIndex - 1] + 1,
+        previous[rightIndex - 1] + substitutionCost,
+      );
+    }
+
+    previous.splice(0, previous.length, ...current);
+  }
+
+  return previous[right.length] ?? left.length;
 }
 
 function readLimitedFeedbackStdin(): string {

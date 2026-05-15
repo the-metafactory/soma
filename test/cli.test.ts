@@ -43,6 +43,21 @@ test("cli shows no-argument usage as normal help", async () => {
   expect(result.stderr).not.toContain("error: script");
 });
 
+test("cli reports unknown top-level command with suggestion", async () => {
+  await expect(runSomaCli(["inatall", "codex", "--apply"])).rejects.toThrow("Unknown command: inatall");
+  await expect(runSomaCli(["inatall", "codex", "--apply"])).rejects.toThrow("Did you mean: install?");
+
+  const result = spawnSync(process.execPath, ["run", "soma", "inatall", "codex", "--apply"], {
+    cwd: join(import.meta.dir, ".."),
+    encoding: "utf8",
+  });
+
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain("Unknown command: inatall");
+  expect(result.stderr).toContain("Did you mean: install?");
+  expect(result.stderr).toContain("Usage:");
+});
+
 test("cli creates persisted Algorithm runs", async () => {
   await withTempHome(async (homeDir) => {
     const output = await runSomaCli([
