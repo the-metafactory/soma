@@ -22,7 +22,7 @@ function renderExtensionManifest(): string {
   return `${JSON.stringify(
     {
       name: "soma-core",
-      version: "0.1.0",
+      version: "0.1.1",
       description: "Pi.dev projection for Soma personal assistant context.",
       tools: [
         "isa_create",
