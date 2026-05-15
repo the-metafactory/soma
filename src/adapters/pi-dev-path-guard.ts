@@ -30,6 +30,8 @@ const REPARSE_WRAPPERS = new Set(["eval"]);
 
 function expandTilde(path: string): string {
   const home = process.env.HOME || "/";
+  if (path === "\${HOME}") return home;
+  if (path === "$HOME") return home;
   if (path.startsWith("\${HOME}/")) return home + path.slice("\${HOME}".length);
   if (path.startsWith("$HOME/")) return home + path.slice("$HOME".length);
   if (path === "~") return home;

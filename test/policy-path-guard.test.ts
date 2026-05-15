@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -9,7 +9,7 @@ import { evaluatePathGuard, parseBashDestructivePaths } from "../src/policy-path
 import { evaluateSomaPolicy } from "../src/policy";
 import { renderPathGuardExtension } from "../src/adapters/pi-dev-path-guard";
 import { bootstrapSomaHome } from "../src/soma-home";
-import { checkSomaPolicy } from "../src/policy-audit";
+import { checkSomaPolicy, checkSomaPolicyBatch } from "../src/policy-audit";
 
 const execFileAsync = promisify(execFile);
 
@@ -108,6 +108,15 @@ test("handles bun/npx/sudo prefix", () => {
   expect(result.targetPaths).toHaveLength(1);
 });
 
+test("handles shell command builtin prefix", () => {
+  const protectedRef = "~/." + "soma";
+  const result = parseBashDestructivePaths(`command rm -rf ${protectedRef}`, "/tmp");
+
+  expect(result.command).toBe("rm");
+  expect(result.targetPaths).toHaveLength(1);
+  expect(result.targetPaths[0]).toContain(".soma");
+});
+
 test("handles quoted paths", () => {
   const result = parseBashDestructivePaths("rm -rf \"My Documents\"", "/home/user");
 
@@ -180,6 +189,13 @@ test("expands HOME variables before resolving targets", () => {
   expect(result.command).toBe("rm");
   expect(result.targetPaths).toHaveLength(1);
   expect(result.targetPaths[0]).toContain(".soma");
+});
+
+test("expands bare HOME variables before resolving targets", () => {
+  const result = parseBashDestructivePaths("rm -rf ${HOME}", "/tmp");
+
+  expect(result.command).toBe("rm");
+  expect(result.targetPaths).toEqual([homedir()]);
 });
 
 test("detects glob pattern rm *", () => {
@@ -343,6 +359,25 @@ test("policy check allows delete on unprotected path", async () => {
     });
 
     expect(result.decision).toBe("allow");
+  });
+});
+
+test("batch policy check applies custom protected paths", async () => {
+  await withTempHome(async (homeDir) => {
+    const protectedDir = join(homeDir, "extra-protected");
+    const result = await checkSomaPolicyBatch({
+      homeDir,
+      action: "delete",
+      protectedPaths: [{ path: protectedDir, description: "extra protected" }],
+      targets: [{ filePath: join(protectedDir, "test.txt") }],
+      record: "none",
+    });
+
+    expect(result.decision).toBe("deny");
+    expect(result.results[0]?.findings[0]).toMatchObject({
+      kind: "protected-path",
+    });
+    expect(result.results[0]?.findings[0]?.detail).toContain("~/extra-protected/test.txt");
   });
 });
 
@@ -522,6 +557,8 @@ test("generated pi.dev guard extension handles env.HOME reference", () => {
   const extension = renderPathGuardExtension("/test/home/.soma");
 
   expect(extension).toContain("process.env.HOME");
+  expect(extension).toContain('if (path === "${HOME}") return home;');
+  expect(extension).toContain('if (path === "$HOME") return home;');
 });
 
 test("generated pi.dev guard blocks absolute destructive commands and mv sources", async () => {

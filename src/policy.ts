@@ -230,6 +230,7 @@ export function policyOptionsForTarget(options: Omit<SomaPolicyBatchCheckOptions
     homeDir: options.homeDir,
     somaHome: options.somaHome,
     privateRoots: options.privateRoots,
+    protectedPaths: options.protectedPaths,
     substrate: options.substrate,
     action: options.action,
     destinationPath: target.filePath,

@@ -1,4 +1,5 @@
 import { readSync } from "node:fs";
+import { basename } from "node:path";
 import {
   addAlgorithmCapabilities,
   applyAlgorithmBatch,
@@ -932,7 +933,8 @@ function parsePolicyArgs(args: string[]): ParsedPolicyArgs {
         break;
       }
       case "--protected-path": {
-        options.protectedPaths = [...(options.protectedPaths ?? []), { path: readOption(rest, index, arg), description: "" }];
+        const protectedPath = readOption(rest, index, arg);
+        options.protectedPaths = [...(options.protectedPaths ?? []), { path: protectedPath, description: basename(protectedPath) || protectedPath }];
         index += 1;
         break;
       }

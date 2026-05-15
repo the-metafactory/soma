@@ -22,7 +22,7 @@ export const DESTRUCTIVE_COMMANDS = new Set(["rm", "rmdir", "trash", "trash-put"
 
 export const DESTRUCTIVE_MOVE_COMMANDS = new Set(["mv"]);
 
-export const NON_DESTRUCTIVE_PREFIXES = new Set(["sudo", "bun", "node", "npx", "bunx", "time", "nice", "exec", "env", "nohup"]);
+export const NON_DESTRUCTIVE_PREFIXES = new Set(["sudo", "bun", "node", "npx", "bunx", "time", "nice", "exec", "env", "nohup", "command"]);
 
 const SHELL_WRAPPER_COMMANDS = new Set(["bash", "sh", "zsh"]);
 const REPARSE_WRAPPER_COMMANDS = new Set(["eval"]);
@@ -299,7 +299,7 @@ export function evaluatePathGuard(options: SomaPathGuardOptions): SomaPathGuardR
     const match = findProtectedPath(target, protectedPaths, options.action);
     if (match) {
       matchedPaths.push(target);
-      matchedDescriptions.push(`${match.path} (${match.description})`);
+      matchedDescriptions.push(match.description ? `${match.path} (${match.description})` : match.path);
     }
   }
 
