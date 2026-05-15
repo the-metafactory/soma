@@ -153,7 +153,19 @@ interface ParsedPolicyArgs {
   json: boolean;
 }
 
-type ParsedArgs = ParsedInstallArgs | ParsedImportArgs | ParsedAlgorithmArgs | ParsedLifecycleArgs | ParsedMemoryArgs | ParsedFeedbackArgs | ParsedPolicyArgs;
+interface ParsedHelpArgs {
+  command: "help";
+}
+
+type ParsedArgs =
+  | ParsedHelpArgs
+  | ParsedInstallArgs
+  | ParsedImportArgs
+  | ParsedAlgorithmArgs
+  | ParsedLifecycleArgs
+  | ParsedMemoryArgs
+  | ParsedFeedbackArgs
+  | ParsedPolicyArgs;
 
 function readOption(args: string[], index: number, name: string): string {
   const value = args[index + 1];
@@ -946,6 +958,10 @@ function parsePolicyArgs(args: string[]): ParsedPolicyArgs {
 }
 
 function parseArgs(args: string[]): ParsedArgs {
+  if (args.length === 0) {
+    return { command: "help" };
+  }
+
   if (args[0] === "lifecycle") {
     return parseLifecycleArgs(args);
   }
@@ -974,23 +990,25 @@ function parseArgs(args: string[]): ParsedArgs {
     return parseImportArgs(args);
   }
 
-  throw new Error(
-    [
-      "Usage:",
-      "  soma algorithm new --prompt <text> --intent <text> --current-state <text> --goal <text> --criterion <id:text> [--effort <E1|E2|E3|E4|E5>] [--home-dir <dir>] [--soma-home <dir>]",
-      "  soma algorithm classify --prompt <text>",
-      "  soma algorithm batch --id <run-id> --op <kind:...> [--op <kind:...>]",
-      "  soma algorithm <list|show|capabilities|plan|decision|change|step|verify|learn|advance> --id <run-id> [...]",
-      "  soma memory search --query <text> [--limit <n>] [--home-dir <dir>] [--soma-home <dir>]",
-      "  soma memory promote --from-run <run-id> --store <learning|knowledge|relationship|work> --title <text> [--lesson <text>] [--applies-when <text>]",
-      "  soma feedback capture (--text <text> | --stdin) [--substrate <id>] [--source <source>] [--store-excerpt]",
-      "  soma policy check --action write --destination <path> [--content <text>|--content-env <name>] [--source <path>] [--substrate <id>] [--record <all|deny|none>] [--json]",
-      "  soma lifecycle <session-start|algorithm-updated|session-end> [--home-dir <dir>] [--soma-home <dir>] [--substrate <id>] [--session-id <id>]",
-      "  soma install <codex|pi-dev> [--dry-run] [--apply] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
-      "  soma import pai [--dry-run] [--apply] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>]",
-      "  soma import algorithm [--dry-run] [--apply] [--home-dir <dir>] [--pai-algorithm-dir <dir>] [--soma-home <dir>]",
-    ].join("\n"),
-  );
+  throw new Error(renderUsage());
+}
+
+function renderUsage(): string {
+  return [
+    "Usage:",
+    "  soma algorithm new --prompt <text> --intent <text> --current-state <text> --goal <text> --criterion <id:text> [--effort <E1|E2|E3|E4|E5>] [--home-dir <dir>] [--soma-home <dir>]",
+    "  soma algorithm classify --prompt <text>",
+    "  soma algorithm batch --id <run-id> --op <kind:...> [--op <kind:...>]",
+    "  soma algorithm <list|show|capabilities|plan|decision|change|step|verify|learn|advance> --id <run-id> [...]",
+    "  soma memory search --query <text> [--limit <n>] [--home-dir <dir>] [--soma-home <dir>]",
+    "  soma memory promote --from-run <run-id> --store <learning|knowledge|relationship|work> --title <text> [--lesson <text>] [--applies-when <text>]",
+    "  soma feedback capture (--text <text> | --stdin) [--substrate <id>] [--source <source>] [--store-excerpt]",
+    "  soma policy check --action write --destination <path> [--content <text>|--content-env <name>] [--source <path>] [--substrate <id>] [--record <all|deny|none>] [--json]",
+    "  soma lifecycle <session-start|algorithm-updated|session-end> [--home-dir <dir>] [--soma-home <dir>] [--substrate <id>] [--session-id <id>]",
+    "  soma install <codex|pi-dev> [--dry-run] [--apply] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
+    "  soma import pai [--dry-run] [--apply] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>]",
+    "  soma import algorithm [--dry-run] [--apply] [--home-dir <dir>] [--pai-algorithm-dir <dir>] [--soma-home <dir>]",
+  ].join("\n");
 }
 
 function readLimitedFeedbackStdin(): string {
@@ -1414,6 +1432,10 @@ async function runAlgorithmCli(parsed: ParsedAlgorithmArgs): Promise<string> {
 
 export async function runSomaCli(args: string[]): Promise<string> {
   const parsed = parseArgs(args);
+
+  if (parsed.command === "help") {
+    return renderUsage();
+  }
 
   if (parsed.command === "lifecycle") {
     if (parsed.event === "session-start") {
