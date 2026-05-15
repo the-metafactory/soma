@@ -938,9 +938,10 @@ function parsePolicyArgs(args: string[]): ParsedPolicyArgs {
       }
       case "--protected-path-name": {
         const name = readOption(rest, index, arg);
-        if (options.protectedPaths && options.protectedPaths.length > 0) {
-          options.protectedPaths[options.protectedPaths.length - 1].description = name;
+        if (!options.protectedPaths || options.protectedPaths.length === 0) {
+          throw new Error("--protected-path-name requires a preceding --protected-path.");
         }
+        options.protectedPaths[options.protectedPaths.length - 1].description = name;
         index += 1;
         break;
       }

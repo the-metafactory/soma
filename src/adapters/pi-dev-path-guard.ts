@@ -18,7 +18,7 @@ import {
  */
 export function renderPathGuardExtension(somaHome: string): string {
   return `import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { isAbsolute, relative, resolve } from "node:path";
+import { basename, isAbsolute, relative, resolve } from "node:path";
 
 const SOMA_HOME = ${JSON.stringify(somaHome)};
 const PROTECTED_PATHS = ${JSON.stringify(SOMA_DEFAULT_PROTECTED_PATHS, null, 2)};
@@ -168,7 +168,7 @@ function shellPayloadIndex(tokens: string[], cmdIndex: number): number | undefin
 function extractFromSegment(tokens: string[], cwd: string, depth: number): string[] {
   const cmdIndex = skipPrefixes(tokens);
   if (cmdIndex >= tokens.length) return [];
-  const command = tokens[cmdIndex];
+  const command = basename(tokens[cmdIndex]);
 
   if (depth < 4 && SHELL_WRAPPERS.has(command)) {
     const payloadIndex = shellPayloadIndex(tokens, cmdIndex);
@@ -199,14 +199,20 @@ function extractFromSegment(tokens: string[], cwd: string, depth: number): strin
   const isMove = DESTRUCTIVE_MOVE.has(command);
   if (!isDelete && !isMove) return [];
 
+  const pathArgs = tokens.slice(cmdIndex + 1).filter((token) => !token.startsWith("-"));
+
+  if (isMove) {
+    const sources = pathArgs.length > 1 ? pathArgs.slice(0, -1) : pathArgs.slice(0, 1);
+    return sources.map((source) => resolveTarget(source, cwd));
+  }
+
+  // Static command analysis cannot safely expand arbitrary shell variables
+  // or command substitutions; unknown dynamic command names are not treated as
+  // destructive unless a concrete destructive command token is present.
   const targets: string[] = [];
   for (let i = cmdIndex + 1; i < tokens.length; i++) {
     const token = tokens[i];
     if (token.startsWith("-")) continue;
-    if (isMove) {
-      targets.push(resolveTarget(token, cwd));
-      break;
-    }
     targets.push(token.includes("*") ? cwd : resolveTarget(token, cwd));
   }
   return targets;

@@ -1,5 +1,6 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { execFile } from "node:child_process";
@@ -59,6 +60,24 @@ test("parses mv command (source is destructive)", () => {
   expect(result.command).toBe("mv");
   expect(result.targetPaths).toHaveLength(1);
   expect(result.targetPaths[0]).toContain(".soma/profile.md");
+});
+
+test("parses all mv sources except destination", () => {
+  const protectedRef = "~/." + "soma/secret.md";
+  const result = parseBashDestructivePaths(`mv safe.txt ${protectedRef} /tmp/backup/`, "/tmp");
+
+  expect(result.command).toBe("mv");
+  expect(result.targetPaths).toHaveLength(2);
+  expect(result.targetPaths[1]).toContain(".soma/secret.md");
+});
+
+test("detects destructive absolute command paths", () => {
+  const protectedRef = "~/." + "soma";
+  const result = parseBashDestructivePaths(`/bin/rm -rf ${protectedRef}`, "/tmp");
+
+  expect(result.command).toBe("rm");
+  expect(result.targetPaths).toHaveLength(1);
+  expect(result.targetPaths[0]).toContain(".soma");
 });
 
 test("ignores non-destructive commands", () => {
@@ -404,6 +423,27 @@ test("cli supports --protected-path flag", async () => {
   });
 }, { timeout: 15000 });
 
+test("cli rejects --protected-path-name without --protected-path", async () => {
+  await withTempHome(async (homeDir) => {
+    await expect(
+      execFileAsync("bun", [
+        "run",
+        "soma",
+        "policy",
+        "check",
+        "--action",
+        "delete",
+        "--destination",
+        join(homeDir, "work", "scratch.md"),
+        "--home-dir",
+        homeDir,
+        "--protected-path-name",
+        "dangling name",
+      ], { encoding: "utf8" }),
+    ).rejects.toThrow("--protected-path-name requires a preceding --protected-path");
+  });
+}, { timeout: 15000 });
+
 test("cli --action delete on unprotected path allows", async () => {
   await withTempHome(async (homeDir) => {
     await bootstrapSomaHome({ homeDir });
@@ -435,7 +475,7 @@ test("generates pi.dev path guard extension", () => {
   const extension = renderPathGuardExtension("/test/home/.soma");
 
   expect(extension).toContain("import type { ExtensionAPI }");
-  expect(extension).toContain('import { isAbsolute, relative, resolve } from "node:path"');
+  expect(extension).toContain('import { basename, isAbsolute, relative, resolve } from "node:path"');
   expect(extension).not.toContain("require(");
   expect(extension).toContain("DESTRUCTIVE_DELETE");
   expect(extension).toContain("rm");
@@ -482,6 +522,34 @@ test("generated pi.dev guard extension handles env.HOME reference", () => {
   const extension = renderPathGuardExtension("/test/home/.soma");
 
   expect(extension).toContain("process.env.HOME");
+});
+
+test("generated pi.dev guard blocks absolute destructive commands and mv sources", async () => {
+  const extension = renderPathGuardExtension("/test/home/.soma");
+  const tmpDir = await mkdtemp(join(tmpdir(), "soma-guard-ext-runtime-"));
+  const extPath = join(tmpDir, "soma-path-guard.ts");
+  const protectedRef = "~/." + "soma/secret.md";
+  let handler: ((event: { toolName: string; input?: { command?: string } }, ctx: { cwd?: string; ui?: { notify?: (message: string, level: string) => void } }) => unknown) | undefined;
+
+  try {
+    await writeFile(extPath, extension, "utf8");
+    const mod = (await import(pathToFileURL(extPath).href)) as {
+      default: (pi: { on: (event: "tool_call", cb: NonNullable<typeof handler>) => void }) => void;
+    };
+    mod.default({
+      on: (_event, cb) => {
+        handler = cb;
+      },
+    });
+
+    const rmResult = await handler?.({ toolName: "bash", input: { command: `/bin/rm -rf ${protectedRef}` } }, { cwd: "/tmp" });
+    const mvResult = await handler?.({ toolName: "bash", input: { command: `mv safe.txt ${protectedRef} /tmp/backup/` } }, { cwd: "/tmp" });
+
+    expect(rmResult).toMatchObject({ block: true });
+    expect(mvResult).toMatchObject({ block: true });
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
 });
 
 // ── Policy write action still works ──

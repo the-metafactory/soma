@@ -155,14 +155,13 @@ function evaluateResolvedSomaPathGuard(options: SomaPolicyCheckOptions, scope: S
     path: root,
     description: "Soma private root",
   }));
-  const defaultProtectedPaths: SomaProtectedPath[] = SOMA_DEFAULT_PROTECTED_PATHS.map((protectedPath) => ({
-    ...protectedPath,
-    path: normalizeSomaPolicyPath(protectedPath.path, process.cwd(), options.homeDir),
-  }));
-  const optionProtectedPaths: SomaProtectedPath[] = (options.protectedPaths ?? []).map((protectedPath) => ({
-    ...protectedPath,
-    path: normalizeSomaPolicyPath(protectedPath.path, process.cwd(), options.homeDir),
-  }));
+  const normalizeProtectedPaths = (protectedPaths: readonly SomaProtectedPath[]): SomaProtectedPath[] =>
+    protectedPaths.map((protectedPath) => ({
+      ...protectedPath,
+      path: normalizeSomaPolicyPath(protectedPath.path, process.cwd(), options.homeDir),
+    }));
+  const defaultProtectedPaths = normalizeProtectedPaths(SOMA_DEFAULT_PROTECTED_PATHS);
+  const optionProtectedPaths = normalizeProtectedPaths(options.protectedPaths ?? []);
 
   const guardResult = evaluatePathGuard({
     targetPaths: [destinationPath],

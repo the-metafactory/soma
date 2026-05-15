@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import type { SomaProtectedPath } from "./types";
 
 // ── Default Protected Paths ──
@@ -196,7 +196,7 @@ function parseTokenSegment(tokens: string[], cwd: string, depth: number): SomaBa
   const cmdIndex = skipPrefixes(tokens);
   if (cmdIndex >= tokens.length) return { command: "", targetPaths: [] };
 
-  const mainCommand = tokens[cmdIndex];
+  const mainCommand = basename(tokens[cmdIndex]);
 
   if (depth < 4 && SHELL_WRAPPER_COMMANDS.has(mainCommand)) {
     const payloadIndex = shellPayloadIndex(tokens, cmdIndex);
@@ -234,13 +234,19 @@ function parseTokenSegment(tokens: string[], cwd: string, depth: number): SomaBa
     return { command: mainCommand, targetPaths: [] };
   }
 
+  const pathArgs = tokens.slice(cmdIndex + 1).filter((token) => !isFlag(token));
+
+  if (DESTRUCTIVE_MOVE_COMMANDS.has(mainCommand)) {
+    const sources = pathArgs.length > 1 ? pathArgs.slice(0, -1) : pathArgs.slice(0, 1);
+    return {
+      command: mainCommand,
+      targetPaths: sources.map((source) => resolvePath(source, cwd)),
+    };
+  }
+
   for (let i = cmdIndex + 1; i < tokens.length; i++) {
     const token = tokens[i];
     if (isFlag(token)) continue;
-    if (DESTRUCTIVE_MOVE_COMMANDS.has(mainCommand)) {
-      targetPaths.push(resolvePath(token, cwd));
-      break;
-    }
     if (token.includes("*")) {
       targetPaths.push(cwd);
     } else {
