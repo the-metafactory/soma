@@ -1,8 +1,9 @@
 import { access, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { evaluatePathGuard } from "./policy-path-guard";
 import { hasSomaPolicyPrivateMarker } from "./policy-marker";
-import type { SomaPolicyBatchCheckOptions, SomaPolicyBatchCheckResult, SomaPolicyBatchTarget, SomaPolicyCheckOptions, SomaPolicyCheckResult, SomaPolicyFinding } from "./types";
+import type { SomaPolicyBatchCheckOptions, SomaPolicyBatchCheckResult, SomaPolicyBatchTarget, SomaPolicyCheckOptions, SomaPolicyCheckResult, SomaPolicyFinding, SomaProtectedPath } from "./types";
 
 function resolveSomaHome(options: Pick<SomaPolicyCheckOptions, "homeDir" | "somaHome"> = {}): string {
   return resolve(options.somaHome ?? join(options.homeDir ?? homedir(), ".soma"));
@@ -110,6 +111,12 @@ function unresolvedPolicyScope(options: SomaPolicyCheckOptions): Omit<SomaPolicy
 
 function evaluateResolvedSomaPolicy(options: SomaPolicyCheckOptions, scope: SomaPolicyScope): SomaPolicyCheckResult {
   const { destinationPath, destinationScopePath, sourcePath, sourceScopePath, roots, rootScopes, somaHome } = scope;
+
+  // Path protection for delete/modify actions
+  if (options.action === "delete" || options.action === "modify") {
+    return evaluateResolvedSomaPathGuard(options, scope);
+  }
+
   const findings: SomaPolicyFinding[] = [];
   const destinationIsPrivate = roots.some((root, index) => isInside(destinationPath, root) && isInside(destinationScopePath, rootScopes[index]));
   const destinationIsPublic = !destinationIsPrivate;
@@ -130,6 +137,41 @@ function evaluateResolvedSomaPolicy(options: SomaPolicyCheckOptions, scope: Soma
     decision === "deny"
       ? `Private Soma context cannot be written to public destination ${markerFor(destinationPath, options.homeDir)}.`
       : `No private Soma source markers found for ${markerFor(destinationPath, options.homeDir)}.`;
+
+  return {
+    somaHome,
+    decision,
+    reason,
+    findings,
+  };
+}
+
+function evaluateResolvedSomaPathGuard(options: SomaPolicyCheckOptions, scope: SomaPolicyScope): SomaPolicyCheckResult {
+  const { destinationPath, somaHome, roots } = scope;
+
+  // Convert all private roots to protected paths for delete/modify actions.
+  // This ensures the somaHome itself is protected, not just user-specified paths.
+  const rootProtectedPaths: SomaProtectedPath[] = roots.map((root) => ({
+    path: root,
+    description: "Soma private root",
+  }));
+
+  const guardResult = evaluatePathGuard({
+    targetPaths: [destinationPath],
+    cwd: process.cwd(),
+    protectedPaths: [...(options.protectedPaths ?? []), ...rootProtectedPaths],
+    action: options.action as "delete" | "modify",
+  });
+
+  const decision = guardResult.blocked ? "deny" : "allow";
+  const reason = guardResult.blocked
+    ? `${options.action} blocked on protected path ${markerFor(destinationPath, options.homeDir)}: ${guardResult.matchedDescriptions.join(", ")}.`
+    : `${markerFor(destinationPath, options.homeDir)} is not a protected path.`;
+
+  const findings: SomaPolicyFinding[] = guardResult.matchedPaths.map((path) => ({
+    kind: "protected-path" as const,
+    detail: `${markerFor(path, options.homeDir)} (${options.action})`,
+  }));
 
   return {
     somaHome,

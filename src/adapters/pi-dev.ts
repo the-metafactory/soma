@@ -1,5 +1,6 @@
 import type { SomaAdapter, SomaContextBundle, SomaContextInput, SomaTask } from "../types";
 import { renderFeedbackHookHelper } from "./feedback-hook-helper";
+import { renderPathGuardExtension } from "./pi-dev-path-guard";
 import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "./shared";
 
 function renderInstructions(input: SomaContextInput): string {
@@ -411,6 +412,7 @@ function renderHomeSkill(input: SomaContextInput, somaHome: string): string {
 
 export function buildPiDevContext(input: SomaContextInput): SomaContextBundle {
   const instructions = renderInstructions(input);
+  const somaHome = process.env.SOMA_HOME ?? `${process.env.HOME ?? "/tmp"}/.soma`;
 
   return {
     substrate: "pi-dev",
@@ -443,6 +445,10 @@ export function buildPiDevContext(input: SomaContextInput): SomaContextBundle {
           "Host permission prompts",
           "Verification reporting",
         ]),
+      },
+      {
+        path: ".pi/extensions/soma-core/soma-path-guard.ts",
+        content: renderPathGuardExtension(somaHome),
       },
     ],
   };
@@ -496,6 +502,10 @@ export function buildPiDevHomeContext(input: SomaContextInput, somaHome: string)
           "Host permission prompts",
           "Verification reporting",
         ]),
+      },
+      {
+        path: "agent/extensions/soma-path-guard.ts",
+        content: renderPathGuardExtension(somaHome),
       },
       {
         path: "agent/skills/soma/SKILL.md",

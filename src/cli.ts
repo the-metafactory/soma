@@ -869,7 +869,7 @@ function parsePolicyArgs(args: string[]): ParsedPolicyArgs {
 
   if (command !== "policy" || action !== "check") {
     throw new Error(
-      "Usage: soma policy check --action write --destination <path> [--content <text>|--content-env <name>] [--source <path>]",
+      "Usage: soma policy check --action <write|delete|modify> --destination <path> [--content <text>|--content-env <name>] [--source <path>]",
     );
   }
 
@@ -895,7 +895,7 @@ function parsePolicyArgs(args: string[]): ParsedPolicyArgs {
         break;
       case "--action": {
         const value = readOption(rest, index, arg);
-        if (value !== "write") throw new Error("--action must be write.");
+        if (value !== "write" && value !== "delete" && value !== "modify") throw new Error("--action must be one of write, delete, or modify.");
         options.action = value;
         index += 1;
         break;
@@ -928,6 +928,19 @@ function parsePolicyArgs(args: string[]): ParsedPolicyArgs {
           throw new Error("--record must be one of all, deny, or none.");
         }
         options.record = value;
+        index += 1;
+        break;
+      }
+      case "--protected-path": {
+        options.protectedPaths = [...(options.protectedPaths ?? []), { path: readOption(rest, index, arg), description: "" }];
+        index += 1;
+        break;
+      }
+      case "--protected-path-name": {
+        const name = readOption(rest, index, arg);
+        if (options.protectedPaths && options.protectedPaths.length > 0) {
+          options.protectedPaths[options.protectedPaths.length - 1].description = name;
+        }
         index += 1;
         break;
       }
@@ -1005,7 +1018,7 @@ function renderUsage(): string {
     "  soma memory search --query <text> [--limit <n>] [--home-dir <dir>] [--soma-home <dir>]",
     "  soma memory promote --from-run <run-id> --store <learning|knowledge|relationship|work> --title <text> [--lesson <text>] [--applies-when <text>]",
     "  soma feedback capture (--text <text> | --stdin) [--substrate <id>] [--source <source>] [--store-excerpt]",
-    "  soma policy check --action write --destination <path> [--content <text>|--content-env <name>] [--source <path>] [--substrate <id>] [--record <all|deny|none>] [--json]",
+    "  soma policy check --action <write|delete|modify> --destination <path> [--content <text>|--content-env <name>] [--source <path>] [--substrate <id>] [--protected-path <path>] [--protected-path-name <name>] [--record <all|deny|none>] [--json]",
     "  soma lifecycle <session-start|algorithm-updated|session-end> [--home-dir <dir>] [--soma-home <dir>] [--substrate <id>] [--session-id <id>]",
     "  soma install <codex|pi-dev> [--dry-run] [--apply] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
     "  soma import pai [--dry-run] [--apply] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>]",
@@ -1033,6 +1046,7 @@ function suggestTopLevelCommand(command: string): string | undefined {
   })).sort((left, right) => left.distance - right.distance || left.candidate.localeCompare(right.candidate));
 
   const best = ranked[0];
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
   if (!best) return undefined;
 
   const threshold = Math.max(2, Math.floor(best.candidate.length / 3));
