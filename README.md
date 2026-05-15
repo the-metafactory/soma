@@ -276,7 +276,13 @@ The adapter contract is small enough to write in an afternoon. If you want Soma 
 
 Soma stands on the shoulders of [Daniel Miessler](https://github.com/danielmiessler) and his [Personal AI Infrastructure (PAI)](https://github.com/danielmiessler/Personal_AI_Infrastructure) project. Many of the core ideas Soma builds on — the principal profile, Telos as a first-class structure for goals and principles, the assistant as an operating system rather than a single CLI, the Algorithm as a deterministic harness around AI work, and the conviction that the durable parts of a personal assistant should live in your filesystem and belong to you — come directly from PAI.
 
-What Soma adds is the **portability layer**. PAI lives inside one coding agent at a time. Soma extracts the durable parts and gives them a stable file format and a small adapter contract so the same assistant can move between agents without losing itself. Where PAI is the operating system, Soma is the body that can move between hosts.
+What Soma adds is the **portability layer**, and a few deliberate departures from how PAI organises the durable parts. PAI lives inside one coding agent at a time and bundles the assistant's operating system into one integrated tree. Soma extracts the durable parts, gives them a stable file format and a small adapter contract, and lets the same assistant move between agents without losing itself. Where PAI is the operating system, Soma is the body that can move between hosts.
+
+Soma also takes the concepts further:
+
+- **More modular than monolithic.** Skills, memory stores, and policies are first-class folders that can be installed, upgraded, audited, and removed independently. The assistant is composed, not bundled.
+- **Lightweight by default.** The runtime is a small typed CLI with deterministic mutations. Light enough to drop into any coding agent without dragging a framework behind it.
+- **Built for distributed agentic workloads.** The adapter contract and memory layout are designed for agent teams and swarms running in parallel, not just one principal on one laptop talking to one agent.
 
 Soma also includes a dedicated importer for existing PAI installations, so the work you have already put into your assistant inside PAI travels with you.
 
