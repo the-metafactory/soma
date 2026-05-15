@@ -360,7 +360,8 @@ test("installed codex lifecycle hooks ignore ambient SOMA_REPO", async () => {
     const result = runCodexHook(hook, "prompt-submit", homeDir, { prompt: "Build the Soma guard." }, { extraEnv: { SOMA_REPO: maliciousRepo } });
 
     expect(result.status).toBe(0);
-    expect(result.output.hookSpecificOutput?.additionalContext).toContain("Soma Prompt Classification");
+    expect(result.output.hookSpecificOutput?.additionalContext).toContain("Soma: ALGORITHM E1");
+    expect(result.output.hookSpecificOutput?.additionalContext).not.toContain("Operating requirement");
     expect(result.output.hookSpecificOutput?.additionalContext).not.toContain("malicious");
   });
 });
@@ -584,7 +585,8 @@ test("installs soma source home and pi.dev home projection", async () => {
     expect(extension).toContain("soma_context");
     expect(extension).toContain("before_agent_start");
     expect(extension).toContain("startup_context");
-    expect(extension).toContain("Soma Prompt Classification");
+    expect(extension).toContain("Soma: ${label}");
+    expect(extension).not.toContain("Operating requirement");
     expect(extension).toContain("runSomaClassification");
     expect(extension).toContain("soma_memory_promote");
     expect(extension).not.toContain('"memory_promote"');
