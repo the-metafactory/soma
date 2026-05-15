@@ -1,6 +1,14 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { extractWriteTargets, shouldCheckPolicyTarget } from "./codex-policy-hook.mjs";
+// __SOMA_HOOK_MODULE_IMPORTS__
+
+// __SOMA_PROMPT_SUBMIT_EXTENSION_START__
+function runSomaFeedbackCapture(config, prompt) {
+  void config;
+  void prompt;
+}
+// __SOMA_PROMPT_SUBMIT_EXTENSION_END__
 
 function readHookInput() {
   try {
@@ -150,6 +158,7 @@ function handlePreToolUse(config, input) {
 }
 
 function handlePromptSubmit(config, input) {
+  runSomaFeedbackCapture(config, input.prompt);
   const result = runSomaClassification(config, input.prompt);
   if (result.status !== 0) {
     emitAndExit({
