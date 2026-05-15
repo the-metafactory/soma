@@ -113,6 +113,17 @@ function readProjectedStartupContext() {
   }
 }
 
+export function renderStartupContextSummary(context) {
+  if (!context) return "Soma: startup context unavailable; read the projected Soma startup context when needed.";
+  const assistant = context.match(/^Assistant:\s*(.+)$/m)?.[1]?.trim();
+  const principal = context.match(/^Principal:\s*(.+)$/m)?.[1]?.trim();
+  const activeRunsSection = context.match(/(?:^|\n)## Active Algorithm Runs\n(?<section>[\s\S]*?)(?=\n## |$)/)?.groups?.section ?? "";
+  const activeRuns = [...activeRunsSection.matchAll(/^- [^\n]+$/gm)].length;
+  const identity = assistant && principal ? `${assistant} for ${principal}` : assistant || "startup context";
+  const runText = activeRuns === 1 ? "1 active run" : `${activeRuns} active runs`;
+  return `Soma: ${identity}; ${runText}. Full context is in the projected startup-context.md.`;
+}
+
 function handlePreToolUse(config, input) {
   if (input.__somaParseError) {
     denyPreToolUse(`Soma policy check failed closed: malformed hook input (${input.__somaParseError})`);
@@ -167,15 +178,15 @@ function handleLifecycleEvent(config, event, input) {
       const context = readProjectedStartupContext();
       emitAndExit({
         continue: true,
-        systemMessage: `Soma lifecycle hook fell back to projected context: ${result.stderr || result.stdout || "unknown error"}`,
+        systemMessage: "Soma lifecycle hook fell back to projected startup context.",
         hookSpecificOutput: {
           hookEventName: "SessionStart",
-          additionalContext: context || "Soma lifecycle context is unavailable; read ~/.codex/memories/soma/ when needed.",
+          additionalContext: renderStartupContextSummary(context),
         },
       });
     }
 
-    emitAndExit({ continue: true, systemMessage: `Soma lifecycle hook failed: ${result.stderr || result.stdout || "unknown error"}` });
+    emitAndExit({ continue: true, systemMessage: `Soma lifecycle hook failed for ${event}; read projected Soma context when needed.` });
   }
 
   if (event === "session-start") {
@@ -184,12 +195,12 @@ function handleLifecycleEvent(config, event, input) {
       continue: true,
       hookSpecificOutput: {
         hookEventName: "SessionStart",
-        additionalContext: context || result.stdout,
+        additionalContext: renderStartupContextSummary(context || result.stdout),
       },
     });
   }
 
-  emitAndExit({ continue: true, systemMessage: result.stdout.trim() });
+  emitAndExit({ continue: true, systemMessage: `Soma lifecycle ${event} handled.` });
 }
 
 export function runCodexHook(config, event = process.argv[2], input = readHookInput()) {
