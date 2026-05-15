@@ -159,7 +159,7 @@ Then start a session and watch Soma surface its context.
 
 ## Bringing in your existing assistant
 
-If you already run an assistant inside Claude PAI, Soma can import the durable parts so you do not start from scratch.
+If you already run an assistant inside [Daniel Miessler's Personal AI Infrastructure (PAI)](https://github.com/danielmiessler/Personal_AI_Infrastructure), Soma can import the durable parts so you do not start from scratch.
 
 ```bash
 soma import pai --dry-run
@@ -272,6 +272,16 @@ The adapter contract is small enough to write in an afternoon. If you want Soma 
 
 ---
 
+## Origins and inspiration
+
+Soma stands on the shoulders of [Daniel Miessler](https://github.com/danielmiessler) and his [Personal AI Infrastructure (PAI)](https://github.com/danielmiessler/Personal_AI_Infrastructure) project. Many of the core ideas Soma builds on — the principal profile, Telos as a first-class structure for goals and principles, the assistant as an operating system rather than a single CLI, the Algorithm as a deterministic harness around AI work, and the conviction that the durable parts of a personal assistant should live in your filesystem and belong to you — come directly from PAI.
+
+What Soma adds is the **portability layer**. PAI lives inside one coding agent at a time. Soma extracts the durable parts and gives them a stable file format and a small adapter contract so the same assistant can move between agents without losing itself. Where PAI is the operating system, Soma is the body that can move between hosts.
+
+Soma also includes a dedicated importer for existing PAI installations, so the work you have already put into your assistant inside PAI travels with you.
+
+---
+
 ## Status
 
 Soma is a design-first project growing into a library and daemon. The first goal is a stable file format and an adapter contract that lets the same personal assistant context run inside several coding agents without rewriting the assistant each time. The first portability proof is intentionally narrow. Produce equivalent context from the same profile, telos, memory, skills, and ISA for two different coding agents.
@@ -286,5 +296,6 @@ MIT. See [LICENSE](LICENSE).
 
 <p align="center">
   <sub>Soma is the first package published on <a href="https://meta-factory.ai">Metafactory</a>.</sub><br />
-  <sub>Built by <a href="https://github.com/jcfischer">Jens-Christian Fischer</a>. Sponsored by <a href="https://github.com/mellanon">mellanon</a>. ★ STEWARD</sub>
+  <sub>Built by <a href="https://github.com/jcfischer">Jens-Christian Fischer</a>. Sponsored by <a href="https://github.com/mellanon">mellanon</a>. ★ STEWARD</sub><br />
+  <sub>Built on the shoulders of <a href="https://github.com/danielmiessler/Personal_AI_Infrastructure">Daniel Miessler's PAI</a>.</sub>
 </p>
