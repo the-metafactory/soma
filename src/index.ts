@@ -129,4 +129,4 @@ export { checkSomaPolicy, checkSomaPolicyBatch } from "./policy-audit";
 export { evaluateSomaPolicy } from "./policy";
 export { bootstrapSomaHome, loadSomaHome } from "./soma-home";
 
-export const SOMA_VERSION = "0.1.0";
+export const SOMA_VERSION = "0.1.1";
