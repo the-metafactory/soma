@@ -1130,15 +1130,29 @@ function formatPaiPackImportPlan(plan: PaiPackImportPlan): string {
 }
 
 function formatPaiPackImportResult(result: PaiPackImportResult): string {
+  const quotedSomaHome = quoteShellArg(result.somaHome);
+
   return [
     "Soma PAI Pack import applied",
     `paiPackDir: ${result.paiPackDir}`,
     `somaHome: ${result.somaHome}`,
     `skillName: ${result.skillName}`,
     "",
+    "Next step:",
+    "Import makes the skill available in Soma. Refresh the target substrate projection before expecting the skill in that substrate.",
+    `bun run soma install <substrate> --apply --soma-home ${quotedSomaHome}`,
+    "",
     "Files:",
     ...result.files.map((path) => `- ${path}`),
   ].join("\n");
+}
+
+function quoteShellArg(value: string): string {
+  if (/^[A-Za-z0-9_/:=.,@%+-]+$/.test(value)) {
+    return value;
+  }
+
+  return `'${value.replaceAll("'", "'\"'\"'")}'`;
 }
 
 function formatAlgorithmRunResult(result: { path: string; run: { id: string; phase: string; effort: string } }): string {
