@@ -87,32 +87,13 @@ function renderPromptClassificationContext(classification) {
   const mode = (classification.mode || "algorithm").toUpperCase();
   const effort = classification.effort && classification.effort !== "none" ? classification.effort : "";
   const source = classification.source || "unknown";
-  const reason = classification.reason || "No reason provided.";
-  const lines = [
-    "# Soma Prompt Classification",
-    `MODE: ${mode}`,
-    effort ? `TIER: ${effort}` : undefined,
-    `SOURCE: ${source}`,
-    `REASON: ${reason}`,
-    "",
-  ].filter(Boolean);
+  const label = effort ? `${mode} ${effort}` : mode;
 
   if (mode === "ALGORITHM") {
-    lines.push(
-      "Operating requirement:",
-      "- Use the `the-algorithm` skill for this turn.",
-      "- Before giving a substantive answer, create or update a Soma Algorithm run unless this prompt only continues an already-active run.",
-      "- Use the classified TIER as the effort level unless the user explicitly overrides it.",
-      "- Preserve verification evidence in the run before declaring the answer complete.",
-    );
-  } else {
-    lines.push(
-      "Operating requirement:",
-      "- This prompt may stay outside the full Algorithm harness unless conversation context makes it Algorithm-shaped.",
-    );
+    return `Soma: ${label} (${source}). Use the-algorithm; create/update the run and record verification evidence.`;
   }
 
-  return lines.join("\n");
+  return `Soma: ${label} (${source}). Full Algorithm harness optional unless context makes it substantial.`;
 }
 
 function writeProjectedStartupContext(output) {
