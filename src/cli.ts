@@ -238,11 +238,16 @@ function readOption(args: string[], index: number, name: string): string {
   return value;
 }
 
+function commandUsage(command: string, action?: string): string {
+  const commandHelp = COMMAND_HELP[command];
+  return (action && commandHelp?.subcommands?.[action]) || commandHelp?.usage || `Usage: soma ${command} ...`;
+}
+
 function parseInstallArgs(args: string[]): ParsedInstallArgs {
   const [command, substrate, ...rest] = args;
 
   if (command !== "install" || (substrate !== "codex" && substrate !== "pi-dev")) {
-    throw new Error("Usage: soma install <codex|pi-dev> [--dry-run] [--apply] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]");
+    throw new Error(commandUsage("install"));
   }
 
   const options: SomaInstallOptions = {};
@@ -543,9 +548,7 @@ function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
   ]);
 
   if (command !== "algorithm" || !validActions.has(action)) {
-    throw new Error(
-      "Usage: soma algorithm <new|list|show|capabilities|plan|decision|change|step|verify|learn|advance> ...",
-    );
+    throw new Error(commandUsage("algorithm"));
   }
 
   const run: Partial<AlgorithmRunInput> & { criteria: AlgorithmRunInput["criteria"] } = {
@@ -688,9 +691,7 @@ function parseLifecycleArgs(args: string[]): ParsedLifecycleArgs {
   const [command, event, ...rest] = args;
 
   if (command !== "lifecycle" || (event !== "session-start" && event !== "algorithm-updated" && event !== "session-end")) {
-    throw new Error(
-      "Usage: soma lifecycle <session-start|algorithm-updated|session-end> [--home-dir <dir>] [--soma-home <dir>] [--substrate <id>] [--session-id <id>]",
-    );
+    throw new Error(commandUsage("lifecycle"));
   }
 
   const options: SomaLifecycleOptions = {};
@@ -824,7 +825,7 @@ function parseMemoryArgs(args: string[]): ParsedMemoryArgs {
   const [command, action, ...rest] = args;
 
   if (command !== "memory" || (action !== "search" && action !== "promote")) {
-    throw new Error("Usage: soma memory <search|promote> ...");
+    throw new Error(commandUsage("memory"));
   }
 
   if (action === "search") {
@@ -910,7 +911,7 @@ function parseFeedbackArgs(args: string[]): ParsedFeedbackArgs {
   const [command, action, ...rest] = args;
 
   if (command !== "feedback" || action !== "capture") {
-    throw new Error("Usage: soma feedback capture (--text <text> | --stdin) [--substrate <id>] [--source <source>] [--store-excerpt]");
+    throw new Error(commandUsage("feedback", "capture"));
   }
 
   const parsed = parseFeedbackCaptureArgs(rest);
@@ -927,9 +928,7 @@ function parsePolicyArgs(args: string[]): ParsedPolicyArgs {
   const [command, action, ...rest] = args;
 
   if (command !== "policy" || action !== "check") {
-    throw new Error(
-      "Usage: soma policy check --action write --destination <path> [--content <text>|--content-env <name>] [--source <path>]",
-    );
+    throw new Error(commandUsage("policy", "check"));
   }
 
   const options: Partial<SomaPolicyCheckOptions> = {};
@@ -1023,7 +1022,7 @@ function parseArgs(args: string[]): ParsedArgs {
     return { command: "help", topic: [] };
   }
 
-  if (args.includes("--help")) {
+  if (isHelpRequest(args)) {
     const topic = helpTopic(args);
     const [command] = topic;
 
@@ -1069,24 +1068,26 @@ function helpTopic(args: string[]): string[] {
   const helpIndex = args.indexOf("--help");
   const topicArgs = helpIndex === 0 ? args.slice(1) : args.slice(0, helpIndex);
 
-  return topicArgs.filter((arg) => !arg.startsWith("--")).slice(0, 2);
+  const firstFlagIndex = topicArgs.findIndex((arg) => arg.startsWith("--"));
+  return (firstFlagIndex === -1 ? topicArgs : topicArgs.slice(0, firstFlagIndex)).slice(0, 2);
+}
+
+function isHelpRequest(args: string[]): boolean {
+  const helpIndex = args.indexOf("--help");
+  if (helpIndex === -1) return false;
+  if (helpIndex === 0) return true;
+
+  return args.slice(0, helpIndex).every((arg) => !arg.startsWith("--"));
 }
 
 function renderUsage(): string {
+  const usageLines = [...new Set(Object.values(COMMAND_HELP).flatMap((commandHelp) =>
+    [commandHelp.usage, ...Object.values(commandHelp.subcommands ?? {})].map((line) => `  ${line.slice("Usage: ".length)}`),
+  ))];
+
   return [
     "Usage:",
-    "  soma algorithm new --prompt <text> --intent <text> --current-state <text> --goal <text> --criterion <id:text> [--effort <E1|E2|E3|E4|E5>] [--home-dir <dir>] [--soma-home <dir>]",
-    "  soma algorithm classify --prompt <text>",
-    "  soma algorithm batch --id <run-id> --op <kind:...> [--op <kind:...>]",
-    "  soma algorithm <list|show|capabilities|plan|decision|change|step|verify|learn|advance> --id <run-id> [...]",
-    "  soma memory search --query <text> [--limit <n>] [--home-dir <dir>] [--soma-home <dir>]",
-    "  soma memory promote --from-run <run-id> --store <learning|knowledge|relationship|work> --title <text> [--lesson <text>] [--applies-when <text>]",
-    "  soma feedback capture (--text <text> | --stdin) [--substrate <id>] [--source <source>] [--store-excerpt]",
-    "  soma policy check --action write --destination <path> [--content <text>|--content-env <name>] [--source <path>] [--substrate <id>] [--record <all|deny|none>] [--json]",
-    "  soma lifecycle <session-start|algorithm-updated|session-end> [--home-dir <dir>] [--soma-home <dir>] [--substrate <id>] [--session-id <id>]",
-    "  soma install <codex|pi-dev> [--dry-run] [--apply] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
-    "  soma import pai [--dry-run] [--apply] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>]",
-    "  soma import algorithm [--dry-run] [--apply] [--home-dir <dir>] [--pai-algorithm-dir <dir>] [--soma-home <dir>]",
+    ...usageLines,
   ].join("\n");
 }
 
@@ -1097,8 +1098,7 @@ function renderHelp(topic: string[]): string {
     return renderUsage();
   }
 
-  const commandHelp = COMMAND_HELP[command];
-  return (action && commandHelp?.subcommands?.[action]) || commandHelp?.usage || renderUsage();
+  return commandUsage(command, action);
 }
 
 function renderUnknownCommand(command: string): string {
