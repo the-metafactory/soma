@@ -10,12 +10,28 @@ const MINIMAL_PROMPTS = new Set([
   "thanks",
   "thank you",
   "works",
+  "worked",
+  "working",
   "great",
+  "great works",
+  "great that works",
+  "great that works nicely",
+  "nice",
+  "excellent",
+  "cool",
+  "perfect",
+  "looks good",
+  "sounds good",
+  "that works",
+  "that worked",
   "go for it",
   "do it",
 ]);
 
 const NATIVE_PATTERNS = [
+  /\b(what'?s next|next step|status|is that installed|does that work|what changed|what did you change)\b/i,
+  /^(what|who|when|where) (is|are|was|were)\b/i,
+  /^how (does|do|did|is|are)\b/i,
   /\b(run|execute)\b.+\b(tests?|command|script|lint|typecheck|date|pwd|ls)\b/i,
   /\b(read|show|summarize|inspect|check)\b.+\b(file|output|log|diff|status)\b/i,
   /\b(fix|change|rename|update)\b.+\b(typo|spelling|one line|single line)\b/i,
@@ -60,7 +76,11 @@ function classifyAlgorithmTier(prompt: string): AlgorithmEffortTier {
 
 function classifyMode(prompt: string): AlgorithmMode {
   const text = prompt.trim();
-  const normalized = text.toLowerCase().replace(/[.!?]+$/g, "");
+  const normalized = text
+    .toLowerCase()
+    .replace(/[.!?,'"]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 
   if (MINIMAL_PROMPTS.has(normalized)) {
     return "minimal";
@@ -105,7 +125,7 @@ export function classifyAlgorithmPrompt(prompt: string): AlgorithmPromptClassifi
     return {
       mode,
       source: "auto",
-      reason: mode === "minimal" ? "Prompt is a minimal acknowledgement." : "Prompt is a narrow native substrate action.",
+      reason: mode === "minimal" ? "Prompt is a minimal acknowledgement." : "Prompt can be handled by the native substrate without Algorithm harness.",
     };
   }
 
