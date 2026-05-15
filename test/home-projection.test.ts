@@ -52,6 +52,7 @@ test("builds codex home projection bundle for default availability", () => {
     "hooks.json",
     "hooks/soma-lifecycle.mjs",
     "hooks/codex-hook-entry.mjs",
+    "hooks/soma-feedback-capture.mjs",
     "hooks/codex-policy-hook.mjs",
     "hooks/policy-marker.mjs",
     "skills/soma/SKILL.md",
@@ -67,6 +68,13 @@ test("builds codex home projection bundle for default availability", () => {
   expect(projection.bundle.files.find((file) => file.path === "hooks/soma-lifecycle.mjs")?.content).toContain("policyMarkers");
   expect(projection.bundle.files.find((file) => file.path === "hooks/codex-hook-entry.mjs")?.content).toContain("runSomaPolicyCheck");
   expect(projection.bundle.files.find((file) => file.path === "hooks/codex-hook-entry.mjs")?.content).toContain('"./codex-policy-hook.mjs"');
+  expect(projection.bundle.files.find((file) => file.path === "hooks/codex-hook-entry.mjs")?.content).toContain(
+    '"./soma-feedback-capture.mjs"',
+  );
+  expect(projection.bundle.files.find((file) => file.path === "hooks/soma-feedback-capture.mjs")?.content).toContain("--stdin");
+  expect(projection.bundle.files.find((file) => file.path === "hooks/soma-feedback-capture.mjs")?.content).not.toContain(
+    "__SOMA_FEEDBACK_TRIGGER_PATTERN_SOURCE__",
+  );
   expect(projection.bundle.files.find((file) => file.path === "hooks/codex-policy-hook.mjs")?.content).toContain('"./policy-marker.mjs"');
 });
 
@@ -113,11 +121,13 @@ test("installs codex home projection into a substrate home", async () => {
 
     expect(result.substrate).toBe("codex");
     expect(result.rootDir).toBe(join(homeDir, ".codex"));
-    expect(result.files).toHaveLength(13);
+    expect(result.files).toHaveLength(14);
 
     const rules = await readFile(join(homeDir, ".codex/rules/soma.rules"), "utf8");
     const hooks = await readFile(join(homeDir, ".codex/hooks.json"), "utf8");
     const hookScript = await readFile(join(homeDir, ".codex/hooks/soma-lifecycle.mjs"), "utf8");
+    const hookEntry = await readFile(join(homeDir, ".codex/hooks/codex-hook-entry.mjs"), "utf8");
+    const feedbackHook = await readFile(join(homeDir, ".codex/hooks/soma-feedback-capture.mjs"), "utf8");
     const policyHook = await readFile(join(homeDir, ".codex/hooks/codex-policy-hook.mjs"), "utf8");
     const skill = await readFile(join(homeDir, ".codex/skills/soma/SKILL.md"), "utf8");
     const profile = await readFile(join(homeDir, ".codex/memories/soma/profile.md"), "utf8");
@@ -132,6 +142,9 @@ test("installs codex home projection into a substrate home", async () => {
     expect(hookScript).toContain("trustedSomaRepo");
     expect(hookScript).toContain("policyMarkers");
     expect(hookScript).toContain("bunPath");
+    expect(hookEntry).toContain('"./soma-feedback-capture.mjs"');
+    expect(feedbackHook).toContain("--stdin");
+    expect(feedbackHook).not.toContain("__SOMA_FEEDBACK_TRIGGER_PATTERN_SOURCE__");
     expect(policyHook).toContain("targetExtractors");
     expect(policyHook).toContain("normalizeToolInvocation");
     expect(hookScript).not.toContain("function privateRoots");

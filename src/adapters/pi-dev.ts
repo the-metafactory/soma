@@ -1,4 +1,5 @@
 import type { SomaAdapter, SomaContextBundle, SomaContextInput, SomaTask } from "../types";
+import { renderFeedbackHookHelper } from "./feedback-hook-helper";
 import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "./shared";
 
 function renderInstructions(input: SomaContextInput): string {
@@ -22,7 +23,7 @@ function renderExtensionManifest(): string {
   return `${JSON.stringify(
     {
       name: "soma-core",
-      version: "0.1.1",
+      version: "0.1.2",
       description: "Pi.dev projection for Soma personal assistant context.",
       tools: [
         "isa_create",
@@ -82,7 +83,7 @@ function renderPaiImportIndex(somaHome: string): string {
 
 function renderHomeExtension(somaHome: string): string {
   return [
-    'import { execFile, spawnSync } from "node:child_process";',
+    'import { execFile, spawn, spawnSync } from "node:child_process";',
     'import { readFileSync, writeFileSync } from "node:fs";',
     'import { promisify } from "node:util";',
     'import { StringEnum } from "@mariozechner/pi-ai";',
@@ -149,6 +150,18 @@ function renderHomeExtension(somaHome: string): string {
     "\t});",
     '\treturn { ok: result.status === 0, output: result.stdout || result.stderr || "" };',
     "}",
+    "",
+    renderFeedbackHookHelper({
+      functionName: "captureSomaFeedback",
+      promptParameter: "prompt",
+      promptType: "string",
+      bunPathExpression: '"bun"',
+      cwdExpression: "somaRepoPath()",
+      somaHomeExpression: "SOMA_HOME",
+      substrate: "pi-dev",
+      source: "before-agent-start",
+      failureComment: "Feedback capture is best-effort and must never break prompt startup.",
+    }),
     "",
     "async function runSomaCommand(args: string[]): Promise<string> {",
     "\ttry {",
@@ -258,11 +271,13 @@ function renderHomeExtension(somaHome: string): string {
     "\t});",
     "",
     '\tpi.on("before_agent_start", async (event, ctx) => {',
+    "\t\tconst prompt = promptFromEvent(event);",
+    "\t\tcaptureSomaFeedback(prompt);",
     '\t\tconst profile = readOptional(`${PI_SOMA_HOME}/profile.md`);',
     "\t\tconst startupContext = refreshStartupContext(sessionId(ctx));",
     '\t\tconst paiImports = readOptional(`${PI_SOMA_HOME}/pai-imports.md`);',
     '\t\tconst context = readOptional(`${PI_SOMA_HOME}/context.md`);',
-    "\t\tconst promptClassification = renderPromptClassificationContext(promptFromEvent(event));",
+    "\t\tconst promptClassification = renderPromptClassificationContext(prompt);",
     '\t\tconst somaPrompt = `',
     "## Soma Personal Assistant Context",
     "",

@@ -4,4 +4,4 @@ dist/
 .env
 .env.*
 !.env.example
-
+*.tar.gz
