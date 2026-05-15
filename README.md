@@ -176,6 +176,8 @@ See [docs/boundaries.md](docs/boundaries.md) for the source-of-truth split acros
 Soma, Compass, Cortex/Myelin, Arc, Signal, Spawn, and substrate adapters.
 See [docs/default-availability.md](docs/default-availability.md) for the home
 install versus workspace overlay model.
+See [docs/progressive-skill-loading.md](docs/progressive-skill-loading.md) for
+the skill registry, routing, and just-in-time loading model.
 See [docs/writeback-and-policy.md](docs/writeback-and-policy.md) for the current
 projection, writeback, conflict, and policy enforcement semantics.
 

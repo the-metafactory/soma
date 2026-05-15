@@ -68,6 +68,10 @@ curls, and loop execution outside the kernel.
 Skills are portable capability folders. A skill may contain a `SKILL.md`,
 workflow files, tools, examples, and references. The core only defines discovery
 and routing contracts. A substrate adapter decides how to load and execute them.
+The progressive loading contract is specified in
+[progressive-skill-loading.md](./progressive-skill-loading.md): Soma should
+project a compact skill registry by default and load skill bodies only after a
+task route selects them.
 
 ### Memory
 
