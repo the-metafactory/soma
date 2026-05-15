@@ -2,6 +2,7 @@ import type { SomaAdapter, SomaContextBundle, SomaContextInput, SomaTask } from 
 import { defaultSomaRepoPath } from "../repo-path";
 import { readCodexHookAsset } from "./codex-hook-assets";
 import { renderCodexLifecycleHook } from "./codex-hook-runtime";
+import { renderFeedbackHookModule } from "./feedback-hook-helper";
 import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "./shared";
 
 function renderCodexPolicy(): string {
@@ -224,6 +225,55 @@ function renderCodexHooksJson(): string {
   )}\n`;
 }
 
+function renderCodexFeedbackHook(): string {
+  return renderFeedbackHookModule({
+    functionName: "runSomaFeedbackCapture",
+    leadingParameters: ["config"],
+    promptParameter: "prompt",
+    bunPathExpression: "config.bunPath",
+    cwdExpression: "config.trustedSomaRepo",
+    somaHomeExpression: "config.somaHome",
+    substrate: "codex",
+    source: "prompt-submit",
+    failureComment: "Feedback capture is best-effort and must never break prompt classification.",
+  });
+}
+
+interface CodexHookEntryExtension {
+  importLine: string;
+  fallbackStartMarker: string;
+  fallbackEndMarker: string;
+}
+
+function applyCodexHookEntryExtensions(source: string, extensions: CodexHookEntryExtension[]): string {
+  const importMarker = "// __SOMA_HOOK_MODULE_IMPORTS__";
+  if (!source.includes(importMarker)) {
+    throw new Error("Codex hook entry is missing the Soma hook module import marker.");
+  }
+
+  const imports = extensions.map((extension) => extension.importLine).join("\n");
+  let rendered = source.replace(importMarker, imports);
+  for (const extension of extensions) {
+    const fallbackStart = rendered.indexOf(extension.fallbackStartMarker);
+    const fallbackEnd = rendered.indexOf(extension.fallbackEndMarker);
+    if (fallbackStart === -1 || fallbackEnd === -1 || fallbackEnd < fallbackStart) {
+      throw new Error("Codex hook entry is missing a Soma hook extension fallback marker.");
+    }
+    rendered = `${rendered.slice(0, fallbackStart)}${rendered.slice(fallbackEnd + extension.fallbackEndMarker.length)}`;
+  }
+  return rendered;
+}
+
+function renderCodexHookEntry(): string {
+  return applyCodexHookEntryExtensions(readCodexHookAsset("codex-hook-entry.mjs"), [
+    {
+      importLine: 'import { runSomaFeedbackCapture } from "./soma-feedback-capture.mjs";',
+      fallbackStartMarker: "// __SOMA_PROMPT_SUBMIT_EXTENSION_START__",
+      fallbackEndMarker: "// __SOMA_PROMPT_SUBMIT_EXTENSION_END__",
+    },
+  ]);
+}
+
 export function buildCodexContext(input: SomaContextInput): SomaContextBundle {
   const instructions = renderInstructions(input);
 
@@ -278,7 +328,11 @@ export function buildCodexHomeContext(input: SomaContextInput, somaHome: string,
       },
       {
         path: "hooks/codex-hook-entry.mjs",
-        content: readCodexHookAsset("codex-hook-entry.mjs"),
+        content: renderCodexHookEntry(),
+      },
+      {
+        path: "hooks/soma-feedback-capture.mjs",
+        content: renderCodexFeedbackHook(),
       },
       {
         path: "hooks/codex-policy-hook.mjs",

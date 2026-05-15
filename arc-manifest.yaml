@@ -1,6 +1,6 @@
 schema: arc/v1
 name: soma
-version: 0.1.1
+version: 0.1.2
 type: component
 tier: community
 description: Substrate-portable Personal AI Assistant core for identity, memory, ISA, skills, learning, and adapters.
@@ -34,6 +34,7 @@ capabilities:
       - "~/work/**"
     write:
       - "~/.config/soma/**"
+      - "~/.soma/memory/STATE/**"
   bash:
     allowed: true
     restricted_to:

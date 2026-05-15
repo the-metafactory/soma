@@ -5,6 +5,8 @@ import { expect, test } from "bun:test";
 import {
   appendSomaMemoryEvent,
   bootstrapSomaHome,
+  captureSomaFeedback,
+  classifySomaFeedback,
   createAlgorithmRun,
   promoteAlgorithmRunMemory,
   searchSomaMemory,
@@ -111,6 +113,133 @@ test("rejects memory events missing required text fields", async () => {
         summary: "Missing kind.",
       }),
     ).rejects.toThrow("kind must not be empty");
+  });
+});
+
+test("classifies feedback prompts into candidate kinds", () => {
+  expect(classifySomaFeedback("you missed the arc-manifest")).toMatchObject({
+    kind: "missed-surface",
+    confidence: "high",
+  });
+  expect(classifySomaFeedback("from now on, check arc manifests on version bumps")).toMatchObject({
+    kind: "preference",
+    confidence: "high",
+  });
+  expect(classifySomaFeedback("what should I do next?")).toMatchObject({
+    kind: "none",
+  });
+  expect(classifySomaFeedback("you should add tests")).toMatchObject({
+    kind: "none",
+  });
+  expect(classifySomaFeedback("what is wrong with this bug?")).toMatchObject({
+    kind: "none",
+  });
+  expect(classifySomaFeedback("make a nice UI")).toMatchObject({
+    kind: "none",
+  });
+  expect(classifySomaFeedback("ordinary question about the repo")).toMatchObject({
+    kind: "none",
+  });
+});
+
+test("captures actionable feedback as append-only candidate event", async () => {
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    const result = await captureSomaFeedback({
+      homeDir,
+      substrate: "codex",
+      source: "test",
+      text: "you missed the arc-manifest",
+    });
+
+    expect(result).toMatchObject({
+      captured: true,
+      classification: {
+        kind: "missed-surface",
+      },
+    });
+
+    const events = parseEvents(await readFile(somaMemoryEventsPath(somaHome), "utf8"));
+    expect(events[0]).toMatchObject({
+      substrate: "codex",
+      kind: "feedback.candidate",
+      summary: "Feedback candidate captured: missed-surface.",
+      metadata: {
+        feedbackKind: "missed-surface",
+        source: "test",
+        promptStored: false,
+        excerptStored: true,
+        redactedExcerpt: "you missed the arc-manifest",
+        excerptTruncated: false,
+      },
+    });
+  });
+});
+
+test("automatic hook feedback omits prompt-derived excerpts", async () => {
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    await captureSomaFeedback({
+      homeDir,
+      substrate: "codex",
+      source: "prompt-submit",
+      storeExcerpt: false,
+      text: "you missed this secret detail",
+    });
+
+    const events = await readFile(somaMemoryEventsPath(somaHome), "utf8");
+    expect(events).toContain('"excerptStored":false');
+    expect(events).not.toContain("secret detail");
+    expect(events).not.toContain("redactedExcerpt");
+  });
+});
+
+test("does not persist prompt text when capturing feedback", async () => {
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    const githubToken = ["ghp", "1234567890abcdefghijklmnop"].join("_");
+    const awsKey = ["AKIA", "1234567890ABCDEF"].join("");
+    await captureSomaFeedback({
+      homeDir,
+      substrate: "codex",
+      source: "test",
+      text: `you missed this: api_key=test-key-value-123456789 ${githubToken} ${awsKey}`,
+    });
+
+    const events = await readFile(somaMemoryEventsPath(somaHome), "utf8");
+    expect(events).toContain("promptStored");
+    expect(events).toContain("[redacted]");
+    expect(events).not.toContain("test-key-value-123456789");
+    expect(events).not.toContain(githubToken);
+    expect(events).not.toContain(awsKey);
+  });
+});
+
+test("captures standalone feedback without bootstrapping profile files", async () => {
+  await withTempHome(async (homeDir) => {
+    const result = await captureSomaFeedback({
+      homeDir,
+      substrate: "codex",
+      text: "you missed the standalone bootstrap path",
+    });
+
+    expect(result.captured).toBe(true);
+    await expect(readFile(join(homeDir, ".soma/profile/assistant.md"), "utf8")).rejects.toThrow();
+    await expect(readFile(join(homeDir, ".soma/memory/STATE/events.jsonl"), "utf8")).resolves.toContain("feedback.candidate");
+  });
+});
+
+test("does not capture non-feedback prompts", async () => {
+  await withTempHome(async (homeDir) => {
+    await bootstrapSomaHome({ homeDir });
+    const result = await captureSomaFeedback({
+      homeDir,
+      substrate: "codex",
+      text: "what is the next useful thing to port?",
+    });
+
+    expect(result.captured).toBe(false);
+    expect(result.event).toBeUndefined();
   });
 });
 

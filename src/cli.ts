@@ -1,3 +1,4 @@
+import { readSync } from "node:fs";
 import {
   addAlgorithmCapabilities,
   applyAlgorithmBatch,
@@ -5,6 +6,7 @@ import {
   checkSomaPolicyBatch,
   checkSomaPolicy,
   classifyAlgorithmPrompt,
+  captureSomaFeedback,
   createAlgorithmRun,
   importAlgorithm,
   importPaiIdentity,
@@ -50,6 +52,8 @@ import type {
   SomaInstallOptions,
   SomaInstallPlan,
   SomaInstallResult,
+  SomaFeedbackCaptureOptions,
+  SomaFeedbackCaptureResult,
   SomaLifecycleOptions,
   SomaLifecycleResult,
   SomaMemoryPromotionOptions,
@@ -62,6 +66,7 @@ import type {
   SomaPolicyBatchTarget,
   SubstrateId,
 } from "./types";
+import { SOMA_FEEDBACK_STDIN_MAX_BYTES } from "./feedback-contract";
 
 interface ParsedInstallArgs {
   command: "install";
@@ -133,6 +138,13 @@ interface ParsedMemoryPromoteArgs {
 
 type ParsedMemoryArgs = ParsedMemorySearchArgs | ParsedMemoryPromoteArgs;
 
+interface ParsedFeedbackArgs {
+  command: "feedback";
+  action: "capture";
+  options: SomaFeedbackCaptureOptions;
+  readTextFromStdin: boolean;
+}
+
 interface ParsedPolicyArgs {
   command: "policy";
   action: "check";
@@ -141,7 +153,7 @@ interface ParsedPolicyArgs {
   json: boolean;
 }
 
-type ParsedArgs = ParsedInstallArgs | ParsedImportArgs | ParsedAlgorithmArgs | ParsedLifecycleArgs | ParsedMemoryArgs | ParsedPolicyArgs;
+type ParsedArgs = ParsedInstallArgs | ParsedImportArgs | ParsedAlgorithmArgs | ParsedLifecycleArgs | ParsedMemoryArgs | ParsedFeedbackArgs | ParsedPolicyArgs;
 
 function readOption(args: string[], index: number, name: string): string {
   const value = args[index + 1];
@@ -757,6 +769,84 @@ function parseMemoryArgs(args: string[]): ParsedMemoryArgs {
   };
 }
 
+function parseFeedbackCaptureArgs(args: string[]): { options: SomaFeedbackCaptureOptions; readTextFromStdin: boolean } {
+  const options: Partial<SomaFeedbackCaptureOptions> = {};
+  let readTextFromStdin = false;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+
+    switch (arg) {
+      case "--home-dir":
+        options.homeDir = readOption(args, index, arg);
+        index += 1;
+        break;
+      case "--soma-home":
+        options.somaHome = readOption(args, index, arg);
+        index += 1;
+        break;
+      case "--substrate":
+        options.substrate = parseSubstrate(readOption(args, index, arg));
+        index += 1;
+        break;
+      case "--text":
+        options.text = readOption(args, index, arg);
+        index += 1;
+        break;
+      case "--stdin":
+        readTextFromStdin = true;
+        break;
+      case "--no-excerpt":
+        options.storeExcerpt = false;
+        break;
+      case "--source":
+        options.source = readOption(args, index, arg);
+        index += 1;
+        break;
+      case "--timestamp":
+        options.timestamp = readOption(args, index, arg);
+        index += 1;
+        break;
+      default:
+        throw new Error(`Unknown option: ${arg}`);
+    }
+  }
+
+  if (!options.text && !readTextFromStdin) {
+    throw new Error("soma feedback capture is missing required option: --text or --stdin.");
+  }
+  if (options.text && readTextFromStdin) {
+    throw new Error("soma feedback capture accepts either --text or --stdin, not both.");
+  }
+
+  const parsedOptions: SomaFeedbackCaptureOptions = {
+    ...options,
+    text: options.text ?? "",
+  };
+
+  return {
+    options: parsedOptions,
+    readTextFromStdin,
+  };
+}
+
+function parseFeedbackArgs(args: string[]): ParsedFeedbackArgs {
+  const [command, action, ...rest] = args;
+
+  if (command !== "feedback" || action !== "capture") {
+    throw new Error("Usage: soma feedback capture (--text <text> | --stdin) [--substrate <id>] [--source <source>] [--no-excerpt]");
+  }
+
+  const parsed = parseFeedbackCaptureArgs(rest);
+
+  return {
+    command,
+    action,
+    options: parsed.options,
+    readTextFromStdin: parsed.readTextFromStdin,
+  };
+}
+
 function parsePolicyArgs(args: string[]): ParsedPolicyArgs {
   const [command, action, ...rest] = args;
 
@@ -861,6 +951,10 @@ function parseArgs(args: string[]): ParsedArgs {
     return parseMemoryArgs(args);
   }
 
+  if (args[0] === "feedback") {
+    return parseFeedbackArgs(args);
+  }
+
   if (args[0] === "algorithm") {
     return parseAlgorithmArgs(args);
   }
@@ -886,6 +980,7 @@ function parseArgs(args: string[]): ParsedArgs {
       "  soma algorithm <list|show|capabilities|plan|decision|change|step|verify|learn|advance> --id <run-id> [...]",
       "  soma memory search --query <text> [--limit <n>] [--home-dir <dir>] [--soma-home <dir>]",
       "  soma memory promote --from-run <run-id> --store <learning|knowledge|relationship|work> --title <text> [--lesson <text>] [--applies-when <text>]",
+      "  soma feedback capture (--text <text> | --stdin) [--substrate <id>] [--source <source>] [--no-excerpt]",
       "  soma policy check --action write --destination <path> [--content <text>|--content-env <name>] [--source <path>] [--substrate <id>] [--record <all|deny|none>] [--json]",
       "  soma lifecycle <session-start|algorithm-updated|session-end> [--home-dir <dir>] [--soma-home <dir>] [--substrate <id>] [--session-id <id>]",
       "  soma install <codex|pi-dev> [--dry-run] [--apply] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
@@ -893,6 +988,24 @@ function parseArgs(args: string[]): ParsedArgs {
       "  soma import algorithm [--dry-run] [--apply] [--home-dir <dir>] [--pai-algorithm-dir <dir>] [--soma-home <dir>]",
     ].join("\n"),
   );
+}
+
+function readLimitedFeedbackStdin(): string {
+  const chunks: Buffer[] = [];
+  let total = 0;
+
+  for (;;) {
+    const buffer = Buffer.alloc(Math.min(8192, SOMA_FEEDBACK_STDIN_MAX_BYTES + 1 - total));
+    const bytesRead = readSync(0, buffer, 0, buffer.length, null);
+    if (bytesRead === 0) break;
+    total += bytesRead;
+    if (total > SOMA_FEEDBACK_STDIN_MAX_BYTES) {
+      throw new Error(`soma feedback capture --stdin exceeds ${SOMA_FEEDBACK_STDIN_MAX_BYTES} byte limit.`);
+    }
+    chunks.push(buffer.subarray(0, bytesRead));
+  }
+
+  return Buffer.concat(chunks).toString("utf8");
 }
 
 function formatPlan(plan: SomaInstallPlan): string {
@@ -1086,6 +1199,19 @@ function formatMemoryPromotionResult(result: SomaMemoryPromotionResult): string 
     `sourceRunPath: ${result.sourceRunPath}`,
     `event: ${result.event.id}`,
   ].join("\n");
+}
+
+function formatFeedbackCaptureResult(result: SomaFeedbackCaptureResult): string {
+  return [
+    "Soma feedback capture",
+    `captured: ${result.captured ? "yes" : "no"}`,
+    `kind: ${result.classification.kind}`,
+    `confidence: ${result.classification.confidence}`,
+    `reason: ${result.classification.reason}`,
+    result.event ? `event: ${result.event.id}` : undefined,
+  ]
+    .filter((line) => line !== undefined)
+    .join("\n");
 }
 
 function formatPolicyCheckResult(result: SomaPolicyCheckResult): string {
@@ -1305,6 +1431,11 @@ export async function runSomaCli(args: string[]): Promise<string> {
     }
 
     return formatMemorySearchResult(await searchSomaMemory(parsed.options));
+  }
+
+  if (parsed.command === "feedback") {
+    const options = parsed.readTextFromStdin ? { ...parsed.options, text: readLimitedFeedbackStdin() } : parsed.options;
+    return formatFeedbackCaptureResult(await captureSomaFeedback(options));
   }
 
   if (parsed.command === "policy") {

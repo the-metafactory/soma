@@ -38,6 +38,10 @@ export type {
   SomaLifecycleEventName,
   SomaLifecycleOptions,
   SomaLifecycleResult,
+  SomaFeedbackCaptureOptions,
+  SomaFeedbackCaptureResult,
+  SomaFeedbackClassification,
+  SomaFeedbackKind,
   SomaMemoryEvent,
   SomaMemoryEventInput,
   SomaMemoryPromotionOptions,
@@ -121,6 +125,7 @@ export {
   runSomaLifecycleSessionStart,
   writeAlgorithmWorkIndex,
 } from "./lifecycle";
+export { captureSomaFeedback, classifySomaFeedback, maybeSomaFeedbackPrompt } from "./feedback";
 export { appendSomaMemoryEvent, searchSomaMemory, somaMemoryEventsPath } from "./memory";
 export { promoteAlgorithmRunMemory } from "./memory-promotion";
 export { importPaiIdentity, planPaiImport } from "./pai-importer";
@@ -129,4 +134,4 @@ export { checkSomaPolicy, checkSomaPolicyBatch } from "./policy-audit";
 export { evaluateSomaPolicy } from "./policy";
 export { bootstrapSomaHome, loadSomaHome } from "./soma-home";
 
-export const SOMA_VERSION = "0.1.1";
+export const SOMA_VERSION = "0.1.2";

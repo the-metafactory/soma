@@ -267,6 +267,34 @@ test("cli searches Soma memory", async () => {
   });
 });
 
+test("cli captures feedback candidates", async () => {
+  await withTempHome(async (homeDir) => {
+    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir]);
+
+    const output = await runSomaCli([
+      "feedback",
+      "capture",
+      "--home-dir",
+      homeDir,
+      "--substrate",
+      "codex",
+      "--source",
+      "test",
+      "--text",
+      "you missed the arc-manifest",
+    ]);
+
+    expect(output).toContain("Soma feedback capture");
+    expect(output).toContain("captured: yes");
+    expect(output).toContain("kind: missed-surface");
+    await expect(readFile(join(homeDir, ".soma/memory/STATE/events.jsonl"), "utf8")).resolves.toContain("feedback.candidate");
+  });
+});
+
+test("cli rejects mixed feedback text inputs", async () => {
+  await expect(runSomaCli(["feedback", "capture", "--text", "you missed this", "--stdin"])).rejects.toThrow("either --text or --stdin");
+});
+
 test("cli promotes Algorithm run memory", async () => {
   await withTempHome(async (homeDir) => {
     await runSomaCli([
