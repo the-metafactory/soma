@@ -27,7 +27,7 @@ test("creates deterministic Algorithm runs around ISA criteria", () => {
   const run = createAlgorithmRun({
     id: "ledger-update",
     timestamp: "2026-05-14T10:00:00.000Z",
-    prompt: "Update the ledger",
+    prompt: "Create a verified ledger update",
     intent: "Bring ledger state current.",
     currentState: "Ledger is stale.",
     goal: "Ledger is current and verified.",
@@ -61,7 +61,19 @@ test("classifies prompts into Algorithm mode and effort tiers", () => {
     mode: "minimal",
     source: "auto",
   });
+  expect(classifyAlgorithmPrompt("great, that works nicely")).toMatchObject({
+    mode: "minimal",
+    source: "auto",
+  });
+  expect(classifyAlgorithmPrompt("what's next?")).toMatchObject({
+    mode: "native",
+    source: "auto",
+  });
   expect(classifyAlgorithmPrompt("run the tests")).toMatchObject({
+    mode: "native",
+    source: "auto",
+  });
+  expect(classifyAlgorithmPrompt("how does PAI handle the classification?")).toMatchObject({
     mode: "native",
     source: "auto",
   });
