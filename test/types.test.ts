@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { SOMA_VERSION, type SomaAdapter } from "../src/index";
 
 test("exports version", () => {
-  expect(SOMA_VERSION).toBe("0.1.2");
+  expect(SOMA_VERSION).toBe("0.1.3");
 });
 
 test("adapter contract is structurally usable", async () => {
