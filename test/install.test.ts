@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { installSomaForCodex, installSomaForPiDev } from "../src/index";
+import { renderStartupContextSummary } from "../src/adapters/codex-hook-entry.mjs";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-install-"));
@@ -364,6 +365,46 @@ test("installed codex lifecycle hooks ignore ambient SOMA_REPO", async () => {
     expect(result.output.hookSpecificOutput?.additionalContext).not.toContain("Operating requirement");
     expect(result.output.hookSpecificOutput?.additionalContext).not.toContain("malicious");
   });
+});
+
+test("installed codex session-start hook returns concise visible context", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const result = runCodexHook(hook, "session-start", homeDir, { session_id: "session-1" });
+    const startupContext = await readFile(join(homeDir, ".codex/memories/soma/startup-context.md"), "utf8");
+
+    expect(result.status).toBe(0);
+    expect(result.output.hookSpecificOutput?.additionalContext).toContain("Soma:");
+    expect(result.output.hookSpecificOutput?.additionalContext).toContain("Full context is in the projected startup-context.md");
+    expect(result.output.hookSpecificOutput?.additionalContext).not.toContain("Soma Startup Context");
+    expect(result.output.hookSpecificOutput?.additionalContext).not.toContain("## Active Algorithm Runs");
+    expect(startupContext).toContain("Soma Startup Context");
+  });
+});
+
+test("codex session-start summary only counts active Algorithm runs", () => {
+  const summary = renderStartupContextSummary(
+    [
+      "# Soma Startup Context",
+      "Assistant: Ivy",
+      "Principal: Jens-Christian",
+      "Mission: Keep portable context concise.",
+      "",
+      "## Active Algorithm Runs",
+      "- 20260515_one: OBSERVE 1/1 E1 - One active run.",
+      "- 20260515_two: OBSERVE 2/2 E1 - Another active run.",
+      "",
+      "## Recent Learning",
+      "- This is a learning note, not an active run.",
+      "- This is another learning note.",
+      "",
+    ].join("\n"),
+  );
+
+  expect(summary).toContain("Ivy for Jens-Christian");
+  expect(summary).toContain("2 active runs");
+  expect(summary).not.toContain("4 active runs");
 });
 
 test("installed codex hook uses explicit soma repo path", async () => {
