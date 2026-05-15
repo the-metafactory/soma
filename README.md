@@ -93,13 +93,59 @@ soma install pi-dev --apply
 
 Then start a session and watch Soma surface its context.
 
-> [!NOTE]
-> **Demo · first session in 30 seconds** *(recording in production)*
->
-> An asciicast of `soma lifecycle session-start` producing the startup context block, followed by `soma memory search` returning real hits across your work, knowledge, and learning stores.
+<!--
+  Demo recording brief (replace this whole block with the rendered asset).
 
-<!-- asset-slot: docs/demos/2026-05-16-soma-first-session.cast -->
-<!-- replace with the asciinema embed: [![asciicast](https://asciinema.org/a/XXXXXX.svg)](https://asciinema.org/a/XXXXXX) -->
+  Goal: a ~30-second animated demo that drops into the README as a GIF and
+  shows Soma surfacing context, switching agents, and searching memory.
+
+  Recommended tooling: charmbracelet/vhs (https://github.com/charmbracelet/vhs).
+  Write the script as docs/demos/2026-05-16-soma-first-session.tape and render
+  to docs/demos/2026-05-16-soma-first-session.gif. vhs is deterministic, so
+  the same .tape file can be re-rendered every release for a refreshed GIF.
+
+  Alternative: asciinema if a terminal-text recording is preferred over a GIF.
+  Output to docs/demos/2026-05-16-soma-first-session.cast and embed via the
+  asciinema SVG link.
+
+  Shot list (~30 seconds, six beats):
+
+    1. Title beat (2s)
+       # Soma — same self, any coding agent.
+
+    2. Start a session in Codex (4s)
+       $ soma lifecycle session-start --substrate codex
+       → startup-context block: principal, active commitments, recent learning
+
+    3. Switch to Pi.dev — same identity, different agent (4s)
+       $ soma lifecycle session-start --substrate pi-dev
+       → same identity surfaces, agent-specific projection
+
+    4. Search memory (6s)
+       $ soma memory search --query "client sovereignty"
+       → matches across WORK, KNOWLEDGE, LEARNING with line numbers
+
+    5. Promote a verified run to durable learning (5s)
+       $ soma memory promote --from-run <run-id> --store learning \
+           --title "Client sovereignty matters"
+       → promoted with source link
+
+    6. Capture in-session feedback as a candidate event (4s)
+       $ soma feedback capture --text "Forgot the arc-manifest check" \
+           --substrate codex
+       → classified and recorded
+
+    Closing card (2s)
+       arc install @metafactory/soma
+-->
+
+> [!NOTE]
+> **Demo · first session in 30 seconds** *(animated GIF in production)*
+>
+> A six-beat run starting a Soma session in OpenAI Codex, switching to Pi.dev with the same identity intact, searching memory, promoting a verified run to durable learning, and capturing in-session feedback. Recorded with [`vhs`](https://github.com/charmbracelet/vhs) so it can be re-rendered every release. Full shot list in the HTML comment above this callout.
+
+<!-- asset-slot: docs/demos/2026-05-16-soma-first-session.gif -->
+<!-- replace with: ![Soma · first session in 30 seconds](docs/demos/2026-05-16-soma-first-session.gif) -->
 
 > [!NOTE]
 > **What you see when a session starts** *(screenshot in production)*
