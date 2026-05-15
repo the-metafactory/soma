@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -24,6 +25,22 @@ test("cli dry-runs codex install without writing files", async () => {
     await expect(stat(join(homeDir, ".soma"))).rejects.toThrow();
     await expect(stat(join(homeDir, ".codex"))).rejects.toThrow();
   });
+});
+
+test("cli shows no-argument usage as normal help", async () => {
+  const output = await runSomaCli([]);
+
+  expect(output).toContain("Usage:");
+  expect(output).toContain("soma install <codex|pi-dev>");
+
+  const result = spawnSync(process.execPath, ["run", "soma"], {
+    cwd: join(import.meta.dir, ".."),
+    encoding: "utf8",
+  });
+
+  expect(result.status).toBe(0);
+  expect(result.stdout).toContain("Usage:");
+  expect(result.stderr).not.toContain("error: script");
 });
 
 test("cli creates persisted Algorithm runs", async () => {
