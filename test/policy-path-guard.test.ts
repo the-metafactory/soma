@@ -111,6 +111,58 @@ test("stops at chain operators", () => {
   expect(result.targetPaths).toHaveLength(1);
 });
 
+test("scans destructive commands after chain operators", () => {
+  const protectedRef = "~/." + "soma";
+  const result = parseBashDestructivePaths(`cd /tmp && rm -rf ${protectedRef}`, "/work");
+
+  expect(result.command).toBe("cd");
+  expect(result.targetPaths).toHaveLength(1);
+  expect(result.targetPaths[0]).toContain(".soma");
+});
+
+test("parses destructive shell wrapper payloads", () => {
+  const protectedRef = "~/." + "soma";
+  const result = parseBashDestructivePaths(`bash -c "rm -rf ${protectedRef}"`, "/tmp");
+
+  expect(result.command).toBe("rm");
+  expect(result.targetPaths).toHaveLength(1);
+  expect(result.targetPaths[0]).toContain(".soma");
+});
+
+test("parses destructive eval payloads", () => {
+  const protectedRef = "~/." + "soma";
+  const result = parseBashDestructivePaths(`eval rm -rf ${protectedRef}`, "/tmp");
+
+  expect(result.command).toBe("rm");
+  expect(result.targetPaths).toHaveLength(1);
+});
+
+test("parses destructive xargs payloads", () => {
+  const protectedRef = "~/." + "soma";
+  const result = parseBashDestructivePaths(`printf '%s\\n' ${protectedRef} | xargs rm -rf ${protectedRef}`, "/tmp");
+
+  expect(result.command).toBe("printf");
+  expect(result.targetPaths).toHaveLength(1);
+  expect(result.targetPaths[0]).toContain(".soma");
+});
+
+test("parses find -delete target paths", () => {
+  const protectedRef = "~/." + "soma";
+  const result = parseBashDestructivePaths(`find ${protectedRef} -delete`, "/tmp");
+
+  expect(result.command).toBe("find");
+  expect(result.targetPaths).toHaveLength(1);
+  expect(result.targetPaths[0]).toContain(".soma");
+});
+
+test("expands HOME variables before resolving targets", () => {
+  const result = parseBashDestructivePaths("rm -rf $HOME/.soma", "/tmp");
+
+  expect(result.command).toBe("rm");
+  expect(result.targetPaths).toHaveLength(1);
+  expect(result.targetPaths[0]).toContain(".soma");
+});
+
 test("detects glob pattern rm *", () => {
   const result = parseBashDestructivePaths("rm -rf *", join(process.env.HOME ?? "/tmp", ".soma"));
 
@@ -245,6 +297,23 @@ test("policy check denies modify on Soma home path", async () => {
   });
 });
 
+test("policy check denies delete on configured-home Claude path by default", async () => {
+  await withTempHome(async (homeDir) => {
+    await bootstrapSomaHome({ homeDir });
+    const result = await checkSomaPolicy({
+      homeDir,
+      action: "delete",
+      destinationPath: "~/." + "claude/memory",
+      record: "none",
+    });
+
+    expect(result.decision).toBe("deny");
+    expect(result.findings[0]).toMatchObject({
+      kind: "protected-path",
+    });
+  });
+});
+
 test("policy check allows delete on unprotected path", async () => {
   await withTempHome(async (homeDir) => {
     const result = await checkSomaPolicy({
@@ -366,6 +435,8 @@ test("generates pi.dev path guard extension", () => {
   const extension = renderPathGuardExtension("/test/home/.soma");
 
   expect(extension).toContain("import type { ExtensionAPI }");
+  expect(extension).toContain('import { isAbsolute, relative, resolve } from "node:path"');
+  expect(extension).not.toContain("require(");
   expect(extension).toContain("DESTRUCTIVE_DELETE");
   expect(extension).toContain("rm");
   expect(extension).toContain("rmdir");

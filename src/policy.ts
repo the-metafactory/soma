@@ -1,7 +1,7 @@
 import { access, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { evaluatePathGuard } from "./policy-path-guard";
+import { evaluatePathGuard, SOMA_DEFAULT_PROTECTED_PATHS } from "./policy-path-guard";
 import { hasSomaPolicyPrivateMarker } from "./policy-marker";
 import type { SomaPolicyBatchCheckOptions, SomaPolicyBatchCheckResult, SomaPolicyBatchTarget, SomaPolicyCheckOptions, SomaPolicyCheckResult, SomaPolicyFinding, SomaProtectedPath } from "./types";
 
@@ -155,11 +155,19 @@ function evaluateResolvedSomaPathGuard(options: SomaPolicyCheckOptions, scope: S
     path: root,
     description: "Soma private root",
   }));
+  const defaultProtectedPaths: SomaProtectedPath[] = SOMA_DEFAULT_PROTECTED_PATHS.map((protectedPath) => ({
+    ...protectedPath,
+    path: normalizeSomaPolicyPath(protectedPath.path, process.cwd(), options.homeDir),
+  }));
+  const optionProtectedPaths: SomaProtectedPath[] = (options.protectedPaths ?? []).map((protectedPath) => ({
+    ...protectedPath,
+    path: normalizeSomaPolicyPath(protectedPath.path, process.cwd(), options.homeDir),
+  }));
 
   const guardResult = evaluatePathGuard({
     targetPaths: [destinationPath],
     cwd: process.cwd(),
-    protectedPaths: [...(options.protectedPaths ?? []), ...rootProtectedPaths],
+    protectedPaths: [...defaultProtectedPaths, ...optionProtectedPaths, ...rootProtectedPaths],
     action: options.action as "delete" | "modify",
   });
 

@@ -1,25 +1,10 @@
 import { appendSomaMemoryEvent } from "./memory";
 import { evaluateSomaPolicyBatch, evaluateSomaPolicyWithFilesystem, normalizeSomaPolicyPath, policyOptionsForTarget } from "./policy";
 import { somaProjectionPrivateRoots } from "./projection-private-roots";
-import type { SomaPolicyBatchCheckOptions, SomaPolicyBatchCheckResult, SomaPolicyCheckOptions, SomaPolicyCheckResult, SomaProtectedPath } from "./types";
-
-function withPathGuardForDelete(options: SomaPolicyCheckOptions): SomaPolicyCheckOptions {
-  if (options.action !== "delete" && options.action !== "modify") return options;
-
-  const privateRoots = [...(options.privateRoots ?? []), ...somaProjectionPrivateRoots(options)];
-  const privateRootPaths: SomaProtectedPath[] = privateRoots.map((root) => ({
-    path: root,
-    description: "Soma private root",
-  }));
-
-  return {
-    ...options,
-    protectedPaths: [...(options.protectedPaths ?? []), ...privateRootPaths],
-  };
-}
+import type { SomaPolicyBatchCheckOptions, SomaPolicyBatchCheckResult, SomaPolicyCheckOptions, SomaPolicyCheckResult } from "./types";
 
 export async function checkSomaPolicy(options: SomaPolicyCheckOptions): Promise<SomaPolicyCheckResult> {
-  const checkOptions = withPathGuardForDelete(withProjectionPrivateRoots(options));
+  const checkOptions = withProjectionPrivateRoots(options);
   const result = await evaluateSomaPolicyWithFilesystem(checkOptions);
   return recordSomaPolicyCheck(checkOptions, result);
 }
@@ -27,10 +12,9 @@ export async function checkSomaPolicy(options: SomaPolicyCheckOptions): Promise<
 export async function checkSomaPolicyBatch(options: SomaPolicyBatchCheckOptions): Promise<SomaPolicyBatchCheckResult> {
   const checkOptions = withProjectionPrivateRoots(options);
   const batch = await evaluateSomaPolicyBatch(checkOptions);
-  const enhancedOptions = withPathGuardForDelete({ destinationPath: process.cwd(), ...checkOptions });
   const results = await Promise.all(
     batch.results.map((result, index) =>
-      recordSomaPolicyCheck(policyOptionsForTarget(enhancedOptions, checkOptions.targets[index]), result),
+      recordSomaPolicyCheck(policyOptionsForTarget(checkOptions, checkOptions.targets[index]), result),
     ),
   );
   const denied = results.find((result) => result.decision === "deny");

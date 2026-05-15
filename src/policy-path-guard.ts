@@ -18,30 +18,83 @@ export const SOMA_DEFAULT_PROTECTED_PATHS: readonly SomaProtectedPath[] = [
 
 // ── Destructive Bash Command Detection ──
 
-const DESTRUCTIVE_COMMANDS = new Set(["rm", "rmdir", "trash", "trash-put", "gtrash"]);
+export const DESTRUCTIVE_COMMANDS = new Set(["rm", "rmdir", "trash", "trash-put", "gtrash"]);
 
-const DESTRUCTIVE_MOVE_COMMANDS = new Set(["mv"]);
+export const DESTRUCTIVE_MOVE_COMMANDS = new Set(["mv"]);
+
+export const NON_DESTRUCTIVE_PREFIXES = new Set(["sudo", "bun", "node", "npx", "bunx", "time", "nice", "exec", "env", "nohup"]);
+
+const SHELL_WRAPPER_COMMANDS = new Set(["bash", "sh", "zsh"]);
+const REPARSE_WRAPPER_COMMANDS = new Set(["eval"]);
+const XARGS_COMMANDS = new Set(["xargs"]);
 
 function cleanToken(token: string): string {
   let cleaned = token;
   if ((cleaned.startsWith("\u0022") && cleaned.endsWith("\u0022")) || (cleaned.startsWith("'") && cleaned.endsWith("'"))) {
     cleaned = cleaned.slice(1, -1);
   }
-  cleaned = cleaned.replace(/^[<>]+/, "").replace(/>$/, "");
+  cleaned = cleaned.replace(/^[<>]+/, "").replace(/[<>]+$/, "");
   return cleaned;
 }
 
 function tokenize(command: string): string[] {
   const tokens: string[] = [];
-  // Match double-quoted, single-quoted, or unquoted tokens
-  const regex = /"([^"]*)"|'([^']*)'|[^\s]+/g;
-  let match: RegExpExecArray | null;
+  let current = "";
+  let quote: "\u0022" | "'" | undefined;
 
-  while ((match = regex.exec(command)) !== null) {
-    const raw: string = match[1] || match[2] || match[0];
-    tokens.push(cleanToken(raw));
+  function pushCurrent(): void {
+    if (current.length === 0) return;
+    tokens.push(cleanToken(current));
+    current = "";
   }
 
+  for (let i = 0; i < command.length; i++) {
+    const char = command[i];
+    const next = command[i + 1];
+
+    if (quote) {
+      if (char === quote) {
+        quote = undefined;
+      } else {
+        current += char;
+      }
+      continue;
+    }
+
+    if (char === "\u0022" || char === "'") {
+      quote = char;
+      continue;
+    }
+
+    if (/\s/.test(char)) {
+      pushCurrent();
+      continue;
+    }
+
+    if (char === "&" && next === "&") {
+      pushCurrent();
+      tokens.push("&&");
+      i++;
+      continue;
+    }
+
+    if (char === "|" && next === "|") {
+      pushCurrent();
+      tokens.push("||");
+      i++;
+      continue;
+    }
+
+    if (char === ";" || char === "|") {
+      pushCurrent();
+      tokens.push(char);
+      continue;
+    }
+
+    current += char;
+  }
+
+  pushCurrent();
   return tokens;
 }
 
@@ -53,13 +106,20 @@ function isChainOperator(token: string): boolean {
   return token === ";" || token === "&&" || token === "||" || token === "|";
 }
 
-const NON_DESTRUCTIVE_PREFIXES = new Set(["sudo", "bun", "node", "npx", "bunx", "time", "nice", "exec", "env", "nohup"]);
-
 function isNonDestructivePrefix(token: string): boolean {
   return NON_DESTRUCTIVE_PREFIXES.has(token);
 }
 
-function expandTilde(path: string): string {
+function expandHomeVariables(path: string): string {
+  const home = homedir();
+  return path
+    .replace(/^\$\{HOME\}(?=\/|$)/, home)
+    .replace(/^\$HOME(?=\/|$)/, home);
+}
+
+export function expandTilde(path: string): string {
+  const expandedEnv = expandHomeVariables(path);
+  if (expandedEnv !== path) return expandedEnv;
   if (path === "~") return homedir();
   if (path.startsWith("~/")) return join(homedir(), path.slice(2));
   return path;
@@ -90,50 +150,125 @@ export interface SomaBashCommandParseResult {
   targetPaths: string[];
 }
 
-export function parseBashDestructivePaths(command: string, cwd: string): SomaBashCommandParseResult {
-  const tokens = tokenize(command);
-  if (tokens.length === 0) return { command: "", targetPaths: [] };
+function splitCommandSegments(tokens: string[]): string[][] {
+  const segments: string[][] = [];
+  let current: string[] = [];
 
-  let cmdIndex = 0;
-  while (cmdIndex < tokens.length && isNonDestructivePrefix(tokens[cmdIndex])) {
-    cmdIndex++;
+  for (const token of tokens) {
+    if (isChainOperator(token)) {
+      if (current.length > 0) {
+        segments.push(current);
+        current = [];
+      }
+      continue;
+    }
+    current.push(token);
   }
 
+  if (current.length > 0) segments.push(current);
+  return segments;
+}
+
+function shellPayloadIndex(tokens: string[], cmdIndex: number): number | undefined {
+  for (let i = cmdIndex + 1; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token === "-c" || token === "-lc") return i + 1 < tokens.length ? i + 1 : undefined;
+  }
+
+  return undefined;
+}
+
+function skipPrefixes(tokens: string[]): number {
+  let cmdIndex = 0;
+  while (cmdIndex < tokens.length) {
+    const token = tokens[cmdIndex];
+    if (isNonDestructivePrefix(token) || /^[A-Za-z_][A-Za-z0-9_]*=.*$/.test(token)) {
+      cmdIndex++;
+      continue;
+    }
+    break;
+  }
+  return cmdIndex;
+}
+
+function parseTokenSegment(tokens: string[], cwd: string, depth: number): SomaBashCommandParseResult {
+  if (tokens.length === 0) return { command: "", targetPaths: [] };
+  const cmdIndex = skipPrefixes(tokens);
   if (cmdIndex >= tokens.length) return { command: "", targetPaths: [] };
 
   const mainCommand = tokens[cmdIndex];
 
-  // Collect path arguments (non-flag tokens after the destructive command)
-  const pathArgs: string[] = [];
-  for (let i = cmdIndex + 1; i < tokens.length; i++) {
-    const token = tokens[i];
-    if (isChainOperator(token)) break;
-    if (isFlag(token)) continue;
-    pathArgs.push(token);
+  if (depth < 4 && SHELL_WRAPPER_COMMANDS.has(mainCommand)) {
+    const payloadIndex = shellPayloadIndex(tokens, cmdIndex);
+    if (payloadIndex !== undefined) {
+      return parseBashDestructivePathsInternal(tokens.slice(payloadIndex).join(" "), cwd, depth + 1, mainCommand);
+    }
+  }
+
+  if (depth < 4 && REPARSE_WRAPPER_COMMANDS.has(mainCommand)) {
+    return parseBashDestructivePathsInternal(tokens.slice(cmdIndex + 1).join(" "), cwd, depth + 1, mainCommand);
+  }
+
+  if (depth < 4 && XARGS_COMMANDS.has(mainCommand)) {
+    const nestedIndex = tokens.findIndex((token, index) => index > cmdIndex && (DESTRUCTIVE_COMMANDS.has(token) || DESTRUCTIVE_MOVE_COMMANDS.has(token)));
+    if (nestedIndex !== -1) {
+      return parseTokenSegment(tokens.slice(nestedIndex), cwd, depth + 1);
+    }
   }
 
   const targetPaths: string[] = [];
 
-  if (DESTRUCTIVE_COMMANDS.has(mainCommand)) {
-    for (const arg of pathArgs) {
-      targetPaths.push(resolvePath(arg, cwd));
-    }
-    // Check for glob patterns
-    if (targetPaths.length === 0) {
-      // rm * or rm -rf * — check if cwd is under a protected path
-      const globRegex = /\b(?:rm|rmdir|trash|trash-put|gtrash)\s+.*?(\*)\b/;
-      const globMatch = globRegex.exec(command);
-      if (globMatch) {
-        targetPaths.push(cwd);
+  if (mainCommand === "find") {
+    const hasDelete = tokens.slice(cmdIndex + 1).some((token) => token === "-delete" || token === "-exec");
+    if (hasDelete) {
+      for (let i = cmdIndex + 1; i < tokens.length; i++) {
+        const token = tokens[i];
+        if (isFlag(token)) break;
+        targetPaths.push(resolvePath(token, cwd));
       }
     }
-  } else if (DESTRUCTIVE_MOVE_COMMANDS.has(mainCommand)) {
-    if (pathArgs.length >= 1) {
-      targetPaths.push(resolvePath(pathArgs[0], cwd));
+    return { command: mainCommand, targetPaths };
+  }
+
+  if (!DESTRUCTIVE_COMMANDS.has(mainCommand) && !DESTRUCTIVE_MOVE_COMMANDS.has(mainCommand)) {
+    return { command: mainCommand, targetPaths: [] };
+  }
+
+  for (let i = cmdIndex + 1; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (isFlag(token)) continue;
+    if (DESTRUCTIVE_MOVE_COMMANDS.has(mainCommand)) {
+      targetPaths.push(resolvePath(token, cwd));
+      break;
+    }
+    if (token.includes("*")) {
+      targetPaths.push(cwd);
+    } else {
+      targetPaths.push(resolvePath(token, cwd));
     }
   }
 
   return { command: mainCommand, targetPaths };
+}
+
+function parseBashDestructivePathsInternal(command: string, cwd: string, depth: number, fallbackCommand = ""): SomaBashCommandParseResult {
+  const segments = splitCommandSegments(tokenize(command));
+  if (segments.length === 0) return { command: fallbackCommand, targetPaths: [] };
+
+  let firstCommand = "";
+  const targetPaths: string[] = [];
+
+  for (const segment of segments) {
+    const result = parseTokenSegment(segment, cwd, depth);
+    if (!firstCommand && result.command) firstCommand = result.command;
+    targetPaths.push(...result.targetPaths);
+  }
+
+  return { command: firstCommand || fallbackCommand, targetPaths };
+}
+
+export function parseBashDestructivePaths(command: string, cwd: string): SomaBashCommandParseResult {
+  return parseBashDestructivePathsInternal(command, cwd, 0);
 }
 
 export interface SomaPathGuardOptions {
