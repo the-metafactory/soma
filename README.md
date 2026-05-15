@@ -120,6 +120,7 @@ Recall commands provide deterministic file-backed memory retrieval:
 ```bash
 bun run soma memory search --query "client sovereignty agency"
 bun run soma memory promote --from-run <run-id> --store learning --title "Reusable lesson" --substrate codex
+bun run soma feedback capture --text "you missed the arc-manifest" --substrate codex
 ```
 
 Search covers Soma profile/imports plus WORK, KNOWLEDGE, LEARNING,
@@ -127,6 +128,14 @@ RELATIONSHIP, and STATE memory stores, returning source paths, line numbers, and
 short snippets. Promotion turns verified Algorithm work into concise durable
 memory notes with source run links, criteria, decisions, verification, and recall
 guidance. It refuses runs with no verification entries and no passed criteria.
+
+Feedback capture is intentionally weaker than promotion. It classifies likely
+corrections, preferences, relationship notes, missed surfaces, and task
+learnings, then appends `feedback.candidate` events to
+`memory/STATE/events.jsonl`. These events are reviewable candidate learning, not
+durable memory writes. Prompt excerpts are not stored by default; the
+`--store-excerpt` flag is explicit opt-in and uses best-effort redaction rather
+than a complete secret scanner.
 
 Policy commands provide the first deterministic privacy guard:
 

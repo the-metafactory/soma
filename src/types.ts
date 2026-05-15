@@ -417,6 +417,31 @@ export interface SomaMemoryPromotionResult {
   event: SomaMemoryEvent;
 }
 
+export type SomaFeedbackKind = "correction" | "missed-surface" | "preference" | "relationship-note" | "task-learning" | "none";
+
+export interface SomaFeedbackClassification {
+  kind: SomaFeedbackKind;
+  confidence: "low" | "medium" | "high";
+  reason: string;
+}
+
+export interface SomaFeedbackCaptureOptions {
+  homeDir?: string;
+  somaHome?: string;
+  substrate?: SubstrateId;
+  text: string;
+  source?: string;
+  storeExcerpt?: boolean;
+  timestamp?: string;
+}
+
+export interface SomaFeedbackCaptureResult {
+  somaHome: string;
+  captured: boolean;
+  classification: SomaFeedbackClassification;
+  event?: SomaMemoryEvent;
+}
+
 export type SomaPolicyDecision = "allow" | "deny";
 
 export interface SomaPolicyCheckOptions {

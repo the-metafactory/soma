@@ -39,6 +39,14 @@ because durable memory stores are source-of-truth material, not scratch space.
 Promotion requires verified source work: at least one verification entry or
 passed criterion must exist on the source Algorithm run.
 
+The first implemented feedback surface is
+`soma feedback capture --text <text> --substrate <substrate>`. It detects likely
+corrections, preferences, missed surfaces, relationship notes, and task
+learning, then appends a `feedback.candidate` event to
+`memory/STATE/events.jsonl`. Feedback capture never writes durable memory
+directly. Candidate events must be reviewed or promoted by a later explicit
+workflow.
+
 `PROMOTED/` has V0 merge semantics. Promoted notes are immutable additive
 records, keyed by sanitized title plus source run id. Creation is atomic and a
 duplicate promotion is refused rather than merged or overwritten. These notes do
