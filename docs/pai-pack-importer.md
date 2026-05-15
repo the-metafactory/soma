@@ -89,3 +89,10 @@ The importer does not:
 
 Projection remains the adapter's job. Import makes the capability available in
 Soma; install/projection makes it available in a substrate.
+
+After a successful applied import, refresh the substrate projection before
+expecting the skill to appear in that substrate's skill directory. For Codex:
+
+```bash
+bun run soma install codex --apply --soma-home <soma-home>
+```

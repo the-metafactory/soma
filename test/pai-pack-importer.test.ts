@@ -258,6 +258,18 @@ test("cli dry-runs and applies a PAI Pack import", async () => {
     const applied = await runSomaCli(["import", "pai-pack", "--apply", "--home-dir", homeDir, "--pai-pack-dir", packDir]);
 
     expect(applied).toContain("Soma PAI Pack import applied");
+    expect(applied).toContain("Import makes the skill available in Soma. Refresh the target substrate projection before expecting the skill in that substrate.");
+    expect(applied).toContain(`bun run soma install <substrate> --apply --soma-home ${join(homeDir, ".soma")}`);
     await expect(readFile(join(homeDir, ".soma/skills/telos/Workflows/Update.md"), "utf8")).resolves.toContain("# Update");
+  });
+});
+
+test("cli quotes post-import projection guidance paths when needed", async () => {
+  await withTempHome(async (rootDir) => {
+    const homeDir = join(rootDir, "home with spaces");
+    const packDir = await writePackFixture(rootDir);
+    const applied = await runSomaCli(["import", "pai-pack", "--apply", "--home-dir", homeDir, "--pai-pack-dir", packDir]);
+
+    expect(applied).toContain(`bun run soma install <substrate> --apply --soma-home '${join(homeDir, ".soma")}'`);
   });
 });
