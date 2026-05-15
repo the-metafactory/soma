@@ -43,9 +43,55 @@ test("cli shows no-argument usage as normal help", async () => {
   expect(result.stderr).not.toContain("error: script");
 });
 
+test("cli supports explicit main help as normal help", async () => {
+  const output = await runSomaCli(["--help"]);
+
+  expect(output).toContain("Usage:");
+  expect(output).toContain("soma install <codex|pi-dev>");
+
+  const result = spawnSync(process.execPath, ["run", "soma", "--help"], {
+    cwd: join(import.meta.dir, ".."),
+    encoding: "utf8",
+  });
+
+  expect(result.status).toBe(0);
+  expect(result.stdout).toContain("Usage:");
+  expect(result.stderr).not.toContain("Unknown command: --help");
+  expect(result.stderr).not.toContain("error: script");
+});
+
+test("cli supports command-group help as normal help", async () => {
+  await expect(runSomaCli(["algorithm", "--help"])).resolves.toContain("Usage: soma algorithm");
+  await expect(runSomaCli(["--help", "algorithm"])).resolves.toContain("Usage: soma algorithm");
+  await expect(runSomaCli(["memory", "--help"])).resolves.toContain("Usage: soma memory");
+  await expect(runSomaCli(["feedback", "--help"])).resolves.toContain("Usage: soma feedback capture");
+  await expect(runSomaCli(["policy", "--help"])).resolves.toContain("Usage: soma policy check");
+  await expect(runSomaCli(["lifecycle", "--help"])).resolves.toContain("Usage: soma lifecycle");
+  await expect(runSomaCli(["install", "--help"])).resolves.toContain("Usage: soma install");
+  await expect(runSomaCli(["import", "--help"])).resolves.toContain("Usage: soma import");
+});
+
+test("cli supports concrete subcommand help as read-only normal help", async () => {
+  await withTempHome(async (homeDir) => {
+    const output = await runSomaCli(["algorithm", "new", "--help", "--home-dir", homeDir]);
+    const prefixOutput = await runSomaCli(["--help", "algorithm", "new", "--home-dir", homeDir]);
+
+    expect(output).toContain("Usage: soma algorithm new");
+    expect(prefixOutput).toContain("Usage: soma algorithm new");
+    await expect(stat(join(homeDir, ".soma"))).rejects.toThrow();
+  });
+
+  await expect(runSomaCli(["algorithm", "batch", "--help"])).resolves.toContain("Usage: soma algorithm batch");
+  await expect(runSomaCli(["memory", "search", "--help"])).resolves.toContain("Usage: soma memory search");
+  await expect(runSomaCli(["policy", "check", "--help"])).resolves.toContain("Usage: soma policy check");
+  await expect(runSomaCli(["install", "codex", "--help"])).resolves.toContain("Usage: soma install");
+  await expect(runSomaCli(["import", "pai", "--help"])).resolves.toContain("Usage: soma import pai");
+});
+
 test("cli reports unknown top-level command with suggestion", async () => {
   await expect(runSomaCli(["inatall", "codex", "--apply"])).rejects.toThrow("Unknown command: inatall");
   await expect(runSomaCli(["inatall", "codex", "--apply"])).rejects.toThrow("Did you mean: install?");
+  await expect(runSomaCli(["inatall", "--help"])).rejects.toThrow("Unknown command: inatall");
 
   const result = spawnSync(process.execPath, ["run", "soma", "inatall", "codex", "--apply"], {
     cwd: join(import.meta.dir, ".."),
