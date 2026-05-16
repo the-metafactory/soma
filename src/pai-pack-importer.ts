@@ -472,7 +472,6 @@ async function buildPaiPackImportPlan(options: PaiPackImportOptions = {}): Promi
 
 interface NormalizedSkillFile {
   source: string;
-  relPath: string;
   normalized: string;
   actions: import("./pai-pack-normalizer").NormalizeContentResult["actions"];
   warnings: import("./pai-pack-normalizer").NormalizeContentResult["warnings"];
@@ -487,7 +486,7 @@ async function readAndNormalizeSkill(
   const content = await readFile(source, "utf8");
   const relPath = relative(paiPackDir, sourcePath).split(sep).join("/");
   const result = normalizeSkillContent(relPath, content);
-  return { source: sourcePath, relPath, normalized: result.content, actions: result.actions, warnings: result.warnings };
+  return { source: sourcePath, normalized: result.content, actions: result.actions, warnings: result.warnings };
 }
 
 async function normalizeSkillFiles(
