@@ -249,6 +249,15 @@ test("parses shell redirection targets as destructive writes", () => {
   expect(result.targetPaths[0]).toContain(".soma/profile.md");
 });
 
+test("parses heredoc redirection targets as destructive writes", () => {
+  const protectedRef = "~/." + "soma/profile.md";
+  const result = parseBashDestructivePaths(`cat <<EOF > ${protectedRef}`, "/tmp");
+
+  expect(result.command).toBe("cat");
+  expect(result.targetPaths).toHaveLength(1);
+  expect(result.targetPaths[0]).toContain(".soma/profile.md");
+});
+
 test("parses subshell-expanded protected path tokens conservatively", () => {
   const protectedRef = "~/." + "soma";
   const result = parseBashDestructivePaths(`rm -rf $(echo ${protectedRef})`, "/tmp");

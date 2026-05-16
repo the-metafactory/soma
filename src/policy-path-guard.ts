@@ -53,7 +53,8 @@ function tokenize(command: string): string[] {
 
   function pushCurrent(): void {
     if (current.length === 0) return;
-    tokens.push(cleanToken(current));
+    const token = cleanToken(current);
+    if (token.length > 0) tokens.push(token);
     current = "";
   }
 
@@ -113,6 +114,20 @@ function tokenize(command: string): string[] {
       pushCurrent();
       tokens.push(next === ">" ? ">>" : ">");
       if (next === ">") i++;
+      continue;
+    }
+
+    if (char === "<") {
+      pushCurrent();
+      if (next === "<" && command[i + 2] === "<") {
+        tokens.push("<<<");
+        i += 2;
+      } else if (next === "<") {
+        tokens.push("<<");
+        i++;
+      } else {
+        tokens.push("<");
+      }
       continue;
     }
 
@@ -185,6 +200,8 @@ function realProtectedRoot(path: string, protectedRootCache: Map<string, string>
 }
 
 const realScopeCache = new Map<string, string>();
+// Process-lifetime cache for realpath lookups in interactive substrate guards.
+// Kept bounded so repeated tool calls avoid sync filesystem walks without unbounded growth.
 const REAL_SCOPE_CACHE_LIMIT = 512;
 
 function realScopePath(path: string): string {
@@ -332,7 +349,10 @@ function parseTokenSegment(tokens: string[], cwd: string, depth: number): SomaBa
   }
 
   if (depth < 4 && XARGS_COMMANDS.has(mainCommand)) {
-    const nestedIndex = tokens.findIndex((token, index) => index > cmdIndex && (DESTRUCTIVE_COMMANDS.has(token) || DESTRUCTIVE_MOVE_COMMANDS.has(token) || DESTRUCTIVE_WRITE_COMMANDS.has(token)));
+    const nestedIndex = tokens.findIndex((token, index) => {
+      const nestedCommand = basename(token);
+      return index > cmdIndex && (DESTRUCTIVE_COMMANDS.has(nestedCommand) || DESTRUCTIVE_MOVE_COMMANDS.has(nestedCommand) || DESTRUCTIVE_WRITE_COMMANDS.has(nestedCommand));
+    });
     if (nestedIndex !== -1) {
       return parseTokenSegment(tokens.slice(nestedIndex), cwd, depth + 1);
     }

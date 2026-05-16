@@ -11,6 +11,7 @@ import { pathToFileURL } from "node:url";
  */
 export function renderPathGuardExtension(somaHome: string, runtimeModuleSpecifier = defaultRuntimeModuleSpecifier()): string {
   return `import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { resolve } from "node:path";
 import {
   evaluatePathGuard,
   parseBashDestructivePaths,
@@ -36,7 +37,7 @@ function blockedTargets(targets: string[], cwd: string, action: "delete" | "modi
 
 export default function (pi: ExtensionAPI) {
   pi.on("tool_call", async (event, ctx) => {
-    const cwd = (ctx as { cwd?: string }).cwd ?? process.cwd();
+    const cwd = resolve((ctx as { cwd?: string }).cwd ?? process.cwd());
     const toolName = event.toolName.toLowerCase();
 
     if (toolName === "bash") {
