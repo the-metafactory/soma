@@ -25,6 +25,7 @@ export type {
   IsaSkillInstallOptions,
   IsaSkillInstallResult,
   PrincipalIdentity,
+  SomaActiveIsaState,
   SomaSkillBaseline,
   SomaSkillBaselines,
   SomaAdapter,
