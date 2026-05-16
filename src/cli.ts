@@ -67,6 +67,21 @@ import type {
   SubstrateId,
 } from "./types";
 import { SOMA_FEEDBACK_STDIN_MAX_BYTES } from "./feedback-contract";
+import { ISA_SUBCOMMAND_HELP, ISA_USAGE_HEADER, runIsaCli } from "./cli-isa";
+
+/**
+ * Typed CLI error carrying an exit code distinct from the default 1.
+ * Used by `soma isa` (#36) to surface system errors (2) vs user errors (1)
+ * vs success (0) per the established CLI convention.
+ */
+export class SomaCliError extends Error {
+  readonly exitCode: 1 | 2;
+  constructor(message: string, exitCode: 1 | 2) {
+    super(message);
+    this.name = "SomaCliError";
+    this.exitCode = exitCode;
+  }
+}
 import { getCriteria, getGoal } from "./isa-accessors";
 import { getRunPhase } from "./algorithm-lifecycle";
 
@@ -161,6 +176,11 @@ interface ParsedHelpArgs {
   topic: string[];
 }
 
+interface ParsedIsaArgs {
+  command: "isa";
+  args: string[];
+}
+
 type ParsedArgs =
   | ParsedHelpArgs
   | ParsedInstallArgs
@@ -169,9 +189,10 @@ type ParsedArgs =
   | ParsedLifecycleArgs
   | ParsedMemoryArgs
   | ParsedFeedbackArgs
-  | ParsedPolicyArgs;
+  | ParsedPolicyArgs
+  | ParsedIsaArgs;
 
-const TOP_LEVEL_COMMANDS = ["algorithm", "feedback", "import", "install", "lifecycle", "memory", "policy"] as const;
+const TOP_LEVEL_COMMANDS = ["algorithm", "feedback", "import", "install", "isa", "lifecycle", "memory", "policy"] as const;
 const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string, string> }> = {
   algorithm: {
     usage: "Usage: soma algorithm <new|classify|list|show|capabilities|plan|decision|change|step|verify|learn|batch|advance> ...",
@@ -228,6 +249,11 @@ const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string,
       algorithm: "Usage: soma import algorithm [--dry-run] [--apply] [--home-dir <dir>] [--pai-algorithm-dir <dir>] [--soma-home <dir>]",
       "pai-pack": "Usage: soma import pai-pack [--dry-run] [--apply] [--home-dir <dir>] [--source <dir>] [--soma-home <dir>]",
     },
+  },
+  isa: {
+    // Single source of truth lives in `./cli-isa.ts` (Sage round-1 dedup).
+    usage: ISA_USAGE_HEADER,
+    subcommands: ISA_SUBCOMMAND_HELP,
   },
 };
 
@@ -1059,6 +1085,10 @@ function parseArgs(args: string[]): ParsedArgs {
     return { command: "help", topic };
   }
 
+  if (args[0] === "isa") {
+    return { command: "isa", args: args.slice(1) };
+  }
+
   if (args[0] === "lifecycle") {
     return parseLifecycleArgs(args);
   }
@@ -1678,6 +1708,16 @@ export async function runSomaCli(args: string[]): Promise<string> {
     return runAlgorithmCli(parsed);
   }
 
+  if (parsed.command === "isa") {
+    const result = await runIsaCli(parsed.args);
+    if (result.exitCode !== 0) {
+      // Propagate non-zero exit via the same SomaCliError pattern used
+      // elsewhere — bubble up to process.exit at the top-level harness.
+      throw new SomaCliError(result.text, result.exitCode);
+    }
+    return result.text;
+  }
+
   if (parsed.command === "memory") {
     if (parsed.action === "promote") {
       return formatMemoryPromotionResult(await promoteAlgorithmRunMemory(parsed.options));
@@ -1759,6 +1799,6 @@ if (import.meta.main) {
     console.log(await runSomaCli(process.argv.slice(2)));
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
-    process.exitCode = 1;
+    process.exitCode = error instanceof SomaCliError ? error.exitCode : 1;
   }
 }
