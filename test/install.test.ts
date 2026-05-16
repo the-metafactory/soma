@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import { installSomaForCodex, installSomaForPiDev } from "../src/index";
+import { installSomaForCodex, installSomaForPiDev, planSomaForCodexInstall, planSomaForPiDevInstall } from "../src/index";
 import { renderStartupContextSummary } from "../src/adapters/codex-hook-entry.mjs";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
@@ -101,6 +101,27 @@ test("installs soma source home and codex home projection", async () => {
     expect(somaRepo).toContain("soma");
     expect(skill).toContain("name: soma");
     expect(startupContext).toContain("Soma Startup Context");
+  });
+});
+
+test("codex install dry-run lists every substrate file apply reports", async () => {
+  await withTempHome(async (homeDir) => {
+    const plan = planSomaForCodexInstall({ homeDir });
+    const result = await installSomaForCodex({ homeDir });
+
+    expect(plan.substrateFiles).toContain(join(homeDir, ".codex/config.toml"));
+    expect(plan.substrateFiles).toContain(join(homeDir, ".codex/memories/soma/soma-repo.txt"));
+    expect(new Set(plan.substrateFiles)).toEqual(new Set(result.substrateHome.files));
+  });
+});
+
+test("pi.dev install dry-run lists every substrate file apply reports", async () => {
+  await withTempHome(async (homeDir) => {
+    const plan = planSomaForPiDevInstall({ homeDir });
+    const result = await installSomaForPiDev({ homeDir });
+
+    expect(plan.substrateFiles).toContain(join(homeDir, ".pi/agent/soma/soma-repo.txt"));
+    expect(new Set(plan.substrateFiles)).toEqual(new Set(result.substrateHome.files));
   });
 });
 
