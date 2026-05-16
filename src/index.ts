@@ -182,5 +182,28 @@ export { importPaiPack, planPaiPackImport } from "./pai-pack-importer";
 export { checkSomaPolicy, checkSomaPolicyBatch } from "./policy-audit";
 export { evaluateSomaPolicy } from "./policy";
 export { bootstrapSomaHome, loadSomaHome } from "./soma-home";
+// ISA library API (#34) — cohesive public surface only.
+// Storage-layout helpers (activeStatePath, isaDir, isaPath) stay internal
+// to `./isa` so on-disk layout can evolve without breaking consumers
+// (Sage round-2 architecture finding). Tests + adapters that need them
+// import from `./isa` directly.
+export {
+  checkCompleteness,
+  getActiveIsa,
+  listAvailableTiers,
+  listIsas,
+  readIsa,
+  recordIsaDecision,
+  scaffoldIsa,
+  setActiveIsa,
+  writeIsa,
+  type EffortTier,
+  type IsaLibraryOptions,
+  type IsaListEntry,
+  type ScaffoldIsaInput,
+  type SetActiveIsaResult,
+  type WriteIsaResult,
+} from "./isa";
+export { type CompletenessGap, type CompletenessReport } from "./isa-schema";
 
 export const SOMA_VERSION = "0.1.3";
