@@ -1218,6 +1218,11 @@ function formatInstallResult(result: SomaInstallResult): string {
 }
 
 function formatPaiImportPlan(plan: PaiImportPlan): string {
+  const sourceLines =
+    plan.sourceChecks && plan.sourceChecks.length > 0
+      ? plan.sourceChecks.map((check) => `- [${check.present ? "present" : "missing"}] ${check.required ? "required" : "optional"} ${check.path}`)
+      : plan.sourceFiles.map((path) => `- ${path}`);
+
   return [
     "Soma PAI import plan",
     "source: pai",
@@ -1226,7 +1231,7 @@ function formatPaiImportPlan(plan: PaiImportPlan): string {
     `somaHome: ${plan.somaHome}`,
     "",
     "Source files:",
-    ...plan.sourceFiles.map((path) => `- ${path}`),
+    ...sourceLines,
     "",
     "Target files:",
     ...plan.targetFiles.map((path) => `- ${path}`),

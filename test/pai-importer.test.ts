@@ -56,10 +56,67 @@ async function writePaiFixture(homeDir: string): Promise<void> {
 
 test("plans a PAI import without writing files", async () => {
   await withTempHome(async (homeDir) => {
+    await writePaiFixture(homeDir);
     const plan = planPaiImport({ homeDir });
 
     expect(plan.sourceFiles).toContain(join(homeDir, ".claude/PAI/USER/PRINCIPAL_IDENTITY.md"));
+    expect(plan.sourceChecks ?? []).toContainEqual({
+      path: join(homeDir, ".claude/PAI/USER/PRINCIPAL_IDENTITY.md"),
+      required: true,
+      present: true,
+    });
     expect(plan.targetFiles).toContain(join(homeDir, ".soma/profile/assistant.md"));
+    await expect(stat(join(homeDir, ".soma"))).rejects.toThrow();
+  });
+});
+
+test("imports PAI v4 identity filename variants", async () => {
+  await withTempHome(async (homeDir) => {
+    const userRoot = join(homeDir, ".claude/PAI/USER");
+    await mkdir(join(userRoot, "TELOS"), { recursive: true });
+    await writeFile(join(userRoot, "BASICINFO.md"), "Name: Andreas Example\n", "utf8");
+    await writeFile(join(userRoot, "DAIDENTITY.md"), ["# DA Identity", "", "- **Name:** Ada", "- **Display Name:** Ada"].join("\n"), "utf8");
+    for (const file of ["MISSION.md", "GOALS.md", "BELIEFS.md"]) {
+      await writeFile(join(userRoot, "TELOS", file), `# ${file}\n\nFixture ${file}\n`, "utf8");
+    }
+
+    const plan = planPaiImport({ homeDir });
+    expect(plan.sourceFiles).toContain(join(userRoot, "BASICINFO.md"));
+    expect(plan.sourceFiles).toContain(join(userRoot, "DAIDENTITY.md"));
+    expect(plan.sourceChecks ?? []).toContainEqual({
+      path: join(userRoot, "TELOS", "STRATEGIES.md"),
+      required: false,
+      present: false,
+    });
+
+    const result = await importPaiIdentity({ homeDir });
+    const principal = await readFile(join(homeDir, ".soma/profile/principal.md"), "utf8");
+    const assistant = await readFile(join(homeDir, ".soma/profile/assistant.md"), "utf8");
+    const telos = await readFile(join(homeDir, ".soma/profile/telos.md"), "utf8");
+
+    expect(result.files).toContain(join(homeDir, ".soma/profile/imports/claude/BASICINFO.md"));
+    expect(result.files).toContain(join(homeDir, ".soma/profile/imports/claude/DAIDENTITY.md"));
+    expect(result.files).not.toContain(join(homeDir, ".soma/profile/imports/claude/TELOS/STRATEGIES.md"));
+    expect(principal).toContain("Name: Andreas Example");
+    expect(principal).toContain("profile/imports/claude/BASICINFO.md");
+    expect(assistant).toContain("Name: Ada");
+    expect(telos).not.toContain("STRATEGIES.md");
+  });
+});
+
+test("plans missing required PAI sources without writing files", async () => {
+  await withTempHome(async (homeDir) => {
+    const userRoot = join(homeDir, ".claude/PAI/USER");
+    await mkdir(join(userRoot, "TELOS"), { recursive: true });
+
+    const plan = planPaiImport({ homeDir });
+
+    expect(plan.sourceChecks ?? []).toContainEqual({
+      path: join(userRoot, "PRINCIPAL_IDENTITY.md"),
+      required: true,
+      present: false,
+    });
+    await expect(importPaiIdentity({ homeDir })).rejects.toThrow("Required PAI source file is missing:");
     await expect(stat(join(homeDir, ".soma"))).rejects.toThrow();
   });
 });
@@ -89,6 +146,7 @@ test("cli dry-runs and applies the PAI importer", async () => {
 
     const dryRun = await runSomaCli(["import", "pai", "--home-dir", homeDir]);
     expect(dryRun).toContain("Soma PAI import plan");
+    expect(dryRun).toContain("[present] required");
     await expect(stat(join(homeDir, ".soma"))).rejects.toThrow();
 
     const applied = await runSomaCli(["import", "pai", "--apply", "--home-dir", homeDir]);

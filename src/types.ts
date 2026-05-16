@@ -257,6 +257,7 @@ export interface PaiImportPlan {
   claudeHome: string;
   somaHome: string;
   sourceFiles: string[];
+  sourceChecks?: ImportSourceCheck[];
   targetFiles: string[];
 }
 
