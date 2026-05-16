@@ -239,8 +239,8 @@ function readOption(args: string[], index: number, name: string): string {
 }
 
 function commandUsage(command: string, action?: string): string {
-  const commandHelp = COMMAND_HELP[command];
-  return (action && commandHelp?.subcommands?.[action]) || commandHelp?.usage || `Usage: soma ${command} ...`;
+  const commandHelp = COMMAND_HELP[command] as { usage: string; subcommands?: Record<string, string> } | undefined;
+  return (action ? commandHelp?.subcommands?.[action] : undefined) ?? commandHelp?.usage ?? `Usage: soma ${command} ...`;
 }
 
 function parseInstallArgs(args: string[]): ParsedInstallArgs {
@@ -953,7 +953,7 @@ function parsePolicyArgs(args: string[]): ParsedPolicyArgs {
         break;
       case "--action": {
         const value = readOption(rest, index, arg);
-        if (value !== "write") throw new Error("--action must be write.");
+        if (value !== "write" && value !== "delete" && value !== "modify") throw new Error("--action must be one of write, delete, or modify.");
         options.action = value;
         index += 1;
         break;
@@ -986,6 +986,21 @@ function parsePolicyArgs(args: string[]): ParsedPolicyArgs {
           throw new Error("--record must be one of all, deny, or none.");
         }
         options.record = value;
+        index += 1;
+        break;
+      }
+      case "--protected-path": {
+        const protectedPath = readOption(rest, index, arg);
+        (options.protectedPaths ??= []).push({ path: protectedPath, description: protectedPath });
+        index += 1;
+        break;
+      }
+      case "--protected-path-name": {
+        const name = readOption(rest, index, arg);
+        if (!options.protectedPaths || options.protectedPaths.length === 0) {
+          throw new Error("--protected-path-name requires a preceding --protected-path.");
+        }
+        options.protectedPaths[options.protectedPaths.length - 1].description = name;
         index += 1;
         break;
       }
@@ -1121,6 +1136,7 @@ function suggestTopLevelCommand(command: string): string | undefined {
   })).sort((left, right) => left.distance - right.distance || left.candidate.localeCompare(right.candidate));
 
   const best = ranked[0];
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
   if (!best) return undefined;
 
   const threshold = Math.max(2, Math.floor(best.candidate.length / 3));

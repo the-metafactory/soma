@@ -99,6 +99,7 @@ test("builds pi.dev home projection bundle for default availability", () => {
     "agent/soma/tools.md",
     "agent/soma/skills.md",
     "agent/soma/policy.md",
+    "agent/extensions/soma-path-guard.ts",
     "agent/skills/soma/SKILL.md",
   ]);
   expect(projection.bundle.files.find((file) => file.path === "agent/extensions/soma.ts")?.content).toContain("before_agent_start");
@@ -168,7 +169,7 @@ test("installs pi.dev home projection into a substrate home", async () => {
 
     expect(result.substrate).toBe("pi-dev");
     expect(result.rootDir).toBe(join(homeDir, ".pi"));
-    expect(result.files).toHaveLength(9);
+    expect(result.files).toHaveLength(10);
 
     const extension = await readFile(join(homeDir, ".pi/agent/extensions/soma.ts"), "utf8");
     const profile = await readFile(join(homeDir, ".pi/agent/soma/profile.md"), "utf8");
