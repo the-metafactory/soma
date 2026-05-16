@@ -182,5 +182,28 @@ export { importPaiPack, planPaiPackImport } from "./pai-pack-importer";
 export { checkSomaPolicy, checkSomaPolicyBatch } from "./policy-audit";
 export { evaluateSomaPolicy } from "./policy";
 export { bootstrapSomaHome, loadSomaHome } from "./soma-home";
+// ISA library API (#34) — cohesive surface. Internal schema constants
+// live in `./isa-schema`; tests import path/schema helpers directly.
+export {
+  activeStatePath,
+  recordIsaDecision,
+  checkCompleteness,
+  getActiveIsa,
+  isaDir,
+  isaPath,
+  listAvailableTiers,
+  listIsas,
+  readIsa,
+  scaffoldIsa,
+  setActiveIsa,
+  writeIsa,
+  type EffortTier,
+  type IsaLibraryOptions,
+  type IsaListEntry,
+  type ScaffoldIsaInput,
+  type SetActiveIsaResult,
+  type WriteIsaResult,
+} from "./isa";
+export { type CompletenessGap, type CompletenessReport } from "./isa-schema";
 
 export const SOMA_VERSION = "0.1.3";
