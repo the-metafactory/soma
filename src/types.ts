@@ -446,6 +446,7 @@ export interface SomaSkillManifest {
   source: { kind: "pai-pack"; packName: string };
   entrypoint: string;
   references: string[];
+  workflows: string[];
   tools: string[];
   triggers: string[];
   substrates: ("claude-code" | "codex" | "pi-dev" | "cortex" | "custom")[];

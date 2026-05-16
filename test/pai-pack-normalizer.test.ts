@@ -118,6 +118,22 @@ test("normalizeSkillContent warns on release-safety scans", () => {
   expect(result.warnings.some((w) => w.kind === "release-safety-path")).toBe(true);
 });
 
+test("normalizeSkillContent leaves unrelated MANDATORY sections alone (round-2 blocker fix)", () => {
+  const content = [
+    "## MANDATORY: Input Requirements",
+    "",
+    "Must include slug and goal.",
+    "",
+    "## Body",
+    "",
+    "Real content.",
+  ].join("\n");
+  const result = normalizeSkillContent("body.md", content);
+  expect(result.content).toContain("MANDATORY: Input Requirements");
+  expect(result.content).toContain("Must include slug and goal");
+  expect(result.actions.some((a) => a.kind === "stripped-mandatory-runtime-block")).toBe(false);
+});
+
 test("normalizeSkillContent is stateless across repeated calls (no /g lastIndex leak)", () => {
   // Regression for Sage round-1 blocker: previous /g regexes mutated
   // lastIndex on `.test()` so subsequent calls could miss matches.

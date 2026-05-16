@@ -98,6 +98,12 @@ export function normalizeSkillContent(relPath: string, content: string): Normali
   return { content: working, actions, warnings };
 }
 
+// Tokens that prove a MANDATORY section is the notification runtime block we
+// want to strip, not an unrelated MANDATORY section like "MANDATORY: Input
+// Requirements". Without one of these, we leave the heading alone — Sage
+// round-2 blocker.
+const NOTIFICATION_BODY_MARKERS = /localhost:31337\/notify|voice notification|notify endpoint/i;
+
 function stripMandatoryNotificationBlock(
   relPath: string,
   content: string,
@@ -107,22 +113,25 @@ function stripMandatoryNotificationBlock(
     return content;
   }
 
-  // Remove a MANDATORY notification section: heading line plus all content
-  // until the next `## ` heading (or end of file). This is the section-level
-  // strip the PAI pack research recommended.
-  const headingMatch = NOTIFICATION_HEADING.exec(content);
   let stripped = content;
+  const headingMatch = NOTIFICATION_HEADING.exec(content);
   if (headingMatch) {
     const start = headingMatch.index;
     const rest = stripped.slice(start + headingMatch[0].length);
     const nextHeading = /^##+\s+/m.exec(rest);
     const end = nextHeading ? start + headingMatch[0].length + nextHeading.index : stripped.length;
-    stripped = `${stripped.slice(0, start).replace(/\n+$/, "\n")}${stripped.slice(end)}`;
-    actions.push({
-      file: relPath,
-      kind: "stripped-mandatory-runtime-block",
-      detail: "Removed mandatory runtime block (notification heading).",
-    });
+    const sectionBody = stripped.slice(start, end);
+    // Only strip when the section's body proves it is the notification
+    // runtime block (curl invocation or notification keyword). A heading
+    // like "## MANDATORY: Input Requirements" survives.
+    if (NOTIFICATION_BODY_MARKERS.test(sectionBody)) {
+      stripped = `${stripped.slice(0, start).replace(/\n+$/, "\n")}${stripped.slice(end)}`;
+      actions.push({
+        file: relPath,
+        kind: "stripped-mandatory-runtime-block",
+        detail: "Removed mandatory notification runtime block.",
+      });
+    }
   }
 
   // Strip any stragglers — bare curl notification commands outside a heading.
@@ -229,6 +238,7 @@ export function generateSomaSkillManifest(input: GenerateSomaSkillManifestInput)
     source: { kind: "pai-pack", packName: input.packName },
     entrypoint: input.entrypoint,
     references: [...input.references].sort(),
+    workflows: [...input.workflowFiles].sort(),
     tools: [],
     triggers: extractTriggersFromDescription(input.description),
     substrates: ["claude-code", "codex", "pi-dev"],
