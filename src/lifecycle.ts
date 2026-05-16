@@ -257,7 +257,9 @@ export async function runSomaLifecycleIsaUpdated(
 ): Promise<SomaLifecycleResult> {
   const somaHome = resolveSomaHome(options);
   const timestamp = options.timestamp ?? new Date().toISOString();
-  const slug = payload.slug ?? (await getActiveIsa({ somaHome }))?.activeSlug ?? null;
+  const activeState = await getActiveIsa({ somaHome });
+  const activeSlug = activeState?.activeSlug ?? null;
+  const slug = payload.slug ?? activeSlug;
   if (slug === null) {
     await appendSomaMemoryEvent(somaHome, {
       substrate: substrate(options),
@@ -272,6 +274,24 @@ export async function runSomaLifecycleIsaUpdated(
       files: [join(somaHome, "memory/STATE/events.jsonl")],
       writes: [],
     };
+  }
+
+  // Sage round-2 Security: explicit payload.slug is only honored when
+  // it matches the currently-active slug OR when there is no active
+  // slug (caller is electing a target with no contention). Mismatches
+  // are refused so a model-controlled lifecycle payload cannot quietly
+  // mutate a non-active ISA.
+  if (payload.slug !== undefined && activeSlug !== null && payload.slug !== activeSlug) {
+    await appendSomaMemoryEvent(somaHome, {
+      substrate: substrate(options),
+      kind: "lifecycle.isa_updated.refused_scope",
+      summary: `isa_updated payload.slug='${payload.slug}' does not match active slug '${activeSlug}'; refused.`,
+      timestamp,
+      metadata: { payloadSlug: payload.slug, activeSlug },
+    });
+    throw new Error(
+      `runSomaLifecycleIsaUpdated: payload.slug '${payload.slug}' does not match active slug '${activeSlug}'. Use 'setActiveIsa' to switch active first.`,
+    );
   }
 
   const entries: IsaUpdateEntry[] = [
@@ -289,13 +309,41 @@ export async function runSomaLifecycleIsaUpdated(
     }
   }
 
-  // 1. Writeback gate: log the full payload first, even before the ISA
-  //    write. Every authoritative ISA mutation has a corresponding
-  //    audit record in events.jsonl.
+  // Sage round-2 CodeQuality: perform the authoritative write FIRST,
+  // then emit the success event. If applyIsaUpdate throws (e.g.
+  // missing slug, filesystem error) we emit a failure event instead so
+  // events.jsonl never contains a success record for a mutation that
+  // did not happen.
+  let writeResult: { path: string; changed: boolean };
+  try {
+    writeResult = entries.length === 0
+      ? { path: "", changed: false }
+      : await applyIsaUpdate(slug, entries, { somaHome, timestamp });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    await appendSomaMemoryEvent(somaHome, {
+      substrate: substrate(options),
+      kind: "lifecycle.isa_updated.failed",
+      summary: `isa_updated write failed for ISA ${slug}: ${message}`,
+      timestamp,
+      metadata: {
+        slug,
+        error: message,
+        decisions: payload.decisions ?? [],
+        changelogEntries: payload.changelogEntries ?? [],
+        verificationEntries: payload.verificationEntries ?? [],
+      },
+    });
+    throw error;
+  }
+
+  // Writeback gate: every successful authoritative ISA mutation has a
+  // corresponding audit record in events.jsonl, written AFTER the
+  // write succeeds (so failures emit `.failed` instead).
   await appendSomaMemoryEvent(somaHome, {
     substrate: substrate(options),
     kind: "lifecycle.isa_updated",
-    summary: `Appending ${entries.length} entr(ies) to ISA ${slug}.`,
+    summary: `Appended ${entries.length} entr(ies) to ISA ${slug}.`,
     timestamp,
     metadata: {
       slug,
@@ -303,12 +351,8 @@ export async function runSomaLifecycleIsaUpdated(
       changelogEntries: payload.changelogEntries ?? [],
       verificationEntries: payload.verificationEntries ?? [],
     },
+    artifactPaths: writeResult.path ? [writeResult.path] : [],
   });
-
-  // 2. Trusted Soma-side write — single read+write batch.
-  const writeResult = entries.length === 0
-    ? { path: "", changed: false }
-    : await applyIsaUpdate(slug, entries, { somaHome, timestamp });
 
   const writes = writeResult.path ? [writeResult.path] : [];
   return {

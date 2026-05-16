@@ -178,21 +178,68 @@ test("AC-6: integration — scaffold → use → isa_updated → on-disk Decisio
   });
 });
 
-test("explicit slug in payload overrides active slug", async () => {
+test("Sage round-2 Security: payload.slug mismatching active slug is refused", async () => {
   await withSomaHome(async (homeDir) => {
     await scaffoldIsa({ homeDir, slug: "active-one", goal: "G", effort: "E1" });
     await scaffoldIsa({ homeDir, slug: "explicit-target", goal: "G", effort: "E1" });
     await setActiveIsa("active-one", { homeDir });
 
+    await expect(
+      runSomaLifecycleIsaUpdated(
+        { slug: "explicit-target", decisions: [{ text: "Cross-scope write" }] },
+        { homeDir },
+      ),
+    ).rejects.toThrow(/does not match active slug/);
+
+    // Neither ISA mutated
+    const targeted = await readIsa("explicit-target", { homeDir });
+    expect(targeted.sections.find((s) => s.name === "Decisions")?.content ?? "").not.toContain("Cross-scope write");
+    const active = await readIsa("active-one", { homeDir });
+    expect(active.sections.find((s) => s.name === "Decisions")?.content ?? "").not.toContain("Cross-scope write");
+  });
+});
+
+test("payload.slug matching active slug is allowed", async () => {
+  await withSomaHome(async (homeDir) => {
+    await scaffoldIsa({ homeDir, slug: "only-one", goal: "G", effort: "E1" });
+    await setActiveIsa("only-one", { homeDir });
     await runSomaLifecycleIsaUpdated(
-      { slug: "explicit-target", decisions: [{ text: "Targeted explicitly" }] },
+      { slug: "only-one", decisions: [{ text: "Matched explicit slug" }] },
       { homeDir },
     );
+    const isa = await readIsa("only-one", { homeDir });
+    expect(isa.sections.find((s) => s.name === "Decisions")?.content).toContain("Matched explicit slug");
+  });
+});
 
-    const targeted = await readIsa("explicit-target", { homeDir });
-    expect(targeted.sections.find((s) => s.name === "Decisions")?.content).toContain("Targeted explicitly");
-    const active = await readIsa("active-one", { homeDir });
-    expect(active.sections.find((s) => s.name === "Decisions")?.content ?? "").not.toContain("Targeted explicitly");
+test("payload.slug allowed when no active slug is set", async () => {
+  await withSomaHome(async (homeDir) => {
+    await scaffoldIsa({ homeDir, slug: "no-active-target", goal: "G", effort: "E1" });
+    // setActiveIsa(null) intentionally never called — active.json missing
+    await runSomaLifecycleIsaUpdated(
+      { slug: "no-active-target", decisions: [{ text: "Elected target" }] },
+      { homeDir },
+    );
+    const isa = await readIsa("no-active-target", { homeDir });
+    expect(isa.sections.find((s) => s.name === "Decisions")?.content).toContain("Elected target");
+  });
+});
+
+test("failed isa_updated emits .failed event, not success", async () => {
+  await withSomaHome(async (homeDir) => {
+    // Set active to a slug whose file doesn't exist — applyIsaUpdate readIsa will ENOENT
+    await scaffoldIsa({ homeDir, slug: "ghost", goal: "G", effort: "E1" });
+    await setActiveIsa("ghost", { homeDir });
+    // Remove the file so readIsa fails
+    await rm(join(homeDir, ".soma", "isa", "ghost.md"));
+
+    await expect(
+      runSomaLifecycleIsaUpdated({ decisions: [{ text: "doomed" }] }, { homeDir }),
+    ).rejects.toThrow();
+
+    const events = await readEvents(homeDir);
+    expect(events.some((e) => e.kind === "lifecycle.isa_updated.failed")).toBe(true);
+    expect(events.some((e) => e.kind === "lifecycle.isa_updated")).toBe(false);
   });
 });
 

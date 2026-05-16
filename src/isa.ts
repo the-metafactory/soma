@@ -356,14 +356,7 @@ export async function recordIsaDecision(
   text: string,
   options: IsaLibraryOptions & { timestamp?: string; phase?: AlgorithmPhase } = {},
 ): Promise<WriteIsaResult> {
-  if (text.trim().length === 0) {
-    throw new Error("recordIsaDecision requires non-empty text.");
-  }
-  const isa = await readIsa(slug, options);
-  const phase = options.phase ?? isa.frontmatter.phase;
-  const timestamp = options.timestamp ?? new Date().toISOString();
-  const updated = appendIsaDecisionAccessor(isa, { timestamp, phase, text });
-  return writeIsa(slug, { ...updated, frontmatter: { ...updated.frontmatter, updated: timestamp } }, options);
+  return recordIsaSection(slug, text, "decisions", options);
 }
 
 export type IsaUpdateSection = "decisions" | "changelog" | "verification";
@@ -423,23 +416,39 @@ export async function applyIsaUpdate(
 }
 
 /**
+ * Internal shared helper for the section-specific record* wrappers
+ * (Sage round-2 dedup). All three exported wrappers go through this
+ * single path so validation + timestamp handling + persistence stay
+ * consistent. New section writers just extend SECTION_ACCESSOR and
+ * the wrapper they expose.
+ */
+async function recordIsaSection(
+  slug: string,
+  text: string,
+  section: IsaUpdateSection,
+  options: IsaLibraryOptions & { timestamp?: string; phase?: AlgorithmPhase } = {},
+): Promise<WriteIsaResult> {
+  if (text.trim().length === 0) {
+    throw new Error(`record-isa-${section}: requires non-empty text.`);
+  }
+  const isa = await readIsa(slug, options);
+  const phase = options.phase ?? isa.frontmatter.phase;
+  const timestamp = options.timestamp ?? new Date().toISOString();
+  const accessor = SECTION_ACCESSOR[section];
+  const updated = accessor(isa, { timestamp, phase, text });
+  return writeIsa(slug, { ...updated, frontmatter: { ...updated.frontmatter, updated: timestamp } }, options);
+}
+
+/**
  * File-backed companion to the pure `appendIsaChangelog` accessor.
- * Mirror of `recordIsaDecision` for the Changelog section. Used by
- * lifecycle hooks (#38) to persist Algorithm changelog entries.
+ * Mirror of `recordIsaDecision` for the Changelog section.
  */
 export async function recordIsaChangelog(
   slug: string,
   text: string,
   options: IsaLibraryOptions & { timestamp?: string; phase?: AlgorithmPhase } = {},
 ): Promise<WriteIsaResult> {
-  if (text.trim().length === 0) {
-    throw new Error("recordIsaChangelog requires non-empty text.");
-  }
-  const isa = await readIsa(slug, options);
-  const phase = options.phase ?? isa.frontmatter.phase;
-  const timestamp = options.timestamp ?? new Date().toISOString();
-  const updated = appendIsaChangelogAccessor(isa, { timestamp, phase, text });
-  return writeIsa(slug, { ...updated, frontmatter: { ...updated.frontmatter, updated: timestamp } }, options);
+  return recordIsaSection(slug, text, "changelog", options);
 }
 
 /**
@@ -451,14 +460,7 @@ export async function recordIsaVerification(
   text: string,
   options: IsaLibraryOptions & { timestamp?: string; phase?: AlgorithmPhase } = {},
 ): Promise<WriteIsaResult> {
-  if (text.trim().length === 0) {
-    throw new Error("recordIsaVerification requires non-empty text.");
-  }
-  const isa = await readIsa(slug, options);
-  const phase = options.phase ?? isa.frontmatter.phase;
-  const timestamp = options.timestamp ?? new Date().toISOString();
-  const updated = appendIsaVerificationAccessor(isa, { timestamp, phase, text });
-  return writeIsa(slug, { ...updated, frontmatter: { ...updated.frontmatter, updated: timestamp } }, options);
+  return recordIsaSection(slug, text, "verification", options);
 }
 
 // Re-export schema surface for downstream consumers (CLI #36, lifecycle #38).
