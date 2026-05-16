@@ -1245,6 +1245,11 @@ function formatPaiImportResult(result: PaiImportResult): string {
 }
 
 function formatAlgorithmImportPlan(plan: AlgorithmImportPlan): string {
+  const sourceLines =
+    plan.sourceChecks && plan.sourceChecks.length > 0
+      ? plan.sourceChecks.map((check) => `- [${check.present ? "present" : "missing"}] ${check.required ? "required" : "optional"} ${check.path}`)
+      : plan.sourceFiles.map((path) => `- ${path}`);
+
   return [
     "Soma Algorithm import plan",
     "source: algorithm",
@@ -1253,7 +1258,7 @@ function formatAlgorithmImportPlan(plan: AlgorithmImportPlan): string {
     `somaHome: ${plan.somaHome}`,
     "",
     "Source files:",
-    ...plan.sourceFiles.map((path) => `- ${path}`),
+    ...sourceLines,
     "",
     "Target files:",
     ...plan.targetFiles.map((path) => `- ${path}`),
