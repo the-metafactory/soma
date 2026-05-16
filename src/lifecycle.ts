@@ -119,19 +119,22 @@ export async function buildSomaStartupContext(options: SomaLifecycleOptions = {}
   };
 }
 
-export async function writeAlgorithmWorkIndex(options: SomaLifecycleOptions = {}): Promise<{ path: string; index: AlgorithmWorkIndex }> {
+export async function writeAlgorithmWorkIndex(options: SomaLifecycleOptions = {}): Promise<{ path: string; activePath: string; index: AlgorithmWorkIndex }> {
   const somaHome = resolveSomaHome(options);
   const timestamp = options.timestamp ?? new Date().toISOString();
+  const runs = await listAlgorithmRunSummaries({ somaHome });
   const index: AlgorithmWorkIndex = {
     updatedAt: timestamp,
-    runs: await listAlgorithmRunSummaries({ somaHome }),
+    runs,
   };
   const path = join(somaHome, "memory/STATE/algorithm-work-index.json");
+  const activePath = join(somaHome, "memory/STATE/active-algorithm-run.json");
 
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${JSON.stringify(index, null, 2)}\n`, "utf8");
+  await writeFile(activePath, `${JSON.stringify(runs.find((run) => run.phase !== "complete") ?? null, null, 2)}\n`, "utf8");
 
-  return { path, index };
+  return { path, activePath, index };
 }
 
 function completedLearningContent(run: AlgorithmRun, timestamp: string): string {
@@ -214,14 +217,14 @@ export async function runSomaLifecycleAlgorithmUpdated(options: SomaLifecycleOpt
     kind: "lifecycle.algorithm_updated",
     summary: `Algorithm work index updated with ${index.index.runs.length} run(s).`,
     timestamp,
-    artifactPaths: [index.path],
+    artifactPaths: [index.path, index.activePath],
   });
 
   return {
     event: "algorithm_updated",
     somaHome,
     timestamp,
-    files: [index.path, join(somaHome, "memory/STATE/events.jsonl")],
+    files: [index.path, index.activePath, join(somaHome, "memory/STATE/events.jsonl")],
   };
 }
 
@@ -235,7 +238,7 @@ export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions =
     kind: "lifecycle.session_end",
     summary: `Session ended; captured ${learningFiles.length} Algorithm learning artifact(s).`,
     timestamp,
-    artifactPaths: [index.path, ...learningFiles],
+    artifactPaths: [index.path, index.activePath, ...learningFiles],
     metadata: {
       sessionId: options.sessionId,
     },
@@ -245,6 +248,6 @@ export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions =
     event: "session_end",
     somaHome,
     timestamp,
-    files: [index.path, ...learningFiles, join(somaHome, "memory/STATE/events.jsonl")],
+    files: [index.path, index.activePath, ...learningFiles, join(somaHome, "memory/STATE/events.jsonl")],
   };
 }

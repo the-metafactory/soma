@@ -106,9 +106,13 @@ test("lifecycle algorithm-updated writes a canonical work index", async () => {
       timestamp: "2026-05-14T10:01:00.000Z",
     });
     const indexPath = join(homeDir, ".soma/memory/STATE/algorithm-work-index.json");
+    const activePath = join(homeDir, ".soma/memory/STATE/active-algorithm-run.json");
 
     expect(result.files).toContain(indexPath);
+    expect(result.files).toContain(activePath);
     await expect(readFile(indexPath, "utf8")).resolves.toContain('"id": "indexed-run"');
+    await expect(readFile(activePath, "utf8")).resolves.toContain('"id": "indexed-run"');
+    await expect(readFile(activePath, "utf8")).resolves.toContain('"phase": "observe"');
   });
 });
 
@@ -151,6 +155,7 @@ test("lifecycle CLI-facing handlers append events and include context", async ()
 
     expect(start.context).toContain("Soma Startup Context");
     expect(end.files).toContain(join(homeDir, ".soma/memory/STATE/algorithm-work-index.json"));
+    expect(end.files).toContain(join(homeDir, ".soma/memory/STATE/active-algorithm-run.json"));
     expect(events).toContain("lifecycle.session_start");
     expect(events).toContain("lifecycle.session_end");
   });

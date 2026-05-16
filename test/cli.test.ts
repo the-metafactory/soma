@@ -199,6 +199,14 @@ test("cli classifies Algorithm prompt effort", async () => {
   expect(output).toContain("source: auto");
 });
 
+test("cli emits Algorithm classification as JSON", async () => {
+  const output = await runSomaCli(["algorithm", "classify", "--prompt", "Port a multi-file PAI adapter into Soma", "--json"]);
+  const classification = JSON.parse(output) as { mode: string; effort: string };
+
+  expect(classification.mode).toBe("algorithm");
+  expect(classification.effort).toBe("E3");
+});
+
 test("cli drives Algorithm runs through gated mutations", async () => {
   await withTempHome(async (homeDir) => {
     await runSomaCli([

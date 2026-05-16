@@ -41,7 +41,7 @@ function runSomaLifecycle(config, event, sessionId) {
 }
 
 function runSomaClassification(config, prompt) {
-  return runSomaCommand(config, ["run", "soma", "algorithm", "classify", "--prompt", prompt || ""]);
+  return runSomaCommand(config, ["run", "soma", "algorithm", "classify", "--prompt", prompt || "", "--json"]);
 }
 
 function runSomaPolicyCheck(config, targets) {
@@ -82,6 +82,12 @@ function denyPreToolUse(reason) {
 }
 
 function parseClassification(output) {
+  try {
+    return JSON.parse(output);
+  } catch {
+    // Fall through for older Soma CLIs that render key-value text.
+  }
+
   const fields = {};
   for (const line of output.split("\n")) {
     const separator = line.indexOf(": ");
@@ -91,17 +97,67 @@ function parseClassification(output) {
   return fields;
 }
 
-function renderPromptClassificationContext(classification) {
+function shouldPrimeAlgorithmRendering(classification) {
+  const mode = (classification.mode || "").toLowerCase();
+  return mode === "algorithm" && classification.effort && classification.effort !== "E1" && classification.effort !== "none";
+}
+
+function algorithmPromptHookOutput(classification) {
   const mode = (classification.mode || "algorithm").toUpperCase();
   const effort = classification.effort && classification.effort !== "none" ? classification.effort : "";
   const source = classification.source || "unknown";
   const label = effort ? `${mode} ${effort}` : mode;
 
-  if (mode === "ALGORITHM") {
-    return `Soma: ${label} (${source}). Use the-algorithm; create/update the run and record verification evidence.`;
+  if (!shouldPrimeAlgorithmRendering(classification)) {
+    return { continue: true };
   }
 
-  return `Soma: ${label} (${source}). Full Algorithm harness optional unless context makes it substantial.`;
+  return {
+    continue: true,
+    hookSpecificOutput: {
+      hookEventName: "UserPromptSubmit",
+      statusMessage: `Soma Algorithm engaging (${effort || source})`,
+      additionalContext: [
+        `Soma: ${label} (${source}). This prompt classified as ALGORITHM.`,
+        'Use the seven-phase rendering contract from `~/.codex/skills/the-algorithm/SKILL.md`.',
+        "Emit each phase banner verbatim before producing that phase's content.",
+      ].join("\n"),
+    },
+  };
+}
+
+const PHASE_LABELS = {
+  observe: "Phase 1/7 — OBSERVE",
+  think: "Phase 2/7 — THINK",
+  plan: "Phase 3/7 — PLAN",
+  build: "Phase 4/7 — BUILD",
+  execute: "Phase 5/7 — EXECUTE",
+  verify: "Phase 6/7 — VERIFY",
+  learn: "Phase 7/7 — LEARN",
+  complete: "Phase 7/7 — SUMMARY",
+};
+
+function readActiveAlgorithmPhase(config) {
+  try {
+    const state = JSON.parse(readFileSync(`${config.somaHome}/memory/STATE/active-algorithm-run.json`, "utf8"));
+    const phase = state.phase || state.run?.phase;
+    return typeof phase === "string" ? phase : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function phaseStatusOutput(config) {
+  const phase = readActiveAlgorithmPhase(config);
+  const label = phase ? PHASE_LABELS[phase] : undefined;
+  if (!label) return {};
+
+  return {
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      statusMessage: `Soma: ${label}`,
+    },
+  };
 }
 
 function writeProjectedStartupContext(output) {
@@ -154,7 +210,7 @@ function handlePreToolUse(config, input) {
       denyPreToolUse(reason);
     }
   }
-  emitAndExit({ continue: true });
+  emitAndExit({ continue: true, ...phaseStatusOutput(config) });
 }
 
 function handlePromptSubmit(config, input) {
@@ -169,14 +225,7 @@ function handlePromptSubmit(config, input) {
       },
     });
   }
-  const context = renderPromptClassificationContext(parseClassification(result.stdout));
-  emitAndExit({
-    continue: true,
-    hookSpecificOutput: {
-      hookEventName: "UserPromptSubmit",
-      additionalContext: context,
-    },
-  });
+  emitAndExit(algorithmPromptHookOutput(parseClassification(result.stdout)));
 }
 
 function handleLifecycleEvent(config, event, input) {
