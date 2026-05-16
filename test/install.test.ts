@@ -116,6 +116,8 @@ test("installs soma source home and codex home projection", async () => {
     expect(skill).toContain("name: soma");
     expect(algorithmSkill).toContain("━━━ 👁️ OBSERVE ━━━ 1/7");
     expect(algorithmSkill).toContain("━━━ 📃 SUMMARY ━━━ 7/7");
+    expect(algorithmSkill).toContain("Start with `Workflows/RunAlgorithm.md`");
+    expect(algorithmSkill).toContain("The harness is mutable run state");
     expect(startupContext).toContain("Soma Startup Context");
   });
 });
