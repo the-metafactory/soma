@@ -79,13 +79,21 @@ async function hashSkillFiles(root: string, relativePaths: string[]): Promise<Re
   return out;
 }
 
-async function readBaselines(somaHome: string): Promise<SomaSkillBaselines> {
+interface BaselinesReadResult {
+  baselines: SomaSkillBaselines;
+  /** True iff the file existed but failed to parse as JSON. Caller decides
+   *  fail-closed vs fail-open behavior; we never silently swallow corruption. */
+  corrupt: boolean;
+}
+
+async function readBaselines(somaHome: string): Promise<BaselinesReadResult> {
   const path = skillBaselinesPath(somaHome);
-  if (!(await exists(path))) return {};
+  if (!(await exists(path))) return { baselines: {}, corrupt: false };
   try {
-    return JSON.parse(await readFile(path, "utf8")) as SomaSkillBaselines;
+    const parsed = JSON.parse(await readFile(path, "utf8")) as SomaSkillBaselines;
+    return { baselines: parsed, corrupt: false };
   } catch {
-    return {};
+    return { baselines: {}, corrupt: true };
   }
 }
 
@@ -149,8 +157,23 @@ interface DetectedDrift {
   hasLocalEdits: boolean;
 }
 
-async function detectDrift(runtimeDir: string, baseline: SomaSkillBaseline | undefined): Promise<DetectedDrift> {
-  if (baseline === undefined) return { files: [], hasLocalEdits: false };
+async function detectDrift(
+  runtimeDir: string,
+  baseline: SomaSkillBaseline | undefined,
+  sourceFiles: readonly string[],
+  baselinesCorrupt: boolean,
+): Promise<DetectedDrift> {
+  // Fail-closed: if baselines.json is corrupt OR no baseline entry yet but
+  // a runtime install exists, we can't prove the runtime is clean. Treat
+  // every source-tracked runtime file as edited so the upgrade path writes
+  // the `.upgrade-available` marker instead of overwriting.
+  if (baselinesCorrupt || baseline === undefined) {
+    const runtimeTracked: string[] = [];
+    for (const rel of sourceFiles) {
+      if (await exists(join(runtimeDir, rel))) runtimeTracked.push(rel);
+    }
+    return { files: runtimeTracked, hasLocalEdits: runtimeTracked.length > 0 };
+  }
   const editedFiles: string[] = [];
   for (const [rel, expectedHash] of Object.entries(baseline.files)) {
     const runtimePath = join(runtimeDir, rel);
@@ -209,7 +232,8 @@ export async function installIsaSkill(options: IsaSkillInstallOptions = {}): Pro
   const sourceHashes = await hashSkillFiles(sourceDir, sourceFiles);
 
   const runtimeFrontmatter = await readSkillFrontmatter(join(runtimeDir, SKILL_MD));
-  const baselines = await readBaselines(somaHome);
+  const baselinesRead = await readBaselines(somaHome);
+  const baselines = baselinesRead.baselines;
   const baseline = baselines[SKILL_NAME];
 
   const runtimeFiles = await listSkillFiles(runtimeDir);
@@ -247,7 +271,7 @@ export async function installIsaSkill(options: IsaSkillInstallOptions = {}): Pro
     });
   }
 
-  const drift = await detectDrift(runtimeDir, baseline);
+  const drift = await detectDrift(runtimeDir, baseline, sourceFiles, baselinesRead.corrupt);
   if (drift.hasLocalEdits) {
     return writeUpgradeMarker({
       somaHome,

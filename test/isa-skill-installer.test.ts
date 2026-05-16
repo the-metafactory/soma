@@ -175,6 +175,43 @@ test("unchanged path restores files-in-source-missing-from-runtime", async () =>
   });
 });
 
+test("corrupt baselines.json triggers preserve-local-edits on upgrade (fail-closed)", async () => {
+  await withTempHome(async (homeDir, somaRepoPath) => {
+    const somaHome = join(homeDir, ".soma");
+    await installIsaSkill({ homeDir, somaHome, somaRepoPath });
+    // Corrupt baselines file
+    await writeFile(skillBaselinesPath(somaHome), "not json {{{", "utf8");
+
+    await bumpSourceVersion(somaRepoPath, "1.4.0");
+    const result = await installIsaSkill({ homeDir, somaHome, somaRepoPath });
+    expect(result.action).toBe("preserved-local-edits");
+    expect(result.upgradeMarker).toBeDefined();
+    // Source NOT overwritten
+    expect(await readFile(join(somaHome, "skills", "ISA", "Workflows", "Scaffold.md"), "utf8")).toContain("Workflow body");
+  });
+});
+
+test("upgrade with no baseline (legacy install) treats existing files as drift (fail-closed)", async () => {
+  await withTempHome(async (homeDir, somaRepoPath) => {
+    const somaHome = join(homeDir, ".soma");
+    // Simulate pre-baselines runtime
+    const runtimeDir = isaSkillRuntimeDir(somaHome);
+    await mkdir(join(runtimeDir, "Workflows"), { recursive: true });
+    await writeFile(
+      join(runtimeDir, "SKILL.md"),
+      "---\nname: ISA\nversion: 1.0.0\npack-id: pai-isa-v1.0.0\n---\n\n# ISA\n",
+      "utf8",
+    );
+    await writeFile(join(runtimeDir, "Workflows", "Scaffold.md"), "# Legacy edited\n", "utf8");
+
+    await bumpSourceVersion(somaRepoPath, "1.5.0");
+    const result = await installIsaSkill({ homeDir, somaHome, somaRepoPath });
+    expect(result.action).toBe("preserved-local-edits");
+    // Legacy content preserved, not overwritten
+    expect(await readFile(join(runtimeDir, "Workflows", "Scaffold.md"), "utf8")).toBe("# Legacy edited\n");
+  });
+});
+
 test("pre-baselines runtime (no baseline entry) survives same-version restore", async () => {
   await withTempHome(async (homeDir, somaRepoPath) => {
     const somaHome = join(homeDir, ".soma");

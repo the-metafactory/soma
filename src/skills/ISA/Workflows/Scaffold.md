@@ -37,7 +37,7 @@ curl -s -X POST http://localhost:31337/notify \
 
 ### Step 2 — Pick the canonical template
 
-Always start by reading `~/.claude/skills/ISA/Examples/canonical-isa.md` for section headers and tone. For E1 reference, read `e1-minimal.md`. For E5 reference, read `e5-comprehensive.md`.
+Always start by reading `~/.claude/skills/ISA/Examples/canonical-isa.md` for section headers and tone. For E1 reference, read `e1-minimal.md`. For E5 reference, pick the example closest to the work shape — `e5-enterprise.md`, `e5-desktop-app.md`, or `e5-album.md`.
 
 ### Step 3 — Reverse-engineer the prompt
 
