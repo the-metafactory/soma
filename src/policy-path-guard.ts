@@ -34,10 +34,14 @@ const XARGS_COMMANDS = new Set(["xargs"]);
 
 function cleanToken(token: string): string {
   let cleaned = token;
-  if ((cleaned.startsWith("\u0022") && cleaned.endsWith("\u0022")) || (cleaned.startsWith("'") && cleaned.endsWith("'"))) {
-    cleaned = cleaned.slice(1, -1);
+  if (cleaned.startsWith("$(")) {
+    cleaned = cleaned.slice(2);
+    if (cleaned.endsWith(")")) cleaned = cleaned.slice(0, -1);
   }
-  cleaned = cleaned.replace(/^\$\(/, "").replace(/\)$/, "").replace(/^`/, "").replace(/`$/, "");
+  if (cleaned.startsWith("`")) {
+    cleaned = cleaned.slice(1);
+    if (cleaned.endsWith("`")) cleaned = cleaned.slice(0, -1);
+  }
   cleaned = cleaned.replace(/^[<>]+/, "").replace(/[<>]+$/, "");
   return cleaned;
 }

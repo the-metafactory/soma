@@ -133,6 +133,13 @@ test("handles quoted paths", () => {
   expect(result.targetPaths[0]).toBe(resolve("/home/user/My Documents"));
 });
 
+test("preserves ordinary filename parentheses", () => {
+  const result = parseBashDestructivePaths("rm photo(1).jpg", "/tmp");
+
+  expect(result.command).toBe("rm");
+  expect(result.targetPaths).toEqual([resolve("/tmp/photo(1).jpg")]);
+});
+
 test("handles backslash-escaped characters", () => {
   const protectedRef = "~/." + "\\soma";
   const result = parseBashDestructivePaths(`rm -rf ${protectedRef}`, "/tmp");
