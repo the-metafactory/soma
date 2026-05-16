@@ -1,4 +1,4 @@
-import { SOMA_FEEDBACK_AUTOMATIC_HOOK_TRIGGER_PATTERN_SOURCE, SOMA_FEEDBACK_STDIN_MAX_BYTES } from "../feedback-contract";
+import { SOMA_FEEDBACK_AUTOMATIC_HOOK_TRIGGER_PATTERN_SOURCE, SOMA_FEEDBACK_STDIN_MAX_BYTES } from "../../feedback-contract";
 
 interface FeedbackHookHelperOptions {
   functionName: string;

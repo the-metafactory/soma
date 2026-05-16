@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { installSomaForCodex, installSomaForPiDev, planSomaForCodexInstall, planSomaForPiDevInstall } from "../src/index";
-import { renderStartupContextSummary } from "../src/adapters/codex-hook-entry.mjs";
+import { renderStartupContextSummary } from "../src/adapters/codex/hooks/codex-hook-entry.mjs";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-install-"));

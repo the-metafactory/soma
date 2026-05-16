@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
-import { somaPolicyPrivateMarkers } from "../policy";
-import { somaProjectionPrivateRoots } from "../projection-private-roots";
-import { defaultSomaRepoPath } from "../repo-path";
+import { somaPolicyPrivateMarkers } from "../../../policy";
+import { somaProjectionPrivateRoots } from "../../../projection-private-roots";
+import { defaultSomaRepoPath } from "../../../repo-path";
 
 export function resolveBunExecutable(explicitBunPath = process.env.SOMA_BUN_PATH): string {
   if (explicitBunPath) {
