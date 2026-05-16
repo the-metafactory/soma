@@ -401,8 +401,11 @@ async function buildPaiPackImportPlan(options: PaiPackImportOptions = {}): Promi
   // AC-4 — preserve every normalized file's original under
   // imports/pai-packs/<skill>/source/<original-path> so the un-normalized
   // PAI source remains auditable. Copy mode; never normalized.
+  // Both "skill" (entry SKILL.md) and "skill-body" (Workflows/Tools .md)
+  // get archived — round-3 split introduced skill-body and the archive
+  // loop must follow.
   for (const { path, route } of routes) {
-    if (route.renderMode === "skill") {
+    if (route.renderMode === "skill" || route.renderMode === "skill-body") {
       routedFiles.push({
         source: join(homes.paiPackDir, path),
         target: join(homes.somaHome, "imports", "pai-packs", skillName, "source", path),

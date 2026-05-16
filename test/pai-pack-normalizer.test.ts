@@ -118,6 +118,24 @@ test("normalizeSkillContent warns on release-safety scans", () => {
   expect(result.warnings.some((w) => w.kind === "release-safety-path")).toBe(true);
 });
 
+test("AC-4 round-4: workflow originals are archived alongside SKILL.md original", async () => {
+  await withFakePack(async (paiPackDir, somaHome, homeDir) => {
+    await importPaiPack({ homeDir, somaHome, paiPackDir });
+    // Both SKILL.md AND Workflows/Run.md originals must be archived
+    const archivedSkill = await readFile(
+      join(somaHome, "imports", "pai-packs", "test-pack", "source", "src", "SKILL.md"),
+      "utf8",
+    );
+    expect(archivedSkill).toContain("MANDATORY");
+    const archivedWorkflow = await readFile(
+      join(somaHome, "imports", "pai-packs", "test-pack", "source", "src", "Workflows", "Run.md"),
+      "utf8",
+    );
+    // The fixture workflow body has the curl notification line
+    expect(archivedWorkflow).toContain("localhost:31337/notify");
+  });
+});
+
 test("AC-3 round-3: workflow markdown is normalized but keeps original frontmatter", async () => {
   await withFakePack(async (paiPackDir, somaHome, homeDir) => {
     // Workflow file in fixture has no frontmatter; add one to verify it survives
