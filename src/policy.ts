@@ -111,7 +111,7 @@ function evaluateResolvedSomaPolicy(options: SomaPolicyCheckOptions, scope: Soma
 
   // Path protection for delete/modify actions
   if (options.action === "delete" || options.action === "modify") {
-    return evaluateResolvedSomaPathGuard(options, scope);
+    return evaluateResolvedSomaPathGuard({ ...options, action: options.action }, scope);
   }
 
   const findings: SomaPolicyFinding[] = [];
@@ -143,7 +143,7 @@ function evaluateResolvedSomaPolicy(options: SomaPolicyCheckOptions, scope: Soma
   };
 }
 
-function evaluateResolvedSomaPathGuard(options: SomaPolicyCheckOptions, scope: SomaPolicyScope): SomaPolicyCheckResult {
+function evaluateResolvedSomaPathGuard(options: SomaPolicyCheckOptions & { action: "delete" | "modify" }, scope: SomaPolicyScope): SomaPolicyCheckResult {
   const { destinationPath, somaHome, roots } = scope;
   const cwd = options.cwd ?? process.cwd();
 
@@ -165,7 +165,7 @@ function evaluateResolvedSomaPathGuard(options: SomaPolicyCheckOptions, scope: S
     targetPaths: [destinationPath],
     cwd,
     protectedPaths: [...defaultProtectedPaths, ...optionProtectedPaths, ...rootProtectedPaths],
-    action: options.action as "delete" | "modify",
+    action: options.action,
   });
 
   const decision = guardResult.blocked ? "deny" : "allow";

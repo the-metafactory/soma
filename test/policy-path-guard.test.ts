@@ -54,21 +54,29 @@ test("parses trash command", () => {
   expect(result.targetPaths).toHaveLength(1);
 });
 
-test("parses mv command (source is destructive)", () => {
+test("parses mv command source and destination", () => {
   const result = parseBashDestructivePaths("mv ~/.soma/profile.md /tmp/backup", "/tmp");
 
   expect(result.command).toBe("mv");
-  expect(result.targetPaths).toHaveLength(1);
+  expect(result.targetPaths).toHaveLength(2);
   expect(result.targetPaths[0]).toContain(".soma/profile.md");
 });
 
-test("parses all mv sources except destination", () => {
+test("parses all mv sources and destination", () => {
   const protectedRef = "~/." + "soma/secret.md";
   const result = parseBashDestructivePaths(`mv safe.txt ${protectedRef} /tmp/backup/`, "/tmp");
 
   expect(result.command).toBe("mv");
-  expect(result.targetPaths).toHaveLength(2);
+  expect(result.targetPaths).toHaveLength(3);
   expect(result.targetPaths[1]).toContain(".soma/secret.md");
+});
+
+test("parses protected mv destination", () => {
+  const protectedRef = "~/." + "soma/profile.md";
+  const result = parseBashDestructivePaths(`mv /tmp/evil ${protectedRef}`, "/tmp");
+
+  expect(result.command).toBe("mv");
+  expect(result.targetPaths[1]).toContain(".soma/profile.md");
 });
 
 test("detects destructive absolute command paths", () => {
@@ -153,6 +161,15 @@ test("scans destructive commands after chain operators", () => {
   const result = parseBashDestructivePaths(`cd /tmp && rm -rf ${protectedRef}`, "/work");
 
   expect(result.command).toBe("cd");
+  expect(result.targetPaths).toHaveLength(1);
+  expect(result.targetPaths[0]).toContain(".soma");
+});
+
+test("scans destructive commands after newlines", () => {
+  const protectedRef = "~/." + "soma";
+  const result = parseBashDestructivePaths(`ls\nrm -rf ${protectedRef}`, "/work");
+
+  expect(result.command).toBe("ls");
   expect(result.targetPaths).toHaveLength(1);
   expect(result.targetPaths[0]).toContain(".soma");
 });
@@ -246,6 +263,14 @@ test("does not treat redirect operands as rm targets", () => {
 
   expect(result.command).toBe("rm");
   expect(result.targetPaths).toEqual([resolve("/tmp/target"), resolve("/tmp/logfile")]);
+});
+
+test("does not let redirects hide cp destinations", () => {
+  const protectedRef = "~/." + "soma/profile.md";
+  const result = parseBashDestructivePaths(`cp source ${protectedRef} > log`, "/tmp");
+
+  expect(result.command).toBe("cp");
+  expect(result.targetPaths[0]).toContain(".soma/profile.md");
 });
 
 test("detects glob pattern rm *", () => {

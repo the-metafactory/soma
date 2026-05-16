@@ -80,6 +80,12 @@ function tokenize(command: string): string[] {
       continue;
     }
 
+    if (char === "\n" || char === "\r") {
+      pushCurrent();
+      tokens.push(";");
+      continue;
+    }
+
     if (/\s/.test(char)) {
       pushCurrent();
       continue;
@@ -151,13 +157,13 @@ function resolvePath(token: string, cwd: string): string {
   return resolve(isAbsolute(expanded) ? expanded : join(cwd, expanded));
 }
 
-function findProtectedPath(resolvedPath: string, protectedPaths: readonly SomaProtectedPath[], action: "delete" | "modify"): SomaProtectedPath | undefined {
+function findProtectedPath(resolvedPath: string, protectedPaths: readonly SomaProtectedPath[], action: "delete" | "modify", protectedRootCache: Map<string, string>): SomaProtectedPath | undefined {
   const realResolvedPath = realScopePath(resolvedPath);
   for (const pp of protectedPaths) {
     if (action === "delete" && pp.guardDelete === false) continue;
     if (action === "modify" && pp.guardModify === false) continue;
 
-    const protectedRoot = realProtectedRoot(resolve(expandTilde(pp.path)));
+    const protectedRoot = realProtectedRoot(resolve(expandTilde(pp.path)), protectedRootCache);
     if (isInsidePath(realResolvedPath, protectedRoot)) {
       return pp;
     }
@@ -166,9 +172,7 @@ function findProtectedPath(resolvedPath: string, protectedPaths: readonly SomaPr
   return undefined;
 }
 
-const protectedRootCache = new Map<string, string>();
-
-function realProtectedRoot(path: string): string {
+function realProtectedRoot(path: string, protectedRootCache: Map<string, string>): string {
   const cached = protectedRootCache.get(path);
   if (cached) return cached;
   const realPath = realScopePath(path);
@@ -246,6 +250,20 @@ function resolveGlobPath(token: string, cwd: string): string {
   return base ? resolvePath(base, cwd) : cwd;
 }
 
+function pathArguments(tokens: string[], startIndex: number): string[] {
+  const args: string[] = [];
+  for (let i = startIndex; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (isFlag(token)) continue;
+    if (token === ">" || token === ">>") {
+      i++;
+      continue;
+    }
+    args.push(token);
+  }
+  return args;
+}
+
 function skipPrefixes(tokens: string[]): number {
   let cmdIndex = 0;
   while (cmdIndex < tokens.length) {
@@ -304,13 +322,12 @@ function parseTokenSegment(tokens: string[], cwd: string, depth: number): SomaBa
     return { command: mainCommand, targetPaths: redirectedPaths };
   }
 
-  const pathArgs = tokens.slice(cmdIndex + 1).filter((token) => !isFlag(token));
+  const pathArgs = pathArguments(tokens, cmdIndex + 1);
 
   if (DESTRUCTIVE_MOVE_COMMANDS.has(mainCommand)) {
-    const sources = pathArgs.length > 1 ? pathArgs.slice(0, -1) : pathArgs.slice(0, 1);
     return {
       command: mainCommand,
-      targetPaths: [...sources.map((source) => resolvePath(source, cwd)), ...redirectedPaths],
+      targetPaths: [...pathArgs.map((pathArg) => resolvePath(pathArg, cwd)), ...redirectedPaths],
     };
   }
 
@@ -377,11 +394,12 @@ export interface SomaPathGuardResult {
 
 export function evaluatePathGuard(options: SomaPathGuardOptions): SomaPathGuardResult {
   const protectedPaths = options.protectedPaths ?? SOMA_DEFAULT_PROTECTED_PATHS;
+  const protectedRootCache = new Map<string, string>();
   const matchedPaths: string[] = [];
   const matchedDescriptions: string[] = [];
 
   for (const target of options.targetPaths) {
-    const match = findProtectedPath(target, protectedPaths, options.action);
+    const match = findProtectedPath(target, protectedPaths, options.action, protectedRootCache);
     if (match) {
       matchedPaths.push(target);
       matchedDescriptions.push(match.description ? `${match.path} (${match.description})` : match.path);
