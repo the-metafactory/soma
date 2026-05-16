@@ -44,7 +44,7 @@ function runSomaClassification(config, prompt) {
   return runSomaCommand(config, ["run", "soma", "algorithm", "classify", "--prompt", prompt || "", "--json"]);
 }
 
-function runSomaPolicyCheck(config, targets) {
+function runSomaPolicyCheck(config, targets, action = "write") {
   const args = [
     "run",
     "soma",
@@ -55,13 +55,16 @@ function runSomaPolicyCheck(config, targets) {
     "--substrate",
     "codex",
     "--action",
-    "write",
+    action,
     "--targets-env",
     "SOMA_POLICY_TARGETS",
     "--record",
     "deny",
     "--json",
   ];
+  for (const privateRoot of config.privateRoots || []) {
+    args.push("--private-root", privateRoot);
+  }
 
   return runSomaCommand(config, args, { SOMA_POLICY_TARGETS: JSON.stringify(targets) });
 }

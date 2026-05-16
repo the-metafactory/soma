@@ -1,6 +1,6 @@
 import { appendSomaMemoryEvent } from "./memory";
 import { evaluateSomaPolicyBatch, evaluateSomaPolicyWithFilesystem, normalizeSomaPolicyPath, policyOptionsForTarget } from "./policy";
-import { somaProjectionPrivateRoots } from "./projection-private-roots";
+import { somaMemoryPrivateRoots, somaProjectionPrivateRoots } from "./projection-private-roots";
 import type { SomaPolicyBatchCheckOptions, SomaPolicyBatchCheckResult, SomaPolicyCheckOptions, SomaPolicyCheckResult } from "./types";
 
 export async function checkSomaPolicy(options: SomaPolicyCheckOptions): Promise<SomaPolicyCheckResult> {
@@ -29,7 +29,7 @@ export async function checkSomaPolicyBatch(options: SomaPolicyBatchCheckOptions)
 function withProjectionPrivateRoots<T extends SomaPolicyCheckOptions | SomaPolicyBatchCheckOptions>(options: T): T {
   return {
     ...options,
-    privateRoots: [...(options.privateRoots ?? []), ...somaProjectionPrivateRoots(options)],
+    privateRoots: [...(options.privateRoots ?? []), ...somaProjectionPrivateRoots(options), ...somaMemoryPrivateRoots(options)],
   };
 }
 

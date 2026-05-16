@@ -1,6 +1,8 @@
 import { spawnSync } from "node:child_process";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
 import { somaPolicyPrivateMarkers } from "../../../policy";
-import { somaProjectionPrivateRoots } from "../../../projection-private-roots";
+import { somaMemoryPrivateRoots, somaProjectionPrivateRoots } from "../../../projection-private-roots";
 import { defaultSomaRepoPath } from "../../../repo-path";
 
 export function resolveBunExecutable(explicitBunPath = process.env.SOMA_BUN_PATH): string {
@@ -22,7 +24,8 @@ export function resolveBunExecutable(explicitBunPath = process.env.SOMA_BUN_PATH
 }
 
 export function renderCodexLifecycleHook(somaHome: string, homeDir?: string, somaRepoPath = defaultSomaRepoPath(), bunPath = resolveBunExecutable()): string {
-  const policyMarkers = somaPolicyPrivateMarkers(somaHome, homeDir, somaProjectionPrivateRoots({ homeDir, substrate: "codex" }));
+  const privateRoots = [...somaProjectionPrivateRoots({ homeDir, substrate: "codex" }), ...codexAdapterMemoryPrivateRoots(homeDir)];
+  const policyMarkers = somaPolicyPrivateMarkers(somaHome, homeDir, privateRoots);
 
   return [
     "#!/usr/bin/env node",
@@ -32,7 +35,18 @@ export function renderCodexLifecycleHook(somaHome: string, homeDir?: string, som
     `  somaHome: ${JSON.stringify(somaHome)},`,
     `  trustedSomaRepo: ${JSON.stringify(somaRepoPath)},`,
     `  bunPath: ${JSON.stringify(bunPath)},`,
+    `  privateRoots: ${JSON.stringify(privateRoots)},`,
     `  policyMarkers: ${JSON.stringify(policyMarkers)},`,
     "});",
   ].join("\n");
+}
+
+function codexAdapterMemoryPrivateRoots(homeDir?: string): string[] {
+  const home = resolve(homeDir ?? homedir());
+  return [
+    ...somaMemoryPrivateRoots({ homeDir, substrate: "codex" }),
+    join(home, ".claude", "memory"),
+    join(home, ".claude", "memories"),
+    join(home, ".claude", "PAI", "MEMORY"),
+  ].map((path) => resolve(path));
 }

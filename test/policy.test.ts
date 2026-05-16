@@ -136,6 +136,7 @@ test("uses home-dir when detecting projected Codex private markers", async () =>
     await bootstrapSomaHome({ homeDir });
     const result = await checkSomaPolicy({
       homeDir,
+      substrate: "codex",
       action: "write",
       destinationPath: join(homeDir, "work/public/summary.md"),
       content: `${join(homeDir, ".codex/memories/soma/profile.md")} is projected private context.`,
@@ -145,6 +146,39 @@ test("uses home-dir when detecting projected Codex private markers", async () =>
     expect(result.findings[0]).toMatchObject({
       kind: "private-marker",
     });
+  });
+});
+
+test("allows private markers in approved Codex memory destinations", async () => {
+  await withTempHome(async (homeDir) => {
+    await bootstrapSomaHome({ homeDir });
+    const result = await checkSomaPolicy({
+      homeDir,
+      substrate: "codex",
+      action: "write",
+      destinationPath: join(homeDir, ".codex/memories/MEMORY.md"),
+      content: `${join(homeDir, ".codex/memories/soma/startup-context.md")} is operational memory metadata.`,
+      record: "none",
+    });
+
+    expect(result.decision).toBe("allow");
+  });
+});
+
+test("allows private markers in approved Claude memory destinations", async () => {
+  await withTempHome(async (homeDir) => {
+    await bootstrapSomaHome({ homeDir });
+    const result = await checkSomaPolicy({
+      homeDir,
+      substrate: "claude-code",
+      privateRoots: [join(homeDir, ".claude/memories")],
+      action: "write",
+      destinationPath: join(homeDir, ".claude/memories/session.md"),
+      content: `${join(homeDir, ".soma/memory/WORK/private.md")} is allowed inside managed memory.`,
+      record: "none",
+    });
+
+    expect(result.decision).toBe("allow");
   });
 });
 
