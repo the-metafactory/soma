@@ -175,6 +175,20 @@ test("unchanged path restores files-in-source-missing-from-runtime", async () =>
   });
 });
 
+test("baselines.json with non-object JSON (array or null) is treated as corrupt", async () => {
+  await withTempHome(async (homeDir, somaRepoPath) => {
+    const somaHome = join(homeDir, ".soma");
+    await installIsaSkill({ homeDir, somaHome, somaRepoPath });
+
+    for (const malformed of ["null", "[]", '"string"', "42", "true"]) {
+      await writeFile(skillBaselinesPath(somaHome), malformed, "utf8");
+      await bumpSourceVersion(somaRepoPath, `1.${Math.floor(Math.random() * 1000)}.0`);
+      const result = await installIsaSkill({ homeDir, somaHome, somaRepoPath });
+      expect(result.action).toBe("preserved-local-edits");
+    }
+  });
+});
+
 test("corrupt baselines.json triggers preserve-local-edits on upgrade (fail-closed)", async () => {
   await withTempHome(async (homeDir, somaRepoPath) => {
     const somaHome = join(homeDir, ".soma");

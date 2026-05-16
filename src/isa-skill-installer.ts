@@ -86,12 +86,22 @@ interface BaselinesReadResult {
   corrupt: boolean;
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 async function readBaselines(somaHome: string): Promise<BaselinesReadResult> {
   const path = skillBaselinesPath(somaHome);
   if (!(await exists(path))) return { baselines: {}, corrupt: false };
   try {
-    const parsed = JSON.parse(await readFile(path, "utf8")) as SomaSkillBaselines;
-    return { baselines: parsed, corrupt: false };
+    const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
+    // Validate shape: must be a plain object map of skill-name → baseline.
+    // `null`, arrays, primitives, etc. are treated as corruption so the
+    // installer falls back to the fail-closed drift path.
+    if (!isPlainObject(parsed)) {
+      return { baselines: {}, corrupt: true };
+    }
+    return { baselines: parsed as SomaSkillBaselines, corrupt: false };
   } catch {
     return { baselines: {}, corrupt: true };
   }
