@@ -232,75 +232,32 @@ export async function installIsaSkill(options: IsaSkillInstallOptions = {}): Pro
 
   const comparison = compareSkillVersions(sourceFrontmatter.version, runtimeFrontmatter.version);
   if (comparison <= 0) {
-    // Same version: still reconcile files-in-source-missing-from-runtime
-    // (e.g. someone deleted a workflow). Restore them and update the baseline
-    // hash entry only for restored files; existing user-edited files are
-    // untouched.
-    const missingFiles = sourceFiles.filter((rel) => !runtimeFiles.includes(rel));
-    if (missingFiles.length === 0) {
-      return {
-        somaHome,
-        skillDir: runtimeDir,
-        sourceVersion: sourceFrontmatter.version,
-        runtimeVersion: runtimeFrontmatter.version,
-        action: "unchanged",
-        filesWritten: [],
-        filesPreservedUserAdditions: userAdditions,
-      };
-    }
-    const written: string[] = [];
-    for (const rel of missingFiles) {
-      const dest = join(runtimeDir, rel);
-      await copyFile(join(sourceDir, rel), dest);
-      written.push(dest);
-    }
-    const priorFiles = baseline.files;
-    const restoredFiles: Record<string, string> = { ...priorFiles };
-    for (const rel of missingFiles) {
-      restoredFiles[rel] = sourceHashes[rel];
-    }
-    const restoredBaseline: SomaSkillBaseline = {
-      version: baseline.version,
-      files: restoredFiles,
-      installedAt: baseline.installedAt,
-    };
-    const nextBaselines = { ...baselines, [SKILL_NAME]: restoredBaseline };
-    await writeBaselines(somaHome, nextBaselines);
-    return {
+    return reconcileSameVersion({
       somaHome,
-      skillDir: runtimeDir,
+      sourceDir,
+      runtimeDir,
+      sourceFiles,
+      sourceHashes,
+      runtimeFiles,
       sourceVersion: sourceFrontmatter.version,
       runtimeVersion: runtimeFrontmatter.version,
-      action: "unchanged",
-      filesWritten: written,
-      filesPreservedUserAdditions: userAdditions,
-    };
+      baselines,
+      baseline,
+      userAdditions,
+    });
   }
 
   const drift = await detectDrift(runtimeDir, baseline);
   if (drift.hasLocalEdits) {
-    await mkdir(runtimeDir, { recursive: true });
-    await writeFile(
-      markerPath,
-      `${JSON.stringify({
-        skill: SKILL_NAME,
-        runtimeVersion: runtimeFrontmatter.version,
-        sourceVersion: sourceFrontmatter.version,
-        editedFiles: drift.files,
-        writtenAt: new Date().toISOString(),
-      }, null, 2)}\n`,
-      "utf8",
-    );
-    return {
+    return writeUpgradeMarker({
       somaHome,
-      skillDir: runtimeDir,
+      runtimeDir,
+      markerPath,
       sourceVersion: sourceFrontmatter.version,
       runtimeVersion: runtimeFrontmatter.version,
-      action: "preserved-local-edits",
-      filesWritten: [],
-      filesPreservedUserAdditions: userAdditions,
-      upgradeMarker: markerPath,
-    };
+      editedFiles: drift.files,
+      userAdditions,
+    });
   }
 
   return freshInstall({
@@ -316,6 +273,100 @@ export async function installIsaSkill(options: IsaSkillInstallOptions = {}): Pro
     userAdditions,
     actionOverride: "upgraded",
   });
+}
+
+interface ReconcileSameVersionContext {
+  somaHome: string;
+  sourceDir: string;
+  runtimeDir: string;
+  sourceFiles: string[];
+  sourceHashes: Record<string, string>;
+  runtimeFiles: string[];
+  sourceVersion: string;
+  runtimeVersion: string;
+  baselines: SomaSkillBaselines;
+  baseline: SomaSkillBaseline | undefined;
+  userAdditions: string[];
+}
+
+async function reconcileSameVersion(ctx: ReconcileSameVersionContext): Promise<IsaSkillInstallResult> {
+  const missingFiles = ctx.sourceFiles.filter((rel) => !ctx.runtimeFiles.includes(rel));
+  if (missingFiles.length === 0) {
+    return {
+      somaHome: ctx.somaHome,
+      skillDir: ctx.runtimeDir,
+      sourceVersion: ctx.sourceVersion,
+      runtimeVersion: ctx.runtimeVersion,
+      action: "unchanged",
+      filesWritten: [],
+      filesPreservedUserAdditions: ctx.userAdditions,
+    };
+  }
+  const written: string[] = [];
+  for (const rel of missingFiles) {
+    const dest = join(ctx.runtimeDir, rel);
+    await copyFile(join(ctx.sourceDir, rel), dest);
+    written.push(dest);
+  }
+  // Handle the pre-baselines runtime case: existing runtime installed before
+  // the baseline feature shipped has no baseline entry. Seed one from the
+  // current source hashes so subsequent drift detection works.
+  const baselineFilesBefore = ctx.baseline?.files ?? {};
+  const restoredFiles: Record<string, string> = { ...baselineFilesBefore };
+  for (const rel of missingFiles) {
+    restoredFiles[rel] = ctx.sourceHashes[rel];
+  }
+  const restoredBaseline: SomaSkillBaseline = {
+    version: ctx.baseline?.version ?? ctx.sourceVersion,
+    files: restoredFiles,
+    installedAt: ctx.baseline?.installedAt ?? new Date().toISOString(),
+  };
+  const nextBaselines = { ...ctx.baselines, [SKILL_NAME]: restoredBaseline };
+  await writeBaselines(ctx.somaHome, nextBaselines);
+  return {
+    somaHome: ctx.somaHome,
+    skillDir: ctx.runtimeDir,
+    sourceVersion: ctx.sourceVersion,
+    runtimeVersion: ctx.runtimeVersion,
+    action: "unchanged",
+    filesWritten: written,
+    filesPreservedUserAdditions: ctx.userAdditions,
+  };
+}
+
+interface UpgradeMarkerContext {
+  somaHome: string;
+  runtimeDir: string;
+  markerPath: string;
+  sourceVersion: string;
+  runtimeVersion: string;
+  editedFiles: string[];
+  userAdditions: string[];
+}
+
+async function writeUpgradeMarker(ctx: UpgradeMarkerContext): Promise<IsaSkillInstallResult> {
+  await mkdir(ctx.runtimeDir, { recursive: true });
+  await writeFile(
+    ctx.markerPath,
+    `${JSON.stringify({
+      skill: SKILL_NAME,
+      runtimeVersion: ctx.runtimeVersion,
+      sourceVersion: ctx.sourceVersion,
+      editedFiles: ctx.editedFiles,
+      writtenAt: new Date().toISOString(),
+    }, null, 2)}\n`,
+    "utf8",
+  );
+  return {
+    somaHome: ctx.somaHome,
+    skillDir: ctx.runtimeDir,
+    sourceVersion: ctx.sourceVersion,
+    runtimeVersion: ctx.runtimeVersion,
+    action: "preserved-local-edits",
+    filesWritten: [],
+    filesPreservedUserAdditions: ctx.userAdditions,
+    upgradeMarker: ctx.markerPath,
+  };
 }
 
 interface FreshInstallContext {

@@ -175,6 +175,35 @@ test("unchanged path restores files-in-source-missing-from-runtime", async () =>
   });
 });
 
+test("pre-baselines runtime (no baseline entry) survives same-version restore", async () => {
+  await withTempHome(async (homeDir, somaRepoPath) => {
+    const somaHome = join(homeDir, ".soma");
+    // Simulate a runtime installed before the baseline feature: copy source
+    // files to runtime location, but do NOT write skill-baselines.json.
+    const runtimeDir = isaSkillRuntimeDir(somaHome);
+    await mkdir(join(runtimeDir, "Workflows"), { recursive: true });
+    await writeFile(
+      join(runtimeDir, "SKILL.md"),
+      "---\nname: ISA\nversion: 1.0.0\npack-id: pai-isa-v1.0.0\n---\n\n# ISA\n",
+      "utf8",
+    );
+    await writeFile(
+      join(runtimeDir, "Workflows", "Scaffold.md"),
+      "# Scaffold\n\nWorkflow body.\n",
+      "utf8",
+    );
+    // User deletes one file. Same-version restore must NOT crash on missing baseline.
+    await rm(join(runtimeDir, "Workflows", "Scaffold.md"));
+
+    const result = await installIsaSkill({ homeDir, somaHome, somaRepoPath });
+    expect(result.action).toBe("unchanged");
+    expect(result.filesWritten.length).toBeGreaterThan(0);
+    // Baseline now seeded
+    const baselines = JSON.parse(await readFile(skillBaselinesPath(somaHome), "utf8")) as SomaSkillBaselines;
+    expect(baselines.ISA?.files["Workflows/Scaffold.md"]).toMatch(/^sha256:/);
+  });
+});
+
 test("force: true reinstalls regardless of state", async () => {
   await withTempHome(async (homeDir, somaRepoPath) => {
     const somaHome = join(homeDir, ".soma");
