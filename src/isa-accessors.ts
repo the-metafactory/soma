@@ -78,23 +78,40 @@ export function setSection(isa: IdealStateArtifact, name: string, content: strin
   return { ...isa, sections };
 }
 
+export function setCriteria(isa: IdealStateArtifact, criteria: readonly IdealStateCriterion[]): IdealStateArtifact {
+  return setSection(isa, SECTION_NAME_MAP.criteria, renderCriteriaMarkdown(criteria));
+}
+
+export interface UpdateCriterionResult {
+  isa: IdealStateArtifact;
+  criteria: IdealStateCriterion[];
+}
+
+export function updateCriterionWithResult(
+  isa: IdealStateArtifact,
+  criterionId: string,
+  status: IdealStateCriterion["status"],
+  verification?: string,
+): UpdateCriterionResult {
+  const criteria = getCriteria(isa);
+  if (!criteria.some((criterion) => criterion.id === criterionId)) {
+    throw new Error(`Algorithm criterion not found: ${criterionId}`);
+  }
+  const updated = criteria.map((criterion) =>
+    criterion.id === criterionId
+      ? { ...criterion, status, verification: verification ?? criterion.verification }
+      : criterion,
+  );
+  return { isa: setCriteria(isa, updated), criteria: updated };
+}
+
 export function updateCriterion(
   isa: IdealStateArtifact,
   criterionId: string,
   status: IdealStateCriterion["status"],
   verification?: string,
 ): IdealStateArtifact {
-  const criteria = getCriteria(isa);
-  if (!criteria.some((criterion) => criterion.id === criterionId)) {
-    throw new Error(`Algorithm criterion not found: ${criterionId}`);
-  }
-
-  const updated = criteria.map((criterion) => {
-    if (criterion.id !== criterionId) return criterion;
-    return { ...criterion, status, verification: verification ?? criterion.verification };
-  });
-
-  return setSection(isa, SECTION_NAME_MAP.criteria, renderCriteriaMarkdown(updated));
+  return updateCriterionWithResult(isa, criterionId, status, verification).isa;
 }
 
 export function appendCriterion(isa: IdealStateArtifact, criterion: IdealStateCriterion): IdealStateArtifact {

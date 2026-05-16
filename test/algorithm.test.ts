@@ -153,6 +153,22 @@ test("enforces Algorithm phase gates", () => {
   expect(getRunPhase(run)).toBe("complete");
 });
 
+test("abandoned runs cannot advance", async () => {
+  const { abandonAlgorithmRun } = await import("../src/index");
+  const run = createAlgorithmRun({
+    id: "abandoned-test",
+    timestamp: "2026-05-16T10:00:00.000Z",
+    prompt: "Test abandonment",
+    intent: "Verify terminal state",
+    currentState: "Run starts fresh",
+    goal: "Run cannot advance after abandonment",
+    criteria: [{ id: "C1", text: "Abandonment is terminal" }],
+  });
+  const abandoned = abandonAlgorithmRun(run, "intentional test abort", "2026-05-16T10:01:00.000Z");
+  expect(getRunPhase(abandoned)).toBe("abandoned");
+  expect(() => advanceAlgorithmRun(abandoned)).toThrow("abandoned");
+});
+
 test("persists Algorithm runs under Soma WORK memory", async () => {
   await withTempHome(async (homeDir) => {
     const run = createAlgorithmRun({

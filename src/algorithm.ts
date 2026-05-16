@@ -10,12 +10,10 @@ import type {
 } from "./types";
 import { classifyAlgorithmPrompt } from "./algorithm-classifier";
 import {
-  SECTION_NAME_MAP,
   buildIsaArtifact,
   getCriteria,
   progressFromCriteria,
-  renderCriteriaMarkdown,
-  setSection,
+  updateCriterionWithResult,
   verifiedFromCriteria,
 } from "./isa-accessors";
 import { getRunPhase } from "./algorithm-lifecycle";
@@ -221,14 +219,12 @@ export function verifyAlgorithmCriterion(
 ): AlgorithmRun {
   assertNonEmpty(evidence, "verification evidence");
 
-  const criteria = getCriteria(run.isa);
-  if (!criteria.some((c) => c.id === criterionId)) {
-    throw new Error(`Algorithm criterion not found: ${criterionId}`);
-  }
-  const updatedCriteria = criteria.map((c) =>
-    c.id === criterionId ? { ...c, status, verification: evidence } : c,
+  const { isa: isaWithSection, criteria: updatedCriteria } = updateCriterionWithResult(
+    run.isa,
+    criterionId,
+    status,
+    evidence,
   );
-  const isaWithSection = setSection(run.isa, SECTION_NAME_MAP.criteria, renderCriteriaMarkdown(updatedCriteria));
   const entry = logEntry(getRunPhase(run), `${criterionId}: ${status}. ${evidence}`, timestamp);
   const isaWithRecompute: IdealStateArtifact = {
     ...isaWithSection,
@@ -292,12 +288,18 @@ function assertGate(run: AlgorithmRun, target: AlgorithmPhase): void {
     case "observe":
       throw new Error("Algorithm cannot transition back to OBSERVE.");
     case "abandoned":
-      break;
+      // abandoned is terminal — only reachable through abandonAlgorithmRun, never via advanceAlgorithmRun.
+      throw new Error("Algorithm cannot advance to ABANDONED; use abandonAlgorithmRun.");
   }
 }
 
 export function advanceAlgorithmRun(run: AlgorithmRun, timestamp = new Date().toISOString()): AlgorithmRun {
-  const target = nextAlgorithmPhase(getRunPhase(run));
+  const current = getRunPhase(run);
+  if (current === "abandoned") {
+    throw new Error("Algorithm run was abandoned and cannot advance.");
+  }
+
+  const target = nextAlgorithmPhase(current);
 
   if (!target) {
     throw new Error("Algorithm run is already complete.");
