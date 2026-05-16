@@ -18,7 +18,8 @@ import {
  */
 export function renderPathGuardExtension(somaHome: string): string {
   return `import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { basename, isAbsolute, relative, resolve } from "node:path";
+import { existsSync, realpathSync } from "node:fs";
+import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 
 const SOMA_HOME = ${JSON.stringify(somaHome)};
 const PROTECTED_PATHS = ${JSON.stringify(SOMA_DEFAULT_PROTECTED_PATHS, null, 2)};
@@ -44,10 +45,30 @@ function isInside(path: string, root: string): boolean {
   return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
-function isProtected(target: string): { blocked: boolean; detail: string } {
-  const resolved = resolve(expandTilde(target));
+function realScopePath(path: string): string {
+  let cursor = path;
+  const suffix: string[] = [];
+
+  while (!existsSync(cursor)) {
+    const parent = dirname(cursor);
+    if (parent === cursor) return path;
+    suffix.unshift(cursor.slice(parent.length + 1));
+    cursor = parent;
+  }
+
+  try {
+    const realCursor = realpathSync(cursor);
+    return suffix.length > 0 ? resolve(realCursor, ...suffix) : realCursor;
+  } catch {
+    return path;
+  }
+}
+
+function isProtected(target: string, cwd = process.cwd()): { blocked: boolean; detail: string } {
+  const expanded = expandTilde(target);
+  const resolved = realScopePath(resolve(isAbsolute(expanded) ? expanded : resolve(cwd, expanded)));
   for (const pp of PROTECTED_PATHS) {
-    const root = resolve(expandTilde(pp.path));
+    const root = realScopePath(resolve(expandTilde(pp.path)));
     if (isInside(resolved, root)) {
       return { blocked: true, detail: target + " is under " + pp.path + " (" + pp.description + ")" };
     }
@@ -191,6 +212,7 @@ function extractFromSegment(tokens: string[], cwd: string, depth: number): strin
     const targets: string[] = [];
     for (let i = cmdIndex + 1; i < tokens.length; i++) {
       const token = tokens[i];
+      if (token === "-H" || token === "-L" || token === "-P") continue;
       if (token.startsWith("-")) break;
       targets.push(resolveTarget(token, cwd));
     }
@@ -257,7 +279,8 @@ export default function (pi: ExtensionAPI) {
       const targetPath = input?.file_path ?? input?.path;
       if (!targetPath) return;
 
-      const result = isProtected(targetPath);
+      const cwd = (ctx as { cwd?: string }).cwd ?? process.cwd();
+      const result = isProtected(targetPath, cwd);
       if (result.blocked) {
         const msg = "Soma path guard blocked write to protected path: " + result.detail + ".";
         ctx.ui?.notify?.(msg, "error");

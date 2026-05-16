@@ -29,6 +29,22 @@ test("pi.dev adapter builds an extension-shaped context bundle", () => {
   expectPortableSemantics(bundle);
 });
 
+test("pi.dev adapter requires HOME when SOMA_HOME is unset", () => {
+  const originalHome = process.env.HOME;
+  const originalSomaHome = process.env.SOMA_HOME;
+
+  try {
+    delete process.env.HOME;
+    delete process.env.SOMA_HOME;
+    expect(() => buildPiDevContext(portableContextInput)).toThrow("HOME must be set");
+  } finally {
+    if (originalHome === undefined) delete process.env.HOME;
+    else process.env.HOME = originalHome;
+    if (originalSomaHome === undefined) delete process.env.SOMA_HOME;
+    else process.env.SOMA_HOME = originalSomaHome;
+  }
+});
+
 test("claude code adapter builds a claude-shaped context bundle", () => {
   const bundle = buildClaudeCodeContext(portableContextInput);
 

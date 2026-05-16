@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -183,6 +183,15 @@ test("parses find -delete target paths", () => {
   expect(result.targetPaths[0]).toContain(".soma");
 });
 
+test("parses find global options before target paths", () => {
+  const protectedRef = "~/." + "soma";
+  const result = parseBashDestructivePaths(`find -L ${protectedRef} -name '*.tmp' -delete`, "/tmp");
+
+  expect(result.command).toBe("find");
+  expect(result.targetPaths).toHaveLength(1);
+  expect(result.targetPaths[0]).toContain(".soma");
+});
+
 test("expands HOME variables before resolving targets", () => {
   const result = parseBashDestructivePaths("rm -rf $HOME/.soma", "/tmp");
 
@@ -262,6 +271,24 @@ test("allows rm on unprotected relative path", () => {
   });
 
   expect(result.blocked).toBe(false);
+});
+
+test("blocks symlinks resolving into protected paths", async () => {
+  await withTempHome(async (homeDir) => {
+    const protectedDir = join(homeDir, "protected");
+    const linkPath = join(homeDir, "link-to-protected");
+    await mkdir(protectedDir, { recursive: true });
+    await symlink(protectedDir, linkPath);
+
+    const result = evaluatePathGuard({
+      targetPaths: [linkPath],
+      cwd: homeDir,
+      action: "delete",
+      protectedPaths: [{ path: protectedDir, description: "protected" }],
+    });
+
+    expect(result.blocked).toBe(true);
+  });
 });
 
 test("blocks modify on write to protected path", () => {
@@ -510,7 +537,8 @@ test("generates pi.dev path guard extension", () => {
   const extension = renderPathGuardExtension("/test/home/.soma");
 
   expect(extension).toContain("import type { ExtensionAPI }");
-  expect(extension).toContain('import { basename, isAbsolute, relative, resolve } from "node:path"');
+  expect(extension).toContain('import { existsSync, realpathSync } from "node:fs"');
+  expect(extension).toContain('import { basename, dirname, isAbsolute, relative, resolve } from "node:path"');
   expect(extension).not.toContain("require(");
   expect(extension).toContain("DESTRUCTIVE_DELETE");
   expect(extension).toContain("rm");
@@ -561,14 +589,17 @@ test("generated pi.dev guard extension handles env.HOME reference", () => {
   expect(extension).toContain('if (path === "$HOME") return home;');
 });
 
-test("generated pi.dev guard blocks absolute destructive commands and mv sources", async () => {
+test("generated pi.dev guard blocks absolute destructive commands, mv sources, and relative write paths", async () => {
   const extension = renderPathGuardExtension("/test/home/.soma");
   const tmpDir = await mkdtemp(join(tmpdir(), "soma-guard-ext-runtime-"));
   const extPath = join(tmpDir, "soma-path-guard.ts");
+  const originalHome = process.env.HOME;
   const protectedRef = "~/." + "soma/secret.md";
-  let handler: ((event: { toolName: string; input?: { command?: string } }, ctx: { cwd?: string; ui?: { notify?: (message: string, level: string) => void } }) => unknown) | undefined;
+  let handler: ((event: { toolName: string; input?: { command?: string; file_path?: string } }, ctx: { cwd?: string; ui?: { notify?: (message: string, level: string) => void } }) => unknown) | undefined;
 
   try {
+    process.env.HOME = tmpDir;
+    await mkdir(join(tmpDir, ".soma"), { recursive: true });
     await writeFile(extPath, extension, "utf8");
     const mod = (await import(pathToFileURL(extPath).href)) as {
       default: (pi: { on: (event: "tool_call", cb: NonNullable<typeof handler>) => void }) => void;
@@ -581,10 +612,14 @@ test("generated pi.dev guard blocks absolute destructive commands and mv sources
 
     const rmResult = await handler?.({ toolName: "bash", input: { command: `/bin/rm -rf ${protectedRef}` } }, { cwd: "/tmp" });
     const mvResult = await handler?.({ toolName: "bash", input: { command: `mv safe.txt ${protectedRef} /tmp/backup/` } }, { cwd: "/tmp" });
+    const writeResult = await handler?.({ toolName: "write", input: { file_path: ".soma/secret.md" } }, { cwd: tmpDir });
 
     expect(rmResult).toMatchObject({ block: true });
     expect(mvResult).toMatchObject({ block: true });
+    expect(writeResult).toMatchObject({ block: true });
   } finally {
+    if (originalHome === undefined) delete process.env.HOME;
+    else process.env.HOME = originalHome;
     await rm(tmpDir, { recursive: true, force: true });
   }
 });

@@ -1,5 +1,6 @@
+import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { SomaProtectedPath } from "./types";
 
 // ── Default Protected Paths ──
@@ -131,18 +132,38 @@ function resolvePath(token: string, cwd: string): string {
 }
 
 function findProtectedPath(resolvedPath: string, protectedPaths: readonly SomaProtectedPath[], action: "delete" | "modify"): SomaProtectedPath | undefined {
+  const realResolvedPath = realScopePath(resolvedPath);
   for (const pp of protectedPaths) {
     if (action === "delete" && pp.guardDelete === false) continue;
     if (action === "modify" && pp.guardModify === false) continue;
 
-    const protectedRoot = resolve(expandTilde(pp.path));
-    const rel = relative(protectedRoot, resolvedPath);
+    const protectedRoot = realScopePath(resolve(expandTilde(pp.path)));
+    const rel = relative(protectedRoot, realResolvedPath);
     if (rel === "" || (!rel.startsWith("..") && !isAbsolute(rel))) {
       return pp;
     }
   }
 
   return undefined;
+}
+
+function realScopePath(path: string): string {
+  let cursor = path;
+  const suffix: string[] = [];
+
+  while (!existsSync(cursor)) {
+    const parent = dirname(cursor);
+    if (parent === cursor) return path;
+    suffix.unshift(cursor.slice(parent.length + 1));
+    cursor = parent;
+  }
+
+  try {
+    const realCursor = realpathSync(cursor);
+    return suffix.length > 0 ? resolve(realCursor, ...suffix) : realCursor;
+  } catch {
+    return path;
+  }
 }
 
 export interface SomaBashCommandParseResult {
@@ -223,6 +244,7 @@ function parseTokenSegment(tokens: string[], cwd: string, depth: number): SomaBa
     if (hasDelete) {
       for (let i = cmdIndex + 1; i < tokens.length; i++) {
         const token = tokens[i];
+        if (token === "-H" || token === "-L" || token === "-P") continue;
         if (isFlag(token)) break;
         targetPaths.push(resolvePath(token, cwd));
       }
