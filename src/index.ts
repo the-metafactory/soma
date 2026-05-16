@@ -184,6 +184,17 @@ export { importPaiPack, planPaiPackImport } from "./pai-pack-importer";
 export { checkSomaPolicy, checkSomaPolicyBatch } from "./policy-audit";
 export { evaluateSomaPolicy } from "./policy";
 export { bootstrapSomaHome, loadSomaHome } from "./soma-home";
+// Algorithm ↔ ISA bridge (#39) — advisory, non-blocking.
+export {
+  markIsaVerifiedFromCriteria,
+  recordAlgorithmIsaChange,
+  recordAlgorithmIsaDecision,
+  suggestIsaAtObserve,
+  type AlgorithmIsaOptions,
+  type HintConfig,
+  type PromptShape,
+  type SuggestIsaResult,
+} from "./algorithm-isa-bridge";
 // ISA library API (#34) — cohesive public surface only.
 // Storage-layout helpers (activeStatePath, isaDir, isaPath) stay internal
 // to `./isa` so on-disk layout can evolve without breaking consumers
