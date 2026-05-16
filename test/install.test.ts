@@ -35,6 +35,7 @@ interface CodexHookTestOutput {
   hookSpecificOutput?: {
     additionalContext?: string;
     permissionDecision?: string;
+    permissionDecisionReason?: string;
     statusMessage?: string;
   };
 }
@@ -642,6 +643,243 @@ test("installed codex hook allows mixed apply_patch when only private destinatio
   });
 });
 
+test("installed codex hook allows memory writes that reference private memory paths", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const target = join(homeDir, ".codex/memories/MEMORY.md");
+    const projectedContext = join(homeDir, ".codex/memories/soma/startup-context.md");
+    const input = {
+      tool_name: "Write",
+      tool_input: {
+        file_path: target,
+        content: `Operational memory note: read ${projectedContext} before Soma work.`,
+      },
+    };
+    const result = runCodexPreToolUseHook(hook, homeDir, input);
+
+    expect(result.status).toBe(0);
+    expect(result.output.continue).toBe(true);
+    expect(result.output.hookSpecificOutput?.permissionDecision).toBeUndefined();
+  });
+});
+
+test("installed codex hook denies destructive shell deletes of memory roots", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const result = runCodexPreToolUseHook(hook, homeDir, {
+      cwd: homeDir,
+      tool_name: "Shell",
+      tool_input: {
+        command: "rm -rf ~/.codex/memories",
+      },
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.output.hookSpecificOutput?.permissionDecision).toBe("deny");
+    expect(result.output.hookSpecificOutput?.permissionDecisionReason).toContain("delete blocked");
+  });
+});
+
+test("installed codex hook denies relative deletes from memory root parents", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const result = runCodexPreToolUseHook(hook, homeDir, {
+      cwd: join(homeDir, ".codex"),
+      tool_name: "Shell",
+      tool_input: {
+        command: "rm -rf memories",
+      },
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.output.hookSpecificOutput?.permissionDecision).toBe("deny");
+    expect(result.output.hookSpecificOutput?.permissionDecisionReason).toContain("delete blocked");
+  });
+});
+
+test("installed codex hook denies HOME-variable deletes of memory roots", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const result = runCodexPreToolUseHook(hook, homeDir, {
+      cwd: homeDir,
+      tool_name: "Shell",
+      tool_input: {
+        command: "rm -rf $HOME/" + ".codex/memories",
+      },
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.output.hookSpecificOutput?.permissionDecision).toBe("deny");
+    expect(result.output.hookSpecificOutput?.permissionDecisionReason).toContain("delete blocked");
+  });
+});
+
+test("installed codex hook denies destructive shell wrapper deletes of memory roots", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const result = runCodexPreToolUseHook(hook, homeDir, {
+      cwd: homeDir,
+      tool_name: "Shell",
+      tool_input: {
+        command: 'zsh -lc "rm -rf ~/.codex/memories"',
+      },
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.output.hookSpecificOutput?.permissionDecision).toBe("deny");
+    expect(result.output.hookSpecificOutput?.permissionDecisionReason).toContain("delete blocked");
+  });
+});
+
+test("installed codex hook denies separated shell flag wrapper deletes of memory roots", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const result = runCodexPreToolUseHook(hook, homeDir, {
+      cwd: homeDir,
+      tool_name: "Shell",
+      tool_input: {
+        command: 'zsh -l -c "rm -rf ~/' + '.codex/memories"',
+      },
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.output.hookSpecificOutput?.permissionDecision).toBe("deny");
+    expect(result.output.hookSpecificOutput?.permissionDecisionReason).toContain("delete blocked");
+  });
+});
+
+test("installed codex hook denies clustered shell flag wrapper deletes of memory roots", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const result = runCodexPreToolUseHook(hook, homeDir, {
+      cwd: homeDir,
+      tool_name: "Shell",
+      tool_input: {
+        command: 'zsh -elc "rm -rf ~/' + '.codex/memories"',
+      },
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.output.hookSpecificOutput?.permissionDecision).toBe("deny");
+    expect(result.output.hookSpecificOutput?.permissionDecisionReason).toContain("delete blocked");
+  });
+});
+
+test("installed codex hook denies find-delete of memory roots", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const result = runCodexPreToolUseHook(hook, homeDir, {
+      cwd: homeDir,
+      tool_name: "Shell",
+      tool_input: {
+        command: "find ~/" + ".codex/memories -delete",
+      },
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.output.hookSpecificOutput?.permissionDecision).toBe("deny");
+    expect(result.output.hookSpecificOutput?.permissionDecisionReason).toContain("delete blocked");
+  });
+});
+
+test("installed codex hook denies parent find-delete of memory roots", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const result = runCodexPreToolUseHook(hook, homeDir, {
+      cwd: homeDir,
+      tool_name: "Shell",
+      tool_input: {
+        command: "find ~/" + ".codex -name memories -delete",
+      },
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.output.hookSpecificOutput?.permissionDecision).toBe("deny");
+    expect(result.output.hookSpecificOutput?.permissionDecisionReason).toContain("delete blocked");
+  });
+});
+
+test("installed codex hook ignores unrelated shell flags before command payload", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const result = runCodexPreToolUseHook(hook, homeDir, {
+      cwd: homeDir,
+      tool_name: "Shell",
+      tool_input: {
+        command: "zsh --command-timeout 10 -c \"rm -rf ~/" + ".codex/memories\"",
+      },
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.output.hookSpecificOutput?.permissionDecision).toBe("deny");
+    expect(result.output.hookSpecificOutput?.permissionDecisionReason).toContain("delete blocked");
+  });
+});
+
+test("installed codex hook denies sudo-option destructive deletes of memory roots", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const result = runCodexPreToolUseHook(hook, homeDir, {
+      cwd: homeDir,
+      tool_name: "Shell",
+      tool_input: {
+        command: "sudo -n rm -rf ~/" + ".codex/memories",
+      },
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.output.hookSpecificOutput?.permissionDecision).toBe("deny");
+    expect(result.output.hookSpecificOutput?.permissionDecisionReason).toContain("delete blocked");
+  });
+});
+
+test("installed codex hook allows shell moves into memory roots", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const result = runCodexPreToolUseHook(hook, homeDir, {
+      cwd: homeDir,
+      tool_name: "Shell",
+      tool_input: {
+        command: "mv ./note ~/" + ".codex/memories/note",
+      },
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.output.continue).toBe(true);
+    expect(result.output.hookSpecificOutput?.permissionDecision).toBeUndefined();
+  });
+});
+
+test("installed codex hook denies apply_patch deletes inside memory roots", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const target = join(homeDir, ".codex/memories/MEMORY.md");
+    const patch = ["*** Begin Patch", `*** Delete File: ${target}`, "*** End Patch"].join("\n");
+    const result = runCodexPreToolUseHook(hook, homeDir, {
+      cwd: homeDir,
+      tool_name: "apply_patch",
+      tool_input: patch,
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.output.hookSpecificOutput?.permissionDecision).toBe("deny");
+    expect(result.output.hookSpecificOutput?.permissionDecisionReason).toContain("delete blocked");
+  });
+});
+
 test("installed codex hook checks explicit soma home markers", async () => {
   await withTempHome(async (homeDir) => {
     const somaHome = join(homeDir, "private-soma-home");
@@ -712,6 +950,43 @@ test("installed codex hook denies shell copies from relative private Soma paths"
 
     expect(result.status).toBe(0);
     expect(result.output.hookSpecificOutput?.permissionDecision).toBe("deny");
+  });
+});
+
+test("installed codex hook denies private shell copies in later command segments", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const result = runCodexPreToolUseHook(hook, homeDir, {
+      cwd: homeDir,
+      tool_name: "Shell",
+      tool_input: {
+        command: "echo ok && cp ~/" + ".soma/memory/WORK/private.md ./README.md",
+      },
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.output.hookSpecificOutput?.permissionDecision).toBe("deny");
+  });
+});
+
+test("installed codex hook denies piped private shell writes", async () => {
+  await withTempHome(async (homeDir) => {
+    const somaHome = join(homeDir, "private-soma-home");
+    const substrateHome = join(homeDir, "codex-home");
+    await installSomaForCodex({ somaHome, substrateHome });
+    const hook = join(substrateHome, "hooks/soma-lifecycle.mjs");
+    const result = runCodexPreToolUseHook(hook, substrateHome, {
+      cwd: homeDir,
+      tool_name: "Shell",
+      tool_input: {
+        command: "cat " + join(somaHome, "memory/WORK/private.md") + " | tee ./public.md",
+      },
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.output.hookSpecificOutput?.permissionDecision).toBe("deny");
+    expect(result.output.hookSpecificOutput?.permissionDecisionReason).toContain("Private Soma context");
   });
 });
 
