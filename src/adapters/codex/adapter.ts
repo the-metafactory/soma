@@ -426,10 +426,6 @@ export function buildCodexHomeContext(input: SomaContextInput, somaHome: string,
         content: renderHomeSkill(input, somaHome),
       },
       {
-        path: "skills/the-algorithm/SKILL.md",
-        content: renderAlgorithmRenderingContract(),
-      },
-      {
         path: "memories/soma/profile.md",
         content: ["# Soma Profile Projection", "", renderAssistantCore(input)].join("\n"),
       },
@@ -454,6 +450,10 @@ export function buildCodexHomeContext(input: SomaContextInput, somaHome: string,
         content: renderCodexPolicy(),
       },
       ...portableSkillFiles,
+      {
+        path: "skills/the-algorithm/SKILL.md",
+        content: renderAlgorithmRenderingContract(),
+      },
     ],
   };
 }
