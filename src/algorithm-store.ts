@@ -78,11 +78,17 @@ interface LegacyIsa {
   criteria: IdealStateCriterion[];
 }
 
-interface LegacyAlgorithmRun {
+// LegacyAlgorithmRun = pre-#41 on-disk shape. Derived from AlgorithmRun so
+// field additions propagate; only the diverging fields (`phase` lived at
+// the top level, `isa` carried embedded `{ phase, goal, criteria }`,
+// `intent` was required) are overridden.
+type LegacyAlgorithmRun = Omit<
+  Partial<AlgorithmRun>,
+  "schemaVersion" | "isa" | "phase" | "intent"
+> & {
   id: string;
   createdAt: string;
   updatedAt: string;
-  substrate?: AlgorithmRun["substrate"];
   prompt: string;
   intent?: string;
   effort: AlgorithmEffortTier;
@@ -92,15 +98,8 @@ interface LegacyAlgorithmRun {
   currentState: string;
   phase?: AlgorithmPhase;
   isa: LegacyIsa;
-  antiCriteria?: IdealStateCriterion[];
-  capabilities?: string[];
-  planSteps?: AlgorithmRun["planSteps"];
-  decisions?: AlgorithmRun["decisions"];
-  changelog?: AlgorithmRun["changelog"];
-  verification?: AlgorithmRun["verification"];
-  learning?: AlgorithmRun["learning"];
   schemaVersion?: 1 | 2;
-}
+};
 
 /**
  * Compat shim — accepts both pre-#41 (schemaVersion 1, embedded `{ goal, criteria }`)

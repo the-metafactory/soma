@@ -8,7 +8,7 @@ import type {
   IsaFrontmatter,
   IsaSection,
 } from "./types";
-import { recomputeProgress, recomputeVerified } from "./isa-accessors";
+import { getCriteria, progressFromCriteria, verifiedFromCriteria } from "./isa-accessors";
 
 /**
  * Round-trip contract: parseIsa → serializeIsa produces **semantic equivalence**
@@ -98,12 +98,11 @@ function renderSection(section: IsaSection): string {
 }
 
 function withRecomputedDerived(isa: IdealStateArtifact): IsaFrontmatter {
-  const progress = recomputeProgress(isa);
-  const verified = recomputeVerified(isa);
+  const criteria = getCriteria(isa);
   return {
     ...isa.frontmatter,
-    progress,
-    verified,
+    progress: progressFromCriteria(criteria),
+    verified: verifiedFromCriteria(criteria),
   };
 }
 
