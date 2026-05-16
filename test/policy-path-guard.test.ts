@@ -225,6 +225,29 @@ test("parses shell redirection targets as destructive writes", () => {
   expect(result.targetPaths[0]).toContain(".soma/profile.md");
 });
 
+test("parses subshell-expanded protected path tokens conservatively", () => {
+  const protectedRef = "~/." + "soma";
+  const result = parseBashDestructivePaths(`rm -rf $(echo ${protectedRef})`, "/tmp");
+
+  expect(result.command).toBe("rm");
+  expect(result.targetPaths.some((target) => target.includes(".soma"))).toBe(true);
+});
+
+test("parses destructive write command destinations", () => {
+  const protectedRef = "~/." + "soma/profile.md";
+
+  expect(parseBashDestructivePaths(`cp /dev/null ${protectedRef}`, "/tmp").targetPaths[0]).toContain(".soma/profile.md");
+  expect(parseBashDestructivePaths(`dd if=/dev/null of=${protectedRef}`, "/tmp").targetPaths[0]).toContain(".soma/profile.md");
+  expect(parseBashDestructivePaths(`tee ${protectedRef}`, "/tmp").targetPaths[0]).toContain(".soma/profile.md");
+});
+
+test("does not treat redirect operands as rm targets", () => {
+  const result = parseBashDestructivePaths("rm -rf target > logfile", "/tmp");
+
+  expect(result.command).toBe("rm");
+  expect(result.targetPaths).toEqual([resolve("/tmp/target"), resolve("/tmp/logfile")]);
+});
+
 test("detects glob pattern rm *", () => {
   const result = parseBashDestructivePaths("rm -rf *", join(process.env.HOME ?? "/tmp", ".soma"));
 
@@ -642,7 +665,7 @@ test("generated pi.dev guard blocks destructive commands, redirections, mv sourc
       },
     });
 
-    const rmResult = await handler?.({ toolName: "bash", input: { command: `/bin/rm -rf ${protectedRef}` } }, { cwd: "/tmp" });
+    const rmResult = await handler?.({ toolName: "BASH", input: { command: `/bin/rm -rf ${protectedRef}` } }, { cwd: "/tmp" });
     const mvResult = await handler?.({ toolName: "bash", input: { command: `mv safe.txt ${protectedRef} /tmp/backup/` } }, { cwd: "/tmp" });
     const redirectResult = await handler?.({ toolName: "bash", input: { command: `cat /dev/null > ${protectedRef}` } }, { cwd: "/tmp" });
     const writeResult = await handler?.({ toolName: "write", input: { file_path: ".soma/secret.md" } }, { cwd: tmpDir });

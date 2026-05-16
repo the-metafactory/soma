@@ -135,7 +135,6 @@ export { importPaiIdentity, planPaiImport } from "./pai-importer";
 export { importPaiPack, planPaiPackImport } from "./pai-pack-importer";
 export { checkSomaPolicy, checkSomaPolicyBatch } from "./policy-audit";
 export { evaluateSomaPolicy } from "./policy";
-export { evaluatePathGuard, parseBashDestructivePaths, SOMA_DEFAULT_PROTECTED_PATHS } from "./policy-path-guard";
 export { bootstrapSomaHome, loadSomaHome } from "./soma-home";
 
 export const SOMA_VERSION = "0.1.3";

@@ -43,8 +43,9 @@ function blockedTargets(targets: string[], cwd: string, action: "delete" | "modi
 export default function (pi: ExtensionAPI) {
   pi.on("tool_call", async (event, ctx) => {
     const cwd = (ctx as { cwd?: string }).cwd ?? process.cwd();
+    const toolName = event.toolName.toLowerCase();
 
-    if (event.toolName === "bash" || event.toolName === "Bash") {
+    if (toolName === "bash") {
       const input = (event as { input?: { command?: string; timeout?: number } }).input;
       if (!input?.command) return;
 
@@ -58,8 +59,7 @@ export default function (pi: ExtensionAPI) {
       }
     }
 
-    if (event.toolName === "write" || event.toolName === "Write" ||
-        event.toolName === "edit" || event.toolName === "Edit") {
+    if (toolName === "write" || toolName === "edit") {
       const input = (event as { input?: { file_path?: string; path?: string } }).input;
       const targetPath = input?.file_path ?? input?.path;
       if (!targetPath) return;

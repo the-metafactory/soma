@@ -24,6 +24,8 @@ export const DESTRUCTIVE_COMMANDS = new Set(["rm", "rmdir", "trash", "trash-put"
 
 export const DESTRUCTIVE_MOVE_COMMANDS = new Set(["mv"]);
 
+const DESTRUCTIVE_WRITE_COMMANDS = new Set(["cp", "dd", "tee"]);
+
 export const NON_DESTRUCTIVE_PREFIXES = new Set(["sudo", "bun", "node", "npx", "bunx", "time", "nice", "exec", "env", "nohup", "command"]);
 
 const SHELL_WRAPPER_COMMANDS = new Set(["bash", "sh", "zsh"]);
@@ -35,6 +37,7 @@ function cleanToken(token: string): string {
   if ((cleaned.startsWith("\u0022") && cleaned.endsWith("\u0022")) || (cleaned.startsWith("'") && cleaned.endsWith("'"))) {
     cleaned = cleaned.slice(1, -1);
   }
+  cleaned = cleaned.replace(/^\$\(/, "").replace(/\)$/, "").replace(/^`/, "").replace(/`$/, "");
   cleaned = cleaned.replace(/^[<>]+/, "").replace(/[<>]+$/, "");
   return cleaned;
 }
@@ -154,13 +157,23 @@ function findProtectedPath(resolvedPath: string, protectedPaths: readonly SomaPr
     if (action === "delete" && pp.guardDelete === false) continue;
     if (action === "modify" && pp.guardModify === false) continue;
 
-    const protectedRoot = realScopePath(resolve(expandTilde(pp.path)));
+    const protectedRoot = realProtectedRoot(resolve(expandTilde(pp.path)));
     if (isInsidePath(realResolvedPath, protectedRoot)) {
       return pp;
     }
   }
 
   return undefined;
+}
+
+const protectedRootCache = new Map<string, string>();
+
+function realProtectedRoot(path: string): string {
+  const cached = protectedRootCache.get(path);
+  if (cached) return cached;
+  const realPath = realScopePath(path);
+  protectedRootCache.set(path, realPath);
+  return realPath;
 }
 
 function realScopePath(path: string): string {
@@ -266,7 +279,7 @@ function parseTokenSegment(tokens: string[], cwd: string, depth: number): SomaBa
   }
 
   if (depth < 4 && XARGS_COMMANDS.has(mainCommand)) {
-    const nestedIndex = tokens.findIndex((token, index) => index > cmdIndex && (DESTRUCTIVE_COMMANDS.has(token) || DESTRUCTIVE_MOVE_COMMANDS.has(token)));
+    const nestedIndex = tokens.findIndex((token, index) => index > cmdIndex && (DESTRUCTIVE_COMMANDS.has(token) || DESTRUCTIVE_MOVE_COMMANDS.has(token) || DESTRUCTIVE_WRITE_COMMANDS.has(token)));
     if (nestedIndex !== -1) {
       return parseTokenSegment(tokens.slice(nestedIndex), cwd, depth + 1);
     }
@@ -287,7 +300,7 @@ function parseTokenSegment(tokens: string[], cwd: string, depth: number): SomaBa
     return { command: mainCommand, targetPaths: [...targetPaths, ...redirectedPaths] };
   }
 
-  if (!DESTRUCTIVE_COMMANDS.has(mainCommand) && !DESTRUCTIVE_MOVE_COMMANDS.has(mainCommand)) {
+  if (!DESTRUCTIVE_COMMANDS.has(mainCommand) && !DESTRUCTIVE_MOVE_COMMANDS.has(mainCommand) && !DESTRUCTIVE_WRITE_COMMANDS.has(mainCommand)) {
     return { command: mainCommand, targetPaths: redirectedPaths };
   }
 
@@ -301,9 +314,28 @@ function parseTokenSegment(tokens: string[], cwd: string, depth: number): SomaBa
     };
   }
 
+  if (DESTRUCTIVE_WRITE_COMMANDS.has(mainCommand)) {
+    if (mainCommand === "dd") {
+      const output = tokens.find((token) => token.startsWith("of="));
+      return {
+        command: mainCommand,
+        targetPaths: output ? [resolvePath(output.slice("of=".length), cwd), ...redirectedPaths] : redirectedPaths,
+      };
+    }
+    const targets = mainCommand === "tee" ? pathArgs : pathArgs.slice(-1);
+    return {
+      command: mainCommand,
+      targetPaths: [...targets.map((target) => resolvePath(target, cwd)), ...redirectedPaths],
+    };
+  }
+
   for (let i = cmdIndex + 1; i < tokens.length; i++) {
     const token = tokens[i];
     if (isFlag(token)) continue;
+    if (token === ">" || token === ">>") {
+      i++;
+      continue;
+    }
     targetPaths.push(resolveGlobPath(token, cwd));
   }
 
