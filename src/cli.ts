@@ -155,6 +155,7 @@ interface ParsedPolicyArgs {
 
 interface ParsedHelpArgs {
   command: "help";
+  topic: string[];
 }
 
 type ParsedArgs =
@@ -168,6 +169,64 @@ type ParsedArgs =
   | ParsedPolicyArgs;
 
 const TOP_LEVEL_COMMANDS = ["algorithm", "feedback", "import", "install", "lifecycle", "memory", "policy"] as const;
+const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string, string> }> = {
+  algorithm: {
+    usage: "Usage: soma algorithm <new|classify|list|show|capabilities|plan|decision|change|step|verify|learn|batch|advance> ...",
+    subcommands: {
+      new: "Usage: soma algorithm new --prompt <text> --intent <text> --current-state <text> --goal <text> --criterion <id:text> [--effort <E1|E2|E3|E4|E5>] [--home-dir <dir>] [--soma-home <dir>]",
+      classify: "Usage: soma algorithm classify --prompt <text>",
+      batch: "Usage: soma algorithm batch --id <run-id> --op <kind:...> [--op <kind:...>]",
+      list: "Usage: soma algorithm list [--home-dir <dir>] [--soma-home <dir>]",
+      show: "Usage: soma algorithm show --id <run-id> [--home-dir <dir>] [--soma-home <dir>]",
+      capabilities: "Usage: soma algorithm capabilities --id <run-id> --capability <name> [--home-dir <dir>] [--soma-home <dir>]",
+      plan: "Usage: soma algorithm plan --id <run-id> --step <id:criteria:text> [--home-dir <dir>] [--soma-home <dir>]",
+      decision: "Usage: soma algorithm decision --id <run-id> --text <text> [--home-dir <dir>] [--soma-home <dir>]",
+      change: "Usage: soma algorithm change --id <run-id> --text <text> [--home-dir <dir>] [--soma-home <dir>]",
+      step: "Usage: soma algorithm step --id <run-id> --step-id <id> --status <open|done|blocked|dropped> [--evidence <text>]",
+      verify: "Usage: soma algorithm verify --id <run-id> --criterion-id <id> --status <passed|failed|dropped> --evidence <text>",
+      learn: "Usage: soma algorithm learn --id <run-id> --text <text> [--home-dir <dir>] [--soma-home <dir>]",
+      advance: "Usage: soma algorithm advance --id <run-id> [--home-dir <dir>] [--soma-home <dir>]",
+    },
+  },
+  memory: {
+    usage: "Usage: soma memory <search|promote> ...",
+    subcommands: {
+      search: "Usage: soma memory search --query <text> [--limit <n>] [--home-dir <dir>] [--soma-home <dir>]",
+      promote: "Usage: soma memory promote --from-run <run-id> --store <learning|knowledge|relationship|work> --title <text> [--lesson <text>] [--applies-when <text>]",
+    },
+  },
+  feedback: {
+    usage: "Usage: soma feedback capture (--text <text> | --stdin) [--substrate <id>] [--source <source>] [--store-excerpt]",
+    subcommands: {
+      capture: "Usage: soma feedback capture (--text <text> | --stdin) [--substrate <id>] [--source <source>] [--store-excerpt]",
+    },
+  },
+  policy: {
+    usage: "Usage: soma policy check --action write --destination <path> [--content <text>|--content-env <name>] [--source <path>] [--substrate <id>] [--record <all|deny|none>] [--json]",
+    subcommands: {
+      check:
+        "Usage: soma policy check --action write --destination <path> [--content <text>|--content-env <name>] [--source <path>] [--substrate <id>] [--record <all|deny|none>] [--json]",
+    },
+  },
+  lifecycle: {
+    usage: "Usage: soma lifecycle <session-start|algorithm-updated|session-end> [--home-dir <dir>] [--soma-home <dir>] [--substrate <id>] [--session-id <id>]",
+  },
+  install: {
+    usage: "Usage: soma install <codex|pi-dev> [--dry-run] [--apply] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
+    subcommands: {
+      codex: "Usage: soma install codex [--dry-run] [--apply] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
+      "pi-dev": "Usage: soma install pi-dev [--dry-run] [--apply] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
+    },
+  },
+  import: {
+    usage: "Usage: soma import <pai|algorithm|pai-pack> ...",
+    subcommands: {
+      pai: "Usage: soma import pai [--dry-run] [--apply] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>]",
+      algorithm: "Usage: soma import algorithm [--dry-run] [--apply] [--home-dir <dir>] [--pai-algorithm-dir <dir>] [--soma-home <dir>]",
+      "pai-pack": "Usage: soma import pai-pack [--dry-run] [--apply] [--home-dir <dir>] [--source <dir>] [--soma-home <dir>]",
+    },
+  },
+};
 
 function readOption(args: string[], index: number, name: string): string {
   const value = args[index + 1];
@@ -179,11 +238,16 @@ function readOption(args: string[], index: number, name: string): string {
   return value;
 }
 
+function commandUsage(command: string, action?: string): string {
+  const commandHelp = COMMAND_HELP[command] as { usage: string; subcommands?: Record<string, string> } | undefined;
+  return (action ? commandHelp?.subcommands?.[action] : undefined) ?? commandHelp?.usage ?? `Usage: soma ${command} ...`;
+}
+
 function parseInstallArgs(args: string[]): ParsedInstallArgs {
   const [command, substrate, ...rest] = args;
 
   if (command !== "install" || (substrate !== "codex" && substrate !== "pi-dev")) {
-    throw new Error("Usage: soma install <codex|pi-dev> [--dry-run] [--apply] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]");
+    throw new Error(commandUsage("install"));
   }
 
   const options: SomaInstallOptions = {};
@@ -484,9 +548,7 @@ function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
   ]);
 
   if (command !== "algorithm" || !validActions.has(action)) {
-    throw new Error(
-      "Usage: soma algorithm <new|list|show|capabilities|plan|decision|change|step|verify|learn|advance> ...",
-    );
+    throw new Error(commandUsage("algorithm"));
   }
 
   const run: Partial<AlgorithmRunInput> & { criteria: AlgorithmRunInput["criteria"] } = {
@@ -629,9 +691,7 @@ function parseLifecycleArgs(args: string[]): ParsedLifecycleArgs {
   const [command, event, ...rest] = args;
 
   if (command !== "lifecycle" || (event !== "session-start" && event !== "algorithm-updated" && event !== "session-end")) {
-    throw new Error(
-      "Usage: soma lifecycle <session-start|algorithm-updated|session-end> [--home-dir <dir>] [--soma-home <dir>] [--substrate <id>] [--session-id <id>]",
-    );
+    throw new Error(commandUsage("lifecycle"));
   }
 
   const options: SomaLifecycleOptions = {};
@@ -765,7 +825,7 @@ function parseMemoryArgs(args: string[]): ParsedMemoryArgs {
   const [command, action, ...rest] = args;
 
   if (command !== "memory" || (action !== "search" && action !== "promote")) {
-    throw new Error("Usage: soma memory <search|promote> ...");
+    throw new Error(commandUsage("memory"));
   }
 
   if (action === "search") {
@@ -851,7 +911,7 @@ function parseFeedbackArgs(args: string[]): ParsedFeedbackArgs {
   const [command, action, ...rest] = args;
 
   if (command !== "feedback" || action !== "capture") {
-    throw new Error("Usage: soma feedback capture (--text <text> | --stdin) [--substrate <id>] [--source <source>] [--store-excerpt]");
+    throw new Error(commandUsage("feedback", "capture"));
   }
 
   const parsed = parseFeedbackCaptureArgs(rest);
@@ -868,9 +928,7 @@ function parsePolicyArgs(args: string[]): ParsedPolicyArgs {
   const [command, action, ...rest] = args;
 
   if (command !== "policy" || action !== "check") {
-    throw new Error(
-      "Usage: soma policy check --action <write|delete|modify> --destination <path> [--content <text>|--content-env <name>] [--source <path>]",
-    );
+    throw new Error(commandUsage("policy", "check"));
   }
 
   const options: Partial<SomaPolicyCheckOptions> = {};
@@ -976,7 +1034,18 @@ function parsePolicyArgs(args: string[]): ParsedPolicyArgs {
 
 function parseArgs(args: string[]): ParsedArgs {
   if (args.length === 0) {
-    return { command: "help" };
+    return { command: "help", topic: [] };
+  }
+
+  if (isHelpRequest(args)) {
+    const topic = helpTopic(args);
+    const [command] = topic;
+
+    if (command && !TOP_LEVEL_COMMANDS.includes(command as (typeof TOP_LEVEL_COMMANDS)[number])) {
+      throw new Error(renderUnknownCommand(command));
+    }
+
+    return { command: "help", topic };
   }
 
   if (args[0] === "lifecycle") {
@@ -1010,22 +1079,41 @@ function parseArgs(args: string[]): ParsedArgs {
   throw new Error(renderUnknownCommand(args[0]));
 }
 
+function helpTopic(args: string[]): string[] {
+  const helpIndex = args.indexOf("--help");
+  const topicArgs = helpIndex === 0 ? args.slice(1) : args.slice(0, helpIndex);
+
+  const firstFlagIndex = topicArgs.findIndex((arg) => arg.startsWith("--"));
+  return (firstFlagIndex === -1 ? topicArgs : topicArgs.slice(0, firstFlagIndex)).slice(0, 2);
+}
+
+function isHelpRequest(args: string[]): boolean {
+  const helpIndex = args.indexOf("--help");
+  if (helpIndex === -1) return false;
+  if (helpIndex === 0) return true;
+
+  return args.slice(0, helpIndex).every((arg) => !arg.startsWith("--"));
+}
+
 function renderUsage(): string {
+  const usageLines = [...new Set(Object.values(COMMAND_HELP).flatMap((commandHelp) =>
+    [commandHelp.usage, ...Object.values(commandHelp.subcommands ?? {})].map((line) => `  ${line.slice("Usage: ".length)}`),
+  ))];
+
   return [
     "Usage:",
-    "  soma algorithm new --prompt <text> --intent <text> --current-state <text> --goal <text> --criterion <id:text> [--effort <E1|E2|E3|E4|E5>] [--home-dir <dir>] [--soma-home <dir>]",
-    "  soma algorithm classify --prompt <text>",
-    "  soma algorithm batch --id <run-id> --op <kind:...> [--op <kind:...>]",
-    "  soma algorithm <list|show|capabilities|plan|decision|change|step|verify|learn|advance> --id <run-id> [...]",
-    "  soma memory search --query <text> [--limit <n>] [--home-dir <dir>] [--soma-home <dir>]",
-    "  soma memory promote --from-run <run-id> --store <learning|knowledge|relationship|work> --title <text> [--lesson <text>] [--applies-when <text>]",
-    "  soma feedback capture (--text <text> | --stdin) [--substrate <id>] [--source <source>] [--store-excerpt]",
-    "  soma policy check --action <write|delete|modify> --destination <path> [--content <text>|--content-env <name>] [--source <path>] [--substrate <id>] [--protected-path <path>] [--protected-path-name <name>] [--record <all|deny|none>] [--json]",
-    "  soma lifecycle <session-start|algorithm-updated|session-end> [--home-dir <dir>] [--soma-home <dir>] [--substrate <id>] [--session-id <id>]",
-    "  soma install <codex|pi-dev> [--dry-run] [--apply] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
-    "  soma import pai [--dry-run] [--apply] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>]",
-    "  soma import algorithm [--dry-run] [--apply] [--home-dir <dir>] [--pai-algorithm-dir <dir>] [--soma-home <dir>]",
+    ...usageLines,
   ].join("\n");
+}
+
+function renderHelp(topic: string[]): string {
+  const [command, action] = topic;
+
+  if (!command) {
+    return renderUsage();
+  }
+
+  return commandUsage(command, action);
 }
 
 function renderUnknownCommand(command: string): string {
@@ -1514,7 +1602,7 @@ export async function runSomaCli(args: string[]): Promise<string> {
   const parsed = parseArgs(args);
 
   if (parsed.command === "help") {
-    return renderUsage();
+    return renderHelp(parsed.topic);
   }
 
   if (parsed.command === "lifecycle") {
