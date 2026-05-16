@@ -1293,6 +1293,25 @@ function formatPaiPackImportPlan(plan: PaiPackImportPlan): string {
     return acc;
   }, {});
 
+  const normalizationLines: string[] = [];
+  if (plan.normalization.actions.length > 0 || plan.normalization.warnings.length > 0) {
+    normalizationLines.push("", "Normalization:");
+    if (plan.normalization.actions.length > 0) {
+      normalizationLines.push(`  actions: ${plan.normalization.actions.length}`);
+      for (const action of plan.normalization.actions) {
+        normalizationLines.push(`  - [action] ${action.file}: ${action.kind} — ${action.detail}`);
+      }
+    }
+    if (plan.normalization.warnings.length > 0) {
+      normalizationLines.push(`  warnings: ${plan.normalization.warnings.length}`);
+      for (const warning of plan.normalization.warnings) {
+        normalizationLines.push(`  - [warning] ${warning.file}: ${warning.kind} — ${warning.detail}`);
+      }
+    }
+  } else {
+    normalizationLines.push("", "Normalization: no actions, no warnings");
+  }
+
   return [
     "Soma PAI Pack import plan",
     "source: pai-pack",
@@ -1308,6 +1327,7 @@ function formatPaiPackImportPlan(plan: PaiPackImportPlan): string {
     `- template: ${counts.template ?? 0}`,
     `- source-doc: ${counts["source-doc"] ?? 0}`,
     `- substrate-specific: ${counts["substrate-specific"] ?? 0}`,
+    ...normalizationLines,
     "",
     "Files:",
     ...plan.files.map((file) => {
@@ -1320,11 +1340,19 @@ function formatPaiPackImportPlan(plan: PaiPackImportPlan): string {
 function formatPaiPackImportResult(result: PaiPackImportResult): string {
   const quotedSomaHome = quoteShellArg(result.somaHome);
 
+  const normalizationLines: string[] = [];
+  if (result.normalization.actions.length > 0 || result.normalization.warnings.length > 0) {
+    normalizationLines.push("", "Normalization applied:");
+    normalizationLines.push(`  actions: ${result.normalization.actions.length}`);
+    normalizationLines.push(`  warnings: ${result.normalization.warnings.length}`);
+  }
+
   return [
     "Soma PAI Pack import applied",
     `paiPackDir: ${result.paiPackDir}`,
     `somaHome: ${result.somaHome}`,
     `skillName: ${result.skillName}`,
+    ...normalizationLines,
     "",
     "Next step:",
     "Import makes the skill available in Soma. Refresh the target substrate projection before expecting the skill in that substrate.",

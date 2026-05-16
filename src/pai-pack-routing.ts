@@ -1,13 +1,13 @@
 import type { PaiPackImportFile } from "./types";
 
-export type PaiPackRenderMode = "copy" | "skill" | "manifest" | "archive-manifest";
+export type PaiPackRenderMode = "copy" | "skill" | "skill-body" | "manifest" | "archive-manifest";
 export type PaiPackRouteRoot = "skill" | "archive";
 
 export interface PaiPackRoute {
   classification: PaiPackImportFile["classification"];
   root: PaiPackRouteRoot;
   relativePath: string;
-  renderMode: Extract<PaiPackRenderMode, "copy" | "skill">;
+  renderMode: Extract<PaiPackRenderMode, "copy" | "skill" | "skill-body">;
 }
 
 const SOURCE_DOC_TARGETS: Record<string, string> = {
@@ -44,11 +44,23 @@ export function routePaiPackSourceFile(path: string): PaiPackRoute {
   }
 
   if (path === "src/SKILL.md" || PORTABLE_PREFIXES.some((prefix) => path.startsWith(prefix))) {
+    let renderMode: Extract<PaiPackRenderMode, "copy" | "skill" | "skill-body">;
+    if (path === "src/SKILL.md") {
+      // Entry file: normalize body AND rewrite frontmatter to Soma skill identity.
+      renderMode = "skill";
+    } else if (path.endsWith(".md")) {
+      // Workflows/Tools markdown: normalize body ONLY. Preserve original
+      // frontmatter — it isn't the skill entrypoint so it shouldn't
+      // receive the root skill's name/description.
+      renderMode = "skill-body";
+    } else {
+      renderMode = "copy";
+    }
     return {
       classification: "portable",
       root: "skill",
       relativePath: stripSrcPrefix(path),
-      renderMode: path === "src/SKILL.md" ? "skill" : "copy",
+      renderMode,
     };
   }
 

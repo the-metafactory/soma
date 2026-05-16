@@ -2,6 +2,11 @@ import { access, copyFile, lstat, mkdir, readdir, readFile, realpath, rename, rm
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { routePaiPackSourceFile, type PaiPackRenderMode } from "./pai-pack-routing";
+import {
+  generateSomaSkillManifest,
+  mergeNormalizationReports,
+  normalizeSkillContent,
+} from "./pai-pack-normalizer";
 import type {
   PaiPackGeneratedImportFile,
   PaiPackImportFile,
@@ -9,7 +14,9 @@ import type {
   PaiPackImportPlan,
   PaiPackImportResult,
   PaiPackManifest,
+  PaiPackNormalizationReport,
   PaiPackSourceImportFile,
+  SomaSkillManifest,
 } from "./types";
 
 interface PackMetadata {
@@ -41,11 +48,15 @@ const SECRET_FILE_PATTERNS = [
 ];
 
 type RoutedPaiPackImportFile =
-  | (PaiPackSourceImportFile & { renderMode: Extract<PaiPackRenderMode, "copy" | "skill"> })
-  | (PaiPackGeneratedImportFile & { renderMode: Extract<PaiPackRenderMode, "manifest" | "archive-manifest"> });
+  | (PaiPackSourceImportFile & { renderMode: Extract<PaiPackRenderMode, "copy" | "skill" | "skill-body"> })
+  | (PaiPackGeneratedImportFile & {
+      renderMode: Extract<PaiPackRenderMode, "manifest" | "archive-manifest"> | "soma-skill-manifest";
+    });
 
 interface InternalPaiPackImportPlan extends PaiPackImportPlan {
   routedFiles: RoutedPaiPackImportFile[];
+  normalization: PaiPackNormalizationReport;
+  normalizedSkillFiles: Map<string, NormalizedSkillFile>;
 }
 
 function isRoutedSourceFile(file: RoutedPaiPackImportFile): file is Extract<RoutedPaiPackImportFile, { origin: "source" }> {
@@ -289,6 +300,7 @@ function renderManifestForRoot(plan: PaiPackImportPlan, root: string, files: Pai
     skillName: plan.skillName,
     packName: plan.packName,
     description: plan.description,
+    normalization: plan.normalization,
     files: files.map((file) => {
       const manifestFile = {
         target: relative(root, file.target).split(sep).join("/"),
@@ -386,10 +398,43 @@ async function buildPaiPackImportPlan(options: PaiPackImportOptions = {}): Promi
     origin: "source",
   }));
 
+  // AC-4 — preserve every normalized file's original under
+  // imports/pai-packs/<skill>/source/<original-path> so the un-normalized
+  // PAI source remains auditable. Copy mode; never normalized.
+  // Both "skill" (entry SKILL.md) and "skill-body" (Workflows/Tools .md)
+  // get archived — round-3 split introduced skill-body and the archive
+  // loop must follow.
+  for (const { path, route } of routes) {
+    if (route.renderMode === "skill" || route.renderMode === "skill-body") {
+      routedFiles.push({
+        source: join(homes.paiPackDir, path),
+        target: join(homes.somaHome, "imports", "pai-packs", skillName, "source", path),
+        classification: "source-doc",
+        renderMode: "copy",
+        origin: "source",
+      });
+    }
+  }
+
+  // Pre-compute normalization for every skill-rendered file so dry-run can
+  // report actions and warnings without writing. The Map is also re-used by
+  // the apply path (no second read+normalize pass) — Sage round 1 finding.
+  const normalizedSkillFiles = await normalizeSkillFiles(homes.paiPackDir, routedFiles);
+  const normalization = reportFromNormalizedFiles(normalizedSkillFiles.values());
+
   routedFiles.push({
     target: join(homes.somaHome, `skills/${skillName}/soma-pack.json`),
     classification: "portable",
     renderMode: "manifest",
+    origin: "generated",
+    generator: "pai-pack-importer",
+  });
+  // Always emit a runtime skill manifest (soma-skill.json) alongside the
+  // pack provenance manifest.
+  routedFiles.push({
+    target: join(homes.somaHome, `skills/${skillName}/soma-skill.json`),
+    classification: "portable",
+    renderMode: "soma-skill-manifest",
     origin: "generated",
     generator: "pai-pack-importer",
   });
@@ -420,7 +465,55 @@ async function buildPaiPackImportPlan(options: PaiPackImportOptions = {}): Promi
     description: metadata.description,
     files,
     routedFiles,
+    normalization,
+    normalizedSkillFiles,
   };
+}
+
+interface NormalizedSkillFile {
+  source: string;
+  normalized: string;
+  actions: import("./pai-pack-normalizer").NormalizeContentResult["actions"];
+  warnings: import("./pai-pack-normalizer").NormalizeContentResult["warnings"];
+}
+
+async function readAndNormalizeSkill(
+  paiPackDir: string,
+  realPackRoot: string,
+  sourcePath: string,
+): Promise<NormalizedSkillFile> {
+  const source = await resolveSafeSourceFile(realPackRoot, sourcePath);
+  const content = await readFile(source, "utf8");
+  const relPath = relative(paiPackDir, sourcePath).split(sep).join("/");
+  const result = normalizeSkillContent(relPath, content);
+  return { source: sourcePath, normalized: result.content, actions: result.actions, warnings: result.warnings };
+}
+
+async function normalizeSkillFiles(
+  paiPackDir: string,
+  routedFiles: RoutedPaiPackImportFile[],
+): Promise<Map<string, NormalizedSkillFile>> {
+  const realPackRoot = await realpath(paiPackDir);
+  const skillFiles: PaiPackSourceImportFile[] = [];
+  for (const file of routedFiles) {
+    if (file.renderMode === "skill" || file.renderMode === "skill-body") {
+      skillFiles.push(file);
+    }
+  }
+  const results = await mapWithConcurrency(skillFiles, 8, (file) =>
+    readAndNormalizeSkill(paiPackDir, realPackRoot, file.source),
+  );
+  const map = new Map<string, NormalizedSkillFile>();
+  for (const result of results) {
+    map.set(result.source, result);
+  }
+  return map;
+}
+
+function reportFromNormalizedFiles(files: Iterable<NormalizedSkillFile>): PaiPackNormalizationReport {
+  return mergeNormalizationReports(
+    Array.from(files, (file) => ({ actions: file.actions, warnings: file.warnings })),
+  );
 }
 
 export async function planPaiPackImport(options: PaiPackImportOptions = {}): Promise<PaiPackImportPlan> {
@@ -444,10 +537,26 @@ async function stagePaiPackFiles(plan: InternalPaiPackImportPlan, stageRoot: str
       await writeFile(stagedTarget, renderManifest(plan), "utf8");
     } else if (file.renderMode === "archive-manifest") {
       await writeFile(stagedTarget, renderArchiveManifest(plan), "utf8");
-    } else if (file.renderMode === "skill") {
-      const source = await resolveSafeSourceFile(realPackRoot, file.source);
-      const content = await readFile(source, "utf8");
-      await writeFile(stagedTarget, `${rewriteSkillFrontmatter(content, plan.skillName, plan.description).trimEnd()}\n`, "utf8");
+    } else if (file.renderMode === "soma-skill-manifest") {
+      await writeFile(stagedTarget, renderSomaSkillManifest(plan), "utf8");
+    } else if (file.renderMode === "skill" || file.renderMode === "skill-body") {
+      // Reuse the cached normalization computed during plan construction
+      // so we don't re-read or re-normalize the same source per Sage's
+      // double-pass finding. Fallback: re-read if cache miss.
+      const cached = plan.normalizedSkillFiles.get(file.source);
+      const normalizedContent = cached
+        ? cached.normalized
+        : normalizeSkillContent(
+            relative(plan.paiPackDir, file.source).split(sep).join("/"),
+            await readFile(await resolveSafeSourceFile(realPackRoot, file.source), "utf8"),
+          ).content;
+      // Only the entry SKILL.md gets the skill identity frontmatter rewrite.
+      // Workflows/Tools markdown keeps its original frontmatter intact —
+      // Sage round-3 important: their identity isn't the root skill's.
+      const finalContent = file.renderMode === "skill"
+        ? `${rewriteSkillFrontmatter(normalizedContent, plan.skillName, plan.description).trimEnd()}\n`
+        : `${normalizedContent.trimEnd()}\n`;
+      await writeFile(stagedTarget, finalContent, "utf8");
     } else {
       if (!isRoutedSourceFile(file)) {
         throw new Error(`PAI pack import cannot copy generated file: ${target}`);
@@ -456,6 +565,28 @@ async function stagePaiPackFiles(plan: InternalPaiPackImportPlan, stageRoot: str
       await copyFile(source, stagedTarget);
     }
   });
+}
+
+function renderSomaSkillManifest(plan: InternalPaiPackImportPlan): string {
+  const skillRoot = join(plan.somaHome, "skills", plan.skillName);
+  const skillRelPath = (target: string): string => relative(skillRoot, target).split(sep).join("/");
+  const skillFiles = plan.files.filter((file) => isWithinPath(skillRoot, file.target));
+  const skillMd = skillFiles.find((file) => skillRelPath(file.target) === "SKILL.md");
+  const references = skillFiles
+    .filter((file) => file.classification === "source-doc")
+    .map((file) => skillRelPath(file.target));
+  const workflowFiles = skillFiles
+    .filter((file) => skillRelPath(file.target).startsWith("Workflows/"))
+    .map((file) => skillRelPath(file.target));
+  const manifest: SomaSkillManifest = generateSomaSkillManifest({
+    skillName: plan.skillName,
+    description: plan.description,
+    packName: plan.packName,
+    entrypoint: skillMd ? skillRelPath(skillMd.target) : "SKILL.md",
+    references,
+    workflowFiles,
+  });
+  return `${JSON.stringify(manifest, null, 2)}\n`;
 }
 
 interface PromotionContext {
@@ -569,5 +700,6 @@ export async function importPaiPack(options: PaiPackImportOptions = {}): Promise
     somaHome: plan.somaHome,
     skillName: plan.skillName,
     files: written,
+    normalization: plan.normalization,
   };
 }
