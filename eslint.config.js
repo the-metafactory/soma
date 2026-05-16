@@ -79,7 +79,7 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: ["**/adapters/codex/*", "**/adapters/pi-dev/*", "**/adapters/shared/*"],
+              group: ["**/adapters/codex/**", "**/adapters/pi-dev/**", "**/adapters/shared/**"],
               message:
                 "Import from the substrate barrel (./adapters/codex, ./adapters/pi-dev, ./adapters/shared) — deep imports erode the adapter boundary.",
             },
