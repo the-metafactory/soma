@@ -28,6 +28,18 @@ async function withSomaHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> 
   }
 }
 
+async function withReadOnlyMemoryState<T>(homeDir: string, fn: () => Promise<T>): Promise<T> {
+  const { chmod, mkdir } = await import("node:fs/promises");
+  const memDir = join(homeDir, ".soma", "memory", "STATE");
+  await mkdir(memDir, { recursive: true }).catch(() => {});
+  await chmod(memDir, 0o500);
+  try {
+    return await fn();
+  } finally {
+    await chmod(memDir, 0o700);
+  }
+}
+
 async function readEvents(homeDir: string): Promise<{ kind: string; summary?: string; metadata?: Record<string, unknown> }[]> {
   const raw = await readFile(somaMemoryEventsPath(join(homeDir, ".soma")), "utf8").catch(() => "");
   return raw.split("\n").filter((l) => l.length > 0).map((l) => JSON.parse(l) as { kind: string });
@@ -206,42 +218,27 @@ test("AC-7: Algorithm run-shaped end-to-end with no active ISA never throws", as
 
 test("record* functions return normally when telemetry write fails (no-active)", async () => {
   await withSomaHome(async (homeDir) => {
-    const { chmod, mkdir } = await import("node:fs/promises");
-    const memDir = join(homeDir, ".soma", "memory", "STATE");
-    await mkdir(memDir, { recursive: true }).catch(() => {});
-    await chmod(memDir, 0o500);
-    try {
+    await withReadOnlyMemoryState(homeDir, async () => {
       const d = await recordAlgorithmIsaDecision("stranded", { homeDir });
       const c = await recordAlgorithmIsaChange("stranded", { homeDir });
       expect(d.recorded).toBe(false);
       expect(d.slug).toBeNull();
       expect(c.recorded).toBe(false);
       expect(c.slug).toBeNull();
-    } finally {
-      await chmod(memDir, 0o700);
-    }
+    });
   });
 });
 
 test("suggestIsaAtObserve returns normally when telemetry write fails", async () => {
   await withSomaHome(async (homeDir) => {
-    // Make memory dir read-only to force appendSomaMemoryEvent to throw.
-    const { chmod, mkdir } = await import("node:fs/promises");
-    const memDir = join(homeDir, ".soma", "memory", "STATE");
-    await mkdir(memDir, { recursive: true }).catch(() => {});
-    await chmod(memDir, 0o500);
-    try {
+    await withReadOnlyMemoryState(homeDir, async () => {
       const result = await suggestIsaAtObserve(
         { effort: "E4", multiStep: true },
         { homeDir },
       );
-      // Contract: function returned normally — non-blocking advisory holds
-      // even when telemetry can't be persisted.
       expect(result.emitted).toBe(true);
       expect(result.hint).toContain("soma isa scaffold");
-    } finally {
-      await chmod(memDir, 0o700);
-    }
+    });
   });
 });
 
