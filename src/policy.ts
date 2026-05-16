@@ -151,7 +151,7 @@ function evaluateResolvedSomaPathGuard(options: SomaPolicyCheckOptions & { actio
   // This ensures the somaHome itself is protected, not just user-specified paths.
   const rootProtectedPaths: SomaProtectedPath[] = roots.map((root) => ({
     path: root,
-    description: "Soma private root",
+    description: `Soma private root: ${markerFor(root, options.homeDir)}`,
   }));
   const normalizeProtectedPaths = (protectedPaths: readonly SomaProtectedPath[]): SomaProtectedPath[] =>
     protectedPaths.map((protectedPath) => ({

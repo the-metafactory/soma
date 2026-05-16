@@ -254,6 +254,7 @@ test("parses destructive write command destinations", () => {
   const protectedRef = "~/." + "soma/profile.md";
 
   expect(parseBashDestructivePaths(`cp /dev/null ${protectedRef}`, "/tmp").targetPaths[0]).toContain(".soma/profile.md");
+  expect(parseBashDestructivePaths(`cp -t ${protectedRef} source`, "/tmp").targetPaths[0]).toContain(".soma/profile.md");
   expect(parseBashDestructivePaths(`dd if=/dev/null of=${protectedRef}`, "/tmp").targetPaths[0]).toContain(".soma/profile.md");
   expect(parseBashDestructivePaths(`tee ${protectedRef}`, "/tmp").targetPaths[0]).toContain(".soma/profile.md");
 });
@@ -271,6 +272,14 @@ test("does not let redirects hide cp destinations", () => {
 
   expect(result.command).toBe("cp");
   expect(result.targetPaths[0]).toContain(".soma/profile.md");
+});
+
+test("treats arguments after double dash as paths", () => {
+  const protectedRef = "~/." + "soma";
+  const result = parseBashDestructivePaths(`rm -- -rf ${protectedRef}`, "/tmp");
+
+  expect(result.command).toBe("rm");
+  expect(result.targetPaths.some((target) => target.includes(".soma"))).toBe(true);
 });
 
 test("detects glob pattern rm *", () => {
@@ -628,7 +637,7 @@ test("generates pi.dev path guard extension", () => {
   const extension = renderPathGuardExtension("/test/home/.soma");
 
   expect(extension).toContain("import type { ExtensionAPI }");
-  expect(extension).toContain('import { isAbsolute, resolve } from "node:path"');
+  expect(extension).toContain("resolvePath");
   expect(extension).toContain("parseBashDestructivePaths");
   expect(extension).toContain("evaluatePathGuard");
   expect(extension).not.toContain("require(");
@@ -666,7 +675,7 @@ test("generated pi.dev guard extension is valid TypeScript", async () => {
 test("generated pi.dev guard extension handles env.HOME reference", () => {
   const extension = renderPathGuardExtension("/test/home/.soma");
 
-  expect(extension).toContain("expandTilde");
+  expect(extension).toContain("resolvePath");
 });
 
 test("generated pi.dev guard blocks destructive commands, redirections, mv sources, and relative write paths", async () => {

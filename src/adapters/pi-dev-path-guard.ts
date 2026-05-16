@@ -11,11 +11,10 @@ import { pathToFileURL } from "node:url";
  */
 export function renderPathGuardExtension(somaHome: string, runtimeModuleSpecifier = defaultRuntimeModuleSpecifier()): string {
   return `import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { isAbsolute, resolve } from "node:path";
 import {
   evaluatePathGuard,
-  expandTilde,
   parseBashDestructivePaths,
+  resolvePath,
   SOMA_DEFAULT_PROTECTED_PATHS,
 } from ${JSON.stringify(runtimeModuleSpecifier)};
 
@@ -24,11 +23,6 @@ const PROTECTED_PATHS = [
   ...SOMA_DEFAULT_PROTECTED_PATHS,
   { path: SOMA_HOME, description: "Soma private root" },
 ];
-
-function resolveTarget(target: string, cwd: string): string {
-  const expanded = expandTilde(target);
-  return isAbsolute(expanded) ? resolve(expanded) : resolve(cwd, expanded);
-}
 
 function blockedTargets(targets: string[], cwd: string, action: "delete" | "modify"): string[] {
   const result = evaluatePathGuard({
@@ -64,7 +58,7 @@ export default function (pi: ExtensionAPI) {
       const targetPath = input?.file_path ?? input?.path;
       if (!targetPath) return;
 
-      const details = blockedTargets([resolveTarget(targetPath, cwd)], cwd, "modify");
+      const details = blockedTargets([resolvePath(targetPath, cwd)], cwd, "modify");
       if (details.length > 0) {
         const msg = "Soma path guard blocked write to protected path: " + details.join("; ") + ".";
         ctx.ui?.notify?.(msg, "error");

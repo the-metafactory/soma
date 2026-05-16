@@ -152,7 +152,7 @@ export function expandTilde(path: string): string {
   return path;
 }
 
-function resolvePath(token: string, cwd: string): string {
+export function resolvePath(token: string, cwd: string): string {
   const expanded = expandTilde(token);
   return resolve(isAbsolute(expanded) ? expanded : join(cwd, expanded));
 }
@@ -180,7 +180,13 @@ function realProtectedRoot(path: string, protectedRootCache: Map<string, string>
   return realPath;
 }
 
+const realScopeCache = new Map<string, string>();
+const REAL_SCOPE_CACHE_LIMIT = 512;
+
 function realScopePath(path: string): string {
+  const cached = realScopeCache.get(path);
+  if (cached) return cached;
+
   let cursor = path;
   const suffix: string[] = [];
 
@@ -193,7 +199,13 @@ function realScopePath(path: string): string {
 
   try {
     const realCursor = realpathSync(cursor);
-    return suffix.length > 0 ? resolve(realCursor, ...suffix) : realCursor;
+    const realPath = suffix.length > 0 ? resolve(realCursor, ...suffix) : realCursor;
+    realScopeCache.set(path, realPath);
+    if (realScopeCache.size > REAL_SCOPE_CACHE_LIMIT) {
+      const oldestKey = realScopeCache.keys().next().value;
+      if (oldestKey) realScopeCache.delete(oldestKey);
+    }
+    return realPath;
   } catch {
     return path;
   }
@@ -250,11 +262,30 @@ function resolveGlobPath(token: string, cwd: string): string {
   return base ? resolvePath(base, cwd) : cwd;
 }
 
-function pathArguments(tokens: string[], startIndex: number): string[] {
-  const args: string[] = [];
+const VALUE_TAKING_FLAGS = new Set(["-t", "--target-directory", "-S", "--suffix", "--trash-dir"]);
+
+function targetDirectoryArg(tokens: string[], startIndex: number): string | undefined {
   for (let i = startIndex; i < tokens.length; i++) {
     const token = tokens[i];
-    if (isFlag(token)) continue;
+    if (token === "-t" || token === "--target-directory") return tokens[i + 1];
+    if (token.startsWith("--target-directory=")) return token.slice("--target-directory=".length);
+  }
+  return undefined;
+}
+
+function pathArguments(tokens: string[], startIndex: number): string[] {
+  const args: string[] = [];
+  let parseFlags = true;
+  for (let i = startIndex; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (parseFlags && token === "--") {
+      parseFlags = false;
+      continue;
+    }
+    if (parseFlags && isFlag(token)) {
+      if (VALUE_TAKING_FLAGS.has(token)) i++;
+      continue;
+    }
     if (token === ">" || token === ">>") {
       i++;
       continue;
@@ -339,6 +370,15 @@ function parseTokenSegment(tokens: string[], cwd: string, depth: number): SomaBa
         targetPaths: output ? [resolvePath(output.slice("of=".length), cwd), ...redirectedPaths] : redirectedPaths,
       };
     }
+    if (mainCommand === "cp") {
+      const targetDirectory = targetDirectoryArg(tokens, cmdIndex + 1);
+      if (targetDirectory) {
+        return {
+          command: mainCommand,
+          targetPaths: [resolvePath(targetDirectory, cwd), ...redirectedPaths],
+        };
+      }
+    }
     const targets = mainCommand === "tee" ? pathArgs : pathArgs.slice(-1);
     return {
       command: mainCommand,
@@ -346,15 +386,7 @@ function parseTokenSegment(tokens: string[], cwd: string, depth: number): SomaBa
     };
   }
 
-  for (let i = cmdIndex + 1; i < tokens.length; i++) {
-    const token = tokens[i];
-    if (isFlag(token)) continue;
-    if (token === ">" || token === ">>") {
-      i++;
-      continue;
-    }
-    targetPaths.push(resolveGlobPath(token, cwd));
-  }
+  targetPaths.push(...pathArgs.map((token) => resolveGlobPath(token, cwd)));
 
   return { command: mainCommand, targetPaths: [...targetPaths, ...redirectedPaths] };
 }
