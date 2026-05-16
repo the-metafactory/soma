@@ -9,22 +9,28 @@ export function getRunPhase(run: AlgorithmRun): AlgorithmPhase {
 }
 
 /**
- * Terminal transition — completes the run.
+ * Pure terminal phase transition — sets phase to `complete`.
  *
- * Composes phase advancement to `complete` plus side effects that belong to
- * end-of-run (active.json clearing, completion event emission). Until #32+#34
- * land, the active.json clearing is a no-op stub — callers wanting just the
- * pure phase transition continue to use `advanceAlgorithmRun`.
+ * This helper does NOT touch active.json, NOT emit lifecycle events, NOT
+ * persist to disk. It is a pure function over an in-memory `AlgorithmRun`.
+ *
+ * The end-of-run service (active.json clearing, `algorithm.completed`
+ * event emission, persistence) will live in `algorithm-lifecycle-service.ts`
+ * shipped by #32+#34 — a separate API that accepts the store/event-emitter
+ * context as constructor arguments. That service composes this pure helper
+ * with the IO side effects, so the public surface for IO is added at the
+ * service boundary, not retrofitted onto this pure function.
  */
 export function completeAlgorithmRun(run: AlgorithmRun, timestamp = new Date().toISOString()): AlgorithmRun {
   return setRunPhase(run, "complete", timestamp);
 }
 
 /**
- * Terminal transition — abandons the run with a reason.
+ * Pure terminal phase transition — sets phase to `abandoned` and records
+ * the reason in the run's `decisions` log so the abandonment is auditable.
  *
- * Mirror of `completeAlgorithmRun`. Records the reason in the run's
- * `decisions` log so the abandonment is auditable.
+ * Mirror of `completeAlgorithmRun` — no IO, no events, no store dependency.
+ * The IO composition lives in the end-of-run service (see above).
  */
 export function abandonAlgorithmRun(run: AlgorithmRun, reason: string, timestamp = new Date().toISOString()): AlgorithmRun {
   if (reason.trim().length === 0) {

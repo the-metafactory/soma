@@ -74,6 +74,40 @@ test("authored frontmatter fields survive round-trip verbatim", () => {
   expect(reparsed.frontmatter.custom).toMatchObject({ project: "soma" });
 });
 
+test("hyphenated custom YAML keys round-trip through parse and serialize", () => {
+  const markdown = `---
+task: Demo
+effort: E1
+phase: observe
+project-id: soma
+foo_bar: baz
+nested-thing: hello
+---
+
+## Goal
+
+Test broader YAML key support.
+
+## Criteria
+
+- [ ] C1: hyphenated key survives
+`;
+  const isa = parseIsa(markdown);
+  expect(isa.frontmatter.custom).toMatchObject({
+    "project-id": "soma",
+    foo_bar: "baz",
+    "nested-thing": "hello",
+  });
+  const serialized = serializeIsa(isa);
+  expect(serialized).toContain("project-id: soma");
+  expect(serialized).toContain("nested-thing: hello");
+  const reparsed = parseIsa(serialized);
+  expect(reparsed.frontmatter.custom).toMatchObject({
+    "project-id": "soma",
+    "nested-thing": "hello",
+  });
+});
+
 test("derived frontmatter fields are recomputed on serialize", () => {
   const isa = parseIsa(SAMPLE);
   const mutated = {

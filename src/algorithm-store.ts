@@ -11,14 +11,7 @@ import type {
   IdealStateArtifact,
   IdealStateCriterion,
 } from "./types";
-import {
-  SECTION_NAME_MAP,
-  getCriteria,
-  getGoal,
-  recomputeProgress,
-  recomputeVerified,
-  renderCriteriaMarkdown,
-} from "./isa-accessors";
+import { buildIsaArtifact, getCriteria, getGoal } from "./isa-accessors";
 import { getRunPhase } from "./algorithm-lifecycle";
 
 export interface AlgorithmStoreOptions {
@@ -140,27 +133,20 @@ function migrateRunV1toV2(legacy: LegacyAlgorithmRun): AlgorithmRun {
   const criteria = Array.isArray(legacy.isa.criteria) ? legacy.isa.criteria : [];
   const goal = typeof legacy.isa.goal === "string" ? legacy.isa.goal : "";
   const intent = legacy.intent ?? legacy.id;
-  const sections = [
-    { name: SECTION_NAME_MAP.goal, content: goal },
-    { name: SECTION_NAME_MAP.criteria, content: renderCriteriaMarkdown(criteria) },
-  ];
-
-  const isa: IdealStateArtifact = {
+  const built = buildIsaArtifact({
     slug: legacy.isa.slug,
-    frontmatter: {
-      task: intent,
-      effort: legacy.effort,
-      mode: legacy.mode,
-      phase: legacyPhase,
-      progress: `0/${criteria.length}`,
-      verified: false,
-      updated: legacy.updatedAt,
-      started: legacy.createdAt,
-    },
-    sections,
+    task: intent,
+    goal,
+    criteria,
+    effort: legacy.effort,
+    mode: legacy.mode,
+    phase: legacyPhase,
+    timestamp: legacy.createdAt,
+  });
+  const isa: IdealStateArtifact = {
+    ...built,
+    frontmatter: { ...built.frontmatter, updated: legacy.updatedAt },
   };
-  isa.frontmatter.progress = recomputeProgress(isa);
-  isa.frontmatter.verified = recomputeVerified(isa);
 
   return {
     schemaVersion: 2,

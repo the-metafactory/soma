@@ -10,11 +10,10 @@ import type {
 } from "./types";
 import { classifyAlgorithmPrompt } from "./algorithm-classifier";
 import {
-  SECTION_NAME_MAP,
+  buildIsaArtifact,
   getCriteria,
   recomputeProgress,
   recomputeVerified,
-  renderCriteriaMarkdown,
   updateCriterion,
 } from "./isa-accessors";
 import { getRunPhase } from "./algorithm-lifecycle";
@@ -69,43 +68,6 @@ function logEntry(phase: AlgorithmPhase, text: string, timestamp = new Date().to
   };
 }
 
-function buildInitialIsa(input: {
-  slug: string;
-  task: string;
-  goal: string;
-  criteria: IdealStateCriterion[];
-  effort: AlgorithmRun["effort"];
-  mode: AlgorithmRun["mode"];
-  timestamp: string;
-}): IdealStateArtifact {
-  const sections = [
-    { name: SECTION_NAME_MAP.goal, content: input.goal },
-    { name: SECTION_NAME_MAP.criteria, content: renderCriteriaMarkdown(input.criteria) },
-  ];
-  const draft: IdealStateArtifact = {
-    slug: input.slug,
-    frontmatter: {
-      task: input.task,
-      effort: input.effort,
-      mode: input.mode,
-      phase: "observe",
-      progress: `0/${input.criteria.length}`,
-      verified: false,
-      updated: input.timestamp,
-      started: input.timestamp,
-    },
-    sections,
-  };
-  return {
-    ...draft,
-    frontmatter: {
-      ...draft.frontmatter,
-      progress: recomputeProgress(draft),
-      verified: recomputeVerified(draft),
-    },
-  };
-}
-
 export function createAlgorithmRun(input: AlgorithmRunInput): AlgorithmRun {
   assertNonEmpty(input.prompt, "prompt");
   assertNonEmpty(input.intent, "intent");
@@ -141,7 +103,7 @@ export function createAlgorithmRun(input: AlgorithmRunInput): AlgorithmRun {
     mode,
     classificationReason,
     currentState: input.currentState,
-    isa: buildInitialIsa({
+    isa: buildIsaArtifact({
       slug,
       task: input.intent,
       goal: input.goal,

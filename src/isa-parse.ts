@@ -197,30 +197,26 @@ function renderYamlScalar(value: unknown): string {
 
 function parseYamlObject(raw: string): Record<string, unknown> {
   const result: Record<string, unknown> = {};
-  let currentBlockKey: string | null = null;
   let currentBlock: Record<string, unknown> | null = null;
 
   for (const rawLine of raw.split("\n")) {
     if (rawLine.trim().length === 0) continue;
     if (rawLine.startsWith("  ") && currentBlock !== null) {
-      const match = /^\s+([A-Za-z0-9_]+)\s*:\s*(.*)$/.exec(rawLine);
+      const match = /^\s+([^:\s][^:]*?)\s*:\s*(.*)$/.exec(rawLine);
       if (match) currentBlock[match[1]] = parseYamlScalar(match[2]);
       continue;
     }
-    const match = /^([A-Za-z0-9_]+)\s*:\s*(.*)$/.exec(rawLine);
+    const match = /^([^:\s][^:]*?)\s*:\s*(.*)$/.exec(rawLine);
     if (!match) continue;
     const [, key, valueRaw] = match;
     if (valueRaw === "") {
-      currentBlockKey = key;
       currentBlock = {};
       result[key] = currentBlock;
       continue;
     }
-    currentBlockKey = null;
     currentBlock = null;
     result[key] = parseYamlScalar(valueRaw);
   }
-  void currentBlockKey;
   return result;
 }
 

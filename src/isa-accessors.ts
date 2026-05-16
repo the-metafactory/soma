@@ -1,5 +1,7 @@
 import type {
+  AlgorithmEffortTier,
   AlgorithmLogEntry,
+  AlgorithmMode,
   AlgorithmPhase,
   IdealStateArtifact,
   IdealStateCriterion,
@@ -222,6 +224,52 @@ function parseLogEntryLine(line: string): AlgorithmLogEntry | null {
 export function renderLogEntries(entries: readonly AlgorithmLogEntry[]): string {
   if (entries.length === 0) return "";
   return entries.map((entry) => `- ${entry.timestamp} [${entry.phase}] ${entry.text}`).join("\n");
+}
+
+export interface BuildIsaInput {
+  slug: string;
+  task: string;
+  goal: string;
+  criteria: IdealStateCriterion[];
+  effort: AlgorithmEffortTier;
+  mode?: AlgorithmMode;
+  phase?: AlgorithmPhase;
+  timestamp: string;
+}
+
+/**
+ * Single source of truth for constructing a fresh IdealStateArtifact from
+ * primitive inputs. Used by both `createAlgorithmRun` (new runs) and the
+ * legacy v1 → v2 compat shim in `algorithm-store`. Keeps section + frontmatter
+ * shape consistent across both paths.
+ */
+export function buildIsaArtifact(input: BuildIsaInput): IdealStateArtifact {
+  const sections: IsaSection[] = [
+    { name: SECTION_NAME_MAP.goal, content: input.goal },
+    { name: SECTION_NAME_MAP.criteria, content: renderCriteriaMarkdown(input.criteria) },
+  ];
+  const draft: IdealStateArtifact = {
+    slug: input.slug,
+    frontmatter: {
+      task: input.task,
+      effort: input.effort,
+      mode: input.mode,
+      phase: input.phase ?? "observe",
+      progress: `0/${input.criteria.length}`,
+      verified: false,
+      updated: input.timestamp,
+      started: input.timestamp,
+    },
+    sections,
+  };
+  return {
+    ...draft,
+    frontmatter: {
+      ...draft.frontmatter,
+      progress: recomputeProgress(draft),
+      verified: recomputeVerified(draft),
+    },
+  };
 }
 
 export function recomputeProgress(isa: IdealStateArtifact): string {
