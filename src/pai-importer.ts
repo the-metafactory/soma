@@ -1,28 +1,38 @@
+import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import type { PaiImportOptions, PaiImportPlan, PaiImportResult } from "./types";
+import type { ImportSourceCheck, PaiImportOptions, PaiImportPlan, PaiImportResult } from "./types";
 
-const SOURCE_FILES = [
-  "PAI/USER/PRINCIPAL_IDENTITY.md",
-  "PAI/USER/DA_IDENTITY.md",
-  "PAI/USER/TELOS/MISSION.md",
-  "PAI/USER/TELOS/GOALS.md",
-  "PAI/USER/TELOS/STRATEGIES.md",
-  "PAI/USER/TELOS/BELIEFS.md",
+type PaiSourceRole = "principal" | "assistant" | "mission" | "goals" | "strategies" | "beliefs";
+
+interface PaiSourceSpec {
+  role: PaiSourceRole;
+  candidates: readonly string[];
+  required: boolean;
+}
+
+interface PaiSelectedSource {
+  role: PaiSourceRole;
+  path: string;
+  required: boolean;
+  present: boolean;
+}
+
+const SOURCE_SPECS: readonly PaiSourceSpec[] = [
+  { role: "principal", candidates: ["PAI/USER/PRINCIPAL_IDENTITY.md", "PAI/USER/BASICINFO.md", "PAI/USER/ABOUTME.md"], required: true },
+  { role: "assistant", candidates: ["PAI/USER/DA_IDENTITY.md", "PAI/USER/DAIDENTITY.md"], required: true },
+  { role: "mission", candidates: ["PAI/USER/TELOS/MISSION.md"], required: true },
+  { role: "goals", candidates: ["PAI/USER/TELOS/GOALS.md"], required: true },
+  { role: "strategies", candidates: ["PAI/USER/TELOS/STRATEGIES.md"], required: false },
+  { role: "beliefs", candidates: ["PAI/USER/TELOS/BELIEFS.md"], required: true },
 ] as const;
 
-const TARGET_FILES = [
-  "profile/principal.md",
-  "profile/assistant.md",
-  "profile/telos.md",
-  "profile/imports/claude/PRINCIPAL_IDENTITY.md",
-  "profile/imports/claude/DA_IDENTITY.md",
-  "profile/imports/claude/TELOS/MISSION.md",
-  "profile/imports/claude/TELOS/GOALS.md",
-  "profile/imports/claude/TELOS/STRATEGIES.md",
-  "profile/imports/claude/TELOS/BELIEFS.md",
-] as const;
+const PROFILE_TARGETS = {
+  principal: "profile/principal.md",
+  assistant: "profile/assistant.md",
+  telos: "profile/telos.md",
+} as const;
 
 function resolveHomes(options: PaiImportOptions = {}): { claudeHome: string; somaHome: string } {
   const home = resolve(options.homeDir ?? homedir());
@@ -31,6 +41,41 @@ function resolveHomes(options: PaiImportOptions = {}): { claudeHome: string; som
     claudeHome: resolve(options.claudeHome ?? join(home, ".claude")),
     somaHome: resolve(options.somaHome ?? join(home, ".soma")),
   };
+}
+
+function selectedSourceFor(claudeHome: string, spec: PaiSourceSpec): PaiSelectedSource {
+  const selected = spec.candidates.find((path) => existsSync(join(claudeHome, path))) ?? spec.candidates[0];
+
+  return {
+    role: spec.role,
+    path: selected,
+    required: spec.required,
+    present: existsSync(join(claudeHome, selected)),
+  };
+}
+
+function inspectPaiSources(claudeHome: string): { selectedSources: PaiSelectedSource[]; sourceChecks: ImportSourceCheck[] } {
+  const selectedSources = SOURCE_SPECS.map((spec) => selectedSourceFor(claudeHome, spec));
+  const sourceChecks = selectedSources.map((source) => ({
+    path: join(claudeHome, source.path),
+    required: source.required,
+    present: source.present,
+  }));
+
+  return { selectedSources, sourceChecks };
+}
+
+function importTargetFor(sourcePath: string): string {
+  return sourcePath.replace(/^PAI\/USER\//, "profile/imports/claude/");
+}
+
+function selectedImportTargetPaths(selectedSources: PaiSelectedSource[]): string[] {
+  return [
+    PROFILE_TARGETS.principal,
+    PROFILE_TARGETS.assistant,
+    PROFILE_TARGETS.telos,
+    ...selectedSources.filter((source) => source.required || source.present).map((source) => importTargetFor(source.path)),
+  ];
 }
 
 function firstMatch(content: string, patterns: RegExp[], fallback = ""): string {
@@ -45,7 +90,7 @@ function firstMatch(content: string, patterns: RegExp[], fallback = ""): string 
   return fallback;
 }
 
-function renderPrincipalProfile(source: string): string {
+function renderPrincipalProfile(source: string, sourcePath: string): string {
   const name = firstMatch(source, [/- \*\*Name:\*\*\s*(.+)/, /^Name:\s*(.+)$/m], "principal");
   const pronunciation = firstMatch(source, [/- \*\*Pronunciation:\*\*\s*(.+)/]);
   const location = firstMatch(source, [/- \*\*Location:\*\*\s*(.+)/]);
@@ -70,14 +115,14 @@ function renderPrincipalProfile(source: string): string {
     "",
     "## Source",
     "",
-    "Migrated from `~/.claude/PAI/USER/PRINCIPAL_IDENTITY.md`.",
-    "Full source snapshot is kept at `profile/imports/claude/PRINCIPAL_IDENTITY.md`.",
+    `Migrated from \`~/.claude/${sourcePath}\`.`,
+    `Full source snapshot is kept at \`${importTargetFor(sourcePath)}\`.`,
   ]
     .filter((line): line is string => line !== undefined)
     .join("\n");
 }
 
-function renderAssistantProfile(source: string): string {
+function renderAssistantProfile(source: string, sourcePath: string): string {
   const fullName = firstMatch(source, [/- \*\*Full Name:\*\*\s*(.+)/], "Ivy - Personal AI Assistant");
   const name = firstMatch(source, [/- \*\*Name:\*\*\s*(.+)/], "Ivy");
   const displayName = firstMatch(source, [/- \*\*Display Name:\*\*\s*(.+)/], name);
@@ -105,8 +150,8 @@ function renderAssistantProfile(source: string): string {
     "",
     "## Source",
     "",
-    "Migrated from `~/.claude/PAI/USER/DA_IDENTITY.md`.",
-    "Full source snapshot is kept at `profile/imports/claude/DA_IDENTITY.md`.",
+    `Migrated from \`~/.claude/${sourcePath}\`.`,
+    `Full source snapshot is kept at \`${importTargetFor(sourcePath)}\`.`,
   ]
     .filter((line): line is string => line !== undefined)
     .join("\n");
@@ -154,42 +199,67 @@ function renderTelosProfile(sources: Record<string, string>): string {
 
 export function planPaiImport(options: PaiImportOptions = {}): PaiImportPlan {
   const homes = resolveHomes(options);
+  const { selectedSources, sourceChecks } = inspectPaiSources(homes.claudeHome);
+  const targetFiles = selectedImportTargetPaths(selectedSources);
 
   return {
     apply: false,
     claudeHome: homes.claudeHome,
     somaHome: homes.somaHome,
-    sourceFiles: SOURCE_FILES.map((path) => join(homes.claudeHome, path)),
-    targetFiles: TARGET_FILES.map((path) => join(homes.somaHome, path)),
+    sourceFiles: selectedSources.map((source) => join(homes.claudeHome, source.path)),
+    sourceChecks,
+    targetFiles: targetFiles.map((path) => join(homes.somaHome, path)),
   };
 }
 
 export async function importPaiIdentity(options: PaiImportOptions = {}): Promise<PaiImportResult> {
   const homes = resolveHomes(options);
-  const sources = Object.fromEntries(
+  const { selectedSources } = inspectPaiSources(homes.claudeHome);
+
+  for (const source of selectedSources) {
+    if (source.required && !source.present) {
+      throw new Error(`Required PAI source file is missing: ${join(homes.claudeHome, source.path)}`);
+    }
+  }
+
+  const sources = new Map(
     await Promise.all(
-      SOURCE_FILES.map(async (path) => {
-        return [path, await readFile(join(homes.claudeHome, path), "utf8")] as const;
-      }),
+      selectedSources
+        .filter((source) => source.present)
+        .map(async (source) => [
+          source.role,
+          {
+            path: source.path,
+            content: await readFile(join(homes.claudeHome, source.path), "utf8"),
+          },
+        ] as const),
     ),
   );
 
   const files = new Map<string, string>();
-  files.set("profile/principal.md", renderPrincipalProfile(sources["PAI/USER/PRINCIPAL_IDENTITY.md"]));
-  files.set("profile/assistant.md", renderAssistantProfile(sources["PAI/USER/DA_IDENTITY.md"]));
+  const principal = sources.get("principal");
+  const assistant = sources.get("assistant");
+
+  if (!principal || !assistant) {
+    throw new Error("Required PAI identity source selection failed.");
+  }
+
+  files.set(PROFILE_TARGETS.principal, renderPrincipalProfile(principal.content, principal.path));
+  files.set(PROFILE_TARGETS.assistant, renderAssistantProfile(assistant.content, assistant.path));
   files.set(
-    "profile/telos.md",
-    renderTelosProfile({
-      "PAI/USER/TELOS/MISSION.md": sources["PAI/USER/TELOS/MISSION.md"],
-      "PAI/USER/TELOS/GOALS.md": sources["PAI/USER/TELOS/GOALS.md"],
-      "PAI/USER/TELOS/STRATEGIES.md": sources["PAI/USER/TELOS/STRATEGIES.md"],
-      "PAI/USER/TELOS/BELIEFS.md": sources["PAI/USER/TELOS/BELIEFS.md"],
-    }),
+    PROFILE_TARGETS.telos,
+    renderTelosProfile(
+      Object.fromEntries(
+        (["mission", "goals", "strategies", "beliefs"] as const)
+          .map((role) => sources.get(role))
+          .filter((source): source is { path: string; content: string } => source !== undefined)
+          .map((source) => [source.path, source.content]),
+      ),
+    ),
   );
 
-  for (const [sourcePath, content] of Object.entries(sources)) {
-    const importedPath = sourcePath.replace(/^PAI\/USER\//, "profile/imports/claude/");
-    files.set(importedPath, content.trimEnd());
+  for (const source of sources.values()) {
+    files.set(importTargetFor(source.path), source.content.trimEnd());
   }
 
   const written: string[] = [];
