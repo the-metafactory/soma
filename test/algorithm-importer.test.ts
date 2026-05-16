@@ -31,8 +31,49 @@ test("plans an Algorithm import without writing files", async () => {
 
     expect(plan.apply).toBe(false);
     expect(plan.paiAlgorithmDir).toBe(algorithmDir);
+    expect(plan.sourceChecks ?? []).toContainEqual({
+      path: join(algorithmDir, "v6.3.0.md"),
+      required: true,
+      present: true,
+    });
     expect(plan.targetFiles).toContain(join(homeDir, ".soma/skills/the-algorithm/SKILL.md"));
     await expect(stat(join(homeDir, ".soma"))).rejects.toThrow();
+  });
+});
+
+test("plans an Algorithm import from the LATEST pointer", async () => {
+  await withTempHome(async (homeDir) => {
+    const algorithmDir = join(homeDir, ".claude/PAI/Algorithm");
+    await mkdir(algorithmDir, { recursive: true });
+    await writeFile(join(algorithmDir, "LATEST"), "TheAlgorithm_v1.6.0-pai.1\n", "utf8");
+    await writeFile(join(algorithmDir, "TheAlgorithm_v1.6.0-pai.1.md"), "# Algorithm v1.6.0\n\nCurrent doctrine.\n", "utf8");
+
+    const plan = planAlgorithmImport({ homeDir });
+
+    expect(plan.sourceFiles).toContain(join(algorithmDir, "TheAlgorithm_v1.6.0-pai.1.md"));
+    expect(plan.sourceChecks ?? []).toContainEqual({
+      path: join(algorithmDir, "TheAlgorithm_v1.6.0-pai.1.md"),
+      required: true,
+      present: true,
+    });
+    expect(plan.targetFiles).toContain(join(homeDir, ".soma/skills/the-algorithm/references/algorithm.md"));
+  });
+});
+
+test("plans missing required Algorithm sources without writing files", async () => {
+  await withTempHome(async (homeDir) => {
+    const algorithmDir = join(homeDir, ".claude/PAI/Algorithm");
+    await mkdir(algorithmDir, { recursive: true });
+    await writeFile(join(algorithmDir, "LATEST"), "TheAlgorithm_v1.6.0-pai.1\n", "utf8");
+
+    const plan = planAlgorithmImport({ homeDir });
+
+    expect(plan.sourceChecks ?? []).toContainEqual({
+      path: join(algorithmDir, "TheAlgorithm_v1.6.0-pai.1.md"),
+      required: true,
+      present: false,
+    });
+    await expect(importAlgorithm({ homeDir })).rejects.toThrow("Required Algorithm source file is missing:");
   });
 });
 
@@ -64,13 +105,12 @@ test("cli dry-runs and applies the Algorithm importer", async () => {
     const dryRun = await runSomaCli(["import", "algorithm", "--home-dir", homeDir]);
 
     expect(dryRun).toContain("Soma Algorithm import plan");
+    expect(dryRun).toContain("[present] required");
     expect(dryRun).toContain(join(homeDir, ".soma/skills/the-algorithm/SKILL.md"));
 
     const output = await runSomaCli(["import", "algorithm", "--apply", "--home-dir", homeDir]);
 
     expect(output).toContain("Soma Algorithm import applied");
-    await expect(readFile(join(homeDir, ".soma/skills/the-algorithm/references/algorithm-v6.3.0.md"), "utf8")).resolves.toContain(
-      "Doctrine.",
-    );
+    await expect(readFile(join(homeDir, ".soma/skills/the-algorithm/references/algorithm.md"), "utf8")).resolves.toContain("Doctrine.");
   });
 });
