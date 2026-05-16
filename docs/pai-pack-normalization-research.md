@@ -234,7 +234,7 @@ Unsafe without review:
 - rewriting skill doctrine
 - changing workflow intent
 - inventing Soma equivalents for ambiguous Claude paths
-- translating personal/private context conventions
+- projecting personal/private content conventions
 - executing installers or embedded commands
 - resolving symlinks without an explicit policy
 

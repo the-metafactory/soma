@@ -1,14 +1,15 @@
 # Progressive Skill Loading
 
 Progressive skill loading keeps Soma's capability surface broad without putting
-every capability into every model context.
+every capability into every model context. See [CONTEXT.md](../CONTEXT.md) for
+glossary; this document uses the eager / indexed / on-demand loading tiers.
 
 ## Problem
 
 PAI already selects skills and capabilities during work. The failure mode is not
 missing selection. The failure mode is that selection can happen after a large
 amount of routing doctrine, capability descriptions, and skill material has
-already entered the substrate context.
+already entered the LLM context.
 
 That is especially costly in Claude Code, where global instructions, hooks,
 skills, commands, agents, and project context all compete for the same context
@@ -73,8 +74,8 @@ The kernel is the maximum context that should be loaded by default:
 - skill registry location and loading protocol
 
 The kernel must not include full skill bodies unless the substrate has a native
-lazy skill mechanism that guarantees those bodies are not inserted into model
-context until invoked.
+on-demand skill mechanism that guarantees those bodies are not inserted into
+the LLM context until invoked.
 
 ### Skill Registry
 
@@ -188,7 +189,7 @@ add embeddings or BM25-style indexing without changing the contract.
 
 ## Adapter Behavior
 
-Adapters translate the same route into substrate-native behavior.
+Adapters project the same route into substrate-native behavior.
 
 ### Codex
 
@@ -234,8 +235,8 @@ right context shape.
 
 ## Context Budget Rules
 
-- Every projected context bundle should report estimated token cost for kernel,
-  registry, and selected skills.
+- Every projection should report estimated token cost for kernel, registry, and
+  selected skills.
 - A selected skill should have a reason and a budget estimate.
 - If selected skills exceed budget, the router should prefer entrypoints over
   references and references over examples.
@@ -307,10 +308,10 @@ own skill semantics.
 
 ### Substrates Without Native File Loading
 
-If a substrate cannot read selected files on demand, the adapter should generate
-a route bundle before the task starts. The bundle contains the kernel, registry
-entry subset, and selected entrypoints or references. This preserves progressive
-loading even on static substrates.
+If a substrate cannot read selected files on demand, the adapter should
+materialize a route projection before the task starts. The projection contains
+the kernel, registry entry subset, and selected entrypoints or references. This
+preserves progressive loading even on static substrates.
 
 ```text
 tool-capable substrate -> read selected skill files on demand
@@ -346,8 +347,8 @@ or route contracts.
 
 ## Verification Criteria
 
-- A substrate startup context can be generated without including full bodies for
-  unrelated skills.
+- A substrate startup projection can be generated without including full bodies
+  for unrelated skills.
 - A task that names or clearly triggers a skill loads that skill entrypoint.
 - A task with no matching skill keeps only the kernel and registry context.
 - Anti-triggers prevent irrelevant but lexically similar skills from loading.
