@@ -399,7 +399,7 @@ test("installed codex hook handles null tool input", async () => {
   });
 });
 
-test("installed codex hook reports active Algorithm phase on pre-tool use", async () => {
+test("installed codex hook keeps successful pre-tool use output schema-minimal", async () => {
   await withTempHome(async (homeDir) => {
     await installSomaForCodex({ homeDir });
     await writeFile(join(homeDir, ".soma/memory/STATE/active-algorithm-run.json"), JSON.stringify({ id: "run-1", phase: "execute" }), "utf8");
@@ -411,7 +411,7 @@ test("installed codex hook reports active Algorithm phase on pre-tool use", asyn
 
     expect(result.status).toBe(0);
     expect(result.output.continue).toBe(true);
-    expect(result.output.hookSpecificOutput?.statusMessage).toBe("Soma: Phase 5/7 — EXECUTE");
+    expect(result.output.hookSpecificOutput).toBeUndefined();
   });
 });
 
