@@ -67,7 +67,7 @@ import type {
   SubstrateId,
 } from "./types";
 import { SOMA_FEEDBACK_STDIN_MAX_BYTES } from "./feedback-contract";
-import { runIsaCli } from "./cli-isa";
+import { ISA_SUBCOMMAND_HELP, ISA_USAGE_HEADER, runIsaCli } from "./cli-isa";
 
 /**
  * Typed CLI error carrying an exit code distinct from the default 1.
@@ -251,17 +251,9 @@ const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string,
     },
   },
   isa: {
-    usage: "Usage: soma isa <list|show|active|use|scaffold|check|archive|skill> [options]",
-    subcommands: {
-      list: "Usage: soma isa list [--phase <phase>] [--active-only] [--home-dir <dir>] [--soma-home <dir>]",
-      show: "Usage: soma isa show <slug> [--home-dir <dir>] [--soma-home <dir>]",
-      active: "Usage: soma isa active [--json] [--home-dir <dir>] [--soma-home <dir>]",
-      use: "Usage: soma isa use <slug> [--dry-run] [--home-dir <dir>] [--soma-home <dir>]",
-      scaffold: "Usage: soma isa scaffold --slug <name> --effort <E1|E2|E3|E4|E5> --goal <text> [--force] [--dry-run]",
-      check: "Usage: soma isa check <slug> [--home-dir <dir>] [--soma-home <dir>]",
-      archive: "Usage: soma isa archive <slug> [--dry-run] [--home-dir <dir>] [--soma-home <dir>]",
-      skill: "Usage: soma isa skill upgrade [--dry-run] [--home-dir <dir>] [--soma-home <dir>]",
-    },
+    // Single source of truth lives in `./cli-isa.ts` (Sage round-1 dedup).
+    usage: ISA_USAGE_HEADER,
+    subcommands: ISA_SUBCOMMAND_HELP,
   },
 };
 

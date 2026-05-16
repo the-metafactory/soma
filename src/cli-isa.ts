@@ -102,19 +102,30 @@ function requirePositionalSlug(args: string[], action: string): string | { error
   return slug;
 }
 
+/**
+ * Single source of truth for the `soma isa` help surface. Exported so the
+ * cli.ts top-level help renderer can re-use it instead of duplicating
+ * subcommand strings (Sage round-1 maintainability suggestion).
+ */
+export const ISA_USAGE_HEADER = "Usage: soma isa <list|show|active|use|scaffold|check|archive|skill> [options]";
+
+export const ISA_SUBCOMMAND_HELP: Record<string, string> = {
+  list: "Usage: soma isa list [--phase <phase>] [--active-only] [--home-dir <dir>] [--soma-home <dir>]",
+  show: "Usage: soma isa show <slug> [--home-dir <dir>] [--soma-home <dir>]",
+  active: "Usage: soma isa active [--json] [--home-dir <dir>] [--soma-home <dir>]",
+  use: "Usage: soma isa use <slug> [--dry-run] [--home-dir <dir>] [--soma-home <dir>]",
+  scaffold:
+    "Usage: soma isa scaffold --slug <name> --effort <E1|E2|E3|E4|E5> --goal <text> [--force] [--dry-run]",
+  check: "Usage: soma isa check <slug> [--home-dir <dir>] [--soma-home <dir>]",
+  archive: "Usage: soma isa archive <slug> [--dry-run] [--home-dir <dir>] [--soma-home <dir>]",
+  skill: "Usage: soma isa skill upgrade [--dry-run] [--home-dir <dir>] [--soma-home <dir>]",
+};
+
 const ISA_USAGE = [
-  "Usage: soma isa <action> [options]",
+  ISA_USAGE_HEADER,
   "",
   "Actions:",
-  "  list [--phase <phase>] [--active-only]    List ISAs (sorted updated desc)",
-  "  show <slug>                                Print ISA contents",
-  "  active                                     Print active slug (exit 1 if none)",
-  "  use <slug> [--dry-run]                     Set active ISA",
-  "  scaffold --slug X --effort EN --goal \"...\" [--force] [--dry-run]",
-  "                                             Create new ISA",
-  "  check <slug>                               Tier-gate completeness check",
-  "  archive <slug> [--dry-run]                 Move ISA to .archived/",
-  "  skill upgrade [--dry-run]                  Apply pending skill upgrade marker",
+  ...Object.entries(ISA_SUBCOMMAND_HELP).map(([name, usage]) => `  ${name.padEnd(10)} ${usage}`),
   "",
   "Common options:",
   "  --home-dir <path>     Override $HOME",
@@ -126,9 +137,14 @@ async function runList(parsed: ParsedFlags): Promise<IsaCliResult> {
   const entries = await listIsas(parsed.options);
   const phase = typeof parsed.flags.phase === "string" ? parsed.flags.phase : null;
   const activeOnly = parsed.flags["active-only"] === true;
+  // --active-only narrows to the currently-active ISA (per
+  // memory/STATE/active.json), NOT all non-complete ISAs (Sage
+  // round-1 important). If no active slug is set, the result is empty.
+  const activeSlug = activeOnly
+    ? (await getActiveIsa(parsed.options))?.activeSlug ?? null
+    : null;
   const filtered = entries.filter((e) => {
-    if (activeOnly && e.phase === "complete") return false;
-    if (activeOnly && e.phase === "abandoned") return false;
+    if (activeOnly && e.slug !== activeSlug) return false;
     if (phase !== null && e.phase !== phase) return false;
     return true;
   });
