@@ -129,40 +129,6 @@ function algorithmPromptHookOutput(classification) {
   };
 }
 
-const PHASE_LABELS = {
-  observe: "Phase 1/7 — OBSERVE",
-  think: "Phase 2/7 — THINK",
-  plan: "Phase 3/7 — PLAN",
-  build: "Phase 4/7 — BUILD",
-  execute: "Phase 5/7 — EXECUTE",
-  verify: "Phase 6/7 — VERIFY",
-  learn: "Phase 7/7 — LEARN",
-  complete: "Phase 7/7 — SUMMARY",
-};
-
-function readActiveAlgorithmPhase(config) {
-  try {
-    const state = JSON.parse(readFileSync(`${config.somaHome}/memory/STATE/active-algorithm-run.json`, "utf8"));
-    const phase = state.phase || state.run?.phase;
-    return typeof phase === "string" ? phase : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function phaseStatusOutput(config) {
-  const phase = readActiveAlgorithmPhase(config);
-  const label = phase ? PHASE_LABELS[phase] : undefined;
-  if (!label) return {};
-
-  return {
-    hookSpecificOutput: {
-      hookEventName: "PreToolUse",
-      statusMessage: `Soma: ${label}`,
-    },
-  };
-}
-
 function writeProjectedStartupContext(output) {
   const marker = "# Soma Startup Context";
   const index = output.indexOf(marker);
@@ -213,7 +179,7 @@ function handlePreToolUse(config, input) {
       denyPreToolUse(reason);
     }
   }
-  emitAndExit({ continue: true, ...phaseStatusOutput(config) });
+  emitAndExit({ continue: true });
 }
 
 function handlePromptSubmit(config, input) {
