@@ -403,12 +403,53 @@ export interface PaiPackManifestGeneratedFile extends PaiPackManifestFileBase {
 
 export type PaiPackManifestFile = PaiPackManifestSourceFile | PaiPackManifestGeneratedFile;
 
+export interface PaiPackNormalizationAction {
+  file: string;
+  kind:
+    | "removed-substrate-notification-hook"
+    | "rewrote-claude-home-path"
+    | "stripped-mandatory-runtime-block";
+  detail: string;
+}
+
+export interface PaiPackNormalizationWarning {
+  file: string;
+  kind:
+    | "ambiguous-substrate-path"
+    | "substrate-mutation-command"
+    | "execution-logging-path"
+    | "customization-overlay-reference"
+    | "release-safety-path";
+  detail: string;
+}
+
+export interface PaiPackNormalizationReport {
+  mode: "deterministic";
+  actions: PaiPackNormalizationAction[];
+  warnings: PaiPackNormalizationWarning[];
+}
+
 export interface PaiPackManifest {
   schema: "soma.pai-pack-import.v1";
   skillName: string;
   packName: string;
   description: string;
   files: PaiPackManifestFile[];
+  normalization?: PaiPackNormalizationReport;
+}
+
+export interface SomaSkillManifest {
+  schema: "soma.skill.v1";
+  name: string;
+  description: string;
+  packId?: string;
+  source: { kind: "pai-pack"; packName: string };
+  entrypoint: string;
+  references: string[];
+  workflows: string[];
+  tools: string[];
+  triggers: string[];
+  substrates: ("claude-code" | "codex" | "pi-dev" | "cortex" | "custom")[];
 }
 
 export interface PaiPackImportPlan {
@@ -419,6 +460,7 @@ export interface PaiPackImportPlan {
   packName: string;
   description: string;
   files: PaiPackImportFile[];
+  normalization: PaiPackNormalizationReport;
 }
 
 export interface PaiPackImportResult {
@@ -426,6 +468,7 @@ export interface PaiPackImportResult {
   somaHome: string;
   skillName: string;
   files: string[];
+  normalization: PaiPackNormalizationReport;
 }
 
 export interface SomaMemoryEventInput {
