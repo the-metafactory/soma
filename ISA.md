@@ -22,10 +22,10 @@ learning.
 
 ## Vision
 
-Soma becomes the portable body of a personal AI assistant. The same assistant
-context can run inside Codex, Pi.dev, Claude Code, or as a Cortex/Myelin daemon.
-The substrate changes; the assistant's identity, memory, goals, skills, and
-work artifacts remain stable.
+Soma becomes the portable body of a personal AI assistant. The same Soma can
+run inside Codex, Pi.dev, Claude Code, or as a Cortex/Myelin daemon. The
+substrate changes; the assistant's identity, memory, goals, skills, and work
+artifacts remain stable.
 
 ## Out of Scope
 
@@ -56,7 +56,7 @@ work artifacts remain stable.
 
 ## Goal
 
-Define and scaffold Soma as a substrate-portable Personal AI Assistant core with
+Define and scaffold Soma as a portable Personal AI Assistant core with
 clear boundaries, initial storage contracts, and an adapter path for Codex,
 Pi.dev, Claude Code, and Cortex/Myelin.
 
@@ -68,7 +68,7 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 - [x] ISC-4: Substrate adapter doc covers Codex, Pi.dev, Claude Code, and Cortex.
 - [x] ISC-5: Initial TypeScript types model identity, telos, ISA, memory, skills, and adapters.
 - [x] ISC-6: Arc manifest declares Soma as a Meta Factory component.
-- [x] ISC-7: Skill stub explains when an agent should use Soma.
+- [x] ISC-7: Skill stub explains when an assistant should use Soma.
 - [x] ISC-8: Package metadata supports Bun-based development.
 - [x] ISC-9: Anti: Soma does not claim to replace Cortex or Myelin.
 - [x] ISC-10: Anti: Soma does not bind the core to one model provider.
@@ -80,11 +80,11 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 - [x] ISC-16: Boundary ownership rules define what Soma owns versus references.
 - [x] ISC-17: Portability proof defines the first same-input, two-substrate workflow.
 - [x] ISC-18: Memory and policy v0 are scoped before richer stores or enforcement.
-- [x] ISC-19: Codex adapter builds a deterministic context bundle from a Soma profile.
-- [x] ISC-20: Pi.dev adapter builds an extension-shaped context bundle from the same Soma input.
-- [x] ISC-21: Claude Code adapter builds a Claude-shaped context bundle from the same Soma input.
+- [x] ISC-19: Codex adapter builds a deterministic projection from a Soma profile.
+- [x] ISC-20: Pi.dev adapter builds an extension-shaped projection from the same Soma input.
+- [x] ISC-21: Claude Code adapter builds a Claude-shaped projection from the same Soma input.
 - [x] ISC-22: ESLint setup follows the Arc/Myelin flat-config pattern and passes on Soma.
-- [x] ISC-23: Context bundles can be written to disk with path escape protection.
+- [x] ISC-23: Projections can be written to disk with path escape protection.
 - [x] ISC-24: Default availability is defined as home installation with workspace overlays.
 - [x] ISC-25: Codex home projection resolves `~/.soma` and materializes into `~/.codex`.
 - [x] ISC-26: Soma home bootstrap creates `~/.soma` source files and loads them into context.
@@ -115,11 +115,11 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 | ISC-16 | file | boundary doc declares sources of truth | read |
 | ISC-17 | file | portability proof names workflow and pass conditions | read |
 | ISC-18 | file | memory/policy v0 separates file memory from enforcement | read |
-| ISC-19 | unit | Codex context bundle contains profile, telos, memory, skills, and ISA | bun test |
-| ISC-20 | unit | Pi.dev context bundle contains profile, telos, memory, skills, ISA, and tool contract | bun test |
-| ISC-21 | unit | Claude Code context bundle contains profile, telos, memory, skills, ISA, and hook plan | bun test |
+| ISC-19 | unit | Codex projection contains profile, telos, memory, skills, and ISA | bun test |
+| ISC-20 | unit | Pi.dev projection contains profile, telos, memory, skills, ISA, and tool contract | bun test |
+| ISC-21 | unit | Claude Code projection contains profile, telos, memory, skills, ISA, and hook plan | bun test |
 | ISC-22 | static | ESLint flat config and package scripts are installed | bun run lint |
-| ISC-23 | unit | Bundle writer creates substrate files and rejects unsafe paths | bun test |
+| ISC-23 | unit | Projection writer creates substrate files and rejects unsafe paths | bun test |
 | ISC-24 | file | Default availability doc distinguishes home projection from workspace overlay | read |
 | ISC-25 | unit | Codex home projection resolves paths and writes rules, skill, memory, and policy files | bun test |
 | ISC-26 | unit | Soma home bootstrap creates profile, memory, skill, policy, and projection layout | bun test |
@@ -145,9 +145,9 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 | Pi.dev context adapter | ISC-20 | type contracts | yes |
 | Claude Code context adapter | ISC-21 | type contracts | yes |
 | ESLint baseline | ISC-22 | package metadata | no |
-| Context bundle writer | ISC-23 | context adapters | no |
+| Projection writer | ISC-23 | context adapters | no |
 | Default availability design | ISC-24 | PAI integration review | no |
-| Codex home projection | ISC-25 | context bundle writer | no |
+| Codex home projection | ISC-25 | projection writer | no |
 | Soma home bootstrap | ISC-26 | default availability design | no |
 | Codex install flow | ISC-27 | Soma home bootstrap, Codex home projection | no |
 | Memory event writeback | ISC-28 | Soma home bootstrap | no |
@@ -164,15 +164,14 @@ Pi.dev, Claude Code, and Cortex/Myelin.
   a dedicated Codex adapter.
 - 2026-05-14: Accepted Luna's concept review as design pressure: boundary
   ownership, portability proof, memory v0, and policy v0 are now explicit.
-- 2026-05-14: Implemented Codex as context generation first. Running Codex tasks
-  remains out of scope until context projection is proven across a second
-  substrate.
-- 2026-05-14: Implemented Pi.dev and Claude Code as context generation first.
-  The same Soma input is now projected into three substrate-specific bundles.
+- 2026-05-14: Implemented Codex as projection first. Running Codex tasks remains
+  out of scope until projection is proven across a second substrate.
+- 2026-05-14: Implemented Pi.dev and Claude Code as projection first. The same
+  Soma input is now projected into three substrate-specific projections.
 - 2026-05-14: Adopted the Arc/Myelin ESLint flat-config pattern using
   `@eslint/js`, `typescript-eslint`, type-aware rules, and test overrides.
-- 2026-05-14: Added a filesystem writer for materializing generated context
-  bundles into a workspace root.
+- 2026-05-14: Added a filesystem writer for materializing generated projections
+  into a workspace root.
 - 2026-05-14: Reframed installation around default substrate-home availability,
   using PAI's `~/.claude/` integration as the reference pattern.
 - 2026-05-14: Implemented Codex as the first home projection target:

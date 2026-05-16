@@ -1,7 +1,9 @@
-# Default Availability
+# Home Projection Defaults
 
 Soma must be available by default, not only inside individual project
-repositories.
+repositories. This doc describes the **home** mode (the primary projection
+target) and the **workspace** overlay. See [CONTEXT.md](../CONTEXT.md) for
+glossary; modes are `home`, `workspace`, `library`, `daemon`, `export`.
 
 PAI proves the pattern in Claude Code: it installs into `~/.claude/` so the
 assistant is present whenever Claude starts. Project-local `CLAUDE.md` files are
@@ -9,38 +11,39 @@ overlays; they do not carry the whole assistant.
 
 ## Principle
 
-Soma has two projection layers:
+Soma supports two projection placements relevant to default availability:
 
-1. **Home projection**: installed into the substrate's user-level configuration
-   directory. This makes the assistant available by default.
-2. **Workspace projection**: installed into a project directory. This adds
-   project-specific context, ISA, skills, and policy overlays.
+1. **home** mode: the projection is installed into the substrate's user-level
+   configuration directory. This makes the assistant available by default.
+2. **workspace** mode: the projection is installed into a project directory.
+   This adds project-specific ISA, skills, and policy overlays.
 
-The home projection is the primary install target. Workspace projection is a
-secondary overlay.
+The home projection is the primary install target. The workspace projection is
+a secondary overlay that takes precedence inside that workspace.
 
-A projection is a generated snapshot, not a symlink, live synchronized overlay,
-or authoritative copy. Refresh is currently on demand through install commands;
-substrate startup does not auto-refresh projections in V0. See
-[writeback-and-policy.md](./writeback-and-policy.md) for writeback and conflict
-semantics.
+A projection is a generated snapshot, not a symlink, live overlay, or
+authoritative copy. The Identity compartment projects eagerly; Skills project
+as an indexed registry; Memory archives are on-demand. Refresh is on demand
+through `soma install` / `soma reproject`; substrate startup does not
+auto-refresh projections in V0. See [writeback-and-policy.md](./writeback-and-policy.md)
+for writeback semantics.
 
 ## PAI Reference Shape
 
 PAI's Claude integration uses:
 
-- `~/.claude/CLAUDE.md` for always-loaded context routing and operating rules.
+- `~/.claude/CLAUDE.md` for the eagerly-loaded routing and operating rules.
 - `~/.claude/settings.json` for environment, permissions, hooks, and statusline.
 - `~/.claude/hooks/` for lifecycle integration.
-- `~/.claude/skills/` for globally available skills.
-- `~/.claude/agents/` for globally available specialists.
+- `~/.claude/skills/` for globally available Claude Code skills.
+- `~/.claude/agents/` for globally available Claude Code sub-agents.
 - `~/.claude/commands/` for slash commands.
-- `~/.claude/PAI/USER/` for principal identity, DA identity, and TELOS.
-- `~/.claude/PAI/MEMORY/` for durable memory.
+- `~/.claude/PAI/USER/` for principal identity, assistant identity, and TELOS.
+- `~/.claude/PAI/MEMORY/` for protected memory.
 - `~/.claude/PAI/PULSE/` for daemon behavior, notifications, and dashboards.
 
 That shape is Claude-specific, but the design lesson is portable: the assistant
-has a durable home, and project-local files only specialize it.
+has a protected home, and project-local files only specialize it.
 
 ## Soma Home Layout
 
@@ -70,7 +73,8 @@ Soma's substrate-neutral home should be:
 
 The implemented bootstrap slice is `bootstrapSomaHome`, which creates the
 starter profile files, memory directories, skill/policy directories, projection
-directories, and returns a `SomaContextInput` loaded from those files.
+directories, and returns a `SomaContextInput` loaded from those files. (Type
+rename to `ProjectionInput` is tracked in #52.)
 
 ## Substrate Home Projections
 
@@ -81,8 +85,8 @@ Observed Codex user-level surfaces include `~/.codex/config.toml`,
 
 Codex `*.rules` files are parsed as Starlark permission rules, not Markdown
 assistant instructions. Soma therefore keeps `rules/soma.rules` comment-only as
-a parse-safe projection marker. Natural-language assistant context lives in the
-projected skill and memory files.
+a parse-safe projection marker. The eager Soma content lives in the projected
+Codex instruction and memory files.
 
 Initial Soma projection target:
 
@@ -96,14 +100,14 @@ Initial Soma projection target:
   memories/soma/policy.md
 ```
 
-Codex project overlays may still write `.codex/soma/` into a workspace.
+Codex workspace overlays may still write `.codex/soma/` into a workspace.
 
 The implemented first slice is `buildCodexHomeProjection`, which resolves
-`~/.soma` and `~/.codex`, builds the Codex home bundle, and can materialize it
-with `installCodexHomeProjection`.
+`~/.soma` and `~/.codex`, builds the Codex home projection, and can materialize
+it with `installCodexHomeProjection`.
 
 The first end-to-end install function is `installSomaForCodex`. It bootstraps
-`~/.soma`, loads that source context, then projects it into `~/.codex`.
+`~/.soma`, loads that source, then projects it into `~/.codex`.
 
 ### Claude Code
 
@@ -126,8 +130,8 @@ Claude home; Soma should be less invasive.
 
 ### Pi.dev
 
-Pi.dev receives a user-level extension projection under the observed Pi.dev home
-layout:
+Pi.dev receives a user-level extension projection under the observed Pi.dev
+home layout:
 
 ```text
 ~/.pi/
@@ -142,39 +146,41 @@ layout:
   agent/skills/soma/SKILL.md
 ```
 
-The extension registers a `soma_context` tool for reading the projected profile,
-memory layout, PAI import index, and selected source files under `~/.soma`.
-It also appends Soma identity context to Pi.dev's system prompt during
+The extension registers a `soma_context` tool for reading the projected
+profile, memory layout, PAI import index, and selected source files under
+`~/.soma`. It also appends Soma identity to Pi.dev's system prompt during
 `before_agent_start`, because tools alone are not enough for default identity
-behavior. The context files remain generated snapshots; `~/.soma` is still
+behaviour. The projection files remain generated snapshots; `~/.soma` is still
 authoritative.
 
 ### Cortex / Myelin
 
-Cortex default availability should be daemon registration, not copied prompt
-files:
+Cortex default availability should be Cortex agent registration, not copied
+prompt files:
 
 ```text
 ~/.config/cortex/agents.d/soma.json
 ~/.soma/
 ```
 
-The daemon consumes Myelin envelopes and reads the same `~/.soma/` source data.
+The Cortex agent daemon consumes Myelin envelopes and reads the same
+`~/.soma/` source data.
 
 ## Install Commands
 
-The CLI should reflect this split:
+The CLI should reflect the home/workspace split:
 
 ```bash
-soma install --substrate codex
-soma install --substrate claude-code
-soma install --substrate pi-dev
-soma install --substrate cortex
+soma install codex
+soma install claude-code
+soma install pi-dev
+soma install cortex
 
-soma project install --substrate codex --root .
+soma install codex --workspace
 ```
 
-`install` targets the substrate home. `project install` targets a workspace.
+`install` targets the substrate home by default. `--workspace` targets the
+current workspace overlay. (CLI alignment tracked in #54.)
 
 ## Safety Rules
 

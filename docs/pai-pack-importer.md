@@ -49,7 +49,7 @@ skills/telos/
   soma-pack.json
 ```
 
-The importer rewrites `SKILL.md` frontmatter to use a substrate-portable,
+The importer rewrites `SKILL.md` frontmatter to use a portable,
 lowercase Soma skill name. Source docs are preserved under `references/` so
 Claude-specific installation guidance remains available without becoming the
 Soma install procedure.

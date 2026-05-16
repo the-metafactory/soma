@@ -6,7 +6,7 @@ Soma separates the public code repo from private installed context.
 - `~/.soma` is private by design: identity, telos, imported PAI context, memory,
   and work state live there.
 - substrate projections such as `~/.codex/memories/soma/` and
-  `~/.pi/agent/soma/` are also private context surfaces.
+  `~/.pi/agent/soma/` are also private projections.
 
 V0 protects the mistake classes that matter first:
 

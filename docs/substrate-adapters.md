@@ -1,30 +1,32 @@
 # Substrate Adapters
 
-Soma treats execution environments as adapters. Each adapter maps the same
-assistant core into different host primitives.
+Soma treats execution environments as substrates. One adapter per substrate
+projects the same Soma into different substrate-native primitives. See
+[CONTEXT.md](../CONTEXT.md) for glossary.
 
 ## Codex
 
-Codex is a coding-agent substrate. The adapter should package:
+Codex is a coding-agent substrate. The Codex projection should carry:
 
 - system/developer instruction fragments
-- Soma identity and telos context
+- Soma identity and telos
 - active ISA summary
 - relevant skills as local instructions
 - memory readback
 - verification policy
 
 Open question: whether Codex plugins should carry the adapter or whether Soma
-should generate a workspace-local instruction bundle consumed by Codex.
+should project a workspace-local instruction set consumed by Codex.
 
-Initial answer: start with workspace-local context generation. `buildCodexContext`
-returns deterministic files under `.codex/soma/` plus an instruction string.
-Codex execution and plugins come later, after the same input can be projected
-into at least one second substrate.
+Initial answer: start with a workspace projection. `projectCodex` (currently
+named `buildCodexContext`, rename tracked in #52) returns deterministic files
+under `.codex/soma/` plus an instruction string. Codex execution and plugins
+come later, after the same input can be projected into at least one second
+substrate.
 
 Next answer: add a home projection for `~/.codex/` so Soma is available by
-default. Workspace-local `.codex/soma/` files should become project overlays,
-not the main install surface.
+default. Workspace projections under `.codex/soma/` overlay the home projection,
+they are not the main install surface.
 
 ## Pi.dev
 
@@ -44,18 +46,19 @@ The first useful Pi adapter can be a `soma-core` extension with:
 - `capture_learning`
 - `policy_check`
 
-Initial implementation: `buildPiDevContext` generates a workspace-shaped
-`soma-core` extension projection under `.pi/extensions/soma-core/`. It includes
-an extension manifest, portable context, tool contract, memory layout, skills,
-and policy projection. The tools are named as the adapter contract; execution is
-not wired yet.
+Initial implementation: `projectPiDev` (currently `buildPiDevContext`) generates
+a workspace-shaped `soma-core` extension projection under
+`.pi/extensions/soma-core/`. It includes an extension manifest, portable
+content, tool contract, memory layout, skills, and policy projection. The tools
+are named as the adapter contract; execution is not wired yet.
 
-Home implementation: `buildPiDevHomeContext` projects into `~/.pi/agent/`:
-`agent/extensions/soma.ts` registers the `soma_context` tool, while
-`agent/soma/` holds generated context snapshots and `agent/skills/soma/SKILL.md`
-advertises the Soma skill. The extension appends Soma identity context to the
-system prompt on `before_agent_start`; the tool can read projected
-profile/context files and detailed imported PAI source files under `~/.soma`.
+Home implementation: `projectPiDevHome` (currently `buildPiDevHomeContext`)
+projects into `~/.pi/agent/`: `agent/extensions/soma.ts` registers the
+`soma_context` tool, while `agent/soma/` holds the generated projection
+snapshot and `agent/skills/soma/SKILL.md` advertises the Soma skill as a Pi.dev
+skill. The extension appends Soma identity to the LLM context on
+`before_agent_start`; the tool can read projection files and detailed imported
+PAI source files under `~/.soma`.
 
 ## Claude Code
 
@@ -64,36 +67,37 @@ Claude Code has the richest native surface:
 - system prompt append
 - `CLAUDE.md`
 - hooks
-- skills
-- agents
+- Claude Code skills
+- Claude Code sub-agents
 - slash commands
 - statusline
 
-The Claude adapter can be the highest-fidelity implementation, but the core must
-not depend on Claude-only primitives. Hooks should improve behavior; they should
-not be required for the storage contract to function.
+The Claude Code adapter can be the highest-fidelity implementation, but the
+core must not depend on Claude-only primitives. Hooks should improve behavior;
+they should not be required for the storage contract to function.
 
-Initial implementation: `buildClaudeCodeContext` generates a Claude-shaped
-projection with `CLAUDE.md` plus `.claude/soma/` context files. Hooks are
-documented as optional enhancements, not requirements for the portable core.
+Initial implementation: `projectClaudeCode` (currently `buildClaudeCodeContext`)
+generates a Claude-shaped projection with `CLAUDE.md` plus `.claude/soma/`
+projection files. Hooks are documented as optional enhancements, not
+requirements for the portable core.
 
 The Claude Code adapter should support a home projection into `~/.claude/`.
 This is how PAI is deeply integrated: global `CLAUDE.md`, settings, hooks,
-skills, agents, commands, user identity, memory, and daemon support are available
-at every Claude Code startup. Soma should project into that shape without making
-Claude Code the source of truth.
+Claude Code skills, sub-agents, commands, principal identity, memory, and
+daemon support are available at every Claude Code startup. Soma should project
+into that shape without making Claude Code the source of truth.
 
 ## Cortex / Myelin
 
 Cortex is the Meta Factory collaboration surface. Myelin is the protocol stack.
 Soma can integrate in two ways:
 
-1. **In-process assistant profile**: Cortex uses Soma context when spawning a
-   substrate session.
-2. **Standalone daemon**: Soma subscribes to Myelin subjects, claims personal
-   assistant tasks, updates its own memory, and publishes envelopes.
+1. **In-process assistant profile**: Cortex uses Soma when spawning a substrate
+   session.
+2. **Standalone Cortex agent**: Soma subscribes to Myelin subjects, claims
+   personal assistant tasks, updates its own memory, and publishes envelopes.
 
-The daemon shape should follow the existing standalone agent pattern:
+The daemon shape should follow the existing standalone Cortex agent pattern:
 
 - `type: agent`
 - `targets: [cortex, darwin-launchd]`
@@ -104,8 +108,8 @@ The daemon shape should follow the existing standalone agent pattern:
 ## Adapter Contract
 
 Adapters should be thin. They do not own identity, memory, ISA, skill schemas, or
-policy semantics. They only translate those contracts into a substrate's native
-mechanisms.
+policy semantics. They only project those contracts into a substrate's native
+mechanisms, and write back substrate-side events through the writeback gate.
 
 The first portability proof is documented in
 [portability-proof.md](./portability-proof.md). Memory and policy v0 are
