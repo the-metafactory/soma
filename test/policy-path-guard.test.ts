@@ -125,6 +125,15 @@ test("handles quoted paths", () => {
   expect(result.targetPaths[0]).toBe(resolve("/home/user/My Documents"));
 });
 
+test("handles backslash-escaped characters", () => {
+  const protectedRef = "~/." + "\\soma";
+  const result = parseBashDestructivePaths(`rm -rf ${protectedRef}`, "/tmp");
+
+  expect(result.command).toBe("rm");
+  expect(result.targetPaths).toHaveLength(1);
+  expect(result.targetPaths[0]).toContain(".soma");
+});
+
 test("detects multiple deletion targets", () => {
   const result = parseBashDestructivePaths("rm -rf dir1 dir2 dir3", "/base");
 
@@ -221,6 +230,15 @@ test("detects glob pattern rm *", () => {
 
   expect(result.command).toBe("rm");
   expect(result.targetPaths).toHaveLength(1);
+});
+
+test("keeps glob directory specificity", () => {
+  const protectedRef = "~/." + "soma/*";
+  const result = parseBashDestructivePaths(`rm -rf ${protectedRef}`, "/tmp");
+
+  expect(result.command).toBe("rm");
+  expect(result.targetPaths).toHaveLength(1);
+  expect(result.targetPaths[0]).toContain(".soma");
 });
 
 // ── Path Guard Evaluation ──
@@ -562,24 +580,15 @@ test("generates pi.dev path guard extension", () => {
   const extension = renderPathGuardExtension("/test/home/.soma");
 
   expect(extension).toContain("import type { ExtensionAPI }");
-  expect(extension).toContain('import { existsSync, realpathSync } from "node:fs"');
-  expect(extension).toContain('import { basename, dirname, isAbsolute, relative, resolve } from "node:path"');
+  expect(extension).toContain('import { isAbsolute, resolve } from "node:path"');
+  expect(extension).toContain("parseBashDestructivePaths");
+  expect(extension).toContain("evaluatePathGuard");
   expect(extension).not.toContain("require(");
-  expect(extension).toContain("DESTRUCTIVE_DELETE");
-  expect(extension).toContain("rm");
-  expect(extension).toContain("rmdir");
-  expect(extension).toContain("trash");
-  expect(extension).toContain("DESTRUCTIVE_MOVE");
-  expect(extension).toContain("mv");
   expect(extension).toContain("tool_call");
   expect(extension).toContain("protected path");
   expect(extension).toContain("block: true");
-  expect(extension).toContain("~/.soma");
-  expect(extension).toContain("~/.claude");
-  expect(extension).toContain("~/.pi");
-  expect(extension).toContain("~/.config/cortex");
-  expect(extension).toContain("~/.config/metafactory");
-  expect(extension).toContain("~/.config/k");
+  expect(extension).toContain("SOMA_DEFAULT_PROTECTED_PATHS");
+  expect(extension).toContain("SOMA_HOME");
 });
 
 test("generated pi.dev guard extension is valid TypeScript", async () => {
@@ -609,14 +618,12 @@ test("generated pi.dev guard extension is valid TypeScript", async () => {
 test("generated pi.dev guard extension handles env.HOME reference", () => {
   const extension = renderPathGuardExtension("/test/home/.soma");
 
-  expect(extension).toContain("process.env.HOME");
-  expect(extension).toContain(".replace(/^\\$\\{HOME\\}(?=\\/|$)/, home)");
-  expect(extension).toContain(".replace(/^\\$HOME(?=\\/|$)/, home)");
+  expect(extension).toContain("expandTilde");
 });
 
 test("generated pi.dev guard blocks destructive commands, redirections, mv sources, and relative write paths", async () => {
-  const extension = renderPathGuardExtension("/test/home/.soma");
   const tmpDir = await mkdtemp(join(tmpdir(), "soma-guard-ext-runtime-"));
+  const extension = renderPathGuardExtension(join(tmpDir, ".soma"));
   const extPath = join(tmpDir, "soma-path-guard.ts");
   const originalHome = process.env.HOME;
   const protectedRef = "~/." + "soma/secret.md";

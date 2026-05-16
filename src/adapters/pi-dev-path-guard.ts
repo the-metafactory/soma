@@ -1,293 +1,58 @@
-import {
-  DESTRUCTIVE_COMMANDS,
-  DESTRUCTIVE_MOVE_COMMANDS,
-  NON_DESTRUCTIVE_PREFIXES,
-  SOMA_DEFAULT_PROTECTED_PATHS,
-} from "../policy-path-guard";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 /**
  * Render a pi.dev extension that guards against destructive operations on
  * protected paths (Soma home, PAI home, Pi home, etc.).
  *
- * The extension intercepts tool_call events for bash commands and blocks
- * destructive operations targeting protected directories. It also guards
- * write/edit tools targeting paths inside protected directories.
- *
- * SUBSTRATE-SPECIFIC: This renders pi.dev extension code. Other substrates
- * (Claude Code, Codex) get their own enforcement generators.
+ * SUBSTRATE-SPECIFIC: This renders pi.dev extension code. The parser and path
+ * matching logic are imported from the portable policy-path-guard runtime so
+ * generated substrate code does not drift from core enforcement.
  */
-export function renderPathGuardExtension(somaHome: string): string {
+export function renderPathGuardExtension(somaHome: string, runtimeModuleSpecifier = defaultRuntimeModuleSpecifier()): string {
   return `import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { existsSync, realpathSync } from "node:fs";
-import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
+import {
+  evaluatePathGuard,
+  expandTilde,
+  parseBashDestructivePaths,
+  SOMA_DEFAULT_PROTECTED_PATHS,
+} from ${JSON.stringify(runtimeModuleSpecifier)};
 
 const SOMA_HOME = ${JSON.stringify(somaHome)};
-const PROTECTED_PATHS = ${JSON.stringify(SOMA_DEFAULT_PROTECTED_PATHS, null, 2)};
-const DESTRUCTIVE_DELETE = new Set(${JSON.stringify(Array.from(DESTRUCTIVE_COMMANDS))});
-const DESTRUCTIVE_MOVE = new Set(${JSON.stringify(Array.from(DESTRUCTIVE_MOVE_COMMANDS))});
-const PREFIXES = new Set(${JSON.stringify(Array.from(NON_DESTRUCTIVE_PREFIXES))});
-const SHELL_WRAPPERS = new Set(["bash", "sh", "zsh"]);
-const REPARSE_WRAPPERS = new Set(["eval"]);
+const PROTECTED_PATHS = [
+  ...SOMA_DEFAULT_PROTECTED_PATHS,
+  { path: SOMA_HOME, description: "Soma private root" },
+];
 
-function expandTilde(path: string): string {
-  const home = process.env.HOME || "/";
-  const expandedEnv = path
-    .replace(/^\\$\\{HOME\\}(?=\\/|$)/, home)
-    .replace(/^\\$HOME(?=\\/|$)/, home);
-  if (expandedEnv !== path) return expandedEnv;
-  if (path === "~") return home;
-  if (path.startsWith("~/")) return home + path.slice(1);
-  return path;
-}
-
-function isInside(path: string, root: string): boolean {
-  const rel = relative(root, path);
-  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
-}
-
-function realScopePath(path: string): string {
-  let cursor = path;
-  const suffix: string[] = [];
-
-  while (!existsSync(cursor)) {
-    const parent = dirname(cursor);
-    if (parent === cursor) return path;
-    suffix.unshift(cursor.slice(parent.length + 1));
-    cursor = parent;
-  }
-
-  try {
-    const realCursor = realpathSync(cursor);
-    return suffix.length > 0 ? resolve(realCursor, ...suffix) : realCursor;
-  } catch {
-    return path;
-  }
-}
-
-function isProtected(target: string, cwd = process.cwd()): { blocked: boolean; detail: string } {
+function resolveTarget(target: string, cwd: string): string {
   const expanded = expandTilde(target);
-  const resolved = realScopePath(resolve(isAbsolute(expanded) ? expanded : resolve(cwd, expanded)));
-  for (const pp of PROTECTED_PATHS) {
-    const root = realScopePath(resolve(expandTilde(pp.path)));
-    if (isInside(resolved, root)) {
-      return { blocked: true, detail: target + " is under " + pp.path + " (" + pp.description + ")" };
-    }
-  }
-  return { blocked: false, detail: "" };
-}
-
-function cleanToken(token: string): string {
-  let cleaned = token;
-  if ((cleaned.startsWith('"') && cleaned.endsWith('"')) || (cleaned.startsWith("'") && cleaned.endsWith("'"))) {
-    cleaned = cleaned.slice(1, -1);
-  }
-  return cleaned.replace(/^[<>]+/, "").replace(/[<>]+$/, "");
-}
-
-function tokenize(command: string): string[] {
-  const tokens: string[] = [];
-  let current = "";
-  let quote: '"' | "'" | undefined;
-
-  function pushCurrent(): void {
-    if (current.length === 0) return;
-    tokens.push(cleanToken(current));
-    current = "";
-  }
-
-  for (let i = 0; i < command.length; i++) {
-    const char = command[i];
-    const next = command[i + 1];
-
-    if (quote) {
-      if (char === quote) quote = undefined;
-      else current += char;
-      continue;
-    }
-
-    if (char === '"' || char === "'") {
-      quote = char;
-      continue;
-    }
-
-    if (/\\s/.test(char)) {
-      pushCurrent();
-      continue;
-    }
-
-    if (char === "&" && next === "&") {
-      pushCurrent();
-      tokens.push("&&");
-      i++;
-      continue;
-    }
-
-    if (char === "|" && next === "|") {
-      pushCurrent();
-      tokens.push("||");
-      i++;
-      continue;
-    }
-
-    if (char === ">") {
-      pushCurrent();
-      tokens.push(next === ">" ? ">>" : ">");
-      if (next === ">") i++;
-      continue;
-    }
-
-    if (char === ";" || char === "|") {
-      pushCurrent();
-      tokens.push(char);
-      continue;
-    }
-
-    current += char;
-  }
-
-  pushCurrent();
-  return tokens;
-}
-
-function isChainOperator(token: string): boolean {
-  return token === ";" || token === "&&" || token === "||" || token === "|";
-}
-
-function splitSegments(tokens: string[]): string[][] {
-  const segments: string[][] = [];
-  let current: string[] = [];
-  for (const token of tokens) {
-    if (isChainOperator(token)) {
-      if (current.length > 0) {
-        segments.push(current);
-        current = [];
-      }
-      continue;
-    }
-    current.push(token);
-  }
-  if (current.length > 0) segments.push(current);
-  return segments;
-}
-
-function skipPrefixes(tokens: string[]): number {
-  let index = 0;
-  while (index < tokens.length) {
-    const token = tokens[index];
-    if (PREFIXES.has(token) || /^[A-Za-z_][A-Za-z0-9_]*=.*$/.test(token)) {
-      index++;
-      continue;
-    }
-    break;
-  }
-  return index;
-}
-
-function resolveTarget(token: string, cwd: string): string {
-  const expanded = expandTilde(token);
   return isAbsolute(expanded) ? resolve(expanded) : resolve(cwd, expanded);
 }
 
-function shellPayloadIndex(tokens: string[], cmdIndex: number): number | undefined {
-  for (let i = cmdIndex + 1; i < tokens.length; i++) {
-    if (tokens[i] === "-c" || tokens[i] === "-lc") return i + 1 < tokens.length ? i + 1 : undefined;
-  }
-  return undefined;
-}
-
-function redirectTargets(tokens: string[], cwd: string): string[] {
-  const targets: string[] = [];
-  for (let i = 0; i < tokens.length - 1; i++) {
-    const token = tokens[i];
-    if (token !== ">" && token !== ">>") continue;
-    const target = tokens[i + 1];
-    if (!target || isChainOperator(target)) continue;
-    targets.push(resolveTarget(target, cwd));
-  }
-  return targets;
-}
-
-function extractFromSegment(tokens: string[], cwd: string, depth: number): string[] {
-  const cmdIndex = skipPrefixes(tokens);
-  if (cmdIndex >= tokens.length) return [];
-  const command = basename(tokens[cmdIndex]);
-  const redirected = redirectTargets(tokens, cwd);
-
-  if (depth < 4 && SHELL_WRAPPERS.has(command)) {
-    const payloadIndex = shellPayloadIndex(tokens, cmdIndex);
-    return payloadIndex === undefined ? [] : extractDestructiveTargets(tokens.slice(payloadIndex).join(" "), cwd, depth + 1);
-  }
-
-  if (depth < 4 && REPARSE_WRAPPERS.has(command)) {
-    return extractDestructiveTargets(tokens.slice(cmdIndex + 1).join(" "), cwd, depth + 1);
-  }
-
-  if (depth < 4 && command === "xargs") {
-    const nestedIndex = tokens.findIndex((token, index) => index > cmdIndex && (DESTRUCTIVE_DELETE.has(token) || DESTRUCTIVE_MOVE.has(token)));
-    return nestedIndex === -1 ? [] : extractFromSegment(tokens.slice(nestedIndex), cwd, depth + 1);
-  }
-
-  if (command === "find") {
-    if (!tokens.slice(cmdIndex + 1).some((token) => token === "-delete" || token === "-exec")) return [];
-    const targets: string[] = [];
-    for (let i = cmdIndex + 1; i < tokens.length; i++) {
-      const token = tokens[i];
-      if (token === "-H" || token === "-L" || token === "-P") continue;
-      if (token.startsWith("-")) break;
-      targets.push(resolveTarget(token, cwd));
-    }
-    return [...targets, ...redirected];
-  }
-
-  const isDelete = DESTRUCTIVE_DELETE.has(command);
-  const isMove = DESTRUCTIVE_MOVE.has(command);
-  if (!isDelete && !isMove) return redirected;
-
-  const pathArgs = tokens.slice(cmdIndex + 1).filter((token) => !token.startsWith("-"));
-
-  if (isMove) {
-    const sources = pathArgs.length > 1 ? pathArgs.slice(0, -1) : pathArgs.slice(0, 1);
-    return [...sources.map((source) => resolveTarget(source, cwd)), ...redirected];
-  }
-
-  // Static command analysis cannot safely expand arbitrary shell variables
-  // or command substitutions; unknown dynamic command names are not treated as
-  // destructive unless a concrete destructive command token is present.
-  const targets: string[] = [];
-  for (let i = cmdIndex + 1; i < tokens.length; i++) {
-    const token = tokens[i];
-    if (token.startsWith("-")) continue;
-    targets.push(token.includes("*") ? cwd : resolveTarget(token, cwd));
-  }
-  return [...targets, ...redirected];
-}
-
-function extractDestructiveTargets(command: string, cwd: string, depth = 0): string[] {
-  return splitSegments(tokenize(command)).flatMap((segment) => extractFromSegment(segment, cwd, depth));
+function blockedTargets(targets: string[], cwd: string, action: "delete" | "modify"): string[] {
+  const result = evaluatePathGuard({
+    targetPaths: targets,
+    cwd,
+    protectedPaths: PROTECTED_PATHS,
+    action,
+  });
+  return result.matchedDescriptions;
 }
 
 export default function (pi: ExtensionAPI) {
   pi.on("tool_call", async (event, ctx) => {
+    const cwd = (ctx as { cwd?: string }).cwd ?? process.cwd();
+
     if (event.toolName === "bash" || event.toolName === "Bash") {
       const input = (event as { input?: { command?: string; timeout?: number } }).input;
       if (!input?.command) return;
 
-      const cwd = (ctx as { cwd?: string }).cwd ?? process.cwd();
-      const targets = extractDestructiveTargets(input.command, cwd);
-      const blockedTargets: string[] = [];
-      const blockDetails: string[] = [];
+      const parsed = parseBashDestructivePaths(input.command, cwd);
+      const details = blockedTargets(parsed.targetPaths, cwd, "delete");
 
-      for (const target of targets) {
-        const result = isProtected(target);
-        if (result.blocked) {
-          blockedTargets.push(target);
-          blockDetails.push(result.detail);
-        }
-      }
-
-      if (blockedTargets.length > 0) {
-        const detail = blockDetails.join("; ");
-        const msg = "Soma path guard blocked command targeting protected path: " + detail + ".";
+      if (details.length > 0) {
+        const msg = "Soma path guard blocked command targeting protected path: " + details.join("; ") + ".";
         ctx.ui?.notify?.(msg, "error");
         return { block: true, reason: msg };
       }
@@ -299,10 +64,9 @@ export default function (pi: ExtensionAPI) {
       const targetPath = input?.file_path ?? input?.path;
       if (!targetPath) return;
 
-      const cwd = (ctx as { cwd?: string }).cwd ?? process.cwd();
-      const result = isProtected(targetPath, cwd);
-      if (result.blocked) {
-        const msg = "Soma path guard blocked write to protected path: " + result.detail + ".";
+      const details = blockedTargets([resolveTarget(targetPath, cwd)], cwd, "modify");
+      if (details.length > 0) {
+        const msg = "Soma path guard blocked write to protected path: " + details.join("; ") + ".";
         ctx.ui?.notify?.(msg, "error");
         return { block: true, reason: msg };
       }
@@ -310,4 +74,8 @@ export default function (pi: ExtensionAPI) {
   });
 }
 `;
+}
+
+function defaultRuntimeModuleSpecifier(): string {
+  return pathToFileURL(join(import.meta.dir, "../policy-path-guard.ts")).href;
 }

@@ -9,14 +9,14 @@ import type { SomaProtectedPath } from "./types";
 // These are Soma's opinionated defaults; operators can override or extend via
 // `protectedPaths` in SomaPolicyCheckOptions.
 
-export const SOMA_DEFAULT_PROTECTED_PATHS: readonly SomaProtectedPath[] = [
+export const SOMA_DEFAULT_PROTECTED_PATHS: readonly SomaProtectedPath[] = Object.freeze([
   { path: "~/.soma", description: "Soma portable assistant home" },
   { path: "~/.claude", description: "Claude Code / PAI home" },
   { path: "~/.pi", description: "Pi.dev home" },
   { path: "~/.config/cortex", description: "Cortex operator config" },
   { path: "~/.config/metafactory", description: "Metafactory ecosystem config" },
   { path: "~/.config/k", description: "kai-launcher config" },
-];
+].map((protectedPath) => Object.freeze(protectedPath)));
 
 // ── Destructive Bash Command Detection ──
 
@@ -55,11 +55,20 @@ function tokenize(command: string): string[] {
     const next = command[i + 1];
 
     if (quote) {
-      if (char === quote) {
+      if (char === "\\" && quote !== "'" && i + 1 < command.length) {
+        current += next;
+        i++;
+      } else if (char === quote) {
         quote = undefined;
       } else {
         current += char;
       }
+      continue;
+    }
+
+    if (char === "\\" && i + 1 < command.length) {
+      current += next;
+      i++;
       continue;
     }
 
@@ -218,6 +227,12 @@ function redirectTargets(tokens: string[], cwd: string): string[] {
   return targets;
 }
 
+function resolveGlobPath(token: string, cwd: string): string {
+  if (!token.includes("*")) return resolvePath(token, cwd);
+  const base = token.replace(/\/\*.*$/, "");
+  return base ? resolvePath(base, cwd) : cwd;
+}
+
 function skipPrefixes(tokens: string[]): number {
   let cmdIndex = 0;
   while (cmdIndex < tokens.length) {
@@ -289,11 +304,7 @@ function parseTokenSegment(tokens: string[], cwd: string, depth: number): SomaBa
   for (let i = cmdIndex + 1; i < tokens.length; i++) {
     const token = tokens[i];
     if (isFlag(token)) continue;
-    if (token.includes("*")) {
-      targetPaths.push(cwd);
-    } else {
-      targetPaths.push(resolvePath(token, cwd));
-    }
+    targetPaths.push(resolveGlobPath(token, cwd));
   }
 
   return { command: mainCommand, targetPaths: [...targetPaths, ...redirectedPaths] };
