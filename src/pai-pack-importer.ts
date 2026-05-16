@@ -48,7 +48,7 @@ const SECRET_FILE_PATTERNS = [
 ];
 
 type RoutedPaiPackImportFile =
-  | (PaiPackSourceImportFile & { renderMode: Extract<PaiPackRenderMode, "copy" | "skill"> })
+  | (PaiPackSourceImportFile & { renderMode: Extract<PaiPackRenderMode, "copy" | "skill" | "skill-body"> })
   | (PaiPackGeneratedImportFile & {
       renderMode: Extract<PaiPackRenderMode, "manifest" | "archive-manifest"> | "soma-skill-manifest";
     });
@@ -494,7 +494,7 @@ async function normalizeSkillFiles(
   const realPackRoot = await realpath(paiPackDir);
   const skillFiles: PaiPackSourceImportFile[] = [];
   for (const file of routedFiles) {
-    if (file.renderMode === "skill") {
+    if (file.renderMode === "skill" || file.renderMode === "skill-body") {
       skillFiles.push(file);
     }
   }
@@ -537,7 +537,7 @@ async function stagePaiPackFiles(plan: InternalPaiPackImportPlan, stageRoot: str
       await writeFile(stagedTarget, renderArchiveManifest(plan), "utf8");
     } else if (file.renderMode === "soma-skill-manifest") {
       await writeFile(stagedTarget, renderSomaSkillManifest(plan), "utf8");
-    } else if (file.renderMode === "skill") {
+    } else if (file.renderMode === "skill" || file.renderMode === "skill-body") {
       // Reuse the cached normalization computed during plan construction
       // so we don't re-read or re-normalize the same source per Sage's
       // double-pass finding. Fallback: re-read if cache miss.
@@ -548,7 +548,12 @@ async function stagePaiPackFiles(plan: InternalPaiPackImportPlan, stageRoot: str
             relative(plan.paiPackDir, file.source).split(sep).join("/"),
             await readFile(await resolveSafeSourceFile(realPackRoot, file.source), "utf8"),
           ).content;
-      const finalContent = `${rewriteSkillFrontmatter(normalizedContent, plan.skillName, plan.description).trimEnd()}\n`;
+      // Only the entry SKILL.md gets the skill identity frontmatter rewrite.
+      // Workflows/Tools markdown keeps its original frontmatter intact —
+      // Sage round-3 important: their identity isn't the root skill's.
+      const finalContent = file.renderMode === "skill"
+        ? `${rewriteSkillFrontmatter(normalizedContent, plan.skillName, plan.description).trimEnd()}\n`
+        : `${normalizedContent.trimEnd()}\n`;
       await writeFile(stagedTarget, finalContent, "utf8");
     } else {
       if (!isRoutedSourceFile(file)) {
@@ -562,20 +567,22 @@ async function stagePaiPackFiles(plan: InternalPaiPackImportPlan, stageRoot: str
 
 function renderSomaSkillManifest(plan: InternalPaiPackImportPlan): string {
   const skillRoot = join(plan.somaHome, "skills", plan.skillName);
+  const skillRelPath = (target: string): string => relative(skillRoot, target).split(sep).join("/");
   const skillFiles = plan.files.filter((file) => isWithinPath(skillRoot, file.target));
-  const skillMd = skillFiles.find((file) => relative(skillRoot, file.target).split(sep).join("/") === "SKILL.md");
+  const skillMd = skillFiles.find((file) => skillRelPath(file.target) === "SKILL.md");
   const references = skillFiles
     .filter((file) => file.classification === "source-doc")
-    .map((file) => relative(skillRoot, file.target).split(sep).join("/"));
+    .map((file) => skillRelPath(file.target));
+  const workflowFiles = skillFiles
+    .filter((file) => skillRelPath(file.target).startsWith("Workflows/"))
+    .map((file) => skillRelPath(file.target));
   const manifest: SomaSkillManifest = generateSomaSkillManifest({
     skillName: plan.skillName,
     description: plan.description,
     packName: plan.packName,
-    entrypoint: skillMd ? relative(skillRoot, skillMd.target).split(sep).join("/") : "SKILL.md",
+    entrypoint: skillMd ? skillRelPath(skillMd.target) : "SKILL.md",
     references,
-    workflowFiles: skillFiles
-      .filter((file) => relative(skillRoot, file.target).split(sep).join("/").startsWith("Workflows/"))
-      .map((file) => relative(skillRoot, file.target).split(sep).join("/")),
+    workflowFiles,
   });
   return `${JSON.stringify(manifest, null, 2)}\n`;
 }

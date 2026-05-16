@@ -118,6 +118,42 @@ test("normalizeSkillContent warns on release-safety scans", () => {
   expect(result.warnings.some((w) => w.kind === "release-safety-path")).toBe(true);
 });
 
+test("AC-3 round-3: workflow markdown is normalized but keeps original frontmatter", async () => {
+  await withFakePack(async (paiPackDir, somaHome, homeDir) => {
+    // Workflow file in fixture has no frontmatter; add one to verify it survives
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(
+      join(paiPackDir, "src", "Workflows", "Run.md"),
+      [
+        "---",
+        "workflow: Run",
+        "input: prompt",
+        "---",
+        "",
+        "## 🚨 MANDATORY: Notify First",
+        "",
+        "Run this voice notification:",
+        "",
+        "curl http://localhost:31337/notify",
+        "",
+        "## Steps",
+        "",
+        "Body content.",
+      ].join("\n"),
+      "utf8",
+    );
+    await importPaiPack({ homeDir, somaHome, paiPackDir });
+    const workflow = await readFile(join(somaHome, "skills", "test-pack", "Workflows", "Run.md"), "utf8");
+    // Workflow frontmatter preserved (NOT replaced with skill identity)
+    expect(workflow).toContain("workflow: Run");
+    expect(workflow).toContain("input: prompt");
+    expect(workflow).not.toContain("name: \"test-pack\"");
+    // Body still normalized
+    expect(workflow).not.toContain("MANDATORY");
+    expect(workflow).not.toContain("localhost:31337/notify");
+  });
+});
+
 test("normalizeSkillContent leaves unrelated MANDATORY sections alone (round-2 blocker fix)", () => {
   const content = [
     "## MANDATORY: Input Requirements",
