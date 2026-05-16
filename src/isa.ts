@@ -4,7 +4,9 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
   SECTION_NAME_MAP,
+  appendIsaChangelog as appendIsaChangelogAccessor,
   appendIsaDecision as appendIsaDecisionAccessor,
+  appendIsaVerification as appendIsaVerificationAccessor,
   getCriteria,
   getGoal,
   recomputeProgress,
@@ -361,6 +363,45 @@ export async function recordIsaDecision(
   const phase = options.phase ?? isa.frontmatter.phase;
   const timestamp = options.timestamp ?? new Date().toISOString();
   const updated = appendIsaDecisionAccessor(isa, { timestamp, phase, text });
+  return writeIsa(slug, { ...updated, frontmatter: { ...updated.frontmatter, updated: timestamp } }, options);
+}
+
+/**
+ * File-backed companion to the pure `appendIsaChangelog` accessor.
+ * Mirror of `recordIsaDecision` for the Changelog section. Used by
+ * lifecycle hooks (#38) to persist Algorithm changelog entries.
+ */
+export async function recordIsaChangelog(
+  slug: string,
+  text: string,
+  options: IsaLibraryOptions & { timestamp?: string; phase?: AlgorithmPhase } = {},
+): Promise<WriteIsaResult> {
+  if (text.trim().length === 0) {
+    throw new Error("recordIsaChangelog requires non-empty text.");
+  }
+  const isa = await readIsa(slug, options);
+  const phase = options.phase ?? isa.frontmatter.phase;
+  const timestamp = options.timestamp ?? new Date().toISOString();
+  const updated = appendIsaChangelogAccessor(isa, { timestamp, phase, text });
+  return writeIsa(slug, { ...updated, frontmatter: { ...updated.frontmatter, updated: timestamp } }, options);
+}
+
+/**
+ * File-backed companion to the pure `appendIsaVerification` accessor.
+ * Mirror of `recordIsaDecision` for the Verification section.
+ */
+export async function recordIsaVerification(
+  slug: string,
+  text: string,
+  options: IsaLibraryOptions & { timestamp?: string; phase?: AlgorithmPhase } = {},
+): Promise<WriteIsaResult> {
+  if (text.trim().length === 0) {
+    throw new Error("recordIsaVerification requires non-empty text.");
+  }
+  const isa = await readIsa(slug, options);
+  const phase = options.phase ?? isa.frontmatter.phase;
+  const timestamp = options.timestamp ?? new Date().toISOString();
+  const updated = appendIsaVerificationAccessor(isa, { timestamp, phase, text });
   return writeIsa(slug, { ...updated, frontmatter: { ...updated.frontmatter, updated: timestamp } }, options);
 }
 

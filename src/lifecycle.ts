@@ -6,10 +6,20 @@ import { appendSomaMemoryEvent } from "./memory";
 import { loadSomaHome } from "./soma-home";
 import { getCriteria, getGoal } from "./isa-accessors";
 import { getRunPhase } from "./algorithm-lifecycle";
+import {
+  checkCompleteness,
+  getActiveIsa,
+  readIsa,
+  recordIsaChangelog,
+  recordIsaDecision,
+  recordIsaVerification,
+} from "./isa";
 import type {
   AlgorithmRun,
   AlgorithmRunSummary,
   AlgorithmWorkIndex,
+  IdealStateArtifact,
+  IsaUpdatePayload,
   SomaLifecycleOptions,
   SomaLifecycleResult,
   SomaStartupContext,
@@ -186,16 +196,34 @@ export async function captureCompletedAlgorithmLearnings(options: SomaLifecycleO
   return written;
 }
 
+async function loadActiveIsaForLifecycle(somaHome: string): Promise<{ slug: string; isa: IdealStateArtifact } | null> {
+  const state = await getActiveIsa({ somaHome });
+  if (state?.activeSlug == null) return null;
+  try {
+    const isa = await readIsa(state.activeSlug, { somaHome });
+    return { slug: state.activeSlug, isa };
+  } catch {
+    // Active state points at a missing/unreadable ISA — treat as no
+    // active ISA. Caller's events.jsonl will pick up an isa.missing
+    // warning if we choose to emit one; for now lifecycle stays silent
+    // and non-blocking per #38 spec ("never halt").
+    return null;
+  }
+}
+
 export async function runSomaLifecycleSessionStart(options: SomaLifecycleOptions = {}): Promise<SomaLifecycleResult> {
   const startup = await buildSomaStartupContext(options);
+  const active = await loadActiveIsaForLifecycle(startup.somaHome);
+  const activeNote = active === null ? "" : ` | active ISA: ${active.slug} (${active.isa.frontmatter.phase})`;
   await appendSomaMemoryEvent(startup.somaHome, {
     substrate: startup.substrate,
     kind: "lifecycle.session_start",
-    summary: `Session started${startup.sessionId ? `: ${startup.sessionId}` : ""}`,
+    summary: `Session started${startup.sessionId ? `: ${startup.sessionId}` : ""}${activeNote}`,
     timestamp: startup.timestamp,
     metadata: {
       sessionId: startup.sessionId,
       activeRuns: startup.activeRuns.map((run) => run.id),
+      activeIsaSlug: active?.slug ?? null,
     },
   });
 
@@ -205,6 +233,79 @@ export async function runSomaLifecycleSessionStart(options: SomaLifecycleOptions
     timestamp: startup.timestamp,
     files: [join(startup.somaHome, "memory/STATE/events.jsonl")],
     context: startup.context,
+    activeIsa: active === null ? null : { slug: active.slug, phase: active.isa.frontmatter.phase },
+  };
+}
+
+/**
+ * Append decisions / changelog / verification entries to the active
+ * ISA (or the explicit slug in the payload). Pure file-backed writes
+ * through the library's record* helpers; no prompt-driven mutation.
+ * No-op when no active ISA is set AND no slug in payload — Layer 7
+ * never halts session work for a missing ISA.
+ */
+export async function runSomaLifecycleIsaUpdated(
+  payload: IsaUpdatePayload,
+  options: SomaLifecycleOptions = {},
+): Promise<SomaLifecycleResult> {
+  const somaHome = resolveSomaHome(options);
+  const timestamp = options.timestamp ?? new Date().toISOString();
+  const slug = payload.slug ?? (await getActiveIsa({ somaHome }))?.activeSlug ?? null;
+  if (slug === null) {
+    await appendSomaMemoryEvent(somaHome, {
+      substrate: substrate(options),
+      kind: "lifecycle.isa_updated.no_active",
+      summary: "isa_updated event received but no active ISA set; no writes made.",
+      timestamp,
+    });
+    return {
+      event: "isa_updated",
+      somaHome,
+      timestamp,
+      files: [join(somaHome, "memory/STATE/events.jsonl")],
+      writes: [],
+    };
+  }
+
+  const writes: string[] = [];
+  for (const entry of payload.decisions ?? []) {
+    const r = await recordIsaDecision(slug, entry.text, {
+      somaHome,
+      phase: entry.phase,
+      timestamp: entry.timestamp ?? timestamp,
+    });
+    writes.push(r.path);
+  }
+  for (const entry of payload.changelogEntries ?? []) {
+    const r = await recordIsaChangelog(slug, entry.text, {
+      somaHome,
+      phase: entry.phase,
+      timestamp: entry.timestamp ?? timestamp,
+    });
+    writes.push(r.path);
+  }
+  for (const entry of payload.verificationEntries ?? []) {
+    const r = await recordIsaVerification(slug, entry.text, {
+      somaHome,
+      phase: entry.phase,
+      timestamp: entry.timestamp ?? timestamp,
+    });
+    writes.push(r.path);
+  }
+  await appendSomaMemoryEvent(somaHome, {
+    substrate: substrate(options),
+    kind: "lifecycle.isa_updated",
+    summary: `Appended ${(payload.decisions?.length ?? 0) + (payload.changelogEntries?.length ?? 0) + (payload.verificationEntries?.length ?? 0)} entr(ies) to ISA ${slug}.`,
+    timestamp,
+    metadata: { slug },
+    artifactPaths: Array.from(new Set(writes)),
+  });
+  return {
+    event: "isa_updated",
+    somaHome,
+    timestamp,
+    files: Array.from(new Set([...writes, join(somaHome, "memory/STATE/events.jsonl")])),
+    writes,
   };
 }
 
@@ -233,10 +334,38 @@ export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions =
   const timestamp = options.timestamp ?? new Date().toISOString();
   const index = await writeAlgorithmWorkIndex({ ...options, somaHome, timestamp });
   const learningFiles = await captureCompletedAlgorithmLearnings({ ...options, somaHome, timestamp });
+
+  // #38 AC-4: If an active ISA is set, run checkCompleteness and emit a
+  // warning event when tier gate is unmet. NEVER blocks session end.
+  const active = await getActiveIsa({ somaHome });
+  let tierGateNote = "";
+  if (active?.activeSlug != null) {
+    try {
+      const report = await checkCompleteness(active.activeSlug, { somaHome });
+      if (!report.passed) {
+        await appendSomaMemoryEvent(somaHome, {
+          substrate: substrate(options),
+          kind: "lifecycle.tier-gate-unmet",
+          summary: `Tier gate unmet for active ISA ${active.activeSlug} at ${report.tier}: ${report.gaps.length} gap(s).`,
+          timestamp,
+          metadata: {
+            slug: active.activeSlug,
+            tier: report.tier,
+            gaps: report.gaps,
+          },
+        });
+        tierGateNote = ` | tier-gate-unmet: ${active.activeSlug} (${report.gaps.length} gap(s))`;
+      }
+    } catch {
+      // checkCompleteness can fail if the ISA file was removed; ignore
+      // — session end stays non-blocking.
+    }
+  }
+
   await appendSomaMemoryEvent(somaHome, {
     substrate: substrate(options),
     kind: "lifecycle.session_end",
-    summary: `Session ended; captured ${learningFiles.length} Algorithm learning artifact(s).`,
+    summary: `Session ended; captured ${learningFiles.length} Algorithm learning artifact(s).${tierGateNote}`,
     timestamp,
     artifactPaths: [index.path, index.activePath, ...learningFiles],
     metadata: {
