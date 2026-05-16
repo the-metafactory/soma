@@ -72,5 +72,5 @@ export default function (pi: ExtensionAPI) {
 }
 
 function defaultRuntimeModuleSpecifier(): string {
-  return pathToFileURL(join(import.meta.dir, "../policy-path-guard.ts")).href;
+  return pathToFileURL(join(import.meta.dir, "../../policy-path-guard.ts")).href;
 }

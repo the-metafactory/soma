@@ -1,7 +1,7 @@
-import type { SomaAdapter, SomaContextBundle, SomaContextInput, SomaTask } from "../types";
-import { renderFeedbackHookHelper } from "./feedback-hook-helper";
-import { renderPathGuardExtension } from "./pi-dev-path-guard";
-import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "./shared";
+import type { SomaAdapter, SomaContextBundle, SomaContextInput, SomaTask } from "../../types";
+import { renderFeedbackHookHelper } from "../shared/feedback-helper";
+import { renderPathGuardExtension } from "./path-guard";
+import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "../shared";
 
 function renderInstructions(input: SomaContextInput): string {
   return [

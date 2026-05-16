@@ -61,6 +61,34 @@ export default tseslint.config(
     },
   },
 
+  // Substrate-adapter boundary: per-substrate directories are private. Anything
+  // outside the substrate directory must import via the per-substrate barrel
+  // (`./codex`, `./pi-dev`) or via the top-level `./adapters` barrel. Direct
+  // deep imports of `adapters/codex/<file>` from elsewhere in src/ erode the
+  // boundary silently and are forbidden.
+  {
+    files: ["src/**/*.{ts,mjs}"],
+    ignores: [
+      "src/adapters/codex/**",
+      "src/adapters/pi-dev/**",
+      "src/adapters/shared/**",
+    ],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["**/adapters/codex/*", "**/adapters/pi-dev/*", "**/adapters/shared/*"],
+              message:
+                "Import from the substrate barrel (./adapters/codex, ./adapters/pi-dev, ./adapters/shared) — deep imports erode the adapter boundary.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+
   {
     files: ["test/**/*.ts", "**/*.test.ts"],
     rules: {

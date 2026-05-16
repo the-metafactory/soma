@@ -1,4 +1,4 @@
-import type { SomaContextInput } from "../types";
+import type { SomaContextInput } from "../../types";
 
 export function formatList(items: string[]): string {
   return items.length === 0 ? "- None declared" : items.map((item) => `- ${item}`).join("\n");
