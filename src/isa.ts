@@ -12,7 +12,7 @@ import {
 } from "./isa-accessors";
 import { parseIsa, serializeIsa } from "./isa-parse";
 import { appendSomaMemoryEvent } from "./memory";
-import { evaluateCompleteness, type CompletenessReport } from "./isa-schema";
+import { TIER_REQUIRED_SECTIONS, evaluateCompleteness, type CompletenessReport } from "./isa-schema";
 import type {
   AlgorithmEffortTier,
   AlgorithmPhase,
@@ -130,26 +130,41 @@ export async function writeIsa(
 export async function listIsas(options: IsaLibraryOptions = {}): Promise<IsaListEntry[]> {
   const somaHome = resolveSomaHome(options);
   const dir = isaDir(somaHome);
-  const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
-  const out: IsaListEntry[] = [];
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith(".md") || entry.name === "INDEX.md") continue;
-    const slug = entry.name.slice(0, -3);
-    if (!VALID_SLUG_PATTERN.test(slug)) continue;
-    try {
-      const raw = await readFile(join(dir, entry.name), "utf8");
-      const isa = parseIsa(raw, join(dir, entry.name));
-      out.push({
-        slug,
-        phase: isa.frontmatter.phase,
-        progress: isa.frontmatter.progress,
-        updated: isa.frontmatter.updated,
-      });
-    } catch {
-      // Skip unparseable files — surface to user via separate audit, not here
-    }
+  let entries: import("node:fs").Dirent[];
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch (error: unknown) {
+    // Only ENOENT (no isa dir yet) is a quiet empty list. Permission errors,
+    // ENOTDIR, etc. are real failures and must surface to the caller.
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return [];
+    throw error;
   }
-  return out.sort((a, b) => b.updated.localeCompare(a.updated));
+  const candidates = entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".md") && entry.name !== "INDEX.md")
+    .map((entry) => ({ slug: entry.name.slice(0, -3), path: join(dir, entry.name) }))
+    .filter((entry) => VALID_SLUG_PATTERN.test(entry.slug));
+  // Parallelize reads — listIsas was serializing per-file I/O. Bounded
+  // by candidate count; ISA libraries are small (≤ low hundreds) so a
+  // full Promise.all here is safe.
+  const parsed = await Promise.all(
+    candidates.map(async ({ slug, path }) => {
+      try {
+        const raw = await readFile(path, "utf8");
+        const isa = parseIsa(raw, path);
+        return {
+          slug,
+          phase: isa.frontmatter.phase,
+          progress: isa.frontmatter.progress,
+          updated: isa.frontmatter.updated,
+        } satisfies IsaListEntry;
+      } catch {
+        return null;
+      }
+    }),
+  );
+  return parsed
+    .filter((entry): entry is IsaListEntry => entry !== null)
+    .sort((a, b) => b.updated.localeCompare(a.updated));
 }
 
 export async function scaffoldIsa(input: ScaffoldIsaInput): Promise<{ path: string; isa: IdealStateArtifact }> {
@@ -206,7 +221,7 @@ function buildScaffoldSections(
   // can find unfilled sections.
   const criteriaContent = renderCriteriaMarkdown(initialCriteria) || TODO_PLACEHOLDER;
   const out: { name: string; content: string }[] = [];
-  const required = REQUIRED_SECTIONS_FOR_TIER[effort];
+  const required = TIER_REQUIRED_SECTIONS[effort];
   for (const name of required) {
     if (name === SECTION_NAME_MAP.goal) {
       out.push({ name, content: goal });
@@ -230,6 +245,10 @@ function buildScaffoldSections(
 
 const TODO_PLACEHOLDER = "_TODO: scaffolded — fill in via Interview workflow or direct edit._";
 
+// Canonical output order — single source of truth for "what order do
+// sections appear on disk?". Tier gates (TIER_REQUIRED_SECTIONS from
+// isa-schema) define WHICH sections must exist; this list defines
+// THE ORDER. Distinct concerns, single owners — Sage round-1 dedup.
 const TWELVE_SECTIONS_ORDER: readonly string[] = [
   SECTION_NAME_MAP.problem,
   SECTION_NAME_MAP.vision,
@@ -244,28 +263,6 @@ const TWELVE_SECTIONS_ORDER: readonly string[] = [
   SECTION_NAME_MAP.changelog,
   SECTION_NAME_MAP.verification,
 ];
-
-const REQUIRED_SECTIONS_FOR_TIER: Record<EffortTier, readonly string[]> = {
-  E1: [SECTION_NAME_MAP.goal, SECTION_NAME_MAP.criteria],
-  E2: [
-    SECTION_NAME_MAP.problem,
-    SECTION_NAME_MAP.goal,
-    SECTION_NAME_MAP.criteria,
-    SECTION_NAME_MAP.testStrategy,
-  ],
-  E3: [
-    SECTION_NAME_MAP.problem,
-    SECTION_NAME_MAP.vision,
-    SECTION_NAME_MAP.outOfScope,
-    SECTION_NAME_MAP.constraints,
-    SECTION_NAME_MAP.goal,
-    SECTION_NAME_MAP.criteria,
-    SECTION_NAME_MAP.testStrategy,
-    SECTION_NAME_MAP.features,
-  ],
-  E4: TWELVE_SECTIONS_ORDER,
-  E5: TWELVE_SECTIONS_ORDER,
-};
 
 function reorderToCanonical(sections: { name: string; content: string }[]): { name: string; content: string }[] {
   return [...sections].sort((a, b) => {

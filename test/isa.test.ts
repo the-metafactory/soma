@@ -131,6 +131,32 @@ test("AC-6: writeIsa serializes to semantic-equivalent content on round-trip", a
   });
 });
 
+test("listIsas surfaces real filesystem errors (not silent empty list)", async () => {
+  // Replace the isa dir with a regular file → readdir throws ENOTDIR. Must
+  // propagate, not silently return [].
+  const homeDir = await mkdtemp(join(tmpdir(), "soma-isa-list-err-"));
+  try {
+    await bootstrapSomaHome({ homeDir });
+    const { rm: rmf, writeFile: wf } = await import("node:fs/promises");
+    await rmf(join(homeDir, ".soma", "isa"), { recursive: true, force: true });
+    await wf(join(homeDir, ".soma", "isa"), "not a directory", "utf8");
+    await expect(listIsas({ homeDir })).rejects.toThrow();
+  } finally {
+    await rm(homeDir, { recursive: true, force: true });
+  }
+});
+
+test("listIsas returns [] for missing isa dir (ENOENT only)", async () => {
+  const homeDir = await mkdtemp(join(tmpdir(), "soma-isa-noenoent-"));
+  try {
+    // Don't bootstrap — isa dir doesn't exist at all
+    const entries = await listIsas({ homeDir });
+    expect(entries).toEqual([]);
+  } finally {
+    await rm(homeDir, { recursive: true, force: true });
+  }
+});
+
 test("listIsas returns entries sorted by updated desc, ignoring INDEX.md", async () => {
   await withSomaHome(async (homeDir) => {
     await scaffoldIsa({
