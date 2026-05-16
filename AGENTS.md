@@ -50,6 +50,20 @@ install, observe, execute, or govern.
 Do not add private principal data, credentials, customer data, or local secrets
 to public templates. Use placeholders and generic examples.
 
+## Agent skills
+
+### Issue tracker
+
+Issues live in the-metafactory/soma GitHub Issues, accessed via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Five canonical roles (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`) used as-is. See `docs/agents/triage-labels.md`.
+
+### Design Decisions
+
+Single-context repo. Design Decisions follow the **metafactory DD format** (numbered DD-N) at `design/design-decisions.md`. `ISA.md` is the live source of truth; DDs are the durable rule-record. See `docs/agents/domain.md`.
+
 ## Next Step
 
 When asked to continue the Codex bootstrap, implement the smallest useful Codex
