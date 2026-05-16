@@ -3,13 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 import {
-  activeStatePath,
   bootstrapSomaHome,
   checkCompleteness,
   getActiveIsa,
   getCriteria,
   getGoal,
-  isaPath,
   listAvailableTiers,
   listIsas,
   readIsa,
@@ -19,6 +17,9 @@ import {
   writeIsa,
   somaMemoryEventsPath,
 } from "../src/index";
+// Path helpers are intentionally internal (#34 Sage round-2 finding) —
+// tests import them directly from the implementation module.
+import { activeStatePath, isaPath } from "../src/isa";
 import { parseIsa, serializeIsa } from "../src/isa-parse";
 
 async function withSomaHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
@@ -128,6 +129,23 @@ test("AC-6: writeIsa serializes to semantic-equivalent content on round-trip", a
     const isa = await readIsa("rtrip", { homeDir });
     expect(getCriteria(isa)).toHaveLength(2);
     expect(getCriteria(isa)[0]?.status).toBe("passed");
+  });
+});
+
+test("listIsas surfaces per-file read errors with slug/path context", async () => {
+  await withSomaHome(async (homeDir) => {
+    await scaffoldIsa({ homeDir, slug: "good", goal: "G", effort: "E1" });
+    // Plant an unreadable .md file by removing read permission.
+    const { writeFile: wf, chmod: ch } = await import("node:fs/promises");
+    const unreadable = join(homeDir, ".soma", "isa", "unreadable.md");
+    await wf(unreadable, "---\ntask: x\neffort: E1\nphase: observe\n---\n\n## Goal\n\nx\n", "utf8");
+    await ch(unreadable, 0o000);
+    try {
+      await expect(listIsas({ homeDir })).rejects.toThrow(/unreadable/);
+    } finally {
+      // Restore so afterAll cleanup can rm the file
+      await ch(unreadable, 0o644).catch(() => undefined);
+    }
   });
 });
 

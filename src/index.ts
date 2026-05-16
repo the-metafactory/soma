@@ -182,18 +182,18 @@ export { importPaiPack, planPaiPackImport } from "./pai-pack-importer";
 export { checkSomaPolicy, checkSomaPolicyBatch } from "./policy-audit";
 export { evaluateSomaPolicy } from "./policy";
 export { bootstrapSomaHome, loadSomaHome } from "./soma-home";
-// ISA library API (#34) — cohesive surface. Internal schema constants
-// live in `./isa-schema`; tests import path/schema helpers directly.
+// ISA library API (#34) — cohesive public surface only.
+// Storage-layout helpers (activeStatePath, isaDir, isaPath) stay internal
+// to `./isa` so on-disk layout can evolve without breaking consumers
+// (Sage round-2 architecture finding). Tests + adapters that need them
+// import from `./isa` directly.
 export {
-  activeStatePath,
-  recordIsaDecision,
   checkCompleteness,
   getActiveIsa,
-  isaDir,
-  isaPath,
   listAvailableTiers,
   listIsas,
   readIsa,
+  recordIsaDecision,
   scaffoldIsa,
   setActiveIsa,
   writeIsa,

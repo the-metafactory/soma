@@ -157,14 +157,16 @@ export async function listIsas(options: IsaLibraryOptions = {}): Promise<IsaList
           progress: isa.frontmatter.progress,
           updated: isa.frontmatter.updated,
         } satisfies IsaListEntry;
-      } catch {
-        return null;
+      } catch (error: unknown) {
+        // Sage round 2: don't silently hide invalid ISA files. Rethrow
+        // with slug/path context so callers see the real library error
+        // rather than an incomplete-but-successful list.
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`listIsas: failed to read or parse '${slug}' at ${path}: ${message}`, { cause: error });
       }
     }),
   );
-  return parsed
-    .filter((entry): entry is IsaListEntry => entry !== null)
-    .sort((a, b) => b.updated.localeCompare(a.updated));
+  return parsed.sort((a, b) => b.updated.localeCompare(a.updated));
 }
 
 export async function scaffoldIsa(input: ScaffoldIsaInput): Promise<{ path: string; isa: IdealStateArtifact }> {
