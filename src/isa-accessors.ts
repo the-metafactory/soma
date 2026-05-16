@@ -154,29 +154,34 @@ function canonicalInsertIndex(sections: readonly IsaSection[], name: string): nu
   return sections.length;
 }
 
-const CRITERION_LINE = /^- \[([ x\-_!])\]\s+([^:]+):\s*(.+?)(?:\s+\|\s+Evidence:\s*(.+))?$/;
+const CRITERION_LINE = /^- \[([ x\-_!])\]\s+([^:]+):\s*(.+)$/;
+const EVIDENCE_LINE = /^\s{2,}Evidence:\s*(.+)$/;
 
 export function parseCriteriaMarkdown(content: string): IdealStateCriterion[] {
-  return content
-    .split("\n")
-    .map((line) => parseCriterionLine(line.trim()))
-    .filter((entry): entry is IdealStateCriterion => entry !== null);
+  const out: IdealStateCriterion[] = [];
+  for (const rawLine of content.split("\n")) {
+    const line = rawLine.replace(/\s+$/, "");
+    const evidenceMatch = EVIDENCE_LINE.exec(rawLine);
+    const last = out.at(-1);
+    if (evidenceMatch !== null && last !== undefined) {
+      last.verification = evidenceMatch[1].trim();
+      continue;
+    }
+    const criterion = parseCriterionLine(line.trim());
+    if (criterion !== null) out.push(criterion);
+  }
+  return out;
 }
 
 function parseCriterionLine(line: string): IdealStateCriterion | null {
   const match = CRITERION_LINE.exec(line);
   if (match === null) return null;
-  const [, mark, idRaw, textRaw, evidence] = match;
-  const status = criterionStatusFromMark(mark);
-  const criterion: IdealStateCriterion = {
+  const [, mark, idRaw, textRaw] = match;
+  return {
     id: idRaw.trim(),
     text: textRaw.trim(),
-    status,
+    status: criterionStatusFromMark(mark),
   };
-  if (typeof evidence === "string") {
-    criterion.verification = evidence.trim();
-  }
-  return criterion;
 }
 
 function criterionStatusFromMark(mark: string): IdealStateCriterion["status"] {
@@ -210,8 +215,11 @@ export function renderCriteriaMarkdown(criteria: readonly IdealStateCriterion[])
   return criteria
     .map((criterion) => {
       const mark = criterionStatusMark(criterion.status);
-      const evidence = criterion.verification ? ` | Evidence: ${criterion.verification}` : "";
-      return `- [${mark}] ${criterion.id}: ${criterion.text}${evidence}`;
+      const head = `- [${mark}] ${criterion.id}: ${criterion.text}`;
+      if (criterion.verification === undefined || criterion.verification.length === 0) {
+        return head;
+      }
+      return `${head}\n  Evidence: ${criterion.verification}`;
     })
     .join("\n");
 }

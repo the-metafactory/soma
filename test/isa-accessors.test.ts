@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { IdealStateArtifact } from "../src/index";
+import type { IdealStateArtifact, IdealStateCriterion } from "../src/index";
 import {
   SECTION_NAME_MAP,
   appendCriterion,
@@ -12,6 +12,7 @@ import {
   getGoal,
   getSection,
   getVerification,
+  parseCriteriaMarkdown,
   recomputeProgress,
   recomputeVerified,
   renderCriteriaMarkdown,
@@ -120,6 +121,21 @@ test("appendIsaDecision / Changelog / Verification round-trip", () => {
   expect(getChangelog(withVerify)).toEqual([entry]);
   expect(getVerification(withVerify)).toEqual([entry]);
   expect(getSection(withVerify, SECTION_NAME_MAP.decisions)?.content).toContain("did the thing");
+});
+
+test("criterion text containing pipe-and-evidence-like content survives round-trip", () => {
+  // Regression: previous inline `| Evidence: ...` delimiter could swallow
+  // ordinary criterion text containing those characters as verification.
+  const original: IdealStateCriterion[] = [
+    { id: "C1", text: "mention | Evidence: literally", status: "open" },
+    { id: "C2", text: "regular criterion", status: "passed", verification: "actual evidence" },
+  ];
+  const md = renderCriteriaMarkdown(original);
+  const parsed = parseCriteriaMarkdown(md);
+  expect(parsed).toHaveLength(2);
+  expect(parsed[0]).toMatchObject({ id: "C1", text: "mention | Evidence: literally", status: "open" });
+  expect(parsed[0]?.verification).toBeUndefined();
+  expect(parsed[1]).toMatchObject({ id: "C2", text: "regular criterion", status: "passed", verification: "actual evidence" });
 });
 
 test("derived accessors are pure functions (no memoization side effects)", () => {
