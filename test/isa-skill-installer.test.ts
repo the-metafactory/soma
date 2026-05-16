@@ -180,9 +180,10 @@ test("baselines.json with non-object JSON (array or null) is treated as corrupt"
     const somaHome = join(homeDir, ".soma");
     await installIsaSkill({ homeDir, somaHome, somaRepoPath });
 
-    for (const malformed of ["null", "[]", '"string"', "42", "true"]) {
+    const cases = ["null", "[]", '"string"', "42", "true"];
+    for (const [i, malformed] of cases.entries()) {
       await writeFile(skillBaselinesPath(somaHome), malformed, "utf8");
-      await bumpSourceVersion(somaRepoPath, `1.${Math.floor(Math.random() * 1000)}.0`);
+      await bumpSourceVersion(somaRepoPath, `1.${i + 10}.0`);
       const result = await installIsaSkill({ homeDir, somaHome, somaRepoPath });
       expect(result.action).toBe("preserved-local-edits");
     }

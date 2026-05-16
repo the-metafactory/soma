@@ -65,8 +65,43 @@ async function readVersionAt(ref: string): Promise<string | null> {
   return parseSkillFrontmatter(content)?.version ?? null;
 }
 
-function fingerprintTrackedFiles(files: readonly string[], hashForFile: (relPath: string) => string): string {
-  const lines = files.map((f) => `${hashForFile(f)}\t${f}`).join("\n");
+/**
+ * Hash a list of files in a single `git hash-object --stdin-paths` invocation,
+ * then fingerprint the `<hash>\t<path>` list. One subprocess for the whole
+ * directory regardless of file count — avoids the O(N) git-spawn cost on
+ * skill trees with many files.
+ */
+function fingerprintWorkingFiles(files: readonly string[]): string {
+  if (files.length === 0) return "";
+  const hashes = execFileSync("git", ["hash-object", "--stdin-paths"], {
+    input: files.join("\n"),
+    encoding: "utf8",
+  })
+    .trim()
+    .split("\n");
+  const lines = files.map((f, i) => `${hashes[i]}\t${f}`).join("\n");
+  return execFileSync("git", ["hash-object", "--stdin"], { input: lines, encoding: "utf8" }).trim();
+}
+
+/**
+ * Hash a list of files at a git ref via a single `git ls-tree` invocation
+ * that returns each blob's hash inline. Mirror of fingerprintWorkingFiles.
+ */
+function fingerprintRefFiles(ref: string, files: readonly string[]): string {
+  if (files.length === 0) return "";
+  // `git ls-tree -r ref -- files...` returns "mode type hash\tpath" per line.
+  const treeOutput = execFileSync("git", ["ls-tree", "-r", ref, "--", ...files], { encoding: "utf8" });
+  const refHashByPath = new Map<string, string>();
+  for (const line of treeOutput.split("\n")) {
+    if (line.length === 0) continue;
+    const tabIndex = line.indexOf("\t");
+    if (tabIndex < 0) continue;
+    const meta = line.slice(0, tabIndex).trim().split(/\s+/);
+    const path = line.slice(tabIndex + 1);
+    const hash = meta[2];
+    if (typeof hash === "string") refHashByPath.set(path, hash);
+  }
+  const lines = files.map((f) => `${refHashByPath.get(f) ?? ""}\t${f}`).join("\n");
   return execFileSync("git", ["hash-object", "--stdin"], { input: lines, encoding: "utf8" }).trim();
 }
 
@@ -82,7 +117,7 @@ async function main(): Promise<void> {
     console.log(`[check-skill-version] no tracked files in ${SKILL_DIR}; nothing to check.`);
     return;
   }
-  const currentTreeHash = fingerprintTrackedFiles(workingFiles, (f) => git(["hash-object", f]));
+  const currentTreeHash = fingerprintWorkingFiles(workingFiles);
 
   // Hash of base ref's skill directory
   const baseFiles = (gitOrNull(["ls-tree", "-r", "--name-only", base, "--", SKILL_DIR]) ?? "")
@@ -93,7 +128,7 @@ async function main(): Promise<void> {
     console.log(`[check-skill-version] base ref ${base} has no ${SKILL_DIR}; first-time landing — ok.`);
     return;
   }
-  const baseTreeHash = fingerprintTrackedFiles(baseFiles, (f) => git(["rev-parse", `${base}:${f}`]));
+  const baseTreeHash = fingerprintRefFiles(base, baseFiles);
 
   if (currentTreeHash === baseTreeHash) {
     console.log(`[check-skill-version] no changes in ${SKILL_DIR} vs ${base} — ok.`);
