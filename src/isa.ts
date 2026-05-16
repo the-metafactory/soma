@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -335,7 +336,9 @@ export async function setActiveIsa(
 
 async function writeActiveStateAtomic(path: string, state: SomaActiveIsaState): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
-  const tmpPath = `${path}.${process.pid}.${Date.now()}.tmp`;
+  // randomUUID guarantees temp path uniqueness across concurrent calls in
+  // the same process and same millisecond — Sage round-3 suggestion.
+  const tmpPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
   await writeFile(tmpPath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
   await rename(tmpPath, path);
 }
