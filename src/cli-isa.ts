@@ -103,6 +103,18 @@ function requirePositionalSlug(args: string[], action: string): string | { error
 }
 
 /**
+ * Shared <slug> + flag parser for commands that take a positional slug
+ * plus optional flags. Returns either { slug, parsed } on success or an
+ * IsaCliResult to bubble straight up. Extracted to keep show/use/check/
+ * archive consistent and reduce duplication (Sage round-2 suggestion).
+ */
+function parseSlugAction(args: string[], action: string): { slug: string; parsed: ParsedFlags } | IsaCliResult {
+  const slugOrError = requirePositionalSlug(args, action);
+  if (typeof slugOrError !== "string") return { exitCode: 1, text: slugOrError.error };
+  return { slug: slugOrError, parsed: parseFlags(args.slice(1)) };
+}
+
+/**
  * Single source of truth for the `soma isa` help surface. Exported so the
  * cli.ts top-level help renderer can re-use it instead of duplicating
  * subcommand strings (Sage round-1 maintainability suggestion).
@@ -163,10 +175,9 @@ function renderList(entries: IsaListEntry[]): string {
 }
 
 async function runShow(args: string[]): Promise<IsaCliResult> {
-  const slugOrError = requirePositionalSlug(args, "show");
-  if (typeof slugOrError !== "string") return { exitCode: 1, text: slugOrError.error };
-  const slug = slugOrError;
-  const parsed = parseFlags(args.slice(1));
+  const result = parseSlugAction(args, "show");
+  if ("exitCode" in result) return result;
+  const { slug, parsed } = result;
   const somaHome = resolveSomaHome(parsed.options);
   const path = isaPath(somaHome, slug);
   try {
@@ -192,10 +203,9 @@ async function runActive(parsed: ParsedFlags): Promise<IsaCliResult> {
 }
 
 async function runUse(args: string[]): Promise<IsaCliResult> {
-  const slugOrError = requirePositionalSlug(args, "use");
-  if (typeof slugOrError !== "string") return { exitCode: 1, text: slugOrError.error };
-  const slug = slugOrError;
-  const parsed = parseFlags(args.slice(1));
+  const result = parseSlugAction(args, "use");
+  if ("exitCode" in result) return result;
+  const { slug, parsed } = result;
   const somaHome = resolveSomaHome(parsed.options);
   try {
     await stat(isaPath(somaHome, slug));
@@ -213,8 +223,8 @@ async function runUse(args: string[]): Promise<IsaCliResult> {
       text: `[dry-run] Would set active ISA: ${currentSlug} → ${slug}\n`,
     };
   }
-  const result = await setActiveIsa(slug, parsed.options);
-  const prev = result.previousSlug ?? "(none)";
+  const setResult = await setActiveIsa(slug, parsed.options);
+  const prev = setResult.previousSlug ?? "(none)";
   return {
     exitCode: 0,
     text: `Active ISA set: ${prev} → ${slug}\n`,
@@ -249,10 +259,9 @@ async function runScaffold(args: string[]): Promise<IsaCliResult> {
 }
 
 async function runCheck(args: string[]): Promise<IsaCliResult> {
-  const slugOrError = requirePositionalSlug(args, "check");
-  if (typeof slugOrError !== "string") return { exitCode: 1, text: slugOrError.error };
-  const slug = slugOrError;
-  const parsed = parseFlags(args.slice(1));
+  const result = parseSlugAction(args, "check");
+  if ("exitCode" in result) return result;
+  const { slug, parsed } = result;
   try {
     const report = await checkCompleteness(slug, parsed.options);
     if (report.passed) {
@@ -272,21 +281,30 @@ async function runCheck(args: string[]): Promise<IsaCliResult> {
 }
 
 async function runArchive(args: string[]): Promise<IsaCliResult> {
-  const slugOrError = requirePositionalSlug(args, "archive");
-  if (typeof slugOrError !== "string") return { exitCode: 1, text: slugOrError.error };
-  const slug = slugOrError;
-  const parsed = parseFlags(args.slice(1));
+  const result = parseSlugAction(args, "archive");
+  if ("exitCode" in result) return result;
+  const { slug, parsed } = result;
   const somaHome = resolveSomaHome(parsed.options);
   const source = isaPath(somaHome, slug);
   const archived = join(somaHome, "isa", ".archived", `${slug}.md`);
   const exists = await stat(source).then(() => true, () => false);
   if (!exists) return { exitCode: 1, text: `ISA not found: '${slug}'\n` };
+  // If archiving the currently-active ISA, also clear active state so
+  // `soma isa active` doesn't keep pointing at a moved file (Sage
+  // round-2 suggestion).
+  const active = await getActiveIsa(parsed.options);
+  const wasActive = active?.activeSlug === slug;
   if (parsed.flags["dry-run"] === true) {
-    return { exitCode: 0, text: `[dry-run] Would archive ${slug} → ${archived}\n` };
+    const activeNote = wasActive ? " (would also clear active state)" : "";
+    return { exitCode: 0, text: `[dry-run] Would archive ${slug} → ${archived}${activeNote}\n` };
   }
   await mkdir(dirname(archived), { recursive: true });
   await rename(source, archived);
-  return { exitCode: 0, text: `Archived ${slug} → ${archived}\n` };
+  if (wasActive) {
+    await setActiveIsa(null, parsed.options);
+  }
+  const activeSuffix = wasActive ? " (active state cleared)" : "";
+  return { exitCode: 0, text: `Archived ${slug} → ${archived}${activeSuffix}\n` };
 }
 
 async function runSkill(args: string[]): Promise<IsaCliResult> {

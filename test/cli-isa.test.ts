@@ -174,6 +174,23 @@ test("soma isa archive moves the ISA to .archived/", async () => {
   });
 });
 
+test("archive clears active state when archiving the active ISA", async () => {
+  await withSomaHome(async (homeDir) => {
+    await scaffoldIsa({ homeDir, slug: "current", goal: "G", effort: "E1" });
+    await runIsaCli(["use", "current", "--home-dir", homeDir]);
+    const before = await runIsaCli(["active", "--home-dir", homeDir]);
+    expect(before.text.trim()).toBe("current");
+
+    const archived = await runIsaCli(["archive", "current", "--home-dir", homeDir]);
+    expect(archived.exitCode).toBe(0);
+    expect(archived.text).toContain("active state cleared");
+
+    const after = await runIsaCli(["active", "--home-dir", homeDir]);
+    expect(after.exitCode).toBe(1);
+    expect(after.text).toContain("no active ISA");
+  });
+});
+
 test("list --active-only narrows to the active ISA only", async () => {
   await withSomaHome(async (homeDir) => {
     await scaffoldIsa({ homeDir, slug: "first", goal: "G", effort: "E1" });
