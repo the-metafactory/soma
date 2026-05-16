@@ -43,10 +43,13 @@ const CODEX_HOME_FILES = [
   "memories/soma/pai-imports.md",
   "memories/soma/skills.md",
   "memories/soma/policy.md",
+  "memories/soma/soma-repo.txt",
+  "config.toml",
 ] as const;
 
 const PI_DEV_HOME_FILES = [
   "agent/extensions/soma.ts",
+  "agent/extensions/soma-path-guard.ts",
   "agent/soma/context.md",
   "agent/soma/profile.md",
   "agent/soma/startup-context.md",
@@ -55,6 +58,7 @@ const PI_DEV_HOME_FILES = [
   "agent/soma/tools.md",
   "agent/soma/skills.md",
   "agent/soma/policy.md",
+  "agent/soma/soma-repo.txt",
   "agent/skills/soma/SKILL.md",
 ] as const;
 
