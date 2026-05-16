@@ -3,11 +3,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 import {
+  SOMA_SKILL_DESCRIPTION_MAX_LENGTH,
   generateSomaSkillManifest,
   mergeNormalizationReports,
+  normalizeSkillDescription,
   normalizeSkillContent,
 } from "../src/pai-pack-normalizer";
 import { importPaiPack, planPaiPackImport } from "../src/index";
+
+function makeLongDescription(count = 80, detail = "explains routing details"): string {
+  return Array.from({ length: count }, (_, index) => `Sentence ${index} ${detail}.`).join(" ");
+}
 
 async function withFakePack<T>(fn: (paiPackDir: string, somaHome: string, homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-pack-norm-"));
@@ -233,6 +239,30 @@ test("generateSomaSkillManifest extracts triggers from USE WHEN clause", () => {
   expect(manifest.source).toEqual({ kind: "pai-pack", packName: "Demo" });
 });
 
+test("normalizeSkillDescription compacts descriptions for portable metadata limit", () => {
+  const longDescription = makeLongDescription();
+  const result = normalizeSkillDescription(longDescription, {
+    file: "README.md",
+    fallback: "Imported PAI pack: Demo",
+  });
+
+  expect(result.description.length).toBeLessThanOrEqual(SOMA_SKILL_DESCRIPTION_MAX_LENGTH);
+  expect(result.action?.kind).toBe("compacted-skill-description");
+});
+
+test("generateSomaSkillManifest keeps generated descriptions within portable limit", () => {
+  const manifest = generateSomaSkillManifest({
+    skillName: "demo",
+    description: makeLongDescription(),
+    packName: "Demo",
+    entrypoint: "SKILL.md",
+    references: [],
+    workflowFiles: [],
+  });
+
+  expect(manifest.description.length).toBeLessThanOrEqual(SOMA_SKILL_DESCRIPTION_MAX_LENGTH);
+});
+
 test("AC-1: dry-run plan reports normalization actions + warnings", async () => {
   await withFakePack(async (paiPackDir, somaHome, homeDir) => {
     const plan = await planPaiPackImport({ homeDir, somaHome, paiPackDir });
@@ -240,6 +270,27 @@ test("AC-1: dry-run plan reports normalization actions + warnings", async () => 
     expect(plan.normalization.warnings.length).toBeGreaterThan(0);
     // No files written under somaHome
     await expect(readFile(join(somaHome, "skills", "test-pack", "SKILL.md"), "utf8")).rejects.toThrow();
+  });
+});
+
+test("PAI pack import compacts oversized skill descriptions in frontmatter and manifest", async () => {
+  await withFakePack(async (paiPackDir, somaHome, homeDir) => {
+    const longDescription = makeLongDescription(90, "explains imported routing details");
+    await writeFile(
+      join(paiPackDir, "README.md"),
+      `---\nname: TestPack\ndescription: ${JSON.stringify(longDescription)}\n---\n\n# TestPack\n`,
+      "utf8",
+    );
+
+    const result = await importPaiPack({ homeDir, somaHome, paiPackDir });
+    expect(result.normalization.actions.some((action) => action.kind === "compacted-skill-description")).toBe(true);
+
+    const skillMd = await readFile(join(somaHome, "skills", "test-pack", "SKILL.md"), "utf8");
+    const description = /^description:\s*"([\s\S]*?)"$/m.exec(skillMd)?.[1] ?? "";
+    expect(description.length).toBeLessThanOrEqual(SOMA_SKILL_DESCRIPTION_MAX_LENGTH);
+
+    const somaSkill = JSON.parse(await readFile(join(somaHome, "skills", "test-pack", "soma-skill.json"), "utf8"));
+    expect(somaSkill.description.length).toBeLessThanOrEqual(SOMA_SKILL_DESCRIPTION_MAX_LENGTH);
   });
 });
 

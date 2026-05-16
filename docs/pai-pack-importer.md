@@ -54,6 +54,12 @@ lowercase Soma skill name. Source docs are preserved under `references/` so
 Claude-specific installation guidance remains available without becoming the
 Soma install procedure.
 
+Soma skill descriptions are compact runtime metadata. Imported descriptions are
+normalized to the portable Soma skill metadata limit of 1024 characters; longer
+routing doctrine belongs in the skill body, references, or generated routing
+metadata rather than frontmatter. The importer records this as a normalization
+action when it compacts an oversized description.
+
 ## Classification
 
 The import plan classifies each file:

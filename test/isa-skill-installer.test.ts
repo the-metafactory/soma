@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { expect, test } from "bun:test";
 import { installIsaSkill } from "../src/index";
 import type { SomaSkillBaselines } from "../src/index";
+import { SOMA_SKILL_DESCRIPTION_MAX_LENGTH } from "../src/pai-pack-normalizer";
 import {
   compareSkillVersions,
   isaSkillRuntimeDir,
@@ -306,4 +307,13 @@ test("ship config: real src/skills/ISA carries version + pack-id frontmatter", a
   expect(fm).not.toBeNull();
   expect(fm?.version).toMatch(/^\d+\.\d+\.\d+/);
   expect(fm?.packId).toMatch(/^pai-isa/);
+});
+
+test("ship config: real src/skills/ISA description fits portable metadata limit", async () => {
+  const repoSkill = join(import.meta.dirname, "..", "src", "skills", "ISA", "SKILL.md");
+  const content = await readFile(repoSkill, "utf8");
+  const description = /^description:\s*"([\s\S]*?)"$/m.exec(content)?.[1];
+  expect(description).toBeDefined();
+  expect(description!.length).toBeLessThanOrEqual(SOMA_SKILL_DESCRIPTION_MAX_LENGTH);
+  expect(content).toContain("## Routing Details");
 });

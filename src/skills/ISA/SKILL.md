@@ -1,6 +1,6 @@
 ---
 name: ISA
-description: "Owns the Ideal State Artifact — the universal primitive that holds the articulated ideal state of any thing (project, task, application, library, infrastructure, work session) as a hard-to-vary explanation. The ISA is a single document that articulates the ideal state, drives the build, verifies the build, and records the evolution of understanding. Five workflows: Scaffold (generate a fresh ISA from a prompt at a specified effort tier), Interview (adaptive question-and-answer to fill in or deepen sections), CheckCompleteness (score an existing ISA against the tier completeness gate and report gaps), Reconcile (deterministic merge of an ephemeral feature-file excerpt back into the master ISA, keyed on stable ISC IDs), Seed (bootstrap a draft project ISA from an existing repository's README, code structure, and recent commits). Examples directory contains canonical-isa.md (the showpiece reference, fully populated across all twelve sections), e1-minimal.md (90-second task — Goal + Criteria only), e3-project.md (mid-size project with eight sections), e5-enterprise.md / e5-desktop-app.md / e5-album.md (full applications with all twelve sections plus a populated changelog history). Twelve-section body order is locked: Problem, Vision, Out of Scope, Principles, Constraints, Goal, Criteria, Test Strategy, Features, Decisions, Changelog, Verification. The skill is invoked automatically by the Algorithm at OBSERVE for any non-trivial task and may also be invoked directly by the user to scaffold or audit an ISA outside an Algorithm run. USE WHEN: any prompt mentions ideal state, ISA, ISC, ideal state criteria, ideal state artifact, project specification, hill-climb on a task, articulating done, scaffolding an ISA, interviewing for an ISA, checking ISA completeness, reconciling an ephemeral feature file back to a master ISA, or seeding an ISA from an existing project. NOT FOR creating new skills (use CreateSkill), running the Algorithm itself (the Algorithm invokes this skill), generating non-ISA artifacts (this skill owns the ISA primitive only), or after-the-fact write-ups like postmortems, decision logs, or engineering journals (those are retrospective; the ISA is a commitment-time scaffold for ideal state)."
+description: "Owns the Ideal State Artifact: the commitment-time scaffold for articulating done, deriving ISC criteria, planning features, recording decisions, and verifying work. Use for ideal state, ISA/ISC criteria, project specs, scaffolding, completeness checks, reconciliation, or seeding an ISA from a repo."
 effort: medium
 version: 1.0.1
 pack-id: pai-isa-v1.0.0
@@ -30,6 +30,31 @@ pack-id: pai-isa-v1.0.0
 The ISA is the single document that articulates "done" for any thing whose ideal state we are pursuing — a project, an application, a library, infrastructure, a work session, an art piece, a strategic decision. It serves five identities simultaneously: ideal state articulation, test harness, build verification, done condition, system of record.
 
 This skill owns the canonical template, the workflows that generate and refine ISAs, and the example library.
+
+---
+
+## Routing Details
+
+The ISA is the universal primitive that holds the articulated ideal state of any thing (project, task, application, library, infrastructure, work session) as a hard-to-vary explanation. It drives the build, verifies the build, and records the evolution of understanding.
+
+Five workflows:
+
+- Scaffold: generate a fresh ISA from a prompt at a specified effort tier.
+- Interview: adaptive question-and-answer to fill in or deepen sections.
+- CheckCompleteness: score an existing ISA against the tier completeness gate and report gaps.
+- Reconcile: deterministic merge of an ephemeral feature-file excerpt back into the master ISA, keyed on stable ISC IDs.
+- Seed: bootstrap a draft project ISA from an existing repository's README, code structure, and recent commits.
+
+Examples directory:
+
+- `canonical-isa.md`: showpiece reference, fully populated across all twelve sections.
+- `e1-minimal.md`: 90-second task with Goal and Criteria only.
+- `e3-project.md`: mid-size project with eight sections.
+- `e5-enterprise.md`, `e5-desktop-app.md`, and `e5-album.md`: full applications with all twelve sections plus populated changelog history.
+
+Use when any prompt mentions ideal state, ISA, ISC, ideal state criteria, ideal state artifact, project specification, hill-climb on a task, articulating done, scaffolding an ISA, interviewing for an ISA, checking ISA completeness, reconciling an ephemeral feature file back to a master ISA, or seeding an ISA from an existing project.
+
+Not for creating new skills, running the Algorithm itself, generating non-ISA artifacts, or after-the-fact write-ups like postmortems, decision logs, or engineering journals. Those are retrospective; the ISA is a commitment-time scaffold for ideal state.
 
 ---
 
