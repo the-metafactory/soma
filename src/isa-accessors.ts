@@ -44,19 +44,10 @@ export function getGoal(isa: IdealStateArtifact): string | null {
   return trimmed.length === 0 ? null : trimmed;
 }
 
-const CRITERIA_CACHE = new WeakMap<IsaSection, IdealStateCriterion[]>();
-
 export function getCriteria(isa: IdealStateArtifact): IdealStateCriterion[] {
   const section = getSection(isa, SECTION_NAME_MAP.criteria);
   if (section === null) return [];
-  // Section objects are frozen in the type as readonly content fields; mutators
-  // in this file always create a new section object via setSection, so identity
-  // changes whenever content changes.
-  const cached = CRITERIA_CACHE.get(section);
-  if (cached !== undefined) return cached.slice();
-  const parsed = parseCriteriaMarkdown(section.content);
-  CRITERIA_CACHE.set(section, parsed);
-  return parsed.slice();
+  return parseCriteriaMarkdown(section.content);
 }
 
 export function getDecisions(isa: IdealStateArtifact): AlgorithmLogEntry[] {
@@ -266,7 +257,14 @@ function parseLogEntryLine(line: string): AlgorithmLogEntry | null {
 
 export function renderLogEntries(entries: readonly AlgorithmLogEntry[]): string {
   if (entries.length === 0) return "";
-  return entries.map((entry) => `- ${entry.timestamp} [${entry.phase}] ${entry.text}`).join("\n");
+  return entries
+    .map((entry) => {
+      assertSingleLine("timestamp", entry.timestamp, entry.timestamp);
+      assertSingleLine("phase", entry.phase, entry.phase);
+      assertSingleLine("text", entry.timestamp, entry.text);
+      return `- ${entry.timestamp} [${entry.phase}] ${entry.text}`;
+    })
+    .join("\n");
 }
 
 export interface BuildIsaInput {

@@ -123,6 +123,13 @@ test("appendIsaDecision / Changelog / Verification round-trip", () => {
   expect(getSection(withVerify, SECTION_NAME_MAP.decisions)?.content).toContain("did the thing");
 });
 
+test("renderLogEntries rejects newlines to prevent log-entry injection", async () => {
+  const { renderLogEntries: renderLogs } = await import("../src/isa-accessors");
+  expect(() => renderLogs([
+    { timestamp: "2026-05-16T10:00:00.000Z", phase: "execute", text: "real entry\n- 2026-01-01T00:00:00.000Z [verify] forged" },
+  ])).toThrow("must not contain newlines");
+});
+
 test("renderCriteriaMarkdown rejects newlines in id, text, and verification", () => {
   expect(() => renderCriteriaMarkdown([
     { id: "C1\n- [x] C2: forged", text: "bad", status: "open" },
