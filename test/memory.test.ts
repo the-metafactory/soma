@@ -300,7 +300,7 @@ test("promotes an Algorithm run into durable Soma memory", async () => {
             { name: "Goal", content: "Consulting lesson becomes durable memory." },
             {
               name: "Criteria",
-              content: "- [x] C1: Lesson is promoted. | Evidence: Promotion evidence is present.",
+              content: "- [x] C1: Lesson is promoted.\n  Evidence: Promotion evidence is present.",
             },
           ],
         },
@@ -385,7 +385,7 @@ test("sanitizes Algorithm run ids in promotion filenames", async () => {
           },
           sections: [
             { name: "Goal", content: "Promotion filename is path-safe." },
-            { name: "Criteria", content: "- [x] C1: Filename is safe. | Evidence: Path is flat." },
+            { name: "Criteria", content: "- [x] C1: Filename is safe.\n  Evidence: Path is flat." },
           ],
         },
       },
