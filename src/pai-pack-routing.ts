@@ -48,7 +48,11 @@ export function routePaiPackSourceFile(path: string): PaiPackRoute {
       classification: "portable",
       root: "skill",
       relativePath: stripSrcPrefix(path),
-      renderMode: path === "src/SKILL.md" ? "skill" : "copy",
+      // Markdown bodies (SKILL.md, Workflows/*.md, Tools/*.md) all go through
+      // the normalizer so notification hooks and Claude-home paths are
+      // handled consistently across the skill surface, not just the entry
+      // file.
+      renderMode: path.endsWith(".md") ? "skill" : "copy",
     };
   }
 

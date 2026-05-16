@@ -78,6 +78,10 @@ export type {
   PaiPackImportResult,
   PaiPackManifest,
   PaiPackManifestFile,
+  PaiPackNormalizationAction,
+  PaiPackNormalizationReport,
+  PaiPackNormalizationWarning,
+  SomaSkillManifest,
   WrittenContextBundle,
 } from "./types";
 
