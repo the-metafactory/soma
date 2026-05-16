@@ -10,11 +10,13 @@ import type {
 } from "./types";
 import { classifyAlgorithmPrompt } from "./algorithm-classifier";
 import {
+  SECTION_NAME_MAP,
   buildIsaArtifact,
   getCriteria,
-  recomputeProgress,
-  recomputeVerified,
-  updateCriterion,
+  progressFromCriteria,
+  renderCriteriaMarkdown,
+  setSection,
+  verifiedFromCriteria,
 } from "./isa-accessors";
 import { getRunPhase } from "./algorithm-lifecycle";
 
@@ -219,14 +221,21 @@ export function verifyAlgorithmCriterion(
 ): AlgorithmRun {
   assertNonEmpty(evidence, "verification evidence");
 
-  const updatedIsa = updateCriterion(run.isa, criterionId, status, evidence);
+  const criteria = getCriteria(run.isa);
+  if (!criteria.some((c) => c.id === criterionId)) {
+    throw new Error(`Algorithm criterion not found: ${criterionId}`);
+  }
+  const updatedCriteria = criteria.map((c) =>
+    c.id === criterionId ? { ...c, status, verification: evidence } : c,
+  );
+  const isaWithSection = setSection(run.isa, SECTION_NAME_MAP.criteria, renderCriteriaMarkdown(updatedCriteria));
   const entry = logEntry(getRunPhase(run), `${criterionId}: ${status}. ${evidence}`, timestamp);
   const isaWithRecompute: IdealStateArtifact = {
-    ...updatedIsa,
+    ...isaWithSection,
     frontmatter: {
-      ...updatedIsa.frontmatter,
-      progress: recomputeProgress(updatedIsa),
-      verified: recomputeVerified(updatedIsa),
+      ...isaWithSection.frontmatter,
+      progress: progressFromCriteria(updatedCriteria),
+      verified: verifiedFromCriteria(updatedCriteria),
       updated: entry.timestamp,
     },
   };

@@ -273,14 +273,20 @@ export function buildIsaArtifact(input: BuildIsaInput): IdealStateArtifact {
 }
 
 export function recomputeProgress(isa: IdealStateArtifact): string {
-  const criteria = getCriteria(isa);
+  return progressFromCriteria(getCriteria(isa));
+}
+
+export function recomputeVerified(isa: IdealStateArtifact): boolean {
+  return verifiedFromCriteria(getCriteria(isa));
+}
+
+export function progressFromCriteria(criteria: readonly IdealStateCriterion[]): string {
   if (criteria.length === 0) return "0/0";
   const completed = criteria.filter((c) => c.status === "passed" || c.status === "dropped").length;
   return `${completed}/${criteria.length}`;
 }
 
-export function recomputeVerified(isa: IdealStateArtifact): boolean {
-  const criteria = getCriteria(isa);
+export function verifiedFromCriteria(criteria: readonly IdealStateCriterion[]): boolean {
   if (criteria.length === 0) return false;
   return criteria.every((c) => c.status === "passed" || c.status === "dropped");
 }

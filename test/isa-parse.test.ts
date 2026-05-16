@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { parseIsa, serializeIsa, SECTION_NAME_MAP } from "../src/index";
+import { parseIsa, serializeIsa } from "../src/index";
+import { SECTION_NAME_MAP } from "../src/isa-accessors";
 
 const SAMPLE = `---
 task: Build the Algorithm
@@ -106,6 +107,32 @@ Test broader YAML key support.
     "project-id": "soma",
     "nested-thing": "hello",
   });
+});
+
+test("nested custom YAML objects round-trip as objects, not JSON-stringified", () => {
+  const markdown = `---
+task: Demo
+effort: E1
+phase: observe
+metadata:
+  owner: jc
+  team: soma
+---
+
+## Goal
+
+Test nested custom YAML round-trip.
+
+## Criteria
+
+- [ ] C1: nested round-trips
+`;
+  const isa = parseIsa(markdown);
+  expect(isa.frontmatter.custom?.metadata).toEqual({ owner: "jc", team: "soma" });
+  const serialized = serializeIsa(isa);
+  expect(serialized).toContain("metadata:\n  owner: jc\n  team: soma");
+  const reparsed = parseIsa(serialized);
+  expect(reparsed.frontmatter.custom?.metadata).toEqual({ owner: "jc", team: "soma" });
 });
 
 test("derived frontmatter fields are recomputed on serialize", () => {

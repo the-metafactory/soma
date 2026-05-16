@@ -17,7 +17,7 @@ import {
   renderCriteriaMarkdown,
   setSection,
   updateCriterion,
-} from "../src/index";
+} from "../src/isa-accessors";
 
 function buildIsa(): IdealStateArtifact {
   return {

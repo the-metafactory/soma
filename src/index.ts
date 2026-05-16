@@ -91,9 +91,12 @@ export {
   verifyAlgorithmCriterion,
 } from "./algorithm";
 export { classifyAlgorithmPrompt } from "./algorithm-classifier";
+// Public ISA API — cohesive surface: semantic accessors + mutators + parse/serialize.
+// Renderer details (SECTION_NAME_MAP, TWELVE_SECTIONS, renderCriteriaMarkdown,
+// renderLogEntries, parseCriteriaMarkdown, progressFromCriteria,
+// verifiedFromCriteria, buildIsaArtifact) stay internal — import from
+// `./isa-accessors` directly if you need them from within the package.
 export {
-  SECTION_NAME_MAP,
-  TWELVE_SECTIONS,
   appendCriterion,
   appendIsaChangelog,
   appendIsaDecision,
@@ -104,11 +107,8 @@ export {
   getGoal,
   getSection,
   getVerification,
-  parseCriteriaMarkdown,
   recomputeProgress,
   recomputeVerified,
-  renderCriteriaMarkdown,
-  renderLogEntries,
   setSection,
   updateCriterion,
 } from "./isa-accessors";

@@ -172,11 +172,22 @@ function renderFrontmatter(frontmatter: IsaFrontmatter): string {
   }
   if (frontmatter.custom) {
     for (const [key, value] of Object.entries(frontmatter.custom)) {
-      lines.push(`${key}: ${renderYamlScalar(value)}`);
+      if (isPlainObject(value)) {
+        lines.push(`${key}:`);
+        for (const [nestedKey, nestedValue] of Object.entries(value)) {
+          lines.push(`  ${nestedKey}: ${renderYamlScalar(nestedValue)}`);
+        }
+      } else {
+        lines.push(`${key}: ${renderYamlScalar(value)}`);
+      }
     }
   }
   lines.push("---");
   return lines.join("\n");
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function renderYamlScalar(value: unknown): string {
