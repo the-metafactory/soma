@@ -442,14 +442,25 @@ export interface SomaFeedbackCaptureResult {
   event?: SomaMemoryEvent;
 }
 
+export type SomaPolicyAction = "write" | "delete" | "modify";
+
 export type SomaPolicyDecision = "allow" | "deny";
+
+export interface SomaProtectedPath {
+  path: string;
+  description: string;
+  guardDelete?: boolean;
+  guardModify?: boolean;
+}
 
 export interface SomaPolicyCheckOptions {
   homeDir?: string;
   somaHome?: string;
+  cwd?: string;
   privateRoots?: string[];
+  protectedPaths?: SomaProtectedPath[];
   substrate?: SubstrateId;
-  action: "write";
+  action: SomaPolicyAction;
   destinationPath: string;
   content?: string;
   sourcePath?: string;
@@ -463,13 +474,15 @@ export interface SomaPolicyBatchTarget {
   sourcePath?: string;
 }
 
-export interface SomaPolicyBatchCheckOptions extends Pick<SomaPolicyCheckOptions, "homeDir" | "somaHome" | "substrate" | "action" | "record" | "timestamp"> {
+export interface SomaPolicyBatchCheckOptions extends Pick<SomaPolicyCheckOptions, "homeDir" | "somaHome" | "cwd" | "substrate" | "action" | "record" | "timestamp" | "protectedPaths"> {
   privateRoots?: string[];
   targets: SomaPolicyBatchTarget[];
 }
 
+export type SomaPolicyFindingKind = "private-source" | "private-marker" | "protected-path";
+
 export interface SomaPolicyFinding {
-  kind: "private-source" | "private-marker";
+  kind: SomaPolicyFindingKind;
   detail: string;
 }
 
