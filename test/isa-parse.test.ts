@@ -1,0 +1,89 @@
+import { expect, test } from "bun:test";
+import { parseIsa, serializeIsa, SECTION_NAME_MAP } from "../src/index";
+
+const SAMPLE = `---
+task: Build the Algorithm
+effort: E3
+phase: build
+progress: 1/2
+mode: algorithm
+started: 2026-05-16T10:00:00.000Z
+updated: 2026-05-16T10:05:00.000Z
+verified: false
+project: soma
+---
+
+## Goal
+
+Ship the unified ISA type.
+
+## Criteria
+
+- [x] C1: Type exported
+- [ ] C2: Tests pass
+`;
+
+test("parseIsa extracts frontmatter, sections, and slug from sourcePath", () => {
+  const isa = parseIsa(SAMPLE, "/tmp/foo/demo-slug.md");
+  expect(isa.slug).toBe("demo-slug");
+  expect(isa.frontmatter.task).toBe("Build the Algorithm");
+  expect(isa.frontmatter.effort).toBe("E3");
+  expect(isa.frontmatter.phase).toBe("build");
+  expect(isa.frontmatter.verified).toBe(false);
+  expect(isa.sourcePath).toBe("/tmp/foo/demo-slug.md");
+  expect(isa.sections).toHaveLength(2);
+  expect(isa.sections[0]?.name).toBe(SECTION_NAME_MAP.goal);
+});
+
+test("parseIsa buckets unknown YAML keys into frontmatter.custom", () => {
+  const isa = parseIsa(SAMPLE);
+  expect(isa.frontmatter.custom).toMatchObject({ project: "soma" });
+});
+
+test("serializeIsa round-trips parsed ISA via semantic equivalence", () => {
+  const isa = parseIsa(SAMPLE);
+  const serialized = serializeIsa(isa);
+  const reparsed = parseIsa(serialized);
+  expect(reparsed.frontmatter.task).toBe(isa.frontmatter.task);
+  expect(reparsed.frontmatter.phase).toBe(isa.frontmatter.phase);
+  expect(reparsed.frontmatter.custom).toEqual(isa.frontmatter.custom);
+  expect(reparsed.sections).toEqual(isa.sections);
+});
+
+test("serializeIsa reuses raw input when no structural mutation occurred", () => {
+  const isa = parseIsa(SAMPLE);
+  const first = serializeIsa(isa);
+  const second = serializeIsa(isa);
+  expect(first).toBe(second);
+});
+
+test("serializeIsa recomputes derived frontmatter fields from sections", () => {
+  const isa = parseIsa(SAMPLE);
+  const serialized = serializeIsa(isa);
+  // The frontmatter `progress` in SAMPLE says "1/2" — recomputed should match parsed criteria (1 passed of 2)
+  expect(serialized).toContain("progress: 1/2");
+  expect(serialized).toContain("verified: false");
+});
+
+test("authored frontmatter fields survive round-trip verbatim", () => {
+  const isa = parseIsa(SAMPLE);
+  const serialized = serializeIsa(isa);
+  const reparsed = parseIsa(serialized);
+  expect(reparsed.frontmatter.task).toBe("Build the Algorithm");
+  expect(reparsed.frontmatter.started).toBe("2026-05-16T10:00:00.000Z");
+  expect(reparsed.frontmatter.custom).toMatchObject({ project: "soma" });
+});
+
+test("derived frontmatter fields are recomputed on serialize", () => {
+  const isa = parseIsa(SAMPLE);
+  const mutated = {
+    ...isa,
+    sections: [
+      { name: SECTION_NAME_MAP.goal, content: "Different goal" },
+      { name: SECTION_NAME_MAP.criteria, content: "- [x] C1: done\n- [x] C2: done" },
+    ],
+  };
+  const serialized = serializeIsa(mutated);
+  expect(serialized).toContain("progress: 2/2");
+  expect(serialized).toContain("verified: true");
+});

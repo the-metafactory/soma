@@ -1,7 +1,25 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import type { AlgorithmRun, AlgorithmRunSummary } from "./types";
+import type {
+  AlgorithmEffortSource,
+  AlgorithmEffortTier,
+  AlgorithmMode,
+  AlgorithmPhase,
+  AlgorithmRun,
+  AlgorithmRunSummary,
+  IdealStateArtifact,
+  IdealStateCriterion,
+} from "./types";
+import {
+  SECTION_NAME_MAP,
+  getCriteria,
+  getGoal,
+  recomputeProgress,
+  recomputeVerified,
+  renderCriteriaMarkdown,
+} from "./isa-accessors";
+import { getRunPhase } from "./algorithm-lifecycle";
 
 export interface AlgorithmStoreOptions {
   homeDir?: string;
@@ -56,7 +74,116 @@ export async function writeAlgorithmRun(run: AlgorithmRun, options: AlgorithmSto
 }
 
 export async function readAlgorithmRun(path: string): Promise<AlgorithmRun> {
-  return JSON.parse(await readFile(path, "utf8")) as AlgorithmRun;
+  const raw = JSON.parse(await readFile(path, "utf8")) as unknown;
+  return loadAlgorithmRun(raw);
+}
+
+interface LegacyIsa {
+  slug: string;
+  phase: AlgorithmPhase;
+  goal: string;
+  criteria: IdealStateCriterion[];
+}
+
+interface LegacyAlgorithmRun {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  substrate?: AlgorithmRun["substrate"];
+  prompt: string;
+  intent?: string;
+  effort: AlgorithmEffortTier;
+  effortSource: AlgorithmEffortSource;
+  mode: AlgorithmMode;
+  classificationReason: string;
+  currentState: string;
+  phase?: AlgorithmPhase;
+  isa: LegacyIsa;
+  antiCriteria?: IdealStateCriterion[];
+  capabilities?: string[];
+  planSteps?: AlgorithmRun["planSteps"];
+  decisions?: AlgorithmRun["decisions"];
+  changelog?: AlgorithmRun["changelog"];
+  verification?: AlgorithmRun["verification"];
+  learning?: AlgorithmRun["learning"];
+  schemaVersion?: 1 | 2;
+}
+
+/**
+ * Compat shim — accepts both pre-#41 (schemaVersion 1, embedded `{ goal, criteria }`)
+ * and post-#41 (schemaVersion 2, unified `IdealStateArtifact`) on-disk shapes.
+ * Always returns the unified schema-2 shape.
+ */
+export function loadAlgorithmRun(raw: unknown): AlgorithmRun {
+  if (typeof raw !== "object" || raw === null) {
+    throw new Error("AlgorithmRun JSON is not an object.");
+  }
+  const candidate = raw as Partial<AlgorithmRun & LegacyAlgorithmRun>;
+  if (candidate.schemaVersion === 2 && isUnifiedShape(candidate.isa)) {
+    return candidate as AlgorithmRun;
+  }
+  return migrateRunV1toV2(candidate as LegacyAlgorithmRun);
+}
+
+function isUnifiedShape(isa: unknown): boolean {
+  return (
+    typeof isa === "object" &&
+    isa !== null &&
+    "frontmatter" in isa &&
+    "sections" in isa &&
+    Array.isArray((isa as { sections: unknown }).sections)
+  );
+}
+
+function migrateRunV1toV2(legacy: LegacyAlgorithmRun): AlgorithmRun {
+  const legacyPhase: AlgorithmPhase = legacy.phase ?? legacy.isa.phase;
+  const criteria = Array.isArray(legacy.isa.criteria) ? legacy.isa.criteria : [];
+  const goal = typeof legacy.isa.goal === "string" ? legacy.isa.goal : "";
+  const intent = legacy.intent ?? legacy.id;
+  const sections = [
+    { name: SECTION_NAME_MAP.goal, content: goal },
+    { name: SECTION_NAME_MAP.criteria, content: renderCriteriaMarkdown(criteria) },
+  ];
+
+  const isa: IdealStateArtifact = {
+    slug: legacy.isa.slug,
+    frontmatter: {
+      task: intent,
+      effort: legacy.effort,
+      mode: legacy.mode,
+      phase: legacyPhase,
+      progress: `0/${criteria.length}`,
+      verified: false,
+      updated: legacy.updatedAt,
+      started: legacy.createdAt,
+    },
+    sections,
+  };
+  isa.frontmatter.progress = recomputeProgress(isa);
+  isa.frontmatter.verified = recomputeVerified(isa);
+
+  return {
+    schemaVersion: 2,
+    id: legacy.id,
+    createdAt: legacy.createdAt,
+    updatedAt: legacy.updatedAt,
+    substrate: legacy.substrate,
+    prompt: legacy.prompt,
+    intent,
+    effort: legacy.effort,
+    effortSource: legacy.effortSource,
+    mode: legacy.mode,
+    classificationReason: legacy.classificationReason,
+    currentState: legacy.currentState,
+    isa,
+    antiCriteria: legacy.antiCriteria ?? [],
+    capabilities: legacy.capabilities ?? [],
+    planSteps: legacy.planSteps ?? [],
+    decisions: legacy.decisions ?? [],
+    changelog: legacy.changelog ?? [],
+    verification: legacy.verification ?? [],
+    learning: legacy.learning ?? [],
+  };
 }
 
 export async function readAlgorithmRunById(id: string, options: AlgorithmStoreOptions = {}): Promise<{ path: string; run: AlgorithmRun }> {
@@ -84,20 +211,21 @@ export function summarizeAlgorithmRun(run: AlgorithmRun, path: string): Algorith
     dropped: 0,
   };
 
-  for (const criterion of run.isa.criteria) {
+  const criteria = getCriteria(run.isa);
+  for (const criterion of criteria) {
     counts[criterion.status] += 1;
   }
 
-  const total = run.isa.criteria.length;
+  const total = criteria.length;
   const completed = counts.passed + counts.dropped;
 
   return {
     id: run.id,
     path,
     updatedAt: run.updatedAt,
-    phase: run.phase,
+    phase: getRunPhase(run),
     effort: run.effort,
-    goal: run.isa.goal,
+    goal: getGoal(run.isa) ?? "",
     openCriteria: counts.open,
     passedCriteria: counts.passed,
     failedCriteria: counts.failed,

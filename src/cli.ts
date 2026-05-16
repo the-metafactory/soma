@@ -67,6 +67,8 @@ import type {
   SubstrateId,
 } from "./types";
 import { SOMA_FEEDBACK_STDIN_MAX_BYTES } from "./feedback-contract";
+import { getCriteria, getGoal } from "./isa-accessors";
+import { getRunPhase } from "./algorithm-lifecycle";
 
 interface ParsedInstallArgs {
   command: "install";
@@ -1337,11 +1339,11 @@ function quoteShellArg(value: string): string {
   return `'${value.replaceAll("'", "'\"'\"'")}'`;
 }
 
-function formatAlgorithmRunResult(result: { path: string; run: { id: string; phase: string; effort: string } }): string {
+function formatAlgorithmRunResult(result: { path: string; run: AlgorithmRun }): string {
   return [
     "Soma Algorithm run created",
     `id: ${result.run.id}`,
-    `phase: ${result.run.phase}`,
+    `phase: ${getRunPhase(result.run)}`,
     `effort: ${result.run.effort}`,
     `path: ${result.path}`,
   ].join("\n");
@@ -1465,16 +1467,16 @@ function formatAlgorithmRun(run: AlgorithmRun, path: string): string {
   return [
     "Soma Algorithm run",
     `id: ${run.id}`,
-    `phase: ${run.phase}`,
+    `phase: ${getRunPhase(run)}`,
     `effort: ${run.effort}`,
     `effortSource: ${run.effortSource}`,
     `mode: ${run.mode}`,
     `classificationReason: ${run.classificationReason}`,
     `path: ${path}`,
-    `goal: ${run.isa.goal}`,
+    `goal: ${getGoal(run.isa) ?? ""}`,
     "",
     "Criteria:",
-    ...run.isa.criteria.map((criterion) => `- [${criterion.status}] ${criterion.id}: ${criterion.text}${criterion.verification ? ` | ${criterion.verification}` : ""}`),
+    ...getCriteria(run.isa).map((criterion) => `- [${criterion.status}] ${criterion.id}: ${criterion.text}${criterion.verification ? ` | ${criterion.verification}` : ""}`),
     "",
     "Plan:",
     ...(run.planSteps.length > 0 ? run.planSteps.map((step) => `- [${step.status}] ${step.id}: ${step.text} (${step.criteriaIds.join(",")})`) : ["- none"]),

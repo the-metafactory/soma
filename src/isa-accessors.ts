@@ -1,0 +1,238 @@
+import type {
+  AlgorithmLogEntry,
+  AlgorithmPhase,
+  IdealStateArtifact,
+  IdealStateCriterion,
+  IsaSection,
+} from "./types";
+
+/**
+ * Canonical section names for the twelve-section ISA schema.
+ * The unified `IdealStateArtifact` type itself is section-agnostic; lifecycle
+ * hooks and validators operate on these well-known names.
+ *
+ * Order matters: when a missing section needs to be inserted, it is placed
+ * at the index implied by this list.
+ */
+export const SECTION_NAME_MAP = {
+  problem: "Problem",
+  vision: "Vision",
+  outOfScope: "Out of Scope",
+  principles: "Principles",
+  constraints: "Constraints",
+  goal: "Goal",
+  criteria: "Criteria",
+  testStrategy: "Test Strategy",
+  features: "Features",
+  decisions: "Decisions",
+  changelog: "Changelog",
+  verification: "Verification",
+} as const;
+
+export const TWELVE_SECTIONS = Object.values(SECTION_NAME_MAP);
+
+export function getSection(isa: IdealStateArtifact, name: string): IsaSection | null {
+  return isa.sections.find((section) => section.name === name) ?? null;
+}
+
+export function getGoal(isa: IdealStateArtifact): string | null {
+  const section = getSection(isa, SECTION_NAME_MAP.goal);
+  if (section === null) return null;
+  const trimmed = section.content.trim();
+  return trimmed.length === 0 ? null : trimmed;
+}
+
+export function getCriteria(isa: IdealStateArtifact): IdealStateCriterion[] {
+  const section = getSection(isa, SECTION_NAME_MAP.criteria);
+  if (section === null) return [];
+  return parseCriteriaMarkdown(section.content);
+}
+
+export function getDecisions(isa: IdealStateArtifact): AlgorithmLogEntry[] {
+  return parseLogEntries(isa, SECTION_NAME_MAP.decisions);
+}
+
+export function getChangelog(isa: IdealStateArtifact): AlgorithmLogEntry[] {
+  return parseLogEntries(isa, SECTION_NAME_MAP.changelog);
+}
+
+export function getVerification(isa: IdealStateArtifact): AlgorithmLogEntry[] {
+  return parseLogEntries(isa, SECTION_NAME_MAP.verification);
+}
+
+export function setSection(isa: IdealStateArtifact, name: string, content: string): IdealStateArtifact {
+  const existingIndex = isa.sections.findIndex((section) => section.name === name);
+  const next: IsaSection = { name, content };
+
+  if (existingIndex >= 0) {
+    const sections = isa.sections.slice();
+    sections[existingIndex] = next;
+    return { ...isa, sections };
+  }
+
+  const insertIndex = canonicalInsertIndex(isa.sections, name);
+  const sections = isa.sections.slice();
+  sections.splice(insertIndex, 0, next);
+  return { ...isa, sections };
+}
+
+export function updateCriterion(
+  isa: IdealStateArtifact,
+  criterionId: string,
+  status: IdealStateCriterion["status"],
+  verification?: string,
+): IdealStateArtifact {
+  const criteria = getCriteria(isa);
+  if (!criteria.some((criterion) => criterion.id === criterionId)) {
+    throw new Error(`Algorithm criterion not found: ${criterionId}`);
+  }
+
+  const updated = criteria.map((criterion) => {
+    if (criterion.id !== criterionId) return criterion;
+    return { ...criterion, status, verification: verification ?? criterion.verification };
+  });
+
+  return setSection(isa, SECTION_NAME_MAP.criteria, renderCriteriaMarkdown(updated));
+}
+
+export function appendCriterion(isa: IdealStateArtifact, criterion: IdealStateCriterion): IdealStateArtifact {
+  const criteria = getCriteria(isa);
+  if (criteria.some((existing) => existing.id === criterion.id)) {
+    throw new Error(`Algorithm criterion already exists: ${criterion.id}`);
+  }
+  return setSection(isa, SECTION_NAME_MAP.criteria, renderCriteriaMarkdown([...criteria, criterion]));
+}
+
+export function appendIsaDecision(isa: IdealStateArtifact, entry: AlgorithmLogEntry): IdealStateArtifact {
+  return appendLogEntry(isa, SECTION_NAME_MAP.decisions, entry);
+}
+
+export function appendIsaChangelog(isa: IdealStateArtifact, entry: AlgorithmLogEntry): IdealStateArtifact {
+  return appendLogEntry(isa, SECTION_NAME_MAP.changelog, entry);
+}
+
+export function appendIsaVerification(isa: IdealStateArtifact, entry: AlgorithmLogEntry): IdealStateArtifact {
+  return appendLogEntry(isa, SECTION_NAME_MAP.verification, entry);
+}
+
+function appendLogEntry(isa: IdealStateArtifact, sectionName: string, entry: AlgorithmLogEntry): IdealStateArtifact {
+  const existing = parseLogEntries(isa, sectionName);
+  return setSection(isa, sectionName, renderLogEntries([...existing, entry]));
+}
+
+function canonicalInsertIndex(sections: readonly IsaSection[], name: string): number {
+  const canonicalOrder = TWELVE_SECTIONS as readonly string[];
+  const targetIndex = canonicalOrder.indexOf(name);
+  if (targetIndex < 0) {
+    return sections.length;
+  }
+  for (let i = 0; i < sections.length; i++) {
+    const sectionRank = canonicalOrder.indexOf(sections[i].name);
+    if (sectionRank < 0 || sectionRank > targetIndex) {
+      return i;
+    }
+  }
+  return sections.length;
+}
+
+const CRITERION_LINE = /^- \[([ x\-_!])\]\s+([^:]+):\s*(.+?)(?:\s+\|\s+Evidence:\s*(.+))?$/;
+
+export function parseCriteriaMarkdown(content: string): IdealStateCriterion[] {
+  return content
+    .split("\n")
+    .map((line) => parseCriterionLine(line.trim()))
+    .filter((entry): entry is IdealStateCriterion => entry !== null);
+}
+
+function parseCriterionLine(line: string): IdealStateCriterion | null {
+  const match = CRITERION_LINE.exec(line);
+  if (match === null) return null;
+  const [, mark, idRaw, textRaw, evidence] = match;
+  const status = criterionStatusFromMark(mark);
+  const criterion: IdealStateCriterion = {
+    id: idRaw.trim(),
+    text: textRaw.trim(),
+    status,
+  };
+  if (typeof evidence === "string") {
+    criterion.verification = evidence.trim();
+  }
+  return criterion;
+}
+
+function criterionStatusFromMark(mark: string): IdealStateCriterion["status"] {
+  switch (mark) {
+    case "x":
+      return "passed";
+    case "-":
+      return "dropped";
+    case "!":
+      return "failed";
+    default:
+      return "open";
+  }
+}
+
+function criterionStatusMark(status: IdealStateCriterion["status"]): string {
+  switch (status) {
+    case "passed":
+      return "x";
+    case "dropped":
+      return "-";
+    case "failed":
+      return "!";
+    default:
+      return " ";
+  }
+}
+
+export function renderCriteriaMarkdown(criteria: readonly IdealStateCriterion[]): string {
+  if (criteria.length === 0) return "";
+  return criteria
+    .map((criterion) => {
+      const mark = criterionStatusMark(criterion.status);
+      const evidence = criterion.verification ? ` | Evidence: ${criterion.verification}` : "";
+      return `- [${mark}] ${criterion.id}: ${criterion.text}${evidence}`;
+    })
+    .join("\n");
+}
+
+const LOG_LINE = /^- (\S+)\s+\[(observe|think|plan|build|execute|verify|learn|complete|abandoned)\]\s+(.+)$/;
+
+function parseLogEntries(isa: IdealStateArtifact, sectionName: string): AlgorithmLogEntry[] {
+  const section = getSection(isa, sectionName);
+  if (section === null) return [];
+  return section.content
+    .split("\n")
+    .map((line) => parseLogEntryLine(line.trim()))
+    .filter((entry): entry is AlgorithmLogEntry => entry !== null);
+}
+
+function parseLogEntryLine(line: string): AlgorithmLogEntry | null {
+  const match = LOG_LINE.exec(line);
+  if (match === null) return null;
+  const [, timestamp, phase, text] = match;
+  return {
+    timestamp: timestamp,
+    phase: phase as AlgorithmPhase,
+    text: text.trim(),
+  };
+}
+
+export function renderLogEntries(entries: readonly AlgorithmLogEntry[]): string {
+  if (entries.length === 0) return "";
+  return entries.map((entry) => `- ${entry.timestamp} [${entry.phase}] ${entry.text}`).join("\n");
+}
+
+export function recomputeProgress(isa: IdealStateArtifact): string {
+  const criteria = getCriteria(isa);
+  if (criteria.length === 0) return "0/0";
+  const completed = criteria.filter((c) => c.status === "passed" || c.status === "dropped").length;
+  return `${completed}/${criteria.length}`;
+}
+
+export function recomputeVerified(isa: IdealStateArtifact): boolean {
+  const criteria = getCriteria(isa);
+  if (criteria.length === 0) return false;
+  return criteria.every((c) => c.status === "passed" || c.status === "dropped");
+}

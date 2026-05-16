@@ -27,20 +27,57 @@ export interface IdealStateCriterion {
   verification?: string;
 }
 
-export interface IdealStateArtifact {
-  slug: string;
-  phase: "observe" | "think" | "plan" | "build" | "execute" | "verify" | "learn" | "complete";
-  goal: string;
-  criteria: IdealStateCriterion[];
-}
-
-export type AlgorithmPhase = IdealStateArtifact["phase"];
+export type AlgorithmPhase = "observe" | "think" | "plan" | "build" | "execute" | "verify" | "learn" | "complete" | "abandoned";
 
 export type AlgorithmEffortTier = "E1" | "E2" | "E3" | "E4" | "E5";
 
 export type AlgorithmMode = "minimal" | "native" | "algorithm";
 
 export type AlgorithmEffortSource = "explicit" | "classifier" | "context-override" | "auto" | "fail-safe";
+
+export interface AuthoredFrontmatter {
+  task: string;
+  effort: AlgorithmEffortTier;
+  mode?: AlgorithmMode;
+  iteration?: number;
+  started?: string;
+  algorithm_config?: Record<string, unknown>;
+  custom?: Record<string, unknown>;
+}
+
+export interface DerivedFrontmatter {
+  phase: AlgorithmPhase;
+  progress: string;
+  verified: boolean;
+  updated: string;
+}
+
+export interface IsaFrontmatter extends AuthoredFrontmatter, DerivedFrontmatter {}
+
+export interface IsaSection {
+  name: string;
+  content: string;
+}
+
+/**
+ * Mutable working document — NOT a static artifact despite the name.
+ * Accumulates Decisions, Changelog, and Verification entries over its lifetime.
+ * The name is historical (predates the section-based model).
+ *
+ * Identity: `slug`. Source of truth when file-backed: `~/.soma/isa/<slug>.md`.
+ * In-memory ephemeral ISAs (Algorithm runs that never touch disk) leave
+ * `sourcePath` undefined.
+ *
+ * Storage model is section-agnostic at the type level — derived accessors
+ * (getGoal, getCriteria, etc.) and the SECTION_NAME_MAP are what give the
+ * twelve-section schema its meaning.
+ */
+export interface IdealStateArtifact {
+  slug: string;
+  frontmatter: IsaFrontmatter;
+  sections: readonly IsaSection[];
+  sourcePath?: string;
+}
 
 export interface AlgorithmPromptClassification {
   mode: AlgorithmMode;
@@ -64,6 +101,7 @@ export interface AlgorithmLogEntry {
 }
 
 export interface AlgorithmRun {
+  schemaVersion: 2;
   id: string;
   createdAt: string;
   updatedAt: string;
@@ -75,7 +113,6 @@ export interface AlgorithmRun {
   mode: AlgorithmMode;
   classificationReason: string;
   currentState: string;
-  phase: AlgorithmPhase;
   isa: IdealStateArtifact;
   antiCriteria: IdealStateCriterion[];
   capabilities: string[];

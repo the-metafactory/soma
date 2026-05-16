@@ -15,8 +15,12 @@ export type {
   AlgorithmRunSummary,
   AlgorithmWorkIndex,
   AssistantIdentity,
+  AuthoredFrontmatter,
+  DerivedFrontmatter,
   IdealStateArtifact,
   IdealStateCriterion,
+  IsaFrontmatter,
+  IsaSection,
   PrincipalIdentity,
   SomaAdapter,
   SomaContextBundle,
@@ -88,10 +92,38 @@ export {
 } from "./algorithm";
 export { classifyAlgorithmPrompt } from "./algorithm-classifier";
 export {
+  SECTION_NAME_MAP,
+  TWELVE_SECTIONS,
+  appendCriterion,
+  appendIsaChangelog,
+  appendIsaDecision,
+  appendIsaVerification,
+  getChangelog,
+  getCriteria,
+  getDecisions,
+  getGoal,
+  getSection,
+  getVerification,
+  parseCriteriaMarkdown,
+  recomputeProgress,
+  recomputeVerified,
+  renderCriteriaMarkdown,
+  renderLogEntries,
+  setSection,
+  updateCriterion,
+} from "./isa-accessors";
+export { parseIsa, serializeIsa } from "./isa-parse";
+export {
+  abandonAlgorithmRun,
+  completeAlgorithmRun,
+  getRunPhase,
+} from "./algorithm-lifecycle";
+export {
   algorithmRunPath,
   algorithmRunPathById,
   listAlgorithmRunSummaries,
   listAlgorithmRuns,
+  loadAlgorithmRun,
   readAlgorithmRunById,
   readAlgorithmRun,
   resolveAlgorithmRunsDir,

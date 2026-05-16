@@ -3,6 +3,8 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { readAlgorithmRunById } from "./algorithm-store";
 import { appendSomaMemoryEvent } from "./memory";
+import { getCriteria, getGoal } from "./isa-accessors";
+import { getRunPhase } from "./algorithm-lifecycle";
 import type { AlgorithmRun, SomaMemoryPromotionOptions, SomaMemoryPromotionResult } from "./types";
 
 const PROMOTION_STORE_DIRS = {
@@ -33,7 +35,7 @@ function slugify(value: string): string {
 }
 
 function checkedCriteria(run: AlgorithmRun): string[] {
-  return run.isa.criteria.map((criterion) => {
+  return getCriteria(run.isa).map((criterion) => {
     const mark = criterion.status === "passed" ? "x" : criterion.status === "dropped" ? "-" : " ";
     const verification = criterion.verification ? ` Evidence: ${criterion.verification}` : "";
     return `- [${mark}] ${criterion.id}: ${criterion.text}${verification}`;
@@ -49,11 +51,11 @@ function promotionLesson(run: AlgorithmRun, explicitLesson?: string): string {
   const decision = run.decisions.at(-1)?.text;
   if (decision) return decision;
 
-  return run.isa.goal;
+  return getGoal(run.isa) ?? "";
 }
 
 function hasPromotionVerification(run: AlgorithmRun): boolean {
-  return run.verification.length > 0 || run.isa.criteria.some((criterion) => criterion.status === "passed");
+  return run.verification.length > 0 || getCriteria(run.isa).some((criterion) => criterion.status === "passed");
 }
 
 function renderPromotionContent(input: {
@@ -72,7 +74,7 @@ function renderPromotionContent(input: {
     `Store: ${input.store}`,
     `Source run: ${input.run.id}`,
     `Source path: ${input.runPath}`,
-    `Phase: ${input.run.phase}`,
+    `Phase: ${getRunPhase(input.run)}`,
     `Effort: ${input.run.effort}`,
     "",
     "## Durable Lesson",
@@ -85,7 +87,7 @@ function renderPromotionContent(input: {
     "",
     "## Source Goal",
     "",
-    input.run.isa.goal,
+    getGoal(input.run.isa) ?? "",
     "",
     "## Source Criteria",
     "",
