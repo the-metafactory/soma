@@ -16,7 +16,6 @@ import { join, resolve } from "node:path";
 import { appendSomaMemoryEvent } from "./memory";
 import { getActiveIsa, readIsa, writeIsa } from "./isa";
 import { runSomaLifecycleIsaUpdated } from "./lifecycle";
-import { evaluateCompleteness } from "./isa-schema";
 import { getCriteria } from "./isa-accessors";
 import type { AlgorithmEffortTier, AlgorithmPhase, IdealStateArtifact, SubstrateId } from "./types";
 
@@ -80,13 +79,19 @@ async function routeAlgorithmIsaEntry(
   const state = await getActiveIsa({ somaHome });
   const slug = state?.activeSlug ?? null;
   if (slug === null) {
-    await appendSomaMemoryEvent(somaHome, {
-      substrate: substrate(options),
-      kind: "algorithm.isa_route.no-active-isa",
-      summary: `Algorithm ${callerLabel} not recorded: no active ISA set.`,
-      timestamp: options.timestamp ?? new Date().toISOString(),
-      metadata: { callerLabel, text: entry.text },
-    });
+    // Telemetry failure must NOT break the silent-no-op contract
+    // (Sage round-2 finding on #63 — same fix shape as the hint path).
+    try {
+      await appendSomaMemoryEvent(somaHome, {
+        substrate: substrate(options),
+        kind: "algorithm.isa_route.no-active-isa",
+        summary: `Algorithm ${callerLabel} not recorded: no active ISA set.`,
+        timestamp: options.timestamp ?? new Date().toISOString(),
+        metadata: { callerLabel, text: entry.text },
+      });
+    } catch {
+      // intentional: no-op contract must hold even when audit can't be persisted
+    }
     return { recorded: false, slug: null };
   }
   const payload =
@@ -210,6 +215,3 @@ export function _resetSuggestSessionForTests(): void {
   hintSessionFired = false;
 }
 
-// Re-export evaluateCompleteness for callers that want to check
-// completeness without going through readIsa themselves.
-export { evaluateCompleteness };

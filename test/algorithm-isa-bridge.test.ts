@@ -204,6 +204,25 @@ test("AC-7: Algorithm run-shaped end-to-end with no active ISA never throws", as
   });
 });
 
+test("record* functions return normally when telemetry write fails (no-active)", async () => {
+  await withSomaHome(async (homeDir) => {
+    const { chmod, mkdir } = await import("node:fs/promises");
+    const memDir = join(homeDir, ".soma", "memory", "STATE");
+    await mkdir(memDir, { recursive: true }).catch(() => {});
+    await chmod(memDir, 0o500);
+    try {
+      const d = await recordAlgorithmIsaDecision("stranded", { homeDir });
+      const c = await recordAlgorithmIsaChange("stranded", { homeDir });
+      expect(d.recorded).toBe(false);
+      expect(d.slug).toBeNull();
+      expect(c.recorded).toBe(false);
+      expect(c.slug).toBeNull();
+    } finally {
+      await chmod(memDir, 0o700);
+    }
+  });
+});
+
 test("suggestIsaAtObserve returns normally when telemetry write fails", async () => {
   await withSomaHome(async (homeDir) => {
     // Make memory dir read-only to force appendSomaMemoryEvent to throw.
