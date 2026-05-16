@@ -283,6 +283,34 @@ export interface SomaInstallPlan {
   substrateFiles: string[];
 }
 
+export interface SomaSkillBaseline {
+  version: string;
+  files: Record<string, string>;
+  installedAt: string;
+}
+
+export type SomaSkillBaselines = Record<string, SomaSkillBaseline>;
+
+export interface IsaSkillInstallOptions {
+  homeDir?: string;
+  somaHome?: string;
+  somaRepoPath?: string;
+  force?: boolean;
+}
+
+export type IsaSkillInstallAction = "fresh" | "upgraded" | "unchanged" | "preserved-local-edits" | "no-source";
+
+export interface IsaSkillInstallResult {
+  somaHome: string;
+  skillDir: string;
+  sourceVersion: string;
+  runtimeVersion: string | null;
+  action: IsaSkillInstallAction;
+  filesWritten: string[];
+  filesPreservedUserAdditions: string[];
+  upgradeMarker?: string;
+}
+
 export interface PaiImportOptions {
   homeDir?: string;
   claudeHome?: string;

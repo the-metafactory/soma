@@ -9,7 +9,8 @@
     "lint:fix": "eslint . --fix",
     "soma": "bun src/cli.ts",
     "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "test": "bun test",
+    "check-skill-version": "bun scripts/check-skill-version.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

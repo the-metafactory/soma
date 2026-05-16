@@ -21,7 +21,12 @@ export type {
   IdealStateCriterion,
   IsaFrontmatter,
   IsaSection,
+  IsaSkillInstallAction,
+  IsaSkillInstallOptions,
+  IsaSkillInstallResult,
   PrincipalIdentity,
+  SomaSkillBaseline,
+  SomaSkillBaselines,
   SomaAdapter,
   SomaContextBundle,
   SomaContextInput,
@@ -150,6 +155,11 @@ export {
   resolveHomeProjectionPaths,
 } from "./home-projection";
 export { installSomaForCodex, installSomaForPiDev, planSomaForCodexInstall, planSomaForPiDevInstall } from "./install";
+// Public ISA-skill installer API — cohesive surface only.
+// Implementation details (isaSkillRuntimeDir, isaSkillSourceDir,
+// parseSkillFrontmatter, skillBaselinesPath, compareSkillVersions) stay in
+// `./isa-skill-installer` and are imported directly by tests and scripts.
+export { installIsaSkill } from "./isa-skill-installer";
 export { importAlgorithm, planAlgorithmImport } from "./algorithm-importer";
 export {
   buildSomaStartupContext,
