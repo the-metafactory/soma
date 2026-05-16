@@ -83,6 +83,12 @@ test("builds codex home projection bundle for default availability", () => {
   expect(projection.bundle.files.find((file) => file.path === "skills/the-algorithm/SKILL.md")?.content).toContain(
     "When entering ALGORITHM mode, emit these banners",
   );
+  expect(projection.bundle.files.find((file) => file.path === "skills/the-algorithm/SKILL.md")?.content).toContain(
+    "Start with `Workflows/RunAlgorithm.md`",
+  );
+  expect(projection.bundle.files.find((file) => file.path === "skills/the-algorithm/SKILL.md")?.content).toContain(
+    "The harness is mutable run state",
+  );
 });
 
 test("renders codex lifecycle hook with an explicit Bun executable", () => {
@@ -208,6 +214,8 @@ test("codex algorithm contract wins over imported portable skill body", async ()
     const workflow = await readFile(join(homeDir, ".codex/skills/the-algorithm/Workflows/RunAlgorithm.md"), "utf8");
 
     expect(algorithmSkill).toContain("Codex Rendering Contract");
+    expect(algorithmSkill).toContain("Start with `Workflows/RunAlgorithm.md`");
+    expect(algorithmSkill).toContain("When the Soma CLI is available");
     expect(algorithmSkill).toContain("♻︎ Entering the PAI ALGORITHM… (Soma) ═════════════");
     expect(algorithmSkill).not.toContain("This body should not replace the Codex rendering contract.");
     expect(workflow).toContain("Imported workflow");
