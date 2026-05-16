@@ -29,6 +29,8 @@ export interface NormalizeContentResult {
   warnings: PaiPackNormalizationWarning[];
 }
 
+export const SOMA_SKILL_DESCRIPTION_MAX_LENGTH = 1024;
+
 // Patterns that mark "must execute" runtime blocks in PAI skill bodies. We
 // strip the *executable instruction* (curl notification calls + the
 // "MANDATORY" framing) but keep neutral prose.
@@ -219,6 +221,54 @@ export function mergeNormalizationReports(
   };
 }
 
+export interface NormalizeSkillDescriptionResult {
+  description: string;
+  action?: PaiPackNormalizationAction;
+}
+
+export function normalizeSkillDescription(
+  description: string,
+  options: {
+    file: string;
+    fallback: string;
+    maxLength?: number;
+  },
+): NormalizeSkillDescriptionResult {
+  const maxLength = options.maxLength ?? SOMA_SKILL_DESCRIPTION_MAX_LENGTH;
+  const source = (description || options.fallback).replace(/\s+/g, " ").trim();
+  const fallback = options.fallback.replace(/\s+/g, " ").trim();
+  const initial = source || fallback;
+  if (initial.length <= maxLength) {
+    return { description: initial };
+  }
+
+  const sentences = initial.match(/[^.!?]+[.!?]+(?=\s|$)|[^.!?]+$/g)?.map((sentence) => sentence.trim()) ?? [];
+  let compact = "";
+  for (const sentence of sentences) {
+    const next = compact ? `${compact} ${sentence}` : sentence;
+    if (next.length > maxLength) break;
+    compact = next;
+  }
+
+  if (!compact) {
+    compact = initial.slice(0, maxLength).trimEnd();
+    compact = compact.replace(/[,;:\s-]+$/u, "");
+  }
+
+  if (!compact) {
+    compact = fallback.slice(0, maxLength).trimEnd();
+  }
+
+  return {
+    description: compact,
+    action: {
+      file: options.file,
+      kind: "compacted-skill-description",
+      detail: `Compacted skill description from ${initial.length} to ${compact.length} characters for Soma's portable ${maxLength}-character skill metadata limit.`,
+    },
+  };
+}
+
 export interface GenerateSomaSkillManifestInput {
   skillName: string;
   description: string;
@@ -230,10 +280,15 @@ export interface GenerateSomaSkillManifestInput {
 }
 
 export function generateSomaSkillManifest(input: GenerateSomaSkillManifestInput): SomaSkillManifest {
+  const { description } = normalizeSkillDescription(input.description, {
+    file: "soma-skill.json",
+    fallback: `Imported PAI pack: ${input.packName}`,
+  });
+
   return {
     schema: "soma.skill.v1",
     name: input.skillName,
-    description: input.description || `Imported PAI pack: ${input.packName}`,
+    description,
     packId: input.packId,
     source: { kind: "pai-pack", packName: input.packName },
     entrypoint: input.entrypoint,

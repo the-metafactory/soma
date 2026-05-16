@@ -5,6 +5,7 @@ import { routePaiPackSourceFile, type PaiPackRenderMode } from "./pai-pack-routi
 import {
   generateSomaSkillManifest,
   mergeNormalizationReports,
+  normalizeSkillDescription,
   normalizeSkillContent,
 } from "./pai-pack-normalizer";
 import type {
@@ -420,7 +421,14 @@ async function buildPaiPackImportPlan(options: PaiPackImportOptions = {}): Promi
   // report actions and warnings without writing. The Map is also re-used by
   // the apply path (no second read+normalize pass) — Sage round 1 finding.
   const normalizedSkillFiles = await normalizeSkillFiles(homes.paiPackDir, routedFiles);
-  const normalization = reportFromNormalizedFiles(normalizedSkillFiles.values());
+  const normalizedDescription = normalizeSkillDescription(metadata.description, {
+    file: "README.md",
+    fallback: `Imported PAI pack: ${metadata.name}`,
+  });
+  const normalization = mergeNormalizationReports([
+    reportFromNormalizedFiles(normalizedSkillFiles.values()),
+    { actions: normalizedDescription.action ? [normalizedDescription.action] : [], warnings: [] },
+  ]);
 
   routedFiles.push({
     target: join(homes.somaHome, `skills/${skillName}/soma-pack.json`),
@@ -462,7 +470,7 @@ async function buildPaiPackImportPlan(options: PaiPackImportOptions = {}): Promi
     somaHome: homes.somaHome,
     skillName,
     packName: metadata.name,
-    description: metadata.description,
+    description: normalizedDescription.description,
     files,
     routedFiles,
     normalization,

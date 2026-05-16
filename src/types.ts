@@ -426,7 +426,8 @@ export interface PaiPackNormalizationAction {
   kind:
     | "removed-substrate-notification-hook"
     | "rewrote-claude-home-path"
-    | "stripped-mandatory-runtime-block";
+    | "stripped-mandatory-runtime-block"
+    | "compacted-skill-description";
   detail: string;
 }
 
