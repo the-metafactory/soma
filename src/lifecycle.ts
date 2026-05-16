@@ -294,11 +294,7 @@ export async function runSomaLifecycleIsaUpdated(
     );
   }
 
-  const entries: IsaUpdateEntry[] = [
-    ...(payload.decisions ?? []).map((e) => ({ section: "decisions" as const, ...e })),
-    ...(payload.changelogEntries ?? []).map((e) => ({ section: "changelog" as const, ...e })),
-    ...(payload.verificationEntries ?? []).map((e) => ({ section: "verification" as const, ...e })),
-  ];
+  const entries = buildIsaUpdateEntries(payload);
 
   // Validate the full payload BEFORE emitting the writeback event or
   // touching the ISA. Sage round 1: partial mutation must not occur on
@@ -309,6 +305,26 @@ export async function runSomaLifecycleIsaUpdated(
     }
   }
 
+  // Empty payload — emit a distinct no-op event and short-circuit so
+  // events.jsonl never claims a write that didn't happen (Sage round-3
+  // CodeQuality).
+  if (entries.length === 0) {
+    await emitIsaUpdateEvent(somaHome, options, {
+      kind: "lifecycle.isa_updated.noop",
+      summary: `isa_updated invoked for ISA ${slug} with no entries; no write.`,
+      timestamp,
+      slug,
+      payload,
+    });
+    return {
+      event: "isa_updated",
+      somaHome,
+      timestamp,
+      files: [join(somaHome, "memory/STATE/events.jsonl")],
+      writes: [],
+    };
+  }
+
   // Sage round-2 CodeQuality: perform the authoritative write FIRST,
   // then emit the success event. If applyIsaUpdate throws (e.g.
   // missing slug, filesystem error) we emit a failure event instead so
@@ -316,41 +332,26 @@ export async function runSomaLifecycleIsaUpdated(
   // did not happen.
   let writeResult: { path: string; changed: boolean };
   try {
-    writeResult = entries.length === 0
-      ? { path: "", changed: false }
-      : await applyIsaUpdate(slug, entries, { somaHome, timestamp });
+    writeResult = await applyIsaUpdate(slug, entries, { somaHome, timestamp });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
-    await appendSomaMemoryEvent(somaHome, {
-      substrate: substrate(options),
+    await emitIsaUpdateEvent(somaHome, options, {
       kind: "lifecycle.isa_updated.failed",
       summary: `isa_updated write failed for ISA ${slug}: ${message}`,
       timestamp,
-      metadata: {
-        slug,
-        error: message,
-        decisions: payload.decisions ?? [],
-        changelogEntries: payload.changelogEntries ?? [],
-        verificationEntries: payload.verificationEntries ?? [],
-      },
+      slug,
+      payload,
+      extra: { error: message },
     });
     throw error;
   }
 
-  // Writeback gate: every successful authoritative ISA mutation has a
-  // corresponding audit record in events.jsonl, written AFTER the
-  // write succeeds (so failures emit `.failed` instead).
-  await appendSomaMemoryEvent(somaHome, {
-    substrate: substrate(options),
+  await emitIsaUpdateEvent(somaHome, options, {
     kind: "lifecycle.isa_updated",
     summary: `Appended ${entries.length} entr(ies) to ISA ${slug}.`,
     timestamp,
-    metadata: {
-      slug,
-      decisions: payload.decisions ?? [],
-      changelogEntries: payload.changelogEntries ?? [],
-      verificationEntries: payload.verificationEntries ?? [],
-    },
+    slug,
+    payload,
     artifactPaths: writeResult.path ? [writeResult.path] : [],
   });
 
@@ -362,6 +363,49 @@ export async function runSomaLifecycleIsaUpdated(
     files: Array.from(new Set([...writes, join(somaHome, "memory/STATE/events.jsonl")])),
     writes,
   };
+}
+
+function buildIsaUpdateEntries(payload: IsaUpdatePayload): IsaUpdateEntry[] {
+  return [
+    ...(payload.decisions ?? []).map((e) => ({ section: "decisions" as const, ...e })),
+    ...(payload.changelogEntries ?? []).map((e) => ({ section: "changelog" as const, ...e })),
+    ...(payload.verificationEntries ?? []).map((e) => ({ section: "verification" as const, ...e })),
+  ];
+}
+
+function isaUpdateMetadata(slug: string, payload: IsaUpdatePayload, extra?: Record<string, unknown>): Record<string, unknown> {
+  return {
+    slug,
+    decisions: payload.decisions ?? [],
+    changelogEntries: payload.changelogEntries ?? [],
+    verificationEntries: payload.verificationEntries ?? [],
+    ...(extra ?? {}),
+  };
+}
+
+interface EmitIsaUpdateEventOptions {
+  kind: "lifecycle.isa_updated" | "lifecycle.isa_updated.failed" | "lifecycle.isa_updated.noop";
+  summary: string;
+  timestamp: string;
+  slug: string;
+  payload: IsaUpdatePayload;
+  artifactPaths?: string[];
+  extra?: Record<string, unknown>;
+}
+
+async function emitIsaUpdateEvent(
+  somaHome: string,
+  options: SomaLifecycleOptions,
+  ev: EmitIsaUpdateEventOptions,
+): Promise<void> {
+  await appendSomaMemoryEvent(somaHome, {
+    substrate: substrate(options),
+    kind: ev.kind,
+    summary: ev.summary,
+    timestamp: ev.timestamp,
+    metadata: isaUpdateMetadata(ev.slug, ev.payload, ev.extra),
+    artifactPaths: ev.artifactPaths,
+  });
 }
 
 export async function runSomaLifecycleAlgorithmUpdated(options: SomaLifecycleOptions = {}): Promise<SomaLifecycleResult> {
