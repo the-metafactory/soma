@@ -21,7 +21,12 @@ export type {
   IdealStateCriterion,
   IsaFrontmatter,
   IsaSection,
+  IsaSkillInstallAction,
+  IsaSkillInstallOptions,
+  IsaSkillInstallResult,
   PrincipalIdentity,
+  SomaSkillBaseline,
+  SomaSkillBaselines,
   SomaAdapter,
   SomaContextBundle,
   SomaContextInput,
@@ -150,6 +155,14 @@ export {
   resolveHomeProjectionPaths,
 } from "./home-projection";
 export { installSomaForCodex, installSomaForPiDev, planSomaForCodexInstall, planSomaForPiDevInstall } from "./install";
+export {
+  compareSkillVersions,
+  installIsaSkill,
+  isaSkillRuntimeDir,
+  isaSkillSourceDir,
+  parseSkillFrontmatter,
+  skillBaselinesPath,
+} from "./isa-skill-installer";
 export { importAlgorithm, planAlgorithmImport } from "./algorithm-importer";
 export {
   buildSomaStartupContext,

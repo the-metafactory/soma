@@ -1,0 +1,213 @@
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { expect, test } from "bun:test";
+import {
+  compareSkillVersions,
+  installIsaSkill,
+  isaSkillRuntimeDir,
+  parseSkillFrontmatter,
+  skillBaselinesPath,
+} from "../src/index";
+import type { SomaSkillBaselines } from "../src/index";
+
+async function withTempHome<T>(fn: (homeDir: string, somaRepoPath: string) => Promise<T>): Promise<T> {
+  const homeDir = await mkdtemp(join(tmpdir(), "soma-isa-skill-"));
+  const somaRepoPath = join(homeDir, "_repo");
+  await mkdir(join(somaRepoPath, "src", "skills", "ISA", "Workflows"), { recursive: true });
+  // Seed a minimal source skill
+  await writeFile(
+    join(somaRepoPath, "src", "skills", "ISA", "SKILL.md"),
+    "---\nname: ISA\nversion: 1.0.0\npack-id: pai-isa-v1.0.0\n---\n\n# ISA\n",
+    "utf8",
+  );
+  await writeFile(
+    join(somaRepoPath, "src", "skills", "ISA", "Workflows", "Scaffold.md"),
+    "# Scaffold\n\nWorkflow body.\n",
+    "utf8",
+  );
+  try {
+    return await fn(homeDir, somaRepoPath);
+  } finally {
+    await rm(homeDir, { recursive: true, force: true });
+  }
+}
+
+async function bumpSourceVersion(somaRepoPath: string, version: string): Promise<void> {
+  const path = join(somaRepoPath, "src", "skills", "ISA", "SKILL.md");
+  const content = (await readFile(path, "utf8")).replace(/version: .+/, `version: ${version}`);
+  await writeFile(path, content, "utf8");
+}
+
+async function writeRuntimeFile(somaHome: string, relPath: string, content: string): Promise<void> {
+  const full = join(isaSkillRuntimeDir(somaHome), relPath);
+  await mkdir(dirname(full), { recursive: true });
+  await writeFile(full, content, "utf8");
+}
+
+test("parseSkillFrontmatter extracts version and pack-id", () => {
+  const result = parseSkillFrontmatter("---\nname: ISA\nversion: 1.2.3\npack-id: pai-isa-v1.0.0\n---\n\nbody");
+  expect(result).toEqual({ version: "1.2.3", packId: "pai-isa-v1.0.0" });
+});
+
+test("parseSkillFrontmatter returns null when version or pack-id missing", () => {
+  expect(parseSkillFrontmatter("---\nname: ISA\n---")).toBeNull();
+  expect(parseSkillFrontmatter("---\nname: ISA\nversion: 1.0.0\n---")).toBeNull();
+});
+
+test("compareSkillVersions: source > runtime", () => {
+  expect(compareSkillVersions("1.1.0", "1.0.0")).toBe(1);
+  expect(compareSkillVersions("2.0.0", "1.9.9")).toBe(1);
+  expect(compareSkillVersions("1.0.1", "1.0.0")).toBe(1);
+});
+
+test("compareSkillVersions: equal", () => {
+  expect(compareSkillVersions("1.0.0", "1.0.0")).toBe(0);
+  expect(compareSkillVersions("v1.0.0", "1.0.0")).toBe(0);
+});
+
+test("compareSkillVersions: source < runtime", () => {
+  expect(compareSkillVersions("1.0.0", "1.0.1")).toBe(-1);
+});
+
+test("compareSkillVersions: unparseable defaults to equal", () => {
+  expect(compareSkillVersions("garbage", "1.0.0")).toBe(0);
+  expect(compareSkillVersions("1.0.0", "garbage")).toBe(0);
+});
+
+test("AC-2: fresh install copies skill files to ~/.soma/skills/ISA/ idempotently", async () => {
+  await withTempHome(async (homeDir, somaRepoPath) => {
+    const somaHome = join(homeDir, ".soma");
+    const first = await installIsaSkill({ homeDir, somaHome, somaRepoPath });
+    expect(first.action).toBe("fresh");
+    expect(first.filesWritten.length).toBeGreaterThan(0);
+    expect(await readFile(join(somaHome, "skills", "ISA", "SKILL.md"), "utf8")).toContain("version: 1.0.0");
+
+    const second = await installIsaSkill({ homeDir, somaHome, somaRepoPath });
+    expect(second.action).toBe("unchanged");
+    expect(second.filesWritten).toHaveLength(0);
+  });
+});
+
+test("AC-4: per-file baseline hashes recorded in memory/STATE/skill-baselines.json", async () => {
+  await withTempHome(async (homeDir, somaRepoPath) => {
+    const somaHome = join(homeDir, ".soma");
+    await installIsaSkill({ homeDir, somaHome, somaRepoPath });
+    const baselines = JSON.parse(await readFile(skillBaselinesPath(somaHome), "utf8")) as SomaSkillBaselines;
+    expect(baselines.ISA?.version).toBe("1.0.0");
+    expect(baselines.ISA?.files["SKILL.md"]).toMatch(/^sha256:/);
+    expect(baselines.ISA?.files["Workflows/Scaffold.md"]).toMatch(/^sha256:/);
+  });
+});
+
+test("AC-3: version comparison triggers silent upgrade when no local edits", async () => {
+  await withTempHome(async (homeDir, somaRepoPath) => {
+    const somaHome = join(homeDir, ".soma");
+    await installIsaSkill({ homeDir, somaHome, somaRepoPath });
+    await bumpSourceVersion(somaRepoPath, "1.1.0");
+    // Also change a file's content so the upgrade is meaningful
+    await writeFile(
+      join(somaRepoPath, "src", "skills", "ISA", "Workflows", "Scaffold.md"),
+      "# Scaffold v2\n\nUpdated body.\n",
+      "utf8",
+    );
+
+    const result = await installIsaSkill({ homeDir, somaHome, somaRepoPath });
+    expect(result.action).toBe("upgraded");
+    expect(result.sourceVersion).toBe("1.1.0");
+    expect(result.runtimeVersion).toBe("1.0.0");
+    expect(await readFile(join(somaHome, "skills", "ISA", "Workflows", "Scaffold.md"), "utf8")).toContain("Updated body");
+  });
+});
+
+test("AC-5: local edits + newer source = .upgrade-available marker, no overwrite", async () => {
+  await withTempHome(async (homeDir, somaRepoPath) => {
+    const somaHome = join(homeDir, ".soma");
+    await installIsaSkill({ homeDir, somaHome, somaRepoPath });
+    // User edits Scaffold.md
+    await writeRuntimeFile(somaHome, "Workflows/Scaffold.md", "# Scaffold MY EDIT\n");
+
+    await bumpSourceVersion(somaRepoPath, "1.2.0");
+    await writeFile(
+      join(somaRepoPath, "src", "skills", "ISA", "Workflows", "Scaffold.md"),
+      "# Scaffold v3\n",
+      "utf8",
+    );
+
+    const result = await installIsaSkill({ homeDir, somaHome, somaRepoPath });
+    expect(result.action).toBe("preserved-local-edits");
+    expect(result.upgradeMarker).toContain(".upgrade-available");
+    // Local edit preserved
+    expect(await readFile(join(somaHome, "skills", "ISA", "Workflows", "Scaffold.md"), "utf8")).toBe("# Scaffold MY EDIT\n");
+    // Marker contents reference the edited file
+    const marker = JSON.parse(await readFile(result.upgradeMarker!, "utf8"));
+    expect(marker.editedFiles).toContain("Workflows/Scaffold.md");
+    expect(marker.sourceVersion).toBe("1.2.0");
+  });
+});
+
+test("files added by user in runtime are preserved as user additions", async () => {
+  await withTempHome(async (homeDir, somaRepoPath) => {
+    const somaHome = join(homeDir, ".soma");
+    await installIsaSkill({ homeDir, somaHome, somaRepoPath });
+    await writeRuntimeFile(somaHome, "Workflows/MyCustom.md", "# Custom\n");
+
+    await bumpSourceVersion(somaRepoPath, "1.3.0");
+    const result = await installIsaSkill({ homeDir, somaHome, somaRepoPath });
+    expect(result.action).toBe("upgraded");
+    expect(result.filesPreservedUserAdditions).toContain("Workflows/MyCustom.md");
+    expect(await readFile(join(somaHome, "skills", "ISA", "Workflows", "MyCustom.md"), "utf8")).toBe("# Custom\n");
+  });
+});
+
+test("force: true reinstalls regardless of state", async () => {
+  await withTempHome(async (homeDir, somaRepoPath) => {
+    const somaHome = join(homeDir, ".soma");
+    await installIsaSkill({ homeDir, somaHome, somaRepoPath });
+    // Local edit
+    await writeRuntimeFile(somaHome, "Workflows/Scaffold.md", "# edited\n");
+
+    const result = await installIsaSkill({ homeDir, somaHome, somaRepoPath, force: true });
+    expect(result.action).toBe("fresh");
+    // Source content restored
+    expect(await readFile(join(somaHome, "skills", "ISA", "Workflows", "Scaffold.md"), "utf8")).toContain("Workflow body");
+  });
+});
+
+test("missing source dir returns no-source result (graceful no-op)", async () => {
+  const homeDir = await mkdtemp(join(tmpdir(), "soma-isa-skill-missing-"));
+  try {
+    const result = await installIsaSkill({
+      homeDir,
+      somaHome: join(homeDir, ".soma"),
+      somaRepoPath: join(homeDir, "nope"),
+    });
+    expect(result.action).toBe("no-source");
+    expect(result.filesWritten).toHaveLength(0);
+  } finally {
+    await rm(homeDir, { recursive: true, force: true });
+  }
+});
+
+test("source SKILL.md missing version frontmatter throws", async () => {
+  const homeDir = await mkdtemp(join(tmpdir(), "soma-isa-skill-badfront-"));
+  const somaRepoPath = join(homeDir, "_repo");
+  await mkdir(join(somaRepoPath, "src", "skills", "ISA"), { recursive: true });
+  await writeFile(join(somaRepoPath, "src", "skills", "ISA", "SKILL.md"), "---\nname: ISA\n---\n", "utf8");
+  try {
+    await expect(
+      installIsaSkill({ homeDir, somaHome: join(homeDir, ".soma"), somaRepoPath }),
+    ).rejects.toThrow("missing version or pack-id");
+  } finally {
+    await rm(homeDir, { recursive: true, force: true });
+  }
+});
+
+test("ship config: real src/skills/ISA carries version + pack-id frontmatter", async () => {
+  const repoSkill = join(import.meta.dirname, "..", "src", "skills", "ISA", "SKILL.md");
+  const content = await readFile(repoSkill, "utf8");
+  const fm = parseSkillFrontmatter(content);
+  expect(fm).not.toBeNull();
+  expect(fm?.version).toMatch(/^\d+\.\d+\.\d+/);
+  expect(fm?.packId).toMatch(/^pai-isa/);
+});

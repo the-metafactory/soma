@@ -5,6 +5,7 @@ import { installCodexHomeProjection, installPiDevHomeProjection } from "./home-p
 import { buildSomaStartupContext, runSomaLifecycleAlgorithmUpdated } from "./lifecycle";
 import { defaultSomaRepoPath } from "./repo-path";
 import { bootstrapSomaHome } from "./soma-home";
+import { installIsaSkill } from "./isa-skill-installer";
 import type { SomaInstallOptions, SomaInstallPlan, SomaInstallResult } from "./types";
 
 const SOMA_BOOTSTRAP_FILES = [
@@ -105,6 +106,11 @@ async function installSomaForSubstrate(
   options: SomaInstallOptions = {},
 ): Promise<SomaInstallResult> {
   const somaHome = await bootstrapSomaHome(options);
+  await installIsaSkill({
+    homeDir: options.homeDir,
+    somaHome: somaHome.somaHome,
+    somaRepoPath: options.somaRepoPath ?? defaultSomaRepoPath(),
+  });
   const projectionOptions = {
     homeDir: options.homeDir,
     somaHome: options.somaHome,
