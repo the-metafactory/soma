@@ -1,6 +1,7 @@
 import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { isInsidePath } from "./path-utils";
 import type { SomaProtectedPath } from "./types";
 
 // ── Default Protected Paths ──
@@ -86,6 +87,13 @@ function tokenize(command: string): string[] {
       continue;
     }
 
+    if (char === ">") {
+      pushCurrent();
+      tokens.push(next === ">" ? ">>" : ">");
+      if (next === ">") i++;
+      continue;
+    }
+
     if (char === ";" || char === "|") {
       pushCurrent();
       tokens.push(char);
@@ -138,8 +146,7 @@ function findProtectedPath(resolvedPath: string, protectedPaths: readonly SomaPr
     if (action === "modify" && pp.guardModify === false) continue;
 
     const protectedRoot = realScopePath(resolve(expandTilde(pp.path)));
-    const rel = relative(protectedRoot, realResolvedPath);
-    if (rel === "" || (!rel.startsWith("..") && !isAbsolute(rel))) {
+    if (isInsidePath(realResolvedPath, protectedRoot)) {
       return pp;
     }
   }
@@ -199,6 +206,18 @@ function shellPayloadIndex(tokens: string[], cmdIndex: number): number | undefin
   return undefined;
 }
 
+function redirectTargets(tokens: string[], cwd: string): string[] {
+  const targets: string[] = [];
+  for (let i = 0; i < tokens.length - 1; i++) {
+    const token = tokens[i];
+    if (token !== ">" && token !== ">>") continue;
+    const target = tokens[i + 1];
+    if (!target || isChainOperator(target)) continue;
+    targets.push(resolvePath(target, cwd));
+  }
+  return targets;
+}
+
 function skipPrefixes(tokens: string[]): number {
   let cmdIndex = 0;
   while (cmdIndex < tokens.length) {
@@ -218,6 +237,7 @@ function parseTokenSegment(tokens: string[], cwd: string, depth: number): SomaBa
   if (cmdIndex >= tokens.length) return { command: "", targetPaths: [] };
 
   const mainCommand = basename(tokens[cmdIndex]);
+  const redirectedPaths = redirectTargets(tokens, cwd);
 
   if (depth < 4 && SHELL_WRAPPER_COMMANDS.has(mainCommand)) {
     const payloadIndex = shellPayloadIndex(tokens, cmdIndex);
@@ -249,11 +269,11 @@ function parseTokenSegment(tokens: string[], cwd: string, depth: number): SomaBa
         targetPaths.push(resolvePath(token, cwd));
       }
     }
-    return { command: mainCommand, targetPaths };
+    return { command: mainCommand, targetPaths: [...targetPaths, ...redirectedPaths] };
   }
 
   if (!DESTRUCTIVE_COMMANDS.has(mainCommand) && !DESTRUCTIVE_MOVE_COMMANDS.has(mainCommand)) {
-    return { command: mainCommand, targetPaths: [] };
+    return { command: mainCommand, targetPaths: redirectedPaths };
   }
 
   const pathArgs = tokens.slice(cmdIndex + 1).filter((token) => !isFlag(token));
@@ -262,7 +282,7 @@ function parseTokenSegment(tokens: string[], cwd: string, depth: number): SomaBa
     const sources = pathArgs.length > 1 ? pathArgs.slice(0, -1) : pathArgs.slice(0, 1);
     return {
       command: mainCommand,
-      targetPaths: sources.map((source) => resolvePath(source, cwd)),
+      targetPaths: [...sources.map((source) => resolvePath(source, cwd)), ...redirectedPaths],
     };
   }
 
@@ -276,7 +296,7 @@ function parseTokenSegment(tokens: string[], cwd: string, depth: number): SomaBa
     }
   }
 
-  return { command: mainCommand, targetPaths };
+  return { command: mainCommand, targetPaths: [...targetPaths, ...redirectedPaths] };
 }
 
 function parseBashDestructivePathsInternal(command: string, cwd: string, depth: number, fallbackCommand = ""): SomaBashCommandParseResult {

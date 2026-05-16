@@ -207,6 +207,15 @@ test("expands bare HOME variables before resolving targets", () => {
   expect(result.targetPaths).toEqual([homedir()]);
 });
 
+test("parses shell redirection targets as destructive writes", () => {
+  const protectedRef = "~/." + "soma/profile.md";
+  const result = parseBashDestructivePaths(`cat /dev/null > ${protectedRef}`, "/tmp");
+
+  expect(result.command).toBe("cat");
+  expect(result.targetPaths).toHaveLength(1);
+  expect(result.targetPaths[0]).toContain(".soma/profile.md");
+});
+
 test("detects glob pattern rm *", () => {
   const result = parseBashDestructivePaths("rm -rf *", join(process.env.HOME ?? "/tmp", ".soma"));
 
@@ -386,6 +395,22 @@ test("policy check allows delete on unprotected path", async () => {
     });
 
     expect(result.decision).toBe("allow");
+  });
+});
+
+test("policy check honors explicit cwd for relative paths", async () => {
+  await withTempHome(async (homeDir) => {
+    await bootstrapSomaHome({ homeDir });
+    const result = await checkSomaPolicy({
+      homeDir,
+      somaHome: join(homeDir, ".soma"),
+      cwd: homeDir,
+      action: "delete",
+      destinationPath: "." + "/.soma/profile.md",
+      record: "none",
+    });
+
+    expect(result.decision).toBe("deny");
   });
 });
 
@@ -585,11 +610,11 @@ test("generated pi.dev guard extension handles env.HOME reference", () => {
   const extension = renderPathGuardExtension("/test/home/.soma");
 
   expect(extension).toContain("process.env.HOME");
-  expect(extension).toContain('if (path === "${HOME}") return home;');
-  expect(extension).toContain('if (path === "$HOME") return home;');
+  expect(extension).toContain(".replace(/^\\$\\{HOME\\}(?=\\/|$)/, home)");
+  expect(extension).toContain(".replace(/^\\$HOME(?=\\/|$)/, home)");
 });
 
-test("generated pi.dev guard blocks absolute destructive commands, mv sources, and relative write paths", async () => {
+test("generated pi.dev guard blocks destructive commands, redirections, mv sources, and relative write paths", async () => {
   const extension = renderPathGuardExtension("/test/home/.soma");
   const tmpDir = await mkdtemp(join(tmpdir(), "soma-guard-ext-runtime-"));
   const extPath = join(tmpDir, "soma-path-guard.ts");
@@ -612,10 +637,13 @@ test("generated pi.dev guard blocks absolute destructive commands, mv sources, a
 
     const rmResult = await handler?.({ toolName: "bash", input: { command: `/bin/rm -rf ${protectedRef}` } }, { cwd: "/tmp" });
     const mvResult = await handler?.({ toolName: "bash", input: { command: `mv safe.txt ${protectedRef} /tmp/backup/` } }, { cwd: "/tmp" });
+    const redirectResult = await handler?.({ toolName: "bash", input: { command: `cat /dev/null > ${protectedRef}` } }, { cwd: "/tmp" });
     const writeResult = await handler?.({ toolName: "write", input: { file_path: ".soma/secret.md" } }, { cwd: tmpDir });
 
     expect(rmResult).toMatchObject({ block: true });
     expect(mvResult).toMatchObject({ block: true });
+    expect(redirectResult).toMatchObject({ block: true });
+    expect((redirectResult as { reason?: string } | undefined)?.reason).not.toContain("cat /dev/null");
     expect(writeResult).toMatchObject({ block: true });
   } finally {
     if (originalHome === undefined) delete process.env.HOME;

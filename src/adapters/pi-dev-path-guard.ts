@@ -31,10 +31,10 @@ const REPARSE_WRAPPERS = new Set(["eval"]);
 
 function expandTilde(path: string): string {
   const home = process.env.HOME || "/";
-  if (path === "\${HOME}") return home;
-  if (path === "$HOME") return home;
-  if (path.startsWith("\${HOME}/")) return home + path.slice("\${HOME}".length);
-  if (path.startsWith("$HOME/")) return home + path.slice("$HOME".length);
+  const expandedEnv = path
+    .replace(/^\\$\\{HOME\\}(?=\\/|$)/, home)
+    .replace(/^\\$HOME(?=\\/|$)/, home);
+  if (expandedEnv !== path) return expandedEnv;
   if (path === "~") return home;
   if (path.startsWith("~/")) return home + path.slice(1);
   return path;
@@ -129,6 +129,13 @@ function tokenize(command: string): string[] {
       continue;
     }
 
+    if (char === ">") {
+      pushCurrent();
+      tokens.push(next === ">" ? ">>" : ">");
+      if (next === ">") i++;
+      continue;
+    }
+
     if (char === ";" || char === "|") {
       pushCurrent();
       tokens.push(char);
@@ -188,10 +195,23 @@ function shellPayloadIndex(tokens: string[], cmdIndex: number): number | undefin
   return undefined;
 }
 
+function redirectTargets(tokens: string[], cwd: string): string[] {
+  const targets: string[] = [];
+  for (let i = 0; i < tokens.length - 1; i++) {
+    const token = tokens[i];
+    if (token !== ">" && token !== ">>") continue;
+    const target = tokens[i + 1];
+    if (!target || isChainOperator(target)) continue;
+    targets.push(resolveTarget(target, cwd));
+  }
+  return targets;
+}
+
 function extractFromSegment(tokens: string[], cwd: string, depth: number): string[] {
   const cmdIndex = skipPrefixes(tokens);
   if (cmdIndex >= tokens.length) return [];
   const command = basename(tokens[cmdIndex]);
+  const redirected = redirectTargets(tokens, cwd);
 
   if (depth < 4 && SHELL_WRAPPERS.has(command)) {
     const payloadIndex = shellPayloadIndex(tokens, cmdIndex);
@@ -216,18 +236,18 @@ function extractFromSegment(tokens: string[], cwd: string, depth: number): strin
       if (token.startsWith("-")) break;
       targets.push(resolveTarget(token, cwd));
     }
-    return targets;
+    return [...targets, ...redirected];
   }
 
   const isDelete = DESTRUCTIVE_DELETE.has(command);
   const isMove = DESTRUCTIVE_MOVE.has(command);
-  if (!isDelete && !isMove) return [];
+  if (!isDelete && !isMove) return redirected;
 
   const pathArgs = tokens.slice(cmdIndex + 1).filter((token) => !token.startsWith("-"));
 
   if (isMove) {
     const sources = pathArgs.length > 1 ? pathArgs.slice(0, -1) : pathArgs.slice(0, 1);
-    return sources.map((source) => resolveTarget(source, cwd));
+    return [...sources.map((source) => resolveTarget(source, cwd)), ...redirected];
   }
 
   // Static command analysis cannot safely expand arbitrary shell variables
@@ -239,7 +259,7 @@ function extractFromSegment(tokens: string[], cwd: string, depth: number): strin
     if (token.startsWith("-")) continue;
     targets.push(token.includes("*") ? cwd : resolveTarget(token, cwd));
   }
-  return targets;
+  return [...targets, ...redirected];
 }
 
 function extractDestructiveTargets(command: string, cwd: string, depth = 0): string[] {
@@ -267,7 +287,7 @@ export default function (pi: ExtensionAPI) {
 
       if (blockedTargets.length > 0) {
         const detail = blockDetails.join("; ");
-        const msg = "Soma path guard blocked destructive command: " + input.command + ". Protected: " + detail + ".";
+        const msg = "Soma path guard blocked command targeting protected path: " + detail + ".";
         ctx.ui?.notify?.(msg, "error");
         return { block: true, reason: msg };
       }

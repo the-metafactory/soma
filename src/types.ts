@@ -456,6 +456,7 @@ export interface SomaProtectedPath {
 export interface SomaPolicyCheckOptions {
   homeDir?: string;
   somaHome?: string;
+  cwd?: string;
   privateRoots?: string[];
   protectedPaths?: SomaProtectedPath[];
   substrate?: SubstrateId;
@@ -473,7 +474,7 @@ export interface SomaPolicyBatchTarget {
   sourcePath?: string;
 }
 
-export interface SomaPolicyBatchCheckOptions extends Pick<SomaPolicyCheckOptions, "homeDir" | "somaHome" | "substrate" | "action" | "record" | "timestamp" | "protectedPaths"> {
+export interface SomaPolicyBatchCheckOptions extends Pick<SomaPolicyCheckOptions, "homeDir" | "somaHome" | "cwd" | "substrate" | "action" | "record" | "timestamp" | "protectedPaths"> {
   privateRoots?: string[];
   targets: SomaPolicyBatchTarget[];
 }

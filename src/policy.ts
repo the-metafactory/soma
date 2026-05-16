@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { evaluatePathGuard, SOMA_DEFAULT_PROTECTED_PATHS } from "./policy-path-guard";
 import { hasSomaPolicyPrivateMarker } from "./policy-marker";
+import { isInsidePath } from "./path-utils";
 import type { SomaPolicyBatchCheckOptions, SomaPolicyBatchCheckResult, SomaPolicyBatchTarget, SomaPolicyCheckOptions, SomaPolicyCheckResult, SomaPolicyFinding, SomaProtectedPath } from "./types";
 
 function resolveSomaHome(options: Pick<SomaPolicyCheckOptions, "homeDir" | "somaHome"> = {}): string {
@@ -12,11 +13,6 @@ function resolveSomaHome(options: Pick<SomaPolicyCheckOptions, "homeDir" | "soma
 export function normalizeSomaPolicyPath(path: string, baseDir = process.cwd(), homeDir?: string): string {
   const expanded = path.startsWith("~/") ? join(homeDir ?? homedir(), path.slice(2)) : path;
   return resolve(isAbsolute(expanded) ? expanded : join(baseDir, expanded));
-}
-
-function isInside(path: string, root: string): boolean {
-  const rel = relative(root, path);
-  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
 function somaPolicyPrivateRoots(somaHome: string, privateRoots: string[] = []): string[] {
@@ -69,7 +65,7 @@ function markerFor(path: string, homeDir?: string): string {
   const home = resolve(homeDir ?? homedir());
   const resolvedPath = resolve(path);
 
-  if (!isInside(resolvedPath, home)) {
+  if (!isInsidePath(resolvedPath, home)) {
     return path;
   }
 
@@ -97,8 +93,9 @@ function findPrivateMarkers(content: string, somaHome: string, homeDir?: string,
 
 function unresolvedPolicyScope(options: SomaPolicyCheckOptions): Omit<SomaPolicyScope, "destinationScopePath" | "sourceScopePath" | "rootScopes"> {
   const somaHome = resolveSomaHome(options);
-  const destinationPath = normalizeSomaPolicyPath(options.destinationPath, process.cwd(), options.homeDir);
-  const sourcePath = options.sourcePath ? normalizeSomaPolicyPath(options.sourcePath, process.cwd(), options.homeDir) : undefined;
+  const cwd = options.cwd ?? process.cwd();
+  const destinationPath = normalizeSomaPolicyPath(options.destinationPath, cwd, options.homeDir);
+  const sourcePath = options.sourcePath ? normalizeSomaPolicyPath(options.sourcePath, cwd, options.homeDir) : undefined;
   const roots = somaPolicyPrivateRoots(somaHome, options.privateRoots);
 
   return {
@@ -118,10 +115,10 @@ function evaluateResolvedSomaPolicy(options: SomaPolicyCheckOptions, scope: Soma
   }
 
   const findings: SomaPolicyFinding[] = [];
-  const destinationIsPrivate = roots.some((root, index) => isInside(destinationPath, root) && isInside(destinationScopePath, rootScopes[index]));
+  const destinationIsPrivate = roots.some((root, index) => isInsidePath(destinationPath, root) && isInsidePath(destinationScopePath, rootScopes[index]));
   const destinationIsPublic = !destinationIsPrivate;
 
-  if (destinationIsPublic && sourcePath && roots.some((root, index) => isInside(sourcePath, root) || isInside(sourceScopePath ?? sourcePath, rootScopes[index]))) {
+  if (destinationIsPublic && sourcePath && roots.some((root, index) => isInsidePath(sourcePath, root) || isInsidePath(sourceScopePath ?? sourcePath, rootScopes[index]))) {
     findings.push({
       kind: "private-source",
       detail: markerFor(sourcePath, options.homeDir),
@@ -148,6 +145,7 @@ function evaluateResolvedSomaPolicy(options: SomaPolicyCheckOptions, scope: Soma
 
 function evaluateResolvedSomaPathGuard(options: SomaPolicyCheckOptions, scope: SomaPolicyScope): SomaPolicyCheckResult {
   const { destinationPath, somaHome, roots } = scope;
+  const cwd = options.cwd ?? process.cwd();
 
   // Convert all private roots to protected paths for delete/modify actions.
   // This ensures the somaHome itself is protected, not just user-specified paths.
@@ -158,14 +156,14 @@ function evaluateResolvedSomaPathGuard(options: SomaPolicyCheckOptions, scope: S
   const normalizeProtectedPaths = (protectedPaths: readonly SomaProtectedPath[]): SomaProtectedPath[] =>
     protectedPaths.map((protectedPath) => ({
       ...protectedPath,
-      path: normalizeSomaPolicyPath(protectedPath.path, process.cwd(), options.homeDir),
+      path: normalizeSomaPolicyPath(protectedPath.path, cwd, options.homeDir),
     }));
   const defaultProtectedPaths = normalizeProtectedPaths(SOMA_DEFAULT_PROTECTED_PATHS);
   const optionProtectedPaths = normalizeProtectedPaths(options.protectedPaths ?? []);
 
   const guardResult = evaluatePathGuard({
     targetPaths: [destinationPath],
-    cwd: process.cwd(),
+    cwd,
     protectedPaths: [...defaultProtectedPaths, ...optionProtectedPaths, ...rootProtectedPaths],
     action: options.action as "delete" | "modify",
   });
@@ -231,6 +229,7 @@ export function policyOptionsForTarget(options: Omit<SomaPolicyBatchCheckOptions
     somaHome: options.somaHome,
     privateRoots: options.privateRoots,
     protectedPaths: options.protectedPaths,
+    cwd: options.cwd,
     substrate: options.substrate,
     action: options.action,
     destinationPath: target.filePath,

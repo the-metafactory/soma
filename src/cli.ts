@@ -934,7 +934,7 @@ function parsePolicyArgs(args: string[]): ParsedPolicyArgs {
       }
       case "--protected-path": {
         const protectedPath = readOption(rest, index, arg);
-        options.protectedPaths = [...(options.protectedPaths ?? []), { path: protectedPath, description: basename(protectedPath) || protectedPath }];
+        (options.protectedPaths ??= []).push({ path: protectedPath, description: basename(protectedPath) || protectedPath });
         index += 1;
         break;
       }

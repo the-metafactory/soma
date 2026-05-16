@@ -410,6 +410,14 @@ function renderHomeSkill(input: SomaContextInput, somaHome: string): string {
   ].join("\n");
 }
 
+function resolvePiDevSomaHome(): string {
+  if (process.env.SOMA_HOME) return process.env.SOMA_HOME;
+  if (!process.env.HOME) {
+    throw new Error("HOME must be set to build a pi.dev Soma context without SOMA_HOME.");
+  }
+  return `${process.env.HOME}/.soma`;
+}
+
 export function buildPiDevContext(input: SomaContextInput): SomaContextBundle {
   const instructions = renderInstructions(input);
   const somaHome = resolvePiDevSomaHome();
@@ -452,14 +460,6 @@ export function buildPiDevContext(input: SomaContextInput): SomaContextBundle {
       },
     ],
   };
-}
-
-function resolvePiDevSomaHome(): string {
-  if (process.env.SOMA_HOME) return process.env.SOMA_HOME;
-  if (!process.env.HOME) {
-    throw new Error("HOME must be set to build a pi.dev Soma context without SOMA_HOME.");
-  }
-  return `${process.env.HOME}/.soma`;
 }
 
 export function buildPiDevHomeContext(input: SomaContextInput, somaHome: string): SomaContextBundle {
