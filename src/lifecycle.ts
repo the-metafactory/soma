@@ -7,12 +7,11 @@ import { loadSomaHome } from "./soma-home";
 import { getCriteria, getGoal } from "./isa-accessors";
 import { getRunPhase } from "./algorithm-lifecycle";
 import {
+  applyIsaUpdate,
   checkCompleteness,
   getActiveIsa,
   readIsa,
-  recordIsaChangelog,
-  recordIsaDecision,
-  recordIsaVerification,
+  type IsaUpdateEntry,
 } from "./isa";
 import type {
   AlgorithmRun,
@@ -239,10 +238,18 @@ export async function runSomaLifecycleSessionStart(options: SomaLifecycleOptions
 
 /**
  * Append decisions / changelog / verification entries to the active
- * ISA (or the explicit slug in the payload). Pure file-backed writes
- * through the library's record* helpers; no prompt-driven mutation.
+ * ISA (or the explicit slug in the payload).
+ *
+ * Sage round-1 architecture fix: writeback gate is satisfied first by
+ * emitting the full payload as a `lifecycle.isa_updated` event in
+ * `~/.soma/memory/STATE/events.jsonl` — every ISA mutation has a
+ * corresponding append-only audit record. The authoritative ISA write
+ * then goes through the trusted Soma-side `applyIsaUpdate` writer,
+ * which does a single read + validate-all + single write so a
+ * malformed later entry cannot leave partial state on disk.
+ *
  * No-op when no active ISA is set AND no slug in payload — Layer 7
- * never halts session work for a missing ISA.
+ * never halts session work for a missing ISA (per #38 spec).
  */
 export async function runSomaLifecycleIsaUpdated(
   payload: IsaUpdatePayload,
@@ -267,39 +274,43 @@ export async function runSomaLifecycleIsaUpdated(
     };
   }
 
-  const writes: string[] = [];
-  for (const entry of payload.decisions ?? []) {
-    const r = await recordIsaDecision(slug, entry.text, {
-      somaHome,
-      phase: entry.phase,
-      timestamp: entry.timestamp ?? timestamp,
-    });
-    writes.push(r.path);
+  const entries: IsaUpdateEntry[] = [
+    ...(payload.decisions ?? []).map((e) => ({ section: "decisions" as const, ...e })),
+    ...(payload.changelogEntries ?? []).map((e) => ({ section: "changelog" as const, ...e })),
+    ...(payload.verificationEntries ?? []).map((e) => ({ section: "verification" as const, ...e })),
+  ];
+
+  // Validate the full payload BEFORE emitting the writeback event or
+  // touching the ISA. Sage round 1: partial mutation must not occur on
+  // a malformed later entry.
+  for (const entry of entries) {
+    if (entry.text.trim().length === 0) {
+      throw new Error(`runSomaLifecycleIsaUpdated refused empty text in ${entry.section} entry.`);
+    }
   }
-  for (const entry of payload.changelogEntries ?? []) {
-    const r = await recordIsaChangelog(slug, entry.text, {
-      somaHome,
-      phase: entry.phase,
-      timestamp: entry.timestamp ?? timestamp,
-    });
-    writes.push(r.path);
-  }
-  for (const entry of payload.verificationEntries ?? []) {
-    const r = await recordIsaVerification(slug, entry.text, {
-      somaHome,
-      phase: entry.phase,
-      timestamp: entry.timestamp ?? timestamp,
-    });
-    writes.push(r.path);
-  }
+
+  // 1. Writeback gate: log the full payload first, even before the ISA
+  //    write. Every authoritative ISA mutation has a corresponding
+  //    audit record in events.jsonl.
   await appendSomaMemoryEvent(somaHome, {
     substrate: substrate(options),
     kind: "lifecycle.isa_updated",
-    summary: `Appended ${(payload.decisions?.length ?? 0) + (payload.changelogEntries?.length ?? 0) + (payload.verificationEntries?.length ?? 0)} entr(ies) to ISA ${slug}.`,
+    summary: `Appending ${entries.length} entr(ies) to ISA ${slug}.`,
     timestamp,
-    metadata: { slug },
-    artifactPaths: Array.from(new Set(writes)),
+    metadata: {
+      slug,
+      decisions: payload.decisions ?? [],
+      changelogEntries: payload.changelogEntries ?? [],
+      verificationEntries: payload.verificationEntries ?? [],
+    },
   });
+
+  // 2. Trusted Soma-side write — single read+write batch.
+  const writeResult = entries.length === 0
+    ? { path: "", changed: false }
+    : await applyIsaUpdate(slug, entries, { somaHome, timestamp });
+
+  const writes = writeResult.path ? [writeResult.path] : [];
   return {
     event: "isa_updated",
     somaHome,

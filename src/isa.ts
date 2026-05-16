@@ -366,6 +366,62 @@ export async function recordIsaDecision(
   return writeIsa(slug, { ...updated, frontmatter: { ...updated.frontmatter, updated: timestamp } }, options);
 }
 
+export type IsaUpdateSection = "decisions" | "changelog" | "verification";
+
+export interface IsaUpdateEntry {
+  section: IsaUpdateSection;
+  text: string;
+  phase?: AlgorithmPhase;
+  timestamp?: string;
+}
+
+const SECTION_ACCESSOR: Record<IsaUpdateSection, typeof appendIsaDecisionAccessor> = {
+  decisions: appendIsaDecisionAccessor,
+  changelog: appendIsaChangelogAccessor,
+  verification: appendIsaVerificationAccessor,
+};
+
+/**
+ * Trusted Soma-side ISA writer (#38 Sage round 1 architecture fix).
+ *
+ * Single read → validate all entries → apply atomically in memory →
+ * single write. Replaces serial recordIsa*(slug, text) calls from
+ * lifecycle so a multi-entry payload is now ONE file write instead of
+ * three, and a malformed later entry can't leave earlier writes
+ * committed.
+ *
+ * Caller emits the writeback event to events.jsonl BEFORE calling
+ * this so the writeback gate has the full payload logged before the
+ * authoritative ISA mutation runs.
+ */
+export async function applyIsaUpdate(
+  slug: string,
+  entries: readonly IsaUpdateEntry[],
+  options: IsaLibraryOptions & { timestamp?: string } = {},
+): Promise<WriteIsaResult> {
+  for (const entry of entries) {
+    if (entry.text.trim().length === 0) {
+      throw new Error(`applyIsaUpdate refused empty text in ${entry.section} entry.`);
+    }
+  }
+  if (entries.length === 0) {
+    return { path: "", changed: false };
+  }
+  const fallbackTimestamp = options.timestamp ?? new Date().toISOString();
+  let isa = await readIsa(slug, options);
+  const isaPhase = isa.frontmatter.phase;
+  for (const entry of entries) {
+    const accessor = SECTION_ACCESSOR[entry.section];
+    isa = accessor(isa, {
+      timestamp: entry.timestamp ?? fallbackTimestamp,
+      phase: entry.phase ?? isaPhase,
+      text: entry.text,
+    });
+  }
+  isa = { ...isa, frontmatter: { ...isa.frontmatter, updated: fallbackTimestamp } };
+  return writeIsa(slug, isa, options);
+}
+
 /**
  * File-backed companion to the pure `appendIsaChangelog` accessor.
  * Mirror of `recordIsaDecision` for the Changelog section. Used by

@@ -58,7 +58,8 @@ test("AC-2: isa_updated appends decisions/changelog/verification to active ISA",
       { homeDir, timestamp: "2026-05-17T01:00:00.000Z" },
     );
     expect(result.event).toBe("isa_updated");
-    expect((result.writes ?? []).length).toBe(3);
+    // Round-1 fix: batched into single write per payload, not one per entry.
+    expect((result.writes ?? []).length).toBe(1);
 
     const isa = await readIsa("demo", { homeDir });
     expect(isa.sections.find((s) => s.name === "Decisions")?.content).toContain("Chose A over B");
@@ -97,6 +98,50 @@ test("AC-4: session-end emits tier-gate-unmet warning but returns normally", asy
     const warning = events.find((e) => e.kind === "lifecycle.tier-gate-unmet");
     expect(warning).toBeDefined();
     expect(warning?.summary).toContain("demo");
+  });
+});
+
+test("AC-2 round-1: malformed entry in payload rejects entire write (atomic)", async () => {
+  await withSomaHome(async (homeDir) => {
+    await scaffoldIsa({ homeDir, slug: "demo", goal: "G", effort: "E4" });
+    await setActiveIsa("demo", { homeDir });
+    // First write something so we have known state
+    await runSomaLifecycleIsaUpdated({ decisions: [{ text: "First" }] }, { homeDir });
+    const before = (await readIsa("demo", { homeDir })).sections.find((s) => s.name === "Decisions")?.content ?? "";
+
+    // Now send a payload with an empty later entry — must throw and leave no partial writes
+    await expect(
+      runSomaLifecycleIsaUpdated(
+        {
+          decisions: [{ text: "Good entry" }],
+          changelogEntries: [{ text: "   " }],
+        },
+        { homeDir },
+      ),
+    ).rejects.toThrow(/empty text/);
+
+    const after = (await readIsa("demo", { homeDir })).sections.find((s) => s.name === "Decisions")?.content ?? "";
+    expect(after).toBe(before); // unchanged
+  });
+});
+
+test("writeback: each isa_updated emits exactly one events.jsonl record with full payload", async () => {
+  await withSomaHome(async (homeDir) => {
+    await scaffoldIsa({ homeDir, slug: "demo", goal: "G", effort: "E4" });
+    await setActiveIsa("demo", { homeDir });
+    await runSomaLifecycleIsaUpdated(
+      {
+        decisions: [{ text: "A" }, { text: "B" }],
+        changelogEntries: [{ text: "C" }],
+      },
+      { homeDir },
+    );
+    const events = await readEvents(homeDir);
+    const updates = events.filter((e) => e.kind === "lifecycle.isa_updated");
+    expect(updates).toHaveLength(1);
+    const md = updates[0]?.metadata as { decisions: { text: string }[]; changelogEntries: { text: string }[] };
+    expect(md.decisions.map((d) => d.text)).toEqual(["A", "B"]);
+    expect(md.changelogEntries.map((d) => d.text)).toEqual(["C"]);
   });
 });
 
