@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { configureCodexInstall } from "./adapters/codex";
 import { installCodexHomeProjection, installPiDevHomeProjection } from "./home-projection";
@@ -36,6 +36,7 @@ const CODEX_HOME_FILES = [
   "hooks/codex-policy-hook.mjs",
   "hooks/policy-marker.mjs",
   "skills/soma/SKILL.md",
+  "skills/the-algorithm/SKILL.md",
   "memories/soma/profile.md",
   "memories/soma/startup-context.md",
   "memories/soma/lifecycle.md",
@@ -44,8 +45,11 @@ const CODEX_HOME_FILES = [
   "memories/soma/skills.md",
   "memories/soma/policy.md",
   "memories/soma/soma-repo.txt",
+  "AGENTS.md",
   "config.toml",
 ] as const;
+
+const CODEX_AGENTS_IMPORTS = ["@./skills/the-algorithm/SKILL.md", "@./memories/soma/startup-context.md"] as const;
 
 const PI_DEV_HOME_FILES = [
   "agent/extensions/soma.ts",
@@ -116,6 +120,7 @@ async function installSomaForSubstrate(
       ? await installCodexHomeProjection(somaHome.context, projectionOptions)
       : await installPiDevHomeProjection(somaHome.context, projectionOptions);
   const configFiles = substrate === "codex" ? [await configureCodexInstall(substrateHome.rootDir, somaHome.somaHome)] : [];
+  const agentsFiles = substrate === "codex" ? [await configureCodexAgentsImport(substrateHome.rootDir)] : [];
   const lifecycleFiles = await installLifecycleProjection(substrate, substrateHome.rootDir, {
     homeDir: options.homeDir,
     somaHome: somaHome.somaHome,
@@ -128,9 +133,24 @@ async function installSomaForSubstrate(
     somaHome,
     substrateHome: {
       ...substrateHome,
-      files: [...substrateHome.files, ...configFiles, ...lifecycleFiles],
+      files: [...substrateHome.files, ...agentsFiles, ...configFiles, ...lifecycleFiles],
     },
   };
+}
+
+async function configureCodexAgentsImport(codexHome: string): Promise<string> {
+  const path = join(codexHome, "AGENTS.md");
+  const existing = await readFile(path, "utf8").catch(() => "");
+  const existingLines = new Set(existing.split("\n").map((line) => line.trim()));
+  const missingImports = CODEX_AGENTS_IMPORTS.filter((line) => !existingLines.has(line));
+
+  if (missingImports.length > 0) {
+    const separator = existing.length === 0 || existing.endsWith("\n") ? "" : "\n";
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, `${existing}${separator}${missingImports.join("\n")}\n`, "utf8");
+  }
+
+  return path;
 }
 
 async function writeProjectionFile(root: string, relativePath: string, content: string): Promise<string> {

@@ -56,6 +56,7 @@ test("builds codex home projection bundle for default availability", () => {
     "hooks/codex-policy-hook.mjs",
     "hooks/policy-marker.mjs",
     "skills/soma/SKILL.md",
+    "skills/the-algorithm/SKILL.md",
     "memories/soma/profile.md",
     "memories/soma/memory-layout.md",
     "memories/soma/pai-imports.md",
@@ -76,6 +77,12 @@ test("builds codex home projection bundle for default availability", () => {
     "__SOMA_FEEDBACK_TRIGGER_PATTERN_SOURCE__",
   );
   expect(projection.bundle.files.find((file) => file.path === "hooks/codex-policy-hook.mjs")?.content).toContain('"./policy-marker.mjs"');
+  expect(projection.bundle.files.find((file) => file.path === "skills/the-algorithm/SKILL.md")?.content).toContain(
+    "━━━ 👁️ OBSERVE ━━━ 1/7",
+  );
+  expect(projection.bundle.files.find((file) => file.path === "skills/the-algorithm/SKILL.md")?.content).toContain(
+    "When entering ALGORITHM mode, emit these banners",
+  );
 });
 
 test("renders codex lifecycle hook with an explicit Bun executable", () => {
@@ -122,7 +129,7 @@ test("installs codex home projection into a substrate home", async () => {
 
     expect(result.substrate).toBe("codex");
     expect(result.rootDir).toBe(join(homeDir, ".codex"));
-    expect(result.files).toHaveLength(14);
+    expect(result.files).toHaveLength(15);
 
     const rules = await readFile(join(homeDir, ".codex/rules/soma.rules"), "utf8");
     const hooks = await readFile(join(homeDir, ".codex/hooks.json"), "utf8");
@@ -131,6 +138,7 @@ test("installs codex home projection into a substrate home", async () => {
     const feedbackHook = await readFile(join(homeDir, ".codex/hooks/soma-feedback-capture.mjs"), "utf8");
     const policyHook = await readFile(join(homeDir, ".codex/hooks/codex-policy-hook.mjs"), "utf8");
     const skill = await readFile(join(homeDir, ".codex/skills/soma/SKILL.md"), "utf8");
+    const algorithmSkill = await readFile(join(homeDir, ".codex/skills/the-algorithm/SKILL.md"), "utf8");
     const profile = await readFile(join(homeDir, ".codex/memories/soma/profile.md"), "utf8");
     const paiImports = await readFile(join(homeDir, ".codex/memories/soma/pai-imports.md"), "utf8");
     const lifecycle = await readFile(join(homeDir, ".codex/memories/soma/lifecycle.md"), "utf8");
@@ -155,6 +163,8 @@ test("installs codex home projection into a substrate home", async () => {
     expect(skill).toContain("name: soma");
     expect(skill).toContain("pai-imports.md");
     expect(skill).toContain("Do not assume a global `soma` binary exists");
+    expect(algorithmSkill).toContain("━━━ ✅ VERIFY ━━━ 6/7");
+    expect(algorithmSkill).toContain("━━━ 📃 SUMMARY ━━━ 7/7");
     expect(profile).toContain("ISC-PORTABLE-1");
     expect(paiImports).toContain(`${homeDir}/.soma/profile/imports/claude/DA_IDENTITY.md`);
     expect(lifecycle).toContain("Soma Lifecycle Projection");

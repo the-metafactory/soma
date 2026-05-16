@@ -116,6 +116,7 @@ interface AlgorithmCliOptions {
   criterionStatus?: "passed" | "failed" | "dropped";
   evidence?: string;
   batchOperations?: AlgorithmBatchOperation[];
+  json?: boolean;
 }
 
 interface ParsedLifecycleArgs {
@@ -174,7 +175,7 @@ const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string,
     usage: "Usage: soma algorithm <new|classify|list|show|capabilities|plan|decision|change|step|verify|learn|batch|advance> ...",
     subcommands: {
       new: "Usage: soma algorithm new --prompt <text> --intent <text> --current-state <text> --goal <text> --criterion <id:text> [--effort <E1|E2|E3|E4|E5>] [--home-dir <dir>] [--soma-home <dir>]",
-      classify: "Usage: soma algorithm classify --prompt <text>",
+      classify: "Usage: soma algorithm classify --prompt <text> [--json]",
       batch: "Usage: soma algorithm batch --id <run-id> --op <kind:...> [--op <kind:...>]",
       list: "Usage: soma algorithm list [--home-dir <dir>] [--soma-home <dir>]",
       show: "Usage: soma algorithm show --id <run-id> [--home-dir <dir>] [--soma-home <dir>]",
@@ -653,6 +654,9 @@ function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
       case "--ops-json":
         batchOperations.push(...parseBatchOperationsJson(readOption(rest, index, arg)));
         index += 1;
+        break;
+      case "--json":
+        options.json = true;
         break;
       default:
         throw new Error(`Unknown option: ${arg}`);
@@ -1359,6 +1363,10 @@ function formatAlgorithmClassification(prompt: string): string {
   ].join("\n");
 }
 
+function formatAlgorithmClassificationJson(prompt: string): string {
+  return `${JSON.stringify(classifyAlgorithmPrompt(prompt))}\n`;
+}
+
 function formatLifecycleResult(result: SomaLifecycleResult): string {
   const lines = [
     "Soma lifecycle event handled",
@@ -1526,7 +1534,7 @@ async function runAlgorithmCli(parsed: ParsedAlgorithmArgs): Promise<string> {
 
   if (parsed.action === "classify") {
     if (!options.prompt) throw new Error("--prompt is required.");
-    return formatAlgorithmClassification(options.prompt);
+    return options.json ? formatAlgorithmClassificationJson(options.prompt) : formatAlgorithmClassification(options.prompt);
   }
 
   if (parsed.action === "new") {

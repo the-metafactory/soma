@@ -30,13 +30,22 @@ async function waitForFileContaining(path: string, text: string): Promise<string
   return last;
 }
 
+interface CodexHookTestOutput {
+  continue?: boolean;
+  hookSpecificOutput?: {
+    additionalContext?: string;
+    permissionDecision?: string;
+    statusMessage?: string;
+  };
+}
+
 function runCodexHook(
   hook: string,
   event: string,
   homeDir: string,
   input: unknown,
   options: { extraEnv?: NodeJS.ProcessEnv; rawInput?: boolean } = {},
-): { status: number | null; output: { continue?: boolean; hookSpecificOutput?: { additionalContext?: string; permissionDecision?: string } } } {
+): { status: number | null; output: CodexHookTestOutput } {
   const result = spawnSync("node", [hook, event], {
     cwd: process.cwd(),
     env: {
@@ -50,7 +59,7 @@ function runCodexHook(
 
   return {
     status: result.status,
-    output: JSON.parse(result.stdout) as { continue?: boolean; hookSpecificOutput?: { additionalContext?: string; permissionDecision?: string } },
+    output: JSON.parse(result.stdout) as CodexHookTestOutput,
   };
 }
 
@@ -59,11 +68,11 @@ function runCodexPreToolUseHook(
   homeDir: string,
   input: unknown,
   extraEnv: NodeJS.ProcessEnv = {},
-): { status: number | null; output: { continue?: boolean; hookSpecificOutput?: { permissionDecision?: string } } } {
+): { status: number | null; output: CodexHookTestOutput } {
   return runCodexHook(hook, "pre-tool-use", homeDir, input, { extraEnv });
 }
 
-function runRawCodexPreToolUseHook(hook: string, homeDir: string, input: string): { status: number | null; output: { continue?: boolean; hookSpecificOutput?: { permissionDecision?: string } } } {
+function runRawCodexPreToolUseHook(hook: string, homeDir: string, input: string): { status: number | null; output: CodexHookTestOutput } {
   return runCodexHook(hook, "pre-tool-use", homeDir, input, { rawInput: true });
 }
 
@@ -74,7 +83,7 @@ test("installs soma source home and codex home projection", async () => {
     expect(result.substrate).toBe("codex");
     expect(result.somaHome.somaHome).toBe(join(homeDir, ".soma"));
     expect(result.substrateHome.rootDir).toBe(join(homeDir, ".codex"));
-    expect(result.substrateHome.files).toHaveLength(17);
+    expect(result.substrateHome.files).toHaveLength(19);
 
     const telos = await readFile(join(homeDir, ".soma/profile/telos.md"), "utf8");
     const rules = await readFile(join(homeDir, ".codex/rules/soma.rules"), "utf8");
@@ -83,7 +92,9 @@ test("installs soma source home and codex home projection", async () => {
     const hookEntry = await readFile(join(homeDir, ".codex/hooks/codex-hook-entry.mjs"), "utf8");
     const feedbackHook = await readFile(join(homeDir, ".codex/hooks/soma-feedback-capture.mjs"), "utf8");
     const somaRepo = await readFile(join(homeDir, ".codex/memories/soma/soma-repo.txt"), "utf8");
+    const agents = await readFile(join(homeDir, ".codex/AGENTS.md"), "utf8");
     const skill = await readFile(join(homeDir, ".codex/skills/soma/SKILL.md"), "utf8");
+    const algorithmSkill = await readFile(join(homeDir, ".codex/skills/the-algorithm/SKILL.md"), "utf8");
     const startupContext = await readFile(join(homeDir, ".codex/memories/soma/startup-context.md"), "utf8");
 
     expect(telos).toContain("Keep personal assistant context portable across substrates.");
@@ -99,8 +110,27 @@ test("installs soma source home and codex home projection", async () => {
     expect(hookEntry).not.toContain("__SOMA_FEEDBACK_TRIGGER_PATTERN_SOURCE__");
     expect(hookEntry).not.toContain("__SOMA_FEEDBACK_CAPTURE_HELPER__");
     expect(somaRepo).toContain("soma");
+    expect(agents).toContain("@./skills/the-algorithm/SKILL.md");
+    expect(agents).toContain("@./memories/soma/startup-context.md");
     expect(skill).toContain("name: soma");
+    expect(algorithmSkill).toContain("━━━ 👁️ OBSERVE ━━━ 1/7");
+    expect(algorithmSkill).toContain("━━━ 📃 SUMMARY ━━━ 7/7");
     expect(startupContext).toContain("Soma Startup Context");
+  });
+});
+
+test("codex install appends AGENTS imports idempotently", async () => {
+  await withTempHome(async (homeDir) => {
+    await mkdir(join(homeDir, ".codex"), { recursive: true });
+    await writeFile(join(homeDir, ".codex/AGENTS.md"), "# User rules\n\nKeep this line.\n", "utf8");
+
+    await installSomaForCodex({ homeDir });
+    await installSomaForCodex({ homeDir });
+
+    const agents = await readFile(join(homeDir, ".codex/AGENTS.md"), "utf8");
+    expect(agents.startsWith("# User rules\n\nKeep this line.\n")).toBe(true);
+    expect(agents.match(/^@\.\/skills\/the-algorithm\/SKILL\.md$/gm)).toHaveLength(1);
+    expect(agents.match(/^@\.\/memories\/soma\/startup-context\.md$/gm)).toHaveLength(1);
   });
 });
 
@@ -111,6 +141,8 @@ test("codex install dry-run lists every substrate file apply reports", async () 
 
     expect(plan.substrateFiles).toContain(join(homeDir, ".codex/config.toml"));
     expect(plan.substrateFiles).toContain(join(homeDir, ".codex/memories/soma/soma-repo.txt"));
+    expect(plan.substrateFiles).toContain(join(homeDir, ".codex/AGENTS.md"));
+    expect(plan.substrateFiles).toContain(join(homeDir, ".codex/skills/the-algorithm/SKILL.md"));
     expect(new Set(plan.substrateFiles)).toEqual(new Set(result.substrateHome.files));
   });
 });
@@ -366,6 +398,23 @@ test("installed codex hook handles null tool input", async () => {
   });
 });
 
+test("installed codex hook reports active Algorithm phase on pre-tool use", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    await writeFile(join(homeDir, ".soma/memory/STATE/active-algorithm-run.json"), JSON.stringify({ id: "run-1", phase: "execute" }), "utf8");
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const result = runCodexPreToolUseHook(hook, homeDir, {
+      tool_name: "Write",
+      tool_input: null,
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.output.continue).toBe(true);
+    expect(result.output.hookSpecificOutput?.statusMessage).toBe("Soma: Phase 5/7 — EXECUTE");
+  });
+});
+
+
 test("installed codex policy hook ignores ambient SOMA_REPO", async () => {
   await withTempHome(async (homeDir) => {
     await installSomaForCodex({ homeDir });
@@ -399,10 +448,12 @@ test("installed codex lifecycle hooks ignore ambient SOMA_REPO", async () => {
     await writeFile(join(maliciousRepo, "soma.js"), 'console.log("mode: minimal\\nsource: malicious\\nreason: fake");\n', "utf8");
 
     const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
-    const result = runCodexHook(hook, "prompt-submit", homeDir, { prompt: "Build the Soma guard." }, { extraEnv: { SOMA_REPO: maliciousRepo } });
+    const result = runCodexHook(hook, "prompt-submit", homeDir, { prompt: "Implement a multi-file migration for the Soma adapter." }, { extraEnv: { SOMA_REPO: maliciousRepo } });
 
     expect(result.status).toBe(0);
-    expect(result.output.hookSpecificOutput?.additionalContext).toContain("Soma: ALGORITHM E1");
+    expect(result.output.hookSpecificOutput?.additionalContext).toContain("This prompt classified as ALGORITHM");
+    expect(result.output.hookSpecificOutput?.additionalContext).toContain("seven-phase rendering contract");
+    expect(result.output.hookSpecificOutput?.statusMessage).toContain("Soma Algorithm engaging");
     expect(result.output.hookSpecificOutput?.additionalContext).not.toContain("Operating requirement");
     expect(result.output.hookSpecificOutput?.additionalContext).not.toContain("malicious");
   });
@@ -416,8 +467,7 @@ test("installed codex prompt hook captures feedback candidates quietly", async (
     const events = await waitForFileContaining(join(homeDir, ".soma/memory/STATE/events.jsonl"), "feedback.candidate");
 
     expect(result.status).toBe(0);
-    expect(result.output.hookSpecificOutput?.additionalContext).toContain("Soma:");
-    expect(result.output.hookSpecificOutput?.additionalContext).not.toContain("feedback");
+    expect(result.output.hookSpecificOutput).toBeUndefined();
     expect(events).toContain("feedback.candidate");
     expect(events).toContain("missed-surface");
   });
@@ -427,12 +477,12 @@ test("installed codex prompt hook does not persist ordinary prompts", async () =
   await withTempHome(async (homeDir) => {
     await installSomaForCodex({ homeDir });
     const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
-    const result = runCodexHook(hook, "prompt-submit", homeDir, { prompt: "fix this failing test" });
+    const result = runCodexHook(hook, "prompt-submit", homeDir, { prompt: "thanks" });
     await new Promise((resolve) => setTimeout(resolve, 250));
     const events = await readFile(join(homeDir, ".soma/memory/STATE/events.jsonl"), "utf8");
 
     expect(result.status).toBe(0);
-    expect(result.output.hookSpecificOutput?.additionalContext).toContain("Soma:");
+    expect(result.output.hookSpecificOutput).toBeUndefined();
     expect(events).not.toContain("feedback.candidate");
   });
 });
