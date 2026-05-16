@@ -636,7 +636,20 @@ export interface SomaPolicyBatchCheckResult {
   results: SomaPolicyCheckResult[];
 }
 
-export type SomaLifecycleEventName = "session_start" | "algorithm_updated" | "session_end";
+export type SomaLifecycleEventName = "session_start" | "algorithm_updated" | "session_end" | "isa_updated";
+
+/**
+ * Payload for `runSomaLifecycleIsaUpdated` (#38). Each entry's `text` is
+ * persisted to the active ISA's matching section via the library's
+ * `record*` helpers. `phase` defaults to the ISA's current phase;
+ * `timestamp` defaults to the hook invocation timestamp.
+ */
+export interface IsaUpdatePayload {
+  slug?: string;
+  decisions?: { text: string; phase?: AlgorithmPhase; timestamp?: string }[];
+  changelogEntries?: { text: string; phase?: AlgorithmPhase; timestamp?: string }[];
+  verificationEntries?: { text: string; phase?: AlgorithmPhase; timestamp?: string }[];
+}
 
 export interface SomaLifecycleOptions {
   homeDir?: string;
@@ -668,6 +681,8 @@ export interface SomaLifecycleResult {
   timestamp: string;
   files: string[];
   context?: string;
+  activeIsa?: { slug: string; phase: AlgorithmPhase } | null;
+  writes?: string[];
 }
 
 export interface SomaTask {
