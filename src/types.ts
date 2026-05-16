@@ -283,6 +283,24 @@ export interface SomaInstallPlan {
   substrateFiles: string[];
 }
 
+/**
+ * Schema for `~/.soma/memory/STATE/active.json` — canonical active-ISA
+ * state file shipped by #32. Layer 3 (#34) library CRUD is the sole
+ * owner of reads/writes; `bootstrapSomaHome()` only declares the schema
+ * and creates the containing directory.
+ *
+ * - `activeSlug` — slug of the currently-active ISA, or `null` when none.
+ * - `runId`      — `AlgorithmRun.id` currently operating on the active
+ *                  ISA; cleared by `completeAlgorithmRun` /
+ *                  `abandonAlgorithmRun` (per #41 reconciliation v3).
+ * - `updatedAt`  — ISO 8601 timestamp of the last mutation.
+ */
+export interface SomaActiveIsaState {
+  activeSlug: string | null;
+  runId: string | null;
+  updatedAt: string;
+}
+
 export interface SomaSkillBaseline {
   version: string;
   files: Record<string, string>;

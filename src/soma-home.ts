@@ -238,6 +238,10 @@ export async function bootstrapSomaHome(options: SomaHomeBootstrapOptions = {}):
       path: "projections/README.md",
       content: "# Soma Projections\n\nGenerated substrate projections can be cached here. Substrate homes remain projections, not source of truth.",
     },
+    {
+      path: "isa/INDEX.md",
+      content: "# Soma ISAs\n\nOne ISA per project or task lives in this directory as `<slug>.md`.\nThe active ISA slug is recorded in `memory/STATE/active.json`.\nTemplates seeded by the ISA skill live under `.templates/`.\n",
+    },
   ];
   const writtenFiles: string[] = [];
 
@@ -250,6 +254,13 @@ export async function bootstrapSomaHome(options: SomaHomeBootstrapOptions = {}):
   for (const projection of ["codex", "pi-dev", "claude-code"]) {
     await mkdir(join(somaHome, "projections", projection), { recursive: true });
   }
+
+  // ISA storage layout (#32). Library CRUD (#34) owns reads/writes;
+  // bootstrap only ensures the canonical directories exist. `.templates/`
+  // is left empty here — Layer 2 (#33) populates skill assets; future
+  // template seeding lives outside bootstrap to avoid Layer 1 → Layer 2
+  // coupling.
+  await mkdir(join(somaHome, "isa", ".templates"), { recursive: true });
 
   for (const file of files) {
     const target = join(somaHome, file.path);
