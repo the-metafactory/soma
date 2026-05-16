@@ -1,9 +1,9 @@
-import type { SomaAdapter, SomaContextBundle, SomaContextInput, SomaTask } from "../types";
-import { defaultSomaRepoPath } from "../repo-path";
-import { readCodexHookAsset } from "./codex-hook-assets";
-import { renderCodexLifecycleHook } from "./codex-hook-runtime";
-import { renderFeedbackHookModule } from "./feedback-hook-helper";
-import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "./shared";
+import type { SomaAdapter, SomaContextBundle, SomaContextInput, SomaTask } from "../../types";
+import { defaultSomaRepoPath } from "../../repo-path";
+import { readCodexHookAsset } from "./hooks/assets";
+import { renderCodexLifecycleHook } from "./hooks/runtime";
+import { renderFeedbackHookModule } from "../shared/feedback-helper";
+import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "../shared";
 
 function renderCodexPolicy(): string {
   return renderPolicyProjection("codex", ["Filesystem sandbox and approval model when Codex exposes it"], [

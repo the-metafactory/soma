@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { configureCodexInstall } from "./adapters/codex-config";
+import { configureCodexInstall } from "./adapters/codex";
 import { installCodexHomeProjection, installPiDevHomeProjection } from "./home-projection";
 import { buildSomaStartupContext, runSomaLifecycleAlgorithmUpdated } from "./lifecycle";
 import { defaultSomaRepoPath } from "./repo-path";

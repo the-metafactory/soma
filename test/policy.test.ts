@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { bootstrapSomaHome, checkSomaPolicy, evaluateSomaPolicy, somaMemoryEventsPath } from "../src/index";
 import { hasSomaPolicyPrivateMarker as hasSomaPolicyPrivateMarkerTs, renderPolicyMarkerMjs } from "../src/policy-marker";
-import { hasSomaPolicyPrivateMarker as hasSomaPolicyPrivateMarkerJs } from "../src/adapters/policy-marker.mjs";
+import { hasSomaPolicyPrivateMarker as hasSomaPolicyPrivateMarkerJs } from "../src/adapters/codex/hooks/policy-marker.mjs";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-policy-"));
@@ -31,7 +31,7 @@ test("keeps TypeScript and hook marker matchers in parity", () => {
 });
 
 test("keeps hook marker asset generated from TypeScript source", async () => {
-  const asset = await readFile(join(import.meta.dir, "../src/adapters/policy-marker.mjs"), "utf8");
+  const asset = await readFile(join(import.meta.dir, "../src/adapters/codex/hooks/policy-marker.mjs"), "utf8");
   expect(asset).toBe(renderPolicyMarkerMjs());
 });
 

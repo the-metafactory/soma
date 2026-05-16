@@ -9,7 +9,7 @@ import {
   installPiDevHomeProjection,
   resolveHomeProjectionPaths,
 } from "../src/index";
-import { renderCodexLifecycleHook } from "../src/adapters/codex-hook-runtime";
+import { renderCodexLifecycleHook } from "../src/adapters/codex/hooks/runtime";
 import { portableContextInput } from "./fixtures";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
