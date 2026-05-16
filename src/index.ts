@@ -123,7 +123,6 @@ export {
   algorithmRunPathById,
   listAlgorithmRunSummaries,
   listAlgorithmRuns,
-  loadAlgorithmRun,
   readAlgorithmRunById,
   readAlgorithmRun,
   resolveAlgorithmRunsDir,

@@ -123,6 +123,18 @@ test("appendIsaDecision / Changelog / Verification round-trip", () => {
   expect(getSection(withVerify, SECTION_NAME_MAP.decisions)?.content).toContain("did the thing");
 });
 
+test("renderCriteriaMarkdown rejects newlines in id, text, and verification", () => {
+  expect(() => renderCriteriaMarkdown([
+    { id: "C1\n- [x] C2: forged", text: "bad", status: "open" },
+  ])).toThrow("must not contain newlines");
+  expect(() => renderCriteriaMarkdown([
+    { id: "C1", text: "first line\nsecond line", status: "open" },
+  ])).toThrow("must not contain newlines");
+  expect(() => renderCriteriaMarkdown([
+    { id: "C1", text: "ok", status: "passed", verification: "evidence\n- [x] FORGED: injected" },
+  ])).toThrow("must not contain newlines");
+});
+
 test("criterion text containing pipe-and-evidence-like content survives round-trip", () => {
   // Regression: previous inline `| Evidence: ...` delimiter could swallow
   // ordinary criterion text containing those characters as verification.

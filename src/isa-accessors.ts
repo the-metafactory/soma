@@ -210,15 +210,24 @@ function criterionStatusMark(status: IdealStateCriterion["status"]): string {
   }
 }
 
+function assertSingleLine(field: string, criterionId: string, value: string): void {
+  if (/[\r\n]/.test(value)) {
+    throw new Error(`Algorithm criterion ${criterionId} ${field} must not contain newlines.`);
+  }
+}
+
 export function renderCriteriaMarkdown(criteria: readonly IdealStateCriterion[]): string {
   if (criteria.length === 0) return "";
   return criteria
     .map((criterion) => {
+      assertSingleLine("id", criterion.id, criterion.id);
+      assertSingleLine("text", criterion.id, criterion.text);
       const mark = criterionStatusMark(criterion.status);
       const head = `- [${mark}] ${criterion.id}: ${criterion.text}`;
       if (criterion.verification === undefined || criterion.verification.length === 0) {
         return head;
       }
+      assertSingleLine("verification", criterion.id, criterion.verification);
       return `${head}\n  Evidence: ${criterion.verification}`;
     })
     .join("\n");
