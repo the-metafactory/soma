@@ -139,8 +139,7 @@ export interface PromptShape {
   multiStep: boolean;
 }
 
-const HINT_SESSION_FIRED = new WeakSet<{ marker: true }>();
-const HINT_SESSION_TOKEN = { marker: true as const };
+let hintSessionFired = false;
 
 export interface SuggestIsaResult {
   emitted: boolean;
@@ -171,7 +170,7 @@ export async function suggestIsaAtObserve(
   if (options.hintConfig?.suppressed === true) {
     return { emitted: false, reason: "suppressed-config" };
   }
-  if (HINT_SESSION_FIRED.has(HINT_SESSION_TOKEN)) {
+  if (hintSessionFired) {
     return { emitted: false, reason: "already-emitted" };
   }
   const tierIndex = ["E1", "E2", "E3", "E4", "E5"].indexOf(shape.effort);
@@ -186,14 +185,20 @@ export async function suggestIsaAtObserve(
   if (state?.activeSlug != null) {
     return { emitted: false, reason: "already-active" };
   }
-  HINT_SESSION_FIRED.add(HINT_SESSION_TOKEN);
-  await appendSomaMemoryEvent(somaHome, {
-    substrate: substrate(options),
-    kind: "algorithm.isa_hint.suggested",
-    summary: HINT_TEXT,
-    timestamp: options.timestamp ?? new Date().toISOString(),
-    metadata: { effort: shape.effort, multiStep: shape.multiStep },
-  });
+  hintSessionFired = true;
+  // Telemetry failure must NOT break the non-blocking advisory contract
+  // (Sage round-1 finding on #63). Swallow + best-effort.
+  try {
+    await appendSomaMemoryEvent(somaHome, {
+      substrate: substrate(options),
+      kind: "algorithm.isa_hint.suggested",
+      summary: HINT_TEXT,
+      timestamp: options.timestamp ?? new Date().toISOString(),
+      metadata: { effort: shape.effort, multiStep: shape.multiStep },
+    });
+  } catch {
+    // intentional: telemetry must never throw out of the hint path
+  }
   return { emitted: true, reason: "no-active-set", hint: HINT_TEXT };
 }
 
@@ -202,7 +207,7 @@ export async function suggestIsaAtObserve(
  * multiple hint emissions in one process. Not exposed via index.ts.
  */
 export function _resetSuggestSessionForTests(): void {
-  HINT_SESSION_FIRED.delete(HINT_SESSION_TOKEN);
+  hintSessionFired = false;
 }
 
 // Re-export evaluateCompleteness for callers that want to check
