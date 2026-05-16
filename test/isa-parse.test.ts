@@ -58,6 +58,33 @@ test("serializeIsa reuses raw input when no structural mutation occurred", () =>
   expect(first).toBe(second);
 });
 
+test("serializeIsa preserves raw input verbatim even when renderer would normalize", () => {
+  // Different key order, no derived defaults, comment-like whitespace — renderer
+  // would reorder/normalize, but the raw round-trip must return the exact input.
+  const oddOrderInput = `---
+phase: build
+task: Odd order
+effort: E3
+custom_key: value
+---
+
+## Goal
+
+Something
+`;
+  const isa = parseIsa(oddOrderInput);
+  expect(serializeIsa(isa)).toBe(oddOrderInput);
+});
+
+test("serializeIsa re-renders after structural mutation via accessor", async () => {
+  const { setSection: setSectionFn, SECTION_NAME_MAP: SNM } = await import("../src/isa-accessors");
+  const isa = parseIsa(SAMPLE);
+  const mutated = setSectionFn(isa, SNM.goal, "Different goal text");
+  const serialized = serializeIsa(mutated);
+  expect(serialized).toContain("Different goal text");
+  expect(serialized).not.toBe(SAMPLE);
+});
+
 test("serializeIsa recomputes derived frontmatter fields from sections", () => {
   const isa = parseIsa(SAMPLE);
   const serialized = serializeIsa(isa);

@@ -64,14 +64,23 @@ export function parseIsa(markdown: string, sourcePath?: string): IdealStateArtif
   return isa;
 }
 
+/**
+ * If `isa` is the exact identity returned by `parseIsa`, return the raw input
+ * verbatim — no structural mutation occurred (the helpers in `isa-accessors`
+ * that mutate sections — setSection, updateCriterion, etc. — return a NEW
+ * object identity via spread, so the raw cache is only hit for true round-trip
+ * read-then-serialize calls).
+ *
+ * Otherwise (new identity from a spread or hand-constructed), render fresh
+ * with derived frontmatter recomputed.
+ */
 export function serializeIsa(isa: IdealStateArtifact): string {
   const previous = RAW_INPUT.get(isa);
-  const frontmatter = withRecomputedDerived(isa);
-  const rendered = renderIsa({ ...isa, frontmatter });
-  if (previous !== undefined && previous === rendered) {
+  if (previous !== undefined) {
     return previous;
   }
-  return rendered;
+  const frontmatter = withRecomputedDerived(isa);
+  return renderIsa({ ...isa, frontmatter });
 }
 
 function renderIsa(isa: IdealStateArtifact): string {
