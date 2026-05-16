@@ -56,13 +56,13 @@ test("builds codex home projection bundle for default availability", () => {
     "hooks/codex-policy-hook.mjs",
     "hooks/policy-marker.mjs",
     "skills/soma/SKILL.md",
-    "skills/the-algorithm/SKILL.md",
     "memories/soma/profile.md",
     "memories/soma/memory-layout.md",
     "memories/soma/pai-imports.md",
     "memories/soma/lifecycle.md",
     "memories/soma/skills.md",
     "memories/soma/policy.md",
+    "skills/the-algorithm/SKILL.md",
   ]);
   expect(projection.bundle.instructions).toContain("Soma default availability");
   expect(projection.bundle.instructions).toContain("/tmp/soma-test-home/.soma");
@@ -170,6 +170,47 @@ test("installs codex home projection into a substrate home", async () => {
     expect(lifecycle).toContain("Soma Lifecycle Projection");
     expect(lifecycle).toContain("soma-repo.txt");
     expect(lifecycle).toContain("Do not use `command -v soma`");
+  });
+});
+
+test("codex algorithm contract wins over imported portable skill body", async () => {
+  await withTempHome(async (homeDir) => {
+    await installCodexHomeProjection(
+      {
+        ...portableContextInput,
+        profile: {
+          ...portableContextInput.profile,
+          skills: [
+            ...portableContextInput.profile.skills,
+            {
+              name: "the-algorithm",
+              path: "skills/the-algorithm",
+              description: "Imported PAI Algorithm skill.",
+              triggers: ["algorithm"],
+              files: [
+                {
+                  path: "SKILL.md",
+                  content: "# Imported Algorithm\n\nThis body should not replace the Codex rendering contract.",
+                },
+                {
+                  path: "Workflows/RunAlgorithm.md",
+                  content: "# Imported workflow\n",
+                },
+              ],
+            },
+          ],
+        },
+      },
+      { homeDir },
+    );
+
+    const algorithmSkill = await readFile(join(homeDir, ".codex/skills/the-algorithm/SKILL.md"), "utf8");
+    const workflow = await readFile(join(homeDir, ".codex/skills/the-algorithm/Workflows/RunAlgorithm.md"), "utf8");
+
+    expect(algorithmSkill).toContain("Codex Rendering Contract");
+    expect(algorithmSkill).toContain("♻︎ Entering the PAI ALGORITHM… (Soma) ═════════════");
+    expect(algorithmSkill).not.toContain("This body should not replace the Codex rendering contract.");
+    expect(workflow).toContain("Imported workflow");
   });
 });
 
