@@ -1,10 +1,12 @@
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import type { AlgorithmImportOptions, AlgorithmImportPlan, AlgorithmImportResult } from "./types";
+import type { AlgorithmImportOptions, AlgorithmImportPlan, AlgorithmImportResult, ImportSourceCheck } from "./types";
 
-const SOURCE_FILES = [
-  { path: "v6.3.0.md", target: "references/algorithm-v6.3.0.md", required: true },
+const FALLBACK_ALGORITHM_SOURCE = "v6.3.0.md";
+
+const OPTIONAL_SOURCE_FILES = [
   { path: "capabilities.md", target: "references/capabilities.md", required: false },
   { path: "mode-detection.md", target: "references/mode-detection.md", required: false },
   { path: "parameter-schema.md", target: "references/parameter-schema.md", required: false },
@@ -12,11 +14,16 @@ const SOURCE_FILES = [
   { path: "optimize-loop.md", target: "references/optimize-loop.md", required: false },
 ] as const;
 
-const TARGET_FILES = [
-  "skills/the-algorithm/SKILL.md",
-  "skills/the-algorithm/Workflows/RunAlgorithm.md",
-  ...SOURCE_FILES.map((source) => `skills/the-algorithm/${source.target}`),
-] as const;
+interface AlgorithmSource {
+  path: string;
+  target: string;
+  required: boolean;
+}
+
+interface AlgorithmImportSources {
+  sources: AlgorithmSource[];
+  sourceChecks: ImportSourceCheck[];
+}
 
 function resolveHomes(options: AlgorithmImportOptions = {}): { paiAlgorithmDir: string; somaHome: string } {
   const home = resolve(options.homeDir ?? homedir());
@@ -45,7 +52,7 @@ function renderSkill(): string {
     "## Use",
     "",
     "- Start with `Workflows/RunAlgorithm.md`.",
-    "- Read `references/algorithm-v6.3.0.md` when doctrine detail matters.",
+    "- Read `references/algorithm.md` when doctrine detail matters.",
     "- Read `references/capabilities.md` before selecting thinking or delegation capabilities.",
     "- Read `references/mode-detection.md` when effort tier, fast-path, ideate, optimize, or research mode is ambiguous.",
     "- Read `references/parameter-schema.md` for ideate and optimize parameter handling.",
@@ -62,6 +69,47 @@ function renderSkill(): string {
     "- euphoric surprise",
     "- substantial build/design/refactor/migration work",
   ].join("\n");
+}
+
+function normalizeLatestAlgorithmPointer(pointer: string): string {
+  const trimmed = pointer.trim();
+  return trimmed.endsWith(".md") ? trimmed : `${trimmed}.md`;
+}
+
+function activeAlgorithmSourcePath(paiAlgorithmDir: string): string {
+  const latestPath = join(paiAlgorithmDir, "LATEST");
+
+  if (existsSync(latestPath)) {
+    return normalizeLatestAlgorithmPointer(readFileSync(latestPath, "utf8"));
+  }
+
+  return FALLBACK_ALGORITHM_SOURCE;
+}
+
+function discoverAlgorithmSources(paiAlgorithmDir: string): AlgorithmSource[] {
+  return [
+    { path: activeAlgorithmSourcePath(paiAlgorithmDir), target: "references/algorithm.md", required: true },
+    ...OPTIONAL_SOURCE_FILES,
+  ];
+}
+
+function sourceCheck(paiAlgorithmDir: string, source: AlgorithmSource): ImportSourceCheck {
+  const path = join(paiAlgorithmDir, source.path);
+
+  return {
+    path,
+    required: source.required,
+    present: existsSync(path),
+  };
+}
+
+function inspectAlgorithmSources(paiAlgorithmDir: string): AlgorithmImportSources {
+  const sources = discoverAlgorithmSources(paiAlgorithmDir);
+
+  return {
+    sources,
+    sourceChecks: sources.map((source) => sourceCheck(paiAlgorithmDir, source)),
+  };
 }
 
 function renderRunWorkflow(): string {
@@ -149,21 +197,35 @@ function renderRunWorkflow(): string {
 
 export function planAlgorithmImport(options: AlgorithmImportOptions = {}): AlgorithmImportPlan {
   const homes = resolveHomes(options);
+  const { sources, sourceChecks } = inspectAlgorithmSources(homes.paiAlgorithmDir);
+  const targetFiles = [
+    "skills/the-algorithm/SKILL.md",
+    "skills/the-algorithm/Workflows/RunAlgorithm.md",
+    ...sources.filter((source, index) => source.required || sourceChecks[index]?.present).map((source) => `skills/the-algorithm/${source.target}`),
+  ];
 
   return {
     apply: false,
     paiAlgorithmDir: homes.paiAlgorithmDir,
     somaHome: homes.somaHome,
-    sourceFiles: SOURCE_FILES.map((source) => join(homes.paiAlgorithmDir, source.path)),
-    targetFiles: TARGET_FILES.map((path) => join(homes.somaHome, path)),
+    sourceFiles: sourceChecks.map((check) => check.path),
+    sourceChecks,
+    targetFiles: targetFiles.map((path) => join(homes.somaHome, path)),
   };
 }
 
 export async function importAlgorithm(options: AlgorithmImportOptions = {}): Promise<AlgorithmImportResult> {
   const homes = resolveHomes(options);
+  const { sources: algorithmSources, sourceChecks } = inspectAlgorithmSources(homes.paiAlgorithmDir);
   const sources = new Map<string, string>();
 
-  for (const source of SOURCE_FILES) {
+  for (const check of sourceChecks) {
+    if (check.required && !check.present) {
+      throw new Error(`Required Algorithm source file is missing: ${check.path}`);
+    }
+  }
+
+  for (const source of algorithmSources) {
     const path = join(homes.paiAlgorithmDir, source.path);
     const content = await readFile(path, "utf8").catch((error: unknown) => {
       if (!source.required) {

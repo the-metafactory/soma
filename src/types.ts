@@ -272,11 +272,18 @@ export interface AlgorithmImportOptions {
   somaHome?: string;
 }
 
+export interface ImportSourceCheck {
+  path: string;
+  required: boolean;
+  present: boolean;
+}
+
 export interface AlgorithmImportPlan {
   apply: boolean;
   paiAlgorithmDir: string;
   somaHome: string;
   sourceFiles: string[];
+  sourceChecks?: ImportSourceCheck[];
   targetFiles: string[];
 }
 
