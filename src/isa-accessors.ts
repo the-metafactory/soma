@@ -44,10 +44,19 @@ export function getGoal(isa: IdealStateArtifact): string | null {
   return trimmed.length === 0 ? null : trimmed;
 }
 
+const CRITERIA_CACHE = new WeakMap<IsaSection, IdealStateCriterion[]>();
+
 export function getCriteria(isa: IdealStateArtifact): IdealStateCriterion[] {
   const section = getSection(isa, SECTION_NAME_MAP.criteria);
   if (section === null) return [];
-  return parseCriteriaMarkdown(section.content);
+  // Section objects are frozen in the type as readonly content fields; mutators
+  // in this file always create a new section object via setSection, so identity
+  // changes whenever content changes.
+  const cached = CRITERIA_CACHE.get(section);
+  if (cached !== undefined) return cached.slice();
+  const parsed = parseCriteriaMarkdown(section.content);
+  CRITERIA_CACHE.set(section, parsed);
+  return parsed.slice();
 }
 
 export function getDecisions(isa: IdealStateArtifact): AlgorithmLogEntry[] {

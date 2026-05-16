@@ -115,16 +115,21 @@ function splitFrontmatter(markdown: string): FrontmatterSplit {
   if (!markdown.startsWith("---\n")) {
     return { frontmatterRaw: "", body: markdown };
   }
-  const end = markdown.indexOf("\n---", 4);
-  if (end < 0) {
-    return { frontmatterRaw: "", body: markdown };
+  // Scan line by line for a literal "---" closing delimiter line; "---foo"
+  // or "------" must NOT match.
+  let cursor = 4;
+  while (cursor < markdown.length) {
+    const lineEnd = markdown.indexOf("\n", cursor);
+    const line = lineEnd === -1 ? markdown.slice(cursor) : markdown.slice(cursor, lineEnd);
+    if (line === "---") {
+      const frontmatterRaw = markdown.slice(4, cursor === 4 ? 4 : cursor - 1);
+      const bodyStart = lineEnd === -1 ? markdown.length : lineEnd + 1;
+      return { frontmatterRaw, body: markdown.slice(bodyStart) };
+    }
+    if (lineEnd === -1) break;
+    cursor = lineEnd + 1;
   }
-  const frontmatterRaw = markdown.slice(4, end);
-  let body = markdown.slice(end + 4);
-  if (body.startsWith("\n")) {
-    body = body.slice(1);
-  }
-  return { frontmatterRaw, body };
+  return { frontmatterRaw: "", body: markdown };
 }
 
 function parseFrontmatter(raw: string): IsaFrontmatter {
@@ -214,22 +219,32 @@ function renderYamlScalar(value: unknown): string {
   return JSON.stringify(value);
 }
 
+const DANGEROUS_YAML_KEYS = new Set(["__proto__", "prototype", "constructor"]);
+
+function isSafeYamlKey(key: string): boolean {
+  return !DANGEROUS_YAML_KEYS.has(key);
+}
+
 function parseYamlObject(raw: string): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
+  const result = Object.create(null) as Record<string, unknown>;
   let currentBlock: Record<string, unknown> | null = null;
 
   for (const rawLine of raw.split("\n")) {
     if (rawLine.trim().length === 0) continue;
     if (rawLine.startsWith("  ") && currentBlock !== null) {
       const match = /^\s+([^:\s][^:]*?)\s*:\s*(.*)$/.exec(rawLine);
-      if (match) currentBlock[match[1]] = parseYamlScalar(match[2]);
+      if (match && isSafeYamlKey(match[1])) currentBlock[match[1]] = parseYamlScalar(match[2]);
       continue;
     }
     const match = /^([^:\s][^:]*?)\s*:\s*(.*)$/.exec(rawLine);
     if (!match) continue;
     const [, key, valueRaw] = match;
+    if (!isSafeYamlKey(key)) {
+      currentBlock = null;
+      continue;
+    }
     if (valueRaw === "") {
-      currentBlock = {};
+      currentBlock = Object.create(null) as Record<string, unknown>;
       result[key] = currentBlock;
       continue;
     }

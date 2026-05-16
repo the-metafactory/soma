@@ -136,6 +136,45 @@ Test broader YAML key support.
   });
 });
 
+test("parser rejects __proto__ / prototype / constructor keys to prevent pollution", () => {
+  const markdown = `---
+task: pollution test
+effort: E1
+phase: observe
+__proto__:
+  polluted: true
+constructor: { polluted: true }
+prototype: yes
+---
+
+## Goal
+
+Test prototype safety.
+`;
+  const isa = parseIsa(markdown);
+  // Object.prototype must not be polluted
+  const probe = {};
+  expect((probe as Record<string, unknown>).polluted).toBeUndefined();
+  expect(isa.frontmatter.custom?.__proto__).toBeUndefined();
+});
+
+test("frontmatter delimiter requires a full --- line, not a prefix", () => {
+  const markdown = `---
+task: edge case
+effort: E1
+phase: observe
+---not-a-delimiter: still part of frontmatter? no, this is invalid yaml ignored
+---
+
+## Goal
+
+After real delimiter
+`;
+  const isa = parseIsa(markdown);
+  expect(isa.frontmatter.task).toBe("edge case");
+  expect(isa.sections[0]?.content).toContain("After real delimiter");
+});
+
 test("nested custom YAML objects round-trip as objects, not JSON-stringified", () => {
   const markdown = `---
 task: Demo

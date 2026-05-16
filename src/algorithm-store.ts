@@ -147,19 +147,14 @@ function migrateRunV1toV2(legacy: LegacyAlgorithmRun): AlgorithmRun {
     frontmatter: { ...built.frontmatter, updated: legacy.updatedAt },
   };
 
+  // Spread legacy first, then override divergent fields. New AlgorithmRun
+  // fields with default-safe optionality will propagate automatically.
+  const { phase: _legacyPhaseField, ...legacyFields } = legacy;
+  void _legacyPhaseField;
   return {
+    ...legacyFields,
     schemaVersion: 2,
-    id: legacy.id,
-    createdAt: legacy.createdAt,
-    updatedAt: legacy.updatedAt,
-    substrate: legacy.substrate,
-    prompt: legacy.prompt,
     intent,
-    effort: legacy.effort,
-    effortSource: legacy.effortSource,
-    mode: legacy.mode,
-    classificationReason: legacy.classificationReason,
-    currentState: legacy.currentState,
     isa,
     antiCriteria: legacy.antiCriteria ?? [],
     capabilities: legacy.capabilities ?? [],
