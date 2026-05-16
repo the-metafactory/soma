@@ -2,14 +2,14 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { expect, test } from "bun:test";
+import { installIsaSkill } from "../src/index";
+import type { SomaSkillBaselines } from "../src/index";
 import {
   compareSkillVersions,
-  installIsaSkill,
   isaSkillRuntimeDir,
   parseSkillFrontmatter,
   skillBaselinesPath,
-} from "../src/index";
-import type { SomaSkillBaselines } from "../src/index";
+} from "../src/isa-skill-installer";
 
 async function withTempHome<T>(fn: (homeDir: string, somaRepoPath: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-isa-skill-"));
@@ -157,6 +157,21 @@ test("files added by user in runtime are preserved as user additions", async () 
     expect(result.action).toBe("upgraded");
     expect(result.filesPreservedUserAdditions).toContain("Workflows/MyCustom.md");
     expect(await readFile(join(somaHome, "skills", "ISA", "Workflows", "MyCustom.md"), "utf8")).toBe("# Custom\n");
+  });
+});
+
+test("unchanged path restores files-in-source-missing-from-runtime", async () => {
+  await withTempHome(async (homeDir, somaRepoPath) => {
+    const somaHome = join(homeDir, ".soma");
+    await installIsaSkill({ homeDir, somaHome, somaRepoPath });
+    // User deletes a workflow file by accident
+    await rm(join(somaHome, "skills", "ISA", "Workflows", "Scaffold.md"));
+
+    const result = await installIsaSkill({ homeDir, somaHome, somaRepoPath });
+    expect(result.action).toBe("unchanged");
+    expect(result.filesWritten.length).toBeGreaterThan(0);
+    // Restored
+    expect(await readFile(join(somaHome, "skills", "ISA", "Workflows", "Scaffold.md"), "utf8")).toContain("Workflow body");
   });
 });
 

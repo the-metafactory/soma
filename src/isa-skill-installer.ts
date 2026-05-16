@@ -232,13 +232,47 @@ export async function installIsaSkill(options: IsaSkillInstallOptions = {}): Pro
 
   const comparison = compareSkillVersions(sourceFrontmatter.version, runtimeFrontmatter.version);
   if (comparison <= 0) {
+    // Same version: still reconcile files-in-source-missing-from-runtime
+    // (e.g. someone deleted a workflow). Restore them and update the baseline
+    // hash entry only for restored files; existing user-edited files are
+    // untouched.
+    const missingFiles = sourceFiles.filter((rel) => !runtimeFiles.includes(rel));
+    if (missingFiles.length === 0) {
+      return {
+        somaHome,
+        skillDir: runtimeDir,
+        sourceVersion: sourceFrontmatter.version,
+        runtimeVersion: runtimeFrontmatter.version,
+        action: "unchanged",
+        filesWritten: [],
+        filesPreservedUserAdditions: userAdditions,
+      };
+    }
+    const written: string[] = [];
+    for (const rel of missingFiles) {
+      const dest = join(runtimeDir, rel);
+      await copyFile(join(sourceDir, rel), dest);
+      written.push(dest);
+    }
+    const priorFiles = baseline.files;
+    const restoredFiles: Record<string, string> = { ...priorFiles };
+    for (const rel of missingFiles) {
+      restoredFiles[rel] = sourceHashes[rel];
+    }
+    const restoredBaseline: SomaSkillBaseline = {
+      version: baseline.version,
+      files: restoredFiles,
+      installedAt: baseline.installedAt,
+    };
+    const nextBaselines = { ...baselines, [SKILL_NAME]: restoredBaseline };
+    await writeBaselines(somaHome, nextBaselines);
     return {
       somaHome,
       skillDir: runtimeDir,
       sourceVersion: sourceFrontmatter.version,
       runtimeVersion: runtimeFrontmatter.version,
       action: "unchanged",
-      filesWritten: [],
+      filesWritten: written,
       filesPreservedUserAdditions: userAdditions,
     };
   }
