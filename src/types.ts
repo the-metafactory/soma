@@ -604,6 +604,7 @@ export interface SomaPolicyCheckOptions {
 
 export interface SomaPolicyBatchTarget {
   filePath: string;
+  action?: SomaPolicyAction;
   content?: string;
   sourcePath?: string;
 }

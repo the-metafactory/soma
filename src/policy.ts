@@ -231,7 +231,7 @@ export function policyOptionsForTarget(options: Omit<SomaPolicyBatchCheckOptions
     protectedPaths: options.protectedPaths,
     cwd: options.cwd,
     substrate: options.substrate,
-    action: options.action,
+    action: target.action ?? options.action,
     destinationPath: target.filePath,
     sourcePath: target.sourcePath,
     content: target.content,

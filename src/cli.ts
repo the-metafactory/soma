@@ -1010,6 +1010,11 @@ function parsePolicyArgs(args: string[]): ParsedPolicyArgs {
         index += 1;
         break;
       }
+      case "--private-root": {
+        (options.privateRoots ??= []).push(readOption(rest, index, arg));
+        index += 1;
+        break;
+      }
       case "--json":
         json = true;
         break;
@@ -1489,11 +1494,15 @@ function readPolicyTargetsEnv(envName: string): SomaPolicyBatchTarget[] {
         !target ||
         typeof target !== "object" ||
         typeof (target as SomaPolicyBatchTarget).filePath !== "string" ||
+        ((target as SomaPolicyBatchTarget).action !== undefined &&
+          (typeof (target as SomaPolicyBatchTarget).action !== "string" || !["write", "delete", "modify"].includes((target as SomaPolicyBatchTarget).action ?? ""))) ||
         ((target as SomaPolicyBatchTarget).content !== undefined && typeof (target as SomaPolicyBatchTarget).content !== "string") ||
         ((target as SomaPolicyBatchTarget).sourcePath !== undefined && typeof (target as SomaPolicyBatchTarget).sourcePath !== "string"),
     )
   ) {
-    throw new Error(`--targets-env ${envName} must contain an array of targets with string filePath values and optional string content/sourcePath values.`);
+    throw new Error(
+      `--targets-env ${envName} must contain an array of targets with string filePath values and optional string content/sourcePath values. Optional action must be one of write, delete, or modify.`,
+    );
   }
 
   return targets as SomaPolicyBatchTarget[];
@@ -1692,6 +1701,8 @@ export async function runSomaCli(args: string[]): Promise<string> {
         action: parsed.options.action,
         record: parsed.options.record,
         timestamp: parsed.options.timestamp,
+        privateRoots: parsed.options.privateRoots,
+        protectedPaths: parsed.options.protectedPaths,
         targets,
       });
 
