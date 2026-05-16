@@ -21,13 +21,13 @@ SomaCore
 
 Identity stores who the principal is and who the assistant is. It includes
 profile facts, communication preferences, personality metadata, and optional
-voice metadata. Identity is loaded into substrate context but is not owned by
+voice metadata. Identity is projected into the substrate but is not owned by
 the substrate.
 
 ### Telos
 
 Telos stores goals, principles, commitments, strategies, and desired state. It
-is the steering context for assistant recommendations and prioritization.
+is the steering source for assistant recommendations and prioritization.
 
 ### ISA
 
@@ -38,7 +38,7 @@ Soma memory.
 ### Algorithm Harness
 
 The Algorithm harness is the deterministic execution layer around ISA. PAI used
-TheAlgorithm mostly as doctrine inside Claude context; Soma keeps that doctrine
+TheAlgorithm mostly as doctrine projected into Claude; Soma keeps that doctrine
 as a portable skill, but also exposes typed run state and phase gates that a
 substrate or daemon can call directly.
 
@@ -97,51 +97,59 @@ but deterministic enforcement is the target.
 
 ## Adapters
 
-Adapters translate Soma into substrate-native primitives.
+Adapters project Soma into substrate-native primitives. One adapter per
+substrate. See [CONTEXT.md](../CONTEXT.md) for glossary.
 
 ```ts
 interface SomaAdapter {
   name: string;
   detect(): Promise<boolean>;
-  buildContext(input: SomaContextInput): Promise<SomaContextBundle>;
+  project(input: ProjectionInput): Promise<Projection>;
   run(task: SomaTask): Promise<SomaRunResult>;
 }
 ```
 
+> Note: existing code still uses `buildContext` / `SomaContextInput` /
+> `SomaContextBundle`. Rename tracked in #52.
+
 Examples:
 
-- Codex adapter writes instructions into a Codex-friendly context package.
+- Codex adapter projects Soma into Codex-readable instruction files.
 - Pi.dev adapter exposes tools through Pi extensions.
-- Claude Code adapter maps Soma into system prompt, CLAUDE.md, hooks, and skills.
-- Cortex adapter registers Soma as a daemon or in-process agent consuming Myelin envelopes.
+- Claude Code adapter projects Soma into system prompt, CLAUDE.md, hooks, and skills.
+- Cortex adapter registers Soma as a Cortex agent daemon consuming Myelin envelopes.
 
 ## Runtime Modes
 
-### Home Install Mode
+Five modes name where the projection lives or runs from. One-word names; the
+`Mode` suffix is omitted in glossary use.
 
-Used to make Soma available by default in a substrate. Soma writes or updates
-user-level substrate projections from `~/.soma/` into homes such as `~/.codex/`,
-`~/.claude/`, Pi.dev's extension home, or Cortex's agent registry. This is the
-primary install path.
+### home
 
-### Library Mode
+Primary mode. Soma writes its projection into the substrate's home directory:
+`~/.codex/`, `~/.claude/`, Pi.dev's extension home, or Cortex's agent registry.
+Available by default in every session.
 
-Used by a substrate CLI. Soma builds context and exposes tools, but the substrate
-owns the process.
+### workspace
 
-### Daemon Mode
+Workspace mode projects into the current workspace (`./.codex/soma/`,
+`./.claude/soma/`). Only present when the principal is in that workspace.
+Overlays the home projection if both exist.
 
-Used by Cortex/Myelin. Soma runs as a long-lived process, subscribes to work
-subjects, owns state, and publishes envelopes.
+### library
 
-### Export Mode
+A substrate CLI loads Soma as code and exposes tools. No projection on disk.
+The substrate owns the process.
 
-Used to generate substrate-specific configuration without running anything.
+### daemon
 
-### Workspace Overlay Mode
+Soma runs as a long-lived process, subscribes to Myelin subjects, owns state,
+and publishes envelopes. No substrate involved.
 
-Used to add project-local context to a workspace. Workspace overlays complement
-the home install; they are not the primary way Soma becomes available.
+### export
+
+Generate projection bytes (stdout or a tarball) without writing anywhere or
+running anything. Dry-run / inspection shape.
 
 ## Relationship To Meta Factory
 
@@ -161,9 +169,10 @@ The detailed source-of-truth contract lives in [boundaries.md](./boundaries.md).
 When a concept appears in more than one repo or substrate, the other copy must
 be treated as a projection unless a sync contract says otherwise.
 
-Default availability is specified in [default-availability.md](./default-availability.md).
-Soma should follow PAI's lesson that the assistant needs a durable substrate
-home, while avoiding PAI's Claude-only coupling.
+Eager-projection behaviour for the home mode is specified in
+[default-availability.md](./default-availability.md). Soma should follow PAI's
+lesson that the assistant needs a protected substrate home, while avoiding
+PAI's Claude-only coupling.
 
 ## Lifecycle Harness
 

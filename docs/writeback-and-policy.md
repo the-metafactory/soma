@@ -1,7 +1,9 @@
 # Writeback And Policy Semantics
 
-Soma's hardest problem is not rendering context into substrates. It is safe
-return traffic from several substrates into one durable home.
+Soma's hardest problem is not projecting into substrates. It is safe return
+traffic from several substrates into one protected home. See
+[CONTEXT.md](../CONTEXT.md) for glossary (`writeback`, `write back`,
+`writeback gate`, `mirror`).
 
 ## Current Decision
 
@@ -35,22 +37,29 @@ A projection is a generated snapshot.
 - It is not generated on every substrate startup unless a substrate adapter
   explicitly implements that later.
 
-Projection refresh is currently **on demand**:
+Projection refresh is currently **on demand** (via the `reproject` lifecycle
+verb):
 
-- `soma install <substrate>` plans or refreshes the substrate-home projection.
-- Workspace overlays are refreshed by the future `soma project install` flow.
-- Substrate launch does not automatically refresh projections in V0.
+- `soma install <substrate>` plans or refreshes the home projection.
+- Workspace overlays are refreshed via the future `soma install <substrate>
+  --workspace` flow.
+- Substrate launch does not automatically reproject in V0.
 
 This intentionally favors clear failure modes over clever sync. If a projection
 is stale, refresh it from `~/.soma`.
 
 ## Writeback V0
 
-The only approved substrate-to-Soma write path is:
+The only approved writeback path is:
 
 ```text
 ~/.soma/memory/STATE/events.jsonl
 ```
+
+The writeback gate (Policy) admits an event only if it matches the V0 contract
+(see schema below) and lands in the append-only events log. Substrate-side
+state that Soma does not author — e.g., Cortex task status, Signal events — is
+**mirrored** into `MEMORY/STATE/`, not written back.
 
 Each line is one event:
 

@@ -2,15 +2,16 @@
 
 ## Chosen Name: Soma
 
-Soma is the substrate-portable body of a personal AI assistant.
+Soma is the portable body of a personal AI assistant. See
+[CONTEXT.md](../CONTEXT.md) for the full glossary.
 
 The Meta Factory ecosystem already has a strong neural and biological metaphor:
 
 - `myelin` carries transport and connective protocol layers.
 - `cortex` is the layer-7 collaboration surface.
 - `signal` captures activity and observability.
-- botanical agent names such as `sage`, `cedar`, `fern`, and `gorse` identify
-  specific worker personas.
+- botanical names such as `sage`, `cedar`, `fern`, and `gorse` identify
+  specific Cortex agents (worker personas).
 
 Soma fits the neural side of the taxonomy. In biology, the soma is the cell body.
 In this project, Soma is the assistant body: identity, memory, goals, skills,
@@ -30,6 +31,6 @@ policy, and work state. A substrate can change without changing the body.
 ## Naming Boundary
 
 Soma is not a bot persona. Names like Sage, Cedar, Fern, Alpha, and Gorse should
-remain specific agents. Soma is a portable core that such agents or personal
-assistants can consume.
+remain specific Cortex agents. Soma is a portable core that such agents — or
+named assistants like Ivy — can consume.
 

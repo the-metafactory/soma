@@ -1,22 +1,23 @@
 # Ownership Boundaries
 
 Soma is the portable personal assistant kernel. It should reference nearby Meta
-Factory systems without absorbing their responsibilities.
+Factory systems without absorbing their responsibilities. Glossary lives in
+[CONTEXT.md](../CONTEXT.md).
 
 ## Source Of Truth
 
 | Concept | Source of truth | Soma role |
 | --- | --- | --- |
-| Personal assistant identity | Soma | Owns portable identity schema and context rendering. |
-| Principal profile | Soma | Owns personal profile shape and substrate-safe projection. |
-| Telos | Soma | Owns personal goals, principles, commitments, and prioritization context. |
+| Personal assistant identity | Soma | Owns portable identity schema and projection. |
+| Principal profile | Soma | Owns personal profile shape and its projection (scrubbed so private data does not leak between substrates). |
+| Telos | Soma | Owns personal goals, principles, commitments, and prioritization. |
 | Project ISA | Project repository | Reads and summarizes local `ISA.md`; does not centralize every project task. |
 | Personal/task ISA | Soma memory | Owns personal assistant tasks that do not belong to one project repo. |
 | Skills as portable capability folders | Soma | Owns portable skill metadata and discovery contract. |
-| Claude Code skills | Claude Code adapter | Projection of Soma skills into Claude-native layout. |
-| Codex instructions | Codex adapter | Projection of Soma context into Codex-readable files. |
+| Claude Code skills | Claude Code adapter | A Soma skill's Claude Code projection. |
+| Codex instructions | Codex adapter | A Soma skill's Codex projection (Codex instruction). |
 | SOPs and governance | Compass | Soma references Compass rules; it does not redefine org process. |
-| Daemon, bus, and envelopes | Cortex / Myelin | Soma can run as an agent, but Myelin owns protocol semantics. |
+| Daemon, bus, and envelopes | Cortex / Myelin | Soma can run as a Cortex agent, but Myelin owns protocol semantics. |
 | Installation and distribution | Arc | Soma ships manifests; Arc owns package lifecycle. |
 | Observability | Signal | Soma emits events; Signal owns telemetry systems. |
 | Isolated execution | Spawn | Soma requests execution; Spawn owns sandbox lifecycle. |
@@ -24,22 +25,29 @@ Factory systems without absorbing their responsibilities.
 ## Boundary Rules
 
 - Soma owns portable personal assistant concepts.
-- Adapters own substrate translation only.
+- Adapters own substrate projection only. One adapter per substrate.
 - Nearby systems own ecosystem-level mechanics.
 - A duplicated concept must declare one source of truth and one or more
   projections.
-- A projection can cache, summarize, or render source data, but it must not
-  become an independent editing surface without a sync contract.
+- A projection can cache, summarize, or project source data, but it must not
+  become an independent editing surface without a writeback contract.
+- Substrate → Soma flow is **writeback** only, gated by Policy
+  (see [writeback-and-policy.md](./writeback-and-policy.md)). Substrate-side
+  state Soma does not author is **mirrored** into `MEMORY/STATE/`.
 
 ## Naming Rules
 
-Use `Skill` in Soma only for portable capability folders. When referring to a
-substrate-specific skill system, qualify it:
+Use `skill` in Soma only for portable capability folders. When referring to a
+substrate-specific capability primitive, qualify it:
 
-- `Soma skill`
-- `Claude Code skill projection`
-- `Codex instruction projection`
+- `Soma skill` (or bare `skill` in Soma docs — unqualified always means Soma)
+- `Claude Code skill` (the substrate's native capability primitive)
+- `Pi.dev skill`
+- `Codex instruction` (Codex has no native skill primitive)
 - `Compass SOP`
+
+To name the projected output, use the possessive: "the skill's Claude Code
+projection" — not "Claude Code skill projection", which is ambiguous.
 
 If a capability is only meaningful inside one substrate, it belongs in that
 adapter and should not be named a Soma skill.
