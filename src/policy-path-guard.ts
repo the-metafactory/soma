@@ -176,13 +176,13 @@ export function resolvePath(token: string, cwd: string): string {
   return resolve(isAbsolute(expanded) ? expanded : join(cwd, expanded));
 }
 
-function findProtectedPath(resolvedPath: string, protectedPaths: readonly SomaProtectedPath[], action: "delete" | "modify", protectedRootCache: Map<string, string>): SomaProtectedPath | undefined {
-  const realResolvedPath = realScopePath(resolvedPath);
+function findProtectedPath(resolvedPath: string, protectedPaths: readonly SomaProtectedPath[], action: "delete" | "modify", realScopeCache: Map<string, string>, protectedRootCache: Map<string, string>): SomaProtectedPath | undefined {
+  const realResolvedPath = realScopePath(resolvedPath, realScopeCache);
   for (const pp of protectedPaths) {
     if (action === "delete" && pp.guardDelete === false) continue;
     if (action === "modify" && pp.guardModify === false) continue;
 
-    const protectedRoot = realProtectedRoot(resolve(expandTilde(pp.path)), protectedRootCache);
+    const protectedRoot = realProtectedRoot(resolve(expandTilde(pp.path)), realScopeCache, protectedRootCache);
     if (isInsidePath(realResolvedPath, protectedRoot)) {
       return pp;
     }
@@ -191,20 +191,15 @@ function findProtectedPath(resolvedPath: string, protectedPaths: readonly SomaPr
   return undefined;
 }
 
-function realProtectedRoot(path: string, protectedRootCache: Map<string, string>): string {
+function realProtectedRoot(path: string, realScopeCache: Map<string, string>, protectedRootCache: Map<string, string>): string {
   const cached = protectedRootCache.get(path);
   if (cached) return cached;
-  const realPath = realScopePath(path);
+  const realPath = realScopePath(path, realScopeCache);
   protectedRootCache.set(path, realPath);
   return realPath;
 }
 
-const realScopeCache = new Map<string, string>();
-// Process-lifetime cache for realpath lookups in interactive substrate guards.
-// Kept bounded so repeated tool calls avoid sync filesystem walks without unbounded growth.
-const REAL_SCOPE_CACHE_LIMIT = 512;
-
-function realScopePath(path: string): string {
+function realScopePath(path: string, realScopeCache: Map<string, string>): string {
   const cached = realScopeCache.get(path);
   if (cached) return cached;
 
@@ -222,10 +217,6 @@ function realScopePath(path: string): string {
     const realCursor = realpathSync(cursor);
     const realPath = suffix.length > 0 ? resolve(realCursor, ...suffix) : realCursor;
     realScopeCache.set(path, realPath);
-    if (realScopeCache.size > REAL_SCOPE_CACHE_LIMIT) {
-      const oldestKey = realScopeCache.keys().next().value;
-      if (oldestKey) realScopeCache.delete(oldestKey);
-    }
     return realPath;
   } catch {
     return path;
@@ -450,12 +441,13 @@ export interface SomaPathGuardResult {
 
 export function evaluatePathGuard(options: SomaPathGuardOptions): SomaPathGuardResult {
   const protectedPaths = options.protectedPaths ?? SOMA_DEFAULT_PROTECTED_PATHS;
+  const realScopeCache = new Map<string, string>();
   const protectedRootCache = new Map<string, string>();
   const matchedPaths: string[] = [];
   const matchedDescriptions: string[] = [];
 
   for (const target of options.targetPaths) {
-    const match = findProtectedPath(target, protectedPaths, options.action, protectedRootCache);
+    const match = findProtectedPath(target, protectedPaths, options.action, realScopeCache, protectedRootCache);
     if (match) {
       matchedPaths.push(target);
       matchedDescriptions.push(match.description ? `${match.path} (${match.description})` : match.path);
