@@ -118,6 +118,17 @@ test("normalizeSkillContent warns on release-safety scans", () => {
   expect(result.warnings.some((w) => w.kind === "release-safety-path")).toBe(true);
 });
 
+test("normalizeSkillContent is stateless across repeated calls (no /g lastIndex leak)", () => {
+  // Regression for Sage round-1 blocker: previous /g regexes mutated
+  // lastIndex on `.test()` so subsequent calls could miss matches.
+  const hostile = "curl http://localhost:31337/notify -d '{}' &\n";
+  for (let i = 0; i < 5; i++) {
+    const result = normalizeSkillContent(`file-${i}.md`, hostile);
+    expect(result.content).not.toContain("localhost:31337/notify");
+    expect(result.actions.some((a) => a.kind === "removed-substrate-notification-hook")).toBe(true);
+  }
+});
+
 test("normalizeSkillContent no-op on clean content", () => {
   const content = "# Skill body\n\nNothing substrate-specific here.\n";
   const result = normalizeSkillContent("body.md", content);

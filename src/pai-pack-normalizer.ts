@@ -32,12 +32,16 @@ export interface NormalizeContentResult {
 // Patterns that mark "must execute" runtime blocks in PAI skill bodies. We
 // strip the *executable instruction* (curl notification calls + the
 // "MANDATORY" framing) but keep neutral prose.
+//
+// NOTE: every pattern below is used non-globally (no `g` / `y` flags) so
+// that `.test()` calls are stateless across files. Replace operations build
+// fresh global copies on demand via `globalize()`.
 const NOTIFICATION_HEADING = /^##+\s*(?:🚨\s*)?MANDATORY[^\n]*$/m;
-const NOTIFICATION_CURL = /^\s*curl\s+[^\n]*localhost:31337\/notify[^\n]*\n?/gm;
+const NOTIFICATION_CURL = /^\s*curl\s+[^\n]*localhost:31337\/notify[^\n]*\n?/m;
 
 const CLAUDE_HOME_DETERMINISTIC: readonly { from: RegExp; to: string; kind: PaiPackNormalizationAction["kind"] }[] = [
   // Skill payload root — has a clean Soma equivalent
-  { from: /~\/\.claude\/skills\//g, to: "~/.soma/skills/", kind: "rewrote-claude-home-path" },
+  { from: /~\/\.claude\/skills\//, to: "~/.soma/skills/", kind: "rewrote-claude-home-path" },
 ];
 
 const CLAUDE_HOME_AMBIGUOUS: readonly { pattern: RegExp; kind: PaiPackNormalizationWarning["kind"]; detail: string }[] = [
@@ -64,10 +68,17 @@ const CLAUDE_HOME_AMBIGUOUS: readonly { pattern: RegExp; kind: PaiPackNormalizat
 ];
 
 const MUTATION_COMMAND_PATTERNS: readonly RegExp[] = [
-  /\b(?:rm|mv|cp|mkdir|chmod|chown|touch)\s+(?:-[a-zA-Z]+\s+)*~\/\.claude\//g,
+  /\b(?:rm|mv|cp|mkdir|chmod|chown|touch)\s+(?:-[a-zA-Z]+\s+)*~\/\.claude\//,
 ];
 
-const RELEASE_SAFETY_PATTERN = /\b(?:scan|grep|check)\b[^\n]*(?:(?:secret|credential|token|key)[^\n]*~\/\.claude\/|~\/\.claude\/[^\n]*(?:secret|credential|token|key))/gi;
+const RELEASE_SAFETY_PATTERN = /\b(?:scan|grep|check)\b[^\n]*(?:(?:secret|credential|token|key)[^\n]*~\/\.claude\/|~\/\.claude\/[^\n]*(?:secret|credential|token|key))/i;
+
+function globalize(source: RegExp): RegExp {
+  // Build a fresh global copy for replace-all calls; never share state with
+  // the canonical test regex.
+  const flags = source.flags.includes("g") ? source.flags : `${source.flags}g`;
+  return new RegExp(source.source, flags);
+}
 
 export function normalizeSkillContent(relPath: string, content: string): NormalizeContentResult {
   const actions: PaiPackNormalizationAction[] = [];
@@ -116,7 +127,7 @@ function stripMandatoryNotificationBlock(
 
   // Strip any stragglers — bare curl notification commands outside a heading.
   if (NOTIFICATION_CURL.test(stripped)) {
-    stripped = stripped.replace(NOTIFICATION_CURL, "");
+    stripped = stripped.replace(globalize(NOTIFICATION_CURL), "");
     actions.push({
       file: relPath,
       kind: "removed-substrate-notification-hook",
@@ -135,7 +146,7 @@ function applyDeterministicPathRewrites(
   let working = content;
   for (const rule of CLAUDE_HOME_DETERMINISTIC) {
     if (rule.from.test(working)) {
-      working = working.replace(rule.from, rule.to);
+      working = working.replace(globalize(rule.from), rule.to);
       actions.push({
         file: relPath,
         kind: rule.kind,

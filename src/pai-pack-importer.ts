@@ -56,6 +56,7 @@ type RoutedPaiPackImportFile =
 interface InternalPaiPackImportPlan extends PaiPackImportPlan {
   routedFiles: RoutedPaiPackImportFile[];
   normalization: PaiPackNormalizationReport;
+  normalizedSkillFiles: Map<string, NormalizedSkillFile>;
 }
 
 function isRoutedSourceFile(file: RoutedPaiPackImportFile): file is Extract<RoutedPaiPackImportFile, { origin: "source" }> {
@@ -413,8 +414,10 @@ async function buildPaiPackImportPlan(options: PaiPackImportOptions = {}): Promi
   }
 
   // Pre-compute normalization for every skill-rendered file so dry-run can
-  // report actions and warnings without writing.
-  const normalization = await computeNormalization(homes.paiPackDir, routedFiles);
+  // report actions and warnings without writing. The Map is also re-used by
+  // the apply path (no second read+normalize pass) — Sage round 1 finding.
+  const normalizedSkillFiles = await normalizeSkillFiles(homes.paiPackDir, routedFiles);
+  const normalization = reportFromNormalizedFiles(normalizedSkillFiles.values());
 
   routedFiles.push({
     target: join(homes.somaHome, `skills/${skillName}/soma-pack.json`),
@@ -460,13 +463,34 @@ async function buildPaiPackImportPlan(options: PaiPackImportOptions = {}): Promi
     files,
     routedFiles,
     normalization,
+    normalizedSkillFiles,
   };
 }
 
-async function computeNormalization(
+interface NormalizedSkillFile {
+  source: string;
+  relPath: string;
+  normalized: string;
+  actions: import("./pai-pack-normalizer").NormalizeContentResult["actions"];
+  warnings: import("./pai-pack-normalizer").NormalizeContentResult["warnings"];
+}
+
+async function readAndNormalizeSkill(
+  paiPackDir: string,
+  realPackRoot: string,
+  sourcePath: string,
+): Promise<NormalizedSkillFile> {
+  const source = await resolveSafeSourceFile(realPackRoot, sourcePath);
+  const content = await readFile(source, "utf8");
+  const relPath = relative(paiPackDir, sourcePath).split(sep).join("/");
+  const result = normalizeSkillContent(relPath, content);
+  return { source: sourcePath, relPath, normalized: result.content, actions: result.actions, warnings: result.warnings };
+}
+
+async function normalizeSkillFiles(
   paiPackDir: string,
   routedFiles: RoutedPaiPackImportFile[],
-): Promise<PaiPackNormalizationReport> {
+): Promise<Map<string, NormalizedSkillFile>> {
   const realPackRoot = await realpath(paiPackDir);
   const skillFiles: PaiPackSourceImportFile[] = [];
   for (const file of routedFiles) {
@@ -474,14 +498,20 @@ async function computeNormalization(
       skillFiles.push(file);
     }
   }
-  const reports = await mapWithConcurrency(skillFiles, 8, async (file) => {
-    const source = await resolveSafeSourceFile(realPackRoot, file.source);
-    const content = await readFile(source, "utf8");
-    const relPath = relative(paiPackDir, file.source).split(sep).join("/");
-    const result = normalizeSkillContent(relPath, content);
-    return { actions: result.actions, warnings: result.warnings };
-  });
-  return mergeNormalizationReports(reports);
+  const results = await mapWithConcurrency(skillFiles, 8, (file) =>
+    readAndNormalizeSkill(paiPackDir, realPackRoot, file.source),
+  );
+  const map = new Map<string, NormalizedSkillFile>();
+  for (const result of results) {
+    map.set(result.source, result);
+  }
+  return map;
+}
+
+function reportFromNormalizedFiles(files: Iterable<NormalizedSkillFile>): PaiPackNormalizationReport {
+  return mergeNormalizationReports(
+    Array.from(files, (file) => ({ actions: file.actions, warnings: file.warnings })),
+  );
 }
 
 export async function planPaiPackImport(options: PaiPackImportOptions = {}): Promise<PaiPackImportPlan> {
@@ -508,11 +538,17 @@ async function stagePaiPackFiles(plan: InternalPaiPackImportPlan, stageRoot: str
     } else if (file.renderMode === "soma-skill-manifest") {
       await writeFile(stagedTarget, renderSomaSkillManifest(plan), "utf8");
     } else if (file.renderMode === "skill") {
-      const source = await resolveSafeSourceFile(realPackRoot, file.source);
-      const rawContent = await readFile(source, "utf8");
-      const relPath = relative(plan.paiPackDir, file.source).split(sep).join("/");
-      const normalized = normalizeSkillContent(relPath, rawContent);
-      const finalContent = `${rewriteSkillFrontmatter(normalized.content, plan.skillName, plan.description).trimEnd()}\n`;
+      // Reuse the cached normalization computed during plan construction
+      // so we don't re-read or re-normalize the same source per Sage's
+      // double-pass finding. Fallback: re-read if cache miss.
+      const cached = plan.normalizedSkillFiles.get(file.source);
+      const normalizedContent = cached
+        ? cached.normalized
+        : normalizeSkillContent(
+            relative(plan.paiPackDir, file.source).split(sep).join("/"),
+            await readFile(await resolveSafeSourceFile(realPackRoot, file.source), "utf8"),
+          ).content;
+      const finalContent = `${rewriteSkillFrontmatter(normalizedContent, plan.skillName, plan.description).trimEnd()}\n`;
       await writeFile(stagedTarget, finalContent, "utf8");
     } else {
       if (!isRoutedSourceFile(file)) {
