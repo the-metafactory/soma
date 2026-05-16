@@ -7,6 +7,8 @@ import {
   advanceAlgorithmRun,
   classifyAlgorithmPrompt,
   createAlgorithmRun,
+  getCriteria,
+  getRunPhase,
   setAlgorithmPlan,
   updateAlgorithmPlanStep,
   verifyAlgorithmCriterion,
@@ -34,12 +36,12 @@ test("creates deterministic Algorithm runs around ISA criteria", () => {
     criteria: [{ id: "C1", text: "Ledger contains the new entry." }],
   });
 
-  expect(run.phase).toBe("observe");
+  expect(getRunPhase(run)).toBe("observe");
   expect(run.effort).toBe("E1");
   expect(run.effortSource).toBe("auto");
   expect(run.classificationReason).toContain("E1");
-  expect(run.isa.phase).toBe("observe");
-  expect(run.isa.criteria[0]?.status).toBe("open");
+  expect(run.isa.frontmatter.phase).toBe("observe");
+  expect(getCriteria(run.isa)[0]?.status).toBe("open");
   expect(run.decisions[0]?.text).toContain("Bring ledger state current");
 });
 
@@ -110,12 +112,12 @@ test("enforces Algorithm phase gates", () => {
   });
 
   run = advanceAlgorithmRun(run, "2026-05-14T10:01:00.000Z");
-  expect(run.phase).toBe("think");
+  expect(getRunPhase(run)).toBe("think");
 
   expect(() => advanceAlgorithmRun(run)).toThrow("selected capabilities");
   run = addAlgorithmCapabilities(run, ["sequential-analysis"], "2026-05-14T10:02:00.000Z");
   run = advanceAlgorithmRun(run, "2026-05-14T10:03:00.000Z");
-  expect(run.phase).toBe("plan");
+  expect(getRunPhase(run)).toBe("plan");
 
   expect(() => advanceAlgorithmRun(run)).toThrow("criterion-mapped plan");
   run = setAlgorithmPlan(
@@ -124,31 +126,47 @@ test("enforces Algorithm phase gates", () => {
     "2026-05-14T10:04:00.000Z",
   );
   run = advanceAlgorithmRun(run, "2026-05-14T10:05:00.000Z");
-  expect(run.phase).toBe("build");
+  expect(getRunPhase(run)).toBe("build");
 
   run = {
     ...run,
     changelog: [{ timestamp: "2026-05-14T10:06:00.000Z", phase: "build", text: "Added harness." }],
   };
   run = advanceAlgorithmRun(run, "2026-05-14T10:07:00.000Z");
-  expect(run.phase).toBe("execute");
+  expect(getRunPhase(run)).toBe("execute");
 
   expect(() => advanceAlgorithmRun(run)).toThrow("plan step");
   run = updateAlgorithmPlanStep(run, "P1", "done", "Harness tests pass.", "2026-05-14T10:08:00.000Z");
   run = advanceAlgorithmRun(run, "2026-05-14T10:09:00.000Z");
-  expect(run.phase).toBe("verify");
+  expect(getRunPhase(run)).toBe("verify");
 
   expect(() => advanceAlgorithmRun(run)).toThrow("criterion");
   run = verifyAlgorithmCriterion(run, "C1", "passed", "Test asserted gate failures and success path.", "2026-05-14T10:10:00.000Z");
   run = advanceAlgorithmRun(run, "2026-05-14T10:11:00.000Z");
-  expect(run.phase).toBe("learn");
+  expect(getRunPhase(run)).toBe("learn");
 
   run = {
     ...run,
     learning: [{ timestamp: "2026-05-14T10:12:00.000Z", phase: "learn", text: "Harness gates doctrine." }],
   };
   run = advanceAlgorithmRun(run, "2026-05-14T10:13:00.000Z");
-  expect(run.phase).toBe("complete");
+  expect(getRunPhase(run)).toBe("complete");
+});
+
+test("abandoned runs cannot advance", async () => {
+  const { abandonAlgorithmRun } = await import("../src/index");
+  const run = createAlgorithmRun({
+    id: "abandoned-test",
+    timestamp: "2026-05-16T10:00:00.000Z",
+    prompt: "Test abandonment",
+    intent: "Verify terminal state",
+    currentState: "Run starts fresh",
+    goal: "Run cannot advance after abandonment",
+    criteria: [{ id: "C1", text: "Abandonment is terminal" }],
+  });
+  const abandoned = abandonAlgorithmRun(run, "intentional test abort", "2026-05-16T10:01:00.000Z");
+  expect(getRunPhase(abandoned)).toBe("abandoned");
+  expect(() => advanceAlgorithmRun(abandoned)).toThrow("abandoned");
 });
 
 test("persists Algorithm runs under Soma WORK memory", async () => {

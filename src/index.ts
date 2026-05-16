@@ -15,8 +15,12 @@ export type {
   AlgorithmRunSummary,
   AlgorithmWorkIndex,
   AssistantIdentity,
+  AuthoredFrontmatter,
+  DerivedFrontmatter,
   IdealStateArtifact,
   IdealStateCriterion,
+  IsaFrontmatter,
+  IsaSection,
   PrincipalIdentity,
   SomaAdapter,
   SomaContextBundle,
@@ -87,6 +91,33 @@ export {
   verifyAlgorithmCriterion,
 } from "./algorithm";
 export { classifyAlgorithmPrompt } from "./algorithm-classifier";
+// Public ISA API — cohesive surface: semantic accessors + mutators + parse/serialize.
+// Renderer details (SECTION_NAME_MAP, TWELVE_SECTIONS, renderCriteriaMarkdown,
+// renderLogEntries, parseCriteriaMarkdown, progressFromCriteria,
+// verifiedFromCriteria, buildIsaArtifact) stay internal — import from
+// `./isa-accessors` directly if you need them from within the package.
+export {
+  appendCriterion,
+  appendIsaChangelog,
+  appendIsaDecision,
+  appendIsaVerification,
+  getChangelog,
+  getCriteria,
+  getDecisions,
+  getGoal,
+  getSection,
+  getVerification,
+  recomputeProgress,
+  recomputeVerified,
+  setSection,
+  updateCriterion,
+} from "./isa-accessors";
+export { parseIsa, serializeIsa } from "./isa-parse";
+export {
+  abandonAlgorithmRun,
+  completeAlgorithmRun,
+  getRunPhase,
+} from "./algorithm-lifecycle";
 export {
   algorithmRunPath,
   algorithmRunPathById,

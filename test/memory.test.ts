@@ -287,14 +287,20 @@ test("promotes an Algorithm run into durable Soma memory", async () => {
         }),
         isa: {
           slug: "consulting-lesson",
-          phase: "complete",
-          goal: "Consulting lesson becomes durable memory.",
-          criteria: [
+          frontmatter: {
+            task: "Capture a reusable consulting insight.",
+            effort: "E1",
+            mode: "algorithm",
+            phase: "complete",
+            progress: "1/1",
+            verified: true,
+            updated: "2026-05-14T12:05:00.000Z",
+          },
+          sections: [
+            { name: "Goal", content: "Consulting lesson becomes durable memory." },
             {
-              id: "C1",
-              text: "Lesson is promoted.",
-              status: "passed",
-              verification: "Promotion evidence is present.",
+              name: "Criteria",
+              content: "- [x] C1: Lesson is promoted.\n  Evidence: Promotion evidence is present.",
             },
           ],
         },
@@ -368,9 +374,19 @@ test("sanitizes Algorithm run ids in promotion filenames", async () => {
         }),
         isa: {
           slug: "nested-run-id",
-          phase: "complete",
-          goal: "Promotion filename is path-safe.",
-          criteria: [{ id: "C1", text: "Filename is safe.", status: "passed", verification: "Path is flat." }],
+          frontmatter: {
+            task: "Keep promotion paths flat.",
+            effort: "E1",
+            mode: "algorithm",
+            phase: "complete",
+            progress: "1/1",
+            verified: true,
+            updated: "2026-05-14T12:05:00.000Z",
+          },
+          sections: [
+            { name: "Goal", content: "Promotion filename is path-safe." },
+            { name: "Criteria", content: "- [x] C1: Filename is safe.\n  Evidence: Path is flat." },
+          ],
         },
       },
       { homeDir },

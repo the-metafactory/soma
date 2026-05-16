@@ -1,4 +1,5 @@
 import type { SomaContextInput } from "../src/index";
+import { SECTION_NAME_MAP, renderCriteriaMarkdown } from "../src/isa-accessors";
 
 export const portableContextInput: SomaContextInput = {
   profile: {
@@ -41,14 +42,27 @@ export const portableContextInput: SomaContextInput = {
   },
   activeIsa: {
     slug: "portable-context",
-    phase: "build",
-    goal: "Build substrate context projections from one Soma input.",
-    criteria: [
+    frontmatter: {
+      task: "Build substrate context projections from one Soma input.",
+      effort: "E3",
+      mode: "algorithm",
+      phase: "build",
+      progress: "0/1",
+      verified: false,
+      updated: "2026-05-14T10:00:00.000Z",
+    },
+    sections: [
+      { name: SECTION_NAME_MAP.goal, content: "Build substrate context projections from one Soma input." },
       {
-        id: "ISC-PORTABLE-1",
-        text: "Adapters receive assistant identity, telos, memory, skills, and ISA.",
-        status: "open",
-        verification: "bun test",
+        name: SECTION_NAME_MAP.criteria,
+        content: renderCriteriaMarkdown([
+          {
+            id: "ISC-PORTABLE-1",
+            text: "Adapters receive assistant identity, telos, memory, skills, and ISA.",
+            status: "open",
+            verification: "bun test",
+          },
+        ]),
       },
     ],
   },

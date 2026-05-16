@@ -1,4 +1,5 @@
 import type { SomaContextInput } from "../../types";
+import { getCriteria, getGoal } from "../../isa-accessors";
 
 export function formatList(items: string[]): string {
   return items.length === 0 ? "- None declared" : items.map((item) => `- ${item}`).join("\n");
@@ -19,7 +20,7 @@ export function renderActiveIsa(input: SomaContextInput): string {
     return "No active ISA was provided.";
   }
 
-  const criteria = input.activeIsa.criteria
+  const criteria = getCriteria(input.activeIsa)
     .map((criterion) => {
       const verification = criterion.verification ? ` Verification: ${criterion.verification}` : "";
       return `- [${criterion.status}] ${criterion.id}: ${criterion.text}${verification}`;
@@ -28,8 +29,8 @@ export function renderActiveIsa(input: SomaContextInput): string {
 
   return [
     `Slug: ${input.activeIsa.slug}`,
-    `Phase: ${input.activeIsa.phase}`,
-    `Goal: ${input.activeIsa.goal}`,
+    `Phase: ${input.activeIsa.frontmatter.phase}`,
+    `Goal: ${getGoal(input.activeIsa) ?? ""}`,
     "",
     "Criteria:",
     criteria || "- None declared",

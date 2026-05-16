@@ -5,9 +5,18 @@ import type {
   AlgorithmPlanStep,
   AlgorithmRun,
   AlgorithmRunInput,
+  IdealStateArtifact,
   IdealStateCriterion,
 } from "./types";
 import { classifyAlgorithmPrompt } from "./algorithm-classifier";
+import {
+  buildIsaArtifact,
+  getCriteria,
+  progressFromCriteria,
+  updateCriterionWithResult,
+  verifiedFromCriteria,
+} from "./isa-accessors";
+import { getRunPhase } from "./algorithm-lifecycle";
 
 const PHASES: AlgorithmPhase[] = ["observe", "think", "plan", "build", "execute", "verify", "learn", "complete"];
 
@@ -79,8 +88,10 @@ export function createAlgorithmRun(input: AlgorithmRunInput): AlgorithmRun {
   const effortSource = input.effortSource ?? (input.effort ? "explicit" : classification.source);
   const mode = input.mode ?? "algorithm";
   const classificationReason = input.classificationReason ?? classification.reason;
+  const slug = input.id ?? "algorithm-run";
 
   return {
+    schemaVersion: 2,
     id: input.id ?? createRunId(timestamp),
     createdAt: timestamp,
     updatedAt: timestamp,
@@ -92,13 +103,15 @@ export function createAlgorithmRun(input: AlgorithmRunInput): AlgorithmRun {
     mode,
     classificationReason,
     currentState: input.currentState,
-    phase: "observe",
-    isa: {
-      slug: input.id ?? "algorithm-run",
-      phase: "observe",
+    isa: buildIsaArtifact({
+      slug,
+      task: input.intent,
       goal: input.goal,
       criteria,
-    },
+      effort,
+      mode,
+      timestamp,
+    }),
     antiCriteria: (input.antiCriteria ?? []).map(criterionFromInput),
     capabilities: [],
     planSteps: [],
@@ -142,6 +155,8 @@ export function setAlgorithmPlan(run: AlgorithmRun, planSteps: AlgorithmPlanStep
 
   uniqueIds(planSteps, "plan step");
 
+  const criteria = getCriteria(run.isa);
+
   for (const step of planSteps) {
     assertNonEmpty(step.text, `plan step ${step.id} text`);
 
@@ -150,7 +165,7 @@ export function setAlgorithmPlan(run: AlgorithmRun, planSteps: AlgorithmPlanStep
     }
 
     for (const criterionId of step.criteriaIds) {
-      const exists = run.isa.criteria.some((criterion) => criterion.id === criterionId);
+      const exists = criteria.some((criterion) => criterion.id === criterionId);
 
       if (!exists) {
         throw new Error(`Algorithm plan step ${step.id} references unknown criterion: ${criterionId}`);
@@ -166,7 +181,7 @@ export function setAlgorithmPlan(run: AlgorithmRun, planSteps: AlgorithmPlanStep
 }
 
 export function recordAlgorithmChange(run: AlgorithmRun, text: string, timestamp?: string): AlgorithmRun {
-  const entry = logEntry(run.phase, text, timestamp);
+  const entry = logEntry(getRunPhase(run), text, timestamp);
 
   return {
     ...run,
@@ -176,7 +191,7 @@ export function recordAlgorithmChange(run: AlgorithmRun, text: string, timestamp
 }
 
 export function recordAlgorithmDecision(run: AlgorithmRun, text: string, timestamp?: string): AlgorithmRun {
-  const entry = logEntry(run.phase, text, timestamp);
+  const entry = logEntry(getRunPhase(run), text, timestamp);
 
   return {
     ...run,
@@ -186,7 +201,7 @@ export function recordAlgorithmDecision(run: AlgorithmRun, text: string, timesta
 }
 
 export function recordAlgorithmLearning(run: AlgorithmRun, text: string, timestamp?: string): AlgorithmRun {
-  const entry = logEntry(run.phase, text, timestamp);
+  const entry = logEntry(getRunPhase(run), text, timestamp);
 
   return {
     ...run,
@@ -204,42 +219,40 @@ export function verifyAlgorithmCriterion(
 ): AlgorithmRun {
   assertNonEmpty(evidence, "verification evidence");
 
-  const criteria = run.isa.criteria.map((criterion) => {
-    if (criterion.id !== criterionId) {
-      return criterion;
-    }
-
-    return {
-      ...criterion,
-      status,
-      verification: evidence,
-    };
-  });
-
-  if (!criteria.some((criterion) => criterion.id === criterionId)) {
-    throw new Error(`Algorithm criterion not found: ${criterionId}`);
-  }
-
-  const entry = logEntry(run.phase, `${criterionId}: ${status}. ${evidence}`, timestamp);
+  const { isa: isaWithSection, criteria: updatedCriteria } = updateCriterionWithResult(
+    run.isa,
+    criterionId,
+    status,
+    evidence,
+  );
+  const entry = logEntry(getRunPhase(run), `${criterionId}: ${status}. ${evidence}`, timestamp);
+  const isaWithRecompute: IdealStateArtifact = {
+    ...isaWithSection,
+    frontmatter: {
+      ...isaWithSection.frontmatter,
+      progress: progressFromCriteria(updatedCriteria),
+      verified: verifiedFromCriteria(updatedCriteria),
+      updated: entry.timestamp,
+    },
+  };
 
   return {
     ...run,
     updatedAt: entry.timestamp,
-    isa: {
-      ...run.isa,
-      criteria,
-    },
+    isa: isaWithRecompute,
     verification: [...run.verification, entry],
   };
 }
 
 function assertGate(run: AlgorithmRun, target: AlgorithmPhase): void {
   switch (target) {
-    case "think":
-      if (run.isa.criteria.length === 0) {
+    case "think": {
+      const criteria = getCriteria(run.isa);
+      if (criteria.length === 0) {
         throw new Error("Algorithm cannot enter THINK without criteria.");
       }
       break;
+    }
     case "plan":
       if (run.capabilities.length === 0) {
         throw new Error("Algorithm cannot enter PLAN without selected capabilities.");
@@ -260,11 +273,13 @@ function assertGate(run: AlgorithmRun, target: AlgorithmPhase): void {
         throw new Error("Algorithm cannot enter VERIFY until every plan step is done or blocked.");
       }
       break;
-    case "learn":
-      if (!run.isa.criteria.every((criterion) => criterion.status === "passed" || criterion.status === "dropped")) {
+    case "learn": {
+      const criteria = getCriteria(run.isa);
+      if (!criteria.every((criterion) => criterion.status === "passed" || criterion.status === "dropped")) {
         throw new Error("Algorithm cannot enter LEARN until every criterion is passed or dropped.");
       }
       break;
+    }
     case "complete":
       if (run.learning.length === 0) {
         throw new Error("Algorithm cannot COMPLETE without a learning entry.");
@@ -272,11 +287,19 @@ function assertGate(run: AlgorithmRun, target: AlgorithmPhase): void {
       break;
     case "observe":
       throw new Error("Algorithm cannot transition back to OBSERVE.");
+    case "abandoned":
+      // abandoned is terminal — only reachable through abandonAlgorithmRun, never via advanceAlgorithmRun.
+      throw new Error("Algorithm cannot advance to ABANDONED; use abandonAlgorithmRun.");
   }
 }
 
 export function advanceAlgorithmRun(run: AlgorithmRun, timestamp = new Date().toISOString()): AlgorithmRun {
-  const target = nextAlgorithmPhase(run.phase);
+  const current = getRunPhase(run);
+  if (current === "abandoned") {
+    throw new Error("Algorithm run was abandoned and cannot advance.");
+  }
+
+  const target = nextAlgorithmPhase(current);
 
   if (!target) {
     throw new Error("Algorithm run is already complete.");
@@ -287,10 +310,13 @@ export function advanceAlgorithmRun(run: AlgorithmRun, timestamp = new Date().to
   return {
     ...run,
     updatedAt: timestamp,
-    phase: target,
     isa: {
       ...run.isa,
-      phase: target,
+      frontmatter: {
+        ...run.isa.frontmatter,
+        phase: target,
+        updated: timestamp,
+      },
     },
   };
 }

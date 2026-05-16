@@ -4,6 +4,8 @@ import { dirname, join, resolve } from "node:path";
 import { listAlgorithmRunSummaries, listAlgorithmRuns } from "./algorithm-store";
 import { appendSomaMemoryEvent } from "./memory";
 import { loadSomaHome } from "./soma-home";
+import { getCriteria, getGoal } from "./isa-accessors";
+import { getRunPhase } from "./algorithm-lifecycle";
 import type {
   AlgorithmRun,
   AlgorithmRunSummary,
@@ -138,11 +140,11 @@ function completedLearningContent(run: AlgorithmRun, timestamp: string): string 
     "",
     `Captured: ${timestamp}`,
     `Run: ${run.id}`,
-    `Goal: ${run.isa.goal}`,
+    `Goal: ${getGoal(run.isa) ?? ""}`,
     `Effort: ${run.effort}`,
     "",
     "## Criteria",
-    ...run.isa.criteria.map((criterion) => `- [${criterion.status === "passed" ? "x" : " "}] ${criterion.id}: ${criterion.text}`),
+    ...getCriteria(run.isa).map((criterion) => `- [${criterion.status === "passed" ? "x" : " "}] ${criterion.id}: ${criterion.text}`),
     "",
     "## Verification",
     ...(run.verification.length > 0 ? run.verification.map((entry) => `- ${entry.timestamp} ${entry.text}`) : ["No verification entries recorded."]),
@@ -159,7 +161,7 @@ export async function captureCompletedAlgorithmLearnings(options: SomaLifecycleO
   const written: string[] = [];
 
   for (const { run } of runs) {
-    if (run.phase !== "complete") {
+    if (getRunPhase(run) !== "complete") {
       continue;
     }
 
