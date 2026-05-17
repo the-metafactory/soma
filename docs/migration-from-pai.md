@@ -130,17 +130,19 @@ soma install claude-code --apply
 
 This writes:
 
-- `~/.claude/CLAUDE.md` — appended with Soma context loader
-  (`@~/.soma/...` imports).
-- `~/.claude/.claude/soma/` — projected memory readback, active ISA
-  summary, policy snapshot.
-- `~/.claude/rules/soma/` — Claude Code rules so the session loads Soma
-  at startup.
+- `~/.claude/rules/soma/README.md` + `CONTEXT.md` + `PROFILE.md` +
+  `TELOS.md` + `MEMORY_LAYOUT.md` + `SKILLS.md` + `POLICY.md` +
+  `ACTIVE_ISA.md` — the canonical home projection. Claude Code
+  auto-discovers `.claude/rules/` at session start and loads Soma
+  context from these files (per architectural pivot in soma#64; the
+  pre-pivot `~/.claude/CLAUDE.md` `@`-import path was unreliable).
 - `~/.claude/skills/ISA/` — bundled ISA skill (Soma's verification
   harness).
-- Hooks under `~/.claude/hooks/` — optional enhancements (memory
-  writeback, lifecycle, feedback capture). Hooks improve behaviour but
-  are not required for the storage contract.
+
+Hooks are deliberately not in the home install. They are an optional
+overlay that can improve behaviour but are not required for the storage
+contract. Configure them separately if you want memory writeback or
+lifecycle integration.
 
 If you previously used `soma adopt claude`, that verb still works as a
 legacy alias — `soma install claude-code` is the canonical form.
@@ -233,10 +235,10 @@ Start a session in each installed substrate. The principal identity,
 active ISA, and recent learning should appear unchanged across all
 three.
 
-- **Claude Code** — `~/.claude/CLAUDE.md` should `@`-import
-  `~/.soma/profile/principal.md`.
-- **Codex** — `~/.codex/AGENTS.md` should `@`-import
-  `~/.codex/memories/soma/startup-context.md`.
+- **Claude Code** — `~/.claude/rules/soma/CONTEXT.md` and
+  `PROFILE.md` exist; Claude Code auto-loads them at session start.
+- **Codex** — `~/.codex/AGENTS.md` `@`-imports
+  `~/.codex/memories/soma/startup-context.md` and the Algorithm skill.
 - **Pi.dev** — the `soma` extension registers on `before_agent_start`
   and `soma_context` is a callable tool.
 
@@ -250,9 +252,9 @@ soma algorithm new \
   --intent "confirm Soma owns the run" \
   --current-state "PAI just migrated" \
   --goal "see the run land in ~/.soma" \
-  --criterion "C1:Run file exists under ~/.soma/algorithm/runs/"
+  --criterion "C1:Run file exists under ~/.soma/memory/WORK/algorithm-runs/"
 
-ls ~/.soma/algorithm/runs/         # the run is here, not under ~/.claude/
+ls ~/.soma/memory/WORK/algorithm-runs/  # the run is here, not under ~/.claude/
 ```
 
 ## What changes for you after migration
