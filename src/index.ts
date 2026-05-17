@@ -223,6 +223,7 @@ export { importPaiDocs, planPaiDocsImport } from "./pai-docs-importer";
 // PAI → Soma migration orchestrator (#28 minimal scope, extended
 // for full migrate in #90).
 export {
+  formatPackOutcomeLines,
   migratePai,
   planPaiMigration,
   type PaiMigrationOptions,

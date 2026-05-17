@@ -312,75 +312,125 @@ async function importPacksWithOutcomes(
   const outcomes: PaiPackOutcome[] = [];
 
   for (const paiPackDir of inputs.packPaths) {
-    let slug: string | undefined;
-    try {
-      slug = await readPackSkillSlug(paiPackDir);
-    } catch (error) {
-      // Couldn't even read the pack's metadata — surface the error
-      // verbatim; the principal needs the original reason in the
-      // summary table.
-      outcomes.push({
-        paiPackDir,
-        outcome: "refused-other",
-        reason: errorMessage(error),
-      });
-      continue;
-    }
-
-    if (!inputs.overwriteReserved && MIGRATE_RESERVED_SKILL_NAMES.has(slug)) {
-      outcomes.push({
-        paiPackDir,
-        outcome: "refused-reserved",
-        skillName: slug,
-        reason: `reserved Soma skill '${slug}' — re-run with --overwrite-reserved to permit.`,
-      });
-      continue;
-    }
-
-    try {
-      // `overwrite: true` mirrors the pre-#97 behavior — migration
-      // is a "move my whole PAI install into Soma" operation and
-      // must not blow up because a previous run already imported the
-      // pack. The pack importer's per-pack rollback contract still
-      // protects on-disk safety.
-      const result = await importPaiPack({
-        homeDir: inputs.homeDir,
-        paiPackDir,
-        somaHome: inputs.somaHome,
-        overwrite: true,
-        includeSubstrateSpecific: inputs.includeSubstrateSpecific,
-      });
-      packs.push(result);
-      outcomes.push({
-        paiPackDir,
-        outcome: "imported",
-        skillName: result.skillName,
-      });
-    } catch (error) {
-      if (error instanceof PaiPackSubstrateSpecificRefusal) {
-        outcomes.push({
-          paiPackDir,
-          outcome: "refused-substrate-specific",
-          skillName: slug,
-          reason: `substrate-specific file(s): ${error.files.join(", ")}`,
-        });
-        continue;
-      }
-      outcomes.push({
-        paiPackDir,
-        outcome: "refused-other",
-        skillName: slug,
-        reason: errorMessage(error),
-      });
-    }
+    const { pack, outcome } = await importOnePackWithOutcome(inputs, paiPackDir);
+    if (pack) packs.push(pack);
+    outcomes.push(outcome);
   }
 
   return { packs, outcomes };
 }
 
+/**
+ * Sage r1 #99 Maintainability finding — extracted per-pack pipeline so
+ * each step (metadata read / reserved check / import / error
+ * classification) is locally legible and adding a new refusal kind
+ * touches one function instead of the whole orchestration loop.
+ *
+ * Returns `{ pack }` only when the pack was successfully imported
+ * (always paired with `outcome.outcome === "imported"`). Otherwise
+ * returns just the outcome with the appropriate `refused-*` kind.
+ */
+async function importOnePackWithOutcome(
+  inputs: BulkImportInputs,
+  paiPackDir: string,
+): Promise<{ pack?: PaiPackImportResult; outcome: PaiPackOutcome }> {
+  let slug: string;
+  try {
+    slug = await readPackSkillSlug(paiPackDir);
+  } catch (error) {
+    // Couldn't even read the pack's metadata — surface the error
+    // verbatim; the principal needs the original reason in the
+    // summary table. No `skillName` because metadata read failed.
+    return {
+      outcome: { paiPackDir, outcome: "refused-other", reason: errorMessage(error) },
+    };
+  }
+
+  if (!inputs.overwriteReserved && MIGRATE_RESERVED_SKILL_NAMES.has(slug)) {
+    return {
+      outcome: {
+        paiPackDir,
+        outcome: "refused-reserved",
+        skillName: slug,
+        reason: `reserved Soma skill '${slug}' — re-run with --overwrite-reserved to permit.`,
+      },
+    };
+  }
+
+  try {
+    // `overwrite: true` mirrors the pre-#97 behavior — migration is
+    // a "move my whole PAI install into Soma" operation and must not
+    // blow up because a previous run already imported the pack. The
+    // pack importer's per-pack rollback contract still protects
+    // on-disk safety.
+    const result = await importPaiPack({
+      homeDir: inputs.homeDir,
+      paiPackDir,
+      somaHome: inputs.somaHome,
+      overwrite: true,
+      includeSubstrateSpecific: inputs.includeSubstrateSpecific,
+    });
+    return {
+      pack: result,
+      outcome: { paiPackDir, outcome: "imported", skillName: result.skillName },
+    };
+  } catch (error) {
+    if (error instanceof PaiPackSubstrateSpecificRefusal) {
+      return {
+        outcome: {
+          paiPackDir,
+          outcome: "refused-substrate-specific",
+          skillName: slug,
+          reason: `substrate-specific file(s): ${error.files.join(", ")}`,
+        },
+      };
+    }
+    return {
+      outcome: {
+        paiPackDir,
+        outcome: "refused-other",
+        skillName: slug,
+        reason: errorMessage(error),
+      },
+    };
+  }
+}
+
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
+}
+
+/**
+ * Sage r1 #99 Maintainability finding — single-source the per-pack
+ * outcome table rendering so the CLI summary and `MIGRATION.md` body
+ * can't drift when a new outcome kind or label scheme is introduced.
+ * Sorted-by-`paiPackDir` matches the existing byte-stability contract
+ * for the manifest body.
+ *
+ * `lineIndent` controls leading whitespace (the manifest body uses
+ * two-space indent under its section header; the CLI summary uses
+ * the same for visual parity).
+ *
+ * `labelKind` controls the fallback when a pack has no resolved
+ * skill name yet: `"basename"` for the manifest (compact, stable),
+ * `"path"` for the CLI summary (the principal sees full paths in
+ * other lines so this matches the surrounding context).
+ */
+export function formatPackOutcomeLines(
+  outcomes: readonly PaiPackOutcome[],
+  options: { lineIndent?: string; labelKind?: "basename" | "path" } = {},
+): string[] {
+  const indent = options.lineIndent ?? "  ";
+  const labelKind = options.labelKind ?? "basename";
+  if (outcomes.length === 0) return [`${indent}(no packs attempted)`];
+  const sorted = [...outcomes].sort((a, b) => a.paiPackDir.localeCompare(b.paiPackDir));
+  return sorted.map((o) => {
+    const fallback = labelKind === "basename" ? basename(o.paiPackDir) : o.paiPackDir;
+    const label = o.skillName ?? fallback;
+    const reasonSuffix = o.reason ? ` — ${o.reason}` : "";
+    return `${indent}- ${label}: ${o.outcome}${reasonSuffix}`;
+  });
 }
 
 interface MigrationSources {
@@ -548,22 +598,14 @@ function renderManifest(result: ManifestInputs): string {
     : "\n" + result.packs
         .map((p, idx) => `  - pack ${idx + 1} fingerprint: ${result.packFingerprints[idx] ?? "empty"}`)
         .join("\n");
-  // #97 — per-pack outcome table. Sorted by paiPackDir so the body
-  // stays byte-stable across reruns (idempotency invariant). Lines
-  // use a fixed `<name|basename>\t<outcome>\t<reason>` shape so the
-  // `--status` regex can match in tests + downstream tooling.
-  const sortedOutcomes = [...result.packOutcomes].sort((a, b) =>
-    a.paiPackDir.localeCompare(b.paiPackDir),
-  );
-  const outcomeLines = sortedOutcomes.length === 0
-    ? "  (no packs attempted)"
-    : sortedOutcomes
-        .map((o) => {
-          const label = o.skillName ?? basename(o.paiPackDir);
-          const reasonSuffix = o.reason ? ` — ${o.reason}` : "";
-          return `  - ${label}: ${o.outcome}${reasonSuffix}`;
-        })
-        .join("\n");
+  // #97 — per-pack outcome table. Sorted by paiPackDir (via the
+  // shared `formatPackOutcomeLines` helper) so the body stays
+  // byte-stable across reruns (idempotency invariant). Sage r1 #99:
+  // the helper single-sources the line shape for the CLI summary +
+  // manifest body so new outcome kinds only need one render update.
+  const outcomeLines = formatPackOutcomeLines(result.packOutcomes, {
+    labelKind: "basename",
+  }).join("\n");
   return [
     "# PAI Migration",
     "",

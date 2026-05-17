@@ -12,6 +12,7 @@ import {
   importPaiDocs,
   importPaiIdentity,
   importPaiPack,
+  formatPackOutcomeLines,
   migratePai,
   planPaiMigration,
   type PaiMigrationOptions,
@@ -1742,20 +1743,15 @@ function formatPaiMigrationResult(result: PaiMigrationResult): string {
   const docsLine = result.docs === null
     ? "  - docs:     skipped"
     : `  - docs:     ${result.docs.writtenCount} written, ${result.docs.files.length - result.docs.writtenCount} unchanged`;
-  // #97 — per-pack outcome summary. Sorted by paiPackDir (matches the
-  // manifest body order) so the principal sees a stable table across
-  // reruns. Lines render the slug (when known) so the principal can
-  // grep them against the manifest for `--status`.
-  const sortedOutcomes = [...result.packOutcomes].sort((a, b) =>
-    a.paiPackDir.localeCompare(b.paiPackDir),
-  );
-  const outcomeLines = sortedOutcomes.length === 0
-    ? ["  (no packs attempted)"]
-    : sortedOutcomes.map((o) => {
-        const label = o.skillName ?? o.paiPackDir;
-        const reasonSuffix = o.reason ? ` — ${o.reason}` : "";
-        return `  - ${label}: ${o.outcome}${reasonSuffix}`;
-      });
+  // #97 — per-pack outcome summary. Sage r1 #99: single-sourced
+  // through `formatPackOutcomeLines` so the CLI summary and the
+  // manifest body can't drift on outcome labels / reason suffix /
+  // sort order. `labelKind: "path"` keeps the principal-facing
+  // summary consistent with the surrounding `Source:` / `Target:`
+  // / `Manifest:` lines (full paths).
+  const outcomeLines = formatPackOutcomeLines(result.packOutcomes, {
+    labelKind: "path",
+  });
   return [
     "soma migrate pai — applied",
     "",
