@@ -23,6 +23,7 @@
  * single directory containing many packs) over `paiPackPaths` (an
  * explicit array).
  */
+import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -30,7 +31,7 @@ import { importAlgorithm, planAlgorithmImport } from "./algorithm-importer";
 import { importPaiDocs, planPaiDocsImport } from "./pai-docs-importer";
 import { importPaiIdentity, planPaiImport } from "./pai-importer";
 import { migratePaiMemory, planPaiMemoryMigration } from "./pai-memory-migrator";
-import { importPaiPack, planPaiPackImport } from "./pai-pack-importer";
+import { importPaiPack, planPaiPackImport, slugifySkillName } from "./pai-pack-importer";
 import type {
   AlgorithmImportPlan,
   AlgorithmImportResult,
@@ -201,38 +202,31 @@ function manifestPathFor(somaHome: string): string {
   return join(somaHome, "profile/imports/claude/MIGRATION.md");
 }
 
-// Read the prior `Last migrated at: <iso>` line from an existing
-// MIGRATION.md so idempotent reruns can preserve the timestamp. Returns
-// null when the manifest is missing or the line cannot be parsed.
-async function readPriorMigrationTimestamp(manifestPath: string): Promise<string | null> {
+// Read the full bytes of an existing MIGRATION.md so the orchestrator
+// can compare body-equivalence (minus the timestamp line) before
+// deciding whether to preserve or bump the `Last migrated at:` value.
+// Returns null when the manifest is missing or unreadable.
+async function readManifestBytes(manifestPath: string): Promise<string | null> {
   try {
-    const raw = await readFile(manifestPath, "utf8");
-    const match = raw.match(/^Last migrated at: (.+)$/m);
-    return match ? match[1] : null;
+    return await readFile(manifestPath, "utf8");
   } catch (error) {
     if (isEnoent(error)) return null;
     return null; // Don't let a malformed prior manifest poison the rerun.
   }
 }
 
-// Mirror `slugifySkillName` from `src/pai-pack-importer.ts`. The
-// pack importer is the authoritative slugifier; we replicate it here
-// to detect reserved-name collisions before invoking the importer.
-function slugifySkillName(value: string): string {
-  return value
-    .trim()
-    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+function extractMigrationTimestamp(manifest: string): string | null {
+  const match = manifest.match(/^Last migrated at: (.+)$/m);
+  return match ? match[1] : null;
 }
 
 // Read the pack metadata's `name` field the same way
 // `readPackMetadata` does — frontmatter or top heading. We only need
 // enough to derive the slug; the pack importer does the heavy lifting
-// during the actual import.
+// during the actual import. The slug function is the importer's own
+// (`slugifySkillName`), imported above, so the orchestrator's
+// reserved-name check can never drift from the importer's behavior.
 async function readPackSkillSlug(packDir: string): Promise<string> {
-  const { readFile } = await import("node:fs/promises");
   const readme = await readFile(join(packDir, "README.md"), "utf8");
   const match = readme.match(/^---\n([\s\S]*?)\n---/);
   if (match) {
@@ -256,18 +250,21 @@ async function refuseReservedPacks(
   overwriteReserved: boolean,
 ): Promise<string[]> {
   if (overwriteReserved) return [...packPaths];
-  const allowed: string[] = [];
-  for (const packDir of packPaths) {
-    const slug = await readPackSkillSlug(packDir);
-    if (MIGRATE_RESERVED_SKILL_NAMES.has(slug)) {
+  // Sage r1 #95 Performance suggestion: parallelize the README reads
+  // so installs with many packs don't pay serial filesystem latency
+  // before the import phase even starts. 4-wide concurrency mirrors
+  // the actual import phase below; per-call work is one small file
+  // read.
+  const slugs = await runBoundedConcurrent(packPaths, readPackSkillSlug, 4);
+  for (let i = 0; i < packPaths.length; i += 1) {
+    if (MIGRATE_RESERVED_SKILL_NAMES.has(slugs[i])) {
       throw new Error(
-        `soma migrate pai refused reserved Soma skill '${slug}' from pack '${packDir}'. ` +
+        `soma migrate pai refused reserved Soma skill '${slugs[i]}' from pack '${packPaths[i]}'. ` +
           `Re-run with --overwrite-reserved to permit.`,
       );
     }
-    allowed.push(packDir);
   }
-  return allowed;
+  return [...packPaths];
 }
 
 /**
@@ -368,6 +365,35 @@ interface ManifestInputs {
   docs: PaiDocsImportResult | null;
   paiSourceDir: string | undefined;
   lastMigratedAt: string;
+  // Sage r1 #95: content fingerprint over identity + algorithm + per-pack
+  // entry SKILL.md bytes. Embedded into the manifest body so any
+  // content-level drift in those phases (not just file-count changes)
+  // produces a different body and forces a timestamp bump on rerun.
+  identityFingerprint: string;
+  algorithmFingerprint: string | null;
+  packFingerprints: string[];
+}
+
+// Compute a stable SHA-256 fingerprint over a set of file paths. Used
+// to detect content-level drift in phases whose underlying importers
+// don't expose a per-file "wrote vs skipped" signal. We hash the files
+// in sorted order so the fingerprint is independent of write order
+// and concurrency timing.
+async function fingerprintFiles(paths: readonly string[]): Promise<string> {
+  if (paths.length === 0) return "empty";
+  const hash = createHash("sha256");
+  for (const path of [...paths].sort()) {
+    hash.update(path);
+    hash.update(":");
+    try {
+      hash.update(await readFile(path));
+    } catch (error) {
+      // Missing target = part of the fingerprint (no swallow).
+      hash.update(error instanceof Error ? error.message : String(error));
+    }
+    hash.update("\n");
+  }
+  return hash.digest("hex").slice(0, 16);
 }
 
 function renderManifest(result: ManifestInputs): string {
@@ -392,6 +418,11 @@ function renderManifest(result: ManifestInputs): string {
       ? "- docs:     not requested (pass --pai-source-dir to import)"
       : "- docs:     skipped"
     : `- docs:     ${result.docs.files.length} file(s) under ${result.docs.releaseVersion ?? "(no version)"}`;
+  const packFingerprintLines = result.packs.length === 0
+    ? ""
+    : "\n" + result.packs
+        .map((p, idx) => `  - pack ${idx + 1} fingerprint: ${result.packFingerprints[idx] ?? "empty"}`)
+        .join("\n");
   return [
     "# PAI Migration",
     "",
@@ -401,11 +432,13 @@ function renderManifest(result: ManifestInputs): string {
     "",
     "## Categories",
     `- identity: ${result.identity.files.length} files`,
+    `  - identity fingerprint: ${result.identityFingerprint}`,
     `- algorithm: ${result.algorithm ? `${result.algorithm.files.length} files` : "not present"}`,
+    result.algorithm ? `  - algorithm fingerprint: ${result.algorithmFingerprint ?? "empty"}` : null,
     memoryLine,
     docsLine,
     `- packs:`,
-    packLines.split("\n").map((l) => `  ${l}`).join("\n"),
+    packLines.split("\n").map((l) => `  ${l}`).join("\n") + packFingerprintLines,
     "",
     "## How to re-run",
     "- `soma migrate pai` is idempotent at the importer level — each underlying",
@@ -497,28 +530,39 @@ export async function migratePai(options: PaiMigrationOptions = {}): Promise<Pai
     : null;
   if (docs) filesWritten.push(...docs.files);
 
-  // Per-phase no-op detection so the manifest timestamp only bumps
-  // when something actually changed on disk. AC-6 + Sage r1 (#28):
-  // status output must include a timestamp, but the manifest itself
-  // must be byte-stable across pure-idempotent reruns. We treat the
-  // run as no-op when memory wrote zero files AND docs wrote zero
-  // files. Identity + algorithm + packs reuse the underlying
-  // importer's overwrite-with-same-bytes pattern, so we read back
-  // identity output bytes to gate the timestamp bump as well.
+  // Timestamp / idempotency gate (Sage r1 #95 important):
   //
-  // Practically: if memory.unchanged AND docs.unchanged (or skipped)
-  // AND a prior manifest exists, we preserve the prior timestamp.
-  const memoryUnchanged = memory === null || memory.unchanged;
-  const docsUnchanged = docs === null || docs.unchanged;
-  const everythingUnchanged = memoryUnchanged && docsUnchanged;
+  // The previous gate only considered `memory.unchanged &&
+  // docs.unchanged`, which incorrectly preserved the prior timestamp
+  // when identity / algorithm / packs DID write bytes. The fix is to
+  // make the gate manifest-content-equivalent rather than
+  // phase-flag-based:
+  //
+  //   1. Compute content fingerprints over identity / algorithm /
+  //      per-pack entry-SKILL.md bytes so the manifest body reflects
+  //      content-level changes (not just file-count changes) in
+  //      phases whose underlying importers don't expose a per-file
+  //      "wrote vs skipped" signal.
+  //   2. Render the manifest body with a sentinel timestamp.
+  //   3. Read the prior manifest (if any), substitute the same
+  //      sentinel for its timestamp line.
+  //   4. If the two bodies are byte-equal, the migration is fully
+  //      idempotent — reuse the prior timestamp.
+  //   5. Otherwise, write the new manifest with `new Date()`.
+  //
+  // This covers all five phases by construction: any phase that
+  // changed counts, names, file lists, OR file content will produce
+  // a different body and force a timestamp bump.
+  const identityFingerprint = await fingerprintFiles(identity.files);
+  const algorithmFingerprint = algorithm ? await fingerprintFiles(algorithm.files) : null;
+  // Each pack's fingerprint includes every imported file under the
+  // skill root, so pack content drift surfaces regardless of file
+  // count.
+  const packFingerprints = await Promise.all(packs.map((p) => fingerprintFiles(p.files)));
   const manifestPath = manifestPathFor(somaHome);
   await mkdir(dirname(manifestPath), { recursive: true });
-  let lastMigratedAt = new Date().toISOString();
-  if (everythingUnchanged) {
-    const prior = await readPriorMigrationTimestamp(manifestPath);
-    if (prior) lastMigratedAt = prior;
-  }
-  const manifest = renderManifest({
+  const sentinelTs = "__PAI_MIGRATION_TS_SENTINEL__";
+  const newBodyWithSentinel = renderManifest({
     claudeHome,
     somaHome,
     identity,
@@ -527,8 +571,21 @@ export async function migratePai(options: PaiMigrationOptions = {}): Promise<Pai
     memory,
     docs,
     paiSourceDir: options.paiSourceDir,
-    lastMigratedAt,
+    lastMigratedAt: sentinelTs,
+    identityFingerprint,
+    algorithmFingerprint,
+    packFingerprints,
   });
+  const priorBytes = await readManifestBytes(manifestPath);
+  const priorWithSentinel = priorBytes === null
+    ? null
+    : priorBytes.replace(/^Last migrated at: .+$/m, `Last migrated at: ${sentinelTs}`);
+  const priorTs = priorBytes === null ? null : extractMigrationTimestamp(priorBytes);
+  const lastMigratedAt =
+    priorWithSentinel !== null && priorWithSentinel === newBodyWithSentinel && priorTs !== null
+      ? priorTs
+      : new Date().toISOString();
+  const manifest = newBodyWithSentinel.replace(sentinelTs, lastMigratedAt);
   await writeFile(manifestPath, manifest, "utf8");
   filesWritten.push(manifestPath);
 

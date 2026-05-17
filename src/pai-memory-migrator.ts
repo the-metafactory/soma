@@ -76,6 +76,32 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
+/**
+ * Run async per-item work with a bounded concurrency window. Preserves
+ * input order in the returned results array. Matches the pattern used
+ * in `src/pai-migration.ts` and `src/pai-pack-importer.ts` for I/O
+ * fan-out.
+ */
+async function runBoundedConcurrent<T, R>(
+  items: readonly T[],
+  fn: (item: T) => Promise<R>,
+  limit: number,
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const results: R[] = new Array<R>(items.length);
+  let cursor = 0;
+  async function worker(): Promise<void> {
+    for (;;) {
+      const index = cursor++;
+      if (index >= items.length) return;
+      results[index] = await fn(items[index]);
+    }
+  }
+  const workerCount = Math.min(limit, items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
+}
+
 // Recursively enumerate files under `<memoryDir>/<category>/...`.
 // Files directly under `memoryDir` are skipped — #88 owns the README
 // at `<somaHome>/memory/` and we must not clobber it.
@@ -282,29 +308,28 @@ export async function migratePaiMemory(
   }
 
   const previous = await readExistingManifest(plan.somaHome);
-  let writtenCount = 0;
-  let skippedCount = 0;
-  const writtenTargets: string[] = [];
 
-  for (const file of plan.files) {
+  // Sage r1 #95 Performance suggestion: process per-file work with a
+  // small bounded concurrency window so large MEMORY trees don't pay
+  // one file's full I/O latency at a time. Per-file work is
+  // independent and dominated by syscalls — 4-wide matches the pack
+  // import phase and the docs importer's footprint. The original
+  // plan.files order is preserved in `outcomes` so the manifest and
+  // returned target list stay deterministic.
+  type Outcome = { written: boolean; target: string };
+  async function processFile(file: PaiMemoryMigrationFile): Promise<Outcome> {
     const priorSha = previous?.map.get(file.relativePath);
-    let mustWrite = true;
     if (priorSha && priorSha === file.sha256 && (await pathExists(file.target))) {
       // Re-hash the target's current bytes. Manifest agreement alone
-      // is not enough — a user edit since import would otherwise leave
-      // a "successful" migration with the wrong target bytes.
+      // is not enough — a user edit since import would otherwise
+      // leave a "successful" migration with the wrong target bytes.
       const targetStat = await lstat(file.target);
       if (targetStat.isFile()) {
         const targetSha = sha256Hex(await readFile(file.target));
         if (targetSha === file.sha256) {
-          mustWrite = false;
+          return { written: false, target: file.target };
         }
       }
-    }
-    if (!mustWrite) {
-      skippedCount += 1;
-      writtenTargets.push(file.target);
-      continue;
     }
     // Target-side parent must be inside the Soma home root. The plan
     // builder already constructed `file.target` relative to
@@ -319,8 +344,17 @@ export async function migratePaiMemory(
     // Preserve source mtime on the target file.
     const mtimeSeconds = file.mtimeMs / 1000;
     await utimes(file.target, mtimeSeconds, mtimeSeconds);
-    writtenCount += 1;
-    writtenTargets.push(file.target);
+    return { written: true, target: file.target };
+  }
+
+  const outcomes = await runBoundedConcurrent(plan.files, processFile, 4);
+  let writtenCount = 0;
+  let skippedCount = 0;
+  const writtenTargets: string[] = [];
+  for (const outcome of outcomes) {
+    if (outcome.written) writtenCount += 1;
+    else skippedCount += 1;
+    writtenTargets.push(outcome.target);
   }
 
   // Decide manifest timestamp:

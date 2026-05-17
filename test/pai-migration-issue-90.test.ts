@@ -17,6 +17,12 @@ import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { migratePai, planPaiMigration } from "../src/pai-migration";
 import type { PaiMemoryMigrationManifest } from "../src/types";
+import {
+  writePaiIdentityFixture as writeIdentityFixture,
+  writePaiMemoryFixture as writeMemoryFixture,
+  writePaiPackFixture as writePackFixture,
+  writePaiReleaseFixture as writePaiSourceFixture,
+} from "./fixtures/pai-migration-fixtures";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-90-orch-"));
@@ -25,69 +31,6 @@ async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> 
   } finally {
     await rm(homeDir, { recursive: true, force: true });
   }
-}
-
-async function writeIdentityFixture(homeDir: string): Promise<void> {
-  const userRoot = join(homeDir, ".claude/PAI/USER");
-  await mkdir(join(userRoot, "TELOS"), { recursive: true });
-  await writeFile(
-    join(userRoot, "PRINCIPAL_IDENTITY.md"),
-    "# Principal\n\n- **Name:** Test User\n- **Pronunciation:** Test\n- **Location:** Nowhere\n- **Timezone:** UTC\n- **Role:** Tester\n- **Focus:** Testing\n",
-    "utf8",
-  );
-  await writeFile(
-    join(userRoot, "DA_IDENTITY.md"),
-    "# DA Identity\n\n- **Full Name:** Bot\n- **Name:** Bot\n- **Display Name:** Bot\n- **Color:** #000\n- **Voice ID:** v\n- **Role:** assistant\n- **Operating Environment:** test\n",
-    "utf8",
-  );
-  for (const file of ["MISSION.md", "GOALS.md", "STRATEGIES.md", "BELIEFS.md"]) {
-    await writeFile(join(userRoot, "TELOS", file), `# ${file}\n\nFixture\n`, "utf8");
-  }
-}
-
-async function writeMemoryFixture(homeDir: string): Promise<void> {
-  const root = join(homeDir, ".claude/PAI/MEMORY");
-  await mkdir(join(root, "LEARNING"), { recursive: true });
-  await writeFile(join(root, "LEARNING/lesson.md"), "# Lesson\n", "utf8");
-  await mkdir(join(root, "WORK/20260117_test"), { recursive: true });
-  await writeFile(join(root, "WORK/20260117_test/notes.md"), "notes\n", "utf8");
-}
-
-// Build a tiny PAI pack tree under `<packsDir>/<name>`, valid enough
-// for `importPaiPack` to accept it (matches the V0 contract).
-async function writePackFixture(
-  packsDir: string,
-  packName: string,
-  options: { skillName?: string; description?: string } = {},
-): Promise<string> {
-  const packDir = join(packsDir, packName);
-  const skillName = options.skillName ?? packName;
-  const description = options.description ?? `Tiny ${packName} pack.`;
-  await mkdir(join(packDir, "src"), { recursive: true });
-  await writeFile(
-    join(packDir, "README.md"),
-    `---\nname: ${skillName}\ndescription: ${description}\n---\n\n# ${packName}\n\nFixture.\n`,
-    "utf8",
-  );
-  await writeFile(join(packDir, "INSTALL.md"), "# Install\n", "utf8");
-  await writeFile(join(packDir, "VERIFY.md"), "# Verify\n", "utf8");
-  await writeFile(
-    join(packDir, "src/SKILL.md"),
-    `---\nname: ${skillName}\ndescription: ${description}\n---\n\n# ${packName}\n\nFixture skill body.\n`,
-    "utf8",
-  );
-  return packDir;
-}
-
-async function writePaiSourceFixture(homeDir: string): Promise<string> {
-  const sourceDir = join(homeDir, "PAI/Releases/v5.0.0/.claude/PAI");
-  await mkdir(join(sourceDir, "DOCUMENTATION/Skills"), { recursive: true });
-  await writeFile(
-    join(sourceDir, "DOCUMENTATION/Skills/SkillSystem.md"),
-    "# Skill System\n",
-    "utf8",
-  );
-  return sourceDir;
 }
 
 test("planPaiMigration includes memory phase counts when MEMORY dir exists", async () => {
@@ -301,6 +244,35 @@ test("migratePai MIGRATION.md includes a Last migrated at timestamp", async () =
     const result = await migratePai({ homeDir });
     const manifest = await readFile(result.manifestPath, "utf8");
     expect(manifest).toMatch(/Last migrated at: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z/);
+  });
+});
+
+test("migratePai timestamp bumps when identity content changes (file count unchanged) — Sage r1 #95 important", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeIdentityFixture(homeDir);
+    const first = await migratePai({ homeDir });
+    const firstManifest = await readFile(first.manifestPath, "utf8");
+    const firstTs = firstManifest.match(/^Last migrated at: (.+)$/m)?.[1];
+    const firstFp = firstManifest.match(/identity fingerprint: ([0-9a-f]+)/)?.[1];
+    expect(firstTs).toBeDefined();
+    expect(firstFp).toBeDefined();
+    await new Promise((r) => setTimeout(r, 5));
+    // Mutate identity SOURCE — file count stays the same, content
+    // changes. The previous gate (memory.unchanged && docs.unchanged)
+    // would have preserved the timestamp. The fingerprint embedded
+    // in the manifest body changes, which forces a body-equivalence
+    // failure and a timestamp bump.
+    await writeFile(
+      join(homeDir, ".claude/PAI/USER/PRINCIPAL_IDENTITY.md"),
+      "# Principal\n\n- **Name:** Mutated User\n- **Pronunciation:** Test\n- **Location:** Nowhere\n- **Timezone:** UTC\n- **Role:** Tester\n- **Focus:** Testing\n",
+      "utf8",
+    );
+    const second = await migratePai({ homeDir });
+    const secondManifest = await readFile(second.manifestPath, "utf8");
+    const secondTs = secondManifest.match(/^Last migrated at: (.+)$/m)?.[1];
+    const secondFp = secondManifest.match(/identity fingerprint: ([0-9a-f]+)/)?.[1];
+    expect(secondTs).not.toBe(firstTs);
+    expect(secondFp).not.toBe(firstFp);
   });
 });
 

@@ -77,7 +77,16 @@ function resolvePackHomes(options: PaiPackImportOptions = {}): { paiPackDir: str
   };
 }
 
-function slugifySkillName(value: string): string {
+/**
+ * Slugify a pack name into the canonical Soma skill folder name.
+ *
+ * Exported so the migrate orchestrator (and any future reserved-name
+ * preflight) can derive the same slug without duplicating the
+ * function — Sage #95 Maintainability finding (avoid drift between
+ * the importer's reserved check and the orchestrator's reserved
+ * check).
+ */
+export function slugifySkillName(value: string): string {
   return value
     .trim()
     .replace(/([a-z0-9])([A-Z])/g, "$1-$2")

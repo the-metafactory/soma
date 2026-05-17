@@ -114,39 +114,14 @@ test("soma migrate pai --apply is idempotent (rerun produces no manifest content
 
 // ---- #90 CLI surface ----
 
-async function writeMemoryFixture(homeDir: string): Promise<void> {
-  const root = join(homeDir, ".claude/PAI/MEMORY");
-  await mkdir(join(root, "LEARNING"), { recursive: true });
-  await writeFile(join(root, "LEARNING/lesson.md"), "# Lesson\n", "utf8");
-}
-
-async function writePackFixture(packsDir: string, packName: string): Promise<void> {
-  const packDir = join(packsDir, packName);
-  await mkdir(join(packDir, "src"), { recursive: true });
-  await writeFile(
-    join(packDir, "README.md"),
-    `---\nname: ${packName}\ndescription: tiny pack\n---\n\n# ${packName}\n\nFixture.\n`,
-    "utf8",
-  );
-  await writeFile(join(packDir, "INSTALL.md"), "# Install\n", "utf8");
-  await writeFile(join(packDir, "VERIFY.md"), "# Verify\n", "utf8");
-  await writeFile(
-    join(packDir, "src/SKILL.md"),
-    `---\nname: ${packName}\ndescription: tiny pack\n---\n\n# ${packName}\n\nFixture skill body.\n`,
-    "utf8",
-  );
-}
-
-async function writePaiSourceFixture(homeDir: string): Promise<string> {
-  const sourceDir = join(homeDir, "PAI/Releases/v5.0.0/.claude/PAI");
-  await mkdir(join(sourceDir, "DOCUMENTATION/Skills"), { recursive: true });
-  await writeFile(
-    join(sourceDir, "DOCUMENTATION/Skills/SkillSystem.md"),
-    "# Skill System\n",
-    "utf8",
-  );
-  return sourceDir;
-}
+// Shared fixture builders (Sage r1 #95 Maintainability nit:
+// deduplicate the pack/source/memory builders across migration test
+// files).
+import {
+  writePaiMemoryFixture as writeMemoryFixture,
+  writePaiPackFixture as writePackFixture,
+  writePaiReleaseFixture as writePaiSourceFixture,
+} from "./fixtures/pai-migration-fixtures";
 
 test("soma migrate pai --pai-install <alias for --claude-home>", async () => {
   await withTempHome(async (homeDir) => {
@@ -170,7 +145,8 @@ test("soma migrate pai plan reports memory phase counts", async () => {
     await writeMemoryFixture(homeDir);
     const output = await runSomaCli(["migrate", "pai", "--home-dir", homeDir]);
     expect(output).toContain("memory:");
-    expect(output).toMatch(/memory:\s+1 file/);
+    // Shared fixture plants 2 files (LEARNING/lesson.md + WORK/.../notes.md).
+    expect(output).toMatch(/memory:\s+2 file/);
   });
 });
 
