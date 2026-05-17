@@ -232,11 +232,32 @@ The lifecycle reads:
 
 **Not synonyms — killed from glossary:**
 - `sync`, `rebuild`, `refresh`, `regenerate` → `reproject`
-- `migrate`, `republish`, `bump` → `upgrade`
+- `republish`, `bump` → `upgrade`
 - `rehydrate`, `wake`, `rebind`, `activate` → `load`
 - `remove`, `detach`, `purge` → `uninstall`
 
 **Why:** Without these verbs, the glossary was silent on the lifecycle and prose was inconsistent. `reproject` composes naturally with [[project]]. `upgrade` is user-familiar. `load` is passive because the substrate does it, not Soma — preserves the agency direction. `uninstall` is symmetric to `install`.
+
+---
+
+## migrate (system-to-system orchestration)
+
+Distinct from [[upgrade]] (same system, new version). **`migrate`** is the orchestration verb for moving ownership of an existing personal-AI installation from one system-of-record into Soma. The canonical case today is `soma migrate pai` — wrapping `importPaiIdentity` + `importAlgorithm` + per-pack `importPaiPack` + (forthcoming) memory import + doc import into one principal-facing command.
+
+| Term | Direction | Scope |
+| --- | --- | --- |
+| **[[import]]** (verb, existing) | external source → Soma | one artifact (one pack, one identity file, one algorithm) |
+| **migrate** | external system → Soma | full orchestration: multiple imports + structural alignment + manifest |
+| **[[upgrade]]** | Soma → Soma (or adapter → adapter) | new version of same thing |
+
+**Why both `import` and `migrate`:** import is the unit; migrate is the orchestration. A user running `soma import pai-pack ...` brings one skill in. A user running `soma migrate pai` brings their whole PAI installation in. Conflating them loses the principal-facing simplicity of "I want to move from PAI to Soma" as one verb.
+
+**Why `migrate` is no longer killed:** an earlier glossary lock killed `migrate` as a synonym for `upgrade`, on the principle that "one canonical term per concept". After Soma adopted the [[Soma|new-canonical-home]] stance — Soma is the canonical home of personal AI state, PAI is the source system being moved out of — the verb describes a real, distinct operation that `upgrade` cannot. Reinstated with the sharper meaning above.
+
+**Not synonyms — still killed:**
+- `transfer`, `move`, `port`, `convert` → `migrate`
+
+**Naming for future migrations:** `soma migrate <source-system>` where the source-system is the system being moved out of (e.g., `migrate pai`, future: `migrate cortex`, `migrate <other-personal-ai>`).
 
 ---
 
