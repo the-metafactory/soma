@@ -41,10 +41,52 @@ export const SOMA_SKILL_DESCRIPTION_MAX_LENGTH = 1024;
 const NOTIFICATION_HEADING = /^##+\s*(?:🚨\s*)?MANDATORY[^\n]*$/m;
 const NOTIFICATION_CURL = /^\s*curl\s+[^\n]*localhost:31337\/notify[^\n]*\n?/m;
 
+// PAI `## Customization` runtime block. Issue #86 / AC-2.
+//
+// PAI's Customization block instructs the assistant to look in
+// `~/.claude/PAI/USER/SKILLCUSTOMIZATIONS/<SkillName>/` for user overlays.
+// Soma deliberately does not grow a SKILLCUSTOMIZATIONS equivalent in this
+// PR (see issue body "Out of scope"). The block is stripped as a PAI runtime
+// hook, the same way the MANDATORY notification block is stripped — not
+// rewritten, because there is no Soma side to point at.
+//
+// Anchored on the SKILLCUSTOMIZATIONS marker inside the section body so an
+// unrelated "## Customization" heading (e.g. theme docs) survives intact.
+const CUSTOMIZATION_HEADING = /^##+\s*Customization\s*$/m;
+const CUSTOMIZATION_BODY_MARKER = "SKILLCUSTOMIZATIONS";
+
 const CLAUDE_HOME_DETERMINISTIC: readonly { from: RegExp; to: string; kind: PaiPackNormalizationAction["kind"] }[] = [
-  // Skill payload root — has a clean Soma equivalent
+  // Skill payload root — clean Soma equivalent.
   { from: /~\/\.claude\/skills\//, to: "~/.soma/skills/", kind: "rewrote-claude-home-path" },
+  // Issue #86 / AC-1: PAI memory root → Soma memory root. Both substrates
+  // share the "memory" concept; mapping is one-to-one. The deeper subtree
+  // shape (SKILLS/execution.jsonl etc.) is preserved.
+  { from: /~\/\.claude\/PAI\/MEMORY\//, to: "~/.soma/memory/", kind: "rewrote-claude-home-path" },
 ];
+
+// Issue #86 / AC-1: catch-all for every other `~/.claude/<segment>/...`
+// path. Runs AFTER the deterministic rewrites and AFTER the Customization
+// block strip, so it only fires on paths that have no Soma equivalent and
+// have not been removed. Rewrites to a visible `~/.soma/UNMAPPED/<rest>`
+// placeholder so runtime breakage is loud (the path does not exist) and
+// emits a `unmapped-claude-home-path` warning so import-time review is loud.
+// Together these satisfy AC-3 (zero `~/.claude/` residue in the body) and
+// AC-1 (no silent passthrough — every unmapped reference shows up in the
+// audit trail).
+const CLAUDE_HOME_CATCHALL = /~\/\.claude\/([^\s`'")\]]+)/;
+const CLAUDE_HOME_UNMAPPED_PREFIX = "~/.soma/UNMAPPED/";
+
+// AC-3 strict-grep guard: a naked `~/.claude` or `~/.claude/` (no further
+// path content) in prose ("they never leave ~/.claude") would survive the
+// CLAUDE_HOME_CATCHALL above because it requires at least one character
+// after the slash. Rewrite the bare form to `~/.soma` so the issue's
+// reproduction `grep -n "~/.claude" SKILL.md Workflows/*.md` returns zero.
+// The lookahead anchors on what definitively continues a path segment —
+// alphanumeric, underscore, or dot-followed-by-alnum (for `.ts`, `.md`,
+// etc.). Period-followed-by-space-or-EOL is sentence punctuation, not a
+// path continuation. Anything that the substantive CLAUDE_HOME_CATCHALL
+// already matched is gone by the time this regex runs.
+const CLAUDE_HOME_BARE = /~\/\.claude\/?(?![A-Za-z0-9_-]|\.[A-Za-z0-9])/;
 
 const CLAUDE_HOME_AMBIGUOUS: readonly { pattern: RegExp; kind: PaiPackNormalizationWarning["kind"]; detail: string }[] = [
   {
@@ -95,7 +137,16 @@ export function normalizeSkillContent(relPath: string, content: string): Normali
   collectReleaseSafetyWarnings(relPath, content, warnings);
 
   let working = stripMandatoryNotificationBlock(relPath, content, actions);
+  // Strip the PAI Customization block BEFORE any path rewriting so the
+  // ~/.claude/PAI/USER/SKILLCUSTOMIZATIONS/... path inside the block is
+  // removed wholesale rather than rewritten — there is no Soma equivalent
+  // mechanism to point at (issue #86 / AC-2, "Out of scope" note).
+  working = stripPaiCustomizationBlock(relPath, working, actions);
   working = applyDeterministicPathRewrites(relPath, working, actions);
+  // Catch-all runs LAST so deterministic rewrites and runtime-block strips
+  // get first crack. Anything still containing `~/.claude/...` after this
+  // point is unmapped — rewritten to `~/.soma/UNMAPPED/...` with a warning.
+  working = applyUnmappedClaudePathCatchall(relPath, working, actions, warnings);
 
   return { content: working, actions, warnings };
 }
@@ -106,6 +157,105 @@ export function normalizeSkillContent(relPath: string, content: string): Normali
 // round-2 blocker.
 const NOTIFICATION_BODY_MARKERS = /localhost:31337\/notify|voice notification|notify endpoint/i;
 
+// Returns the ATX heading level (count of leading `#`s) for a matched
+// heading string like `"## Customization"`. The matched string is
+// guaranteed to start with `#`s by the heading regex it came from.
+function headingHashCount(headingText: string): number {
+  const hashes = /^(#+)/.exec(headingText);
+  return hashes ? hashes[1].length : 0;
+}
+
+// Returns a fresh regex that matches the next ATX heading at the given
+// level or higher (fewer `#`s = higher level). Used to compute where a
+// stripped section ends — a deeper heading is part of the section's
+// hierarchy, but a same-or-higher heading starts the next section.
+//
+// Precondition: `level >= 1`. Sage R3 (PR #87) Maintainability nit: the
+// only call site (`stripMarkedHeadingSections`) gets `level` from
+// `headingHashCount(headingText)` where `headingText` is captured by a
+// regex anchored on `^#+`, so `level >= 1` is always true. Asserting here
+// keeps the contract explicit instead of carrying a dead defensive branch.
+function sameOrHigherHeadingBoundary(level: number): RegExp {
+  if (level < 1) {
+    throw new Error(`sameOrHigherHeadingBoundary: level must be >= 1, got ${level}`);
+  }
+  return new RegExp(`^#{1,${level}}\\s+`, "m");
+}
+
+// Sage R1 + R2 (PR #87) Maintainability + CodeQuality: shared section-
+// strip helper. Iterates every match of `headingRegex` (a heading line
+// anchored with /m), measures the section span to the next same-or-higher
+// ATX heading or EOF, and strips every section whose body satisfies
+// `markerMatches`. Returns the stripped content and the count of sections
+// actually removed.
+//
+// "Iterate every match" was the R1 fix: the original stripper only
+// inspected the first match, so an unrelated `## Customization` ahead of
+// the real PAI runtime block would prevent the strip from firing on the
+// later block. "Same-or-higher boundary" was the R2 fix: the original
+// boundary regex `/^##+\s+/m` would swallow an H1 between the stripped
+// `##` block and the next `##`.
+function stripMarkedHeadingSections(
+  content: string,
+  headingRegex: RegExp,
+  markerMatches: (sectionBody: string) => boolean,
+): { content: string; stripped: number } {
+  // Collect ALL match positions first so position math does not shift
+  // mid-iteration. The heading regex is multiline-anchored; using
+  // globalize() guarantees we never share lastIndex with caller-side
+  // `.test()` / `.exec()` calls on the same RegExp instance.
+  const matchPositions: { start: number; headingText: string }[] = [];
+  const scanner = globalize(headingRegex);
+  let scan: RegExpExecArray | null;
+  while ((scan = scanner.exec(content)) !== null) {
+    matchPositions.push({ start: scan.index, headingText: scan[0] });
+    // Defend against zero-width matches looping forever.
+    if (scan.index === scanner.lastIndex) scanner.lastIndex += 1;
+  }
+
+  if (matchPositions.length === 0) {
+    return { content, stripped: 0 };
+  }
+
+  // Resolve each match to its section span [start, end) over the ORIGINAL
+  // content. End is either the next same-or-higher ATX heading after the
+  // section header, or EOF. Filter to the ones whose body matches the
+  // marker.
+  //
+  // Sage R2 (PR #87) CodeQuality fix: the original boundary regex
+  // `/^##+\s+/m` only matched `##+`, so an H1 between the stripped block
+  // and the next `##` was swallowed. Boundary is now computed from the
+  // matched heading's own level — for a `##` strip, any `#` or `##` ends
+  // the section; deeper headings (`###`+) are treated as in-section
+  // subsections and stripped along with the parent block.
+  const stripSpans: { start: number; end: number }[] = [];
+  for (const { start, headingText } of matchPositions) {
+    const headingLength = headingText.length;
+    const level = headingHashCount(headingText);
+    const boundary = sameOrHigherHeadingBoundary(level);
+    const rest = content.slice(start + headingLength);
+    const nextHeading = boundary.exec(rest);
+    const end = nextHeading ? start + headingLength + nextHeading.index : content.length;
+    const sectionBody = content.slice(start, end);
+    if (markerMatches(sectionBody)) {
+      stripSpans.push({ start, end });
+    }
+  }
+
+  if (stripSpans.length === 0) {
+    return { content, stripped: 0 };
+  }
+
+  // Splice spans out from the tail so earlier indices remain valid.
+  let working = content;
+  for (let i = stripSpans.length - 1; i >= 0; i--) {
+    const { start, end } = stripSpans[i];
+    working = `${working.slice(0, start).replace(/\n+$/, "\n")}${working.slice(end)}`;
+  }
+
+  return { content: working, stripped: stripSpans.length };
+}
+
 function stripMandatoryNotificationBlock(
   relPath: string,
   content: string,
@@ -115,25 +265,23 @@ function stripMandatoryNotificationBlock(
     return content;
   }
 
-  let stripped = content;
-  const headingMatch = NOTIFICATION_HEADING.exec(content);
-  if (headingMatch) {
-    const start = headingMatch.index;
-    const rest = stripped.slice(start + headingMatch[0].length);
-    const nextHeading = /^##+\s+/m.exec(rest);
-    const end = nextHeading ? start + headingMatch[0].length + nextHeading.index : stripped.length;
-    const sectionBody = stripped.slice(start, end);
-    // Only strip when the section's body proves it is the notification
-    // runtime block (curl invocation or notification keyword). A heading
-    // like "## MANDATORY: Input Requirements" survives.
-    if (NOTIFICATION_BODY_MARKERS.test(sectionBody)) {
-      stripped = `${stripped.slice(0, start).replace(/\n+$/, "\n")}${stripped.slice(end)}`;
-      actions.push({
-        file: relPath,
-        kind: "stripped-mandatory-runtime-block",
-        detail: "Removed mandatory notification runtime block.",
-      });
-    }
+  // Sage R1 fix: use the shared helper. Strips every MANDATORY section
+  // whose body is the notification runtime block. Conservative gating
+  // (NOTIFICATION_BODY_MARKERS) preserves `## MANDATORY: Input Requirements`.
+  const { content: afterHeadingStrip, stripped: headingStrips } = stripMarkedHeadingSections(
+    content,
+    NOTIFICATION_HEADING,
+    (sectionBody) => NOTIFICATION_BODY_MARKERS.test(sectionBody),
+  );
+  let stripped = afterHeadingStrip;
+  if (headingStrips > 0) {
+    actions.push({
+      file: relPath,
+      kind: "stripped-mandatory-runtime-block",
+      detail: headingStrips === 1
+        ? "Removed mandatory notification runtime block."
+        : `Removed ${headingStrips} mandatory notification runtime blocks.`,
+    });
   }
 
   // Strip any stragglers — bare curl notification commands outside a heading.
@@ -146,6 +294,40 @@ function stripMandatoryNotificationBlock(
     });
   }
 
+  return stripped.replace(/\n{3,}/g, "\n\n").trimEnd() + "\n";
+}
+
+function stripPaiCustomizationBlock(
+  relPath: string,
+  content: string,
+  actions: PaiPackNormalizationAction[],
+): string {
+  if (!CUSTOMIZATION_HEADING.test(content)) {
+    return content;
+  }
+
+  // Sage R1 (PR #87) CodeQuality fix: strip ALL `## Customization`
+  // sections whose body contains the SKILLCUSTOMIZATIONS marker — not
+  // just the first match. An unrelated `## Customization` heading
+  // earlier in the document (e.g. theme docs) must not shield a later
+  // PAI runtime block from removal.
+  const { content: stripped, stripped: count } = stripMarkedHeadingSections(
+    content,
+    CUSTOMIZATION_HEADING,
+    (sectionBody) => sectionBody.includes(CUSTOMIZATION_BODY_MARKER),
+  );
+
+  if (count === 0) {
+    return content;
+  }
+
+  actions.push({
+    file: relPath,
+    kind: "stripped-pai-customization-block",
+    detail: count === 1
+      ? "Removed PAI Customization runtime block referencing ~/.claude/PAI/USER/SKILLCUSTOMIZATIONS/."
+      : `Removed ${count} PAI Customization runtime blocks referencing ~/.claude/PAI/USER/SKILLCUSTOMIZATIONS/.`,
+  });
   return stripped.replace(/\n{3,}/g, "\n\n").trimEnd() + "\n";
 }
 
@@ -165,6 +347,61 @@ function applyDeterministicPathRewrites(
       });
     }
   }
+  return working;
+}
+
+function applyUnmappedClaudePathCatchall(
+  relPath: string,
+  content: string,
+  actions: PaiPackNormalizationAction[],
+  warnings: PaiPackNormalizationWarning[],
+): string {
+  let working = content;
+  const seenRests = new Set<string>();
+
+  if (CLAUDE_HOME_CATCHALL.test(working)) {
+    working = working.replace(globalize(CLAUDE_HOME_CATCHALL), (_match, rest: string) => {
+      // The first segment after `~/.claude/` is the routing root; record it
+      // for a single representative warning per file (avoids exploding the
+      // audit trail when the same root appears 20 times in one workflow).
+      const firstSegment = rest.split("/")[0] ?? "";
+      if (firstSegment && !seenRests.has(firstSegment)) {
+        seenRests.add(firstSegment);
+        warnings.push({
+          file: relPath,
+          kind: "unmapped-claude-home-path",
+          detail: `~/.claude/${firstSegment}/ has no Soma equivalent; rewrote to ${CLAUDE_HOME_UNMAPPED_PREFIX}${firstSegment}/ so runtime breakage is visible.`,
+        });
+      }
+      return `${CLAUDE_HOME_UNMAPPED_PREFIX}${rest}`;
+    });
+  }
+
+  // After the substantive catch-all, scrub bare `~/.claude` / `~/.claude/`
+  // mentions (prose like "never leave ~/.claude") so a bare grep on the
+  // projected body returns zero. These get a separate warning class so the
+  // distinction between "broken path reference" and "stale prose mention"
+  // stays visible in the audit trail.
+  if (CLAUDE_HOME_BARE.test(working)) {
+    working = working.replace(globalize(CLAUDE_HOME_BARE), "~/.soma");
+    if (!seenRests.has("__bare__")) {
+      seenRests.add("__bare__");
+      warnings.push({
+        file: relPath,
+        kind: "unmapped-claude-home-path",
+        detail: "Bare ~/.claude prose mention rewrote to ~/.soma to satisfy AC-3 zero-residue grep.",
+      });
+    }
+  }
+
+  if (working !== content) {
+    actions.push({
+      file: relPath,
+      kind: "rewrote-unmapped-claude-path",
+      detail: `Rewrote ${seenRests.size} unmapped ~/.claude/ reference(s) to ${CLAUDE_HOME_UNMAPPED_PREFIX} placeholder (or ~/.soma for bare mentions).`,
+    });
+  }
+
   return working;
 }
 

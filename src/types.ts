@@ -442,7 +442,9 @@ export interface PaiPackNormalizationAction {
   kind:
     | "removed-substrate-notification-hook"
     | "rewrote-claude-home-path"
+    | "rewrote-unmapped-claude-path"
     | "stripped-mandatory-runtime-block"
+    | "stripped-pai-customization-block"
     | "compacted-skill-description";
   detail: string;
 }
@@ -454,7 +456,8 @@ export interface PaiPackNormalizationWarning {
     | "substrate-mutation-command"
     | "execution-logging-path"
     | "customization-overlay-reference"
-    | "release-safety-path";
+    | "release-safety-path"
+    | "unmapped-claude-home-path";
   detail: string;
 }
 
