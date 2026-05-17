@@ -426,6 +426,207 @@ test("honors guardModify: false", () => {
   expect(result.blocked).toBe(false);
 });
 
+// ── Allowed Subpaths (legitimate memory/ISA writes) ──
+
+test("allows modify on ~/.soma/isa subtree by default", () => {
+  const somaHome = join(process.env.HOME ?? "/tmp", ".soma");
+  const result = evaluatePathGuard({
+    targetPaths: [join(somaHome, "isa", "personal", "draft.md")],
+    cwd: "/tmp",
+    action: "modify",
+  });
+
+  expect(result.blocked).toBe(false);
+  expect(result.matchedPaths).toEqual([]);
+});
+
+test("allows modify on ~/.soma/memory subtree by default", () => {
+  const somaHome = join(process.env.HOME ?? "/tmp", ".soma");
+  const result = evaluatePathGuard({
+    targetPaths: [join(somaHome, "memory", "STATE", "active.json")],
+    cwd: "/tmp",
+    action: "modify",
+  });
+
+  expect(result.blocked).toBe(false);
+});
+
+test("allows modify on ~/.claude memory subtrees by default", () => {
+  const claudeHome = join(process.env.HOME ?? "/tmp", ".claude");
+  for (const subpath of ["memory", "memories", join("PAI", "MEMORY")]) {
+    const result = evaluatePathGuard({
+      targetPaths: [join(claudeHome, subpath, "note.md")],
+      cwd: "/tmp",
+      action: "modify",
+    });
+    expect(result.blocked).toBe(false);
+  }
+});
+
+test("allows modify on ~/.pi agent memory subtree by default", () => {
+  const piHome = join(process.env.HOME ?? "/tmp", ".pi");
+  const result = evaluatePathGuard({
+    targetPaths: [join(piHome, "agent", "memory", "session.md")],
+    cwd: "/tmp",
+    action: "modify",
+  });
+
+  expect(result.blocked).toBe(false);
+});
+
+test("still blocks modify on ~/.soma/profile (private root)", () => {
+  const somaHome = join(process.env.HOME ?? "/tmp", ".soma");
+  const result = evaluatePathGuard({
+    targetPaths: [join(somaHome, "profile", "identity.md")],
+    cwd: "/tmp",
+    action: "modify",
+  });
+
+  expect(result.blocked).toBe(true);
+});
+
+test("still blocks modify on ~/.soma root files (not in allowed subpaths)", () => {
+  const somaHome = join(process.env.HOME ?? "/tmp", ".soma");
+  const result = evaluatePathGuard({
+    targetPaths: [join(somaHome, "secret.md")],
+    cwd: "/tmp",
+    action: "modify",
+  });
+
+  expect(result.blocked).toBe(true);
+});
+
+test("still blocks delete on ~/.soma/memory (allowed-subpath does not extend to delete)", () => {
+  const somaHome = join(process.env.HOME ?? "/tmp", ".soma");
+  const result = evaluatePathGuard({
+    targetPaths: [join(somaHome, "memory", "STATE", "active.json")],
+    cwd: "/tmp",
+    action: "delete",
+  });
+
+  expect(result.blocked).toBe(true);
+});
+
+test("still blocks delete on ~/.soma/isa (allowed-subpath does not extend to delete)", () => {
+  const somaHome = join(process.env.HOME ?? "/tmp", ".soma");
+  const result = evaluatePathGuard({
+    targetPaths: [join(somaHome, "isa", "personal", "draft.md")],
+    cwd: "/tmp",
+    action: "delete",
+  });
+
+  expect(result.blocked).toBe(true);
+});
+
+test("respects explicit allowedSubpaths on custom protected paths", () => {
+  const customRoot = "/tmp/custom-root";
+  const allowed = evaluatePathGuard({
+    targetPaths: [resolve(customRoot, "scratch/note.md")],
+    cwd: "/tmp",
+    action: "modify",
+    protectedPaths: [{ path: customRoot, description: "custom", allowedSubpaths: ["scratch"] }],
+  });
+  const blocked = evaluatePathGuard({
+    targetPaths: [resolve(customRoot, "vault/secret.md")],
+    cwd: "/tmp",
+    action: "modify",
+    protectedPaths: [{ path: customRoot, description: "custom", allowedSubpaths: ["scratch"] }],
+  });
+
+  expect(allowed.blocked).toBe(false);
+  expect(blocked.blocked).toBe(true);
+});
+
+test("allowedSubpaths does not affect delete action", () => {
+  const customRoot = "/tmp/custom-root";
+  const result = evaluatePathGuard({
+    targetPaths: [resolve(customRoot, "scratch/note.md")],
+    cwd: "/tmp",
+    action: "delete",
+    protectedPaths: [{ path: customRoot, description: "custom", allowedSubpaths: ["scratch"] }],
+  });
+
+  expect(result.blocked).toBe(true);
+});
+
+// ── allowedSubpaths input hardening (#79 R2 important: prevent escape via
+// absolute paths, tilde-prefixes, or `..` traversal in operator-supplied
+// allowedSubpaths values) ──
+
+test("allowedSubpaths rejects absolute-path subpath values (cannot relax beyond root)", () => {
+  const customRoot = "/tmp/custom-root";
+  // An attacker / misconfigured operator passes an absolute path. The
+  // expected behavior: the unsafe value is dropped, the target is still
+  // blocked because it is inside the protected root and no safe allowed
+  // subpath matches.
+  const result = evaluatePathGuard({
+    targetPaths: [resolve(customRoot, "private/identity.md")],
+    cwd: "/tmp",
+    action: "modify",
+    protectedPaths: [{ path: customRoot, description: "custom", allowedSubpaths: ["/"] }],
+  });
+
+  expect(result.blocked).toBe(true);
+});
+
+test("allowedSubpaths rejects parent-traversal subpath values", () => {
+  const customRoot = "/tmp/custom-root";
+  // `..` would resolve to /tmp and let any modify inside /tmp/* pass.
+  const result = evaluatePathGuard({
+    targetPaths: [resolve(customRoot, "private/identity.md")],
+    cwd: "/tmp",
+    action: "modify",
+    protectedPaths: [{ path: customRoot, description: "custom", allowedSubpaths: [".."] }],
+  });
+
+  expect(result.blocked).toBe(true);
+});
+
+test("allowedSubpaths rejects tilde-prefixed subpath values", () => {
+  const customRoot = "/tmp/custom-root";
+  const result = evaluatePathGuard({
+    targetPaths: [resolve(customRoot, "private/identity.md")],
+    cwd: "/tmp",
+    action: "modify",
+    protectedPaths: [{ path: customRoot, description: "custom", allowedSubpaths: ["~/anywhere"] }],
+  });
+
+  expect(result.blocked).toBe(true);
+});
+
+test("allowedSubpaths rejects empty and dot-only subpath values", () => {
+  const customRoot = "/tmp/custom-root";
+  for (const unsafe of ["", ".", "./"]) {
+    const result = evaluatePathGuard({
+      targetPaths: [resolve(customRoot, "private/identity.md")],
+      cwd: "/tmp",
+      action: "modify",
+      protectedPaths: [{ path: customRoot, description: "custom", allowedSubpaths: [unsafe] }],
+    });
+    expect(result.blocked).toBe(true);
+  }
+});
+
+test("allowedSubpaths drops unsafe entries but still honors safe siblings", () => {
+  const customRoot = "/tmp/custom-root";
+  // The "../escape" is unsafe and dropped; "scratch" is safe and applied.
+  const escape = evaluatePathGuard({
+    targetPaths: [resolve(customRoot, "private/identity.md")],
+    cwd: "/tmp",
+    action: "modify",
+    protectedPaths: [{ path: customRoot, description: "custom", allowedSubpaths: ["../escape", "scratch"] }],
+  });
+  const safe = evaluatePathGuard({
+    targetPaths: [resolve(customRoot, "scratch/note.md")],
+    cwd: "/tmp",
+    action: "modify",
+    protectedPaths: [{ path: customRoot, description: "custom", allowedSubpaths: ["../escape", "scratch"] }],
+  });
+
+  expect(escape.blocked).toBe(true);
+  expect(safe.blocked).toBe(false);
+});
+
 // ── Policy Integration ──
 
 test("policy check denies delete on Soma home path", async () => {
@@ -473,6 +674,66 @@ test("policy check denies delete on configured-home Claude path by default", asy
     expect(result.findings[0]).toMatchObject({
       kind: "protected-path",
     });
+  });
+});
+
+test("policy check allows modify on Soma ISA subtree (legitimate Soma write)", async () => {
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    const result = await checkSomaPolicy({
+      homeDir,
+      somaHome,
+      action: "modify",
+      destinationPath: join(somaHome, "isa", "personal", "active.md"),
+      record: "none",
+    });
+
+    expect(result.decision).toBe("allow");
+  });
+});
+
+test("policy check allows modify on Soma memory subtree (legitimate memory write)", async () => {
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    const result = await checkSomaPolicy({
+      homeDir,
+      somaHome,
+      action: "modify",
+      destinationPath: join(somaHome, "memory", "STATE", "active.json"),
+      record: "none",
+    });
+
+    expect(result.decision).toBe("allow");
+  });
+});
+
+test("policy check still denies modify on Soma profile (private root)", async () => {
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    const result = await checkSomaPolicy({
+      homeDir,
+      somaHome,
+      action: "modify",
+      destinationPath: join(somaHome, "profile", "identity.md"),
+      record: "none",
+    });
+
+    expect(result.decision).toBe("deny");
+  });
+});
+
+test("policy check still denies delete on Soma memory subtree", async () => {
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    const result = await checkSomaPolicy({
+      homeDir,
+      somaHome,
+      action: "delete",
+      destinationPath: join(somaHome, "memory", "STATE", "active.json"),
+      record: "none",
+    });
+
+    expect(result.decision).toBe("deny");
   });
 });
 
@@ -730,6 +991,85 @@ test("generated pi.dev guard blocks destructive commands, redirections, mv sourc
     else process.env.HOME = originalHome;
     await rm(tmpDir, { recursive: true, force: true });
   }
+});
+
+// Pi.dev rendered-extension harness shared by the #79 AC tests. Boots the
+// rendered guard against a temporary HOME, returns the tool_call handler,
+// and owns all cleanup (extension file, HOME restore, tmpDir removal).
+type RenderedPiHandler = (
+  event: { toolName: string; input?: { command?: string; file_path?: string; path?: string } },
+  ctx: { cwd?: string; ui?: { notify?: (message: string, level: string) => void } },
+) => unknown;
+
+async function withRenderedPiPathGuardHandler<T>(prefix: string, fn: (ctx: { tmpDir: string; handler: RenderedPiHandler }) => Promise<T>): Promise<T> {
+  const tmpDir = await mkdtemp(join(tmpdir(), prefix));
+  const extension = renderPathGuardExtension(join(tmpDir, ".soma"));
+  const extPath = join(tmpDir, "soma-path-guard.ts");
+  const originalHome = process.env.HOME;
+  let handler: RenderedPiHandler | undefined;
+
+  try {
+    process.env.HOME = tmpDir;
+    await mkdir(join(tmpDir, ".soma"), { recursive: true });
+    await writeFile(extPath, extension, "utf8");
+    const mod = (await import(pathToFileURL(extPath).href)) as {
+      default: (pi: { on: (event: "tool_call", cb: NonNullable<typeof handler>) => void }) => void;
+    };
+    mod.default({
+      on: (_event, cb) => {
+        handler = cb;
+      },
+    });
+
+    if (!handler) throw new Error("rendered Pi.dev extension did not register a tool_call handler");
+    return await fn({ tmpDir, handler });
+  } finally {
+    if (originalHome === undefined) delete process.env.HOME;
+    else process.env.HOME = originalHome;
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+}
+
+test("generated pi.dev guard allows writes to Soma ISA and memory subtrees", async () => {
+  await withRenderedPiPathGuardHandler("soma-guard-ext-allow-", async ({ tmpDir, handler }) => {
+    // ISA write should be allowed (#79 AC-1)
+    const isaWrite = await handler({ toolName: "write", input: { file_path: ".soma/isa/personal/draft.md" } }, { cwd: tmpDir });
+    // ISA edit should be allowed (#79 AC-1)
+    const isaEdit = await handler({ toolName: "edit", input: { file_path: ".soma/isa/personal/draft.md" } }, { cwd: tmpDir });
+    // Memory write should be allowed (#79 AC-2)
+    const memoryWrite = await handler({ toolName: "write", input: { file_path: ".soma/memory/STATE/active.json" } }, { cwd: tmpDir });
+    // Memory edit on nested file should be allowed
+    const memoryEdit = await handler({ toolName: "edit", input: { file_path: ".soma/memory/WORK/run-123/notes.md" } }, { cwd: tmpDir });
+
+    expect(isaWrite).toBeUndefined();
+    expect(isaEdit).toBeUndefined();
+    expect(memoryWrite).toBeUndefined();
+    expect(memoryEdit).toBeUndefined();
+  });
+});
+
+test("generated pi.dev guard still blocks destructive deletes of Soma home (#79 AC-3)", async () => {
+  await withRenderedPiPathGuardHandler("soma-guard-ext-delete-", async ({ tmpDir, handler }) => {
+    const rmHome = await handler({ toolName: "bash", input: { command: "rm -rf ~/.soma" } }, { cwd: tmpDir });
+    const rmIsa = await handler({ toolName: "bash", input: { command: "rm -rf ~/.soma/isa" } }, { cwd: tmpDir });
+    const rmMemory = await handler({ toolName: "bash", input: { command: "rm -rf ~/.soma/memory" } }, { cwd: tmpDir });
+
+    expect(rmHome).toMatchObject({ block: true });
+    expect(rmIsa).toMatchObject({ block: true });
+    expect(rmMemory).toMatchObject({ block: true });
+  });
+});
+
+test("generated pi.dev guard still blocks writes to ~/.soma/profile (#79 AC-4 private root)", async () => {
+  await withRenderedPiPathGuardHandler("soma-guard-ext-profile-", async ({ tmpDir, handler }) => {
+    const writeProfile = await handler({ toolName: "write", input: { file_path: ".soma/profile/identity.md" } }, { cwd: tmpDir });
+    const editProfile = await handler({ toolName: "edit", input: { file_path: ".soma/profile/identity.md" } }, { cwd: tmpDir });
+    const writeRoot = await handler({ toolName: "write", input: { file_path: ".soma/secret.md" } }, { cwd: tmpDir });
+
+    expect(writeProfile).toMatchObject({ block: true });
+    expect(editProfile).toMatchObject({ block: true });
+    expect(writeRoot).toMatchObject({ block: true });
+  });
 });
 
 // ── Policy write action still works ──

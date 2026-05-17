@@ -602,6 +602,17 @@ export interface SomaProtectedPath {
   description: string;
   guardDelete?: boolean;
   guardModify?: boolean;
+  /**
+   * Subpaths (relative to `path`) where `modify` is permitted even though the
+   * surrounding root is otherwise modify-guarded. Has no effect on `delete`;
+   * destructive operations against any descendant of `path` remain blocked.
+   *
+   * Used to declare known memory/ISA destinations under a private root so that
+   * legitimate Soma writes (e.g. `~/.soma/isa/*.md`, `~/.soma/memory/...`)
+   * pass while overwrites of the private root itself (`~/.soma/profile/...`)
+   * stay denied.
+   */
+  allowedSubpaths?: string[];
 }
 
 export interface SomaPolicyCheckOptions {
