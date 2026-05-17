@@ -11,6 +11,13 @@ test("exports version (source of truth: package.json)", () => {
   expect(/^\d+\.\d+\.\d+/.test(SOMA_VERSION)).toBe(true);
 });
 
+test("arc manifest version matches package.json", () => {
+  const pkg = JSON.parse(readFileSync(join(import.meta.dirname, "..", "package.json"), "utf8")) as { version: string };
+  const manifest = readFileSync(join(import.meta.dirname, "..", "arc-manifest.yaml"), "utf8");
+  const version = manifest.match(/^version:\s*(\S+)\s*$/m)?.[1];
+  expect(version).toBe(pkg.version);
+});
+
 test("adapter contract is structurally usable", async () => {
   const adapter: SomaAdapter = {
     name: "custom",
