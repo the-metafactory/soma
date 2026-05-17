@@ -109,6 +109,170 @@ soma migrate pai \
   --apply
 ```
 
+## Step 5 — Project Soma into your coding agent(s)
+
+After migration, `~/.soma/` is the source of truth. Each substrate
+(Claude Code, Codex, Pi.dev) needs a one-time install so it picks Soma
+up at session start. Install one, two, or all three — they share the
+same `~/.soma/` state and stay in sync automatically.
+
+### 5a — Claude Code
+
+Claude Code has the richest native surface (CLAUDE.md, hooks, skills,
+sub-agents, slash commands, statusline). The install projects Soma into
+the familiar `~/.claude/` layout *without* making Claude Code the
+source of truth.
+
+```bash
+soma install claude-code --dry-run
+soma install claude-code --apply
+```
+
+This writes:
+
+- `~/.claude/rules/soma/README.md` + `CONTEXT.md` + `PROFILE.md` +
+  `TELOS.md` + `MEMORY_LAYOUT.md` + `SKILLS.md` + `POLICY.md` +
+  `ACTIVE_ISA.md` — the canonical home projection. Claude Code
+  auto-discovers `.claude/rules/` at session start and loads Soma
+  context from these files (per architectural pivot in soma#64; the
+  pre-pivot `~/.claude/CLAUDE.md` `@`-import path was unreliable).
+- `~/.claude/skills/ISA/` — bundled ISA skill (Soma's verification
+  harness).
+
+Hooks are deliberately not in the home install. They are an optional
+overlay that can improve behaviour but are not required for the storage
+contract. Configure them separately if you want memory writeback or
+lifecycle integration.
+
+If you previously used `soma adopt claude`, that verb still works as a
+legacy alias — `soma install claude-code` is the canonical form.
+
+**Workspace install** (per-repo) — pin a different Soma to a specific
+workspace:
+
+```bash
+cd <project>
+soma install claude-code --workspace --apply
+```
+
+Writes `.claude/soma/` inside the workspace; it overlays the home
+projection, not replaces it.
+
+### 5b — Codex (OpenAI)
+
+The Codex projection is a workspace-shaped instruction set plus a home
+projection into `~/.codex/`:
+
+```bash
+soma install codex --dry-run
+soma install codex --apply
+```
+
+This writes:
+
+- `~/.codex/AGENTS.md` — imports the Soma startup context and the
+  Algorithm skill.
+- `~/.codex/rules/soma.rules` — Codex-native rule files projecting
+  Soma identity, telos, active ISA, policy.
+- `~/.codex/hooks/` — soma-lifecycle, policy, feedback-capture hooks.
+- `~/.codex/skills/{soma,the-algorithm}/SKILL.md` — local skill
+  projection.
+- `~/.codex/memories/soma/` — projected memory layout and PAI-import
+  references.
+- `~/.codex/config.toml` — Codex configuration with Soma defaults.
+
+**Workspace install** for a specific repo:
+
+```bash
+cd <project>
+soma install codex --workspace --apply
+```
+
+Lands under `.codex/soma/`.
+
+### 5c — Pi.dev
+
+Pi.dev is model-agnostic with extensions and skills. The projection
+follows the reduced PAI-on-Pi pattern: one core extension + Soma-aware
+skills.
+
+```bash
+soma install pi-dev --dry-run
+soma install pi-dev --apply
+```
+
+This writes:
+
+- `~/.pi/agent/extensions/soma.ts` — registers the `soma_context` tool
+  and appends Soma identity to the LLM context on `before_agent_start`.
+- `~/.pi/agent/extensions/soma-path-guard.ts` — Pi.dev-side enforcement
+  of Soma's write-policy (see
+  [docs/writeback-and-policy.md](writeback-and-policy.md)).
+- `~/.pi/agent/extensions/soma-algorithm.ts` — Algorithm phase
+  renderer.
+- `~/.pi/agent/soma/` — context, profile, startup-context, memory
+  layout, policy snapshot, PAI-imports manifest.
+- `~/.pi/agent/skills/soma/SKILL.md` — Soma skill registered as a
+  Pi.dev skill.
+
+## Step 6 — Verify
+
+Confirm Soma is the live source for each installed substrate.
+
+### Storage check
+
+```bash
+ls ~/.soma/profile/                # principal.md, telos.md, identity
+ls ~/.soma/memory/                 # 19 categories (17 + 2 PAI-bound)
+ls ~/.soma/PAI/                    # DOCUMENTATION, TEMPLATES, ALGORITHM
+ls ~/.soma/skills/                 # imported PAI packs as Soma skills
+soma migrate pai --status          # manifest + per-pack outcome table
+```
+
+### Substrate check
+
+Start a session in each installed substrate. The principal identity,
+active ISA, and recent learning should appear unchanged across all
+three.
+
+- **Claude Code** — `~/.claude/rules/soma/CONTEXT.md` and
+  `PROFILE.md` exist; Claude Code auto-loads them at session start.
+- **Codex** — `~/.codex/AGENTS.md` `@`-imports
+  `~/.codex/memories/soma/startup-context.md` and the Algorithm skill.
+- **Pi.dev** — the `soma` extension registers on `before_agent_start`
+  and `soma_context` is a callable tool.
+
+### Algorithm round-trip
+
+Run a small Algorithm session and verify it lands under `~/.soma/`:
+
+```bash
+soma algorithm new \
+  --prompt "verify migration" \
+  --intent "confirm Soma owns the run" \
+  --current-state "PAI just migrated" \
+  --goal "see the run land in ~/.soma" \
+  --criterion "C1:Run file exists under ~/.soma/memory/WORK/algorithm-runs/"
+
+ls ~/.soma/memory/WORK/algorithm-runs/  # the run is here, not under ~/.claude/
+```
+
+## What changes for you after migration
+
+- **Source of truth shifts to `~/.soma/`.** Treat `~/.claude/` as a
+  generated surface. Edit `~/.soma/profile/*`, `~/.soma/memory/*`,
+  `~/.soma/skills/*`. Re-run `soma install claude-code --apply` to
+  pick changes up in the projection.
+- **All substrates see the same state.** Switching between coding
+  agents no longer means re-onboarding the assistant.
+- **PAI keeps working.** Your existing PAI session and hooks continue
+  to run. If you write into `~/.claude/PAI/MEMORY/` after migration,
+  the next `migrate pai --apply` translates the new content forward;
+  the inverse does not happen.
+- **The Algorithm and ISA are now Soma's.** Phase markers, ISC
+  verification, and learning routing land in `~/.soma/`. Project ISAs
+  created with `soma isa scaffold` live in the same place.
+
 ## Failure modes
 
 | Symptom                                                             | Likely cause                                                                                          |
