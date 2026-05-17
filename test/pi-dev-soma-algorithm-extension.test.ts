@@ -74,6 +74,31 @@ describe("renderSomaAlgorithmExtension", () => {
     expect(source).toContain("flush: !isDelta");
   });
 
+  test("tool_result handler validates the untyped boundary (Sage R3 security)", () => {
+    const source = renderSomaAlgorithmExtension();
+
+    // sanitizeIsaCriteria coerces unknown payloads to a typed array,
+    // dropping malformed entries silently. Crash-proofs the checklist
+    // renderer against adversarial or malformed isa_update results.
+    expect(source).toContain("function sanitizeIsaCriteria(result: unknown)");
+    expect(source).toContain("Array.isArray(raw)");
+    expect(source).toContain('typeof e.id !== "string"');
+    expect(source).toContain('typeof e.title !== "string"');
+    expect(source).toContain('typeof e.status !== "string"');
+  });
+
+  test("message_update uses targeted render when only body grew (Sage R3 perf)", () => {
+    const source = renderSomaAlgorithmExtension();
+
+    // Phase transitions need full re-render (overview + new phase
+    // widget); body-only deltas need only the active phase widget +
+    // status. Both render paths are present + dispatched on
+    // phaseAdded.
+    expect(source).toContain("function renderActivePhase");
+    expect(source).toContain("if (phaseAdded) renderAllPhases(pi, ctx, run);");
+    expect(source).toContain("else renderActivePhase(pi, ctx, run);");
+  });
+
   test("/algorithm primer emits canonical heavy-line markers the parser recognizes", () => {
     // Sage CodeQuality important: the primer must use the EXACT marker
     // format that parseAlgorithmPhaseMarkers accepts; otherwise a model

@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  capabilitiesWidgetKey,
   isaCriteriaWidgetKey,
   phaseWidgetKey,
   renderPhaseOverviewLines,
@@ -21,7 +20,6 @@ describe("widget keys", () => {
 
   test("auxiliary keys are runId-scoped", () => {
     expect(isaCriteriaWidgetKey("run-abc")).toBe("soma-run-abc-isa-criteria");
-    expect(capabilitiesWidgetKey("run-abc")).toBe("soma-run-abc-capabilities");
   });
 
   test("SOMA_STATUS_KEY is the fixed footer slot", () => {

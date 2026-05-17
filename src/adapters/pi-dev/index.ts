@@ -12,7 +12,6 @@ export {
   type PhaseMarker,
 } from "./extensions/phase-parser";
 export {
-  capabilitiesWidgetKey,
   isaCriteriaWidgetKey,
   phaseWidgetKey,
   renderPhaseOverviewLines,

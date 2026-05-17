@@ -51,9 +51,10 @@ export function isaCriteriaWidgetKey(runId: string): string {
   return `soma-${runId}-isa-criteria`;
 }
 
-export function capabilitiesWidgetKey(runId: string): string {
-  return `soma-${runId}-capabilities`;
-}
+// NOTE: A capabilitiesWidgetKey helper was previously reserved here for
+// the capabilities widget. It was dropped because nothing renders the
+// widget in this PR (Sage R3 maintainability suggestion). Add it back
+// when the capabilities widget actually lands, alongside its renderer.
 
 /** The footer status key. Pi.dev's status is a single slot; we own `soma`. */
 export const SOMA_STATUS_KEY = "soma" as const;

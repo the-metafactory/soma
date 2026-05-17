@@ -146,24 +146,22 @@ function ensureRun(runId: string): RunState {
   return run;
 }
 
-function renderAllPhases(pi: ExtensionAPI, ctx: unknown, run: RunState): void {
-  const ui = (ctx as { ui?: { setWidget?: (key: string, lines: string[]) => void; setStatus?: (key: string, text: string) => void } }).ui;
-  if (!ui) return;
+interface UIShape {
+  setWidget?: (key: string, lines: string[]) => void;
+  setStatus?: (key: string, text: string) => void;
+}
 
-  // AC-4: populate one widget per phase that has been observed; prior
-  // widgets remain set (pi.dev preserves widget content across updates
-  // unless explicitly overwritten or cleared).
-  for (const seen of run.seenPhases) {
-    const key = phaseWidgetKey({ runId: run.runId, phase: seen.marker.phase, position: seen.marker.position });
-    const lines = renderPhaseWidgetLines({
-      marker: seen.marker,
-      body: seen.body,
-      active: run.currentPhase === seen.marker.phase,
-    });
-    ui.setWidget?.(key, lines);
-  }
+function renderPhaseWidget(ui: UIShape, run: RunState, seen: SeenPhase): void {
+  const key = phaseWidgetKey({ runId: run.runId, phase: seen.marker.phase, position: seen.marker.position });
+  const lines = renderPhaseWidgetLines({
+    marker: seen.marker,
+    body: seen.body,
+    active: run.currentPhase === seen.marker.phase,
+  });
+  ui.setWidget?.(key, lines);
+}
 
-  // Overview widget — single per-run dashboard of all 8 phase descriptors.
+function renderOverview(ui: UIShape, run: RunState): void {
   ui.setWidget?.(
     \`soma-\${run.runId}-overview\`,
     renderPhaseOverviewLines({
@@ -171,16 +169,54 @@ function renderAllPhases(pi: ExtensionAPI, ctx: unknown, run: RunState): void {
       currentPhase: run.currentPhase,
     }),
   );
+}
 
-  // AC-5: ISA criteria widget — always rendered, even when empty.
-  ui.setWidget?.(isaCriteriaWidgetKey(run.runId), renderIsaChecklistLines(run.isaCriteria));
-
-  // AC-6: footer status.
+function renderStatus(ui: UIShape, run: RunState): void {
   const latest = run.seenPhases[run.seenPhases.length - 1];
   if (latest) ui.setStatus?.(SOMA_STATUS_KEY, renderPhaseStatusText({ marker: latest.marker }));
 }
 
-function processLine(run: RunState, rawLine: string): boolean {
+function renderIsaWidget(ui: UIShape, run: RunState): void {
+  ui.setWidget?.(isaCriteriaWidgetKey(run.runId), renderIsaChecklistLines(run.isaCriteria));
+}
+
+/**
+ * Full re-render — used on phase transitions and ISA criteria updates,
+ * or as a one-shot full refresh path (e.g. /reload restore in the
+ * deferred AC-8). Walks every seen phase plus overview, status, and
+ * the ISA widget.
+ */
+function renderAllPhases(_pi: ExtensionAPI, ctx: unknown, run: RunState): void {
+  const ui = (ctx as { ui?: UIShape }).ui;
+  if (!ui) return;
+  for (const seen of run.seenPhases) renderPhaseWidget(ui, run, seen);
+  renderOverview(ui, run);
+  renderIsaWidget(ui, run);
+  renderStatus(ui, run);
+}
+
+/**
+ * Targeted re-render — used on streamed deltas that grew the active
+ * phase's body without crossing a marker boundary. Updates only the
+ * active phase widget plus footer status (status is cheap and may
+ * carry a body-byte counter in the future). Skips overview + ISA
+ * widget + every other phase widget, avoiding O(phases) per-delta
+ * serialization (Sage R3 perf suggestion).
+ */
+function renderActivePhase(_pi: ExtensionAPI, ctx: unknown, run: RunState): void {
+  const ui = (ctx as { ui?: UIShape }).ui;
+  if (!ui) return;
+  const active = run.seenPhases[run.seenPhases.length - 1];
+  if (active) renderPhaseWidget(ui, run, active);
+  renderStatus(ui, run);
+}
+
+interface LineDelta {
+  changed: boolean;
+  phaseAdded: boolean;
+}
+
+function processLine(run: RunState, rawLine: string): LineDelta {
   const line = rawLine.replace(/\\s+$/u, "");
   const markers = parseAlgorithmPhaseMarkers(line);
   if (markers.length > 0) {
@@ -195,23 +231,23 @@ function processLine(run: RunState, rawLine: string): boolean {
     run.seenPhases.push({ marker: stableMarker, body: [] });
     run.currentPhase = m.phase;
     run.lineCount += 1;
-    return true;
+    return { changed: true, phaseAdded: true };
   }
   if (run.seenPhases.length === 0) {
     run.lineCount += 1;
-    return false;
+    return { changed: false, phaseAdded: false };
   }
   const active = run.seenPhases[run.seenPhases.length - 1];
   // Skip leading blank lines on a phase's body; preserve interior
   // blanks but never emit a trailing blank.
   if (active.body.length === 0 && line === "") {
     run.lineCount += 1;
-    return false;
+    return { changed: false, phaseAdded: false };
   }
   active.body.push(line);
   // Cap per-phase body to PHASE_BODY_LINE_CAP. When breached, drop
   // the head and insert a one-line truncation indicator at the
-  // front (Sage perf important: unbounded growth → bounded memory
+  // front (Sage R2 perf important: unbounded growth → bounded memory
   // and per-delta widget serialization).
   if (active.body.length > PHASE_BODY_LINE_CAP) {
     const overflow = active.body.length - PHASE_BODY_LINE_CAP;
@@ -221,7 +257,7 @@ function processLine(run: RunState, rawLine: string): boolean {
     }
   }
   run.lineCount += 1;
-  return true;
+  return { changed: true, phaseAdded: false };
 }
 
 /**
@@ -246,9 +282,9 @@ function processLine(run: RunState, rawLine: string): boolean {
  * trailing newline (Sage R2 CodeQuality important: deltas-only loop
  * dropped the final line when pi.dev delivered a full message).
  */
-function ingestStream(text: string, runId: string, opts: { flush?: boolean } = {}): { run: RunState; changed: boolean } {
+function ingestStream(text: string, runId: string, opts: { flush?: boolean } = {}): { run: RunState; changed: boolean; phaseAdded: boolean } {
   const run = ensureRun(runId);
-  if (!text && !opts.flush) return { run, changed: false };
+  if (!text && !opts.flush) return { run, changed: false, phaseAdded: false };
 
   // Join carry-over with the new chunk, then split on line boundaries.
   // The final element is the new carry (may be partial; no trailing \\n).
@@ -257,22 +293,27 @@ function ingestStream(text: string, runId: string, opts: { flush?: boolean } = {
   run.carry = parts.pop() ?? "";
 
   let changed = false;
+  let phaseAdded = false;
   for (const rawLine of parts) {
-    if (processLine(run, rawLine)) changed = true;
+    const d = processLine(run, rawLine);
+    if (d.changed) changed = true;
+    if (d.phaseAdded) phaseAdded = true;
   }
 
   if (opts.flush && run.carry.length > 0) {
-    if (processLine(run, run.carry)) changed = true;
+    const d = processLine(run, run.carry);
+    if (d.changed) changed = true;
+    if (d.phaseAdded) phaseAdded = true;
     run.carry = "";
   }
 
-  return { run, changed };
+  return { run, changed, phaseAdded };
 }
 
 // Exported for unit/integration testing inside Soma (the pi.dev test
 // harness can import the extension as ESM and drive ingestStream
 // directly). Pi.dev itself only consumes the default export.
-export const __internals = { ensureRun, ingestStream, renderAllPhases, runs };
+export const __internals = { ensureRun, ingestStream, renderAllPhases, renderActivePhase, runs };
 
 export default function (pi: ExtensionAPI): void {
   // AC-1: slash command \`/algorithm <prompt>\` — steers the session
@@ -316,6 +357,13 @@ export default function (pi: ExtensionAPI): void {
   // any change, not only on phase advancement, so the active widget
   // reflects streamed body content as it arrives (Sage R1 CodeQuality
   // suggestion).
+  //
+  // Targeted re-renders: when a delta only grew the active phase's
+  // body (no new marker), re-render only the active phase widget +
+  // footer status. Full re-render is reserved for phase transitions
+  // (which need overview + the new phase's widget) and ISA updates
+  // (which need the criteria widget). Avoids O(phases) per-delta
+  // widget serialization (Sage R3 perf suggestion).
   (pi as unknown as { on?: (event: string, handler: (event: unknown, ctx: unknown) => void | Promise<void>) => void }).on?.(
     "message_update",
     (event, ctx) => {
@@ -327,8 +375,10 @@ export default function (pi: ExtensionAPI): void {
       const isDelta = typeof e.delta === "string";
       const text = String(e.delta ?? e.text ?? e.content ?? "");
       if (!text) return;
-      const { run, changed } = ingestStream(text, defaultRunId(), { flush: !isDelta });
-      if (changed) renderAllPhases(pi, ctx, run);
+      const { run, changed, phaseAdded } = ingestStream(text, defaultRunId(), { flush: !isDelta });
+      if (!changed) return;
+      if (phaseAdded) renderAllPhases(pi, ctx, run);
+      else renderActivePhase(pi, ctx, run);
     },
   );
 
@@ -340,13 +390,34 @@ export default function (pi: ExtensionAPI): void {
     (event, ctx) => {
       const toolName = String((event as { toolName?: unknown }).toolName ?? "").toLowerCase();
       if (toolName !== "isa_update" && toolName !== "soma_isa_update") return;
-      const result = (event as { result?: { criteria?: IsaChecklistCriterion[] } }).result;
-      if (!result?.criteria) return;
+      const result = (event as { result?: unknown }).result;
+      // Validate the untyped boundary: the tool result is foreign
+      // data from the model side of the pi.dev runtime. A malformed
+      // or adversarial payload with non-array criteria (or with
+      // criterion fields of the wrong type) would crash the checklist
+      // renderer and DoS the extension (Sage R3 security important).
+      // Coerce to a typed array, dropping malformed entries silently.
+      const criteria = sanitizeIsaCriteria(result);
+      if (!criteria) return;
       const run = ensureRun(defaultRunId());
-      run.isaCriteria = result.criteria;
+      run.isaCriteria = criteria;
       renderAllPhases(pi, ctx, run);
     },
   );
+}
+
+function sanitizeIsaCriteria(result: unknown): IsaChecklistCriterion[] | undefined {
+  if (!result || typeof result !== "object") return undefined;
+  const raw = (result as { criteria?: unknown }).criteria;
+  if (!Array.isArray(raw)) return undefined;
+  const out: IsaChecklistCriterion[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    const e = entry as { id?: unknown; title?: unknown; status?: unknown };
+    if (typeof e.id !== "string" || typeof e.title !== "string" || typeof e.status !== "string") continue;
+    out.push({ id: e.id, title: e.title, status: e.status });
+  }
+  return out;
 }
 `;
 }
