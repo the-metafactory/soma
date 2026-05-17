@@ -131,7 +131,7 @@ async function runBoundedConcurrent<T, R>(
   const results: R[] = new Array<R>(items.length);
   let cursor = 0;
   async function worker(): Promise<void> {
-    while (true) {
+    for (;;) {
       const index = cursor++;
       if (index >= items.length) return;
       results[index] = await fn(items[index]);
