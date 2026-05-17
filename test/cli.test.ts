@@ -682,6 +682,18 @@ test("cli uninstall claude-code reports no-op when not installed", async () => {
   });
 });
 
+test("cli uninstall claude-code removes the rules/soma projection (always-apply)", async () => {
+  await withTempHome(async (homeDir) => {
+    await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir]);
+    await expect(stat(join(homeDir, ".claude/rules/soma"))).resolves.toBeDefined();
+
+    const output = await runSomaCli(["uninstall", "claude-code", "--home-dir", homeDir]);
+
+    expect(output).toContain("Removed");
+    await expect(stat(join(homeDir, ".claude/rules/soma"))).rejects.toThrow();
+  });
+});
+
 test("cli uninstall codex/pi-dev is a reserved stub", async () => {
   await expect(runSomaCli(["uninstall", "codex"])).rejects.toThrow("not yet implemented");
   await expect(runSomaCli(["uninstall", "pi-dev"])).rejects.toThrow("not yet implemented");

@@ -63,6 +63,7 @@ import type {
   PaiPackImportOptions,
   PaiPackImportPlan,
   PaiPackImportResult,
+  ProjectionInput,
   SomaInstallOptions,
   SomaInstallPlan,
   SomaInstallResult,
@@ -2318,12 +2319,18 @@ async function runExport(parsed: ParsedExportArgs): Promise<{ files: { path: str
     return { files: projection };
   }
   const outRoot = resolveAbsolute(parsed.out);
+  // Compute realpath(--out) once per export run instead of per file
+  // (sage r2 performance finding on #54). The symlink guard inside
+  // `writeProjectionExportFile` reuses this cached value.
+  const { mkdir, realpath } = await import("node:fs/promises");
+  await mkdir(outRoot, { recursive: true });
+  const realOutRoot = await realpath(outRoot);
   // Parallel writes — independent files, order preserved by mapping
   // over the original projection array (sage r1 performance finding
   // on #54).
   const written = await Promise.all(
     projection.map(async (file) => {
-      const absolute = await writeProjectionExportFile(outRoot, file.path, file.content);
+      const absolute = await writeProjectionExportFile(outRoot, realOutRoot, file.path, file.content);
       return { path: absolute, content: file.content };
     }),
   );
@@ -2340,19 +2347,22 @@ async function buildExportProjection(
     somaHome: options.somaHome,
     substrateHome: options.substrateHome,
   };
+  const files = projectionFilesFor(substrate, projectionInput, projectionOptions);
+  return files.map((f) => ({ path: f.path, content: f.content }));
+}
+
+function projectionFilesFor(
+  substrate: InstallSubstrate,
+  input: ProjectionInput,
+  options: { homeDir?: string; somaHome?: string; substrateHome?: string },
+): readonly { path: string; content: string }[] {
   switch (substrate) {
-    case "codex": {
-      const result = buildCodexHomeProjection(projectionInput, projectionOptions);
-      return result.bundle.files.map((f) => ({ path: f.path, content: f.content }));
-    }
-    case "pi-dev": {
-      const result = buildPiDevHomeProjection(projectionInput, projectionOptions);
-      return result.bundle.files.map((f) => ({ path: f.path, content: f.content }));
-    }
-    case "claude-code": {
-      const result = buildClaudeCodeHomeProjection(projectionInput, projectionOptions);
-      return result.bundle.files.map((f) => ({ path: f.path, content: f.content }));
-    }
+    case "codex":
+      return buildCodexHomeProjection(input, options).bundle.files;
+    case "pi-dev":
+      return buildPiDevHomeProjection(input, options).bundle.files;
+    case "claude-code":
+      return buildClaudeCodeHomeProjection(input, options).bundle.files;
   }
 }
 
@@ -2365,7 +2375,12 @@ function resolveAbsolute(path: string): string {
   return path.startsWith("/") ? path : resolveJoin(process.cwd(), path);
 }
 
-async function writeProjectionExportFile(outRoot: string, relativePath: string, content: string): Promise<string> {
+async function writeProjectionExportFile(
+  outRoot: string,
+  realOutRoot: string,
+  relativePath: string,
+  content: string,
+): Promise<string> {
   const { mkdir, realpath, writeFile } = await import("node:fs/promises");
   const path = await import("node:path");
   // Lexical guard: reject paths that try to escape --out via
@@ -2380,14 +2395,11 @@ async function writeProjectionExportFile(outRoot: string, relativePath: string, 
   // resolve the real path of the parent directory and verify it is
   // still under --out's real path. A symlink such as
   // `<out>/rules -> ~/.ssh` would let writeFile land outside --out
-  // even though the lexical check passed. Resolving --out itself
-  // canonicalizes any symlinks the principal pointed --out at on
-  // purpose — those are allowed; only intermediate components are
-  // checked.
+  // even though the lexical check passed. `realOutRoot` is computed
+  // once by `runExport` (sage r2 performance finding).
   const parent = path.dirname(absolute);
   await mkdir(parent, { recursive: true });
   const realParent = await realpath(parent);
-  const realOutRoot = await realpath(resolvedOutRoot);
   if (realParent !== realOutRoot && !realParent.startsWith(realOutRoot + path.sep)) {
     throw new SomaCliError(
       `soma export refused to follow a symlink that escapes --out (path: ${relativePath}).`,
