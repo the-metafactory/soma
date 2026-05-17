@@ -9,6 +9,7 @@ import {
 } from "./adapters/pi-dev/skill-projection";
 import { installClaudeCodeHomeProjection, installCodexHomeProjection, installPiDevHomeProjection } from "./home-projection";
 import { buildSomaStartupContext, runSomaLifecycleAlgorithmUpdated } from "./lifecycle";
+import { SOMA_MEMORY_CATEGORIES } from "./memory-readmes";
 import { defaultSomaRepoPath } from "./repo-path";
 import { bootstrapSomaHome } from "./soma-home";
 import { installIsaSkill, installIsaSkillProjection } from "./isa-skill-installer";
@@ -24,12 +25,12 @@ const SOMA_BOOTSTRAP_FILES = [
   "projections/README.md",
 ] as const;
 
+// #88 / DD-2: canonical PAI v5.0.0 memory taxonomy. The per-category list
+// + README content live in `memory-readmes.ts` so install planner, soma-home
+// bootstrap, and tests share one source of truth. 17 substrate-neutral +
+// 2 PAI-bound = 19 categories.
 const SOMA_BOOTSTRAP_DIRECTORIES = [
-  "memory/WORK",
-  "memory/KNOWLEDGE",
-  "memory/LEARNING",
-  "memory/RELATIONSHIP",
-  "memory/STATE",
+  ...SOMA_MEMORY_CATEGORIES.map((category) => `memory/${category}`),
   "projections/codex",
   "projections/pi-dev",
   "projections/claude-code",
