@@ -509,6 +509,75 @@ export interface PaiPackImportResult {
   normalization: PaiPackNormalizationReport;
 }
 
+// soma import pai-docs — see src/pai-docs-importer.ts. Imports a
+// subset of a PAI release tree (DOCUMENTATION/, TEMPLATES/, ALGORITHM/)
+// into ~/.soma/PAI/, with per-file SHA tracking for idempotent
+// re-import.
+export interface PaiDocsImportOptions {
+  homeDir?: string;
+  paiSourceDir?: string;
+  somaHome?: string;
+}
+
+export interface PaiDocsImportFile {
+  // Absolute path of the file on disk in the PAI source tree.
+  source: string;
+  // Absolute path where the file will land under ~/.soma/PAI/.
+  target: string;
+  // POSIX-style path relative to ~/.soma/PAI/, e.g.
+  // "DOCUMENTATION/Skills/SkillSystem.md". This is the manifest key.
+  relativePath: string;
+  // Which in-scope subdir the file came from.
+  subdir: "DOCUMENTATION" | "TEMPLATES" | "ALGORITHM";
+  // SHA-256 of the file's bytes, hex-encoded. Used to detect drift on
+  // re-import without re-reading every previously-imported file.
+  sha256: string;
+}
+
+export interface PaiDocsImportPlan {
+  apply: boolean;
+  paiSourceDir: string;
+  somaHome: string;
+  // PAI release version, inferred from a `VERSION` file at the source
+  // root or from a `Releases/<version>/` path hint. Null when neither
+  // is present — the manifest stays explicit about not guessing.
+  releaseVersion: string | null;
+  files: PaiDocsImportFile[];
+}
+
+export interface PaiDocsImportManifestFile {
+  // POSIX-style path under ~/.soma/PAI/ — see
+  // PaiDocsImportFile.relativePath.
+  target: string;
+  // POSIX-style path under the source dir.
+  source: string;
+  // SHA-256 of the source bytes at import time.
+  sha256: string;
+}
+
+export interface PaiDocsImportManifest {
+  schema: "soma.pai-docs-import.v1";
+  paiSourceDir: string;
+  releaseVersion: string | null;
+  // ISO-8601 timestamp.
+  importedAt: string;
+  files: PaiDocsImportManifestFile[];
+}
+
+export interface PaiDocsImportResult {
+  applied: true;
+  paiSourceDir: string;
+  somaHome: string;
+  releaseVersion: string | null;
+  importedAt: string;
+  // How many files were actually copied this run (0 = nothing to do).
+  writtenCount: number;
+  // True iff writtenCount === 0 — a re-import with no source drift.
+  unchanged: boolean;
+  // Absolute paths of every in-scope file (the projection target).
+  files: string[];
+}
+
 export interface SomaMemoryEventInput {
   id?: string;
   timestamp?: string;
