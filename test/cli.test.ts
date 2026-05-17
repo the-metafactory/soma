@@ -31,7 +31,12 @@ test("cli shows no-argument usage as normal help", async () => {
   const output = await runSomaCli([]);
 
   expect(output).toContain("Usage:");
-  expect(output).toContain("soma install <codex|pi-dev>");
+  expect(output).toContain("soma install <codex|pi-dev|claude-code>");
+  expect(output).toContain("soma uninstall <codex|pi-dev|claude-code>");
+  expect(output).toContain("soma reproject <codex|pi-dev|claude-code>");
+  expect(output).toContain("soma upgrade <codex|pi-dev|claude-code>");
+  expect(output).toContain("soma export <codex|pi-dev|claude-code>");
+  expect(output).toContain("soma daemon");
 
   const result = spawnSync(process.execPath, ["run", "soma"], {
     cwd: join(import.meta.dir, ".."),
@@ -47,7 +52,7 @@ test("cli supports explicit main help as normal help", async () => {
   const output = await runSomaCli(["--help"]);
 
   expect(output).toContain("Usage:");
-  expect(output).toContain("soma install <codex|pi-dev>");
+  expect(output).toContain("soma install <codex|pi-dev|claude-code>");
 
   const result = spawnSync(process.execPath, ["run", "soma", "--help"], {
     cwd: join(import.meta.dir, ".."),
@@ -624,6 +629,113 @@ test("cli dry-runs and applies pi.dev install", async () => {
   });
 });
 
-test("cli rejects unsupported commands", async () => {
-  await expect(runSomaCli(["install", "claude-code"])).rejects.toThrow("Usage:");
+test("cli rejects unsupported install substrate", async () => {
+  await expect(runSomaCli(["install", "bogus-substrate"])).rejects.toThrow("Usage:");
+});
+
+test("cli install supports claude-code substrate (dry-run)", async () => {
+  await withTempHome(async (homeDir) => {
+    const output = await runSomaCli(["install", "claude-code", "--home-dir", homeDir]);
+
+    expect(output).toContain("mode: dry-run");
+    expect(output).toContain(`substrate: claude-code`);
+    expect(output).toContain(join(homeDir, ".claude"));
+    await expect(stat(join(homeDir, ".claude"))).rejects.toThrow();
+  });
+});
+
+test("cli install --workspace defaults substrate-home to ./.<sub>/soma", async () => {
+  await withTempHome(async (homeDir) => {
+    const output = await runSomaCli(["install", "codex", "--workspace", "--home-dir", homeDir]);
+
+    expect(output).toContain("mode: dry-run");
+    // workspace path is rooted in process.cwd(), not homeDir
+    expect(output).toContain(`/.codex/soma`);
+    expect(output).not.toContain(`${homeDir}/.codex/`);
+  });
+});
+
+test("cli install --workspace respects explicit --substrate-home", async () => {
+  await withTempHome(async (homeDir) => {
+    const explicit = join(homeDir, "explicit-target");
+    const output = await runSomaCli([
+      "install",
+      "codex",
+      "--workspace",
+      "--substrate-home",
+      explicit,
+      "--home-dir",
+      homeDir,
+    ]);
+
+    expect(output).toContain(`substrateHome: ${explicit}`);
+    expect(output).not.toContain(`/.codex/soma`);
+  });
+});
+
+test("cli uninstall claude-code reports no-op when not installed", async () => {
+  await withTempHome(async (homeDir) => {
+    const output = await runSomaCli(["uninstall", "claude-code", "--home-dir", homeDir]);
+
+    expect(output).toContain("uninstall");
+    expect(output).toContain("Nothing to remove");
+  });
+});
+
+test("cli uninstall codex/pi-dev is a reserved stub", async () => {
+  await expect(runSomaCli(["uninstall", "codex"])).rejects.toThrow("not yet implemented");
+  await expect(runSomaCli(["uninstall", "pi-dev"])).rejects.toThrow("not yet implemented");
+});
+
+test("cli reproject codex routes through the install applier", async () => {
+  await withTempHome(async (homeDir) => {
+    const output = await runSomaCli(["reproject", "codex", "--home-dir", homeDir]);
+
+    expect(output).toContain("Soma install applied");
+    expect(output).toContain(`substrate: codex`);
+    await expect(stat(join(homeDir, ".codex/rules/soma.rules"))).resolves.toBeDefined();
+  });
+});
+
+test("cli upgrade codex routes through the install applier", async () => {
+  await withTempHome(async (homeDir) => {
+    const output = await runSomaCli(["upgrade", "codex", "--home-dir", homeDir]);
+
+    expect(output).toContain("Soma install applied");
+    expect(output).toContain(`substrate: codex`);
+  });
+});
+
+test("cli daemon is a reserved placeholder", async () => {
+  await expect(runSomaCli(["daemon"])).rejects.toThrow("not yet implemented");
+});
+
+test("cli export emits projection JSON without touching home", async () => {
+  await withTempHome(async (homeDir) => {
+    // Seed a minimal soma home so loadSomaHome succeeds.
+    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir]);
+    // Delete the codex home to prove export doesn't recreate it.
+    await rm(join(homeDir, ".codex"), { recursive: true, force: true });
+
+    const output = await runSomaCli(["export", "codex", "--home-dir", homeDir]);
+    const parsed = JSON.parse(output) as { path: string; content: string }[];
+
+    expect(Array.isArray(parsed)).toBe(true);
+    expect(parsed.length).toBeGreaterThan(0);
+    expect(parsed.some((f) => f.path.endsWith("rules/soma.rules"))).toBe(true);
+    await expect(stat(join(homeDir, ".codex"))).rejects.toThrow();
+  });
+});
+
+test("cli export --out writes projection files into the out dir", async () => {
+  await withTempHome(async (homeDir) => {
+    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir]);
+    const outDir = join(homeDir, "exported");
+
+    const output = await runSomaCli(["export", "codex", "--out", outDir, "--home-dir", homeDir]);
+
+    expect(output).toContain("Soma export applied");
+    expect(output).toContain(`out: ${outDir}`);
+    await expect(stat(join(outDir, "rules/soma.rules"))).resolves.toBeDefined();
+  });
 });

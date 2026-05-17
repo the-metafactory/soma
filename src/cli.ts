@@ -23,6 +23,10 @@ import {
   uninstallSomaForClaudeCode,
   type UninstallClaudeCodeOptions,
   type UninstallClaudeCodeResult,
+  buildClaudeCodeHomeProjection,
+  buildCodexHomeProjection,
+  buildPiDevHomeProjection,
+  loadSomaHome,
   listAlgorithmRunSummaries,
   planAlgorithmImport,
   planPaiImport,
@@ -95,11 +99,46 @@ export class SomaCliError extends Error {
 import { getCriteria, getGoal } from "./isa-accessors";
 import { getRunPhase } from "./algorithm-lifecycle";
 
+type InstallSubstrate = "codex" | "pi-dev" | "claude-code";
+
 interface ParsedInstallArgs {
   command: "install";
-  substrate: "codex" | "pi-dev";
+  substrate: InstallSubstrate;
   apply: boolean;
+  workspace: boolean;
   options: SomaInstallOptions;
+}
+
+interface ParsedUninstallArgs {
+  command: "uninstall";
+  substrate: InstallSubstrate;
+  workspace: boolean;
+  options: SomaInstallOptions & UninstallClaudeCodeOptions;
+}
+
+interface ParsedReprojectArgs {
+  command: "reproject";
+  substrate: InstallSubstrate;
+  workspace: boolean;
+  options: SomaInstallOptions;
+}
+
+interface ParsedUpgradeArgs {
+  command: "upgrade";
+  substrate: InstallSubstrate;
+  workspace: boolean;
+  options: SomaInstallOptions;
+}
+
+interface ParsedExportArgs {
+  command: "export";
+  substrate: InstallSubstrate;
+  out?: string;
+  options: SomaInstallOptions;
+}
+
+interface ParsedDaemonArgs {
+  command: "daemon";
 }
 
 interface ParsedImportArgs {
@@ -208,6 +247,11 @@ interface ParsedIsaArgs {
 type ParsedArgs =
   | ParsedHelpArgs
   | ParsedInstallArgs
+  | ParsedUninstallArgs
+  | ParsedReprojectArgs
+  | ParsedUpgradeArgs
+  | ParsedExportArgs
+  | ParsedDaemonArgs
   | ParsedImportArgs
   | ParsedMigrateArgs
   | ParsedAdoptArgs
@@ -218,7 +262,23 @@ type ParsedArgs =
   | ParsedPolicyArgs
   | ParsedIsaArgs;
 
-const TOP_LEVEL_COMMANDS = ["adopt", "algorithm", "feedback", "import", "install", "isa", "lifecycle", "memory", "migrate", "policy"] as const;
+const TOP_LEVEL_COMMANDS = [
+  "adopt",
+  "algorithm",
+  "daemon",
+  "export",
+  "feedback",
+  "import",
+  "install",
+  "isa",
+  "lifecycle",
+  "memory",
+  "migrate",
+  "policy",
+  "reproject",
+  "uninstall",
+  "upgrade",
+] as const;
 
 const MIGRATE_PAI_USAGE =
   "Usage: soma migrate pai [--dry-run] [--apply] [--status] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>] [--pai-pack-dir <dir>]";
@@ -267,11 +327,32 @@ const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string,
     usage: "Usage: soma lifecycle <session-start|algorithm-updated|session-end> [--home-dir <dir>] [--soma-home <dir>] [--substrate <id>] [--session-id <id>]",
   },
   install: {
-    usage: "Usage: soma install <codex|pi-dev> [--dry-run] [--apply] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
+    usage: "Usage: soma install <codex|pi-dev|claude-code> [--dry-run] [--apply] [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
     subcommands: {
-      codex: "Usage: soma install codex [--dry-run] [--apply] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
-      "pi-dev": "Usage: soma install pi-dev [--dry-run] [--apply] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
+      codex: "Usage: soma install codex [--dry-run] [--apply] [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
+      "pi-dev": "Usage: soma install pi-dev [--dry-run] [--apply] [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
+      "claude-code": "Usage: soma install claude-code [--dry-run] [--apply] [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
     },
+  },
+  uninstall: {
+    usage: "Usage: soma uninstall <codex|pi-dev|claude-code> [--workspace] [--home-dir <dir>] [--substrate-home <dir>]",
+    subcommands: {
+      codex: "Usage: soma uninstall codex [--workspace] [--home-dir <dir>] [--substrate-home <dir>]",
+      "pi-dev": "Usage: soma uninstall pi-dev [--workspace] [--home-dir <dir>] [--substrate-home <dir>]",
+      "claude-code": "Usage: soma uninstall claude-code [--workspace] [--home-dir <dir>] [--substrate-home <dir>]",
+    },
+  },
+  reproject: {
+    usage: "Usage: soma reproject <codex|pi-dev|claude-code> [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
+  },
+  upgrade: {
+    usage: "Usage: soma upgrade <codex|pi-dev|claude-code> [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
+  },
+  export: {
+    usage: "Usage: soma export <codex|pi-dev|claude-code> [--out <dir>] [--home-dir <dir>] [--soma-home <dir>]",
+  },
+  daemon: {
+    usage: "Usage: soma daemon  (not yet implemented — placeholder reserves the runtime mode)",
   },
   import: {
     usage: "Usage: soma import <pai|algorithm|pai-pack> ...",
@@ -311,15 +392,37 @@ function commandUsage(command: string, action?: string): string {
   return (action ? commandHelp?.subcommands?.[action] : undefined) ?? commandHelp?.usage ?? `Usage: soma ${command} ...`;
 }
 
+const INSTALL_SUBSTRATES = ["codex", "pi-dev", "claude-code"] as const satisfies readonly InstallSubstrate[];
+
+function isInstallSubstrate(value: string | undefined): value is InstallSubstrate {
+  return value !== undefined && (INSTALL_SUBSTRATES as readonly string[]).includes(value);
+}
+
+function workspaceSubstrateHome(substrate: InstallSubstrate): string {
+  // CONTEXT.md Runtime modes: workspace projection lives at
+  // `./.{codex,pi,claude}/soma` — a soma-scoped subdir so it doesn't
+  // collide with substrate-native workspace files the principal may
+  // already have for that repo.
+  const folder = substrate === "pi-dev" ? ".pi" : substrate === "claude-code" ? ".claude" : ".codex";
+  return resolveJoin(process.cwd(), folder, "soma");
+}
+
+function resolveJoin(...parts: string[]): string {
+  // Local helper to keep the cli surface free of an extra import.
+  return parts.join("/").replace(/\/+/g, "/");
+}
+
 function parseInstallArgs(args: string[]): ParsedInstallArgs {
   const [command, substrate, ...rest] = args;
 
-  if (command !== "install" || (substrate !== "codex" && substrate !== "pi-dev")) {
+  if (command !== "install" || !isInstallSubstrate(substrate)) {
     throw new Error(commandUsage("install"));
   }
 
   const options: SomaInstallOptions = {};
   let apply = false;
+  let workspace = false;
+  let substrateHomeExplicit = false;
 
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
@@ -331,6 +434,9 @@ function parseInstallArgs(args: string[]): ParsedInstallArgs {
       case "--apply":
         apply = true;
         break;
+      case "--workspace":
+        workspace = true;
+        break;
       case "--home-dir":
         options.homeDir = readOption(rest, index, arg);
         index += 1;
@@ -341,6 +447,7 @@ function parseInstallArgs(args: string[]): ParsedInstallArgs {
         break;
       case "--substrate-home":
         options.substrateHome = readOption(rest, index, arg);
+        substrateHomeExplicit = true;
         index += 1;
         break;
       default:
@@ -348,12 +455,119 @@ function parseInstallArgs(args: string[]): ParsedInstallArgs {
     }
   }
 
+  if (workspace && !substrateHomeExplicit) {
+    options.substrateHome = workspaceSubstrateHome(substrate);
+  }
+
   return {
     command,
     substrate,
     apply,
+    workspace,
     options,
   };
+}
+
+function parseLifecycleVerbArgs<T extends "uninstall" | "reproject" | "upgrade">(
+  verb: T,
+  args: string[],
+): { substrate: InstallSubstrate; workspace: boolean; options: SomaInstallOptions } {
+  const [command, substrate, ...rest] = args;
+
+  if (command !== verb || !isInstallSubstrate(substrate)) {
+    throw new Error(commandUsage(verb));
+  }
+
+  const options: SomaInstallOptions = {};
+  let workspace = false;
+  let substrateHomeExplicit = false;
+
+  for (let index = 0; index < rest.length; index += 1) {
+    const arg = rest[index];
+
+    switch (arg) {
+      case "--workspace":
+        workspace = true;
+        break;
+      case "--home-dir":
+        options.homeDir = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--soma-home":
+        options.somaHome = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--substrate-home":
+        options.substrateHome = readOption(rest, index, arg);
+        substrateHomeExplicit = true;
+        index += 1;
+        break;
+      default:
+        throw new Error(`Unknown option: ${arg}`);
+    }
+  }
+
+  if (workspace && !substrateHomeExplicit) {
+    options.substrateHome = workspaceSubstrateHome(substrate);
+  }
+
+  return { substrate, workspace, options };
+}
+
+function parseUninstallArgs(args: string[]): ParsedUninstallArgs {
+  const { substrate, workspace, options } = parseLifecycleVerbArgs("uninstall", args);
+  return { command: "uninstall", substrate, workspace, options };
+}
+
+function parseReprojectArgs(args: string[]): ParsedReprojectArgs {
+  const { substrate, workspace, options } = parseLifecycleVerbArgs("reproject", args);
+  return { command: "reproject", substrate, workspace, options };
+}
+
+function parseUpgradeArgs(args: string[]): ParsedUpgradeArgs {
+  const { substrate, workspace, options } = parseLifecycleVerbArgs("upgrade", args);
+  return { command: "upgrade", substrate, workspace, options };
+}
+
+function parseExportArgs(args: string[]): ParsedExportArgs {
+  const [command, substrate, ...rest] = args;
+
+  if (command !== "export" || !isInstallSubstrate(substrate)) {
+    throw new Error(commandUsage("export"));
+  }
+
+  const options: SomaInstallOptions = {};
+  let out: string | undefined;
+
+  for (let index = 0; index < rest.length; index += 1) {
+    const arg = rest[index];
+
+    switch (arg) {
+      case "--out":
+        out = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--home-dir":
+        options.homeDir = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--soma-home":
+        options.somaHome = readOption(rest, index, arg);
+        index += 1;
+        break;
+      default:
+        throw new Error(`Unknown option: ${arg}`);
+    }
+  }
+
+  return { command: "export", substrate, out, options };
+}
+
+function parseDaemonArgs(args: string[]): ParsedDaemonArgs {
+  if (args[0] !== "daemon" || args.length > 1) {
+    throw new Error(commandUsage("daemon"));
+  }
+  return { command: "daemon" };
 }
 
 function parseImportArgs(args: string[]): ParsedImportArgs {
@@ -1150,6 +1364,26 @@ function parseArgs(args: string[]): ParsedArgs {
 
   if (args[0] === "install") {
     return parseInstallArgs(args);
+  }
+
+  if (args[0] === "uninstall") {
+    return parseUninstallArgs(args);
+  }
+
+  if (args[0] === "reproject") {
+    return parseReprojectArgs(args);
+  }
+
+  if (args[0] === "upgrade") {
+    return parseUpgradeArgs(args);
+  }
+
+  if (args[0] === "export") {
+    return parseExportArgs(args);
+  }
+
+  if (args[0] === "daemon") {
+    return parseDaemonArgs(args);
   }
 
   if (args[0] === "import") {
@@ -2025,15 +2259,150 @@ export async function runSomaCli(args: string[]): Promise<string> {
     return formatInstallResult(await installSomaForClaudeCode(parsed.options));
   }
 
-  if (!parsed.apply) {
-    return formatPlan(
-      parsed.substrate === "codex" ? planSomaForCodexInstall(parsed.options) : planSomaForPiDevInstall(parsed.options),
-    );
+  if (parsed.command === "daemon") {
+    // Reserved CLI surface — `daemon` mode (long-lived Myelin
+    // subscriber) is not yet implemented. The verb exists so that
+    // CONTEXT.md's "Runtime modes" table maps onto the CLI surface
+    // one-to-one (#54 AC). Implementation lands in a follow-up
+    // issue.
+    throw new SomaCliError("soma daemon is not yet implemented (placeholder reserves the runtime mode).", 1);
   }
 
-  return formatInstallResult(
-    parsed.substrate === "codex" ? await installSomaForCodex(parsed.options) : await installSomaForPiDev(parsed.options),
+  if (parsed.command === "export") {
+    return formatExportResult(await runExport(parsed));
+  }
+
+  if (parsed.command === "uninstall") {
+    return runUninstall(parsed);
+  }
+
+  if (parsed.command === "reproject" || parsed.command === "upgrade") {
+    // Both verbs reuse the install code path: reproject re-emits the
+    // projection; upgrade is reproject + future migration work
+    // (#54: migration content is a follow-up). They always apply —
+    // unlike `install`, the principal opted into the verb explicitly.
+    return formatInstallResult(await runInstall(parsed.substrate, parsed.options));
+  }
+
+  if (!parsed.apply) {
+    return formatPlan(planInstall(parsed.substrate, parsed.options));
+  }
+
+  return formatInstallResult(await runInstall(parsed.substrate, parsed.options));
+}
+
+function planInstall(substrate: InstallSubstrate, options: SomaInstallOptions): SomaInstallPlan {
+  switch (substrate) {
+    case "codex":
+      return planSomaForCodexInstall(options);
+    case "pi-dev":
+      return planSomaForPiDevInstall(options);
+    case "claude-code":
+      return planSomaForClaudeCodeInstall(options);
+  }
+}
+
+async function runInstall(substrate: InstallSubstrate, options: SomaInstallOptions): Promise<SomaInstallResult> {
+  switch (substrate) {
+    case "codex":
+      return installSomaForCodex(options);
+    case "pi-dev":
+      return installSomaForPiDev(options);
+    case "claude-code":
+      return installSomaForClaudeCode(options);
+  }
+}
+
+async function runUninstall(parsed: ParsedUninstallArgs): Promise<string> {
+  if (parsed.substrate === "claude-code") {
+    return formatClaudeUninstallResult(await uninstallSomaForClaudeCode(parsed.options));
+  }
+  // Codex and Pi.dev uninstallers are not yet implemented. The CLI
+  // surface is reserved so CONTEXT.md's "Lifecycle verbs" table maps
+  // one-to-one (#54 AC); functional removal lands in a follow-up.
+  throw new SomaCliError(
+    `soma uninstall ${parsed.substrate} is not yet implemented (claude-code is currently the only functional uninstaller; codex and pi-dev removal land in a follow-up).`,
+    1,
   );
+}
+
+async function runExport(parsed: ParsedExportArgs): Promise<{ files: { path: string; content: string }[]; out?: string }> {
+  const projection = await buildExportProjection(parsed.substrate, parsed.options);
+  if (!parsed.out) {
+    return { files: projection };
+  }
+  const outRoot = resolveAbsolute(parsed.out);
+  const written: { path: string; content: string }[] = [];
+  for (const file of projection) {
+    const absolute = await writeProjectionExportFile(outRoot, file.path, file.content);
+    written.push({ path: absolute, content: file.content });
+  }
+  return { files: written, out: outRoot };
+}
+
+async function buildExportProjection(
+  substrate: InstallSubstrate,
+  options: SomaInstallOptions,
+): Promise<{ path: string; content: string }[]> {
+  const projectionInput = await loadSomaHome(options.somaHome ?? defaultSomaHomePath(options.homeDir));
+  const projectionOptions = {
+    homeDir: options.homeDir,
+    somaHome: options.somaHome,
+    substrateHome: options.substrateHome,
+  };
+  switch (substrate) {
+    case "codex": {
+      const result = buildCodexHomeProjection(projectionInput, projectionOptions);
+      return result.bundle.files.map((f) => ({ path: f.path, content: f.content }));
+    }
+    case "pi-dev": {
+      const result = buildPiDevHomeProjection(projectionInput, projectionOptions);
+      return result.bundle.files.map((f) => ({ path: f.path, content: f.content }));
+    }
+    case "claude-code": {
+      const result = buildClaudeCodeHomeProjection(projectionInput, projectionOptions);
+      return result.bundle.files.map((f) => ({ path: f.path, content: f.content }));
+    }
+  }
+}
+
+function defaultSomaHomePath(homeDir?: string): string {
+  const base = homeDir ?? process.env.HOME ?? process.cwd();
+  return resolveJoin(base, ".soma");
+}
+
+function resolveAbsolute(path: string): string {
+  return path.startsWith("/") ? path : resolveJoin(process.cwd(), path);
+}
+
+async function writeProjectionExportFile(outRoot: string, relativePath: string, content: string): Promise<string> {
+  const { mkdir, writeFile } = await import("node:fs/promises");
+  const path = await import("node:path");
+  // Guard against absolute paths or path-escape in the projection
+  // file list — projections are produced by trusted adapter code but
+  // the export verb is principal-facing so we belt-and-brace.
+  const safeRelative = relativePath.replace(/^[/\\]+/, "");
+  const absolute = path.resolve(outRoot, safeRelative);
+  if (!absolute.startsWith(path.resolve(outRoot) + path.sep) && absolute !== path.resolve(outRoot)) {
+    throw new SomaCliError(`soma export refused to write outside --out (path: ${relativePath}).`, 2);
+  }
+  await mkdir(path.dirname(absolute), { recursive: true });
+  await writeFile(absolute, content, "utf8");
+  return absolute;
+}
+
+function formatExportResult(result: { files: { path: string; content: string }[]; out?: string }): string {
+  if (result.out) {
+    return [
+      "Soma export applied",
+      `out: ${result.out}`,
+      "",
+      "Files:",
+      ...result.files.map((f) => `- ${f.path}`),
+    ].join("\n");
+  }
+  // No --out → emit JSON to stdout for downstream tools / diffing.
+  return JSON.stringify(result.files, null, 2);
 }
 
 if (import.meta.main) {
