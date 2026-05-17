@@ -178,6 +178,38 @@ test("AC-2/AC-5 — apply writes files, manifest, and is idempotent on re-run", 
   });
 });
 
+test("Sage R3 Security — refuses VERSION file that is itself a symlink", async () => {
+  await withTempHome(async (homeDir) => {
+    const sourceDir = await writePaiSourceFixture(homeDir, { versionFile: null });
+    // Plant a sensitive target outside the source tree, then symlink
+    // VERSION at it. detectReleaseVersion must refuse rather than
+    // copy its contents into the manifest.
+    const sensitive = join(homeDir, "sensitive.txt");
+    await writeFile(sensitive, "should-not-be-copied\n", "utf8");
+    await symlink(sensitive, join(sourceDir, "VERSION"));
+
+    await expect(
+      planPaiDocsImport({ homeDir, paiSourceDir: sourceDir }),
+    ).rejects.toThrow(/refused symlink path: VERSION/);
+  });
+});
+
+test("Sage R3 CodeQuality — accepts filenames that start with '..' as long as the realpath stays inside the source", async () => {
+  await withTempHome(async (homeDir) => {
+    const sourceDir = await writePaiSourceFixture(homeDir);
+    // A legitimate file whose basename starts with `..` — the prior
+    // `rel.startsWith("..")` filter silently dropped this.
+    await writeFile(
+      join(sourceDir, "DOCUMENTATION/..notes.md"),
+      "# notes\nfile starts with dots\n",
+      "utf8",
+    );
+    const plan = await planPaiDocsImport({ homeDir, paiSourceDir: sourceDir });
+    const relPaths = plan.files.map((f) => f.relativePath);
+    expect(relPaths).toContain("DOCUMENTATION/..notes.md");
+  });
+});
+
 test("AC-5 — VERSION file overrides release version inferred from path", async () => {
   await withTempHome(async (homeDir) => {
     const sourceDir = await writePaiSourceFixture(homeDir, { versionFile: "5.0.1\n" });

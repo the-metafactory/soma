@@ -39,16 +39,21 @@ import type {
   PaiDocsImportOptions,
   PaiDocsImportPlan,
   PaiDocsImportResult,
+  PaiDocsImportSubdir,
 } from "./types";
 
 // Sub-directories of a PAI release tree we import into ~/.soma/PAI/.
 // DOCUMENTATION is required (it is the whole point — it resolves the
 // broken doc refs that #86 currently shunts to `~/.soma/UNMAPPED/PAI/`).
 // TEMPLATES + ALGORITHM are optional but copied when present.
-const IMPORT_SUBDIRS = ["DOCUMENTATION", "TEMPLATES", "ALGORITHM"] as const;
-type ImportSubdir = (typeof IMPORT_SUBDIRS)[number];
+//
+// Exported (Sage round 3, Maintainability) so CLI formatters and any
+// future caller share the same list. The exported tuple is the single
+// runtime source of truth; the `PaiDocsImportSubdir` type in
+// `src/types.ts` mirrors its members.
+export const PAI_DOCS_IMPORT_SUBDIRS = ["DOCUMENTATION", "TEMPLATES", "ALGORITHM"] as const satisfies readonly PaiDocsImportSubdir[];
 
-const REQUIRED_SUBDIR: ImportSubdir = "DOCUMENTATION";
+const REQUIRED_SUBDIR: PaiDocsImportSubdir = "DOCUMENTATION";
 
 const MANIFEST_FILENAME = ".import-manifest.json";
 const MANIFEST_SCHEMA = "soma.pai-docs-import.v1";
@@ -119,10 +124,11 @@ async function collectFiles(root: string): Promise<string[]> {
             `PAI docs import refused path outside source root: ${relative(root, fullPath).split(sep).join("/")}`,
           );
         }
-        const rel = relative(root, fullPath).split(sep).join("/");
-        if (!rel.startsWith("..") && !rel.includes("../")) {
-          files.push(rel);
-        }
+        // Sage round 3 (CodeQuality suggestion): the realpath check
+        // above is the authoritative traversal guard. A `rel.startsWith("..")`
+        // string filter both adds nothing and silently drops legitimate
+        // filenames like `..notes.md`.
+        files.push(relative(root, fullPath).split(sep).join("/"));
       }
     }
   }
@@ -141,6 +147,21 @@ async function collectFiles(root: string): Promise<string[]> {
 async function detectReleaseVersion(sourceDir: string): Promise<string | null> {
   const versionPath = join(sourceDir, "VERSION");
   if (await pathExists(versionPath)) {
+    // Sage round 3 (Security, important): refuse symlinks here just
+    // like everywhere else in the importer. A malicious source could
+    // otherwise plant `VERSION -> /etc/hostname` and smuggle its
+    // contents into CLI output + `.import-manifest.json`. Also
+    // require a regular file — a directory at this path is a sign of
+    // a malformed source, not a release marker.
+    const versionStat = await lstat(versionPath);
+    if (versionStat.isSymbolicLink()) {
+      throw new Error("soma import pai-docs refused symlink path: VERSION");
+    }
+    if (!versionStat.isFile()) {
+      throw new Error(
+        `soma import pai-docs: VERSION at ${versionPath} is not a regular file.`,
+      );
+    }
     const raw = (await readFile(versionPath, "utf8")).trim();
     if (raw.length > 0) return raw;
   }
@@ -191,7 +212,7 @@ async function buildPlan(
   const releaseVersion = await detectReleaseVersion(homes.paiSourceDir);
   const files: PaiDocsImportFile[] = [];
 
-  for (const subdir of IMPORT_SUBDIRS) {
+  for (const subdir of PAI_DOCS_IMPORT_SUBDIRS) {
     const subdirPath = join(homes.paiSourceDir, subdir);
     if (!(await pathExists(subdirPath))) continue;
     // Sage round 1 (Security, important): `collectFiles` lstat-checks

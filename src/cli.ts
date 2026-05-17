@@ -12,6 +12,7 @@ import {
   importPaiDocs,
   importPaiIdentity,
   importPaiPack,
+  PAI_DOCS_IMPORT_SUBDIRS,
   migratePai,
   planPaiMigration,
   type PaiMigrationOptions,
@@ -1879,9 +1880,10 @@ function formatPaiDocsImportPlan(plan: PaiDocsImportPlan): string {
     `releaseVersion: ${plan.releaseVersion ?? "<unknown>"}`,
     "",
     "Counts:",
-    `- DOCUMENTATION: ${counts.DOCUMENTATION ?? 0}`,
-    `- TEMPLATES: ${counts.TEMPLATES ?? 0}`,
-    `- ALGORITHM: ${counts.ALGORITHM ?? 0}`,
+    // Sage round 3 (Maintainability): drive the counts list from the
+    // shared subtree constant so adding a subtree only requires
+    // touching `PAI_DOCS_IMPORT_SUBDIRS`.
+    ...PAI_DOCS_IMPORT_SUBDIRS.map((subdir) => `- ${subdir}: ${counts[subdir] ?? 0}`),
     "",
     "Files:",
     ...plan.files.map((file) => `- ${file.relativePath} -> ${file.target}`),
