@@ -17,6 +17,15 @@ const BASELINES_SUBPATH = "memory/STATE/skill-baselines.json";
 const UPGRADE_MARKER_NAME = ".upgrade-available";
 const SKILL_MD = "SKILL.md";
 
+/**
+ * Baselines are keyed by destination so multi-substrate installs (#37)
+ * track their own drift independently. Default destination uses the
+ * unqualified "ISA" key for backwards-compat with pre-#37 baselines.
+ */
+function baselineKey(destinationDir: string, defaultDir: string): string {
+  return resolve(destinationDir) === resolve(defaultDir) ? SKILL_NAME : `${SKILL_NAME}@${resolve(destinationDir)}`;
+}
+
 function resolveSomaHome(options: Pick<IsaSkillInstallOptions, "homeDir" | "somaHome"> = {}): string {
   return resolve(options.somaHome ?? join(options.homeDir ?? homedir(), ".soma"));
 }
@@ -215,7 +224,12 @@ export async function installIsaSkill(options: IsaSkillInstallOptions = {}): Pro
   const somaHome = resolveSomaHome(options);
   const somaRepoPath = resolveSomaRepoPath(options);
   const sourceDir = isaSkillSourceDir(somaRepoPath);
-  const runtimeDir = isaSkillRuntimeDir(somaHome);
+  // Substrate adapters (#37) install the skill under their own root
+  // (e.g. ~/.codex/skills/ISA). The baseline file still lives under
+  // ~/.soma so drift and version tracking remain centralized.
+  const runtimeDir = options.skillDestinationDir
+    ? resolve(options.skillDestinationDir)
+    : isaSkillRuntimeDir(somaHome);
   const markerPath = join(runtimeDir, UPGRADE_MARKER_NAME);
 
   if (!(await exists(sourceDir))) {
@@ -244,10 +258,11 @@ export async function installIsaSkill(options: IsaSkillInstallOptions = {}): Pro
   const runtimeFrontmatter = await readSkillFrontmatter(join(runtimeDir, SKILL_MD));
   const baselinesRead = await readBaselines(somaHome);
   const baselines = baselinesRead.baselines;
-  const baseline = baselines[SKILL_NAME];
 
   const runtimeFiles = await listSkillFiles(runtimeDir);
   const userAdditions = runtimeFiles.filter((rel) => !sourceFiles.includes(rel) && rel !== UPGRADE_MARKER_NAME);
+  const skillKey = baselineKey(runtimeDir, isaSkillRuntimeDir(somaHome));
+  const baselineForDest = baselines[skillKey];
 
   if (runtimeFrontmatter === null || options.force === true) {
     return freshInstall({
@@ -261,6 +276,7 @@ export async function installIsaSkill(options: IsaSkillInstallOptions = {}): Pro
       baselines,
       markerPath,
       userAdditions,
+      skillKey,
     });
   }
 
@@ -276,12 +292,13 @@ export async function installIsaSkill(options: IsaSkillInstallOptions = {}): Pro
       sourceVersion: sourceFrontmatter.version,
       runtimeVersion: runtimeFrontmatter.version,
       baselines,
-      baseline,
+      baseline: baselineForDest,
       userAdditions,
+      skillKey,
     });
   }
 
-  const drift = await detectDrift(runtimeDir, baseline, sourceFiles, baselinesRead.corrupt);
+  const drift = await detectDrift(runtimeDir, baselineForDest, sourceFiles, baselinesRead.corrupt);
   if (drift.hasLocalEdits) {
     return writeUpgradeMarker({
       somaHome,
@@ -306,6 +323,7 @@ export async function installIsaSkill(options: IsaSkillInstallOptions = {}): Pro
     markerPath,
     userAdditions,
     actionOverride: "upgraded",
+    skillKey,
   });
 }
 
@@ -321,6 +339,7 @@ interface ReconcileSameVersionContext {
   baselines: SomaSkillBaselines;
   baseline: SomaSkillBaseline | undefined;
   userAdditions: string[];
+  skillKey: string;
 }
 
 async function reconcileSameVersion(ctx: ReconcileSameVersionContext): Promise<IsaSkillInstallResult> {
@@ -355,7 +374,7 @@ async function reconcileSameVersion(ctx: ReconcileSameVersionContext): Promise<I
     files: restoredFiles,
     installedAt: ctx.baseline?.installedAt ?? new Date().toISOString(),
   };
-  const nextBaselines = { ...ctx.baselines, [SKILL_NAME]: restoredBaseline };
+  const nextBaselines = { ...ctx.baselines, [ctx.skillKey]: restoredBaseline };
   await writeBaselines(ctx.somaHome, nextBaselines);
   return {
     somaHome: ctx.somaHome,
@@ -415,6 +434,7 @@ interface FreshInstallContext {
   markerPath: string;
   userAdditions: string[];
   actionOverride?: "fresh" | "upgraded";
+  skillKey: string;
 }
 
 async function freshInstall(ctx: FreshInstallContext): Promise<IsaSkillInstallResult> {
@@ -426,7 +446,7 @@ async function freshInstall(ctx: FreshInstallContext): Promise<IsaSkillInstallRe
   }
 
   const baselines = { ...ctx.baselines };
-  baselines[SKILL_NAME] = {
+  baselines[ctx.skillKey] = {
     version: ctx.sourceVersion,
     files: ctx.sourceHashes,
     installedAt: new Date().toISOString(),

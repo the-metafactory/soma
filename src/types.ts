@@ -314,6 +314,15 @@ export interface IsaSkillInstallOptions {
   somaHome?: string;
   somaRepoPath?: string;
   force?: boolean;
+  /**
+   * Absolute destination directory for the installed skill (#37). When
+   * omitted the installer writes to `<somaHome>/skills/ISA` (preserves
+   * pre-#37 behavior). When set — used by substrate adapters that want
+   * to install the same versioned skill under their own root, e.g.
+   * `~/.codex/skills/ISA`. The baseline + drift detection logic is
+   * shared regardless of destination.
+   */
+  skillDestinationDir?: string;
 }
 
 export type IsaSkillInstallAction = "fresh" | "upgraded" | "unchanged" | "preserved-local-edits" | "no-source";

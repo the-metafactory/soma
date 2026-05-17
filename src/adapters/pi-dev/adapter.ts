@@ -2,6 +2,7 @@ import type { SomaAdapter, SomaContextBundle, SomaContextInput, SomaTask } from 
 import { renderFeedbackHookHelper } from "../shared/feedback-helper";
 import { renderPathGuardExtension } from "./path-guard";
 import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "../shared";
+import { activeIsaBundleFile } from "../../adapter-active-isa";
 
 function renderInstructions(input: SomaContextInput): string {
   return [
@@ -520,6 +521,8 @@ export function buildPiDevHomeContext(input: SomaContextInput, somaHome: string)
         content: renderHomeSkill(input, somaHome),
       },
       ...portableSkillFiles,
+      // Active-ISA projection (#37). OMITTED when no active ISA — AC-2.
+      ...activeIsaBundleFile("pi-dev", input.activeIsa),
     ],
   };
 }
