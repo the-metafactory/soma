@@ -549,6 +549,84 @@ test("allowedSubpaths does not affect delete action", () => {
   expect(result.blocked).toBe(true);
 });
 
+// ── allowedSubpaths input hardening (#79 R2 important: prevent escape via
+// absolute paths, tilde-prefixes, or `..` traversal in operator-supplied
+// allowedSubpaths values) ──
+
+test("allowedSubpaths rejects absolute-path subpath values (cannot relax beyond root)", () => {
+  const customRoot = "/tmp/custom-root";
+  // An attacker / misconfigured operator passes an absolute path. The
+  // expected behavior: the unsafe value is dropped, the target is still
+  // blocked because it is inside the protected root and no safe allowed
+  // subpath matches.
+  const result = evaluatePathGuard({
+    targetPaths: [resolve(customRoot, "private/identity.md")],
+    cwd: "/tmp",
+    action: "modify",
+    protectedPaths: [{ path: customRoot, description: "custom", allowedSubpaths: ["/"] }],
+  });
+
+  expect(result.blocked).toBe(true);
+});
+
+test("allowedSubpaths rejects parent-traversal subpath values", () => {
+  const customRoot = "/tmp/custom-root";
+  // `..` would resolve to /tmp and let any modify inside /tmp/* pass.
+  const result = evaluatePathGuard({
+    targetPaths: [resolve(customRoot, "private/identity.md")],
+    cwd: "/tmp",
+    action: "modify",
+    protectedPaths: [{ path: customRoot, description: "custom", allowedSubpaths: [".."] }],
+  });
+
+  expect(result.blocked).toBe(true);
+});
+
+test("allowedSubpaths rejects tilde-prefixed subpath values", () => {
+  const customRoot = "/tmp/custom-root";
+  const result = evaluatePathGuard({
+    targetPaths: [resolve(customRoot, "private/identity.md")],
+    cwd: "/tmp",
+    action: "modify",
+    protectedPaths: [{ path: customRoot, description: "custom", allowedSubpaths: ["~/anywhere"] }],
+  });
+
+  expect(result.blocked).toBe(true);
+});
+
+test("allowedSubpaths rejects empty and dot-only subpath values", () => {
+  const customRoot = "/tmp/custom-root";
+  for (const unsafe of ["", ".", "./"]) {
+    const result = evaluatePathGuard({
+      targetPaths: [resolve(customRoot, "private/identity.md")],
+      cwd: "/tmp",
+      action: "modify",
+      protectedPaths: [{ path: customRoot, description: "custom", allowedSubpaths: [unsafe] }],
+    });
+    expect(result.blocked).toBe(true);
+  }
+});
+
+test("allowedSubpaths drops unsafe entries but still honors safe siblings", () => {
+  const customRoot = "/tmp/custom-root";
+  // The "../escape" is unsafe and dropped; "scratch" is safe and applied.
+  const escape = evaluatePathGuard({
+    targetPaths: [resolve(customRoot, "private/identity.md")],
+    cwd: "/tmp",
+    action: "modify",
+    protectedPaths: [{ path: customRoot, description: "custom", allowedSubpaths: ["../escape", "scratch"] }],
+  });
+  const safe = evaluatePathGuard({
+    targetPaths: [resolve(customRoot, "scratch/note.md")],
+    cwd: "/tmp",
+    action: "modify",
+    protectedPaths: [{ path: customRoot, description: "custom", allowedSubpaths: ["../escape", "scratch"] }],
+  });
+
+  expect(escape.blocked).toBe(true);
+  expect(safe.blocked).toBe(false);
+});
+
 // ── Policy Integration ──
 
 test("policy check denies delete on Soma home path", async () => {
