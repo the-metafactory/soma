@@ -3,7 +3,6 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
   ALGORITHM_PHASES,
-  latestAlgorithmPhaseMarker,
   parseAlgorithmPhaseMarkers,
 } from "../src/adapters/pi-dev/extensions/phase-parser";
 
@@ -106,19 +105,6 @@ describe("parseAlgorithmPhaseMarkers", () => {
 
     expect(observe?.phase).toBe("observe");
     expect(think?.phase).toBe("think");
-  });
-});
-
-describe("latestAlgorithmPhaseMarker", () => {
-  test("returns undefined when no markers exist", () => {
-    expect(latestAlgorithmPhaseMarker("nothing here")).toBeUndefined();
-  });
-
-  test("returns the most recent marker in source order", async () => {
-    const text = await readFile(FIXTURE_PATH, "utf8");
-    const latest = latestAlgorithmPhaseMarker(text);
-
-    expect(latest?.phase).toBe("summary");
   });
 });
 

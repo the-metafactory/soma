@@ -408,12 +408,37 @@ export default function (pi: ExtensionAPI): void {
         run.lastSnapshotLength = raw.length;
       }
       if (!chunk) return;
-      const { changed, phaseAdded } = ingestStream(chunk, defaultRunId(), { flush: !isDelta });
+      // Do NOT flush snapshot mode: the trailing line of a cumulative
+      // snapshot may still be growing — the next event will deliver
+      // more of it. Flushing here would split a still-incomplete
+      // marker or body line into fragments that never parse (Sage R5
+      // CodeQuality important). True deltas also don't need a flush:
+      // they're newline-terminated fragments by definition, and any
+      // partial trailing line is correctly held in run.carry until
+      // the next delta arrives.
+      const { changed, phaseAdded } = ingestStream(chunk, defaultRunId());
       if (!changed) return;
       if (phaseAdded) renderAllPhases(pi, ctx, run);
       else renderActivePhase(pi, ctx, run);
     },
   );
+
+  // Flush the carry on terminal events so any final unterminated line
+  // (which we deliberately held during streaming — see message_update
+  // comment about Sage R5 partial-line flush) gets parsed before the
+  // session/agent fully ends.
+  for (const terminal of ["agent_end", "message_end", "session_before_compact", "session_shutdown"] as const) {
+    (pi as unknown as { on?: (event: string, handler: (event: unknown, ctx: unknown) => void | Promise<void>) => void }).on?.(
+      terminal,
+      (_event, ctx) => {
+        const run = ensureRun(defaultRunId());
+        const { changed, phaseAdded } = ingestStream("", defaultRunId(), { flush: true });
+        if (!changed) return;
+        if (phaseAdded) renderAllPhases(pi, ctx, run);
+        else renderActivePhase(pi, ctx, run);
+      },
+    );
+  }
 
   // AC-5: ISA criteria widget updates whenever the soma \`isa_update\`
   // tool returns. Minimal parsing for this PR — full criteria diff

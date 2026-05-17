@@ -139,12 +139,8 @@ export function parseAlgorithmPhaseMarkers(text: string): PhaseMarker[] {
   return markers;
 }
 
-/**
- * Convenience: given streamed text, return the last (i.e. most recent)
- * phase marker, or undefined if none. Used by the pi.dev extension to
- * pick a single "current phase" for status/widget focus.
- */
-export function latestAlgorithmPhaseMarker(text: string): PhaseMarker | undefined {
-  const markers = parseAlgorithmPhaseMarkers(text);
-  return markers.length > 0 ? markers[markers.length - 1] : undefined;
-}
+// NOTE: A `latestAlgorithmPhaseMarker(text) → PhaseMarker | undefined`
+// convenience was previously exported here. Dropped because the
+// pi.dev extension derives currentPhase directly from per-line
+// ingest, and no other caller exists (Sage R5 maintainability
+// suggestion). Add it back when a production caller materializes.

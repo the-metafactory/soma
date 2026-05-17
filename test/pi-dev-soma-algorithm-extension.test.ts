@@ -63,15 +63,28 @@ describe("renderSomaAlgorithmExtension", () => {
     expect(source).toContain("PHASE_BODY_TRUNCATION_LINE");
   });
 
-  test("ingest path flushes the carry for whole-message payloads (Sage R2 codequality)", () => {
+  test("ingest path supports a flush option (used by terminal-event hooks)", () => {
     const source = renderSomaAlgorithmExtension();
 
-    // Whole-message text/content payloads must be flushed so the final
-    // unterminated line is parsed. Delta-only loop dropped it before
-    // this fix.
+    // The ingestStream contract supports a `flush` option; it is wired
+    // ONLY to terminal-event hooks (agent_end/message_end/etc) — not
+    // to message_update (Sage R5 fix: snapshot mode partial-line bug).
     expect(source).toContain("flush?: boolean");
     expect(source).toContain('isDelta = typeof e.delta === "string"');
-    expect(source).toContain("flush: !isDelta");
+  });
+
+  test("terminal events flush the carry so final unterminated lines parse (Sage R5)", () => {
+    const source = renderSomaAlgorithmExtension();
+
+    // R2 said: flush in message_update.
+    // R5 said: snapshot mode partial lines must NOT flush in message_update.
+    // Resolution: flush only on terminal events (agent_end, message_end,
+    // session_before_compact, session_shutdown).
+    expect(source).toContain('"agent_end"');
+    expect(source).toContain('"message_end"');
+    expect(source).toContain('"session_before_compact"');
+    expect(source).toContain('"session_shutdown"');
+    expect(source).toContain('ingestStream("", defaultRunId(), { flush: true })');
   });
 
   test("tool_result handler validates the untyped boundary (Sage R3 security)", () => {

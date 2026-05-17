@@ -5,7 +5,6 @@ export { projectPiDev, projectPiDevHome, piDevAdapter } from "./adapter";
 // per-substrate dir (substrate-adapter boundary rule in eslint.config).
 export {
   ALGORITHM_PHASES,
-  latestAlgorithmPhaseMarker,
   parseAlgorithmPhaseMarkers,
   type AlgorithmPhaseDescriptor,
   type AlgorithmPhaseKey,
