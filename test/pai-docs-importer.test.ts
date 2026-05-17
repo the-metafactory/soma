@@ -210,6 +210,30 @@ test("accepts filenames that start with '..' as long as the realpath stays insid
   });
 });
 
+test("idempotency-skip refuses a target replaced by a symlink even when bytes match", async () => {
+  await withTempHome(async (homeDir) => {
+    const sourceDir = await writePaiSourceFixture(homeDir);
+    const somaHome = join(homeDir, ".soma");
+    const first = await importPaiDocs({ homeDir, paiSourceDir: sourceDir, somaHome });
+    expect(first.writtenCount).toBeGreaterThan(0);
+
+    // Replace one imported file with a symlink whose target contents
+    // match the source bytes. Without a symlink check on the
+    // idempotency-skip path, this would be silently accepted as
+    // "unchanged".
+    const target = join(somaHome, "PAI/DOCUMENTATION/Skills/SkillSystem.md");
+    const masquerade = join(homeDir, "masquerade.md");
+    const sourceBytes = await readFile(join(sourceDir, "DOCUMENTATION/Skills/SkillSystem.md"), "utf8");
+    await writeFile(masquerade, sourceBytes, "utf8");
+    await rm(target);
+    await symlink(masquerade, target);
+
+    await expect(
+      importPaiDocs({ homeDir, paiSourceDir: sourceDir, somaHome }),
+    ).rejects.toThrow(/refused.*symlink/i);
+  });
+});
+
 test("AC-2 — idempotency repairs target drift even when source SHA is unchanged", async () => {
   await withTempHome(async (homeDir) => {
     const sourceDir = await writePaiSourceFixture(homeDir);

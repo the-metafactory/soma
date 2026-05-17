@@ -526,13 +526,25 @@ export async function importPaiDocs(
     const manifestKey = manifestRelativeTarget(file);
     const priorSha = previous?.get(manifestKey);
     if (priorSha && priorSha === file.sha256 && (await pathExists(file.target))) {
-      const targetSha = sha256(await readFile(file.target));
-      if (targetSha === file.sha256) {
-        // Source bytes unchanged AND target still matches — nothing to do.
-        continue;
+      // Idempotency-skip must apply the same target contract the
+      // copy path enforces: existing symlinks are refused. A target
+      // replaced by a symlink whose bytes happen to match (or could
+      // be made to match) the source would otherwise be silently
+      // accepted as "unchanged". `lstat` reveals the symlink before
+      // `readFile` follows it.
+      await refuseFinalTargetSymlink(realSomaHome, file.target);
+      const targetStat = await lstat(file.target);
+      if (targetStat.isFile()) {
+        const targetSha = sha256(await readFile(file.target));
+        if (targetSha === file.sha256) {
+          // Source bytes unchanged AND target still matches — nothing to do.
+          continue;
+        }
       }
-      // Target drifted (user edit, partial-write corruption, …). Fall
-      // through to re-copy the source over it.
+      // Target is not a regular file with the expected bytes (user
+      // edit, partial-write corruption, replaced by a directory, …).
+      // Fall through to re-copy the source over it — `copyFileSafely`
+      // re-runs the full target-side guard.
     }
     await copyFileSafely(realSourceRoot, realSomaHome, somaHomeAbs, file.source, file.target);
     writtenCount += 1;
