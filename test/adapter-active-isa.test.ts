@@ -34,7 +34,7 @@ async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> 
 test("activeIsaProjectionPath: per-substrate paths match the #37 spec", () => {
   expect(activeIsaProjectionPath("codex")).toBe("memories/soma/active-isa.md");
   expect(activeIsaProjectionPath("pi-dev")).toBe("agent/soma/active-isa.md");
-  expect(activeIsaProjectionPath("claude-code")).toBe("PAI/ACTIVE_ISA.md");
+  expect(activeIsaProjectionPath("claude-code")).toBe("rules/soma/ACTIVE_ISA.md");
   expect(() => activeIsaProjectionPath("custom")).toThrow();
   expect(() => activeIsaProjectionPath("cortex")).toThrow();
 });
@@ -48,7 +48,7 @@ test("AC-1: codex/pi-dev/claude home builders all include active-isa when set", 
   const claudePaths = claude.files.map((f) => f.path);
   expect(codexPaths).toContain("memories/soma/active-isa.md");
   expect(piPaths).toContain("agent/soma/active-isa.md");
-  expect(claudePaths).toContain("PAI/ACTIVE_ISA.md");
+  expect(claudePaths).toContain("rules/soma/ACTIVE_ISA.md");
 });
 
 test("AC-1: project bundle for claude-code includes active-isa when set", () => {
@@ -65,8 +65,11 @@ test("AC-2: omits active-isa when no active ISA — no empty file, no stale cont
   const claudeProject = buildClaudeCodeContext(inputWithoutIsa);
   expect(codex.files.map((f) => f.path)).not.toContain("memories/soma/active-isa.md");
   expect(piDev.files.map((f) => f.path)).not.toContain("agent/soma/active-isa.md");
-  expect(claude.files.map((f) => f.path)).not.toContain("PAI/ACTIVE_ISA.md");
-  expect(claude.files).toHaveLength(0);
+  // Per #29 the claude home bundle now always contains the rules/soma/*
+  // skeleton (README/CONTEXT/PROFILE/TELOS/MEMORY_LAYOUT/SKILLS/POLICY).
+  // Only the ACTIVE_ISA file is conditional.
+  expect(claude.files.map((f) => f.path)).not.toContain("rules/soma/ACTIVE_ISA.md");
+  expect(claude.files.length).toBeGreaterThan(0);
   expect(claudeProject.files.map((f) => f.path)).not.toContain(".claude/soma/active-isa.md");
 });
 
@@ -117,7 +120,7 @@ test("AC-4: byte-portable active-ISA across all three substrate installs", async
 
     const codexFile = await readFile(join(homeDir, ".codex/memories/soma/active-isa.md"), "utf8");
     const piFile = await readFile(join(homeDir, ".pi/agent/soma/active-isa.md"), "utf8");
-    const claudeFile = await readFile(join(homeDir, ".claude/PAI/ACTIVE_ISA.md"), "utf8");
+    const claudeFile = await readFile(join(homeDir, ".claude/rules/soma/ACTIVE_ISA.md"), "utf8");
 
     // BYTE equality — the renderer-of-record is serializeIsa.
     expect(codexFile).toBe(piFile);
@@ -136,7 +139,7 @@ test("AC-4: portability holds when the active ISA is updated", async () => {
     await installSomaForClaudeCode({ homeDir });
     const a = await readFile(join(homeDir, ".codex/memories/soma/active-isa.md"), "utf8");
     const b = await readFile(join(homeDir, ".pi/agent/soma/active-isa.md"), "utf8");
-    const c = await readFile(join(homeDir, ".claude/PAI/ACTIVE_ISA.md"), "utf8");
+    const c = await readFile(join(homeDir, ".claude/rules/soma/ACTIVE_ISA.md"), "utf8");
     expect(a).toBe(b);
     expect(b).toBe(c);
   });
@@ -159,14 +162,16 @@ test("AC-5: skill installer baselines track each substrate independently", async
   });
 });
 
-test("home installers omit empty bundle gracefully (claude-code, no active ISA)", async () => {
+test("claude-code home install writes rules/soma skeleton even without active ISA (#29)", async () => {
   await withTempHome(async (homeDir) => {
-    // No active ISA → claude home bundle is empty → install is a no-op.
     const result = await installClaudeCodeHomeProjection(
       { ...portableContextInput, activeIsa: undefined },
       { homeDir },
     );
-    expect(result.files).toHaveLength(0);
+    // Skeleton files are always written; ACTIVE_ISA only when set.
+    expect(result.files.some((p) => p.endsWith("rules/soma/README.md"))).toBe(true);
+    expect(result.files.some((p) => p.endsWith("rules/soma/CONTEXT.md"))).toBe(true);
+    expect(result.files.some((p) => p.endsWith("rules/soma/ACTIVE_ISA.md"))).toBe(false);
   });
 });
 
