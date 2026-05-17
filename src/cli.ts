@@ -9,6 +9,7 @@ import {
   captureSomaFeedback,
   createAlgorithmRun,
   importAlgorithm,
+  importPaiDocs,
   importPaiIdentity,
   importPaiPack,
   migratePai,
@@ -29,6 +30,7 @@ import {
   loadSomaHome,
   listAlgorithmRunSummaries,
   planAlgorithmImport,
+  planPaiDocsImport,
   planPaiImport,
   planPaiPackImport,
   planSomaForCodexInstall,
@@ -63,6 +65,9 @@ import type {
   PaiPackImportOptions,
   PaiPackImportPlan,
   PaiPackImportResult,
+  PaiDocsImportOptions,
+  PaiDocsImportPlan,
+  PaiDocsImportResult,
   ProjectionInput,
   SomaInstallOptions,
   SomaInstallPlan,
@@ -83,6 +88,11 @@ import type {
 } from "./types";
 import { SOMA_FEEDBACK_STDIN_MAX_BYTES } from "./feedback-contract";
 import { ISA_SUBCOMMAND_HELP, ISA_USAGE_HEADER, runIsaCli } from "./cli-isa";
+// CLI formatter for `import pai-docs` needs the same in-scope subtree
+// list the importer iterates. Importing directly from the module
+// keeps the constant a module-internal contract rather than promoting
+// importer policy through the package root surface.
+import { PAI_DOCS_IMPORT_SUBDIRS } from "./pai-docs-importer";
 
 /**
  * Typed CLI error carrying an exit code distinct from the default 1.
@@ -144,9 +154,9 @@ interface ParsedDaemonArgs {
 
 interface ParsedImportArgs {
   command: "import";
-  source: "pai" | "algorithm" | "pai-pack";
+  source: "pai" | "algorithm" | "pai-pack" | "pai-docs";
   apply: boolean;
-  options: PaiImportOptions | AlgorithmImportOptions | PaiPackImportOptions;
+  options: PaiImportOptions | AlgorithmImportOptions | PaiPackImportOptions | PaiDocsImportOptions;
 }
 
 interface ParsedMigrateArgs {
@@ -356,11 +366,12 @@ const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string,
     usage: "Usage: soma daemon  (not yet implemented — placeholder reserves the runtime mode)",
   },
   import: {
-    usage: "Usage: soma import <pai|algorithm|pai-pack> ...",
+    usage: "Usage: soma import <pai|algorithm|pai-pack|pai-docs> ...",
     subcommands: {
       pai: "Usage: soma import pai [--dry-run] [--apply] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>]",
       algorithm: "Usage: soma import algorithm [--dry-run] [--apply] [--home-dir <dir>] [--pai-algorithm-dir <dir>] [--soma-home <dir>]",
       "pai-pack": "Usage: soma import pai-pack [--dry-run] [--apply] [--home-dir <dir>] [--source <dir>] [--soma-home <dir>]",
+      "pai-docs": "Usage: soma import pai-docs [--dry-run] [--apply] [--home-dir <dir>] --pai-source-dir <dir> [--soma-home <dir>]",
     },
   },
   migrate: {
@@ -560,18 +571,28 @@ function parseDaemonArgs(args: string[]): ParsedDaemonArgs {
 function parseImportArgs(args: string[]): ParsedImportArgs {
   const [command, source, ...rest] = args;
 
-  if (command !== "import" || (source !== "pai" && source !== "algorithm" && source !== "pai-pack")) {
+  if (
+    command !== "import" ||
+    (source !== "pai" &&
+      source !== "algorithm" &&
+      source !== "pai-pack" &&
+      source !== "pai-docs")
+  ) {
     throw new Error(
       [
         "Usage:",
         "  soma import pai [--dry-run] [--apply] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>]",
         "  soma import algorithm [--dry-run] [--apply] [--home-dir <dir>] [--pai-algorithm-dir <dir>] [--soma-home <dir>]",
         "  soma import pai-pack [--dry-run] [--apply] [--home-dir <dir>] --pai-pack-dir <dir> [--soma-home <dir>] [--skill-name <name>] [--overwrite] [--include-substrate-specific]",
+        "  soma import pai-docs [--dry-run] [--apply] [--home-dir <dir>] --pai-source-dir <dir> [--soma-home <dir>]",
       ].join("\n"),
     );
   }
 
-  const options: PaiImportOptions & AlgorithmImportOptions & PaiPackImportOptions = {};
+  const options: PaiImportOptions &
+    AlgorithmImportOptions &
+    PaiPackImportOptions &
+    PaiDocsImportOptions = {};
   let apply = false;
 
   for (let index = 0; index < rest.length; index += 1) {
@@ -607,6 +628,13 @@ function parseImportArgs(args: string[]): ParsedImportArgs {
           throw new Error("--pai-pack-dir is only valid for soma import pai-pack.");
         }
         options.paiPackDir = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--pai-source-dir":
+        if (source !== "pai-docs") {
+          throw new Error("--pai-source-dir is only valid for soma import pai-docs.");
+        }
+        options.paiSourceDir = readOption(rest, index, arg);
         index += 1;
         break;
       case "--skill-name":
@@ -1841,6 +1869,44 @@ function formatPaiPackImportResult(result: PaiPackImportResult): string {
   ].join("\n");
 }
 
+function formatPaiDocsImportPlan(plan: PaiDocsImportPlan): string {
+  const counts = plan.files.reduce<Partial<Record<string, number>>>((acc, file) => {
+    acc[file.subdir] = (acc[file.subdir] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  return [
+    "Soma PAI docs import plan",
+    "source: pai-docs",
+    `mode: ${plan.apply ? "apply" : "dry-run"}`,
+    `paiSourceDir: ${plan.paiSourceDir}`,
+    `somaHome: ${plan.somaHome}`,
+    `releaseVersion: ${plan.releaseVersion ?? "<unknown>"}`,
+    "",
+    "Counts:",
+    // Drive the counts from the shared subtree constant so adding a
+    // subtree only requires touching `PAI_DOCS_IMPORT_SUBDIRS`.
+    ...PAI_DOCS_IMPORT_SUBDIRS.map((subdir) => `- ${subdir}: ${counts[subdir] ?? 0}`),
+    "",
+    "Files:",
+    ...plan.files.map((file) => `- ${file.relativePath} -> ${file.target}`),
+  ].join("\n");
+}
+
+function formatPaiDocsImportResult(result: PaiDocsImportResult): string {
+  return [
+    "Soma PAI docs import applied",
+    `paiSourceDir: ${result.paiSourceDir}`,
+    `somaHome: ${result.somaHome}`,
+    `releaseVersion: ${result.releaseVersion ?? "<unknown>"}`,
+    `importedAt: ${result.importedAt}`,
+    `writtenCount: ${result.writtenCount}${result.unchanged ? " (idempotent no-op — source SHAs unchanged)" : ""}`,
+    "",
+    "Files:",
+    ...result.files.map((path) => `- ${path}`),
+  ].join("\n");
+}
+
 function quoteShellArg(value: string): string {
   if (/^[A-Za-z0-9_/:=.,@%+-]+$/.test(value)) {
     return value;
@@ -2215,6 +2281,16 @@ export async function runSomaCli(args: string[]): Promise<string> {
       }
 
       return formatPaiPackImportResult(await importPaiPack(options));
+    }
+
+    if (parsed.source === "pai-docs") {
+      const options = parsed.options as PaiDocsImportOptions;
+
+      if (!parsed.apply) {
+        return formatPaiDocsImportPlan(await planPaiDocsImport(options));
+      }
+
+      return formatPaiDocsImportResult(await importPaiDocs(options));
     }
 
     const options = parsed.options as PaiImportOptions;
