@@ -214,14 +214,22 @@ async function buildPlan(
 
   for (const subdir of PAI_DOCS_IMPORT_SUBDIRS) {
     const subdirPath = join(homes.paiSourceDir, subdir);
-    if (!(await pathExists(subdirPath))) continue;
     // `collectFiles` lstat-checks every child entry but never its
     // own root. Without this guard, a PAI source with `TEMPLATES/` or
     // `ALGORITHM/` planted as a symlink would be followed and
     // imported — violating the documented refusal for symlinks inside
-    // the source tree. Check the subtree boundary here, before
-    // `collectFiles` recurses into anything.
-    const subdirStat = await lstat(subdirPath);
+    // the source tree. lstat (not `pathExists`/`access`) is used so a
+    // dangling symlink is refused, not silently treated as absent.
+    let subdirStat;
+    try {
+      subdirStat = await lstat(subdirPath);
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+        // Optional subtree genuinely missing — fine, skip.
+        continue;
+      }
+      throw error;
+    }
     if (subdirStat.isSymbolicLink()) {
       throw new Error(
         `soma import pai-docs refused symlink path: ${subdir}/`,
@@ -369,6 +377,45 @@ async function prepareSafeTargetParent(
   return resolved;
 }
 
+// Refuse writing through a pre-existing symlink at the final path.
+// All parent-side guards can pass while the leaf entry itself is a
+// symlink to an outside file — `writeFile`/`copyFile` would then
+// follow the link and overwrite an attacker-chosen target. Removing
+// any existing symlink (or letting it through only when it points
+// inside the Soma home) is the only way to keep `--apply` from
+// becoming an arbitrary-overwrite primitive.
+async function refuseFinalTargetSymlink(
+  realSomaHomeRoot: string,
+  targetAbs: string,
+): Promise<void> {
+  let existing;
+  try {
+    existing = await lstat(targetAbs);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
+    throw error;
+  }
+  if (!existing.isSymbolicLink()) return;
+  // The realpath of a symbolic link must still resolve inside the
+  // Soma home root for the importer to overwrite it. Anything
+  // pointing outside is rejected. (We do not silently `unlink` even
+  // an inside-home symlink; the importer's contract is to write
+  // regular files at these paths, so a pre-existing symlink is a
+  // configuration smell either way.)
+  const realTarget = await realpath(targetAbs);
+  if (
+    realTarget !== realSomaHomeRoot &&
+    !realTarget.startsWith(realSomaHomeRoot + sep)
+  ) {
+    throw new Error(
+      `soma import pai-docs refused to overwrite through a symlink that escapes Soma home (path: ${targetAbs}).`,
+    );
+  }
+  throw new Error(
+    `soma import pai-docs refused to overwrite an existing symlink at the target path (path: ${targetAbs}).`,
+  );
+}
+
 async function writeFileSafely(
   realSomaHomeRoot: string,
   somaHomeRoot: string,
@@ -376,6 +423,7 @@ async function writeFileSafely(
   content: Buffer,
 ): Promise<void> {
   const resolved = await prepareSafeTargetParent(realSomaHomeRoot, somaHomeRoot, targetAbs);
+  await refuseFinalTargetSymlink(realSomaHomeRoot, resolved);
   await writeFile(resolved, content);
 }
 
@@ -401,6 +449,7 @@ async function copyFileSafely(
     );
   }
   const resolved = await prepareSafeTargetParent(realSomaHomeRoot, somaHomeRoot, targetAbs);
+  await refuseFinalTargetSymlink(realSomaHomeRoot, resolved);
   await copyFile(realSource, resolved);
 }
 

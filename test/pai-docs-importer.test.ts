@@ -303,6 +303,45 @@ test("AC-3 — refuses required DOCUMENTATION subdir that is itself a symlink", 
   });
 });
 
+test("AC-4 — refuses to overwrite a pre-existing symlink at the final target path", async () => {
+  await withTempHome(async (homeDir) => {
+    const sourceDir = await writePaiSourceFixture(homeDir);
+    const somaHome = join(homeDir, ".soma");
+    // Pre-create the full target tree, then plant a symlink at one
+    // of the expected output files. All parent-side realpath checks
+    // would otherwise pass; the importer must refuse the write
+    // because the final entry itself is a symlink.
+    await mkdir(join(somaHome, "PAI/DOCUMENTATION/Skills"), { recursive: true });
+    const outside = join(homeDir, "outside.md");
+    await writeFile(outside, "OUTSIDE — must not be overwritten\n", "utf8");
+    await symlink(outside, join(somaHome, "PAI/DOCUMENTATION/Skills/SkillSystem.md"));
+
+    await expect(
+      importPaiDocs({ homeDir, paiSourceDir: sourceDir, somaHome }),
+    ).rejects.toThrow(/refused.*symlink/i);
+
+    // The outside file must still hold its original bytes — no
+    // overwrite through the symlink occurred.
+    const after = await readFile(outside, "utf8");
+    expect(after).toContain("OUTSIDE — must not be overwritten");
+  });
+});
+
+test("refuses a dangling optional subtree symlink (no silent skip)", async () => {
+  await withTempHome(async (homeDir) => {
+    const sourceDir = await writePaiSourceFixture(homeDir);
+    // Plant a dangling symlink at TEMPLATES. `pathExists` (which
+    // uses `access`) reports it as absent because it follows the
+    // link; lstat reveals it.
+    await rm(join(sourceDir, "TEMPLATES"), { recursive: true });
+    await symlink(join(homeDir, "does-not-exist"), join(sourceDir, "TEMPLATES"));
+
+    await expect(
+      planPaiDocsImport({ homeDir, paiSourceDir: sourceDir }),
+    ).rejects.toThrow(/refused symlink path: TEMPLATES\/?/);
+  });
+});
+
 test("AC-4 — refuses target escape via existing symlink inside Soma home, before any mkdir or write", async () => {
   await withTempHome(async (homeDir) => {
     const sourceDir = await writePaiSourceFixture(homeDir);
