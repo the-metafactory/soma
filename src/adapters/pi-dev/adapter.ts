@@ -1,6 +1,7 @@
 import type { SomaAdapter, SomaContextBundle, SomaContextInput, SomaTask } from "../../types";
 import { renderFeedbackHookHelper } from "../shared/feedback-helper";
 import { renderPathGuardExtension } from "./path-guard";
+import { buildPiDevPortableSkillFiles } from "./skill-projection";
 import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "../shared";
 import { activeIsaBundleFile } from "../../adapter-active-isa";
 import { SOMA_VERSION } from "../../version";
@@ -466,12 +467,7 @@ export function buildPiDevContext(input: SomaContextInput): SomaContextBundle {
 
 export function buildPiDevHomeContext(input: SomaContextInput, somaHome: string): SomaContextBundle {
   const instructions = renderInstructions(input);
-  const portableSkillFiles = input.profile.skills.flatMap((skill) =>
-    (skill.files ?? []).map((file) => ({
-      path: `agent/skills/${skill.name}/${file.path}`,
-      content: file.content,
-    })),
-  );
+  const portableSkillFiles = buildPiDevPortableSkillFiles(input.profile.skills);
 
   return {
     substrate: "pi-dev",
