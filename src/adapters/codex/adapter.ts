@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import type { SomaAdapter, SomaContextBundle, SomaContextInput, SomaTask } from "../../types";
+import type { SomaAdapter, Projection, ProjectionInput, SomaTask } from "../../types";
 import { defaultSomaRepoPath } from "../../repo-path";
 import { resolveBunExecutable } from "../../bun-probe";
 import { readCodexHookAsset } from "./hooks/assets";
@@ -51,7 +51,7 @@ function renderCodexPolicy(): string {
   ]);
 }
 
-function renderInstructions(input: SomaContextInput): string {
+function renderInstructions(input: ProjectionInput): string {
   return [
     "# Soma Codex Context",
     "",
@@ -69,7 +69,7 @@ function renderInstructions(input: SomaContextInput): string {
   ].join("\n");
 }
 
-function renderHomeRules(input: SomaContextInput, somaHome: string): string {
+function renderHomeRules(input: ProjectionInput, somaHome: string): string {
   const contextLines = [
     "# Soma default availability",
     "",
@@ -97,7 +97,7 @@ function renderHomeRules(input: SomaContextInput, somaHome: string): string {
   ].join("\n");
 }
 
-function renderHomeSkill(input: SomaContextInput, somaHome: string): string {
+function renderHomeSkill(input: ProjectionInput, somaHome: string): string {
   return [
     "---",
     "name: soma",
@@ -405,7 +405,7 @@ function renderCodexHookEntry(): string {
   ]);
 }
 
-export function buildCodexContext(input: SomaContextInput): SomaContextBundle {
+export function projectCodex(input: ProjectionInput): Projection {
   const instructions = renderInstructions(input);
 
   return {
@@ -432,7 +432,7 @@ export function buildCodexContext(input: SomaContextInput): SomaContextBundle {
   };
 }
 
-export function buildCodexHomeContext(input: SomaContextInput, somaHome: string, homeDir?: string, somaRepoPath = defaultSomaRepoPath()): SomaContextBundle {
+export function projectCodexHome(input: ProjectionInput, somaHome: string, homeDir?: string, somaRepoPath = defaultSomaRepoPath()): Projection {
   const instructions = renderHomeRules(input, somaHome);
   const portableSkillFiles = input.profile.skills.flatMap((skill) =>
     (skill.files ?? []).map((file) => ({
@@ -526,15 +526,15 @@ export const codexAdapter: SomaAdapter = {
   detect() {
     return Promise.resolve(Boolean(process.env.CODEX_SANDBOX ?? process.env.CODEX_HOME));
   },
-  buildContext(input) {
-    return Promise.resolve(buildCodexContext(input));
+  project(input) {
+    return Promise.resolve(projectCodex(input));
   },
   run(task: SomaTask) {
     return Promise.resolve({
       taskId: task.id,
       substrate: "codex",
       status: "failed",
-      summary: "Codex execution is not implemented yet; use buildContext() to generate the substrate bundle.",
+      summary: "Codex execution is not implemented yet; use project() to generate the substrate bundle.",
     });
   },
 };

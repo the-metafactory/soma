@@ -25,7 +25,7 @@ export interface LoadActiveIsaOptions {
 /**
  * Resolve the active ISA from the Soma home, or null when no slug is
  * set. Used by per-substrate installers to populate `input.activeIsa`
- * before invoking the adapter's `build*HomeContext`.
+ * before invoking the adapter's `project*Home`.
  */
 export async function loadActiveIsaForBundle(
   options: LoadActiveIsaOptions = {},
@@ -78,7 +78,7 @@ export function activeIsaProjectionPath(substrate: SubstrateId): string {
 }
 
 /**
- * Convenience for adapter `build*HomeContext` functions (#37 sage r1):
+ * Convenience for adapter `project*Home` functions (#37 sage r1):
  * returns the single-entry bundle file array when `activeIsa` is set,
  * empty array otherwise. Lets adapters spread `...activeIsaBundleFile(...)`
  * instead of re-implementing the conditional and path lookup.

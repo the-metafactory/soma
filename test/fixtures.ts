@@ -1,7 +1,7 @@
-import type { SomaContextInput } from "../src/index";
+import type { ProjectionInput } from "../src/index";
 import { SECTION_NAME_MAP, renderCriteriaMarkdown } from "../src/isa-accessors";
 
-export const portableContextInput: SomaContextInput = {
+export const portableProjectionInput: ProjectionInput = {
   profile: {
     assistant: {
       name: "soma",

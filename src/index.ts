@@ -30,8 +30,8 @@ export type {
   SomaSkillBaseline,
   SomaSkillBaselines,
   SomaAdapter,
-  SomaContextBundle,
-  SomaContextInput,
+  Projection,
+  ProjectionInput,
   SomaMemoryLayout,
   SomaProfile,
   SomaRunResult,
@@ -84,7 +84,7 @@ export type {
   PaiPackNormalizationReport,
   PaiPackNormalizationWarning,
   SomaSkillManifest,
-  WrittenContextBundle,
+  WrittenProjection,
 } from "./types";
 
 export {
@@ -144,17 +144,17 @@ export {
   type WrittenAlgorithmRun,
 } from "./algorithm-store";
 export {
-  buildClaudeCodeContext,
-  buildClaudeCodeHomeContext,
-  buildCodexContext,
-  buildCodexHomeContext,
-  buildPiDevContext,
-  buildPiDevHomeContext,
+  projectClaudeCode,
+  projectClaudeCodeHome,
+  projectCodex,
+  projectCodexHome,
+  projectPiDev,
+  projectPiDevHome,
   claudeCodeAdapter,
   codexAdapter,
   piDevAdapter,
 } from "./adapters";
-export { writeContextBundle } from "./context-bundle";
+export { writeProjection } from "./projection";
 export {
   buildClaudeCodeHomeProjection,
   buildCodexHomeProjection,

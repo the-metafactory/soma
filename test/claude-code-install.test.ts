@@ -10,14 +10,14 @@ import { join } from "node:path";
 import { expect, test } from "bun:test";
 import {
   bootstrapSomaHome,
-  buildClaudeCodeHomeContext,
+  projectClaudeCodeHome,
   installSomaForClaudeCode,
   planSomaForClaudeCodeInstall,
   scaffoldIsa,
   setActiveIsa,
   uninstallSomaForClaudeCode,
 } from "../src/index";
-import { portableContextInput } from "./fixtures";
+import { portableProjectionInput } from "./fixtures";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-29-"));
@@ -28,8 +28,8 @@ async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> 
   }
 }
 
-test("AC-1: buildClaudeCodeHomeContext writes everything under rules/soma/", () => {
-  const bundle = buildClaudeCodeHomeContext(portableContextInput);
+test("AC-1: projectClaudeCodeHome writes everything under rules/soma/", () => {
+  const bundle = projectClaudeCodeHome(portableProjectionInput);
   for (const f of bundle.files) {
     expect(f.path.startsWith("rules/soma/")).toBe(true);
   }
@@ -162,7 +162,7 @@ test("active-ISA file is omitted from skeleton when no active ISA set", async ()
 });
 
 test("README documents the directory contract for humans", () => {
-  const bundle = buildClaudeCodeHomeContext(portableContextInput);
+  const bundle = projectClaudeCodeHome(portableProjectionInput);
   const readme = bundle.files.find((f) => f.path === "rules/soma/README.md");
   expect(readme).toBeDefined();
   expect(readme!.content).toContain("Soma");

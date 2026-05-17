@@ -5,10 +5,10 @@ import { expect, test } from "bun:test";
 import {
   activeIsaProjectionPath,
   bootstrapSomaHome,
-  buildClaudeCodeContext,
-  buildClaudeCodeHomeContext,
-  buildCodexHomeContext,
-  buildPiDevHomeContext,
+  projectClaudeCode,
+  projectClaudeCodeHome,
+  projectCodexHome,
+  projectPiDevHome,
   installClaudeCodeHomeProjection,
   installCodexHomeProjection,
   installPiDevHomeProjection,
@@ -20,7 +20,7 @@ import {
   scaffoldIsa,
   setActiveIsa,
 } from "../src/index";
-import { portableContextInput } from "./fixtures";
+import { portableProjectionInput } from "./fixtures";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-37-"));
@@ -40,9 +40,9 @@ test("activeIsaProjectionPath: per-substrate paths match the #37 spec", () => {
 });
 
 test("AC-1: codex/pi-dev/claude home builders all include active-isa when set", () => {
-  const codex = buildCodexHomeContext(portableContextInput, "/tmp/soma");
-  const piDev = buildPiDevHomeContext(portableContextInput, "/tmp/soma");
-  const claude = buildClaudeCodeHomeContext(portableContextInput);
+  const codex = projectCodexHome(portableProjectionInput, "/tmp/soma");
+  const piDev = projectPiDevHome(portableProjectionInput, "/tmp/soma");
+  const claude = projectClaudeCodeHome(portableProjectionInput);
   const codexPaths = codex.files.map((f) => f.path);
   const piPaths = piDev.files.map((f) => f.path);
   const claudePaths = claude.files.map((f) => f.path);
@@ -52,17 +52,17 @@ test("AC-1: codex/pi-dev/claude home builders all include active-isa when set", 
 });
 
 test("AC-1: project bundle for claude-code includes active-isa when set", () => {
-  const bundle = buildClaudeCodeContext(portableContextInput);
+  const bundle = projectClaudeCode(portableProjectionInput);
   const paths = bundle.files.map((f) => f.path);
   expect(paths).toContain(".claude/soma/active-isa.md");
 });
 
 test("AC-2: omits active-isa when no active ISA — no empty file, no stale content", () => {
-  const inputWithoutIsa = { ...portableContextInput, activeIsa: undefined };
-  const codex = buildCodexHomeContext(inputWithoutIsa, "/tmp/soma");
-  const piDev = buildPiDevHomeContext(inputWithoutIsa, "/tmp/soma");
-  const claude = buildClaudeCodeHomeContext(inputWithoutIsa);
-  const claudeProject = buildClaudeCodeContext(inputWithoutIsa);
+  const inputWithoutIsa = { ...portableProjectionInput, activeIsa: undefined };
+  const codex = projectCodexHome(inputWithoutIsa, "/tmp/soma");
+  const piDev = projectPiDevHome(inputWithoutIsa, "/tmp/soma");
+  const claude = projectClaudeCodeHome(inputWithoutIsa);
+  const claudeProject = projectClaudeCode(inputWithoutIsa);
   expect(codex.files.map((f) => f.path)).not.toContain("memories/soma/active-isa.md");
   expect(piDev.files.map((f) => f.path)).not.toContain("agent/soma/active-isa.md");
   // Per #29 the claude home bundle now always contains the rules/soma/*
@@ -182,7 +182,7 @@ test("AC-5: skill installer baselines track each substrate independently", async
 test("claude-code home install writes rules/soma skeleton even without active ISA (#29)", async () => {
   await withTempHome(async (homeDir) => {
     const result = await installClaudeCodeHomeProjection(
-      { ...portableContextInput, activeIsa: undefined },
+      { ...portableProjectionInput, activeIsa: undefined },
       { homeDir },
     );
     // Skeleton files are always written; ACTIVE_ISA only when set.
@@ -194,8 +194,8 @@ test("claude-code home install writes rules/soma skeleton even without active IS
 
 test("codex/pi-dev installs without active ISA still succeed (active-isa omitted)", async () => {
   await withTempHome(async (homeDir) => {
-    const codex = await installCodexHomeProjection({ ...portableContextInput, activeIsa: undefined }, { homeDir });
-    const piDev = await installPiDevHomeProjection({ ...portableContextInput, activeIsa: undefined }, { homeDir });
+    const codex = await installCodexHomeProjection({ ...portableProjectionInput, activeIsa: undefined }, { homeDir });
+    const piDev = await installPiDevHomeProjection({ ...portableProjectionInput, activeIsa: undefined }, { homeDir });
     expect(codex.files.some((p) => p.endsWith("active-isa.md"))).toBe(false);
     expect(piDev.files.some((p) => p.endsWith("active-isa.md"))).toBe(false);
   });

@@ -1,4 +1,4 @@
-import type { SomaContextInput } from "../../types";
+import type { ProjectionInput } from "../../types";
 import { getCriteria, getGoal } from "../../isa-accessors";
 
 export function formatList(items: string[]): string {
@@ -15,7 +15,7 @@ export function formatRecord(record: Record<string, unknown> | undefined): strin
     .join("\n");
 }
 
-export function renderActiveIsa(input: SomaContextInput): string {
+export function renderActiveIsa(input: ProjectionInput): string {
   if (!input.activeIsa) {
     return "No active ISA was provided.";
   }
@@ -37,7 +37,7 @@ export function renderActiveIsa(input: SomaContextInput): string {
   ].join("\n");
 }
 
-export function renderAssistantCore(input: SomaContextInput): string {
+export function renderAssistantCore(input: ProjectionInput): string {
   const { profile } = input;
 
   return [
@@ -74,7 +74,7 @@ export function renderAssistantCore(input: SomaContextInput): string {
     .join("\n");
 }
 
-export function renderMemoryLayout(input: SomaContextInput): string {
+export function renderMemoryLayout(input: ProjectionInput): string {
   const { memory } = input.profile;
 
   return [
@@ -89,7 +89,7 @@ export function renderMemoryLayout(input: SomaContextInput): string {
   ].join("\n");
 }
 
-export function renderSkills(input: SomaContextInput): string {
+export function renderSkills(input: ProjectionInput): string {
   const skills = input.profile.skills.map((skill) =>
     [`## ${skill.name}`, "", skill.description, "", `Path: ${skill.path}`, "", "Triggers:", formatList(skill.triggers)].join("\n"),
   );
