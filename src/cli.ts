@@ -206,6 +206,9 @@ type ParsedArgs =
   | ParsedIsaArgs;
 
 const TOP_LEVEL_COMMANDS = ["algorithm", "feedback", "import", "install", "isa", "lifecycle", "memory", "migrate", "policy"] as const;
+
+const MIGRATE_PAI_USAGE =
+  "Usage: soma migrate pai [--dry-run] [--apply] [--status] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>] [--pai-pack-dir <dir>]";
 const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string, string> }> = {
   algorithm: {
     usage: "Usage: soma algorithm <new|classify|list|show|capabilities|plan|decision|change|step|verify|learn|batch|advance> ...",
@@ -264,10 +267,8 @@ const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string,
     },
   },
   migrate: {
-    usage: "Usage: soma migrate pai [--dry-run] [--apply] [--status] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>] [--pai-pack-dir <dir>]",
-    subcommands: {
-      pai: "Usage: soma migrate pai [--dry-run] [--apply] [--status] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>] [--pai-pack-dir <dir>]",
-    },
+    usage: MIGRATE_PAI_USAGE,
+    subcommands: { pai: MIGRATE_PAI_USAGE },
   },
   isa: {
     // Single source of truth lives in `./cli-isa.ts` (Sage round-1 dedup).
