@@ -47,6 +47,12 @@ function runCodexHook(
   input: unknown,
   options: { extraEnv?: NodeJS.ProcessEnv; rawInput?: boolean } = {},
 ): { status: number | null; output: CodexHookTestOutput } {
+  // soma#73: the lifecycle hook ships with `#!/usr/bin/env bun`.
+  // Tests still spawn under system Node — the hook body itself works
+  // under either runtime (the child spawn uses an explicit bunPath
+  // from config so the substrate runtime doesn't matter). When
+  // Codex fires the hook in production, the env-bun shebang resolves
+  // bun automatically.
   const result = spawnSync("node", [hook, event], {
     cwd: process.cwd(),
     env: {
@@ -84,7 +90,7 @@ test("installs soma source home and codex home projection", async () => {
     expect(result.substrate).toBe("codex");
     expect(result.somaHome.somaHome).toBe(join(homeDir, ".soma"));
     expect(result.substrateHome.rootDir).toBe(join(homeDir, ".codex"));
-    expect(result.substrateHome.files).toHaveLength(19);
+    expect(result.substrateHome.files).toHaveLength(20);
 
     const telos = await readFile(join(homeDir, ".soma/profile/telos.md"), "utf8");
     const rules = await readFile(join(homeDir, ".codex/rules/soma.rules"), "utf8");
@@ -534,11 +540,15 @@ test("installed codex hook uses explicit soma repo path", async () => {
   await withTempHome(async (homeDir) => {
     const explicitRepo = join(homeDir, "trusted-soma-repo");
     await installSomaForCodex({ homeDir, somaRepoPath: explicitRepo });
-    const hook = await readFile(join(homeDir, ".codex/hooks/soma-lifecycle.mjs"), "utf8");
+    // soma#73: repo path moved from the rendered .mjs into the
+    // colocated config.json the hook reads at runtime.
+    const config = JSON.parse(
+      await readFile(join(homeDir, ".codex/hooks/soma-lifecycle.config.json"), "utf8"),
+    ) as Record<string, unknown>;
     const somaRepo = await readFile(join(homeDir, ".codex/memories/soma/soma-repo.txt"), "utf8");
 
-    expect(hook).toContain(JSON.stringify(explicitRepo));
-    expect(hook).not.toContain(JSON.stringify(process.cwd()));
+    expect(config.trustedSomaRepo).toBe(explicitRepo);
+    expect(config.trustedSomaRepo).not.toBe(process.cwd());
     expect(somaRepo).toBe(`${explicitRepo}\n`);
   });
 });

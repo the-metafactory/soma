@@ -34,6 +34,7 @@ const CODEX_HOME_FILES = [
   "rules/soma.rules",
   "hooks.json",
   "hooks/soma-lifecycle.mjs",
+  "hooks/soma-lifecycle.config.json",
   "hooks/codex-hook-entry.mjs",
   "hooks/soma-feedback-capture.mjs",
   "hooks/codex-policy-hook.mjs",
@@ -99,6 +100,10 @@ function resolveSubstrateSkillDir(substrate: InstallSubstrate, substrateHome: st
   return resolve(substrateHome, SKILL_SUBPATHS[substrate]);
 }
 
+// soma#73 pre-flight is shared with the codex adapter — see
+// `src/bun-probe.ts` for the discovery + remediation logic.
+import { requireBunInPath } from "./bun-probe";
+
 function planSomaInstall(
   substrate: InstallSubstrate,
   substrateFiles: readonly string[],
@@ -133,6 +138,13 @@ async function installSomaForSubstrate(
   substrate: InstallSubstrate,
   options: SomaInstallOptions = {},
 ): Promise<SomaInstallResult> {
+  // soma#73 pre-flight: every soma substrate hook now runs under Bun
+  // (#!/usr/bin/env bun shebang). The adopter rejects loud + early
+  // when bun is missing rather than producing a half-broken install
+  // that fails at hook fire time. Always probes `which bun` — sage
+  // r1 caught a bypass that trusted `process.versions.bun`, which
+  // doesn't prove anything about the hook's later spawn environment.
+  requireBunInPath();
   const somaHome = await bootstrapSomaHome(options);
   const somaRepoPath = options.somaRepoPath ?? defaultSomaRepoPath();
   // Install ISA skill into Soma home (canonical baseline) so other
