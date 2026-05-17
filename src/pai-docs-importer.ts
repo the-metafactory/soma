@@ -270,23 +270,22 @@ export async function planPaiDocsImport(
   return buildPlan(options, { withSha: false });
 }
 
-interface ExistingManifestEntry {
-  target: string;
-  sha256: string;
-}
-
+// Sage round 4 (Maintainability nit): the prior `ExistingManifestEntry`
+// shape stored `target` twice — once as the map key and once as a
+// field never read again. A `Map<target, sha256>` carries exactly the
+// state idempotency needs.
 async function readExistingManifest(
   somaHome: string,
-): Promise<Map<string, ExistingManifestEntry> | null> {
+): Promise<Map<string, string> | null> {
   const manifestPath = join(somaHome, "PAI", MANIFEST_FILENAME);
   if (!(await pathExists(manifestPath))) return null;
   const raw = await readFile(manifestPath, "utf8");
   try {
     const parsed = JSON.parse(raw) as PaiDocsImportManifest;
     if (parsed.schema !== MANIFEST_SCHEMA || !Array.isArray(parsed.files)) return null;
-    const map = new Map<string, ExistingManifestEntry>();
+    const map = new Map<string, string>();
     for (const entry of parsed.files) {
-      map.set(entry.target, { target: entry.target, sha256: entry.sha256 });
+      map.set(entry.target, entry.sha256);
     }
     return map;
   } catch {
@@ -443,8 +442,8 @@ export async function importPaiDocs(
   // pre-flight check provided, in one place.
   for (const file of plan.files) {
     const manifestKey = manifestRelativeTarget(file);
-    const prior = previous?.get(manifestKey);
-    if (prior && prior.sha256 === file.sha256 && (await pathExists(file.target))) {
+    const priorSha = previous?.get(manifestKey);
+    if (priorSha && priorSha === file.sha256 && (await pathExists(file.target))) {
       // Same source bytes, target still on disk — nothing to do.
       continue;
     }
