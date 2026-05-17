@@ -69,7 +69,11 @@ const PI_DEV_HOME_FILES = [
   "agent/skills/soma/SKILL.md",
 ] as const;
 
-const CLAUDE_CODE_HOME_FILES = ["PAI/ACTIVE_ISA.md"] as const;
+// Claude Code home files written by the full #29 installer
+// (`.claude/rules/soma/`-pivot per soma#64). Sourced from the adapter
+// so the planner and writer can't drift (sage r1 finding).
+import { CLAUDE_CODE_RULES_FILES } from "./adapters/claude-code";
+const CLAUDE_CODE_HOME_FILES = CLAUDE_CODE_RULES_FILES;
 
 const SKILL_SUBPATHS: Record<InstallSubstrate, string> = {
   codex: "skills/ISA",
@@ -254,12 +258,64 @@ export async function installSomaForPiDev(options: SomaInstallOptions = {}): Pro
 }
 
 /**
- * Claude Code substrate installer (#37 minimal). Bootstraps Soma home,
+ * Claude Code substrate installer (#29). Bootstraps Soma home,
  * installs the ISA skill into `~/.claude/skills/ISA/`, and writes the
- * active-ISA projection at `~/.claude/PAI/ACTIVE_ISA.md` when one is
- * set. Full Claude Code home install lands in #29 with the
- * `.claude/rules/` pivot.
+ * full projection skeleton at `~/.claude/rules/soma/` (auto-discovered
+ * by Claude Code, per the soma#64 pivot away from `@`-imports).
+ *
+ * Out of scope (follow-up issue): hook scripts +
+ * settings.local.json patching, CLI command wiring, CLAUDE.md
+ * composition.
  */
 export async function installSomaForClaudeCode(options: SomaInstallOptions = {}): Promise<SomaInstallResult> {
   return installSomaForSubstrate("claude-code", options);
+}
+
+/**
+ * Uninstall Soma's projection from a Claude Code home (#29). Removes
+ * `<substrateHome>/rules/soma/` and `<substrateHome>/skills/ISA/`
+ * entirely. Returns the list of paths actually removed (empty when
+ * Soma was never installed). Never touches files outside those two
+ * directories — by construction, those are the only paths the
+ * installer writes.
+ */
+export interface UninstallClaudeCodeOptions {
+  homeDir?: string;
+  substrateHome?: string;
+}
+
+export interface UninstallClaudeCodeResult {
+  substrate: "claude-code";
+  substrateHome: string;
+  removed: string[];
+}
+
+function isEnoent(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "ENOENT";
+}
+
+export async function uninstallSomaForClaudeCode(
+  options: UninstallClaudeCodeOptions = {},
+): Promise<UninstallClaudeCodeResult> {
+  const resolvedHomeDir = resolve(options.homeDir ?? homedir());
+  const substrateHome = resolve(options.substrateHome ?? join(resolvedHomeDir, DEFAULT_SUBSTRATE_HOMES["claude-code"]));
+  const targets = [join(substrateHome, "rules/soma"), join(substrateHome, "skills/ISA")];
+  const { rm, stat } = await import("node:fs/promises");
+  const removed: string[] = [];
+  for (const target of targets) {
+    try {
+      await stat(target);
+    } catch (error) {
+      if (isEnoent(error)) continue; // not installed → idempotent skip
+      throw error; // permissions or other I/O failure — sage r1: do NOT hide
+    }
+    try {
+      await rm(target, { recursive: true, force: true });
+      removed.push(target);
+    } catch (error) {
+      if (isEnoent(error)) continue; // race: gone between stat and rm
+      throw error;
+    }
+  }
+  return { substrate: "claude-code", substrateHome, removed };
 }
