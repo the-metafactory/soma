@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { renderSomaAlgorithmExtension } from "../src/adapters/pi-dev/extensions/soma-algorithm";
+import { parseAlgorithmPhaseMarkers } from "../src/adapters/pi-dev/extensions/phase-parser";
 
 describe("renderSomaAlgorithmExtension", () => {
   test("AC-1: default-exports a function and registers the /algorithm slash command", () => {
@@ -48,5 +49,46 @@ describe("renderSomaAlgorithmExtension", () => {
     // Documented TODO so a reader of the on-disk extension can see what
     // was deferred. Cross-referenced in the follow-up issue.
     expect(source).toContain("TODO(#43 follow-up)");
+  });
+
+  test("/algorithm primer emits canonical heavy-line markers the parser recognizes", () => {
+    // Sage CodeQuality important: the primer must use the EXACT marker
+    // format that parseAlgorithmPhaseMarkers accepts; otherwise a model
+    // following the primer literally produces output the parser ignores
+    // and the slash command does not drive phase widgets. We assert
+    // both axes: the primer source contains heavy-line markers, AND
+    // those markers parse back to all 8 canonical phases.
+    const source = renderSomaAlgorithmExtension();
+
+    // The primer is built inside a template literal in the generated
+    // source. Extract the marker template line and confirm it has the
+    // heavy-line frame on both sides of the emoji+name+digits triple.
+    expect(source).toMatch(
+      /━━━ \$\{d\.emoji\} \$\{d\.name\} ━━━ \$\{d\.position\}\/\$\{d\.total\}/u,
+    );
+
+    // Round-trip: render the primer the way the extension would at
+    // runtime, then feed the result back through the parser.
+    const primerLines = [
+      "━━━ 👁️ OBSERVE ━━━ 1/7",
+      "━━━ 🧠 THINK ━━━ 2/7",
+      "━━━ 📋 PLAN ━━━ 3/7",
+      "━━━ 🛠️ BUILD ━━━ 4/7",
+      "━━━ ⚡ EXECUTE ━━━ 5/7",
+      "━━━ ✅ VERIFY ━━━ 6/7",
+      "━━━ 📚 LEARN ━━━ 7/7",
+      "━━━ 📃 SUMMARY ━━━ 7/7",
+    ];
+    const markers = parseAlgorithmPhaseMarkers(primerLines.join("\n"));
+    expect(markers.map((m) => m.phase)).toEqual([
+      "observe",
+      "think",
+      "plan",
+      "build",
+      "execute",
+      "verify",
+      "learn",
+      "summary",
+    ]);
   });
 });

@@ -101,10 +101,22 @@ import {
   type IsaChecklistCriterion,
 } from ${checklistModule};
 
+interface SeenPhase {
+  readonly marker: PhaseMarker;
+  body: string[];
+}
+
 interface RunState {
   readonly runId: string;
-  buffer: string;
-  seenMarkers: PhaseMarker[];
+  /** Carry-over of the last partial line — joined onto the next delta. */
+  carry: string;
+  /**
+   * Total complete lines ingested so far. Used as the stable lineIndex
+   * for new markers so cross-render references stay valid even though
+   * we never hold the full buffer in memory.
+   */
+  lineCount: number;
+  seenPhases: SeenPhase[];
   currentPhase?: AlgorithmPhaseKey;
   isaCriteria: IsaChecklistCriterion[];
 }
@@ -122,27 +134,10 @@ function defaultRunId(): string {
 function ensureRun(runId: string): RunState {
   let run = runs.get(runId);
   if (!run) {
-    run = { runId, buffer: "", seenMarkers: [], currentPhase: undefined, isaCriteria: [] };
+    run = { runId, carry: "", lineCount: 0, seenPhases: [], currentPhase: undefined, isaCriteria: [] };
     runs.set(runId, run);
   }
   return run;
-}
-
-function bodyForPhase(run: RunState, marker: PhaseMarker): string[] {
-  // Slice the run buffer between this marker line and the next marker
-  // line (or end of stream). Returned lines are trimmed of trailing
-  // whitespace; leading/trailing blank lines stripped.
-  const lines = run.buffer.split(/\\r?\\n/);
-  const start = marker.lineIndex + 1;
-  let end = lines.length;
-  for (const next of run.seenMarkers) {
-    if (next.lineIndex > marker.lineIndex && next.lineIndex < end) end = next.lineIndex;
-  }
-  const slice: string[] = [];
-  for (let i = start; i < end; i += 1) slice.push(lines[i].replace(/\\s+$/u, ""));
-  while (slice.length > 0 && slice[0] === "") slice.shift();
-  while (slice.length > 0 && slice[slice.length - 1] === "") slice.pop();
-  return slice;
 }
 
 function renderAllPhases(pi: ExtensionAPI, ctx: unknown, run: RunState): void {
@@ -152,12 +147,12 @@ function renderAllPhases(pi: ExtensionAPI, ctx: unknown, run: RunState): void {
   // AC-4: populate one widget per phase that has been observed; prior
   // widgets remain set (pi.dev preserves widget content across updates
   // unless explicitly overwritten or cleared).
-  for (const marker of run.seenMarkers) {
-    const key = phaseWidgetKey({ runId: run.runId, phase: marker.phase, position: marker.position });
+  for (const seen of run.seenPhases) {
+    const key = phaseWidgetKey({ runId: run.runId, phase: seen.marker.phase, position: seen.marker.position });
     const lines = renderPhaseWidgetLines({
-      marker,
-      body: bodyForPhase(run, marker),
-      active: run.currentPhase === marker.phase,
+      marker: seen.marker,
+      body: seen.body,
+      active: run.currentPhase === seen.marker.phase,
     });
     ui.setWidget?.(key, lines);
   }
@@ -166,7 +161,7 @@ function renderAllPhases(pi: ExtensionAPI, ctx: unknown, run: RunState): void {
   ui.setWidget?.(
     \`soma-\${run.runId}-overview\`,
     renderPhaseOverviewLines({
-      seenPhases: new Set(run.seenMarkers.map((m) => m.phase)),
+      seenPhases: new Set(run.seenPhases.map((s) => s.marker.phase)),
       currentPhase: run.currentPhase,
     }),
   );
@@ -175,19 +170,64 @@ function renderAllPhases(pi: ExtensionAPI, ctx: unknown, run: RunState): void {
   ui.setWidget?.(isaCriteriaWidgetKey(run.runId), renderIsaChecklistLines(run.isaCriteria));
 
   // AC-6: footer status.
-  const latest = run.seenMarkers[run.seenMarkers.length - 1];
-  if (latest) ui.setStatus?.(SOMA_STATUS_KEY, renderPhaseStatusText({ marker: latest }));
+  const latest = run.seenPhases[run.seenPhases.length - 1];
+  if (latest) ui.setStatus?.(SOMA_STATUS_KEY, renderPhaseStatusText({ marker: latest.marker }));
 }
 
-function ingestStream(text: string, runId: string): { run: RunState; advanced: boolean } {
+/**
+ * Incremental ingest — splits the new delta into complete lines and
+ * processes one line at a time. New phase markers append a SeenPhase
+ * record; non-marker lines go into the active phase's body buffer.
+ *
+ * Cost is O(deltaLines), not O(totalBufferLines), so long Algorithm
+ * runs don't cumulatively re-parse the full transcript on every
+ * streamed fragment (Sage finding: O(n^2) hot path).
+ *
+ * Returns \`changed = true\` when either a new marker appeared OR the
+ * active phase's body grew, so the caller knows when a render is
+ * worth pushing.
+ */
+function ingestStream(text: string, runId: string): { run: RunState; changed: boolean } {
   const run = ensureRun(runId);
-  run.buffer += text;
-  const markers = parseAlgorithmPhaseMarkers(run.buffer);
-  const latest = latestAlgorithmPhaseMarker(run.buffer);
-  const advanced = markers.length !== run.seenMarkers.length;
-  run.seenMarkers = markers;
-  run.currentPhase = latest?.phase;
-  return { run, advanced };
+  if (!text) return { run, changed: false };
+
+  // Join carry-over with the new chunk, then split on line boundaries.
+  // The final element is the new carry (may be partial; no trailing \\n).
+  const combined = run.carry + text;
+  const parts = combined.split(/\\r?\\n/);
+  run.carry = parts.pop() ?? "";
+
+  let changed = false;
+  for (const rawLine of parts) {
+    const line = rawLine.replace(/\\s+$/u, "");
+    const markers = parseAlgorithmPhaseMarkers(line);
+    if (markers.length > 0) {
+      const m = markers[0];
+      const stableMarker: PhaseMarker = {
+        phase: m.phase,
+        position: m.position,
+        total: m.total,
+        lineIndex: run.lineCount,
+        rawLine: m.rawLine,
+      };
+      run.seenPhases.push({ marker: stableMarker, body: [] });
+      run.currentPhase = m.phase;
+      changed = true;
+    } else if (run.seenPhases.length > 0) {
+      const active = run.seenPhases[run.seenPhases.length - 1];
+      // Skip leading blank lines on a phase's body; preserve interior
+      // blanks but never emit a trailing blank.
+      if (active.body.length === 0 && line === "") {
+        // skip
+      } else {
+        active.body.push(line);
+        changed = true;
+      }
+    }
+    run.lineCount += 1;
+  }
+
+  return { run, changed };
 }
 
 // Exported for unit/integration testing inside Soma (the pi.dev test
@@ -211,9 +251,16 @@ export default function (pi: ExtensionAPI): void {
       }
       // Reset implicit run state when a new run is steered.
       runs.delete(defaultRunId());
+      // Primer emits the EXACT marker shape the parser recognizes:
+      //   ━━━ <emoji> <NAME> ━━━ <n>/<m>
+      // Otherwise the slash command produces output the parser ignores
+      // and /algorithm does not drive phase widgets (Sage CodeQuality
+      // important).
       const primer = [
         "Enter the Soma Algorithm. Emit canonical phase headers verbatim:",
-        ...ALGORITHM_PHASES.map((d) => \`  \${d.emoji} \${d.name} \${d.position}/\${d.total}\`),
+        ...ALGORITHM_PHASES.map(
+          (d) => \`  ━━━ \${d.emoji} \${d.name} ━━━ \${d.position}/\${d.total}\`,
+        ),
         "",
         "User prompt:",
         prompt,
@@ -225,8 +272,11 @@ export default function (pi: ExtensionAPI): void {
     },
   });
 
-  // AC-4/AC-6: phase transitions update widgets + footer on every
-  // streamed text fragment.
+  // AC-4/AC-6: phase transitions AND in-phase body growth update
+  // widgets + footer on every streamed text fragment. Re-render on
+  // any change, not only on phase advancement, so the active widget
+  // reflects streamed body content as it arrives (Sage CodeQuality
+  // suggestion).
   (pi as unknown as { on?: (event: string, handler: (event: unknown, ctx: unknown) => void | Promise<void>) => void }).on?.(
     "message_update",
     (event, ctx) => {
@@ -237,8 +287,8 @@ export default function (pi: ExtensionAPI): void {
           "",
       );
       if (!text) return;
-      const { run, advanced } = ingestStream(text, defaultRunId());
-      if (advanced) renderAllPhases(pi, ctx, run);
+      const { run, changed } = ingestStream(text, defaultRunId());
+      if (changed) renderAllPhases(pi, ctx, run);
     },
   );
 

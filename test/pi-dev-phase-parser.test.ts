@@ -87,6 +87,17 @@ describe("parseAlgorithmPhaseMarkers", () => {
 
     expect(markers.map((m) => m.phase)).toEqual(["observe", "think"]);
   });
+
+  test("works on a single line in isolation (supports incremental ingest)", () => {
+    // The pi.dev extension drives the parser one complete line at a time
+    // (Sage perf finding: don't re-parse the full transcript on every
+    // streamed delta). Single-line parsing must still produce a marker.
+    const [observe] = parseAlgorithmPhaseMarkers("━━━ 👁️ OBSERVE ━━━ 1/7");
+    const [think] = parseAlgorithmPhaseMarkers("━━━ 🧠 THINK ━━━ 2/7");
+
+    expect(observe?.phase).toBe("observe");
+    expect(think?.phase).toBe("think");
+  });
 });
 
 describe("latestAlgorithmPhaseMarker", () => {

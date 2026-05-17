@@ -153,31 +153,13 @@ export {
   claudeCodeAdapter,
   codexAdapter,
   piDevAdapter,
-  // Pi.dev Algorithm renderer extension (#43 minimal slice) —
-  // re-exported through the adapters barrel so consumers reach
-  // the parser, widget helpers, and extension-source renderer
-  // without crossing the substrate-adapter boundary directly.
-  ALGORITHM_PHASES,
-  latestAlgorithmPhaseMarker,
-  parseAlgorithmPhaseMarkers,
-  capabilitiesWidgetKey,
-  isaCriteriaWidgetKey,
-  phaseWidgetKey,
-  renderPhaseOverviewLines,
-  renderPhaseStatusText,
-  renderPhaseWidgetLines,
-  SOMA_STATUS_KEY,
-  renderIsaChecklistLines,
-  summarizeIsaChecklist,
-  renderSomaAlgorithmExtension,
-  type AlgorithmPhaseDescriptor,
-  type AlgorithmPhaseKey,
-  type PhaseMarker,
-  type IsaChecklistCriterion,
-  type IsaChecklistOptions,
-  type IsaChecklistSummary,
-  type RenderSomaAlgorithmExtensionOptions,
 } from "./adapters";
+// NOTE: #43 Algorithm renderer pure-logic helpers (phase parser,
+// widget helpers, extension-source renderer) are intentionally NOT
+// re-exported at the package root. They are scoped to the pi-dev
+// substrate barrel (./adapters/pi-dev) until AC-7..AC-12 settle the
+// runtime shape in the follow-up PR. Tests can import the helpers
+// directly from the substrate path.
 export { writeProjection } from "./projection";
 export {
   buildClaudeCodeHomeProjection,
