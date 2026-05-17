@@ -7,7 +7,7 @@ import { buildSomaStartupContext, runSomaLifecycleAlgorithmUpdated } from "./lif
 import { defaultSomaRepoPath } from "./repo-path";
 import { bootstrapSomaHome } from "./soma-home";
 import { installIsaSkill } from "./isa-skill-installer";
-import { loadActiveIsaForBundle } from "./adapter-active-isa";
+import { DEFAULT_SUBSTRATE_HOMES, loadActiveIsaForBundle } from "./adapter-active-isa";
 import type { SomaContextInput, SomaInstallOptions, SomaInstallPlan, SomaInstallResult } from "./types";
 
 const SOMA_BOOTSTRAP_FILES = [
@@ -70,12 +70,6 @@ const PI_DEV_HOME_FILES = [
 ] as const;
 
 const CLAUDE_CODE_HOME_FILES = ["PAI/ACTIVE_ISA.md"] as const;
-
-const DEFAULT_SUBSTRATE_HOMES: Record<InstallSubstrate, string> = {
-  codex: ".codex",
-  "pi-dev": ".pi",
-  "claude-code": ".claude",
-};
 
 const SKILL_SUBPATHS: Record<InstallSubstrate, string> = {
   codex: "skills/ISA",

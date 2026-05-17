@@ -3,13 +3,8 @@ import { join, resolve } from "node:path";
 import { buildClaudeCodeHomeContext, buildCodexHomeContext, buildPiDevHomeContext } from "./adapters";
 import { writeContextBundle } from "./context-bundle";
 import { defaultSomaRepoPath } from "./repo-path";
+import { DEFAULT_SUBSTRATE_HOMES } from "./adapter-active-isa";
 import type { SomaContextInput, SomaHomeProjection, SomaHomeProjectionOptions, SubstrateId, WrittenContextBundle } from "./types";
-
-const DEFAULT_SUBSTRATE_HOMES: Record<"codex" | "pi-dev" | "claude-code", string> = {
-  codex: ".codex",
-  "pi-dev": ".pi",
-  "claude-code": ".claude",
-};
 
 export function resolveHomeProjectionPaths(
   substrate: SubstrateId,

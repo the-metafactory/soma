@@ -1,6 +1,6 @@
 import type { SomaAdapter, SomaContextBundle, SomaContextInput, SomaTask } from "../types";
 import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "./shared";
-import { activeIsaProjectionPath, renderActiveIsaFile } from "../adapter-active-isa";
+import { activeIsaBundleFile } from "../adapter-active-isa";
 
 function renderInstructions(input: SomaContextInput): string {
   return [
@@ -80,8 +80,11 @@ export function buildClaudeCodeContext(input: SomaContextInput): SomaContextBund
         ]),
       },
       // Active-ISA projection (#37). OMITTED when no active ISA — AC-2.
+      // Note: project bundle uses `.claude/soma/active-isa.md` (workspace
+      // overlay path), not `PAI/ACTIVE_ISA.md` (the home path used by
+      // buildClaudeCodeHomeContext + activeIsaProjectionPath).
       ...(input.activeIsa
-        ? [{ path: ".claude/soma/active-isa.md", content: renderActiveIsaFile(input.activeIsa) }]
+        ? [{ path: ".claude/soma/active-isa.md", content: activeIsaBundleFile("claude-code", input.activeIsa)[0].content }]
         : []),
     ],
   };
@@ -98,9 +101,7 @@ export function buildClaudeCodeHomeContext(input: SomaContextInput): SomaContext
   return {
     substrate: "claude-code",
     instructions: renderInstructions(input),
-    files: input.activeIsa
-      ? [{ path: activeIsaProjectionPath("claude-code"), content: renderActiveIsaFile(input.activeIsa) }]
-      : [],
+    files: activeIsaBundleFile("claude-code", input.activeIsa),
   };
 }
 

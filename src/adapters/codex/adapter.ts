@@ -4,7 +4,7 @@ import { readCodexHookAsset } from "./hooks/assets";
 import { renderCodexLifecycleHook } from "./hooks/runtime";
 import { renderFeedbackHookModule } from "../shared/feedback-helper";
 import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "../shared";
-import { activeIsaProjectionPath, renderActiveIsaFile } from "../../adapter-active-isa";
+import { activeIsaBundleFile } from "../../adapter-active-isa";
 
 function renderCodexPolicy(): string {
   return renderPolicyProjection("codex", ["Filesystem sandbox and approval model when Codex exposes it"], [
@@ -456,9 +456,7 @@ export function buildCodexHomeContext(input: SomaContextInput, somaHome: string,
         content: renderAlgorithmRenderingContract(),
       },
       // Active-ISA projection (#37). OMITTED when no active ISA — AC-2.
-      ...(input.activeIsa
-        ? [{ path: activeIsaProjectionPath("codex"), content: renderActiveIsaFile(input.activeIsa) }]
-        : []),
+      ...activeIsaBundleFile("codex", input.activeIsa),
     ],
   };
 }
