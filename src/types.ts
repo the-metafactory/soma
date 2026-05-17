@@ -442,6 +442,10 @@ export interface PaiPackNormalizationAction {
   kind:
     | "removed-substrate-notification-hook"
     | "rewrote-claude-home-path"
+    | "rewrote-pai-doc-path"
+    | "rewrote-pai-template-path"
+    | "rewrote-pai-algorithm-path"
+    | "rewrote-pai-memory-path"
     | "rewrote-unmapped-claude-path"
     | "stripped-mandatory-runtime-block"
     | "stripped-pai-customization-block"
