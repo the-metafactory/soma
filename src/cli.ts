@@ -11,6 +11,11 @@ import {
   importAlgorithm,
   importPaiIdentity,
   importPaiPack,
+  migratePai,
+  planPaiMigration,
+  type PaiMigrationOptions,
+  type PaiMigrationPlan,
+  type PaiMigrationResult,
   installSomaForCodex,
   installSomaForPiDev,
   listAlgorithmRunSummaries,
@@ -99,6 +104,13 @@ interface ParsedImportArgs {
   options: PaiImportOptions | AlgorithmImportOptions | PaiPackImportOptions;
 }
 
+interface ParsedMigrateArgs {
+  command: "migrate";
+  source: "pai";
+  mode: "plan" | "apply" | "status";
+  options: PaiMigrationOptions;
+}
+
 interface ParsedAlgorithmArgs {
   command: "algorithm";
   action:
@@ -185,6 +197,7 @@ type ParsedArgs =
   | ParsedHelpArgs
   | ParsedInstallArgs
   | ParsedImportArgs
+  | ParsedMigrateArgs
   | ParsedAlgorithmArgs
   | ParsedLifecycleArgs
   | ParsedMemoryArgs
@@ -192,7 +205,7 @@ type ParsedArgs =
   | ParsedPolicyArgs
   | ParsedIsaArgs;
 
-const TOP_LEVEL_COMMANDS = ["algorithm", "feedback", "import", "install", "isa", "lifecycle", "memory", "policy"] as const;
+const TOP_LEVEL_COMMANDS = ["algorithm", "feedback", "import", "install", "isa", "lifecycle", "memory", "migrate", "policy"] as const;
 const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string, string> }> = {
   algorithm: {
     usage: "Usage: soma algorithm <new|classify|list|show|capabilities|plan|decision|change|step|verify|learn|batch|advance> ...",
@@ -248,6 +261,12 @@ const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string,
       pai: "Usage: soma import pai [--dry-run] [--apply] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>]",
       algorithm: "Usage: soma import algorithm [--dry-run] [--apply] [--home-dir <dir>] [--pai-algorithm-dir <dir>] [--soma-home <dir>]",
       "pai-pack": "Usage: soma import pai-pack [--dry-run] [--apply] [--home-dir <dir>] [--source <dir>] [--soma-home <dir>]",
+    },
+  },
+  migrate: {
+    usage: "Usage: soma migrate pai [--dry-run] [--apply] [--status] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>] [--pai-pack-dir <dir>]",
+    subcommands: {
+      pai: "Usage: soma migrate pai [--dry-run] [--apply] [--status] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>] [--pai-pack-dir <dir>]",
     },
   },
   isa: {
@@ -1117,7 +1136,57 @@ function parseArgs(args: string[]): ParsedArgs {
     return parseImportArgs(args);
   }
 
+  if (args[0] === "migrate") {
+    return parseMigrateArgs(args);
+  }
+
   throw new Error(renderUnknownCommand(args[0]));
+}
+
+function parseMigrateArgs(args: string[]): ParsedMigrateArgs {
+  const [command, source, ...rest] = args;
+  if (command !== "migrate" || source !== "pai") {
+    throw new Error(commandUsage("migrate", source));
+  }
+  const options: PaiMigrationOptions = {};
+  let mode: "plan" | "apply" | "status" = "plan";
+  const packPaths: string[] = [];
+
+  for (let index = 0; index < rest.length; index += 1) {
+    const arg = rest[index];
+    switch (arg) {
+      case "--dry-run":
+        mode = "plan";
+        break;
+      case "--apply":
+        mode = "apply";
+        break;
+      case "--status":
+        mode = "status";
+        break;
+      case "--home-dir":
+        options.homeDir = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--claude-home":
+        options.claudeHome = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--soma-home":
+        options.somaHome = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--pai-pack-dir":
+        packPaths.push(readOption(rest, index, arg));
+        index += 1;
+        break;
+      default:
+        throw new Error(`Unknown option: ${arg}`);
+    }
+  }
+
+  if (packPaths.length > 0) options.paiPackPaths = packPaths;
+  return { command: "migrate", source: "pai", mode, options };
 }
 
 function helpTopic(args: string[]): string[] {
@@ -1256,6 +1325,63 @@ function formatInstallResult(result: SomaInstallResult): string {
     "Substrate files:",
     ...result.substrateHome.files.map((path) => `- ${path}`),
   ].join("\n");
+}
+
+function formatPaiMigrationPlan(plan: PaiMigrationPlan): string {
+  const algorithmLine = plan.algorithm
+    ? `  - algorithm: ${plan.algorithm.sourceFiles.length} source file(s)`
+    : "  - algorithm: not present";
+  return [
+    "soma migrate pai — plan (dry-run; pass --apply to execute)",
+    "",
+    `Source:   ${plan.claudeHome}`,
+    `Target:   ${plan.somaHome}`,
+    `Manifest: ${plan.manifestPath}`,
+    "",
+    "Categories:",
+    `  - identity: ${plan.identity.sourceFiles.length} source file(s)`,
+    algorithmLine,
+    `  - packs:    ${plan.packs.length} discovered`,
+    "",
+  ].join("\n");
+}
+
+function formatPaiMigrationResult(result: PaiMigrationResult): string {
+  return [
+    "soma migrate pai — applied",
+    "",
+    `Source:   ${result.claudeHome}`,
+    `Target:   ${result.somaHome}`,
+    `Manifest: ${result.manifestPath}`,
+    "",
+    "Written:",
+    `  - identity: ${result.identity.files.length} file(s)`,
+    result.algorithm ? `  - algorithm: ${result.algorithm.files.length} file(s)` : "  - algorithm: skipped (not present)",
+    `  - packs:    ${result.packs.length} pack(s), ${result.packs.reduce((sum, p) => sum + p.files.length, 0)} file(s)`,
+    "",
+    `Total files written: ${result.filesWritten.length}`,
+    "",
+  ].join("\n");
+}
+
+async function readPaiMigrationManifest(options: PaiMigrationOptions): Promise<string | null> {
+  const { readFile } = await import("node:fs/promises");
+  const plan = await planPaiMigration(options);
+  try {
+    return await readFile(plan.manifestPath, "utf8");
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
+}
+
+function formatPaiMigrationStatus(manifest: string | null): string {
+  if (manifest === null) {
+    return "soma migrate pai — no migration manifest found. Run `soma migrate pai --apply` first.\n";
+  }
+  return `${manifest}\n`;
 }
 
 function formatPaiImportPlan(plan: PaiImportPlan): string {
@@ -1781,6 +1907,16 @@ export async function runSomaCli(args: string[]): Promise<string> {
     }
 
     return formatPaiImportResult(await importPaiIdentity(options));
+  }
+
+  if (parsed.command === "migrate") {
+    if (parsed.mode === "status") {
+      return formatPaiMigrationStatus(await readPaiMigrationManifest(parsed.options));
+    }
+    if (parsed.mode === "plan") {
+      return formatPaiMigrationPlan(await planPaiMigration(parsed.options));
+    }
+    return formatPaiMigrationResult(await migratePai(parsed.options));
   }
 
   if (!parsed.apply) {
