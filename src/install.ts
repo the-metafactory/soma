@@ -2,11 +2,16 @@ import { homedir } from "node:os";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { configureCodexInstall } from "./adapters/codex";
+import {
+  PI_DEV_ISA_SKILL_ID,
+  piDevIsaSkillDestinationDir,
+  removeLegacyPiDevIsaSkillProjection,
+} from "./adapters/pi-dev/skill-projection";
 import { installClaudeCodeHomeProjection, installCodexHomeProjection, installPiDevHomeProjection } from "./home-projection";
 import { buildSomaStartupContext, runSomaLifecycleAlgorithmUpdated } from "./lifecycle";
 import { defaultSomaRepoPath } from "./repo-path";
 import { bootstrapSomaHome } from "./soma-home";
-import { installIsaSkill } from "./isa-skill-installer";
+import { installIsaSkill, installIsaSkillProjection } from "./isa-skill-installer";
 import { DEFAULT_SUBSTRATE_HOMES, loadActiveIsaForBundle } from "./adapter-active-isa";
 import type { SomaContextInput, SomaInstallOptions, SomaInstallPlan, SomaInstallResult } from "./types";
 
@@ -76,9 +81,8 @@ const PI_DEV_HOME_FILES = [
 import { CLAUDE_CODE_RULES_FILES } from "./adapters/claude-code";
 const CLAUDE_CODE_HOME_FILES = CLAUDE_CODE_RULES_FILES;
 
-const SKILL_SUBPATHS: Record<InstallSubstrate, string> = {
+const SKILL_SUBPATHS: Record<Exclude<InstallSubstrate, "pi-dev">, string> = {
   codex: "skills/ISA",
-  "pi-dev": "agent/skills/ISA",
   "claude-code": "skills/ISA",
 };
 
@@ -97,7 +101,19 @@ function resolveInstallHomes(substrate: InstallSubstrate, options: SomaInstallOp
 }
 
 function resolveSubstrateSkillDir(substrate: InstallSubstrate, substrateHome: string): string {
+  if (substrate === "pi-dev") return piDevIsaSkillDestinationDir(substrateHome);
   return resolve(substrateHome, SKILL_SUBPATHS[substrate]);
+}
+
+function substrateSkillNameOverride(substrate: InstallSubstrate): string | undefined {
+  if (substrate === "pi-dev") return PI_DEV_ISA_SKILL_ID;
+  return undefined;
+}
+
+async function prepareSubstrateSkillDestination(substrate: InstallSubstrate, substrateHome: string): Promise<void> {
+  if (substrate === "pi-dev") {
+    await removeLegacyPiDevIsaSkillProjection(substrateHome);
+  }
 }
 
 // soma#73 pre-flight is shared with the codex adapter — see
@@ -149,7 +165,7 @@ async function installSomaForSubstrate(
   const somaRepoPath = options.somaRepoPath ?? defaultSomaRepoPath();
   // Install ISA skill into Soma home (canonical baseline) so other
   // tooling reading <somaHome>/skills/ISA continues to work.
-  await installIsaSkill({
+  await installIsaSkillProjection({
     homeDir: options.homeDir,
     somaHome: somaHome.somaHome,
     somaRepoPath,
@@ -166,11 +182,13 @@ async function installSomaForSubstrate(
   // inherits installIsaSkill's local-edits-preserved contract.
   const resolvedHomeDir = resolve(options.homeDir ?? homedir());
   const substrateRoot = resolve(options.substrateHome ?? join(resolvedHomeDir, DEFAULT_SUBSTRATE_HOMES[substrate]));
-  await installIsaSkill({
+  await prepareSubstrateSkillDestination(substrate, substrateRoot);
+  await installIsaSkillProjection({
     homeDir: options.homeDir,
     somaHome: somaHome.somaHome,
     somaRepoPath,
     skillDestinationDir: resolveSubstrateSkillDir(substrate, substrateRoot),
+    skillNameOverride: substrateSkillNameOverride(substrate),
   });
   // Populate the projection input with the active ISA so each
   // substrate writes its `active-isa.md` file (#37 AC-1/AC-2).

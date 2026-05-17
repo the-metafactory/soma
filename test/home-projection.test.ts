@@ -168,6 +168,98 @@ test("builds pi.dev home projection bundle for default availability", () => {
   expect(projection.bundle.files.find((file) => file.path === "agent/skills/soma/SKILL.md")?.content).toContain("name: soma");
 });
 
+test("pi.dev home projection normalizes portable skill paths and frontmatter names", () => {
+  const projection = buildPiDevHomeProjection(
+    {
+      ...portableContextInput,
+      profile: {
+        ...portableContextInput.profile,
+        skills: [
+          {
+            name: "ISA",
+            path: "skills/ISA",
+            description: "Ideal State Artifact.",
+            triggers: ["isa"],
+            files: [
+              {
+                path: "SKILL.md",
+                content: "---\nname: ISA\n---\n\n# ISA\n",
+              },
+            ],
+          },
+          {
+            name: "Ledger Update",
+            path: "skills/ledger-update",
+            description: "Update a project ledger.",
+            triggers: ["ledger"],
+            files: [
+              {
+                path: "SKILL.md",
+                content: "---\nname: Ledger Update\n---\n\n# Ledger Update\n",
+              },
+            ],
+          },
+          {
+            name: "Body Example",
+            path: "skills/body-example",
+            description: "Contains a body example that looks like YAML.",
+            triggers: ["body"],
+            files: [
+              {
+                path: "SKILL.md",
+                content: "# Body Example\n\n```yaml\nname: Body Example\n```\n",
+              },
+            ],
+          },
+        ],
+      },
+    },
+    { homeDir: "/tmp/soma-test-home" },
+  );
+
+  const isa = projection.bundle.files.find((file) => file.path === "agent/skills/isa/SKILL.md");
+  const ledger = projection.bundle.files.find((file) => file.path === "agent/skills/ledger-update/SKILL.md");
+  const bodyExample = projection.bundle.files.find((file) => file.path === "agent/skills/body-example/SKILL.md");
+
+  expect(isa?.content).toContain("name: isa");
+  expect(isa?.content).not.toContain("name: ISA");
+  expect(ledger?.content).toContain("name: ledger-update");
+  expect(bodyExample?.content).toContain("name: Body Example");
+  expect(bodyExample?.content).not.toContain("name: body-example");
+  expect(projection.bundle.files.map((file) => file.path)).not.toContain("agent/skills/ISA/SKILL.md");
+});
+
+test("pi.dev home projection rejects normalized portable skill id collisions", () => {
+  expect(() =>
+    buildPiDevHomeProjection(
+      {
+        ...portableContextInput,
+        profile: {
+          ...portableContextInput.profile,
+          skills: [
+            {
+              name: "Ledger Update",
+              path: "skills/ledger-update",
+              description: "Update a project ledger.",
+              triggers: ["ledger"],
+              files: [{ path: "SKILL.md", content: "---\nname: Ledger Update\n---\n" }],
+            },
+            {
+              name: "Ledger-Update",
+              path: "skills/ledger-update-alt",
+              description: "Collision.",
+              triggers: ["ledger"],
+              files: [{ path: "SKILL.md", content: "---\nname: Ledger-Update\n---\n" }],
+            },
+          ],
+        },
+      },
+      { homeDir: "/tmp/soma-test-home" },
+    ),
+  ).toThrow("Pi.dev skill id collision");
+});
+
+
 test("installs codex home projection into a substrate home", async () => {
   await withTempHome(async (homeDir) => {
     const result = await installCodexHomeProjection(portableContextInput, { homeDir });
