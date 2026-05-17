@@ -20,7 +20,7 @@
 </p>
 
 <p align="center">
-  Join the Meta Factory community on <a href="https://discord.gg/Z8CThhFukF">Discord</a>.
+  Join the Meta Factory community on <a href="https://discord.gg/32xa5ev6Tq">Discord</a>.
 </p>
 
 ---
