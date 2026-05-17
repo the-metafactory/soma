@@ -119,6 +119,30 @@ function manifestPathFor(somaHome: string): string {
 }
 
 /**
+ * Run async work with a bounded concurrency window (sage r4: prevent
+ * unlimited pack-import fan-out on large installs).
+ */
+async function runBoundedConcurrent<T, R>(
+  items: readonly T[],
+  fn: (item: T) => Promise<R>,
+  limit: number,
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const results: R[] = new Array<R>(items.length);
+  let cursor = 0;
+  async function worker(): Promise<void> {
+    while (true) {
+      const index = cursor++;
+      if (index >= items.length) return;
+      results[index] = await fn(items[index]);
+    }
+  }
+  const workerCount = Math.min(limit, items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
+}
+
+/**
  * Shared discovery between dry-run and apply paths (sage r1 finding):
  * resolves algorithm presence and pack paths once so the two surfaces
  * cannot drift as new categories are added.
@@ -216,11 +240,14 @@ export async function migratePai(options: PaiMigrationOptions = {}): Promise<Pai
     : await importAlgorithm({ homeDir: options.homeDir, paiAlgorithmDir: algorithmDir, somaHome });
   if (algorithm) filesWritten.push(...algorithm.files);
 
-  // Sage r1: parallelize independent pack imports — each pack imports
-  // into its own subtree under <somaHome>/skills/, so there is no
-  // cross-pack ordering constraint.
-  const packs: PaiPackImportResult[] = await Promise.all(
-    packPaths.map((paiPackDir) => importPaiPack({ homeDir: options.homeDir, paiPackDir, somaHome })),
+  // Sage r1: parallelize independent pack imports. Sage r4: bound the
+  // fan-out so large installs don't burst FD limits or thrash the FS.
+  // Per-pack work is mostly I/O; 4 workers is enough to hide latency
+  // without unbounded parallelism.
+  const packs = await runBoundedConcurrent(
+    packPaths,
+    (paiPackDir) => importPaiPack({ homeDir: options.homeDir, paiPackDir, somaHome }),
+    4,
   );
   for (const r of packs) filesWritten.push(...r.files);
 
