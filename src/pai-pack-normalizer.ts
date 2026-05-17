@@ -157,16 +157,38 @@ export function normalizeSkillContent(relPath: string, content: string): Normali
 // round-2 blocker.
 const NOTIFICATION_BODY_MARKERS = /localhost:31337\/notify|voice notification|notify endpoint/i;
 
-// Sage R1 (PR #87) Maintainability + CodeQuality: shared section-strip
-// helper. Iterates every match of `headingRegex` (a heading line anchored
-// with /m), measures the section span to the next `^##+ ` heading or EOF,
-// and strips every section whose body satisfies `markerMatches`. Returns
-// the stripped content and the count of sections actually removed.
+// Returns the ATX heading level (count of leading `#`s) for a matched
+// heading string like `"## Customization"`. The matched string is
+// guaranteed to start with `#`s by the heading regex it came from.
+function headingHashCount(headingText: string): number {
+  const hashes = /^(#+)/.exec(headingText);
+  return hashes ? hashes[1].length : 0;
+}
+
+// Returns a fresh regex that matches the next ATX heading at the given
+// level or higher (fewer `#`s = higher level). Used to compute where a
+// stripped section ends — a deeper heading is part of the section's
+// hierarchy, but a same-or-higher heading starts the next section.
+function sameOrHigherHeadingBoundary(level: number): RegExp {
+  if (level <= 0) {
+    return /^#+\s+/m;
+  }
+  return new RegExp(`^#{1,${level}}\\s+`, "m");
+}
+
+// Sage R1 + R2 (PR #87) Maintainability + CodeQuality: shared section-
+// strip helper. Iterates every match of `headingRegex` (a heading line
+// anchored with /m), measures the section span to the next same-or-higher
+// ATX heading or EOF, and strips every section whose body satisfies
+// `markerMatches`. Returns the stripped content and the count of sections
+// actually removed.
 //
-// "Iterate every match" is the fix for the round-1 CodeQuality finding:
-// the original stripper only inspected the first match, so an unrelated
-// `## Customization` ahead of the real PAI runtime block would prevent
-// the strip from firing on the later block.
+// "Iterate every match" was the R1 fix: the original stripper only
+// inspected the first match, so an unrelated `## Customization` ahead of
+// the real PAI runtime block would prevent the strip from firing on the
+// later block. "Same-or-higher boundary" was the R2 fix: the original
+// boundary regex `/^##+\s+/m` would swallow an H1 between the stripped
+// `##` block and the next `##`.
 function stripMarkedHeadingSections(
   content: string,
   headingRegex: RegExp,
@@ -176,11 +198,11 @@ function stripMarkedHeadingSections(
   // mid-iteration. The heading regex is multiline-anchored; using
   // globalize() guarantees we never share lastIndex with caller-side
   // `.test()` / `.exec()` calls on the same RegExp instance.
-  const matchPositions: { start: number; headingLength: number }[] = [];
+  const matchPositions: { start: number; headingText: string }[] = [];
   const scanner = globalize(headingRegex);
   let scan: RegExpExecArray | null;
   while ((scan = scanner.exec(content)) !== null) {
-    matchPositions.push({ start: scan.index, headingLength: scan[0].length });
+    matchPositions.push({ start: scan.index, headingText: scan[0] });
     // Defend against zero-width matches looping forever.
     if (scan.index === scanner.lastIndex) scanner.lastIndex += 1;
   }
@@ -190,12 +212,23 @@ function stripMarkedHeadingSections(
   }
 
   // Resolve each match to its section span [start, end) over the ORIGINAL
-  // content. End is either the next `^##+ ` heading after the section
-  // header, or EOF. Filter to the ones whose body matches the marker.
+  // content. End is either the next same-or-higher ATX heading after the
+  // section header, or EOF. Filter to the ones whose body matches the
+  // marker.
+  //
+  // Sage R2 (PR #87) CodeQuality fix: the original boundary regex
+  // `/^##+\s+/m` only matched `##+`, so an H1 between the stripped block
+  // and the next `##` was swallowed. Boundary is now computed from the
+  // matched heading's own level — for a `##` strip, any `#` or `##` ends
+  // the section; deeper headings (`###`+) are treated as in-section
+  // subsections and stripped along with the parent block.
   const stripSpans: { start: number; end: number }[] = [];
-  for (const { start, headingLength } of matchPositions) {
+  for (const { start, headingText } of matchPositions) {
+    const headingLength = headingText.length;
+    const level = headingHashCount(headingText);
+    const boundary = sameOrHigherHeadingBoundary(level);
     const rest = content.slice(start + headingLength);
-    const nextHeading = /^##+\s+/m.exec(rest);
+    const nextHeading = boundary.exec(rest);
     const end = nextHeading ? start + headingLength + nextHeading.index : content.length;
     const sectionBody = content.slice(start, end);
     if (markerMatches(sectionBody)) {

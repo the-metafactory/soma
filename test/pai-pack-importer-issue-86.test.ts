@@ -69,6 +69,52 @@ test("AC-2: normalizeSkillContent strips the PAI Customization block", () => {
   expect(result.content).toContain("Real Content");
 });
 
+test("Sage R2 fix: strip respects H1 boundary — `# Title` between `## Customization` and next `##` survives", () => {
+  // Sage R2 (PR #87) CodeQuality important finding: the section-end regex
+  // `/^##+\s+/m` only matched ##+ — an H1 (`# Foo`) after the stripped
+  // block but before the next `##` was treated as part of the stripped
+  // section and removed. Fix: use any-ATX-heading boundary `/^#+\s+/m`
+  // so the strip stops at the first heading of ANY level.
+  const content = [
+    "## Customization",
+    "",
+    "**Before executing, check for user customizations at:**",
+    "`~/.claude/PAI/USER/SKILLCUSTOMIZATIONS/Demo/`",
+    "",
+    "# MainTitle",
+    "",
+    "## Real Content",
+    "",
+    "Body here.",
+  ].join("\n");
+  const result = normalizeSkillContent("SKILL.md", content);
+  expect(result.content).not.toContain("SKILLCUSTOMIZATIONS");
+  // H1 between the stripped block and the next ## must survive.
+  expect(result.content).toContain("# MainTitle");
+  expect(result.content).toContain("## Real Content");
+  expect(result.content).toContain("Body here.");
+});
+
+test("Sage R2 fix: same boundary fix applies to MANDATORY notification strip", () => {
+  // The shared helper is used by both strippers — symmetry test.
+  const content = [
+    "## MANDATORY: Voice Notification",
+    "",
+    "curl http://localhost:31337/notify",
+    "",
+    "# MainTitle",
+    "",
+    "## Real Content",
+    "",
+    "Body.",
+  ].join("\n");
+  const result = normalizeSkillContent("SKILL.md", content);
+  expect(result.content).not.toContain("MANDATORY");
+  expect(result.content).not.toContain("localhost:31337/notify");
+  expect(result.content).toContain("# MainTitle");
+  expect(result.content).toContain("## Real Content");
+});
+
 test("Sage R1 fix: shared helper strips ALL MANDATORY notification blocks (multi-match defense in depth)", () => {
   // The MANDATORY stripper now uses the same shared helper as the
   // Customization stripper. Multiple notification blocks in a single
