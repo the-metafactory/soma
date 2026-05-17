@@ -21,53 +21,67 @@ import { expect, test } from "bun:test";
 import { normalizeSkillContent } from "../src/pai-pack-normalizer";
 
 // ─── AC-1 + AC-4: per-class deterministic rewrites ─────────────────────
+//
+// Table-driven (Sage R1, PR #96 Maintainability suggestion): the four
+// per-subtree rules share an identical contract — rewrite the input path,
+// fire the per-rule action kind, suppress the UNMAPPED catch-all action,
+// suppress the UNMAPPED warning. Encoding the contract as a table keeps
+// the contract in one place; future rewrite rules slot in as one row
+// rather than another ~10-line test block.
+//
+// Note the asymmetric MEMORY target: PAI's `PAI/MEMORY/` maps to Soma's
+// `~/.soma/memory/` (lowercase, no PAI/ prefix) per DD-1, DD-2 — Soma's
+// memory is canonical, not a PAI projection. The other three preserve
+// the `PAI/` prefix because `~/.soma/PAI/` is the imported-docs surface.
+const DETERMINISTIC_REWRITE_CASES: ReadonlyArray<{
+  label: string;
+  inputLine: string;
+  expectedTarget: string;
+  kind:
+    | "rewrote-pai-doc-path"
+    | "rewrote-pai-template-path"
+    | "rewrote-pai-algorithm-path"
+    | "rewrote-pai-memory-path";
+}> = [
+  {
+    label: "PAI/DOCUMENTATION → ~/.soma/PAI/DOCUMENTATION",
+    inputLine: "See `~/.claude/PAI/DOCUMENTATION/Skills/SkillSystem.md` for details.",
+    expectedTarget: "~/.soma/PAI/DOCUMENTATION/Skills/SkillSystem.md",
+    kind: "rewrote-pai-doc-path",
+  },
+  {
+    label: "PAI/TEMPLATES → ~/.soma/PAI/TEMPLATES",
+    inputLine: "Template lives at ~/.claude/PAI/TEMPLATES/ReportTemplate/dashboard.tpl.html.",
+    expectedTarget: "~/.soma/PAI/TEMPLATES/ReportTemplate/dashboard.tpl.html",
+    kind: "rewrote-pai-template-path",
+  },
+  {
+    label: "PAI/ALGORITHM → ~/.soma/PAI/ALGORITHM",
+    inputLine: "Load `~/.claude/PAI/ALGORITHM/v6.3.0.md` and follow its instructions.",
+    expectedTarget: "~/.soma/PAI/ALGORITHM/v6.3.0.md",
+    kind: "rewrote-pai-algorithm-path",
+  },
+  {
+    label: "PAI/MEMORY → ~/.soma/memory (asymmetric per DD-2)",
+    inputLine: "echo run >> ~/.claude/PAI/MEMORY/SKILLS/execution.jsonl",
+    expectedTarget: "~/.soma/memory/SKILLS/execution.jsonl",
+    kind: "rewrote-pai-memory-path",
+  },
+];
 
-test("AC-1: ~/.claude/PAI/DOCUMENTATION/<rest> rewrites to ~/.soma/PAI/DOCUMENTATION/<rest> via rewrote-pai-doc-path", () => {
-  const content = "See `~/.claude/PAI/DOCUMENTATION/Skills/SkillSystem.md` for details.\n";
-  const result = normalizeSkillContent("body.md", content);
-  expect(result.content).not.toContain("~/.claude/");
-  expect(result.content).toContain("~/.soma/PAI/DOCUMENTATION/Skills/SkillSystem.md");
-  // Deterministic mapping fires its own action kind...
-  expect(result.actions.some((a) => a.kind === "rewrote-pai-doc-path")).toBe(true);
-  // ...not the UNMAPPED catch-all action.
-  expect(result.actions.some((a) => a.kind === "rewrote-unmapped-claude-path")).toBe(false);
-  // No UNMAPPED warning either — the path now has a real Soma equivalent.
-  expect(result.warnings.some((w) => w.kind === "unmapped-claude-home-path")).toBe(false);
-});
-
-test("AC-1: ~/.claude/PAI/TEMPLATES/<rest> rewrites to ~/.soma/PAI/TEMPLATES/<rest> via rewrote-pai-template-path", () => {
-  const content = "Template lives at ~/.claude/PAI/TEMPLATES/ReportTemplate/dashboard.tpl.html.\n";
-  const result = normalizeSkillContent("body.md", content);
-  expect(result.content).not.toContain("~/.claude/");
-  expect(result.content).toContain("~/.soma/PAI/TEMPLATES/ReportTemplate/dashboard.tpl.html");
-  expect(result.actions.some((a) => a.kind === "rewrote-pai-template-path")).toBe(true);
-  expect(result.actions.some((a) => a.kind === "rewrote-unmapped-claude-path")).toBe(false);
-  expect(result.warnings.some((w) => w.kind === "unmapped-claude-home-path")).toBe(false);
-});
-
-test("AC-1: ~/.claude/PAI/ALGORITHM/<rest> rewrites to ~/.soma/PAI/ALGORITHM/<rest> via rewrote-pai-algorithm-path", () => {
-  const content = "Load `~/.claude/PAI/ALGORITHM/v6.3.0.md` and follow its instructions.\n";
-  const result = normalizeSkillContent("body.md", content);
-  expect(result.content).not.toContain("~/.claude/");
-  expect(result.content).toContain("~/.soma/PAI/ALGORITHM/v6.3.0.md");
-  expect(result.actions.some((a) => a.kind === "rewrote-pai-algorithm-path")).toBe(true);
-  expect(result.actions.some((a) => a.kind === "rewrote-unmapped-claude-path")).toBe(false);
-  expect(result.warnings.some((w) => w.kind === "unmapped-claude-home-path")).toBe(false);
-});
-
-test("AC-1: ~/.claude/PAI/MEMORY/<rest> rewrites to ~/.soma/memory/<rest> via rewrote-pai-memory-path", () => {
-  // Note the asymmetric target: PAI's `PAI/MEMORY/` maps to Soma's
-  // `~/.soma/memory/` (lowercase, no PAI/ prefix) per DD-2. The PAI memory
-  // taxonomy is adopted wholesale by Soma — Soma's memory is THE canonical
-  // home, not a PAI projection.
-  const content = "echo run >> ~/.claude/PAI/MEMORY/SKILLS/execution.jsonl\n";
-  const result = normalizeSkillContent("body.md", content);
-  expect(result.content).not.toContain("~/.claude/");
-  expect(result.content).toContain("~/.soma/memory/SKILLS/execution.jsonl");
-  expect(result.actions.some((a) => a.kind === "rewrote-pai-memory-path")).toBe(true);
-  expect(result.actions.some((a) => a.kind === "rewrote-unmapped-claude-path")).toBe(false);
-  expect(result.warnings.some((w) => w.kind === "unmapped-claude-home-path")).toBe(false);
-});
+for (const tc of DETERMINISTIC_REWRITE_CASES) {
+  test(`AC-1: ${tc.label} fires ${tc.kind} (not UNMAPPED)`, () => {
+    const result = normalizeSkillContent("body.md", `${tc.inputLine}\n`);
+    expect(result.content).not.toContain("~/.claude/");
+    expect(result.content).toContain(tc.expectedTarget);
+    // Deterministic mapping fires its own action kind...
+    expect(result.actions.some((a) => a.kind === tc.kind)).toBe(true);
+    // ...not the UNMAPPED catch-all action, and no UNMAPPED warning —
+    // the path now has a real Soma home.
+    expect(result.actions.some((a) => a.kind === "rewrote-unmapped-claude-path")).toBe(false);
+    expect(result.warnings.some((w) => w.kind === "unmapped-claude-home-path")).toBe(false);
+  });
+}
 
 // ─── AC-1 ordering: new rules run BEFORE the UNMAPPED catch-all ────────
 
