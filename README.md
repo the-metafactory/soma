@@ -1,6 +1,5 @@
 <!--
-  Soma · Metafactory package landing
-  Reading this raw? Visit the rendered version at meta-factory.ai or on GitHub.
+  Soma
 -->
 
 <p align="center">
@@ -15,36 +14,45 @@
 </p>
 
 <p align="center">
-  <a href="https://meta-factory.ai/@metafactory/soma"><img alt="Version" src="https://img.shields.io/badge/version-0.1.4-2A3F6A?labelColor=0E1726" /></a>
+  <img alt="Version" src="https://img.shields.io/badge/version-0.2.0-2A3F6A?labelColor=0E1726" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-2A3F6A?labelColor=0E1726" />
-  <img alt="Trust tier" src="https://img.shields.io/badge/%E2%98%85-STEWARD-C4302B?labelColor=0E1726" />
-  <img alt="Signed" src="https://img.shields.io/badge/signed-SHA--256%20%C2%B7%20Ed25519%20%C2%B7%20Sigstore-2A3F6A?labelColor=0E1726" />
-  <img alt="Runs in" src="https://img.shields.io/badge/runs%20in-Codex%20%C2%B7%20Pi.dev-2A3F6A?labelColor=0E1726" />
+  <img alt="Runs in" src="https://img.shields.io/badge/runs%20in-Codex%20%C2%B7%20Pi.dev%20%C2%B7%20Claude%20Code-2A3F6A?labelColor=0E1726" />
 </p>
 
 ---
 
 ## Install
 
+Install the package with Arc:
+
 ```bash
 arc install @metafactory/soma
 ```
 
-That single command pulls a signed package from Metafactory, verifies three independent cryptographic attestations, and installs Soma into your AI assistant's home so it is available by default.
+Or run it from a source checkout:
 
-No login required. No tracking. The bytes you install are the same bytes the registry attested to.
+```bash
+git clone https://github.com/the-metafactory/soma.git
+cd soma
+bun install
+bun run soma --help
+```
+
+Then project Soma into the coding agent you use:
+
+```bash
+bun run soma install codex --apply
+bun run soma install pi-dev --apply
+bun run soma adopt claude --apply
+```
 
 ---
 
 ## What you get in 30 seconds
 
-- **One assistant, many coding agents.** Your principal profile, goals, memory, skills, and learning live on your machine in `~/.soma/`. Move between Claude Code, OpenAI Codex, and Pi.dev. Your assistant keeps remembering, keeps learning, and keeps you.
+- **One assistant, many coding agents.** Your principal profile, goals, memory, skills, and learning live on your machine in `<soma-home>/`. Move between Claude Code, OpenAI Codex, and Pi.dev. Your assistant keeps remembering, keeps learning, and keeps you.
 - **Filesystem-native by design.** Plain folders. Plain Markdown. You can read, edit, version, back up, and audit your assistant's brain with the same tools you use for everything else. No proprietary database. No vendor lock-in.
-- **Cryptographically attested.** Every Soma release is signed three independent ways. Your `arc install` checks the bytes (SHA-256), the registry attestation (Ed25519), and the publisher attestation (Sigstore) before a single file lands on disk.
-
-> [!NOTE]
-> **Soma is the first package published on Metafactory.**
-> We are using its release as the reference for what every Metafactory package should look like. Three-signature verification, declared capabilities, and portability across AI tools.
+- **Ideal state built in.** Soma stores project and task ISAs, keeps one active ISA available to adapters, and gives the Algorithm a verification contract.
 
 ---
 
@@ -76,7 +84,7 @@ Soma owns the durable parts of your assistant.
 | **Policy** | Privacy, permission, and verification rules |
 | **Adapters** | Thin bridges into the coding agents where Soma runs |
 
-Soma deliberately does not own model selection, chat UI, tool runtimes, agent routing, or marketplace distribution. Those belong to the coding agent you happen to be using, or to other parts of the Metafactory ecosystem.
+Soma deliberately does not own model selection, chat UI, tool runtimes, agent routing, or package distribution. Those belong to the coding agent you happen to be using, or to the surrounding tools that install and host Soma.
 
 See [docs/boundaries.md](docs/boundaries.md) for the exact split.
 
@@ -89,9 +97,15 @@ Once installed, point Soma at the coding agent you want it to run in. Each adapt
 ```bash
 soma install codex --apply
 soma install pi-dev --apply
+soma adopt claude --apply
 ```
 
 Then start a session and watch Soma surface its context.
+
+Claude Code uses its native rules directory as the home projection so Claude
+can auto-discover Soma context without depending on fragile home-directory
+imports. `soma adopt claude --uninstall` removes only the generated Soma
+projection.
 
 <!--
   Demo recording brief (replace this whole block with the rendered asset).
@@ -136,7 +150,7 @@ Then start a session and watch Soma surface its context.
        → classified and recorded
 
     Closing card (2s)
-       arc install @metafactory/soma
+       soma install codex --apply
 -->
 
 > [!NOTE]
@@ -162,11 +176,26 @@ Then start a session and watch Soma surface its context.
 If you already run an assistant inside [Daniel Miessler's Personal AI Infrastructure (PAI)](https://github.com/danielmiessler/Personal_AI_Infrastructure), Soma can import the durable parts so you do not start from scratch.
 
 ```bash
+soma migrate pai
+soma migrate pai --apply
+```
+
+The migration orchestrator plans or applies identity, Algorithm, and PAI pack
+imports in one pass, then writes a readable migration manifest under the Soma
+profile import area.
+
+The lower-level import commands are still available when you want to move one
+category at a time:
+
+```bash
 soma import pai --dry-run
 soma import pai --apply
 ```
 
-This pulls your principal profile, assistant identity, and Telos summary into `~/.soma/profile/`. Source snapshots are kept under `~/.soma/profile/imports/claude/` so you can always trace what came from where.
+This pulls your principal profile, assistant identity, and Telos summary into
+`<soma-home>/profile/`. Source snapshots are kept under
+`<soma-home>/profile/imports/claude/` so you can always trace what came from
+where.
 
 To port over the Algorithm (a small decision and verification harness that wraps AI work in a one-way phase machine):
 
@@ -182,6 +211,31 @@ soma import pai-pack --apply --pai-pack-dir <path-to-pack>
 ```
 
 See [docs/pai-pack-importer.md](docs/pai-pack-importer.md) for the rules.
+
+---
+
+## ISA: ideal state you can verify
+
+Soma treats an ISA as the durable definition of "done" for a project, task, or
+work session. ISAs live in the Soma home, and the active ISA is projected into
+Codex, Pi.dev, and Claude Code so every substrate sees the same goal, criteria,
+and verification contract.
+
+```bash
+soma isa scaffold --slug launch-plan --effort E2 --goal "Ship the launch plan with evidence"
+soma isa use launch-plan
+soma isa active
+soma isa check launch-plan
+```
+
+The `soma isa` CLI can list, show, activate, scaffold, check, archive, and
+upgrade the bundled ISA skill. Its library layer exposes the same behavior for
+adapters and future daemons.
+
+For parallel feature work, Soma can deterministically reconcile a derived
+feature ISA back into its master by stable ISC IDs. Reconcile appends
+verification, decisions, and changelog entries without treating feature files as
+the source of truth. See [docs/isa-reconcile.md](docs/isa-reconcile.md).
 
 ---
 
@@ -204,6 +258,11 @@ soma algorithm advance --id <run-id>
 ```
 
 Effort scales automatically (E1 through E5) based on the prompt. Generated run IDs are date-first (`YYYYMMDD_alg_<suffix>`) so chronology is the default sort.
+
+When an active ISA exists, Algorithm decisions, changes, and verification can
+flow through the ISA lifecycle path. When no active ISA exists, Soma stays
+non-blocking: substantial E3+ work receives an advisory scaffold hint, but
+ordinary Algorithm runs can still complete without being forced into an ISA.
 
 ---
 
@@ -229,21 +288,11 @@ A deterministic privacy guard ships in V0.
 soma policy check --action write --destination ./README.md --content "..."
 ```
 
-The guard blocks obvious movement of private Soma or projection source material into public destinations and records every check as an event. See [docs/private-source-guard-v0.md](docs/private-source-guard-v0.md) for the matcher rules.
-
----
-
-## Trust and signing
-
-Every Soma version published to Metafactory is verified three independent ways before `arc install` lets a single file land on your disk.
-
-| ID | Layer | What it proves |
-| --- | --- | --- |
-| **A-501 / A-502** | Tarball SHA-256 | The bytes you downloaded are the bytes that were published. |
-| **A-504** | Registry Ed25519 over the manifest | The registry attests that this manifest is the one it recorded. Verified with the active registry key (e.g. `mf-reg-2026-04`). |
-| **A-503** | Sigstore (cosign) bundle | The publisher attests, via OIDC identity, that they built and pushed these bits. Verified against the expected signer identity. |
-
-`arc install` prints each verification line as it passes. If any of the three fail, the install aborts before extraction.
+The guard blocks obvious movement of private Soma or projection source material
+into public destinations and records every check as an event. It allows normal
+memory writes under Soma's own memory tree while still guarding destructive
+root-level paths. See [docs/private-source-guard-v0.md](docs/private-source-guard-v0.md)
+for the matcher rules.
 
 ---
 
@@ -253,8 +302,8 @@ Every Soma version published to Metafactory is verified three independent ways b
 | --- | --- |
 | **OpenAI Codex** (the command-line coding agent) | ✅ Shipping |
 | **Pi.dev** (the Pi developer harness) | ✅ Shipping |
-| **Claude Code** (Anthropic's terminal-and-IDE coding agent) | 🛠 Planned |
-| **Cortex** (a Metafactory surface for operators) | 🛠 Planned |
+| **Claude Code** (Anthropic's terminal-and-IDE coding agent) | ✅ Shipping |
+| **Cortex** (operator collaboration surface) | 🛠 Planned |
 
 The adapter contract is small enough to write in an afternoon. If you want Soma in an agent that is not on this list, see [docs/substrate-adapters.md](docs/substrate-adapters.md).
 
@@ -262,8 +311,10 @@ The adapter contract is small enough to write in an afternoon. If you want Soma 
 
 ## Documentation
 
+- [CONTEXT.md](CONTEXT.md), the shared Soma vocabulary used by docs, CLI, and ISA
 - [docs/boundaries.md](docs/boundaries.md), exactly what Soma owns and does not own
 - [docs/default-availability.md](docs/default-availability.md), home install versus workspace overlay
+- [docs/isa-reconcile.md](docs/isa-reconcile.md), deterministic ISA feature-file reconciliation
 - [docs/progressive-skill-loading.md](docs/progressive-skill-loading.md), the skill registry and just-in-time loading
 - [docs/writeback-and-policy.md](docs/writeback-and-policy.md), projection, writeback, conflict, and policy semantics
 - [docs/pai-pack-importer.md](docs/pai-pack-importer.md), what a PAI pack import does and refuses
@@ -290,7 +341,12 @@ Soma also includes a dedicated importer for existing PAI installations, so the w
 
 ## Status
 
-Soma is a design-first project growing into a library and daemon. The first goal is a stable file format and an adapter contract that lets the same personal assistant context run inside several coding agents without rewriting the assistant each time. The first portability proof is intentionally narrow. Produce equivalent context from the same profile, telos, memory, skills, and ISA for two different coding agents.
+Soma is now a typed CLI and library with shipping home projections for Codex,
+Pi.dev, and Claude Code. The current center of gravity is the filesystem
+contract: profile, telos, memory, policy, skills, Algorithm runs, and ISAs stay
+portable in the Soma home, while adapters project that same core into each
+substrate's native shape. The daemon and richer Cortex/Myelin integration come
+after the file format, writeback gates, and adapter behavior are stable.
 
 ---
 
@@ -301,7 +357,6 @@ MIT. See [LICENSE](LICENSE).
 ---
 
 <p align="center">
-  <sub>Soma is the first package published on <a href="https://meta-factory.ai">Metafactory</a>.</sub><br />
-  <sub>Built by <a href="https://github.com/jcfischer">Jens-Christian Fischer</a>. Sponsored by <a href="https://github.com/mellanon">mellanon</a>. ★ STEWARD</sub><br />
+  <sub>Built by <a href="https://github.com/jcfischer">Jens-Christian Fischer</a>.</sub><br />
   <sub>Built on the shoulders of <a href="https://github.com/danielmiessler/Personal_AI_Infrastructure">Daniel Miessler's PAI</a>.</sub>
 </p>
