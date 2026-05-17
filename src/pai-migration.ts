@@ -80,8 +80,16 @@ async function exists(path: string): Promise<boolean> {
   try {
     await stat(path);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    // Sage r3: only ENOENT/ENOTDIR (path absent / parent is a file)
+    // mean "not present" — those are normal control-flow signals.
+    // EACCES or other I/O errors must surface so a silent miss can't
+    // produce a "successful" migration that quietly drops a category.
+    if (isEnoent(error)) return false;
+    if (typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "ENOTDIR") {
+      return false;
+    }
+    throw error;
   }
 }
 

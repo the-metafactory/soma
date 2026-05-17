@@ -114,6 +114,24 @@ test("migratePai omits algorithm when PAI install has no Algorithm dir", async (
   });
 });
 
+test("migratePai surfaces EACCES on Algorithm dir instead of silently dropping (sage r3)", async () => {
+  await withTempHome(async (homeDir) => {
+    await writePaiFixture(homeDir, { withAlgorithm: true });
+    const algoDir = join(homeDir, ".claude/PAI/Algorithm");
+    const { chmod } = await import("node:fs/promises");
+    // Make Algorithm's parent unreadable so stat on Algorithm
+    // itself fails with EACCES, not ENOENT.
+    const paiDir = join(homeDir, ".claude/PAI");
+    await chmod(paiDir, 0o000);
+    try {
+      await expect(migratePai({ homeDir })).rejects.toThrow();
+    } finally {
+      await chmod(paiDir, 0o700);
+      await chmod(algoDir, 0o700).catch(() => undefined);
+    }
+  });
+});
+
 test("migratePai surfaces EACCES on packs dir instead of silently skipping (sage r2)", async () => {
   await withTempHome(async (homeDir) => {
     await writePaiFixture(homeDir);
