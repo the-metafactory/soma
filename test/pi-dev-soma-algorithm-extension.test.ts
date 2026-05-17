@@ -18,10 +18,12 @@ describe("renderSomaAlgorithmExtension", () => {
   test("AC-4/5/6: wires message_update + tool_result handlers and the soma status slot", () => {
     const source = renderSomaAlgorithmExtension();
 
-    // Phase widget transitions fire on streamed model text.
-    expect(source).toContain('"message_update"');
+    // Phase widget transitions fire on streamed model text. The
+    // generated extension uses a local `on(event, handler)` helper
+    // (Sage R9 maintainability) to deduplicate the ExtensionAPI cast.
+    expect(source).toContain('on("message_update"');
     // ISA criteria widget updates on isa_update tool results.
-    expect(source).toContain('"tool_result"');
+    expect(source).toContain('on("tool_result"');
     expect(source).toContain('"isa_update"');
     // Footer status — the canonical "soma" slot.
     expect(source).toContain("SOMA_STATUS_KEY");

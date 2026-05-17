@@ -382,6 +382,16 @@ function ingestStream(text: string, runId: string, opts: { flush?: boolean } = {
 export const __internals = { ensureRun, ingestStream, renderAllPhases, renderActivePhase, runs };
 
 export default function (pi: ExtensionAPI): void {
+  // Local helper — pi.dev's ExtensionAPI is typed as readonly in the
+  // ambient .d.ts, but the runtime exposes an \`on(event, handler)\`
+  // method. One cast here, called from every hook registration below
+  // — keeps the largest unit scannable (Sage R9 maintainability
+  // suggestion).
+  type Handler = (event: unknown, ctx: unknown) => void | Promise<void>;
+  const on = (event: string, handler: Handler): void => {
+    (pi as unknown as { on?: (event: string, handler: Handler) => void }).on?.(event, handler);
+  };
+
   // AC-1: slash command \`/algorithm <prompt>\` — steers the session
   // into an Algorithm run with the canonical primer prepended.
   pi.registerCommand("algorithm", {
@@ -430,9 +440,7 @@ export default function (pi: ExtensionAPI): void {
   // (which need overview + the new phase's widget) and ISA updates
   // (which need the criteria widget). Avoids O(phases) per-delta
   // widget serialization (Sage R3 perf suggestion).
-  (pi as unknown as { on?: (event: string, handler: (event: unknown, ctx: unknown) => void | Promise<void>) => void }).on?.(
-    "message_update",
-    (event, ctx) => {
+  on("message_update", (event, ctx) => {
       const e = event as { delta?: unknown; text?: unknown; content?: unknown };
       // Distinguish a streamed delta (newline-terminated fragment) from
       // a whole-message snapshot (text/content). Whole-message
@@ -490,48 +498,41 @@ export default function (pi: ExtensionAPI): void {
       if (!changed) return;
       if (phaseAdded) renderAllPhases(pi, ctx, run);
       else renderActivePhase(pi, ctx, run);
-    },
-  );
+    });
 
   // Flush the carry on terminal events so any final unterminated line
   // (which we deliberately held during streaming — see message_update
   // comment about Sage R5 partial-line flush) gets parsed before the
   // session/agent fully ends.
   for (const terminal of ["agent_end", "message_end", "session_before_compact", "session_shutdown"] as const) {
-    (pi as unknown as { on?: (event: string, handler: (event: unknown, ctx: unknown) => void | Promise<void>) => void }).on?.(
-      terminal,
-      (_event, ctx) => {
-        const run = ensureRun(defaultRunId());
-        const { changed, phaseAdded } = ingestStream("", defaultRunId(), { flush: true });
-        if (!changed) return;
-        if (phaseAdded) renderAllPhases(pi, ctx, run);
-        else renderActivePhase(pi, ctx, run);
-      },
-    );
+    on(terminal, (_event, ctx) => {
+      const run = ensureRun(defaultRunId());
+      const { changed, phaseAdded } = ingestStream("", defaultRunId(), { flush: true });
+      if (!changed) return;
+      if (phaseAdded) renderAllPhases(pi, ctx, run);
+      else renderActivePhase(pi, ctx, run);
+    });
   }
 
   // AC-5: ISA criteria widget updates whenever the soma \`isa_update\`
   // tool returns. Minimal parsing for this PR — full criteria diff
   // landing in the deferred PR alongside e2e wiring.
-  (pi as unknown as { on?: (event: string, handler: (event: unknown, ctx: unknown) => void | Promise<void>) => void }).on?.(
-    "tool_result",
-    (event, ctx) => {
-      const toolName = String((event as { toolName?: unknown }).toolName ?? "").toLowerCase();
-      if (toolName !== "isa_update" && toolName !== "soma_isa_update") return;
-      const result = (event as { result?: unknown }).result;
-      // Validate the untyped boundary: the tool result is foreign
-      // data from the model side of the pi.dev runtime. A malformed
-      // or adversarial payload with non-array criteria (or with
-      // criterion fields of the wrong type) would crash the checklist
-      // renderer and DoS the extension (Sage R3 security important).
-      // Coerce to a typed array, dropping malformed entries silently.
-      const criteria = sanitizeIsaCriteria(result);
-      if (!criteria) return;
-      const run = ensureRun(defaultRunId());
-      run.isaCriteria = criteria;
-      renderAllPhases(pi, ctx, run);
-    },
-  );
+  on("tool_result", (event, ctx) => {
+    const toolName = String((event as { toolName?: unknown }).toolName ?? "").toLowerCase();
+    if (toolName !== "isa_update" && toolName !== "soma_isa_update") return;
+    const result = (event as { result?: unknown }).result;
+    // Validate the untyped boundary: the tool result is foreign
+    // data from the model side of the pi.dev runtime. A malformed
+    // or adversarial payload with non-array criteria (or with
+    // criterion fields of the wrong type) would crash the checklist
+    // renderer and DoS the extension (Sage R3 security important).
+    // Coerce to a typed array, dropping malformed entries silently.
+    const criteria = sanitizeIsaCriteria(result);
+    if (!criteria) return;
+    const run = ensureRun(defaultRunId());
+    run.isaCriteria = criteria;
+    renderAllPhases(pi, ctx, run);
+  });
 }
 
 // Sage R4 security suggestion: cap criteria count + per-field length
