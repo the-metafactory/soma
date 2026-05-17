@@ -1365,10 +1365,18 @@ function formatPaiMigrationResult(result: PaiMigrationResult): string {
 }
 
 async function readPaiMigrationManifest(options: PaiMigrationOptions): Promise<string | null> {
+  // Sage r1: derive manifest path directly without invoking the
+  // migration planner. Status only needs to read the existing
+  // manifest; source-discovery + pack-listing work is irrelevant
+  // here and would make `--status` fail on, e.g., missing source
+  // dirs even when the manifest exists.
   const { readFile } = await import("node:fs/promises");
-  const plan = await planPaiMigration(options);
+  const { homedir } = await import("node:os");
+  const { join, resolve } = await import("node:path");
+  const somaHome = resolve(options.somaHome ?? join(options.homeDir ?? homedir(), ".soma"));
+  const manifestPath = join(somaHome, "profile/imports/claude/MIGRATION.md");
   try {
-    return await readFile(plan.manifestPath, "utf8");
+    return await readFile(manifestPath, "utf8");
   } catch (error) {
     if (typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "ENOENT") {
       return null;
