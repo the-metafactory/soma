@@ -321,6 +321,29 @@ test("#98 CLI: --help mentions --pai-repo", async () => {
   expect(output).toContain("--pai-repo");
 });
 
+// Sage r1 #100 regression — --skip-skills short-circuits Packs derivation.
+// The doc claims a missing/malformed Packs/ won't throw when the skill
+// phase is explicitly opted out. The orchestrator-level derivation
+// must honor that or the documented recovery path is wrong.
+test("#98 --pai-repo with --skip-skills no longer requires Packs/", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeIdentityFixture(homeDir);
+    // Releases is valid but Packs is intentionally missing.
+    const paiRoot = await plantPaiRepoFixture(homeDir, { plantPacks: false });
+
+    // Without --skip-skills this would throw (covered above). With it
+    // set, derivation must skip the Packs/ existence check entirely.
+    const plan = await planPaiMigration({
+      homeDir,
+      paiRepo: paiRoot,
+      skipSkills: true,
+    });
+
+    expect(plan.docs?.paiSourceDir).toContain(join("Releases/v5.0.0/.claude/PAI"));
+    expect(plan.packs).toEqual([]);
+  });
+});
+
 // migratePai (apply) — derivation propagates through to actual writes.
 test("#98 migratePai --apply with --pai-repo writes manifest referencing derived release", async () => {
   await withTempHome(async (homeDir) => {

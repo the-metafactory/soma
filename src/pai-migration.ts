@@ -366,13 +366,23 @@ async function applyPaiRepoDerivation(
     derived.paiSourceDir = join(releasesDir, latestName, ".claude/PAI");
   }
   if (!derived.paiPacksDir) {
-    const packsDir = join(root, "Packs");
-    if (!(await exists(packsDir))) {
-      throw new Error(
-        `--pai-repo: ${packsDir} does not exist. Either supply --pai-packs-dir explicitly or fix the repo layout.`,
-      );
+    // Sage r1 #100 important: short-circuit Packs derivation when
+    // `--skip-skills` is set. Otherwise the documented recovery path
+    // ("skip-skills also short-circuits pack discovery, so a
+    // malformed Packs/ dir won't throw") is wrong — derivation
+    // refused before `discoverMigrationSources` got a chance to
+    // honor skipSkills. Mirrors that downstream skip exactly: when
+    // the skill phase is explicitly off, Packs/ existence is no
+    // longer a precondition.
+    if (derived.skipSkills !== true) {
+      const packsDir = join(root, "Packs");
+      if (!(await exists(packsDir))) {
+        throw new Error(
+          `--pai-repo: ${packsDir} does not exist. Either supply --pai-packs-dir explicitly or fix the repo layout.`,
+        );
+      }
+      derived.paiPacksDir = packsDir;
     }
-    derived.paiPacksDir = packsDir;
   }
   return derived;
 }
