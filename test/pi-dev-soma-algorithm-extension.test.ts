@@ -127,8 +127,22 @@ describe("renderSomaAlgorithmExtension", () => {
 
     expect(source).toContain("STREAM_INPUT_MAX_BYTES");
     expect(source).toContain("CARRY_MAX_BYTES");
-    expect(source).toContain("raw.length > STREAM_INPUT_MAX_BYTES");
+    expect(source).toContain("chunk.length > STREAM_INPUT_MAX_BYTES");
     expect(source).toContain("run.carry.length > CARRY_MAX_BYTES");
+  });
+
+  test("snapshot cap applies AFTER cursor advance, not before (Sage R8 codequality)", () => {
+    const source = renderSomaAlgorithmExtension();
+
+    // R7 byte-cap, applied to the raw snapshot, would drift the
+    // cursor when snapshots exceed the cap. R8 fix: cursor first,
+    // cap after. Verified by ordering of the cursor-advance vs the
+    // cap clause in the rendered extension.
+    const cursorIdx = source.indexOf("run.lastSnapshotLength = raw.length");
+    const capIdx = source.indexOf("chunk.length > STREAM_INPUT_MAX_BYTES");
+    expect(cursorIdx).toBeGreaterThan(-1);
+    expect(capIdx).toBeGreaterThan(-1);
+    expect(cursorIdx).toBeLessThan(capIdx);
   });
 
   test("tool_result handler validates the untyped boundary (Sage R3 security)", () => {

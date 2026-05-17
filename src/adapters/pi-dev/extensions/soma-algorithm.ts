@@ -439,21 +439,21 @@ export default function (pi: ExtensionAPI): void {
       // snapshots must be flushed so the final unterminated line is
       // ingested (Sage R2 CodeQuality important).
       const isDelta = typeof e.delta === "string";
-      let raw = String(e.delta ?? e.text ?? e.content ?? "");
+      const raw = String(e.delta ?? e.text ?? e.content ?? "");
       if (!raw) return;
-      // Defense in depth against a single huge no-newline fragment
-      // (Sage R7 security important). For deltas, drop overflow. For
-      // snapshots, slice from the tail so we keep the most recent
-      // content (which is what's growing).
-      if (raw.length > STREAM_INPUT_MAX_BYTES) {
-        raw = isDelta ? raw.slice(0, STREAM_INPUT_MAX_BYTES) : raw.slice(raw.length - STREAM_INPUT_MAX_BYTES);
-      }
       const run = ensureRun(defaultRunId());
       // Snapshot mode: pi.dev may deliver text/content as cumulative
       // snapshots — each event includes all prior text plus the new
       // suffix. Slice to the unconsumed suffix so we don't reparse the
       // whole transcript on every event (Sage R4 perf important).
       // Deltas pass through unchanged.
+      //
+      // IMPORTANT: the byte cap (STREAM_INPUT_MAX_BYTES, Sage R7
+      // security) is applied AFTER computing the unconsumed suffix,
+      // not against the raw snapshot. Otherwise the cursor
+      // (lastSnapshotLength) drifts off the real snapshot length and
+      // later updates would slice the wrong window or false-trigger
+      // the snapshot-shrank reset (Sage R8 CodeQuality important).
       let chunk = raw;
       if (!isDelta) {
         if (raw.length < run.lastSnapshotLength) {
@@ -465,7 +465,17 @@ export default function (pi: ExtensionAPI): void {
           run.carry = "";
         }
         chunk = raw.slice(run.lastSnapshotLength);
+        // Cursor tracks the original snapshot length so subsequent
+        // events compute the right suffix even when the snapshot
+        // exceeds the byte cap.
         run.lastSnapshotLength = raw.length;
+      }
+      // Defense in depth against a single huge no-newline fragment
+      // (Sage R7 security important). Cap the chunk we actually
+      // ingest. For deltas, drop overflow head-side. For snapshots,
+      // slice from the tail so we keep the most recent content.
+      if (chunk.length > STREAM_INPUT_MAX_BYTES) {
+        chunk = isDelta ? chunk.slice(0, STREAM_INPUT_MAX_BYTES) : chunk.slice(chunk.length - STREAM_INPUT_MAX_BYTES);
       }
       if (!chunk) return;
       // Do NOT flush snapshot mode: the trailing line of a cumulative
