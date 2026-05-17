@@ -102,10 +102,23 @@ keep their named-target detail, catch-all last so it only fires on residue.
 
 ### Deterministic path rewrites
 
+Ordered most-specific-first. Each rule runs before the UNMAPPED catch-all so
+paths with a real Soma home never escape into the placeholder routing.
+
 | Action kind | Pattern | Replacement |
 | --- | --- | --- |
 | `rewrote-claude-home-path` | `~/.claude/skills/<rest>` | `~/.soma/skills/<rest>` |
-| `rewrote-claude-home-path` | `~/.claude/PAI/MEMORY/<rest>` | `~/.soma/memory/<rest>` |
+| `rewrote-pai-doc-path` | `~/.claude/PAI/DOCUMENTATION/<rest>` | `~/.soma/PAI/DOCUMENTATION/<rest>` |
+| `rewrote-pai-template-path` | `~/.claude/PAI/TEMPLATES/<rest>` | `~/.soma/PAI/TEMPLATES/<rest>` |
+| `rewrote-pai-algorithm-path` | `~/.claude/PAI/ALGORITHM/<rest>` | `~/.soma/PAI/ALGORITHM/<rest>` |
+| `rewrote-pai-memory-path` | `~/.claude/PAI/MEMORY/<rest>` | `~/.soma/memory/<rest>` |
+
+The four `rewrote-pai-*` kinds are populated by `soma import pai-docs` (#89,
+for DOCUMENTATION/TEMPLATES/ALGORITHM) and Soma's memory taxonomy bootstrap
+(#88, for MEMORY → memory). Note the asymmetric MEMORY target: PAI's
+`PAI/MEMORY/` lands at lowercase `~/.soma/memory/` because Soma's memory is
+canonical (per DD-1, DD-2), not a PAI projection. The other three preserve
+the `PAI/` prefix because `~/.soma/PAI/` is the imported docs surface.
 
 ### Catch-all rewrite (unmapped Claude paths)
 
