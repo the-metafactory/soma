@@ -121,9 +121,9 @@ test("AC-1 — dry-run plan lists files without writing", async () => {
     expect(targets.some((t) => t.endsWith("PAI_SYSTEM_PROMPT.md"))).toBe(false);
     expect(targets.some((t) => t.endsWith("statusline-command.sh"))).toBe(false);
 
-    // Sage R2 performance finding: dry-run does NOT read+hash every
-    // file. SHA is populated on the apply path only (where it is
-    // needed for the manifest and idempotency).
+    // Dry-run does NOT read+hash every file — SHA is populated on
+    // the apply path only (where it is needed for the manifest and
+    // idempotency).
     for (const file of plan.files) {
       expect(file.sha256).toBeUndefined();
     }
@@ -178,7 +178,7 @@ test("AC-2/AC-5 — apply writes files, manifest, and is idempotent on re-run", 
   });
 });
 
-test("Sage R3 Security — refuses VERSION file that is itself a symlink", async () => {
+test("refuses VERSION file that is itself a symlink", async () => {
   await withTempHome(async (homeDir) => {
     const sourceDir = await writePaiSourceFixture(homeDir, { versionFile: null });
     // Plant a sensitive target outside the source tree, then symlink
@@ -194,7 +194,7 @@ test("Sage R3 Security — refuses VERSION file that is itself a symlink", async
   });
 });
 
-test("Sage R3 CodeQuality — accepts filenames that start with '..' as long as the realpath stays inside the source", async () => {
+test("accepts filenames that start with '..' as long as the realpath stays inside the source", async () => {
   await withTempHome(async (homeDir) => {
     const sourceDir = await writePaiSourceFixture(homeDir);
     // A legitimate file whose basename starts with `..` — the prior
@@ -207,6 +207,28 @@ test("Sage R3 CodeQuality — accepts filenames that start with '..' as long as 
     const plan = await planPaiDocsImport({ homeDir, paiSourceDir: sourceDir });
     const relPaths = plan.files.map((f) => f.relativePath);
     expect(relPaths).toContain("DOCUMENTATION/..notes.md");
+  });
+});
+
+test("AC-2 — idempotency repairs target drift even when source SHA is unchanged", async () => {
+  await withTempHome(async (homeDir) => {
+    const sourceDir = await writePaiSourceFixture(homeDir);
+
+    const first = await importPaiDocs({ homeDir, paiSourceDir: sourceDir });
+    expect(first.writtenCount).toBeGreaterThan(0);
+
+    // User edits the imported file (or it is corrupted). With the
+    // source unchanged, the importer must re-copy rather than trust
+    // the manifest and leave the target stale.
+    const target = join(homeDir, ".soma/PAI/DOCUMENTATION/Skills/SkillSystem.md");
+    await writeFile(target, "TAMPERED — should be repaired on next import\n", "utf8");
+
+    const second = await importPaiDocs({ homeDir, paiSourceDir: sourceDir });
+    expect(second.writtenCount).toBe(1);
+
+    const repaired = await readFile(target, "utf8");
+    expect(repaired).toContain("Skill System");
+    expect(repaired).not.toContain("TAMPERED");
   });
 });
 
@@ -243,7 +265,7 @@ test("AC-4 — refuses symlink inside the source tree (escape rejection)", async
   });
 });
 
-test("AC-4 — refuses optional subtree root that is itself a symlink (Sage R1 Security)", async () => {
+test("AC-4 — refuses optional subtree root that is itself a symlink", async () => {
   // Source-side trust boundary: collectFiles lstat-checks every child
   // entry but never its own root. Without the per-subdir guard, a PAI
   // source tree with TEMPLATES/ or ALGORITHM/ planted as a symlink
@@ -281,11 +303,13 @@ test("AC-3 — refuses required DOCUMENTATION subdir that is itself a symlink", 
   });
 });
 
-test("AC-4 — refuses target path that escapes Soma home via custom soma-home symlink", async () => {
+test("AC-4 — refuses target escape via existing symlink inside Soma home, before any mkdir or write", async () => {
   await withTempHome(async (homeDir) => {
     const sourceDir = await writePaiSourceFixture(homeDir);
-    // Set up a real soma home dir, then put a symlink inside it that
-    // would let a write escape to a different location.
+    // Set up a real soma home, then plant an existing symlink at one
+    // of the target subtree paths. The importer must refuse the
+    // entire run before creating any subdirectories under the escape
+    // target — not merely refuse the final write.
     const realSoma = join(homeDir, "real-soma");
     await mkdir(join(realSoma, "PAI"), { recursive: true });
     const escape = join(homeDir, "escape-root");
@@ -296,10 +320,13 @@ test("AC-4 — refuses target path that escapes Soma home via custom soma-home s
       importPaiDocs({ homeDir, paiSourceDir: sourceDir, somaHome: realSoma }),
     ).rejects.toThrow(/refused to follow a symlink that escapes/i);
 
-    // The escape root must remain empty — no files were written through the symlink.
+    // The escape root must remain empty — no files OR directories
+    // were created through the symlink.
     await expect(
       stat(join(escape, "Skills/SkillSystem.md")),
     ).rejects.toThrow();
+    await expect(stat(join(escape, "Skills"))).rejects.toThrow();
+    await expect(stat(join(escape, "Memory"))).rejects.toThrow();
   });
 });
 

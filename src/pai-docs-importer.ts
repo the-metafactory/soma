@@ -47,10 +47,11 @@ import type {
 // broken doc refs that #86 currently shunts to `~/.soma/UNMAPPED/PAI/`).
 // TEMPLATES + ALGORITHM are optional but copied when present.
 //
-// Exported (Sage round 3, Maintainability) so CLI formatters and any
-// future caller share the same list. The exported tuple is the single
-// runtime source of truth; the `PaiDocsImportSubdir` type in
-// `src/types.ts` mirrors its members.
+// Single source of truth. The CLI formatter and the apply loop both
+// iterate this tuple; the `PaiDocsImportSubdir` union in
+// `src/types.ts` mirrors its members. Module-internal — not exported
+// from the package root, since the in-scope subtree set is importer
+// policy, not part of the public API.
 export const PAI_DOCS_IMPORT_SUBDIRS = ["DOCUMENTATION", "TEMPLATES", "ALGORITHM"] as const satisfies readonly PaiDocsImportSubdir[];
 
 const REQUIRED_SUBDIR: PaiDocsImportSubdir = "DOCUMENTATION";
@@ -124,10 +125,10 @@ async function collectFiles(root: string): Promise<string[]> {
             `PAI docs import refused path outside source root: ${relative(root, fullPath).split(sep).join("/")}`,
           );
         }
-        // Sage round 3 (CodeQuality suggestion): the realpath check
-        // above is the authoritative traversal guard. A `rel.startsWith("..")`
-        // string filter both adds nothing and silently drops legitimate
-        // filenames like `..notes.md`.
+        // The `isWithinPath(realRoot, realFile)` check above is the
+        // authoritative traversal guard — no extra string filter on
+        // the relative path is needed, and adding one would silently
+        // drop legitimate filenames such as `..notes.md`.
         files.push(relative(root, fullPath).split(sep).join("/"));
       }
     }
@@ -147,12 +148,12 @@ async function collectFiles(root: string): Promise<string[]> {
 async function detectReleaseVersion(sourceDir: string): Promise<string | null> {
   const versionPath = join(sourceDir, "VERSION");
   if (await pathExists(versionPath)) {
-    // Sage round 3 (Security, important): refuse symlinks here just
-    // like everywhere else in the importer. A malicious source could
-    // otherwise plant `VERSION -> /etc/hostname` and smuggle its
-    // contents into CLI output + `.import-manifest.json`. Also
-    // require a regular file — a directory at this path is a sign of
-    // a malformed source, not a release marker.
+    // Refuse symlinks at this path with the same bar as every other
+    // file the importer reads. A malicious source could otherwise
+    // plant `VERSION -> /etc/hostname` and smuggle its contents into
+    // CLI output + `.import-manifest.json`. Require a regular file —
+    // a directory at this path is a sign of a malformed source, not a
+    // release marker.
     const versionStat = await lstat(versionPath);
     if (versionStat.isSymbolicLink()) {
       throw new Error("soma import pai-docs refused symlink path: VERSION");
@@ -198,10 +199,9 @@ async function assertPaiReleaseTree(sourceDir: string): Promise<void> {
 // Build a plan: collect every file under each in-scope subdir and
 // pair it with its eventual target under ~/.soma/PAI/. By default the
 // plan lists files without reading their bytes — dry-run callers only
-// need paths and counts (Sage round 2 performance finding). Pass
-// `withSha: true` to populate per-file SHA-256, which the apply path
-// needs for the manifest and for idempotency comparisons against any
-// prior manifest.
+// need paths and counts. Pass `withSha: true` to populate per-file
+// SHA-256, which the apply path needs for both the manifest (AC-5)
+// and idempotency comparisons against any prior manifest.
 async function buildPlan(
   options: PaiDocsImportOptions,
   flags: { withSha: boolean },
@@ -215,13 +215,12 @@ async function buildPlan(
   for (const subdir of PAI_DOCS_IMPORT_SUBDIRS) {
     const subdirPath = join(homes.paiSourceDir, subdir);
     if (!(await pathExists(subdirPath))) continue;
-    // Sage round 1 (Security, important): `collectFiles` lstat-checks
-    // every child entry but never its own root. Without this guard, a
-    // PAI source with `TEMPLATES/` or `ALGORITHM/` planted as a
-    // symlink would be followed and imported — violating the
-    // documented refusal for symlinks inside the source tree. Refuse
-    // here at the subtree boundary, before `collectFiles` recurses
-    // into anything.
+    // `collectFiles` lstat-checks every child entry but never its
+    // own root. Without this guard, a PAI source with `TEMPLATES/` or
+    // `ALGORITHM/` planted as a symlink would be followed and
+    // imported — violating the documented refusal for symlinks inside
+    // the source tree. Check the subtree boundary here, before
+    // `collectFiles` recurses into anything.
     const subdirStat = await lstat(subdirPath);
     if (subdirStat.isSymbolicLink()) {
       throw new Error(
@@ -270,10 +269,9 @@ export async function planPaiDocsImport(
   return buildPlan(options, { withSha: false });
 }
 
-// Sage round 4 (Maintainability nit): the prior `ExistingManifestEntry`
-// shape stored `target` twice — once as the map key and once as a
-// field never read again. A `Map<target, sha256>` carries exactly the
-// state idempotency needs.
+// Idempotency only needs `target -> sha256`. Returns null when the
+// manifest is missing or unreadable (a missing manifest is a first
+// import; an unreadable one falls through to a full re-copy).
 async function readExistingManifest(
   somaHome: string,
 ): Promise<Map<string, string> | null> {
@@ -293,20 +291,23 @@ async function readExistingManifest(
   }
 }
 
-// Lexical + symlink-realpath escape guard, mirroring
-// `writeProjectionExportFile` in src/cli.ts. The realpath of the
-// resolved Soma home is computed once and reused for every file write.
-//
-// Sage round 1 (Maintainability suggestion): both write paths
-// (manifest write and source-copy) need exactly the same target-side
-// hardening. Centralizing the guard here means future tightening
-// happens in one place instead of two.
+// Centralized target-side escape guard for every write the importer
+// performs (manifest write + per-file copy). The contract:
+//   1. The target must lexically resolve inside `somaHomeRoot` before
+//      any IO is attempted.
+//   2. No directory creation may follow a symlink that escapes
+//      `realSomaHomeRoot`. We walk the existing ancestors of the
+//      target *before* `mkdir`, refuse if any ancestor is a symlink
+//      that points outside the Soma home, and only create new
+//      directories underneath a verified ancestor.
+//   3. After mkdir completes, the parent's realpath is re-verified
+//      against `realSomaHomeRoot` so any race between the walk and the
+//      mkdir is still caught.
 async function prepareSafeTargetParent(
   realSomaHomeRoot: string,
   somaHomeRoot: string,
   targetAbs: string,
 ): Promise<string> {
-  // Lexical: the target must resolve inside somaHomeRoot before any IO.
   const resolved = resolve(targetAbs);
   if (
     resolved !== somaHomeRoot &&
@@ -317,12 +318,45 @@ async function prepareSafeTargetParent(
     );
   }
   const parent = dirname(resolved);
+
+  // Walk the chain of existing ancestors from the parent up toward
+  // the Soma home root, refusing symlinks that point outside the home.
+  // Stop at the first ancestor that does not yet exist — that and
+  // everything underneath it will be created by the targeted `mkdir`
+  // below, so no symlink can pre-exist on those segments.
+  const ancestors: string[] = [];
+  let cursor = parent;
+  while (true) {
+    ancestors.push(cursor);
+    if (cursor === somaHomeRoot) break;
+    const next = dirname(cursor);
+    if (next === cursor) break;
+    cursor = next;
+  }
+  // Top-down: verify the highest existing ancestor first.
+  for (const ancestor of ancestors.reverse()) {
+    if (!(await pathExists(ancestor))) continue;
+    const stat = await lstat(ancestor);
+    if (stat.isSymbolicLink()) {
+      const realLink = await realpath(ancestor);
+      if (
+        realLink !== realSomaHomeRoot &&
+        !realLink.startsWith(realSomaHomeRoot + sep)
+      ) {
+        throw new Error(
+          `soma import pai-docs refused to follow a symlink that escapes Soma home (path: ${targetAbs}).`,
+        );
+      }
+    }
+  }
+
   await mkdir(parent, { recursive: true });
-  // Symlink-realpath: after mkdir, the parent's realpath must still be
-  // under the soma home's realpath. A symlink anywhere on the path
-  // (e.g. somaHome/PAI/DOCUMENTATION -> ~/.ssh) would otherwise let
-  // the write land outside the home even though the lexical check
-  // passed.
+  // After mkdir, re-check the parent's realpath against the Soma
+  // home's realpath. This re-catches both the standard
+  // symlink-in-the-middle case (e.g. a regular dir replaced by a
+  // symlink between walk and mkdir) and the case where the parent
+  // itself is a symlink pointing inside the home (legal — caught by
+  // the equality check).
   const realParent = await realpath(parent);
   if (
     realParent !== realSomaHomeRoot &&
@@ -416,8 +450,7 @@ export async function importPaiDocs(
 ): Promise<PaiDocsImportResult> {
   // Apply path needs per-file SHAs for both the manifest (AC-5) and
   // idempotency comparison against any prior manifest. Plan-only
-  // callers go through `planPaiDocsImport` and skip the read+hash —
-  // Sage round 2 performance finding.
+  // callers go through `planPaiDocsImport` and skip the read+hash.
   const plan = await buildPlan(options, { withSha: true });
 
   await mkdir(plan.somaHome, { recursive: true });
@@ -434,18 +467,23 @@ export async function importPaiDocs(
   const previous = await readExistingManifest(plan.somaHome);
   let writtenCount = 0;
 
-  // Sage round 2 (Maintainability suggestion): drop the redundant
-  // pre-flight `nearestExistingAncestor` check. `copyFileSafely` calls
-  // `prepareSafeTargetParent`, which lexically checks the target,
-  // `mkdir`s the parent, and re-resolves `realpath(parent)` against
-  // the Soma home root — the same symlink-escape behavior the
-  // pre-flight check provided, in one place.
+  // Skip a copy only when both the prior manifest SHA matches the new
+  // source SHA AND the target file's current bytes still hash to that
+  // SHA. Trusting the manifest alone leaves a correctness gap: if a
+  // user edits or corrupts an imported file, a re-run with unchanged
+  // source bytes would otherwise report a no-op and leave the target
+  // wrong. Re-hashing the target on idempotency-skip closes that.
   for (const file of plan.files) {
     const manifestKey = manifestRelativeTarget(file);
     const priorSha = previous?.get(manifestKey);
     if (priorSha && priorSha === file.sha256 && (await pathExists(file.target))) {
-      // Same source bytes, target still on disk — nothing to do.
-      continue;
+      const targetSha = sha256(await readFile(file.target));
+      if (targetSha === file.sha256) {
+        // Source bytes unchanged AND target still matches — nothing to do.
+        continue;
+      }
+      // Target drifted (user edit, partial-write corruption, …). Fall
+      // through to re-copy the source over it.
     }
     await copyFileSafely(realSourceRoot, realSomaHome, somaHomeAbs, file.source, file.target);
     writtenCount += 1;

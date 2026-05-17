@@ -519,11 +519,10 @@ export interface PaiDocsImportOptions {
   somaHome?: string;
 }
 
-// Sage round 3 (Maintainability suggestion): single source of truth
-// for the in-scope subtree list. The runtime constant lives in
-// `src/pai-docs-importer.ts` (`PAI_DOCS_IMPORT_SUBDIRS`); this type
-// derives from it via `typeof`-style listing so adding/renaming a
-// subtree touches one place.
+// Single source of truth for the in-scope subtree list. The runtime
+// constant lives in `src/pai-docs-importer.ts`
+// (`PAI_DOCS_IMPORT_SUBDIRS`); this type mirrors its members so
+// adding/renaming a subtree touches one place.
 export type PaiDocsImportSubdir = "DOCUMENTATION" | "TEMPLATES" | "ALGORITHM";
 
 export interface PaiDocsImportFile {
@@ -538,9 +537,8 @@ export interface PaiDocsImportFile {
   subdir: PaiDocsImportSubdir;
   // SHA-256 of the file's bytes, hex-encoded. Optional in dry-run
   // plans so listing the file set does not require reading every
-  // file's bytes (Sage round 2 performance finding). Always populated
-  // on the apply path, where the SHA is needed for both the manifest
-  // and idempotency checks.
+  // file's bytes. Always populated on the apply path, where the SHA
+  // is needed for both the manifest and the idempotency check.
   sha256?: string;
 }
 

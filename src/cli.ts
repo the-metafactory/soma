@@ -12,7 +12,6 @@ import {
   importPaiDocs,
   importPaiIdentity,
   importPaiPack,
-  PAI_DOCS_IMPORT_SUBDIRS,
   migratePai,
   planPaiMigration,
   type PaiMigrationOptions,
@@ -89,6 +88,11 @@ import type {
 } from "./types";
 import { SOMA_FEEDBACK_STDIN_MAX_BYTES } from "./feedback-contract";
 import { ISA_SUBCOMMAND_HELP, ISA_USAGE_HEADER, runIsaCli } from "./cli-isa";
+// CLI formatter for `import pai-docs` needs the same in-scope subtree
+// list the importer iterates. Importing directly from the module
+// keeps the constant a module-internal contract rather than promoting
+// importer policy through the package root surface.
+import { PAI_DOCS_IMPORT_SUBDIRS } from "./pai-docs-importer";
 
 /**
  * Typed CLI error carrying an exit code distinct from the default 1.
@@ -1880,9 +1884,8 @@ function formatPaiDocsImportPlan(plan: PaiDocsImportPlan): string {
     `releaseVersion: ${plan.releaseVersion ?? "<unknown>"}`,
     "",
     "Counts:",
-    // Sage round 3 (Maintainability): drive the counts list from the
-    // shared subtree constant so adding a subtree only requires
-    // touching `PAI_DOCS_IMPORT_SUBDIRS`.
+    // Drive the counts from the shared subtree constant so adding a
+    // subtree only requires touching `PAI_DOCS_IMPORT_SUBDIRS`.
     ...PAI_DOCS_IMPORT_SUBDIRS.map((subdir) => `- ${subdir}: ${counts[subdir] ?? 0}`),
     "",
     "Files:",
