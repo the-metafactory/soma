@@ -92,11 +92,15 @@ test("migratePai executes identity + algorithm + writes MIGRATION.md", async () 
 test("migratePai is idempotent at the file level (rerun = no file content change)", async () => {
   await withTempHome(async (homeDir) => {
     await writePaiFixture(homeDir, { withAlgorithm: true });
+    const first = await migratePai({ homeDir });
+    const beforePrincipal = await readFile(join(homeDir, ".soma/profile/principal.md"), "utf8");
+    const beforeManifest = await readFile(first.manifestPath, "utf8");
     await migratePai({ homeDir });
-    const before = await readFile(join(homeDir, ".soma/profile/principal.md"), "utf8");
-    await migratePai({ homeDir });
-    const after = await readFile(join(homeDir, ".soma/profile/principal.md"), "utf8");
-    expect(after).toBe(before);
+    const afterPrincipal = await readFile(join(homeDir, ".soma/profile/principal.md"), "utf8");
+    const afterManifest = await readFile(first.manifestPath, "utf8");
+    expect(afterPrincipal).toBe(beforePrincipal);
+    // Sage r1: manifest must also be stable across reruns.
+    expect(afterManifest).toBe(beforeManifest);
   });
 });
 

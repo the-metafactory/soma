@@ -97,20 +97,33 @@ function manifestPathFor(somaHome: string): string {
 }
 
 /**
+ * Shared discovery between dry-run and apply paths (sage r1 finding):
+ * resolves algorithm presence and pack paths once so the two surfaces
+ * cannot drift as new categories are added.
+ */
+async function discoverMigrationSources(
+  claudeHome: string,
+  options: PaiMigrationOptions,
+): Promise<{ algorithmDir: string | null; packPaths: string[] }> {
+  const algorithmDirCandidate = join(claudeHome, "PAI/Algorithm");
+  const algorithmDir = (await exists(algorithmDirCandidate)) ? algorithmDirCandidate : null;
+  const packPaths = options.paiPackPaths ?? (await autoDiscoverPackPaths(claudeHome));
+  return { algorithmDir, packPaths };
+}
+
+/**
  * Plan what migratePai would do. Same-shape sub-plans as the
  * underlying importers + the manifest target. `apply: false` is
  * always false for plans — to execute call migratePai.
  */
 export async function planPaiMigration(options: PaiMigrationOptions = {}): Promise<PaiMigrationPlan> {
   const { claudeHome, somaHome } = resolvePaths(options);
+  const { algorithmDir, packPaths } = await discoverMigrationSources(claudeHome, options);
+
   const identity = planPaiImport({ homeDir: options.homeDir, claudeHome, somaHome });
-
-  const algorithmDir = join(claudeHome, "PAI/Algorithm");
-  const algorithm = (await exists(algorithmDir))
-    ? planAlgorithmImport({ homeDir: options.homeDir, paiAlgorithmDir: algorithmDir, somaHome })
-    : null;
-
-  const packPaths = options.paiPackPaths ?? (await autoDiscoverPackPaths(claudeHome));
+  const algorithm = algorithmDir === null
+    ? null
+    : planAlgorithmImport({ homeDir: options.homeDir, paiAlgorithmDir: algorithmDir, somaHome });
   const packs = await Promise.all(
     packPaths.map((paiPackDir) => planPaiPackImport({ homeDir: options.homeDir, paiPackDir, somaHome })),
   );
@@ -127,7 +140,10 @@ export async function planPaiMigration(options: PaiMigrationOptions = {}): Promi
 }
 
 function renderManifest(result: Omit<PaiMigrationResult, "manifestPath" | "filesWritten">): string {
-  const now = new Date().toISOString();
+  // Sage r1: the manifest used to embed a fresh timestamp on every
+  // rerun, breaking the documented idempotency. Now the manifest is a
+  // pure function of the import results — second rerun with identical
+  // imports produces byte-identical bytes.
   const packLines = result.packs.length === 0
     ? "- (none discovered)"
     : result.packs.map((p, idx) => `- pack ${idx + 1}: ${p.files.length} files`).join("\n");
@@ -135,7 +151,6 @@ function renderManifest(result: Omit<PaiMigrationResult, "manifestPath" | "files
     "# PAI Migration",
     "",
     `Source: ${result.claudeHome}`,
-    `Migrated: ${now}`,
     "",
     "## Categories",
     `- identity: ${result.identity.files.length} files`,
@@ -168,24 +183,24 @@ function renderManifest(result: Omit<PaiMigrationResult, "manifestPath" | "files
  */
 export async function migratePai(options: PaiMigrationOptions = {}): Promise<PaiMigrationResult> {
   const { claudeHome, somaHome } = resolvePaths(options);
+  const { algorithmDir, packPaths } = await discoverMigrationSources(claudeHome, options);
   const filesWritten: string[] = [];
 
   const identity = await importPaiIdentity({ homeDir: options.homeDir, claudeHome, somaHome });
   filesWritten.push(...identity.files);
 
-  const algorithmDir = join(claudeHome, "PAI/Algorithm");
-  const algorithm = (await exists(algorithmDir))
-    ? await importAlgorithm({ homeDir: options.homeDir, paiAlgorithmDir: algorithmDir, somaHome })
-    : null;
+  const algorithm = algorithmDir === null
+    ? null
+    : await importAlgorithm({ homeDir: options.homeDir, paiAlgorithmDir: algorithmDir, somaHome });
   if (algorithm) filesWritten.push(...algorithm.files);
 
-  const packPaths = options.paiPackPaths ?? (await autoDiscoverPackPaths(claudeHome));
-  const packs: PaiPackImportResult[] = [];
-  for (const paiPackDir of packPaths) {
-    const r = await importPaiPack({ homeDir: options.homeDir, paiPackDir, somaHome });
-    packs.push(r);
-    filesWritten.push(...r.files);
-  }
+  // Sage r1: parallelize independent pack imports — each pack imports
+  // into its own subtree under <somaHome>/skills/, so there is no
+  // cross-pack ordering constraint.
+  const packs: PaiPackImportResult[] = await Promise.all(
+    packPaths.map((paiPackDir) => importPaiPack({ homeDir: options.homeDir, paiPackDir, somaHome })),
+  );
+  for (const r of packs) filesWritten.push(...r.files);
 
   const manifestPath = manifestPathFor(somaHome);
   await mkdir(dirname(manifestPath), { recursive: true });
