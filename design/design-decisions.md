@@ -49,7 +49,7 @@ Three candidates surfaced:
 
 **Status:** Decided (2026-05-17)
 
-**Context:** Soma currently bootstraps 5 memory categories (`WORK`, `KNOWLEDGE`, `LEARNING`, `RELATIONSHIP`, `STATE`). PAI v5.0.0 canonical form has ~17 categories (the above plus `OBSERVABILITY`, `SECURITY`, `SCRATCHPAD`, `BOOKMARKS`, `RESEARCH`, `PROJECT`, `WISDOM`, `VERIFICATION`, `DATA`, `RAW`, `REFERENCE`, `SKILLS`, plus PAI-specific `PAISYSTEMUPDATES` and `AUTO`).
+**Context:** Soma currently bootstraps 5 memory categories (`WORK`, `KNOWLEDGE`, `LEARNING`, `RELATIONSHIP`, `STATE`). PAI v5.0.0 canonical form has 19 categories — the above 5 plus 12 substrate-neutral (`OBSERVABILITY`, `SECURITY`, `SCRATCHPAD`, `BOOKMARKS`, `RESEARCH`, `PROJECT`, `WISDOM`, `VERIFICATION`, `DATA`, `RAW`, `REFERENCE`, `SKILLS`) plus 2 PAI-specific (`PAISYSTEMUPDATES`, `AUTO`).
 
 PAI's v5.0.0 hooks actively write to several categories Soma does not bootstrap (`OBSERVABILITY`, `SECURITY` are referenced by `ToolActivityTracker.hook.ts`, `ConfigAudit.hook.ts`, `StopFailureHandler.hook.ts`, `TaskGovernance.hook.ts`). Soma's existing 5-category bootstrap is pre-v5.0.0 PAI taxonomy.
 
@@ -65,7 +65,7 @@ Three candidates:
 - (b)'s purity is academic — every Soma user today is migrating from PAI; the PAI-specific categories will be populated regardless.
 
 **Implications:**
-- `SOMA_BOOTSTRAP_DIRECTORIES` in `src/install.ts` grows from 5 to ~17 categories.
+- `SOMA_BOOTSTRAP_DIRECTORIES` in `src/install.ts` grows from 5 to 19 categories (14 new: 12 substrate-neutral + 2 PAI-bound).
 - New entries each ship a `README.md` describing what belongs there. PAI-bound ones additionally state "this category is populated by the PAI substrate; portable Soma cores may leave it empty".
 - No backcompat migration needed (pre-release per principal directive).
 - The 1:1 alignment with v5.0.0 means PAI hooks writing to `MEMORY/SECURITY/...` resolve to `~/.soma/memory/SECURITY/...` cleanly after `soma install claude-code` projection.

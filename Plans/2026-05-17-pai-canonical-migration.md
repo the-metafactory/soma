@@ -25,7 +25,7 @@ If you are picking this up in a fresh session, you need:
 These were resolved in a `/grill-with-docs` session on 2026-05-17 and recorded as DDs:
 
 - **DD-1: Soma is the new canonical home of personal AI state.** PAI's `~/.claude/` becomes a *projection* that Soma writes via `soma install claude-code`. Migration from PAI is a **translation** (PAI memory taxonomy → Soma taxonomy, PAI skill format → Soma skill format), not a copy.
-- **DD-2: Adopt PAI v5.0.0 memory taxonomy wholesale, mark PAI-specific categories.** 17-category bootstrap (`WORK`, `STATE`, `LEARNING`, `RELATIONSHIP`, `KNOWLEDGE`, `OBSERVABILITY`, `SECURITY`, `SCRATCHPAD`, `BOOKMARKS`, `RESEARCH`, `PROJECT`, `WISDOM`, `VERIFICATION`, `DATA`, `RAW`, `REFERENCE`, `SKILLS`, plus PAI-bound `PAISYSTEMUPDATES`, `AUTO`). PAI-bound READMEs explicitly call out provenance. No backcompat migration needed (pre-release).
+- **DD-2: Adopt PAI v5.0.0 memory taxonomy wholesale, mark PAI-specific categories.** 19-category bootstrap = 17 substrate-neutral (`WORK`, `STATE`, `LEARNING`, `RELATIONSHIP`, `KNOWLEDGE`, `OBSERVABILITY`, `SECURITY`, `SCRATCHPAD`, `BOOKMARKS`, `RESEARCH`, `PROJECT`, `WISDOM`, `VERIFICATION`, `DATA`, `RAW`, `REFERENCE`, `SKILLS`) + 2 PAI-bound (`PAISYSTEMUPDATES`, `AUTO`). PAI-bound READMEs explicitly call out provenance. No backcompat migration needed (pre-release).
 - **DD-3: `migrate` reinstated for system-to-system orchestration.** Distinct from `upgrade` (same system, new version). `soma migrate <source-system>` is the principal-facing orchestration verb. CONTEXT.md updated; the prior glossary lock that killed `migrate` as a synonym for `upgrade` is superseded.
 
 Read each DD in full before starting:
@@ -62,7 +62,7 @@ If you find yourself questioning a DD during implementation, stop and surface to
 
 **Suggested execution order (one issue at a time, single implementer):**
 
-1. **#88** — `Align Soma memory bootstrap to PAI v5.0.0 canonical taxonomy (17 categories)`. Pure bootstrap change. Independent of everything. Ship first.
+1. **#88** — `Align Soma memory bootstrap to PAI v5.0.0 canonical taxonomy (17 categories)`. (Issue title kept as filed; canonical count is 19 = 17 substrate-neutral + 2 PAI-bound — see DD-2.) Pure bootstrap change. Independent of everything. Ship first.
 2. **#89** — `New CLI: soma import pai-docs`. Independent of #88 but small and self-contained. Can also be done first; pick whichever has the fresher state in your head.
 3. **#90** — `Extend soma migrate pai`. Depends on #88 + #89 being merged. This is the largest of the four; budget ~2 days. Memory translation is the most subtle piece (per-file SHA recording in manifest, idempotency contract).
 4. **#91** — `Importer: replace UNMAPPED catch-all with deterministic rewrites`. Depends on #89 (need `~/.soma/PAI/` to exist) and #88 (need `~/.soma/memory/` taxonomy). Smallest of the four; mechanical follow-on.
@@ -183,11 +183,11 @@ Return to Step 1 with the next issue from the queue. New worktree, never reuse.
 
 **Smallest issue. Ship first.**
 
-- Touches `src/install.ts` (`SOMA_BOOTSTRAP_DIRECTORIES` constant). Add the 12 new categories.
+- Touches `src/install.ts` (`SOMA_BOOTSTRAP_DIRECTORIES` constant). Add the 14 new categories (12 substrate-neutral + 2 PAI-bound). Existing 5 stay. Final count: 19.
 - Each new category needs a `README.md`. Use the existing `~/work/PAI/Releases/v5.0.0/.claude/PAI/MEMORY/<CAT>/README.md` as the textual basis where one exists; mark `PAISYSTEMUPDATES/` and `AUTO/` as PAI-substrate-bound in their READMEs.
 - The bootstrap creates the dirs + README files. Match the existing pattern for the 5 dirs already there.
 - Update `docs/private-source-guard-v0.md` and `docs/writeback-and-policy.md` if they enumerate memory paths.
-- Tests: extend `test/install.test.ts` bootstrap assertion to cover all 17 dirs.
+- Tests: extend `test/install.test.ts` bootstrap assertion to cover all 19 dirs.
 
 **No backcompat shims.** Pre-release. Existing `~/.soma/memory/` installs that lack the new dirs just need a `soma install <substrate> --apply` to backfill (idempotent).
 
