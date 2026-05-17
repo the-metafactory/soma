@@ -221,24 +221,28 @@ test("soma migrate pai --skip-docs honored even when --pai-source-dir is set", a
   });
 });
 
-test("soma migrate pai --overwrite-reserved permits reserved-skill packs", async () => {
+test("soma migrate pai --overwrite-reserved permits reserved-skill packs (#97 contract)", async () => {
+  // #97 — without the override flag, reserved-skill packs are
+  // recorded as `refused-reserved` per-pack outcomes (zero-exit).
+  // The override flag lets the same pack land. The CLI no longer
+  // throws on reserved-name collision.
   await withTempHome(async (homeDir) => {
     await writePaiFixture(homeDir);
     const packsDir = join(homeDir, "Packs");
     // Pack whose name slugifies to a reserved canonical skill name.
     await writePackFixture(packsDir, "telos");
-    await expect(
-      runSomaCli([
-        "migrate",
-        "pai",
-        "--apply",
-        "--pai-packs-dir",
-        packsDir,
-        "--home-dir",
-        homeDir,
-      ]),
-    ).rejects.toThrow(/reserved Soma skill 'telos'/);
-    // With the override flag the same call succeeds.
+    const refusedOut = await runSomaCli([
+      "migrate",
+      "pai",
+      "--apply",
+      "--pai-packs-dir",
+      packsDir,
+      "--home-dir",
+      homeDir,
+    ]);
+    expect(refusedOut).toContain("telos: refused-reserved");
+    expect(refusedOut).toContain("packs:    0 pack(s)");
+    // With the override flag the same call lands the pack.
     const output = await runSomaCli([
       "migrate",
       "pai",
@@ -250,6 +254,7 @@ test("soma migrate pai --overwrite-reserved permits reserved-skill packs", async
       homeDir,
     ]);
     expect(output).toContain("packs:    1 pack(s)");
+    expect(output).toContain("telos: imported");
   });
 });
 
