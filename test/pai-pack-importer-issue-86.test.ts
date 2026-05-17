@@ -69,6 +69,71 @@ test("AC-2: normalizeSkillContent strips the PAI Customization block", () => {
   expect(result.content).toContain("Real Content");
 });
 
+test("Sage R1 fix: shared helper strips ALL MANDATORY notification blocks (multi-match defense in depth)", () => {
+  // The MANDATORY stripper now uses the same shared helper as the
+  // Customization stripper. Multiple notification blocks in a single
+  // skill file (rare but observed in some PAI packs) all get stripped.
+  const content = [
+    "## MANDATORY: Voice Notification",
+    "",
+    "curl http://localhost:31337/notify",
+    "",
+    "## Body",
+    "",
+    "Section.",
+    "",
+    "## MANDATORY: Voice Notification (REQUIRED BEFORE ANY ACTION)",
+    "",
+    "Send voice notification via curl to localhost:31337/notify.",
+    "",
+    "## Footer",
+    "",
+    "End.",
+  ].join("\n");
+  const result = normalizeSkillContent("SKILL.md", content);
+  expect(result.content).not.toContain("MANDATORY");
+  expect(result.content).not.toContain("localhost:31337/notify");
+  expect(result.content).toContain("Footer");
+  expect(result.content).toContain("End.");
+  const mandatoryActions = result.actions.filter((a) => a.kind === "stripped-mandatory-runtime-block");
+  expect(mandatoryActions.length).toBeGreaterThan(0);
+});
+
+test("AC-2 Sage R1 fix: strips PAI Customization block even when an unrelated Customization heading appears earlier", () => {
+  // Sage R1 (PR #87) CodeQuality important finding: the original stripper
+  // matched only the first `## Customization` heading and bailed when its
+  // body lacked SKILLCUSTOMIZATIONS — leaving a later PAI runtime block
+  // intact. Scan all matches; strip the one(s) whose body carries the
+  // SKILLCUSTOMIZATIONS marker.
+  const content = [
+    "## Customization",
+    "",
+    "Configure colors in `theme.json` for your dashboard.",
+    "",
+    "## Body",
+    "",
+    "First real section.",
+    "",
+    "## Customization",
+    "",
+    "**Before executing, check for user customizations at:**",
+    "`~/.claude/PAI/USER/SKILLCUSTOMIZATIONS/Demo/`",
+    "",
+    "## Tail",
+    "",
+    "Trailing body.",
+  ].join("\n");
+  const result = normalizeSkillContent("SKILL.md", content);
+  // Theme-docs Customization heading survives
+  expect(result.content).toContain("theme.json");
+  // PAI runtime Customization block is gone
+  expect(result.content).not.toContain("SKILLCUSTOMIZATIONS");
+  expect(result.content).not.toContain("~/.claude/PAI/USER/");
+  expect(result.actions.some((a) => a.kind === "stripped-pai-customization-block")).toBe(true);
+  // Tail content preserved
+  expect(result.content).toContain("Trailing body.");
+});
+
 test("AC-2: leaves unrelated 'Customization' headings alone (requires SKILLCUSTOMIZATIONS marker)", () => {
   const content = [
     "## Customization",

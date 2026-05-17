@@ -157,6 +157,66 @@ export function normalizeSkillContent(relPath: string, content: string): Normali
 // round-2 blocker.
 const NOTIFICATION_BODY_MARKERS = /localhost:31337\/notify|voice notification|notify endpoint/i;
 
+// Sage R1 (PR #87) Maintainability + CodeQuality: shared section-strip
+// helper. Iterates every match of `headingRegex` (a heading line anchored
+// with /m), measures the section span to the next `^##+ ` heading or EOF,
+// and strips every section whose body satisfies `markerMatches`. Returns
+// the stripped content and the count of sections actually removed.
+//
+// "Iterate every match" is the fix for the round-1 CodeQuality finding:
+// the original stripper only inspected the first match, so an unrelated
+// `## Customization` ahead of the real PAI runtime block would prevent
+// the strip from firing on the later block.
+function stripMarkedHeadingSections(
+  content: string,
+  headingRegex: RegExp,
+  markerMatches: (sectionBody: string) => boolean,
+): { content: string; stripped: number } {
+  // Collect ALL match positions first so position math does not shift
+  // mid-iteration. The heading regex is multiline-anchored; using
+  // globalize() guarantees we never share lastIndex with caller-side
+  // `.test()` / `.exec()` calls on the same RegExp instance.
+  const matchPositions: { start: number; headingLength: number }[] = [];
+  const scanner = globalize(headingRegex);
+  let scan: RegExpExecArray | null;
+  while ((scan = scanner.exec(content)) !== null) {
+    matchPositions.push({ start: scan.index, headingLength: scan[0].length });
+    // Defend against zero-width matches looping forever.
+    if (scan.index === scanner.lastIndex) scanner.lastIndex += 1;
+  }
+
+  if (matchPositions.length === 0) {
+    return { content, stripped: 0 };
+  }
+
+  // Resolve each match to its section span [start, end) over the ORIGINAL
+  // content. End is either the next `^##+ ` heading after the section
+  // header, or EOF. Filter to the ones whose body matches the marker.
+  const stripSpans: { start: number; end: number }[] = [];
+  for (const { start, headingLength } of matchPositions) {
+    const rest = content.slice(start + headingLength);
+    const nextHeading = /^##+\s+/m.exec(rest);
+    const end = nextHeading ? start + headingLength + nextHeading.index : content.length;
+    const sectionBody = content.slice(start, end);
+    if (markerMatches(sectionBody)) {
+      stripSpans.push({ start, end });
+    }
+  }
+
+  if (stripSpans.length === 0) {
+    return { content, stripped: 0 };
+  }
+
+  // Splice spans out from the tail so earlier indices remain valid.
+  let working = content;
+  for (let i = stripSpans.length - 1; i >= 0; i--) {
+    const { start, end } = stripSpans[i];
+    working = `${working.slice(0, start).replace(/\n+$/, "\n")}${working.slice(end)}`;
+  }
+
+  return { content: working, stripped: stripSpans.length };
+}
+
 function stripMandatoryNotificationBlock(
   relPath: string,
   content: string,
@@ -166,25 +226,23 @@ function stripMandatoryNotificationBlock(
     return content;
   }
 
-  let stripped = content;
-  const headingMatch = NOTIFICATION_HEADING.exec(content);
-  if (headingMatch) {
-    const start = headingMatch.index;
-    const rest = stripped.slice(start + headingMatch[0].length);
-    const nextHeading = /^##+\s+/m.exec(rest);
-    const end = nextHeading ? start + headingMatch[0].length + nextHeading.index : stripped.length;
-    const sectionBody = stripped.slice(start, end);
-    // Only strip when the section's body proves it is the notification
-    // runtime block (curl invocation or notification keyword). A heading
-    // like "## MANDATORY: Input Requirements" survives.
-    if (NOTIFICATION_BODY_MARKERS.test(sectionBody)) {
-      stripped = `${stripped.slice(0, start).replace(/\n+$/, "\n")}${stripped.slice(end)}`;
-      actions.push({
-        file: relPath,
-        kind: "stripped-mandatory-runtime-block",
-        detail: "Removed mandatory notification runtime block.",
-      });
-    }
+  // Sage R1 fix: use the shared helper. Strips every MANDATORY section
+  // whose body is the notification runtime block. Conservative gating
+  // (NOTIFICATION_BODY_MARKERS) preserves `## MANDATORY: Input Requirements`.
+  const { content: afterHeadingStrip, stripped: headingStrips } = stripMarkedHeadingSections(
+    content,
+    NOTIFICATION_HEADING,
+    (sectionBody) => NOTIFICATION_BODY_MARKERS.test(sectionBody),
+  );
+  let stripped = afterHeadingStrip;
+  if (headingStrips > 0) {
+    actions.push({
+      file: relPath,
+      kind: "stripped-mandatory-runtime-block",
+      detail: headingStrips === 1
+        ? "Removed mandatory notification runtime block."
+        : `Removed ${headingStrips} mandatory notification runtime blocks.`,
+    });
   }
 
   // Strip any stragglers — bare curl notification commands outside a heading.
@@ -209,30 +267,27 @@ function stripPaiCustomizationBlock(
     return content;
   }
 
-  const headingMatch = CUSTOMIZATION_HEADING.exec(content);
-  if (!headingMatch) {
+  // Sage R1 (PR #87) CodeQuality fix: strip ALL `## Customization`
+  // sections whose body contains the SKILLCUSTOMIZATIONS marker — not
+  // just the first match. An unrelated `## Customization` heading
+  // earlier in the document (e.g. theme docs) must not shield a later
+  // PAI runtime block from removal.
+  const { content: stripped, stripped: count } = stripMarkedHeadingSections(
+    content,
+    CUSTOMIZATION_HEADING,
+    (sectionBody) => sectionBody.includes(CUSTOMIZATION_BODY_MARKER),
+  );
+
+  if (count === 0) {
     return content;
   }
 
-  const start = headingMatch.index;
-  const rest = content.slice(start + headingMatch[0].length);
-  const nextHeading = /^##+\s+/m.exec(rest);
-  const end = nextHeading ? start + headingMatch[0].length + nextHeading.index : content.length;
-  const sectionBody = content.slice(start, end);
-
-  // Only strip when the section's body proves it is the PAI runtime
-  // customization block (SKILLCUSTOMIZATIONS marker). An unrelated
-  // "## Customization" heading (e.g. user-facing theme docs) survives —
-  // same conservative gating as the MANDATORY notification block strip.
-  if (!sectionBody.includes(CUSTOMIZATION_BODY_MARKER)) {
-    return content;
-  }
-
-  const stripped = `${content.slice(0, start).replace(/\n+$/, "\n")}${content.slice(end)}`;
   actions.push({
     file: relPath,
     kind: "stripped-pai-customization-block",
-    detail: "Removed PAI Customization runtime block referencing ~/.claude/PAI/USER/SKILLCUSTOMIZATIONS/.",
+    detail: count === 1
+      ? "Removed PAI Customization runtime block referencing ~/.claude/PAI/USER/SKILLCUSTOMIZATIONS/."
+      : `Removed ${count} PAI Customization runtime blocks referencing ~/.claude/PAI/USER/SKILLCUSTOMIZATIONS/.`,
   });
   return stripped.replace(/\n{3,}/g, "\n\n").trimEnd() + "\n";
 }
