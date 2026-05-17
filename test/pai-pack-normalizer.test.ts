@@ -97,7 +97,14 @@ test("normalizeSkillContent rewrites deterministic Claude skills path", () => {
   expect(result.actions.some((a) => a.kind === "rewrote-claude-home-path")).toBe(true);
 });
 
-test("normalizeSkillContent warns on ambiguous Claude paths instead of rewriting", () => {
+test("normalizeSkillContent warns on ambiguous Claude paths AND rewrites them to the UNMAPPED placeholder", () => {
+  // Issue #86 / AC-1: every ~/.claude/<subpath> must be rewritten,
+  // stripped, or surface as a warning — silent passthrough is not
+  // acceptable. The named-class warnings (customization-overlay-reference,
+  // execution-logging-path, ambiguous-substrate-path) communicate *why* a
+  // path is ambiguous; the catch-all rewrites the literal path to
+  // ~/.soma/UNMAPPED/... so AC-3's "zero ~/.claude/ residue" promise is
+  // also satisfied.
   const content = [
     "Customization in ~/.claude/customization/x.md",
     "Memory at ~/.claude/memory/run.jsonl",
@@ -105,11 +112,18 @@ test("normalizeSkillContent warns on ambiguous Claude paths instead of rewriting
   ].join("\n");
   const result = normalizeSkillContent("body.md", content);
   const warningKinds = result.warnings.map((w) => w.kind);
+  // Named warnings still fire — they explain the substrate-meaning of
+  // each path class, which the bare unmapped-claude-home-path warning does
+  // not capture.
   expect(warningKinds).toContain("customization-overlay-reference");
   expect(warningKinds).toContain("execution-logging-path");
   expect(warningKinds).toContain("ambiguous-substrate-path");
-  // Ambiguous paths are NOT silently rewritten
-  expect(result.content).toContain("~/.claude/customization/x.md");
+  // Catch-all warning + action also fire (AC-1 baseline).
+  expect(warningKinds).toContain("unmapped-claude-home-path");
+  expect(result.actions.some((a) => a.kind === "rewrote-unmapped-claude-path")).toBe(true);
+  // AC-3: zero ~/.claude/ residue
+  expect(result.content).not.toContain("~/.claude/");
+  expect(result.content).toContain("~/.soma/UNMAPPED/customization/x.md");
 });
 
 test("normalizeSkillContent warns on substrate mutation commands", () => {
