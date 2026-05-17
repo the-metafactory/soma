@@ -107,6 +107,14 @@ import {
 const PHASE_BODY_LINE_CAP = 200;
 const PHASE_BODY_TRUNCATION_LINE = "… (older lines truncated) …";
 
+// Cap streamed-text inputs and the per-run carry buffer to defend
+// against adversarial or malformed model streams that emit a huge
+// no-newline fragment (which would otherwise grow run.carry without
+// any per-phase cap kicking in — those caps trigger only after a
+// newline arrives). Sage R7 security important.
+const STREAM_INPUT_MAX_BYTES = 256 * 1024; // 256 KiB per delta/snapshot
+const CARRY_MAX_BYTES = 64 * 1024;          // 64 KiB unterminated line
+
 interface SeenPhase {
   readonly marker: PhaseMarker;
   body: string[];
@@ -131,6 +139,14 @@ interface RunState {
    */
   lastSnapshotLength: number;
   seenPhases: SeenPhase[];
+  /**
+   * Direct reference to the currently-active SeenPhase so coalesced
+   * repeated markers (Sage R6) correctly attribute subsequent body
+   * lines to the reactivated phase, not to the latest-pushed phase
+   * (Sage R7 codequality important). Cleared when no phase has been
+   * observed yet.
+   */
+  activePhase?: SeenPhase;
   currentPhase?: AlgorithmPhaseKey;
   isaCriteria: IsaChecklistCriterion[];
 }
@@ -154,6 +170,7 @@ function ensureRun(runId: string): RunState {
       lineCount: 0,
       lastSnapshotLength: 0,
       seenPhases: [],
+      activePhase: undefined,
       currentPhase: undefined,
       isaCriteria: [],
     };
@@ -188,8 +205,12 @@ function renderOverview(ui: UIShape, run: RunState): void {
 }
 
 function renderStatus(ui: UIShape, run: RunState): void {
-  const latest = run.seenPhases[run.seenPhases.length - 1];
-  if (latest) ui.setStatus?.(SOMA_STATUS_KEY, renderPhaseStatusText({ marker: latest.marker }));
+  // Footer reflects the active phase (not seenPhases[last]) so a
+  // coalesced repeated marker correctly drives the status text (Sage
+  // R7 codequality).
+  if (run.activePhase) {
+    ui.setStatus?.(SOMA_STATUS_KEY, renderPhaseStatusText({ marker: run.activePhase.marker }));
+  }
 }
 
 function renderIsaWidget(ui: UIShape, run: RunState): void {
@@ -218,12 +239,14 @@ function renderAllPhases(_pi: ExtensionAPI, ctx: unknown, run: RunState): void {
  * carry a body-byte counter in the future). Skips overview + ISA
  * widget + every other phase widget, avoiding O(phases) per-delta
  * serialization (Sage R3 perf suggestion).
+ *
+ * Uses run.activePhase (not seenPhases[length-1]) so coalesced
+ * repeated phases attribute correctly (Sage R7 codequality).
  */
 function renderActivePhase(_pi: ExtensionAPI, ctx: unknown, run: RunState): void {
   const ui = (ctx as { ui?: UIShape }).ui;
   if (!ui) return;
-  const active = run.seenPhases[run.seenPhases.length - 1];
-  if (active) renderPhaseWidget(ui, run, active);
+  if (run.activePhase) renderPhaseWidget(ui, run, run.activePhase);
   renderStatus(ui, run);
 }
 
@@ -242,10 +265,14 @@ function processLine(run: RunState, rawLine: string): LineDelta {
     // EXECUTE again) would otherwise accumulate a new SeenPhase
     // record per repeat, growing memory and the per-transition
     // render work unbounded (Sage R6 perf important). The existing
-    // record stays in place and keeps its accumulated body; we just
-    // make it the active phase again.
+    // record stays in place and keeps its accumulated body; we
+    // re-point activePhase at it so subsequent body lines correctly
+    // attribute back to the reactivated phase (Sage R7 codequality
+    // important — previous body-append used \`seenPhases[length-1]\`
+    // which routes to the wrong widget after a coalesce).
     const existing = run.seenPhases.find((s) => s.marker.phase === m.phase);
     if (existing) {
+      run.activePhase = existing;
       run.currentPhase = m.phase;
       run.lineCount += 1;
       return { changed: true, phaseAdded: false };
@@ -257,16 +284,18 @@ function processLine(run: RunState, rawLine: string): LineDelta {
       lineIndex: run.lineCount,
       rawLine: m.rawLine,
     };
-    run.seenPhases.push({ marker: stableMarker, body: [] });
+    const fresh: SeenPhase = { marker: stableMarker, body: [] };
+    run.seenPhases.push(fresh);
+    run.activePhase = fresh;
     run.currentPhase = m.phase;
     run.lineCount += 1;
     return { changed: true, phaseAdded: true };
   }
-  if (run.seenPhases.length === 0) {
+  const active = run.activePhase;
+  if (!active) {
     run.lineCount += 1;
     return { changed: false, phaseAdded: false };
   }
-  const active = run.seenPhases[run.seenPhases.length - 1];
   // Skip leading blank lines on a phase's body; preserve interior
   // blanks but never emit a trailing blank.
   if (active.body.length === 0 && line === "") {
@@ -320,6 +349,14 @@ function ingestStream(text: string, runId: string, opts: { flush?: boolean } = {
   const combined = run.carry + text;
   const parts = combined.split(/\\r?\\n/);
   run.carry = parts.pop() ?? "";
+  // Cap carry size: even a well-behaved client could end up with a
+  // long line; an adversarial one could send a single fragment with
+  // no newlines forever. Drop the head, keep the tail — that's the
+  // text most likely to contain a marker as more bytes arrive (Sage
+  // R7 security important).
+  if (run.carry.length > CARRY_MAX_BYTES) {
+    run.carry = run.carry.slice(run.carry.length - CARRY_MAX_BYTES);
+  }
 
   let changed = false;
   let phaseAdded = false;
@@ -402,8 +439,15 @@ export default function (pi: ExtensionAPI): void {
       // snapshots must be flushed so the final unterminated line is
       // ingested (Sage R2 CodeQuality important).
       const isDelta = typeof e.delta === "string";
-      const raw = String(e.delta ?? e.text ?? e.content ?? "");
+      let raw = String(e.delta ?? e.text ?? e.content ?? "");
       if (!raw) return;
+      // Defense in depth against a single huge no-newline fragment
+      // (Sage R7 security important). For deltas, drop overflow. For
+      // snapshots, slice from the tail so we keep the most recent
+      // content (which is what's growing).
+      if (raw.length > STREAM_INPUT_MAX_BYTES) {
+        raw = isDelta ? raw.slice(0, STREAM_INPUT_MAX_BYTES) : raw.slice(raw.length - STREAM_INPUT_MAX_BYTES);
+      }
       const run = ensureRun(defaultRunId());
       // Snapshot mode: pi.dev may deliver text/content as cumulative
       // snapshots — each event includes all prior text plus the new

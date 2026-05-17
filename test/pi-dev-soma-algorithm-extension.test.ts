@@ -108,6 +108,29 @@ describe("renderSomaAlgorithmExtension", () => {
     expect(source).toContain("run.seenPhases.find((s) => s.marker.phase === m.phase)");
   });
 
+  test("body lines attribute to activePhase, not seenPhases[last] (Sage R7 codequality)", () => {
+    const source = renderSomaAlgorithmExtension();
+
+    // After coalesce reactivates an earlier phase, body lines must
+    // route to THAT phase's widget — not to the most-recently-pushed
+    // phase. RunState carries an activePhase ref; processLine /
+    // renderActivePhase / renderStatus all read from it.
+    expect(source).toContain("activePhase?: SeenPhase");
+    expect(source).toContain("run.activePhase = existing");
+    expect(source).toContain("run.activePhase = fresh");
+    expect(source).toContain("const active = run.activePhase");
+    expect(source).toContain("if (run.activePhase) renderPhaseWidget");
+  });
+
+  test("streamed text + carry are byte-capped against DoS (Sage R7 security)", () => {
+    const source = renderSomaAlgorithmExtension();
+
+    expect(source).toContain("STREAM_INPUT_MAX_BYTES");
+    expect(source).toContain("CARRY_MAX_BYTES");
+    expect(source).toContain("raw.length > STREAM_INPUT_MAX_BYTES");
+    expect(source).toContain("run.carry.length > CARRY_MAX_BYTES");
+  });
+
   test("tool_result handler validates the untyped boundary (Sage R3 security)", () => {
     const source = renderSomaAlgorithmExtension();
 
