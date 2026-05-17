@@ -244,7 +244,6 @@ function mergeCriterion(
       detail: `Criterion ${master.id} evidence differs between master and feature.`,
     });
     if (resolution === "feature") next = { ...next, verification: feature.verification };
-    if (resolution === "merged" && feature.verification) next = { ...next, verification: feature.verification };
   }
 
   return next;
@@ -258,7 +257,15 @@ function mergeStatus(
 ): IdealStateCriterion["status"] {
   if (master.status === feature.status) return master.status;
   if (master.status === "dropped") return "dropped";
-  if (feature.status === "dropped") return "dropped";
+  if (feature.status === "dropped") {
+    const resolution = addConflict(report, policy, {
+      kind: "criterion-status-regression",
+      target: master.id,
+      detail: `Feature status dropped would tombstone master status ${master.status}.`,
+      nonErrorResolution: policy === "prefer-feature" ? "feature" : "master",
+    });
+    return resolution === "feature" ? "dropped" : master.status;
+  }
   if (statusRank(feature.status) < statusRank(master.status)) {
     const resolution = addConflict(report, policy, {
       kind: "criterion-status-regression",

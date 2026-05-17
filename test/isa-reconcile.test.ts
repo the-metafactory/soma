@@ -161,6 +161,17 @@ test("adversarial 8: tombstoned criteria are preserved and never resurrected", (
   expect(merged?.text).toContain("DROPPED");
 });
 
+test("feature-side dropped status obeys conflict policy", () => {
+  const master = buildIsa("demo", [criterion("ISC-1", "passed", "Done", "evidence")]);
+  const feature = buildIsa("demo", [criterion("ISC-1", "dropped", "Drop it")]);
+  const preferMaster = reconcileIsaArtifacts(master, feature, { onConflict: "prefer-master" });
+  expect(getCriteria(preferMaster.isa)[0]?.status).toBe("passed");
+  expect(preferMaster.report.conflicts.some((conflict) => conflict.kind === "criterion-status-regression")).toBe(true);
+
+  const preferFeature = reconcileIsaArtifacts(master, feature, { onConflict: "prefer-feature" });
+  expect(getCriteria(preferFeature.isa)[0]?.status).toBe("dropped");
+});
+
 test("adversarial 9: likely section rename conflicts instead of duplicating", () => {
   const master = buildIsa("demo", [criterion("ISC-1", "open")], { "Acceptance Criteria": "Same body" });
   const feature = buildIsa("demo", [criterion("ISC-1", "open")], { "Verification Criteria": "Same body" });
