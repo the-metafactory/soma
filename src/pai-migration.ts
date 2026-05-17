@@ -131,6 +131,25 @@ export interface PaiMigrationOptions {
    * `packOutcomes` as `refused-substrate-specific`.
    */
   includeSubstrateSpecific?: boolean;
+  /**
+   * #98 — single root pointing at a canonical PAI repo checkout. The
+   * orchestrator derives both `paiSourceDir` (→ `<root>/Releases/<latest-semver>/.claude/PAI`)
+   * and `paiPacksDir` (→ `<root>/Packs`) from it, BEFORE the planning
+   * or apply phases run. Explicit `paiSourceDir` / `paiPacksDir` in
+   * the same options object always win — derivation only fills the
+   * unset slots. Refusal is loud (thrown Error) when:
+   *   - `<root>` itself is missing.
+   *   - `<root>/Releases/` is missing (and `paiSourceDir` is unset).
+   *   - `<root>/Releases/` contains zero semver-named (`v?\d+\.\d+\.\d+`)
+   *     directories.
+   *   - `<root>/Packs/` is missing (and `paiPacksDir` is unset).
+   *
+   * Semver sort is real, not lexical — `v10.0.0 > v2.0.0`. Bare
+   * `1.2.3` and `v1.2.3` are accepted equivalently. Anything that
+   * isn't a parseable 3-segment semver (e.g. `Pi`, `v2.3`, `latest`)
+   * is filtered out before the highest is picked.
+   */
+  paiRepo?: string;
 }
 
 export interface PaiMigrationPlan {
@@ -233,6 +252,139 @@ async function autoDiscoverPackPaths(packsRoot: string): Promise<string[]> {
     throw error;
   }
   return entries.filter((e) => e.isDirectory()).map((e) => join(packsRoot, e.name));
+}
+
+// #98 — semver derivation for --pai-repo.
+//
+// PAI's canonical release layout is `<root>/Releases/v<major>.<minor>.<patch>/.claude/PAI`.
+// Sibling directories under `Releases/` may include non-semver names
+// (e.g. `Pi`, `README.md`, `v2.3`) — those are filtered out before
+// picking the highest version. We accept both bare `1.2.3` and the
+// `v` prefix because the real PAI repo on this machine mixes them.
+//
+// Sort is REAL semver, not lexical: `v10.0.0 > v2.0.0`. The previous
+// would-be lexical sort would happily report `v2.5.0` as latest when
+// `v10.0.0` exists.
+interface ParsedSemver {
+  raw: string;
+  major: number;
+  minor: number;
+  patch: number;
+}
+
+function parseSemverDirName(name: string): ParsedSemver | null {
+  // Accept `1.2.3` or `v1.2.3`. Reject `v1.2`, `v1`, `latest`,
+  // `main`, `1.2.3-pre` (no pre-release support per issue scope).
+  const match = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(name);
+  if (match === null) return null;
+  return {
+    raw: name,
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+  };
+}
+
+function compareSemver(a: ParsedSemver, b: ParsedSemver): number {
+  if (a.major !== b.major) return a.major - b.major;
+  if (a.minor !== b.minor) return a.minor - b.minor;
+  return a.patch - b.patch;
+}
+
+// Pick the highest semver-named directory under `releasesDir`. Returns
+// the entry name (e.g. `v5.0.0`) — the caller composes the full path.
+// Throws if no parseable semver dirs are present (refuse-loud per AC-3).
+async function pickLatestSemverDir(releasesDir: string): Promise<string> {
+  let entries;
+  try {
+    entries = await readdir(releasesDir, { withFileTypes: true });
+  } catch (error) {
+    if (isEnoent(error)) {
+      throw new Error(
+        `--pai-repo derivation: ${releasesDir} does not exist. Expected a directory of semver-named release subdirectories.`,
+      );
+    }
+    throw error;
+  }
+  const semverDirs = entries
+    .filter((e) => e.isDirectory())
+    .map((e) => parseSemverDirName(e.name))
+    .filter((parsed): parsed is ParsedSemver => parsed !== null);
+  if (semverDirs.length === 0) {
+    const sample = entries
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name)
+      .slice(0, 5);
+    throw new Error(
+      `--pai-repo derivation: ${releasesDir} contains no semver-named directories ` +
+        `(expected names like \`v1.2.3\` or \`1.2.3\`). ` +
+        `${sample.length === 0 ? "Releases/ is empty." : `Saw: ${sample.join(", ")}.`} ` +
+        `Pass --pai-source-dir explicitly to override.`,
+    );
+  }
+  semverDirs.sort(compareSemver);
+  return semverDirs[semverDirs.length - 1].raw;
+}
+
+/**
+ * Apply --pai-repo derivation. Returns a NEW options object with
+ * `paiSourceDir` and `paiPacksDir` filled in from `paiRepo` when they
+ * are not already explicitly set. Mutates nothing — the caller passes
+ * the returned options forward.
+ *
+ * Refuse-loud contract:
+ *   - `<root>` must exist as a directory.
+ *   - If `paiSourceDir` is NOT explicit: `<root>/Releases/<latest-semver>/.claude/PAI`
+ *     must resolve; missing/empty/non-semver Releases throws.
+ *   - If `paiPacksDir` is NOT explicit: `<root>/Packs` must exist.
+ *
+ * No-op when `paiRepo` is unset. The result type's `paiRepo` field is
+ * stripped to make the derivation invisible to downstream phases.
+ */
+async function applyPaiRepoDerivation(
+  options: PaiMigrationOptions,
+): Promise<PaiMigrationOptions> {
+  if (!options.paiRepo) return options;
+  const root = resolve(options.paiRepo);
+  if (!(await exists(root))) {
+    throw new Error(
+      `--pai-repo: ${root} does not exist. Expected a PAI repo root with Releases/ and Packs/ subdirectories.`,
+    );
+  }
+  const derived: PaiMigrationOptions = { ...options };
+  // Source-dir derivation is only triggered when the explicit flag
+  // isn't set. Same for packs-dir below — explicit always wins per
+  // AC-5.
+  if (!derived.paiSourceDir) {
+    const releasesDir = join(root, "Releases");
+    if (!(await exists(releasesDir))) {
+      throw new Error(
+        `--pai-repo: ${releasesDir} does not exist. Either supply --pai-source-dir explicitly or fix the repo layout.`,
+      );
+    }
+    const latestName = await pickLatestSemverDir(releasesDir);
+    derived.paiSourceDir = join(releasesDir, latestName, ".claude/PAI");
+  }
+  if (!derived.paiPacksDir) {
+    // Sage r1 #100 important: short-circuit Packs derivation when
+    // `--skip-skills` is set. Otherwise the documented recovery path
+    // ("skip-skills also short-circuits pack discovery, so a
+    // malformed Packs/ dir won't throw") is wrong — derivation
+    // refused before `discoverMigrationSources` got a chance to
+    // honor skipSkills. Mirrors that downstream skip exactly: when
+    // the skill phase is explicitly off, Packs/ existence is no
+    // longer a precondition.
+    if (derived.skipSkills !== true) {
+      const packsDir = join(root, "Packs");
+      if (!(await exists(packsDir))) {
+        throw new Error(
+          `--pai-repo: ${packsDir} does not exist. Either supply --pai-packs-dir explicitly or fix the repo layout.`,
+        );
+      }
+      derived.paiPacksDir = packsDir;
+    }
+  }
+  return derived;
 }
 
 function manifestPathFor(somaHome: string): string {
@@ -478,8 +630,15 @@ async function discoverMigrationSources(
  * migratePai.
  */
 export async function planPaiMigration(options: PaiMigrationOptions = {}): Promise<PaiMigrationPlan> {
-  const { claudeHome, somaHome } = resolvePaths(options);
-  const { algorithmDir, packPaths } = await discoverMigrationSources(claudeHome, options);
+  // #98 — derive paiSourceDir + paiPacksDir from --pai-repo before any
+  // phase runs. Explicit flags win; missing/empty/non-semver Releases
+  // and missing Packs both refuse loud here (per AC-3/AC-4) so the
+  // failure surfaces at the orchestrator entry point rather than as a
+  // cryptic downstream error in one of the phase importers.
+  const derived = await applyPaiRepoDerivation(options);
+  const { claudeHome, somaHome } = resolvePaths(derived);
+  const { algorithmDir, packPaths } = await discoverMigrationSources(claudeHome, derived);
+  options = derived;
 
   const identity = planPaiImport({ homeDir: options.homeDir, claudeHome, somaHome });
   const algorithm = algorithmDir === null
@@ -763,6 +922,10 @@ async function renderStableMigrationManifest(
  * partial-success swallow. The caller decides whether to retry.
  */
 export async function migratePai(options: PaiMigrationOptions = {}): Promise<PaiMigrationResult> {
+  // #98 — mirror planPaiMigration: derive paiSourceDir + paiPacksDir
+  // from --pai-repo before any phase runs.
+  const derived = await applyPaiRepoDerivation(options);
+  options = derived;
   const { claudeHome, somaHome } = resolvePaths(options);
   const { algorithmDir, packPaths } = await discoverMigrationSources(claudeHome, options);
   const filesWritten: string[] = [];

@@ -296,7 +296,7 @@ const TOP_LEVEL_COMMANDS = [
 ] as const;
 
 const MIGRATE_PAI_USAGE =
-  "Usage: soma migrate pai [--dry-run] [--apply] [--status] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>] [--pai-install <dir>] [--pai-source-dir <dir>] [--pai-packs-dir <dir>] [--pai-pack-dir <dir>] [--skip-memory] [--skip-skills] [--skip-docs] [--overwrite-reserved] [--include-substrate-specific]";
+  "Usage: soma migrate pai [--dry-run] [--apply] [--status] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>] [--pai-install <dir>] [--pai-repo <root>] [--pai-source-dir <dir>] [--pai-packs-dir <dir>] [--pai-pack-dir <dir>] [--skip-memory] [--skip-skills] [--skip-docs] [--overwrite-reserved] [--include-substrate-specific]";
 const ADOPT_CLAUDE_USAGE =
   "Usage: soma adopt claude [--dry-run] [--apply] [--uninstall] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
 const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string, string> }> = {
@@ -1516,6 +1516,16 @@ function parseMigrateArgs(args: string[]): ParsedMigrateArgs {
         break;
       case "--pai-source-dir":
         options.paiSourceDir = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--pai-repo":
+        // #98 — single PAI repo root. The orchestrator derives both
+        // `paiSourceDir` (→ `<root>/Releases/<latest-semver>/.claude/PAI`)
+        // and `paiPacksDir` (→ `<root>/Packs`) from it BEFORE the
+        // phases run. Explicit `--pai-source-dir` / `--pai-packs-dir`
+        // always win — `--pai-repo` only fills the unset slots. See
+        // `applyPaiRepoDerivation` in `src/pai-migration.ts`.
+        options.paiRepo = readOption(rest, index, arg);
         index += 1;
         break;
       case "--skip-memory":
