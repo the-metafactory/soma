@@ -19,6 +19,10 @@
   <img alt="Runs in" src="https://img.shields.io/badge/runs%20in-Codex%20%C2%B7%20Pi.dev%20%C2%B7%20Claude%20Code-2A3F6A?labelColor=0E1726" />
 </p>
 
+<p align="center">
+  Join the Meta Factory community on <a href="https://discord.gg/Z8CThhFukF">Discord</a>.
+</p>
+
 ---
 
 ## Install
