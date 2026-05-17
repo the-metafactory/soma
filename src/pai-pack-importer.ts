@@ -77,7 +77,16 @@ function resolvePackHomes(options: PaiPackImportOptions = {}): { paiPackDir: str
   };
 }
 
-function slugifySkillName(value: string): string {
+/**
+ * Slugify a pack name into the canonical Soma skill folder name.
+ *
+ * Exported so the migrate orchestrator (and any future reserved-name
+ * preflight) can derive the same slug without duplicating the
+ * function — Sage #95 Maintainability finding (avoid drift between
+ * the importer's reserved check and the orchestrator's reserved
+ * check).
+ */
+export function slugifySkillName(value: string): string {
   return value
     .trim()
     .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
@@ -112,7 +121,15 @@ function parseFrontmatter(content: string): Partial<Record<string, string>> {
   return fields;
 }
 
-async function readPackMetadata(paiPackDir: string): Promise<PackMetadata> {
+/**
+ * Read a pack's `README.md` frontmatter + top heading to derive its
+ * canonical name + description. Exported so the migrate orchestrator
+ * (and any future reserved-name preflight) can read pack identity
+ * with the same parser as the importer itself — Sage r2 #95
+ * Maintainability finding (avoid second metadata parser that can
+ * drift when pack frontmatter rules change).
+ */
+export async function readPackMetadata(paiPackDir: string): Promise<PackMetadata> {
   const readme = await readFile(join(paiPackDir, "README.md"), "utf8");
   const fields = parseFrontmatter(readme);
   const heading = /^#\s+(.+)$/m.exec(readme)?.[1]?.trim();
