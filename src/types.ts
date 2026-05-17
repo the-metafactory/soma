@@ -529,9 +529,12 @@ export interface PaiDocsImportFile {
   relativePath: string;
   // Which in-scope subdir the file came from.
   subdir: "DOCUMENTATION" | "TEMPLATES" | "ALGORITHM";
-  // SHA-256 of the file's bytes, hex-encoded. Used to detect drift on
-  // re-import without re-reading every previously-imported file.
-  sha256: string;
+  // SHA-256 of the file's bytes, hex-encoded. Optional in dry-run
+  // plans so listing the file set does not require reading every
+  // file's bytes (Sage round 2 performance finding). Always populated
+  // on the apply path, where the SHA is needed for both the manifest
+  // and idempotency checks.
+  sha256?: string;
 }
 
 export interface PaiDocsImportPlan {

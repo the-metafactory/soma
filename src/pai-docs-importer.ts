@@ -78,16 +78,6 @@ async function pathExists(path: string): Promise<boolean> {
     });
 }
 
-async function nearestExistingAncestor(path: string): Promise<string> {
-  let candidate = path;
-  while (!(await pathExists(candidate))) {
-    const parent = dirname(candidate);
-    if (parent === candidate) return candidate;
-    candidate = parent;
-  }
-  return candidate;
-}
-
 function sha256(content: Buffer | string): string {
   return createHash("sha256").update(content).digest("hex");
 }
@@ -184,12 +174,17 @@ async function assertPaiReleaseTree(sourceDir: string): Promise<void> {
   }
 }
 
-// Build a plan: collect every file under each in-scope subdir, compute
-// its SHA, and pair it with its eventual target under ~/.soma/PAI/.
-// The plan is content-addressed (per-file SHA in plan + manifest) so
-// re-import can detect drift in O(file_count) without re-reading the
-// previously-imported tree.
-async function buildPlan(options: PaiDocsImportOptions): Promise<PaiDocsImportPlan> {
+// Build a plan: collect every file under each in-scope subdir and
+// pair it with its eventual target under ~/.soma/PAI/. By default the
+// plan lists files without reading their bytes — dry-run callers only
+// need paths and counts (Sage round 2 performance finding). Pass
+// `withSha: true` to populate per-file SHA-256, which the apply path
+// needs for the manifest and for idempotency comparisons against any
+// prior manifest.
+async function buildPlan(
+  options: PaiDocsImportOptions,
+  flags: { withSha: boolean },
+): Promise<PaiDocsImportPlan> {
   const homes = resolveHomes(options);
   await assertPaiReleaseTree(homes.paiSourceDir);
 
@@ -221,14 +216,16 @@ async function buildPlan(options: PaiDocsImportOptions): Promise<PaiDocsImportPl
     for (const rel of relPaths) {
       const source = join(subdirPath, ...rel.split("/"));
       const target = join(homes.somaHome, "PAI", subdir, ...rel.split("/"));
-      const buf = await readFile(source);
-      files.push({
+      const file: PaiDocsImportFile = {
         source,
         target,
         relativePath: `${subdir}/${rel}`,
         subdir,
-        sha256: sha256(buf),
-      });
+      };
+      if (flags.withSha) {
+        file.sha256 = sha256(await readFile(source));
+      }
+      files.push(file);
     }
   }
 
@@ -246,7 +243,10 @@ async function buildPlan(options: PaiDocsImportOptions): Promise<PaiDocsImportPl
 export async function planPaiDocsImport(
   options: PaiDocsImportOptions = {},
 ): Promise<PaiDocsImportPlan> {
-  return buildPlan(options);
+  // Dry-run callers only need paths + counts — skip the per-file
+  // read + hash. The apply path computes SHAs as part of its own
+  // (re-checked) source-read pass.
+  return buildPlan(options, { withSha: false });
 }
 
 interface ExistingManifestEntry {
@@ -371,11 +371,22 @@ function renderManifest(
     paiSourceDir: plan.paiSourceDir,
     releaseVersion: plan.releaseVersion,
     importedAt,
-    files: plan.files.map((file) => ({
-      target: manifestRelativeTarget(file),
-      source: manifestRelativeSource(file, plan.paiSourceDir),
-      sha256: file.sha256,
-    })),
+    files: plan.files.map((file) => {
+      // Manifest is only rendered on the apply path, where every plan
+      // file is guaranteed to carry a SHA. Defensive guard so a future
+      // refactor that calls render-manifest off the dry-run plan fails
+      // loud instead of writing `sha256: undefined`.
+      if (!file.sha256) {
+        throw new Error(
+          `soma import pai-docs: manifest renderer expected file.sha256 to be populated (file: ${file.relativePath}).`,
+        );
+      }
+      return {
+        target: manifestRelativeTarget(file),
+        source: manifestRelativeSource(file, plan.paiSourceDir),
+        sha256: file.sha256,
+      };
+    }),
   };
   return `${JSON.stringify(manifest, null, 2)}\n`;
 }
@@ -383,7 +394,11 @@ function renderManifest(
 export async function importPaiDocs(
   options: PaiDocsImportOptions = {},
 ): Promise<PaiDocsImportResult> {
-  const plan = await buildPlan(options);
+  // Apply path needs per-file SHAs for both the manifest (AC-5) and
+  // idempotency comparison against any prior manifest. Plan-only
+  // callers go through `planPaiDocsImport` and skip the read+hash —
+  // Sage round 2 performance finding.
+  const plan = await buildPlan(options, { withSha: true });
 
   await mkdir(plan.somaHome, { recursive: true });
   const realSomaHome = await realpath(plan.somaHome);
@@ -399,25 +414,18 @@ export async function importPaiDocs(
   const previous = await readExistingManifest(plan.somaHome);
   let writtenCount = 0;
 
+  // Sage round 2 (Maintainability suggestion): drop the redundant
+  // pre-flight `nearestExistingAncestor` check. `copyFileSafely` calls
+  // `prepareSafeTargetParent`, which lexically checks the target,
+  // `mkdir`s the parent, and re-resolves `realpath(parent)` against
+  // the Soma home root — the same symlink-escape behavior the
+  // pre-flight check provided, in one place.
   for (const file of plan.files) {
     const manifestKey = manifestRelativeTarget(file);
     const prior = previous?.get(manifestKey);
     if (prior && prior.sha256 === file.sha256 && (await pathExists(file.target))) {
       // Same source bytes, target still on disk — nothing to do.
       continue;
-    }
-    // Re-check parent ancestry is still inside the Soma home root before
-    // copying. If the target's nearest existing ancestor is *outside*
-    // somaHomeRoot's realpath (e.g. via a planted symlink), refuse.
-    const ancestor = await nearestExistingAncestor(dirname(file.target));
-    const realAncestor = await realpath(ancestor);
-    if (
-      realAncestor !== realSomaHome &&
-      !realAncestor.startsWith(realSomaHome + sep)
-    ) {
-      throw new Error(
-        `soma import pai-docs refused to follow a symlink that escapes Soma home (path: ${file.target}).`,
-      );
     }
     await copyFileSafely(realSourceRoot, realSomaHome, somaHomeAbs, file.source, file.target);
     writtenCount += 1;

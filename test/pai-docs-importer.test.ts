@@ -121,9 +121,11 @@ test("AC-1 — dry-run plan lists files without writing", async () => {
     expect(targets.some((t) => t.endsWith("PAI_SYSTEM_PROMPT.md"))).toBe(false);
     expect(targets.some((t) => t.endsWith("statusline-command.sh"))).toBe(false);
 
-    // Each file has a per-file SHA in the plan.
+    // Sage R2 performance finding: dry-run does NOT read+hash every
+    // file. SHA is populated on the apply path only (where it is
+    // needed for the manifest and idempotency).
     for (const file of plan.files) {
-      expect(file.sha256).toMatch(/^[0-9a-f]{64}$/);
+      expect(file.sha256).toBeUndefined();
     }
 
     // Dry-run did not write the Soma home.

@@ -99,6 +99,12 @@ copies zero files and reports `writtenCount: 0 (idempotent no-op —
 source SHAs unchanged)`. The manifest is always rewritten so the
 `importedAt` timestamp reflects the most recent run.
 
+Dry-run plans list files without reading their bytes. SHA-256 is
+computed on the apply path only — where it is needed for both the
+manifest (AC-5) and the idempotency comparison against any prior
+manifest. Plan callers that only want paths and counts pay no
+content-read cost.
+
 ## Refusals
 
 The verb refuses, with a loud error, on:
