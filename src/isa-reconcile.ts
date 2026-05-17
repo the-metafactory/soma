@@ -68,9 +68,9 @@ export async function reconcileIsa(
   options: ReconcileIsaOptions = {},
 ): Promise<IsaReconcileResult> {
   const somaHome = resolveSomaHome(options);
-  const policy = options.onConflict ?? (await readDefaultConflictPolicy(somaHome));
-  const master = await readIsa(slug, options);
-  const featureIsa = await loadFeatureIsa(feature);
+  const policyPromise = options.onConflict ? Promise.resolve(options.onConflict) : readDefaultConflictPolicy(somaHome);
+  const [policy, master, featureIsa] = await Promise.all([policyPromise, readIsa(slug, options), loadFeatureIsa(feature)]);
+  assertValidPolicy(policy);
   const result = reconcileIsaArtifacts(master, featureIsa, { onConflict: policy, timestamp: options.timestamp });
 
   if (result.report.conflicts.some((conflict) => conflict.resolution === "error")) {
@@ -109,9 +109,9 @@ export function reconcileIsaArtifacts(
   };
 
   next = mergeCriteria(next, feature, policy, report);
-  next = mergeLogSection(next, feature, SECTION_NAME_MAP.decisions, getDecisions, policy, report);
-  next = mergeLogSection(next, feature, SECTION_NAME_MAP.changelog, getChangelog, policy, report);
-  next = mergeLogSection(next, feature, SECTION_NAME_MAP.verification, getVerification, policy, report);
+  next = mergeLogSection(next, feature, { sectionName: SECTION_NAME_MAP.decisions, readEntries: getDecisions, policy, report });
+  next = mergeLogSection(next, feature, { sectionName: SECTION_NAME_MAP.changelog, readEntries: getChangelog, policy, report });
+  next = mergeLogSection(next, feature, { sectionName: SECTION_NAME_MAP.verification, readEntries: getVerification, policy, report });
   next = mergeOtherSections(next, feature, policy, report);
   report.changed = hasStructuralChange(master, next);
 
@@ -291,14 +291,15 @@ function statusRank(status: IdealStateCriterion["status"]): number {
   }
 }
 
-function mergeLogSection(
-  master: IdealStateArtifact,
-  feature: IdealStateArtifact,
-  sectionName: string,
-  readEntries: (isa: IdealStateArtifact) => AlgorithmLogEntry[],
-  policy: IsaConflictPolicy,
-  report: IsaReconcileReport,
-): IdealStateArtifact {
+interface LogMergeSpec {
+  sectionName: string;
+  readEntries: (isa: IdealStateArtifact) => AlgorithmLogEntry[];
+  policy: IsaConflictPolicy;
+  report: IsaReconcileReport;
+}
+
+function mergeLogSection(master: IdealStateArtifact, feature: IdealStateArtifact, spec: LogMergeSpec): IdealStateArtifact {
+  const { sectionName, readEntries, policy, report } = spec;
   const masterEntries = readEntries(master);
   const featureEntries = readEntries(feature);
   if (featureEntries.length === 0) return master;
@@ -399,7 +400,7 @@ function addConflict(
     nonErrorResolution?: "master" | "feature" | "merged";
   },
 ): IsaReconcileConflict["resolution"] {
-  const resolution = input.forcedResolution ?? (policy === "error" ? "error" : input.nonErrorResolution ?? (policy === "prefer-feature" ? "feature" : "master"));
+  const resolution = resolveConflict(policy, input);
   report.conflicts.push({
     kind: input.kind,
     target: input.target,
@@ -408,6 +409,19 @@ function addConflict(
     detail: input.detail,
   });
   return resolution;
+}
+
+function resolveConflict(
+  policy: IsaConflictPolicy,
+  input: {
+    forcedResolution?: "error" | "master" | "feature" | "merged";
+    nonErrorResolution?: "master" | "feature" | "merged";
+  },
+): IsaReconcileConflict["resolution"] {
+  if (input.forcedResolution) return input.forcedResolution;
+  if (policy === "error") return "error";
+  if (input.nonErrorResolution) return input.nonErrorResolution;
+  return policy === "prefer-feature" ? "feature" : "master";
 }
 
 function formatConflictError(report: IsaReconcileReport): string {

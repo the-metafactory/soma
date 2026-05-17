@@ -85,6 +85,12 @@ test("AC-6 correctness: stable ISC IDs from feature land in master criteria", ()
   expect(criteria.find((c) => c.id === "ISC-1")?.verification).toBe("evidence");
 });
 
+test("invalid conflict policy rejects before merge resolution", () => {
+  const master = buildIsa("demo", [criterion("ISC-1", "passed", "Done", "evidence")]);
+  const feature = buildIsa("demo", [criterion("ISC-1", "open", "Done")]);
+  expect(() => reconcileIsaArtifacts(master, feature, { onConflict: "prefer-mistake" as never })).toThrow("Invalid ISA reconcile conflict policy");
+});
+
 test("adversarial 1: section added in feature appends when absent from master", () => {
   const master = buildIsa("demo", [criterion("ISC-1", "open")], { [SECTION_NAME_MAP.constraints]: "Master constraint" });
   const feature = buildIsa("demo", [criterion("ISC-1", "open")], { Research: "Feature evidence" });
