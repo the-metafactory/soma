@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
@@ -82,11 +82,28 @@ test("AC-3: installSomaForCodex projects ISA skill source into ~/.codex/skills/I
   });
 });
 
-test("AC-3: installSomaForPiDev projects ISA skill source into ~/.pi/agent/skills/ISA/", async () => {
+test("AC-3: installSomaForPiDev projects ISA skill source into Pi-safe ~/.pi/agent/skills/isa/", async () => {
   await withTempHome(async (homeDir) => {
     await installSomaForPiDev({ homeDir });
-    const skillMd = await readFile(join(homeDir, ".pi/agent/skills/ISA/SKILL.md"), "utf8");
-    expect(skillMd).toContain("name: ISA");
+    const skillMd = await readFile(join(homeDir, ".pi/agent/skills/isa/SKILL.md"), "utf8");
+    const skillDirs = await readdir(join(homeDir, ".pi/agent/skills"));
+    expect(skillMd).toContain("name: isa");
+    expect(skillDirs).toContain("isa");
+    expect(skillDirs).not.toContain("ISA");
+  });
+});
+
+test("AC-3: installSomaForPiDev removes legacy uppercase ISA projection", async () => {
+  await withTempHome(async (homeDir) => {
+    await mkdir(join(homeDir, ".pi/agent/skills/ISA"), { recursive: true });
+    await writeFile(join(homeDir, ".pi/agent/skills/ISA/SKILL.md"), "---\nname: ISA\n---\n", "utf8");
+
+    await installSomaForPiDev({ homeDir });
+
+    const skillDirs = await readdir(join(homeDir, ".pi/agent/skills"));
+    expect(skillDirs).not.toContain("ISA");
+    expect(skillDirs).toContain("isa");
+    await expect(readFile(join(homeDir, ".pi/agent/skills/isa/SKILL.md"), "utf8")).resolves.toContain("name: isa");
   });
 });
 
