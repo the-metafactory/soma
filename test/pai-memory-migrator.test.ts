@@ -331,6 +331,32 @@ test("migratePaiMemory refuses target-leaf symlink that escapes Soma home — Sa
   });
 });
 
+test("migratePaiMemory refuses target-parent symlink that points INSIDE Soma home — Sage r6 #95 security", async () => {
+  // Round-5 fix only refused parent symlinks that escaped the Soma
+  // home. An attacker who can pre-create
+  // <somaHome>/memory/LEARNING -> <somaHome>/profile would have
+  // bypassed that check and written PAI memory bytes into the
+  // identity tree. The round-6 hardening: refuse ANY symlink in the
+  // ancestor chain regardless of where it resolves.
+  await withTempHome(async (homeDir) => {
+    await writePaiMemoryFixture(homeDir, { withLearning: true });
+    // Bootstrap a real Soma home with a separate `profile` subtree.
+    const somaHome = join(homeDir, ".soma");
+    const profileDir = join(somaHome, "profile");
+    await mkdir(profileDir, { recursive: true });
+    await writeFile(join(profileDir, "principal.md"), "identity\n", "utf8");
+    await mkdir(join(somaHome, "memory"), { recursive: true });
+    // Plant a symlink whose realpath resolves INSIDE soma home.
+    await symlink(profileDir, join(somaHome, "memory/LEARNING"));
+    await expect(migratePaiMemory({ homeDir })).rejects.toThrow(/symlink/i);
+    // The principal.md content must NOT have been overwritten.
+    const after = await readFile(join(profileDir, "principal.md"), "utf8");
+    expect(after).toBe("identity\n");
+    // The lesson must NOT have been written into the profile dir.
+    await expect(stat(join(profileDir, "lesson-001.md"))).rejects.toThrow();
+  });
+});
+
 test("migratePaiMemory refuses target-parent symlink that escapes Soma home — Sage r5 #95 security", async () => {
   await withTempHome(async (homeDir) => {
     await writePaiMemoryFixture(homeDir, { withLearning: true });

@@ -306,32 +306,62 @@ export async function migratePaiMemory(
   // import phase and the docs importer's footprint. The original
   // plan.files order is preserved in `outcomes` so the manifest and
   // returned target list stay deterministic.
-  // Sage r5 #95 Security important: harden the target side against
-  // symlink-redirected writes. Lexical isWithinPath is not enough —
-  // an attacker who can pre-create a symlink at
-  // <somaHome>/memory/<rel> (or any of its parents) can otherwise
-  // redirect the copyFile into an arbitrary destination on disk.
-  // Resolve once per migration; the realpath stays constant for the
-  // duration of the call. The per-file guard checks every existing
-  // ancestor + the final-target leaf for symlinks before any IO.
+  // Sage r5+r6 #95 Security important: harden the target side against
+  // symlink-redirected writes. Two attack shapes need to be refused:
+  //   (a) ancestor symlink that escapes Soma home → would write
+  //       PAI memory bytes outside Soma entirely.
+  //   (b) ancestor symlink that stays inside Soma home but points
+  //       at an unrelated subtree (e.g., `<somaHome>/memory/LEARNING
+  //       -> <somaHome>/profile`) → would clobber unrelated Soma
+  //       files. Round-5's "escapes Soma home" check missed this.
+  // The round-6 contract: refuse ANY symlink in the target ancestor
+  // chain or at the target leaf, regardless of where it resolves.
+  // `<somaHome>/memory/<rel>` must consist of regular dirs all the
+  // way down. realpath(somaHome) is computed once per call so a
+  // legitimate setup where the Soma home itself is reachable via a
+  // symlinked parent path still works.
   const realSomaHome = await realpath(plan.somaHome);
 
-  type Outcome = { written: boolean; target: string };
-  async function processFile(file: PaiMemoryMigrationFile): Promise<Outcome> {
-    // Target-side parent must be inside the Soma home root. The plan
-    // builder already constructed `file.target` relative to
-    // `<somaHome>/memory/<rel>`; verify once more before any IO.
-    if (!isWithinPath(plan.somaHome, file.target)) {
+  // Sage r6 Maintainability: the target-safety routine used to live
+  // inline inside processFile; lifting it to a named helper keeps the
+  // per-file worker focused on copy/idempotency logic.
+  // Sage r6 Performance: validated-ancestor memo so MEMORY trees with
+  // many files under the same category directory (LEARNING/, WORK/,
+  // KNOWLEDGE/) pay the lstat+realpath cost once per parent instead
+  // of per-file. Concurrency-safe under the bounded worker pool —
+  // the validation is idempotent and storing a Promise in the cache
+  // dedupes overlapping workers.
+  const validatedAncestors = new Map<string, Promise<void>>();
+
+  async function assertSafeAncestor(ancestor: string): Promise<void> {
+    if (!(await pathExists(ancestor))) return;
+    const stat = await lstat(ancestor);
+    if (stat.isSymbolicLink()) {
       throw new Error(
-        `PAI memory migration refused target outside Soma home: ${file.target}`,
+        `PAI memory migration refused symlinked target ancestor: ${ancestor}`,
+      );
+    }
+  }
+
+  function validateAncestor(ancestor: string): Promise<void> {
+    const cached = validatedAncestors.get(ancestor);
+    if (cached) return cached;
+    const promise = assertSafeAncestor(ancestor);
+    validatedAncestors.set(ancestor, promise);
+    return promise;
+  }
+
+  async function assertSafeMemoryTarget(target: string): Promise<void> {
+    if (!isWithinPath(plan.somaHome, target)) {
+      throw new Error(
+        `PAI memory migration refused target outside Soma home: ${target}`,
       );
     }
     // Walk every existing ancestor of the target up to the Soma home
-    // root and refuse any ancestor that is a symlink whose realpath
-    // escapes the Soma home. Stops at the first ancestor that does
-    // not yet exist — that and everything underneath it will be
-    // created by `mkdir` below, so no symlink can pre-exist there.
-    const parent = join(file.target, "..");
+    // root. Stops at the first ancestor that does not yet exist —
+    // that and everything underneath will be created by `mkdir`
+    // below, so no symlink can pre-exist there.
+    const parent = join(target, "..");
     const ancestors: string[] = [];
     let cursor = parent;
     while (true) {
@@ -341,75 +371,18 @@ export async function migratePaiMemory(
       if (next === cursor) break;
       cursor = next;
     }
+    // Top-down: parent of <somaHome> back down to immediate parent.
     for (const ancestor of ancestors.reverse()) {
-      if (!(await pathExists(ancestor))) continue;
-      const stat = await lstat(ancestor);
-      if (stat.isSymbolicLink()) {
-        const realLink = await realpath(ancestor);
-        if (realLink !== realSomaHome && !realLink.startsWith(realSomaHome + sep)) {
-          throw new Error(
-            `PAI memory migration refused to follow a symlink that escapes Soma home: ${file.target}`,
-          );
-        }
-      }
+      await validateAncestor(ancestor);
     }
+  }
 
-    const priorSha = previous?.map.get(file.relativePath);
-    if (priorSha && priorSha === file.sha256 && (await pathExists(file.target))) {
-      // Re-hash the target's current bytes. Manifest agreement alone
-      // is not enough — a user edit since import would otherwise
-      // leave a "successful" migration with the wrong target bytes.
-      // Sage r5 security: also refuse a leaf target that is a
-      // symlink whose realpath escapes the Soma home, even on the
-      // idempotency-skip path (a symlink whose bytes happen to match
-      // the prior SHA would otherwise be silently accepted).
-      const targetStat = await lstat(file.target);
-      if (targetStat.isSymbolicLink()) {
-        const realTarget = await realpath(file.target);
-        if (realTarget !== realSomaHome && !realTarget.startsWith(realSomaHome + sep)) {
-          throw new Error(
-            `PAI memory migration refused to overwrite through a symlink that escapes Soma home: ${file.target}`,
-          );
-        }
-        throw new Error(
-          `PAI memory migration refused to overwrite an existing symlink at the target path: ${file.target}`,
-        );
-      }
-      if (targetStat.isFile()) {
-        const targetSha = sha256Hex(await readFile(file.target));
-        if (targetSha === file.sha256) {
-          return { written: false, target: file.target };
-        }
-      }
-    }
-    await mkdir(parent, { recursive: true });
-    // After mkdir, re-check the parent's realpath against the Soma
-    // home's realpath. This re-catches both the standard symlink-in-
-    // the-middle case (e.g., a regular dir replaced by a symlink
-    // between walk and mkdir) and a parent that is a symlink pointing
-    // inside the home (legal — caught by the equality check).
-    const realParent = await realpath(parent);
-    if (realParent !== realSomaHome && !realParent.startsWith(realSomaHome + sep)) {
-      throw new Error(
-        `PAI memory migration refused to follow a symlink that escapes Soma home: ${file.target}`,
-      );
-    }
-    // Final-target leaf check: if a pre-existing symlink sits at the
-    // exact target path, `copyFile` would follow it and overwrite an
-    // attacker-chosen file. Refuse any symlink at the leaf — even
-    // one that resolves inside the Soma home, since the importer's
-    // contract is to write regular files at these paths.
+  async function refuseLeafSymlink(target: string): Promise<void> {
     try {
-      const leafStat = await lstat(file.target);
+      const leafStat = await lstat(target);
       if (leafStat.isSymbolicLink()) {
-        const realLeaf = await realpath(file.target);
-        if (realLeaf !== realSomaHome && !realLeaf.startsWith(realSomaHome + sep)) {
-          throw new Error(
-            `PAI memory migration refused to overwrite through a symlink that escapes Soma home: ${file.target}`,
-          );
-        }
         throw new Error(
-          `PAI memory migration refused to overwrite an existing symlink at the target path: ${file.target}`,
+          `PAI memory migration refused to overwrite an existing symlink at the target path: ${target}`,
         );
       }
     } catch (error) {
@@ -417,6 +390,38 @@ export async function migratePaiMemory(
         throw error;
       }
     }
+  }
+
+  type Outcome = { written: boolean; target: string };
+  async function processFile(file: PaiMemoryMigrationFile): Promise<Outcome> {
+    await assertSafeMemoryTarget(file.target);
+
+    const priorSha = previous?.map.get(file.relativePath);
+    if (priorSha && priorSha === file.sha256 && (await pathExists(file.target))) {
+      // Re-hash the target's current bytes. Manifest agreement alone
+      // is not enough — a user edit since import would otherwise
+      // leave a "successful" migration with the wrong target bytes.
+      await refuseLeafSymlink(file.target);
+      const targetStat = await lstat(file.target);
+      if (targetStat.isFile()) {
+        const targetSha = sha256Hex(await readFile(file.target));
+        if (targetSha === file.sha256) {
+          return { written: false, target: file.target };
+        }
+      }
+    }
+    const parent = join(file.target, "..");
+    await mkdir(parent, { recursive: true });
+    // After mkdir, re-check the parent's realpath against the Soma
+    // home's realpath. Catches a race where a regular dir is swapped
+    // for a symlink between the ancestor walk and the mkdir.
+    const realParent = await realpath(parent);
+    if (realParent !== realSomaHome && !realParent.startsWith(realSomaHome + sep)) {
+      throw new Error(
+        `PAI memory migration refused to follow a symlink that escapes Soma home: ${file.target}`,
+      );
+    }
+    await refuseLeafSymlink(file.target);
     await copyFile(file.source, file.target);
     // Preserve source mtime on the target file.
     const mtimeSeconds = file.mtimeMs / 1000;
