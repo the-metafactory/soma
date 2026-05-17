@@ -20,8 +20,12 @@ substrates -> ~/.soma/memory/STATE/events.jsonl
 ```
 
 Substrates must not directly edit durable memory stores such as `KNOWLEDGE`,
-`LEARNING`, `RELATIONSHIP`, or task files until those stores have explicit merge
-rules.
+`LEARNING`, `RELATIONSHIP`, `WISDOM`, `RESEARCH`, or task files until those
+stores have explicit merge rules. The full canonical category list (17
+substrate-neutral + 2 PAI-bound) is documented in
+[memory-policy-v0.md](./memory-policy-v0.md#memory-v0) and bootstrapped by
+`soma install <substrate> --apply` per
+[DD-2](../design/design-decisions.md#dd-2-adopt-pai-v500-memory-taxonomy-wholesale-mark-pai-specific-categories).
 
 ## Projection Semantics
 

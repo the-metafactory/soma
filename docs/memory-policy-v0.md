@@ -6,16 +6,41 @@ projection.
 
 ## Memory V0
 
-Memory is a directory layout, not a database:
+Memory is a directory layout, not a database. Soma adopts the PAI v5.0.0
+canonical taxonomy wholesale ([DD-2](../design/design-decisions.md#dd-2-adopt-pai-v500-memory-taxonomy-wholesale-mark-pai-specific-categories)):
+17 substrate-neutral categories plus 2 PAI-bound categories whose READMEs
+self-declare their provenance.
 
 ```text
-MEMORY/
-  WORK/
-  KNOWLEDGE/
-  LEARNING/
-  RELATIONSHIP/
-  STATE/
+memory/
+  # Substrate-neutral (17)
+  WORK/            # one slug-named subdir per Algorithm run
+  STATE/           # live runtime state (events.jsonl, active-*.json)
+  LEARNING/        # candidate lessons from real work
+  RELATIONSHIP/    # learned interaction patterns
+  KNOWLEDGE/       # curated knowledge graph
+  OBSERVABILITY/   # tool-activity + config-audit telemetry
+  SECURITY/        # task-governance + stop-failure traces
+  SCRATCHPAD/      # ephemeral working space
+  BOOKMARKS/       # synced bookmark state
+  RESEARCH/        # synthesized research outputs
+  PROJECT/         # per-project memory subdirs
+  WISDOM/          # extracted high-signal insights
+  VERIFICATION/    # VERIFY-phase evidence artifacts
+  DATA/            # curated structured datasets
+  RAW/             # unprocessed source material
+  REFERENCE/       # curated lookup tables
+  SKILLS/          # per-skill runtime state
+  # PAI-bound (2) — populated by the PAI substrate; portable Soma cores may
+  # leave it empty
+  PAISYSTEMUPDATES/
+  AUTO/
 ```
+
+Each category ships a `README.md` describing what belongs there. The
+bootstrap is idempotent — re-running `soma install <substrate> --apply`
+backfills any missing category dir/README without overwriting principal
+edits.
 
 The initial portable operations are:
 

@@ -1,10 +1,41 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { installSomaForCodex, installSomaForPiDev, planSomaForCodexInstall, planSomaForPiDevInstall } from "../src/index";
 import { renderStartupContextSummary } from "../src/adapters/codex/hooks/codex-hook-entry.mjs";
+
+// #88 — Canonical PAI v5.0.0 memory taxonomy (DD-2). 17 substrate-neutral +
+// 2 PAI-bound = 19. The order here is the order Soma documents; both
+// `SOMA_BOOTSTRAP_DIRECTORIES` (install.ts) and `MEMORY_DIRS` (soma-home.ts)
+// must enumerate all 19. Tests assert presence, not order.
+const SOMA_CANONICAL_MEMORY_DIRS = [
+  // Original 5 (pre-v5.0.0 Soma taxonomy, all substrate-neutral)
+  "WORK",
+  "KNOWLEDGE",
+  "LEARNING",
+  "RELATIONSHIP",
+  "STATE",
+  // 12 substrate-neutral additions from PAI v5.0.0
+  "OBSERVABILITY",
+  "SECURITY",
+  "SCRATCHPAD",
+  "BOOKMARKS",
+  "RESEARCH",
+  "PROJECT",
+  "WISDOM",
+  "VERIFICATION",
+  "DATA",
+  "RAW",
+  "REFERENCE",
+  "SKILLS",
+  // 2 PAI-bound additions (READMEs explicitly call this out)
+  "PAISYSTEMUPDATES",
+  "AUTO",
+] as const;
+
+const SOMA_PAI_BOUND_MEMORY_DIRS = ["PAISYSTEMUPDATES", "AUTO"] as const;
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-install-"));
@@ -1051,5 +1082,66 @@ test("installs soma source home and pi.dev home projection", async () => {
     expect(profile).toContain("Name: soma");
     expect(startupContext).toContain("Soma Startup Context");
     expect(somaRepo).toContain("soma");
+  });
+});
+
+// #88 AC-1 + AC-3 + AC-4 — Canonical memory taxonomy bootstrap.
+//
+// DD-2 binds the 19-category v5.0.0 taxonomy to every Soma install. The
+// install path tests cover AC-4 (any substrate's `--apply` creates the full
+// taxonomy under `~/.soma/memory/`); the README/marker tests cover AC-2
+// (README per category, PAI-bound categories self-declare provenance).
+test("#88 AC-1: codex install bootstraps the full PAI v5.0.0 memory taxonomy", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const somaHome = join(homeDir, ".soma");
+
+    for (const category of SOMA_CANONICAL_MEMORY_DIRS) {
+      const dirStat = await stat(join(somaHome, "memory", category));
+      expect(dirStat.isDirectory()).toBe(true);
+      const readme = await readFile(join(somaHome, "memory", category, "README.md"), "utf8");
+      expect(readme.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+test("#88 AC-4: pi.dev install bootstraps the full PAI v5.0.0 memory taxonomy", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForPiDev({ homeDir });
+    const somaHome = join(homeDir, ".soma");
+
+    for (const category of SOMA_CANONICAL_MEMORY_DIRS) {
+      const dirStat = await stat(join(somaHome, "memory", category));
+      expect(dirStat.isDirectory()).toBe(true);
+    }
+  });
+});
+
+test("#88 AC-2: PAI-bound category READMEs self-declare substrate provenance", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const somaHome = join(homeDir, ".soma");
+
+    for (const category of SOMA_PAI_BOUND_MEMORY_DIRS) {
+      const readme = await readFile(join(somaHome, "memory", category, "README.md"), "utf8");
+      // DD-2 implication: PAI-bound categories must explicitly state
+      // "populated by the PAI substrate; portable Soma cores may leave it empty".
+      expect(readme).toContain("PAI substrate");
+      expect(readme).toContain("portable Soma cores may leave it empty");
+    }
+  });
+});
+
+test("#88 AC-3: bootstrap is idempotent — re-running install does not overwrite edited READMEs", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const somaHome = join(homeDir, ".soma");
+    const readmePath = join(somaHome, "memory/OBSERVABILITY/README.md");
+    await writeFile(readmePath, "# OBSERVABILITY (user-edited)\n\nCustom notes.\n", "utf8");
+
+    await installSomaForCodex({ homeDir });
+
+    const second = await readFile(readmePath, "utf8");
+    expect(second).toBe("# OBSERVABILITY (user-edited)\n\nCustom notes.\n");
   });
 });

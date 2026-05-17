@@ -1,9 +1,14 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
+import { SOMA_MEMORY_CATEGORIES, SOMA_MEMORY_CATEGORY_READMES } from "./memory-readmes";
 import type { ProjectionInput, SomaHomeBootstrapOptions, SomaHomeBootstrapResult, SomaSkill } from "./types";
 
-const MEMORY_DIRS = ["WORK", "KNOWLEDGE", "LEARNING", "RELATIONSHIP", "STATE"] as const;
+// #88 / DD-2: canonical PAI v5.0.0 memory taxonomy (17 substrate-neutral +
+// 2 PAI-bound). The directory list and per-category README content live in
+// `memory-readmes.ts` so the install planner, bootstrap, and tests all share
+// one source of truth.
+const MEMORY_DIRS = SOMA_MEMORY_CATEGORIES;
 
 function resolveSomaHome(options: SomaHomeBootstrapOptions = {}): string {
   return resolve(options.somaHome ?? join(resolve(options.homeDir ?? homedir()), ".soma"));
@@ -247,8 +252,23 @@ export async function bootstrapSomaHome(options: SomaHomeBootstrapOptions = {}):
 
   await mkdir(somaHome, { recursive: true });
 
+  // #88 / DD-2: bootstrap the canonical PAI v5.0.0 memory taxonomy. Each
+  // category directory ships a README describing what belongs there;
+  // PAI-bound categories (`PAISYSTEMUPDATES`, `AUTO`) self-declare their
+  // substrate provenance. README write uses `flag: "wx"` so principal edits
+  // survive re-runs (idempotent contract — see test AC-3).
   for (const directory of MEMORY_DIRS) {
     await mkdir(join(somaHome, "memory", directory), { recursive: true });
+  }
+
+  for (const entry of SOMA_MEMORY_CATEGORY_READMES) {
+    const readmePath = join(somaHome, "memory", entry.category, "README.md");
+    await writeFile(readmePath, `${entry.content}\n`, { encoding: "utf8", flag: "wx" }).catch((error: unknown) => {
+      if (!(error instanceof Error) || !("code" in error) || error.code !== "EEXIST") {
+        throw error;
+      }
+    });
+    writtenFiles.push(readmePath);
   }
 
   for (const projection of ["codex", "pi-dev", "claude-code"]) {
