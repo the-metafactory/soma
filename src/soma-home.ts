@@ -263,12 +263,18 @@ export async function bootstrapSomaHome(options: SomaHomeBootstrapOptions = {}):
 
   for (const entry of SOMA_MEMORY_CATEGORY_READMES) {
     const readmePath = join(somaHome, "memory", entry.category, "README.md");
-    await writeFile(readmePath, `${entry.content}\n`, { encoding: "utf8", flag: "wx" }).catch((error: unknown) => {
+    // `flag: "wx"` makes README writes idempotent — principal edits survive
+    // re-install (test AC-3). Sage R1: only record the path in `writtenFiles`
+    // when the write actually happened, so callers don't see a skipped EEXIST
+    // path masquerading as a fresh write.
+    try {
+      await writeFile(readmePath, `${entry.content}\n`, { encoding: "utf8", flag: "wx" });
+      writtenFiles.push(readmePath);
+    } catch (error: unknown) {
       if (!(error instanceof Error) || !("code" in error) || error.code !== "EEXIST") {
         throw error;
       }
-    });
-    writtenFiles.push(readmePath);
+    }
   }
 
   for (const projection of ["codex", "pi-dev", "claude-code"]) {

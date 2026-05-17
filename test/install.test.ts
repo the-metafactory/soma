@@ -5,37 +5,17 @@ import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { installSomaForCodex, installSomaForPiDev, planSomaForCodexInstall, planSomaForPiDevInstall } from "../src/index";
 import { renderStartupContextSummary } from "../src/adapters/codex/hooks/codex-hook-entry.mjs";
+import {
+  SOMA_MEMORY_CATEGORIES,
+  SOMA_PAI_BOUND_MEMORY_CATEGORIES,
+} from "../src/memory-readmes";
 
 // #88 — Canonical PAI v5.0.0 memory taxonomy (DD-2). 17 substrate-neutral +
-// 2 PAI-bound = 19. The order here is the order Soma documents; both
-// `SOMA_BOOTSTRAP_DIRECTORIES` (install.ts) and `MEMORY_DIRS` (soma-home.ts)
-// must enumerate all 19. Tests assert presence, not order.
-const SOMA_CANONICAL_MEMORY_DIRS = [
-  // Original 5 (pre-v5.0.0 Soma taxonomy, all substrate-neutral)
-  "WORK",
-  "KNOWLEDGE",
-  "LEARNING",
-  "RELATIONSHIP",
-  "STATE",
-  // 12 substrate-neutral additions from PAI v5.0.0
-  "OBSERVABILITY",
-  "SECURITY",
-  "SCRATCHPAD",
-  "BOOKMARKS",
-  "RESEARCH",
-  "PROJECT",
-  "WISDOM",
-  "VERIFICATION",
-  "DATA",
-  "RAW",
-  "REFERENCE",
-  "SKILLS",
-  // 2 PAI-bound additions (READMEs explicitly call this out)
-  "PAISYSTEMUPDATES",
-  "AUTO",
-] as const;
-
-const SOMA_PAI_BOUND_MEMORY_DIRS = ["PAISYSTEMUPDATES", "AUTO"] as const;
+// 2 PAI-bound = 19. Tests consume the production-exported lists from
+// `memory-readmes.ts` so the taxonomy split stays single-sourced (Sage R1
+// maintainability finding).
+const SOMA_CANONICAL_MEMORY_DIRS = SOMA_MEMORY_CATEGORIES;
+const SOMA_PAI_BOUND_MEMORY_DIRS = SOMA_PAI_BOUND_MEMORY_CATEGORIES;
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-install-"));
