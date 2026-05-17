@@ -1,37 +1,14 @@
-import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { SomaAdapter, SomaContextBundle, SomaContextInput, SomaTask } from "../../types";
 import { defaultSomaRepoPath } from "../../repo-path";
+import { resolveBunExecutable } from "../../bun-probe";
 import { readCodexHookAsset } from "./hooks/assets";
 import { renderFeedbackHookModule } from "../shared/feedback-helper";
 import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "../shared";
 import { activeIsaBundleFile } from "../../adapter-active-isa";
 import { somaPolicyPrivateMarkers } from "../../policy";
 import { somaMemoryPrivateRoots, somaProjectionPrivateRoots } from "../../projection-private-roots";
-
-/**
- * Resolve a Bun executable path for embedding in the hook's runtime
- * config. Hook child spawns need an explicit binary path so they
- * survive parent exit on macOS/Bun. Falls back through:
- *   1. SOMA_BUN_PATH env override
- *   2. process.execPath when soma itself runs under Bun
- *   3. `which bun`
- * Throws when none resolve — the adopter's pre-flight should have
- * caught this already.
- */
-function resolveBunExecutable(): string {
-  if (process.env.SOMA_BUN_PATH) return process.env.SOMA_BUN_PATH;
-  if ((process.versions as Record<string, string | undefined>).bun && process.execPath) {
-    return process.execPath;
-  }
-  const which = spawnSync("which", ["bun"], { encoding: "utf8" });
-  const resolved = which.status === 0 ? which.stdout.trim().split("\n")[0] : "";
-  if (!resolved) {
-    throw new Error("soma#73: unable to resolve a Bun executable for the codex hook config.");
-  }
-  return resolved;
-}
 
 /**
  * Compute the runtime config the soma-lifecycle.mjs hook reads at
