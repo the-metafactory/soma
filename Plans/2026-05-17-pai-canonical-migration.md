@@ -271,3 +271,75 @@ PAI packs: ~/work/PAI/Packs/
 User PAI:  ~/.claude/ (the install being migrated from)
 Soma home: ~/.soma/ (the canonical home being migrated to)
 ```
+
+---
+
+## Sprint outcome (2026-05-17)
+
+All four issues shipped. Canonical migration sprint complete.
+
+### Shipped
+
+| Issue | PR | Merge SHA | Title |
+|---|---|---|---|
+| #88 | #93 | `56ff030` | `feat(install): align memory bootstrap to PAI v5.0.0 canonical taxonomy` |
+| #89 | #94 | `c66eddd` | `feat(cli): add soma import pai-docs verb` |
+| #90 | #95 | `3c05ee0` | `feat(migrate): extend soma migrate pai with memory translation + bulk skills + docs wrap` |
+| #91 | #96 | `fd7b4ba` | `feat(importer): replace UNMAPPED catch-all with deterministic ~/.soma/PAI/... rewrites` |
+
+### Test baseline progression
+
+- Before sprint (after #87): **537** passing.
+- After #88 (PR #93):        **541** (+4).
+- After #89 (PR #94):        **555** (+14).
+- After #90 (PR #95):        **607** (+52).
+- After #91 (PR #96):        **615** (+8; 2 superseded in-place).
+
+### Final stress test (per §"Session-end contract" item 4)
+
+```bash
+rm -rf /tmp/soma-test-final && bun src/cli.ts import pai-pack \
+  --pai-pack-dir ~/work/PAI/Packs/CreateSkill --apply --soma-home /tmp/soma-test-final
+grep -rn "UNMAPPED" /tmp/soma-test-final/skills/create-skill/
+```
+
+**Result:** Remaining `UNMAPPED` matches are exactly the path classes the
+issue body and DDs reserved for the UNMAPPED audit class — Soma has no
+home for them. Concretely:
+
+- `~/.soma/UNMAPPED/PAI/USER/SKILLCUSTOMIZATIONS/<rest>` (5 instances) —
+  PAI USER overlay model has no Soma equivalent (deferred follow-on).
+- `~/.soma/UNMAPPED/PAI/SkillSystem.md` (2 instances) — bare-under-PAI
+  files with no subtree match; valid UNMAPPED behavior.
+- `~/.soma/UNMAPPED/History/Backups/` (2 instances) — Claude history
+  layout has no Soma equivalent.
+- `~/.soma/UNMAPPED/PAI/` strings inside the audit trail (warning detail
+  text in `soma-pack.json`); these *are* the audit trail and must remain
+  visible.
+
+DOC / TEMPL / ALGO / MEMORY paths from CreateSkill all landed
+deterministically: `~/.soma/PAI/DOCUMENTATION/Skills/SkillSystem.md`,
+`~/.soma/PAI/DOCUMENTATION/Notifications/NotificationSystem.md`,
+`~/.soma/PAI/DOCUMENTATION/Tools/CliFirstArchitecture.md`,
+`~/.soma/memory/SKILLS/execution.jsonl` — zero of these now go through
+the catch-all. AC-2 of #91 verified end-to-end against the real pack.
+
+`grep -E "UNMAPPED/(DOCUMENTATION|TEMPLATES|ALGORITHM|MEMORY|PAI/(DOCUMENTATION|TEMPLATES|ALGORITHM|MEMORY))"
+returns zero matches against the projected skill — the full chain
+(DD-1 + DD-2 + #88 + #89 + #90 + #91) closes the loop on the four
+subtrees that have real Soma homes.
+
+### Deferred / out of scope
+
+- **#85** — Pi.dev Algorithm renderer ACs deferred from #43. Independent
+  of this sprint; remains open.
+- **PAI USER overlay model.** SKILLCUSTOMIZATIONS has no Soma equivalent
+  yet (per issue #91 body). Currently routes through UNMAPPED warning.
+  A future issue can decide whether Soma grows an overlay mechanism.
+- **`SEARCH_ROOTS` expansion in `src/memory.ts`** — noted in #88 outcome;
+  not blocking; can land as a small follow-on.
+
+### Decisions in force (durable)
+
+DD-1, DD-2, DD-3 (`design/design-decisions.md`) — all four issues
+implement these. Do not relitigate.
