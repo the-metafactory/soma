@@ -1,7 +1,7 @@
 import { access, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { evaluatePathGuard, SOMA_DEFAULT_PROTECTED_PATHS } from "./policy-path-guard";
+import { evaluatePathGuard, SOMA_DEFAULT_PROTECTED_PATHS, SOMA_HOME_ALLOWED_MODIFY_SUBPATHS } from "./policy-path-guard";
 import { hasSomaPolicyPrivateMarker } from "./policy-marker";
 import { isInsidePath } from "./path-utils";
 import type { SomaPolicyBatchCheckOptions, SomaPolicyBatchCheckResult, SomaPolicyBatchTarget, SomaPolicyCheckOptions, SomaPolicyCheckResult, SomaPolicyFinding, SomaProtectedPath } from "./types";
@@ -27,13 +27,6 @@ const SOMA_POLICY_PORTABLE_MARKERS = [
   "~/.pi/agent/skills/soma",
 ] as const;
 
-/**
- * Subpaths under `~/.soma` where `modify` is permitted. Mirrors the
- * `allowedSubpaths` declared on `SOMA_DEFAULT_PROTECTED_PATHS` for `~/.soma`
- * so that policy.ts and policy-path-guard.ts agree on the same allowed
- * memory/ISA destinations.
- */
-const SOMA_HOME_ALLOWED_MODIFY_SUBPATHS = ["isa", "memory"];
 
 interface SomaPolicyScope {
   destinationPath: string;
@@ -166,7 +159,7 @@ function evaluateResolvedSomaPathGuard(options: SomaPolicyCheckOptions & { actio
   const rootProtectedPaths: SomaProtectedPath[] = roots.map((root) => ({
     path: root,
     description: `Soma private root: ${markerFor(root, options.homeDir)}`,
-    ...(root === somaHome ? { allowedSubpaths: SOMA_HOME_ALLOWED_MODIFY_SUBPATHS } : {}),
+    ...(root === somaHome ? { allowedSubpaths: [...SOMA_HOME_ALLOWED_MODIFY_SUBPATHS] } : {}),
   }));
   const normalizeProtectedPaths = (protectedPaths: readonly SomaProtectedPath[]): SomaProtectedPath[] =>
     protectedPaths.map((protectedPath) => ({

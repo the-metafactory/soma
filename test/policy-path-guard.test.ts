@@ -915,12 +915,20 @@ test("generated pi.dev guard blocks destructive commands, redirections, mv sourc
   }
 });
 
-test("generated pi.dev guard allows writes to Soma ISA and memory subtrees", async () => {
-  const tmpDir = await mkdtemp(join(tmpdir(), "soma-guard-ext-allow-"));
+// Pi.dev rendered-extension harness shared by the #79 AC tests. Boots the
+// rendered guard against a temporary HOME, returns the tool_call handler,
+// and owns all cleanup (extension file, HOME restore, tmpDir removal).
+type RenderedPiHandler = (
+  event: { toolName: string; input?: { command?: string; file_path?: string; path?: string } },
+  ctx: { cwd?: string; ui?: { notify?: (message: string, level: string) => void } },
+) => unknown;
+
+async function withRenderedPiPathGuardHandler<T>(prefix: string, fn: (ctx: { tmpDir: string; handler: RenderedPiHandler }) => Promise<T>): Promise<T> {
+  const tmpDir = await mkdtemp(join(tmpdir(), prefix));
   const extension = renderPathGuardExtension(join(tmpDir, ".soma"));
   const extPath = join(tmpDir, "soma-path-guard.ts");
   const originalHome = process.env.HOME;
-  let handler: ((event: { toolName: string; input?: { command?: string; file_path?: string; path?: string } }, ctx: { cwd?: string; ui?: { notify?: (message: string, level: string) => void } }) => unknown) | undefined;
+  let handler: RenderedPiHandler | undefined;
 
   try {
     process.env.HOME = tmpDir;
@@ -935,92 +943,55 @@ test("generated pi.dev guard allows writes to Soma ISA and memory subtrees", asy
       },
     });
 
+    if (!handler) throw new Error("rendered Pi.dev extension did not register a tool_call handler");
+    return await fn({ tmpDir, handler });
+  } finally {
+    if (originalHome === undefined) delete process.env.HOME;
+    else process.env.HOME = originalHome;
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+}
+
+test("generated pi.dev guard allows writes to Soma ISA and memory subtrees", async () => {
+  await withRenderedPiPathGuardHandler("soma-guard-ext-allow-", async ({ tmpDir, handler }) => {
     // ISA write should be allowed (#79 AC-1)
-    const isaWrite = await handler?.({ toolName: "write", input: { file_path: ".soma/isa/personal/draft.md" } }, { cwd: tmpDir });
+    const isaWrite = await handler({ toolName: "write", input: { file_path: ".soma/isa/personal/draft.md" } }, { cwd: tmpDir });
     // ISA edit should be allowed (#79 AC-1)
-    const isaEdit = await handler?.({ toolName: "edit", input: { file_path: ".soma/isa/personal/draft.md" } }, { cwd: tmpDir });
+    const isaEdit = await handler({ toolName: "edit", input: { file_path: ".soma/isa/personal/draft.md" } }, { cwd: tmpDir });
     // Memory write should be allowed (#79 AC-2)
-    const memoryWrite = await handler?.({ toolName: "write", input: { file_path: ".soma/memory/STATE/active.json" } }, { cwd: tmpDir });
+    const memoryWrite = await handler({ toolName: "write", input: { file_path: ".soma/memory/STATE/active.json" } }, { cwd: tmpDir });
     // Memory edit on nested file should be allowed
-    const memoryEdit = await handler?.({ toolName: "edit", input: { file_path: ".soma/memory/WORK/run-123/notes.md" } }, { cwd: tmpDir });
+    const memoryEdit = await handler({ toolName: "edit", input: { file_path: ".soma/memory/WORK/run-123/notes.md" } }, { cwd: tmpDir });
 
     expect(isaWrite).toBeUndefined();
     expect(isaEdit).toBeUndefined();
     expect(memoryWrite).toBeUndefined();
     expect(memoryEdit).toBeUndefined();
-  } finally {
-    if (originalHome === undefined) delete process.env.HOME;
-    else process.env.HOME = originalHome;
-    await rm(tmpDir, { recursive: true, force: true });
-  }
+  });
 });
 
 test("generated pi.dev guard still blocks destructive deletes of Soma home (#79 AC-3)", async () => {
-  const tmpDir = await mkdtemp(join(tmpdir(), "soma-guard-ext-delete-"));
-  const extension = renderPathGuardExtension(join(tmpDir, ".soma"));
-  const extPath = join(tmpDir, "soma-path-guard.ts");
-  const originalHome = process.env.HOME;
-  let handler: ((event: { toolName: string; input?: { command?: string; file_path?: string; path?: string } }, ctx: { cwd?: string; ui?: { notify?: (message: string, level: string) => void } }) => unknown) | undefined;
-
-  try {
-    process.env.HOME = tmpDir;
-    await mkdir(join(tmpDir, ".soma"), { recursive: true });
-    await writeFile(extPath, extension, "utf8");
-    const mod = (await import(pathToFileURL(extPath).href)) as {
-      default: (pi: { on: (event: "tool_call", cb: NonNullable<typeof handler>) => void }) => void;
-    };
-    mod.default({
-      on: (_event, cb) => {
-        handler = cb;
-      },
-    });
-
-    const rmHome = await handler?.({ toolName: "bash", input: { command: "rm -rf ~/.soma" } }, { cwd: tmpDir });
-    const rmIsa = await handler?.({ toolName: "bash", input: { command: "rm -rf ~/.soma/isa" } }, { cwd: tmpDir });
-    const rmMemory = await handler?.({ toolName: "bash", input: { command: "rm -rf ~/.soma/memory" } }, { cwd: tmpDir });
+  await withRenderedPiPathGuardHandler("soma-guard-ext-delete-", async ({ tmpDir, handler }) => {
+    const rmHome = await handler({ toolName: "bash", input: { command: "rm -rf ~/.soma" } }, { cwd: tmpDir });
+    const rmIsa = await handler({ toolName: "bash", input: { command: "rm -rf ~/.soma/isa" } }, { cwd: tmpDir });
+    const rmMemory = await handler({ toolName: "bash", input: { command: "rm -rf ~/.soma/memory" } }, { cwd: tmpDir });
 
     expect(rmHome).toMatchObject({ block: true });
     expect(rmIsa).toMatchObject({ block: true });
     expect(rmMemory).toMatchObject({ block: true });
-  } finally {
-    if (originalHome === undefined) delete process.env.HOME;
-    else process.env.HOME = originalHome;
-    await rm(tmpDir, { recursive: true, force: true });
-  }
+  });
 });
 
 test("generated pi.dev guard still blocks writes to ~/.soma/profile (#79 AC-4 private root)", async () => {
-  const tmpDir = await mkdtemp(join(tmpdir(), "soma-guard-ext-profile-"));
-  const extension = renderPathGuardExtension(join(tmpDir, ".soma"));
-  const extPath = join(tmpDir, "soma-path-guard.ts");
-  const originalHome = process.env.HOME;
-  let handler: ((event: { toolName: string; input?: { command?: string; file_path?: string; path?: string } }, ctx: { cwd?: string; ui?: { notify?: (message: string, level: string) => void } }) => unknown) | undefined;
-
-  try {
-    process.env.HOME = tmpDir;
-    await mkdir(join(tmpDir, ".soma"), { recursive: true });
-    await writeFile(extPath, extension, "utf8");
-    const mod = (await import(pathToFileURL(extPath).href)) as {
-      default: (pi: { on: (event: "tool_call", cb: NonNullable<typeof handler>) => void }) => void;
-    };
-    mod.default({
-      on: (_event, cb) => {
-        handler = cb;
-      },
-    });
-
-    const writeProfile = await handler?.({ toolName: "write", input: { file_path: ".soma/profile/identity.md" } }, { cwd: tmpDir });
-    const editProfile = await handler?.({ toolName: "edit", input: { file_path: ".soma/profile/identity.md" } }, { cwd: tmpDir });
-    const writeRoot = await handler?.({ toolName: "write", input: { file_path: ".soma/secret.md" } }, { cwd: tmpDir });
+  await withRenderedPiPathGuardHandler("soma-guard-ext-profile-", async ({ tmpDir, handler }) => {
+    const writeProfile = await handler({ toolName: "write", input: { file_path: ".soma/profile/identity.md" } }, { cwd: tmpDir });
+    const editProfile = await handler({ toolName: "edit", input: { file_path: ".soma/profile/identity.md" } }, { cwd: tmpDir });
+    const writeRoot = await handler({ toolName: "write", input: { file_path: ".soma/secret.md" } }, { cwd: tmpDir });
 
     expect(writeProfile).toMatchObject({ block: true });
     expect(editProfile).toMatchObject({ block: true });
     expect(writeRoot).toMatchObject({ block: true });
-  } finally {
-    if (originalHome === undefined) delete process.env.HOME;
-    else process.env.HOME = originalHome;
-    await rm(tmpDir, { recursive: true, force: true });
-  }
+  });
 });
 
 // ── Policy write action still works ──
