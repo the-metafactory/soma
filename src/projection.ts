@@ -1,6 +1,6 @@
 import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, resolve, sep } from "node:path";
-import type { SomaContextBundle, WrittenContextBundle } from "./types";
+import type { Projection, WrittenProjection } from "./types";
 
 function assertSafeBundlePath(rootDir: string, bundlePath: string): string {
   if (bundlePath.length === 0) {
@@ -22,7 +22,7 @@ function assertSafeBundlePath(rootDir: string, bundlePath: string): string {
   return target;
 }
 
-export async function writeContextBundle(bundle: SomaContextBundle, rootDir: string): Promise<WrittenContextBundle> {
+export async function writeProjection(bundle: Projection, rootDir: string): Promise<WrittenProjection> {
   const writtenFiles: string[] = [];
 
   for (const file of bundle.files) {

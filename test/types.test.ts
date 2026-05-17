@@ -24,7 +24,7 @@ test("adapter contract is structurally usable", async () => {
     async detect() {
       return true;
     },
-    async buildContext() {
+    async project() {
       return { substrate: "custom", instructions: "", files: [] };
     },
     async run(task) {

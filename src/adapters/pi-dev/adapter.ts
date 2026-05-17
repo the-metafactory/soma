@@ -1,4 +1,4 @@
-import type { SomaAdapter, SomaContextBundle, SomaContextInput, SomaTask } from "../../types";
+import type { SomaAdapter, Projection, ProjectionInput, SomaTask } from "../../types";
 import { renderFeedbackHookHelper } from "../shared/feedback-helper";
 import { renderPathGuardExtension } from "./path-guard";
 import { buildPiDevPortableSkillFiles } from "./skill-projection";
@@ -6,7 +6,7 @@ import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, render
 import { activeIsaBundleFile } from "../../adapter-active-isa";
 import { SOMA_VERSION } from "../../version";
 
-function renderInstructions(input: SomaContextInput): string {
+function renderInstructions(input: ProjectionInput): string {
   return [
     "# Soma Pi.dev Context",
     "",
@@ -382,7 +382,7 @@ function renderHomeExtension(somaHome: string): string {
   ].join("\n");
 }
 
-function renderHomeSkill(input: SomaContextInput, somaHome: string): string {
+function renderHomeSkill(input: ProjectionInput, somaHome: string): string {
   return [
     "---",
     "name: soma",
@@ -421,7 +421,7 @@ function resolvePiDevSomaHome(): string {
   return `${process.env.HOME}/.soma`;
 }
 
-export function buildPiDevContext(input: SomaContextInput): SomaContextBundle {
+export function projectPiDev(input: ProjectionInput): Projection {
   const instructions = renderInstructions(input);
   const somaHome = resolvePiDevSomaHome();
 
@@ -465,7 +465,7 @@ export function buildPiDevContext(input: SomaContextInput): SomaContextBundle {
   };
 }
 
-export function buildPiDevHomeContext(input: SomaContextInput, somaHome: string): SomaContextBundle {
+export function projectPiDevHome(input: ProjectionInput, somaHome: string): Projection {
   const instructions = renderInstructions(input);
   const portableSkillFiles = buildPiDevPortableSkillFiles(input.profile.skills);
 
@@ -529,15 +529,15 @@ export const piDevAdapter: SomaAdapter = {
   detect() {
     return Promise.resolve(Boolean(process.env.PI_DEV_HOME ?? process.env.PIDEV_HOME));
   },
-  buildContext(input) {
-    return Promise.resolve(buildPiDevContext(input));
+  project(input) {
+    return Promise.resolve(projectPiDev(input));
   },
   run(task: SomaTask) {
     return Promise.resolve({
       taskId: task.id,
       substrate: "pi-dev",
       status: "failed",
-      summary: "Pi.dev execution is not implemented yet; use buildContext() to generate the extension bundle.",
+      summary: "Pi.dev execution is not implemented yet; use project() to generate the extension bundle.",
     });
   },
 };

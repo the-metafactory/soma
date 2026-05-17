@@ -109,9 +109,6 @@ interface SomaAdapter {
 }
 ```
 
-> Note: existing code still uses `buildContext` / `SomaContextInput` /
-> `SomaContextBundle`. Rename tracked in #52.
-
 Examples:
 
 - Codex adapter projects Soma into Codex-readable instruction files.

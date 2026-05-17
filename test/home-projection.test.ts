@@ -9,7 +9,7 @@ import {
   installPiDevHomeProjection,
   resolveHomeProjectionPaths,
 } from "../src/index";
-import { portableContextInput } from "./fixtures";
+import { portableProjectionInput } from "./fixtures";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-home-"));
@@ -50,7 +50,7 @@ test("rejects unimplemented home projection substrates", () => {
 });
 
 test("builds codex home projection bundle for default availability", () => {
-  const projection = buildCodexHomeProjection(portableContextInput, { homeDir: "/tmp/soma-test-home" });
+  const projection = buildCodexHomeProjection(portableProjectionInput, { homeDir: "/tmp/soma-test-home" });
 
   expect(projection.substrateHome).toBe("/tmp/soma-test-home/.codex");
   expect(projection.somaHome).toBe("/tmp/soma-test-home/.soma");
@@ -104,7 +104,7 @@ test("builds codex home projection bundle for default availability", () => {
 
 test("soma#73 sage r2: installed lifecycle hook is executable (0o755)", async () => {
   await withTempHome(async (homeDir) => {
-    await installCodexHomeProjection(portableContextInput, { homeDir });
+    await installCodexHomeProjection(portableProjectionInput, { homeDir });
     const { stat } = await import("node:fs/promises");
     const info = await stat(join(homeDir, ".codex/hooks/soma-lifecycle.mjs"));
     // Owner-execute bit (0o100) must be set so Codex can run the
@@ -117,7 +117,7 @@ test("soma#73 sage r2: installed lifecycle hook is executable (0o755)", async ()
 });
 
 test("soma#73: codex lifecycle hook ships verbatim with bun shebang + colocated config", () => {
-  const projection = buildCodexHomeProjection(portableContextInput, { homeDir: "/tmp/soma-test-home" });
+  const projection = buildCodexHomeProjection(portableProjectionInput, { homeDir: "/tmp/soma-test-home" });
   const hook = projection.bundle.files.find((f) => f.path === "hooks/soma-lifecycle.mjs");
   const config = projection.bundle.files.find((f) => f.path === "hooks/soma-lifecycle.config.json");
   expect(hook).toBeDefined();
@@ -137,7 +137,7 @@ test("soma#73: codex lifecycle hook ships verbatim with bun shebang + colocated 
 });
 
 test("builds pi.dev home projection bundle for default availability", () => {
-  const projection = buildPiDevHomeProjection(portableContextInput, { homeDir: "/tmp/soma-test-home" });
+  const projection = buildPiDevHomeProjection(portableProjectionInput, { homeDir: "/tmp/soma-test-home" });
 
   expect(projection.substrateHome).toBe("/tmp/soma-test-home/.pi");
   expect(projection.somaHome).toBe("/tmp/soma-test-home/.soma");
@@ -171,9 +171,9 @@ test("builds pi.dev home projection bundle for default availability", () => {
 test("pi.dev home projection normalizes portable skill paths and frontmatter names", () => {
   const projection = buildPiDevHomeProjection(
     {
-      ...portableContextInput,
+      ...portableProjectionInput,
       profile: {
-        ...portableContextInput.profile,
+        ...portableProjectionInput.profile,
         skills: [
           {
             name: "ISA",
@@ -233,9 +233,9 @@ test("pi.dev home projection rejects normalized portable skill id collisions", (
   expect(() =>
     buildPiDevHomeProjection(
       {
-        ...portableContextInput,
+        ...portableProjectionInput,
         profile: {
-          ...portableContextInput.profile,
+          ...portableProjectionInput.profile,
           skills: [
             {
               name: "Ledger Update",
@@ -262,7 +262,7 @@ test("pi.dev home projection rejects normalized portable skill id collisions", (
 
 test("installs codex home projection into a substrate home", async () => {
   await withTempHome(async (homeDir) => {
-    const result = await installCodexHomeProjection(portableContextInput, { homeDir });
+    const result = await installCodexHomeProjection(portableProjectionInput, { homeDir });
 
     expect(result.substrate).toBe("codex");
     expect(result.rootDir).toBe(join(homeDir, ".codex"));
@@ -321,11 +321,11 @@ test("codex algorithm contract wins over imported portable skill body", async ()
   await withTempHome(async (homeDir) => {
     await installCodexHomeProjection(
       {
-        ...portableContextInput,
+        ...portableProjectionInput,
         profile: {
-          ...portableContextInput.profile,
+          ...portableProjectionInput.profile,
           skills: [
-            ...portableContextInput.profile.skills,
+            ...portableProjectionInput.profile.skills,
             {
               name: "the-algorithm",
               path: "skills/the-algorithm",
@@ -362,7 +362,7 @@ test("codex algorithm contract wins over imported portable skill body", async ()
 
 test("installs pi.dev home projection into a substrate home", async () => {
   await withTempHome(async (homeDir) => {
-    const result = await installPiDevHomeProjection(portableContextInput, { homeDir });
+    const result = await installPiDevHomeProjection(portableProjectionInput, { homeDir });
 
     expect(result.substrate).toBe("pi-dev");
     expect(result.rootDir).toBe(join(homeDir, ".pi"));

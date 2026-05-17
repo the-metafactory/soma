@@ -6,7 +6,7 @@
 //   - shebang `bun` — every soma substrate hook runs under Bun
 //   - colocated `soma-lifecycle.config.json` holds the install-time
 //     config (somaHome, trustedSomaRepo, privateRoots, policyMarkers)
-//   - this file is shipped verbatim by `buildCodexHomeContext`; no
+//   - this file is shipped verbatim by `projectCodexHome`; no
 //     install-time string templating
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";

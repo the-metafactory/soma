@@ -1,7 +1,7 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
-import type { SomaContextInput, SomaHomeBootstrapOptions, SomaHomeBootstrapResult, SomaSkill } from "./types";
+import type { ProjectionInput, SomaHomeBootstrapOptions, SomaHomeBootstrapResult, SomaSkill } from "./types";
 
 const MEMORY_DIRS = ["WORK", "KNOWLEDGE", "LEARNING", "RELATIONSHIP", "STATE"] as const;
 
@@ -173,7 +173,7 @@ async function loadSomaSkills(somaHome: string): Promise<SomaSkill[]> {
   return skills.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export async function loadSomaHome(somaHome: string): Promise<SomaContextInput> {
+export async function loadSomaHome(somaHome: string): Promise<ProjectionInput> {
   const assistant = await readFile(join(somaHome, "profile/assistant.md"), "utf8");
   const principal = await readFile(join(somaHome, "profile/principal.md"), "utf8");
   const telos = await readFile(join(somaHome, "profile/telos.md"), "utf8");

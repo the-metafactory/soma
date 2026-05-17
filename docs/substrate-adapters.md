@@ -18,9 +18,9 @@ Codex is a coding-agent substrate. The Codex projection should carry:
 Open question: whether Codex plugins should carry the adapter or whether Soma
 should project a workspace-local instruction set consumed by Codex.
 
-Initial answer: start with a workspace projection. `projectCodex` (currently
-named `buildCodexContext`, rename tracked in #52) returns deterministic files
-under `.codex/soma/` plus an instruction string. Codex execution and plugins
+Initial answer: start with a workspace projection. `projectCodex` returns
+deterministic files under `.codex/soma/` plus an instruction string. Codex
+execution and plugins
 come later, after the same input can be projected into at least one second
 substrate.
 
@@ -46,14 +46,14 @@ The first useful Pi adapter can be a `soma-core` extension with:
 - `capture_learning`
 - `policy_check`
 
-Initial implementation: `projectPiDev` (currently `buildPiDevContext`) generates
-a workspace-shaped `soma-core` extension projection under
+Initial implementation: `projectPiDev` generates a workspace-shaped
+`soma-core` extension projection under
 `.pi/extensions/soma-core/`. It includes an extension manifest, portable
 content, tool contract, memory layout, skills, and policy projection. The tools
 are named as the adapter contract; execution is not wired yet.
 
-Home implementation: `projectPiDevHome` (currently `buildPiDevHomeContext`)
-projects into `~/.pi/agent/`: `agent/extensions/soma.ts` registers the
+Home implementation: `projectPiDevHome` projects into `~/.pi/agent/`:
+`agent/extensions/soma.ts` registers the
 `soma_context` tool, while `agent/soma/` holds the generated projection
 snapshot and `agent/skills/soma/SKILL.md` advertises the Soma skill as a Pi.dev
 skill. The extension appends Soma identity to the LLM context on
@@ -76,8 +76,8 @@ The Claude Code adapter can be the highest-fidelity implementation, but the
 core must not depend on Claude-only primitives. Hooks should improve behavior;
 they should not be required for the storage contract to function.
 
-Initial implementation: `projectClaudeCode` (currently `buildClaudeCodeContext`)
-generates a Claude-shaped projection with `CLAUDE.md` plus `.claude/soma/`
+Initial implementation: `projectClaudeCode` generates a Claude-shaped
+projection with `CLAUDE.md` plus `.claude/soma/`
 projection files. Hooks are documented as optional enhancements, not
 requirements for the portable core.
 

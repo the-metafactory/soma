@@ -1,7 +1,7 @@
 import { readdir, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import { rewriteSkillNameFrontmatter } from "../../skill-frontmatter";
-import type { SomaContextBundle, SomaSkill } from "../../types";
+import type { Projection, SomaSkill } from "../../types";
 
 export const PI_DEV_ISA_SKILL_ID = "isa";
 
@@ -18,9 +18,9 @@ export function renderPiDevSkillFileContent(skillName: string, filePath: string,
   return rewriteSkillNameFrontmatter(filePath, content, piDevSkillId(skillName));
 }
 
-export function buildPiDevPortableSkillFiles(skills: SomaSkill[]): SomaContextBundle["files"] {
+export function buildPiDevPortableSkillFiles(skills: SomaSkill[]): Projection["files"] {
   const ids = new Map<string, string>();
-  const files: SomaContextBundle["files"] = [];
+  const files: Projection["files"] = [];
 
   for (const skill of skills) {
     const id = piDevSkillId(skill.name);

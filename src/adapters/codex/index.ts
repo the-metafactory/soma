@@ -1,2 +1,2 @@
-export { buildCodexContext, buildCodexHomeContext, codexAdapter } from "./adapter";
+export { projectCodex, projectCodexHome, codexAdapter } from "./adapter";
 export { configureCodexInstall } from "./config";

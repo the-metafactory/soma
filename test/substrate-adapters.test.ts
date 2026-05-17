@@ -1,15 +1,15 @@
 import { expect, test } from "bun:test";
 import {
-  buildClaudeCodeContext,
-  buildCodexContext,
-  buildPiDevContext,
+  projectClaudeCode,
+  projectCodex,
+  projectPiDev,
   claudeCodeAdapter,
   piDevAdapter,
-  type SomaContextBundle,
+  type Projection,
 } from "../src/index";
-import { portableContextInput } from "./fixtures";
+import { portableProjectionInput } from "./fixtures";
 
-function expectPortableSemantics(bundle: SomaContextBundle) {
+function expectPortableSemantics(bundle: Projection) {
   expect(bundle.instructions).toContain("Soma");
   expect(bundle.instructions).toContain("Keep personal assistant context portable across substrates.");
   expect(bundle.instructions).toContain("Substrate adapters translate; they do not own core concepts");
@@ -20,7 +20,7 @@ function expectPortableSemantics(bundle: SomaContextBundle) {
 }
 
 test("pi.dev adapter builds an extension-shaped context bundle", () => {
-  const bundle = buildPiDevContext(portableContextInput);
+  const bundle = projectPiDev(portableProjectionInput);
 
   expect(bundle.substrate).toBe("pi-dev");
   expect(bundle.files.map((file) => file.path)).toContain(".pi/extensions/soma-core/extension.json");
@@ -36,7 +36,7 @@ test("pi.dev adapter requires HOME when SOMA_HOME is unset", () => {
   try {
     delete process.env.HOME;
     delete process.env.SOMA_HOME;
-    expect(() => buildPiDevContext(portableContextInput)).toThrow("HOME must be set");
+    expect(() => projectPiDev(portableProjectionInput)).toThrow("HOME must be set");
   } finally {
     if (originalHome === undefined) delete process.env.HOME;
     else process.env.HOME = originalHome;
@@ -46,7 +46,7 @@ test("pi.dev adapter requires HOME when SOMA_HOME is unset", () => {
 });
 
 test("claude code adapter builds a claude-shaped context bundle", () => {
-  const bundle = buildClaudeCodeContext(portableContextInput);
+  const bundle = projectClaudeCode(portableProjectionInput);
 
   expect(bundle.substrate).toBe("claude-code");
   expect(bundle.files.map((file) => file.path)).toContain("CLAUDE.md");
@@ -57,9 +57,9 @@ test("claude code adapter builds a claude-shaped context bundle", () => {
 
 test("codex, pi.dev, and claude code preserve portable semantics from one input", () => {
   const bundles = [
-    buildCodexContext(portableContextInput),
-    buildPiDevContext(portableContextInput),
-    buildClaudeCodeContext(portableContextInput),
+    projectCodex(portableProjectionInput),
+    projectPiDev(portableProjectionInput),
+    projectClaudeCode(portableProjectionInput),
   ];
 
   for (const bundle of bundles) {
@@ -68,11 +68,11 @@ test("codex, pi.dev, and claude code preserve portable semantics from one input"
 });
 
 test("pi.dev and claude code adapters expose context build before execution", async () => {
-  await expect(piDevAdapter.buildContext(portableContextInput)).resolves.toMatchObject({
+  await expect(piDevAdapter.project(portableProjectionInput)).resolves.toMatchObject({
     substrate: "pi-dev",
   });
 
-  await expect(claudeCodeAdapter.buildContext(portableContextInput)).resolves.toMatchObject({
+  await expect(claudeCodeAdapter.project(portableProjectionInput)).resolves.toMatchObject({
     substrate: "claude-code",
   });
 

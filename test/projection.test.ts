@@ -3,13 +3,13 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import {
-  buildClaudeCodeContext,
-  buildCodexContext,
-  buildPiDevContext,
-  type SomaContextBundle,
-  writeContextBundle,
+  projectClaudeCode,
+  projectCodex,
+  projectPiDev,
+  type Projection,
+  writeProjection,
 } from "../src/index";
-import { portableContextInput } from "./fixtures";
+import { portableProjectionInput } from "./fixtures";
 
 async function withTempDir<T>(fn: (rootDir: string) => Promise<T>): Promise<T> {
   const rootDir = await mkdtemp(join(tmpdir(), "soma-context-"));
@@ -23,8 +23,8 @@ async function withTempDir<T>(fn: (rootDir: string) => Promise<T>): Promise<T> {
 
 test("writes a codex context bundle to disk", async () => {
   await withTempDir(async (rootDir) => {
-    const bundle = buildCodexContext(portableContextInput);
-    const result = await writeContextBundle(bundle, rootDir);
+    const bundle = projectCodex(portableProjectionInput);
+    const result = await writeProjection(bundle, rootDir);
 
     expect(result.substrate).toBe("codex");
     expect(result.rootDir).toBe(rootDir);
@@ -38,8 +38,8 @@ test("writes a codex context bundle to disk", async () => {
 
 test("writes pi.dev and claude code bundles to substrate-shaped paths", async () => {
   await withTempDir(async (rootDir) => {
-    const piResult = await writeContextBundle(buildPiDevContext(portableContextInput), rootDir);
-    const claudeResult = await writeContextBundle(buildClaudeCodeContext(portableContextInput), rootDir);
+    const piResult = await writeProjection(projectPiDev(portableProjectionInput), rootDir);
+    const claudeResult = await writeProjection(projectClaudeCode(portableProjectionInput), rootDir);
 
     expect(piResult.files.some((file) => file.endsWith(".pi/extensions/soma-core/extension.json"))).toBe(true);
     expect(claudeResult.files.some((file) => file.endsWith("CLAUDE.md"))).toBe(true);
@@ -54,7 +54,7 @@ test("writes pi.dev and claude code bundles to substrate-shaped paths", async ()
 
 test("rejects context bundle paths that escape the root", async () => {
   await withTempDir(async (rootDir) => {
-    const bundle: SomaContextBundle = {
+    const bundle: Projection = {
       substrate: "custom",
       instructions: "",
       files: [
@@ -65,13 +65,13 @@ test("rejects context bundle paths that escape the root", async () => {
       ],
     };
 
-    await expect(writeContextBundle(bundle, rootDir)).rejects.toThrow("escapes root");
+    await expect(writeProjection(bundle, rootDir)).rejects.toThrow("escapes root");
   });
 });
 
 test("rejects absolute context bundle paths", async () => {
   await withTempDir(async (rootDir) => {
-    const bundle: SomaContextBundle = {
+    const bundle: Projection = {
       substrate: "custom",
       instructions: "",
       files: [
@@ -82,6 +82,6 @@ test("rejects absolute context bundle paths", async () => {
       ],
     };
 
-    await expect(writeContextBundle(bundle, rootDir)).rejects.toThrow("must be relative");
+    await expect(writeProjection(bundle, rootDir)).rejects.toThrow("must be relative");
   });
 });

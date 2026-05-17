@@ -1,8 +1,8 @@
-import type { SomaAdapter, SomaContextBundle, SomaContextInput, SomaTask } from "../types";
+import type { SomaAdapter, Projection, ProjectionInput, SomaTask } from "../types";
 import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "./shared";
 import { activeIsaBundleFile } from "../adapter-active-isa";
 
-function renderInstructions(input: SomaContextInput): string {
+function renderInstructions(input: ProjectionInput): string {
   return [
     "# Soma Claude Code Context",
     "",
@@ -19,7 +19,7 @@ function renderInstructions(input: SomaContextInput): string {
   ].join("\n");
 }
 
-function renderClaudeMd(input: SomaContextInput): string {
+function renderClaudeMd(input: ProjectionInput): string {
   return [
     "# Claude Code Soma Projection",
     "",
@@ -45,7 +45,7 @@ function renderHooksPlan(): string {
   ].join("\n");
 }
 
-export function buildClaudeCodeContext(input: SomaContextInput): SomaContextBundle {
+export function projectClaudeCode(input: ProjectionInput): Projection {
   const instructions = renderInstructions(input);
 
   return {
@@ -82,7 +82,7 @@ export function buildClaudeCodeContext(input: SomaContextInput): SomaContextBund
       // Active-ISA projection (#37). OMITTED when no active ISA — AC-2.
       // Note: project bundle uses `.claude/soma/active-isa.md` (workspace
       // overlay path), not `PAI/ACTIVE_ISA.md` (the home path used by
-      // buildClaudeCodeHomeContext + activeIsaProjectionPath).
+      // projectClaudeCodeHome + activeIsaProjectionPath).
       ...(input.activeIsa
         ? [{ path: ".claude/soma/active-isa.md", content: activeIsaBundleFile("claude-code", input.activeIsa)[0].content }]
         : []),
@@ -120,7 +120,7 @@ function renderClaudeRulesReadme(): string {
   ].join("\n");
 }
 
-function renderClaudeRulesContext(input: SomaContextInput): string {
+function renderClaudeRulesContext(input: ProjectionInput): string {
   return [
     "# Soma Context (Claude Code)",
     "",
@@ -128,11 +128,11 @@ function renderClaudeRulesContext(input: SomaContextInput): string {
   ].join("\n");
 }
 
-function renderClaudeProfile(input: SomaContextInput): string {
+function renderClaudeProfile(input: ProjectionInput): string {
   return ["# Soma Profile Projection", "", renderAssistantCore(input)].join("\n");
 }
 
-function renderClaudeTelos(input: SomaContextInput): string {
+function renderClaudeTelos(input: ProjectionInput): string {
   const t = input.profile.telos;
   return [
     "# Soma Telos Projection",
@@ -184,7 +184,7 @@ export const CLAUDE_CODE_RULES_FILES = [
 
 const CLAUDE_RULES_CONTENT_BUILDERS: Record<
   Exclude<(typeof CLAUDE_CODE_RULES_FILES)[number], "rules/soma/ACTIVE_ISA.md">,
-  (input: SomaContextInput) => string
+  (input: ProjectionInput) => string
 > = {
   "rules/soma/README.md": () => renderClaudeRulesReadme(),
   "rules/soma/CONTEXT.md": (input) => renderClaudeRulesContext(input),
@@ -212,7 +212,7 @@ const CLAUDE_RULES_CONTENT_BUILDERS: Record<
  *     the CLI surface refactor in #30 split.
  *   - Active CLAUDE.md modification: dropped by the #64 pivot.
  */
-export function buildClaudeCodeHomeContext(input: SomaContextInput): SomaContextBundle {
+export function projectClaudeCodeHome(input: ProjectionInput): Projection {
   const skeleton = (Object.keys(CLAUDE_RULES_CONTENT_BUILDERS) as (keyof typeof CLAUDE_RULES_CONTENT_BUILDERS)[]).map((path) => ({
     path,
     content: CLAUDE_RULES_CONTENT_BUILDERS[path](input),
@@ -233,15 +233,15 @@ export const claudeCodeAdapter: SomaAdapter = {
   detect() {
     return Promise.resolve(Boolean(process.env.CLAUDE_CODE ?? process.env.CLAUDECODE));
   },
-  buildContext(input) {
-    return Promise.resolve(buildClaudeCodeContext(input));
+  project(input) {
+    return Promise.resolve(projectClaudeCode(input));
   },
   run(task: SomaTask) {
     return Promise.resolve({
       taskId: task.id,
       substrate: "claude-code",
       status: "failed",
-      summary: "Claude Code execution is not implemented yet; use buildContext() to generate the context projection.",
+      summary: "Claude Code execution is not implemented yet; use project() to generate the context projection.",
     });
   },
 };
