@@ -73,8 +73,7 @@ Soma's substrate-neutral home should be:
 
 The implemented bootstrap slice is `bootstrapSomaHome`, which creates the
 starter profile files, memory directories, skill/policy directories, projection
-directories, and returns a `SomaContextInput` loaded from those files. (Type
-rename to `ProjectionInput` is tracked in #52.)
+directories, and returns a `ProjectionInput` loaded from those files.
 
 ## Substrate Home Projections
 

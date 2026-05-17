@@ -41,8 +41,10 @@ Projection refresh is currently **on demand** (via the `reproject` lifecycle
 verb):
 
 - `soma install <substrate>` plans or refreshes the home projection.
-- Workspace overlays are refreshed via the future `soma install <substrate>
-  --workspace` flow.
+- `soma install <substrate> --workspace` refreshes the workspace overlay
+  rooted at `./.{codex,pi,claude}/soma/`.
+- `soma reproject <substrate>` re-emits the projection without going
+  through plan/apply ceremony.
 - Substrate launch does not automatically reproject in V0.
 
 This intentionally favors clear failure modes over clever sync. If a projection

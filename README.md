@@ -47,8 +47,11 @@ Then project Soma into the coding agent you use:
 ```bash
 bun run soma install codex --apply
 bun run soma install pi-dev --apply
-bun run soma adopt claude --apply
+bun run soma install claude-code --apply
 ```
+
+> `soma adopt claude` still works as a legacy alias; new prose uses the
+> unified `soma install claude-code` verb.
 
 ---
 
@@ -101,14 +104,14 @@ Once installed, point Soma at the coding agent you want it to run in. Each adapt
 ```bash
 soma install codex --apply
 soma install pi-dev --apply
-soma adopt claude --apply
+soma install claude-code --apply
 ```
 
 Then start a session and watch Soma surface its context.
 
 Claude Code uses its native rules directory as the home projection so Claude
 can auto-discover the Soma projection without depending on fragile
-home-directory imports. `soma adopt claude --uninstall` removes only the
+home-directory imports. `soma uninstall claude-code` removes only the
 generated Soma projection.
 
 <!--
