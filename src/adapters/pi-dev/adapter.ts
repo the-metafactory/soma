@@ -3,6 +3,7 @@ import { renderFeedbackHookHelper } from "../shared/feedback-helper";
 import { renderPathGuardExtension } from "./path-guard";
 import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "../shared";
 import { activeIsaBundleFile } from "../../adapter-active-isa";
+import { SOMA_VERSION } from "../../version";
 
 function renderInstructions(input: SomaContextInput): string {
   return [
@@ -25,7 +26,7 @@ function renderExtensionManifest(): string {
   return `${JSON.stringify(
     {
       name: "soma-core",
-      version: "0.1.3",
+      version: SOMA_VERSION,
       description: "Pi.dev projection for Soma personal assistant context.",
       tools: [
         "isa_create",

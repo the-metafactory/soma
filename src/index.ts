@@ -262,4 +262,4 @@ export {
 } from "./isa-reconcile";
 export { type CompletenessGap, type CompletenessReport } from "./isa-schema";
 
-export const SOMA_VERSION = "0.1.3";
+export { SOMA_VERSION } from "./version";
