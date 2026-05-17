@@ -103,6 +103,25 @@ test("planPaiMemoryMigration with no MEMORY dir returns memoryDir=null, files=[]
   });
 });
 
+test("migratePaiMemory with no MEMORY dir: first run reports unchanged=false (manifest written), rerun reports unchanged=true — Sage r4 #95", async () => {
+  await withTempHome(async (homeDir) => {
+    // No PAI MEMORY tree present. The first call must create the
+    // empty manifest at <somaHome>/imports/pai-migration/.manifest.json
+    // and report `unchanged: false` so callers can tell a disk
+    // touch happened. The second call must observe the prior
+    // manifest and report `unchanged: true` (no disk touch).
+    const first = await migratePaiMemory({ homeDir });
+    expect(first.memoryDir).toBeNull();
+    expect(first.writtenCount).toBe(0);
+    // Sage r4 important: first manifest write is NOT a no-op even
+    // though writtenCount === 0.
+    expect(first.unchanged).toBe(false);
+    await stat(first.manifestPath);
+    const second = await migratePaiMemory({ homeDir });
+    expect(second.unchanged).toBe(true);
+  });
+});
+
 test("planPaiMemoryMigration enumerates every file under PAI/MEMORY", async () => {
   await withTempHome(async (homeDir) => {
     await writePaiMemoryFixture(homeDir, {

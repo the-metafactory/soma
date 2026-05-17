@@ -479,8 +479,14 @@ async function renderStableMigrationManifest(
   const algorithmFingerprint = inputs.algorithm
     ? await fingerprintFiles(inputs.algorithm.files)
     : null;
-  const packFingerprints = await Promise.all(
-    inputs.packs.map((p) => fingerprintPackEntry(p)),
+  // Sage r4 #95 Performance: bound the per-pack fingerprint reads to
+  // 4 workers (matches the import + preflight fan-out). Promise.all
+  // over `packs.map` opens one async file read per pack regardless of
+  // count, which could burst FD limits on large installs.
+  const packFingerprints = await runBoundedConcurrent(
+    inputs.packs,
+    fingerprintPackEntry,
+    4,
   );
   const sentinelTs = "__PAI_MIGRATION_TS_SENTINEL__";
   const newBodyWithSentinel = renderManifest({

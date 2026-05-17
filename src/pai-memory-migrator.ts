@@ -256,7 +256,12 @@ export async function migratePaiMemory(
 
   if (plan.memoryDir === null) {
     // Nothing to migrate. Write an empty manifest only when one
-    // doesn't already exist, so the no-op contract holds.
+    // doesn't already exist, so subsequent reruns are pure no-ops.
+    // Sage r4 #95 important: distinguish the first-write from a true
+    // no-op via `unchanged`. A real no-op (no source, manifest
+    // already there) reports `unchanged: true`; a first-write of the
+    // empty manifest touches disk and must report `unchanged: false`
+    // so callers don't conflate the two on the per-run accounting.
     const existing = await readExistingManifest(plan.somaHome);
     if (existing === null) {
       const importedAt = new Date().toISOString();
@@ -272,7 +277,7 @@ export async function migratePaiMemory(
         importedAt,
         writtenCount: 0,
         skippedCount: 0,
-        unchanged: true,
+        unchanged: false, // newly created the manifest — disk touched.
         manifestPath,
         files: [],
         writtenTargets: [],
