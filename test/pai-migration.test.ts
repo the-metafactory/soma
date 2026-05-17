@@ -114,6 +114,22 @@ test("migratePai omits algorithm when PAI install has no Algorithm dir", async (
   });
 });
 
+test("migratePai surfaces EACCES on packs dir instead of silently skipping (sage r2)", async () => {
+  await withTempHome(async (homeDir) => {
+    await writePaiFixture(homeDir);
+    // Create an unreadable packs dir.
+    const packsRoot = join(homeDir, ".claude/PAI/Packs");
+    await mkdir(packsRoot, { recursive: true });
+    const { chmod } = await import("node:fs/promises");
+    await chmod(packsRoot, 0o000);
+    try {
+      await expect(migratePai({ homeDir })).rejects.toThrow();
+    } finally {
+      await chmod(packsRoot, 0o700);
+    }
+  });
+});
+
 test("migratePai writes manifest with claude/MIGRATION.md path", async () => {
   await withTempHome(async (homeDir) => {
     await writePaiFixture(homeDir);

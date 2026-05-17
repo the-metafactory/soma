@@ -85,10 +85,24 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
+function isEnoent(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "ENOENT";
+}
+
 async function autoDiscoverPackPaths(claudeHome: string): Promise<string[]> {
   const packsRoot = join(claudeHome, "PAI/Packs");
   if (!(await exists(packsRoot))) return [];
-  const entries = await readdir(packsRoot, { withFileTypes: true }).catch(() => []);
+  // Sage r2: only treat ENOENT (raced delete) as "no packs". Other
+  // errors (EACCES on the packs dir, transient I/O failure) must
+  // surface — a silent miss would produce a "successful" migration
+  // that quietly omits the pack category.
+  let entries;
+  try {
+    entries = await readdir(packsRoot, { withFileTypes: true });
+  } catch (error) {
+    if (isEnoent(error)) return [];
+    throw error;
+  }
   return entries.filter((e) => e.isDirectory()).map((e) => join(packsRoot, e.name));
 }
 
