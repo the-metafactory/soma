@@ -17,7 +17,7 @@
  * them) is covered by a sixth test that asserts MIGRATION.md body
  * fingerprint contains the per-pack outcome lines.
  */
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { migratePai } from "../src/pai-migration";
