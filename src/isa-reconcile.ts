@@ -105,7 +105,7 @@ export function reconcileIsaArtifacts(
   let next: IdealStateArtifact = {
     ...master,
     sections: master.sections.map((section) => ({ ...section })),
-    frontmatter: { ...master.frontmatter, updated: options.timestamp ?? master.frontmatter.updated },
+    frontmatter: { ...master.frontmatter },
   };
 
   next = mergeCriteria(next, feature, policy, report);
@@ -114,6 +114,9 @@ export function reconcileIsaArtifacts(
   next = mergeLogSection(next, feature, { sectionName: SECTION_NAME_MAP.verification, readEntries: getVerification, policy, report });
   next = mergeOtherSections(next, feature, policy, report);
   report.changed = hasStructuralChange(master, next);
+  if (report.changed && options.timestamp) {
+    next = { ...next, frontmatter: { ...next.frontmatter, updated: options.timestamp } };
+  }
 
   return { isa: next, report };
 }

@@ -65,6 +65,13 @@ test("AC-4 property: reconcile(master, master) is identity", () => {
   expect(result.report.changed).toBe(false);
 });
 
+test("AC-4 property: no-op reconcile ignores timestamp-only changes", () => {
+  const master = buildIsa("demo", [criterion("ISC-1", "open")], { Notes: "Keep me" });
+  const result = reconcileIsaArtifacts(master, master, { timestamp: "2026-05-17T11:00:00.000Z" });
+  expect(serializeIsa(result.isa)).toBe(serializeIsa(master));
+  expect(result.report.changed).toBe(false);
+});
+
 test("AC-5 property: reconcile is idempotent for the same feature", () => {
   const master = buildIsa("demo", [criterion("ISC-1", "open")]);
   const feature = buildIsa("demo", [criterion("ISC-1", "passed", "ISC-1 works", "bun test passed"), criterion("ISC-2", "open")], {
