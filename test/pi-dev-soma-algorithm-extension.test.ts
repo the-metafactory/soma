@@ -87,6 +87,27 @@ describe("renderSomaAlgorithmExtension", () => {
     expect(source).toContain('ingestStream("", defaultRunId(), { flush: true })');
   });
 
+  test("snapshot reset clears stale carry from previous message (Sage R6 codequality)", () => {
+    const source = renderSomaAlgorithmExtension();
+
+    // When raw.length < lastSnapshotLength, a new message started.
+    // We MUST clear run.carry too — otherwise the prior unterminated
+    // tail would be joined onto the new message and corrupt the
+    // first parsed line.
+    expect(source).toContain("run.lastSnapshotLength = 0;");
+    expect(source).toContain('run.carry = "";');
+  });
+
+  test("repeated phase markers coalesce instead of accumulating (Sage R6 perf)", () => {
+    const source = renderSomaAlgorithmExtension();
+
+    // The parser permits duplicate markers (a long run may re-emit a
+    // phase header after a tool-call interlude). The runtime must
+    // collapse those onto the existing SeenPhase record so memory +
+    // render work don't grow with the marker count.
+    expect(source).toContain("run.seenPhases.find((s) => s.marker.phase === m.phase)");
+  });
+
   test("tool_result handler validates the untyped boundary (Sage R3 security)", () => {
     const source = renderSomaAlgorithmExtension();
 

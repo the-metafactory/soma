@@ -237,6 +237,19 @@ function processLine(run: RunState, rawLine: string): LineDelta {
   const markers = parseAlgorithmPhaseMarkers(line);
   if (markers.length > 0) {
     const m = markers[0];
+    // Coalesce repeated markers by phase key — a long run that
+    // re-emits a phase header (e.g. EXECUTE → tool call interlude →
+    // EXECUTE again) would otherwise accumulate a new SeenPhase
+    // record per repeat, growing memory and the per-transition
+    // render work unbounded (Sage R6 perf important). The existing
+    // record stays in place and keeps its accumulated body; we just
+    // make it the active phase again.
+    const existing = run.seenPhases.find((s) => s.marker.phase === m.phase);
+    if (existing) {
+      run.currentPhase = m.phase;
+      run.lineCount += 1;
+      return { changed: true, phaseAdded: false };
+    }
     const stableMarker: PhaseMarker = {
       phase: m.phase,
       position: m.position,
@@ -400,9 +413,12 @@ export default function (pi: ExtensionAPI): void {
       let chunk = raw;
       if (!isDelta) {
         if (raw.length < run.lastSnapshotLength) {
-          // Snapshot shrank — new message started. Reset and reingest
-          // from scratch.
+          // Snapshot shrank — new message started. Reset cursor AND
+          // clear any unterminated carry from the previous snapshot;
+          // joining a stale carry onto the new message would corrupt
+          // the first parsed line (Sage R6 CodeQuality important).
           run.lastSnapshotLength = 0;
+          run.carry = "";
         }
         chunk = raw.slice(run.lastSnapshotLength);
         run.lastSnapshotLength = raw.length;

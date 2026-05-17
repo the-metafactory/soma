@@ -76,6 +76,21 @@ export interface PhaseWidgetContentInput {
 }
 
 /**
+ * Look up the canonical display strings for a phase key. Shared
+ * between widget header and footer status renderers so phase-label
+ * changes need only one edit (Sage R6 maintainability suggestion).
+ * Falls through to the uppercased key + bullet glyph for unknown
+ * phases — tolerant by design.
+ */
+function phaseDisplay(phase: AlgorithmPhaseKey): { name: string; emoji: string } {
+  const descriptor = ALGORITHM_PHASES.find((d) => d.key === phase);
+  return {
+    name: descriptor?.name ?? phase.toUpperCase(),
+    emoji: descriptor?.emoji ?? "•",
+  };
+}
+
+/**
  * Render the content lines for a single phase widget.
  *
  * Output shape:
@@ -89,10 +104,7 @@ export interface PhaseWidgetContentInput {
  * Always returns at least one line (the header).
  */
 export function renderPhaseWidgetLines(input: PhaseWidgetContentInput): string[] {
-  const descriptor = ALGORITHM_PHASES.find((d) => d.key === input.marker.phase);
-  const name = descriptor?.name ?? input.marker.phase.toUpperCase();
-  const emoji = descriptor?.emoji ?? "•";
-
+  const { name, emoji } = phaseDisplay(input.marker.phase);
   const lines: string[] = [`${emoji} ${name} ${input.marker.position}/${input.marker.total}`];
 
   for (const line of input.body) lines.push(line);
@@ -112,8 +124,7 @@ export interface PhaseStatusInput {
  * suffix: `Phase 5/7 — EXECUTE | ISA 3/7`.
  */
 export function renderPhaseStatusText(input: PhaseStatusInput): string {
-  const descriptor = ALGORITHM_PHASES.find((d) => d.key === input.marker.phase);
-  const name = descriptor?.name ?? input.marker.phase.toUpperCase();
+  const { name } = phaseDisplay(input.marker.phase);
   const base = `Phase ${input.marker.position}/${input.marker.total} — ${name}`;
 
   return input.suffix ? `${base} | ${input.suffix}` : base;
