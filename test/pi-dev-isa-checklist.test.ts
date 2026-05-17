@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
   renderIsaChecklistLines,
-  summarizeIsaChecklist,
   type IsaChecklistCriterion,
 } from "../src/adapters/pi-dev/extensions/isa-checklist";
 
@@ -46,17 +45,3 @@ describe("renderIsaChecklistLines", () => {
   });
 });
 
-describe("summarizeIsaChecklist", () => {
-  test("counts passed/dropped/pending; unknown statuses count as pending", () => {
-    expect(summarizeIsaChecklist(sample)).toEqual({
-      total: 5,
-      passed: 2,
-      dropped: 1,
-      pending: 2,
-    });
-  });
-
-  test("returns zeroes for an empty list", () => {
-    expect(summarizeIsaChecklist([])).toEqual({ total: 0, passed: 0, dropped: 0, pending: 0 });
-  });
-});

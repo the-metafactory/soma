@@ -21,10 +21,8 @@ export {
 } from "./extensions/widget-renderers";
 export {
   renderIsaChecklistLines,
-  summarizeIsaChecklist,
   type IsaChecklistCriterion,
   type IsaChecklistOptions,
-  type IsaChecklistSummary,
 } from "./extensions/isa-checklist";
 export {
   renderSomaAlgorithmExtension,

@@ -99,6 +99,29 @@ describe("renderSomaAlgorithmExtension", () => {
     expect(source).toContain("else renderActivePhase(pi, ctx, run);");
   });
 
+  test("snapshot-mode message_update ingests only the new suffix (Sage R4 perf)", () => {
+    const source = renderSomaAlgorithmExtension();
+
+    // Pi.dev may deliver text/content as growing snapshots. Each event
+    // includes everything prior; we slice to the unconsumed suffix so
+    // we don't reparse the whole transcript on every event.
+    expect(source).toContain("lastSnapshotLength");
+    expect(source).toContain("raw.slice(run.lastSnapshotLength)");
+    // Snapshot shrank → reset (new message started).
+    expect(source).toContain("raw.length < run.lastSnapshotLength");
+  });
+
+  test("sanitizeIsaCriteria bounds payload size + per-field length (Sage R4 security)", () => {
+    const source = renderSomaAlgorithmExtension();
+
+    expect(source).toContain("ISA_CRITERIA_MAX_COUNT");
+    expect(source).toContain("ISA_CRITERIA_FIELD_MAX_LENGTH");
+    expect(source).toContain("if (out.length >= ISA_CRITERIA_MAX_COUNT) break");
+    expect(source).toContain("clip(e.id)");
+    expect(source).toContain("clip(e.title)");
+    expect(source).toContain("clip(e.status)");
+  });
+
   test("/algorithm primer emits canonical heavy-line markers the parser recognizes", () => {
     // Sage CodeQuality important: the primer must use the EXACT marker
     // format that parseAlgorithmPhaseMarkers accepts; otherwise a model

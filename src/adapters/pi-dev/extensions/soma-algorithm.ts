@@ -122,6 +122,14 @@ interface RunState {
    * we never hold the full buffer in memory.
    */
   lineCount: number;
+  /**
+   * Bytes of the last whole-message snapshot we ingested. Pi.dev may
+   * deliver \`message_update\` as a growing snapshot in \`text\`/
+   * \`content\` (not a delta), in which case each event includes
+   * everything prior. We diff against the previous snapshot length
+   * to ingest only the new suffix (Sage R4 perf important).
+   */
+  lastSnapshotLength: number;
   seenPhases: SeenPhase[];
   currentPhase?: AlgorithmPhaseKey;
   isaCriteria: IsaChecklistCriterion[];
@@ -140,7 +148,15 @@ function defaultRunId(): string {
 function ensureRun(runId: string): RunState {
   let run = runs.get(runId);
   if (!run) {
-    run = { runId, carry: "", lineCount: 0, seenPhases: [], currentPhase: undefined, isaCriteria: [] };
+    run = {
+      runId,
+      carry: "",
+      lineCount: 0,
+      lastSnapshotLength: 0,
+      seenPhases: [],
+      currentPhase: undefined,
+      isaCriteria: [],
+    };
     runs.set(runId, run);
   }
   return run;
@@ -369,13 +385,30 @@ export default function (pi: ExtensionAPI): void {
     (event, ctx) => {
       const e = event as { delta?: unknown; text?: unknown; content?: unknown };
       // Distinguish a streamed delta (newline-terminated fragment) from
-      // a whole-message payload (text/content). Whole messages must be
-      // flushed so the final unterminated line is ingested (Sage R2
-      // CodeQuality important).
+      // a whole-message snapshot (text/content). Whole-message
+      // snapshots must be flushed so the final unterminated line is
+      // ingested (Sage R2 CodeQuality important).
       const isDelta = typeof e.delta === "string";
-      const text = String(e.delta ?? e.text ?? e.content ?? "");
-      if (!text) return;
-      const { run, changed, phaseAdded } = ingestStream(text, defaultRunId(), { flush: !isDelta });
+      const raw = String(e.delta ?? e.text ?? e.content ?? "");
+      if (!raw) return;
+      const run = ensureRun(defaultRunId());
+      // Snapshot mode: pi.dev may deliver text/content as cumulative
+      // snapshots — each event includes all prior text plus the new
+      // suffix. Slice to the unconsumed suffix so we don't reparse the
+      // whole transcript on every event (Sage R4 perf important).
+      // Deltas pass through unchanged.
+      let chunk = raw;
+      if (!isDelta) {
+        if (raw.length < run.lastSnapshotLength) {
+          // Snapshot shrank — new message started. Reset and reingest
+          // from scratch.
+          run.lastSnapshotLength = 0;
+        }
+        chunk = raw.slice(run.lastSnapshotLength);
+        run.lastSnapshotLength = raw.length;
+      }
+      if (!chunk) return;
+      const { changed, phaseAdded } = ingestStream(chunk, defaultRunId(), { flush: !isDelta });
       if (!changed) return;
       if (phaseAdded) renderAllPhases(pi, ctx, run);
       else renderActivePhase(pi, ctx, run);
@@ -406,16 +439,29 @@ export default function (pi: ExtensionAPI): void {
   );
 }
 
+// Sage R4 security suggestion: cap criteria count + per-field length
+// before pushing. A malformed/adversarial isa_update result could
+// otherwise flood memory + widget serialization with very large arrays
+// or strings.
+const ISA_CRITERIA_MAX_COUNT = 200;
+const ISA_CRITERIA_FIELD_MAX_LENGTH = 256;
+
+function clip(s: string): string {
+  if (s.length <= ISA_CRITERIA_FIELD_MAX_LENGTH) return s;
+  return s.slice(0, ISA_CRITERIA_FIELD_MAX_LENGTH - 1) + "…";
+}
+
 function sanitizeIsaCriteria(result: unknown): IsaChecklistCriterion[] | undefined {
   if (!result || typeof result !== "object") return undefined;
   const raw = (result as { criteria?: unknown }).criteria;
   if (!Array.isArray(raw)) return undefined;
   const out: IsaChecklistCriterion[] = [];
   for (const entry of raw) {
+    if (out.length >= ISA_CRITERIA_MAX_COUNT) break;
     if (!entry || typeof entry !== "object") continue;
     const e = entry as { id?: unknown; title?: unknown; status?: unknown };
     if (typeof e.id !== "string" || typeof e.title !== "string" || typeof e.status !== "string") continue;
-    out.push({ id: e.id, title: e.title, status: e.status });
+    out.push({ id: clip(e.id), title: clip(e.title), status: clip(e.status) });
   }
   return out;
 }

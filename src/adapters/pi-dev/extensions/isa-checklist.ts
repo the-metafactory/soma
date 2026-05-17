@@ -83,31 +83,8 @@ export function renderIsaChecklistLines(
   return lines;
 }
 
-/**
- * Quick-summary counts. Useful for the footer status line:
- *
- *   `Phase 5/7 — EXECUTE | ISA: 3/7 verified`
- */
-export interface IsaChecklistSummary {
-  readonly total: number;
-  readonly passed: number;
-  readonly dropped: number;
-  readonly pending: number;
-}
-
-export function summarizeIsaChecklist(criteria: readonly IsaChecklistCriterion[]): IsaChecklistSummary {
-  let passed = 0;
-  let dropped = 0;
-
-  for (const c of criteria) {
-    if (c.status === "passed") passed += 1;
-    else if (c.status === "dropped") dropped += 1;
-  }
-
-  return {
-    total: criteria.length,
-    passed,
-    dropped,
-    pending: criteria.length - passed - dropped,
-  };
-}
+// NOTE: A `summarizeIsaChecklist(criteria) → { total, passed,
+// dropped, pending }` helper was previously reserved here for an
+// "ISA 3/7" footer-status suffix. It was dropped because nothing
+// in this PR consumes it (Sage R4 maintainability suggestion). Add
+// it back when the footer suffix renderer actually lands.

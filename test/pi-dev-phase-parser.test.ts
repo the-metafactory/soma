@@ -73,6 +73,15 @@ describe("parseAlgorithmPhaseMarkers", () => {
     expect(parseAlgorithmPhaseMarkers(text)).toEqual([]);
   });
 
+  test("ignores a marker-shaped substring embedded in a longer line (anchored regex)", () => {
+    // Sage R4 codequality: a model that quotes another transcript may
+    // emit a body line containing what looks like a marker. The
+    // anchored regex must reject it so we don't false-trigger a phase
+    // transition.
+    const text = "> quoted: ━━━ 👁️ OBSERVE ━━━ 1/7  (this is a quote, not a real marker)";
+    expect(parseAlgorithmPhaseMarkers(text)).toEqual([]);
+  });
+
   test("captures duplicates when a phase header is re-emitted", () => {
     const text = ["━━━ ⚡ EXECUTE ━━━ 5/7", "(tool call interlude)", "━━━ ⚡ EXECUTE ━━━ 5/7"].join("\n");
     const markers = parseAlgorithmPhaseMarkers(text);

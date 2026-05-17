@@ -74,16 +74,20 @@ export interface PhaseMarker {
 }
 
 /**
- * Matches `━━━ <emoji> <NAME> ━━━ <n>/<m>` on any line. We require:
- *   - heavy-line opener and closer (4+ heavy glyphs each side) so prose
- *     never collides
- *   - uppercase NAME (A-Z and word chars) so "Plan ahead" prose never matches
+ * Matches `━━━ <emoji> <NAME> ━━━ <n>/<m>` as a complete line. We require:
+ *   - line anchors (^ ... $) so body prose containing a marker-shaped
+ *     substring (e.g. quoting another transcript) never produces a
+ *     false phase transition (Sage R4 CodeQuality suggestion)
+ *   - leading/trailing optional whitespace tolerance — copy/paste from
+ *     terminals sometimes adds it
+ *   - heavy-line opener and closer (3+ heavy glyphs each side)
+ *   - uppercase NAME (A-Z and underscore) so "Plan ahead" never matches
  *   - the digits suffix
  *
  * The emoji portion is non-greedy (`.+?`) because emoji are variable-width
  * grapheme clusters — encoding any specific set would be brittle.
  */
-const MARKER_REGEX = /━{3,}\s+(.+?)\s+([A-Z][A-Z_]+)\s+━{3,}\s+(\d+)\s*\/\s*(\d+)/u;
+const MARKER_REGEX = /^\s*━{3,}\s+(.+?)\s+([A-Z][A-Z_]+)\s+━{3,}\s+(\d+)\s*\/\s*(\d+)\s*$/u;
 
 /**
  * Build a lookup from uppercase phase name to descriptor. SUMMARY and
