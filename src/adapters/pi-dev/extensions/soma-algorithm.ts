@@ -82,13 +82,11 @@ export function renderSomaAlgorithmExtension(options: RenderSomaAlgorithmExtensi
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import {
   ALGORITHM_PHASES,
-  latestAlgorithmPhaseMarker,
   parseAlgorithmPhaseMarkers,
   type AlgorithmPhaseKey,
   type PhaseMarker,
 } from ${parserModule};
 import {
-  capabilitiesWidgetKey,
   isaCriteriaWidgetKey,
   phaseWidgetKey,
   renderPhaseOverviewLines,
@@ -100,6 +98,14 @@ import {
   renderIsaChecklistLines,
   type IsaChecklistCriterion,
 } from ${checklistModule};
+
+// Cap retained body lines per phase to keep memory + per-delta widget
+// serialization bounded over long Algorithm sessions (Sage perf
+// important). When the cap is exceeded, the head is dropped and a
+// truncation indicator is inserted so the widget shows the run is
+// summarized.
+const PHASE_BODY_LINE_CAP = 200;
+const PHASE_BODY_TRUNCATION_LINE = "… (older lines truncated) …";
 
 interface SeenPhase {
   readonly marker: PhaseMarker;
@@ -174,6 +180,50 @@ function renderAllPhases(pi: ExtensionAPI, ctx: unknown, run: RunState): void {
   if (latest) ui.setStatus?.(SOMA_STATUS_KEY, renderPhaseStatusText({ marker: latest.marker }));
 }
 
+function processLine(run: RunState, rawLine: string): boolean {
+  const line = rawLine.replace(/\\s+$/u, "");
+  const markers = parseAlgorithmPhaseMarkers(line);
+  if (markers.length > 0) {
+    const m = markers[0];
+    const stableMarker: PhaseMarker = {
+      phase: m.phase,
+      position: m.position,
+      total: m.total,
+      lineIndex: run.lineCount,
+      rawLine: m.rawLine,
+    };
+    run.seenPhases.push({ marker: stableMarker, body: [] });
+    run.currentPhase = m.phase;
+    run.lineCount += 1;
+    return true;
+  }
+  if (run.seenPhases.length === 0) {
+    run.lineCount += 1;
+    return false;
+  }
+  const active = run.seenPhases[run.seenPhases.length - 1];
+  // Skip leading blank lines on a phase's body; preserve interior
+  // blanks but never emit a trailing blank.
+  if (active.body.length === 0 && line === "") {
+    run.lineCount += 1;
+    return false;
+  }
+  active.body.push(line);
+  // Cap per-phase body to PHASE_BODY_LINE_CAP. When breached, drop
+  // the head and insert a one-line truncation indicator at the
+  // front (Sage perf important: unbounded growth → bounded memory
+  // and per-delta widget serialization).
+  if (active.body.length > PHASE_BODY_LINE_CAP) {
+    const overflow = active.body.length - PHASE_BODY_LINE_CAP;
+    active.body.splice(0, overflow);
+    if (active.body[0] !== PHASE_BODY_TRUNCATION_LINE) {
+      active.body[0] = PHASE_BODY_TRUNCATION_LINE;
+    }
+  }
+  run.lineCount += 1;
+  return true;
+}
+
 /**
  * Incremental ingest — splits the new delta into complete lines and
  * processes one line at a time. New phase markers append a SeenPhase
@@ -181,15 +231,24 @@ function renderAllPhases(pi: ExtensionAPI, ctx: unknown, run: RunState): void {
  *
  * Cost is O(deltaLines), not O(totalBufferLines), so long Algorithm
  * runs don't cumulatively re-parse the full transcript on every
- * streamed fragment (Sage finding: O(n^2) hot path).
+ * streamed fragment (Sage R1 perf finding).
+ *
+ * Per-phase body is capped at PHASE_BODY_LINE_CAP lines so retained
+ * memory + widget render work stay bounded over long sessions (Sage
+ * R2 perf finding).
  *
  * Returns \`changed = true\` when either a new marker appeared OR the
  * active phase's body grew, so the caller knows when a render is
  * worth pushing.
+ *
+ * \`opts.flush\` processes \`run.carry\` as a complete final line. Set
+ * for whole-message \`text\`/\`content\` payloads that arrive without a
+ * trailing newline (Sage R2 CodeQuality important: deltas-only loop
+ * dropped the final line when pi.dev delivered a full message).
  */
-function ingestStream(text: string, runId: string): { run: RunState; changed: boolean } {
+function ingestStream(text: string, runId: string, opts: { flush?: boolean } = {}): { run: RunState; changed: boolean } {
   const run = ensureRun(runId);
-  if (!text) return { run, changed: false };
+  if (!text && !opts.flush) return { run, changed: false };
 
   // Join carry-over with the new chunk, then split on line boundaries.
   // The final element is the new carry (may be partial; no trailing \\n).
@@ -199,32 +258,12 @@ function ingestStream(text: string, runId: string): { run: RunState; changed: bo
 
   let changed = false;
   for (const rawLine of parts) {
-    const line = rawLine.replace(/\\s+$/u, "");
-    const markers = parseAlgorithmPhaseMarkers(line);
-    if (markers.length > 0) {
-      const m = markers[0];
-      const stableMarker: PhaseMarker = {
-        phase: m.phase,
-        position: m.position,
-        total: m.total,
-        lineIndex: run.lineCount,
-        rawLine: m.rawLine,
-      };
-      run.seenPhases.push({ marker: stableMarker, body: [] });
-      run.currentPhase = m.phase;
-      changed = true;
-    } else if (run.seenPhases.length > 0) {
-      const active = run.seenPhases[run.seenPhases.length - 1];
-      // Skip leading blank lines on a phase's body; preserve interior
-      // blanks but never emit a trailing blank.
-      if (active.body.length === 0 && line === "") {
-        // skip
-      } else {
-        active.body.push(line);
-        changed = true;
-      }
-    }
-    run.lineCount += 1;
+    if (processLine(run, rawLine)) changed = true;
+  }
+
+  if (opts.flush && run.carry.length > 0) {
+    if (processLine(run, run.carry)) changed = true;
+    run.carry = "";
   }
 
   return { run, changed };
@@ -275,19 +314,20 @@ export default function (pi: ExtensionAPI): void {
   // AC-4/AC-6: phase transitions AND in-phase body growth update
   // widgets + footer on every streamed text fragment. Re-render on
   // any change, not only on phase advancement, so the active widget
-  // reflects streamed body content as it arrives (Sage CodeQuality
+  // reflects streamed body content as it arrives (Sage R1 CodeQuality
   // suggestion).
   (pi as unknown as { on?: (event: string, handler: (event: unknown, ctx: unknown) => void | Promise<void>) => void }).on?.(
     "message_update",
     (event, ctx) => {
-      const text = String(
-        (event as { delta?: unknown; text?: unknown; content?: unknown }).delta ??
-          (event as { text?: unknown }).text ??
-          (event as { content?: unknown }).content ??
-          "",
-      );
+      const e = event as { delta?: unknown; text?: unknown; content?: unknown };
+      // Distinguish a streamed delta (newline-terminated fragment) from
+      // a whole-message payload (text/content). Whole messages must be
+      // flushed so the final unterminated line is ingested (Sage R2
+      // CodeQuality important).
+      const isDelta = typeof e.delta === "string";
+      const text = String(e.delta ?? e.text ?? e.content ?? "");
       if (!text) return;
-      const { run, changed } = ingestStream(text, defaultRunId());
+      const { run, changed } = ingestStream(text, defaultRunId(), { flush: !isDelta });
       if (changed) renderAllPhases(pi, ctx, run);
     },
   );

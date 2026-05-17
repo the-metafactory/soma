@@ -51,6 +51,29 @@ describe("renderSomaAlgorithmExtension", () => {
     expect(source).toContain("TODO(#43 follow-up)");
   });
 
+  test("ingest path caps per-phase body to keep memory bounded (Sage R2 perf)", () => {
+    const source = renderSomaAlgorithmExtension();
+
+    // The cap constant + the splice path are both present in the
+    // rendered source. We deliberately assert on shape rather than
+    // running the rendered code — that's reserved for the deferred
+    // live-e2e AC (#43 AC-12 follow-up).
+    expect(source).toContain("PHASE_BODY_LINE_CAP");
+    expect(source).toContain("active.body.splice(0, overflow)");
+    expect(source).toContain("PHASE_BODY_TRUNCATION_LINE");
+  });
+
+  test("ingest path flushes the carry for whole-message payloads (Sage R2 codequality)", () => {
+    const source = renderSomaAlgorithmExtension();
+
+    // Whole-message text/content payloads must be flushed so the final
+    // unterminated line is parsed. Delta-only loop dropped it before
+    // this fix.
+    expect(source).toContain("flush?: boolean");
+    expect(source).toContain('isDelta = typeof e.delta === "string"');
+    expect(source).toContain("flush: !isDelta");
+  });
+
   test("/algorithm primer emits canonical heavy-line markers the parser recognizes", () => {
     // Sage CodeQuality important: the primer must use the EXACT marker
     // format that parseAlgorithmPhaseMarkers accepts; otherwise a model
