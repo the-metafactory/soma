@@ -1,10 +1,47 @@
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
 import type { SomaAdapter, SomaContextBundle, SomaContextInput, SomaTask } from "../../types";
 import { defaultSomaRepoPath } from "../../repo-path";
+import { resolveBunExecutable } from "../../bun-probe";
 import { readCodexHookAsset } from "./hooks/assets";
-import { renderCodexLifecycleHook } from "./hooks/runtime";
 import { renderFeedbackHookModule } from "../shared/feedback-helper";
 import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "../shared";
 import { activeIsaBundleFile } from "../../adapter-active-isa";
+import { somaPolicyPrivateMarkers } from "../../policy";
+import { somaMemoryPrivateRoots, somaProjectionPrivateRoots } from "../../projection-private-roots";
+
+/**
+ * Compute the runtime config the soma-lifecycle.mjs hook reads at
+ * startup from a colocated soma-lifecycle.config.json. Replaces the
+ * previous install-time string-template in `renderCodexLifecycleHook`
+ * (deleted in soma#73). bunPath stays in the config (not eliminated
+ * via the shebang) because child spawns rely on a stable explicit
+ * binary path for detached-survival on Bun/macOS.
+ */
+function codexLifecycleConfig(somaHome: string, homeDir?: string, somaRepoPath = defaultSomaRepoPath()): {
+  somaHome: string;
+  trustedSomaRepo: string;
+  bunPath: string;
+  privateRoots: string[];
+  policyMarkers: string[];
+} {
+  const home = resolve(homeDir ?? homedir());
+  const privateRoots = [
+    ...somaProjectionPrivateRoots({ homeDir, substrate: "codex" }),
+    ...somaMemoryPrivateRoots({ homeDir, substrate: "codex" }),
+    join(home, ".claude", "memory"),
+    join(home, ".claude", "memories"),
+    join(home, ".claude", "PAI", "MEMORY"),
+  ].map((path) => resolve(path));
+  const policyMarkers = somaPolicyPrivateMarkers(somaHome, homeDir, privateRoots);
+  return {
+    somaHome,
+    trustedSomaRepo: somaRepoPath,
+    bunPath: resolveBunExecutable(),
+    privateRoots,
+    policyMarkers,
+  };
+}
 
 function renderCodexPolicy(): string {
   return renderPolicyProjection("codex", ["Filesystem sandbox and approval model when Codex exposes it"], [
@@ -318,6 +355,12 @@ function renderCodexFeedbackHook(): string {
     functionName: "runSomaFeedbackCapture",
     leadingParameters: ["config"],
     promptParameter: "prompt",
+    // soma#73: bunPath still lives in config (now in
+    // soma-lifecycle.config.json rather than embedded by code-gen).
+    // We tried process.execPath but discovered the feedback child
+    // gets killed when the bun parent process.exit()s — keeping an
+    // explicit known-good bun binary path is more reliable for
+    // detached-survival on macOS/Bun than process.execPath.
     bunPathExpression: "config.bunPath",
     cwdExpression: "config.trustedSomaRepo",
     somaHomeExpression: "config.somaHome",
@@ -410,9 +453,18 @@ export function buildCodexHomeContext(input: SomaContextInput, somaHome: string,
         path: "hooks.json",
         content: renderCodexHooksJson(),
       },
+      // soma#73: soma-lifecycle.mjs ships verbatim under `#!/usr/bin/env bun`;
+      // install-time config lives in soma-lifecycle.config.json beside it.
+      // executable:true is mandatory — Codex execs the hook via its
+      // shebang (sage r2 finding on PR #75).
       {
         path: "hooks/soma-lifecycle.mjs",
-        content: renderCodexLifecycleHook(somaHome, homeDir, somaRepoPath),
+        content: readCodexHookAsset("soma-lifecycle.mjs"),
+        executable: true,
+      },
+      {
+        path: "hooks/soma-lifecycle.config.json",
+        content: `${JSON.stringify(codexLifecycleConfig(somaHome, homeDir, somaRepoPath), null, 2)}\n`,
       },
       {
         path: "hooks/codex-hook-entry.mjs",
