@@ -296,7 +296,7 @@ function parseSections(body: string): readonly IsaSection[] {
   let currentContent: string[] = [];
 
   for (const line of lines) {
-    const match = /^## (.+)$/.exec(line);
+    const match = /^##\s+(.+?)\s*$/.exec(line);
     if (match) {
       if (currentName !== null) {
         sections.push({ name: currentName, content: stripBlock(currentContent) });

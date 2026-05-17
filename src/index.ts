@@ -251,6 +251,17 @@ export {
   type SetActiveIsaResult,
   type WriteIsaResult,
 } from "./isa";
+export {
+  canonicalIsaSectionsForReconcile,
+  defaultIsaReconcileConfigPath,
+  reconcileIsa,
+  reconcileIsaArtifacts,
+  type IsaConflictPolicy,
+  type IsaReconcileConflict,
+  type IsaReconcileReport,
+  type IsaReconcileResult,
+  type ReconcileIsaOptions,
+} from "./isa-reconcile";
 export { type CompletenessGap, type CompletenessReport } from "./isa-schema";
 
 export const SOMA_VERSION = "0.1.3";
