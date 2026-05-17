@@ -209,7 +209,13 @@ export { promoteAlgorithmRunMemory } from "./memory-promotion";
 export { importPaiIdentity, planPaiImport } from "./pai-importer";
 export { importPaiPack, planPaiPackImport } from "./pai-pack-importer";
 export { importPaiDocs, planPaiDocsImport } from "./pai-docs-importer";
-// PAI → Soma migration orchestrator (#28 minimal scope).
+// PAI MEMORY → Soma memory translator (#90) is intentionally NOT
+// re-exported from the package root — it is an internal phase of
+// `migratePai` and its public boundary is not yet stable (Sage r2
+// #95 Architecture finding). Tests that need direct access import
+// from `./pai-memory-migrator` explicitly.
+// PAI → Soma migration orchestrator (#28 minimal scope, extended
+// for full migrate in #90).
 export {
   migratePai,
   planPaiMigration,

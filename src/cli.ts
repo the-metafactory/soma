@@ -292,7 +292,7 @@ const TOP_LEVEL_COMMANDS = [
 ] as const;
 
 const MIGRATE_PAI_USAGE =
-  "Usage: soma migrate pai [--dry-run] [--apply] [--status] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>] [--pai-pack-dir <dir>]";
+  "Usage: soma migrate pai [--dry-run] [--apply] [--status] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>] [--pai-install <dir>] [--pai-source-dir <dir>] [--pai-packs-dir <dir>] [--pai-pack-dir <dir>] [--skip-memory] [--skip-skills] [--skip-docs] [--overwrite-reserved]";
 const ADOPT_CLAUDE_USAGE =
   "Usage: soma adopt claude [--dry-run] [--apply] [--uninstall] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
 const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string, string> }> = {
@@ -1488,13 +1488,43 @@ function parseMigrateArgs(args: string[]): ParsedMigrateArgs {
         options.claudeHome = readOption(rest, index, arg);
         index += 1;
         break;
+      // #90 — `--pai-install` is the principal-facing alias for
+      // `--claude-home`. Both target the same option field; the alias
+      // exists because the issue body specifies `--pai-install` as the
+      // canonical flag for the full-migrate surface.
+      case "--pai-install":
+        options.claudeHome = readOption(rest, index, arg);
+        index += 1;
+        break;
       case "--soma-home":
         options.somaHome = readOption(rest, index, arg);
         index += 1;
         break;
       case "--pai-pack-dir":
+        // #28 back-compat — explicit per-pack paths (one flag per pack).
         packPaths.push(readOption(rest, index, arg));
         index += 1;
+        break;
+      case "--pai-packs-dir":
+        // #90 — single directory of many packs.
+        options.paiPacksDir = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--pai-source-dir":
+        options.paiSourceDir = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--skip-memory":
+        options.skipMemory = true;
+        break;
+      case "--skip-skills":
+        options.skipSkills = true;
+        break;
+      case "--skip-docs":
+        options.skipDocs = true;
+        break;
+      case "--overwrite-reserved":
+        options.overwriteReserved = true;
         break;
       default:
         throw new Error(`Unknown option: ${arg}`);
@@ -1668,6 +1698,14 @@ function formatPaiMigrationPlan(plan: PaiMigrationPlan): string {
   const algorithmLine = plan.algorithm
     ? `  - algorithm: ${plan.algorithm.sourceFiles.length} source file(s)`
     : "  - algorithm: not present";
+  const memoryLine = plan.memory === null
+    ? "  - memory:   skipped"
+    : plan.memory.memoryDir === null
+      ? "  - memory:   no PAI MEMORY tree present"
+      : `  - memory:   ${plan.memory.files.length} file(s) to translate`;
+  const docsLine = plan.docs === null
+    ? "  - docs:     skipped (pass --pai-source-dir to enable)"
+    : `  - docs:     ${plan.docs.files.length} file(s) from ${plan.docs.releaseVersion ?? "(no version)"}`;
   return [
     "soma migrate pai — plan (dry-run; pass --apply to execute)",
     "",
@@ -1678,12 +1716,22 @@ function formatPaiMigrationPlan(plan: PaiMigrationPlan): string {
     "Categories:",
     `  - identity: ${plan.identity.sourceFiles.length} source file(s)`,
     algorithmLine,
+    memoryLine,
+    docsLine,
     `  - packs:    ${plan.packs.length} discovered`,
     "",
   ].join("\n");
 }
 
 function formatPaiMigrationResult(result: PaiMigrationResult): string {
+  const memoryLine = result.memory === null
+    ? "  - memory:   skipped"
+    : result.memory.memoryDir === null
+      ? "  - memory:   no PAI MEMORY tree present"
+      : `  - memory:   ${result.memory.writtenCount} written, ${result.memory.skippedCount} unchanged`;
+  const docsLine = result.docs === null
+    ? "  - docs:     skipped"
+    : `  - docs:     ${result.docs.writtenCount} written, ${result.docs.files.length - result.docs.writtenCount} unchanged`;
   return [
     "soma migrate pai — applied",
     "",
@@ -1694,6 +1742,8 @@ function formatPaiMigrationResult(result: PaiMigrationResult): string {
     "Written:",
     `  - identity: ${result.identity.files.length} file(s)`,
     result.algorithm ? `  - algorithm: ${result.algorithm.files.length} file(s)` : "  - algorithm: skipped (not present)",
+    memoryLine,
+    docsLine,
     `  - packs:    ${result.packs.length} pack(s), ${result.packs.reduce((sum, p) => sum + p.files.length, 0)} file(s)`,
     "",
     `Total files written: ${result.filesWritten.length}`,

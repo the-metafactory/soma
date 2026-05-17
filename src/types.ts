@@ -586,6 +586,84 @@ export interface PaiDocsImportResult {
   files: string[];
 }
 
+// soma migrate pai memory phase (#90) — translates
+// <claudeHome>/PAI/MEMORY/* → <somaHome>/memory/* per DD-2's 1:1
+// canonical mapping. Content-preserving; preserves mtimes; per-file
+// SHA recorded in <somaHome>/imports/pai-migration/.manifest.json.
+export interface PaiMemoryMigrationOptions {
+  homeDir?: string;
+  claudeHome?: string;
+  somaHome?: string;
+}
+
+export interface PaiMemoryMigrationFile {
+  // Absolute path of the file inside the PAI MEMORY tree.
+  source: string;
+  // Absolute path the file will land at under <somaHome>/memory/.
+  target: string;
+  // POSIX-style path relative to <claudeHome>/PAI/MEMORY/ — i.e.
+  // "<CATEGORY>/<rest>". Manifest key.
+  relativePath: string;
+  // Source mtime preserved on the target file. Recorded in the
+  // manifest so idempotency checks need only one stat per file.
+  mtimeMs: number;
+  // SHA-256 of the source bytes, hex-encoded. Always populated on the
+  // apply path; optional in dry-run plans so plan-only callers do not
+  // pay the read cost for every file.
+  sha256?: string;
+}
+
+export interface PaiMemoryMigrationPlan {
+  apply: boolean;
+  claudeHome: string;
+  somaHome: string;
+  // Absolute path of the source directory under inspection
+  // (<claudeHome>/PAI/MEMORY/). Null when the PAI install has no
+  // MEMORY tree to migrate (nothing to do).
+  memoryDir: string | null;
+  files: PaiMemoryMigrationFile[];
+}
+
+export interface PaiMemoryMigrationResult {
+  claudeHome: string;
+  somaHome: string;
+  memoryDir: string | null;
+  importedAt: string;
+  // Files actually copied this run (skipped-by-SHA files do not count).
+  writtenCount: number;
+  // Files inspected and confirmed already in sync (target SHA matched).
+  skippedCount: number;
+  unchanged: boolean;
+  manifestPath: string;
+  // Absolute target paths for every in-scope file (whether written or
+  // skipped). Always matches `plan.files.length` on the apply path.
+  files: string[];
+  // Subset of `files` that were actually copied this run. Sage r2 #95
+  // important: callers that want a per-run "files I touched" list
+  // (e.g., the orchestrator's `filesWritten` log) must use this
+  // instead of `files`, which over-reports on idempotent reruns.
+  writtenTargets: string[];
+}
+
+export interface PaiMemoryMigrationManifestFile {
+  // Manifest key. POSIX-style path relative to <claudeHome>/PAI/MEMORY/.
+  relativePath: string;
+  // POSIX-style path relative to <somaHome>/memory/ (the target home).
+  target: string;
+  sha256: string;
+  mtimeMs: number;
+}
+
+export interface PaiMemoryMigrationManifest {
+  schema: "soma.pai-memory-migration.v1";
+  claudeHome: string;
+  somaHome: string;
+  // ISO-8601 timestamp of the last successful migration. Stable across
+  // reruns when nothing changed.
+  importedAt: string;
+  files: PaiMemoryMigrationManifestFile[];
+}
+
 export interface SomaMemoryEventInput {
   id?: string;
   timestamp?: string;
