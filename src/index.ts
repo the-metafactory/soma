@@ -252,8 +252,6 @@ export {
   type WriteIsaResult,
 } from "./isa";
 export {
-  canonicalIsaSectionsForReconcile,
-  defaultIsaReconcileConfigPath,
   reconcileIsa,
   reconcileIsaArtifacts,
   type IsaConflictPolicy,

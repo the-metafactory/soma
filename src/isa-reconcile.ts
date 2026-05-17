@@ -2,7 +2,6 @@ import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import {
   SECTION_NAME_MAP,
-  TWELVE_SECTIONS,
   getChangelog,
   getCriteria,
   getDecisions,
@@ -316,6 +315,7 @@ function mergeLogSection(master: IdealStateArtifact, feature: IdealStateArtifact
   const existing = new Set(masterEntries.map(logIdentity));
   const timestampPhase = new Map(masterEntries.map((entry) => [logTimestampPhase(entry), entry.text]));
   const next = [...masterEntries];
+  let appended = false;
 
   for (const entry of featureEntries) {
     if (existing.has(logIdentity(entry))) continue;
@@ -333,7 +333,9 @@ function mergeLogSection(master: IdealStateArtifact, feature: IdealStateArtifact
     existing.add(logIdentity(entry));
     timestampPhase.set(key, entry.text);
     report.mergedLogs.push(`${sectionName}:${entry.timestamp}`);
+    appended = true;
   }
+  if (!appended) return master;
   return setSection(master, sectionName, renderLogEntries(next));
 }
 
@@ -478,10 +480,6 @@ async function emitReconcileEvent(
   });
 }
 
-export function defaultIsaReconcileConfigPath(somaHome: string): string {
+function defaultIsaReconcileConfigPath(somaHome: string): string {
   return join(somaHome, "isa", "config.json");
-}
-
-export function canonicalIsaSectionsForReconcile(): readonly string[] {
-  return TWELVE_SECTIONS;
 }

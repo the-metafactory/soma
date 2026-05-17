@@ -72,6 +72,16 @@ test("AC-4 property: no-op reconcile ignores timestamp-only changes", () => {
   expect(result.report.changed).toBe(false);
 });
 
+test("AC-4 property: no-op reconcile preserves existing log sections", () => {
+  const entry = { timestamp: "2026-05-17T00:00:00.000Z", phase: "plan", text: "Keep exact log" } as const;
+  const master = buildIsa("demo", [criterion("ISC-1", "open")], {
+    [SECTION_NAME_MAP.decisions]: decisions(entry),
+  });
+  const result = reconcileIsaArtifacts(master, master);
+  expect(serializeIsa(result.isa)).toBe(serializeIsa(master));
+  expect(result.report.changed).toBe(false);
+});
+
 test("AC-5 property: reconcile is idempotent for the same feature", () => {
   const master = buildIsa("demo", [criterion("ISC-1", "open")]);
   const feature = buildIsa("demo", [criterion("ISC-1", "passed", "ISC-1 works", "bun test passed"), criterion("ISC-2", "open")], {
