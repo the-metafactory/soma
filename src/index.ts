@@ -171,6 +171,9 @@ export {
   planSomaForClaudeCodeInstall,
   planSomaForCodexInstall,
   planSomaForPiDevInstall,
+  uninstallSomaForClaudeCode,
+  type UninstallSomaOptions,
+  type UninstallSomaResult,
 } from "./install";
 // Adapter active-ISA projection helpers (#37).
 export {

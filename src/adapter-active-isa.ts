@@ -55,7 +55,10 @@ export function renderActiveIsaFile(isa: IdealStateArtifact): string {
  * |--------------|-----------------------------------|
  * | codex        | memories/soma/active-isa.md       |
  * | pi-dev       | agent/soma/active-isa.md          |
- * | claude-code  | PAI/ACTIVE_ISA.md                 |
+ * | claude-code  | rules/soma/ACTIVE_ISA.md          |
+ *
+ * The Claude Code path moved from `PAI/ACTIVE_ISA.md` (the original
+ * #37 spec) to `rules/soma/ACTIVE_ISA.md` per the soma#64 pivot (#29).
  *
  * Throws on unsupported substrates so a new substrate must be added
  * here explicitly rather than silently picking a default.
@@ -67,7 +70,7 @@ export function activeIsaProjectionPath(substrate: SubstrateId): string {
     case "pi-dev":
       return "agent/soma/active-isa.md";
     case "claude-code":
-      return "PAI/ACTIVE_ISA.md";
+      return "rules/soma/ACTIVE_ISA.md";
     case "cortex":
     case "custom":
       throw new Error(`activeIsaProjectionPath: unsupported substrate '${substrate}'`);

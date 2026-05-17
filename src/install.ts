@@ -69,7 +69,19 @@ const PI_DEV_HOME_FILES = [
   "agent/skills/soma/SKILL.md",
 ] as const;
 
-const CLAUDE_CODE_HOME_FILES = ["PAI/ACTIVE_ISA.md"] as const;
+// Claude Code home files written by the full #29 installer
+// (`.claude/rules/soma/`-pivot per soma#64). The skeleton is always
+// written; ACTIVE_ISA only when an active ISA is set.
+const CLAUDE_CODE_HOME_FILES = [
+  "rules/soma/README.md",
+  "rules/soma/CONTEXT.md",
+  "rules/soma/PROFILE.md",
+  "rules/soma/TELOS.md",
+  "rules/soma/MEMORY_LAYOUT.md",
+  "rules/soma/SKILLS.md",
+  "rules/soma/POLICY.md",
+  "rules/soma/ACTIVE_ISA.md",
+] as const;
 
 const SKILL_SUBPATHS: Record<InstallSubstrate, string> = {
   codex: "skills/ISA",
@@ -254,12 +266,54 @@ export async function installSomaForPiDev(options: SomaInstallOptions = {}): Pro
 }
 
 /**
- * Claude Code substrate installer (#37 minimal). Bootstraps Soma home,
+ * Claude Code substrate installer (#29). Bootstraps Soma home,
  * installs the ISA skill into `~/.claude/skills/ISA/`, and writes the
- * active-ISA projection at `~/.claude/PAI/ACTIVE_ISA.md` when one is
- * set. Full Claude Code home install lands in #29 with the
- * `.claude/rules/` pivot.
+ * full projection skeleton at `~/.claude/rules/soma/` (auto-discovered
+ * by Claude Code, per the soma#64 pivot away from `@`-imports).
+ *
+ * Out of scope (follow-up issue): hook scripts +
+ * settings.local.json patching, CLI command wiring, CLAUDE.md
+ * composition.
  */
 export async function installSomaForClaudeCode(options: SomaInstallOptions = {}): Promise<SomaInstallResult> {
   return installSomaForSubstrate("claude-code", options);
+}
+
+/**
+ * Uninstall Soma's projection from a Claude Code home (#29). Removes
+ * `<substrateHome>/rules/soma/` and `<substrateHome>/skills/ISA/`
+ * entirely. Returns the list of paths actually removed (empty when
+ * Soma was never installed). Never touches files outside those two
+ * directories — by construction, those are the only paths the
+ * installer writes.
+ */
+export interface UninstallSomaOptions {
+  homeDir?: string;
+  substrateHome?: string;
+}
+
+export interface UninstallSomaResult {
+  substrate: "claude-code";
+  substrateHome: string;
+  removed: string[];
+}
+
+export async function uninstallSomaForClaudeCode(
+  options: UninstallSomaOptions = {},
+): Promise<UninstallSomaResult> {
+  const resolvedHomeDir = resolve(options.homeDir ?? homedir());
+  const substrateHome = resolve(options.substrateHome ?? join(resolvedHomeDir, DEFAULT_SUBSTRATE_HOMES["claude-code"]));
+  const targets = [join(substrateHome, "rules/soma"), join(substrateHome, "skills/ISA")];
+  const { rm, stat } = await import("node:fs/promises");
+  const removed: string[] = [];
+  for (const target of targets) {
+    try {
+      await stat(target);
+      await rm(target, { recursive: true, force: true });
+      removed.push(target);
+    } catch {
+      // Path didn't exist — skip silently. Uninstall is idempotent.
+    }
+  }
+  return { substrate: "claude-code", substrateHome, removed };
 }

@@ -90,18 +90,116 @@ export function buildClaudeCodeContext(input: SomaContextInput): SomaContextBund
   };
 }
 
+function renderClaudeRulesReadme(): string {
+  return [
+    "# Soma Claude Code Projection",
+    "",
+    "This directory is **generated** by Soma. The portable source of truth is `~/.soma/`.",
+    "",
+    "Claude Code auto-discovers files under `.claude/rules/` and loads them as session context. Per the architectural pivot recorded in soma issue #64, Soma writes here instead of relying on home-directory `@`-imports from `~/.claude/CLAUDE.md` (which fail silently in some Claude Code versions).",
+    "",
+    "## What lives here",
+    "",
+    "- `CONTEXT.md` — assistant identity, principal, telos, operating rules",
+    "- `PROFILE.md` — assistant + principal profile detail",
+    "- `TELOS.md` — mission, goals, principles, commitments",
+    "- `MEMORY_LAYOUT.md` — pointers into the soma memory tree",
+    "- `SKILLS.md` — discovered Soma skills",
+    "- `POLICY.md` — substrate policy projection",
+    "- `ACTIVE_ISA.md` — current active ISA (omitted when none set)",
+    "",
+    "## Lifecycle",
+    "",
+    "- Re-projected by `soma install claude-code`.",
+    "- Removed cleanly by `soma uninstall claude-code` (untouched: anything outside `soma/`).",
+    "- Idempotent: re-running install with no source changes writes the same bytes.",
+    "",
+    "## Do not edit by hand",
+    "",
+    "Manual edits are overwritten on the next install. Author changes in `~/.soma/` and re-project.",
+  ].join("\n");
+}
+
+function renderClaudeRulesContext(input: SomaContextInput): string {
+  return [
+    "# Soma Context (Claude Code)",
+    "",
+    renderInstructions(input),
+  ].join("\n");
+}
+
+function renderClaudeProfile(input: SomaContextInput): string {
+  return ["# Soma Profile Projection", "", renderAssistantCore(input)].join("\n");
+}
+
+function renderClaudeTelos(input: SomaContextInput): string {
+  const t = input.profile.telos;
+  return [
+    "# Soma Telos Projection",
+    "",
+    t.mission ? `## Mission\n\n${t.mission}` : "## Mission\n\nNone declared.",
+    "",
+    "## Goals",
+    "",
+    t.goals.length === 0 ? "- None declared" : t.goals.map((g) => `- ${g}`).join("\n"),
+    "",
+    "## Principles",
+    "",
+    t.principles.length === 0 ? "- None declared" : t.principles.map((p) => `- ${p}`).join("\n"),
+    "",
+    "## Commitments",
+    "",
+    t.commitments.length === 0 ? "- None declared" : t.commitments.map((c) => `- ${c}`).join("\n"),
+  ].join("\n");
+}
+
+function renderClaudePolicy(): string {
+  return renderPolicyProjection(
+    "claude-code",
+    ["Hooks when installed (deferred to follow-up)", "Claude Code permission prompts"],
+    [
+      "Prompt-level behavior constraints",
+      "Verification reporting when hooks are absent",
+      "Treat the active ISA as the verification contract",
+    ],
+  );
+}
+
 /**
- * Claude Code home projection (#37 minimal — full home install lands
- * in #29 with the `.claude/rules/` pivot). For now we only project
- * the active ISA at `~/.claude/PAI/ACTIVE_ISA.md` per the #37 spec
- * table. When no active ISA is set the bundle has zero files (callers
- * skip the writer).
+ * Claude Code home projection (#29). Writes the Soma context under
+ * `.claude/rules/soma/` so Claude Code's auto-discovery picks it up
+ * without depending on home `@`-import behavior (see soma#64 for the
+ * architectural rationale).
+ *
+ * The bundle is shape-stable: the same input always produces the same
+ * file set in the same order, so a second install with unchanged
+ * input writes byte-identical content (AC-4 idempotency).
+ *
+ * Out of scope for #29 (filed as follow-up):
+ *   - Hook scripts (.claude/hooks/soma-*.mjs) + settings.local.json
+ *     patching: AC-6/AC-7/AC-8/AC-12 from the original #29 spec.
+ *   - CLI command (`soma install claude-code`): AC-9 — depends on
+ *     the CLI surface refactor in #30 split.
+ *   - Active CLAUDE.md modification: dropped by the #64 pivot.
  */
 export function buildClaudeCodeHomeContext(input: SomaContextInput): SomaContextBundle {
   return {
     substrate: "claude-code",
     instructions: renderInstructions(input),
-    files: activeIsaBundleFile("claude-code", input.activeIsa),
+    files: [
+      // Paths relative to substrate home (~/.claude/).
+      { path: "rules/soma/README.md", content: renderClaudeRulesReadme() },
+      { path: "rules/soma/CONTEXT.md", content: renderClaudeRulesContext(input) },
+      { path: "rules/soma/PROFILE.md", content: renderClaudeProfile(input) },
+      { path: "rules/soma/TELOS.md", content: renderClaudeTelos(input) },
+      { path: "rules/soma/MEMORY_LAYOUT.md", content: renderMemoryLayout(input) },
+      { path: "rules/soma/SKILLS.md", content: renderSkills(input) },
+      { path: "rules/soma/POLICY.md", content: renderClaudePolicy() },
+      // Active ISA — omitted when no active ISA set (preserves #37 AC-2).
+      // activeIsaBundleFile uses activeIsaProjectionPath("claude-code")
+      // which post-#29-pivot returns "rules/soma/ACTIVE_ISA.md".
+      ...activeIsaBundleFile("claude-code", input.activeIsa),
+    ],
   };
 }
 
