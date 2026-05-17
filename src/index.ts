@@ -222,8 +222,12 @@ export { importPaiDocs, planPaiDocsImport } from "./pai-docs-importer";
 // from `./pai-memory-migrator` explicitly.
 // PAI → Soma migration orchestrator (#28 minimal scope, extended
 // for full migrate in #90).
+// Sage r2 #99 Architecture: `formatPackOutcomeLines` is a presentation
+// helper for the CLI summary and `MIGRATION.md` body. Keeping it out
+// of the package's public API leaves us free to revise the text shape
+// without an SDK breakage. Internal callers in `src/cli.ts` import it
+// directly from `./pai-migration`.
 export {
-  formatPackOutcomeLines,
   migratePai,
   planPaiMigration,
   type PaiMigrationOptions,

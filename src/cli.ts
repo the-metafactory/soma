@@ -12,7 +12,6 @@ import {
   importPaiDocs,
   importPaiIdentity,
   importPaiPack,
-  formatPackOutcomeLines,
   migratePai,
   planPaiMigration,
   type PaiMigrationOptions,
@@ -51,6 +50,10 @@ import {
   verifyAlgorithmCriterion,
   writeAlgorithmRun,
 } from "./index";
+// Sage r2 #99 Architecture: presentation helper imported directly
+// (not re-exported from the package root) so the text-rendering shape
+// stays internal and revisable without an SDK breakage.
+import { formatPackOutcomeLines } from "./pai-migration";
 import type {
   AlgorithmEffortTier,
   AlgorithmBatchOperation,

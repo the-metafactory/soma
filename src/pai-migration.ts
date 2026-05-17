@@ -308,11 +308,22 @@ interface BulkImportResult {
 async function importPacksWithOutcomes(
   inputs: BulkImportInputs,
 ): Promise<BulkImportResult> {
+  // Sage r2 #99 Performance: per-pack work is mostly I/O (small file
+  // reads + a directory copy); bounded concurrency mirrors the
+  // pre-#97 4-wide fan-out and the planner / fingerprint passes.
+  // `importOnePackWithOutcome` swallows its own per-pack errors into
+  // `outcome.outcome === "refused-other"`, so the helper is
+  // guaranteed to settle — `runBoundedConcurrent`'s "first error
+  // wins" abort contract never fires for legitimate pack failures.
+  const results = await runBoundedConcurrent(
+    [...inputs.packPaths],
+    (paiPackDir) => importOnePackWithOutcome(inputs, paiPackDir),
+    4,
+  );
+
   const packs: PaiPackImportResult[] = [];
   const outcomes: PaiPackOutcome[] = [];
-
-  for (const paiPackDir of inputs.packPaths) {
-    const { pack, outcome } = await importOnePackWithOutcome(inputs, paiPackDir);
+  for (const { pack, outcome } of results) {
     if (pack) packs.push(pack);
     outcomes.push(outcome);
   }
