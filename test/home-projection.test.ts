@@ -9,7 +9,6 @@ import {
   installPiDevHomeProjection,
   resolveHomeProjectionPaths,
 } from "../src/index";
-import { renderCodexLifecycleHook } from "../src/adapters/codex/hooks/runtime";
 import { portableContextInput } from "./fixtures";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
@@ -59,6 +58,7 @@ test("builds codex home projection bundle for default availability", () => {
     "rules/soma.rules",
     "hooks.json",
     "hooks/soma-lifecycle.mjs",
+    "hooks/soma-lifecycle.config.json",
     "hooks/codex-hook-entry.mjs",
     "hooks/soma-feedback-capture.mjs",
     "hooks/codex-policy-hook.mjs",
@@ -75,7 +75,9 @@ test("builds codex home projection bundle for default availability", () => {
   ]);
   expect(projection.bundle.instructions).toContain("Soma default availability");
   expect(projection.bundle.instructions).toContain("/tmp/soma-test-home/.soma");
-  expect(projection.bundle.files.find((file) => file.path === "hooks/soma-lifecycle.mjs")?.content).toContain("policyMarkers");
+  // soma#73: lifecycle hook is shipped verbatim, config lives in colocated JSON.
+  expect(projection.bundle.files.find((file) => file.path === "hooks/soma-lifecycle.mjs")?.content).toContain("#!/usr/bin/env bun");
+  expect(projection.bundle.files.find((file) => file.path === "hooks/soma-lifecycle.config.json")?.content).toContain("policyMarkers");
   expect(projection.bundle.files.find((file) => file.path === "hooks/codex-hook-entry.mjs")?.content).toContain("runSomaPolicyCheck");
   expect(projection.bundle.files.find((file) => file.path === "hooks/codex-hook-entry.mjs")?.content).toContain('"./codex-policy-hook.mjs"');
   expect(projection.bundle.files.find((file) => file.path === "hooks/codex-hook-entry.mjs")?.content).toContain(
@@ -100,11 +102,24 @@ test("builds codex home projection bundle for default availability", () => {
   );
 });
 
-test("renders codex lifecycle hook with an explicit Bun executable", () => {
-  const hook = renderCodexLifecycleHook("/tmp/soma-test-home/.soma", "/tmp/soma-test-home", "/tmp/soma-repo", "/opt/homebrew/bin/bun");
-
-  expect(hook).toContain('bunPath: "/opt/homebrew/bin/bun"');
-  expect(hook).not.toContain("process.execPath");
+test("soma#73: codex lifecycle hook ships verbatim with bun shebang + colocated config", () => {
+  const projection = buildCodexHomeProjection(portableContextInput, { homeDir: "/tmp/soma-test-home" });
+  const hook = projection.bundle.files.find((f) => f.path === "hooks/soma-lifecycle.mjs");
+  const config = projection.bundle.files.find((f) => f.path === "hooks/soma-lifecycle.config.json");
+  expect(hook).toBeDefined();
+  expect(config).toBeDefined();
+  expect(hook!.content).toContain("#!/usr/bin/env bun");
+  expect(hook!.content).toContain("soma-lifecycle.config.json");
+  expect(hook!.content).not.toContain("bunPath");
+  // No install-time template markers left in the rendered hook.
+  expect(hook!.content).not.toContain("__SOMA_");
+  // Config has the install-time fields the hook will read at runtime.
+  const parsed = JSON.parse(config!.content) as Record<string, unknown>;
+  expect(parsed.somaHome).toBe("/tmp/soma-test-home/.soma");
+  expect(parsed.trustedSomaRepo).toBeDefined();
+  expect(parsed.bunPath).toBeDefined();
+  expect(Array.isArray(parsed.privateRoots)).toBe(true);
+  expect(Array.isArray(parsed.policyMarkers)).toBe(true);
 });
 
 test("builds pi.dev home projection bundle for default availability", () => {
@@ -145,7 +160,7 @@ test("installs codex home projection into a substrate home", async () => {
 
     expect(result.substrate).toBe("codex");
     expect(result.rootDir).toBe(join(homeDir, ".codex"));
-    expect(result.files).toHaveLength(16);
+    expect(result.files).toHaveLength(17);
 
     const rules = await readFile(join(homeDir, ".codex/rules/soma.rules"), "utf8");
     const hooks = await readFile(join(homeDir, ".codex/hooks.json"), "utf8");
@@ -163,10 +178,17 @@ test("installs codex home projection into a substrate home", async () => {
     expect(hooks).toContain("SessionStart");
     expect(hooks).toContain("UserPromptSubmit");
     expect(hooks).toContain("PreToolUse");
+    // soma#73: hookScript ships verbatim with bun shebang; runtime config in JSON.
+    expect(hookScript).toContain("#!/usr/bin/env bun");
     expect(hookScript).toContain("runCodexHook");
-    expect(hookScript).toContain("trustedSomaRepo");
-    expect(hookScript).toContain("policyMarkers");
-    expect(hookScript).toContain("bunPath");
+    expect(hookScript).toContain("soma-lifecycle.config.json");
+    expect(hookScript).not.toContain("bunPath");
+    const hookConfig = JSON.parse(
+      await readFile(join(homeDir, ".codex/hooks/soma-lifecycle.config.json"), "utf8"),
+    ) as Record<string, unknown>;
+    expect(hookConfig.somaHome).toBe(join(homeDir, ".soma"));
+    expect(Array.isArray(hookConfig.privateRoots)).toBe(true);
+    expect(Array.isArray(hookConfig.policyMarkers)).toBe(true);
     expect(hookEntry).toContain('"./soma-feedback-capture.mjs"');
     expect(feedbackHook).toContain("--stdin");
     expect(feedbackHook).not.toContain("__SOMA_FEEDBACK_TRIGGER_PATTERN_SOURCE__");

@@ -34,6 +34,7 @@ const CODEX_HOME_FILES = [
   "rules/soma.rules",
   "hooks.json",
   "hooks/soma-lifecycle.mjs",
+  "hooks/soma-lifecycle.config.json",
   "hooks/codex-hook-entry.mjs",
   "hooks/soma-feedback-capture.mjs",
   "hooks/codex-policy-hook.mjs",
@@ -99,6 +100,31 @@ function resolveSubstrateSkillDir(substrate: InstallSubstrate, substrateHome: st
   return resolve(substrateHome, SKILL_SUBPATHS[substrate]);
 }
 
+/**
+ * soma#73: every substrate hook runs under Bun. Probe `which bun` and
+ * fail loud + with remediation when absent. Running under Bun is the
+ * common case (soma's own CLI runs in bun), but installs initiated
+ * from non-bun runners (e.g. CI exec'ing the bundled binary) need the
+ * explicit check.
+ */
+async function requireBunInPath(): Promise<void> {
+  // Fast-path: when soma itself is running under Bun, bun is by
+  // definition resolvable.
+  if ((process.versions as Record<string, string | undefined>).bun) return;
+  const { spawnSync } = await import("node:child_process");
+  const which = spawnSync("which", ["bun"], { encoding: "utf8" });
+  const resolved = which.status === 0 ? which.stdout.trim().split("\n")[0] : "";
+  if (resolved) return;
+  throw new Error(
+    [
+      "soma adopt: Bun not found in PATH.",
+      "",
+      "Every substrate hook installed by soma runs under Bun (see soma#73).",
+      "Install Bun (https://bun.sh) and re-run, or set PATH so `which bun` resolves.",
+    ].join("\n"),
+  );
+}
+
 function planSomaInstall(
   substrate: InstallSubstrate,
   substrateFiles: readonly string[],
@@ -133,6 +159,11 @@ async function installSomaForSubstrate(
   substrate: InstallSubstrate,
   options: SomaInstallOptions = {},
 ): Promise<SomaInstallResult> {
+  // soma#73 pre-flight: every soma substrate hook now runs under Bun
+  // (#!/usr/bin/env bun shebang). The adopter rejects loud + early
+  // when bun is missing rather than producing a half-broken install
+  // that fails at hook fire time.
+  await requireBunInPath();
   const somaHome = await bootstrapSomaHome(options);
   const somaRepoPath = options.somaRepoPath ?? defaultSomaRepoPath();
   // Install ISA skill into Soma home (canonical baseline) so other
