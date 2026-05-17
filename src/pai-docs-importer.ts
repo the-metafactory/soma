@@ -199,6 +199,24 @@ async function buildPlan(options: PaiDocsImportOptions): Promise<PaiDocsImportPl
   for (const subdir of IMPORT_SUBDIRS) {
     const subdirPath = join(homes.paiSourceDir, subdir);
     if (!(await pathExists(subdirPath))) continue;
+    // Sage round 1 (Security, important): `collectFiles` lstat-checks
+    // every child entry but never its own root. Without this guard, a
+    // PAI source with `TEMPLATES/` or `ALGORITHM/` planted as a
+    // symlink would be followed and imported — violating the
+    // documented refusal for symlinks inside the source tree. Refuse
+    // here at the subtree boundary, before `collectFiles` recurses
+    // into anything.
+    const subdirStat = await lstat(subdirPath);
+    if (subdirStat.isSymbolicLink()) {
+      throw new Error(
+        `soma import pai-docs refused symlink path: ${subdir}/`,
+      );
+    }
+    if (!subdirStat.isDirectory()) {
+      throw new Error(
+        `soma import pai-docs: ${subdirPath} exists but is not a directory.`,
+      );
+    }
     const relPaths = await collectFiles(subdirPath);
     for (const rel of relPaths) {
       const source = join(subdirPath, ...rel.split("/"));
@@ -258,12 +276,16 @@ async function readExistingManifest(
 // Lexical + symlink-realpath escape guard, mirroring
 // `writeProjectionExportFile` in src/cli.ts. The realpath of the
 // resolved Soma home is computed once and reused for every file write.
-async function writeFileSafely(
+//
+// Sage round 1 (Maintainability suggestion): both write paths
+// (manifest write and source-copy) need exactly the same target-side
+// hardening. Centralizing the guard here means future tightening
+// happens in one place instead of two.
+async function prepareSafeTargetParent(
   realSomaHomeRoot: string,
   somaHomeRoot: string,
   targetAbs: string,
-  content: Buffer,
-): Promise<void> {
+): Promise<string> {
   // Lexical: the target must resolve inside somaHomeRoot before any IO.
   const resolved = resolve(targetAbs);
   if (
@@ -278,8 +300,9 @@ async function writeFileSafely(
   await mkdir(parent, { recursive: true });
   // Symlink-realpath: after mkdir, the parent's realpath must still be
   // under the soma home's realpath. A symlink anywhere on the path
-  // (e.g. somaHome/PAI/DOCUMENTATION -> ~/.ssh) would otherwise let the
-  // write land outside the home even though the lexical check passed.
+  // (e.g. somaHome/PAI/DOCUMENTATION -> ~/.ssh) would otherwise let
+  // the write land outside the home even though the lexical check
+  // passed.
   const realParent = await realpath(parent);
   if (
     realParent !== realSomaHomeRoot &&
@@ -289,6 +312,16 @@ async function writeFileSafely(
       `soma import pai-docs refused to follow a symlink that escapes Soma home (path: ${targetAbs}).`,
     );
   }
+  return resolved;
+}
+
+async function writeFileSafely(
+  realSomaHomeRoot: string,
+  somaHomeRoot: string,
+  targetAbs: string,
+  content: Buffer,
+): Promise<void> {
+  const resolved = await prepareSafeTargetParent(realSomaHomeRoot, somaHomeRoot, targetAbs);
   await writeFile(resolved, content);
 }
 
@@ -313,27 +346,7 @@ async function copyFileSafely(
       `PAI docs import refused source outside source root during apply: ${sourceAbs}`,
     );
   }
-  // Apply the same write-side guards as `writeFileSafely`.
-  const resolved = resolve(targetAbs);
-  if (
-    resolved !== somaHomeRoot &&
-    !resolved.startsWith(somaHomeRoot + sep)
-  ) {
-    throw new Error(
-      `soma import pai-docs refused to write outside Soma home (path: ${targetAbs}).`,
-    );
-  }
-  const parent = dirname(resolved);
-  await mkdir(parent, { recursive: true });
-  const realParent = await realpath(parent);
-  if (
-    realParent !== realSomaHomeRoot &&
-    !realParent.startsWith(realSomaHomeRoot + sep)
-  ) {
-    throw new Error(
-      `soma import pai-docs refused to follow a symlink that escapes Soma home (path: ${targetAbs}).`,
-    );
-  }
+  const resolved = await prepareSafeTargetParent(realSomaHomeRoot, somaHomeRoot, targetAbs);
   await copyFile(realSource, resolved);
 }
 

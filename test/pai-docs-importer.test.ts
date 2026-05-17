@@ -209,6 +209,44 @@ test("AC-4 — refuses symlink inside the source tree (escape rejection)", async
   });
 });
 
+test("AC-4 — refuses optional subtree root that is itself a symlink (Sage R1 Security)", async () => {
+  // Source-side trust boundary: collectFiles lstat-checks every child
+  // entry but never its own root. Without the per-subdir guard, a PAI
+  // source tree with TEMPLATES/ or ALGORITHM/ planted as a symlink
+  // would be followed and imported. Verify the guard at the subtree
+  // boundary refuses each in-scope subdir when it is a symlink.
+  for (const planted of ["TEMPLATES", "ALGORITHM"]) {
+    await withTempHome(async (homeDir) => {
+      const sourceDir = await writePaiSourceFixture(homeDir);
+      // Remove the real dir and replace with a symlink to a separate
+      // tree the source dir does not own.
+      await rm(join(sourceDir, planted), { recursive: true });
+      const elsewhere = join(homeDir, `${planted}-elsewhere`);
+      await mkdir(elsewhere, { recursive: true });
+      await writeFile(join(elsewhere, "smuggled.md"), "should not be imported\n", "utf8");
+      await symlink(elsewhere, join(sourceDir, planted));
+
+      await expect(
+        planPaiDocsImport({ homeDir, paiSourceDir: sourceDir }),
+      ).rejects.toThrow(new RegExp(`refused symlink path: ${planted}/`));
+    });
+  }
+});
+
+test("AC-3 — refuses required DOCUMENTATION subdir that is itself a symlink", async () => {
+  await withTempHome(async (homeDir) => {
+    const sourceDir = await writePaiSourceFixture(homeDir);
+    await rm(join(sourceDir, "DOCUMENTATION"), { recursive: true });
+    const elsewhere = join(homeDir, "doc-elsewhere");
+    await mkdir(elsewhere, { recursive: true });
+    await symlink(elsewhere, join(sourceDir, "DOCUMENTATION"));
+
+    await expect(
+      planPaiDocsImport({ homeDir, paiSourceDir: sourceDir }),
+    ).rejects.toThrow(/refused symlink path: DOCUMENTATION\/?/);
+  });
+});
+
 test("AC-4 — refuses target path that escapes Soma home via custom soma-home symlink", async () => {
   await withTempHome(async (homeDir) => {
     const sourceDir = await writePaiSourceFixture(homeDir);
