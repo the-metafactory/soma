@@ -113,6 +113,13 @@ export function reconcileIsaArtifacts(
   next = mergeLogSection(next, feature, { sectionName: SECTION_NAME_MAP.changelog, readEntries: getChangelog, policy, report });
   next = mergeLogSection(next, feature, { sectionName: SECTION_NAME_MAP.verification, readEntries: getVerification, policy, report });
   next = mergeOtherSections(next, feature, policy, report);
+  if (hasErrorConflict(report)) {
+    report.changed = false;
+    report.mergedCriteria = [];
+    report.mergedSections = [];
+    report.mergedLogs = [];
+    return { isa: master, report };
+  }
   report.changed = hasStructuralChange(master, next);
   if (report.changed && options.timestamp) {
     next = { ...next, frontmatter: { ...next.frontmatter, updated: options.timestamp } };
@@ -412,6 +419,10 @@ function addConflict(
     detail: input.detail,
   });
   return resolution;
+}
+
+function hasErrorConflict(report: IsaReconcileReport): boolean {
+  return report.conflicts.some((conflict) => conflict.resolution === "error");
 }
 
 function resolveConflict(

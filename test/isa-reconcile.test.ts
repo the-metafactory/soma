@@ -193,6 +193,16 @@ test("adversarial 9: likely section rename conflicts instead of duplicating", ()
   expect(result.isa.sections.some((s) => s.name === "Verification Criteria")).toBe(false);
 });
 
+test("error-policy conflicts return the original master artifact", () => {
+  const master = buildIsa("demo", [criterion("ISC-1", "passed", "Done", "evidence")], { Keep: "Master" });
+  const feature = buildIsa("demo", [criterion("ISC-1", "open", "Done"), criterion("ISC-2", "open")], { Added: "Feature" });
+  const result = reconcileIsaArtifacts(master, feature);
+  expect(result.report.conflicts.some((conflict) => conflict.resolution === "error")).toBe(true);
+  expect(result.report.changed).toBe(false);
+  expect(result.report.mergedCriteria).toEqual([]);
+  expect(serializeIsa(result.isa)).toBe(serializeIsa(master));
+});
+
 test("file-backed reconcile reads conflict policy from config and appends event report", async () => {
   await withSomaHome(async (homeDir) => {
     await scaffoldIsa({ homeDir, slug: "cfg", goal: "G", effort: "E1", initialCriteria: [criterion("ISC-1", "open")] });
