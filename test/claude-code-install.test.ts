@@ -112,6 +112,24 @@ test("AC-10: uninstallSomaForClaudeCode removes rules/soma/ and skills/ISA/ only
   });
 });
 
+test("uninstallSomaForClaudeCode rethrows non-ENOENT errors (sage r1)", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForClaudeCode({ homeDir });
+    // Make rules/soma read-only AND remove write+execute on the parent
+    // so rm cannot recurse into it. On a Bun/Posix runtime this surfaces
+    // a non-ENOENT error from rm (EACCES). Uninstall must NOT silently
+    // report success.
+    const { chmod } = await import("node:fs/promises");
+    const parent = join(homeDir, ".claude/rules");
+    await chmod(parent, 0o500);
+    try {
+      await expect(uninstallSomaForClaudeCode({ homeDir })).rejects.toThrow();
+    } finally {
+      await chmod(parent, 0o700);
+    }
+  });
+});
+
 test("uninstallSomaForClaudeCode is idempotent (second run = no-op, removed=[])", async () => {
   await withTempHome(async (homeDir) => {
     await installSomaForClaudeCode({ homeDir });

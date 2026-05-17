@@ -70,18 +70,10 @@ const PI_DEV_HOME_FILES = [
 ] as const;
 
 // Claude Code home files written by the full #29 installer
-// (`.claude/rules/soma/`-pivot per soma#64). The skeleton is always
-// written; ACTIVE_ISA only when an active ISA is set.
-const CLAUDE_CODE_HOME_FILES = [
-  "rules/soma/README.md",
-  "rules/soma/CONTEXT.md",
-  "rules/soma/PROFILE.md",
-  "rules/soma/TELOS.md",
-  "rules/soma/MEMORY_LAYOUT.md",
-  "rules/soma/SKILLS.md",
-  "rules/soma/POLICY.md",
-  "rules/soma/ACTIVE_ISA.md",
-] as const;
+// (`.claude/rules/soma/`-pivot per soma#64). Sourced from the adapter
+// so the planner and writer can't drift (sage r1 finding).
+import { CLAUDE_CODE_RULES_FILES } from "./adapters/claude-code";
+const CLAUDE_CODE_HOME_FILES = CLAUDE_CODE_RULES_FILES;
 
 const SKILL_SUBPATHS: Record<InstallSubstrate, string> = {
   codex: "skills/ISA",
@@ -287,20 +279,24 @@ export async function installSomaForClaudeCode(options: SomaInstallOptions = {})
  * directories — by construction, those are the only paths the
  * installer writes.
  */
-export interface UninstallSomaOptions {
+export interface UninstallClaudeCodeOptions {
   homeDir?: string;
   substrateHome?: string;
 }
 
-export interface UninstallSomaResult {
+export interface UninstallClaudeCodeResult {
   substrate: "claude-code";
   substrateHome: string;
   removed: string[];
 }
 
+function isEnoent(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "ENOENT";
+}
+
 export async function uninstallSomaForClaudeCode(
-  options: UninstallSomaOptions = {},
-): Promise<UninstallSomaResult> {
+  options: UninstallClaudeCodeOptions = {},
+): Promise<UninstallClaudeCodeResult> {
   const resolvedHomeDir = resolve(options.homeDir ?? homedir());
   const substrateHome = resolve(options.substrateHome ?? join(resolvedHomeDir, DEFAULT_SUBSTRATE_HOMES["claude-code"]));
   const targets = [join(substrateHome, "rules/soma"), join(substrateHome, "skills/ISA")];
@@ -309,10 +305,16 @@ export async function uninstallSomaForClaudeCode(
   for (const target of targets) {
     try {
       await stat(target);
+    } catch (error) {
+      if (isEnoent(error)) continue; // not installed → idempotent skip
+      throw error; // permissions or other I/O failure — sage r1: do NOT hide
+    }
+    try {
       await rm(target, { recursive: true, force: true });
       removed.push(target);
-    } catch {
-      // Path didn't exist — skip silently. Uninstall is idempotent.
+    } catch (error) {
+      if (isEnoent(error)) continue; // race: gone between stat and rm
+      throw error;
     }
   }
   return { substrate: "claude-code", substrateHome, removed };

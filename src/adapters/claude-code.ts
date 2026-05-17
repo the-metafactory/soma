@@ -166,6 +166,36 @@ function renderClaudePolicy(): string {
 }
 
 /**
+ * Single source of truth for the Claude Code rules/soma/ file set
+ * (sage r1: planner + writer used to drift). The planner imports this
+ * constant; the writer assembles content for each path via the
+ * accessor map below. Adding a file = update the map AND this array.
+ */
+export const CLAUDE_CODE_RULES_FILES = [
+  "rules/soma/README.md",
+  "rules/soma/CONTEXT.md",
+  "rules/soma/PROFILE.md",
+  "rules/soma/TELOS.md",
+  "rules/soma/MEMORY_LAYOUT.md",
+  "rules/soma/SKILLS.md",
+  "rules/soma/POLICY.md",
+  "rules/soma/ACTIVE_ISA.md",
+] as const;
+
+const CLAUDE_RULES_CONTENT_BUILDERS: Record<
+  Exclude<(typeof CLAUDE_CODE_RULES_FILES)[number], "rules/soma/ACTIVE_ISA.md">,
+  (input: SomaContextInput) => string
+> = {
+  "rules/soma/README.md": () => renderClaudeRulesReadme(),
+  "rules/soma/CONTEXT.md": (input) => renderClaudeRulesContext(input),
+  "rules/soma/PROFILE.md": (input) => renderClaudeProfile(input),
+  "rules/soma/TELOS.md": (input) => renderClaudeTelos(input),
+  "rules/soma/MEMORY_LAYOUT.md": (input) => renderMemoryLayout(input),
+  "rules/soma/SKILLS.md": (input) => renderSkills(input),
+  "rules/soma/POLICY.md": () => renderClaudePolicy(),
+};
+
+/**
  * Claude Code home projection (#29). Writes the Soma context under
  * `.claude/rules/soma/` so Claude Code's auto-discovery picks it up
  * without depending on home `@`-import behavior (see soma#64 for the
@@ -183,21 +213,16 @@ function renderClaudePolicy(): string {
  *   - Active CLAUDE.md modification: dropped by the #64 pivot.
  */
 export function buildClaudeCodeHomeContext(input: SomaContextInput): SomaContextBundle {
+  const skeleton = (Object.keys(CLAUDE_RULES_CONTENT_BUILDERS) as (keyof typeof CLAUDE_RULES_CONTENT_BUILDERS)[]).map((path) => ({
+    path,
+    content: CLAUDE_RULES_CONTENT_BUILDERS[path](input),
+  }));
   return {
     substrate: "claude-code",
     instructions: renderInstructions(input),
     files: [
-      // Paths relative to substrate home (~/.claude/).
-      { path: "rules/soma/README.md", content: renderClaudeRulesReadme() },
-      { path: "rules/soma/CONTEXT.md", content: renderClaudeRulesContext(input) },
-      { path: "rules/soma/PROFILE.md", content: renderClaudeProfile(input) },
-      { path: "rules/soma/TELOS.md", content: renderClaudeTelos(input) },
-      { path: "rules/soma/MEMORY_LAYOUT.md", content: renderMemoryLayout(input) },
-      { path: "rules/soma/SKILLS.md", content: renderSkills(input) },
-      { path: "rules/soma/POLICY.md", content: renderClaudePolicy() },
+      ...skeleton,
       // Active ISA — omitted when no active ISA set (preserves #37 AC-2).
-      // activeIsaBundleFile uses activeIsaProjectionPath("claude-code")
-      // which post-#29-pivot returns "rules/soma/ACTIVE_ISA.md".
       ...activeIsaBundleFile("claude-code", input.activeIsa),
     ],
   };
