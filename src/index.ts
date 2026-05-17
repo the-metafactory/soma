@@ -145,22 +145,40 @@ export {
 } from "./algorithm-store";
 export {
   buildClaudeCodeContext,
+  buildClaudeCodeHomeContext,
   buildCodexContext,
   buildCodexHomeContext,
   buildPiDevContext,
+  buildPiDevHomeContext,
   claudeCodeAdapter,
   codexAdapter,
   piDevAdapter,
 } from "./adapters";
 export { writeContextBundle } from "./context-bundle";
 export {
+  buildClaudeCodeHomeProjection,
   buildCodexHomeProjection,
   buildPiDevHomeProjection,
+  installClaudeCodeHomeProjection,
   installCodexHomeProjection,
   installPiDevHomeProjection,
   resolveHomeProjectionPaths,
 } from "./home-projection";
-export { installSomaForCodex, installSomaForPiDev, planSomaForCodexInstall, planSomaForPiDevInstall } from "./install";
+export {
+  installSomaForClaudeCode,
+  installSomaForCodex,
+  installSomaForPiDev,
+  planSomaForClaudeCodeInstall,
+  planSomaForCodexInstall,
+  planSomaForPiDevInstall,
+} from "./install";
+// Adapter active-ISA projection helpers (#37).
+export {
+  activeIsaProjectionPath,
+  loadActiveIsaForBundle,
+  renderActiveIsaFile,
+  type LoadActiveIsaOptions,
+} from "./adapter-active-isa";
 // Public ISA-skill installer API — cohesive surface only.
 // Implementation details (isaSkillRuntimeDir, isaSkillSourceDir,
 // parseSkillFrontmatter, skillBaselinesPath, compareSkillVersions) stay in
