@@ -29,6 +29,26 @@ const RESERVED_SKILL_NAMES = new Set(["soma", "the-algorithm"]);
 const REQUIRED_PACK_FILES = ["README.md", "INSTALL.md", "VERIFY.md", "src/SKILL.md"];
 const NORMALIZED_SKILL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
+/**
+ * #97 — typed refusal raised when a pack contains substrate-specific
+ * files and `options.includeSubstrateSpecific` is not set. Carries
+ * the offending file list so the migration orchestrator can record a
+ * structured per-pack outcome instead of string-matching error
+ * messages. The standalone `soma import pai-pack` verb still surfaces
+ * the same throw — only its `instanceof` discriminator changes.
+ */
+export class PaiPackSubstrateSpecificRefusal extends Error {
+  readonly kind = "substrate-specific" as const;
+  readonly files: readonly string[];
+  constructor(files: readonly string[]) {
+    super(
+      `PAI pack import refused substrate-specific file(s) without --include-substrate-specific: ${files.join(", ")}`,
+    );
+    this.name = "PaiPackSubstrateSpecificRefusal";
+    this.files = files;
+  }
+}
+
 const SECRET_FILE_PATTERNS = [
   /(^|\/)\.env$/,
   /(^|\/)\.env\.(?!example$)[^/]+$/,
@@ -403,9 +423,12 @@ async function buildPaiPackImportPlan(options: PaiPackImportOptions = {}): Promi
   const routes = sourceFiles.map((path) => ({ path, route: routePaiPackSourceFile(path) }));
   const substrateSpecific = routes.filter(({ route }) => route.classification === "substrate-specific");
   if (substrateSpecific.length > 0 && !options.includeSubstrateSpecific) {
-    throw new Error(
-      `PAI pack import refused substrate-specific file(s) without --include-substrate-specific: ${substrateSpecific.map(({ path }) => path).join(", ")}`,
-    );
+    // #97 — typed refusal so callers (the migrate orchestrator in
+    // particular) can classify the failure structurally without
+    // string-matching the message. The thrown message text is
+    // preserved verbatim for the standalone `soma import pai-pack`
+    // surface and existing tests that assert on it.
+    throw new PaiPackSubstrateSpecificRefusal(substrateSpecific.map(({ path }) => path));
   }
 
   const routedFiles: RoutedPaiPackImportFile[] = routes.map(({ path, route }) => ({

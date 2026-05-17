@@ -127,15 +127,21 @@ test("migratePai skipSkills short-circuits pack discovery (bad packs dir is not 
   });
 });
 
-test("migratePai refuses reserved skill names ('isa', 'the-algorithm', 'knowledge', 'telos') without overwriteReserved", async () => {
+test("migratePai records reserved-skill packs as refused-reserved (no throw) without overwriteReserved (#97)", async () => {
+  // #97 inverts the pre-existing throw-on-reserved contract from #90.
+  // Reserved-name collisions are now policy-respected per-pack
+  // outcomes, recorded in `packOutcomes`. The orchestrator never
+  // aborts — other packs continue.
   await withTempHome(async (homeDir) => {
     await writeIdentityFixture(homeDir);
     const packsDir = join(homeDir, "Packs");
     // Pack whose normalized skill name slugifies to a reserved name.
     await writePackFixture(packsDir, "ISA", { skillName: "ISA" });
-    await expect(
-      migratePai({ homeDir, paiPacksDir: packsDir }),
-    ).rejects.toThrow(/reserved Soma skill 'isa'/i);
+    const result = await migratePai({ homeDir, paiPacksDir: packsDir });
+    expect(result.packs).toEqual([]);
+    expect(result.packOutcomes.length).toBe(1);
+    expect(result.packOutcomes[0].outcome).toBe("refused-reserved");
+    expect(result.packOutcomes[0].skillName).toBe("isa");
   });
 });
 

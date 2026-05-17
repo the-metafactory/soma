@@ -1,0 +1,295 @@
+/**
+ * #97 — soma migrate pai per-pack log-and-continue semantics.
+ *
+ * Five fixture scenarios from the issue's AC-5:
+ *   1. All packs clean → all imported.
+ *   2. Mixed substrate-specific without flag → substrate packs refused
+ *      with outcome `refused-substrate-specific`, others import, exit 0.
+ *   3. Mixed substrate-specific WITH `--include-substrate-specific` →
+ *      all import.
+ *   4. Mixed reserved-collision without `--overwrite-reserved` →
+ *      `refused-reserved` recorded, others import, exit 0.
+ *   5. Single pack genuine failure (malformed) →
+ *      `refused-other` recorded, other packs still attempted, exit
+ *      non-zero on the CLI surface.
+ *
+ * AC-3 surface (manifest contains per-pack outcomes; --status reads
+ * them) is covered by a sixth test that asserts MIGRATION.md body
+ * fingerprint contains the per-pack outcome lines.
+ */
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { expect, test } from "bun:test";
+import { migratePai } from "../src/pai-migration";
+import { runSomaCli, SomaCliError } from "../src/cli";
+import {
+  withTempHome as withSharedTempHome,
+  writePaiIdentityFixture as writeIdentityFixture,
+  writePaiPackFixture as writePackFixture,
+} from "./fixtures/pai-migration-fixtures";
+
+const withTempHome = <T>(fn: (homeDir: string) => Promise<T>): Promise<T> =>
+  withSharedTempHome(fn, "soma-97-");
+
+/**
+ * Plant a substrate-specific file inside an existing pack fixture.
+ * `src/Foundation.md` is not under `src/Workflows/` or `src/Tools/`,
+ * so the pack-router classifies it `substrate-specific`. This mirrors
+ * the user-reported repro on SystemsThinking + RootCauseAnalysis.
+ */
+async function plantSubstrateSpecificFile(packDir: string): Promise<void> {
+  await writeFile(
+    join(packDir, "src/Foundation.md"),
+    "# Foundation\n\nSubstrate-specific doc.\n",
+    "utf8",
+  );
+}
+
+async function makeMalformedPack(packsDir: string, packName: string): Promise<void> {
+  // A pack missing INSTALL.md is "malformed" by the importer's
+  // REQUIRED_PACK_FILES check — it raises a structural error that
+  // the issue's outcome enum classifies `refused-other`.
+  const packDir = join(packsDir, packName);
+  await mkdir(join(packDir, "src"), { recursive: true });
+  await writeFile(
+    join(packDir, "README.md"),
+    `---\nname: ${packName}\ndescription: malformed\n---\n\n# ${packName}\n`,
+    "utf8",
+  );
+  // INSTALL.md intentionally omitted.
+  await writeFile(join(packDir, "VERIFY.md"), "# Verify\n", "utf8");
+  await writeFile(
+    join(packDir, "src/SKILL.md"),
+    `---\nname: ${packName}\ndescription: malformed\n---\n\n# ${packName}\n`,
+    "utf8",
+  );
+}
+
+test("scenario 1 — all-packs-clean: every pack imports, every outcome is `imported`", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeIdentityFixture(homeDir);
+    const packsDir = join(homeDir, "Packs");
+    await writePackFixture(packsDir, "Alpha");
+    await writePackFixture(packsDir, "Beta");
+    const result = await migratePai({ homeDir, paiPacksDir: packsDir });
+    expect(result.packOutcomes.length).toBe(2);
+    expect(result.packOutcomes.every((o) => o.outcome === "imported")).toBe(true);
+    expect(result.packs.length).toBe(2);
+  });
+});
+
+test("scenario 2 — mixed substrate-specific without flag: refused-substrate-specific, others import, no throw", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeIdentityFixture(homeDir);
+    const packsDir = join(homeDir, "Packs");
+    const subPack = await writePackFixture(packsDir, "SubA");
+    await plantSubstrateSpecificFile(subPack);
+    await writePackFixture(packsDir, "Clean");
+    const result = await migratePai({ homeDir, paiPacksDir: packsDir });
+    expect(result.packOutcomes.length).toBe(2);
+    const byName = new Map(result.packOutcomes.map((o) => [o.skillName ?? o.paiPackDir, o]));
+    const subOutcome = [...byName.values()].find((o) => /sub-a|suba/i.test(o.skillName ?? o.paiPackDir));
+    const cleanOutcome = [...byName.values()].find((o) => /clean/i.test(o.skillName ?? o.paiPackDir));
+    expect(subOutcome?.outcome).toBe("refused-substrate-specific");
+    expect(cleanOutcome?.outcome).toBe("imported");
+    // Clean pack is on disk; substrate-specific pack is NOT.
+    await stat(join(homeDir, ".soma/skills/clean/SKILL.md"));
+    await expect(stat(join(homeDir, ".soma/skills/sub-a"))).rejects.toThrow();
+  });
+});
+
+test("scenario 3 — mixed substrate-specific WITH includeSubstrateSpecific: all import", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeIdentityFixture(homeDir);
+    const packsDir = join(homeDir, "Packs");
+    const subPack = await writePackFixture(packsDir, "SubA");
+    await plantSubstrateSpecificFile(subPack);
+    await writePackFixture(packsDir, "Clean");
+    const result = await migratePai({
+      homeDir,
+      paiPacksDir: packsDir,
+      includeSubstrateSpecific: true,
+    });
+    expect(result.packOutcomes.every((o) => o.outcome === "imported")).toBe(true);
+    expect(result.packs.length).toBe(2);
+    await stat(join(homeDir, ".soma/skills/sub-a/SKILL.md"));
+  });
+});
+
+test("scenario 4 — mixed reserved-collision without overwriteReserved: refused-reserved, others import, no throw", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeIdentityFixture(homeDir);
+    const packsDir = join(homeDir, "Packs");
+    await writePackFixture(packsDir, "ISA", { skillName: "ISA" });
+    await writePackFixture(packsDir, "Clean");
+    const result = await migratePai({ homeDir, paiPacksDir: packsDir });
+    expect(result.packOutcomes.length).toBe(2);
+    const isaOutcome = result.packOutcomes.find((o) => /isa/i.test(o.skillName ?? ""));
+    const cleanOutcome = result.packOutcomes.find((o) => /clean/i.test(o.skillName ?? ""));
+    expect(isaOutcome?.outcome).toBe("refused-reserved");
+    expect(cleanOutcome?.outcome).toBe("imported");
+    await stat(join(homeDir, ".soma/skills/clean/SKILL.md"));
+    await expect(stat(join(homeDir, ".soma/skills/isa"))).rejects.toThrow();
+  });
+});
+
+test("scenario 5 — single pack genuine failure (malformed): refused-other recorded; other packs still attempted", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeIdentityFixture(homeDir);
+    const packsDir = join(homeDir, "Packs");
+    await makeMalformedPack(packsDir, "Broken");
+    await writePackFixture(packsDir, "Healthy");
+    const result = await migratePai({ homeDir, paiPacksDir: packsDir });
+    expect(result.packOutcomes.length).toBe(2);
+    const broken = result.packOutcomes.find((o) => /broken/i.test(o.paiPackDir));
+    const healthy = result.packOutcomes.find((o) => /healthy/i.test(o.skillName ?? ""));
+    expect(broken?.outcome).toBe("refused-other");
+    expect(broken?.reason).toMatch(/INSTALL\.md/);
+    expect(healthy?.outcome).toBe("imported");
+  });
+});
+
+test("AC-4 — CLI exit non-zero only when a pack outcome is refused-other; zero on policy-respected refusals", async () => {
+  // Substrate-specific + reserved without override → exit zero.
+  await withTempHome(async (homeDir) => {
+    await writeIdentityFixture(homeDir);
+    const packsDir = join(homeDir, "Packs");
+    const sub = await writePackFixture(packsDir, "SubA");
+    await plantSubstrateSpecificFile(sub);
+    await writePackFixture(packsDir, "ISA", { skillName: "ISA" });
+    await writePackFixture(packsDir, "Healthy");
+    // The CLI returns its formatted string on success — no throw.
+    const out = await runSomaCli([
+      "migrate",
+      "pai",
+      "--apply",
+      "--home-dir",
+      homeDir,
+      "--pai-packs-dir",
+      packsDir,
+    ]);
+    expect(out).toContain("refused-substrate-specific");
+    expect(out).toContain("refused-reserved");
+    expect(out).toContain("imported");
+  });
+  // Malformed pack present → SomaCliError, exitCode 1.
+  await withTempHome(async (homeDir) => {
+    await writeIdentityFixture(homeDir);
+    const packsDir = join(homeDir, "Packs");
+    await makeMalformedPack(packsDir, "Broken");
+    await writePackFixture(packsDir, "Healthy");
+    let caught: unknown = null;
+    try {
+      await runSomaCli([
+        "migrate",
+        "pai",
+        "--apply",
+        "--home-dir",
+        homeDir,
+        "--pai-packs-dir",
+        packsDir,
+      ]);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(SomaCliError);
+    expect((caught as SomaCliError).exitCode).toBe(1);
+    // Even though one pack failed, the OTHER pack landed.
+    await stat(join(homeDir, ".soma/skills/healthy/SKILL.md"));
+  });
+});
+
+test("AC-1 — CLI parses --include-substrate-specific for `migrate pai` (passthrough)", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeIdentityFixture(homeDir);
+    const packsDir = join(homeDir, "Packs");
+    const sub = await writePackFixture(packsDir, "SubA");
+    await plantSubstrateSpecificFile(sub);
+    const out = await runSomaCli([
+      "migrate",
+      "pai",
+      "--apply",
+      "--include-substrate-specific",
+      "--home-dir",
+      homeDir,
+      "--pai-packs-dir",
+      packsDir,
+    ]);
+    expect(out).toContain("imported");
+    await stat(join(homeDir, ".soma/skills/sub-a/SKILL.md"));
+  });
+});
+
+test("AC-3 — --status reports per-pack outcomes from the migration manifest", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeIdentityFixture(homeDir);
+    const packsDir = join(homeDir, "Packs");
+    const sub = await writePackFixture(packsDir, "SubA");
+    await plantSubstrateSpecificFile(sub);
+    await writePackFixture(packsDir, "Healthy");
+    await runSomaCli([
+      "migrate",
+      "pai",
+      "--apply",
+      "--home-dir",
+      homeDir,
+      "--pai-packs-dir",
+      packsDir,
+    ]);
+    const status = await runSomaCli([
+      "migrate",
+      "pai",
+      "--status",
+      "--home-dir",
+      homeDir,
+    ]);
+    expect(status).toMatch(/sub-a.*refused-substrate-specific/);
+    expect(status).toMatch(/healthy.*imported/);
+  });
+});
+
+test("Sage r3 #99 — pack fingerprint lines pair correctly with imported pack names under mixed outcomes", async () => {
+  // Regression for Sage's r3 important finding: when an earlier
+  // discovered pack is refused, the imported pack must NOT inherit
+  // the refused pack's fingerprint. The fix keys fingerprints by
+  // `paiPackDir` so future edits to the orchestrator's pack-list
+  // shape can't silently break the pairing.
+  await withTempHome(async (homeDir) => {
+    await writeIdentityFixture(homeDir);
+    const packsDir = join(homeDir, "Packs");
+    // Discovery order matters: "ARefused" sorts before "BImported"
+    // so a buggy implementation would shift the imported pack's
+    // fingerprint slot.
+    const refused = await writePackFixture(packsDir, "a-refused", { skillName: "a-refused" });
+    await plantSubstrateSpecificFile(refused);
+    await writePackFixture(packsDir, "b-imported", { skillName: "b-imported" });
+    const result = await migratePai({ homeDir, paiPacksDir: packsDir });
+    expect(result.packs.length).toBe(1);
+    expect(result.packs[0].skillName).toBe("b-imported");
+    const manifest = await readFile(result.manifestPath, "utf8");
+    // The single "pack 1: b-imported" line must be followed by a
+    // fingerprint that matches the imported pack — not by an empty
+    // sentinel that would result from an off-by-one if the
+    // alignment broke.
+    expect(manifest).toMatch(/pack 1: b-imported \(\d+ files\)/);
+    const fpMatch = manifest.match(/pack 1 fingerprint: ([0-9a-f]+|empty)/);
+    expect(fpMatch).not.toBeNull();
+    expect(fpMatch![1]).not.toBe("empty");
+  });
+});
+
+test("migratePai is still idempotent across reruns with mixed outcomes (manifest body byte-stable)", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeIdentityFixture(homeDir);
+    const packsDir = join(homeDir, "Packs");
+    const sub = await writePackFixture(packsDir, "SubA");
+    await plantSubstrateSpecificFile(sub);
+    await writePackFixture(packsDir, "Healthy");
+    const first = await migratePai({ homeDir, paiPacksDir: packsDir });
+    const firstManifest = await readFile(first.manifestPath, "utf8");
+    await new Promise((r) => setTimeout(r, 5));
+    const second = await migratePai({ homeDir, paiPacksDir: packsDir });
+    const secondManifest = await readFile(second.manifestPath, "utf8");
+    expect(secondManifest).toBe(firstManifest);
+  });
+});
