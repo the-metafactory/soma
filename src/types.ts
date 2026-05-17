@@ -638,6 +638,11 @@ export interface PaiMemoryMigrationResult {
   // Absolute target paths for every in-scope file (whether written or
   // skipped). Always matches `plan.files.length` on the apply path.
   files: string[];
+  // Subset of `files` that were actually copied this run. Sage r2 #95
+  // important: callers that want a per-run "files I touched" list
+  // (e.g., the orchestrator's `filesWritten` log) must use this
+  // instead of `files`, which over-reports on idempotent reruns.
+  writtenTargets: string[];
 }
 
 export interface PaiMemoryMigrationManifestFile {

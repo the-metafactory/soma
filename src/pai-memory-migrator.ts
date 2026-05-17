@@ -38,6 +38,7 @@ import {
 } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { runBoundedConcurrent } from "./internal-concurrency";
 import type {
   PaiMemoryMigrationFile,
   PaiMemoryMigrationManifest,
@@ -74,32 +75,6 @@ async function pathExists(path: string): Promise<boolean> {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
     throw error;
   }
-}
-
-/**
- * Run async per-item work with a bounded concurrency window. Preserves
- * input order in the returned results array. Matches the pattern used
- * in `src/pai-migration.ts` and `src/pai-pack-importer.ts` for I/O
- * fan-out.
- */
-async function runBoundedConcurrent<T, R>(
-  items: readonly T[],
-  fn: (item: T) => Promise<R>,
-  limit: number,
-): Promise<R[]> {
-  if (items.length === 0) return [];
-  const results: R[] = new Array<R>(items.length);
-  let cursor = 0;
-  async function worker(): Promise<void> {
-    for (;;) {
-      const index = cursor++;
-      if (index >= items.length) return;
-      results[index] = await fn(items[index]);
-    }
-  }
-  const workerCount = Math.min(limit, items.length);
-  await Promise.all(Array.from({ length: workerCount }, () => worker()));
-  return results;
 }
 
 // Recursively enumerate files under `<memoryDir>/<category>/...`.
@@ -182,22 +157,30 @@ async function buildPlan(
   }
 
   const relPaths = await collectCategoryFiles(memoryDirCandidate);
-  const files: PaiMemoryMigrationFile[] = [];
-  for (const rel of relPaths) {
-    const source = join(memoryDirCandidate, ...rel.split("/"));
-    const target = join(homes.somaHome, "memory", ...rel.split("/"));
-    const stat = await lstat(source);
-    const file: PaiMemoryMigrationFile = {
-      source,
-      target,
-      relativePath: rel,
-      mtimeMs: stat.mtimeMs,
-    };
-    if (flags.withSha) {
-      file.sha256 = sha256Hex(await readFile(source));
-    }
-    files.push(file);
-  }
+  // Sage r2 #95 Performance: per-file stat+read for SHA was serialized
+  // in this builder loop. Bounded-concurrency the same as the copy
+  // phase — input order is preserved by `runBoundedConcurrent` so the
+  // returned plan stays deterministic (manifest entries are sorted
+  // by `relativePath` already, but per-input order would match anyway).
+  const files = await runBoundedConcurrent(
+    relPaths,
+    async (rel): Promise<PaiMemoryMigrationFile> => {
+      const source = join(memoryDirCandidate, ...rel.split("/"));
+      const target = join(homes.somaHome, "memory", ...rel.split("/"));
+      const stat = await lstat(source);
+      const file: PaiMemoryMigrationFile = {
+        source,
+        target,
+        relativePath: rel,
+        mtimeMs: stat.mtimeMs,
+      };
+      if (flags.withSha) {
+        file.sha256 = sha256Hex(await readFile(source));
+      }
+      return file;
+    },
+    4,
+  );
 
   return {
     apply: false,
@@ -292,6 +275,7 @@ export async function migratePaiMemory(
         unchanged: true,
         manifestPath,
         files: [],
+        writtenTargets: [],
       };
     }
     return {
@@ -304,6 +288,7 @@ export async function migratePaiMemory(
       unchanged: true,
       manifestPath,
       files: [],
+      writtenTargets: [],
     };
   }
 
@@ -350,11 +335,16 @@ export async function migratePaiMemory(
   const outcomes = await runBoundedConcurrent(plan.files, processFile, 4);
   let writtenCount = 0;
   let skippedCount = 0;
+  const allTargets: string[] = [];
   const writtenTargets: string[] = [];
   for (const outcome of outcomes) {
-    if (outcome.written) writtenCount += 1;
-    else skippedCount += 1;
-    writtenTargets.push(outcome.target);
+    if (outcome.written) {
+      writtenCount += 1;
+      writtenTargets.push(outcome.target);
+    } else {
+      skippedCount += 1;
+    }
+    allTargets.push(outcome.target);
   }
 
   // Decide manifest timestamp:
@@ -376,6 +366,7 @@ export async function migratePaiMemory(
     skippedCount,
     unchanged: writtenCount === 0,
     manifestPath,
-    files: writtenTargets,
+    files: allTargets,
+    writtenTargets,
   };
 }

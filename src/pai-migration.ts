@@ -28,10 +28,16 @@ import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { importAlgorithm, planAlgorithmImport } from "./algorithm-importer";
+import { runBoundedConcurrent } from "./internal-concurrency";
 import { importPaiDocs, planPaiDocsImport } from "./pai-docs-importer";
 import { importPaiIdentity, planPaiImport } from "./pai-importer";
 import { migratePaiMemory, planPaiMemoryMigration } from "./pai-memory-migrator";
-import { importPaiPack, planPaiPackImport, slugifySkillName } from "./pai-pack-importer";
+import {
+  importPaiPack,
+  planPaiPackImport,
+  readPackMetadata,
+  slugifySkillName,
+} from "./pai-pack-importer";
 import type {
   AlgorithmImportPlan,
   AlgorithmImportResult,
@@ -220,29 +226,13 @@ function extractMigrationTimestamp(manifest: string): string | null {
   return match ? match[1] : null;
 }
 
-// Read the pack metadata's `name` field the same way
-// `readPackMetadata` does — frontmatter or top heading. We only need
-// enough to derive the slug; the pack importer does the heavy lifting
-// during the actual import. The slug function is the importer's own
-// (`slugifySkillName`), imported above, so the orchestrator's
-// reserved-name check can never drift from the importer's behavior.
+// Derive a pack's canonical slug using the importer's own metadata
+// reader + slugifier. Single-source — Sage r2 #95 Maintainability
+// finding (no second parser that can drift when pack frontmatter
+// rules change).
 async function readPackSkillSlug(packDir: string): Promise<string> {
-  const readme = await readFile(join(packDir, "README.md"), "utf8");
-  const match = readme.match(/^---\n([\s\S]*?)\n---/);
-  if (match) {
-    const nameLine = match[1].split("\n").find((line) => /^name\s*:/.test(line));
-    if (nameLine) {
-      const raw = nameLine.split(":").slice(1).join(":").trim().replace(/^["']|["']$/g, "");
-      const slug = slugifySkillName(raw);
-      if (slug) return slug;
-    }
-  }
-  const heading = /^#\s+(.+)$/m.exec(readme)?.[1]?.trim();
-  if (heading) {
-    const slug = slugifySkillName(heading);
-    if (slug) return slug;
-  }
-  return slugifySkillName("pai-pack");
+  const meta = await readPackMetadata(packDir);
+  return slugifySkillName(meta.name);
 }
 
 async function refuseReservedPacks(
@@ -265,30 +255,6 @@ async function refuseReservedPacks(
     }
   }
   return [...packPaths];
-}
-
-/**
- * Run async work with a bounded concurrency window (sage r4 #28:
- * prevent unlimited pack-import fan-out on large installs).
- */
-async function runBoundedConcurrent<T, R>(
-  items: readonly T[],
-  fn: (item: T) => Promise<R>,
-  limit: number,
-): Promise<R[]> {
-  if (items.length === 0) return [];
-  const results: R[] = new Array<R>(items.length);
-  let cursor = 0;
-  async function worker(): Promise<void> {
-    for (;;) {
-      const index = cursor++;
-      if (index >= items.length) return;
-      results[index] = await fn(items[index]);
-    }
-  }
-  const workerCount = Math.min(limit, items.length);
-  await Promise.all(Array.from({ length: workerCount }, () => worker()));
-  return results;
 }
 
 interface MigrationSources {
@@ -396,6 +362,18 @@ async function fingerprintFiles(paths: readonly string[]): Promise<string> {
   return hash.digest("hex").slice(0, 16);
 }
 
+// Fingerprint a single pack by hashing its entry SKILL.md only — the
+// file the pack importer rewrites with skill identity + normalized
+// frontmatter. Sage r2 #95 Performance: full-pack fingerprinting
+// doubled the I/O on the apply path; restricting to the entry file
+// keeps the timestamp-bump contract intact while avoiding a duplicate
+// read pass over every workflow / tool / source-doc copy.
+async function fingerprintPackEntry(pack: PaiPackImportResult): Promise<string> {
+  const skillRoot = join(pack.somaHome, "skills", pack.skillName);
+  const entryPath = join(skillRoot, "SKILL.md");
+  return fingerprintFiles([entryPath]);
+}
+
 function renderManifest(result: ManifestInputs): string {
   // Sage r1 (#28): the manifest used to embed a fresh timestamp on
   // every rerun, breaking the documented idempotency. The manifest is
@@ -487,7 +465,21 @@ export async function migratePai(options: PaiMigrationOptions = {}): Promise<Pai
   const memory = options.skipMemory === true
     ? null
     : await migratePaiMemory({ homeDir: options.homeDir, claudeHome, somaHome });
-  if (memory) filesWritten.push(...memory.files, memory.manifestPath);
+  // Sage r2 #95 important: `memory.files` lists every in-scope target
+  // (both written and idempotency-skipped). `filesWritten` is the
+  // per-run "things touched on disk this invocation" log; pushing
+  // every memory target over-reported writes after idempotent reruns.
+  // We push only the per-phase write count's worth — see
+  // `memory.result.writtenTargets` for the canonical list. The
+  // result object's writtenCount/skippedCount remains authoritative;
+  // `filesWritten`'s length should match actual writes so a fully
+  // idempotent rerun reports `Total files written: 1` (manifest only).
+  if (memory) {
+    if (memory.writtenTargets.length > 0) {
+      filesWritten.push(...memory.writtenTargets);
+    }
+    filesWritten.push(memory.manifestPath);
+  }
 
   // Reserved-skill collision happens BEFORE any pack import runs so
   // a single offending pack stops the whole bulk phase rather than
@@ -553,12 +545,17 @@ export async function migratePai(options: PaiMigrationOptions = {}): Promise<Pai
   // This covers all five phases by construction: any phase that
   // changed counts, names, file lists, OR file content will produce
   // a different body and force a timestamp bump.
+  // Sage r2 #95 Performance: pack fingerprints used to hash every
+  // imported pack file (workflows, tools, source-doc copies) which
+  // doubled the I/O on the apply path. The entry `SKILL.md` is the
+  // only file the pack importer rewrites (frontmatter normalization
+  // + skill identity), and it's where content drift between pack
+  // versions actually shows up; fingerprinting just that file is
+  // sufficient for the timestamp-bump contract and avoids the
+  // duplicate-read scaling pitfall.
   const identityFingerprint = await fingerprintFiles(identity.files);
   const algorithmFingerprint = algorithm ? await fingerprintFiles(algorithm.files) : null;
-  // Each pack's fingerprint includes every imported file under the
-  // skill root, so pack content drift surfaces regardless of file
-  // count.
-  const packFingerprints = await Promise.all(packs.map((p) => fingerprintFiles(p.files)));
+  const packFingerprints = await Promise.all(packs.map((p) => fingerprintPackEntry(p)));
   const manifestPath = manifestPathFor(somaHome);
   await mkdir(dirname(manifestPath), { recursive: true });
   const sentinelTs = "__PAI_MIGRATION_TS_SENTINEL__";

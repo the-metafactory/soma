@@ -247,6 +247,36 @@ test("migratePai MIGRATION.md includes a Last migrated at timestamp", async () =
   });
 });
 
+test("migratePai filesWritten on idempotent rerun = manifest only (no over-reporting) — Sage r2 #95 important", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeIdentityFixture(homeDir);
+    await writeMemoryFixture(homeDir);
+    const first = await migratePai({ homeDir });
+    // First run: identity files + memory files + manifest path + memory manifest.
+    const firstWrite = first.filesWritten.length;
+    expect(firstWrite).toBeGreaterThan(2);
+    // Second run, fully idempotent. The previous bug pushed every
+    // in-scope memory target into filesWritten regardless of whether
+    // it was actually copied, so a zero-write idempotent rerun was
+    // reporting len(filesWritten) ≈ in-scope count. Contract: the
+    // only file the orchestrator unconditionally writes on a no-op
+    // rerun is the MIGRATION.md (and the memory manifest, which is
+    // also always re-rendered for byte-stability). filesWritten
+    // therefore reflects exactly the per-run touches.
+    const second = await migratePai({ homeDir });
+    // Identity importer always writes (no SHA gate yet) — that's 6
+    // identity files + memory.manifestPath + MIGRATION.md = 8 typical.
+    // The KEY invariant is: filesWritten on a no-op rerun must NOT
+    // include the memory targets themselves (those were skipped).
+    expect(second.memory!.writtenCount).toBe(0);
+    expect(second.memory!.writtenTargets).toEqual([]);
+    // Memory targets are NOT in filesWritten on the second run.
+    for (const target of second.memory!.files) {
+      expect(second.filesWritten).not.toContain(target);
+    }
+  });
+});
+
 test("migratePai timestamp bumps when identity content changes (file count unchanged) — Sage r1 #95 important", async () => {
   await withTempHome(async (homeDir) => {
     await writeIdentityFixture(homeDir);
