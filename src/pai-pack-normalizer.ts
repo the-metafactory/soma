@@ -55,13 +55,36 @@ const NOTIFICATION_CURL = /^\s*curl\s+[^\n]*localhost:31337\/notify[^\n]*\n?/m;
 const CUSTOMIZATION_HEADING = /^##+\s*Customization\s*$/m;
 const CUSTOMIZATION_BODY_MARKER = "SKILLCUSTOMIZATIONS";
 
+// Deterministic Claude → Soma rewrite rules. Ordered most-specific-first so a
+// PAI subtree match (e.g. PAI/DOCUMENTATION) wins over a less-specific match
+// would the latter exist. Every rule fires BEFORE `applyUnmappedClaudePathCatchall`
+// (see `normalizeSkillContent`) — that ordering is what keeps the UNMAPPED
+// warning class reserved for paths Soma genuinely cannot home.
+//
+// Issue #91: replaced the prior single `rewrote-claude-home-path` PAI/MEMORY
+// rule with four named per-subtree kinds. Each rule's action kind tells a
+// reviewer exactly which subtree contract fired, which #86's single shared
+// kind could not — at scale, the audit trail has to disambiguate. Mapping
+// targets are anchored to the Soma homes established by #88 (memory taxonomy)
+// and #89 (soma import pai-docs); without those upstream issues these rules
+// would dangle.
 const CLAUDE_HOME_DETERMINISTIC: readonly { from: RegExp; to: string; kind: PaiPackNormalizationAction["kind"] }[] = [
   // Skill payload root — clean Soma equivalent.
   { from: /~\/\.claude\/skills\//, to: "~/.soma/skills/", kind: "rewrote-claude-home-path" },
-  // Issue #86 / AC-1: PAI memory root → Soma memory root. Both substrates
-  // share the "memory" concept; mapping is one-to-one. The deeper subtree
-  // shape (SKILLS/execution.jsonl etc.) is preserved.
-  { from: /~\/\.claude\/PAI\/MEMORY\//, to: "~/.soma/memory/", kind: "rewrote-claude-home-path" },
+  // Issue #91 / AC-1: PAI docs subtree → Soma docs subtree. The `~/.soma/PAI/`
+  // root is populated by `soma import pai-docs` (#89); imported skills that
+  // reference DOCUMENTATION resolve to a real on-disk file after import.
+  { from: /~\/\.claude\/PAI\/DOCUMENTATION\//, to: "~/.soma/PAI/DOCUMENTATION/", kind: "rewrote-pai-doc-path" },
+  // Issue #91 / AC-1: PAI templates subtree → Soma templates subtree.
+  { from: /~\/\.claude\/PAI\/TEMPLATES\//, to: "~/.soma/PAI/TEMPLATES/", kind: "rewrote-pai-template-path" },
+  // Issue #91 / AC-1: PAI algorithm subtree → Soma algorithm subtree.
+  { from: /~\/\.claude\/PAI\/ALGORITHM\//, to: "~/.soma/PAI/ALGORITHM/", kind: "rewrote-pai-algorithm-path" },
+  // Issue #91 / AC-1 (promotes #86 partial): PAI memory root → Soma memory
+  // root. Both substrates share the "memory" concept; mapping is one-to-one.
+  // The deeper subtree shape (SKILLS/execution.jsonl etc.) is preserved.
+  // Asymmetric target: PAI's `PAI/MEMORY/` lands at lowercase `~/.soma/memory/`
+  // because Soma's memory is canonical (per DD-1, DD-2) — not a PAI projection.
+  { from: /~\/\.claude\/PAI\/MEMORY\//, to: "~/.soma/memory/", kind: "rewrote-pai-memory-path" },
 ];
 
 // Issue #86 / AC-1: catch-all for every other `~/.claude/<segment>/...`

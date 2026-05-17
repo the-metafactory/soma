@@ -198,11 +198,16 @@ test("AC-2: leaves unrelated 'Customization' headings alone (requires SKILLCUSTO
 
 // ─── AC-1: catch-all for unmapped claude paths ─────────────────────────
 
-test("AC-1: PAI DOCUMENTATION path rewrites to UNMAPPED placeholder + warning", () => {
-  const content = "See `~/.claude/PAI/DOCUMENTATION/Skills/SkillSystem.md` for details.\n";
+test("AC-1: PAI bare-under-PAI path (no DOC/TEMPL/ALGO/MEMORY subtree) rewrites to UNMAPPED + warning", () => {
+  // Issue 91 superseded the prior "DOCUMENTATION → UNMAPPED" assertion:
+  // DOCUMENTATION now has a deterministic home (~/.soma/PAI/DOCUMENTATION).
+  // The catch-all still has to fire on PAI subtrees with no Soma equivalent,
+  // e.g. a bare `~/.claude/PAI/SkillSystem.md` (no subtree under PAI matches
+  // the four deterministic rules). This test pins THAT remaining contract.
+  const content = "See `~/.claude/PAI/SkillSystem.md` for details.\n";
   const result = normalizeSkillContent("body.md", content);
   expect(result.content).not.toContain("~/.claude/");
-  expect(result.content).toContain("~/.soma/UNMAPPED/PAI/DOCUMENTATION/Skills/SkillSystem.md");
+  expect(result.content).toContain("~/.soma/UNMAPPED/PAI/SkillSystem.md");
   expect(result.actions.some((a) => a.kind === "rewrote-unmapped-claude-path")).toBe(true);
   expect(result.warnings.some((w) => w.kind === "unmapped-claude-home-path")).toBe(true);
 });
@@ -228,12 +233,18 @@ test("AC-1: History/Backups path rewrites to UNMAPPED + warning", () => {
 // ─── AC-1: new deterministic rewrite (PAI MEMORY → soma memory) ────────
 
 test("AC-1: PAI MEMORY path rewrites deterministically to ~/.soma/memory/", () => {
+  // Issue 91 promoted the MEMORY rewrite to its own named action kind
+  // (`rewrote-pai-memory-path`). The mapping target is unchanged — Soma's
+  // memory home is canonical (per DD-1, DD-2). What changed is the audit
+  // trail: an explicit kind makes the rule reviewable, instead of folding
+  // it under the generic `rewrote-claude-home-path` umbrella shared with
+  // skills/.
   const content = "Log execution: ~/.claude/PAI/MEMORY/SKILLS/execution.jsonl\n";
   const result = normalizeSkillContent("body.md", content);
   expect(result.content).not.toContain("~/.claude/");
   expect(result.content).toContain("~/.soma/memory/SKILLS/execution.jsonl");
-  // Deterministic mapping → no UNMAPPED warning; uses existing rewrote-claude-home-path action
-  expect(result.actions.some((a) => a.kind === "rewrote-claude-home-path")).toBe(true);
+  // Deterministic mapping → no UNMAPPED warning; named action kind per #91.
+  expect(result.actions.some((a) => a.kind === "rewrote-pai-memory-path")).toBe(true);
   expect(result.warnings.some((w) => w.kind === "unmapped-claude-home-path")).toBe(false);
 });
 
