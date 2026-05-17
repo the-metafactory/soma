@@ -17,12 +17,18 @@ import {
   parseBashDestructivePaths,
   resolvePath,
   SOMA_DEFAULT_PROTECTED_PATHS,
+  SOMA_HOME_ALLOWED_MODIFY_SUBPATHS,
 } from ${JSON.stringify(runtimeModuleSpecifier)};
 
 const SOMA_HOME = ${JSON.stringify(somaHome)};
+// Allow legitimate Soma ISA + memory writes under the explicit SOMA_HOME
+// while still blocking overwrites of private roots (e.g. profile/) and any
+// destructive delete (allowedSubpaths is modify-only). The allowed subpaths
+// are sourced from policy-path-guard.ts so all enforcement layers agree on
+// one list. See #79.
 const PROTECTED_PATHS = [
   ...SOMA_DEFAULT_PROTECTED_PATHS,
-  { path: SOMA_HOME, description: "Soma private root" },
+  { path: SOMA_HOME, description: "Soma private root", allowedSubpaths: [...SOMA_HOME_ALLOWED_MODIFY_SUBPATHS] },
 ];
 
 function blockedTargets(targets: string[], cwd: string, action: "delete" | "modify"): string[] {

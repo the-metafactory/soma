@@ -1,6 +1,6 @@
 import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, normalize, resolve } from "node:path";
 import { isInsidePath } from "./path-utils";
 import type { SomaProtectedPath } from "./types";
 
@@ -9,10 +9,37 @@ import type { SomaProtectedPath } from "./types";
 // These are Soma's opinionated defaults; operators can override or extend via
 // `protectedPaths` in SomaPolicyCheckOptions.
 
+/**
+ * Subpaths under `~/.soma` where `modify` is permitted. Exported so the
+ * policy.ts root-protection wrapper and the Pi.dev path-guard extension
+ * renderer share a single source of truth. Delete remains blocked everywhere
+ * under the Soma home (allowedSubpaths is modify-only). See #79.
+ */
+export const SOMA_HOME_ALLOWED_MODIFY_SUBPATHS: readonly string[] = Object.freeze(["isa", "memory"]);
+
+/**
+ * Subpaths under `~/.claude` where `modify` is permitted (working memory and
+ * legacy PAI memory layouts). See #79.
+ */
+export const CLAUDE_HOME_ALLOWED_MODIFY_SUBPATHS: readonly string[] = Object.freeze(["memory", "memories", "PAI/MEMORY"]);
+
+/**
+ * Subpaths under `~/.pi` where `modify` is permitted (agent working memory).
+ * See #79.
+ */
+export const PI_HOME_ALLOWED_MODIFY_SUBPATHS: readonly string[] = Object.freeze(["agent/memory"]);
+
 export const SOMA_DEFAULT_PROTECTED_PATHS: readonly SomaProtectedPath[] = Object.freeze([
-  { path: "~/.soma", description: "Soma portable assistant home" },
-  { path: "~/.claude", description: "Claude Code / PAI home" },
-  { path: "~/.pi", description: "Pi.dev home" },
+  // ~/.soma is the Soma portable home. Modify-guarded by default to keep the
+  // profile and other private roots safe, but ISA + memory subtrees are the
+  // assistant's working surface and must remain writable. Delete remains
+  // blocked everywhere under ~/.soma.
+  { path: "~/.soma", description: "Soma portable assistant home", allowedSubpaths: [...SOMA_HOME_ALLOWED_MODIFY_SUBPATHS] },
+  // Claude Code / PAI home — same shape: protect the root, allow legitimate
+  // memory writes (memory/, memories/, PAI/MEMORY/).
+  { path: "~/.claude", description: "Claude Code / PAI home", allowedSubpaths: [...CLAUDE_HOME_ALLOWED_MODIFY_SUBPATHS] },
+  // Pi.dev home — only the agent's memory subtree is a known write target.
+  { path: "~/.pi", description: "Pi.dev home", allowedSubpaths: [...PI_HOME_ALLOWED_MODIFY_SUBPATHS] },
   { path: "~/.config/cortex", description: "Cortex operator config" },
   { path: "~/.config/metafactory", description: "Metafactory ecosystem config" },
   { path: "~/.config/k", description: "kai-launcher config" },
@@ -183,12 +210,45 @@ function findProtectedPath(resolvedPath: string, protectedPaths: readonly SomaPr
     if (action === "modify" && pp.guardModify === false) continue;
 
     const protectedRoot = realProtectedRoot(resolve(expandTilde(pp.path)), realScopeCache, protectedRootCache);
-    if (isInsidePath(realResolvedPath, protectedRoot)) {
-      return pp;
+    if (!isInsidePath(realResolvedPath, protectedRoot)) continue;
+
+    // allowedSubpaths only relaxes `modify` (writes/edits). Destructive
+    // operations against any descendant of a protected root remain blocked
+    // regardless of subpath — `rm -rf ~/.soma/memory` should still fail.
+    // Unsafe subpath values (absolute, tilde-prefixed, or `..`-traversing)
+    // are silently dropped to prevent escape from the protected root.
+    if (action === "modify" && pp.allowedSubpaths && pp.allowedSubpaths.length > 0) {
+      const insideAllowed = pp.allowedSubpaths.filter(isSafeAllowedSubpath).some((subpath) => {
+        const allowedRoot = realProtectedRoot(resolve(protectedRoot, subpath), realScopeCache, protectedRootCache);
+        // Defense in depth: re-verify the resolved allowed root stays inside
+        // the protected root even after symlink resolution.
+        if (!isInsidePath(allowedRoot, protectedRoot)) return false;
+        return isInsidePath(realResolvedPath, allowedRoot);
+      });
+      if (insideAllowed) continue;
     }
+
+    return pp;
   }
 
   return undefined;
+}
+
+/**
+ * Return true iff `subpath` is a safe relative descendant of a protected
+ * root: not absolute, no tilde expansion, no `..` traversal after
+ * normalization, and non-empty. Defends `allowedSubpaths` (a public option)
+ * against operators or callers passing values that would escape the
+ * protected root and silently allow all modifies inside it.
+ */
+function isSafeAllowedSubpath(subpath: string): boolean {
+  if (typeof subpath !== "string" || subpath.length === 0) return false;
+  if (isAbsolute(subpath)) return false;
+  if (subpath.startsWith("~")) return false;
+  const normalized = normalize(subpath).replace(/\/+$/, "");
+  if (normalized === "" || normalized === "." || normalized === "..") return false;
+  if (normalized.startsWith("..")) return false;
+  return true;
 }
 
 function realProtectedRoot(path: string, realScopeCache: Map<string, string>, protectedRootCache: Map<string, string>): string {

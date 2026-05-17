@@ -1,7 +1,7 @@
 import { access, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { evaluatePathGuard, SOMA_DEFAULT_PROTECTED_PATHS } from "./policy-path-guard";
+import { evaluatePathGuard, SOMA_DEFAULT_PROTECTED_PATHS, SOMA_HOME_ALLOWED_MODIFY_SUBPATHS } from "./policy-path-guard";
 import { hasSomaPolicyPrivateMarker } from "./policy-marker";
 import { isInsidePath } from "./path-utils";
 import type { SomaPolicyBatchCheckOptions, SomaPolicyBatchCheckResult, SomaPolicyBatchTarget, SomaPolicyCheckOptions, SomaPolicyCheckResult, SomaPolicyFinding, SomaProtectedPath } from "./types";
@@ -26,6 +26,7 @@ const SOMA_POLICY_PORTABLE_MARKERS = [
   "~/.pi/agent/soma",
   "~/.pi/agent/skills/soma",
 ] as const;
+
 
 interface SomaPolicyScope {
   destinationPath: string;
@@ -149,9 +150,16 @@ function evaluateResolvedSomaPathGuard(options: SomaPolicyCheckOptions & { actio
 
   // Convert all private roots to protected paths for delete/modify actions.
   // This ensures the somaHome itself is protected, not just user-specified paths.
+  //
+  // For the Soma home specifically, mirror the SOMA_DEFAULT_PROTECTED_PATHS
+  // policy: allow modify on isa/ and memory/ subtrees so legitimate ISA and
+  // memory writes pass `soma policy check --action modify` even when the
+  // operator passes an explicit --soma-home. Delete remains blocked for the
+  // whole tree (allowedSubpaths is modify-only).
   const rootProtectedPaths: SomaProtectedPath[] = roots.map((root) => ({
     path: root,
     description: `Soma private root: ${markerFor(root, options.homeDir)}`,
+    ...(root === somaHome ? { allowedSubpaths: [...SOMA_HOME_ALLOWED_MODIFY_SUBPATHS] } : {}),
   }));
   const normalizeProtectedPaths = (protectedPaths: readonly SomaProtectedPath[]): SomaProtectedPath[] =>
     protectedPaths.map((protectedPath) => ({

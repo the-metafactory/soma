@@ -58,6 +58,43 @@ removing the Codex memory directory, removing the Soma home, or a patch
 write checks so memory can remain writable without allowing directory-removal
 accidents.
 
+## Protected Path Modify vs Delete
+
+The path guard distinguishes the `modify` and `delete` actions:
+
+- `delete` blocks any destructive operation against any descendant of a
+  protected root. `rm -rf ~/.soma`, `rm -rf ~/.soma/memory`, `rm -rf ~/.claude`
+  are all denied. There is no escape hatch for delete.
+- `modify` blocks overwrites of the protected root by default, but a
+  `SomaProtectedPath` may declare `allowedSubpaths` — relative subpaths under
+  the root where modify is permitted because the substrate is expected to
+  write there.
+
+The default protected paths declare these allowed modify subpaths:
+
+| Root         | Allowed modify subpaths                | Rationale                                            |
+| ------------ | -------------------------------------- | ---------------------------------------------------- |
+| `~/.soma`    | `isa/`, `memory/`                      | ISA edits and memory writes are the assistant's job  |
+| `~/.claude`  | `memory/`, `memories/`, `PAI/MEMORY/`  | Claude Code and PAI write working memory under these |
+| `~/.pi`      | `agent/memory/`                        | Pi.dev agent memory                                  |
+
+Writes to a protected root that fall outside its `allowedSubpaths` remain
+denied. `~/.soma/profile/identity.md` and `~/.soma/secret.md` are blocked for
+modify even though `~/.soma/isa/draft.md` is allowed. This keeps private roots
+(profile, identity, telos) safe while letting the assistant manage its own
+memory and ISA artifacts. See issue #79 (Pi.dev) and #48 (Codex) for the
+matching substrate-hook refinements.
+
+## Pi.dev Projection
+
+The Pi.dev home projection renders a `tool_call` extension
+(`agent/extensions/soma-path-guard.ts`) that reuses the portable
+`evaluatePathGuard` runtime with the explicit Soma home appended to
+`SOMA_DEFAULT_PROTECTED_PATHS`. The same `allowedSubpaths` apply to the
+explicit Soma home (`isa/`, `memory/`), so Pi.dev `write` and `edit` tool
+calls into `~/.soma/isa/*.md` and `~/.soma/memory/*/` pass while
+`rm -rf ~/.soma` and writes to `~/.soma/profile/` stay blocked (#79).
+
 ## Codex Projection
 
 The Codex home projection installs a `PreToolUse` hook for `Write`, `Edit`,
