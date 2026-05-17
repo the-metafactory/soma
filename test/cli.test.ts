@@ -739,3 +739,27 @@ test("cli export --out writes projection files into the out dir", async () => {
     await expect(stat(join(outDir, "rules/soma.rules"))).resolves.toBeDefined();
   });
 });
+
+test("cli export --out rejects symlink escape from within out dir", async () => {
+  await withTempHome(async (homeDir) => {
+    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir]);
+    const outDir = join(homeDir, "exported-symlinked");
+    const escapeTarget = join(homeDir, "escape-target");
+    await mkdir(outDir, { recursive: true });
+    await mkdir(escapeTarget, { recursive: true });
+    // Symlink the projection's `rules` subdir to a directory outside
+    // --out. With only the lexical guard, soma export would happily
+    // resolve writes through the symlink. The realpath check now
+    // catches this.
+    const { symlink } = await import("node:fs/promises");
+    await symlink(escapeTarget, join(outDir, "rules"));
+
+    await expect(
+      runSomaCli(["export", "codex", "--out", outDir, "--home-dir", homeDir]),
+    ).rejects.toThrow(/symlink that escapes --out/);
+
+    // The legit target outside --out must not have received the
+    // projection content via the symlink.
+    await expect(stat(join(escapeTarget, "soma.rules"))).rejects.toThrow();
+  });
+});

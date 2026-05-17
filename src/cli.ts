@@ -335,11 +335,11 @@ const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string,
     },
   },
   uninstall: {
-    usage: "Usage: soma uninstall <codex|pi-dev|claude-code> [--workspace] [--home-dir <dir>] [--substrate-home <dir>]",
+    usage: "Usage: soma uninstall <codex|pi-dev|claude-code> [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
     subcommands: {
-      codex: "Usage: soma uninstall codex [--workspace] [--home-dir <dir>] [--substrate-home <dir>]",
-      "pi-dev": "Usage: soma uninstall pi-dev [--workspace] [--home-dir <dir>] [--substrate-home <dir>]",
-      "claude-code": "Usage: soma uninstall claude-code [--workspace] [--home-dir <dir>] [--substrate-home <dir>]",
+      codex: "Usage: soma uninstall codex [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
+      "pi-dev": "Usage: soma uninstall pi-dev [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
+      "claude-code": "Usage: soma uninstall claude-code [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
     },
   },
   reproject: {
@@ -412,15 +412,16 @@ function resolveJoin(...parts: string[]): string {
   return parts.join("/").replace(/\/+/g, "/");
 }
 
-function parseInstallArgs(args: string[]): ParsedInstallArgs {
-  const [command, substrate, ...rest] = args;
-
-  if (command !== "install" || !isInstallSubstrate(substrate)) {
-    throw new Error(commandUsage("install"));
-  }
-
+// Shared option parser used by install/uninstall/reproject/upgrade.
+// All four verbs accept the same workspace + path triplet; this
+// keeps the workspace-default fallback in one place (Sage r1
+// maintainability finding on #54).
+function parseSubstrateLifecycleOptions(
+  substrate: InstallSubstrate,
+  rest: string[],
+  extra: (arg: string, index: number) => boolean,
+): { workspace: boolean; options: SomaInstallOptions } {
   const options: SomaInstallOptions = {};
-  let apply = false;
   let workspace = false;
   let substrateHomeExplicit = false;
 
@@ -428,44 +429,61 @@ function parseInstallArgs(args: string[]): ParsedInstallArgs {
     const arg = rest[index];
 
     switch (arg) {
-      case "--dry-run":
-        apply = false;
-        break;
-      case "--apply":
-        apply = true;
-        break;
       case "--workspace":
         workspace = true;
-        break;
+        continue;
       case "--home-dir":
         options.homeDir = readOption(rest, index, arg);
         index += 1;
-        break;
+        continue;
       case "--soma-home":
         options.somaHome = readOption(rest, index, arg);
         index += 1;
-        break;
+        continue;
       case "--substrate-home":
         options.substrateHome = readOption(rest, index, arg);
         substrateHomeExplicit = true;
         index += 1;
-        break;
-      default:
-        throw new Error(`Unknown option: ${arg}`);
+        continue;
     }
+
+    if (extra(arg, index)) continue;
+
+    throw new Error(`Unknown option: ${arg}`);
   }
 
   if (workspace && !substrateHomeExplicit) {
     options.substrateHome = workspaceSubstrateHome(substrate);
   }
 
-  return {
-    command,
-    substrate,
-    apply,
-    workspace,
-    options,
-  };
+  return { workspace, options };
+}
+
+function parseInstallArgs(args: string[]): ParsedInstallArgs {
+  const [command, substrate, ...rest] = args;
+
+  if (command !== "install" || !isInstallSubstrate(substrate)) {
+    throw new Error(commandUsage("install"));
+  }
+
+  let apply = false;
+  // The install verb layers --dry-run / --apply on top of the
+  // shared substrate-lifecycle option set. The `extra` callback
+  // hands those two flags to the shared parser so it can recognize
+  // them without claiming the other options.
+  const { workspace, options } = parseSubstrateLifecycleOptions(substrate, rest, (arg) => {
+    switch (arg) {
+      case "--dry-run":
+        apply = false;
+        return true;
+      case "--apply":
+        apply = true;
+        return true;
+    }
+    return false;
+  });
+
+  return { command, substrate, apply, workspace, options };
 }
 
 function parseLifecycleVerbArgs<T extends "uninstall" | "reproject" | "upgrade">(
@@ -478,39 +496,7 @@ function parseLifecycleVerbArgs<T extends "uninstall" | "reproject" | "upgrade">
     throw new Error(commandUsage(verb));
   }
 
-  const options: SomaInstallOptions = {};
-  let workspace = false;
-  let substrateHomeExplicit = false;
-
-  for (let index = 0; index < rest.length; index += 1) {
-    const arg = rest[index];
-
-    switch (arg) {
-      case "--workspace":
-        workspace = true;
-        break;
-      case "--home-dir":
-        options.homeDir = readOption(rest, index, arg);
-        index += 1;
-        break;
-      case "--soma-home":
-        options.somaHome = readOption(rest, index, arg);
-        index += 1;
-        break;
-      case "--substrate-home":
-        options.substrateHome = readOption(rest, index, arg);
-        substrateHomeExplicit = true;
-        index += 1;
-        break;
-      default:
-        throw new Error(`Unknown option: ${arg}`);
-    }
-  }
-
-  if (workspace && !substrateHomeExplicit) {
-    options.substrateHome = workspaceSubstrateHome(substrate);
-  }
-
+  const { workspace, options } = parseSubstrateLifecycleOptions(substrate, rest, () => false);
   return { substrate, workspace, options };
 }
 
@@ -2332,11 +2318,15 @@ async function runExport(parsed: ParsedExportArgs): Promise<{ files: { path: str
     return { files: projection };
   }
   const outRoot = resolveAbsolute(parsed.out);
-  const written: { path: string; content: string }[] = [];
-  for (const file of projection) {
-    const absolute = await writeProjectionExportFile(outRoot, file.path, file.content);
-    written.push({ path: absolute, content: file.content });
-  }
+  // Parallel writes — independent files, order preserved by mapping
+  // over the original projection array (sage r1 performance finding
+  // on #54).
+  const written = await Promise.all(
+    projection.map(async (file) => {
+      const absolute = await writeProjectionExportFile(outRoot, file.path, file.content);
+      return { path: absolute, content: file.content };
+    }),
+  );
   return { files: written, out: outRoot };
 }
 
@@ -2376,17 +2366,34 @@ function resolveAbsolute(path: string): string {
 }
 
 async function writeProjectionExportFile(outRoot: string, relativePath: string, content: string): Promise<string> {
-  const { mkdir, writeFile } = await import("node:fs/promises");
+  const { mkdir, realpath, writeFile } = await import("node:fs/promises");
   const path = await import("node:path");
-  // Guard against absolute paths or path-escape in the projection
-  // file list — projections are produced by trusted adapter code but
-  // the export verb is principal-facing so we belt-and-brace.
+  // Lexical guard: reject paths that try to escape --out via
+  // absolute paths or `..` segments before we touch the disk.
   const safeRelative = relativePath.replace(/^[/\\]+/, "");
   const absolute = path.resolve(outRoot, safeRelative);
-  if (!absolute.startsWith(path.resolve(outRoot) + path.sep) && absolute !== path.resolve(outRoot)) {
+  const resolvedOutRoot = path.resolve(outRoot);
+  if (absolute !== resolvedOutRoot && !absolute.startsWith(resolvedOutRoot + path.sep)) {
     throw new SomaCliError(`soma export refused to write outside --out (path: ${relativePath}).`, 2);
   }
-  await mkdir(path.dirname(absolute), { recursive: true });
+  // Symlink guard (sage r1 security finding on #54): after mkdir,
+  // resolve the real path of the parent directory and verify it is
+  // still under --out's real path. A symlink such as
+  // `<out>/rules -> ~/.ssh` would let writeFile land outside --out
+  // even though the lexical check passed. Resolving --out itself
+  // canonicalizes any symlinks the principal pointed --out at on
+  // purpose — those are allowed; only intermediate components are
+  // checked.
+  const parent = path.dirname(absolute);
+  await mkdir(parent, { recursive: true });
+  const realParent = await realpath(parent);
+  const realOutRoot = await realpath(resolvedOutRoot);
+  if (realParent !== realOutRoot && !realParent.startsWith(realOutRoot + path.sep)) {
+    throw new SomaCliError(
+      `soma export refused to follow a symlink that escapes --out (path: ${relativePath}).`,
+      2,
+    );
+  }
   await writeFile(absolute, content, "utf8");
   return absolute;
 }
