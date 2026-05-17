@@ -38,8 +38,16 @@ test("resolves pi.dev home projection paths from a home directory", () => {
   expect(paths.substrateHome).toBe("/tmp/soma-test-home/.pi");
 });
 
+test("resolves claude-code home projection paths (#37)", () => {
+  const paths = resolveHomeProjectionPaths("claude-code", { homeDir: "/tmp/soma-test-home" });
+  expect(paths.substrate).toBe("claude-code");
+  expect(paths.somaHome).toBe("/tmp/soma-test-home/.soma");
+  expect(paths.substrateHome).toBe("/tmp/soma-test-home/.claude");
+});
+
 test("rejects unimplemented home projection substrates", () => {
-  expect(() => resolveHomeProjectionPaths("claude-code", { homeDir: "/tmp/soma-test-home" })).toThrow("not implemented");
+  expect(() => resolveHomeProjectionPaths("cortex", { homeDir: "/tmp/soma-test-home" })).toThrow("not implemented");
+  expect(() => resolveHomeProjectionPaths("custom", { homeDir: "/tmp/soma-test-home" })).toThrow("not implemented");
 });
 
 test("builds codex home projection bundle for default availability", () => {
@@ -63,6 +71,7 @@ test("builds codex home projection bundle for default availability", () => {
     "memories/soma/skills.md",
     "memories/soma/policy.md",
     "skills/the-algorithm/SKILL.md",
+    "memories/soma/active-isa.md",
   ]);
   expect(projection.bundle.instructions).toContain("Soma default availability");
   expect(projection.bundle.instructions).toContain("/tmp/soma-test-home/.soma");
@@ -108,6 +117,7 @@ test("builds pi.dev home projection bundle for default availability", () => {
     "agent/soma/policy.md",
     "agent/extensions/soma-path-guard.ts",
     "agent/skills/soma/SKILL.md",
+    "agent/soma/active-isa.md",
   ]);
   expect(projection.bundle.files.find((file) => file.path === "agent/extensions/soma.ts")?.content).toContain("before_agent_start");
   expect(projection.bundle.files.find((file) => file.path === "agent/extensions/soma.ts")?.content).toContain("session_start");
@@ -129,7 +139,7 @@ test("installs codex home projection into a substrate home", async () => {
 
     expect(result.substrate).toBe("codex");
     expect(result.rootDir).toBe(join(homeDir, ".codex"));
-    expect(result.files).toHaveLength(15);
+    expect(result.files).toHaveLength(16);
 
     const rules = await readFile(join(homeDir, ".codex/rules/soma.rules"), "utf8");
     const hooks = await readFile(join(homeDir, ".codex/hooks.json"), "utf8");
@@ -220,7 +230,7 @@ test("installs pi.dev home projection into a substrate home", async () => {
 
     expect(result.substrate).toBe("pi-dev");
     expect(result.rootDir).toBe(join(homeDir, ".pi"));
-    expect(result.files).toHaveLength(10);
+    expect(result.files).toHaveLength(11);
 
     const extension = await readFile(join(homeDir, ".pi/agent/extensions/soma.ts"), "utf8");
     const profile = await readFile(join(homeDir, ".pi/agent/soma/profile.md"), "utf8");

@@ -1,5 +1,6 @@
 import type { SomaAdapter, SomaContextBundle, SomaContextInput, SomaTask } from "../types";
 import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "./shared";
+import { activeIsaProjectionPath, renderActiveIsaFile } from "../adapter-active-isa";
 
 function renderInstructions(input: SomaContextInput): string {
   return [
@@ -78,7 +79,28 @@ export function buildClaudeCodeContext(input: SomaContextInput): SomaContextBund
           "Verification reporting when hooks are absent",
         ]),
       },
+      // Active-ISA projection (#37). OMITTED when no active ISA — AC-2.
+      ...(input.activeIsa
+        ? [{ path: ".claude/soma/active-isa.md", content: renderActiveIsaFile(input.activeIsa) }]
+        : []),
     ],
+  };
+}
+
+/**
+ * Claude Code home projection (#37 minimal — full home install lands
+ * in #29 with the `.claude/rules/` pivot). For now we only project
+ * the active ISA at `~/.claude/PAI/ACTIVE_ISA.md` per the #37 spec
+ * table. When no active ISA is set the bundle has zero files (callers
+ * skip the writer).
+ */
+export function buildClaudeCodeHomeContext(input: SomaContextInput): SomaContextBundle {
+  return {
+    substrate: "claude-code",
+    instructions: renderInstructions(input),
+    files: input.activeIsa
+      ? [{ path: activeIsaProjectionPath("claude-code"), content: renderActiveIsaFile(input.activeIsa) }]
+      : [],
   };
 }
 
