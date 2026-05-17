@@ -134,7 +134,7 @@ async function loadFeatureIsa(feature: FeatureIsaInput): Promise<IdealStateArtif
 }
 
 async function readDefaultConflictPolicy(somaHome: string): Promise<IsaConflictPolicy> {
-  const configPath = join(somaHome, "isa", "config.json");
+  const configPath = defaultIsaReconcileConfigPath(somaHome);
   const raw = await readFile(configPath, "utf8").catch(() => "");
   if (raw.length === 0) return "error";
   try {
