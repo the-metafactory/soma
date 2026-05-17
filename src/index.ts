@@ -78,6 +78,8 @@ export type {
   PaiPackImportOptions,
   PaiPackImportPlan,
   PaiPackImportResult,
+  PaiPackOutcome,
+  PaiPackOutcomeKind,
   PaiPackManifest,
   PaiPackManifestFile,
   PaiPackNormalizationAction,
@@ -207,7 +209,11 @@ export { captureSomaFeedback, classifySomaFeedback, maybeSomaFeedbackPrompt } fr
 export { appendSomaMemoryEvent, searchSomaMemory, somaMemoryEventsPath } from "./memory";
 export { promoteAlgorithmRunMemory } from "./memory-promotion";
 export { importPaiIdentity, planPaiImport } from "./pai-importer";
-export { importPaiPack, planPaiPackImport } from "./pai-pack-importer";
+export {
+  importPaiPack,
+  PaiPackSubstrateSpecificRefusal,
+  planPaiPackImport,
+} from "./pai-pack-importer";
 export { importPaiDocs, planPaiDocsImport } from "./pai-docs-importer";
 // PAI MEMORY → Soma memory translator (#90) is intentionally NOT
 // re-exported from the package root — it is an internal phase of

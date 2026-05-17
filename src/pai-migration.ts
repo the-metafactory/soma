@@ -26,7 +26,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { importAlgorithm, planAlgorithmImport } from "./algorithm-importer";
 import { runBoundedConcurrent } from "./internal-concurrency";
 import { importPaiDocs, planPaiDocsImport } from "./pai-docs-importer";
@@ -34,6 +34,7 @@ import { importPaiIdentity, planPaiImport } from "./pai-importer";
 import { migratePaiMemory, planPaiMemoryMigration } from "./pai-memory-migrator";
 import {
   importPaiPack,
+  PaiPackSubstrateSpecificRefusal,
   planPaiPackImport,
   readPackMetadata,
   slugifySkillName,
@@ -49,6 +50,7 @@ import type {
   PaiMemoryMigrationResult,
   PaiPackImportPlan,
   PaiPackImportResult,
+  PaiPackOutcome,
 } from "./types";
 
 // Skill names that the bulk pack importer refuses to land. These are
@@ -113,8 +115,22 @@ export interface PaiMigrationOptions {
    * #90 — permit the bulk skill importer to land packs whose
    * normalized skill name appears in `MIGRATE_RESERVED_SKILL_NAMES`.
    * Without this flag the orchestrator refuses such packs loud.
+   *
+   * #97 — refusal is now per-pack and recorded in `packOutcomes`
+   * instead of aborting the whole migration. Other packs proceed.
    */
   overwriteReserved?: boolean;
+  /**
+   * #97 — pass-through to `importPaiPack`'s `includeSubstrateSpecific`
+   * option. When set, packs that contain substrate-specific files
+   * (anything under `src/` that isn't `src/SKILL.md`, `src/Workflows/`,
+   * `src/Tools/`, or `src/{Dashboard,Report}Template/`) land in their
+   * skill home; archived copies live under
+   * `<somaHome>/imports/pai-packs/<skill>/source/`. Without this flag
+   * such packs are SKIPPED (not aborted) and recorded in
+   * `packOutcomes` as `refused-substrate-specific`.
+   */
+  includeSubstrateSpecific?: boolean;
 }
 
 export interface PaiMigrationPlan {
@@ -134,7 +150,22 @@ export interface PaiMigrationResult {
   somaHome: string;
   identity: PaiImportResult;
   algorithm: AlgorithmImportResult | null;
+  /**
+   * Successfully imported packs only. Refused packs do NOT appear
+   * here — they live in `packOutcomes` instead. Existing tests +
+   * downstream consumers that count "packs imported" stay correct
+   * by reading this list.
+   */
   packs: PaiPackImportResult[];
+  /**
+   * #97 — per-pack outcome record for the bulk-skill-import phase.
+   * One entry per pack the orchestrator attempted (including those
+   * refused for substrate-specific files, reserved-name collisions,
+   * or genuine errors). Order matches the discovery order so the
+   * principal-facing summary table is stable across reruns. The CLI
+   * exit-code policy is: zero unless any outcome is `refused-other`.
+   */
+  packOutcomes: PaiPackOutcome[];
   memory: PaiMemoryMigrationResult | null;
   docs: PaiDocsImportResult | null;
   manifestPath: string;
@@ -235,26 +266,121 @@ async function readPackSkillSlug(packDir: string): Promise<string> {
   return slugifySkillName(meta.name);
 }
 
-async function refuseReservedPacks(
-  packPaths: readonly string[],
-  overwriteReserved: boolean,
-): Promise<string[]> {
-  if (overwriteReserved) return [...packPaths];
-  // Sage r1 #95 Performance suggestion: parallelize the README reads
-  // so installs with many packs don't pay serial filesystem latency
-  // before the import phase even starts. 4-wide concurrency mirrors
-  // the actual import phase below; per-call work is one small file
-  // read.
-  const slugs = await runBoundedConcurrent(packPaths, readPackSkillSlug, 4);
-  for (let i = 0; i < packPaths.length; i += 1) {
-    if (MIGRATE_RESERVED_SKILL_NAMES.has(slugs[i])) {
-      throw new Error(
-        `soma migrate pai refused reserved Soma skill '${slugs[i]}' from pack '${packPaths[i]}'. ` +
-          `Re-run with --overwrite-reserved to permit.`,
-      );
+/**
+ * #97 — bulk-pack-import strategy. For each pack:
+ *
+ *   1. Try to read the pack's normalized skill slug. If that itself
+ *      fails (malformed README, missing file), the pack is
+ *      `refused-other`.
+ *   2. If the slug is in the migration reserved-name set and
+ *      `overwriteReserved` is false, record `refused-reserved` and
+ *      skip the import call.
+ *   3. Otherwise run `importPaiPack`. Catch
+ *      `PaiPackSubstrateSpecificRefusal` → `refused-substrate-specific`.
+ *      Any other throw → `refused-other`. Success → `imported`.
+ *
+ * Each pack is processed independently; the bulk phase never aborts
+ * the whole migration on a per-pack failure. The orchestrator
+ * collects per-pack outcomes for the manifest + CLI exit-code policy.
+ *
+ * Concurrency model: per-pack pipeline must classify each error to
+ * the right outcome bucket; that's awkward to layer on top of
+ * `runBoundedConcurrent`'s "first error wins, abort the rest"
+ * contract, so the bulk phase runs serially. Per-pack work is a few
+ * small file reads + a directory copy; serial latency on a typical
+ * `~/work/PAI/Packs` install (≤30 packs) is well under one second.
+ * If that ever becomes a bottleneck the per-pack pipeline can be
+ * promoted to a `Promise.all` with per-task try/catch.
+ */
+interface BulkImportInputs {
+  homeDir: string | undefined;
+  somaHome: string;
+  packPaths: readonly string[];
+  overwriteReserved: boolean;
+  includeSubstrateSpecific: boolean;
+}
+
+interface BulkImportResult {
+  packs: PaiPackImportResult[];
+  outcomes: PaiPackOutcome[];
+}
+
+async function importPacksWithOutcomes(
+  inputs: BulkImportInputs,
+): Promise<BulkImportResult> {
+  const packs: PaiPackImportResult[] = [];
+  const outcomes: PaiPackOutcome[] = [];
+
+  for (const paiPackDir of inputs.packPaths) {
+    let slug: string | undefined;
+    try {
+      slug = await readPackSkillSlug(paiPackDir);
+    } catch (error) {
+      // Couldn't even read the pack's metadata — surface the error
+      // verbatim; the principal needs the original reason in the
+      // summary table.
+      outcomes.push({
+        paiPackDir,
+        outcome: "refused-other",
+        reason: errorMessage(error),
+      });
+      continue;
+    }
+
+    if (!inputs.overwriteReserved && MIGRATE_RESERVED_SKILL_NAMES.has(slug)) {
+      outcomes.push({
+        paiPackDir,
+        outcome: "refused-reserved",
+        skillName: slug,
+        reason: `reserved Soma skill '${slug}' — re-run with --overwrite-reserved to permit.`,
+      });
+      continue;
+    }
+
+    try {
+      // `overwrite: true` mirrors the pre-#97 behavior — migration
+      // is a "move my whole PAI install into Soma" operation and
+      // must not blow up because a previous run already imported the
+      // pack. The pack importer's per-pack rollback contract still
+      // protects on-disk safety.
+      const result = await importPaiPack({
+        homeDir: inputs.homeDir,
+        paiPackDir,
+        somaHome: inputs.somaHome,
+        overwrite: true,
+        includeSubstrateSpecific: inputs.includeSubstrateSpecific,
+      });
+      packs.push(result);
+      outcomes.push({
+        paiPackDir,
+        outcome: "imported",
+        skillName: result.skillName,
+      });
+    } catch (error) {
+      if (error instanceof PaiPackSubstrateSpecificRefusal) {
+        outcomes.push({
+          paiPackDir,
+          outcome: "refused-substrate-specific",
+          skillName: slug,
+          reason: `substrate-specific file(s): ${error.files.join(", ")}`,
+        });
+        continue;
+      }
+      outcomes.push({
+        paiPackDir,
+        outcome: "refused-other",
+        skillName: slug,
+        reason: errorMessage(error),
+      });
     }
   }
-  return [...packPaths];
+
+  return { packs, outcomes };
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
 }
 
 interface MigrationSources {
@@ -339,6 +465,15 @@ interface ManifestInputs {
   identity: PaiImportResult;
   algorithm: AlgorithmImportResult | null;
   packs: PaiPackImportResult[];
+  /**
+   * #97 — per-pack outcome list. Embedded into the manifest body so
+   * `--status` can report refused outcomes per AC-3 and so the body
+   * fingerprint changes when an outcome flips between reruns. Sorted
+   * by `paiPackDir` before render to keep the body byte-stable across
+   * reruns (matches the `runBoundedConcurrent` discovery order
+   * `Array.from(Set)` returned previously).
+   */
+  packOutcomes: PaiPackOutcome[];
   memory: PaiMemoryMigrationResult | null;
   docs: PaiDocsImportResult | null;
   paiSourceDir: string | undefined;
@@ -413,6 +548,22 @@ function renderManifest(result: ManifestInputs): string {
     : "\n" + result.packs
         .map((p, idx) => `  - pack ${idx + 1} fingerprint: ${result.packFingerprints[idx] ?? "empty"}`)
         .join("\n");
+  // #97 — per-pack outcome table. Sorted by paiPackDir so the body
+  // stays byte-stable across reruns (idempotency invariant). Lines
+  // use a fixed `<name|basename>\t<outcome>\t<reason>` shape so the
+  // `--status` regex can match in tests + downstream tooling.
+  const sortedOutcomes = [...result.packOutcomes].sort((a, b) =>
+    a.paiPackDir.localeCompare(b.paiPackDir),
+  );
+  const outcomeLines = sortedOutcomes.length === 0
+    ? "  (no packs attempted)"
+    : sortedOutcomes
+        .map((o) => {
+          const label = o.skillName ?? basename(o.paiPackDir);
+          const reasonSuffix = o.reason ? ` — ${o.reason}` : "";
+          return `  - ${label}: ${o.outcome}${reasonSuffix}`;
+        })
+        .join("\n");
   return [
     "# PAI Migration",
     "",
@@ -429,6 +580,9 @@ function renderManifest(result: ManifestInputs): string {
     docsLine,
     `- packs:`,
     packLines.split("\n").map((l) => `  ${l}`).join("\n") + packFingerprintLines,
+    "",
+    "## Pack outcomes",
+    outcomeLines,
     "",
     "## How to re-run",
     "- `soma migrate pai` is idempotent at the importer level — each underlying",
@@ -472,6 +626,8 @@ interface StableManifestInputs {
   identity: PaiImportResult;
   algorithm: AlgorithmImportResult | null;
   packs: PaiPackImportResult[];
+  /** #97 — see ManifestInputs for byte-stability contract. */
+  packOutcomes: PaiPackOutcome[];
   memory: PaiMemoryMigrationResult | null;
   docs: PaiDocsImportResult | null;
   paiSourceDir: string | undefined;
@@ -501,6 +657,7 @@ async function renderStableMigrationManifest(
     identity: inputs.identity,
     algorithm: inputs.algorithm,
     packs: inputs.packs,
+    packOutcomes: inputs.packOutcomes,
     memory: inputs.memory,
     docs: inputs.docs,
     paiSourceDir: inputs.paiSourceDir,
@@ -573,36 +730,22 @@ export async function migratePai(options: PaiMigrationOptions = {}): Promise<Pai
     filesWritten.push(memory.manifestPath);
   }
 
-  // Reserved-skill collision happens BEFORE any pack import runs so
-  // a single offending pack stops the whole bulk phase rather than
-  // half-importing.
-  const allowedPackPaths = options.skipSkills === true
-    ? []
-    : await refuseReservedPacks(packPaths, options.overwriteReserved === true);
-
-  // Sage r1+r4 (#28): parallelize independent pack imports with a
-  // bounded fan-out. Per-pack work is mostly I/O; 4 workers is enough
-  // to hide latency without bursting FD limits.
-  //
-  // `overwrite: true` is unconditional here (and only here — the
-  // standalone `soma import pai-pack` CLI keeps the strict default).
-  // Migration is a "move my whole PAI install into Soma" operation,
-  // so re-running it must not blow up because a previous run already
-  // imported the pack. The pack importer's per-pack rollback contract
-  // (rename-into-backup, restore-on-failure) keeps the operation safe
-  // even with overwrite enabled. Reserved-skill collisions are caught
-  // by `refuseReservedPacks` above before any pack import runs.
-  const packs = await runBoundedConcurrent(
-    allowedPackPaths,
-    (paiPackDir) =>
-      importPaiPack({
+  // #97 — bulk pack phase runs each pack independently and classifies
+  // its outcome instead of aborting on first failure. Reserved-skill
+  // collisions and substrate-specific refusals are now per-pack
+  // policy-respected outcomes; only genuine errors force a non-zero
+  // CLI exit (see `formatPaiMigrationResult` + the CLI exit-code
+  // gate). Pack data on disk (when `imported`) still lands via the
+  // existing `importPaiPack` contract — rollback included.
+  const { packs, outcomes: packOutcomes } = options.skipSkills === true
+    ? { packs: [] as PaiPackImportResult[], outcomes: [] as PaiPackOutcome[] }
+    : await importPacksWithOutcomes({
         homeDir: options.homeDir,
-        paiPackDir,
         somaHome,
-        overwrite: true,
-      }),
-    4,
-  );
+        packPaths,
+        overwriteReserved: options.overwriteReserved === true,
+        includeSubstrateSpecific: options.includeSubstrateSpecific === true,
+      });
   for (const r of packs) filesWritten.push(...r.files);
 
   const docs = options.paiSourceDir && options.skipDocs !== true
@@ -642,6 +785,7 @@ export async function migratePai(options: PaiMigrationOptions = {}): Promise<Pai
     identity,
     algorithm,
     packs,
+    packOutcomes,
     memory,
     docs,
     paiSourceDir: options.paiSourceDir,
@@ -656,6 +800,7 @@ export async function migratePai(options: PaiMigrationOptions = {}): Promise<Pai
     identity,
     algorithm,
     packs,
+    packOutcomes,
     memory,
     docs,
     manifestPath,

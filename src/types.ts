@@ -513,6 +513,52 @@ export interface PaiPackImportResult {
   normalization: PaiPackNormalizationReport;
 }
 
+/**
+ * Per-pack migration outcome (#97). The bulk-pack phase of
+ * `migratePai` no longer aborts on a per-pack failure — it classifies
+ * each pack into one of these four buckets and continues. The CLI's
+ * exit-code policy is: `imported` / `refused-substrate-specific` /
+ * `refused-reserved` are zero-exit (policy-respected); `refused-other`
+ * forces a non-zero exit (genuine error).
+ *
+ *   - `imported`                       — pack landed cleanly.
+ *   - `refused-substrate-specific`     — pack contains substrate-specific
+ *                                        files and `--include-substrate-specific`
+ *                                        was not passed.
+ *   - `refused-reserved`               — pack's normalized skill name is
+ *                                        in the migration reserved-name set
+ *                                        (`isa`, `the-algorithm`, `knowledge`,
+ *                                        `telos`) and `--overwrite-reserved`
+ *                                        was not passed.
+ *   - `refused-other`                  — genuine error (filesystem failure,
+ *                                        malformed pack, missing required
+ *                                        files, secret-file refusal, etc.).
+ */
+export type PaiPackOutcomeKind =
+  | "imported"
+  | "refused-substrate-specific"
+  | "refused-reserved"
+  | "refused-other";
+
+export interface PaiPackOutcome {
+  /** Absolute path of the source pack directory. Always present. */
+  paiPackDir: string;
+  outcome: PaiPackOutcomeKind;
+  /**
+   * Pack's normalized skill name when known (always for `imported` and
+   * `refused-reserved`; usually for `refused-substrate-specific`; may
+   * be omitted for `refused-other` if metadata read itself failed).
+   */
+  skillName?: string;
+  /**
+   * Human-readable reason. For `refused-substrate-specific` this lists
+   * the offending files; for `refused-reserved` it names the slug;
+   * for `refused-other` it surfaces the underlying error message.
+   * Empty/absent for `imported`.
+   */
+  reason?: string;
+}
+
 // soma import pai-docs — see src/pai-docs-importer.ts. Imports a
 // subset of a PAI release tree (DOCUMENTATION/, TEMPLATES/, ALGORITHM/)
 // into ~/.soma/PAI/, with per-file SHA tracking for idempotent

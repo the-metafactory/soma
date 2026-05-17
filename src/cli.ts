@@ -292,7 +292,7 @@ const TOP_LEVEL_COMMANDS = [
 ] as const;
 
 const MIGRATE_PAI_USAGE =
-  "Usage: soma migrate pai [--dry-run] [--apply] [--status] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>] [--pai-install <dir>] [--pai-source-dir <dir>] [--pai-packs-dir <dir>] [--pai-pack-dir <dir>] [--skip-memory] [--skip-skills] [--skip-docs] [--overwrite-reserved]";
+  "Usage: soma migrate pai [--dry-run] [--apply] [--status] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>] [--pai-install <dir>] [--pai-source-dir <dir>] [--pai-packs-dir <dir>] [--pai-pack-dir <dir>] [--skip-memory] [--skip-skills] [--skip-docs] [--overwrite-reserved] [--include-substrate-specific]";
 const ADOPT_CLAUDE_USAGE =
   "Usage: soma adopt claude [--dry-run] [--apply] [--uninstall] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
 const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string, string> }> = {
@@ -1526,6 +1526,16 @@ function parseMigrateArgs(args: string[]): ParsedMigrateArgs {
       case "--overwrite-reserved":
         options.overwriteReserved = true;
         break;
+      case "--include-substrate-specific":
+        // #97 — passthrough to `importPaiPack`. Previously this flag
+        // was only valid for `soma import pai-pack`; that surface
+        // still accepts it via `parseImportArgs`. Migration now also
+        // forwards it to every per-pack `importPaiPack` call so the
+        // canonical `migrate pai` walkthrough doesn't abort on
+        // packs that ship `src/Foundation.md` etc. (the user-reported
+        // repro: SystemsThinking, RootCauseAnalysis).
+        options.includeSubstrateSpecific = true;
+        break;
       default:
         throw new Error(`Unknown option: ${arg}`);
     }
@@ -1732,6 +1742,20 @@ function formatPaiMigrationResult(result: PaiMigrationResult): string {
   const docsLine = result.docs === null
     ? "  - docs:     skipped"
     : `  - docs:     ${result.docs.writtenCount} written, ${result.docs.files.length - result.docs.writtenCount} unchanged`;
+  // #97 — per-pack outcome summary. Sorted by paiPackDir (matches the
+  // manifest body order) so the principal sees a stable table across
+  // reruns. Lines render the slug (when known) so the principal can
+  // grep them against the manifest for `--status`.
+  const sortedOutcomes = [...result.packOutcomes].sort((a, b) =>
+    a.paiPackDir.localeCompare(b.paiPackDir),
+  );
+  const outcomeLines = sortedOutcomes.length === 0
+    ? ["  (no packs attempted)"]
+    : sortedOutcomes.map((o) => {
+        const label = o.skillName ?? o.paiPackDir;
+        const reasonSuffix = o.reason ? ` — ${o.reason}` : "";
+        return `  - ${label}: ${o.outcome}${reasonSuffix}`;
+      });
   return [
     "soma migrate pai — applied",
     "",
@@ -1745,6 +1769,9 @@ function formatPaiMigrationResult(result: PaiMigrationResult): string {
     memoryLine,
     docsLine,
     `  - packs:    ${result.packs.length} pack(s), ${result.packs.reduce((sum, p) => sum + p.files.length, 0)} file(s)`,
+    "",
+    "Pack outcomes:",
+    ...outcomeLines,
     "",
     `Total files written: ${result.filesWritten.length}`,
     "",
@@ -2359,7 +2386,25 @@ export async function runSomaCli(args: string[]): Promise<string> {
     if (parsed.mode === "plan") {
       return formatPaiMigrationPlan(await planPaiMigration(parsed.options));
     }
-    return formatPaiMigrationResult(await migratePai(parsed.options));
+    const result = await migratePai(parsed.options);
+    const formatted = formatPaiMigrationResult(result);
+    // #97 — AC-4: exit non-zero only when a pack outcome is
+    // `refused-other` (genuine error). Substrate-specific and
+    // reserved-name refusals are policy-respected and zero-exit; the
+    // principal asked for them by NOT passing the relevant override
+    // flag. The CLI still prints the full outcome table so they
+    // know what happened.
+    const refusedOther = result.packOutcomes.filter((o) => o.outcome === "refused-other");
+    if (refusedOther.length > 0) {
+      const detail = refusedOther
+        .map((o) => `  - ${o.skillName ?? o.paiPackDir}: ${o.reason ?? "(no detail)"}`)
+        .join("\n");
+      throw new SomaCliError(
+        `${formatted}\nsoma migrate pai — ${refusedOther.length} pack(s) failed with genuine errors:\n${detail}\n`,
+        1,
+      );
+    }
+    return formatted;
   }
 
   if (parsed.command === "adopt") {
