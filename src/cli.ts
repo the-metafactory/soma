@@ -1198,6 +1198,11 @@ function parseAdoptArgs(args: string[]): ParsedAdoptArgs {
         options.substrateHome = readOption(rest, index, arg);
         index += 1;
         break;
+      case "--help":
+        // Defensive: parseArgs intercepts --help at the top, but keep
+        // this branch so the parser surfaces usage if called directly
+        // (sage r1 on #72 — blocker bar).
+        throw new Error(ADOPT_CLAUDE_USAGE);
       default:
         throw new Error(`Unknown option: ${arg}`);
     }
