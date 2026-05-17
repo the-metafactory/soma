@@ -455,9 +455,12 @@ export function buildCodexHomeContext(input: SomaContextInput, somaHome: string,
       },
       // soma#73: soma-lifecycle.mjs ships verbatim under `#!/usr/bin/env bun`;
       // install-time config lives in soma-lifecycle.config.json beside it.
+      // executable:true is mandatory — Codex execs the hook via its
+      // shebang (sage r2 finding on PR #75).
       {
         path: "hooks/soma-lifecycle.mjs",
         content: readCodexHookAsset("soma-lifecycle.mjs"),
+        executable: true,
       },
       {
         path: "hooks/soma-lifecycle.config.json",

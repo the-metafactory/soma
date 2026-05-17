@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, resolve, sep } from "node:path";
 import type { SomaContextBundle, WrittenContextBundle } from "./types";
 
@@ -29,6 +29,12 @@ export async function writeContextBundle(bundle: SomaContextBundle, rootDir: str
     const target = assertSafeBundlePath(rootDir, file.path);
     await mkdir(dirname(target), { recursive: true });
     await writeFile(target, file.content, "utf8");
+    // soma#73 sage r2: shebang-fired hook entries must be executable
+    // for the substrate to invoke them directly. Default 0o644 stays
+    // for ordinary markdown/config files.
+    if (file.executable === true) {
+      await chmod(target, 0o755);
+    }
     writtenFiles.push(target);
   }
 

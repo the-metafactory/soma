@@ -226,6 +226,13 @@ export interface SomaContextBundle {
   files: {
     path: string;
     content: string;
+    /**
+     * When true, the file is chmod'd executable (0o755) at write
+     * time. Used by hook entries that the substrate execs directly
+     * via shebang (soma#73 sage r2). Defaults to false; ordinary
+     * markdown/config files stay 0o644.
+     */
+    executable?: boolean;
   }[];
 }
 

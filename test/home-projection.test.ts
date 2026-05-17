@@ -102,6 +102,20 @@ test("builds codex home projection bundle for default availability", () => {
   );
 });
 
+test("soma#73 sage r2: installed lifecycle hook is executable (0o755)", async () => {
+  await withTempHome(async (homeDir) => {
+    await installCodexHomeProjection(portableContextInput, { homeDir });
+    const { stat } = await import("node:fs/promises");
+    const info = await stat(join(homeDir, ".codex/hooks/soma-lifecycle.mjs"));
+    // Owner-execute bit (0o100) must be set so Codex can run the
+    // shebang directly.
+    expect((info.mode & 0o100) !== 0).toBe(true);
+    // Config JSON next to it stays non-executable.
+    const configInfo = await stat(join(homeDir, ".codex/hooks/soma-lifecycle.config.json"));
+    expect((configInfo.mode & 0o100) === 0).toBe(true);
+  });
+});
+
 test("soma#73: codex lifecycle hook ships verbatim with bun shebang + colocated config", () => {
   const projection = buildCodexHomeProjection(portableContextInput, { homeDir: "/tmp/soma-test-home" });
   const hook = projection.bundle.files.find((f) => f.path === "hooks/soma-lifecycle.mjs");
