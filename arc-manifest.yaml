@@ -1,10 +1,11 @@
 schema: arc/v1
 name: soma
-version: 0.3.0
+version: 0.3.2
 type: tool
 tier: community
 description: Substrate-portable Personal AI Assistant core for identity, memory, ISA, skills, learning, and adapters.
 license: MIT
+repository: https://github.com/the-metafactory/soma
 
 authors:
   - Jens-Christian Fischer
