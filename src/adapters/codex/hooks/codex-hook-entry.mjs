@@ -119,7 +119,6 @@ function algorithmPromptHookOutput(classification) {
     continue: true,
     hookSpecificOutput: {
       hookEventName: "UserPromptSubmit",
-      statusMessage: `Soma Algorithm engaging (${effort || source})`,
       additionalContext: [
         `Soma: ${label} (${source}). This prompt classified as ALGORITHM.`,
         'Use the seven-phase rendering contract from `~/.codex/skills/the-algorithm/SKILL.md`.',

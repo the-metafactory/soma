@@ -1,8 +1,14 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { SOMA_VERSION, type SomaAdapter } from "../src/index";
 
-test("exports version", () => {
-  expect(SOMA_VERSION).toBe("0.1.3");
+test("exports version (source of truth: package.json)", () => {
+  // SOMA_VERSION is derived from package.json — bumping the version
+  // requires touching one file only, not this test.
+  const pkg = JSON.parse(readFileSync(join(import.meta.dirname, "..", "package.json"), "utf8")) as { version: string };
+  expect(SOMA_VERSION).toBe(pkg.version);
+  expect(/^\d+\.\d+\.\d+/.test(SOMA_VERSION)).toBe(true);
 });
 
 test("adapter contract is structurally usable", async () => {

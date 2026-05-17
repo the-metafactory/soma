@@ -36,7 +36,6 @@ interface CodexHookTestOutput {
     additionalContext?: string;
     permissionDecision?: string;
     permissionDecisionReason?: string;
-    statusMessage?: string;
   };
 }
 
@@ -462,7 +461,6 @@ test("installed codex lifecycle hooks ignore ambient SOMA_REPO", async () => {
     expect(result.status).toBe(0);
     expect(result.output.hookSpecificOutput?.additionalContext).toContain("This prompt classified as ALGORITHM");
     expect(result.output.hookSpecificOutput?.additionalContext).toContain("seven-phase rendering contract");
-    expect(result.output.hookSpecificOutput?.statusMessage).toContain("Soma Algorithm engaging");
     expect(result.output.hookSpecificOutput?.additionalContext).not.toContain("Operating requirement");
     expect(result.output.hookSpecificOutput?.additionalContext).not.toContain("malicious");
   });
