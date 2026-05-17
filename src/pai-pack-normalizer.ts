@@ -169,9 +169,15 @@ function headingHashCount(headingText: string): number {
 // level or higher (fewer `#`s = higher level). Used to compute where a
 // stripped section ends — a deeper heading is part of the section's
 // hierarchy, but a same-or-higher heading starts the next section.
+//
+// Precondition: `level >= 1`. Sage R3 (PR #87) Maintainability nit: the
+// only call site (`stripMarkedHeadingSections`) gets `level` from
+// `headingHashCount(headingText)` where `headingText` is captured by a
+// regex anchored on `^#+`, so `level >= 1` is always true. Asserting here
+// keeps the contract explicit instead of carrying a dead defensive branch.
 function sameOrHigherHeadingBoundary(level: number): RegExp {
-  if (level <= 0) {
-    return /^#+\s+/m;
+  if (level < 1) {
+    throw new Error(`sameOrHigherHeadingBoundary: level must be >= 1, got ${level}`);
   }
   return new RegExp(`^#{1,${level}}\\s+`, "m");
 }
