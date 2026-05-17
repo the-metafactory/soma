@@ -209,7 +209,12 @@ export { promoteAlgorithmRunMemory } from "./memory-promotion";
 export { importPaiIdentity, planPaiImport } from "./pai-importer";
 export { importPaiPack, planPaiPackImport } from "./pai-pack-importer";
 export { importPaiDocs, planPaiDocsImport } from "./pai-docs-importer";
-// PAI → Soma migration orchestrator (#28 minimal scope).
+// PAI MEMORY → Soma memory translator (#90). Standalone module
+// surfaced for tests and for callers that want to translate memory
+// without going through the full migrate orchestration.
+export { migratePaiMemory, planPaiMemoryMigration } from "./pai-memory-migrator";
+// PAI → Soma migration orchestrator (#28 minimal scope, extended
+// for full migrate in #90).
 export {
   migratePai,
   planPaiMigration,

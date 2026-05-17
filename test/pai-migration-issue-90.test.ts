@@ -1,0 +1,341 @@
+/**
+ * #90 — soma migrate pai full orchestration tests.
+ *
+ * Exercises the orchestrator extensions over the #28 minimal scope:
+ *   - Memory translation phase (PAI MEMORY → soma memory).
+ *   - Bulk skill import from a packs root (iterate + per-pack import).
+ *   - Docs import phase via the #89 verb when `paiSourceDir` is given.
+ *   - Reserved-skill collision: refused unless `overwriteReserved`.
+ *   - `skipMemory` / `skipSkills` / `skipDocs` flags.
+ *   - `--pai-source-dir` pointing at a non-PAI dir is refused loud.
+ *
+ * Fixture-only; no network or real PAI install touched.
+ */
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { expect, test } from "bun:test";
+import { migratePai, planPaiMigration } from "../src/pai-migration";
+import type { PaiMemoryMigrationManifest } from "../src/types";
+
+async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
+  const homeDir = await mkdtemp(join(tmpdir(), "soma-90-orch-"));
+  try {
+    return await fn(homeDir);
+  } finally {
+    await rm(homeDir, { recursive: true, force: true });
+  }
+}
+
+async function writeIdentityFixture(homeDir: string): Promise<void> {
+  const userRoot = join(homeDir, ".claude/PAI/USER");
+  await mkdir(join(userRoot, "TELOS"), { recursive: true });
+  await writeFile(
+    join(userRoot, "PRINCIPAL_IDENTITY.md"),
+    "# Principal\n\n- **Name:** Test User\n- **Pronunciation:** Test\n- **Location:** Nowhere\n- **Timezone:** UTC\n- **Role:** Tester\n- **Focus:** Testing\n",
+    "utf8",
+  );
+  await writeFile(
+    join(userRoot, "DA_IDENTITY.md"),
+    "# DA Identity\n\n- **Full Name:** Bot\n- **Name:** Bot\n- **Display Name:** Bot\n- **Color:** #000\n- **Voice ID:** v\n- **Role:** assistant\n- **Operating Environment:** test\n",
+    "utf8",
+  );
+  for (const file of ["MISSION.md", "GOALS.md", "STRATEGIES.md", "BELIEFS.md"]) {
+    await writeFile(join(userRoot, "TELOS", file), `# ${file}\n\nFixture\n`, "utf8");
+  }
+}
+
+async function writeMemoryFixture(homeDir: string): Promise<void> {
+  const root = join(homeDir, ".claude/PAI/MEMORY");
+  await mkdir(join(root, "LEARNING"), { recursive: true });
+  await writeFile(join(root, "LEARNING/lesson.md"), "# Lesson\n", "utf8");
+  await mkdir(join(root, "WORK/20260117_test"), { recursive: true });
+  await writeFile(join(root, "WORK/20260117_test/notes.md"), "notes\n", "utf8");
+}
+
+// Build a tiny PAI pack tree under `<packsDir>/<name>`, valid enough
+// for `importPaiPack` to accept it (matches the V0 contract).
+async function writePackFixture(
+  packsDir: string,
+  packName: string,
+  options: { skillName?: string; description?: string } = {},
+): Promise<string> {
+  const packDir = join(packsDir, packName);
+  const skillName = options.skillName ?? packName;
+  const description = options.description ?? `Tiny ${packName} pack.`;
+  await mkdir(join(packDir, "src"), { recursive: true });
+  await writeFile(
+    join(packDir, "README.md"),
+    `---\nname: ${skillName}\ndescription: ${description}\n---\n\n# ${packName}\n\nFixture.\n`,
+    "utf8",
+  );
+  await writeFile(join(packDir, "INSTALL.md"), "# Install\n", "utf8");
+  await writeFile(join(packDir, "VERIFY.md"), "# Verify\n", "utf8");
+  await writeFile(
+    join(packDir, "src/SKILL.md"),
+    `---\nname: ${skillName}\ndescription: ${description}\n---\n\n# ${packName}\n\nFixture skill body.\n`,
+    "utf8",
+  );
+  return packDir;
+}
+
+async function writePaiSourceFixture(homeDir: string): Promise<string> {
+  const sourceDir = join(homeDir, "PAI/Releases/v5.0.0/.claude/PAI");
+  await mkdir(join(sourceDir, "DOCUMENTATION/Skills"), { recursive: true });
+  await writeFile(
+    join(sourceDir, "DOCUMENTATION/Skills/SkillSystem.md"),
+    "# Skill System\n",
+    "utf8",
+  );
+  return sourceDir;
+}
+
+test("planPaiMigration includes memory phase counts when MEMORY dir exists", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeIdentityFixture(homeDir);
+    await writeMemoryFixture(homeDir);
+    const plan = await planPaiMigration({ homeDir });
+    expect(plan.memory).toBeDefined();
+    expect(plan.memory!.files.length).toBe(2);
+  });
+});
+
+test("planPaiMigration sets memory to null when no MEMORY dir", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeIdentityFixture(homeDir);
+    const plan = await planPaiMigration({ homeDir });
+    expect(plan.memory).toBeDefined();
+    expect(plan.memory!.memoryDir).toBeNull();
+  });
+});
+
+test("migratePai runs memory phase end-to-end", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeIdentityFixture(homeDir);
+    await writeMemoryFixture(homeDir);
+    const result = await migratePai({ homeDir });
+    expect(result.memory).toBeDefined();
+    expect(result.memory!.writtenCount).toBe(2);
+    await stat(join(homeDir, ".soma/memory/LEARNING/lesson.md"));
+    await stat(join(homeDir, ".soma/memory/WORK/20260117_test/notes.md"));
+    // Memory manifest must exist.
+    const mem = await readFile(
+      join(homeDir, ".soma/imports/pai-migration/.manifest.json"),
+      "utf8",
+    );
+    const parsed = JSON.parse(mem) as PaiMemoryMigrationManifest;
+    expect(parsed.files.length).toBe(2);
+  });
+});
+
+test("migratePai skipMemory honored — no memory files written", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeIdentityFixture(homeDir);
+    await writeMemoryFixture(homeDir);
+    const result = await migratePai({ homeDir, skipMemory: true });
+    expect(result.memory).toBeNull();
+    await expect(
+      stat(join(homeDir, ".soma/memory/LEARNING/lesson.md")),
+    ).rejects.toThrow();
+  });
+});
+
+test("migratePai bulk imports packs from paiPacksDir", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeIdentityFixture(homeDir);
+    const packsDir = join(homeDir, "Packs");
+    await writePackFixture(packsDir, "AlphaSkill");
+    await writePackFixture(packsDir, "BetaSkill");
+    const result = await migratePai({ homeDir, paiPacksDir: packsDir });
+    expect(result.packs.length).toBe(2);
+    const names = result.packs.map((p) => p.skillName).sort();
+    expect(names).toEqual(["alpha-skill", "beta-skill"]);
+    await stat(join(homeDir, ".soma/skills/alpha-skill/SKILL.md"));
+    await stat(join(homeDir, ".soma/skills/beta-skill/SKILL.md"));
+  });
+});
+
+test("migratePai skipSkills honored — packs not imported even when packsDir given", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeIdentityFixture(homeDir);
+    const packsDir = join(homeDir, "Packs");
+    await writePackFixture(packsDir, "AlphaSkill");
+    const result = await migratePai({ homeDir, paiPacksDir: packsDir, skipSkills: true });
+    expect(result.packs).toEqual([]);
+    await expect(stat(join(homeDir, ".soma/skills/alpha-skill"))).rejects.toThrow();
+  });
+});
+
+test("migratePai refuses reserved skill names ('isa', 'the-algorithm', 'knowledge', 'telos') without overwriteReserved", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeIdentityFixture(homeDir);
+    const packsDir = join(homeDir, "Packs");
+    // Pack whose normalized skill name slugifies to a reserved name.
+    await writePackFixture(packsDir, "ISA", { skillName: "ISA" });
+    await expect(
+      migratePai({ homeDir, paiPacksDir: packsDir }),
+    ).rejects.toThrow(/reserved Soma skill 'isa'/i);
+  });
+});
+
+test("migratePai skips reserved skill name when --overwriteReserved is set, importing the rest", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeIdentityFixture(homeDir);
+    const packsDir = join(homeDir, "Packs");
+    await writePackFixture(packsDir, "ISA", { skillName: "ISA" });
+    await writePackFixture(packsDir, "Alpha", { skillName: "Alpha" });
+    const result = await migratePai({
+      homeDir,
+      paiPacksDir: packsDir,
+      overwriteReserved: true,
+    });
+    // ISA must be imported (the flag explicitly permits clobbering
+    // reserved names — Sage may push back; we record the resolution
+    // here so the contract is unambiguous).
+    const names = result.packs.map((p) => p.skillName).sort();
+    expect(names).toEqual(["alpha", "isa"]);
+  });
+});
+
+test("migratePai auto-discovers packs at <claudeHome>/PAI/Packs when paiPacksDir omitted", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeIdentityFixture(homeDir);
+    // Plant packs at the canonical auto-discovery location.
+    const packsDir = join(homeDir, ".claude/PAI/Packs");
+    await writePackFixture(packsDir, "Gamma");
+    const result = await migratePai({ homeDir });
+    expect(result.packs.length).toBe(1);
+    expect(result.packs[0].skillName).toBe("gamma");
+  });
+});
+
+test("migratePai with paiSourceDir invokes docs phase, writes <somaHome>/PAI/DOCUMENTATION/*", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeIdentityFixture(homeDir);
+    const sourceDir = await writePaiSourceFixture(homeDir);
+    const result = await migratePai({ homeDir, paiSourceDir: sourceDir });
+    expect(result.docs).toBeDefined();
+    expect(result.docs!.writtenCount).toBeGreaterThan(0);
+    await stat(join(homeDir, ".soma/PAI/DOCUMENTATION/Skills/SkillSystem.md"));
+  });
+});
+
+test("migratePai paiSourceDir pointing at non-PAI dir refuses loud", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeIdentityFixture(homeDir);
+    const bogus = join(homeDir, "definitely-not-pai");
+    await mkdir(bogus, { recursive: true });
+    await writeFile(join(bogus, "README.md"), "not pai\n", "utf8");
+    await expect(
+      migratePai({ homeDir, paiSourceDir: bogus }),
+    ).rejects.toThrow(/does not look like a PAI release tree/);
+  });
+});
+
+test("migratePai skipDocs honored — docs phase not run even when paiSourceDir given", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeIdentityFixture(homeDir);
+    const sourceDir = await writePaiSourceFixture(homeDir);
+    const result = await migratePai({ homeDir, paiSourceDir: sourceDir, skipDocs: true });
+    expect(result.docs).toBeNull();
+    await expect(
+      stat(join(homeDir, ".soma/PAI/DOCUMENTATION/Skills/SkillSystem.md")),
+    ).rejects.toThrow();
+  });
+});
+
+test("migratePai is idempotent across full phases (rerun = same on-disk state)", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeIdentityFixture(homeDir);
+    await writeMemoryFixture(homeDir);
+    const packsDir = join(homeDir, "Packs");
+    await writePackFixture(packsDir, "Alpha");
+    const sourceDir = await writePaiSourceFixture(homeDir);
+
+    const first = await migratePai({ homeDir, paiPacksDir: packsDir, paiSourceDir: sourceDir });
+    const firstManifest = await readFile(first.manifestPath, "utf8");
+    const firstMemManifest = await readFile(
+      join(homeDir, ".soma/imports/pai-migration/.manifest.json"),
+      "utf8",
+    );
+
+    const second = await migratePai({
+      homeDir,
+      paiPacksDir: packsDir,
+      paiSourceDir: sourceDir,
+    });
+    expect(second.memory!.writtenCount).toBe(0);
+    expect(second.memory!.unchanged).toBe(true);
+    // Docs phase: writtenCount=0 means idempotent skip per #89's
+    // contract.
+    expect(second.docs!.writtenCount).toBe(0);
+    expect(second.docs!.unchanged).toBe(true);
+    // Migration manifest byte-stable.
+    const secondManifest = await readFile(first.manifestPath, "utf8");
+    expect(secondManifest).toBe(firstManifest);
+    // Memory manifest byte-stable.
+    const secondMemManifest = await readFile(
+      join(homeDir, ".soma/imports/pai-migration/.manifest.json"),
+      "utf8",
+    );
+    expect(secondMemManifest).toBe(firstMemManifest);
+  });
+});
+
+test("planPaiMigration with paiSourceDir includes docs plan; without it docs is null", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeIdentityFixture(homeDir);
+    const sourceDir = await writePaiSourceFixture(homeDir);
+    const withSource = await planPaiMigration({ homeDir, paiSourceDir: sourceDir });
+    expect(withSource.docs).not.toBeNull();
+    expect(withSource.docs!.files.length).toBeGreaterThan(0);
+
+    const withoutSource = await planPaiMigration({ homeDir });
+    expect(withoutSource.docs).toBeNull();
+  });
+});
+
+test("migratePai MIGRATION.md includes a Last migrated at timestamp", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeIdentityFixture(homeDir);
+    const result = await migratePai({ homeDir });
+    const manifest = await readFile(result.manifestPath, "utf8");
+    expect(manifest).toMatch(/Last migrated at: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z/);
+  });
+});
+
+test("migratePai timestamp preserved across idempotent rerun (no writes)", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeIdentityFixture(homeDir);
+    await writeMemoryFixture(homeDir);
+    const first = await migratePai({ homeDir });
+    const firstManifest = await readFile(first.manifestPath, "utf8");
+    const firstTs = firstManifest.match(/^Last migrated at: (.+)$/m)?.[1];
+    expect(firstTs).toBeDefined();
+    // Wait a real moment so a non-preserved timestamp would diverge.
+    await new Promise((r) => setTimeout(r, 5));
+    await migratePai({ homeDir });
+    const secondManifest = await readFile(first.manifestPath, "utf8");
+    const secondTs = secondManifest.match(/^Last migrated at: (.+)$/m)?.[1];
+    expect(secondTs).toBe(firstTs!);
+  });
+});
+
+test("migratePai records memory + docs + packs counts in MIGRATION.md", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeIdentityFixture(homeDir);
+    await writeMemoryFixture(homeDir);
+    const packsDir = join(homeDir, "Packs");
+    await writePackFixture(packsDir, "Alpha");
+    const sourceDir = await writePaiSourceFixture(homeDir);
+    const result = await migratePai({
+      homeDir,
+      paiPacksDir: packsDir,
+      paiSourceDir: sourceDir,
+    });
+    const manifest = await readFile(result.manifestPath, "utf8");
+    expect(manifest).toContain("memory:");
+    expect(manifest).toContain("docs:");
+    expect(manifest).toContain("packs:");
+  });
+});
