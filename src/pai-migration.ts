@@ -300,8 +300,14 @@ export async function planPaiMigration(options: PaiMigrationOptions = {}): Promi
     : planAlgorithmImport({ homeDir: options.homeDir, paiAlgorithmDir: algorithmDir, somaHome });
   const packs = options.skipSkills === true
     ? []
-    : await Promise.all(
-        packPaths.map((paiPackDir) => planPaiPackImport({ homeDir: options.homeDir, paiPackDir, somaHome })),
+    // Sage r5 #95 Performance: bound the per-pack plan reads to 4
+    // workers (matches the apply path's import fan-out). The previous
+    // Promise.all opened one async pack-plan per discovered pack
+    // regardless of count.
+    : await runBoundedConcurrent(
+        packPaths,
+        (paiPackDir) => planPaiPackImport({ homeDir: options.homeDir, paiPackDir, somaHome }),
+        4,
       );
   const memory = options.skipMemory === true
     ? null
@@ -606,7 +612,21 @@ export async function migratePai(options: PaiMigrationOptions = {}): Promise<Pai
         somaHome,
       })
     : null;
-  if (docs) filesWritten.push(...docs.files);
+  // Sage r5 #95 important (mirrors r2 memory bug): the docs importer's
+  // `files: string[]` is "every in-scope target" (written + skipped),
+  // so pushing it wholesale over-reports writes after idempotent
+  // reruns. The importer exposes `writtenCount` but not a per-file
+  // written-targets list. Until that surface lands, omit the docs
+  // targets from `filesWritten` — the docs phase's own manifest at
+  // <somaHome>/PAI/.import-manifest.json is the authoritative
+  // per-file record, and `result.docs.writtenCount` is the per-run
+  // accounting. The behavior matches how memory is recorded.
+  if (docs && docs.writtenCount > 0) {
+    // We don't know which specific files were written, but the
+    // manifest path is always touched on apply. Recording it gives
+    // the principal a single anchor for "docs did write this run".
+    filesWritten.push(join(somaHome, "PAI/.import-manifest.json"));
+  }
 
   // Sage r3 #95 Maintainability: the timestamp gate + fingerprint
   // composition lives in `renderStableMigrationManifest` so this

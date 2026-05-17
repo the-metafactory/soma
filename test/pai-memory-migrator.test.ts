@@ -311,6 +311,41 @@ test("migratePaiMemory refuses symlinks inside the MEMORY tree", async () => {
   });
 });
 
+test("migratePaiMemory refuses target-leaf symlink that escapes Soma home — Sage r5 #95 security", async () => {
+  await withTempHome(async (homeDir) => {
+    await writePaiMemoryFixture(homeDir, { withLearning: true });
+    // Bootstrap the soma memory tree, then plant a target-side
+    // symlink at the path the migrator wants to write to. Without
+    // the round-5 hardening, copyFile would follow the link and
+    // overwrite /tmp/sentinel (an attacker-chosen file) with PAI
+    // memory content.
+    const externalSentinel = join(homeDir, "external-sentinel.txt");
+    await writeFile(externalSentinel, "untouched\n", "utf8");
+    const targetDir = join(homeDir, ".soma/memory/LEARNING");
+    await mkdir(targetDir, { recursive: true });
+    await symlink(externalSentinel, join(targetDir, "lesson-001.md"));
+    await expect(migratePaiMemory({ homeDir })).rejects.toThrow(/symlink/i);
+    // External file must NOT have been overwritten.
+    const after = await readFile(externalSentinel, "utf8");
+    expect(after).toBe("untouched\n");
+  });
+});
+
+test("migratePaiMemory refuses target-parent symlink that escapes Soma home — Sage r5 #95 security", async () => {
+  await withTempHome(async (homeDir) => {
+    await writePaiMemoryFixture(homeDir, { withLearning: true });
+    // Plant a target PARENT symlink. <somaHome>/memory/LEARNING/
+    // points at an external attacker-controlled dir.
+    const externalDir = join(homeDir, "external");
+    await mkdir(externalDir, { recursive: true });
+    await mkdir(join(homeDir, ".soma/memory"), { recursive: true });
+    await symlink(externalDir, join(homeDir, ".soma/memory/LEARNING"));
+    await expect(migratePaiMemory({ homeDir })).rejects.toThrow(/symlink/i);
+    // External dir must NOT contain the migrated file.
+    await expect(stat(join(externalDir, "lesson-001.md"))).rejects.toThrow();
+  });
+});
+
 test("planPaiMemoryMigration handles extra v5.0.0 cats (KNOWLEDGE, RESEARCH) cleanly", async () => {
   await withTempHome(async (homeDir) => {
     await writePaiMemoryFixture(homeDir, {
