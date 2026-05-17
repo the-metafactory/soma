@@ -154,6 +154,12 @@ export {
   codexAdapter,
   piDevAdapter,
 } from "./adapters";
+// NOTE: #43 Algorithm renderer pure-logic helpers (phase parser,
+// widget helpers, extension-source renderer) are intentionally NOT
+// re-exported at the package root. They are scoped to the pi-dev
+// substrate barrel (./adapters/pi-dev) until AC-7..AC-12 settle the
+// runtime shape in the follow-up PR. Tests can import the helpers
+// directly from the substrate path.
 export { writeProjection } from "./projection";
 export {
   buildClaudeCodeHomeProjection,

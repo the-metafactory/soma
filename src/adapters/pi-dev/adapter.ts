@@ -1,6 +1,7 @@
 import type { SomaAdapter, Projection, ProjectionInput, SomaTask } from "../../types";
 import { renderFeedbackHookHelper } from "../shared/feedback-helper";
 import { renderPathGuardExtension } from "./path-guard";
+import { renderSomaAlgorithmExtension } from "./extensions/soma-algorithm";
 import { buildPiDevPortableSkillFiles } from "./skill-projection";
 import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "../shared";
 import { activeIsaBundleFile } from "../../adapter-active-isa";
@@ -512,6 +513,14 @@ export function projectPiDevHome(input: ProjectionInput, somaHome: string): Proj
       {
         path: "agent/extensions/soma-path-guard.ts",
         content: renderPathGuardExtension(somaHome),
+      },
+      // #43 minimal-correct slice — Algorithm phase renderer extension.
+      // Ships TS verbatim (pi.dev hot-reloads .ts); imports pure-logic
+      // helpers via file:// URLs into the Soma repo so the runtime
+      // stays locked to the parser/widget unit tests.
+      {
+        path: "agent/extensions/soma-algorithm.ts",
+        content: renderSomaAlgorithmExtension(),
       },
       {
         path: "agent/skills/soma/SKILL.md",

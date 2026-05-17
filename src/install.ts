@@ -63,6 +63,8 @@ const CODEX_AGENTS_IMPORTS = ["@./skills/the-algorithm/SKILL.md", "@./memories/s
 const PI_DEV_HOME_FILES = [
   "agent/extensions/soma.ts",
   "agent/extensions/soma-path-guard.ts",
+  // #43 minimal-correct slice — Algorithm phase renderer extension.
+  "agent/extensions/soma-algorithm.ts",
   "agent/soma/context.md",
   "agent/soma/profile.md",
   "agent/soma/startup-context.md",
