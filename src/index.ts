@@ -202,6 +202,14 @@ export { appendSomaMemoryEvent, searchSomaMemory, somaMemoryEventsPath } from ".
 export { promoteAlgorithmRunMemory } from "./memory-promotion";
 export { importPaiIdentity, planPaiImport } from "./pai-importer";
 export { importPaiPack, planPaiPackImport } from "./pai-pack-importer";
+// PAI → Soma migration orchestrator (#28 minimal scope).
+export {
+  migratePai,
+  planPaiMigration,
+  type PaiMigrationOptions,
+  type PaiMigrationPlan,
+  type PaiMigrationResult,
+} from "./pai-migration";
 export { checkSomaPolicy, checkSomaPolicyBatch } from "./policy-audit";
 export { evaluateSomaPolicy } from "./policy";
 export { bootstrapSomaHome, loadSomaHome } from "./soma-home";
