@@ -10,9 +10,16 @@ import type { SomaProtectedPath } from "./types";
 // `protectedPaths` in SomaPolicyCheckOptions.
 
 export const SOMA_DEFAULT_PROTECTED_PATHS: readonly SomaProtectedPath[] = Object.freeze([
-  { path: "~/.soma", description: "Soma portable assistant home" },
-  { path: "~/.claude", description: "Claude Code / PAI home" },
-  { path: "~/.pi", description: "Pi.dev home" },
+  // ~/.soma is the Soma portable home. Modify-guarded by default to keep the
+  // profile and other private roots safe, but ISA + memory subtrees are the
+  // assistant's working surface and must remain writable. Delete remains
+  // blocked everywhere under ~/.soma.
+  { path: "~/.soma", description: "Soma portable assistant home", allowedSubpaths: ["isa", "memory"] },
+  // Claude Code / PAI home — same shape: protect the root, allow legitimate
+  // memory writes (memory/, memories/, PAI/MEMORY/).
+  { path: "~/.claude", description: "Claude Code / PAI home", allowedSubpaths: ["memory", "memories", "PAI/MEMORY"] },
+  // Pi.dev home — only the agent's memory subtree is a known write target.
+  { path: "~/.pi", description: "Pi.dev home", allowedSubpaths: ["agent/memory"] },
   { path: "~/.config/cortex", description: "Cortex operator config" },
   { path: "~/.config/metafactory", description: "Metafactory ecosystem config" },
   { path: "~/.config/k", description: "kai-launcher config" },
@@ -183,9 +190,20 @@ function findProtectedPath(resolvedPath: string, protectedPaths: readonly SomaPr
     if (action === "modify" && pp.guardModify === false) continue;
 
     const protectedRoot = realProtectedRoot(resolve(expandTilde(pp.path)), realScopeCache, protectedRootCache);
-    if (isInsidePath(realResolvedPath, protectedRoot)) {
-      return pp;
+    if (!isInsidePath(realResolvedPath, protectedRoot)) continue;
+
+    // allowedSubpaths only relaxes `modify` (writes/edits). Destructive
+    // operations against any descendant of a protected root remain blocked
+    // regardless of subpath — `rm -rf ~/.soma/memory` should still fail.
+    if (action === "modify" && pp.allowedSubpaths && pp.allowedSubpaths.length > 0) {
+      const insideAllowed = pp.allowedSubpaths.some((subpath) => {
+        const allowedRoot = realProtectedRoot(resolve(protectedRoot, subpath), realScopeCache, protectedRootCache);
+        return isInsidePath(realResolvedPath, allowedRoot);
+      });
+      if (insideAllowed) continue;
     }
+
+    return pp;
   }
 
   return undefined;
