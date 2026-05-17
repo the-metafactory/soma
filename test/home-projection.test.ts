@@ -151,6 +151,8 @@ test("builds pi.dev home projection bundle for default availability", () => {
     "agent/soma/skills.md",
     "agent/soma/policy.md",
     "agent/extensions/soma-path-guard.ts",
+    // #43 — Algorithm phase renderer extension.
+    "agent/extensions/soma-algorithm.ts",
     "agent/skills/soma/SKILL.md",
     "agent/soma/active-isa.md",
   ]);
@@ -366,9 +368,12 @@ test("installs pi.dev home projection into a substrate home", async () => {
 
     expect(result.substrate).toBe("pi-dev");
     expect(result.rootDir).toBe(join(homeDir, ".pi"));
-    expect(result.files).toHaveLength(11);
+    // #43 — +1 file (soma-algorithm.ts) projected alongside existing
+    // pi-dev home bundle.
+    expect(result.files).toHaveLength(12);
 
     const extension = await readFile(join(homeDir, ".pi/agent/extensions/soma.ts"), "utf8");
+    const algorithmExtension = await readFile(join(homeDir, ".pi/agent/extensions/soma-algorithm.ts"), "utf8");
     const profile = await readFile(join(homeDir, ".pi/agent/soma/profile.md"), "utf8");
     const paiImports = await readFile(join(homeDir, ".pi/agent/soma/pai-imports.md"), "utf8");
     const skill = await readFile(join(homeDir, ".pi/agent/skills/soma/SKILL.md"), "utf8");
@@ -389,5 +394,9 @@ test("installs pi.dev home projection into a substrate home", async () => {
     expect(paiImports).toContain(`${homeDir}/.soma/profile/imports/claude/DA_IDENTITY.md`);
     expect(skill).toContain("Do not assume a global `soma` binary exists");
     expect(skill).toContain("name: soma");
+    // #43 AC-1: the renderer extension file is written + has the
+    // default-export shape + slash-command registration.
+    expect(algorithmExtension).toContain("export default function (pi: ExtensionAPI)");
+    expect(algorithmExtension).toContain('pi.registerCommand("algorithm"');
   });
 });

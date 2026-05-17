@@ -153,6 +153,30 @@ export {
   claudeCodeAdapter,
   codexAdapter,
   piDevAdapter,
+  // Pi.dev Algorithm renderer extension (#43 minimal slice) —
+  // re-exported through the adapters barrel so consumers reach
+  // the parser, widget helpers, and extension-source renderer
+  // without crossing the substrate-adapter boundary directly.
+  ALGORITHM_PHASES,
+  latestAlgorithmPhaseMarker,
+  parseAlgorithmPhaseMarkers,
+  capabilitiesWidgetKey,
+  isaCriteriaWidgetKey,
+  phaseWidgetKey,
+  renderPhaseOverviewLines,
+  renderPhaseStatusText,
+  renderPhaseWidgetLines,
+  SOMA_STATUS_KEY,
+  renderIsaChecklistLines,
+  summarizeIsaChecklist,
+  renderSomaAlgorithmExtension,
+  type AlgorithmPhaseDescriptor,
+  type AlgorithmPhaseKey,
+  type PhaseMarker,
+  type IsaChecklistCriterion,
+  type IsaChecklistOptions,
+  type IsaChecklistSummary,
+  type RenderSomaAlgorithmExtensionOptions,
 } from "./adapters";
 export { writeProjection } from "./projection";
 export {
