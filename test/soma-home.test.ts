@@ -120,7 +120,7 @@ test("AC-3: SomaActiveIsaState type exported with correct shape", () => {
   expect(sample.updatedAt).toContain("2026");
 });
 
-test("AC-5: SomaContextInput.activeIsa unchanged shape after bootstrap", async () => {
+test("AC-5: ProjectionInput.activeIsa unchanged shape after bootstrap", async () => {
   await withTempHome(async (homeDir) => {
     const { context } = await bootstrapSomaHome({ homeDir });
     // No activeIsa expected on fresh bootstrap — bootstrap doesn't seed one

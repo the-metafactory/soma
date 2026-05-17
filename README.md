@@ -103,9 +103,9 @@ soma adopt claude --apply
 Then start a session and watch Soma surface its context.
 
 Claude Code uses its native rules directory as the home projection so Claude
-can auto-discover Soma context without depending on fragile home-directory
-imports. `soma adopt claude --uninstall` removes only the generated Soma
-projection.
+can auto-discover the Soma projection without depending on fragile
+home-directory imports. `soma adopt claude --uninstall` removes only the
+generated Soma projection.
 
 <!--
   Demo recording brief (replace this whole block with the rendered asset).

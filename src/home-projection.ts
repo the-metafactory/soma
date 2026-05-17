@@ -1,10 +1,10 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { buildClaudeCodeHomeContext, buildCodexHomeContext, buildPiDevHomeContext } from "./adapters";
-import { writeContextBundle } from "./context-bundle";
+import { projectClaudeCodeHome, projectCodexHome, projectPiDevHome } from "./adapters";
+import { writeProjection } from "./projection";
 import { defaultSomaRepoPath } from "./repo-path";
 import { DEFAULT_SUBSTRATE_HOMES } from "./adapter-active-isa";
-import type { SomaContextInput, SomaHomeProjection, SomaHomeProjectionOptions, SubstrateId, WrittenContextBundle } from "./types";
+import type { ProjectionInput, SomaHomeProjection, SomaHomeProjectionOptions, SubstrateId, WrittenProjection } from "./types";
 
 export function resolveHomeProjectionPaths(
   substrate: SubstrateId,
@@ -24,40 +24,40 @@ export function resolveHomeProjectionPaths(
   };
 }
 
-export function buildCodexHomeProjection(input: SomaContextInput, options: SomaHomeProjectionOptions = {}): SomaHomeProjection {
+export function buildCodexHomeProjection(input: ProjectionInput, options: SomaHomeProjectionOptions = {}): SomaHomeProjection {
   const paths = resolveHomeProjectionPaths("codex", options);
   const homeDir = resolve(options.homeDir ?? homedir());
   const somaRepoPath = resolve(options.somaRepoPath ?? defaultSomaRepoPath());
 
   return {
     ...paths,
-    bundle: buildCodexHomeContext(input, paths.somaHome, homeDir, somaRepoPath),
+    bundle: projectCodexHome(input, paths.somaHome, homeDir, somaRepoPath),
   };
 }
 
 export async function installCodexHomeProjection(
-  input: SomaContextInput,
+  input: ProjectionInput,
   options: SomaHomeProjectionOptions = {},
-): Promise<WrittenContextBundle> {
+): Promise<WrittenProjection> {
   const projection = buildCodexHomeProjection(input, options);
-  return writeContextBundle(projection.bundle, projection.substrateHome);
+  return writeProjection(projection.bundle, projection.substrateHome);
 }
 
-export function buildPiDevHomeProjection(input: SomaContextInput, options: SomaHomeProjectionOptions = {}): SomaHomeProjection {
+export function buildPiDevHomeProjection(input: ProjectionInput, options: SomaHomeProjectionOptions = {}): SomaHomeProjection {
   const paths = resolveHomeProjectionPaths("pi-dev", options);
 
   return {
     ...paths,
-    bundle: buildPiDevHomeContext(input, paths.somaHome),
+    bundle: projectPiDevHome(input, paths.somaHome),
   };
 }
 
 export async function installPiDevHomeProjection(
-  input: SomaContextInput,
+  input: ProjectionInput,
   options: SomaHomeProjectionOptions = {},
-): Promise<WrittenContextBundle> {
+): Promise<WrittenProjection> {
   const projection = buildPiDevHomeProjection(input, options);
-  return writeContextBundle(projection.bundle, projection.substrateHome);
+  return writeProjection(projection.bundle, projection.substrateHome);
 }
 
 /**
@@ -66,21 +66,21 @@ export async function installPiDevHomeProjection(
  * install lands in #29 with the `.claude/rules/` pivot.
  */
 export function buildClaudeCodeHomeProjection(
-  input: SomaContextInput,
+  input: ProjectionInput,
   options: SomaHomeProjectionOptions = {},
 ): SomaHomeProjection {
   const paths = resolveHomeProjectionPaths("claude-code", options);
 
   return {
     ...paths,
-    bundle: buildClaudeCodeHomeContext(input),
+    bundle: projectClaudeCodeHome(input),
   };
 }
 
 export async function installClaudeCodeHomeProjection(
-  input: SomaContextInput,
+  input: ProjectionInput,
   options: SomaHomeProjectionOptions = {},
-): Promise<WrittenContextBundle> {
+): Promise<WrittenProjection> {
   const projection = buildClaudeCodeHomeProjection(input, options);
-  return writeContextBundle(projection.bundle, projection.substrateHome);
+  return writeProjection(projection.bundle, projection.substrateHome);
 }

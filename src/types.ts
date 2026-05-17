@@ -214,13 +214,13 @@ export interface SomaProfile {
   skills: SomaSkill[];
 }
 
-export interface SomaContextInput {
+export interface ProjectionInput {
   profile: SomaProfile;
   activeIsa?: IdealStateArtifact;
   prompt?: string;
 }
 
-export interface SomaContextBundle {
+export interface Projection {
   substrate: SubstrateId;
   instructions: string;
   files: {
@@ -236,7 +236,7 @@ export interface SomaContextBundle {
   }[];
 }
 
-export interface WrittenContextBundle {
+export interface WrittenProjection {
   substrate: SubstrateId;
   rootDir: string;
   files: string[];
@@ -253,7 +253,7 @@ export interface SomaHomeProjection {
   substrate: SubstrateId;
   somaHome: string;
   substrateHome: string;
-  bundle: SomaContextBundle;
+  bundle: Projection;
 }
 
 export interface SomaHomeBootstrapOptions {
@@ -263,7 +263,7 @@ export interface SomaHomeBootstrapOptions {
 
 export interface SomaHomeBootstrapResult {
   somaHome: string;
-  context: SomaContextInput;
+  context: ProjectionInput;
   files: string[];
 }
 
@@ -277,7 +277,7 @@ export interface SomaInstallOptions {
 export interface SomaInstallResult {
   substrate: SubstrateId;
   somaHome: SomaHomeBootstrapResult;
-  substrateHome: WrittenContextBundle;
+  substrateHome: WrittenProjection;
 }
 
 export interface SomaInstallPlan {
@@ -719,6 +719,6 @@ export interface SomaRunResult {
 export interface SomaAdapter {
   name: SubstrateId;
   detect(): Promise<boolean>;
-  buildContext(input: SomaContextInput): Promise<SomaContextBundle>;
+  project(input: ProjectionInput): Promise<Projection>;
   run(task: SomaTask): Promise<SomaRunResult>;
 }

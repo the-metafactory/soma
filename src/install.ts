@@ -13,7 +13,7 @@ import { defaultSomaRepoPath } from "./repo-path";
 import { bootstrapSomaHome } from "./soma-home";
 import { installIsaSkill, installIsaSkillProjection } from "./isa-skill-installer";
 import { DEFAULT_SUBSTRATE_HOMES, loadActiveIsaForBundle } from "./adapter-active-isa";
-import type { SomaContextInput, SomaInstallOptions, SomaInstallPlan, SomaInstallResult } from "./types";
+import type { ProjectionInput, SomaInstallOptions, SomaInstallPlan, SomaInstallResult } from "./types";
 
 const SOMA_BOOTSTRAP_FILES = [
   "profile/assistant.md",
@@ -192,7 +192,7 @@ async function installSomaForSubstrate(
   });
   // Populate the projection input with the active ISA so each
   // substrate writes its `active-isa.md` file (#37 AC-1/AC-2).
-  const contextWithActiveIsa: SomaContextInput = {
+  const contextWithActiveIsa: ProjectionInput = {
     ...somaHome.context,
     activeIsa: (await loadActiveIsaForBundle({ somaHome: somaHome.somaHome })) ?? undefined,
   };
@@ -221,7 +221,7 @@ async function installSomaForSubstrate(
 
 async function installHomeProjectionFor(
   substrate: InstallSubstrate,
-  context: SomaContextInput,
+  context: ProjectionInput,
   options: { homeDir?: string; somaHome?: string; substrateHome?: string; somaRepoPath: string },
 ) {
   switch (substrate) {

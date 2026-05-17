@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
-import { buildCodexContext, codexAdapter } from "../src/index";
-import { portableContextInput } from "./fixtures";
+import { projectCodex, codexAdapter } from "../src/index";
+import { portableProjectionInput } from "./fixtures";
 
 test("codex adapter builds a portable context bundle", () => {
-  const bundle = buildCodexContext(portableContextInput);
+  const bundle = projectCodex(portableProjectionInput);
 
   expect(bundle.substrate).toBe("codex");
   expect(bundle.instructions).toContain("Soma Codex Context");
@@ -18,7 +18,7 @@ test("codex adapter builds a portable context bundle", () => {
 });
 
 test("codex adapter exposes context build before execution", async () => {
-  await expect(codexAdapter.buildContext(portableContextInput)).resolves.toMatchObject({
+  await expect(codexAdapter.project(portableProjectionInput)).resolves.toMatchObject({
     substrate: "codex",
   });
 

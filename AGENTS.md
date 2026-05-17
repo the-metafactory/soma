@@ -28,7 +28,7 @@ src/adapters/codex.ts
 ```
 
 That adapter should implement the `SomaAdapter` interface from `src/types.ts`
-and produce a `SomaContextBundle` that Codex can use as a local instruction
+and produce a `Projection` that Codex can use as a local instruction
 package.
 
 ## Design Boundaries
@@ -71,6 +71,6 @@ adapter:
 
 1. Add `src/adapters/codex.ts`.
 2. Export it from `src/index.ts`.
-3. Add tests proving it builds a context bundle from a minimal `SomaProfile`.
+3. Add tests proving it builds a projection from a minimal `SomaProfile`.
 4. Document the adapter behavior in `docs/substrate-adapters.md`.
 
