@@ -175,6 +175,16 @@ test("adversarial 7: conflicting Decisions timestamp errors unless policy resolv
   expect(getDecisions(resolved.isa).map((entry) => entry.text)).toEqual(["Master decision", "Feature decision"]);
 });
 
+test("adversarial 7: duplicate feature log keys merge at most one entry", () => {
+  const master = buildIsa("demo", [criterion("ISC-1", "open")]);
+  const entryA = { timestamp: "2026-05-17T00:00:00.000Z", phase: "plan", text: "Feature decision A" } as const;
+  const entryB = { timestamp: "2026-05-17T00:00:00.000Z", phase: "plan", text: "Feature decision B" } as const;
+  const feature = buildIsa("demo", [criterion("ISC-1", "open")], { [SECTION_NAME_MAP.decisions]: decisions(entryA, entryB) });
+  const resolved = reconcileIsaArtifacts(master, feature, { onConflict: "prefer-feature" });
+  expect(getDecisions(resolved.isa).map((entry) => entry.text)).toEqual(["Feature decision A"]);
+  expect(resolved.report.conflicts.some((conflict) => conflict.kind === "log-entry")).toBe(true);
+});
+
 test("adversarial 8: tombstoned criteria are preserved and never resurrected", () => {
   const master = buildIsa("demo", [criterion("ISC-1", "dropped", "[DROPPED - see Decisions]")]);
   const feature = buildIsa("demo", [criterion("ISC-1", "passed", "Resurrected", "evidence")]);

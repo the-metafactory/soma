@@ -313,14 +313,15 @@ function mergeLogSection(master: IdealStateArtifact, feature: IdealStateArtifact
   const featureEntries = readEntries(feature);
   if (featureEntries.length === 0) return master;
   const existing = new Set(masterEntries.map(logIdentity));
-  const timestampPhase = new Map(masterEntries.map((entry) => [logTimestampPhase(entry), entry.text]));
+  const masterTimestampPhase = new Map(masterEntries.map((entry) => [logTimestampPhase(entry), entry.text]));
+  const acceptedFeatureTimestampPhase = new Map<string, string>();
   const next = [...masterEntries];
   let appended = false;
 
   for (const entry of featureEntries) {
     if (existing.has(logIdentity(entry))) continue;
     const key = logTimestampPhase(entry);
-    const existingText = timestampPhase.get(key);
+    const existingText = masterTimestampPhase.get(key);
     if (existingText !== undefined && existingText !== entry.text) {
       const resolution = addConflict(report, policy, {
         kind: "log-entry",
@@ -329,9 +330,19 @@ function mergeLogSection(master: IdealStateArtifact, feature: IdealStateArtifact
       });
       if (resolution !== "feature") continue;
     }
+    const acceptedText = acceptedFeatureTimestampPhase.get(key);
+    if (acceptedText !== undefined && acceptedText !== entry.text) {
+      addConflict(report, policy, {
+        kind: "log-entry",
+        target: `${sectionName}:${key}`,
+        detail: `Conflicting feature ${sectionName} entries share timestamp and phase.`,
+        nonErrorResolution: "merged",
+      });
+      continue;
+    }
     next.push(entry);
     existing.add(logIdentity(entry));
-    timestampPhase.set(key, entry.text);
+    acceptedFeatureTimestampPhase.set(key, entry.text);
     report.mergedLogs.push(`${sectionName}:${entry.timestamp}`);
     appended = true;
   }
