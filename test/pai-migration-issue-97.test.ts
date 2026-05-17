@@ -248,6 +248,36 @@ test("AC-3 — --status reports per-pack outcomes from the migration manifest", 
   });
 });
 
+test("Sage r3 #99 — pack fingerprint lines pair correctly with imported pack names under mixed outcomes", async () => {
+  // Regression for Sage's r3 important finding: when an earlier
+  // discovered pack is refused, the imported pack must NOT inherit
+  // the refused pack's fingerprint. The fix keys fingerprints by
+  // `paiPackDir` so future edits to the orchestrator's pack-list
+  // shape can't silently break the pairing.
+  await withTempHome(async (homeDir) => {
+    await writeIdentityFixture(homeDir);
+    const packsDir = join(homeDir, "Packs");
+    // Discovery order matters: "ARefused" sorts before "BImported"
+    // so a buggy implementation would shift the imported pack's
+    // fingerprint slot.
+    const refused = await writePackFixture(packsDir, "a-refused", { skillName: "a-refused" });
+    await plantSubstrateSpecificFile(refused);
+    await writePackFixture(packsDir, "b-imported", { skillName: "b-imported" });
+    const result = await migratePai({ homeDir, paiPacksDir: packsDir });
+    expect(result.packs.length).toBe(1);
+    expect(result.packs[0].skillName).toBe("b-imported");
+    const manifest = await readFile(result.manifestPath, "utf8");
+    // The single "pack 1: b-imported" line must be followed by a
+    // fingerprint that matches the imported pack — not by an empty
+    // sentinel that would result from an off-by-one if the
+    // alignment broke.
+    expect(manifest).toMatch(/pack 1: b-imported \(\d+ files\)/);
+    const fpMatch = manifest.match(/pack 1 fingerprint: ([0-9a-f]+|empty)/);
+    expect(fpMatch).not.toBeNull();
+    expect(fpMatch![1]).not.toBe("empty");
+  });
+});
+
 test("migratePai is still idempotent across reruns with mixed outcomes (manifest body byte-stable)", async () => {
   await withTempHome(async (homeDir) => {
     await writeIdentityFixture(homeDir);

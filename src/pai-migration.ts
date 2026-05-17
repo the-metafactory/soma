@@ -604,10 +604,21 @@ function renderManifest(result: ManifestInputs): string {
       ? "- docs:     not requested (pass --pai-source-dir to import)"
       : "- docs:     skipped"
     : `- docs:     ${result.docs.files.length} file(s) under ${result.docs.releaseVersion ?? "(no version)"}`;
+  // Sage r3 #99 CodeQuality (important) — defensive map lookup. The
+  // arrays are currently aligned by construction (`packFingerprints`
+  // is computed from `inputs.packs`, same array passed here), but
+  // Sage flagged the index-based access as fragile against future
+  // edits where `packs` and `packFingerprints` could drift if either
+  // got re-sorted or filtered separately. Keying by `paiPackDir`
+  // removes the implicit alignment invariant.
+  const fingerprintByDir = new Map<string, string>();
+  for (let i = 0; i < result.packs.length; i += 1) {
+    fingerprintByDir.set(result.packs[i].paiPackDir, result.packFingerprints[i] ?? "empty");
+  }
   const packFingerprintLines = result.packs.length === 0
     ? ""
     : "\n" + result.packs
-        .map((p, idx) => `  - pack ${idx + 1} fingerprint: ${result.packFingerprints[idx] ?? "empty"}`)
+        .map((p, idx) => `  - pack ${idx + 1} fingerprint: ${fingerprintByDir.get(p.paiPackDir) ?? "empty"}`)
         .join("\n");
   // #97 — per-pack outcome table. Sorted by paiPackDir (via the
   // shared `formatPackOutcomeLines` helper) so the body stays
