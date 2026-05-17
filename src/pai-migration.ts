@@ -268,6 +268,12 @@ async function discoverMigrationSources(
 ): Promise<MigrationSources> {
   const algorithmDirCandidate = join(claudeHome, "PAI/Algorithm");
   const algorithmDir = (await exists(algorithmDirCandidate)) ? algorithmDirCandidate : null;
+  // Sage r3 #95 important: pack discovery must not run when the skill
+  // phase is explicitly skipped. Otherwise a bad/unreadable
+  // `paiPacksDir` throws even though `--skip-skills` was set.
+  if (options.skipSkills === true) {
+    return { algorithmDir, packPaths: [] };
+  }
   const packsRoot = await resolvePacksDir(options, claudeHome);
   const discovered = packsRoot ? await autoDiscoverPackPaths(packsRoot) : [];
   const explicit = options.paiPackPaths ?? [];
@@ -432,6 +438,80 @@ function renderManifest(result: ManifestInputs): string {
     .join("\n");
 }
 
+// Compose the migration's content fingerprints, render the manifest
+// body, and decide whether to preserve the prior `Last migrated at:`
+// timestamp or bump it.
+//
+// Idempotency model (Sage r1+r2 #95):
+//   1. Compute content fingerprints over identity / algorithm /
+//      per-pack-entry-SKILL.md bytes so the manifest body reflects
+//      content-level changes (not just file-count changes) in
+//      phases whose underlying importers don't expose a per-file
+//      "wrote vs skipped" signal.
+//   2. Render the manifest body with a sentinel timestamp.
+//   3. Read the prior manifest (if any), substitute the same
+//      sentinel for its timestamp line.
+//   4. If sentinel-bodies are byte-equal, the migration is fully
+//      idempotent — reuse the prior timestamp.
+//   5. Otherwise, write the new manifest with `new Date()`.
+//
+// This covers all phases by construction: any phase that changed
+// counts, names, file lists, OR file content produces a different
+// body and forces a timestamp bump. Pack fingerprint is restricted
+// to the entry SKILL.md (Sage r2 #95 Performance) — the only file
+// the pack importer rewrites, sufficient for the contract.
+interface StableManifestInputs {
+  claudeHome: string;
+  somaHome: string;
+  identity: PaiImportResult;
+  algorithm: AlgorithmImportResult | null;
+  packs: PaiPackImportResult[];
+  memory: PaiMemoryMigrationResult | null;
+  docs: PaiDocsImportResult | null;
+  paiSourceDir: string | undefined;
+  manifestPath: string;
+}
+
+async function renderStableMigrationManifest(
+  inputs: StableManifestInputs,
+): Promise<{ manifest: string; lastMigratedAt: string }> {
+  const identityFingerprint = await fingerprintFiles(inputs.identity.files);
+  const algorithmFingerprint = inputs.algorithm
+    ? await fingerprintFiles(inputs.algorithm.files)
+    : null;
+  const packFingerprints = await Promise.all(
+    inputs.packs.map((p) => fingerprintPackEntry(p)),
+  );
+  const sentinelTs = "__PAI_MIGRATION_TS_SENTINEL__";
+  const newBodyWithSentinel = renderManifest({
+    claudeHome: inputs.claudeHome,
+    somaHome: inputs.somaHome,
+    identity: inputs.identity,
+    algorithm: inputs.algorithm,
+    packs: inputs.packs,
+    memory: inputs.memory,
+    docs: inputs.docs,
+    paiSourceDir: inputs.paiSourceDir,
+    lastMigratedAt: sentinelTs,
+    identityFingerprint,
+    algorithmFingerprint,
+    packFingerprints,
+  });
+  const priorBytes = await readManifestBytes(inputs.manifestPath);
+  const priorWithSentinel = priorBytes === null
+    ? null
+    : priorBytes.replace(/^Last migrated at: .+$/m, `Last migrated at: ${sentinelTs}`);
+  const priorTs = priorBytes === null ? null : extractMigrationTimestamp(priorBytes);
+  const lastMigratedAt =
+    priorWithSentinel !== null && priorWithSentinel === newBodyWithSentinel && priorTs !== null
+      ? priorTs
+      : new Date().toISOString();
+  return {
+    manifest: newBodyWithSentinel.replace(sentinelTs, lastMigratedAt),
+    lastMigratedAt,
+  };
+}
+
 /**
  * Execute the migration plan. Runs identity → algorithm → memory →
  * packs → docs in order, then writes the MIGRATION.md manifest. The
@@ -522,44 +602,15 @@ export async function migratePai(options: PaiMigrationOptions = {}): Promise<Pai
     : null;
   if (docs) filesWritten.push(...docs.files);
 
-  // Timestamp / idempotency gate (Sage r1 #95 important):
-  //
-  // The previous gate only considered `memory.unchanged &&
-  // docs.unchanged`, which incorrectly preserved the prior timestamp
-  // when identity / algorithm / packs DID write bytes. The fix is to
-  // make the gate manifest-content-equivalent rather than
-  // phase-flag-based:
-  //
-  //   1. Compute content fingerprints over identity / algorithm /
-  //      per-pack entry-SKILL.md bytes so the manifest body reflects
-  //      content-level changes (not just file-count changes) in
-  //      phases whose underlying importers don't expose a per-file
-  //      "wrote vs skipped" signal.
-  //   2. Render the manifest body with a sentinel timestamp.
-  //   3. Read the prior manifest (if any), substitute the same
-  //      sentinel for its timestamp line.
-  //   4. If the two bodies are byte-equal, the migration is fully
-  //      idempotent — reuse the prior timestamp.
-  //   5. Otherwise, write the new manifest with `new Date()`.
-  //
-  // This covers all five phases by construction: any phase that
-  // changed counts, names, file lists, OR file content will produce
-  // a different body and force a timestamp bump.
-  // Sage r2 #95 Performance: pack fingerprints used to hash every
-  // imported pack file (workflows, tools, source-doc copies) which
-  // doubled the I/O on the apply path. The entry `SKILL.md` is the
-  // only file the pack importer rewrites (frontmatter normalization
-  // + skill identity), and it's where content drift between pack
-  // versions actually shows up; fingerprinting just that file is
-  // sufficient for the timestamp-bump contract and avoids the
-  // duplicate-read scaling pitfall.
-  const identityFingerprint = await fingerprintFiles(identity.files);
-  const algorithmFingerprint = algorithm ? await fingerprintFiles(algorithm.files) : null;
-  const packFingerprints = await Promise.all(packs.map((p) => fingerprintPackEntry(p)));
+  // Sage r3 #95 Maintainability: the timestamp gate + fingerprint
+  // composition lives in `renderStableMigrationManifest` so this
+  // orchestrator stays focused on phase composition. The helper
+  // returns the manifest bytes ready to write + the resolved
+  // timestamp (preserved on idempotent rerun, freshly bumped
+  // otherwise).
   const manifestPath = manifestPathFor(somaHome);
   await mkdir(dirname(manifestPath), { recursive: true });
-  const sentinelTs = "__PAI_MIGRATION_TS_SENTINEL__";
-  const newBodyWithSentinel = renderManifest({
+  const { manifest } = await renderStableMigrationManifest({
     claudeHome,
     somaHome,
     identity,
@@ -568,21 +619,8 @@ export async function migratePai(options: PaiMigrationOptions = {}): Promise<Pai
     memory,
     docs,
     paiSourceDir: options.paiSourceDir,
-    lastMigratedAt: sentinelTs,
-    identityFingerprint,
-    algorithmFingerprint,
-    packFingerprints,
+    manifestPath,
   });
-  const priorBytes = await readManifestBytes(manifestPath);
-  const priorWithSentinel = priorBytes === null
-    ? null
-    : priorBytes.replace(/^Last migrated at: .+$/m, `Last migrated at: ${sentinelTs}`);
-  const priorTs = priorBytes === null ? null : extractMigrationTimestamp(priorBytes);
-  const lastMigratedAt =
-    priorWithSentinel !== null && priorWithSentinel === newBodyWithSentinel && priorTs !== null
-      ? priorTs
-      : new Date().toISOString();
-  const manifest = newBodyWithSentinel.replace(sentinelTs, lastMigratedAt);
   await writeFile(manifestPath, manifest, "utf8");
   filesWritten.push(manifestPath);
 

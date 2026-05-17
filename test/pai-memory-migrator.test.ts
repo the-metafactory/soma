@@ -11,21 +11,15 @@
  * collision get strong tests before opening the PR.
  */
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { migratePaiMemory, planPaiMemoryMigration } from "../src/pai-memory-migrator";
 import type { PaiMemoryMigrationManifest } from "../src/types";
+import { withTempHome as withSharedTempHome } from "./fixtures/pai-migration-fixtures";
 
-async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
-  const homeDir = await mkdtemp(join(tmpdir(), "soma-90-mem-"));
-  try {
-    return await fn(homeDir);
-  } finally {
-    await rm(homeDir, { recursive: true, force: true });
-  }
-}
+const withTempHome = <T>(fn: (homeDir: string) => Promise<T>): Promise<T> =>
+  withSharedTempHome(fn, "soma-90-mem-");
 
 function sha256(content: string | Buffer): string {
   return createHash("sha256").update(content).digest("hex");

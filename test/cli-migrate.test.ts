@@ -4,43 +4,17 @@
  * Validates dry-run, --apply, --status, and unknown-flag behavior
  * against a synthetic PAI fixture.
  */
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { runSomaCli } from "../src/cli";
+import {
+  withTempHome as withSharedTempHome,
+  writePaiIdentityFixture as writePaiFixture,
+} from "./fixtures/pai-migration-fixtures";
 
-async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
-  const homeDir = await mkdtemp(join(tmpdir(), "soma-cli-67-"));
-  try {
-    return await fn(homeDir);
-  } finally {
-    await rm(homeDir, { recursive: true, force: true });
-  }
-}
-
-async function writePaiFixture(homeDir: string, opts: { withAlgorithm?: boolean } = {}): Promise<void> {
-  const userRoot = join(homeDir, ".claude/PAI/USER");
-  await mkdir(join(userRoot, "TELOS"), { recursive: true });
-  await writeFile(
-    join(userRoot, "PRINCIPAL_IDENTITY.md"),
-    "# Principal\n\n- **Name:** Test User\n- **Pronunciation:** Test\n- **Location:** Nowhere\n- **Timezone:** UTC\n- **Role:** Tester\n- **Focus:** Testing\n",
-    "utf8",
-  );
-  await writeFile(
-    join(userRoot, "DA_IDENTITY.md"),
-    "# DA Identity\n\n- **Full Name:** Bot\n- **Name:** Bot\n- **Display Name:** Bot\n- **Color:** #000\n- **Voice ID:** v\n- **Role:** assistant\n- **Operating Environment:** test\n",
-    "utf8",
-  );
-  for (const file of ["MISSION.md", "GOALS.md", "STRATEGIES.md", "BELIEFS.md"]) {
-    await writeFile(join(userRoot, "TELOS", file), `# ${file}\n\nFixture\n`, "utf8");
-  }
-  if (opts.withAlgorithm) {
-    const algoDir = join(homeDir, ".claude/PAI/Algorithm");
-    await mkdir(algoDir, { recursive: true });
-    await writeFile(join(algoDir, "v6.3.0.md"), "# Algorithm v6.3.0\n", "utf8");
-  }
-}
+const withTempHome = <T>(fn: (homeDir: string) => Promise<T>): Promise<T> =>
+  withSharedTempHome(fn, "soma-cli-67-");
 
 test("soma migrate pai (no flags) → dry-run plan", async () => {
   await withTempHome(async (homeDir) => {

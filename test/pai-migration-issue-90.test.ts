@@ -11,27 +11,21 @@
  *
  * Fixture-only; no network or real PAI install touched.
  */
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { migratePai, planPaiMigration } from "../src/pai-migration";
 import type { PaiMemoryMigrationManifest } from "../src/types";
 import {
+  withTempHome as withSharedTempHome,
   writePaiIdentityFixture as writeIdentityFixture,
   writePaiMemoryFixture as writeMemoryFixture,
   writePaiPackFixture as writePackFixture,
   writePaiReleaseFixture as writePaiSourceFixture,
 } from "./fixtures/pai-migration-fixtures";
 
-async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
-  const homeDir = await mkdtemp(join(tmpdir(), "soma-90-orch-"));
-  try {
-    return await fn(homeDir);
-  } finally {
-    await rm(homeDir, { recursive: true, force: true });
-  }
-}
+const withTempHome = <T>(fn: (homeDir: string) => Promise<T>): Promise<T> =>
+  withSharedTempHome(fn, "soma-90-orch-");
 
 test("planPaiMigration includes memory phase counts when MEMORY dir exists", async () => {
   await withTempHome(async (homeDir) => {
@@ -106,6 +100,30 @@ test("migratePai skipSkills honored — packs not imported even when packsDir gi
     const result = await migratePai({ homeDir, paiPacksDir: packsDir, skipSkills: true });
     expect(result.packs).toEqual([]);
     await expect(stat(join(homeDir, ".soma/skills/alpha-skill"))).rejects.toThrow();
+  });
+});
+
+test("migratePai skipSkills short-circuits pack discovery (bad packs dir is not read) — Sage r3 #95 important", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeIdentityFixture(homeDir);
+    // Use a `paiPacksDir` that exists but is unreadable. Without the
+    // skipSkills short-circuit in discoverMigrationSources, the
+    // orchestrator would throw EACCES while reading the dir even
+    // though the skill phase is explicitly skipped.
+    const packsDir = join(homeDir, "locked-packs");
+    await mkdir(packsDir, { recursive: true });
+    const { chmod } = await import("node:fs/promises");
+    await chmod(packsDir, 0o000);
+    try {
+      const result = await migratePai({
+        homeDir,
+        paiPacksDir: packsDir,
+        skipSkills: true,
+      });
+      expect(result.packs).toEqual([]);
+    } finally {
+      await chmod(packsDir, 0o700);
+    }
   });
 });
 
