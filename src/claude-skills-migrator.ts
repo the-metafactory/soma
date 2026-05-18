@@ -55,19 +55,96 @@ import { kebabSlug } from "./pai-pack-slug";
 import { normalizeSkillContent } from "./pai-pack-normalizer";
 import { EDITOR_CONFIG_DIRS } from "./pai-pack-noise";
 import { runBoundedConcurrent } from "./internal-concurrency";
+import { verifySubstrateProjection } from "./claude-skills-substrate-verify";
 import type {
   ClaudeSkillOutcome,
   ClaudeSkillPortabilityTag,
+  ClaudeSkillSubstrateVerifyResult,
+  ClaudeSkillSubstrateVerifySummary,
   ClaudeSkillsMigrationManifest,
   ClaudeSkillsMigrationManifestEntry,
   ClaudeSkillsMigrationOptions,
   ClaudeSkillsMigrationPlan,
   ClaudeSkillsMigrationResult,
+  ClaudeSkillsSmokeSubstrate,
+  SomaSkill,
 } from "./types";
 
 const MANIFEST_SCHEMA = "soma.claude-skills-migration.v1";
 const MANIFEST_RELATIVE = "imports/claude-skills/.manifest.json";
 const REPORT_RELATIVE = "imports/claude-skills/.portability-report.md";
+
+// #115 Phase 2 — `--smoke` substrate de-dup + validation. Caller is
+// responsible for resolving the `all` keyword to the substrate list
+// at parse time; this helper only de-dupes + sorts so the order in
+// the report / manifest is byte-stable.
+const ALL_SMOKE_SUBSTRATES: readonly ClaudeSkillsSmokeSubstrate[] = ["codex", "pi-dev"];
+function normalizeSmokeSubstrates(
+  raw: readonly ClaudeSkillsSmokeSubstrate[] | undefined,
+): ClaudeSkillsSmokeSubstrate[] {
+  if (!raw || raw.length === 0) return [];
+  const set = new Set<ClaudeSkillsSmokeSubstrate>();
+  for (const sub of raw) {
+    set.add(sub);
+  }
+  // Preserve the canonical order so report column order is stable.
+  return ALL_SMOKE_SUBSTRATES.filter((sub) => set.has(sub));
+}
+
+// Parse the front-matter description of a source SKILL.md so the
+// per-substrate verifier can run the description-mismatch check
+// against the projected SKILL.md. The Pi.dev projector rewrites the
+// `name` field but not `description`, so a missing/changed
+// description after projection is a meaningful blocker.
+//
+// Same lenient parser as `claude-skills-substrate-verify.ts` —
+// duplicating the four-line scanner is cheaper than exporting an
+// internal helper across modules.
+const SOURCE_FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---(?=\r?\n|$)/;
+function parseSourceDescription(skillMdContent: string): string | undefined {
+  const match = SOURCE_FRONTMATTER_RE.exec(skillMdContent);
+  if (!match) return undefined;
+  for (const raw of match[1].split(/\r?\n/)) {
+    const line = raw.trimEnd();
+    if (line.startsWith("description:")) {
+      const value = line.slice("description:".length).trim();
+      if (value.length >= 2) {
+        const first = value[0];
+        const last = value[value.length - 1];
+        if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+          return value.slice(1, -1);
+        }
+      }
+      return value;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Materialize an imported skill as a `SomaSkill`-shaped object so
+ * the verifier can re-use existing substrate projection helpers.
+ *
+ * `name` is the source directory name (preserves casing for codex
+ * file paths; the Pi.dev projector lowercases via `piDevSkillId`).
+ */
+function buildSomaSkillFromPayload(
+  sourceName: string,
+  rewrittenFiles: Array<{ relPath: string; content: Buffer }>,
+): SomaSkill {
+  const skillMd = rewrittenFiles.find((f) => f.relPath === "SKILL.md");
+  const description = skillMd ? parseSourceDescription(skillMd.content.toString("utf8")) ?? "" : "";
+  return {
+    name: sourceName,
+    path: sourceName,
+    description,
+    triggers: [],
+    files: rewrittenFiles.map((file) => ({
+      path: file.relPath,
+      content: file.content.toString("utf8"),
+    })),
+  };
+}
 
 // #104 parallel — editor-config symlinks (`.cursor/`, `.vscode/`,
 // `.idea/`, `.fleet/`, `.zed/`) ship inside many PAI skills and are
@@ -522,6 +599,7 @@ export async function planClaudeSkillsMigration(
 ): Promise<ClaudeSkillsMigrationPlan> {
   const { from, somaHome } = resolveHomes(options);
   const includeClaudeSpecific = options.includeClaudeSpecific === true;
+  const smokeSubstrates = normalizeSmokeSubstrates(options.smokeSubstrates);
   // Plan mode reads any existing manifest so the dispositions match
   // what an `--apply` invocation would do (e.g. a re-run on unchanged
   // source shows `skipped-idempotent`, not `imported`).
@@ -539,6 +617,7 @@ export async function planClaudeSkillsMigration(
     isFlatSkillsTree,
     outcomes,
     includeClaudeSpecific,
+    smokeSubstrates,
   };
 }
 
@@ -546,12 +625,19 @@ async function writeSkillPayload(
   read: SourceSkillReadResult,
   targetDir: string,
   applyRewrites: boolean,
-): Promise<{ fileShas: Record<string, string> }> {
+): Promise<{
+  fileShas: Record<string, string>;
+  // #115 Phase 2 — POST-rewrite, in-memory payload. Threaded into the
+  // verifier so it sees the bytes a substrate would consume, without
+  // re-reading the just-written files from disk.
+  rewrittenFiles: Array<{ relPath: string; content: Buffer }>;
+}> {
   // Make sure the target directory tree exists. Per-file `mkdir` of
   // the parent happens inside the loop so deep payloads
   // (`Workflows/SubDir/file.md`) work without precomputed dir lists.
   await mkdir(targetDir, { recursive: true });
   const fileShas: Record<string, string> = {};
+  const rewrittenFiles: Array<{ relPath: string; content: Buffer }> = [];
 
   for (const file of read.files) {
     const target = join(targetDir, ...file.relPath.split("/"));
@@ -571,13 +657,15 @@ async function writeSkillPayload(
       const bytes = Buffer.from(rewritten, "utf8");
       await writeFile(target, bytes);
       fileShas[file.relPath] = sha256Hex(bytes);
+      rewrittenFiles.push({ relPath: file.relPath, content: bytes });
     } else {
       await copyFile(file.source, target);
       fileShas[file.relPath] = sha256Hex(file.content);
+      rewrittenFiles.push({ relPath: file.relPath, content: file.content });
     }
   }
 
-  return { fileShas };
+  return { fileShas, rewrittenFiles };
 }
 
 function renderManifest(manifest: ClaudeSkillsMigrationManifest): string {
@@ -604,6 +692,9 @@ function renderPortabilityReport(
   lines.push(`Source: ${result.from}`);
   lines.push(`Generated: ${result.importedAt}`);
   lines.push(`Include claude-specific: ${result.includeClaudeSpecific ? "yes" : "no"}`);
+  if (result.smokeSubstrates.length > 0) {
+    lines.push(`Smoke substrates: ${result.smokeSubstrates.join(", ")}`);
+  }
   lines.push("");
   lines.push("## Classifier rules (Phase 1, heuristic)");
   lines.push("");
@@ -611,17 +702,184 @@ function renderPortabilityReport(
   lines.push("- **needs-adapt** — `~/.claude/...` path reference(s); rewritten via `pai-pack-normalizer.ts` deterministic rewrite table.");
   lines.push("- **portable** — no Claude-specific signal detected.");
   lines.push("");
-  lines.push("Phase 1 is regex-based; subtle Claude-only behavior in prose that doesn't trip these signals can still slip through as `portable`. Phase 2 (`--smoke <substrate>`) will add per-substrate projection verify to turn the verdict from heuristic to verified.");
+  lines.push(
+    result.smokeSubstrates.length > 0
+      ? "Phase 1 is regex-based; subtle Claude-only behavior in prose that doesn't trip these signals can still slip through as `portable`. Phase 2 substrate columns below carry the per-skill static-shape verify verdict (verified / verified-with-warnings / failed) against each requested substrate's projection."
+      : "Phase 1 is regex-based; subtle Claude-only behavior in prose that doesn't trip these signals can still slip through as `portable`. Phase 2 (`--smoke <substrate>`) will add per-substrate projection verify to turn the verdict from heuristic to verified.",
+  );
   lines.push("");
   lines.push("## Per-skill outcomes");
   lines.push("");
-  lines.push("| Skill | Tag | Disposition | Reason |");
-  lines.push("|---|---|---|---|");
+  // Substrate columns are conditional on `--smoke` having been
+  // passed (AC-5 extension). Without the flag, the Phase-1 column
+  // shape stays exactly the same so the report is backward-stable
+  // for principals who haven't opted in.
+  const headerCells = ["Skill", "Tag", "Disposition", "Reason"];
+  for (const substrate of result.smokeSubstrates) {
+    headerCells.push(substrate);
+  }
+  lines.push(`| ${headerCells.join(" | ")} |`);
+  lines.push(`|${headerCells.map(() => "---").join("|")}|`);
   for (const o of result.outcomes) {
-    lines.push(`| ${o.kebabName} | ${o.tag} | ${o.disposition} | ${o.reason} |`);
+    const row = [o.kebabName, o.tag, o.disposition, escapeMarkdownCell(o.reason)];
+    for (const substrate of result.smokeSubstrates) {
+      const verify = o.substrates?.[substrate];
+      row.push(verify ? renderSubstrateCell(verify) : "—");
+    }
+    lines.push(`| ${row.join(" | ")} |`);
   }
   lines.push("");
   return lines.join("\n");
+}
+
+// Markdown table cells can't contain raw `|` characters. Escape
+// them, and collapse newlines (verifier reasons are single-line by
+// contract; this is defensive).
+function escapeMarkdownCell(value: string): string {
+  return value.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+}
+
+function renderSubstrateCell(verify: ClaudeSkillSubstrateVerifyResult): string {
+  if (verify.status === "verified") return "verified";
+  // For the table cell we surface the short status + the first
+  // issue's message, truncated. The full issue list lives in the
+  // manifest (`substrates[].issues`) for audit.
+  const trimmed = escapeMarkdownCell(verify.reason).slice(0, 120);
+  return `${verify.status}: ${trimmed}`;
+}
+
+/**
+ * #115 Phase 2 — per-substrate static-shape smoke pass.
+ *
+ * Walks every outcome with disposition `imported` OR `skipped-
+ * idempotent` (whose payload is already on disk), builds a
+ * `SomaSkill` from the in-memory post-rewrite payload (or re-reads
+ * from disk for skipped-idempotent skills), then invokes
+ * `verifySubstrateProjection` per substrate. Idempotency: a prior
+ * `verified` verdict for the same (source SHA, substrate) is
+ * skipped — re-verify only runs when the verdict was warnings or
+ * failed (the adapter might have been fixed between runs), or when
+ * a new substrate was added to the smoke set.
+ */
+interface RunSmokeVerifyArgs {
+  smokeSubstrates: readonly ClaudeSkillsSmokeSubstrate[];
+  outcomes: ClaudeSkillOutcome[];
+  manifestEntries: ClaudeSkillsMigrationManifestEntry[];
+  previousBySource: Map<string, ClaudeSkillsMigrationManifestEntry>;
+  somaHome: string;
+  pendingVerifyPayloads: Map<string, Array<{ relPath: string; content: Buffer }>>;
+  readsBySource: Map<string, SourceSkillReadResult>;
+  summary: Partial<Record<ClaudeSkillsSmokeSubstrate, ClaudeSkillSubstrateVerifySummary>>;
+}
+
+async function runSmokeVerify(args: RunSmokeVerifyArgs): Promise<void> {
+  const { smokeSubstrates, outcomes, manifestEntries, previousBySource, somaHome, pendingVerifyPayloads, readsBySource, summary } = args;
+  const entryByName = new Map(manifestEntries.map((entry) => [entry.sourceName, entry]));
+
+  for (const outcome of outcomes) {
+    if (outcome.disposition === "skipped-claude-specific") continue;
+
+    // Resolve the post-rewrite payload. Three sources, in order:
+    //   1. In-memory payload captured by the apply loop.
+    //   2. Disk re-read of the landed skill (skipped-idempotent
+    //      case where no rewrite ran this invocation).
+    //   3. Fallback to the source read payload (only happens if
+    //      neither 1 nor 2 holds, which is the contract-violation
+    //      branch; we error loud).
+    let rewrittenFiles = pendingVerifyPayloads.get(outcome.sourceName);
+    if (!rewrittenFiles) {
+      const targetDir = outcome.target ?? join(somaHome, "skills", outcome.kebabName);
+      if (await pathExists(targetDir)) {
+        rewrittenFiles = await readLandedSkillPayload(targetDir);
+      } else {
+        const read = readsBySource.get(outcome.sourceName);
+        if (read) {
+          rewrittenFiles = read.files.map((f) => ({ relPath: f.relPath, content: f.content }));
+        }
+      }
+    }
+    if (!rewrittenFiles) {
+      // Defensive — never expected with the dispositions above.
+      continue;
+    }
+
+    const skill = buildSomaSkillFromPayload(outcome.sourceName, rewrittenFiles);
+    const entry = entryByName.get(outcome.sourceName);
+    const prior = previousBySource.get(outcome.sourceName);
+
+    for (const substrate of smokeSubstrates) {
+      // Idempotency check: prior verdict was `verified` AND source
+      // SHA unchanged → reuse. Anything weaker re-runs so a fix to
+      // the substrate adapter can flip the verdict without source
+      // churn (issue contract).
+      const priorVerify = prior?.substrates?.[substrate];
+      const sourceUnchanged = prior?.sourceSha === outcome.sourceSha;
+      let result: ClaudeSkillSubstrateVerifyResult;
+      if (priorVerify && priorVerify.status === "verified" && sourceUnchanged) {
+        result = priorVerify;
+      } else {
+        result = verifySubstrateProjection({
+          skill,
+          substrate,
+          sourceDescription: skill.description || undefined,
+        });
+      }
+
+      // Stamp the outcome (formatter consumes this) and the manifest
+      // entry (idempotency anchor for the next run).
+      if (!outcome.substrates) outcome.substrates = {};
+      outcome.substrates[substrate] = result;
+      if (entry) {
+        if (!entry.substrates) entry.substrates = {};
+        entry.substrates[substrate] = result;
+      }
+
+      const bucket = summary[substrate];
+      if (bucket) {
+        if (result.status === "verified") bucket.verified += 1;
+        else if (result.status === "verified-with-warnings") bucket.verifiedWithWarnings += 1;
+        else bucket.failed += 1;
+      }
+    }
+  }
+}
+
+/**
+ * Re-read the landed payload for a skill from disk. Used by the
+ * smoke pass when the apply loop didn't produce an in-memory
+ * rewrite (skipped-idempotent skills whose payload is already on
+ * disk). Symlinks are refused with the same loud-fail bar as the
+ * source-side walker.
+ */
+async function readLandedSkillPayload(
+  targetDir: string,
+): Promise<Array<{ relPath: string; content: Buffer }>> {
+  const out: Array<{ relPath: string; content: Buffer }> = [];
+  async function visit(dir: string): Promise<void> {
+    const entries = await readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const full = join(dir, entry.name);
+      const rel = relative(targetDir, full).split(sep).join("/");
+      if (entry.isSymbolicLink()) {
+        // Soma's own write path doesn't produce symlinks; if one is
+        // here the principal placed it. Treat as benign skip so a
+        // verify pass doesn't refuse the whole import.
+        continue;
+      }
+      if (entry.isDirectory()) {
+        if (entry.name === "node_modules" || entry.name === ".git") continue;
+        await visit(full);
+        continue;
+      }
+      if (entry.isFile()) {
+        const content = await readFile(full);
+        out.push({ relPath: rel, content });
+      }
+    }
+  }
+  await visit(targetDir);
+  out.sort((a, b) => a.relPath.localeCompare(b.relPath));
+  return out;
 }
 
 export async function migrateClaudeSkills(
@@ -629,6 +887,7 @@ export async function migrateClaudeSkills(
 ): Promise<ClaudeSkillsMigrationResult> {
   const { from, somaHome } = resolveHomes(options);
   const includeClaudeSpecific = options.includeClaudeSpecific === true;
+  const smokeSubstrates = normalizeSmokeSubstrates(options.smokeSubstrates);
 
   // Ensure imports/claude-skills/ exists so manifest + report writes
   // succeed even on a fully empty Soma home.
@@ -669,6 +928,11 @@ export async function migrateClaudeSkills(
   let writtenCount = 0;
   let skippedIdempotentCount = 0;
   let skippedClaudeSpecificCount = 0;
+  // #115 Phase 2 — in-memory post-rewrite payload per imported skill,
+  // ferried into the smoke pass below to avoid a second disk read.
+  // Skipped-idempotent skills fall back to disk re-read inside the
+  // verify helper when a NEW substrate gets requested on rerun.
+  const pendingVerifyPayloads: Map<string, Array<{ relPath: string; content: Buffer }>> = new Map();
 
   for (const outcome of outcomes) {
     if (outcome.disposition === "skipped-claude-specific") {
@@ -680,6 +944,15 @@ export async function migrateClaudeSkills(
       const prior = previousBySource.get(outcome.sourceName);
       if (prior) {
         manifestEntries.push(prior);
+        // #115 Phase 2 — propagate prior substrate verify results
+        // onto the outcome so the report row still shows the last
+        // known verdict even when the disposition is skipped-
+        // idempotent. The smoke pass below will overwrite any
+        // substrate slot that was requested AND wasn't previously
+        // `verified`.
+        if (prior.substrates) {
+          outcome.substrates = { ...prior.substrates };
+        }
       }
       continue;
     }
@@ -702,7 +975,7 @@ export async function migrateClaudeSkills(
     // landed SHA for portable skills, which simplifies the audit
     // trail.
     const applyRewrites = outcome.tag === "needs-adapt";
-    const { fileShas } = await writeSkillPayload(read, targetDir, applyRewrites);
+    const { fileShas, rewrittenFiles } = await writeSkillPayload(read, targetDir, applyRewrites);
     manifestEntries.push({
       sourceName: outcome.sourceName,
       kebabName: outcome.kebabName,
@@ -716,16 +989,73 @@ export async function migrateClaudeSkills(
     // substrate omits files).
     outcome.fileCount = Object.keys(fileShas).length;
     writtenCount += 1;
+
+    // Stash the post-rewrite payload for the smoke pass below. We
+    // don't run verify inline here so the idempotency contract is
+    // unambiguous — a re-run with no source churn but a fresh
+    // `--smoke <new-sub>` flag still triggers verify on the new
+    // substrate, even when the skill was skipped-idempotent above.
+    pendingVerifyPayloads.set(outcome.sourceName, rewrittenFiles);
+  }
+
+  // #115 Phase 2 — smoke pass. For each (imported skill, requested
+  // substrate) pair, run static-shape verify against the projection
+  // bytes. We use the in-memory post-rewrite payload when we have
+  // one; otherwise (skipped-idempotent case) we re-read the on-disk
+  // landed payload so a substrate added after the initial import
+  // still gets a verdict.
+  const substrateVerifySummary: Partial<Record<ClaudeSkillsSmokeSubstrate, ClaudeSkillSubstrateVerifySummary>> = {};
+  if (smokeSubstrates.length > 0) {
+    for (const substrate of smokeSubstrates) {
+      substrateVerifySummary[substrate] = { verified: 0, verifiedWithWarnings: 0, failed: 0 };
+    }
+    await runSmokeVerify({
+      smokeSubstrates,
+      outcomes,
+      manifestEntries,
+      previousBySource,
+      somaHome,
+      pendingVerifyPayloads,
+      readsBySource,
+      summary: substrateVerifySummary,
+    });
   }
 
   // Manifest timestamp policy mirrors pai-memory-migrator:
   //   - any actual write → bump timestamp.
   //   - pure idempotent rerun → preserve prior timestamp so the
   //     manifest is byte-stable.
-  const importedAt =
-    writtenCount === 0 && previousManifest
-      ? previousManifest.importedAt
-      : new Date().toISOString();
+  //
+  // #115 Phase 2 — a smoke-only re-run (writtenCount=0 but new
+  // verify verdicts on a substrate not previously recorded) still
+  // bumps the timestamp because the manifest body changed. The
+  // helper checks whether the new entries are byte-equivalent to
+  // the previous ones before deciding.
+  const importedAt = (() => {
+    if (writtenCount > 0 || !previousManifest) return new Date().toISOString();
+    const previousSubstrates = previousManifest.smokeSubstrates ?? [];
+    const sameSet = previousSubstrates.length === smokeSubstrates.length &&
+      smokeSubstrates.every((s) => previousSubstrates.includes(s));
+    if (smokeSubstrates.length > 0 && !sameSet) return new Date().toISOString();
+    // Same substrate set + no writes → manifest is byte-stable if
+    // every per-skill substrate verdict matches the prior entry.
+    // We treat any verdict diff as a manifest update.
+    if (smokeSubstrates.length > 0) {
+      const anyVerdictChanged = manifestEntries.some((entry) => {
+        const prior = previousBySource.get(entry.sourceName);
+        if (!prior?.substrates && !entry.substrates) return false;
+        if (!prior?.substrates || !entry.substrates) return true;
+        for (const substrate of smokeSubstrates) {
+          const a = prior.substrates[substrate]?.status;
+          const b = entry.substrates[substrate]?.status;
+          if (a !== b) return true;
+        }
+        return false;
+      });
+      if (anyVerdictChanged) return new Date().toISOString();
+    }
+    return previousManifest.importedAt;
+  })();
 
   const newManifest: ClaudeSkillsMigrationManifest = {
     schema: MANIFEST_SCHEMA,
@@ -734,6 +1064,7 @@ export async function migrateClaudeSkills(
     importedAt,
     includeClaudeSpecific,
     skills: manifestEntries,
+    ...(smokeSubstrates.length > 0 ? { smokeSubstrates } : {}),
   };
   await writeFile(manifestPath, renderManifest(newManifest), "utf8");
   await writeFile(
@@ -745,6 +1076,7 @@ export async function migrateClaudeSkills(
       isFlatSkillsTree: true,
       outcomes,
       includeClaudeSpecific,
+      smokeSubstrates,
       importedAt,
     }),
     "utf8",
@@ -757,14 +1089,17 @@ export async function migrateClaudeSkills(
     isFlatSkillsTree: true,
     outcomes,
     includeClaudeSpecific,
+    smokeSubstrates,
     importedAt,
     manifestPath,
     reportPath,
     writtenCount,
     skippedIdempotentCount,
     skippedClaudeSpecificCount,
+    ...(smokeSubstrates.length > 0 ? { substrateVerifySummary } : {}),
   };
 }
+
 
 /**
  * Status reader for `--status` mode. Returns the manifest as-is or

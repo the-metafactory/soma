@@ -419,9 +419,48 @@ signals can still slip through as `portable`. The classifier emits
 reasons (count of `~/.claude` refs, file path that fired the signal)
 so reviewers can audit.
 
-Phase 2 (`--smoke <substrate>`, deferred to a separate PR) adds per-
-skill substrate projection verify — turns the verdict from heuristic
-to verified.
+### Phase 2: `--smoke <substrate>` static-shape verify
+
+Turns the heuristic verdict into a verified verdict by actually
+projecting each imported skill into the target substrate's skill
+surface and running deterministic shape checks on the projection
+bytes. No substrate process is executed — checks are STATIC.
+
+```bash
+# Verify every imported skill projects cleanly into Codex.
+soma migrate claude-skills --from ~/.claude/skills --apply --smoke codex
+
+# Verify against Pi.dev.
+soma migrate claude-skills --from ~/.claude/skills --apply --smoke pi-dev
+
+# Both substrates in one pass.
+soma migrate claude-skills --from ~/.claude/skills --apply --smoke codex --smoke pi-dev
+
+# Shorthand: `--smoke all` expands to codex + pi-dev. `claude-code`
+# is the SOURCE substrate and excluded — round-tripping would add
+# no signal.
+soma migrate claude-skills --from ~/.claude/skills --apply --smoke all
+```
+
+For each (imported skill, substrate) pair the verifier returns one
+of three verdicts:
+
+| Verdict | Meaning |
+|---|---|
+| `verified` | Projection generated cleanly and every shape check passed. |
+| `verified-with-warnings` | Projection generated but a warning-class check fired (e.g., a `~/.soma/UNMAPPED/` fallback path survived the rewriter, or the projected `SKILL.md` body exceeds 80 KB). |
+| `failed` | A blocking issue: projection threw, required metadata missing, description mismatch, unrewritten `~/.claude/` ref, hook binding or slash-command primitive in the projection, or a 5 MiB+ projection file. |
+
+The portability report (`.portability-report.md`) gains one column per
+requested substrate when `--smoke` is used; the table layout is
+preserved exactly when `--smoke` is absent (Phase-1 reports stay
+byte-stable).
+
+Per-skill substrate verdicts are recorded in the manifest's
+`skills[].substrates` field — idempotent rerun skips any substrate
+already marked `verified` for the same source SHA. Warnings and
+failures re-run every invocation so fixing the adapter can flip the
+verdict without source churn.
 
 ### Choosing between the two migration paths
 
