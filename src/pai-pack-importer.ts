@@ -2,6 +2,7 @@ import { access, copyFile, lstat, mkdir, readdir, readFile, realpath, rename, rm
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { kebabNestedName, routePaiPackSourceFile, type PaiPackRenderMode } from "./pai-pack-routing";
+import { kebabSlug } from "./pai-pack-slug";
 import {
   generateSomaSkillManifest,
   mergeNormalizationReports,
@@ -72,6 +73,26 @@ export class PaiPackReservedNameRefusal extends Error {
     super(`soma import pai-pack cannot overwrite reserved Soma skill '${skillName}'.`);
     this.name = "PaiPackReservedNameRefusal";
     this.skillName = skillName;
+  }
+}
+
+/**
+ * #105 — typed refusal raised when caller's `excludeSkills` filters
+ * out every derived skill in the pack (Sage r1 #108 finding). The
+ * orchestrator catches this and treats it as a successful "no-op"
+ * pack — every excluded slug already has its own
+ * `refused-name-collision` outcome from the pre-check, so the pack
+ * itself doesn't need an additional outcome row.
+ */
+export class PaiPackAllSkillsExcludedRefusal extends Error {
+  readonly kind = "all-skills-excluded" as const;
+  readonly excluded: readonly string[];
+  constructor(excluded: readonly string[]) {
+    super(
+      `PAI pack import: all derived skills excluded (${excluded.join(", ")}). Nothing to import.`,
+    );
+    this.name = "PaiPackAllSkillsExcludedRefusal";
+    this.excluded = excluded;
   }
 }
 
@@ -196,32 +217,13 @@ function resolvePackHomes(options: PaiPackImportOptions = {}): { paiPackDir: str
 
 /**
  * Slugify a pack name into the canonical Soma skill folder name.
- *
- * Exported so the migrate orchestrator (and any future reserved-name
- * preflight) can derive the same slug without duplicating the
- * function — Sage #95 Maintainability finding (avoid drift between
- * the importer's reserved check and the orchestrator's reserved
- * check).
- *
- * Two transformations split CamelCase boundaries before lowercasing:
- *   1. `([A-Z]+)([A-Z][a-z])` → `$1-$2`  — splits ALL-CAPS prefix from
- *      a following Capital+lowercase (e.g., `PAIUpgrade` →
- *      `PAI-Upgrade`, `HTMLParser` → `HTML-Parser`).
- *   2. `([a-z0-9])([A-Z])` → `$1-$2`     — standard CamelCase split
- *      (e.g., `ExtractWisdom` → `Extract-Wisdom`).
- *
- * Order matters: rule 1 runs first so it can fire on `PAI` before
- * rule 2 sees `IU` (no lower-upper boundary there). Then lowercasing
- * and final non-alnum-to-hyphen normalization runs.
+ * Single-source kebab pipeline lives in `src/pai-pack-slug.ts`; this
+ * re-export keeps the migrate orchestrator's existing import path
+ * (`from "./pai-pack-importer"`) stable so callers don't move during
+ * the Sage r1 #108 maintainability fix.
  */
 export function slugifySkillName(value: string): string {
-  return value
-    .trim()
-    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1-$2")
-    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+  return kebabSlug(value);
 }
 
 function parseFrontmatter(content: string): Partial<Record<string, string>> {
@@ -652,10 +654,27 @@ async function buildPaiPackImportPlan(options: PaiPackImportOptions = {}): Promi
   // FLAT top-level surface (pack slug) exists iff `src/SKILL.md` is
   // present in the file list; nested skills are the kebab projection
   // of every `src/<Name>/SKILL.md`.
+  //
+  // `options.excludeSkills` (Sage r1 #108) drops slugs the caller has
+  // determined would collide cross-pack. Excluded skills never enter
+  // the plan; their files are never staged or written. The pack-level
+  // surface (archive / docs) still lands because surviving derived
+  // skills depend on it.
   const hasFlatEntry = sourceFiles.includes("src/SKILL.md");
+  const excludeSkills = options.excludeSkills ?? new Set<string>();
   const derivedSkillSet = new Set<string>();
-  if (hasFlatEntry) derivedSkillSet.add(packSlug);
-  for (const { slug } of nestedIndex) derivedSkillSet.add(slug);
+  if (hasFlatEntry && !excludeSkills.has(packSlug)) derivedSkillSet.add(packSlug);
+  for (const { slug } of nestedIndex) {
+    if (!excludeSkills.has(slug)) derivedSkillSet.add(slug);
+  }
+  if (derivedSkillSet.size === 0) {
+    // All derived skills excluded — nothing to import. The orchestrator
+    // emits per-slug `refused-name-collision` outcomes; the pack just
+    // shouldn't run its inner apply.
+    throw new PaiPackAllSkillsExcludedRefusal(
+      Array.from(excludeSkills).sort(),
+    );
+  }
 
   // Each derived skill is also subject to the pack importer's reserved
   // name set; structurally off-limits even for nested bundles.
@@ -720,6 +739,14 @@ async function buildPaiPackImportPlan(options: PaiPackImportOptions = {}): Promi
     //   - route.skillName === null → pack-level (FLAT) slug
     //   - route.skillName !== null → nested skill slug
     const destSkill = route.skillName ?? packSlug;
+    // Sage r1 #108 BLOCKER: skip routed files for any skill that the
+    // caller excluded. The pack-level archive surface (route.root ===
+    // "archive") is unaffected — it lives under the pack slug, not a
+    // skill slug — so substrate-specific files still archive even
+    // when their associated skill is excluded.
+    if (route.root === "skill" && !derivedSkillSet.has(destSkill)) {
+      continue;
+    }
     const destRoot =
       route.root === "skill"
         ? join(homes.somaHome, "skills", destSkill)
@@ -737,7 +764,8 @@ async function buildPaiPackImportPlan(options: PaiPackImportOptions = {}): Promi
   // #105 — pack-level README/INSTALL/VERIFY land under EACH derived
   // skill so each nested skill is independently invocable with the
   // pack's context attached. The base routing only emits one copy
-  // (to the pack-level surface); we replicate it per nested skill.
+  // (to the pack-level surface); we replicate it per nested skill
+  // that survived the exclusion filter.
   for (const docName of REQUIRED_PACK_DOC_FILES) {
     if (!sourceFiles.includes(docName)) continue;
     const targetBasename = {
@@ -748,8 +776,9 @@ async function buildPaiPackImportPlan(options: PaiPackImportOptions = {}): Promi
     if (!targetBasename) continue;
     for (const { slug } of nestedIndex) {
       // Skip if FLAT pack already has this slug — the route already
-      // landed it.
+      // landed it. Skip if the slug was excluded by the caller.
       if (hasFlatEntry && slug === packSlug) continue;
+      if (!derivedSkillSet.has(slug)) continue;
       routedFiles.push({
         source: join(homes.paiPackDir, docName),
         target: join(homes.somaHome, "skills", slug, "references", targetBasename),

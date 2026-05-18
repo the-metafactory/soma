@@ -400,6 +400,20 @@ export interface PaiPackImportOptions {
   skillName?: string;
   overwrite?: boolean;
   includeSubstrateSpecific?: boolean;
+  /**
+   * #105 — kebab-cased derived skill slugs to omit from the import.
+   * Used by the migration orchestrator to skip cross-pack name
+   * collisions WITHOUT staging or writing the collided skill — the
+   * file-system surface is touched only for slugs that survived the
+   * orchestrator's collision check. Other derived skills in the same
+   * pack still land.
+   *
+   * Empty / undefined means no exclusion (import every derived skill
+   * the pack produces). Slugs not present in the pack are silently
+   * ignored — the migration orchestrator can pre-populate the set
+   * without re-checking pack membership.
+   */
+  excludeSkills?: ReadonlySet<string>;
 }
 
 export interface PaiPackImportFileBase {

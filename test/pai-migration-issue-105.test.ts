@@ -212,6 +212,68 @@ test("AC-3: FLAT pack still imports as one outcome row (backwards compat)", asyn
 // plan mode mirrors apply mode
 // ───────────────────────────────────────────────────────────────────────
 
+// ───────────────────────────────────────────────────────────────────────
+// Sage R1 #108 BLOCKER regression — collided skill NEVER touches disk
+// ───────────────────────────────────────────────────────────────────────
+
+test("Sage r1 #108: cross-pack collision: refused skill's bytes never overwrite the winner", async () => {
+  // The previous implementation called `importPaiPack` for the
+  // colliding pack BEFORE checking collisions, so the second pack's
+  // bytes overwrote the first pack's `browser` skill on disk while
+  // the outcome reported `refused-name-collision`. The fix is the
+  // two-phase plan-then-apply with `excludeSkills` filtering: the
+  // colliding pack runs `importPaiPack` with `excludeSkills: {browser}`,
+  // so no file under `~/.soma/skills/browser/` is staged or written.
+  await withMigrationHome(async ({ homeDir, packsDir }) => {
+    // Pack A — flat `Browser` skill with distinctive body content.
+    const packA = join(packsDir, "Browser");
+    await mkdir(join(packA, "src/Workflows"), { recursive: true });
+    await writeFile(
+      join(packA, "README.md"),
+      "---\nname: Browser\ndescription: A\n---\n\n# Browser\n",
+      "utf8",
+    );
+    await writeFile(join(packA, "INSTALL.md"), "# Install A\n", "utf8");
+    await writeFile(join(packA, "VERIFY.md"), "# Verify A\n", "utf8");
+    await writeFile(
+      join(packA, "src/SKILL.md"),
+      "---\nname: Browser\ndescription: A\n---\n\n# Browser pack A — DISTINCT_A\n",
+      "utf8",
+    );
+
+    // Pack B — nested Browser inside Utilities with different bytes.
+    const packB = join(packsDir, "Utilities");
+    await mkdir(join(packB, "src/Browser/Workflows"), { recursive: true });
+    await writeFile(
+      join(packB, "README.md"),
+      "---\nname: Utilities\ndescription: B\n---\n\n# Utilities\n",
+      "utf8",
+    );
+    await writeFile(join(packB, "INSTALL.md"), "# Install B\n", "utf8");
+    await writeFile(join(packB, "VERIFY.md"), "# Verify B\n", "utf8");
+    await writeFile(
+      join(packB, "src/Browser/SKILL.md"),
+      "---\nname: Browser\ndescription: B\n---\n\n# Utilities/Browser — DISTINCT_B\n",
+      "utf8",
+    );
+    await writeFile(join(packB, "src/Browser/Workflows/Default.md"), "# Utilities/Browser Default\n", "utf8");
+
+    const result = await migratePai({ homeDir, paiPacksDir: packsDir, skipMemory: true });
+
+    // Pack A's `Browser` won — its bytes are on disk untouched.
+    const browserSkillMd = await readFile(
+      join(homeDir, ".soma/skills/browser/SKILL.md"),
+      "utf8",
+    );
+    expect(browserSkillMd).toContain("DISTINCT_A");
+    expect(browserSkillMd).not.toContain("DISTINCT_B");
+
+    // The refusal is recorded for pack B's nested browser.
+    const collisions = result.packOutcomes.filter((o) => o.outcome === "refused-name-collision");
+    expect(collisions.some((o) => o.skillName === "browser")).toBe(true);
+  });
+});
+
 test("plan mode produces same per-skill outcome rows for nested packs", async () => {
   await withMigrationHome(async ({ homeDir, packsDir }) => {
     await writeNestedPack(packsDir, "Media", ["Art", "Remotion"]);

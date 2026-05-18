@@ -1,3 +1,4 @@
+import { kebabSlug } from "./pai-pack-slug";
 import type { PaiPackImportFile } from "./types";
 
 export type PaiPackRenderMode = "copy" | "skill" | "skill-body" | "manifest" | "archive-manifest";
@@ -61,28 +62,13 @@ function stripSrcPrefix(path: string): string {
 }
 
 /**
- * Lower-case kebab transform for nested skill folder names. Mirrors
- * `slugifySkillName` in `pai-pack-importer.ts` so a `src/ExtractWisdom/`
- * dir lands at `~/.soma/skills/extract-wisdom/`. Two-step CamelCase
- * split handles both standard boundaries (`ExtractWisdom`) and
- * ALL-CAPS prefix transitions (`PAIUpgrade` → `pai-upgrade`).
- *
- * NOTE: This duplicates `slugifySkillName` rather than importing it
- * because the routing module is a leaf dependency of the importer —
- * importing back from the importer would create a circular import.
- * Any change to either function MUST land in both. Tests in
- * `test/pai-pack-importer-issue-105.test.ts` pin the contract for the
- * routing-level kebab; tests in `test/pai-pack-importer.test.ts` pin
- * the importer-level slug.
+ * Lower-case kebab transform for nested skill folder names. Delegates
+ * to `kebabSlug` so a `src/ExtractWisdom/` dir lands at
+ * `~/.soma/skills/extract-wisdom/`. Single-source — see
+ * `src/pai-pack-slug.ts` for the pipeline + Sage r1 #108 rationale.
  */
 export function kebabNestedName(name: string): string {
-  return name
-    .trim()
-    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1-$2")
-    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+  return kebabSlug(name);
 }
 
 /**
