@@ -1153,6 +1153,31 @@ export async function planPaiPackImportHandle(
 }
 
 /**
+ * Single source for the "archive attaches to the first derived skill"
+ * bucketing rule. Both `splitInternalPlanByDerivedSkill` (the plan
+ * surface) and `applyInternalPlan` (the result surface) use this so
+ * the policy can't drift between dry-run and applied views: if it
+ * ever changes (e.g., to attach the archive to a synthetic "_pack"
+ * surface or to skip attachment entirely), one helper updates both
+ * paths in lockstep.
+ *
+ * `fileDerivedSkill` is the routed file's own derived-skill slug;
+ * empty string means "archive / pack-level file." Returns:
+ *   - the file's own slug when it has one (normal per-skill files);
+ *   - the first derived skill when the file is archive-only AND the
+ *     pack derived at least one skill;
+ *   - `null` when there are no derived skills (defensive — the
+ *     caller should skip the file).
+ */
+function attachArchiveToFirstSkill(
+  fileDerivedSkill: string,
+  derivedSkills: readonly string[],
+): string | null {
+  if (fileDerivedSkill) return fileDerivedSkill;
+  return derivedSkills[0] ?? null;
+}
+
+/**
  * #105 — split the single internal plan (which holds every routed
  * file in one bag) into one externally-visible `PaiPackImportPlan`
  * per derived skill. The archive surface (under
@@ -1179,13 +1204,12 @@ function splitInternalPlanByDerivedSkill(
   // Group every routed source file + every generated per-skill manifest
   // under its derived-skill bucket. Archive-only files (derivedSkill ==
   // "") attach to the first skill so they don't disappear from the
-  // public plan surface.
+  // public plan surface (see `attachArchiveToFirstSkill`).
   const buckets = new Map<string, PaiPackImportFile[]>();
   for (const slug of internal.derivedSkills) buckets.set(slug, []);
-  const firstSlug = internal.derivedSkills[0];
 
   for (const file of internal.routedFiles) {
-    const slug = file.derivedSkill || firstSlug;
+    const slug = attachArchiveToFirstSkill(file.derivedSkill, internal.derivedSkills);
     if (!slug) continue;
     if (!buckets.has(slug)) buckets.set(slug, []);
     const { renderMode: _r, derivedSkill: _d, ...stripped } = file;
@@ -1532,7 +1556,6 @@ async function applyInternalPlan(
   // the migration orchestrator can record N outcome rows.
   const filesBySlug = new Map<string, string[]>();
   for (const slug of plan.derivedSkills) filesBySlug.set(slug, []);
-  const firstSlug = plan.derivedSkills[0];
   const skillRoots = new Map(
     plan.derivedSkills.map((slug) => [slug, join(plan.somaHome, "skills", slug)]),
   );
@@ -1546,9 +1569,10 @@ async function applyInternalPlan(
       }
     }
     if (!placed) {
-      // Archive / pack-level file — attach to first slug so it doesn't
-      // disappear from the result surface.
-      if (firstSlug) filesBySlug.get(firstSlug)!.push(target);
+      // Archive / pack-level file — bucket to the first derived
+      // skill via the shared `attachArchiveToFirstSkill` rule.
+      const slug = attachArchiveToFirstSkill("", plan.derivedSkills);
+      if (slug) filesBySlug.get(slug)!.push(target);
     }
   }
 
