@@ -54,6 +54,24 @@ import {
 // (not re-exported from the package root) so the text-rendering shape
 // stays internal and revisable without an SDK breakage.
 import { formatPackOutcomeLines } from "./pai-migration";
+
+/**
+ * #106 — single-source helper for emitting the
+ * `--include-substrate-specific` deprecation warning to stderr. Both
+ * `parseImportArgs` (pai-pack surface) and `parseMigrateArgs`
+ * (migrate-pai surface) accept the legacy flag for one release and
+ * route through this helper so the wording stays consistent and the
+ * test surface has a single text to assert on.
+ *
+ * Goes to stderr (not the CLI's returned stdout string) because
+ * (a) it's a side-channel warning, not part of the command output,
+ * and (b) it must not corrupt machine-parseable stdout content.
+ */
+function warnDeprecatedSubstrateFlag(): void {
+  process.stderr.write(
+    "Warning: --include-substrate-specific is deprecated; use --include-unrecognized.\n",
+  );
+}
 import type {
   AlgorithmEffortTier,
   AlgorithmBatchOperation,
@@ -168,6 +186,8 @@ interface ParsedMigrateArgs {
   source: "pai";
   mode: "plan" | "apply" | "status";
   options: PaiMigrationOptions;
+  /** #106 — when true, plan/apply formatter prints inline file lists. Default false. */
+  verbose: boolean;
 }
 
 interface ParsedAdoptArgs {
@@ -296,7 +316,7 @@ const TOP_LEVEL_COMMANDS = [
 ] as const;
 
 const MIGRATE_PAI_USAGE =
-  "Usage: soma migrate pai [--dry-run] [--apply] [--status] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>] [--pai-install <dir>] [--pai-repo <root>] [--pai-source-dir <dir>] [--pai-packs-dir <dir>] [--pai-pack-dir <dir>] [--skip-memory] [--skip-skills] [--skip-docs] [--overwrite-reserved] [--include-substrate-specific]";
+  "Usage: soma migrate pai [--dry-run] [--apply] [--status] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>] [--pai-install <dir>] [--pai-repo <root>] [--pai-source-dir <dir>] [--pai-packs-dir <dir>] [--pai-pack-dir <dir>] [--skip-memory] [--skip-skills] [--skip-docs] [--overwrite-reserved] [--include-unrecognized] [--verbose]";
 const ADOPT_CLAUDE_USAGE =
   "Usage: soma adopt claude [--dry-run] [--apply] [--uninstall] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
 const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string, string> }> = {
@@ -587,7 +607,7 @@ function parseImportArgs(args: string[]): ParsedImportArgs {
         "Usage:",
         "  soma import pai [--dry-run] [--apply] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>]",
         "  soma import algorithm [--dry-run] [--apply] [--home-dir <dir>] [--pai-algorithm-dir <dir>] [--soma-home <dir>]",
-        "  soma import pai-pack [--dry-run] [--apply] [--home-dir <dir>] --pai-pack-dir <dir> [--soma-home <dir>] [--skill-name <name>] [--overwrite] [--include-substrate-specific]",
+        "  soma import pai-pack [--dry-run] [--apply] [--home-dir <dir>] --pai-pack-dir <dir> [--soma-home <dir>] [--skill-name <name>] [--overwrite] [--include-unrecognized]",
         "  soma import pai-docs [--dry-run] [--apply] [--home-dir <dir>] --pai-source-dir <dir> [--soma-home <dir>]",
       ].join("\n"),
     );
@@ -654,10 +674,18 @@ function parseImportArgs(args: string[]): ParsedImportArgs {
         }
         options.overwrite = true;
         break;
+      case "--include-unrecognized":
+        // #106 — canonical name; legacy flag below is the deprecated alias.
+        if (source !== "pai-pack") {
+          throw new Error("--include-unrecognized is only valid for soma import pai-pack.");
+        }
+        options.includeSubstrateSpecific = true;
+        break;
       case "--include-substrate-specific":
         if (source !== "pai-pack") {
           throw new Error("--include-substrate-specific is only valid for soma import pai-pack.");
         }
+        warnDeprecatedSubstrateFlag();
         options.includeSubstrateSpecific = true;
         break;
       case "--soma-home":
@@ -1471,6 +1499,7 @@ function parseMigrateArgs(args: string[]): ParsedMigrateArgs {
   const options: PaiMigrationOptions = {};
   let mode: "plan" | "apply" | "status" = "plan";
   const packPaths: string[] = [];
+  let verbose = false;
 
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
@@ -1540,15 +1569,29 @@ function parseMigrateArgs(args: string[]): ParsedMigrateArgs {
       case "--overwrite-reserved":
         options.overwriteReserved = true;
         break;
-      case "--include-substrate-specific":
-        // #97 — passthrough to `importPaiPack`. Previously this flag
-        // was only valid for `soma import pai-pack`; that surface
-        // still accepts it via `parseImportArgs`. Migration now also
-        // forwards it to every per-pack `importPaiPack` call so the
-        // canonical `migrate pai` walkthrough doesn't abort on
-        // packs that ship `src/Foundation.md` etc. (the user-reported
-        // repro: SystemsThinking, RootCauseAnalysis).
+      case "--include-unrecognized":
+        // #106 — canonical name. Same passthrough as the legacy flag
+        // below; routes to `importPaiPack`'s legacy
+        // `includeSubstrateSpecific` SDK option key (kept stable to
+        // avoid SDK churn — see PaiPackImportOptions docstring).
         options.includeSubstrateSpecific = true;
+        break;
+      case "--include-substrate-specific":
+        // #97 — passthrough to `importPaiPack`. #106 renamed the
+        // canonical flag to `--include-unrecognized`; this alias is
+        // kept for one release with a stderr deprecation warning so
+        // the canonical `migrate pai` walkthrough keeps working for
+        // anyone with the old flag in shell history / scripts.
+        warnDeprecatedSubstrateFlag();
+        options.includeSubstrateSpecific = true;
+        break;
+      case "--verbose":
+        // #106 — opt-in inline file lists in the plan/apply CLI
+        // output. Without this flag, refused-unrecognized-layout
+        // rows render as `(N files — run --verbose ...)` and the
+        // imported/refused-other rows render their reasons truncated.
+        // Full file lists ALWAYS land in MIGRATION.md regardless.
+        verbose = true;
         break;
       default:
         throw new Error(`Unknown option: ${arg}`);
@@ -1556,7 +1599,7 @@ function parseMigrateArgs(args: string[]): ParsedMigrateArgs {
   }
 
   if (packPaths.length > 0) options.paiPackPaths = packPaths;
-  return { command: "migrate", source: "pai", mode, options };
+  return { command: "migrate", source: "pai", mode, options, verbose };
 }
 
 function helpTopic(args: string[]): string[] {
@@ -1718,7 +1761,58 @@ function formatClaudeUninstallResult(result: UninstallClaudeCodeResult): string 
   ].join("\n");
 }
 
-function formatPaiMigrationPlan(plan: PaiMigrationPlan): string {
+/**
+ * #106 — build the helpful footer suggestion lines based on what
+ * outcomes the principal is looking at. One line per refusal kind
+ * that has a documented opt-in flag.
+ */
+function buildMigrationFooterSuggestions(
+  outcomes: readonly { outcome: string }[],
+): string[] {
+  const unrecognizedCount = outcomes.filter((o) => o.outcome === "refused-unrecognized-layout").length;
+  const reservedCount = outcomes.filter((o) => o.outcome === "refused-reserved").length;
+  const lines: string[] = [];
+  if (unrecognizedCount > 0) {
+    const packLabel = unrecognizedCount === 1 ? "pack" : "pack(s)";
+    lines.push(
+      `${unrecognizedCount} ${packLabel} refused-unrecognized-layout — re-run with --include-unrecognized to import them.`,
+    );
+  }
+  if (reservedCount > 0) {
+    const packLabel = reservedCount === 1 ? "pack" : "pack(s)";
+    lines.push(
+      `${reservedCount} ${packLabel} refused-reserved — re-run with --overwrite-reserved to overwrite Soma's reserved skills.`,
+    );
+  }
+  return lines;
+}
+
+/**
+ * #106 — render inline file lists for `refused-unrecognized-layout`
+ * outcomes when `--verbose` is set. Mirrors the per-pack section the
+ * MIGRATION.md body always carries; the only diff is indent + the
+ * one-line preface saying which pack the list belongs to.
+ */
+function renderVerboseUnrecognizedFiles(
+  outcomes: readonly import("./types").PaiPackOutcome[],
+): string[] {
+  const out: string[] = [];
+  const needsDetail = outcomes
+    .filter((o) => o.outcome === "refused-unrecognized-layout" && (o.unrecognizedFiles?.length ?? 0) > 0)
+    .sort((a, b) => a.paiPackDir.localeCompare(b.paiPackDir));
+  if (needsDetail.length === 0) return out;
+  out.push("", "Unrecognized files (--verbose):");
+  for (const o of needsDetail) {
+    const label = o.skillName ?? o.paiPackDir;
+    out.push(`  ${label}:`);
+    for (const file of o.unrecognizedFiles ?? []) {
+      out.push(`    - ${file}`);
+    }
+  }
+  return out;
+}
+
+function formatPaiMigrationPlan(plan: PaiMigrationPlan, verbose = false): string {
   const algorithmLine = plan.algorithm
     ? `  - algorithm: ${plan.algorithm.sourceFiles.length} source file(s)`
     : "  - algorithm: not present";
@@ -1735,8 +1829,15 @@ function formatPaiMigrationPlan(plan: PaiMigrationPlan): string {
   // `formatPackOutcomeLines` so apply + plan can't drift on labels /
   // sort order / reason suffix. `labelKind: "path"` matches the
   // surrounding `Source:` / `Target:` / `Manifest:` full-path style.
+  //
+  // #106 — collapse style by default: refused-unrecognized-layout
+  // rows render as `(N files — run --verbose or read MIGRATION.md)`
+  // instead of dumping the full file list inline (was ~30KB for the
+  // canonical PAI Packs collection). `--verbose` flips to the legacy
+  // verbose style.
   const outcomeLines = formatPackOutcomeLines(plan.packOutcomes, {
     labelKind: "path",
+    style: verbose ? "verbose" : "collapsed",
   });
   // `packs.length` now reflects "successfully planned" derived skills,
   // not source packs (#105 — a pack with N nested skills emits N
@@ -1744,6 +1845,9 @@ function formatPaiMigrationPlan(plan: PaiMigrationPlan): string {
   // unique pack directories from outcomes; the to-import count is the
   // derived-skill cardinality.
   const uniquePackDirs = new Set(plan.packOutcomes.map((o) => o.paiPackDir)).size;
+  const verboseDetail = verbose ? renderVerboseUnrecognizedFiles(plan.packOutcomes) : [];
+  const footerSuggestions = buildMigrationFooterSuggestions(plan.packOutcomes);
+  const footerLines = footerSuggestions.length === 0 ? [] : ["", ...footerSuggestions];
   return [
     "soma migrate pai — plan (dry-run; pass --apply to execute)",
     "",
@@ -1760,11 +1864,13 @@ function formatPaiMigrationPlan(plan: PaiMigrationPlan): string {
     "",
     "Pack outcomes:",
     ...outcomeLines,
+    ...verboseDetail,
+    ...footerLines,
     "",
   ].join("\n");
 }
 
-function formatPaiMigrationResult(result: PaiMigrationResult): string {
+function formatPaiMigrationResult(result: PaiMigrationResult, verbose = false): string {
   const memoryLine = result.memory === null
     ? "  - memory:   skipped"
     : result.memory.memoryDir === null
@@ -1779,8 +1885,12 @@ function formatPaiMigrationResult(result: PaiMigrationResult): string {
   // sort order. `labelKind: "path"` keeps the principal-facing
   // summary consistent with the surrounding `Source:` / `Target:`
   // / `Manifest:` lines (full paths).
+  //
+  // #106 — collapsed by default; `--verbose` plumbs through to the
+  // legacy verbose form.
   const outcomeLines = formatPackOutcomeLines(result.packOutcomes, {
     labelKind: "path",
+    style: verbose ? "verbose" : "collapsed",
   });
   // #105 — `result.packs` is now one-entry-per-derived-skill (a pack
   // with N nested skills produces N entries). The summary line counts
@@ -1789,6 +1899,9 @@ function formatPaiMigrationResult(result: PaiMigrationResult): string {
   // skill cardinality (which lives in the outcomes table immediately
   // below).
   const uniquePackDirs = new Set(result.packs.map((p) => p.paiPackDir)).size;
+  const verboseDetail = verbose ? renderVerboseUnrecognizedFiles(result.packOutcomes) : [];
+  const footerSuggestions = buildMigrationFooterSuggestions(result.packOutcomes);
+  const footerLines = footerSuggestions.length === 0 ? [] : ["", ...footerSuggestions];
   return [
     "soma migrate pai — applied",
     "",
@@ -1805,6 +1918,8 @@ function formatPaiMigrationResult(result: PaiMigrationResult): string {
     "",
     "Pack outcomes:",
     ...outcomeLines,
+    ...verboseDetail,
+    ...footerLines,
     "",
     `Total files written: ${result.filesWritten.length}`,
     "",
@@ -1942,7 +2057,7 @@ function formatOnePaiPackImportPlan(plan: PaiPackImportPlan): string {
     `- portable: ${counts.portable ?? 0}`,
     `- template: ${counts.template ?? 0}`,
     `- source-doc: ${counts["source-doc"] ?? 0}`,
-    `- substrate-specific: ${counts["substrate-specific"] ?? 0}`,
+    `- unrecognized-layout: ${counts["unrecognized-layout"] ?? 0}`,
     ...normalizationLines,
     "",
     "Files:",
@@ -2438,13 +2553,13 @@ export async function runSomaCli(args: string[]): Promise<string> {
     }
     if (parsed.mode === "plan") {
       const plan = await planPaiMigration(parsed.options);
-      const formatted = formatPaiMigrationPlan(plan);
+      const formatted = formatPaiMigrationPlan(plan, parsed.verbose);
       // #102 — AC-4 mirror: plan mode honors the same exit-code policy
       // as the apply path. Genuine errors (`refused-other`) cause a
       // non-zero exit AFTER the rest of the plan completes, so the
       // principal sees the full plan body including the outcome table
       // before the error message. Policy-respected refusals
-      // (`refused-substrate-specific`, `refused-reserved`) stay zero
+      // (`refused-unrecognized-layout`, `refused-reserved`) stay zero
       // exit — the principal asked for them by NOT passing the
       // relevant override flag.
       const refusedOther = plan.packOutcomes.filter((o) => o.outcome === "refused-other");
@@ -2460,7 +2575,7 @@ export async function runSomaCli(args: string[]): Promise<string> {
       return formatted;
     }
     const result = await migratePai(parsed.options);
-    const formatted = formatPaiMigrationResult(result);
+    const formatted = formatPaiMigrationResult(result, parsed.verbose);
     // #97 — AC-4: exit non-zero only when a pack outcome is
     // `refused-other` (genuine error). Substrate-specific and
     // reserved-name refusals are policy-respected and zero-exit; the

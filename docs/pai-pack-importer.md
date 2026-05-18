@@ -26,10 +26,15 @@ bun run soma import pai-pack --apply --pai-pack-dir /Users/fischer/work/PAI/Pack
 ```
 
 `--pai-pack-dir` is required. Existing Soma skills are not overwritten unless
-`--overwrite` is supplied. Files classified as `substrate-specific` are refused
-unless `--include-substrate-specific` is supplied. Likely secret files such as
+`--overwrite` is supplied. Files classified as `unrecognized-layout` are refused
+unless `--include-unrecognized` is supplied (the historical
+`--include-substrate-specific` flag is accepted as a deprecated alias for
+one release and emits a stderr warning). Likely secret files such as
 `.env`, private keys, credentials, tokens, and local settings files are denied
-by default.
+by default. Editor / IDE / language infrastructure files (`.gitignore`,
+`bun.lock`, `.vscode/*`, `tsconfig.json` with no `SKILL.md` sibling, etc.) are
+classified `noise` and silently skipped — counted in the per-pack audit so
+reviewers can see what the pack carried.
 
 ## Target Layout
 
@@ -67,7 +72,24 @@ The import plan classifies each file:
 - `portable`: skill entrypoint, workflows, tools, and the generated manifest.
 - `template`: dashboard/report application templates.
 - `source-doc`: original PAI pack README, INSTALL, and VERIFY docs.
-- `substrate-specific`: anything outside the known portable/template/doc paths.
+- `unrecognized-layout`: anything under `src/` outside the known portable/
+  template/doc paths. Pre-#106 this was named `substrate-specific`; the rename
+  reflects that the bucket is "files the router didn't recognize", not
+  "files specific to a particular substrate". The CLI flag is now
+  `--include-unrecognized` with the legacy `--include-substrate-specific`
+  accepted as a deprecated alias.
+- `noise`: editor / IDE / language infrastructure files matching the
+  noise denylist (`.gitignore`, `.gitattributes`, `.editorconfig`,
+  `.eslintrc*`, `.prettierrc*`, `.npmrc`, `.nvmrc`, `bun.lock`,
+  `bun.lockb`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`,
+  `*.tsbuildinfo`, `.DS_Store`, `Thumbs.db`, any path inside
+  `.cursor/.vscode/.idea/.fleet/.zed/`, plus `package.json` /
+  `tsconfig*.json` ONLY when they have no `SKILL.md` sibling at the
+  same directory level — a `tsconfig.json` next to a `src/SKILL.md`
+  is presumed to be skill-related and takes the normal route).
+  Noise files are silently dropped at routing time, never appear in
+  the refusal list, and are counted in the per-pack audit (each
+  emits a `skipped-noise-file` action).
 
 Each planned file also has an `origin`: `source` files include a PAI pack source
 path, while `generated` files carry a generator name for importer metadata. The
@@ -77,9 +99,10 @@ The classification is advisory in V0. It gives later adapters and review tools a
 stable place to decide what should project into Codex, Pi.dev, Claude Code, or a
 Cortex daemon.
 
-When substrate-specific files are explicitly included, Soma stores them outside
-the skill payload under `~/.soma/imports/pai-packs/<skill>/source/`. They are
-kept as migration source material, not projected skill content.
+When unrecognized-layout files are explicitly included (via
+`--include-unrecognized`), Soma stores them outside the skill payload under
+`~/.soma/imports/pai-packs/<skill>/source/`. They are kept as migration source
+material, not projected skill content.
 
 ## Nested skill bundles (#105)
 
@@ -99,11 +122,11 @@ skills, each at `~/.soma/skills/<kebab-name>/`.
 | `src/<Name>/Tools/<rest>` | `portable` | `~/.soma/skills/<kebab-name>/Tools/<rest>` |
 | `src/<Name>/References/<rest>` | `portable` | `~/.soma/skills/<kebab-name>/References/<rest>` |
 | `src/<Name>/Examples/<rest>` | `portable` | `~/.soma/skills/<kebab-name>/Examples/<rest>` |
-| `src/<Name>/<other>` | `substrate-specific` | archive only (e.g., `src/Art/Lib/midjourney.ts` stays under the pack archive) |
+| `src/<Name>/<other>` | `unrecognized-layout` | archive only (e.g., `src/Art/Lib/midjourney.ts` stays under the pack archive) |
 
 The detection rule is structural: a `<Name>` is nested **only** when
 `src/<Name>/SKILL.md` is present. A directory without `SKILL.md` is not
-a skill — its files fall through to substrate-specific.
+a skill — its files fall through to `unrecognized-layout`.
 
 ### Kebab-casing
 

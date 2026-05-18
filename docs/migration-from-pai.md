@@ -79,8 +79,46 @@ soma migrate pai --status
 ```
 
 Prints MIGRATION.md as-is. It lists each phase's outcome, including
-any packs that were refused (substrate-specific, reserved-name, or
-genuine error) via the per-pack outcome table from #97.
+any packs that were refused (`refused-unrecognized-layout`,
+`refused-reserved`, or `refused-other` genuine errors) via the
+per-pack outcome table from #97. Full per-pack file lists for
+`refused-unrecognized-layout` packs land in the `## Pack outcome
+details` section of MIGRATION.md (#106) so the CLI summary can stay
+scannable while the manifest preserves full auditability.
+
+### Reading the plan output
+
+`soma migrate pai` (without `--apply`) prints a per-pack outcome
+table with collapsed file counts (#106). Each row looks like one
+of:
+
+```
+Pack outcomes:
+  - aperture-oscillation: imported (1 skill, 5 workflows)
+  - art: refused-unrecognized-layout (17 files — run --verbose or read MIGRATION.md for paths)
+  - utilities: refused-unrecognized-layout (612 files — run --verbose or read MIGRATION.md for paths)
+  - isa: refused-reserved — reserved Soma skill 'isa' — re-run with --overwrite-reserved to permit.
+  - prompting: refused-other — symlink: src/Templates/Tools/.cursor/rules/use-bun-instead-of-node-vite-npm-pnpm.mdc
+```
+
+If one or more packs were refused for either reason, a footer
+suggestion line appears at the bottom of the plan:
+
+```
+2 pack(s) refused-unrecognized-layout — re-run with --include-unrecognized to import them.
+1 pack(s) refused-reserved — re-run with --overwrite-reserved to overwrite Soma's reserved skills.
+```
+
+For the full per-pack file lists (the canonical inspection surface),
+pass `--verbose` or read MIGRATION.md — both surfaces always carry
+the complete list of unrecognized files per pack.
+
+Editor / IDE / language infrastructure files (`.gitignore`,
+`bun.lock`, `.vscode/*`, `tsconfig.json` with no `SKILL.md` sibling,
+etc.) are silently skipped as `noise` and never pollute the
+unrecognized-layout list. They're still counted in the per-pack
+audit (`soma-pack.json` under `normalization.actions`) so reviewers
+can see exactly which files the pack carried that were dropped.
 
 ## Step 4 — Overriding the derivation
 
@@ -282,7 +320,7 @@ ls ~/.soma/memory/WORK/algorithm-runs/  # the run is here, not under ~/.claude/
 | `--pai-repo derivation: <root>/Releases contains no semver-named directories` | The Releases/ tree only has non-semver names (`Pi`, `v2.3`, `latest`). Pass `--pai-source-dir` explicitly to override. |
 | `--pai-repo: <root>/Packs does not exist`                           | Releases is fine but Packs/ is missing. Either fix it or pass `--pai-packs-dir` explicitly.            |
 | `soma migrate pai — N pack(s) failed with genuine errors`           | Per #97. Other packs proceeded; the failure detail is in the outcome table. The whole run was non-zero exit. |
-| `... refused-substrate-specific ...`                                | A pack ships files under `src/` that aren't `SKILL.md`, `Workflows/`, `Tools/`. Pass `--include-substrate-specific` to land them. |
+| `... refused-unrecognized-layout ...`                               | A pack ships files under `src/` the router didn't recognize (not `SKILL.md`, `Workflows/`, `Tools/`, or a nested skill bundle). Pass `--include-unrecognized` to archive them. Pre-#106 this was named `refused-substrate-specific`; the legacy CLI flag `--include-substrate-specific` is accepted as a deprecated alias for one release. |
 | `... refused-reserved ...`                                          | A pack's slug collides with `isa`, `the-algorithm`, `knowledge`, or `telos`. Pass `--overwrite-reserved` to permit. |
 
 ## Skipping phases
@@ -309,3 +347,6 @@ phase.
 - #91 — importer deterministic rewrites for cross-references.
 - #97 — substrate-specific passthrough + log-and-continue per-pack.
 - #98 — `--pai-repo` single-flag derivation (this doc).
+- #104 — silent skip of IDE/editor config symlinks (`.cursor/.vscode/.idea/.fleet/.zed/`).
+- #105 — nested skill bundles (one PAI pack → N Soma skills).
+- #106 — rename `substrate-specific` → `unrecognized-layout`; collapse plan output; `noise` classification.

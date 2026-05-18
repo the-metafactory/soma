@@ -94,7 +94,7 @@ test("AC-1: router still classifies src/<Name>/<other> as substrate-specific", (
   // the subdir name not on whether the parent is a known nested skill.
   const nested = new Set(["Art"]);
   const route = routePaiPackSourceFile("src/Art/Assets/icon.png", nested);
-  expect(route.classification).toBe("substrate-specific");
+  expect(route.classification).toBe("unrecognized-layout");
   expect(route.root).toBe("archive");
 });
 
@@ -103,7 +103,7 @@ test("AC-1: when nested skill set is empty, src/<Name>/SKILL.md stays substrate-
   // exists in the pack file set. Without that, nested dirs stay archive.
   const empty = new Set<string>();
   const route = routePaiPackSourceFile("src/Foo/SKILL.md", empty);
-  expect(route.classification).toBe("substrate-specific");
+  expect(route.classification).toBe("unrecognized-layout");
 });
 
 test("AC-1: FLAT routing (src/SKILL.md, src/Workflows/, src/Tools/) unchanged", () => {
@@ -235,9 +235,9 @@ test("AC-1+3: nested skill with non-recognized sibling (Assets/) still archives 
     await writeNestedPackShell(packDir, "MediaWithAssets");
     await writeNestedSkill(packDir, "Art", { extras: ["Assets"] });
 
-    // Without --include-substrate-specific the import should refuse the pack
+    // Without --include-unrecognized the import should refuse the pack
     // because src/Art/Assets/demo.txt classifies as substrate-specific.
-    await expect(importPaiPack({ homeDir, paiPackDir: packDir })).rejects.toThrow("substrate-specific");
+    await expect(importPaiPack({ homeDir, paiPackDir: packDir })).rejects.toThrow("unrecognized-layout");
 
     // With include-substrate-specific the pack imports — but the asset lands
     // in the pack-level archive, not in the nested Art skill.

@@ -20,7 +20,7 @@
  *   1. All packs clean → every entry planned, every outcome `imported`.
  *   2. Mixed substrate-specific without flag → refused entries recorded,
  *      others planned, no throw, exit 0.
- *   3. Mixed substrate-specific WITH `--include-substrate-specific` →
+ *   3. Mixed substrate-specific WITH `--include-unrecognized` →
  *      all entries planned (matches apply path semantics).
  *   4. Mixed reserved-collision without `--overwrite-reserved` →
  *      refused-reserved recorded, others planned, exit 0.
@@ -68,7 +68,7 @@ async function withMigrationHome<T>(
 /**
  * Plant a substrate-specific file inside an existing pack fixture.
  * `src/Foundation.md` is not under `src/Workflows/` or `src/Tools/`,
- * so the pack-router classifies it `substrate-specific`. Mirrors the
+ * so the pack-router classifies it `unrecognized-layout`. Mirrors the
  * user-reported repro on SystemsThinking + RootCauseAnalysis.
  */
 async function plantSubstrateSpecificFile(packDir: string, filename = "Foundation.md"): Promise<void> {
@@ -111,7 +111,7 @@ test("scenario 1 — plan all-packs-clean: every pack planned, every outcome `im
   });
 });
 
-test("scenario 2 — plan mixed substrate-specific without flag: refused-substrate-specific, others plan, no throw", async () => {
+test("scenario 2 — plan mixed substrate-specific without flag: refused-unrecognized-layout, others plan, no throw", async () => {
   await withMigrationHome(async ({ homeDir, packsDir }) => {
     const subPack = await writePackFixture(packsDir, "SubA");
     await plantSubstrateSpecificFile(subPack);
@@ -125,7 +125,7 @@ test("scenario 2 — plan mixed substrate-specific without flag: refused-substra
     const cleanOutcome = plan.packOutcomes.find((o) =>
       /clean/i.test(o.skillName ?? o.paiPackDir),
     );
-    expect(subOutcome?.outcome).toBe("refused-substrate-specific");
+    expect(subOutcome?.outcome).toBe("refused-unrecognized-layout");
     expect(cleanOutcome?.outcome).toBe("imported");
     // Only the clean pack appears in the planned-packs list.
     expect(plan.packs.length).toBe(1);
@@ -197,7 +197,7 @@ test("scenario 6 (AC-5) — plan output includes per-pack outcome table; CLI pla
       packsDir,
     ]);
     expect(out).toContain("Pack outcomes");
-    expect(out).toContain("refused-substrate-specific");
+    expect(out).toContain("refused-unrecognized-layout");
     expect(out).toContain("refused-reserved");
     expect(out).toContain("imported");
     // No skill landed on disk (plan path, not apply).
@@ -205,14 +205,14 @@ test("scenario 6 (AC-5) — plan output includes per-pack outcome table; CLI pla
   });
 });
 
-test("AC-1 — CLI parses --include-substrate-specific for `migrate pai` plan-mode (passthrough)", async () => {
+test("AC-1 — CLI parses --include-unrecognized for `migrate pai` plan-mode (passthrough)", async () => {
   await withMigrationHome(async ({ homeDir, packsDir }) => {
     const sub = await writePackFixture(packsDir, "SubA");
     await plantSubstrateSpecificFile(sub);
     const out = await runSomaCli([
       "migrate",
       "pai",
-      "--include-substrate-specific",
+      "--include-unrecognized",
       "--home-dir",
       homeDir,
       "--pai-packs-dir",
@@ -221,7 +221,7 @@ test("AC-1 — CLI parses --include-substrate-specific for `migrate pai` plan-mo
     // No --apply → plan output. Pack is included in the plan (imported).
     expect(out).toContain("Pack outcomes");
     expect(out).toContain("imported");
-    expect(out).not.toContain("refused-substrate-specific");
+    expect(out).not.toContain("refused-unrecognized-layout");
   });
 });
 
@@ -239,7 +239,7 @@ test("AC-4 — plan-mode CLI exit non-zero when a pack outcome is refused-other 
       "--pai-packs-dir",
       packsDir,
     ]);
-    expect(out).toContain("refused-substrate-specific");
+    expect(out).toContain("refused-unrecognized-layout");
     expect(out).toContain("imported");
   });
   // Malformed pack → SomaCliError exitCode 1; output still includes
@@ -311,7 +311,7 @@ test("real-world repro — SystemsThinking + RootCauseAnalysis shape: plan compl
     const plan = await planPaiMigration({ homeDir, paiPacksDir: packsDir });
     expect(plan.packOutcomes.length).toBe(4);
     const refused = plan.packOutcomes.filter(
-      (o) => o.outcome === "refused-substrate-specific",
+      (o) => o.outcome === "refused-unrecognized-layout",
     );
     const imported = plan.packOutcomes.filter((o) => o.outcome === "imported");
     expect(refused.length).toBe(2);

@@ -150,12 +150,12 @@ test("rejects invalid, reserved, colliding, secret, and substrate-specific pack 
     const substratePackDir = await writePackFixture(join(homeDir, "substrate"));
     await mkdir(join(substratePackDir, "claude"), { recursive: true });
     await writeFile(join(substratePackDir, "claude/profile.md"), "# Claude profile\n", "utf8");
-    await expect(planPaiPackImport({ homeDir, paiPackDir: substratePackDir, overwrite: true })).rejects.toThrow("substrate-specific");
+    await expect(planPaiPackImport({ homeDir, paiPackDir: substratePackDir, overwrite: true })).rejects.toThrow("unrecognized-layout");
     const [substratePlan] = await planPaiPackImport({ homeDir, paiPackDir: substratePackDir, overwrite: true, includeSubstrateSpecific: true });
     expect(substratePlan.files).toContainEqual(
       expect.objectContaining({
         target: join(homeDir, ".soma/imports/pai-packs/telos/source/claude/profile.md"),
-        classification: "substrate-specific",
+        classification: "unrecognized-layout",
       }),
     );
   });
@@ -181,7 +181,7 @@ test("does not treat non-src template-looking paths as templates", async () => {
     await mkdir(join(packDir, "docs/DashboardTemplate"), { recursive: true });
     await writeFile(join(packDir, "docs/DashboardTemplate/readme.md"), "# Template docs\n", "utf8");
 
-    await expect(planPaiPackImport({ homeDir, paiPackDir: packDir })).rejects.toThrow("substrate-specific");
+    await expect(planPaiPackImport({ homeDir, paiPackDir: packDir })).rejects.toThrow("unrecognized-layout");
   });
 });
 
@@ -227,7 +227,7 @@ test("keeps substrate archives out of the skill manifest", async () => {
       files: { target: string; classification: string; origin: string; source?: string }[];
     };
     expect(archiveManifest.files).toContainEqual(
-      expect.objectContaining({ target: "source/claude/profile.md", classification: "substrate-specific", origin: "source", source: "claude/profile.md" }),
+      expect.objectContaining({ target: "source/claude/profile.md", classification: "unrecognized-layout", origin: "source", source: "claude/profile.md" }),
     );
     await expect(readFile(join(homeDir, ".soma/skills/telos/soma-pack.json"), "utf8")).resolves.not.toContain("imports/pai-packs");
     await expect(readFile(join(homeDir, ".soma/skills/telos/soma-pack.json"), "utf8")).resolves.not.toContain("claude/profile.md");
