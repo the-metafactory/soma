@@ -501,7 +501,23 @@ export interface PaiPackNormalizationAction {
      * editor/language infrastructure the pack carried. `detail` names
      * the matched denylist pattern category.
      */
-    | "skipped-noise-file";
+    | "skipped-noise-file"
+    /**
+     * #109 — emitted at routing time when a file routes as
+     * `unrecognized-layout` and `--include-unrecognized` is NOT set.
+     * Previously these files refused the whole pack
+     * (`PaiPackUnrecognizedLayoutRefusal`); now they are silently
+     * dropped from the routed set so partial imports succeed (one
+     * unrecognized sibling no longer poisons a pack with otherwise-
+     * valid nested skills, which is the universal real-PAI-pack shape
+     * — Art, Thinking, Utilities all ship unrecognized siblings). The
+     * audit entry surfaces what we dropped in the per-skill
+     * `soma-pack.json` so the principal can see which pack files lived
+     * outside the recognized layout. With `--include-unrecognized` the
+     * files land in the pack-level archive instead and no audit entry
+     * is emitted (the archive listing IS the audit).
+     */
+    | "skipped-unrecognized-file";
   detail: string;
 }
 
