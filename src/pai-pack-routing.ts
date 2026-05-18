@@ -122,32 +122,28 @@ export function routePaiPackSourceFile(
     };
   }
 
-  if (path === "src/SKILL.md" || PORTABLE_PREFIXES.some((prefix) => path.startsWith(prefix))) {
-    let renderMode: Extract<PaiPackRenderMode, "copy" | "skill" | "skill-body">;
-    if (path === "src/SKILL.md") {
-      // Entry file: normalize body AND rewrite frontmatter to Soma skill identity.
-      renderMode = "skill";
-    } else if (path.endsWith(".md")) {
-      // Workflows/Tools markdown: normalize body ONLY. Preserve original
-      // frontmatter — it isn't the skill entrypoint so it shouldn't
-      // receive the root skill's name/description.
-      renderMode = "skill-body";
-    } else {
-      renderMode = "copy";
-    }
+  // #105 — `src/SKILL.md` is the FLAT entry; always route to the
+  // pack-level skill (no nested override possible — `nestedDirName`
+  // returns null for bare files under src/).
+  if (path === "src/SKILL.md") {
     return {
       classification: "portable",
       root: "skill",
-      relativePath: stripSrcPrefix(path),
-      renderMode,
+      relativePath: "SKILL.md",
+      renderMode: "skill",
       skillName: null,
     };
   }
 
-  // #105 — nested skill bundle detection. The `<Name>` directly under
-  // `src/` is treated as a nested skill iff the caller's nested-skill
-  // set contains it (i.e., `src/<Name>/SKILL.md` exists in the file
-  // list). Without that, the file falls through to substrate-specific.
+  // #105 (Sage r2 #108 CodeQuality important) — nested-skill detection
+  // MUST run before the FLAT `PORTABLE_PREFIXES` check; otherwise a
+  // pack with `src/Tools/SKILL.md` (or `src/Workflows/SKILL.md`) is
+  // misrouted as a flat portable file with `skillName: null` instead
+  // of a nested `tools` (or `workflows`) skill. The detection rule
+  // (nested iff `src/<Name>/SKILL.md` exists in the file set) is
+  // structural — `nestedSkills` already encodes that fact, so we can
+  // safely intercept here without breaking standard FLAT packs whose
+  // nested set is empty.
   const nestedName = nestedDirName(path);
   if (nestedName !== null && nestedSkills.has(nestedName)) {
     const tail = path.slice(`src/${nestedName}/`.length);
@@ -178,6 +174,29 @@ export function routePaiPackSourceFile(
     }
     // src/<Name>/<other> — known nested skill but not a recognized subdir.
     // Fall through to substrate-specific (archive).
+    return {
+      classification: "substrate-specific",
+      root: "archive",
+      relativePath: `source/${path}`,
+      renderMode: "copy",
+      skillName: null,
+    };
+  }
+
+  // FLAT pack portable: `src/Workflows/*` and `src/Tools/*` at the
+  // pack root (no nested override). The nested branch above already
+  // intercepted any case where `Workflows` / `Tools` was the name of
+  // a nested skill, so this branch is unambiguously the FLAT one.
+  if (PORTABLE_PREFIXES.some((prefix) => path.startsWith(prefix))) {
+    const renderMode: Extract<PaiPackRenderMode, "copy" | "skill" | "skill-body"> =
+      path.endsWith(".md") ? "skill-body" : "copy";
+    return {
+      classification: "portable",
+      root: "skill",
+      relativePath: stripSrcPrefix(path),
+      renderMode,
+      skillName: null,
+    };
   }
 
   return {
