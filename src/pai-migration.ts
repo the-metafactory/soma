@@ -34,6 +34,7 @@ import { importPaiIdentity, planPaiImport } from "./pai-importer";
 import { migratePaiMemory, planPaiMemoryMigration } from "./pai-memory-migrator";
 import {
   importPaiPack,
+  PaiPackReservedNameRefusal,
   PaiPackSubstrateSpecificRefusal,
   planPaiPackImport,
   readPackMetadata,
@@ -537,35 +538,49 @@ async function runOnePackWithOutcome<TPayload extends { skillName: string }>(
     includeSubstrateSpecific: boolean;
   }) => Promise<TPayload>,
 ): Promise<{ payload?: TPayload; outcome: PaiPackOutcome }> {
-  let slug: string;
-  try {
-    slug = await readPackSkillSlug(inputs.paiPackDir);
-  } catch (error) {
-    // Couldn't even read the pack's metadata — surface the error
-    // verbatim; the principal needs the original reason in the
-    // summary table. No `skillName` because metadata read failed.
-    return {
-      outcome: { paiPackDir: inputs.paiPackDir, outcome: "refused-other", reason: errorMessage(error) },
-    };
-  }
+  // Sage r2 #103 Performance — defer the slug read to the only paths
+  // that actually need it: the migrate-level reserved pre-check
+  // (when `overwriteReserved` is false) and the refusal-classification
+  // path (when we want `outcome.skillName` for a refusal that doesn't
+  // carry its own slug). The success path uses `payload.skillName`
+  // returned by the inner operation, avoiding a duplicate
+  // `readPackMetadata` read that the inner planner already performs.
+  //
+  // When `overwriteReserved` is true, the migrate pre-check is a
+  // no-op, so the upfront read is skipped entirely — the inner pack
+  // importer's own (narrower, structurally-enforced) reserved check
+  // still fires for `soma` / `the-algorithm` and is classified via
+  // the typed `PaiPackReservedNameRefusal` below.
+  let upfrontSlug: string | null = null;
+  if (!inputs.overwriteReserved) {
+    try {
+      upfrontSlug = await readPackSkillSlug(inputs.paiPackDir);
+    } catch (error) {
+      // Couldn't even read the pack's metadata — surface the error
+      // verbatim; the principal needs the original reason in the
+      // summary table. No `skillName` because metadata read failed.
+      return {
+        outcome: { paiPackDir: inputs.paiPackDir, outcome: "refused-other", reason: errorMessage(error) },
+      };
+    }
 
-  // #102 — reserved-name pre-check happens BEFORE the operation call
-  // so the refusal semantics are clearer and faster: we don't depend
-  // on `importPaiPack` / `planPaiPackImport` happening to throw on
-  // the reserved name. Both paths do throw today (the pack importer's
-  // own `RESERVED_SKILL_NAMES` check at pai-pack-importer.ts:396 +
-  // the migrate-level set here), but the pre-check makes the
-  // migration-level reserved set authoritative without relying on
-  // that inner throw.
-  if (!inputs.overwriteReserved && MIGRATE_RESERVED_SKILL_NAMES.has(slug)) {
-    return {
-      outcome: {
-        paiPackDir: inputs.paiPackDir,
-        outcome: "refused-reserved",
-        skillName: slug,
-        reason: `reserved Soma skill '${slug}' — re-run with --overwrite-reserved to permit.`,
-      },
-    };
+    // #102 — reserved-name pre-check happens BEFORE the operation
+    // call so the refusal semantics are clearer and faster: we don't
+    // depend on the inner planner happening to throw on the reserved
+    // name (its set is narrower than the migrate-level set, and the
+    // outer set names like `isa` / `knowledge` / `telos` would
+    // otherwise import successfully and clobber canonical Soma
+    // surfaces).
+    if (MIGRATE_RESERVED_SKILL_NAMES.has(upfrontSlug)) {
+      return {
+        outcome: {
+          paiPackDir: inputs.paiPackDir,
+          outcome: "refused-reserved",
+          skillName: upfrontSlug,
+          reason: `reserved Soma skill '${upfrontSlug}' — re-run with --overwrite-reserved to permit.`,
+        },
+      };
+    }
   }
 
   try {
@@ -585,8 +600,26 @@ async function runOnePackWithOutcome<TPayload extends { skillName: string }>(
         outcome: {
           paiPackDir: inputs.paiPackDir,
           outcome: "refused-substrate-specific",
-          skillName: slug,
+          skillName: upfrontSlug ?? (await safeReadSkillSlug(inputs.paiPackDir)),
           reason: `substrate-specific file(s): ${error.files.join(", ")}`,
+        },
+      };
+    }
+    // Sage r2 #103 CodeQuality important — the pack importer's own
+    // reserved check (narrower set: `soma`, `the-algorithm`) fires
+    // even when the outer migrate-level pre-check is bypassed by
+    // `--overwrite-reserved`. Without the typed catch here, the inner
+    // throw bubbled up as a plain `Error` and got mis-classified as
+    // `refused-other` instead of `refused-reserved`. The typed
+    // `PaiPackReservedNameRefusal` carries the offending slug so we
+    // don't need a second metadata read for `outcome.skillName`.
+    if (error instanceof PaiPackReservedNameRefusal) {
+      return {
+        outcome: {
+          paiPackDir: inputs.paiPackDir,
+          outcome: "refused-reserved",
+          skillName: error.skillName,
+          reason: `reserved by pack importer: '${error.skillName}'`,
         },
       };
     }
@@ -594,10 +627,27 @@ async function runOnePackWithOutcome<TPayload extends { skillName: string }>(
       outcome: {
         paiPackDir: inputs.paiPackDir,
         outcome: "refused-other",
-        skillName: slug,
+        skillName: upfrontSlug ?? (await safeReadSkillSlug(inputs.paiPackDir)),
         reason: errorMessage(error),
       },
     };
+  }
+}
+
+/**
+ * Best-effort slug read for refusal classification. Used only when the
+ * upfront pre-check slug was skipped (because `overwriteReserved` was
+ * true) and a refusal still needs to populate `outcome.skillName`.
+ * Returns `undefined` on read failure — the outcome record permits a
+ * missing `skillName` and the orchestrator falls back to `paiPackDir`
+ * in the principal-facing render. Never throws: this is a label-only
+ * read on a path that already has a confirmed error to report.
+ */
+async function safeReadSkillSlug(paiPackDir: string): Promise<string | undefined> {
+  try {
+    return await readPackSkillSlug(paiPackDir);
+  } catch {
+    return undefined;
   }
 }
 

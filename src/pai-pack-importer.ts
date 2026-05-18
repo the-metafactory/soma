@@ -49,6 +49,31 @@ export class PaiPackSubstrateSpecificRefusal extends Error {
   }
 }
 
+/**
+ * #102 (Sage r2 CodeQuality important) — typed refusal raised when a
+ * pack's normalized skill name is in the pack importer's own reserved
+ * set (`soma`, `the-algorithm`). The migration orchestrator runs its
+ * own broader reserved pre-check (`isa`, `the-algorithm`, `knowledge`,
+ * `telos`) BEFORE the inner call; that pre-check can be bypassed via
+ * `--overwrite-reserved`. The pack importer's reserved check cannot
+ * be bypassed — those names are structurally off-limits — and
+ * intersects the migration set at `the-algorithm`. Without this typed
+ * error subclass, the inner throw was a plain `Error`, so the
+ * migration orchestrator classified it as `refused-other` instead of
+ * `refused-reserved` whenever `--overwrite-reserved` was set and the
+ * inner throw fired. Carries the offending slug so the orchestrator
+ * can record `outcome.skillName` correctly.
+ */
+export class PaiPackReservedNameRefusal extends Error {
+  readonly kind = "reserved-name" as const;
+  readonly skillName: string;
+  constructor(skillName: string) {
+    super(`soma import pai-pack cannot overwrite reserved Soma skill '${skillName}'.`);
+    this.name = "PaiPackReservedNameRefusal";
+    this.skillName = skillName;
+  }
+}
+
 const SECRET_FILE_PATTERNS = [
   /(^|\/)\.env$/,
   /(^|\/)\.env\.(?!example$)[^/]+$/,
@@ -394,7 +419,13 @@ async function buildPaiPackImportPlan(options: PaiPackImportOptions = {}): Promi
     throw new Error(`soma import pai-pack produced invalid normalized skill name '${skillName}'.`);
   }
   if (RESERVED_SKILL_NAMES.has(skillName)) {
-    throw new Error(`soma import pai-pack cannot overwrite reserved Soma skill '${skillName}'.`);
+    // #102 — typed refusal so the migrate orchestrator classifies
+    // this as `refused-reserved` even when its outer pre-check is
+    // bypassed by `--overwrite-reserved` (the inner set is narrower
+    // and structurally enforced; the slug is preserved in the error).
+    // The standalone `soma import pai-pack` verb still surfaces the
+    // same human-readable message via `Error.message`.
+    throw new PaiPackReservedNameRefusal(skillName);
   }
   if (!options.overwrite) {
     await access(join(homes.somaHome, "skills", skillName))

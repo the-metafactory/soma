@@ -211,6 +211,7 @@ export { promoteAlgorithmRunMemory } from "./memory-promotion";
 export { importPaiIdentity, planPaiImport } from "./pai-importer";
 export {
   importPaiPack,
+  PaiPackReservedNameRefusal,
   PaiPackSubstrateSpecificRefusal,
   planPaiPackImport,
 } from "./pai-pack-importer";

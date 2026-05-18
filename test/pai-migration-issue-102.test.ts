@@ -271,6 +271,29 @@ test("AC-4 — plan-mode CLI exit non-zero when a pack outcome is refused-other 
   });
 });
 
+test("Sage r2 #103 CodeQuality — inner pack-importer reserved-name throw classifies as refused-reserved (overwriteReserved bypass)", async () => {
+  // Regression for Sage's r2 important finding: when --overwrite-reserved
+  // is set, the outer migrate-level pre-check is skipped. The pack
+  // importer's own narrower reserved set (`soma`, `the-algorithm`)
+  // still throws — that throw must classify as `refused-reserved`
+  // (not `refused-other`) so the outcome taxonomy stays correct and
+  // the CLI exit code stays zero on a structurally-reserved name.
+  await withMigrationHome(async ({ homeDir, packsDir }) => {
+    await writePackFixture(packsDir, "the-algorithm", { skillName: "the-algorithm" });
+    await writePackFixture(packsDir, "Clean");
+    const plan = await planPaiMigration({
+      homeDir,
+      paiPacksDir: packsDir,
+      overwriteReserved: true,
+    });
+    const algo = plan.packOutcomes.find((o) => /the-algorithm/.test(o.skillName ?? ""));
+    const clean = plan.packOutcomes.find((o) => /clean/i.test(o.skillName ?? ""));
+    expect(algo?.outcome).toBe("refused-reserved");
+    expect(algo?.skillName).toBe("the-algorithm");
+    expect(clean?.outcome).toBe("imported");
+  });
+});
+
 test("real-world repro — SystemsThinking + RootCauseAnalysis shape: plan completes without raw throw", async () => {
   // Mimics the user's exact repro: `~/work/PAI/Packs/SystemsThinking`
   // has `src/Foundation.md`, `~/work/PAI/Packs/RootCauseAnalysis` has
