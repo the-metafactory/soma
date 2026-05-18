@@ -61,17 +61,6 @@ const PORTABLE_SKILL_MD = [
   "Pure prose body with no Claude-only signal.",
 ].join("\n");
 
-const NEEDS_ADAPT_SKILL_MD = [
-  "---",
-  "name: NeedsAdapt",
-  "description: Needs adapter rewrite.",
-  "---",
-  "",
-  "# NeedsAdapt",
-  "",
-  "Some content referencing ~/.claude/PAI/DOCUMENTATION/file.md path.",
-].join("\n");
-
 test("--smoke codex: portable skill verified", async () => {
   await withTempHome(async (home) => {
     const fromDir = join(home, "skills");
@@ -253,16 +242,11 @@ test("plan mode honours --smoke set: smokeSubstrates surfaces in plan", async ()
   });
 });
 
-test("--smoke pi-dev failure: needs-adapt skill with unrewritten ref → failed", async () => {
-  // Construct a skill that the normalizer rewrites to ~/.soma/UNMAPPED/...
-  // (warning) — but a deliberately-malformed `~/.claude/PAI/USER/SKILLCUSTOMIZATIONS/...`
-  // path doesn't fully rewrite. Actually the warning case maps to
-  // `verified-with-warnings`. Construct a stronger failure: a
-  // verbatim `~/.claude/something-that-isnt-mapped` survives. Easy
-  // way: an opaque path that the rewriter doesn't touch.
-  // Actually the normalizer rewrites EVERY ~/.claude/ ref to either
-  // a mapped target or ~/.soma/UNMAPPED. Let me use the warning
-  // case which IS the realistic outcome.
+test("--smoke pi-dev with unrewritten ref → verified-with-warnings (UNMAPPED fallback is a warning, not an error)", async () => {
+  // Realistic outcome: the normalizer rewrites EVERY ~/.claude/ ref to
+  // either a mapped target or ~/.soma/UNMAPPED/, and UNMAPPED hits are
+  // verifier warnings (not errors). So an opaque ~/.claude/ path
+  // surfaces as `verified-with-warnings`.
   await withTempHome(async (home) => {
     const fromDir = join(home, "skills");
     await writeSkillsFixture(fromDir, [
@@ -285,12 +269,9 @@ test("--smoke pi-dev failure: needs-adapt skill with unrewritten ref → failed"
       smokeSubstrates: ["codex"],
     });
     const skill = result.outcomes[0];
-    // The normalizer should have rewritten ~/.claude/Unknown to
-    // ~/.soma/UNMAPPED/. The verifier flags ~/.soma/UNMAPPED as a
-    // warning (not error), so this skill is verified-with-warnings.
+    // ~/.claude/Unknown → ~/.soma/UNMAPPED → warning → verified-with-warnings.
     const status = skill.substrates?.codex?.status;
-    expect(status).toBeDefined();
-    expect(["verified-with-warnings", "failed"]).toContain(status as string);
+    expect(status).toBe("verified-with-warnings");
   });
 });
 

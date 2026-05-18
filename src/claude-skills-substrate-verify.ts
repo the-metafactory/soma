@@ -70,14 +70,13 @@ import type {
   ClaudeSkillsSmokeSubstrate,
   SomaSkill,
 } from "./types";
-import {
-  buildPiDevPortableSkillFiles,
-  piDevSkillId,
-} from "./adapters/pi-dev/skill-projection";
+import { buildPiDevPortableSkillFiles } from "./adapters/pi-dev/skill-projection";
+
+// Holly r1 #117 finding S2 — share frontmatter regex + quote-stripping.
+import { FRONTMATTER_RE, stripQuotes } from "./claude-skills-frontmatter";
 
 const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5 MiB sanity per file.
 const LONG_BODY_BYTES = 80 * 1024; // 80 KiB SKILL.md body warning.
-const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---(?=\r?\n|$)/;
 
 interface ProjectedFile {
   path: string;
@@ -171,17 +170,6 @@ function parseFrontmatter(content: string): FrontmatterFields {
     name: nameValue,
     description: descriptionValue,
   };
-}
-
-function stripQuotes(value: string): string {
-  if (value.length >= 2) {
-    const first = value[0];
-    const last = value[value.length - 1];
-    if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
-      return value.slice(1, -1);
-    }
-  }
-  return value;
 }
 
 /**
@@ -384,10 +372,6 @@ export function verifySubstrateProjection(
     }
   }
 
-  // Voiding the substrate variable here — referenced for the
-  // status reason already. Pi.dev id collision case is caught in
-  // step 1 via projection-throw.
-  void piDevSkillId;
   return finalize(substrate, issues);
 }
 

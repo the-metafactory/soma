@@ -97,29 +97,9 @@ function normalizeSmokeSubstrates(
 // `name` field but not `description`, so a missing/changed
 // description after projection is a meaningful blocker.
 //
-// Same lenient parser as `claude-skills-substrate-verify.ts` —
-// duplicating the four-line scanner is cheaper than exporting an
-// internal helper across modules.
-const SOURCE_FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---(?=\r?\n|$)/;
-function parseSourceDescription(skillMdContent: string): string | undefined {
-  const match = SOURCE_FRONTMATTER_RE.exec(skillMdContent);
-  if (!match) return undefined;
-  for (const raw of match[1].split(/\r?\n/)) {
-    const line = raw.trimEnd();
-    if (line.startsWith("description:")) {
-      const value = line.slice("description:".length).trim();
-      if (value.length >= 2) {
-        const first = value[0];
-        const last = value[value.length - 1];
-        if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
-          return value.slice(1, -1);
-        }
-      }
-      return value;
-    }
-  }
-  return undefined;
-}
+// Holly r1 #117 finding S2 — single-source the parser. See
+// `./claude-skills-frontmatter.ts` for the contract and reach.
+import { parseDescriptionFromFrontmatter as parseSourceDescription } from "./claude-skills-frontmatter";
 
 /**
  * Materialize an imported skill as a `SomaSkill`-shaped object so
@@ -1099,7 +1079,6 @@ export async function migrateClaudeSkills(
     ...(smokeSubstrates.length > 0 ? { substrateVerifySummary } : {}),
   };
 }
-
 
 /**
  * Status reader for `--status` mode. Returns the manifest as-is or
