@@ -58,6 +58,7 @@ import { runBoundedConcurrent } from "./internal-concurrency";
 import { verifySubstrateProjection } from "./claude-skills-substrate-verify";
 import type {
   ClaudeSkillAuditEntry,
+  ClaudeSkillDescriptionRewrite,
   ClaudeSkillOutcome,
   ClaudeSkillPortabilityTag,
   ClaudeSkillSubstrateVerifyResult,
@@ -68,8 +69,19 @@ import type {
   ClaudeSkillsMigrationPlan,
   ClaudeSkillsMigrationResult,
   ClaudeSkillsSmokeSubstrate,
+  DescriptionStatus,
+  RewriteDescriptionsAgent,
+  RewriteDispatchOverride,
   SomaSkill,
 } from "./types";
+import {
+  classifyDescriptionStatus,
+  DEFAULT_REWRITE_TARGET,
+  defaultRewriteDispatch,
+  sanitizeRewrittenDescription,
+  sha256Utf8,
+  SUBSTRATE_DESCRIPTION_LIMIT,
+} from "./claude-skill-description-rewriter";
 
 const MANIFEST_SCHEMA = "soma.claude-skills-migration.v1";
 const MANIFEST_RELATIVE = "imports/claude-skills/.manifest.json";
@@ -101,7 +113,7 @@ function normalizeSmokeSubstrates(
 // Shared frontmatter helpers — single source of truth for description
 // extraction across the migrator + verifier. See
 // `./claude-skills-frontmatter.ts` for the contract and reach.
-import { parseDescriptionFromFrontmatter as parseSourceDescription } from "./claude-skills-frontmatter";
+import { FRONTMATTER_RE, parseDescriptionFromFrontmatter as parseSourceDescription } from "./claude-skills-frontmatter";
 
 /**
  * Materialize an imported skill as a `SomaSkill`-shaped object so
@@ -599,6 +611,16 @@ interface SourceSkillReadResult {
   // skill walked clean. Propagated onto the ClaudeSkillOutcome via the
   // plan/apply path so the portability report can surface it.
   audit: ClaudeSkillAuditEntry[];
+  // #120 — SKILL.md frontmatter description status against the 1024-
+  // char substrate cap. Computed by `readSourceSkill` so both plan +
+  // apply paths see the same verdict. `originalDescription` is the
+  // raw text (empty string when `descriptionStatus.kind === "missing"`).
+  descriptionStatus: DescriptionStatus;
+  originalDescription: string;
+  // SHA-256 of the original description bytes (hex). Empty when
+  // status is `missing` (no source bytes to hash). Idempotency
+  // anchor for the rewrite path.
+  originalDescriptionSha: string;
 }
 
 async function readSourceSkill(
@@ -643,12 +665,26 @@ async function readSourceSkill(
     .map((f) => `${f.relPath}:${sha256Hex(f.content)}`)
     .sort()
     .join("\n");
+  // #120 — classify the frontmatter description against the 1024
+  // substrate cap. `parseSourceDescription` returns `undefined` for
+  // either no frontmatter OR no `description:` line — both collapse
+  // to `missing`. A present-but-empty description (rare) classifies
+  // as `ok` with length 0; substrates accept it, no rewrite needed.
+  const skillMdContent = skillMd.content.toString("utf8");
+  const originalDescription = parseSourceDescription(skillMdContent);
+  const descriptionStatus = classifyDescriptionStatus(originalDescription);
+  const originalDescriptionSha = originalDescription === undefined
+    ? ""
+    : sha256Utf8(originalDescription);
   return {
     sourceName,
     kebabName: kebabSlug(sourceName),
     files,
     sourceSha: sha256Hex(Buffer.from(composite, "utf8")),
     audit,
+    descriptionStatus,
+    originalDescription: originalDescription ?? "",
+    originalDescriptionSha,
   };
 }
 
@@ -830,6 +866,10 @@ async function buildPlanCore(
       // each pending write up-front.
       fileCount: read.files.length,
       ...(read.audit.length > 0 ? { audit: read.audit } : {}),
+      // #120 — every successfully-read skill carries a description
+      // status so the portability report can show the original
+      // length even when no rewrite was requested.
+      descriptionStatus: read.descriptionStatus,
     });
   }
   outcomes.sort((a, b) => a.sourceName.localeCompare(b.sourceName));
@@ -843,6 +883,8 @@ export async function planClaudeSkillsMigration(
   const { from, somaHome } = resolveHomes(options);
   const includeClaudeSpecific = options.includeClaudeSpecific === true;
   const smokeSubstrates = normalizeSmokeSubstrates(options.smokeSubstrates);
+  const rewriteDescriptionsAgent: RewriteDescriptionsAgent =
+    options.rewriteDescriptionsAgent ?? "none";
   // #118 — resolve `$HOME` once via realpath so symlinks targeting
   // paths under HOME (the common case on macOS where /tmp resolves to
   // /private/tmp) are correctly identified as in-bounds. The resolved
@@ -859,6 +901,13 @@ export async function planClaudeSkillsMigration(
     prevManifest,
     homeRealPath,
   );
+  // #120 — surface refused-description-limit in plan mode too so a
+  // dry-run shows what the apply will refuse without committing to
+  // writes. Mirrors the apply path's classification logic.
+  applyDescriptionLimitClassification({
+    outcomes,
+    rewriteDescriptionsAgent,
+  });
   return {
     apply: false,
     from,
@@ -867,13 +916,170 @@ export async function planClaudeSkillsMigration(
     outcomes,
     includeClaudeSpecific,
     smokeSubstrates,
+    rewriteDescriptionsAgent,
   };
+}
+
+/**
+ * #120 — classify outcomes whose description is oversize OR missing
+ * AND no `--rewrite-descriptions <agent>` was set. Mutates the
+ * outcomes in place to `refused-description-limit` so plan + apply
+ * paths share the same verdict.
+ *
+ * Skills whose disposition is already terminal (`skipped-claude-
+ * specific`, `refused-other`) are skipped — the description limit
+ * is a SECONDARY filter, not a primary one.
+ */
+function applyDescriptionLimitClassification(args: {
+  outcomes: ClaudeSkillOutcome[];
+  rewriteDescriptionsAgent: RewriteDescriptionsAgent;
+}): void {
+  const { outcomes, rewriteDescriptionsAgent } = args;
+  if (rewriteDescriptionsAgent !== "none") return;
+  for (const outcome of outcomes) {
+    if (
+      outcome.disposition === "skipped-claude-specific" ||
+      outcome.disposition === "refused-other"
+    ) {
+      continue;
+    }
+    const status = outcome.descriptionStatus;
+    if (!status) continue;
+    if (status.kind === "oversize" || status.kind === "missing") {
+      outcome.disposition = "refused-description-limit";
+      outcome.target = null;
+      outcome.refusalReason = status.kind === "oversize"
+        ? `description length ${status.length} exceeds substrate cap of ${status.threshold} — re-run with --rewrite-descriptions <claude|codex|pi>`
+        : `SKILL.md has no frontmatter description (substrate cap ${status.threshold}) — re-run with --rewrite-descriptions <claude|codex|pi> to synthesize one`;
+    }
+  }
+}
+
+/**
+ * #120 — splice a rewritten description into the SKILL.md
+ * frontmatter. Two shapes are handled:
+ *
+ *   1. Frontmatter present, `description:` line present (oversize
+ *      path). The existing line is replaced; every other line in the
+ *      frontmatter block (name, allowed-tools, etc.) survives byte-
+ *      for-byte.
+ *   2. No frontmatter at all (missing path). A fresh `--- /
+ *      description: ... / ---` block is prepended; the body remains
+ *      untouched. `name: <kebabSlug>` is also synthesized because
+ *      substrates require both fields to load.
+ *
+ * The frontmatter exists ONLY on SKILL.md in PAI skills (Workflows/
+ * Tools/References stay untouched). The caller passes the bytes of
+ * the source SKILL.md and gets the bytes that should land at the
+ * target path.
+ */
+function spliceFrontmatterDescription(args: {
+  sourceName: string;
+  skillMdContent: string;
+  rewritten: string;
+}): string {
+  const { sourceName, skillMdContent, rewritten } = args;
+  // Quote the description in case it contains characters YAML would
+  // treat as control (`:`, `#`, leading `-`, etc.). Single matching
+  // pair, double quotes, escape any embedded double quote.
+  const quoted = `"${rewritten.replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}"`;
+  const fm = FRONTMATTER_RE.exec(skillMdContent);
+  if (!fm) {
+    // Missing-path: synthesize a minimal frontmatter block. `name:`
+    // mirrors the source directory name so the substrate loader's
+    // identity check passes. The kebab-cased projection happens
+    // downstream (per-substrate adapter); we use the source name here
+    // for symmetry with skills that ship explicit `name: <SourceName>`.
+    return `---\nname: ${sourceName}\ndescription: ${quoted}\n---\n\n${skillMdContent}`;
+  }
+  // Frontmatter present: replace the `description:` line if it
+  // exists, otherwise insert one just before the closing `---`.
+  const fmBlock = fm[1];
+  const lines = fmBlock.split(/\r?\n/);
+  let replaced = false;
+  const newLines = lines.map((line: string) => {
+    if (line.trimStart().startsWith("description:")) {
+      replaced = true;
+      // Preserve the leading indentation (rare but possible if the
+      // skill author indented their frontmatter).
+      const indent = /^\s*/.exec(line)?.[0] ?? "";
+      return `${indent}description: ${quoted}`;
+    }
+    return line;
+  });
+  // `replaced` is mutated inside the `.map` closure above; the lint
+  // narrowing can't see it, hence the suppress.
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+  if (!replaced) {
+    // No description line; append one. Substrates require it; the
+    // synthesis path means we MUST always end up with a description.
+    newLines.push(`description: ${quoted}`);
+  }
+  const rebuiltBlock = newLines.join("\n");
+  // Reconstruct: `---\n<block>\n---<rest>`. `fm[0]` is the full
+  // matched delimited block including the leading `---\n` and
+  // trailing `\n---`; we replace it in place.
+  return skillMdContent.replace(fm[0], `---\n${rebuiltBlock}\n---`);
+}
+
+/**
+ * #120 — run the LLM dispatcher for one skill's description with a
+ * single retry when the model overshoots the 1024-char cap. The
+ * caller passes a resolved dispatcher (either the test override or
+ * the real subprocess wrapper); this function adds:
+ *   - sanitization of the LLM response (frontmatter strip, quote
+ *     strip, whitespace collapse).
+ *   - hard-cap validation against 1024 (NOT 900 — 900 is the
+ *     target the prompt asks for; the substrate cap is the binding
+ *     limit).
+ *   - one retry when the first attempt is over 1024.
+ *
+ * On success returns the rewritten text + its SHA. On failure (still
+ * over 1024 after retry, or dispatcher throws) bubbles the error up
+ * so the apply path can classify the skill as `refused-other` with
+ * the limit in the reason.
+ */
+async function performRewriteWithRetry(args: {
+  dispatcher: RewriteDispatchOverride;
+  agent: Exclude<RewriteDescriptionsAgent, "none">;
+  sourceName: string;
+  status: DescriptionStatus;
+  originalDescription: string;
+  skillMdBody: string;
+}): Promise<{ rewritten: string; rewrittenSha: string }> {
+  const { dispatcher, agent, sourceName, status, originalDescription, skillMdBody } = args;
+  let attempt = 0;
+  while (attempt < 2) {
+    attempt += 1;
+    const raw = await dispatcher({
+      agent,
+      sourceName,
+      status,
+      originalDescription,
+      skillMdBody,
+      targetMaxLength: DEFAULT_REWRITE_TARGET,
+    });
+    const rewritten = sanitizeRewrittenDescription(raw);
+    if (rewritten.length === 0) {
+      throw new Error(
+        `--rewrite-descriptions ${agent} returned empty description for ${sourceName}`,
+      );
+    }
+    if (rewritten.length <= SUBSTRATE_DESCRIPTION_LIMIT) {
+      return { rewritten, rewrittenSha: sha256Utf8(rewritten) };
+    }
+    // First attempt overshot the hard cap; loop once more.
+  }
+  throw new Error(
+    `--rewrite-descriptions ${agent}: returned >${SUBSTRATE_DESCRIPTION_LIMIT}-char description for ${sourceName} on both attempts (substrate cap exceeded).`,
+  );
 }
 
 async function writeSkillPayload(
   read: SourceSkillReadResult,
   targetDir: string,
   applyRewrites: boolean,
+  rewrittenSkillMdContent: string | null,
 ): Promise<{
   fileShas: Record<string, string>;
   // #115 Phase 2 — POST-rewrite, in-memory payload. Threaded into the
@@ -900,6 +1106,23 @@ async function writeSkillPayload(
     // in template bodies — the rewriter must touch them too or
     // landed skills carry residue (AC-3 zero-residue grep).
     const isText = /\.(md|markdown|mdx|txt|json|yaml|yml|ts|js|tsx|jsx|mjs|cjs|py|rb|sh|bash|zsh|toml|hbs|handlebars|tmpl|tpl|xml|html|css)$/.test(file.relPath);
+    // #120 — when a description rewrite produced new SKILL.md bytes,
+    // they take precedence over both the source bytes and the
+    // path-normalizer's output. The normalizer must still run on the
+    // POST-splice content so `~/.claude/` refs in the body get
+    // rewritten the same as everywhere else.
+    const useRewrittenSkillMd = rewrittenSkillMdContent !== null && file.relPath === "SKILL.md";
+    if (useRewrittenSkillMd) {
+      const base = rewrittenSkillMdContent;
+      const finalContent = applyRewrites
+        ? normalizeSkillContent(file.relPath, base).content
+        : base;
+      const bytes = Buffer.from(finalContent, "utf8");
+      await writeFile(target, bytes);
+      fileShas[file.relPath] = sha256Hex(bytes);
+      rewrittenFiles.push({ relPath: file.relPath, content: bytes });
+      continue;
+    }
     if (applyRewrites && isText) {
       const original = file.content.toString("utf8");
       const { content: rewritten } = normalizeSkillContent(file.relPath, original);
@@ -929,9 +1152,34 @@ function renderManifest(manifest: ClaudeSkillsMigrationManifest): string {
   return `${JSON.stringify(sorted, null, 2)}\n`;
 }
 
+/**
+ * #120 — single-source mapping from `ClaudeSkillOutcome` to the
+ * human-readable reason that should land in CLI output, the
+ * portability report row, etc. Refusal dispositions
+ * (`refused-other`, `refused-description-limit`) surface the
+ * `refusalReason` (which embeds the source path / length / cap);
+ * every other disposition surfaces the classifier `reason` (the
+ * portability verdict).
+ *
+ * Exported so the CLI formatter can reuse it — Holly r1 S1 nit:
+ * the migrator's report renderer + the CLI's plan/apply formatters
+ * were duplicating the disposition→reason mapping in three places,
+ * which would drift when the next refusal disposition lands.
+ */
+export function resolveOutcomeReason(outcome: ClaudeSkillOutcome): string {
+  if (outcome.disposition === "refused-other" || outcome.disposition === "refused-description-limit") {
+    return outcome.refusalReason ?? outcome.reason;
+  }
+  return outcome.reason;
+}
+
 function renderPortabilityReport(
   result: ClaudeSkillsMigrationPlan & { importedAt: string },
 ): string {
+  // `rewriteDescriptionsAgent` is a required field on
+  // `ClaudeSkillsMigrationPlan` from #120 onward — but referenced
+  // here through the plain field path so the type system enforces it
+  // exists at every callsite.
   // AC-5 — markdown report. Always written on the apply path so the
   // principal has a per-skill audit trail next to the manifest.
   // Header documents the heuristic's limits (AC-4 transparency).
@@ -943,6 +1191,9 @@ function renderPortabilityReport(
   lines.push(`Include claude-specific: ${result.includeClaudeSpecific ? "yes" : "no"}`);
   if (result.smokeSubstrates.length > 0) {
     lines.push(`Smoke substrates: ${result.smokeSubstrates.join(", ")}`);
+  }
+  if (result.rewriteDescriptionsAgent !== "none") {
+    lines.push(`Rewrite descriptions agent: ${result.rewriteDescriptionsAgent}`);
   }
   lines.push("");
   lines.push("## Classifier rules (Phase 1, heuristic)");
@@ -963,20 +1214,30 @@ function renderPortabilityReport(
   // passed (AC-5 extension). Without the flag, the Phase-1 column
   // shape stays exactly the same so the report is backward-stable
   // for principals who haven't opted in.
+  // #120 — Description + Rewrite columns appear only when
+  // `--rewrite-descriptions` was used. Without the flag the table
+  // shape is byte-stable for principals who haven't opted in.
+  const includeRewriteColumns = result.rewriteDescriptionsAgent !== "none";
   const headerCells = ["Skill", "Tag", "Disposition", "Reason"];
+  if (includeRewriteColumns) {
+    headerCells.push("Description");
+    headerCells.push("Rewrite");
+  }
   for (const substrate of result.smokeSubstrates) {
     headerCells.push(substrate);
   }
   lines.push(`| ${headerCells.join(" | ")} |`);
   lines.push(`|${headerCells.map(() => "---").join("|")}|`);
   for (const o of result.outcomes) {
-    // #118 — refused-other rows surface the refusal reason instead of
-    // the classifier tag (which is meaningless for a skill whose read
-    // never completed). Other dispositions keep the classifier reason.
-    const reasonCell = o.disposition === "refused-other"
-      ? escapeMarkdownCell(o.refusalReason ?? o.reason)
-      : escapeMarkdownCell(o.reason);
+    // #118 / #120 — refusal dispositions surface `refusalReason`;
+    // non-refusal dispositions surface the classifier `reason`.
+    // Centralized in `resolveOutcomeReason` (Holly r1 S1).
+    const reasonCell = escapeMarkdownCell(resolveOutcomeReason(o));
     const row = [o.kebabName, o.tag, o.disposition, reasonCell];
+    if (includeRewriteColumns) {
+      row.push(renderDescriptionCell(o));
+      row.push(renderRewriteCell(o));
+    }
     for (const substrate of result.smokeSubstrates) {
       const verify = o.substrates?.[substrate];
       row.push(verify ? renderSubstrateCell(verify) : "—");
@@ -1034,6 +1295,28 @@ function renderSubstrateCell(verify: ClaudeSkillSubstrateVerifyResult): string {
   // manifest (`substrates[].issues`) for audit.
   const trimmed = escapeMarkdownCell(verify.reason).slice(0, 120);
   return `${verify.status}: ${trimmed}`;
+}
+
+// #120 — Description column. Shows `<orig>→<rewrite>` when a rewrite
+// happened, `<orig> (rewrote)` shorthand when status was missing,
+// plain length when no rewrite. Empty dash when the read failed
+// (refused-other never gets a status).
+function renderDescriptionCell(outcome: ClaudeSkillOutcome): string {
+  const status = outcome.descriptionStatus;
+  if (!status) return "—";
+  const rewrite = outcome.descriptionRewrite;
+  if (rewrite) {
+    return `${status.length}→${rewrite.rewrittenLength} (rewrote)`;
+  }
+  return `${status.length}`;
+}
+
+// #120 — Rewrite column. Shows `<agent> / <ISO timestamp>` when a
+// rewrite happened, dash otherwise.
+function renderRewriteCell(outcome: ClaudeSkillOutcome): string {
+  const rewrite = outcome.descriptionRewrite;
+  if (!rewrite) return "—";
+  return `${rewrite.agent} / ${rewrite.rewrittenAt}`;
 }
 
 /**
@@ -1180,6 +1463,14 @@ export async function migrateClaudeSkills(
   const { from, somaHome } = resolveHomes(options);
   const includeClaudeSpecific = options.includeClaudeSpecific === true;
   const smokeSubstrates = normalizeSmokeSubstrates(options.smokeSubstrates);
+  const rewriteDescriptionsAgent: RewriteDescriptionsAgent =
+    options.rewriteDescriptionsAgent ?? "none";
+  // #120 — resolve the LLM dispatcher: test override wins, otherwise
+  // the per-agent subprocess wrapper. The migrator never knows which
+  // it's calling — both honor the same `RewriteDispatchOverride`
+  // contract so the apply-loop code path is identical.
+  const rewriteDispatcher: RewriteDispatchOverride =
+    options.rewriteDispatchOverride ?? ((req) => defaultRewriteDispatch(req));
   // #118 — resolve `$HOME` once (see plan-mode helper above).
   const homeRealPath = await realpath(resolve(options.homeDir ?? homedir()));
 
@@ -1217,6 +1508,14 @@ export async function migrateClaudeSkills(
   // applying writes from the same in-memory payload halves the I/O.
   const readsBySource = new Map(reads.map((r) => [r.sourceName, r]));
 
+  // #120 — classify outcomes whose description requires a rewrite OR
+  // a refusal. Mutates dispositions in place; runs once before the
+  // apply loop so the loop's branches stay deterministic.
+  applyDescriptionLimitClassification({
+    outcomes,
+    rewriteDescriptionsAgent,
+  });
+
   // Apply phase: walk the outcome list, write payloads for imported
   // skills, carry prior manifest entries for `skipped-idempotent`.
   const manifestEntries: ClaudeSkillsMigrationManifestEntry[] = [];
@@ -1224,6 +1523,9 @@ export async function migrateClaudeSkills(
   let skippedIdempotentCount = 0;
   let skippedClaudeSpecificCount = 0;
   let refusedOtherCount = 0;
+  // #120 — counters for the new dispositions.
+  let refusedDescriptionLimitCount = 0;
+  let descriptionRewrittenCount = 0;
   // #115 Phase 2 — in-memory post-rewrite payload per imported skill,
   // ferried into the smoke pass below to avoid a second disk read.
   // Skipped-idempotent skills fall back to disk re-read inside the
@@ -1244,6 +1546,14 @@ export async function migrateClaudeSkills(
       refusedOtherCount += 1;
       continue;
     }
+    if (outcome.disposition === "refused-description-limit") {
+      // #120 — description exceeds 1024 chars (or is missing) AND no
+      // `--rewrite-descriptions <agent>` was set. Skill NOT imported;
+      // no manifest entry (a future rerun with the flag will attempt
+      // the rewrite from a clean slate).
+      refusedDescriptionLimitCount += 1;
+      continue;
+    }
     if (outcome.disposition === "skipped-idempotent") {
       skippedIdempotentCount += 1;
       const prior = previousBySource.get(outcome.sourceName);
@@ -1257,6 +1567,11 @@ export async function migrateClaudeSkills(
         // `verified`.
         if (prior.substrates) {
           outcome.substrates = { ...prior.substrates };
+        }
+        // #120 — surface the prior rewrite provenance on the outcome
+        // so the report row shows the stable history.
+        if (prior.descriptionRewrite) {
+          outcome.descriptionRewrite = prior.descriptionRewrite;
         }
       }
       continue;
@@ -1272,6 +1587,104 @@ export async function migrateClaudeSkills(
       );
     }
     const targetDir = outcome.target ?? join(somaHome, "skills", outcome.kebabName);
+
+    // #120 — resolve the description rewrite (if any). Three
+    // sub-paths:
+    //   a) status `ok` → no rewrite needed; SKILL.md content is
+    //      untouched.
+    //   b) status `oversize` or `missing` AND agent is `none` →
+    //      already classified as `refused-description-limit` above
+    //      (never reaches here).
+    //   c) status `oversize` or `missing` AND agent != `none` →
+    //      run the dispatcher (with idempotency check against the
+    //      previous manifest entry's `originalDescriptionSha`) and
+    //      splice the result into the frontmatter.
+    let rewrittenSkillMdContent: string | null = null;
+    let descriptionRewrite: ClaudeSkillDescriptionRewrite | undefined;
+    const needsRewrite =
+      rewriteDescriptionsAgent !== "none" &&
+      (read.descriptionStatus.kind === "oversize" || read.descriptionStatus.kind === "missing");
+    if (needsRewrite) {
+      const prior = previousBySource.get(outcome.sourceName);
+      const priorRewrite = prior?.descriptionRewrite;
+      const sourceUnchanged =
+        priorRewrite?.originalDescriptionSha === read.originalDescriptionSha;
+      const sameAgent = priorRewrite?.agent === rewriteDescriptionsAgent;
+      const skillMdSource = read.files.find((f) => f.relPath === "SKILL.md");
+      if (!skillMdSource) {
+        // Should never happen — readSourceSkill refuses without a SKILL.md.
+        throw new Error(
+          `soma migrate claude-skills: missing SKILL.md payload for ${outcome.sourceName}.`,
+        );
+      }
+      if (priorRewrite && sourceUnchanged && sameAgent) {
+        // Idempotency: prior rewrite for this exact source SHA is
+        // reused. We still need the rewritten TEXT — we recover it
+        // by reading the previously-landed SKILL.md and parsing its
+        // description back out. Falls back to re-running the
+        // dispatcher when the landed bytes are missing (e.g. a
+        // partial soma home).
+        const landedSkillMdPath = join(targetDir, "SKILL.md");
+        if (await pathExists(landedSkillMdPath)) {
+          const landedBytes = await readFile(landedSkillMdPath, "utf8");
+          const landedDescription = parseSourceDescription(landedBytes);
+          if (landedDescription !== undefined && sha256Utf8(landedDescription) === priorRewrite.rewrittenDescriptionSha) {
+            rewrittenSkillMdContent = spliceFrontmatterDescription({
+              sourceName: outcome.sourceName,
+              skillMdContent: skillMdSource.content.toString("utf8"),
+              rewritten: landedDescription,
+            });
+            descriptionRewrite = priorRewrite;
+          }
+        }
+      }
+      if (!descriptionRewrite) {
+        // Fresh rewrite (no prior, or source changed, or landed
+        // bytes are missing). Bubble dispatcher failures up to the
+        // per-skill refusal lane instead of aborting the whole run.
+        //
+        // The `needsRewrite` guard above ensured `rewriteDescriptions-
+        // Agent !== "none"`; assign once so the narrowed type flows
+        // through both the dispatcher call AND the provenance entry.
+        const activeAgent: Exclude<RewriteDescriptionsAgent, "none"> =
+          rewriteDescriptionsAgent === "claude" ? "claude" :
+          rewriteDescriptionsAgent === "codex" ? "codex" : "pi";
+        try {
+          const { rewritten, rewrittenSha } = await performRewriteWithRetry({
+            dispatcher: rewriteDispatcher,
+            agent: activeAgent,
+            sourceName: outcome.sourceName,
+            status: read.descriptionStatus,
+            originalDescription: read.originalDescription,
+            skillMdBody: skillMdSource.content.toString("utf8"),
+          });
+          rewrittenSkillMdContent = spliceFrontmatterDescription({
+            sourceName: outcome.sourceName,
+            skillMdContent: skillMdSource.content.toString("utf8"),
+            rewritten,
+          });
+          descriptionRewrite = {
+            agent: activeAgent,
+            rewrittenAt: new Date().toISOString(),
+            originalDescriptionSha: read.originalDescriptionSha,
+            rewrittenDescriptionSha: rewrittenSha,
+            originalLength: read.descriptionStatus.length,
+            rewrittenLength: rewritten.length,
+          };
+          descriptionRewrittenCount += 1;
+        } catch (error) {
+          // Surfaces as `refused-other` on the outcome so other
+          // skills in the run continue.
+          const reason = error instanceof Error ? error.message : String(error);
+          outcome.disposition = "refused-other";
+          outcome.refusalReason = reason;
+          outcome.target = null;
+          refusedOtherCount += 1;
+          continue;
+        }
+      }
+    }
+
     // `needs-adapt` runs through the normalizer; `portable` and
     // (when `--include-claude-specific`) `claude-specific` are
     // pass-through. Running the normalizer on portable skills is
@@ -1280,14 +1693,23 @@ export async function migrateClaudeSkills(
     // landed SHA for portable skills, which simplifies the audit
     // trail.
     const applyRewrites = outcome.tag === "needs-adapt";
-    const { fileShas, rewrittenFiles } = await writeSkillPayload(read, targetDir, applyRewrites);
+    const { fileShas, rewrittenFiles } = await writeSkillPayload(
+      read,
+      targetDir,
+      applyRewrites,
+      rewrittenSkillMdContent,
+    );
     manifestEntries.push({
       sourceName: outcome.sourceName,
       kebabName: outcome.kebabName,
       tag: outcome.tag,
       sourceSha: outcome.sourceSha,
       fileShas,
+      ...(descriptionRewrite ? { descriptionRewrite } : {}),
     });
+    if (descriptionRewrite) {
+      outcome.descriptionRewrite = descriptionRewrite;
+    }
     // Refresh the outcome's fileCount with the count of files actually
     // landed under the skill root (always equal to source file count
     // in Phase 1; the divergence shows up under Phase 2 if any per-
@@ -1382,6 +1804,7 @@ export async function migrateClaudeSkills(
       outcomes,
       includeClaudeSpecific,
       smokeSubstrates,
+      rewriteDescriptionsAgent,
       importedAt,
     }),
     "utf8",
@@ -1395,6 +1818,7 @@ export async function migrateClaudeSkills(
     outcomes,
     includeClaudeSpecific,
     smokeSubstrates,
+    rewriteDescriptionsAgent,
     importedAt,
     manifestPath,
     reportPath,
@@ -1402,6 +1826,8 @@ export async function migrateClaudeSkills(
     skippedIdempotentCount,
     skippedClaudeSpecificCount,
     refusedOtherCount,
+    refusedDescriptionLimitCount,
+    descriptionRewrittenCount,
     ...(smokeSubstrates.length > 0 ? { substrateVerifySummary } : {}),
   };
 }

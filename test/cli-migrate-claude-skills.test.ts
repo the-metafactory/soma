@@ -17,24 +17,30 @@ import { withTempHome as withSharedTempHome } from "./fixtures/pai-migration-fix
 const withTempHome = <T>(fn: (homeDir: string) => Promise<T>): Promise<T> =>
   withSharedTempHome(fn, "soma-cli-115-");
 
+// #120 — substrate-cap-aware fixtures. Every SKILL.md body is prepended
+// with a minimal valid frontmatter so the description-limit classifier
+// classifies these as `ok` and the existing CLI tests continue to
+// exercise the original totals + dispositions.
+const FM = "---\nname: TestSkill\ndescription: \"short test description\"\n---\n\n";
+
 async function writeFixture(home: string): Promise<string> {
   const fromDir = join(home, "skills");
   await mkdir(join(fromDir, "Portable"), { recursive: true });
   await writeFile(
     join(fromDir, "Portable", "SKILL.md"),
-    "# Portable\n\nclean.\n",
+    FM + "# Portable\n\nclean.\n",
     "utf8",
   );
   await mkdir(join(fromDir, "NeedsAdapt"), { recursive: true });
   await writeFile(
     join(fromDir, "NeedsAdapt", "SKILL.md"),
-    "# NeedsAdapt\n\nsee ~/.claude/PAI/DOCUMENTATION/X.md\n",
+    FM + "# NeedsAdapt\n\nsee ~/.claude/PAI/DOCUMENTATION/X.md\n",
     "utf8",
   );
   await mkdir(join(fromDir, "ClaudeSpecific"), { recursive: true });
   await writeFile(
     join(fromDir, "ClaudeSpecific", "SKILL.md"),
-    "# ClaudeSpecific\n\nStop: cleanup hook\n",
+    FM + "# ClaudeSpecific\n\nStop: cleanup hook\n",
     "utf8",
   );
   return fromDir;
@@ -355,4 +361,111 @@ test("soma migrate claude-skills --smoke codex without --apply runs plan with sm
 test("soma migrate claude-skills --help surfaces --smoke", async () => {
   const output = await runSomaCli(["migrate", "claude-skills", "--help"]);
   expect(output).toContain("--smoke");
+});
+
+// ---------------------------------------------------------------------
+// #120 — --rewrite-descriptions LLM rewrite CLI surface.
+// ---------------------------------------------------------------------
+
+// Build a fixture with one oversize-description skill so the
+// --rewrite-descriptions flag has something to compress. The skill
+// content is fixed-length filler so the test stays deterministic.
+async function writeOversizeFixture(home: string): Promise<string> {
+  const fromDir = join(home, "skills");
+  await mkdir(join(fromDir, "OversizeSkill"), { recursive: true });
+  // 1200-char description (> 1024 substrate cap; triggers
+  // refused-description-limit without the flag).
+  const desc = "USE WHEN test " + "x".repeat(1186);
+  await writeFile(
+    join(fromDir, "OversizeSkill", "SKILL.md"),
+    `---\nname: OversizeSkill\ndescription: "${desc}"\n---\n\n# OversizeSkill\n\nbody.\n`,
+    "utf8",
+  );
+  return fromDir;
+}
+
+test("soma migrate claude-skills --rewrite-descriptions: unknown agent → error", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = await writeFixture(home);
+    await expect(
+      runSomaCli([
+        "migrate",
+        "claude-skills",
+        "--from",
+        fromDir,
+        "--soma-home",
+        join(home, "soma"),
+        "--rewrite-descriptions",
+        "bogus-agent",
+      ]),
+    ).rejects.toThrow(/Unknown --rewrite-descriptions agent/);
+  });
+});
+
+test("soma migrate claude-skills --rewrite-descriptions accepts claude|codex|pi|none", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = await writeFixture(home);
+    for (const agent of ["claude", "codex", "pi", "none"]) {
+      // We only validate parser-acceptance here; the apply path with
+      // each agent is exercised in the migrator integration tests with
+      // a stubbed dispatcher. `claude`/`codex`/`pi` would invoke real
+      // subprocesses in dry-run only too, but `plan` mode doesn't run
+      // the dispatcher — it just classifies outcomes.
+      const output = await runSomaCli([
+        "migrate",
+        "claude-skills",
+        "--from",
+        fromDir,
+        "--soma-home",
+        join(home, "soma"),
+        "--rewrite-descriptions",
+        agent,
+      ]);
+      expect(output).toContain("plan (dry-run");
+      if (agent !== "none") {
+        expect(output).toContain(`rewrite-descriptions: ${agent}`);
+      } else {
+        // `none` is the default → no header line emitted.
+        expect(output).not.toContain("rewrite-descriptions: ");
+      }
+    }
+  });
+});
+
+test("soma migrate claude-skills --rewrite-descriptions (no value) errors with readOption", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = await writeFixture(home);
+    await expect(
+      runSomaCli([
+        "migrate",
+        "claude-skills",
+        "--from",
+        fromDir,
+        "--soma-home",
+        join(home, "soma"),
+        "--rewrite-descriptions",
+      ]),
+    ).rejects.toThrow();
+  });
+});
+
+test("soma migrate claude-skills plan with oversize + no agent → refused-description-limit + footer suggestion", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = await writeOversizeFixture(home);
+    const output = await runSomaCli([
+      "migrate",
+      "claude-skills",
+      "--from",
+      fromDir,
+      "--soma-home",
+      join(home, "soma"),
+    ]);
+    expect(output).toContain("refused-description-limit");
+    expect(output).toContain("--rewrite-descriptions claude");
+  });
+});
+
+test("soma migrate claude-skills --help surfaces --rewrite-descriptions", async () => {
+  const output = await runSomaCli(["migrate", "claude-skills", "--help"]);
+  expect(output).toContain("--rewrite-descriptions");
 });

@@ -911,7 +911,64 @@ export interface ClaudeSkillsMigrationOptions {
   // empty → Phase-1 behavior (no verify, no substrate columns in
   // the report).
   smokeSubstrates?: ClaudeSkillsSmokeSubstrate[];
+  // #120 — LLM agent used to compress SKILL.md frontmatter
+  // descriptions that exceed the 1024-char substrate limit (codex +
+  // pi-dev both cap there) or are missing entirely. Default `"none"`
+  // → oversize/missing descriptions classify as `refused-description-
+  // limit` and the skill is not imported. Set to `"claude" | "codex"
+  // | "pi"` to dispatch the rewrite to that agent before write.
+  rewriteDescriptionsAgent?: RewriteDescriptionsAgent;
+  // #120 — test-only injection point for the LLM dispatcher. When
+  // present, replaces the per-agent dispatcher so fixture tests can
+  // exercise the rewrite path without invoking a real LLM. Absent in
+  // production. The dispatcher receives a structured request and
+  // returns the rewritten description text; the migrator handles SHA
+  // computation, length validation, and frontmatter splicing.
+  rewriteDispatchOverride?: RewriteDispatchOverride;
 }
+
+/**
+ * #120 — LLM agent enum for `--rewrite-descriptions`. `none` is the
+ * default (no rewrite; oversize/missing descriptions refuse loud).
+ * Other values dispatch the rewrite to the corresponding agent:
+ *   - `claude` — subscription-billed `claude` subprocess (Sonnet).
+ *   - `codex`  — `codex exec` subprocess (cross-vendor GPT path).
+ *   - `pi`     — Pi.dev local LLM API (refused loud if unavailable).
+ */
+export type RewriteDescriptionsAgent = "claude" | "codex" | "pi" | "none";
+
+/**
+ * #120 — status of a skill's frontmatter description relative to the
+ * 1024-char substrate limit.
+ *   - `ok`       — description present AND ≤ 1024 chars.
+ *   - `oversize` — description present AND > 1024 chars.
+ *   - `missing`  — no frontmatter OR no `description:` line.
+ *
+ * `length` records the original description length (0 when missing).
+ * `threshold` is the hard substrate cap; carried in-band so callers
+ * don't need to import a separate constant.
+ */
+export interface DescriptionStatus {
+  kind: "ok" | "oversize" | "missing";
+  length: number;
+  threshold: 1024;
+}
+
+/**
+ * #120 — test-only override for the LLM dispatcher. Replaces the
+ * real subprocess invocation with a pure function the test can
+ * inspect / control. Receives the same request shape the real
+ * dispatcher would; returns the rewritten text only (SHA / length
+ * validation lives in the migrator, not the dispatcher).
+ */
+export type RewriteDispatchOverride = (request: {
+  agent: Exclude<RewriteDescriptionsAgent, "none">;
+  sourceName: string;
+  status: DescriptionStatus;
+  originalDescription: string;
+  skillMdBody: string;
+  targetMaxLength: number;
+}) => Promise<string>;
 
 // Heuristic portability tag assigned to every source skill. Phase 1
 // rules:
@@ -949,11 +1006,18 @@ export interface ClaudeSkillOutcome {
   // as `refused-other` and let the other skills continue. The CLI
   // turns any `refused-other` outcome into a non-zero exit ONLY in
   // apply mode (matches #112's mode-gated exit policy).
+  // #120 — `refused-description-limit` is the new outcome for a
+  // skill whose frontmatter description exceeds 1024 chars OR whose
+  // SKILL.md has no frontmatter, AND `--rewrite-descriptions` was
+  // absent or set to `none`. The skill is NOT imported; the CLI
+  // footer suggests re-running with `--rewrite-descriptions claude`
+  // (or codex / pi) so the LLM dispatcher can compress the text.
   disposition:
     | "imported"
     | "skipped-claude-specific"
     | "skipped-idempotent"
-    | "refused-other";
+    | "refused-other"
+    | "refused-description-limit";
   // SHA-256 of the source SKILL.md bytes (hex). Stable identity for
   // idempotency checks. Populated even on classify-only / plan runs.
   sourceSha: string;
@@ -992,6 +1056,46 @@ export interface ClaudeSkillOutcome {
    * the classifier verdict for those.
    */
   refusalReason?: string;
+  /**
+   * #120 — frontmatter description status against the 1024-char
+   * substrate cap. Computed unconditionally for every successfully-
+   * read skill so the portability report can show the original
+   * length even when no rewrite was requested. `kind: "missing"` →
+   * no frontmatter OR no `description:` line in frontmatter.
+   * Absent only when the skill itself was refused before the
+   * description could be inspected (`refused-other`).
+   */
+  descriptionStatus?: DescriptionStatus;
+  /**
+   * #120 — when `--rewrite-descriptions <agent>` actually compressed
+   * the description for this skill, this slot records the agent,
+   * the resulting length, and the rewritten SHA so the portability
+   * report and manifest carry the provenance trail (AC-5). Absent
+   * when the skill's description was already within the cap or when
+   * no rewrite was attempted.
+   */
+  descriptionRewrite?: ClaudeSkillDescriptionRewrite;
+}
+
+/**
+ * #120 — provenance for a single description rewrite. Recorded on
+ * both `ClaudeSkillOutcome` (for the portability report row) and
+ * `ClaudeSkillsMigrationManifestEntry` (for idempotency on rerun).
+ *
+ * `originalDescriptionSha` is the SHA-256 of the source description
+ * bytes BEFORE rewrite (empty string when status was `missing` and
+ * we synthesized from body). `rewrittenDescriptionSha` is the SHA
+ * of the post-rewrite text. The manifest stores both so a rerun
+ * with an unchanged source description can short-circuit; a rerun
+ * with a CHANGED source description re-runs the rewrite.
+ */
+export interface ClaudeSkillDescriptionRewrite {
+  agent: Exclude<RewriteDescriptionsAgent, "none">;
+  rewrittenAt: string;
+  originalDescriptionSha: string;
+  rewrittenDescriptionSha: string;
+  originalLength: number;
+  rewrittenLength: number;
 }
 
 export interface ClaudeSkillAuditEntry {
@@ -1023,6 +1127,11 @@ export interface ClaudeSkillsMigrationPlan {
   // Empty when `--smoke` was not passed; the report omits substrate
   // columns in that case so Phase-1 formatter output is byte-stable.
   smokeSubstrates: ClaudeSkillsSmokeSubstrate[];
+  // #120 — mirror of `options.rewriteDescriptionsAgent` so the
+  // formatter and report can both reflect the intent without
+  // re-threading the option through helpers. `none` when the flag
+  // was absent.
+  rewriteDescriptionsAgent: RewriteDescriptionsAgent;
 }
 
 export interface ClaudeSkillsMigrationResult extends ClaudeSkillsMigrationPlan {
@@ -1048,6 +1157,17 @@ export interface ClaudeSkillsMigrationResult extends ClaudeSkillsMigrationPlan {
   // skills continue. The CLI gates exit-code on this count being > 0
   // in apply mode (mirror of #112's plan/apply split).
   refusedOtherCount: number;
+  // #120 — skills refused because their frontmatter description
+  // exceeded the 1024-char substrate cap (or was missing) AND no
+  // `--rewrite-descriptions <agent>` was set. The CLI footer
+  // suggests re-running with `--rewrite-descriptions claude`
+  // (or codex / pi) so the LLM dispatcher compresses the text.
+  refusedDescriptionLimitCount: number;
+  // #120 — skills whose description was actually rewritten via the
+  // LLM dispatcher this run. Reported separately from `writtenCount`
+  // so principals can see the rewrite footprint without grepping
+  // the per-skill table.
+  descriptionRewrittenCount: number;
   // #115 Phase 2 — per-substrate verify aggregate counts. Keyed by
   // substrate id; entries present only for substrates requested via
   // `--smoke`. Each entry counts `verified` / `verified-with-
@@ -1080,6 +1200,13 @@ export interface ClaudeSkillsMigrationManifestEntry {
   // with-warnings` entry is re-run every invocation so a fix to the
   // adapter can flip the verdict without source churn.
   substrates?: Partial<Record<ClaudeSkillsSmokeSubstrate, ClaudeSkillSubstrateVerifyResult>>;
+  // #120 — description-rewrite provenance. Present only for skills
+  // whose description was actually rewritten via `--rewrite-
+  // descriptions <agent>`. Idempotency: a rerun with matching
+  // `originalDescriptionSha` (i.e. source description unchanged
+  // since the rewrite) reuses the prior rewritten text instead of
+  // calling the LLM again.
+  descriptionRewrite?: ClaudeSkillDescriptionRewrite;
 }
 
 export interface ClaudeSkillsMigrationManifest {
