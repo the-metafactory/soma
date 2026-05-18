@@ -2555,23 +2555,24 @@ export async function runSomaCli(args: string[]): Promise<string> {
     if (parsed.mode === "plan") {
       const plan = await planPaiMigration(parsed.options);
       const formatted = formatPaiMigrationPlan(plan, parsed.verbose);
-      // #102 — AC-4 mirror: plan mode honors the same exit-code policy
-      // as the apply path. Genuine errors (`refused-other`) cause a
-      // non-zero exit AFTER the rest of the plan completes, so the
-      // principal sees the full plan body including the outcome table
-      // before the error message. Policy-respected refusals
-      // (`refused-unrecognized-layout`, `refused-reserved`) stay zero
-      // exit — the principal asked for them by NOT passing the
-      // relevant override flag.
+      // #112 — split exit semantics by mode. Plan-mode (dry-run) is
+      // "show me what would happen"; a known-malformed upstream pack
+      // is informative, not a deploy blocker. The footer line stays —
+      // it's the principal signal regardless of exit code — but the
+      // CLI exits 0 so interactive use doesn't pair a non-zero exit
+      // with what is essentially a preview. Apply-mode keeps exit 1
+      // on `refused-other` per #97 AC-4 (write phase had a genuine
+      // error → CI must triage).
+      //
+      // Pre-#112 (per #102 AC-4 mirror): plan mode shared the apply
+      // policy and threw `SomaCliError(..., 1)` on any `refused-other`.
+      // That mirror is intentionally dropped here.
       const refusedOther = plan.packOutcomes.filter((o) => o.outcome === "refused-other");
       if (refusedOther.length > 0) {
         const detail = refusedOther
           .map((o) => `  - ${o.skillName ?? o.paiPackDir}: ${o.reason ?? "(no detail)"}`)
           .join("\n");
-        throw new SomaCliError(
-          `${formatted}\nsoma migrate pai — ${refusedOther.length} pack(s) failed with genuine errors:\n${detail}\n`,
-          1,
-        );
+        return `${formatted}\nsoma migrate pai — ${refusedOther.length} pack(s) failed with genuine errors:\n${detail}\n`;
       }
       return formatted;
     }
