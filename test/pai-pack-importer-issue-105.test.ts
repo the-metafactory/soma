@@ -229,19 +229,34 @@ test("AC-4: mixed pack (top-level SKILL.md + nested) imports as 1 + N skills", a
 // AC-1 / AC-3 again: substrate-specific siblings under a nested skill
 // ───────────────────────────────────────────────────────────────────────
 
-test("AC-1+3: nested skill with non-recognized sibling (Assets/) still archives sibling", async () => {
+test("AC-1+3: nested skill with non-recognized sibling (Assets/) — #109 partial-import semantics", async () => {
   await withTempHome(async (homeDir) => {
     const packDir = join(homeDir, "PAI/Packs/MediaWithAssets");
     await writeNestedPackShell(packDir, "MediaWithAssets");
     await writeNestedSkill(packDir, "Art", { extras: ["Assets"] });
 
-    // Without --include-unrecognized the import should refuse the pack
-    // because src/Art/Assets/demo.txt classifies as substrate-specific.
-    await expect(importPaiPack({ homeDir, paiPackDir: packDir })).rejects.toThrow("unrecognized-layout");
+    // #109 — partial-import semantics: without `--include-unrecognized`,
+    // the pack still imports successfully. The unrecognized sibling
+    // (src/Art/Assets/demo.txt) is silently dropped — neither archived
+    // nor placed under the skill directory. Previously this threw
+    // `PaiPackUnrecognizedLayoutRefusal`; that behavior poisoned every
+    // real PAI pack since they all ship such siblings.
+    const defaultResults = await importPaiPack({ homeDir, paiPackDir: packDir });
+    expect(defaultResults).toHaveLength(1);
+    expect(defaultResults[0].skillName).toBe("art");
+    // The asset MUST NOT land under the skill dir.
+    expect(defaultResults[0].files.some((p) => p.includes("/skills/art/Assets/demo.txt"))).toBe(false);
+    // It also does NOT land in the archive (default mode drops, doesn't archive).
+    expect(defaultResults[0].files.some((p) => p.endsWith("/imports/pai-packs/media-with-assets/source/src/Art/Assets/demo.txt"))).toBe(false);
+  });
 
-    // With include-unrecognized (legacy alias: --include-substrate-specific)
-    // the pack imports — but the asset lands in the pack-level archive,
-    // not in the nested Art skill.
+  // Second run in a fresh home so the first import doesn't collide on
+  // `art`. Asserts the `--include-unrecognized` opt-in still archives.
+  await withTempHome(async (homeDir) => {
+    const packDir = join(homeDir, "PAI/Packs/MediaWithAssets");
+    await writeNestedPackShell(packDir, "MediaWithAssets");
+    await writeNestedSkill(packDir, "Art", { extras: ["Assets"] });
+
     const results = await importPaiPack({
       homeDir,
       paiPackDir: packDir,

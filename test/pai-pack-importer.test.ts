@@ -147,10 +147,16 @@ test("rejects invalid, reserved, colliding, secret, and substrate-specific pack 
     await symlink(outsideDir, join(symlinkPackDir, "src/Workflows/Linked"));
     await expect(planPaiPackImport({ homeDir, paiPackDir: symlinkPackDir, overwrite: true })).rejects.toThrow("refused symlink");
 
+    // #109 — unrecognized files no longer refuse the pack (partial-import
+    // semantics). Default mode silently drops them; `--include-unrecognized`
+    // archives them under the pack source/ tree.
     const substratePackDir = await writePackFixture(join(homeDir, "substrate"));
     await mkdir(join(substratePackDir, "claude"), { recursive: true });
     await writeFile(join(substratePackDir, "claude/profile.md"), "# Claude profile\n", "utf8");
-    await expect(planPaiPackImport({ homeDir, paiPackDir: substratePackDir, overwrite: true })).rejects.toThrow("unrecognized-layout");
+    // Default mode: plan succeeds; the unrecognized file is NOT in plan.files.
+    const [defaultSubstratePlan] = await planPaiPackImport({ homeDir, paiPackDir: substratePackDir, overwrite: true });
+    expect(defaultSubstratePlan.files.some((f) => f.target.endsWith("claude/profile.md"))).toBe(false);
+    // --include-unrecognized: file IS archived under the pack source/ tree.
     const [substratePlan] = await planPaiPackImport({ homeDir, paiPackDir: substratePackDir, overwrite: true, includeSubstrateSpecific: true });
     expect(substratePlan.files).toContainEqual(
       expect.objectContaining({
@@ -175,13 +181,20 @@ test("rejects incomplete PAI Pack structures", async () => {
   });
 });
 
-test("does not treat non-src template-looking paths as templates", async () => {
+test("does not treat non-src template-looking paths as templates (#109 — file dropped, no refusal)", async () => {
   await withTempHome(async (homeDir) => {
     const packDir = await writePackFixture(homeDir);
     await mkdir(join(packDir, "docs/DashboardTemplate"), { recursive: true });
     await writeFile(join(packDir, "docs/DashboardTemplate/readme.md"), "# Template docs\n", "utf8");
 
-    await expect(planPaiPackImport({ homeDir, paiPackDir: packDir })).rejects.toThrow("unrecognized-layout");
+    // #109 — partial-import: pack still imports; the file is NOT classified
+    // as a template, and (without --include-unrecognized) is silently dropped.
+    const plans = await planPaiPackImport({ homeDir, paiPackDir: packDir });
+    expect(plans).toHaveLength(1);
+    expect(plans[0].files.some((f) => f.target.endsWith("docs/DashboardTemplate/readme.md"))).toBe(false);
+    // Audit captures the drop under skipped-unrecognized-file.
+    const dropped = plans[0].normalization.actions.filter((a) => a.kind === "skipped-unrecognized-file");
+    expect(dropped.some((a) => a.file === "docs/DashboardTemplate/readme.md")).toBe(true);
   });
 });
 

@@ -111,25 +111,20 @@ test("scenario 1 — plan all-packs-clean: every pack planned, every outcome `im
   });
 });
 
-test("scenario 2 — plan mixed substrate-specific without flag: refused-unrecognized-layout, others plan, no throw", async () => {
+test("scenario 2 (#109) — plan mixed unrecognized without flag: BOTH packs plan as imported (partial-import)", async () => {
   await withMigrationHome(async ({ homeDir, packsDir }) => {
     const subPack = await writePackFixture(packsDir, "SubA");
     await plantSubstrateSpecificFile(subPack);
     await writePackFixture(packsDir, "Clean");
     // The critical assertion: this must NOT throw. Pre-#102 it did.
+    // #109 — also no longer refuses the SubA pack; partial-import makes
+    // its portable surface land alongside Clean.
     const plan = await planPaiMigration({ homeDir, paiPacksDir: packsDir });
     expect(plan.packOutcomes.length).toBe(2);
-    const subOutcome = plan.packOutcomes.find((o) =>
-      /sub-a|suba/i.test(o.skillName ?? o.paiPackDir),
-    );
-    const cleanOutcome = plan.packOutcomes.find((o) =>
-      /clean/i.test(o.skillName ?? o.paiPackDir),
-    );
-    expect(subOutcome?.outcome).toBe("refused-unrecognized-layout");
-    expect(cleanOutcome?.outcome).toBe("imported");
-    // Only the clean pack appears in the planned-packs list.
-    expect(plan.packs.length).toBe(1);
-    expect(plan.packs[0].skillName).toBe("clean");
+    expect(plan.packOutcomes.every((o) => o.outcome === "imported")).toBe(true);
+    // Both packs appear in the planned-packs list.
+    expect(plan.packs.length).toBe(2);
+    expect(plan.packs.map((p) => p.skillName).sort()).toEqual(["clean", "sub-a"]);
   });
 });
 
@@ -183,6 +178,10 @@ test("scenario 6 (AC-5) — plan output includes per-pack outcome table; CLI pla
   // CLI plan surface: NOT `--apply`, NOT `--status`. The default plan
   // mode must include the per-pack outcome table and must not throw on
   // substrate-specific packs.
+  //
+  // #109 — unrecognized files are now silently dropped (partial-import).
+  // We still verify reserved-name refusals surface and that the outcome
+  // table renders.
   await withMigrationHome(async ({ homeDir, packsDir }) => {
     const sub = await writePackFixture(packsDir, "SubA");
     await plantSubstrateSpecificFile(sub);
@@ -197,7 +196,6 @@ test("scenario 6 (AC-5) — plan output includes per-pack outcome table; CLI pla
       packsDir,
     ]);
     expect(out).toContain("Pack outcomes");
-    expect(out).toContain("refused-unrecognized-layout");
     expect(out).toContain("refused-reserved");
     expect(out).toContain("imported");
     // No skill landed on disk (plan path, not apply).
@@ -226,7 +224,8 @@ test("AC-1 — CLI parses --include-unrecognized for `migrate pai` plan-mode (pa
 });
 
 test("AC-4 — plan-mode CLI exit non-zero when a pack outcome is refused-other (after rest of plan completes)", async () => {
-  // Substrate-specific only → exit zero.
+  // #109 — unrecognized files no longer refuse the pack (partial-import).
+  // The remaining `refused-other` branch is still exercised below.
   await withMigrationHome(async ({ homeDir, packsDir }) => {
     const sub = await writePackFixture(packsDir, "SubA");
     await plantSubstrateSpecificFile(sub);
@@ -239,7 +238,6 @@ test("AC-4 — plan-mode CLI exit non-zero when a pack outcome is refused-other 
       "--pai-packs-dir",
       packsDir,
     ]);
-    expect(out).toContain("refused-unrecognized-layout");
     expect(out).toContain("imported");
   });
   // Malformed pack → SomaCliError exitCode 1; output still includes
@@ -294,12 +292,15 @@ test("Sage r2 #103 CodeQuality — inner pack-importer reserved-name throw class
   });
 });
 
-test("real-world repro — SystemsThinking + RootCauseAnalysis shape: plan completes without raw throw", async () => {
+test("real-world repro (#109) — SystemsThinking + RootCauseAnalysis shape: plan completes, all packs land", async () => {
   // Mimics the user's exact repro: `~/work/PAI/Packs/SystemsThinking`
   // has `src/Foundation.md`, `~/work/PAI/Packs/RootCauseAnalysis` has
   // `src/MethodSelection.md`. Before #102 the first one encountered
   // would throw `PaiPackSubstrateSpecificRefusal` out of
   // `planPaiPackImport` and abort the whole plan.
+  //
+  // #109 — partial-import semantics: those unrecognized files no longer
+  // refuse the pack. All four packs plan as `imported`.
   await withMigrationHome(async ({ homeDir, packsDir }) => {
     const st = await writePackFixture(packsDir, "SystemsThinking");
     await plantSubstrateSpecificFile(st, "Foundation.md");
@@ -307,19 +308,21 @@ test("real-world repro — SystemsThinking + RootCauseAnalysis shape: plan compl
     await plantSubstrateSpecificFile(rca, "MethodSelection.md");
     await writePackFixture(packsDir, "Council");
     await writePackFixture(packsDir, "RedTeam");
-    // No throw. Plan returns with two refused + two imported.
+    // No throw. Plan returns with four imported.
     const plan = await planPaiMigration({ homeDir, paiPacksDir: packsDir });
     expect(plan.packOutcomes.length).toBe(4);
     const refused = plan.packOutcomes.filter(
       (o) => o.outcome === "refused-unrecognized-layout",
     );
     const imported = plan.packOutcomes.filter((o) => o.outcome === "imported");
-    expect(refused.length).toBe(2);
-    expect(imported.length).toBe(2);
-    expect(refused.map((o) => o.skillName).sort()).toEqual([
+    expect(refused.length).toBe(0);
+    expect(imported.length).toBe(4);
+    // All four imported, alphabetical.
+    expect(imported.map((o) => o.skillName).sort()).toEqual([
+      "council",
+      "red-team",
       "root-cause-analysis",
       "systems-thinking",
     ]);
-    expect(imported.map((o) => o.skillName).sort()).toEqual(["council", "red-team"]);
   });
 });

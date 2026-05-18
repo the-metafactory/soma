@@ -849,18 +849,52 @@ async function buildPaiPackImportPlan(options: PaiPackImportOptionsInternal = {}
     route: routePaiPackSourceFile(path, nestedRawNames),
   }));
   const unrecognizedLayout = routes.filter(({ route }) => route.classification === "unrecognized-layout");
-  if (unrecognizedLayout.length > 0 && !options.includeSubstrateSpecific) {
-    // #97 / #106 — typed refusal so callers (the migrate orchestrator
-    // in particular) can classify the failure structurally without
-    // string-matching the message. `options.includeSubstrateSpecific`
-    // keeps its legacy SDK key (see PaiPackImportOptions docstring);
-    // the CLI flag is `--include-unrecognized` with a deprecated
-    // alias.
-    throw new PaiPackUnrecognizedLayoutRefusal(unrecognizedLayout.map(({ path }) => path));
-  }
+
+  // #109 — partial-import semantics: previously ANY unrecognized-layout
+  // file refused the whole pack (throw `PaiPackUnrecognizedLayoutRefusal`),
+  // which poisoned every real PAI pack (Art, Thinking, Utilities, etc.)
+  // because they all ship a mix of portable nested skills AND
+  // unrecognized siblings (`src/<Name>/Examples.md`, `src/<Name>/Assets/`,
+  // `src/Lib/`, etc.). Real packs MUST be the gold standard, not
+  // synthetic happy-path fixtures.
+  //
+  // New semantics — root cause was hypothesis 5 (pack-level outcome
+  // poisoning, per-pack instead of per-file):
+  //
+  //   - Without `--include-unrecognized` (the new default): unrecognized
+  //     files are SILENTLY DROPPED from the routed set. They are NOT
+  //     archived. Portable files land normally. The pack outcome remains
+  //     `imported`; the count + list of dropped unrecognized files
+  //     surfaces via the normalization report (`skipped-unrecognized-file`
+  //     audit actions) so reviewers still see what the pack carried
+  //     that we didn't classify.
+  //
+  //   - With `--include-unrecognized`: existing behavior — unrecognized
+  //     files DO land in the pack-level archive at
+  //     `~/.soma/imports/pai-packs/<pack>/source/<original-path>`.
+  //
+  // The `assertHasSkillEntrypoint` check above already guarantees that
+  // every pack has at least one portable SKILL.md (FLAT or nested), so
+  // there is always something landable. A pack with ZERO portable files
+  // is structurally impossible after #105's entrypoint check.
+  //
+  // The `PaiPackUnrecognizedLayoutRefusal` class is retained for
+  // back-compat with downstream callers (re-exported from `src/index.ts`)
+  // but is no longer thrown by the importer. The orchestrator's
+  // `instanceof` catch in `pai-migration.ts:858` becomes dead code we
+  // leave in place for one release in case external SDK consumers
+  // produce the error themselves.
+  const droppedUnrecognizedFiles: string[] = unrecognizedLayout.map(({ path }) => path);
 
   const routedFiles: RoutedPaiPackImportFile[] = [];
   for (const { path, route } of routes) {
+    // #109 — skip unrecognized-layout routes entirely when the caller
+    // hasn't opted in to archiving them. Their `route.root` is "archive"
+    // and they would otherwise land under
+    // `imports/pai-packs/<pack>/source/<path>`.
+    if (route.classification === "unrecognized-layout" && !options.includeSubstrateSpecific) {
+      continue;
+    }
     // Resolve the destination skill slug for portable routes:
     //   - route.skillName === null → pack-level (FLAT) slug
     //   - route.skillName !== null → nested skill slug
@@ -961,11 +995,26 @@ async function buildPaiPackImportPlan(options: PaiPackImportOptionsInternal = {}
     kind: "skipped-noise-file",
     detail: `${match.category}: ${match.detail}`,
   }));
+  // #109 — audit entries for unrecognized-layout files we silently
+  // dropped (default mode — no `--include-unrecognized`). Same shape
+  // as the noise skip entries so the per-skill `soma-pack.json` audit
+  // surfaces both classes uniformly. When `--include-unrecognized` is
+  // set the files DO land in the archive and we don't emit these
+  // dropped-audit entries (the archive listing itself is the audit).
+  const dropUnrecognizedActions: PaiPackNormalizationAction[] =
+    options.includeSubstrateSpecific
+      ? []
+      : droppedUnrecognizedFiles.map((path) => ({
+          file: path,
+          kind: "skipped-unrecognized-file",
+          detail: "unrecognized layout (no --include-unrecognized)",
+        }));
   const normalization = mergeNormalizationReports([
     reportFromNormalizedFiles(normalizedSkillFiles.values()),
     { actions: normalizedDescription.action ? [normalizedDescription.action] : [], warnings: [] },
     { actions: editorSymlinkSkipActions, warnings: [] },
     { actions: noiseSkipActions, warnings: [] },
+    { actions: dropUnrecognizedActions, warnings: [] },
   ]);
 
   // Per-derived-skill manifests: each skill gets its own soma-pack.json
@@ -993,9 +1042,18 @@ async function buildPaiPackImportPlan(options: PaiPackImportOptionsInternal = {}
   // archive-bound files (unrecognized-layout OR every imported pack
   // gets one as part of #105's auditability contract — the archive's
   // `derivedSkills` list is principal-facing).
+  //
+  // #109 — the archive manifest is classified `unrecognized-layout`
+  // only when unrecognized files actually landed in the archive
+  // (i.e. `--include-unrecognized` was set). The default drop-on-sight
+  // mode means the archive carries only the standard SKILL.md/Workflow
+  // backups (rendered as `source/...` copies of every portable file),
+  // which is `portable`.
+  const archiveCarriesUnrecognized =
+    unrecognizedLayout.length > 0 && options.includeSubstrateSpecific === true;
   routedFiles.push({
     target: join(homes.somaHome, `imports/pai-packs/${packSlug}/soma-pack-archive.json`),
-    classification: unrecognizedLayout.length > 0 ? "unrecognized-layout" : "portable",
+    classification: archiveCarriesUnrecognized ? "unrecognized-layout" : "portable",
     renderMode: "archive-manifest",
     origin: "generated",
     generator: "pai-pack-importer",

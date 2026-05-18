@@ -82,33 +82,44 @@ async function writeMinimalPack(packDir: string, packName = "Demo"): Promise<voi
 }
 
 // ─── AC-1: rename surfaces (typed refusal + error message) ───────────
+//
+// #109 — the refusal class is retained for back-compat but the default
+// path no longer throws it. Unrecognized files are now silently dropped
+// (partial-import semantics) so portable surfaces in real PAI packs land
+// even when the pack ships unrecognized siblings. The class export
+// itself is still required.
 
-test("AC-1: refusal class is exported as PaiPackUnrecognizedLayoutRefusal", async () => {
+test("AC-1: refusal class is still exported as PaiPackUnrecognizedLayoutRefusal (back-compat)", () => {
+  expect(typeof PaiPackUnrecognizedLayoutRefusal).toBe("function");
+  expect(PaiPackUnrecognizedLayoutRefusal.name).toBe("PaiPackUnrecognizedLayoutRefusal");
+  // Instances carry the kind discriminator and the files list.
+  const instance = new PaiPackUnrecognizedLayoutRefusal(["src/Foundation.md"]);
+  expect(instance.kind).toBe("unrecognized-layout");
+  expect(instance.files).toEqual(["src/Foundation.md"]);
+  expect(instance.message).toMatch(/--include-unrecognized/);
+});
+
+test("AC-1 (#109): partial-import — pack with unrecognized files still imports portable surface", async () => {
   await withTempHome(async (homeDir) => {
     const packDir = join(homeDir, "PAI/Packs/Demo");
     await writeMinimalPack(packDir);
     // Plant an unrecognized file under src/.
     await writeFile(join(packDir, "src/Foundation.md"), "# Foundation\n", "utf8");
 
-    await expect(planPaiPackImport({ homeDir, paiPackDir: packDir })).rejects.toBeInstanceOf(
-      PaiPackUnrecognizedLayoutRefusal,
+    const plans = await planPaiPackImport({ homeDir, paiPackDir: packDir });
+    expect(plans).toHaveLength(1);
+    // The unrecognized file is dropped — never lands in plan.files.
+    const foundationEntry = plans[0].files.find((f) => f.target.includes("Foundation.md"));
+    expect(foundationEntry).toBeUndefined();
+    // The audit surfaces it via the new `skipped-unrecognized-file` kind.
+    const skips = plans[0].normalization.actions.filter(
+      (a) => a.kind === "skipped-unrecognized-file",
     );
+    expect(skips.some((a) => a.file === "src/Foundation.md")).toBe(true);
   });
 });
 
-test("AC-1: refusal message uses `--include-unrecognized` flag name", async () => {
-  await withTempHome(async (homeDir) => {
-    const packDir = join(homeDir, "PAI/Packs/Demo");
-    await writeMinimalPack(packDir);
-    await writeFile(join(packDir, "src/Foundation.md"), "# Foundation\n", "utf8");
-
-    await expect(planPaiPackImport({ homeDir, paiPackDir: packDir })).rejects.toThrow(
-      /--include-unrecognized/,
-    );
-  });
-});
-
-test("AC-1: import succeeds when --include-unrecognized is passed (manifest classification renamed)", async () => {
+test("AC-1: import with --include-unrecognized archives unrecognized files (classification preserved)", async () => {
   await withTempHome(async (homeDir) => {
     const packDir = join(homeDir, "PAI/Packs/Demo");
     await writeMinimalPack(packDir);
@@ -219,14 +230,23 @@ test("AC-2: package.json WITH SKILL.md sibling at same level routes normally", a
     // fall through to the unrecognized-layout route (or whatever the
     // router would normally classify it as). Either way, it shouldn't
     // show up as a `skipped-noise-file` audit entry.
-    // We don't pass --include-unrecognized, so the pack should refuse.
-    await expect(planPaiPackImport({ homeDir, paiPackDir: packDir })).rejects.toBeInstanceOf(
-      PaiPackUnrecognizedLayoutRefusal,
-    );
+    //
+    // #109 — without `--include-unrecognized` the unrecognized file is
+    // silently dropped (partial-import semantics). The pack still plans
+    // successfully; we just verify the file doesn't appear under the
+    // skill or archive surface AND that the audit captures the drop
+    // under `skipped-unrecognized-file`, NOT under `skipped-noise-file`.
+    const plans = await planPaiPackImport({ homeDir, paiPackDir: packDir });
+    expect(plans).toHaveLength(1);
+    expect(plans[0].files.every((f) => !f.target.endsWith("src/package.json"))).toBe(true);
+    const noiseSkips = plans[0].normalization.actions.filter((a) => a.kind === "skipped-noise-file");
+    expect(noiseSkips.some((a) => a.file === "src/package.json")).toBe(false);
+    const dropped = plans[0].normalization.actions.filter((a) => a.kind === "skipped-unrecognized-file");
+    expect(dropped.some((a) => a.file === "src/package.json")).toBe(true);
   });
 });
 
-test("AC-2: noise files are NOT in the refusal list even when other unrecognized files exist", async () => {
+test("AC-2: noise files are NOT in the dropped-unrecognized audit even when other unrecognized files exist", async () => {
   await withTempHome(async (homeDir) => {
     const packDir = join(homeDir, "PAI/Packs/Demo");
     await writeMinimalPack(packDir);
@@ -236,19 +256,21 @@ test("AC-2: noise files are NOT in the refusal list even when other unrecognized
     await writeFile(join(packDir, ".gitignore"), "node_modules\n", "utf8");
     await writeFile(join(packDir, "bun.lock"), "# lock\n", "utf8");
 
-    try {
-      await planPaiPackImport({ homeDir, paiPackDir: packDir });
-      throw new Error("expected refusal");
-    } catch (err) {
-      expect(err).toBeInstanceOf(PaiPackUnrecognizedLayoutRefusal);
-      if (err instanceof PaiPackUnrecognizedLayoutRefusal) {
-        // Only Foundation.md should be in the refusal list — noise
-        // files were silently dropped before refusal accounting.
-        expect(err.files).toContain("src/Foundation.md");
-        expect(err.files).not.toContain(".gitignore");
-        expect(err.files).not.toContain("bun.lock");
-      }
-    }
+    // #109 — partial-import semantics: no throw. Plan succeeds. The
+    // dropped-unrecognized audit lists Foundation.md only; the noise
+    // audit lists .gitignore + bun.lock. The two audit classes are
+    // mutually exclusive.
+    const plans = await planPaiPackImport({ homeDir, paiPackDir: packDir });
+    expect(plans).toHaveLength(1);
+    const dropped = plans[0].normalization.actions.filter((a) => a.kind === "skipped-unrecognized-file");
+    const noise = plans[0].normalization.actions.filter((a) => a.kind === "skipped-noise-file");
+    const droppedFiles = dropped.map((a) => a.file).sort();
+    const noiseFiles = noise.map((a) => a.file).sort();
+    expect(droppedFiles).toContain("src/Foundation.md");
+    expect(droppedFiles).not.toContain(".gitignore");
+    expect(droppedFiles).not.toContain("bun.lock");
+    expect(noiseFiles).toContain(".gitignore");
+    expect(noiseFiles).toContain("bun.lock");
   });
 });
 
