@@ -1152,6 +1152,27 @@ function renderManifest(manifest: ClaudeSkillsMigrationManifest): string {
   return `${JSON.stringify(sorted, null, 2)}\n`;
 }
 
+/**
+ * #120 — single-source mapping from `ClaudeSkillOutcome` to the
+ * human-readable reason that should land in CLI output, the
+ * portability report row, etc. Refusal dispositions
+ * (`refused-other`, `refused-description-limit`) surface the
+ * `refusalReason` (which embeds the source path / length / cap);
+ * every other disposition surfaces the classifier `reason` (the
+ * portability verdict).
+ *
+ * Exported so the CLI formatter can reuse it — Holly r1 S1 nit:
+ * the migrator's report renderer + the CLI's plan/apply formatters
+ * were duplicating the disposition→reason mapping in three places,
+ * which would drift when the next refusal disposition lands.
+ */
+export function resolveOutcomeReason(outcome: ClaudeSkillOutcome): string {
+  if (outcome.disposition === "refused-other" || outcome.disposition === "refused-description-limit") {
+    return outcome.refusalReason ?? outcome.reason;
+  }
+  return outcome.reason;
+}
+
 function renderPortabilityReport(
   result: ClaudeSkillsMigrationPlan & { importedAt: string },
 ): string {
@@ -1208,14 +1229,10 @@ function renderPortabilityReport(
   lines.push(`| ${headerCells.join(" | ")} |`);
   lines.push(`|${headerCells.map(() => "---").join("|")}|`);
   for (const o of result.outcomes) {
-    // #118 — refused-other rows surface the refusal reason instead of
-    // the classifier tag (which is meaningless for a skill whose read
-    // never completed). Other dispositions keep the classifier reason.
-    // #120 — refused-description-limit rows surface the refusalReason
-    // too (which embeds the original length + cap).
-    const reasonCell = (o.disposition === "refused-other" || o.disposition === "refused-description-limit")
-      ? escapeMarkdownCell(o.refusalReason ?? o.reason)
-      : escapeMarkdownCell(o.reason);
+    // #118 / #120 — refusal dispositions surface `refusalReason`;
+    // non-refusal dispositions surface the classifier `reason`.
+    // Centralized in `resolveOutcomeReason` (Holly r1 S1).
+    const reasonCell = escapeMarkdownCell(resolveOutcomeReason(o));
     const row = [o.kebabName, o.tag, o.disposition, reasonCell];
     if (includeRewriteColumns) {
       row.push(renderDescriptionCell(o));

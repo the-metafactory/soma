@@ -102,6 +102,7 @@ import {
   migrateClaudeSkills,
   planClaudeSkillsMigration,
   readClaudeSkillsMigrationStatus,
+  resolveOutcomeReason,
 } from "./claude-skills-migrator";
 import type {
   ClaudeSkillsMigrationOptions,
@@ -2153,15 +2154,10 @@ function formatClaudeSkillsMigrationPlan(plan: ClaudeSkillsMigrationPlan): strin
   lines.push("");
   lines.push("Per-skill plan:");
   for (const o of plan.outcomes) {
-    // #118 — refused-other rows include the refusalReason (which
-    // already embeds <sourceName>/<rel>) so principals can locate
-    // the offending path from the CLI output alone.
-    // #120 — refused-description-limit rows surface the refusalReason
-    // too (length + cap), so the principal sees what needs rewriting.
-    const reason = (o.disposition === "refused-other" || o.disposition === "refused-description-limit")
-      ? (o.refusalReason ?? o.reason)
-      : o.reason;
-    lines.push(`  - ${o.kebabName} [${o.tag}] → ${o.disposition} (${reason})`);
+    // #118 / #120 — refusal dispositions surface `refusalReason`
+    // (embeds source path + cap). Centralized in
+    // `resolveOutcomeReason` (Holly r1 S1).
+    lines.push(`  - ${o.kebabName} [${o.tag}] → ${o.disposition} (${resolveOutcomeReason(o)})`);
   }
   const counts = countOutcomesByDisposition(plan.outcomes);
   lines.push("");
@@ -2216,11 +2212,8 @@ function formatClaudeSkillsMigrationResult(result: ClaudeSkillsMigrationResult):
         .filter((s): s is string => s !== null);
       if (parts.length > 0) suffix = ` [${parts.join(", ")}]`;
     }
-    // #120 — refused-description-limit + refused-other rows surface
-    // the refusalReason (which embeds the source path / length / cap).
-    const reason = (o.disposition === "refused-other" || o.disposition === "refused-description-limit")
-      ? (o.refusalReason ?? o.reason)
-      : o.reason;
+    // #118 / #120 — centralized in `resolveOutcomeReason` (Holly r1 S1).
+    const reason = resolveOutcomeReason(o);
     // #120 — when a rewrite landed, append `(rewrote <orig>→<new>)`
     // so the per-skill line carries the rewrite footprint without
     // forcing the principal to open the portability report.
