@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.2.0-2A3F6A?labelColor=0E1726" />
+  <img alt="Version" src="https://img.shields.io/badge/version-0.4.1-2A3F6A?labelColor=0E1726" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-2A3F6A?labelColor=0E1726" />
   <img alt="Runs in" src="https://img.shields.io/badge/runs%20in-Codex%20%C2%B7%20Pi.dev%20%C2%B7%20Claude%20Code-2A3F6A?labelColor=0E1726" />
 </p>
@@ -195,8 +195,38 @@ See **[docs/migration-from-pai.md](docs/migration-from-pai.md)** for the full
 walkthrough — prerequisites, every flag, per-substrate install (Codex,
 Claude Code, Pi.dev), verification steps, and troubleshooting.
 
-The lower-level import commands are still available when you want to move one
-category at a time:
+### Alternative path: import from your installed `~/.claude/skills/` tree
+
+`soma migrate pai` reads PAI's distribution source at `~/work/PAI/Packs/`. If
+you'd rather import from the *installed* form (the skills your running PAI
+already projects into `~/.claude/skills/`), use:
+
+```bash
+soma migrate claude-skills --from ~/.claude/skills
+soma migrate claude-skills --from ~/.claude/skills --apply
+```
+
+The installed tree is collision-free (no collection-pack duplicates), and a
+per-skill **portability classifier** tags each skill as `portable`,
+`needs-adapt` (rewritten via the normalizer), or `claude-specific` (skipped
+unless `--include-claude-specific` is set).
+
+Add `--smoke codex` or `--smoke pi-dev` (or both) to verify each imported
+skill projects cleanly into the named substrate — turns the heuristic verdict
+into a checked one before you trust it cross-substrate.
+
+If your skills carry oversize descriptions (Codex and Pi.dev cap at 1024
+chars) or missing frontmatter, add `--rewrite-descriptions claude` (or
+`codex`, `pi`) to compress / synthesize via an LLM agent in one pass.
+
+User-owned symlinks inside the skills tree (private skills you keep in
+another worktree) are followed automatically when their target resolves
+within `$HOME`.
+
+### The lower-level commands
+
+The fine-grained import commands are still available when you want to move
+one category at a time:
 
 ```bash
 soma import pai --dry-run
