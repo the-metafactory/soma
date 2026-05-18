@@ -137,6 +137,19 @@ returns zero — that is the integration-level invariant tested in
 | --- | --- | --- |
 | `compacted-skill-description` | Skill description longer than the 1024-character Soma portable metadata limit. | Sentence-boundary-aware truncation; falls back to hard truncation on a non-sentence input. |
 
+### Editor-config symlink skip
+
+| Action kind | Trigger | Replacement |
+| --- | --- | --- |
+| `skipped-editor-config-symlink` | A symbolic link whose pack-relative path falls inside the IDE/editor-config denylist directories (`.cursor/`, `.vscode/`, `.idea/`, `.fleet/`, `.zed/`). | File is dropped from the import set; an audit entry is recorded with the matched denylist directory name. The pack is NOT refused. |
+
+The denylist is intentionally narrow — only well-known editor-config
+directories whose contents are noise rather than portable skill
+content. Every other symlink still aborts the pack as a security
+refusal (PAI pack import refused symlink path). The `art` and
+`prompting` PAI packs ship `.cursor/rules/*.mdc` symlinks; before this
+rule the importer refused the entire pack on first encounter.
+
 ### Advisory warnings (no rewrite)
 
 | Warning kind | Trigger |
