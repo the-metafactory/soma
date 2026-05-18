@@ -217,8 +217,7 @@ interface InternalPaiPackImportPlan extends PaiPackImportPlan {
   /** #105 — every derived skill slug produced by this plan (sorted). */
   derivedSkills: string[];
   /**
-   * Sage r5 #108 (CodeQuality, important): each nested skill's own
-   * frontmatter description, normalized via
+   * Each nested skill's own frontmatter description, normalized via
    * `normalizeSkillDescription`. Keyed by derived skill slug. Used by
    * the staging step to populate the rewritten SKILL.md frontmatter
    * AND by the SomaSkill manifest renderer — both surfaces previously
@@ -689,8 +688,8 @@ async function buildPaiPackImportPlan(options: PaiPackImportOptionsInternal = {}
   // skills depend on it.
   const hasFlatEntry = sourceFiles.includes("src/SKILL.md");
 
-  // Sage r7 #108 (CodeQuality, important): the pack-slug reserved
-  // refusal applies ONLY when the pack has a FLAT entry. For a pure-
+  // The pack-slug reserved refusal applies ONLY when the pack has a
+  // FLAT entry. For a pure-
   // nested pack with a reserved pack name (e.g. README `name: soma`
   // with only `src/Foo/SKILL.md` + `src/Bar/SKILL.md`), `packSlug`
   // is just the archive root identifier under `~/.soma/imports/pai-
@@ -735,8 +734,8 @@ async function buildPaiPackImportPlan(options: PaiPackImportOptionsInternal = {}
   // nested src/Foo/SKILL.md) is a collision — both would target the
   // same skill root. Refuse with the typed error.
   //
-  // Sage r3 #108 CodeQuality (suggestion): use the RAW nested dir name
-  // when building the source path. Previously this template used
+  // Use the RAW nested dir name when building the source path.
+  // Previously this template used
   // `packSlug`, which is kebab-cased — for a `src/PAIUpgrade/SKILL.md`
   // colliding with pack slug `pai-upgrade`, the refusal would report
   // `src/pai-upgrade/SKILL.md` (a path that does not exist on disk),
@@ -934,11 +933,11 @@ async function buildPaiPackImportPlan(options: PaiPackImportOptionsInternal = {}
 
   const files = routedFiles.map(({ renderMode: _renderMode, derivedSkill: _derivedSkill, ...file }) => file);
 
-  // Sage r5 #108 (CodeQuality, important): capture each nested
-  // skill's own frontmatter `description` so the staging step and
-  // SomaSkill manifest renderer can preserve it instead of
-  // clobbering with `nestedSkillDescription(slug)`. We parse the
-  // already-normalized SKILL.md content (no second file read).
+  // Capture each nested skill's own frontmatter `description` so the
+  // staging step and SomaSkill manifest renderer can preserve it
+  // instead of clobbering with `nestedSkillDescription(slug)`. We
+  // parse the already-normalized SKILL.md content (no second file
+  // read).
   const nestedSkillDescriptions = new Map<string, string>();
   for (const file of routedFiles) {
     if (
@@ -985,10 +984,10 @@ async function buildPaiPackImportPlan(options: PaiPackImportOptionsInternal = {}
 }
 
 /**
- * Sage r5 #108 helper: find the raw nested dir name for a given kebab
- * slug. Used by the description-normalization step so per-file audit
- * paths name the actual on-disk path (matches the R3 fix in the
- * flat-vs-nested collision message).
+ * Find the raw nested dir name for a given kebab slug. Used by the
+ * description-normalization step so per-file audit paths name the
+ * actual on-disk path (consistent with the flat-vs-nested collision
+ * message).
  */
 function findNestedRawForSlug(
   nestedIndex: readonly NestedSkillRecord[],
@@ -1071,30 +1070,27 @@ export async function planPaiPackImport(
 }
 
 /**
- * #105 / Sage r2 #108 (Performance) — opaque handle for plan-once,
- * apply-later. The migration orchestrator's two-phase apply path
- * uses this to plan once (Phase 1, bounded-concurrent) and apply
- * later (Phase 2, sequential with cross-pack collision filtering)
- * WITHOUT a second full plan rebuild.
+ * Opaque handle for plan-once, apply-later imports. The migration
+ * orchestrator's two-phase apply path uses this to plan once
+ * (Phase 1, bounded-concurrent) and apply later (Phase 2, sequential
+ * with cross-pack collision filtering) WITHOUT a second full plan
+ * rebuild.
  *
- * Sage r6 #108 (Security, blocker): the plan data is stored OFF the
- * handle, in a module-private `WeakMap<handle, planData>`. The
- * handle itself is a frozen empty object — it carries no addressable
- * plan state. A caller who legitimately receives a handle cannot
- * mutate `handle.plan.routedFiles` to bypass containment validation
- * because there is no `.plan` field to mutate. The WeakMap lookup
- * is the only path from a handle to its plan, and the WeakMap has
- * no external accessor.
+ * Security invariant: plan data is stored OFF the handle, in a
+ * module-private `WeakMap<handle, planData>`. The handle itself is
+ * a frozen empty object — it carries no addressable plan state, so
+ * a caller with a legitimate handle cannot mutate
+ * `handle.plan.routedFiles` to bypass containment validation. The
+ * same WeakMap doubles as the trusted-handle set: forged handles
+ * (objects fitting the structural interface but never registered)
+ * have no entry and `castHandle` rejects them with a `TypeError`.
  *
- * Sage r5 #108 (Security, blocker): the same WeakMap doubles as the
- * trusted-handle set — forged handles (objects fitting the
- * structural interface but never registered) have no entry and
- * `castHandle` rejects them with a clear `TypeError`.
- *
- * The trio (`PaiPackImportPlanHandle`, `planPaiPackImportHandle`,
- * `importPaiPackFromPlan`) is module-internal — NOT re-exported on
- * the package barrel. The only legitimate consumer is the migration
- * orchestrator, which deep-imports from this module.
+ * @internal The handle trio (`PaiPackImportPlanHandle`,
+ * `planPaiPackImportHandle`, `importPaiPackFromPlan`) is
+ * orchestration-only plumbing. NOT re-exported from `src/index.ts`;
+ * the only legitimate consumer is the migration orchestrator, which
+ * deep-imports from this module. The WeakMap design is free to
+ * change; do not depend on the export.
  */
 export interface PaiPackImportPlanHandle {
   readonly __brand: "PaiPackImportPlanHandle";
@@ -1105,11 +1101,11 @@ interface TrustedPlanData {
   readonly options: PaiPackImportOptionsInternal;
 }
 
-// Sage r6 #108 (Security, blocker): module-private WeakMap from
-// frozen handle → plan data. The handle object never holds the plan
-// directly, so an external caller with a legitimate handle cannot
-// mutate the cached plan in any way. The WeakMap has no external
-// accessor and lookup is the only path from handle to plan.
+// Module-private WeakMap from frozen handle → plan data. The handle
+// object never holds the plan directly, so an external caller with
+// a legitimate handle cannot mutate the cached plan in any way. The
+// WeakMap has no external accessor and lookup is the only path from
+// handle to plan.
 const TRUSTED_PLAN_BY_HANDLE = new WeakMap<object, TrustedPlanData>();
 
 function castHandle(handle: PaiPackImportPlanHandle): TrustedPlanData {
@@ -1127,28 +1123,30 @@ function castHandle(handle: PaiPackImportPlanHandle): TrustedPlanData {
 }
 
 /**
- * #105 / Sage r2 #108 (Performance) — plan-once API for the migration
- * orchestrator. Returns the public per-skill plan view (for outcome
- * reporting) alongside an opaque handle that `importPaiPackFromPlan`
- * consumes to apply WITHOUT a second plan rebuild.
+ * Plan-once API for the migration orchestrator. Returns the public
+ * per-skill plan view (for outcome reporting) alongside an opaque
+ * handle that `importPaiPackFromPlan` consumes to apply WITHOUT a
+ * second plan rebuild.
  *
  * Standalone CLI consumers (`soma import pai-pack`) keep using
- * `planPaiPackImport` + `importPaiPack` — the handle path is an SDK
- * optimization for callers that already planned and want to apply
- * the same plan.
+ * `planPaiPackImport` + `importPaiPack` — the handle path is an
+ * orchestration-level optimization for callers that already planned
+ * and want to apply the same plan.
+ *
+ * @internal Orchestration plumbing for the migration apply path.
+ * Not part of the public SDK surface; do not depend on the export.
  */
 export async function planPaiPackImportHandle(
   options: PaiPackImportOptionsInternal = {},
 ): Promise<{ plans: PaiPackImportPlan[]; handle: PaiPackImportPlanHandle }> {
   const internal = await buildPaiPackImportPlan(options);
   const plans = splitInternalPlanByDerivedSkill(internal);
-  // Sage r6 #108 (Security, blocker): the handle is a frozen empty
-  // object — it carries NO addressable plan state. The plan lives
-  // in the module-private WeakMap, keyed by the handle. A caller
-  // with a legitimate handle cannot mutate `handle.plan` because
-  // there is no `.plan` field; the only path from handle to plan
-  // is the WeakMap lookup in `castHandle`, which lives in this
-  // module file.
+  // The handle is a frozen empty object — it carries NO addressable
+  // plan state. The plan lives in the module-private WeakMap, keyed
+  // by the handle. A caller with a legitimate handle cannot mutate
+  // `handle.plan` because there is no `.plan` field; the only path
+  // from handle to plan is the WeakMap lookup in `castHandle`, which
+  // lives in this module file.
   const handle = Object.freeze({ __brand: "PaiPackImportPlanHandle" } as const);
   TRUSTED_PLAN_BY_HANDLE.set(handle, { plan: internal, options });
   return { plans, handle };
@@ -1238,12 +1236,12 @@ async function stagePaiPackFiles(plan: InternalPaiPackImportPlan, stageRoot: str
       // Workflows/Tools markdown keeps its original frontmatter intact —
       // Sage round-3 important: their identity isn't the root skill's.
       //
-      // Sage r5 #108 (CodeQuality, important): nested skills now use
-      // their OWN SKILL.md description (captured in the plan's
-      // `nestedSkillDescriptions` map). Fallback to the generic
-      // `nestedSkillDescription(slug)` only when the nested skill
-      // shipped no description at all. Pack-level (FLAT) slug keeps
-      // using `plan.description` (the README-derived pack description).
+      // Nested skills use their OWN SKILL.md description (captured
+      // in the plan's `nestedSkillDescriptions` map). Fallback to
+      // the generic `nestedSkillDescription(slug)` only when the
+      // nested skill shipped no description. Pack-level (FLAT) slug
+      // keeps using `plan.description` (the README-derived pack
+      // description).
       const finalContent = file.renderMode === "skill"
         ? `${rewriteSkillFrontmatter(
             normalizedContent,
@@ -1275,9 +1273,9 @@ function renderSomaSkillManifest(plan: InternalPaiPackImportPlan, skillSlug: str
     .map((file) => skillRelPath(file.target));
   const manifest: SomaSkillManifest = generateSomaSkillManifest({
     skillName: skillSlug,
-    // Sage r5 #108: preserve each nested skill's own SKILL.md
-    // description in its soma-skill.json manifest (same source-of-
-    // truth fix as the SKILL.md frontmatter rewrite above).
+    // Preserve each nested skill's own SKILL.md description in its
+    // soma-skill.json manifest (same source-of-truth as the SKILL.md
+    // frontmatter rewrite above).
     description: resolveDerivedSkillDescription(plan, skillSlug),
     packName: plan.packName,
     entrypoint: skillMd ? skillRelPath(skillMd.target) : "SKILL.md",
@@ -1288,8 +1286,8 @@ function renderSomaSkillManifest(plan: InternalPaiPackImportPlan, skillSlug: str
 }
 
 /**
- * Sage r5 #108 (CodeQuality, important) — single source for resolving
- * the description that a derived skill gets in BOTH its rewritten
+ * Single source for resolving the description that a derived skill
+ * gets in BOTH its rewritten
  * SKILL.md frontmatter AND its soma-skill.json manifest. Order:
  *   1. Pack-level (FLAT) slug always uses the pack's normalized
  *      README-derived description.
@@ -1419,21 +1417,24 @@ export async function importPaiPack(
 }
 
 /**
- * #105 / Sage r2 #108 (Performance) — apply a previously-built plan
- * WITHOUT a second `buildPaiPackImportPlan` pass. `excludeSkills`
- * filters the cached internal plan in-memory; the routed-file list is
- * already grouped by `derivedSkill`, so the filter is O(files) with no
- * I/O. The stage + promote pipeline is shared with `importPaiPack`.
+ * Apply a previously-built plan WITHOUT a second
+ * `buildPaiPackImportPlan` pass. `excludeSkills` filters the cached
+ * internal plan in-memory; the routed-file list is already grouped
+ * by `derivedSkill`, so the filter is O(files) with no I/O. The
+ * stage + promote pipeline is shared with `importPaiPack`.
  *
- * Sage r1 #108 collision-filter contract preserved: every excluded
- * slug is dropped from `routedFiles` BEFORE staging — no excluded
- * skill ever touches disk. The pack-level archive surface (renderMode
- * `archive-manifest`, derivedSkill `""`) is unaffected; its
- * `derivedSkills` field is regenerated from the filtered set.
+ * Collision-filter contract: every excluded slug is dropped from
+ * `routedFiles` BEFORE staging — no excluded skill ever touches
+ * disk. The pack-level archive surface (renderMode `archive-manifest`,
+ * derivedSkill `""`) is unaffected; its `derivedSkills` field is
+ * regenerated from the filtered set.
  *
  * Throws `PaiPackAllSkillsExcludedRefusal` if every derived skill is
  * excluded — matches `importPaiPack`'s contract so the migration
  * orchestrator's typed-catch path stays identical.
+ *
+ * @internal Orchestration plumbing for the migration apply path.
+ * Not part of the public SDK surface; do not depend on the export.
  */
 export async function importPaiPackFromPlan(
   handle: PaiPackImportPlanHandle,

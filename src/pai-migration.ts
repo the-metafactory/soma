@@ -509,17 +509,17 @@ interface BulkImportResult {
  * install matches the pre-#105 throughput.
  */
 /**
- * #105 / Sage r2 #108 (Maintainability) — single source for the
- * plan-then-collision-walk that both the apply path and the plan-only
- * path share. Phase 1 produces one `PlanRow` per pack (bounded
- * concurrent); Phase 2 walks the rows sequentially in sorted order and
- * partitions per-skill slugs into "collided" (already landed from an
- * earlier pack) vs "survivors" — the partition is exactly the input
- * both bulk paths need. Apply consumes survivors+handle to write;
- * plan-only consumes survivors+plans to record advisory outcomes.
+ * Single source for the plan-then-collision-walk that both the
+ * apply path and the plan-only path share. Phase 1 produces one
+ * `PlanRow` per pack (bounded concurrent); Phase 2 walks the rows
+ * sequentially in sorted order and partitions per-skill slugs into
+ * "collided" (already landed from an earlier pack) vs "survivors" —
+ * the partition is exactly the input both bulk paths need. Apply
+ * consumes survivors+handle to write; plan-only consumes
+ * survivors+plans to record advisory outcomes.
  *
- * Sage r1 #108 contract preserved: no excluded slug ever touches disk
- * because the handle path filters routedFiles in-memory before stage.
+ * Invariant: no excluded slug ever touches disk because the handle
+ * path filters `routedFiles` in-memory before stage.
  */
 type SharedPlanRow =
   | {
@@ -539,8 +539,8 @@ interface ResolvedPlanRow {
 }
 
 /**
- * Sage r6 #108 (Maintainability, suggestion) — single source for
- * partitioning a pack's plans into `collided` (slug already landed)
+ * Single source for partitioning a pack's plans into `collided`
+ * (slug already landed)
  * and `survivors`. Both the apply path (which builds `landedSlugs`
  * sequentially as packs successfully apply) and the plan-only path
  * (which builds it optimistically inside `walkPlanRowsForCollisions`)
@@ -572,8 +572,8 @@ function partitionPlansByCollision(
 }
 
 /**
- * Sage r3 #108 (Maintainability suggestion) — single source for the
- * cross-pack `refused-name-collision` outcome shape. Both bulk paths
+ * Single source for the cross-pack `refused-name-collision` outcome
+ * shape. Both bulk paths
  * (apply + plan-only) emit identical rows; centralizing the
  * construction prevents the reason text + outcome kind from drifting
  * across the two surfaces.
@@ -603,7 +603,7 @@ async function planAllPacksWithHandles(
 }
 
 /**
- * Sage r2 #108 (Maintainability) — shared cross-pack collision walk.
+ * Shared cross-pack collision walk.
  * Walks `planRows` in sorted order; for each `planned` row, partitions
  * its per-skill slugs into `collided` (already landed) and `survivors`.
  * Pure function — no file writes, no apply calls. Callers walk
@@ -622,7 +622,8 @@ function walkPlanRowsForCollisions(
     const { collided, survivors } = partitionPlansByCollision(row.plans, landedSlugs, overwriteReserved);
     // Plan-only mode: reserve every survivor up front. Plan can't
     // fail mid-apply, so the optimistic-landing partition is correct.
-    // Apply path manages its own `landedSlugs` (Sage r4 #108).
+    // The apply path manages its own `landedSlugs` to track only
+    // packs whose write actually succeeded.
     for (const slug of survivors) landedSlugs.add(slug);
     resolved.push({
       paiPackDir: row.paiPackDir,
@@ -640,20 +641,17 @@ async function importPacksWithOutcomes(
 ): Promise<BulkImportResult> {
   // Phase 1: plan every pack (bounded concurrent). Each plan returns
   // both the public per-skill plan view AND an opaque handle so Phase 2
-  // can apply WITHOUT a second buildPaiPackImportPlan pass (Sage r2
-  // #108 Performance).
+  // can apply WITHOUT a second `buildPaiPackImportPlan` pass.
   const planRows = await planAllPacksWithHandles(inputs);
 
-  // Phase 2: sequential apply with collision tracking. Sage r3 #108
-  // CodeQuality (important): the cross-pack collision set grows ONLY
-  // after a pack's apply actually succeeds. A pack that plans cleanly
-  // but fails inside apply must NOT block a later pack with the same
+  // Phase 2: sequential apply with collision tracking.
+  // Invariant: the cross-pack collision set grows ONLY after a
+  // pack's apply actually succeeds. A pack that plans cleanly but
+  // fails inside apply does NOT block a later pack with the same
   // slug — the earlier pack never wrote anything, so the slug is
-  // still free. The R2 walker pre-reserved on plan and got this
-  // wrong; the apply path now manages its own `landedSlugs`.
-  //
-  // Plan-only mode is unaffected (it can't fail mid-apply) and still
-  // uses `walkPlanRowsForCollisions` for its advisory partition.
+  // still free. Plan-only mode is unaffected (it can't fail mid-
+  // apply) and uses `walkPlanRowsForCollisions` for its optimistic
+  // advisory partition.
   const packs: PaiPackImportResult[] = [];
   const outcomes: PaiPackOutcome[] = [];
   const landedSlugs = new Set<string>();
@@ -668,8 +666,9 @@ async function importPacksWithOutcomes(
     // Partition this pack's derived skills against the current
     // landed-slug set. `landedSlugs` reflects PRIOR SUCCESSFUL packs
     // only — a pack ahead of us that failed apply is not in the set,
-    // so its slug is available to us. Sage r6 #108: same partitioning
-    // logic as the plan-only walker, via the shared helper.
+    // so its slug is available to us. Same partitioning logic as the
+    // plan-only walker, via the shared `partitionPlansByCollision`
+    // helper.
     const { collided, survivors } = partitionPlansByCollision(row.plans, landedSlugs, inputs.overwriteReserved);
 
     for (const slug of collided) {
@@ -682,6 +681,25 @@ async function importPacksWithOutcomes(
         excludeSkills: new Set(collided),
         overwrite: true,
       });
+      // Survivor-completeness check: the contract for
+      // `importPaiPackFromPlan(handle, {excludeSkills})` is that
+      // every survivor (i.e. every plan.skillName NOT in excludeSkills)
+      // lands and appears in the returned items. Any mismatch means
+      // a derived skill was silently dropped — either a contract bug
+      // in the importer or a future filter change drifted. Surface
+      // any silently-dropped survivor as `refused-other` so the
+      // principal sees a row instead of a missing outcome.
+      const itemsBySlug = new Set(items.map((item) => item.skillName));
+      for (const survivor of survivors) {
+        if (!itemsBySlug.has(survivor)) {
+          outcomes.push({
+            paiPackDir: row.paiPackDir,
+            outcome: "refused-other",
+            skillName: survivor,
+            reason: `Pack importer returned no result row for derived skill '${survivor}' — this is a contract violation; please file an issue with the pack name attached.`,
+          });
+        }
+      }
       for (const item of items) {
         packs.push(item);
         // Reserve only after a real, successful write. Future packs

@@ -335,6 +335,69 @@ test("R7 #1: pure-nested pack with reserved pack name is permitted (only archive
   });
 });
 
+// ───────────────────────────────────────────────────────────────────────
+// R9 #1 (CodeQuality, important): survivor completeness in apply path
+// ───────────────────────────────────────────────────────────────────────
+
+/**
+ * Contract: when the migrate apply path calls
+ * `importPaiPackFromPlan(handle, {excludeSkills})`, every survivor
+ * (plan.skillName not in excludeSkills) must appear in the returned
+ * items. If the importer silently drops one, the orchestrator must
+ * emit a `refused-other` row for it so the principal sees a missing
+ * outcome instead of a silent gap. The standard happy path (no
+ * collisions, every survivor lands) is exercised by every other
+ * importer test; this test exercises the contract guard.
+ */
+test("R9 #1: every imported pack's survivor set matches its returned item set", async () => {
+  await withTempHome(async (home) => {
+    const packsDir = join(home, "PAI/Packs");
+    await mkdir(packsDir, { recursive: true });
+    await writePaiIdentityFixture(home);
+    // Multi-skill nested pack — three derived skills, none excluded.
+    const packDir = join(packsDir, "MultiPack");
+    await mkdir(packDir, { recursive: true });
+    await writeFile(
+      join(packDir, "README.md"),
+      "---\nname: MultiPack\ndescription: Multi-skill pack.\n---\n\n# MultiPack\n",
+      "utf8",
+    );
+    await writeFile(join(packDir, "INSTALL.md"), "# Install\n", "utf8");
+    await writeFile(join(packDir, "VERIFY.md"), "# Verify\n", "utf8");
+    for (const skill of ["Alpha", "Beta", "Gamma"]) {
+      await mkdir(join(packDir, "src", skill, "Workflows"), { recursive: true });
+      await writeFile(
+        join(packDir, "src", skill, "SKILL.md"),
+        `---\nname: ${skill}\ndescription: ${skill} desc.\n---\n\n# ${skill}\n`,
+        "utf8",
+      );
+      await writeFile(join(packDir, "src", skill, "Workflows/Default.md"), `# ${skill}\n`, "utf8");
+    }
+
+    const result = await migratePai({
+      homeDir: home,
+      claudeHome: join(home, ".claude"),
+      somaHome: join(home, ".soma"),
+      paiPacksDir: packsDir,
+      skipMemory: true,
+      skipDocs: true,
+    });
+
+    // All three nested skills appear as `imported` outcomes; none
+    // silently dropped. (Contract violations would record an extra
+    // `refused-other` row with a clear "contract violation" reason.)
+    const imported = result.packOutcomes
+      .filter((o) => o.outcome === "imported")
+      .map((o) => o.skillName)
+      .sort();
+    expect(imported).toEqual(["alpha", "beta", "gamma"]);
+    const contractViolations = result.packOutcomes.filter(
+      (o) => o.outcome === "refused-other" && o.reason?.includes("contract violation"),
+    );
+    expect(contractViolations).toEqual([]);
+  });
+});
+
 test("R7 #1: nested skill itself in reserved set is still refused (per-derived-skill check fires)", async () => {
   await withTempHome(async (home) => {
     const packDir = join(home, "pack");
