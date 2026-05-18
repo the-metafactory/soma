@@ -538,6 +538,22 @@ interface ResolvedPlanRow {
   survivors: string[];
 }
 
+/**
+ * Sage r3 #108 (Maintainability suggestion) — single source for the
+ * cross-pack `refused-name-collision` outcome shape. Both bulk paths
+ * (apply + plan-only) emit identical rows; centralizing the
+ * construction prevents the reason text + outcome kind from drifting
+ * across the two surfaces.
+ */
+function crossPackCollisionOutcome(paiPackDir: string, slug: string): PaiPackOutcome {
+  return {
+    paiPackDir,
+    outcome: "refused-name-collision",
+    skillName: slug,
+    reason: `Soma skill '${slug}' already landed from an earlier pack — re-run with --overwrite-reserved to permit.`,
+  };
+}
+
 async function planAllPacksWithHandles(
   inputs: BulkImportInputs,
 ): Promise<SharedPlanRow[]> {
@@ -622,12 +638,7 @@ async function importPacksWithOutcomes(
 
   for (const resolvedRow of resolved) {
     for (const slug of resolvedRow.collided) {
-      outcomes.push({
-        paiPackDir: resolvedRow.paiPackDir,
-        outcome: "refused-name-collision",
-        skillName: slug,
-        reason: `Soma skill '${slug}' already landed from an earlier pack — re-run with --overwrite-reserved to permit.`,
-      });
+      outcomes.push(crossPackCollisionOutcome(resolvedRow.paiPackDir, slug));
     }
     if (resolvedRow.survivors.length === 0) continue;
 
@@ -944,12 +955,7 @@ async function planPacksWithOutcomes(inputs: BulkImportInputs): Promise<BulkPlan
   // groups by pack identically to the apply path.
   for (const resolvedRow of resolved) {
     for (const slug of resolvedRow.collided) {
-      outcomes.push({
-        paiPackDir: resolvedRow.paiPackDir,
-        outcome: "refused-name-collision",
-        skillName: slug,
-        reason: `Soma skill '${slug}' already landed from an earlier pack — re-run with --overwrite-reserved to permit.`,
-      });
+      outcomes.push(crossPackCollisionOutcome(resolvedRow.paiPackDir, slug));
     }
     const survivorSet = new Set(resolvedRow.survivors);
     for (const plan of resolvedRow.plans) {

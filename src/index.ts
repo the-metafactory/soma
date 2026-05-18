@@ -211,13 +211,20 @@ export { promoteAlgorithmRunMemory } from "./memory-promotion";
 export { importPaiIdentity, planPaiImport } from "./pai-importer";
 export {
   importPaiPack,
-  importPaiPackFromPlan,
   PaiPackNameCollisionRefusal,
   PaiPackSubstrateSpecificRefusal,
   planPaiPackImport,
-  planPaiPackImportHandle,
-  type PaiPackImportPlanHandle,
 } from "./pai-pack-importer";
+// Sage r3 #108 Security (blocker) + Architecture (important):
+// `planPaiPackImportHandle`, `importPaiPackFromPlan`, and
+// `PaiPackImportPlanHandle` are migration-orchestrator plumbing and
+// MUST NOT appear on the public package barrel. Exposing them turns
+// an internal plan cache into irreversible SDK surface AND opens a
+// trust-boundary bypass — a JS caller could forge a handle whose
+// `routedFiles` escape `somaHome` and the cached plan would write
+// them without re-validating. The migration orchestrator imports the
+// trio directly from `./pai-pack-importer`; that module's
+// `castHandle` is unforgeable from outside the module file.
 // Sage r3 #103 Architecture: `PaiPackReservedNameRefusal` is an
 // internal migration-classification detail. The migration orchestrator
 // imports it directly from `./pai-pack-importer`; no demonstrated

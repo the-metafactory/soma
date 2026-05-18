@@ -42,6 +42,11 @@ import { expect, test } from "bun:test";
 import { importPaiPack, planPaiPackImport } from "../src/index";
 import { routePaiPackSourceFile } from "../src/pai-pack-routing";
 import type { PaiPackManifest } from "../src/types";
+import {
+  writeFlatPack,
+  writeNestedPackShell,
+  writeNestedSkill,
+} from "./fixtures/pai-pack-fixtures";
 
 // ───────────────────────────────────────────────────────────────────────
 // Helpers
@@ -56,61 +61,9 @@ async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> 
   }
 }
 
-async function writeFlatPack(packDir: string, packName = "Flat"): Promise<void> {
-  await mkdir(join(packDir, "src/Workflows"), { recursive: true });
-  await writeFile(
-    join(packDir, "README.md"),
-    ["---", `name: ${packName}`, `description: Flat pack`, "---", "", `# ${packName}`, "", "Pack docs.\n"].join("\n"),
-    "utf8",
-  );
-  await writeFile(join(packDir, "INSTALL.md"), "# Install\n", "utf8");
-  await writeFile(join(packDir, "VERIFY.md"), "# Verify\n", "utf8");
-  await writeFile(
-    join(packDir, "src/SKILL.md"),
-    ["---", `name: ${packName}`, "description: flat", "---", "", `# ${packName}`, "", "Body.\n"].join("\n"),
-    "utf8",
-  );
-  await writeFile(join(packDir, "src/Workflows/Run.md"), "# Run\n", "utf8");
-}
-
-async function writeNestedSkill(
-  packDir: string,
-  nestedName: string,
-  options: { extras?: string[] } = {},
-): Promise<void> {
-  const base = join(packDir, "src", nestedName);
-  await mkdir(join(base, "Workflows"), { recursive: true });
-  await writeFile(
-    join(base, "SKILL.md"),
-    [
-      "---",
-      `name: ${nestedName}`,
-      `description: Nested ${nestedName} skill`,
-      "---",
-      "",
-      `# ${nestedName}`,
-      "",
-      "Body.\n",
-    ].join("\n"),
-    "utf8",
-  );
-  await writeFile(join(base, "Workflows/Default.md"), `# ${nestedName} Default\n`, "utf8");
-  for (const extra of options.extras ?? []) {
-    await mkdir(join(base, extra), { recursive: true });
-    await writeFile(join(base, extra, "demo.txt"), "demo\n", "utf8");
-  }
-}
-
-async function writeNestedPackShell(packDir: string, packName: string): Promise<void> {
-  await mkdir(join(packDir, "src"), { recursive: true });
-  await writeFile(
-    join(packDir, "README.md"),
-    ["---", `name: ${packName}`, `description: Nested pack`, "---", "", `# ${packName}`, "", "Pack docs.\n"].join("\n"),
-    "utf8",
-  );
-  await writeFile(join(packDir, "INSTALL.md"), "# Install\n", "utf8");
-  await writeFile(join(packDir, "VERIFY.md"), "# Verify\n", "utf8");
-}
+// Sage r3 #108 (Maintainability): pack-writer fixtures live in
+// `test/fixtures/pai-pack-fixtures.ts`. Imported below so test files
+// stay focused on assertions.
 
 // ───────────────────────────────────────────────────────────────────────
 // AC-1: Router classification

@@ -26,7 +26,7 @@
  * outside the module set it. The fact that `bun run typecheck` is
  * green proves the contract.
  */
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
 import { expect, test } from "bun:test";
@@ -38,6 +38,7 @@ import {
 } from "../src/pai-pack-importer";
 import { routePaiPackSourceFile } from "../src/pai-pack-routing";
 import { writePaiIdentityFixture } from "./fixtures/pai-migration-fixtures";
+import { writeFlatNestedPack, writeFlatPack } from "./fixtures/pai-pack-fixtures";
 
 // ───────────────────────────────────────────────────────────────────────
 // Helpers
@@ -52,56 +53,8 @@ async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> 
   }
 }
 
-async function writeFlatNestedPack(packDir: string, packName = "Mixed"): Promise<void> {
-  await mkdir(join(packDir, "src/Workflows"), { recursive: true });
-  await mkdir(join(packDir, "src/Tools/Workflows"), { recursive: true });
-  await mkdir(join(packDir, "src/Remotion/Workflows"), { recursive: true });
-  await writeFile(
-    join(packDir, "README.md"),
-    ["---", `name: ${packName}`, `description: Mixed pack`, "---", "", `# ${packName}`, "", "Pack docs.\n"].join("\n"),
-    "utf8",
-  );
-  await writeFile(join(packDir, "INSTALL.md"), "# Install\n", "utf8");
-  await writeFile(join(packDir, "VERIFY.md"), "# Verify\n", "utf8");
-  // FLAT entry
-  await writeFile(
-    join(packDir, "src/SKILL.md"),
-    ["---", `name: ${packName}`, "description: flat", "---", "", `# ${packName}`, "", "Flat body.\n"].join("\n"),
-    "utf8",
-  );
-  await writeFile(join(packDir, "src/Workflows/Run.md"), "# Run\n", "utf8");
-  // Nested skill named "Tools" — must NOT flatten as FLAT portable.
-  await writeFile(
-    join(packDir, "src/Tools/SKILL.md"),
-    ["---", `name: Tools`, "description: nested tools skill", "---", "", `# Tools`, "", "Tools body.\n"].join("\n"),
-    "utf8",
-  );
-  await writeFile(join(packDir, "src/Tools/Workflows/Helper.md"), "# Helper\n", "utf8");
-  // Plain nested skill (sanity baseline)
-  await writeFile(
-    join(packDir, "src/Remotion/SKILL.md"),
-    ["---", `name: Remotion`, "description: nested remotion", "---", "", `# Remotion`, "", "Remotion body.\n"].join("\n"),
-    "utf8",
-  );
-  await writeFile(join(packDir, "src/Remotion/Workflows/Render.md"), "# Render\n", "utf8");
-}
-
-async function writeFlatPack(packDir: string, packName = "Flat"): Promise<void> {
-  await mkdir(join(packDir, "src/Workflows"), { recursive: true });
-  await writeFile(
-    join(packDir, "README.md"),
-    ["---", `name: ${packName}`, `description: Flat pack`, "---", "", `# ${packName}`, "", "Pack docs.\n"].join("\n"),
-    "utf8",
-  );
-  await writeFile(join(packDir, "INSTALL.md"), "# Install\n", "utf8");
-  await writeFile(join(packDir, "VERIFY.md"), "# Verify\n", "utf8");
-  await writeFile(
-    join(packDir, "src/SKILL.md"),
-    ["---", `name: ${packName}`, "description: flat", "---", "", `# ${packName}`, "", "Body.\n"].join("\n"),
-    "utf8",
-  );
-  await writeFile(join(packDir, "src/Workflows/Run.md"), "# Run\n", "utf8");
-}
+// Sage r3 #108 (Maintainability): pack-writer fixtures shared via
+// `test/fixtures/pai-pack-fixtures.ts`.
 
 /**
  * Recursively list every file under `root`, returning POSIX-relative

@@ -709,8 +709,22 @@ async function buildPaiPackImportPlan(options: PaiPackImportOptionsInternal = {}
   // FLAT slug colliding with a nested slug (e.g., pack name "Foo" with
   // nested src/Foo/SKILL.md) is a collision — both would target the
   // same skill root. Refuse with the typed error.
-  if (hasFlatEntry && nestedIndex.some(({ slug }) => slug === packSlug)) {
-    throw new PaiPackNameCollisionRefusal(packSlug, ["src/SKILL.md", `src/${packSlug}/SKILL.md`]);
+  //
+  // Sage r3 #108 CodeQuality (suggestion): use the RAW nested dir name
+  // when building the source path. Previously this template used
+  // `packSlug`, which is kebab-cased — for a `src/PAIUpgrade/SKILL.md`
+  // colliding with pack slug `pai-upgrade`, the refusal would report
+  // `src/pai-upgrade/SKILL.md` (a path that does not exist on disk),
+  // making the error misleading. Resolving via `nestedIndex.raw`
+  // pins the actual filesystem path the principal can inspect.
+  const flatCollidingNested = hasFlatEntry
+    ? nestedIndex.find(({ slug }) => slug === packSlug)
+    : undefined;
+  if (flatCollidingNested) {
+    throw new PaiPackNameCollisionRefusal(packSlug, [
+      "src/SKILL.md",
+      `src/${flatCollidingNested.raw}/SKILL.md`,
+    ]);
   }
 
   if (!options.overwrite) {
