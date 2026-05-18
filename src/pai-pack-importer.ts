@@ -15,6 +15,7 @@ import type {
   PaiPackImportPlan,
   PaiPackImportResult,
   PaiPackManifest,
+  PaiPackNormalizationAction,
   PaiPackNormalizationReport,
   PaiPackSourceImportFile,
   SomaSkillManifest,
@@ -72,6 +73,36 @@ export class PaiPackReservedNameRefusal extends Error {
     this.name = "PaiPackReservedNameRefusal";
     this.skillName = skillName;
   }
+}
+
+/**
+ * #104 — narrow denylist of IDE/editor config directory prefixes whose
+ * symlinked contents are silently skipped during pack enumeration
+ * instead of aborting the pack. Match is on POSIX-style pack-relative
+ * paths and triggers only when the file IS a symbolic link. Non-symlink
+ * editor-config files take the normal classification path; non-editor
+ * symlinks still abort the pack as `refused-other`. Keep this list
+ * narrow — every entry widens the security envelope.
+ *
+ * Each pattern is anchored at either the pack root or a directory
+ * boundary so a stray substring (e.g., `my.cursor.thing/`) does not
+ * trigger the skip.
+ */
+const EDITOR_CONFIG_SYMLINK_PATTERNS: { pattern: RegExp; dir: string }[] = [
+  { pattern: /(?:^|\/)\.cursor\//, dir: ".cursor" },
+  { pattern: /(?:^|\/)\.vscode\//, dir: ".vscode" },
+  { pattern: /(?:^|\/)\.idea\//, dir: ".idea" },
+  { pattern: /(?:^|\/)\.fleet\//, dir: ".fleet" },
+  { pattern: /(?:^|\/)\.zed\//, dir: ".zed" },
+];
+
+function matchEditorConfigSymlinkDir(relativePosixPath: string): string | null {
+  for (const { pattern, dir } of EDITOR_CONFIG_SYMLINK_PATTERNS) {
+    if (pattern.test(relativePosixPath)) {
+      return dir;
+    }
+  }
+  return null;
 }
 
 const SECRET_FILE_PATTERNS = [
@@ -185,8 +216,20 @@ export async function readPackMetadata(paiPackDir: string): Promise<PackMetadata
   };
 }
 
-async function collectFiles(root: string): Promise<string[]> {
+interface CollectFilesResult {
+  files: string[];
+  /**
+   * #104 — IDE/editor config symlinks dropped during enumeration. The
+   * pack importer surfaces these as `skipped-editor-config-symlink`
+   * audit actions on the normalization report so reviewers can see what
+   * the pack carried without the symlinks aborting the import.
+   */
+  skippedEditorSymlinks: { path: string; dir: string }[];
+}
+
+async function collectFiles(root: string): Promise<CollectFilesResult> {
   const files: string[] = [];
+  const skippedEditorSymlinks: { path: string; dir: string }[] = [];
   const realRoot = await realpath(root);
 
   async function visit(dir: string): Promise<void> {
@@ -199,7 +242,18 @@ async function collectFiles(root: string): Promise<string[]> {
       }
 
       if (entry.isSymbolicLink()) {
-        throw new Error(`PAI pack import refused symlink path: ${relative(root, fullPath).split(sep).join("/")}`);
+        const relPosix = relative(root, fullPath).split(sep).join("/");
+        // #104 — IDE/editor config symlinks (`.cursor/`, `.vscode/`,
+        // `.idea/`, `.fleet/`, `.zed/`) are dropped from the import set
+        // instead of aborting the pack. Audit entry is emitted upstream
+        // in `buildPaiPackImportPlan` once the normalization report is
+        // being assembled. Every other symlink still refuses the pack.
+        const editorDir = matchEditorConfigSymlinkDir(relPosix);
+        if (editorDir) {
+          skippedEditorSymlinks.push({ path: relPosix, dir: editorDir });
+          continue;
+        }
+        throw new Error(`PAI pack import refused symlink path: ${relPosix}`);
       }
 
       if (entry.isDirectory()) {
@@ -224,7 +278,7 @@ async function collectFiles(root: string): Promise<string[]> {
   }
 
   await visit(root);
-  return files.sort();
+  return { files: files.sort(), skippedEditorSymlinks };
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -406,7 +460,7 @@ function rewriteSkillFrontmatter(content: string, skillName: string, description
 
 async function buildPaiPackImportPlan(options: PaiPackImportOptions = {}): Promise<InternalPaiPackImportPlan> {
   const homes = resolvePackHomes(options);
-  const sourceFiles = await collectFiles(homes.paiPackDir);
+  const { files: sourceFiles, skippedEditorSymlinks } = await collectFiles(homes.paiPackDir);
   assertSafePackPaths(sourceFiles);
   assertRequiredPackFiles(sourceFiles);
 
@@ -496,9 +550,20 @@ async function buildPaiPackImportPlan(options: PaiPackImportOptions = {}): Promi
     file: "README.md",
     fallback: `Imported PAI pack: ${metadata.name}`,
   });
+  // #104 — surface IDE/editor config symlink skips alongside existing
+  // normalization actions in the per-pack `soma-pack.json` audit. The
+  // skips happen during file enumeration (before normalization runs),
+  // but the audit shape is the same: `{ file, kind, detail }`. Reviewers
+  // see exactly which editor files the pack carried that we dropped.
+  const editorSymlinkSkipActions: PaiPackNormalizationAction[] = skippedEditorSymlinks.map(({ path, dir }) => ({
+    file: path,
+    kind: "skipped-editor-config-symlink",
+    detail: `editor-config denylist dir: ${dir}`,
+  }));
   const normalization = mergeNormalizationReports([
     reportFromNormalizedFiles(normalizedSkillFiles.values()),
     { actions: normalizedDescription.action ? [normalizedDescription.action] : [], warnings: [] },
+    { actions: editorSymlinkSkipActions, warnings: [] },
   ]);
 
   routedFiles.push({
