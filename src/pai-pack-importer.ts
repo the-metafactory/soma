@@ -77,6 +77,26 @@ export class PaiPackReservedNameRefusal extends Error {
 }
 
 /**
+ * #105 — internal extension of `PaiPackImportOptions` for the migration
+ * orchestrator. Adds `excludeSkills`, the cross-pack collision filter.
+ *
+ * Sage r2 #108 Architecture (suggestion): kept OFF the public
+ * `PaiPackImportOptions` surface — the standalone `soma import pai-pack`
+ * CLI never sets it, the inner SDK consumer (migration orchestrator)
+ * imports it from this module directly. Leaks of orchestration-only
+ * options on the public type let downstream callers depend on a contract
+ * we don't intend to support; keeping it module-internal preserves
+ * freedom to revise the collision-filter shape without an SDK break.
+ *
+ * `excludeSkills`: kebab-cased derived skill slugs to omit. Slugs not
+ * present in the pack are silently ignored. Empty/undefined means no
+ * exclusion.
+ */
+export interface PaiPackImportOptionsInternal extends PaiPackImportOptions {
+  excludeSkills?: ReadonlySet<string>;
+}
+
+/**
  * #105 — typed refusal raised when caller's `excludeSkills` filters
  * out every derived skill in the pack (Sage r1 #108 finding). The
  * orchestrator catches this and treats it as a successful "no-op"
@@ -617,7 +637,7 @@ function buildNestedSkillIndex(nestedRawNames: ReadonlySet<string>): NestedSkill
     .sort((a, b) => a.raw.localeCompare(b.raw));
 }
 
-async function buildPaiPackImportPlan(options: PaiPackImportOptions = {}): Promise<InternalPaiPackImportPlan> {
+async function buildPaiPackImportPlan(options: PaiPackImportOptionsInternal = {}): Promise<InternalPaiPackImportPlan> {
   const homes = resolvePackHomes(options);
   const { files: sourceFiles, skippedEditorSymlinks } = await collectFiles(homes.paiPackDir);
   assertSafePackPaths(sourceFiles);
@@ -965,6 +985,56 @@ export async function planPaiPackImport(
 }
 
 /**
+ * #105 / Sage r2 #108 (Performance) — opaque handle wrapping the
+ * internal plan + the resolved option set used to produce it. The
+ * migration orchestrator's two-phase apply path uses this to plan
+ * once (Phase 1, bounded-concurrent) and apply later (Phase 2,
+ * sequential with cross-pack collision filtering) WITHOUT a second
+ * full plan rebuild. On 45 packs that saves a full pass of:
+ *   - directory walk (`collectFiles`)
+ *   - `readPackMetadata`
+ *   - route classification (every source path)
+ *   - normalization (read + normalize every SKILL.md / Workflow .md)
+ *
+ * The handle is opaque to external consumers — the wrapped types are
+ * intentionally module-private so the orchestration contract can
+ * evolve without an SDK break. Built only via
+ * `planPaiPackImportHandle`; consumed only by `importPaiPackFromPlan`.
+ */
+export interface PaiPackImportPlanHandle {
+  readonly __brand: "PaiPackImportPlanHandle";
+}
+
+interface InternalPlanHandle extends PaiPackImportPlanHandle {
+  readonly plan: InternalPaiPackImportPlan;
+  readonly options: PaiPackImportOptionsInternal;
+}
+
+function castHandle(handle: PaiPackImportPlanHandle): InternalPlanHandle {
+  return handle as InternalPlanHandle;
+}
+
+/**
+ * #105 / Sage r2 #108 (Performance) — plan-once API for the migration
+ * orchestrator. Returns the public per-skill plan view (for outcome
+ * reporting) alongside an opaque handle that `importPaiPackFromPlan`
+ * consumes to apply WITHOUT a second plan rebuild.
+ *
+ * Standalone CLI consumers (`soma import pai-pack`) keep using
+ * `planPaiPackImport` + `importPaiPack` — the handle path is an SDK
+ * optimization for callers that already planned and want to apply
+ * the same plan.
+ */
+export async function planPaiPackImportHandle(
+  options: PaiPackImportOptionsInternal = {},
+): Promise<{ plans: PaiPackImportPlan[]; handle: PaiPackImportPlanHandle }> {
+  const internal = await buildPaiPackImportPlan(options);
+  const plans = splitInternalPlanByDerivedSkill(internal);
+  const handle: InternalPlanHandle = { __brand: "PaiPackImportPlanHandle", plan: internal, options };
+  return { plans, handle };
+}
+
+/**
  * #105 — split the single internal plan (which holds every routed
  * file in one bag) into one externally-visible `PaiPackImportPlan`
  * per derived skill. The archive surface (under
@@ -1198,6 +1268,90 @@ export async function importPaiPack(
   options: PaiPackImportOptions = {},
 ): Promise<PaiPackImportResult[]> {
   const plan = { ...(await buildPaiPackImportPlan(options)), apply: true };
+  return applyInternalPlan(plan, options.overwrite === true);
+}
+
+/**
+ * #105 / Sage r2 #108 (Performance) — apply a previously-built plan
+ * WITHOUT a second `buildPaiPackImportPlan` pass. `excludeSkills`
+ * filters the cached internal plan in-memory; the routed-file list is
+ * already grouped by `derivedSkill`, so the filter is O(files) with no
+ * I/O. The stage + promote pipeline is shared with `importPaiPack`.
+ *
+ * Sage r1 #108 collision-filter contract preserved: every excluded
+ * slug is dropped from `routedFiles` BEFORE staging — no excluded
+ * skill ever touches disk. The pack-level archive surface (renderMode
+ * `archive-manifest`, derivedSkill `""`) is unaffected; its
+ * `derivedSkills` field is regenerated from the filtered set.
+ *
+ * Throws `PaiPackAllSkillsExcludedRefusal` if every derived skill is
+ * excluded — matches `importPaiPack`'s contract so the migration
+ * orchestrator's typed-catch path stays identical.
+ */
+export async function importPaiPackFromPlan(
+  handle: PaiPackImportPlanHandle,
+  options: { excludeSkills?: ReadonlySet<string>; overwrite?: boolean } = {},
+): Promise<PaiPackImportResult[]> {
+  const { plan: cached, options: planOptions } = castHandle(handle);
+  const excludeSkills = options.excludeSkills ?? new Set<string>();
+  const filtered = filterInternalPlanByExcludes(cached, excludeSkills);
+  // `overwrite` follows the apply-time option; if the caller omits it,
+  // fall back to the original plan options.
+  const overwrite = options.overwrite ?? planOptions.overwrite === true;
+  return applyInternalPlan(filtered, overwrite);
+}
+
+/**
+ * #105 / Sage r2 #108 — in-memory filter that drops every routed file
+ * whose `derivedSkill` is in `excludeSkills`, prunes the `derivedSkills`
+ * list, and regenerates the per-skill manifest rows so the apply path
+ * sees a coherent plan. Throws `PaiPackAllSkillsExcludedRefusal` when
+ * the filter empties the derived-skill set.
+ *
+ * Archive files (`derivedSkill === ""`) and the pack-level
+ * archive-manifest survive — they aren't tied to any derived skill.
+ * Per-skill manifest rows (`manifest`, `soma-skill-manifest`) are
+ * REGENERATED here because the manifest renderer reads
+ * `plan.derivedSkills` to enumerate sibling skills; filtering it
+ * without regenerating would point a surviving skill's manifest at a
+ * stale list.
+ */
+function filterInternalPlanByExcludes(
+  plan: InternalPaiPackImportPlan,
+  excludeSkills: ReadonlySet<string>,
+): InternalPaiPackImportPlan {
+  if (excludeSkills.size === 0) {
+    return { ...plan, apply: true };
+  }
+  const survivingDerived = plan.derivedSkills.filter((slug) => !excludeSkills.has(slug));
+  if (survivingDerived.length === 0) {
+    throw new PaiPackAllSkillsExcludedRefusal(Array.from(excludeSkills).sort());
+  }
+  const survivingSet = new Set(survivingDerived);
+  const routedFiles: RoutedPaiPackImportFile[] = plan.routedFiles.filter((file) => {
+    if (file.derivedSkill === "") return true; // archive / pack-level
+    return survivingSet.has(file.derivedSkill);
+  });
+  const files = routedFiles.map(({ renderMode: _renderMode, derivedSkill: _derivedSkill, ...rest }) => rest);
+  return {
+    ...plan,
+    apply: true,
+    derivedSkills: survivingDerived,
+    routedFiles,
+    files,
+  };
+}
+
+/**
+ * Shared apply core extracted from `importPaiPack` so the planning-
+ * cache path (`importPaiPackFromPlan`) and the single-shot path share
+ * one stage + promote + result-mapping pipeline. Sage r2 #108
+ * Maintainability — single-source the apply contract.
+ */
+async function applyInternalPlan(
+  plan: InternalPaiPackImportPlan,
+  overwrite: boolean,
+): Promise<PaiPackImportResult[]> {
   const written: string[] = [];
   const archiveRoot = join(plan.somaHome, "imports", "pai-packs", plan.packSlug);
   const stageRoot = join(plan.somaHome, ".tmp", `pai-pack-${plan.packSlug}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -1217,7 +1371,7 @@ export async function importPaiPack(
       plan,
       stageRoot,
       backupRoot,
-      overwrite: options.overwrite === true,
+      overwrite,
       cleanupRoots,
     });
 

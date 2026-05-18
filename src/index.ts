@@ -211,9 +211,12 @@ export { promoteAlgorithmRunMemory } from "./memory-promotion";
 export { importPaiIdentity, planPaiImport } from "./pai-importer";
 export {
   importPaiPack,
+  importPaiPackFromPlan,
   PaiPackNameCollisionRefusal,
   PaiPackSubstrateSpecificRefusal,
   planPaiPackImport,
+  planPaiPackImportHandle,
+  type PaiPackImportPlanHandle,
 } from "./pai-pack-importer";
 // Sage r3 #103 Architecture: `PaiPackReservedNameRefusal` is an
 // internal migration-classification detail. The migration orchestrator
