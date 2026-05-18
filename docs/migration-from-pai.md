@@ -339,6 +339,104 @@ soma migrate pai --pai-repo ~/work/PAI --apply --skip-docs
 `Packs/` dir won't throw when you've explicitly opted out of that
 phase.
 
+## Migrating from installed `.claude/skills/` instead of `Packs/`
+
+`soma migrate pai` imports from a PAI source repo's `Packs/` tree (the
+**distribution** source). That tree carries collection bundles
+(Media, Thinking, Utilities, Scraping, etc.) that bundle nested
+duplicates of standalone skills — on a real PAI install this produces
+22+ name collisions per run that have to be triaged via
+`--include-unrecognized` and `--overwrite-reserved`.
+
+`soma migrate claude-skills` is a **second** migration path. It imports
+directly from an installed flat skills tree (e.g.
+`~/.claude/skills/` or
+`~/work/PAI/Releases/v5.0.0/.claude/skills/`) — one `<Name>/SKILL.md`
+per skill, no pack-level metadata, no collection bundles. The installed
+tree is the same content the user's running PAI install already
+projects to Claude Code, so the delta from "what's running today" to
+"what's in `~/.soma/`" is smaller.
+
+### Usage
+
+```bash
+# Plan (default): list every skill with a portability tag.
+soma migrate claude-skills --from ~/.claude/skills
+
+# Apply: write portable + needs-adapt skills to ~/.soma/skills/<kebab>/.
+soma migrate claude-skills --from ~/.claude/skills --apply
+
+# Apply with a custom Soma home (useful for staging).
+soma migrate claude-skills \
+  --from ~/work/PAI/Releases/v5.0.0/.claude/skills \
+  --soma-home /tmp/soma-staging \
+  --apply
+
+# Also import skills the classifier flagged as Claude-Code-specific.
+soma migrate claude-skills --from ~/.claude/skills --apply --include-claude-specific
+
+# Status: read the SHA manifest of the prior apply.
+soma migrate claude-skills --status
+```
+
+### Portability classifier (Phase 1, heuristic)
+
+Each source skill gets one of three tags:
+
+| Tag | Trigger |
+|---|---|
+| `portable` | No `~/.claude/` references, no hook bindings, no `/<slash-command>` references in prose. |
+| `needs-adapt` | `~/.claude/...` reference(s); rewritten via the existing `pai-pack-normalizer.ts` deterministic rewrite table (the same one `soma migrate pai` uses for `~/.claude/PAI/DOCUMENTATION/`, `~/.claude/PAI/TEMPLATES/`, `~/.claude/PAI/ALGORITHM/`, `~/.claude/PAI/MEMORY/`, and `~/.claude/skills/`). |
+| `claude-specific` | Hook binding (`Stop:`, `UserPromptSubmit:`, `PreToolUse:`, `PostToolUse:`, `SessionStart:`, `SubagentStop:`, `Notification:`, `PreCompact:`) OR `/<slash-command>` reference in prose (outside fenced code blocks). |
+
+**Apply behavior:**
+
+- `portable` + `needs-adapt` → imported. `needs-adapt` content runs
+  through the normalizer; `portable` is passed through bit-for-bit.
+- `claude-specific` → skipped with a `skipped-claude-specific`
+  disposition. Re-run with `--include-claude-specific` to land them
+  anyway (the audit warning stays).
+
+### Outputs
+
+- `~/.soma/skills/<kebab>/SKILL.md` (+ Workflows/, Tools/,
+  References/, Examples/, …) for each imported skill.
+- `~/.soma/imports/claude-skills/.manifest.json` — per-skill SHA
+  manifest, used for idempotent reruns (unchanged source = zero
+  writes, byte-stable manifest).
+- `~/.soma/imports/claude-skills/.portability-report.md` — markdown
+  table of every source skill with its tag, disposition, and the
+  reason the classifier picked the tag.
+
+### Limits of Phase 1
+
+The classifier is **regex-based** — pattern match, not semantic
+analysis. Slash-command detection runs only on Markdown/text files;
+code files (`.ts`, `.js`, `.py`, etc.) routinely embed `/path`
+fragments and Discord-style command names that would otherwise false-
+positive. Subtle Claude-only behavior that doesn't trip the regex
+signals can still slip through as `portable`. The classifier emits
+reasons (count of `~/.claude` refs, file path that fired the signal)
+so reviewers can audit.
+
+Phase 2 (`--smoke <substrate>`, deferred to a separate PR) adds per-
+skill substrate projection verify — turns the verdict from heuristic
+to verified.
+
+### Choosing between the two migration paths
+
+| Need | Use |
+|---|---|
+| Importing from a PAI source repo (`~/work/PAI`) | `soma migrate pai --pai-repo` |
+| Importing from your running `.claude/skills/` install (e.g. `~/.claude/skills/` or a Releases/vX.Y.Z snapshot) | `soma migrate claude-skills --from` |
+| Need identity/algorithm/memory phases alongside skills | `soma migrate pai` (this path runs all four phases) |
+| Want a smaller, collision-free skill import | `soma migrate claude-skills` |
+
+The two paths are not mutually exclusive — `soma migrate pai` covers
+identity + algorithm + memory + skills; `soma migrate claude-skills`
+covers skills only, from the installed-tree shape instead of the
+distribution-pack shape.
+
 ## Related
 
 - #88 — memory taxonomy alignment.
@@ -350,3 +448,4 @@ phase.
 - #104 — silent skip of IDE/editor config symlinks (`.cursor/.vscode/.idea/.fleet/.zed/`).
 - #105 — nested skill bundles (one PAI pack → N Soma skills).
 - #106 — rename `substrate-specific` → `unrecognized-layout`; collapse plan output; `noise` classification.
+- #115 — `soma migrate claude-skills` verb + portability classifier (Phase 1, this section).

@@ -833,6 +833,139 @@ export interface PaiMemoryMigrationManifest {
   files: PaiMemoryMigrationManifestFile[];
 }
 
+// #115 — `soma migrate claude-skills` types.
+//
+// Second migration path (alongside `soma migrate pai`) that imports
+// directly from an installed flat `.claude/skills/` tree — one
+// `<Name>/SKILL.md` per skill, no pack-level metadata, no collection
+// bundles. Per-skill portability is classified heuristically (regex
+// based, Phase 1) and recorded in a sibling report file. Phase 2
+// (deferred) adds a `--smoke <substrate>` flag for projection verify.
+export interface ClaudeSkillsMigrationOptions {
+  // Source flat skills tree. REQUIRED. Must be a directory of
+  // `<Name>/SKILL.md` direct children. Refused loud otherwise.
+  from?: string;
+  // Override Soma home. Defaults to `<homeDir>/.soma`.
+  somaHome?: string;
+  // Override `$HOME`. Used by tests; the apply path resolves
+  // `somaHome` from this when not explicitly set.
+  homeDir?: string;
+  // When true, classifier outcomes tagged `claude-specific` are still
+  // imported (with an audit warning). Default false → skipped.
+  includeClaudeSpecific?: boolean;
+}
+
+// Heuristic portability tag assigned to every source skill. Phase 1
+// rules:
+//   - `portable`        — no `~/.claude/` path refs, no hook bindings,
+//                          no `/<slash-command>` refs in prose.
+//   - `needs-adapt`     — has `~/.claude/...` refs that the existing
+//                          `pai-pack-normalizer.ts` rewrite table can
+//                          deterministically resolve.
+//   - `claude-specific` — has Claude-Code-only primitives that have
+//                          no portable equivalent: hook bindings
+//                          (`Stop:`, `UserPromptSubmit:`,
+//                          `PreToolUse:`, `PostToolUse:`,
+//                          `SessionStart:`, `SubagentStop:`) OR
+//                          `/<slash-command>` refs in prose.
+export type ClaudeSkillPortabilityTag = "portable" | "needs-adapt" | "claude-specific";
+
+export interface ClaudeSkillOutcome {
+  // Source directory name (e.g. "Art", "ExtractWisdom").
+  sourceName: string;
+  // Kebab-cased target slug (e.g. "art", "extract-wisdom").
+  kebabName: string;
+  // Per-skill classifier verdict.
+  tag: ClaudeSkillPortabilityTag;
+  // Human-readable reason for the classifier verdict. One line.
+  reason: string;
+  // Phase 1 final disposition. `imported` = written to `<somaHome>/skills/<kebab>/`.
+  // `skipped-claude-specific` = classifier verdict was `claude-specific`
+  // and `includeClaudeSpecific` was false. `skipped-idempotent` =
+  // source SHA matched the manifest entry on rerun.
+  disposition: "imported" | "skipped-claude-specific" | "skipped-idempotent";
+  // SHA-256 of the source SKILL.md bytes (hex). Stable identity for
+  // idempotency checks. Populated even on classify-only / plan runs.
+  sourceSha: string;
+  // Absolute path of the imported skill root under
+  // `<somaHome>/skills/<kebab>/`. Null when `disposition` is
+  // `skipped-claude-specific`.
+  target: string | null;
+  // Number of file SHAs recorded under this skill's manifest entry
+  // on the apply path (SKILL.md + every Workflows/Tools/References/
+  // file copied or rewritten). Zero when the skill was skipped.
+  fileCount: number;
+}
+
+export interface ClaudeSkillsMigrationPlan {
+  apply: boolean;
+  // Absolute path of the resolved `--from <skills-dir>`.
+  from: string;
+  // Absolute path of the resolved Soma home.
+  somaHome: string;
+  // Whether the source directory passed the "flat skills tree" guard
+  // (i.e. at least one `<Name>/SKILL.md` direct child). When false,
+  // `outcomes` is empty and the formatter renders a hard refusal.
+  isFlatSkillsTree: boolean;
+  // One outcome per source `<Name>/SKILL.md`. Always ordered by
+  // `sourceName` so the report and CLI rendering are deterministic.
+  outcomes: ClaudeSkillOutcome[];
+  // Mirror of `options.includeClaudeSpecific` so the formatter and
+  // the manifest renderer can both reflect the same intent without
+  // re-threading the option through helpers.
+  includeClaudeSpecific: boolean;
+}
+
+export interface ClaudeSkillsMigrationResult extends ClaudeSkillsMigrationPlan {
+  // ISO-8601 timestamp of the last successful apply. Stable across
+  // reruns when nothing changed.
+  importedAt: string;
+  // Absolute path of the SHA manifest file under
+  // `<somaHome>/imports/claude-skills/.manifest.json`.
+  manifestPath: string;
+  // Absolute path of the portability report under
+  // `<somaHome>/imports/claude-skills/.portability-report.md`.
+  reportPath: string;
+  // Skills actually written this run (`disposition: "imported"`,
+  // SHA not already present in prior manifest).
+  writtenCount: number;
+  // Skills skipped due to SHA-match idempotency on rerun.
+  skippedIdempotentCount: number;
+  // Skills skipped because verdict was `claude-specific` and the
+  // override flag was off.
+  skippedClaudeSpecificCount: number;
+}
+
+export interface ClaudeSkillsMigrationManifestEntry {
+  // Source directory name (`<Name>` from `<from>/<Name>/SKILL.md`).
+  sourceName: string;
+  // Kebab-cased target slug.
+  kebabName: string;
+  tag: ClaudeSkillPortabilityTag;
+  // SHA-256 of the source SKILL.md bytes — the idempotency key.
+  sourceSha: string;
+  // Per-file SHAs of every payload file that landed under
+  // `<somaHome>/skills/<kebab>/`. POSIX-style paths relative to
+  // the skill root. Includes SKILL.md.
+  fileShas: Record<string, string>;
+}
+
+export interface ClaudeSkillsMigrationManifest {
+  schema: "soma.claude-skills-migration.v1";
+  from: string;
+  somaHome: string;
+  importedAt: string;
+  // Whether `--include-claude-specific` was passed on the run that
+  // wrote this manifest. Recorded so the next apply can detect a
+  // policy change (override flipped off) and re-classify accordingly.
+  includeClaudeSpecific: boolean;
+  // One entry per skill that was actually imported. Skipped skills
+  // (claude-specific without override) are NOT recorded — their
+  // SHA isn't an idempotency anchor for anything that landed.
+  // Sorted by `kebabName` for byte-stable reruns.
+  skills: ClaudeSkillsMigrationManifestEntry[];
+}
+
 export interface SomaMemoryEventInput {
   id?: string;
   timestamp?: string;
