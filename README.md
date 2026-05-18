@@ -187,9 +187,13 @@ soma migrate pai
 soma migrate pai --apply
 ```
 
-The migration orchestrator plans or applies identity, Algorithm, and PAI pack
-imports in one pass, then writes a readable migration manifest under the Soma
-profile import area.
+The migration orchestrator plans or applies identity, Algorithm, memory
+translation, docs import, and bulk PAI pack imports in one pass, then writes a
+readable migration manifest under the Soma profile import area.
+
+See **[docs/migration-from-pai.md](docs/migration-from-pai.md)** for the full
+walkthrough — prerequisites, every flag, per-substrate install (Codex,
+Claude Code, Pi.dev), verification steps, and troubleshooting.
 
 The lower-level import commands are still available when you want to move one
 category at a time:
