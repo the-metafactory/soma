@@ -239,8 +239,9 @@ test("AC-1+3: nested skill with non-recognized sibling (Assets/) still archives 
     // because src/Art/Assets/demo.txt classifies as substrate-specific.
     await expect(importPaiPack({ homeDir, paiPackDir: packDir })).rejects.toThrow("unrecognized-layout");
 
-    // With include-substrate-specific the pack imports — but the asset lands
-    // in the pack-level archive, not in the nested Art skill.
+    // With include-unrecognized (legacy alias: --include-substrate-specific)
+    // the pack imports — but the asset lands in the pack-level archive,
+    // not in the nested Art skill.
     const results = await importPaiPack({
       homeDir,
       paiPackDir: packDir,

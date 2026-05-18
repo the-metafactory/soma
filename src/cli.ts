@@ -54,24 +54,6 @@ import {
 // (not re-exported from the package root) so the text-rendering shape
 // stays internal and revisable without an SDK breakage.
 import { formatPackOutcomeLines } from "./pai-migration";
-
-/**
- * #106 — single-source helper for emitting the
- * `--include-substrate-specific` deprecation warning to stderr. Both
- * `parseImportArgs` (pai-pack surface) and `parseMigrateArgs`
- * (migrate-pai surface) accept the legacy flag for one release and
- * route through this helper so the wording stays consistent and the
- * test surface has a single text to assert on.
- *
- * Goes to stderr (not the CLI's returned stdout string) because
- * (a) it's a side-channel warning, not part of the command output,
- * and (b) it must not corrupt machine-parseable stdout content.
- */
-function warnDeprecatedSubstrateFlag(): void {
-  process.stderr.write(
-    "Warning: --include-substrate-specific is deprecated; use --include-unrecognized.\n",
-  );
-}
 import type {
   AlgorithmEffortTier,
   AlgorithmBatchOperation,
@@ -87,6 +69,7 @@ import type {
   PaiPackImportOptions,
   PaiPackImportPlan,
   PaiPackImportResult,
+  PaiPackOutcome,
   PaiDocsImportOptions,
   PaiDocsImportPlan,
   PaiDocsImportResult,
@@ -131,6 +114,24 @@ export class SomaCliError extends Error {
 }
 import { getCriteria, getGoal } from "./isa-accessors";
 import { getRunPhase } from "./algorithm-lifecycle";
+
+/**
+ * #106 — single-source helper for emitting the
+ * `--include-substrate-specific` deprecation warning to stderr. Both
+ * `parseImportArgs` (pai-pack surface) and `parseMigrateArgs`
+ * (migrate-pai surface) accept the legacy flag for one release and
+ * route through this helper so the wording stays consistent and the
+ * test surface has a single text to assert on.
+ *
+ * Goes to stderr (not the CLI's returned stdout string) because
+ * (a) it's a side-channel warning, not part of the command output,
+ * and (b) it must not corrupt machine-parseable stdout content.
+ */
+function warnDeprecatedSubstrateFlag(): void {
+  process.stderr.write(
+    "Warning: --include-substrate-specific is deprecated; use --include-unrecognized.\n",
+  );
+}
 
 type InstallSubstrate = "codex" | "pi-dev" | "claude-code";
 
@@ -1773,13 +1774,13 @@ function buildMigrationFooterSuggestions(
   const reservedCount = outcomes.filter((o) => o.outcome === "refused-reserved").length;
   const lines: string[] = [];
   if (unrecognizedCount > 0) {
-    const packLabel = unrecognizedCount === 1 ? "pack" : "pack(s)";
+    const packLabel = unrecognizedCount === 1 ? "pack" : "packs";
     lines.push(
       `${unrecognizedCount} ${packLabel} refused-unrecognized-layout — re-run with --include-unrecognized to import them.`,
     );
   }
   if (reservedCount > 0) {
-    const packLabel = reservedCount === 1 ? "pack" : "pack(s)";
+    const packLabel = reservedCount === 1 ? "pack" : "packs";
     lines.push(
       `${reservedCount} ${packLabel} refused-reserved — re-run with --overwrite-reserved to overwrite Soma's reserved skills.`,
     );
@@ -1794,7 +1795,7 @@ function buildMigrationFooterSuggestions(
  * one-line preface saying which pack the list belongs to.
  */
 function renderVerboseUnrecognizedFiles(
-  outcomes: readonly import("./types").PaiPackOutcome[],
+  outcomes: readonly PaiPackOutcome[],
 ): string[] {
   const out: string[] = [];
   const needsDetail = outcomes

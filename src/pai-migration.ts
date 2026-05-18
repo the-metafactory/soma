@@ -1101,6 +1101,15 @@ function truncateReason(reason: string): string {
   return reason.slice(0, MAX_REASON_LEN - 3) + "...";
 }
 
+/**
+ * Returns a self-separating suffix for the `<outcome>` token in the
+ * one-line collapsed view: either an empty string OR a string that
+ * begins with its own separator (` `, ` — `, etc.). Callers
+ * concatenate directly (`${outcome}${collapsedDetail(o)}`) — they
+ * MUST NOT add another separator, since the empty-string case for
+ * `imported` rows with no counts would otherwise produce a trailing
+ * space. The leading-separator convention is the contract.
+ */
 function collapsedDetail(o: PaiPackOutcome): string {
   if (o.outcome === "imported") {
     const skills = o.importedSkillCount ?? 0;
