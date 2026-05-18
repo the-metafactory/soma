@@ -1730,6 +1730,18 @@ function formatPaiMigrationPlan(plan: PaiMigrationPlan): string {
   const docsLine = plan.docs === null
     ? "  - docs:     skipped (pass --pai-source-dir to enable)"
     : `  - docs:     ${plan.docs.files.length} file(s) from ${plan.docs.releaseVersion ?? "(no version)"}`;
+  // #102 — render the per-pack outcome table on the plan surface, same
+  // shape as the apply path (#97 AC-5). Single-sourced through
+  // `formatPackOutcomeLines` so apply + plan can't drift on labels /
+  // sort order / reason suffix. `labelKind: "path"` matches the
+  // surrounding `Source:` / `Target:` / `Manifest:` full-path style.
+  const outcomeLines = formatPackOutcomeLines(plan.packOutcomes, {
+    labelKind: "path",
+  });
+  // `packs.length` now reflects "successfully planned" only (refused
+  // packs live in `packOutcomes`); use `packOutcomes.length` for the
+  // discovery count so the principal sees the same "N discovered"
+  // total they got pre-#102 + the per-outcome breakdown.
   return [
     "soma migrate pai — plan (dry-run; pass --apply to execute)",
     "",
@@ -1742,7 +1754,10 @@ function formatPaiMigrationPlan(plan: PaiMigrationPlan): string {
     algorithmLine,
     memoryLine,
     docsLine,
-    `  - packs:    ${plan.packs.length} discovered`,
+    `  - packs:    ${plan.packOutcomes.length} discovered, ${plan.packs.length} to import`,
+    "",
+    "Pack outcomes:",
+    ...outcomeLines,
     "",
   ].join("\n");
 }
@@ -2393,7 +2408,27 @@ export async function runSomaCli(args: string[]): Promise<string> {
       return formatPaiMigrationStatus(await readPaiMigrationManifest(parsed.options));
     }
     if (parsed.mode === "plan") {
-      return formatPaiMigrationPlan(await planPaiMigration(parsed.options));
+      const plan = await planPaiMigration(parsed.options);
+      const formatted = formatPaiMigrationPlan(plan);
+      // #102 — AC-4 mirror: plan mode honors the same exit-code policy
+      // as the apply path. Genuine errors (`refused-other`) cause a
+      // non-zero exit AFTER the rest of the plan completes, so the
+      // principal sees the full plan body including the outcome table
+      // before the error message. Policy-respected refusals
+      // (`refused-substrate-specific`, `refused-reserved`) stay zero
+      // exit — the principal asked for them by NOT passing the
+      // relevant override flag.
+      const refusedOther = plan.packOutcomes.filter((o) => o.outcome === "refused-other");
+      if (refusedOther.length > 0) {
+        const detail = refusedOther
+          .map((o) => `  - ${o.skillName ?? o.paiPackDir}: ${o.reason ?? "(no detail)"}`)
+          .join("\n");
+        throw new SomaCliError(
+          `${formatted}\nsoma migrate pai — ${refusedOther.length} pack(s) failed with genuine errors:\n${detail}\n`,
+          1,
+        );
+      }
+      return formatted;
     }
     const result = await migratePai(parsed.options);
     const formatted = formatPaiMigrationResult(result);
