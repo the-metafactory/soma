@@ -534,7 +534,11 @@ async function writeSkillPayload(
     // Only the canonical text-payload extensions go through the
     // rewriter. Binary assets (images, audio under `Examples/`)
     // pass through bit-for-bit so SHA still equals source SHA.
-    const isText = /\.(md|txt|json|yaml|yml|ts|js|tsx|jsx|py|sh|toml)$/.test(file.relPath);
+    // `.hbs` (Handlebars) covered because PAI's Prompting skill
+    // ships templates that reference `~/.claude/Skills/...` literally
+    // in template bodies — the rewriter must touch them too or
+    // landed skills carry residue (AC-3 zero-residue grep).
+    const isText = /\.(md|markdown|mdx|txt|json|yaml|yml|ts|js|tsx|jsx|mjs|cjs|py|rb|sh|bash|zsh|toml|hbs|handlebars|tmpl|tpl|xml|html|css)$/.test(file.relPath);
     if (applyRewrites && isText) {
       const original = file.content.toString("utf8");
       const { content: rewritten } = normalizeSkillContent(file.relPath, original);
