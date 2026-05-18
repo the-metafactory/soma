@@ -57,6 +57,7 @@ import { EDITOR_CONFIG_DIRS } from "./pai-pack-noise";
 import { runBoundedConcurrent } from "./internal-concurrency";
 import { verifySubstrateProjection } from "./claude-skills-substrate-verify";
 import type {
+  ClaudeSkillAuditEntry,
   ClaudeSkillOutcome,
   ClaudeSkillPortabilityTag,
   ClaudeSkillSubstrateVerifyResult,
@@ -244,36 +245,212 @@ interface SkillFilePayload {
   content: Buffer;
 }
 
+// #118 — `realpath`-anchored security denylist for resolved symlink
+// targets. Even when a symlink chain resolves inside `$HOME`, paths
+// that almost certainly carry credentials (`.ssh/`, cloud-CLI creds,
+// the active user's keyring directories) must NEVER be slurped into
+// a Soma skill import. The list mirrors the existing secret-file
+// patterns in `pai-pack-importer.ts` (SECRET_FILE_PATTERNS) but
+// operates on the resolved target directory.
+//
+// Keep this list narrow — every entry widens the refusal envelope.
+// All entries are POSIX-style path segments anchored to `$HOME`.
+const HOME_SUBPATH_DENYLIST: readonly string[] = [
+  ".ssh",
+  ".aws",
+  ".gnupg",
+  ".kube",
+  ".docker",
+];
+
 /**
- * Walk every file under `<from>/<sourceName>/` recursively, refusing
- * symlinks and out-of-root escapes the same way `pai-pack-importer.ts`
- * does. Returns POSIX-relative paths.
+ * #118 — safely resolve a symlink target and answer two questions:
+ *   1. Does its realpath stay within `$HOME` (and outside the denylist)?
+ *   2. Is the resolved target a file, a directory, or broken?
+ *
+ * Uses `realpath` so multi-hop symlink chains can't escape `$HOME` via
+ * a symlink-to-symlink hop. Cycle detection is the caller's responsibility
+ * (it threads a `visitedRealPaths` Set keyed per-walk).
+ *
+ * Error semantics: every failure is returned as `{ refused: <kind> }`
+ * so the caller can decide whether to throw, audit, or skip. Never
+ * throws on its own.
  */
-async function collectSkillFiles(skillDir: string): Promise<SkillFilePayload[]> {
+type SymlinkResolution =
+  | { refused: "outside-home"; reason: string }
+  | { refused: "broken"; reason: string }
+  | { refused: "cycle"; reason: string }
+  | { refused: "denylist"; reason: string }
+  | { kind: "file" | "dir"; realPath: string };
+
+async function resolveSymlinkSafely(
+  absPath: string,
+  homeRealPath: string,
+  visitedRealPaths: Set<string>,
+): Promise<SymlinkResolution> {
+  let realPath: string;
+  try {
+    realPath = await realpath(absPath);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT") {
+      return { refused: "broken", reason: `symlink target does not exist (broken link): ${absPath}` };
+    }
+    // ELOOP — kernel-level symlink loop. We surface as cycle so the
+    // refusal message stays consistent with the per-walk detection
+    // path below.
+    if (error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ELOOP") {
+      return { refused: "cycle", reason: `symlink loop detected by kernel: ${absPath}` };
+    }
+    throw error;
+  }
+  // Boundary check — exact `homeRealPath` is allowed (a symlink that
+  // points AT $HOME itself is benign), every descendant must sit
+  // under `homeRealPath + sep`.
+  if (realPath !== homeRealPath && !realPath.startsWith(`${homeRealPath}${sep}`)) {
+    return { refused: "outside-home", reason: `symlink target resolves outside $HOME: ${realPath}` };
+  }
+  // Denylist check — `<$HOME>/.ssh/...`, `<$HOME>/.aws/...`, etc.
+  const homeRel = relative(homeRealPath, realPath);
+  const firstSegment = homeRel.split(sep)[0] ?? "";
+  if (HOME_SUBPATH_DENYLIST.includes(firstSegment)) {
+    return { refused: "denylist", reason: `symlink target resolves into denylisted home subpath: ${realPath}` };
+  }
+  // Per-walk cycle detection. Once we've recorded this realpath, a
+  // second encounter inside the same walk means we're chasing a loop
+  // that didn't trip the kernel's ELOOP check (multi-hop dir cycle).
+  if (visitedRealPaths.has(realPath)) {
+    return { refused: "cycle", reason: `symlink cycle detected (revisited target): ${realPath}` };
+  }
+  // Stat the resolved target so the caller can decide file vs dir
+  // routing. We use the same Bun-friendly `lstat` then promote to
+  // file/dir from the realpath stat to keep the cost minimal — one
+  // extra stat per symlink resolution, never on the hot file path.
+  const targetStat = await lstat(realPath);
+  if (targetStat.isDirectory()) {
+    return { kind: "dir", realPath };
+  }
+  if (targetStat.isFile()) {
+    return { kind: "file", realPath };
+  }
+  // A device file or socket has no place in a skill import.
+  return { refused: "outside-home", reason: `symlink target is not a regular file or directory: ${realPath}` };
+}
+
+/**
+ * Walk every file under `<from>/<sourceName>/` recursively. Returns
+ * POSIX-relative paths.
+ *
+ * Symlink semantics (#118 rescope):
+ *   - Editor-config symlinks (`.cursor/`, `.vscode/`, etc.) silently
+ *     dropped, same as before (#104 parallel).
+ *   - Every other symlink resolves via `realpath`:
+ *       - target inside `$HOME` AND not denylisted → FOLLOWED. File
+ *         symlinks contribute their target bytes at the symlink's
+ *         relpath; directory symlinks are walked recursively.
+ *       - target outside `$HOME`, broken, cyclic, or denylisted →
+ *         throws so the caller can classify the containing skill as
+ *         `refused-other` (log-and-continue at the per-skill layer).
+ *   - Out-of-root absolute file paths still refuse — a regular file's
+ *     `realpath` must stay within the source-side tree the same way
+ *     pai-pack-importer enforces it.
+ *
+ * Per-file audit (`followed-user-owned-symlink`) is collected on the
+ * returned `audit` array so the surrounding skill outcome can record
+ * which symlinks were resolved.
+ */
+interface CollectSkillFilesResult {
+  files: SkillFilePayload[];
+  audit: ClaudeSkillAuditEntry[];
+}
+
+async function collectSkillFiles(
+  skillDir: string,
+  homeRealPath: string,
+): Promise<CollectSkillFilesResult> {
   const realRoot = await realpath(skillDir);
   const out: SkillFilePayload[] = [];
+  const audit: ClaudeSkillAuditEntry[] = [];
+  // Per-walk cycle detection — every directory we descend records its
+  // realpath here so a circular symlink chain triggers `refused: cycle`
+  // before infinite recursion. We seed with the resolved skill root.
+  const visitedRealPaths = new Set<string>([realRoot]);
 
-  async function visit(dir: string): Promise<void> {
+  // `relBase` lets the caller substitute the POSIX-relative path
+  // under the skill root when we recurse into a followed directory
+  // symlink. Without it, a target's children would land at their
+  // absolute-on-disk path; we need them at `<symlinkRel>/<childRel>`.
+  //
+  // `withinFollowedSymlink` flips the "within skill root" file-path
+  // check off — the followed branch's children have already been
+  // resolved through `realpath` and bounded to `$HOME`, which is the
+  // security anchor for symlink chases. The default branch (regular
+  // dir walk) keeps the strict check so a stray hardlink-out-of-root
+  // file still refuses.
+  async function visit(
+    dir: string,
+    relBase: string,
+    withinFollowedSymlink: boolean,
+  ): Promise<void> {
     const entries = await readdir(dir, { withFileTypes: true });
     for (const entry of entries) {
       const full = join(dir, entry.name);
-      const rel = relative(skillDir, full).split(sep).join("/");
+      const rel = relBase === "" ? entry.name : `${relBase}/${entry.name}`;
       if (entry.name.includes("\\")) {
         throw new Error(`soma migrate claude-skills refused ambiguous path separator: ${rel}`);
       }
       if (entry.isSymbolicLink()) {
-        // #104 parallel — editor-config symlinks are noise on the
-        // source side and never carry portable skill content.
-        // Drop silently so the skill imports without aborting.
-        // Every other symlink still refuses loud (matches the
-        // pack/docs importers).
+        // #104 parallel — editor-config symlinks are pure noise.
         if (matchEditorConfigSymlinkDir(rel)) {
           continue;
         }
-        throw new Error(`soma migrate claude-skills refused symlink path: ${rel}`);
+        // #118 — resolve safely. User-owned (in-$HOME, non-denylisted)
+        // targets are followed; everything else throws so the
+        // surrounding skill classifies as `refused-other`.
+        const resolved = await resolveSymlinkSafely(full, homeRealPath, visitedRealPaths);
+        if ("refused" in resolved) {
+          throw new Error(
+            `soma migrate claude-skills refused symlink path: ${rel} — ${resolved.reason}`,
+          );
+        }
+        // Record audit entry — one per symlink resolution, regardless
+        // of file vs dir. The audit is per-skill; the surrounding skill
+        // outcome will surface this in the portability report.
+        audit.push({
+          kind: "followed-user-owned-symlink",
+          relPath: rel,
+          detail: resolved.realPath,
+        });
+        // Mark this target as visited so a later symlink under a
+        // descendant pointing back into this subtree triggers cycle
+        // refusal instead of infinite walk.
+        visitedRealPaths.add(resolved.realPath);
+        if (resolved.kind === "file") {
+          const content = await readFile(resolved.realPath);
+          out.push({ relPath: rel, source: resolved.realPath, content });
+          continue;
+        }
+        // Directory: recurse into the resolved target, but anchor the
+        // POSIX-relative path namespace at the symlink's `rel` so
+        // children land under `<rel>/<childName>`. From here down, the
+        // strict within-skill-root check is relaxed — children live
+        // under the followed target, not the skill root, and the
+        // resolveSymlinkSafely call above already enforced the
+        // $HOME boundary on the resolved target.
+        await visit(resolved.realPath, rel, true);
+        continue;
       }
       if (entry.isDirectory()) {
         if (entry.name === ".git" || entry.name === ".hg" || entry.name === ".svn") {
+          // #118 — VCS metadata dirs are still refused at the source-
+          // skill root (a Claude skill should never carry an inline
+          // `.git/`). Inside a followed user-owned symlink branch
+          // (which is, by construction, a separate worktree the user
+          // is developing alongside their Claude skill), `.git/` is
+          // expected; we silently skip it so the followed skill can
+          // import without poisoning the surrounding outcome.
+          if (withinFollowedSymlink) {
+            continue;
+          }
           throw new Error(`soma migrate claude-skills refused VCS metadata directory: ${rel}`);
         }
         if (entry.name === "node_modules" || entry.name === ".next" || entry.name === "dist") {
@@ -284,13 +461,28 @@ async function collectSkillFiles(skillDir: string): Promise<SkillFilePayload[]> 
         if ((EDITOR_CONFIG_DIRS as readonly string[]).includes(entry.name)) {
           continue;
         }
-        await visit(full);
+        // Cycle bookkeeping for plain dirs too — cheap and protects
+        // against bind-mount-style hard-link cycles (rare on macOS
+        // but POSIX permits them).
+        const realDir = await realpath(full);
+        if (visitedRealPaths.has(realDir)) {
+          throw new Error(
+            `soma migrate claude-skills refused symlink path: ${rel} — directory cycle detected at ${realDir}`,
+          );
+        }
+        visitedRealPaths.add(realDir);
+        await visit(full, rel, withinFollowedSymlink);
         continue;
       }
       if (entry.isFile()) {
-        const realFile = await realpath(full);
-        if (!isWithinPath(realRoot, realFile)) {
-          throw new Error(`soma migrate claude-skills refused path outside skill root: ${rel}`);
+        if (!withinFollowedSymlink) {
+          // Strict within-root check only applies outside the followed-
+          // symlink branch. Inside it, the safe-resolve helper already
+          // bounded the target to `$HOME`.
+          const realFile = await realpath(full);
+          if (!isWithinPath(realRoot, realFile)) {
+            throw new Error(`soma migrate claude-skills refused path outside skill root: ${rel}`);
+          }
         }
         const content = await readFile(full);
         out.push({ relPath: rel, source: full, content });
@@ -298,9 +490,10 @@ async function collectSkillFiles(skillDir: string): Promise<SkillFilePayload[]> 
     }
   }
 
-  await visit(skillDir);
+  await visit(skillDir, "", false);
   out.sort((a, b) => a.relPath.localeCompare(b.relPath));
-  return out;
+  audit.sort((a, b) => a.relPath.localeCompare(b.relPath));
+  return { files: out, audit };
 }
 
 /**
@@ -402,18 +595,40 @@ interface SourceSkillReadResult {
   kebabName: string;
   files: SkillFilePayload[];
   sourceSha: string;
+  // #118 — per-skill audit of followed symlinks. Empty array when the
+  // skill walked clean. Propagated onto the ClaudeSkillOutcome via the
+  // plan/apply path so the portability report can surface it.
+  audit: ClaudeSkillAuditEntry[];
 }
 
 async function readSourceSkill(
   fromDir: string,
   sourceName: string,
+  homeRealPath: string,
 ): Promise<SourceSkillReadResult> {
   const skillDir = join(fromDir, sourceName);
   const skillMdPath = join(skillDir, "SKILL.md");
   if (!(await pathExists(skillMdPath))) {
     throw new Error(`soma migrate claude-skills: ${sourceName}/SKILL.md not found.`);
   }
-  const files = await collectSkillFiles(skillDir);
+  // #118 — wrap collect errors with the source skill name so the
+  // refusal reason includes `<sourceName>/<rel>` per AC-4. The walker's
+  // error messages all follow the shape `soma migrate claude-skills
+  // refused <kind>: <rel>[ — <detail>]`; we splice the source name
+  // in front of `<rel>` so principals can locate the offending path
+  // without grep. Falls back to a `(in <sourceName>)` suffix when the
+  // shape doesn't match.
+  const { files, audit } = await collectSkillFiles(skillDir, homeRealPath).catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    const fixed = message.replace(
+      /(soma migrate claude-skills refused [^:]+: )([^\s—]+)/,
+      (_full, prefix, rel) => `${prefix}${sourceName}/${rel}`,
+    );
+    const finalMessage = fixed === message
+      ? `${fixed} (in ${sourceName})`
+      : fixed;
+    throw new Error(finalMessage);
+  });
   const skillMd = files.find((f) => f.relPath === "SKILL.md");
   if (!skillMd) {
     throw new Error(`soma migrate claude-skills: ${sourceName}/SKILL.md not collected (symlink? case mismatch?)`);
@@ -433,6 +648,7 @@ async function readSourceSkill(
     kebabName: kebabSlug(sourceName),
     files,
     sourceSha: sha256Hex(Buffer.from(composite, "utf8")),
+    audit,
   };
 }
 
@@ -460,12 +676,15 @@ async function listFlatSkillNames(fromDir: string): Promise<string[]> {
     if (entry.name.startsWith(".")) continue;
     const skillMdPath = join(fromDir, entry.name, "SKILL.md");
     if (await pathExists(skillMdPath)) {
-      // Symlinked SKILL.md is refused — same loud-fail bar as
-      // every other path in this importer.
-      const stat = await lstat(skillMdPath);
-      if (stat.isSymbolicLink()) {
-        throw new Error(`soma migrate claude-skills refused symlinked SKILL.md: ${entry.name}/SKILL.md`);
-      }
+      // #118 — a symlinked top-level SKILL.md is no longer an outright
+      // refusal at the listing phase. The walker in `collectSkillFiles`
+      // resolves the symlink via the safe helper: user-owned in-$HOME
+      // targets follow + import; out-of-home / broken / cyclic targets
+      // throw and classify the whole `<Name>` skill as `refused-other`
+      // (per-skill log-and-continue at the orchestrator level).
+      // We DO still surface the skill name so the orchestrator can run
+      // `readSourceSkill` against it — that's where the safe-resolve
+      // and per-skill error isolation live.
       names.push(entry.name);
     }
   }
@@ -520,6 +739,7 @@ async function buildPlanCore(
   somaHome: string,
   includeClaudeSpecific: boolean,
   prevManifest: ClaudeSkillsMigrationManifest | null,
+  homeRealPath: string,
 ): Promise<PlanResult> {
   const names = await listFlatSkillNames(fromDir);
   if (names.length === 0) {
@@ -529,9 +749,26 @@ async function buildPlanCore(
   // Bounded concurrency for the read + classify pass — per-skill work
   // is independent and dominated by file I/O, same as the memory
   // migrator (4-wide).
-  const reads = await runBoundedConcurrent(
+  //
+  // #118 — per-skill log-and-continue. A read failure on one skill no
+  // longer aborts the whole migrate. We surface a `Result`-style
+  // tagged union per skill so the outcome builder can classify
+  // failures as `refused-other` while keeping the rest of the pipeline
+  // pure. Mirrors the pattern in `pai-migration.ts:728-737`.
+  type ReadResult =
+    | { ok: true; read: SourceSkillReadResult }
+    | { ok: false; sourceName: string; reason: string };
+  const readResults: ReadResult[] = await runBoundedConcurrent<string, ReadResult>(
     names,
-    async (name) => readSourceSkill(fromDir, name),
+    async (name) => {
+      try {
+        const read = await readSourceSkill(fromDir, name, homeRealPath);
+        return { ok: true, read };
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        return { ok: false, sourceName: name, reason };
+      }
+    },
     4,
   );
 
@@ -542,7 +779,31 @@ async function buildPlanCore(
     }
   }
 
-  const outcomes: ClaudeSkillOutcome[] = reads.map((read) => {
+  const reads: SourceSkillReadResult[] = [];
+  const outcomes: ClaudeSkillOutcome[] = [];
+  for (const r of readResults) {
+    if (!r.ok) {
+      // Per-skill refusal — preserve the source name + reason so the
+      // formatter can surface `<sourceName>/<rel>` per AC-4. The
+      // refusal has no sourceSha (we never finished reading the
+      // skill); we use a stable empty marker so manifest entries
+      // for `refused-other` are intentionally absent (idempotency
+      // anchors only land for successfully-read skills).
+      outcomes.push({
+        sourceName: r.sourceName,
+        kebabName: kebabSlug(r.sourceName),
+        tag: "portable",
+        reason: r.reason,
+        disposition: "refused-other",
+        sourceSha: "",
+        target: null,
+        fileCount: 0,
+        refusalReason: r.reason,
+      });
+      continue;
+    }
+    const read = r.read;
+    reads.push(read);
     const classification = classifySkillPortability(read.files);
     const target = join(somaHome, "skills", read.kebabName);
     let disposition: ClaudeSkillOutcome["disposition"];
@@ -556,7 +817,7 @@ async function buildPlanCore(
         disposition = "imported";
       }
     }
-    return {
+    outcomes.push({
       sourceName: read.sourceName,
       kebabName: read.kebabName,
       tag: classification.tag,
@@ -568,8 +829,9 @@ async function buildPlanCore(
       // the source file count so the principal can see the size of
       // each pending write up-front.
       fileCount: read.files.length,
-    };
-  });
+      ...(read.audit.length > 0 ? { audit: read.audit } : {}),
+    });
+  }
   outcomes.sort((a, b) => a.sourceName.localeCompare(b.sourceName));
 
   return { isFlatSkillsTree: true, outcomes, reads };
@@ -581,6 +843,11 @@ export async function planClaudeSkillsMigration(
   const { from, somaHome } = resolveHomes(options);
   const includeClaudeSpecific = options.includeClaudeSpecific === true;
   const smokeSubstrates = normalizeSmokeSubstrates(options.smokeSubstrates);
+  // #118 — resolve `$HOME` once via realpath so symlinks targeting
+  // paths under HOME (the common case on macOS where /tmp resolves to
+  // /private/tmp) are correctly identified as in-bounds. The resolved
+  // path is the security anchor for the safe-symlink helper.
+  const homeRealPath = await realpath(resolve(options.homeDir ?? homedir()));
   // Plan mode reads any existing manifest so the dispositions match
   // what an `--apply` invocation would do (e.g. a re-run on unchanged
   // source shows `skipped-idempotent`, not `imported`).
@@ -590,6 +857,7 @@ export async function planClaudeSkillsMigration(
     somaHome,
     includeClaudeSpecific,
     prevManifest,
+    homeRealPath,
   );
   return {
     apply: false,
@@ -702,12 +970,51 @@ function renderPortabilityReport(
   lines.push(`| ${headerCells.join(" | ")} |`);
   lines.push(`|${headerCells.map(() => "---").join("|")}|`);
   for (const o of result.outcomes) {
-    const row = [o.kebabName, o.tag, o.disposition, escapeMarkdownCell(o.reason)];
+    // #118 — refused-other rows surface the refusal reason instead of
+    // the classifier tag (which is meaningless for a skill whose read
+    // never completed). Other dispositions keep the classifier reason.
+    const reasonCell = o.disposition === "refused-other"
+      ? escapeMarkdownCell(o.refusalReason ?? o.reason)
+      : escapeMarkdownCell(o.reason);
+    const row = [o.kebabName, o.tag, o.disposition, reasonCell];
     for (const substrate of result.smokeSubstrates) {
       const verify = o.substrates?.[substrate];
       row.push(verify ? renderSubstrateCell(verify) : "—");
     }
     lines.push(`| ${row.join(" | ")} |`);
+  }
+  // #118 — audit section listing every followed-user-owned-symlink.
+  // Sorted by source skill, then by rel path. Absent when no skill
+  // recorded a followed symlink (Phase-1 byte-stable rerun).
+  // Audit kind is currently only `followed-user-owned-symlink`; future
+  // kinds will need a switch here. We flatten directly today.
+  const followedAuditRows: { source: string; rel: string; target: string }[] = [];
+  for (const o of result.outcomes) {
+    if (!o.audit) continue;
+    for (const entry of o.audit) {
+      followedAuditRows.push({ source: o.sourceName, rel: entry.relPath, target: entry.detail });
+    }
+  }
+  if (followedAuditRows.length > 0) {
+    followedAuditRows.sort(
+      (a, b) => a.source.localeCompare(b.source) || a.rel.localeCompare(b.rel),
+    );
+    lines.push("");
+    lines.push("## Followed user-owned symlinks");
+    lines.push("");
+    lines.push(
+      "These symlinks were resolved via `realpath` and their target bytes imported. Every resolved target stayed within `$HOME` and outside the credential-path denylist (`.ssh/`, `.aws/`, `.gnupg/`, `.kube/`, `.docker/`).",
+    );
+    lines.push("");
+    lines.push("| Source skill | Symlink path | Resolved target |");
+    lines.push("|---|---|---|");
+    for (const row of followedAuditRows) {
+      lines.push(`| ${row.source} | ${escapeMarkdownCell(row.rel)} | ${escapeMarkdownCell(row.target)} |`);
+    }
+    lines.push("");
+    // Mention the audit kind by name so principals grep'ing the report
+    // can find it. Also documented in `src/types.ts`.
+    lines.push("Audit kind: `followed-user-owned-symlink` (one entry per resolved symlink in the manifest).");
   }
   lines.push("");
   return lines.join("\n");
@@ -759,6 +1066,10 @@ async function runSmokeVerify(args: RunSmokeVerifyArgs): Promise<void> {
 
   for (const outcome of outcomes) {
     if (outcome.disposition === "skipped-claude-specific") continue;
+    // #118 — `refused-other` skills never landed bytes; nothing to
+    // verify against a substrate. Skip without classifying as a
+    // contract violation.
+    if (outcome.disposition === "refused-other") continue;
 
     // Resolve the post-rewrite payload. Three sources, in order:
     //   1. In-memory payload captured by the apply loop.
@@ -869,6 +1180,8 @@ export async function migrateClaudeSkills(
   const { from, somaHome } = resolveHomes(options);
   const includeClaudeSpecific = options.includeClaudeSpecific === true;
   const smokeSubstrates = normalizeSmokeSubstrates(options.smokeSubstrates);
+  // #118 — resolve `$HOME` once (see plan-mode helper above).
+  const homeRealPath = await realpath(resolve(options.homeDir ?? homedir()));
 
   // Ensure imports/claude-skills/ exists so manifest + report writes
   // succeed even on a fully empty Soma home.
@@ -889,6 +1202,7 @@ export async function migrateClaudeSkills(
     somaHome,
     includeClaudeSpecific,
     previousManifest,
+    homeRealPath,
   );
 
   if (!isFlatSkillsTree) {
@@ -909,6 +1223,7 @@ export async function migrateClaudeSkills(
   let writtenCount = 0;
   let skippedIdempotentCount = 0;
   let skippedClaudeSpecificCount = 0;
+  let refusedOtherCount = 0;
   // #115 Phase 2 — in-memory post-rewrite payload per imported skill,
   // ferried into the smoke pass below to avoid a second disk read.
   // Skipped-idempotent skills fall back to disk re-read inside the
@@ -918,6 +1233,15 @@ export async function migrateClaudeSkills(
   for (const outcome of outcomes) {
     if (outcome.disposition === "skipped-claude-specific") {
       skippedClaudeSpecificCount += 1;
+      continue;
+    }
+    if (outcome.disposition === "refused-other") {
+      // #118 — per-skill log-and-continue. The read failed (out-of-home
+      // symlink target, cycle, broken link, denylist). The outcome
+      // already carries `refusalReason`; nothing else to do here. The
+      // skill is NOT added to the manifest — only successfully-read
+      // skills earn an idempotency anchor.
+      refusedOtherCount += 1;
       continue;
     }
     if (outcome.disposition === "skipped-idempotent") {
@@ -1077,6 +1401,7 @@ export async function migrateClaudeSkills(
     writtenCount,
     skippedIdempotentCount,
     skippedClaudeSpecificCount,
+    refusedOtherCount,
     ...(smokeSubstrates.length > 0 ? { substrateVerifySummary } : {}),
   };
 }
