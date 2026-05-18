@@ -214,6 +214,13 @@ export {
   PaiPackSubstrateSpecificRefusal,
   planPaiPackImport,
 } from "./pai-pack-importer";
+// Sage r3 #103 Architecture: `PaiPackReservedNameRefusal` is an
+// internal migration-classification detail. The migration orchestrator
+// imports it directly from `./pai-pack-importer`; no demonstrated
+// external consumer needs to catch it. Keeping it off the barrel
+// avoids an irreversible public-API expansion. If a downstream caller
+// ever needs structural classification it can be promoted here in a
+// dedicated change with documented contract.
 export { importPaiDocs, planPaiDocsImport } from "./pai-docs-importer";
 // PAI MEMORY → Soma memory translator (#90) is intentionally NOT
 // re-exported from the package root — it is an internal phase of

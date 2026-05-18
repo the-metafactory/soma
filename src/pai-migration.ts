@@ -34,6 +34,7 @@ import { importPaiIdentity, planPaiImport } from "./pai-importer";
 import { migratePaiMemory, planPaiMemoryMigration } from "./pai-memory-migrator";
 import {
   importPaiPack,
+  PaiPackReservedNameRefusal,
   PaiPackSubstrateSpecificRefusal,
   planPaiPackImport,
   readPackMetadata,
@@ -158,7 +159,24 @@ export interface PaiMigrationPlan {
   somaHome: string;
   identity: PaiImportPlan;
   algorithm: AlgorithmImportPlan | null;
+  /**
+   * Successfully planned packs only. Refused packs do NOT appear here
+   * — they live in `packOutcomes` instead. Mirrors the apply-side
+   * `PaiMigrationResult.packs` contract for byte-stable surfaces.
+   */
   packs: PaiPackImportPlan[];
+  /**
+   * #102 — per-pack outcome record for the plan phase, mirroring
+   * `PaiMigrationResult.packOutcomes` shipped in #97 for the apply
+   * phase. Same four buckets (`imported` / `refused-substrate-specific`
+   * / `refused-reserved` / `refused-other`); for plan mode `imported`
+   * means "would be imported" (the plan path doesn't write anything to
+   * disk). The CLI plan-mode formatter renders these via
+   * `formatPackOutcomeLines` so the principal sees the same per-pack
+   * table they get from `--apply`. CLI exit-code policy is identical
+   * to apply mode: zero unless any outcome is `refused-other`.
+   */
+  packOutcomes: PaiPackOutcome[];
   memory: PaiMemoryMigrationPlan | null;
   docs: PaiDocsImportPlan | null;
   manifestPath: string;
@@ -485,78 +503,247 @@ async function importPacksWithOutcomes(
 
 /**
  * Sage r1 #99 Maintainability finding — extracted per-pack pipeline so
- * each step (metadata read / reserved check / import / error
+ * each step (metadata read / reserved check / import-or-plan / error
  * classification) is locally legible and adding a new refusal kind
  * touches one function instead of the whole orchestration loop.
  *
- * Returns `{ pack }` only when the pack was successfully imported
- * (always paired with `outcome.outcome === "imported"`). Otherwise
- * returns just the outcome with the appropriate `refused-*` kind.
+ * #102 — shared between the apply path (`importOnePackWithOutcome`)
+ * and the plan path (`planOnePackWithOutcome`). The two surfaces are
+ * structurally identical except for the inner call (`importPaiPack`
+ * vs `planPaiPackImport`) and the success-payload type, so this
+ * helper takes a generic `operation` callback and a discriminated
+ * payload type. The reserved-name pre-check, error classification,
+ * and outcome record are single-sourced — neither path can drift on
+ * the refusal-bucket contract.
+ *
+ * Returns `{ payload }` only when the operation succeeded (always
+ * paired with `outcome.outcome === "imported"`; for the plan path,
+ * `imported` means "would be imported"). Otherwise returns just the
+ * outcome with the appropriate `refused-*` kind.
  */
-async function importOnePackWithOutcome(
-  inputs: BulkImportInputs,
-  paiPackDir: string,
-): Promise<{ pack?: PaiPackImportResult; outcome: PaiPackOutcome }> {
-  let slug: string;
-  try {
-    slug = await readPackSkillSlug(paiPackDir);
-  } catch (error) {
-    // Couldn't even read the pack's metadata — surface the error
-    // verbatim; the principal needs the original reason in the
-    // summary table. No `skillName` because metadata read failed.
-    return {
-      outcome: { paiPackDir, outcome: "refused-other", reason: errorMessage(error) },
-    };
+interface OnePackInputs {
+  paiPackDir: string;
+  homeDir: string | undefined;
+  somaHome: string;
+  overwriteReserved: boolean;
+  includeSubstrateSpecific: boolean;
+}
+
+async function runOnePackWithOutcome<TPayload extends { skillName: string }>(
+  inputs: OnePackInputs,
+  operation: (opts: {
+    homeDir: string | undefined;
+    paiPackDir: string;
+    somaHome: string;
+    includeSubstrateSpecific: boolean;
+  }) => Promise<TPayload>,
+): Promise<{ payload?: TPayload; outcome: PaiPackOutcome }> {
+  // Sage r2 #103 Performance — defer the slug read to the only paths
+  // that actually need it: the migrate-level reserved pre-check
+  // (when `overwriteReserved` is false) and the refusal-classification
+  // path (when we want `outcome.skillName` for a refusal that doesn't
+  // carry its own slug). The success path uses `payload.skillName`
+  // returned by the inner operation, avoiding a duplicate
+  // `readPackMetadata` read that the inner planner already performs.
+  //
+  // When `overwriteReserved` is true, the migrate pre-check is a
+  // no-op, so the upfront read is skipped entirely — the inner pack
+  // importer's own (narrower, structurally-enforced) reserved check
+  // still fires for `soma` / `the-algorithm` and is classified via
+  // the typed `PaiPackReservedNameRefusal` below.
+  let upfrontSlug: string | null = null;
+  if (!inputs.overwriteReserved) {
+    try {
+      upfrontSlug = await readPackSkillSlug(inputs.paiPackDir);
+    } catch (error) {
+      // Couldn't even read the pack's metadata — surface the error
+      // verbatim; the principal needs the original reason in the
+      // summary table. No `skillName` because metadata read failed.
+      return {
+        outcome: { paiPackDir: inputs.paiPackDir, outcome: "refused-other", reason: errorMessage(error) },
+      };
+    }
+
+    // #102 — reserved-name pre-check happens BEFORE the operation
+    // call so the refusal semantics are clearer and faster: we don't
+    // depend on the inner planner happening to throw on the reserved
+    // name (its set is narrower than the migrate-level set, and the
+    // outer set names like `isa` / `knowledge` / `telos` would
+    // otherwise import successfully and clobber canonical Soma
+    // surfaces).
+    if (MIGRATE_RESERVED_SKILL_NAMES.has(upfrontSlug)) {
+      return {
+        outcome: {
+          paiPackDir: inputs.paiPackDir,
+          outcome: "refused-reserved",
+          skillName: upfrontSlug,
+          reason: `reserved Soma skill '${upfrontSlug}' — re-run with --overwrite-reserved to permit.`,
+        },
+      };
+    }
   }
 
-  if (!inputs.overwriteReserved && MIGRATE_RESERVED_SKILL_NAMES.has(slug)) {
-    return {
-      outcome: {
-        paiPackDir,
-        outcome: "refused-reserved",
-        skillName: slug,
-        reason: `reserved Soma skill '${slug}' — re-run with --overwrite-reserved to permit.`,
-      },
-    };
-  }
-
   try {
-    // `overwrite: true` mirrors the pre-#97 behavior — migration is
-    // a "move my whole PAI install into Soma" operation and must not
-    // blow up because a previous run already imported the pack. The
-    // pack importer's per-pack rollback contract still protects
-    // on-disk safety.
-    const result = await importPaiPack({
+    const payload = await operation({
       homeDir: inputs.homeDir,
-      paiPackDir,
+      paiPackDir: inputs.paiPackDir,
       somaHome: inputs.somaHome,
-      overwrite: true,
       includeSubstrateSpecific: inputs.includeSubstrateSpecific,
     });
     return {
-      pack: result,
-      outcome: { paiPackDir, outcome: "imported", skillName: result.skillName },
+      payload,
+      outcome: { paiPackDir: inputs.paiPackDir, outcome: "imported", skillName: payload.skillName },
     };
   } catch (error) {
     if (error instanceof PaiPackSubstrateSpecificRefusal) {
       return {
         outcome: {
-          paiPackDir,
+          paiPackDir: inputs.paiPackDir,
           outcome: "refused-substrate-specific",
-          skillName: slug,
+          skillName: upfrontSlug ?? (await safeReadSkillSlug(inputs.paiPackDir)),
           reason: `substrate-specific file(s): ${error.files.join(", ")}`,
+        },
+      };
+    }
+    // Sage r2 #103 CodeQuality important — the pack importer's own
+    // reserved check (narrower set: `soma`, `the-algorithm`) fires
+    // even when the outer migrate-level pre-check is bypassed by
+    // `--overwrite-reserved`. Without the typed catch here, the inner
+    // throw bubbled up as a plain `Error` and got mis-classified as
+    // `refused-other` instead of `refused-reserved`. The typed
+    // `PaiPackReservedNameRefusal` carries the offending slug so we
+    // don't need a second metadata read for `outcome.skillName`.
+    if (error instanceof PaiPackReservedNameRefusal) {
+      return {
+        outcome: {
+          paiPackDir: inputs.paiPackDir,
+          outcome: "refused-reserved",
+          skillName: error.skillName,
+          reason: `reserved by pack importer: '${error.skillName}'`,
         },
       };
     }
     return {
       outcome: {
-        paiPackDir,
+        paiPackDir: inputs.paiPackDir,
         outcome: "refused-other",
-        skillName: slug,
+        skillName: upfrontSlug ?? (await safeReadSkillSlug(inputs.paiPackDir)),
         reason: errorMessage(error),
       },
     };
   }
+}
+
+/**
+ * Best-effort slug read for refusal classification. Used only when the
+ * upfront pre-check slug was skipped (because `overwriteReserved` was
+ * true) and a refusal still needs to populate `outcome.skillName`.
+ * Returns `undefined` on read failure — the outcome record permits a
+ * missing `skillName` and the orchestrator falls back to `paiPackDir`
+ * in the principal-facing render. Never throws: this is a label-only
+ * read on a path that already has a confirmed error to report.
+ */
+async function safeReadSkillSlug(paiPackDir: string): Promise<string | undefined> {
+  try {
+    return await readPackSkillSlug(paiPackDir);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Apply-side wrapper: runs `importPaiPack` per pack and classifies
+ * the outcome. Returns the same shape `importPacksWithOutcomes`
+ * already expects.
+ *
+ * `overwrite: true` on the inner `importPaiPack` mirrors the pre-#97
+ * behavior — migration is a "move my whole PAI install into Soma"
+ * operation and must not blow up because a previous run already
+ * imported the pack. The pack importer's per-pack rollback contract
+ * still protects on-disk safety.
+ */
+async function importOnePackWithOutcome(
+  inputs: BulkImportInputs,
+  paiPackDir: string,
+): Promise<{ pack?: PaiPackImportResult; outcome: PaiPackOutcome }> {
+  const { payload, outcome } = await runOnePackWithOutcome<PaiPackImportResult>(
+    {
+      paiPackDir,
+      homeDir: inputs.homeDir,
+      somaHome: inputs.somaHome,
+      overwriteReserved: inputs.overwriteReserved,
+      includeSubstrateSpecific: inputs.includeSubstrateSpecific,
+    },
+    (opts) =>
+      importPaiPack({
+        homeDir: opts.homeDir,
+        paiPackDir: opts.paiPackDir,
+        somaHome: opts.somaHome,
+        overwrite: true,
+        includeSubstrateSpecific: opts.includeSubstrateSpecific,
+      }),
+  );
+  return { pack: payload, outcome };
+}
+
+/**
+ * #102 — plan-side wrapper: runs `planPaiPackImport` per pack and
+ * classifies the outcome with the SAME refusal taxonomy as the apply
+ * path. Without this, plan-mode aborts on the first
+ * `PaiPackSubstrateSpecificRefusal` (the user-visible bug). Plan path
+ * doesn't write anything to disk, so `payload` is the
+ * `PaiPackImportPlan` (not a result); callers surface it on
+ * `PaiMigrationPlan.packs` for the principal to inspect.
+ */
+async function planOnePackWithOutcome(
+  inputs: BulkImportInputs,
+  paiPackDir: string,
+): Promise<{ pack?: PaiPackImportPlan; outcome: PaiPackOutcome }> {
+  const { payload, outcome } = await runOnePackWithOutcome<PaiPackImportPlan>(
+    {
+      paiPackDir,
+      homeDir: inputs.homeDir,
+      somaHome: inputs.somaHome,
+      overwriteReserved: inputs.overwriteReserved,
+      includeSubstrateSpecific: inputs.includeSubstrateSpecific,
+    },
+    (opts) =>
+      planPaiPackImport({
+        homeDir: opts.homeDir,
+        paiPackDir: opts.paiPackDir,
+        somaHome: opts.somaHome,
+        includeSubstrateSpecific: opts.includeSubstrateSpecific,
+      }),
+  );
+  return { pack: payload, outcome };
+}
+
+/**
+ * #102 — plan-side counterpart to `importPacksWithOutcomes`. Runs
+ * `planOnePackWithOutcome` per pack under the same bounded
+ * concurrency model. Each pack's outcome is classified independently;
+ * the plan phase never aborts on a per-pack failure, mirroring the
+ * apply phase's contract.
+ */
+interface BulkPlanResult {
+  packs: PaiPackImportPlan[];
+  outcomes: PaiPackOutcome[];
+}
+
+async function planPacksWithOutcomes(inputs: BulkImportInputs): Promise<BulkPlanResult> {
+  const results = await runBoundedConcurrent(
+    [...inputs.packPaths],
+    (paiPackDir) => planOnePackWithOutcome(inputs, paiPackDir),
+    4,
+  );
+
+  const packs: PaiPackImportPlan[] = [];
+  const outcomes: PaiPackOutcome[] = [];
+  for (const { pack, outcome } of results) {
+    if (pack) packs.push(pack);
+    outcomes.push(outcome);
+  }
+  return { packs, outcomes };
 }
 
 function errorMessage(error: unknown): string {
@@ -644,17 +831,24 @@ export async function planPaiMigration(options: PaiMigrationOptions = {}): Promi
   const algorithm = algorithmDir === null
     ? null
     : planAlgorithmImport({ homeDir: options.homeDir, paiAlgorithmDir: algorithmDir, somaHome });
-  const packs = options.skipSkills === true
-    ? []
-    // Sage r5 #95 Performance: bound the per-pack plan reads to 4
-    // workers (matches the apply path's import fan-out). The previous
-    // Promise.all opened one async pack-plan per discovered pack
-    // regardless of count.
-    : await runBoundedConcurrent(
+  // #102 — plan phase now uses `planPacksWithOutcomes` (mirrors the
+  // apply path's `importPacksWithOutcomes` shipped in #97). Without
+  // this wrapper, the first `PaiPackSubstrateSpecificRefusal` thrown
+  // by `planPaiPackImport` escaped `runBoundedConcurrent` and aborted
+  // the entire plan — the user-reported bug from `soma migrate pai
+  // --pai-repo ~/work/PAI` (no `--apply`). Each pack is now
+  // classified into one of four `PaiPackOutcome` buckets and the
+  // plan continues; refused packs do NOT appear in `packs` (matches
+  // apply-side semantics on `PaiMigrationResult.packs`).
+  const { packs, outcomes: packOutcomes } = options.skipSkills === true
+    ? { packs: [] as PaiPackImportPlan[], outcomes: [] as PaiPackOutcome[] }
+    : await planPacksWithOutcomes({
+        homeDir: options.homeDir,
+        somaHome,
         packPaths,
-        (paiPackDir) => planPaiPackImport({ homeDir: options.homeDir, paiPackDir, somaHome }),
-        4,
-      );
+        overwriteReserved: options.overwriteReserved === true,
+        includeSubstrateSpecific: options.includeSubstrateSpecific === true,
+      });
   const memory = options.skipMemory === true
     ? null
     : await planPaiMemoryMigration({ homeDir: options.homeDir, claudeHome, somaHome });
@@ -673,6 +867,7 @@ export async function planPaiMigration(options: PaiMigrationOptions = {}): Promi
     identity,
     algorithm,
     packs,
+    packOutcomes,
     memory,
     docs,
     manifestPath: manifestPathFor(somaHome),
