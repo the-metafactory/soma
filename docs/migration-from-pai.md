@@ -462,6 +462,59 @@ already marked `verified` for the same source SHA. Warnings and
 failures re-run every invocation so fixing the adapter can flip the
 verdict without source churn.
 
+### Phase 3: `--rewrite-descriptions <agent>` LLM description compression
+
+PAI skills routinely pack multi-paragraph descriptions with usage
+triggers, examples, and exclusion criteria into the SKILL.md
+frontmatter `description:` field. PAI's own loader has no upper
+bound; **Codex + Pi.dev both cap at 1024 characters.** Without help,
+the import silently skips every oversize-description skill (and any
+skill with no frontmatter at all). #120 added per-skill LLM rewrite
+to compress these descriptions under a 900-char safety target.
+
+```bash
+# Compress oversize descriptions via subscription-billed claude
+# (Sonnet for speed). 10 PAI skills go from 1037–1318 chars down to
+# ~800–900 chars and import cleanly.
+soma migrate claude-skills --from ~/.claude/skills --apply --rewrite-descriptions claude
+
+# Cross-vendor option: codex exec (metered per-call).
+soma migrate claude-skills --from ~/.claude/skills --apply --rewrite-descriptions codex
+
+# Pi.dev local LLM (when available — refuses loud otherwise).
+soma migrate claude-skills --from ~/.claude/skills --apply --rewrite-descriptions pi
+
+# Explicit no-op; same as the flag being absent.
+soma migrate claude-skills --from ~/.claude/skills --apply --rewrite-descriptions none
+```
+
+**Behavior:**
+
+- Description ≤ 1024 chars: untouched. Imports as-is.
+- Description > 1024 chars (oversize): LLM compresses it; the
+  rewritten text is spliced into the frontmatter; body untouched.
+- No frontmatter at all (missing): LLM synthesizes a description
+  from the first 2 KiB of the body; a fresh frontmatter block is
+  prepended.
+- Flag absent (or `--rewrite-descriptions none`) + oversize/missing:
+  skill classifies as `refused-description-limit`. Footer suggests
+  re-running with the flag.
+
+**Idempotency.** The manifest records the `originalDescriptionSha`,
+the `rewrittenDescriptionSha`, the agent, and the timestamp. A rerun
+with the same source description bytes reuses the prior rewritten
+text — the LLM is NOT called again. Changing the source description
+flips the SHA and triggers a fresh rewrite.
+
+**Retry.** The dispatcher retries once if the LLM overshoots the
+1024 hard cap. If it overshoots twice, the skill classifies as
+`refused-other` with the cap in the reason.
+
+**Portability report.** When the flag is used the report gains a
+`Description` column (`<orig-length>→<new-length> (rewrote)`) and a
+`Rewrite` column (`<agent> / <timestamp>`). When the flag is absent
+both columns are omitted so existing reports stay byte-stable.
+
 ### Choosing between the two migration paths
 
 | Need | Use |

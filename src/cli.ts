@@ -109,6 +109,7 @@ import type {
   ClaudeSkillsMigrationResult,
   ClaudeSkillsMigrationManifest,
   ClaudeSkillsSmokeSubstrate,
+  RewriteDescriptionsAgent,
 } from "./types";
 // CLI formatter for `import pai-docs` needs the same in-scope subtree
 // list the importer iterates. Importing directly from the module
@@ -358,7 +359,7 @@ const MIGRATE_PAI_USAGE =
 // from the usage line below for non-Phase-2 callers — they keep the
 // Phase-1 surface intact.
 const MIGRATE_CLAUDE_SKILLS_USAGE =
-  "Usage: soma migrate claude-skills --from <skills-dir> [--dry-run] [--apply] [--status] [--home-dir <dir>] [--soma-home <dir>] [--include-claude-specific] [--smoke <codex|pi-dev|all>]";
+  "Usage: soma migrate claude-skills --from <skills-dir> [--dry-run] [--apply] [--status] [--home-dir <dir>] [--soma-home <dir>] [--include-claude-specific] [--smoke <codex|pi-dev|all>] [--rewrite-descriptions <claude|codex|pi|none>]";
 const ADOPT_CLAUDE_USAGE =
   "Usage: soma adopt claude [--dry-run] [--apply] [--uninstall] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
 const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string, string> }> = {
@@ -1707,6 +1708,15 @@ function parseMigrateClaudeSkillsArgs(args: string[]): ParsedMigrateClaudeSkills
         }
         break;
       }
+      case "--rewrite-descriptions": {
+        // #120 — LLM agent for description compression. Validated
+        // against the canonical enum; unknown values reject with a
+        // clear error listing accepted forms.
+        const value = readOption(rest, index, arg);
+        index += 1;
+        options.rewriteDescriptionsAgent = parseRewriteDescriptionsAgent(value);
+        break;
+      }
       default:
         throw new Error(`Unknown option: ${arg}`);
     }
@@ -1739,6 +1749,25 @@ function expandSmokeSubstrateArg(value: string): ClaudeSkillsSmokeSubstrate[] {
   if (value === "codex" || value === "pi-dev") return [value];
   throw new Error(
     `Unknown --smoke substrate: ${JSON.stringify(value)}. Allowed: ${VALID_SMOKE_VALUES.join(", ")}.`,
+  );
+}
+
+// #120 — `--rewrite-descriptions <value>` enum gate. The four accepted
+// values are claude, codex, pi, none. Unknown rejects with a clear
+// error listing every valid form. `none` is permitted explicitly so
+// scripts can be parameterized without a separate "absent" branch.
+const VALID_REWRITE_DESCRIPTIONS_AGENTS: readonly RewriteDescriptionsAgent[] = [
+  "claude",
+  "codex",
+  "pi",
+  "none",
+];
+function parseRewriteDescriptionsAgent(value: string): RewriteDescriptionsAgent {
+  if ((VALID_REWRITE_DESCRIPTIONS_AGENTS as readonly string[]).includes(value)) {
+    return value as RewriteDescriptionsAgent;
+  }
+  throw new Error(
+    `Unknown --rewrite-descriptions agent: ${JSON.stringify(value)}. Allowed: ${VALID_REWRITE_DESCRIPTIONS_AGENTS.join(", ")}.`,
   );
 }
 
@@ -2118,19 +2147,26 @@ function formatClaudeSkillsMigrationPlan(plan: ClaudeSkillsMigrationPlan): strin
   if (plan.smokeSubstrates.length > 0) {
     lines.push(`smoke-substrates: ${plan.smokeSubstrates.join(", ")}`);
   }
+  if (plan.rewriteDescriptionsAgent !== "none") {
+    lines.push(`rewrite-descriptions: ${plan.rewriteDescriptionsAgent}`);
+  }
   lines.push("");
   lines.push("Per-skill plan:");
   for (const o of plan.outcomes) {
     // #118 — refused-other rows include the refusalReason (which
     // already embeds <sourceName>/<rel>) so principals can locate
     // the offending path from the CLI output alone.
-    const reason = o.disposition === "refused-other" ? (o.refusalReason ?? o.reason) : o.reason;
+    // #120 — refused-description-limit rows surface the refusalReason
+    // too (length + cap), so the principal sees what needs rewriting.
+    const reason = (o.disposition === "refused-other" || o.disposition === "refused-description-limit")
+      ? (o.refusalReason ?? o.reason)
+      : o.reason;
     lines.push(`  - ${o.kebabName} [${o.tag}] → ${o.disposition} (${reason})`);
   }
   const counts = countOutcomesByDisposition(plan.outcomes);
   lines.push("");
   lines.push(
-    `Totals: ${counts.imported} imported, ${counts.skippedIdempotent} skipped-idempotent, ${counts.skippedClaudeSpecific} skipped-claude-specific, ${counts.refusedOther} refused-other.`,
+    `Totals: ${counts.imported} imported, ${counts.skippedIdempotent} skipped-idempotent, ${counts.skippedClaudeSpecific} skipped-claude-specific, ${counts.refusedOther} refused-other, ${counts.refusedDescriptionLimit} refused-description-limit.`,
   );
   if (counts.skippedClaudeSpecific > 0 && !plan.includeClaudeSpecific) {
     lines.push(
@@ -2140,6 +2176,11 @@ function formatClaudeSkillsMigrationPlan(plan: ClaudeSkillsMigrationPlan): strin
   if (counts.refusedOther > 0) {
     lines.push(
       `${counts.refusedOther} skill(s) refused (out-of-home symlink, cycle, or other genuine error). Plan mode exits 0; apply mode exits 1.`,
+    );
+  }
+  if (counts.refusedDescriptionLimit > 0) {
+    lines.push(
+      `${counts.refusedDescriptionLimit} skill(s) refused-description-limit — re-run with --rewrite-descriptions claude (or codex/pi) to compress oversize descriptions via LLM.`,
     );
   }
   lines.push("");
@@ -2159,6 +2200,9 @@ function formatClaudeSkillsMigrationResult(result: ClaudeSkillsMigrationResult):
   if (result.smokeSubstrates.length > 0) {
     lines.push(`smoke-substrates: ${result.smokeSubstrates.join(", ")}`);
   }
+  if (result.rewriteDescriptionsAgent !== "none") {
+    lines.push(`rewrite-descriptions: ${result.rewriteDescriptionsAgent}`);
+  }
   lines.push("");
   lines.push("Per-skill outcomes:");
   for (const o of result.outcomes) {
@@ -2172,13 +2216,28 @@ function formatClaudeSkillsMigrationResult(result: ClaudeSkillsMigrationResult):
         .filter((s): s is string => s !== null);
       if (parts.length > 0) suffix = ` [${parts.join(", ")}]`;
     }
-    const reason = o.disposition === "refused-other" ? (o.refusalReason ?? o.reason) : o.reason;
+    // #120 — refused-description-limit + refused-other rows surface
+    // the refusalReason (which embeds the source path / length / cap).
+    const reason = (o.disposition === "refused-other" || o.disposition === "refused-description-limit")
+      ? (o.refusalReason ?? o.reason)
+      : o.reason;
+    // #120 — when a rewrite landed, append `(rewrote <orig>→<new>)`
+    // so the per-skill line carries the rewrite footprint without
+    // forcing the principal to open the portability report.
+    if (o.descriptionRewrite) {
+      suffix += ` (rewrote ${o.descriptionRewrite.originalLength}→${o.descriptionRewrite.rewrittenLength} via ${o.descriptionRewrite.agent})`;
+    }
     lines.push(`  - ${o.kebabName} [${o.tag}] → ${o.disposition} (${reason})${suffix}`);
   }
   lines.push("");
   lines.push(
-    `Totals: ${result.writtenCount} written, ${result.skippedIdempotentCount} skipped-idempotent, ${result.skippedClaudeSpecificCount} skipped-claude-specific, ${result.refusedOtherCount} refused-other.`,
+    `Totals: ${result.writtenCount} written, ${result.skippedIdempotentCount} skipped-idempotent, ${result.skippedClaudeSpecificCount} skipped-claude-specific, ${result.refusedOtherCount} refused-other, ${result.refusedDescriptionLimitCount} refused-description-limit.`,
   );
+  if (result.descriptionRewrittenCount > 0) {
+    lines.push(
+      `Descriptions rewritten this run: ${result.descriptionRewrittenCount} via ${result.rewriteDescriptionsAgent}.`,
+    );
+  }
   if (result.substrateVerifySummary) {
     for (const substrate of result.smokeSubstrates) {
       const bucket = result.substrateVerifySummary[substrate];
@@ -2191,6 +2250,11 @@ function formatClaudeSkillsMigrationResult(result: ClaudeSkillsMigrationResult):
   if (result.skippedClaudeSpecificCount > 0 && !result.includeClaudeSpecific) {
     lines.push(
       `${result.skippedClaudeSpecificCount} skill(s) refused-claude-specific — re-run with --include-claude-specific to import them anyway.`,
+    );
+  }
+  if (result.refusedDescriptionLimitCount > 0) {
+    lines.push(
+      `${result.refusedDescriptionLimitCount} skill(s) refused-description-limit — re-run with --rewrite-descriptions claude (or codex/pi) to compress oversize descriptions via LLM.`,
     );
   }
   lines.push("");
@@ -2221,18 +2285,29 @@ function formatClaudeSkillsMigrationStatus(
 
 function countOutcomesByDisposition(
   outcomes: readonly { disposition: string }[],
-): { imported: number; skippedIdempotent: number; skippedClaudeSpecific: number; refusedOther: number } {
+): {
+  imported: number;
+  skippedIdempotent: number;
+  skippedClaudeSpecific: number;
+  refusedOther: number;
+  // #120 — count of outcomes in the new `refused-description-limit`
+  // disposition. Surfaced in the plan/apply totals lines so a
+  // principal can see the rewrite-flag opportunity at a glance.
+  refusedDescriptionLimit: number;
+} {
   let imported = 0;
   let skippedIdempotent = 0;
   let skippedClaudeSpecific = 0;
   let refusedOther = 0;
+  let refusedDescriptionLimit = 0;
   for (const o of outcomes) {
     if (o.disposition === "imported") imported += 1;
     else if (o.disposition === "skipped-idempotent") skippedIdempotent += 1;
     else if (o.disposition === "skipped-claude-specific") skippedClaudeSpecific += 1;
     else if (o.disposition === "refused-other") refusedOther += 1;
+    else if (o.disposition === "refused-description-limit") refusedDescriptionLimit += 1;
   }
-  return { imported, skippedIdempotent, skippedClaudeSpecific, refusedOther };
+  return { imported, skippedIdempotent, skippedClaudeSpecific, refusedOther, refusedDescriptionLimit };
 }
 
 function formatPaiImportPlan(plan: PaiImportPlan): string {
