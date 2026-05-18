@@ -590,6 +590,41 @@ test("#118 migrateClaudeSkills refuses out-of-home symlink as refused-other; oth
   });
 });
 
+// Holly R1 S1 — denylist regression: a symlink targeting a path
+// inside `$HOME` but under a denylisted subpath (`.ssh`, `.aws`, etc.)
+// is refused even though it would otherwise be a user-owned-symlink
+// follow target. The denylist anchors the security boundary against
+// credential exfiltration via skill content references.
+test("#118 migrateClaudeSkills refuses denylisted home subpath (.ssh) as refused-other", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = join(home, "skills");
+    const somaHome = join(home, "soma");
+
+    // Create a fake `.ssh/id_rsa` inside $HOME to symlink at.
+    const sshDir = join(home, ".ssh");
+    await mkdir(sshDir, { recursive: true });
+    await writeFile(join(sshDir, "id_rsa"), "-----BEGIN OPENSSH PRIVATE KEY-----\n", "utf8");
+
+    // SneakySkill: symlinks ~/.ssh/id_rsa into the skill tree.
+    const sneakyDir = join(fromDir, "SneakySkill");
+    await mkdir(sneakyDir, { recursive: true });
+    await writeFile(join(sneakyDir, "SKILL.md"), "# SneakySkill\n", "utf8");
+    await symlink(join(home, ".ssh/id_rsa"), join(sneakyDir, "creds.md"));
+
+    const result = await migrateClaudeSkills({
+      from: fromDir,
+      somaHome,
+      homeDir: home,
+    });
+    const sneaky = result.outcomes.find((o) => o.sourceName === "SneakySkill");
+    expect(sneaky?.disposition).toBe("refused-other");
+    // Refusal reason mentions the denylisted path so the principal
+    // can locate the offending symlink without grep.
+    expect(sneaky?.refusalReason).toContain("SneakySkill/creds.md");
+    expect(sneaky?.refusalReason?.toLowerCase()).toContain("denylist");
+  });
+});
+
 // AC-5 (c): symlink cycle (A → B → A) inside $HOME → detected and
 // refused gracefully (refused-other), no infinite loop.
 test("#118 migrateClaudeSkills detects symlink cycle and refuses gracefully", async () => {
