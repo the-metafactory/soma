@@ -7,6 +7,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-05-18
+
+### Added — Canonical PAI migration sprint
+
+- `soma migrate pai --pai-repo <root>` — single-flag derivation of `--pai-source-dir` + `--pai-packs-dir` from canonical PAI layout (`Releases/<latest-semver>/.claude/PAI` + `Packs/`). Proper semver compare (not lexical). Explicit flags override derivation. ([#98], [#100])
+- Memory taxonomy alignment — `SOMA_BOOTSTRAP_DIRECTORIES` extended to the canonical 19 PAI v5.0.0 categories (17 substrate-neutral + 2 PAI-bound: `PAISYSTEMUPDATES`, `AUTO`). Each new dir ships a `README.md` with provenance. ([#88], [#93])
+- `soma import pai-docs --pai-source-dir <path>` — new CLI verb importing the in-scope subset (`DOCUMENTATION/`, `TEMPLATES/`, `ALGORITHM/`) of a PAI release tree into `~/.soma/PAI/`. Per-file SHA manifest, escape guards, idempotent re-import. ([#89], [#94])
+- `soma migrate pai` orchestration extended — memory translation (per DD-2 mapping table), bulk pack import, docs import wrap, idempotency manifest, `--status` summary, `--skip-{memory,skills,docs}` flags, `--overwrite-reserved`. ([#90], [#95])
+- Importer deterministic rewrites — `~/.claude/PAI/{DOCUMENTATION,TEMPLATES,ALGORITHM,MEMORY}/` paths rewritten to their Soma equivalents instead of falling through to the UNMAPPED catch-all. ([#91], [#96])
+- `pilot+Holly` review path documented as the canonical review surface for Soma PRs (Sage daemon retained as backup). All PRs in this release routed through Holly via Discord-listening reviewer bot.
+
+### Added — Claude-skills migration path
+
+- `soma migrate claude-skills --from <path>` — second migration path that reads the installed skills tree (`~/.claude/skills/` or any PAI release's `.claude/skills/`). Bypasses the collection-pack collision soup in `~/work/PAI/Packs/` by reading the clean, deduplicated installed form. ([#115 Phase 1], [#116])
+- Per-skill portability classifier — `portable | needs-adapt | claude-specific`. Heuristic regex detection of `~/.claude/...` refs, hook bindings (`Stop:`, `UserPromptSubmit:`, etc.), `/<slash-command>` references. `needs-adapt` runs through the deterministic rewriter; `claude-specific` skipped unless `--include-claude-specific`. ([#115 Phase 1])
+- Composite source SHA — hashes every collected file (sorted `relPath:sha` join), so sibling edits trigger re-import (not just `SKILL.md` changes). Per-skill manifest at `~/.soma/imports/claude-skills/.manifest.json`. Portability report at `.portability-report.md`. ([#115 Phase 1])
+- `soma migrate claude-skills --smoke codex|pi-dev|all` — substrate verification phase. After import, projects each skill into the named substrate(s) and runs static shape checks (frontmatter parse, metadata fields, no dangling refs, no substrate-only primitives, sane file sizes). Per-substrate verdict (`verified` / `verified-with-warnings` / `failed`) recorded in manifest + report. Idempotent (verified+unchanged skips). ([#115 Phase 2], [#117])
+- User-owned symlink follow — symlinks whose realpath resolves within `$HOME` (and outside denylisted subpaths: `.ssh`, `.aws`, `.gnupg`, `.kube`, `.docker`) are FOLLOWED + target bytes imported as if at the symlink path. Per-walk cycle detection. Out-of-home symlinks classify the containing skill as `refused-other` (other skills continue). Three nesting cases handled: top-level `<Name>/SKILL.md`, inner file, inner directory. ([#118], [#119])
+
+### Added — Migration UX
+
+- Per-pack outcome enum (`PaiPackOutcome`): `imported` | `refused-substrate-specific`/`unrecognized-layout` | `refused-reserved` | `refused-other` | `refused-name-collision`. Bulk-pack phase log-and-continues on per-pack failures instead of aborting the whole orchestration. ([#97], [#99])
+- Plan-mode log-and-continue mirror for `migrate pai` planning phase (#97 fix was apply-only). ([#102], [#103])
+- Plan-mode exit semantics — `soma migrate pai` (no `--apply`) exits 0 even with `refused-other` packs; apply mode keeps exit 1 per #97 AC-4. Footer line still emitted in both modes. ([#112], [#113])
+- Renamed `substrate-specific` classification → `unrecognized-layout` (more honest — the original was a misleading catch-all label). Legacy `--include-substrate-specific` flag accepted as deprecated alias with stderr warning. ([#106], [#110])
+- `noise` classification — silently skips well-known editor/IDE/language infrastructure files (`.gitignore`, `bun.lock`, `package.json` without SKILL.md sibling, `.cursor/**`, `.vscode/**`, etc.). Files counted in audit but not in outcome refusal lists. ([#106], [#110])
+- Collapsed plan output — per-pack counts instead of file dumps. Full lists in `~/.soma/profile/imports/claude/MIGRATION.md`. `--verbose` flag emits inline lists. Footer suggestion lines for unrecognized-layout / reserved outcomes. ([#106], [#110])
+- Nested skill bundle support — PAI pack with N nested `src/<Name>/SKILL.md` skills imports as N separate Soma skills. Closes most refused-substrate-specific cases on real PAI Packs (`art`, `thinking`, `utilities`, etc.). ([#105], [#108])
+- Nested-bundle detection fix — addressed pack-level outcome poisoning where one unrecognized sibling file refused the whole pack. Per-file partial-import semantics. ([#109], [#111])
+- Editor-config symlink skip — `.cursor/`, `.vscode/`, `.idea/`, `.fleet/`, `.zed/` symlinks skipped quietly (with audit entry) instead of aborting the pack. ([#104], [#107])
+
+### Added — Documentation
+
+- `docs/migration-from-pai.md` — full user-facing PAI→Soma migration walkthrough: prereqs, plan, apply, override derivation, per-substrate install (Claude Code, Codex, Pi.dev), verification, troubleshooting, re-migration, what changes after migration. ([#101], [#92])
+- DD-1 (Soma is the canonical home), DD-2 (PAI v5.0.0 taxonomy adoption), DD-3 (`migrate` verb reinstated for system-to-system orchestration). ([#92])
+
+[#88]: https://github.com/the-metafactory/soma/issues/88
+[#89]: https://github.com/the-metafactory/soma/issues/89
+[#90]: https://github.com/the-metafactory/soma/issues/90
+[#91]: https://github.com/the-metafactory/soma/issues/91
+[#92]: https://github.com/the-metafactory/soma/pull/92
+[#93]: https://github.com/the-metafactory/soma/pull/93
+[#94]: https://github.com/the-metafactory/soma/pull/94
+[#95]: https://github.com/the-metafactory/soma/pull/95
+[#96]: https://github.com/the-metafactory/soma/pull/96
+[#97]: https://github.com/the-metafactory/soma/issues/97
+[#98]: https://github.com/the-metafactory/soma/issues/98
+[#99]: https://github.com/the-metafactory/soma/pull/99
+[#100]: https://github.com/the-metafactory/soma/pull/100
+[#101]: https://github.com/the-metafactory/soma/pull/101
+[#102]: https://github.com/the-metafactory/soma/issues/102
+[#103]: https://github.com/the-metafactory/soma/pull/103
+[#104]: https://github.com/the-metafactory/soma/issues/104
+[#105]: https://github.com/the-metafactory/soma/issues/105
+[#106]: https://github.com/the-metafactory/soma/issues/106
+[#107]: https://github.com/the-metafactory/soma/pull/107
+[#108]: https://github.com/the-metafactory/soma/pull/108
+[#109]: https://github.com/the-metafactory/soma/issues/109
+[#110]: https://github.com/the-metafactory/soma/pull/110
+[#111]: https://github.com/the-metafactory/soma/pull/111
+[#112]: https://github.com/the-metafactory/soma/issues/112
+[#113]: https://github.com/the-metafactory/soma/pull/113
+[#115 Phase 1]: https://github.com/the-metafactory/soma/pull/116
+[#115 Phase 2]: https://github.com/the-metafactory/soma/pull/117
+[#116]: https://github.com/the-metafactory/soma/pull/116
+[#117]: https://github.com/the-metafactory/soma/pull/117
+[#118]: https://github.com/the-metafactory/soma/issues/118
+[#119]: https://github.com/the-metafactory/soma/pull/119
+
 ## [0.3.2] - 2026-05-17
 
 ### Changed
