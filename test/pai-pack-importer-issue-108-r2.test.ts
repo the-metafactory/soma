@@ -294,6 +294,108 @@ test("R2 #4: planPaiMigration and migratePai produce matching per-pack outcomes 
 });
 
 // ───────────────────────────────────────────────────────────────────────
+// R5 #2 (Security, blocker): forged handles are rejected
+// ───────────────────────────────────────────────────────────────────────
+
+test("R5 #2: importPaiPackFromPlan rejects a forged handle (not produced by planPaiPackImportHandle)", async () => {
+  await withTempHome(async (home) => {
+    const somaHome = join(home, ".soma");
+    await mkdir(somaHome, { recursive: true });
+    // Forge a handle that matches the structural interface but was
+    // NOT registered in the module-private trusted WeakSet.
+    const forged = { __brand: "PaiPackImportPlanHandle" as const };
+    await expect(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      importPaiPackFromPlan(forged as any, { overwrite: false }),
+    ).rejects.toThrow(/was not produced by planPaiPackImportHandle/i);
+  });
+});
+
+test("R5 #2: importPaiPackFromPlan rejects null and non-object handles", async () => {
+  await expect(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    importPaiPackFromPlan(null as any),
+  ).rejects.toThrow(/must be a PaiPackImportPlanHandle/i);
+  await expect(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    importPaiPackFromPlan("nope" as any),
+  ).rejects.toThrow(/must be a PaiPackImportPlanHandle/i);
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// R5 #1 (CodeQuality, important): nested SKILL.md descriptions are preserved
+// ───────────────────────────────────────────────────────────────────────
+
+test("R5 #1: nested skill's own SKILL.md description is preserved (not clobbered with generic string)", async () => {
+  await withTempHome(async (home) => {
+    const packDir = join(home, "pack");
+    await mkdir(join(packDir, "src/Remotion/Workflows"), { recursive: true });
+    await writeFile(
+      join(packDir, "README.md"),
+      "---\nname: MultiSkillPack\ndescription: Pack-level description.\n---\n\n# MultiSkillPack\n",
+      "utf8",
+    );
+    await writeFile(join(packDir, "INSTALL.md"), "# Install\n", "utf8");
+    await writeFile(join(packDir, "VERIFY.md"), "# Verify\n", "utf8");
+    // Nested skill with its OWN, distinctive description.
+    const nestedDescription = "Render videos via Remotion from React components.";
+    await writeFile(
+      join(packDir, "src/Remotion/SKILL.md"),
+      `---\nname: Remotion\ndescription: ${nestedDescription}\n---\n\n# Remotion\n`,
+      "utf8",
+    );
+    await writeFile(
+      join(packDir, "src/Remotion/Workflows/Render.md"),
+      "# Render\n",
+      "utf8",
+    );
+    const somaHome = join(home, ".soma");
+    await importPaiPack({ homeDir: home, paiPackDir: packDir, somaHome });
+
+    // The nested skill's SKILL.md MUST carry its own description in
+    // the rewritten frontmatter — NOT the generic
+    // `Imported PAI nested skill: Remotion` string.
+    const remotionSkillMd = await readFile(join(somaHome, "skills/remotion/SKILL.md"), "utf8");
+    expect(remotionSkillMd).toContain(nestedDescription);
+    expect(remotionSkillMd).not.toContain("Imported PAI nested skill");
+
+    // Same in the soma-skill.json manifest.
+    const remotionManifestRaw = await readFile(join(somaHome, "skills/remotion/soma-skill.json"), "utf8");
+    const remotionManifest = JSON.parse(remotionManifestRaw) as { description?: string };
+    expect(remotionManifest.description).toBe(nestedDescription);
+  });
+});
+
+test("R5 #1: nested skill missing description falls back to generic", async () => {
+  await withTempHome(async (home) => {
+    const packDir = join(home, "pack");
+    await mkdir(join(packDir, "src/Bare/Workflows"), { recursive: true });
+    await writeFile(
+      join(packDir, "README.md"),
+      "---\nname: BarePack\ndescription: Bare pack.\n---\n\n# BarePack\n",
+      "utf8",
+    );
+    await writeFile(join(packDir, "INSTALL.md"), "# Install\n", "utf8");
+    await writeFile(join(packDir, "VERIFY.md"), "# Verify\n", "utf8");
+    // Nested SKILL.md without a description field at all.
+    await writeFile(
+      join(packDir, "src/Bare/SKILL.md"),
+      "---\nname: Bare\n---\n\n# Bare\n",
+      "utf8",
+    );
+    await writeFile(join(packDir, "src/Bare/Workflows/Default.md"), "# Default\n", "utf8");
+    const somaHome = join(home, ".soma");
+    await importPaiPack({ homeDir: home, paiPackDir: packDir, somaHome });
+
+    const manifestRaw = await readFile(join(somaHome, "skills/bare/soma-skill.json"), "utf8");
+    const manifest = JSON.parse(manifestRaw) as { description?: string };
+    // Fallback string is the generic one (this is the legacy behavior
+    // for a nested skill that genuinely has no description).
+    expect(manifest.description).toContain("Imported PAI nested skill");
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
 // R3 #3 (CodeQuality): flat-vs-nested collision sources use RAW name
 // ───────────────────────────────────────────────────────────────────────
 
@@ -342,76 +444,34 @@ test("R3 #3: FLAT-vs-nested collision refusal reports RAW nested dir name (not k
 // ───────────────────────────────────────────────────────────────────────
 
 /**
- * Sage r4 #108 — a pack that plans cleanly but fails mid-apply must
- * NOT block a later pack from importing the same derived skill slug.
- * The cross-pack collision set may only grow after a real, completed
- * apply. To force a deterministic apply-time failure for the first
- * pack while keeping the second pack clean, we plant a non-empty FILE
- * at the staging tmp root the importer would use, so `mkdir`-ing the
- * stage path throws — surfacing as `refused-other` for pack-a; pack-b
- * with the same slug should still land as `imported`.
+ * Sage r4 #108 contract: a pack that fails mid-apply MUST NOT reserve
+ * its derived skill slug for cross-pack collision tracking. Pack-a
+ * fails as `refused-other`; pack-b with the same slug should still
+ * be attempted (and either land cleanly or fail on its own merits)
+ * rather than spuriously refused as `refused-name-collision`.
  *
- * Note: the apply path uses `stageRoot = join(somaHome, '.tmp',
- * 'pai-pack-<slug>-<ts>-<rand>')`, so a parent file at
- * `<somaHome>/.tmp` itself blocks every pack's mkdir attempt. We need
- * a more surgical failure for pack-a specifically. Easier: use a
- * within-pack defect — e.g., a fragile constructed pack where some
- * file path escapes containment — and pair it with a healthy pack-b.
- * Simplest reliable construction: pack-a has a NESTED skill name that
- * is structurally reserved by the pack importer (`soma`), which
- * triggers `PaiPackReservedNameRefusal` AT THE INNER PACK LEVEL but
- * does NOT raise `refused-other` — Sage's concern was specifically
- * about apply-throw paths that hit the `catch (error)` block. We
- * instead simulate the issue by:
- *   - pack-a: VALID plan, INVALID apply (introduce a writable-conflict
- *     by pre-creating the destination skill DIRECTORY as a FILE so
- *     `rename` during promotion throws).
- *   - pack-b: same slug, valid all the way through.
+ * To produce a deterministic apply-time `refused-other`, pack-a is
+ * built with a forbidden path the importer rejects during enumeration
+ * (`PAI pack import refused likely secret file(s):`). The migrate
+ * orchestrator catches this as `refused-other` (it's a plain Error,
+ * not a typed refusal). Pack-b is a clean pack with the same skill
+ * slug.
  */
-test("R4 #1: failed apply does NOT reserve slug — later pack with same slug still lands", async () => {
+test("R4 #1: pack-a failure does NOT reserve slug — pack-b with same slug still attempted", async () => {
   await withTempHome(async (home) => {
     const packsDir = join(home, "PAI/Packs");
     await mkdir(packsDir, { recursive: true });
     await writePaiIdentityFixture(home);
 
-    // Two packs with the same skill name. Pack-a will fail at apply
-    // time; pack-b should still land because pack-a wrote nothing.
+    // pack-a sorts before pack-b alphabetically. Build pack-a with a
+    // file the importer refuses to enumerate (a `.env`).
     const packA = join(packsDir, "pack-a");
-    const packB = join(packsDir, "pack-b");
     await writeFlatPack(packA, "Shared");
-    await writeFlatPack(packB, "Shared");
+    await writeFile(join(packA, ".env"), "SECRET=oops\n", "utf8");
 
-    // Force pack-a to fail at apply by pre-creating the target skill
-    // path as a FILE (not directory). The importer's promotion step
-    // refuses to overwrite a non-directory; `rename` over a file
-    // location either throws or leaves the pre-existing file. Either
-    // way pack-a's outcome lands as `refused-other`, while pack-b
-    // (sorted SECOND in the iteration: `pack-a` < `pack-b`) must
-    // still land.
-    //
-    // Sorted-by-path order is alphabetical, so pack-a is attempted
-    // first. We can't easily fail it without invasive setup; instead
-    // use a smaller, equivalent integration: pack-a has the SAME
-    // skill name as a Soma RESERVED slug (`isa`), so the migrate-level
-    // pre-check refuses it as `refused-reserved` — which has the same
-    // semantic shape as `refused-other` for collision-reservation
-    // purposes: pack-a never wrote anything.
-    //
-    // Actually `refused-reserved` is caught BEFORE the apply path is
-    // entered, so it never touches `landedSlugs` in either the pre-R4
-    // walker OR the new inline implementation. To genuinely exercise
-    // R4's contract we need a pack that plans + clears reserved but
-    // then fails on apply. The simplest way: pre-create a file at the
-    // archive target so the archive's `mkdir -p` fails — but the
-    // importer uses tmp-stage + rename, so it doesn't hit the
-    // archive until promotion. Cleanest reliable approach: pre-create
-    // a READ-ONLY directory at the skill target path; the promotion
-    // step's rename fails because it can't replace a non-empty
-    // readonly dir.
-    await mkdir(join(home, ".soma/skills/shared"), { recursive: true });
-    // Plant a file inside so rename refuses to overwrite a non-empty
-    // dir on macOS / Linux behaviour.
-    await writeFile(join(home, ".soma/skills/shared/blocker.txt"), "blocker\n", "utf8");
+    // pack-b is clean and produces the same derived skill slug.
+    const packB = join(packsDir, "pack-b");
+    await writeFlatPack(packB, "Shared");
 
     const result = await migratePai({
       homeDir: home,
@@ -422,24 +482,13 @@ test("R4 #1: failed apply does NOT reserve slug — later pack with same slug st
       skipDocs: true,
     });
 
-    // pack-a's outcome should NOT be `refused-name-collision` (pack-b
-    // is the second one sorted, but the test is about pack-b too).
-    const packAOutcomes = result.packOutcomes.filter((o) => o.paiPackDir === packA);
+    // pack-a fails (refused-other) — its slug "shared" was never
+    // reserved. pack-b is therefore free to land its own "shared".
     const packBOutcomes = result.packOutcomes.filter((o) => o.paiPackDir === packB);
-    // pack-a fails apply because the destination exists non-empty
-    // with `overwrite: true` from migration — actually overwrite IS
-    // set, so this might succeed. The test still pins the right
-    // contract: if BOTH packs land successfully, no collision is
-    // reported; if pack-a fails for some other reason, pack-b STILL
-    // gets a chance.
-    const hasCollisionForB = packBOutcomes.some((o) => o.outcome === "refused-name-collision");
-    const hasOtherFailureForA = packAOutcomes.some((o) => o.outcome === "refused-other");
-    if (hasOtherFailureForA) {
-      // Pre-R4: pack-b would record refused-name-collision spuriously
-      // because pack-a had already reserved the slug. Post-R4: pack-b
-      // is free to attempt and either imports or fails on its own
-      // merits — but NOT as a cross-pack collision.
-      expect(hasCollisionForB).toBe(false);
-    }
+    const packBCollision = packBOutcomes.find((o) => o.outcome === "refused-name-collision");
+    expect(packBCollision).toBeUndefined();
+    // Pack-b must have landed successfully — its "shared" skill is on disk.
+    const packBImported = packBOutcomes.find((o) => o.outcome === "imported" && o.skillName === "shared");
+    expect(packBImported).toBeDefined();
   });
 });
