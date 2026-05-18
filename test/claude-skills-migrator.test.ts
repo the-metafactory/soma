@@ -40,11 +40,33 @@ interface SkillFile {
 }
 
 interface WriteSkillOptions {
-  // Body of `SKILL.md`. Frontmatter is optional — the migrator never
-  // parses it; tests can pass plain body content.
+  // Body of `SKILL.md`. Frontmatter is optional — when the body
+  // doesn't start with `---` we prepend a minimal valid frontmatter
+  // block (#120: substrates require it; tests that exercise the
+  // pre-#120 behavior should opt into the bare body via passing
+  // a string that already starts with `---`).
   skillMd: string;
   // Optional extra payload files under the skill dir.
   extra?: SkillFile[];
+}
+
+// #120 — default frontmatter prepended to test fixtures whose
+// `skillMd` doesn't already carry a `---` block. Keeps the existing
+// pre-#120 tests passing under the new substrate-cap-aware
+// classifier. Tests that explicitly need a missing-frontmatter
+// scenario pass body content that doesn't start with `---` AND
+// trigger the missing-path lane via the migrator's behavior — the
+// test stays in control by checking the resulting outcome status.
+const DEFAULT_TEST_FRONTMATTER =
+  "---\nname: TestSkill\ndescription: \"short test skill description\"\n---\n\n";
+
+// #120 — test-only helper: prepend the default frontmatter to a
+// SKILL.md body when it's missing. Direct-write tests (#118 symlink
+// suite, etc.) use this so they don't regress on the new substrate-
+// cap classifier. Identical to the `writeFlatSkillsFixture` injector
+// but exposed standalone for tests that build their tree manually.
+function withDefaultFrontmatter(body: string): string {
+  return body.startsWith("---") ? body : DEFAULT_TEST_FRONTMATTER + body;
 }
 
 async function writeFlatSkillsFixture(
@@ -55,7 +77,10 @@ async function writeFlatSkillsFixture(
   for (const [name, opts] of Object.entries(skills)) {
     const dir = join(fromDir, name);
     await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, "SKILL.md"), opts.skillMd, "utf8");
+    const body = opts.skillMd.startsWith("---")
+      ? opts.skillMd
+      : DEFAULT_TEST_FRONTMATTER + opts.skillMd;
+    await writeFile(join(dir, "SKILL.md"), body, "utf8");
     for (const extra of opts.extra ?? []) {
       const target = join(dir, ...extra.relPath.split("/"));
       await mkdir(join(target, ".."), { recursive: true });
@@ -453,7 +478,7 @@ test("#118 migrateClaudeSkills follows user-owned symlink to FILE inside $HOME",
     const skillDir = join(fromDir, "WithLink");
     await mkdir(skillDir, { recursive: true });
     await mkdir(join(skillDir, "Workflows"), { recursive: true });
-    await writeFile(join(skillDir, "SKILL.md"), "# WithLink\n\nclean.\n", "utf8");
+    await writeFile(join(skillDir, "SKILL.md"), withDefaultFrontmatter("# WithLink\n\nclean.\n"), "utf8");
     // External (still inside $HOME) target file.
     const externalDir = join(home, "external");
     await mkdir(externalDir, { recursive: true });
@@ -490,12 +515,12 @@ test("#118 migrateClaudeSkills walks user-owned symlinked DIRECTORY recursively"
     const fromDir = join(home, "skills");
     const skillDir = join(fromDir, "Business");
     await mkdir(skillDir, { recursive: true });
-    await writeFile(join(skillDir, "SKILL.md"), "# Business\n\ntop-level skill.\n", "utf8");
+    await writeFile(join(skillDir, "SKILL.md"), withDefaultFrontmatter("# Business\n\ntop-level skill.\n"), "utf8");
 
     // External skill (private worktree) — has its own subtree.
     const externalAccounting = join(home, "work/invisible/Accounting");
     await mkdir(join(externalAccounting, "Workflows"), { recursive: true });
-    await writeFile(join(externalAccounting, "SKILL.md"), "# Accounting\n\nprivate skill.\n", "utf8");
+    await writeFile(join(externalAccounting, "SKILL.md"), withDefaultFrontmatter("# Accounting\n\nprivate skill.\n"), "utf8");
     await writeFile(join(externalAccounting, "Workflows/Compute.md"), "# Compute\n\nstep one\n", "utf8");
 
     // Symlink the Accounting subdir inside Business/.
@@ -542,7 +567,7 @@ test("#118 migrateClaudeSkills follows user-owned symlinked top-level SKILL.md",
     await mkdir(skillDir, { recursive: true });
     const realSkill = join(home, "external/Linked-SKILL.md");
     await mkdir(join(home, "external"), { recursive: true });
-    await writeFile(realSkill, "# Linked\n\nfollowed top-level.\n", "utf8");
+    await writeFile(realSkill, withDefaultFrontmatter("# Linked\n\nfollowed top-level.\n"), "utf8");
     await symlink(realSkill, join(skillDir, "SKILL.md"));
 
     const result = await migrateClaudeSkills({
@@ -566,13 +591,13 @@ test("#118 migrateClaudeSkills refuses out-of-home symlink as refused-other; oth
     // BadSkill: symlinks /etc/passwd into the skill tree.
     const badDir = join(fromDir, "BadSkill");
     await mkdir(badDir, { recursive: true });
-    await writeFile(join(badDir, "SKILL.md"), "# BadSkill\n", "utf8");
+    await writeFile(join(badDir, "SKILL.md"), withDefaultFrontmatter("# BadSkill\n"), "utf8");
     await symlink("/etc/passwd", join(badDir, "danger.md"));
 
     // GoodSkill: clean import next to it.
     const goodDir = join(fromDir, "GoodSkill");
     await mkdir(goodDir, { recursive: true });
-    await writeFile(join(goodDir, "SKILL.md"), "# GoodSkill\n\nclean.\n", "utf8");
+    await writeFile(join(goodDir, "SKILL.md"), withDefaultFrontmatter("# GoodSkill\n\nclean.\n"), "utf8");
 
     const result = await migrateClaudeSkills({
       from: fromDir,
@@ -608,7 +633,7 @@ test("#118 migrateClaudeSkills refuses denylisted home subpath (.ssh) as refused
     // SneakySkill: symlinks ~/.ssh/id_rsa into the skill tree.
     const sneakyDir = join(fromDir, "SneakySkill");
     await mkdir(sneakyDir, { recursive: true });
-    await writeFile(join(sneakyDir, "SKILL.md"), "# SneakySkill\n", "utf8");
+    await writeFile(join(sneakyDir, "SKILL.md"), withDefaultFrontmatter("# SneakySkill\n"), "utf8");
     await symlink(join(home, ".ssh/id_rsa"), join(sneakyDir, "creds.md"));
 
     const result = await migrateClaudeSkills({
@@ -632,7 +657,7 @@ test("#118 migrateClaudeSkills detects symlink cycle and refuses gracefully", as
     const fromDir = join(home, "skills");
     const skillDir = join(fromDir, "Cyclic");
     await mkdir(skillDir, { recursive: true });
-    await writeFile(join(skillDir, "SKILL.md"), "# Cyclic\n", "utf8");
+    await writeFile(join(skillDir, "SKILL.md"), withDefaultFrontmatter("# Cyclic\n"), "utf8");
     // Build a cycle entirely inside $HOME: dirA → dirB → dirA.
     const dirA = join(home, "cycle/a");
     const dirB = join(home, "cycle/b");
@@ -662,7 +687,7 @@ test("#118 migrateClaudeSkills rejects symlink chain escaping $HOME", async () =
     const fromDir = join(home, "skills");
     const skillDir = join(fromDir, "Escape");
     await mkdir(skillDir, { recursive: true });
-    await writeFile(join(skillDir, "SKILL.md"), "# Escape\n", "utf8");
+    await writeFile(join(skillDir, "SKILL.md"), withDefaultFrontmatter("# Escape\n"), "utf8");
     // hop is inside $HOME but points OUTSIDE.
     const hop = join(home, "hop");
     await symlink("/etc/passwd", hop);
@@ -692,7 +717,7 @@ test("#118 migrateClaudeSkills refuses out-of-home symlinked top-level SKILL.md;
     await symlink("/etc/passwd", join(badDir, "SKILL.md"));
     const goodDir = join(fromDir, "Sibling");
     await mkdir(goodDir, { recursive: true });
-    await writeFile(join(goodDir, "SKILL.md"), "# Sibling\n\nclean.\n", "utf8");
+    await writeFile(join(goodDir, "SKILL.md"), withDefaultFrontmatter("# Sibling\n\nclean.\n"), "utf8");
 
     const result = await migrateClaudeSkills({
       from: fromDir,
@@ -719,7 +744,7 @@ test("#118 real-world repro: Business/Accounting → ~/work/invisible/Accounting
     await mkdir(businessDir, { recursive: true });
     await writeFile(
       join(businessDir, "SKILL.md"),
-      "# Business\n\nBusiness operations skill.\n",
+      withDefaultFrontmatter("# Business\n\nBusiness operations skill.\n"),
       "utf8",
     );
     // Private worktree skill the user is developing.
@@ -727,7 +752,7 @@ test("#118 real-world repro: Business/Accounting → ~/work/invisible/Accounting
     await mkdir(join(privateAccounting, "Workflows"), { recursive: true });
     await writeFile(
       join(privateAccounting, "SKILL.md"),
-      "# Accounting\n\nPrivate accounting skill.\n",
+      withDefaultFrontmatter("# Accounting\n\nPrivate accounting skill.\n"),
       "utf8",
     );
     await writeFile(
@@ -741,7 +766,7 @@ test("#118 real-world repro: Business/Accounting → ~/work/invisible/Accounting
     // proceeds (regression for the original abort behavior).
     const otherDir = join(fromDir, "Other");
     await mkdir(otherDir, { recursive: true });
-    await writeFile(join(otherDir, "SKILL.md"), "# Other\n", "utf8");
+    await writeFile(join(otherDir, "SKILL.md"), withDefaultFrontmatter("# Other\n"), "utf8");
 
     const result = await migrateClaudeSkills({
       from: fromDir,
@@ -782,13 +807,13 @@ test("#118 followed user-owned symlink that carries .git/ imports cleanly", asyn
     const fromDir = join(home, "skills");
     const skillDir = join(fromDir, "Business");
     await mkdir(skillDir, { recursive: true });
-    await writeFile(join(skillDir, "SKILL.md"), "# Business\n", "utf8");
+    await writeFile(join(skillDir, "SKILL.md"), withDefaultFrontmatter("# Business\n"), "utf8");
     // External worktree: real skill files plus a .git/ marker that
     // would otherwise refuse the import.
     const ext = join(home, "work/private/Accounting");
     await mkdir(join(ext, "Workflows"), { recursive: true });
     await mkdir(join(ext, ".git"), { recursive: true });
-    await writeFile(join(ext, "SKILL.md"), "# Accounting\n", "utf8");
+    await writeFile(join(ext, "SKILL.md"), withDefaultFrontmatter("# Accounting\n"), "utf8");
     await writeFile(join(ext, "Workflows/Reconcile.md"), "# Reconcile\n", "utf8");
     await writeFile(join(ext, ".git/config"), "[core]\n", "utf8");
     await symlink(ext, join(skillDir, "Accounting"));
@@ -821,7 +846,7 @@ test("#118 .git inline in skill tree still refuses (no symlink)", async () => {
     const fromDir = join(home, "skills");
     const skillDir = join(fromDir, "Bad");
     await mkdir(join(skillDir, ".git"), { recursive: true });
-    await writeFile(join(skillDir, "SKILL.md"), "# Bad\n", "utf8");
+    await writeFile(join(skillDir, "SKILL.md"), withDefaultFrontmatter("# Bad\n"), "utf8");
     await writeFile(join(skillDir, ".git/config"), "[core]\n", "utf8");
 
     const result = await migrateClaudeSkills({
@@ -843,7 +868,7 @@ test("#118 portability report lists followed-user-owned-symlink audit entries", 
     const somaHome = join(home, "soma");
     const skillDir = join(fromDir, "Audit");
     await mkdir(skillDir, { recursive: true });
-    await writeFile(join(skillDir, "SKILL.md"), "# Audit\n", "utf8");
+    await writeFile(join(skillDir, "SKILL.md"), withDefaultFrontmatter("# Audit\n"), "utf8");
     const external = join(home, "ext.md");
     await writeFile(external, "# Ext\n", "utf8");
     await symlink(external, join(skillDir, "Ext.md"));
@@ -886,3 +911,334 @@ test("readClaudeSkillsMigrationStatus returns the manifest after apply", async (
     expect(status?.skills[0]?.kebabName).toBe("portable");
   });
 });
+
+// ---------------------------------------------------------------------
+// #120 — --rewrite-descriptions LLM rewrite for oversize / missing
+// SKILL.md descriptions. Tests use a STUB dispatcher to avoid
+// invoking real LLM subprocesses. The dispatcher returns
+// deterministic compressed text the migrator splices into the
+// frontmatter.
+// ---------------------------------------------------------------------
+
+/**
+ * A 1318-character description modeled on the real Apify skill that
+ * triggered this issue. Long enough to exceed the 1024 substrate cap
+ * yet structured (USE WHEN ... prose) so the rewrite path has
+ * something realistic to compress.
+ */
+const APIFY_LIKE_DESCRIPTION_1318 = (() => {
+  const base =
+    "Scrape social media platforms, business data, and e-commerce via Apify actors — Instagram profiles/posts/hashtags/comments, LinkedIn profiles/jobs/posts, TikTok profiles/hashtags/videos, Twitter, Facebook Pages, YouTube, Google Maps, Amazon Search. USE WHEN scrape, Apify, Instagram scraping, LinkedIn scraping, TikTok scraping, YouTube scraping, Google Maps scraping, Amazon scraping, social media data, business data extraction.";
+  // Pad to exactly 1318 chars with a realistic continuation so the
+  // shape mirrors a genuine PAI skill description rather than a wall
+  // of `a` characters.
+  const padding =
+    " Returns structured JSON for each actor; pagination, geo-filters, and rate-limit handling are passed through. NOT FOR generic web scraping (use BrightData or Browser skills) where Apify has no actor coverage; NOT FOR private-account scraping where authentication state must persist (use Interceptor). Pricing is per-actor-call and varies by platform; principals approve cost before running.";
+  let text = base + padding;
+  while (text.length < 1318) text += " ";
+  return text.slice(0, 1318);
+})();
+
+function buildSkillWithFrontmatterDescription(description: string): string {
+  // Quote the value so embedded colons / quotes don't break the parser.
+  // The migrator's frontmatter helpers handle a single matching outer
+  // quote pair correctly.
+  const escaped = description.replace(/"/g, "\\\"");
+  return [
+    "---",
+    "name: TestSkill",
+    `description: "${escaped}"`,
+    "---",
+    "",
+    "# TestSkill",
+    "",
+    "Body content here.",
+    "",
+  ].join("\n");
+}
+
+test("description ≤1024 chars + no rewrite agent → ok status, no rewrite recorded", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = join(home, "skills");
+    const somaHome = join(home, "soma");
+    await writeFlatSkillsFixture(fromDir, {
+      OkSkill: {
+        skillMd: buildSkillWithFrontmatterDescription("short and sweet description"),
+      },
+    });
+    const result = await migrateClaudeSkills({ from: fromDir, somaHome });
+    expect(result.writtenCount).toBe(1);
+    expect(result.refusedDescriptionLimitCount).toBe(0);
+    expect(result.descriptionRewrittenCount).toBe(0);
+    const outcome = result.outcomes.find((o) => o.sourceName === "OkSkill");
+    expect(outcome?.descriptionStatus?.kind).toBe("ok");
+    expect(outcome?.descriptionRewrite).toBeUndefined();
+  });
+});
+
+test("oversize description + agent absent → refused-description-limit, skill not written", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = join(home, "skills");
+    const somaHome = join(home, "soma");
+    await writeFlatSkillsFixture(fromDir, {
+      Apify: {
+        skillMd: buildSkillWithFrontmatterDescription(APIFY_LIKE_DESCRIPTION_1318),
+      },
+    });
+    const result = await migrateClaudeSkills({ from: fromDir, somaHome });
+    expect(result.writtenCount).toBe(0);
+    expect(result.refusedDescriptionLimitCount).toBe(1);
+    const outcome = result.outcomes.find((o) => o.sourceName === "Apify");
+    expect(outcome?.disposition).toBe("refused-description-limit");
+    expect(outcome?.descriptionStatus?.kind).toBe("oversize");
+    expect(outcome?.descriptionStatus?.length).toBe(APIFY_LIKE_DESCRIPTION_1318.length);
+    expect(outcome?.refusalReason).toContain("1024");
+    // Skill must not have landed.
+    await expect(
+      readFile(join(somaHome, "skills/apify/SKILL.md"), "utf8"),
+    ).rejects.toThrow();
+  });
+});
+
+test("missing frontmatter + agent absent → refused-description-limit", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = join(home, "skills");
+    const somaHome = join(home, "soma");
+    // Bypass the default-frontmatter injection — this test explicitly
+    // exercises the "no frontmatter at all" lane (the real-world
+    // mycelia skill). We write the SKILL.md byte-for-byte.
+    const dir = join(fromDir, "mycelia");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, "SKILL.md"),
+      "# Mycelia Network Skill\n\nBody without frontmatter.\n",
+      "utf8",
+    );
+    const result = await migrateClaudeSkills({ from: fromDir, somaHome });
+    expect(result.refusedDescriptionLimitCount).toBe(1);
+    const outcome = result.outcomes.find((o) => o.sourceName === "mycelia");
+    expect(outcome?.disposition).toBe("refused-description-limit");
+    expect(outcome?.descriptionStatus?.kind).toBe("missing");
+  });
+});
+
+test("oversize + --rewrite-descriptions claude (stubbed) → rewrites under cap and imports", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = join(home, "skills");
+    const somaHome = join(home, "soma");
+    await writeFlatSkillsFixture(fromDir, {
+      Apify: {
+        skillMd: buildSkillWithFrontmatterDescription(APIFY_LIKE_DESCRIPTION_1318),
+      },
+    });
+    const dispatchCalls: Array<{ agent: string; status: string; sourceName: string }> = [];
+    const result = await migrateClaudeSkills({
+      from: fromDir,
+      somaHome,
+      rewriteDescriptionsAgent: "claude",
+      rewriteDispatchOverride: async (req) => {
+        dispatchCalls.push({ agent: req.agent, status: req.status.kind, sourceName: req.sourceName });
+        // Return a deterministic 200-char compressed description so
+        // the test asserts on a known shape.
+        return "Apify actors for social + e-commerce scraping. USE WHEN scrape, Instagram, LinkedIn, TikTok, YouTube, Maps, Amazon. NOT FOR generic scraping (use BrightData/Browser) or auth-state (use Interceptor).";
+      },
+    });
+    expect(dispatchCalls.length).toBe(1);
+    expect(dispatchCalls[0]?.agent).toBe("claude");
+    expect(dispatchCalls[0]?.status).toBe("oversize");
+    expect(result.writtenCount).toBe(1);
+    expect(result.refusedDescriptionLimitCount).toBe(0);
+    expect(result.descriptionRewrittenCount).toBe(1);
+    const landedSkillMd = await readFile(join(somaHome, "skills/apify/SKILL.md"), "utf8");
+    expect(landedSkillMd).toContain("description: ");
+    // Find the description line and check length.
+    const descLine = landedSkillMd.split("\n").find((l) => l.startsWith("description:"));
+    expect(descLine).toBeDefined();
+    const desc = descLine!.slice("description: ".length).replace(/^"|"$/g, "");
+    expect(desc.length).toBeLessThanOrEqual(1024);
+    expect(desc.length).toBeLessThan(APIFY_LIKE_DESCRIPTION_1318.length);
+    // Manifest carries rewrite provenance.
+    const manifestRaw = await readFile(
+      join(somaHome, "imports/claude-skills/.manifest.json"),
+      "utf8",
+    );
+    expect(manifestRaw).toContain("descriptionRewrite");
+    expect(manifestRaw).toContain("\"agent\": \"claude\"");
+    // Outcome carries it too.
+    const outcome = result.outcomes.find((o) => o.sourceName === "Apify");
+    expect(outcome?.descriptionRewrite?.agent).toBe("claude");
+    expect(outcome?.descriptionRewrite?.originalLength).toBe(APIFY_LIKE_DESCRIPTION_1318.length);
+    expect(outcome?.descriptionRewrite?.rewrittenLength).toBeLessThanOrEqual(1024);
+  });
+});
+
+test("missing frontmatter + --rewrite-descriptions codex (stubbed) → synthesizes + imports", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = join(home, "skills");
+    const somaHome = join(home, "soma");
+    // Same as above — bypass the default-frontmatter injection.
+    const dir = join(fromDir, "mycelia");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, "SKILL.md"),
+      "# Mycelia Network Skill\n\nBody describing mycelia.\n",
+      "utf8",
+    );
+    let bodyReceived = "";
+    const result = await migrateClaudeSkills({
+      from: fromDir,
+      somaHome,
+      rewriteDescriptionsAgent: "codex",
+      rewriteDispatchOverride: async (req) => {
+        bodyReceived = req.skillMdBody;
+        return "Mycelia network skill - synthesized via body fallback. USE WHEN mycelia, network analysis.";
+      },
+    });
+    // Migrator passed the actual body bytes (the LLM synthesis lane).
+    expect(bodyReceived).toContain("# Mycelia Network Skill");
+    expect(result.writtenCount).toBe(1);
+    expect(result.descriptionRewrittenCount).toBe(1);
+    const landed = await readFile(join(somaHome, "skills/mycelia/SKILL.md"), "utf8");
+    expect(landed).toContain("---");
+    expect(landed).toContain("description: ");
+    expect(landed).toContain("Mycelia network skill");
+    const outcome = result.outcomes.find((o) => o.sourceName === "mycelia");
+    expect(outcome?.descriptionRewrite?.agent).toBe("codex");
+    expect(outcome?.descriptionStatus?.kind).toBe("missing");
+  });
+});
+
+test("rewrite idempotency: unchanged source description SHA skips dispatcher on rerun", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = join(home, "skills");
+    const somaHome = join(home, "soma");
+    await writeFlatSkillsFixture(fromDir, {
+      Apify: {
+        skillMd: buildSkillWithFrontmatterDescription(APIFY_LIKE_DESCRIPTION_1318),
+      },
+    });
+    let callCount = 0;
+    const stub = async () =>
+      "Apify scraper - compressed. USE WHEN Instagram, LinkedIn, TikTok scraping.";
+    const opts = {
+      from: fromDir,
+      somaHome,
+      rewriteDescriptionsAgent: "claude" as const,
+      rewriteDispatchOverride: async (req: { sourceName: string }) => {
+        callCount += 1;
+        void req;
+        return stub();
+      },
+    };
+    await migrateClaudeSkills(opts);
+    expect(callCount).toBe(1);
+    // Re-run with the SAME source description bytes — must NOT call
+    // the dispatcher again. The manifest's `originalDescriptionSha`
+    // is the idempotency anchor.
+    const second = await migrateClaudeSkills(opts);
+    expect(callCount).toBe(1);
+    expect(second.descriptionRewrittenCount).toBe(0);
+    // The skill is still imported — just not re-rewritten.
+    expect(second.skippedIdempotentCount).toBe(1);
+  });
+});
+
+test("rewrite re-runs when source description bytes change between invocations", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = join(home, "skills");
+    const somaHome = join(home, "soma");
+    await writeFlatSkillsFixture(fromDir, {
+      Apify: {
+        skillMd: buildSkillWithFrontmatterDescription(APIFY_LIKE_DESCRIPTION_1318),
+      },
+    });
+    let callCount = 0;
+    await migrateClaudeSkills({
+      from: fromDir,
+      somaHome,
+      rewriteDescriptionsAgent: "claude",
+      rewriteDispatchOverride: async () => {
+        callCount += 1;
+        return "Compressed v1.";
+      },
+    });
+    expect(callCount).toBe(1);
+    // Mutate the source description to a different oversize value.
+    await writeFlatSkillsFixture(fromDir, {
+      Apify: {
+        skillMd: buildSkillWithFrontmatterDescription(`X ${APIFY_LIKE_DESCRIPTION_1318}`),
+      },
+    });
+    const second = await migrateClaudeSkills({
+      from: fromDir,
+      somaHome,
+      rewriteDescriptionsAgent: "claude",
+      rewriteDispatchOverride: async () => {
+        callCount += 1;
+        return "Compressed v2 (after source bytes changed).";
+      },
+    });
+    expect(callCount).toBe(2);
+    expect(second.descriptionRewrittenCount).toBe(1);
+    const landed = await readFile(join(somaHome, "skills/apify/SKILL.md"), "utf8");
+    expect(landed).toContain("Compressed v2");
+  });
+});
+
+test("LLM returns >1024 once, ≤1024 on retry → accepts retry result", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = join(home, "skills");
+    const somaHome = join(home, "soma");
+    await writeFlatSkillsFixture(fromDir, {
+      Apify: {
+        skillMd: buildSkillWithFrontmatterDescription(APIFY_LIKE_DESCRIPTION_1318),
+      },
+    });
+    let attempt = 0;
+    const result = await migrateClaudeSkills({
+      from: fromDir,
+      somaHome,
+      rewriteDescriptionsAgent: "claude",
+      rewriteDispatchOverride: async () => {
+        attempt += 1;
+        if (attempt === 1) {
+          // Return a still-too-long string on the first attempt to
+          // force the retry path.
+          return "A".repeat(1100);
+        }
+        return "Short retry response. USE WHEN test.";
+      },
+    });
+    expect(attempt).toBe(2);
+    expect(result.writtenCount).toBe(1);
+    expect(result.descriptionRewrittenCount).toBe(1);
+  });
+});
+
+test("LLM returns >1024 twice → refuses with refused-other and surfaces the limit in reason", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = join(home, "skills");
+    const somaHome = join(home, "soma");
+    await writeFlatSkillsFixture(fromDir, {
+      Apify: {
+        skillMd: buildSkillWithFrontmatterDescription(APIFY_LIKE_DESCRIPTION_1318),
+      },
+    });
+    let attempt = 0;
+    const result = await migrateClaudeSkills({
+      from: fromDir,
+      somaHome,
+      rewriteDescriptionsAgent: "claude",
+      rewriteDispatchOverride: async () => {
+        attempt += 1;
+        return "A".repeat(1100);
+      },
+    });
+    expect(attempt).toBe(2);
+    expect(result.writtenCount).toBe(0);
+    const outcome = result.outcomes.find((o) => o.sourceName === "Apify");
+    expect(outcome?.disposition).toBe("refused-other");
+    expect(outcome?.refusalReason ?? "").toMatch(/1024|cap|limit/);
+  });
+});
+
