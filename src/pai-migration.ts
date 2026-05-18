@@ -539,6 +539,39 @@ interface ResolvedPlanRow {
 }
 
 /**
+ * Sage r6 #108 (Maintainability, suggestion) — single source for
+ * partitioning a pack's plans into `collided` (slug already landed)
+ * and `survivors`. Both the apply path (which builds `landedSlugs`
+ * sequentially as packs successfully apply) and the plan-only path
+ * (which builds it optimistically inside `walkPlanRowsForCollisions`)
+ * consume this helper, so the rule "a slug collides iff it is in
+ * landedSlugs AND overwriteReserved is false" lives in exactly one
+ * place.
+ *
+ * NOTE: this helper does NOT mutate `landedSlugs` — the caller is
+ * responsible for adding slugs when the partition's contract for
+ * "successfully landed" is satisfied (apply path: only after a
+ * successful `importPaiPackFromPlan`; plan-only path: at partition
+ * time, since plan can't fail mid-apply).
+ */
+function partitionPlansByCollision(
+  plans: readonly PaiPackImportPlan[],
+  landedSlugs: ReadonlySet<string>,
+  overwriteReserved: boolean,
+): { collided: string[]; survivors: string[] } {
+  const collided: string[] = [];
+  const survivors: string[] = [];
+  for (const plan of plans) {
+    if (landedSlugs.has(plan.skillName) && !overwriteReserved) {
+      collided.push(plan.skillName);
+    } else {
+      survivors.push(plan.skillName);
+    }
+  }
+  return { collided, survivors };
+}
+
+/**
  * Sage r3 #108 (Maintainability suggestion) — single source for the
  * cross-pack `refused-name-collision` outcome shape. Both bulk paths
  * (apply + plan-only) emit identical rows; centralizing the
@@ -586,20 +619,11 @@ function walkPlanRowsForCollisions(
 
   for (const row of planRows) {
     if (row.kind === "refused") continue;
-    const collided: string[] = [];
-    const survivors: string[] = [];
-    for (const plan of row.plans) {
-      const willCollide = landedSlugs.has(plan.skillName);
-      if (willCollide && !overwriteReserved) {
-        collided.push(plan.skillName);
-      } else {
-        // Reserve the slug for cross-pack collision tracking. The
-        // caller's per-pack outcome emission confirms the actual
-        // "imported" row.
-        landedSlugs.add(plan.skillName);
-        survivors.push(plan.skillName);
-      }
-    }
+    const { collided, survivors } = partitionPlansByCollision(row.plans, landedSlugs, overwriteReserved);
+    // Plan-only mode: reserve every survivor up front. Plan can't
+    // fail mid-apply, so the optimistic-landing partition is correct.
+    // Apply path manages its own `landedSlugs` (Sage r4 #108).
+    for (const slug of survivors) landedSlugs.add(slug);
     resolved.push({
       paiPackDir: row.paiPackDir,
       plans: row.plans,
@@ -644,17 +668,9 @@ async function importPacksWithOutcomes(
     // Partition this pack's derived skills against the current
     // landed-slug set. `landedSlugs` reflects PRIOR SUCCESSFUL packs
     // only — a pack ahead of us that failed apply is not in the set,
-    // so its slug is available to us.
-    const collided: string[] = [];
-    const survivors: string[] = [];
-    for (const plan of row.plans) {
-      const willCollide = landedSlugs.has(plan.skillName);
-      if (willCollide && !inputs.overwriteReserved) {
-        collided.push(plan.skillName);
-      } else {
-        survivors.push(plan.skillName);
-      }
-    }
+    // so its slug is available to us. Sage r6 #108: same partitioning
+    // logic as the plan-only walker, via the shared helper.
+    const { collided, survivors } = partitionPlansByCollision(row.plans, landedSlugs, inputs.overwriteReserved);
 
     for (const slug of collided) {
       outcomes.push(crossPackCollisionOutcome(row.paiPackDir, slug));

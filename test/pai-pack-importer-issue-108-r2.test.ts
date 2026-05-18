@@ -322,6 +322,38 @@ test("R5 #2: importPaiPackFromPlan rejects null and non-object handles", async (
   ).rejects.toThrow(/must be a PaiPackImportPlanHandle/i);
 });
 
+test("R6 #1: legitimate handle carries NO addressable plan state (immutable)", async () => {
+  await withTempHome(async (home) => {
+    const packDir = join(home, "pack");
+    await writeFlatPack(packDir, "Immutable");
+    const somaHome = join(home, ".soma");
+
+    const { handle } = await planPaiPackImportHandle({
+      homeDir: home,
+      paiPackDir: packDir,
+      somaHome,
+    });
+
+    // The handle must be frozen and carry no addressable plan/options
+    // a malicious caller could mutate. The plan lives in the
+    // module-private WeakMap, not on the handle.
+    expect(Object.isFrozen(handle)).toBe(true);
+    const keys = Object.keys(handle);
+    expect(keys).toEqual(["__brand"]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((handle as any).plan).toBeUndefined();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((handle as any).options).toBeUndefined();
+    // Mutation attempts must NOT silently install a `.plan` either.
+    expect(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (handle as any).plan = { evil: true };
+    }).toThrow(); // frozen object → strict mode TypeError
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((handle as any).plan).toBeUndefined();
+  });
+});
+
 // ───────────────────────────────────────────────────────────────────────
 // R5 #1 (CodeQuality, important): nested SKILL.md descriptions are preserved
 // ───────────────────────────────────────────────────────────────────────

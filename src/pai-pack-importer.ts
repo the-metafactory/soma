@@ -1060,23 +1060,25 @@ export async function planPaiPackImport(
 }
 
 /**
- * #105 / Sage r2 #108 (Performance) — opaque handle wrapping the
- * internal plan + the resolved option set used to produce it. The
- * migration orchestrator's two-phase apply path uses this to plan
- * once (Phase 1, bounded-concurrent) and apply later (Phase 2,
- * sequential with cross-pack collision filtering) WITHOUT a second
- * full plan rebuild.
+ * #105 / Sage r2 #108 (Performance) — opaque handle for plan-once,
+ * apply-later. The migration orchestrator's two-phase apply path
+ * uses this to plan once (Phase 1, bounded-concurrent) and apply
+ * later (Phase 2, sequential with cross-pack collision filtering)
+ * WITHOUT a second full plan rebuild.
  *
- * Sage r5 #108 (Security, blocker): handles are validated at apply
- * time against a module-private `WeakSet` so forgeries (any object
- * implementing the structural `PaiPackImportPlanHandle` interface)
- * are rejected by `importPaiPackFromPlan`. A caller cannot fabricate
- * a handle that bypasses `buildPaiPackImportPlan`'s `escapedTargets`
- * validation — the only path that adds to the WeakSet is
- * `planPaiPackImportHandle` itself, after the plan was produced by
- * the validated builder. The handle interface is intentionally empty
- * (no addressable fields) so any external attempt to construct one
- * must produce a fresh object that won't be in the WeakSet.
+ * Sage r6 #108 (Security, blocker): the plan data is stored OFF the
+ * handle, in a module-private `WeakMap<handle, planData>`. The
+ * handle itself is a frozen empty object — it carries no addressable
+ * plan state. A caller who legitimately receives a handle cannot
+ * mutate `handle.plan.routedFiles` to bypass containment validation
+ * because there is no `.plan` field to mutate. The WeakMap lookup
+ * is the only path from a handle to its plan, and the WeakMap has
+ * no external accessor.
+ *
+ * Sage r5 #108 (Security, blocker): the same WeakMap doubles as the
+ * trusted-handle set — forged handles (objects fitting the
+ * structural interface but never registered) have no entry and
+ * `castHandle` rejects them with a clear `TypeError`.
  *
  * The trio (`PaiPackImportPlanHandle`, `planPaiPackImportHandle`,
  * `importPaiPackFromPlan`) is module-internal — NOT re-exported on
@@ -1087,28 +1089,30 @@ export interface PaiPackImportPlanHandle {
   readonly __brand: "PaiPackImportPlanHandle";
 }
 
-interface InternalPlanHandle extends PaiPackImportPlanHandle {
+interface TrustedPlanData {
   readonly plan: InternalPaiPackImportPlan;
   readonly options: PaiPackImportOptionsInternal;
 }
 
-// Sage r5 #108 (Security, blocker): module-private WeakSet of handles
-// known to have been produced by the trusted builder. The WeakSet
-// has no public access, so a forged handle (any object matching the
-// structural interface) will not be in it and `castHandle` rejects.
-const TRUSTED_HANDLES = new WeakSet<object>();
+// Sage r6 #108 (Security, blocker): module-private WeakMap from
+// frozen handle → plan data. The handle object never holds the plan
+// directly, so an external caller with a legitimate handle cannot
+// mutate the cached plan in any way. The WeakMap has no external
+// accessor and lookup is the only path from handle to plan.
+const TRUSTED_PLAN_BY_HANDLE = new WeakMap<object, TrustedPlanData>();
 
-function castHandle(handle: PaiPackImportPlanHandle): InternalPlanHandle {
+function castHandle(handle: PaiPackImportPlanHandle): TrustedPlanData {
   if (handle === null || typeof handle !== "object") {
     throw new TypeError("importPaiPackFromPlan: handle must be a PaiPackImportPlanHandle object.");
   }
-  if (!TRUSTED_HANDLES.has(handle)) {
+  const data = TRUSTED_PLAN_BY_HANDLE.get(handle);
+  if (!data) {
     throw new TypeError(
       "importPaiPackFromPlan: handle was not produced by planPaiPackImportHandle. " +
         "Refusing to apply a potentially-forged plan that has not been validated by the builder.",
     );
   }
-  return handle as InternalPlanHandle;
+  return data;
 }
 
 /**
@@ -1127,12 +1131,15 @@ export async function planPaiPackImportHandle(
 ): Promise<{ plans: PaiPackImportPlan[]; handle: PaiPackImportPlanHandle }> {
   const internal = await buildPaiPackImportPlan(options);
   const plans = splitInternalPlanByDerivedSkill(internal);
-  const handle: InternalPlanHandle = { __brand: "PaiPackImportPlanHandle", plan: internal, options };
-  // Sage r5 #108 (Security, blocker): register the handle in the
-  // module-private trusted set. `castHandle` rejects any object not
-  // in this set, so forged handles cannot bypass the builder's
-  // validation (escapedTargets, secret-file refusal, etc.).
-  TRUSTED_HANDLES.add(handle);
+  // Sage r6 #108 (Security, blocker): the handle is a frozen empty
+  // object — it carries NO addressable plan state. The plan lives
+  // in the module-private WeakMap, keyed by the handle. A caller
+  // with a legitimate handle cannot mutate `handle.plan` because
+  // there is no `.plan` field; the only path from handle to plan
+  // is the WeakMap lookup in `castHandle`, which lives in this
+  // module file.
+  const handle = Object.freeze({ __brand: "PaiPackImportPlanHandle" } as const);
+  TRUSTED_PLAN_BY_HANDLE.set(handle, { plan: internal, options });
   return { plans, handle };
 }
 
@@ -1421,12 +1428,12 @@ export async function importPaiPackFromPlan(
   handle: PaiPackImportPlanHandle,
   options: { excludeSkills?: ReadonlySet<string>; overwrite?: boolean } = {},
 ): Promise<PaiPackImportResult[]> {
-  const { plan: cached, options: planOptions } = castHandle(handle);
+  const data = castHandle(handle);
   const excludeSkills = options.excludeSkills ?? new Set<string>();
-  const filtered = filterInternalPlanByExcludes(cached, excludeSkills);
+  const filtered = filterInternalPlanByExcludes(data.plan, excludeSkills);
   // `overwrite` follows the apply-time option; if the caller omits it,
   // fall back to the original plan options.
-  const overwrite = options.overwrite ?? planOptions.overwrite === true;
+  const overwrite = options.overwrite ?? data.options.overwrite === true;
   return applyInternalPlan(filtered, overwrite);
 }
 
