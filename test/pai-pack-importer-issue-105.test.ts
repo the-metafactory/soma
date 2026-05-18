@@ -35,13 +35,13 @@
  *          breaking change). Single-skill packs return a one-element
  *          array.
  */
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { importPaiPack, planPaiPackImport } from "../src/index";
 import { routePaiPackSourceFile } from "../src/pai-pack-routing";
 import type { PaiPackManifest } from "../src/types";
+import { withTempHome as withSharedTempHome } from "./fixtures/pai-migration-fixtures";
 import {
   writeFlatPack,
   writeNestedPackShell,
@@ -52,14 +52,11 @@ import {
 // Helpers
 // ───────────────────────────────────────────────────────────────────────
 
-async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
-  const homeDir = await mkdtemp(join(tmpdir(), "soma-issue-105-"));
-  try {
-    return await fn(homeDir);
-  } finally {
-    await rm(homeDir, { recursive: true, force: true });
-  }
-}
+// Sage r8 #108 (Maintainability suggestion): mkdtemp/rm wrapper lives
+// in `test/fixtures/pai-migration-fixtures.ts` so cleanup behavior
+// stays single-sourced across the importer test suites.
+const withTempHome = <T>(fn: (homeDir: string) => Promise<T>): Promise<T> =>
+  withSharedTempHome(fn, "soma-issue-105-");
 
 // Sage r3 #108 (Maintainability): pack-writer fixtures live in
 // `test/fixtures/pai-pack-fixtures.ts`. Imported below so test files

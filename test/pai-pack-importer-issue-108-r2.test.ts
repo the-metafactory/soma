@@ -26,8 +26,7 @@
  * outside the module set it. The fact that `bun run typecheck` is
  * green proves the contract.
  */
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 import { expect, test } from "bun:test";
 import { migratePai, planPaiMigration } from "../src/index";
@@ -37,24 +36,22 @@ import {
   planPaiPackImportHandle,
 } from "../src/pai-pack-importer";
 import { routePaiPackSourceFile } from "../src/pai-pack-routing";
-import { writePaiIdentityFixture } from "./fixtures/pai-migration-fixtures";
+import {
+  withTempHome as withSharedTempHome,
+  writePaiIdentityFixture,
+} from "./fixtures/pai-migration-fixtures";
 import { writeFlatNestedPack, writeFlatPack } from "./fixtures/pai-pack-fixtures";
 
 // ───────────────────────────────────────────────────────────────────────
 // Helpers
 // ───────────────────────────────────────────────────────────────────────
 
-async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
-  const homeDir = await mkdtemp(join(tmpdir(), "soma-issue-108-r2-"));
-  try {
-    return await fn(homeDir);
-  } finally {
-    await rm(homeDir, { recursive: true, force: true });
-  }
-}
+// Sage r8 #108 (Maintainability suggestion): single source for the
+// mkdtemp/rm temp-home lifecycle (in `pai-migration-fixtures.ts`).
+const withTempHome = <T>(fn: (homeDir: string) => Promise<T>): Promise<T> =>
+  withSharedTempHome(fn, "soma-issue-108-r2-");
 
-// Sage r3 #108 (Maintainability): pack-writer fixtures shared via
-// `test/fixtures/pai-pack-fixtures.ts`.
+// Pack-writer fixtures shared via `test/fixtures/pai-pack-fixtures.ts`.
 
 /**
  * Recursively list every file under `root`, returning POSIX-relative

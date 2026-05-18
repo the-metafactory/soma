@@ -92,7 +92,7 @@ export class PaiPackReservedNameRefusal extends Error {
  * present in the pack are silently ignored. Empty/undefined means no
  * exclusion.
  */
-export interface PaiPackImportOptionsInternal extends PaiPackImportOptions {
+interface PaiPackImportOptionsInternal extends PaiPackImportOptions {
   excludeSkills?: ReadonlySet<string>;
 }
 
