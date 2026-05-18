@@ -53,7 +53,7 @@ const PORTABLE_PREFIXES = ["src/Workflows/", "src/Tools/"];
  *   src/<Name>/Tools/<r>        → portable
  *   src/<Name>/References/<r>   → portable
  *   src/<Name>/Examples/<r>     → portable
- *   src/<Name>/<other>          → substrate-specific (archive)
+ *   src/<Name>/<other>          → unrecognized-layout (archive)
  */
 const NESTED_PORTABLE_SUBDIRS = ["Workflows", "Tools", "References", "Examples"] as const;
 
@@ -95,7 +95,7 @@ function nestedDirName(path: string): string | null {
  * The detection rule (issue 105): a `<Name>` is nested iff
  * `src/<Name>/SKILL.md` exists in the pack file set. The caller MUST
  * compute the set BEFORE invoking the router. Without `SKILL.md` the
- * dir isn't a skill — its files stay substrate-specific.
+ * dir isn't a skill — its files stay unrecognized-layout.
  */
 export function routePaiPackSourceFile(
   path: string,
@@ -173,9 +173,9 @@ export function routePaiPackSourceFile(
       }
     }
     // src/<Name>/<other> — known nested skill but not a recognized subdir.
-    // Fall through to substrate-specific (archive).
+    // Fall through to unrecognized-layout (archive).
     return {
-      classification: "substrate-specific",
+      classification: "unrecognized-layout",
       root: "archive",
       relativePath: `source/${path}`,
       renderMode: "copy",
@@ -200,7 +200,7 @@ export function routePaiPackSourceFile(
   }
 
   return {
-    classification: "substrate-specific",
+    classification: "unrecognized-layout",
     root: "archive",
     relativePath: `source/${path}`,
     renderMode: "copy",

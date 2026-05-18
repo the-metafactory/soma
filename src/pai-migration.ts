@@ -37,7 +37,7 @@ import {
   PaiPackAllSkillsExcludedRefusal,
   PaiPackNameCollisionRefusal,
   PaiPackReservedNameRefusal,
-  PaiPackSubstrateSpecificRefusal,
+  PaiPackUnrecognizedLayoutRefusal,
   planPaiPackImportHandle,
   readPackMetadata,
   slugifySkillName,
@@ -125,14 +125,17 @@ export interface PaiMigrationOptions {
    */
   overwriteReserved?: boolean;
   /**
-   * #97 — pass-through to `importPaiPack`'s `includeSubstrateSpecific`
-   * option. When set, packs that contain substrate-specific files
-   * (anything under `src/` that isn't `src/SKILL.md`, `src/Workflows/`,
-   * `src/Tools/`, or `src/{Dashboard,Report}Template/`) land in their
-   * skill home; archived copies live under
+   * #97 / #106 — pass-through to `importPaiPack`'s
+   * `includeSubstrateSpecific` legacy option key. When set, packs that
+   * contain files under `src/` the router didn't recognize (anything
+   * other than `src/SKILL.md`, `src/Workflows/`, `src/Tools/`,
+   * `src/{Dashboard,Report}Template/`, or a recognized nested skill
+   * bundle) land in their skill home; archived copies live under
    * `<somaHome>/imports/pai-packs/<skill>/source/`. Without this flag
    * such packs are SKIPPED (not aborted) and recorded in
-   * `packOutcomes` as `refused-substrate-specific`.
+   * `packOutcomes` as `refused-unrecognized-layout`. The CLI surface
+   * is `--include-unrecognized` (with `--include-substrate-specific`
+   * accepted as a deprecated alias for one release).
    */
   includeSubstrateSpecific?: boolean;
   /**
@@ -171,7 +174,7 @@ export interface PaiMigrationPlan {
   /**
    * #102 — per-pack outcome record for the plan phase, mirroring
    * `PaiMigrationResult.packOutcomes` shipped in #97 for the apply
-   * phase. Same four buckets (`imported` / `refused-substrate-specific`
+   * phase. Same four buckets (`imported` / `refused-unrecognized-layout`
    * / `refused-reserved` / `refused-other`); for plan mode `imported`
    * means "would be imported" (the plan path doesn't write anything to
    * disk). The CLI plan-mode formatter renders these via
@@ -449,7 +452,7 @@ async function readPackSkillSlug(packDir: string): Promise<string> {
  *      `overwriteReserved` is false, record `refused-reserved` and
  *      skip the import call.
  *   3. Otherwise run `importPaiPack`. Catch
- *      `PaiPackSubstrateSpecificRefusal` → `refused-substrate-specific`.
+ *      `PaiPackUnrecognizedLayoutRefusal` → `refused-unrecognized-layout`.
  *      Any other throw → `refused-other`. Success → `imported`.
  *
  * Each pack is processed independently; the bulk phase never aborts
@@ -706,10 +709,20 @@ async function importPacksWithOutcomes(
         // checking this slug will now collide; the pack-on-disk owns
         // the surface.
         landedSlugs.add(item.skillName);
+        // #106 — capture workflow + skill counts on the outcome row so
+        // the CLI plan/result formatter can render
+        // `imported (1 skill, 5 workflows)` in collapsed mode. Workflows
+        // are files under `<skillRoot>/Workflows/` — count by path
+        // segment match. One derived skill per outcome row (multi-skill
+        // packs emit one row per derived skill).
+        const skillRootSegment = `/skills/${item.skillName}/Workflows/`;
+        const workflowCount = item.files.filter((f) => f.includes(skillRootSegment)).length;
         outcomes.push({
           paiPackDir: row.paiPackDir,
           outcome: "imported",
           skillName: item.skillName,
+          importedSkillCount: 1,
+          importedWorkflowCount: workflowCount,
         });
       }
     } catch (error) {
@@ -842,15 +855,23 @@ async function runOnePackWithOutcome<TPayload extends { skillName: string }, TEx
     }));
     return { items: result.items, extras: result.extras, outcomes };
   } catch (error) {
-    if (error instanceof PaiPackSubstrateSpecificRefusal) {
+    if (error instanceof PaiPackUnrecognizedLayoutRefusal) {
+      // #106 — collapse data: stash the full file list + count so the
+      // CLI plan formatter can render a one-line summary (`N files —
+      // run --verbose ...`) AND the MIGRATION.md body can render the
+      // full list in a per-pack section. Pre-#106 the reason field
+      // inlined every file path which blew up the plan output to ~30KB
+      // for the canonical PAI Packs collection.
       return {
         items: [],
         outcomes: [
           {
             paiPackDir: inputs.paiPackDir,
-            outcome: "refused-substrate-specific",
+            outcome: "refused-unrecognized-layout",
             skillName: upfrontSlug ?? (await safeReadSkillSlug(inputs.paiPackDir)),
-            reason: `substrate-specific file(s): ${error.files.join(", ")}`,
+            reason: `unrecognized layout under src/: ${error.files.length} file(s)`,
+            unrecognizedFileCount: error.files.length,
+            unrecognizedFiles: error.files,
           },
         ],
       };
@@ -1019,10 +1040,18 @@ async function planPacksWithOutcomes(inputs: BulkImportInputs): Promise<BulkPlan
     for (const plan of resolvedRow.plans) {
       if (!survivorSet.has(plan.skillName)) continue;
       packs.push(plan);
+      // #106 — plan-side counts mirror the apply path so the dry-run
+      // surface shows the same `(N skill, M workflows)` collapse form
+      // the principal will see on apply. Plan files include their
+      // intended targets; count by `/skills/<slug>/Workflows/` segment.
+      const skillRootSegment = `/skills/${plan.skillName}/Workflows/`;
+      const workflowCount = plan.files.filter((f) => f.target.includes(skillRootSegment)).length;
       outcomes.push({
         paiPackDir: resolvedRow.paiPackDir,
         outcome: "imported",
         skillName: plan.skillName,
+        importedSkillCount: 1,
+        importedWorkflowCount: workflowCount,
       });
     }
   }
@@ -1049,21 +1078,111 @@ function errorMessage(error: unknown): string {
  * skill name yet: `"basename"` for the manifest (compact, stable),
  * `"path"` for the CLI summary (the principal sees full paths in
  * other lines so this matches the surrounding context).
+ *
+ * #106 — `style` switches between the legacy verbose form (reason
+ * string verbatim) and the new collapsed form. In `"collapsed"` mode:
+ *
+ *   - `refused-unrecognized-layout` rows render as
+ *     `(N files — run --verbose or read MIGRATION.md for paths)`.
+ *   - `refused-reserved` rows render as `(reason)` truncated to
+ *     `MAX_REASON_LEN` chars with `...` if longer.
+ *   - `imported` rows render as `(K skill, M workflows)` when the
+ *     counts are populated.
+ *   - `refused-other` rows render the reason truncated to MAX_REASON_LEN.
+ *
+ * The verbose form (default for back-compat) keeps the legacy
+ * reason-string inline so the MIGRATION.md body stays byte-stable
+ * with the pre-#106 contract.
  */
+const MAX_REASON_LEN = 120;
+
+function truncateReason(reason: string): string {
+  if (reason.length <= MAX_REASON_LEN) return reason;
+  return reason.slice(0, MAX_REASON_LEN - 3) + "...";
+}
+
+/**
+ * Returns a self-separating suffix for the `<outcome>` token in the
+ * one-line collapsed view: either an empty string OR a string that
+ * begins with its own separator (` `, ` — `, etc.). Callers
+ * concatenate directly (`${outcome}${collapsedDetail(o)}`) — they
+ * MUST NOT add another separator, since the empty-string case for
+ * `imported` rows with no counts would otherwise produce a trailing
+ * space. The leading-separator convention is the contract.
+ */
+function collapsedDetail(o: PaiPackOutcome): string {
+  if (o.outcome === "imported") {
+    const skills = o.importedSkillCount ?? 0;
+    const workflows = o.importedWorkflowCount ?? 0;
+    if (skills > 0 || workflows > 0) {
+      const skillLabel = skills === 1 ? "skill" : "skills";
+      const workflowLabel = workflows === 1 ? "workflow" : "workflows";
+      return ` (${skills} ${skillLabel}, ${workflows} ${workflowLabel})`;
+    }
+    return "";
+  }
+  if (o.outcome === "refused-unrecognized-layout") {
+    const count = o.unrecognizedFileCount ?? (o.unrecognizedFiles?.length ?? 0);
+    const fileLabel = count === 1 ? "file" : "files";
+    return ` (${count} ${fileLabel} — run --verbose or read MIGRATION.md for paths)`;
+  }
+  if (o.reason) {
+    return ` — ${truncateReason(o.reason)}`;
+  }
+  return "";
+}
+
 export function formatPackOutcomeLines(
   outcomes: readonly PaiPackOutcome[],
-  options: { lineIndent?: string; labelKind?: "basename" | "path" } = {},
+  options: { lineIndent?: string; labelKind?: "basename" | "path"; style?: "verbose" | "collapsed" } = {},
 ): string[] {
   const indent = options.lineIndent ?? "  ";
   const labelKind = options.labelKind ?? "basename";
+  const style = options.style ?? "verbose";
   if (outcomes.length === 0) return [`${indent}(no packs attempted)`];
   const sorted = [...outcomes].sort((a, b) => a.paiPackDir.localeCompare(b.paiPackDir));
   return sorted.map((o) => {
     const fallback = labelKind === "basename" ? basename(o.paiPackDir) : o.paiPackDir;
     const label = o.skillName ?? fallback;
+    if (style === "collapsed") {
+      return `${indent}- ${label}: ${o.outcome}${collapsedDetail(o)}`;
+    }
+    // Verbose style. For imported rows, still emit the
+    // `(N skill, M workflows)` annotation since it's compact AND useful
+    // even with full file lists rendered separately. The reason field
+    // (legacy verbose form) is the long-form refusal detail; imported
+    // rows have no reason, so the count keeps them informative.
+    if (o.outcome === "imported" && (o.importedSkillCount !== undefined || o.importedWorkflowCount !== undefined)) {
+      return `${indent}- ${label}: ${o.outcome}${collapsedDetail(o)}`;
+    }
     const reasonSuffix = o.reason ? ` — ${o.reason}` : "";
     return `${indent}- ${label}: ${o.outcome}${reasonSuffix}`;
   });
+}
+
+/**
+ * #106 — render full per-pack details for MIGRATION.md. For each
+ * `refused-unrecognized-layout` outcome, emit a section listing every
+ * file that triggered the refusal (the full list the CLI summary
+ * collapsed into a count). Sorted by `paiPackDir` for byte-stable
+ * idempotency. Empty list when no outcomes need detail surfaces.
+ */
+export function formatPackOutcomeDetails(outcomes: readonly PaiPackOutcome[]): string[] {
+  const needsDetail = outcomes
+    .filter((o) => o.outcome === "refused-unrecognized-layout" && (o.unrecognizedFiles?.length ?? 0) > 0)
+    .sort((a, b) => a.paiPackDir.localeCompare(b.paiPackDir));
+  if (needsDetail.length === 0) return [];
+  const lines: string[] = [];
+  for (const o of needsDetail) {
+    const label = o.skillName ?? basename(o.paiPackDir);
+    lines.push(`### ${label}`);
+    lines.push("");
+    for (const file of o.unrecognizedFiles ?? []) {
+      lines.push(`- ${file}`);
+    }
+    lines.push("");
+  }
+  return lines;
 }
 
 interface MigrationSources {
@@ -1116,7 +1235,7 @@ export async function planPaiMigration(options: PaiMigrationOptions = {}): Promi
     : planAlgorithmImport({ homeDir: options.homeDir, paiAlgorithmDir: algorithmDir, somaHome });
   // #102 — plan phase now uses `planPacksWithOutcomes` (mirrors the
   // apply path's `importPacksWithOutcomes` shipped in #97). Without
-  // this wrapper, the first `PaiPackSubstrateSpecificRefusal` thrown
+  // this wrapper, the first `PaiPackUnrecognizedLayoutRefusal` thrown
   // by `planPaiPackImport` escaped `runBoundedConcurrent` and aborted
   // the entire plan — the user-reported bug from `soma migrate pai
   // --pai-repo ~/work/PAI` (no `--apply`). Each pack is now
@@ -1262,9 +1381,22 @@ function renderManifest(result: ManifestInputs): string {
   // byte-stable across reruns (idempotency invariant). Sage r1 #99:
   // the helper single-sources the line shape for the CLI summary +
   // manifest body so new outcome kinds only need one render update.
+  //
+  // #106 — manifest uses the legacy `verbose` style (reason string
+  // verbatim) so the body stays byte-comparable with the pre-#106
+  // outcome rows. The COLLAPSED form lives on the CLI summary surface
+  // only. Full per-pack file lists for `refused-unrecognized-layout`
+  // outcomes are rendered as a separate `## Pack outcome details`
+  // section below — always present in the manifest, regardless of the
+  // CLI's `--verbose` flag.
   const outcomeLines = formatPackOutcomeLines(result.packOutcomes, {
     labelKind: "basename",
+    style: "verbose",
   }).join("\n");
+  const outcomeDetailLines = formatPackOutcomeDetails(result.packOutcomes);
+  const detailSection = outcomeDetailLines.length === 0
+    ? []
+    : ["", "## Pack outcome details", "", ...outcomeDetailLines];
   return [
     "# PAI Migration",
     "",
@@ -1284,6 +1416,7 @@ function renderManifest(result: ManifestInputs): string {
     "",
     "## Pack outcomes",
     outcomeLines,
+    ...detailSection,
     "",
     "## How to re-run",
     "- `soma migrate pai` is idempotent at the importer level — each underlying",
