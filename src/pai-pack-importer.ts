@@ -676,13 +676,6 @@ async function buildPaiPackImportPlan(options: PaiPackImportOptionsInternal = {}
   if (!NORMALIZED_SKILL_NAME_PATTERN.test(packSlug)) {
     throw new Error(`soma import pai-pack produced invalid normalized skill name '${packSlug}'.`);
   }
-  if (RESERVED_SKILL_NAMES.has(packSlug)) {
-    // #102 — typed refusal so the migrate orchestrator classifies
-    // this as `refused-reserved` even when its outer pre-check is
-    // bypassed by `--overwrite-reserved` (the inner set is narrower
-    // and structurally enforced; the slug is preserved in the error).
-    throw new PaiPackReservedNameRefusal(packSlug);
-  }
 
   // #105 — enumerate every Soma skill this pack will derive. The
   // FLAT top-level surface (pack slug) exists iff `src/SKILL.md` is
@@ -695,6 +688,24 @@ async function buildPaiPackImportPlan(options: PaiPackImportOptionsInternal = {}
   // surface (archive / docs) still lands because surviving derived
   // skills depend on it.
   const hasFlatEntry = sourceFiles.includes("src/SKILL.md");
+
+  // Sage r7 #108 (CodeQuality, important): the pack-slug reserved
+  // refusal applies ONLY when the pack has a FLAT entry. For a pure-
+  // nested pack with a reserved pack name (e.g. README `name: soma`
+  // with only `src/Foo/SKILL.md` + `src/Bar/SKILL.md`), `packSlug`
+  // is just the archive root identifier under `~/.soma/imports/pai-
+  // packs/`. It is NOT an imported skill name, so refusing on it
+  // would reject otherwise-valid derived skills. The per-derived-
+  // skill reserved check below still fires when a NESTED slug is in
+  // the reserved set, so genuinely-reserved skill names are still
+  // refused on both layouts.
+  if (hasFlatEntry && RESERVED_SKILL_NAMES.has(packSlug)) {
+    // #102 — typed refusal so the migrate orchestrator classifies
+    // this as `refused-reserved` even when its outer pre-check is
+    // bypassed by `--overwrite-reserved` (the inner set is narrower
+    // and structurally enforced; the slug is preserved in the error).
+    throw new PaiPackReservedNameRefusal(packSlug);
+  }
   const excludeSkills = options.excludeSkills ?? new Set<string>();
   const derivedSkillSet = new Set<string>();
   if (hasFlatEntry && !excludeSkills.has(packSlug)) derivedSkillSet.add(packSlug);

@@ -294,6 +294,79 @@ test("R2 #4: planPaiMigration and migratePai produce matching per-pack outcomes 
 });
 
 // ───────────────────────────────────────────────────────────────────────
+// R7 #1 (CodeQuality, important): pure-nested pack with reserved pack name
+// ───────────────────────────────────────────────────────────────────────
+
+test("R7 #1: pure-nested pack with reserved pack name is permitted (only archive uses packSlug)", async () => {
+  await withTempHome(async (home) => {
+    const packDir = join(home, "pack");
+    await mkdir(packDir, { recursive: true });
+    // Pack README declares a reserved name (`soma`), but the pack
+    // ships ONLY nested skills — no `src/SKILL.md`. The `packSlug`
+    // value here is just the archive root identifier under
+    // `~/.soma/imports/pai-packs/soma/`, NOT an imported skill name.
+    // The pre-R7 implementation refused this loud; the R7 fix only
+    // applies the packSlug-reserved refusal when a FLAT entry exists.
+    await writeFile(
+      join(packDir, "README.md"),
+      "---\nname: soma\ndescription: Pure nested pack happens to be named soma.\n---\n\n# soma\n",
+      "utf8",
+    );
+    await writeFile(join(packDir, "INSTALL.md"), "# Install\n", "utf8");
+    await writeFile(join(packDir, "VERIFY.md"), "# Verify\n", "utf8");
+    await mkdir(join(packDir, "src/Foo/Workflows"), { recursive: true });
+    await writeFile(
+      join(packDir, "src/Foo/SKILL.md"),
+      "---\nname: Foo\ndescription: Foo nested skill.\n---\n\n# Foo\n",
+      "utf8",
+    );
+    await writeFile(join(packDir, "src/Foo/Workflows/Default.md"), "# Default\n", "utf8");
+    const somaHome = join(home, ".soma");
+
+    const result = await importPaiPack({ homeDir: home, paiPackDir: packDir, somaHome });
+    expect(result.length).toBe(1);
+    expect(result[0]!.skillName).toBe("foo");
+
+    // The archive landed under `imports/pai-packs/soma/` — the
+    // reserved pack name is only used as an archive identifier,
+    // not an imported skill name.
+    const archiveExists = await readFile(
+      join(somaHome, "imports/pai-packs/soma/soma-pack-archive.json"),
+      "utf8",
+    );
+    expect(archiveExists.length).toBeGreaterThan(0);
+  });
+});
+
+test("R7 #1: nested skill itself in reserved set is still refused (per-derived-skill check fires)", async () => {
+  await withTempHome(async (home) => {
+    const packDir = join(home, "pack");
+    await mkdir(packDir, { recursive: true });
+    await writeFile(
+      join(packDir, "README.md"),
+      "---\nname: ValidPack\ndescription: Valid pack with reserved nested.\n---\n\n# ValidPack\n",
+      "utf8",
+    );
+    await writeFile(join(packDir, "INSTALL.md"), "# Install\n", "utf8");
+    await writeFile(join(packDir, "VERIFY.md"), "# Verify\n", "utf8");
+    // Nested skill named "soma" — genuinely reserved as an IMPORTED
+    // skill name. The per-derived-skill loop below must still refuse.
+    await mkdir(join(packDir, "src/soma/Workflows"), { recursive: true });
+    await writeFile(
+      join(packDir, "src/soma/SKILL.md"),
+      "---\nname: soma\ndescription: Tries to be soma.\n---\n\n# soma\n",
+      "utf8",
+    );
+    await writeFile(join(packDir, "src/soma/Workflows/Default.md"), "# Default\n", "utf8");
+    const somaHome = join(home, ".soma");
+
+    await expect(
+      importPaiPack({ homeDir: home, paiPackDir: packDir, somaHome }),
+    ).rejects.toThrow(/reserved Soma skill 'soma'/i);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
 // R5 #2 (Security, blocker): forged handles are rejected
 // ───────────────────────────────────────────────────────────────────────
 

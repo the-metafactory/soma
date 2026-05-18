@@ -27,7 +27,7 @@ import {
   withTempHome as withSharedTempHome,
   writePaiIdentityFixture as writeIdentityFixture,
 } from "./fixtures/pai-migration-fixtures";
-import { writeNestedPackShell, writeNestedSkill } from "./fixtures/pai-pack-fixtures";
+import { writeFlatPack, writeNestedPackShell, writeNestedSkill } from "./fixtures/pai-pack-fixtures";
 
 const withTempHome = <T>(fn: (homeDir: string) => Promise<T>): Promise<T> =>
   withSharedTempHome(fn, "soma-105-");
@@ -101,20 +101,7 @@ test("AC-2: nested pack with 2 skills produces 2 imported outcome rows", async (
 test("AC-5: cross-pack name collision records refused-name-collision for the second pack", async () => {
   await withMigrationHome(async ({ homeDir, packsDir }) => {
     // Pack A: flat pack named "Browser".
-    const packA = join(packsDir, "Browser");
-    await mkdir(join(packA, "src/Workflows"), { recursive: true });
-    await writeFile(
-      join(packA, "README.md"),
-      "---\nname: Browser\ndescription: A\n---\n\n# Browser\n",
-      "utf8",
-    );
-    await writeFile(join(packA, "INSTALL.md"), "# Install\n", "utf8");
-    await writeFile(join(packA, "VERIFY.md"), "# Verify\n", "utf8");
-    await writeFile(
-      join(packA, "src/SKILL.md"),
-      "---\nname: Browser\ndescription: A\n---\n\n# Browser\n",
-      "utf8",
-    );
+    await writeFlatPack(join(packsDir, "Browser"), "Browser");
 
     // Pack B: nested pack containing src/Browser/SKILL.md.
     await writeNestedPack(packsDir, "Utilities", ["Browser"]);
@@ -139,21 +126,7 @@ test("AC-5: cross-pack name collision records refused-name-collision for the sec
 
 test("AC-5: cross-pack collision with --overwrite-reserved-equivalent flag — second wins", async () => {
   await withMigrationHome(async ({ homeDir, packsDir }) => {
-    const packA = join(packsDir, "Browser");
-    await mkdir(join(packA, "src/Workflows"), { recursive: true });
-    await writeFile(
-      join(packA, "README.md"),
-      "---\nname: Browser\ndescription: A\n---\n\n# Browser\n",
-      "utf8",
-    );
-    await writeFile(join(packA, "INSTALL.md"), "# Install A\n", "utf8");
-    await writeFile(join(packA, "VERIFY.md"), "# Verify A\n", "utf8");
-    await writeFile(
-      join(packA, "src/SKILL.md"),
-      "---\nname: Browser\ndescription: A\n---\n\n# Browser pack A\n",
-      "utf8",
-    );
-
+    await writeFlatPack(join(packsDir, "Browser"), "Browser");
     await writeNestedPack(packsDir, "Utilities", ["Browser"]);
 
     // Note: `overwriteReserved` repurposed at migrate level to permit name
@@ -180,21 +153,7 @@ test("AC-5: cross-pack collision with --overwrite-reserved-equivalent flag — s
 
 test("AC-3: FLAT pack still imports as one outcome row (backwards compat)", async () => {
   await withMigrationHome(async ({ homeDir, packsDir }) => {
-    const packDir = join(packsDir, "Single");
-    await mkdir(join(packDir, "src/Workflows"), { recursive: true });
-    await writeFile(
-      join(packDir, "README.md"),
-      "---\nname: Single\ndescription: flat\n---\n\n# Single\n",
-      "utf8",
-    );
-    await writeFile(join(packDir, "INSTALL.md"), "# Install\n", "utf8");
-    await writeFile(join(packDir, "VERIFY.md"), "# Verify\n", "utf8");
-    await writeFile(
-      join(packDir, "src/SKILL.md"),
-      "---\nname: Single\ndescription: flat\n---\n\n# Single\n",
-      "utf8",
-    );
-    await writeFile(join(packDir, "src/Workflows/Run.md"), "# Run\n", "utf8");
+    await writeFlatPack(join(packsDir, "Single"), "Single");
 
     const result = await migratePai({ homeDir, paiPacksDir: packsDir, skipMemory: true });
 
@@ -221,32 +180,27 @@ test("Sage r1 #108: cross-pack collision: refused skill's bytes never overwrite 
   // colliding pack runs `importPaiPack` with `excludeSkills: {browser}`,
   // so no file under `~/.soma/skills/browser/` is staged or written.
   await withMigrationHome(async ({ homeDir, packsDir }) => {
-    // Pack A — flat `Browser` skill with distinctive body content.
+    // Pack A — flat `Browser` skill with distinctive body content
+    // (DISTINCT_A). Built from the shared fixture; the SKILL.md body
+    // is overridden so the test can assert pack-A's bytes are on
+    // disk after the collision is recorded.
     const packA = join(packsDir, "Browser");
-    await mkdir(join(packA, "src/Workflows"), { recursive: true });
-    await writeFile(
-      join(packA, "README.md"),
-      "---\nname: Browser\ndescription: A\n---\n\n# Browser\n",
-      "utf8",
-    );
-    await writeFile(join(packA, "INSTALL.md"), "# Install A\n", "utf8");
-    await writeFile(join(packA, "VERIFY.md"), "# Verify A\n", "utf8");
+    await writeFlatPack(packA, "Browser");
     await writeFile(
       join(packA, "src/SKILL.md"),
       "---\nname: Browser\ndescription: A\n---\n\n# Browser pack A — DISTINCT_A\n",
       "utf8",
     );
 
-    // Pack B — nested Browser inside Utilities with different bytes.
+    // Pack B — nested Browser inside Utilities with DISTINCT_B body.
+    // Composed from the shared nested-pack-shell + nested-skill
+    // builders so the canonical pack shape is single-sourced; the
+    // SKILL.md body and Workflow default are overridden for the
+    // collision assertion.
     const packB = join(packsDir, "Utilities");
-    await mkdir(join(packB, "src/Browser/Workflows"), { recursive: true });
-    await writeFile(
-      join(packB, "README.md"),
-      "---\nname: Utilities\ndescription: B\n---\n\n# Utilities\n",
-      "utf8",
-    );
-    await writeFile(join(packB, "INSTALL.md"), "# Install B\n", "utf8");
-    await writeFile(join(packB, "VERIFY.md"), "# Verify B\n", "utf8");
+    await mkdir(packB, { recursive: true });
+    await writeNestedPackShell(packB, "Utilities");
+    await writeNestedSkill(packB, "Browser");
     await writeFile(
       join(packB, "src/Browser/SKILL.md"),
       "---\nname: Browser\ndescription: B\n---\n\n# Utilities/Browser — DISTINCT_B\n",
