@@ -360,11 +360,21 @@ async function readSourceSkill(
   if (!skillMd) {
     throw new Error(`soma migrate claude-skills: ${sourceName}/SKILL.md not collected (symlink? case mismatch?)`);
   }
+  // Holly R1 substantive — composite source SHA covers every collected
+  // file, not just SKILL.md. A sibling edit (e.g., Workflows/Run.md update,
+  // new Tools/helper.ts) now flips `sourceSha` and triggers a re-import.
+  // Hashing sorted `relPath:sha` pairs keeps the composite stable across
+  // platforms (collectSkillFiles already returns deterministic order, but
+  // the explicit sort makes the contract obvious).
+  const composite = files
+    .map((f) => `${f.relPath}:${sha256Hex(f.content)}`)
+    .sort()
+    .join("\n");
   return {
     sourceName,
     kebabName: kebabSlug(sourceName),
     files,
-    sourceSha: sha256Hex(skillMd.content),
+    sourceSha: sha256Hex(Buffer.from(composite, "utf8")),
   };
 }
 
@@ -420,6 +430,17 @@ async function readExistingManifest(
     // without the assertion we lose the typed return surface here.
     const parsed = JSON.parse(raw) as { schema?: unknown; skills?: unknown };
     if (parsed.schema !== MANIFEST_SCHEMA || !Array.isArray(parsed.skills)) return null;
+    // Holly R1 nit — shallow shape probe. A partially-corrupted manifest
+    // (right schema string, array `skills`, but entries missing the
+    // fingerprint fields) would otherwise blow up downstream with opaque
+    // errors. The probe is cheap; one bad entry rejects the whole manifest
+    // and the migrator falls back to a fresh run.
+    const skills = parsed.skills as Array<Record<string, unknown>>;
+    for (const entry of skills) {
+      if (typeof entry?.sourceName !== "string" || typeof entry?.sourceSha !== "string") {
+        return null;
+      }
+    }
     return parsed as unknown as ClaudeSkillsMigrationManifest;
   } catch {
     return null;
@@ -429,6 +450,11 @@ async function readExistingManifest(
 interface PlanResult {
   isFlatSkillsTree: boolean;
   outcomes: ClaudeSkillOutcome[];
+  // Holly R1 nit — carry the read payloads so the apply path can write
+  // without a second disk pass. Plan-mode callers ignore this field;
+  // apply-mode callers thread it through to writeSkillPayload to avoid
+  // doubling I/O on 45-skill imports.
+  reads: SourceSkillReadResult[];
 }
 
 async function buildPlanCore(
@@ -439,7 +465,7 @@ async function buildPlanCore(
 ): Promise<PlanResult> {
   const names = await listFlatSkillNames(fromDir);
   if (names.length === 0) {
-    return { isFlatSkillsTree: false, outcomes: [] };
+    return { isFlatSkillsTree: false, outcomes: [], reads: [] };
   }
 
   // Bounded concurrency for the read + classify pass — per-skill work
@@ -488,7 +514,7 @@ async function buildPlanCore(
   });
   outcomes.sort((a, b) => a.sourceName.localeCompare(b.sourceName));
 
-  return { isFlatSkillsTree: true, outcomes };
+  return { isFlatSkillsTree: true, outcomes, reads };
 }
 
 export async function planClaudeSkillsMigration(
@@ -618,7 +644,7 @@ export async function migrateClaudeSkills(
     }
   }
 
-  const { isFlatSkillsTree, outcomes } = await buildPlanCore(
+  const { isFlatSkillsTree, outcomes, reads } = await buildPlanCore(
     from,
     somaHome,
     includeClaudeSpecific,
@@ -630,6 +656,12 @@ export async function migrateClaudeSkills(
       `soma migrate claude-skills: --from ${from} is not a flat skills tree (no <Name>/SKILL.md direct children).`,
     );
   }
+
+  // Holly R1 nit — thread the buildPlanCore reads into the apply path
+  // so we don't re-read every skill from disk a second time. Plan phase
+  // already collected SkillFilePayload[] bytes for classification;
+  // applying writes from the same in-memory payload halves the I/O.
+  const readsBySource = new Map(reads.map((r) => [r.sourceName, r]));
 
   // Apply phase: walk the outcome list, write payloads for imported
   // skills, carry prior manifest entries for `skipped-idempotent`.
@@ -651,11 +683,16 @@ export async function migrateClaudeSkills(
       }
       continue;
     }
-    // Apply path: re-read the skill (we need the bytes, plan-only
-    // returned summaries). Bounded concurrency is not used here so
-    // file writes stay strictly ordered per skill — keeps the
-    // manifest deterministic without juggling write order.
-    const read = await readSourceSkill(from, outcome.sourceName);
+    // Apply path uses the read payload already collected by
+    // buildPlanCore (Holly R1 nit — single disk pass). The Map lookup
+    // is O(1); the buildPlanCore contract guarantees every non-skipped
+    // outcome has a corresponding read.
+    const read = readsBySource.get(outcome.sourceName);
+    if (!read) {
+      throw new Error(
+        `soma migrate claude-skills: missing read payload for ${outcome.sourceName} — buildPlanCore contract violation.`,
+      );
+    }
     const targetDir = outcome.target ?? join(somaHome, "skills", outcome.kebabName);
     // `needs-adapt` runs through the normalizer; `portable` and
     // (when `--include-claude-specific`) `claude-specific` are
