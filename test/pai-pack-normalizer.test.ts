@@ -279,7 +279,8 @@ test("generateSomaSkillManifest keeps generated descriptions within portable lim
 
 test("AC-1: dry-run plan reports normalization actions + warnings", async () => {
   await withFakePack(async (paiPackDir, somaHome, homeDir) => {
-    const plan = await planPaiPackImport({ homeDir, somaHome, paiPackDir });
+    // #105 — planPaiPackImport returns array; FLAT pack → one plan.
+    const [plan] = await planPaiPackImport({ homeDir, somaHome, paiPackDir });
     expect(plan.normalization.actions.length).toBeGreaterThan(0);
     expect(plan.normalization.warnings.length).toBeGreaterThan(0);
     // No files written under somaHome
@@ -296,7 +297,8 @@ test("PAI pack import compacts oversized skill descriptions in frontmatter and m
       "utf8",
     );
 
-    const result = await importPaiPack({ homeDir, somaHome, paiPackDir });
+    // #105 — importPaiPack returns array; FLAT pack → one result.
+    const [result] = await importPaiPack({ homeDir, somaHome, paiPackDir });
     expect(result.normalization.actions.some((action) => action.kind === "compacted-skill-description")).toBe(true);
 
     const skillMd = await readFile(join(somaHome, "skills", "test-pack", "SKILL.md"), "utf8");
@@ -310,7 +312,8 @@ test("PAI pack import compacts oversized skill descriptions in frontmatter and m
 
 test("AC-2: apply writes normalized skill files + soma-skill.json", async () => {
   await withFakePack(async (paiPackDir, somaHome, homeDir) => {
-    const result = await importPaiPack({ homeDir, somaHome, paiPackDir });
+    // #105 — importPaiPack returns array; FLAT pack → one result.
+    const [result] = await importPaiPack({ homeDir, somaHome, paiPackDir });
     expect(result.normalization.actions.length).toBeGreaterThan(0);
 
     // AC-3: notification block removed from projected skill body

@@ -1,7 +1,7 @@
 import { access, copyFile, lstat, mkdir, readdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { routePaiPackSourceFile, type PaiPackRenderMode } from "./pai-pack-routing";
+import { kebabNestedName, routePaiPackSourceFile, type PaiPackRenderMode } from "./pai-pack-routing";
 import {
   generateSomaSkillManifest,
   mergeNormalizationReports,
@@ -27,7 +27,7 @@ interface PackMetadata {
 }
 
 const RESERVED_SKILL_NAMES = new Set(["soma", "the-algorithm"]);
-const REQUIRED_PACK_FILES = ["README.md", "INSTALL.md", "VERIFY.md", "src/SKILL.md"];
+const REQUIRED_PACK_DOC_FILES = ["README.md", "INSTALL.md", "VERIFY.md"];
 const NORMALIZED_SKILL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 /**
@@ -72,6 +72,34 @@ export class PaiPackReservedNameRefusal extends Error {
     super(`soma import pai-pack cannot overwrite reserved Soma skill '${skillName}'.`);
     this.name = "PaiPackReservedNameRefusal";
     this.skillName = skillName;
+  }
+}
+
+/**
+ * #105 — typed refusal raised when a pack's nested-skill set contains
+ * two `src/<Name>/SKILL.md` paths whose kebab-cased names collapse to
+ * the same slug (e.g., `src/Foo/SKILL.md` + `src/foo/SKILL.md`, or
+ * `src/extract-wisdom/SKILL.md` + `src/ExtractWisdom/SKILL.md`). The
+ * migration orchestrator classifies these as `refused-name-collision`
+ * for the entire pack. Carries the colliding slug + the raw source
+ * names so the principal can fix the upstream pack.
+ *
+ * Note: cross-pack collisions (Pack A landed `browser`, Pack B's
+ * `src/Browser/SKILL.md` would clobber it) are handled at the
+ * migration-orchestrator level, NOT here — the pack importer alone
+ * cannot see what other packs have landed.
+ */
+export class PaiPackNameCollisionRefusal extends Error {
+  readonly kind = "name-collision" as const;
+  readonly skillName: string;
+  readonly sources: readonly string[];
+  constructor(skillName: string, sources: readonly string[]) {
+    super(
+      `PAI pack import refused name collision on '${skillName}': ${sources.join(", ")} collapse to the same Soma skill slug.`,
+    );
+    this.name = "PaiPackNameCollisionRefusal";
+    this.skillName = skillName;
+    this.sources = sources;
   }
 }
 
@@ -125,15 +153,28 @@ const SECRET_FILE_PATTERNS = [
 ];
 
 type RoutedPaiPackImportFile =
-  | (PaiPackSourceImportFile & { renderMode: Extract<PaiPackRenderMode, "copy" | "skill" | "skill-body"> })
+  | (PaiPackSourceImportFile & {
+      renderMode: Extract<PaiPackRenderMode, "copy" | "skill" | "skill-body">;
+      /**
+       * #105 — derived skill slug this file belongs to. Empty string
+       * for archive-only files (route.root === "archive") since they
+       * live under the pack-level archive root, not any skill root.
+       */
+      derivedSkill: string;
+    })
   | (PaiPackGeneratedImportFile & {
       renderMode: Extract<PaiPackRenderMode, "manifest" | "archive-manifest"> | "soma-skill-manifest";
+      derivedSkill: string;
     });
 
 interface InternalPaiPackImportPlan extends PaiPackImportPlan {
   routedFiles: RoutedPaiPackImportFile[];
   normalization: PaiPackNormalizationReport;
   normalizedSkillFiles: Map<string, NormalizedSkillFile>;
+  /** #105 — pack-level slug for archive routing. */
+  packSlug: string;
+  /** #105 — every derived skill slug produced by this plan (sorted). */
+  derivedSkills: string[];
 }
 
 function isRoutedSourceFile(file: RoutedPaiPackImportFile): file is Extract<RoutedPaiPackImportFile, { origin: "source" }> {
@@ -161,10 +202,22 @@ function resolvePackHomes(options: PaiPackImportOptions = {}): { paiPackDir: str
  * function — Sage #95 Maintainability finding (avoid drift between
  * the importer's reserved check and the orchestrator's reserved
  * check).
+ *
+ * Two transformations split CamelCase boundaries before lowercasing:
+ *   1. `([A-Z]+)([A-Z][a-z])` → `$1-$2`  — splits ALL-CAPS prefix from
+ *      a following Capital+lowercase (e.g., `PAIUpgrade` →
+ *      `PAI-Upgrade`, `HTMLParser` → `HTML-Parser`).
+ *   2. `([a-z0-9])([A-Z])` → `$1-$2`     — standard CamelCase split
+ *      (e.g., `ExtractWisdom` → `Extract-Wisdom`).
+ *
+ * Order matters: rule 1 runs first so it can fire on `PAI` before
+ * rule 2 sees `IU` (no lower-upper boundary there). Then lowercasing
+ * and final non-alnum-to-hyphen normalization runs.
  */
 export function slugifySkillName(value: string): string {
   return value
     .trim()
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1-$2")
     .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
@@ -308,11 +361,55 @@ function isLikelySecretPath(path: string): boolean {
   return SECRET_FILE_PATTERNS.some((pattern) => pattern.test(normalizedPath.toLowerCase()));
 }
 
-function assertRequiredPackFiles(sourceFiles: string[]): void {
+/**
+ * #105 — scan the file list and return the raw `<Name>` portion of
+ * every `src/<Name>/SKILL.md`. Order is the sorted file order from
+ * `collectFiles`. Duplicates are impossible from a single fs scan, so
+ * the result is a unique set keyed by raw `<Name>`.
+ *
+ * The orchestrator must compute the kebab projection separately —
+ * within-pack collision detection lives on top of this.
+ */
+function findNestedSkillNames(sourceFiles: readonly string[]): Set<string> {
+  const result = new Set<string>();
+  for (const path of sourceFiles) {
+    if (!path.startsWith("src/")) continue;
+    const tail = path.slice("src/".length);
+    const idx = tail.indexOf("/");
+    if (idx === -1) continue;
+    const name = tail.slice(0, idx);
+    const rest = tail.slice(idx + 1);
+    if (rest === "SKILL.md") {
+      result.add(name);
+    }
+  }
+  return result;
+}
+
+function assertRequiredPackDocs(sourceFiles: readonly string[]): void {
   const sourceFileSet = new Set(sourceFiles);
-  const missing = REQUIRED_PACK_FILES.filter((path) => !sourceFileSet.has(path));
+  const missing = REQUIRED_PACK_DOC_FILES.filter((path) => !sourceFileSet.has(path));
   if (missing.length > 0) {
     throw new Error(`PAI pack import requires V0 pack file(s): ${missing.join(", ")}`);
+  }
+}
+
+/**
+ * #105 — require at least one skill entrypoint, either FLAT
+ * (`src/SKILL.md`) or nested (any `src/<Name>/SKILL.md`). Before this
+ * issue the importer required `src/SKILL.md` unconditionally, which
+ * forced pure-nested packs (like Thinking/) to fail validation before
+ * the new router got a chance to recognize the bundles.
+ */
+function assertHasSkillEntrypoint(
+  sourceFiles: readonly string[],
+  nestedSkills: ReadonlySet<string>,
+): void {
+  const hasFlat = sourceFiles.includes("src/SKILL.md");
+  if (!hasFlat && nestedSkills.size === 0) {
+    throw new Error(
+      `PAI pack import requires V0 pack file(s): src/SKILL.md (or at least one nested src/<Name>/SKILL.md)`,
+    );
   }
 }
 
@@ -399,19 +496,35 @@ async function mapWithConcurrency<T, R>(items: T[], concurrency: number, worker:
   return results;
 }
 
-function renderManifest(plan: PaiPackImportPlan): string {
-  const skillRoot = join(plan.somaHome, "skills", plan.skillName);
+function renderManifestForSkill(plan: InternalPaiPackImportPlan, skillSlug: string): string {
+  const skillRoot = join(plan.somaHome, "skills", skillSlug);
   const skillFiles = plan.files.filter((file) => isWithinPath(skillRoot, file.target));
-  return renderManifestForRoot(plan, skillRoot, skillFiles);
+  return renderManifestForRoot(
+    { ...plan, skillName: skillSlug },
+    skillRoot,
+    skillFiles,
+  );
 }
 
-function renderArchiveManifest(plan: PaiPackImportPlan): string {
-  const archiveRoot = join(plan.somaHome, "imports", "pai-packs", plan.skillName);
-  const archiveFiles = plan.files.filter((file) => isWithinPath(archiveRoot, file.target) && file.origin === "source");
-  return renderManifestForRoot(plan, archiveRoot, archiveFiles);
+function renderArchiveManifest(plan: InternalPaiPackImportPlan): string {
+  const archiveRoot = join(plan.somaHome, "imports", "pai-packs", plan.packSlug);
+  const archiveFiles = plan.files.filter(
+    (file) => isWithinPath(archiveRoot, file.target) && file.origin === "source",
+  );
+  return renderManifestForRoot(
+    { ...plan, skillName: plan.packSlug },
+    archiveRoot,
+    archiveFiles,
+    { derivedSkills: plan.derivedSkills },
+  );
 }
 
-function renderManifestForRoot(plan: PaiPackImportPlan, root: string, files: PaiPackImportFile[]): string {
+function renderManifestForRoot(
+  plan: { paiPackDir: string; somaHome: string; skillName: string; packName: string; description: string; normalization: PaiPackNormalizationReport },
+  root: string,
+  files: PaiPackImportFile[],
+  extras: { derivedSkills?: string[] } = {},
+): string {
   const manifest: PaiPackManifest = {
     schema: "soma.pai-pack-import.v1",
     skillName: plan.skillName,
@@ -440,6 +553,9 @@ function renderManifestForRoot(plan: PaiPackImportPlan, root: string, files: Pai
       };
     }),
   };
+  if (extras.derivedSkills) {
+    manifest.derivedSkills = [...extras.derivedSkills].sort();
+  }
 
   return `${JSON.stringify(manifest, null, 2)}\n`;
 }
@@ -458,41 +574,120 @@ function rewriteSkillFrontmatter(content: string, skillName: string, description
   return ["---", `name: ${JSON.stringify(skillName)}`, `description: ${JSON.stringify(description || `Imported PAI pack: ${skillName}`)}`, "metadata:", "  source: pai-pack", "---", body.trimStart()].join("\n");
 }
 
+/**
+ * #105 — pack-level frontmatter for a nested skill's own SKILL.md. The
+ * nested skill's frontmatter (e.g. `name: ExtractWisdom`) is preserved
+ * via the standard rewrite — only its `name` is replaced with the
+ * kebab-cased slug. Nested skills get the pack-level description as a
+ * fallback when their own frontmatter lacks one.
+ */
+function nestedSkillDescription(nestedRawName: string): string {
+  return `Imported PAI nested skill: ${nestedRawName}`;
+}
+
+/**
+ * #105 — resolve the kebab projection of a nested skill name and
+ * detect within-pack collisions before any plan work runs. Returns the
+ * full set of `{ raw, slug }` pairs sorted by raw name for
+ * deterministic downstream iteration. Throws
+ * `PaiPackNameCollisionRefusal` on collision so the migration
+ * orchestrator can classify it via `instanceof`.
+ */
+interface NestedSkillRecord {
+  raw: string;
+  slug: string;
+}
+
+function buildNestedSkillIndex(nestedRawNames: ReadonlySet<string>): NestedSkillRecord[] {
+  const bySlug = new Map<string, string[]>();
+  for (const raw of nestedRawNames) {
+    const slug = kebabNestedName(raw);
+    const list = bySlug.get(slug) ?? [];
+    list.push(raw);
+    bySlug.set(slug, list);
+  }
+  for (const [slug, raws] of bySlug) {
+    if (raws.length > 1) {
+      throw new PaiPackNameCollisionRefusal(slug, raws.sort());
+    }
+  }
+  return Array.from(nestedRawNames, (raw) => ({ raw, slug: kebabNestedName(raw) }))
+    .sort((a, b) => a.raw.localeCompare(b.raw));
+}
+
 async function buildPaiPackImportPlan(options: PaiPackImportOptions = {}): Promise<InternalPaiPackImportPlan> {
   const homes = resolvePackHomes(options);
   const { files: sourceFiles, skippedEditorSymlinks } = await collectFiles(homes.paiPackDir);
   assertSafePackPaths(sourceFiles);
-  assertRequiredPackFiles(sourceFiles);
+  assertRequiredPackDocs(sourceFiles);
+  // #105 — detect nested skill bundles BEFORE the skill-entrypoint
+  // check, then accept the pack iff it has either FLAT or ≥1 nested
+  // entrypoint. The previous unconditional `src/SKILL.md` requirement
+  // would have rejected pure-nested packs (Thinking/, Utilities/) that
+  // ship with only nested SKILL.md files.
+  const nestedRawNames = findNestedSkillNames(sourceFiles);
+  // Build index BEFORE entrypoint check so within-pack name collisions
+  // (e.g. Foo/ vs foo/) refuse with the typed error instead of falling
+  // through to a downstream duplicate-target failure.
+  const nestedIndex = buildNestedSkillIndex(nestedRawNames);
+  assertHasSkillEntrypoint(sourceFiles, nestedRawNames);
 
   const metadata = await readPackMetadata(homes.paiPackDir);
-  const skillName = options.skillName ? slugifySkillName(options.skillName) : slugifySkillName(metadata.name);
-  if (!skillName) {
+  const packSlug = options.skillName ? slugifySkillName(options.skillName) : slugifySkillName(metadata.name);
+  if (!packSlug) {
     throw new Error("soma import pai-pack requires a non-empty skill name after normalization.");
   }
-  if (!NORMALIZED_SKILL_NAME_PATTERN.test(skillName)) {
-    throw new Error(`soma import pai-pack produced invalid normalized skill name '${skillName}'.`);
+  if (!NORMALIZED_SKILL_NAME_PATTERN.test(packSlug)) {
+    throw new Error(`soma import pai-pack produced invalid normalized skill name '${packSlug}'.`);
   }
-  if (RESERVED_SKILL_NAMES.has(skillName)) {
+  if (RESERVED_SKILL_NAMES.has(packSlug)) {
     // #102 — typed refusal so the migrate orchestrator classifies
     // this as `refused-reserved` even when its outer pre-check is
     // bypassed by `--overwrite-reserved` (the inner set is narrower
     // and structurally enforced; the slug is preserved in the error).
-    // The standalone `soma import pai-pack` verb still surfaces the
-    // same human-readable message via `Error.message`.
-    throw new PaiPackReservedNameRefusal(skillName);
+    throw new PaiPackReservedNameRefusal(packSlug);
   }
+
+  // #105 — enumerate every Soma skill this pack will derive. The
+  // FLAT top-level surface (pack slug) exists iff `src/SKILL.md` is
+  // present in the file list; nested skills are the kebab projection
+  // of every `src/<Name>/SKILL.md`.
+  const hasFlatEntry = sourceFiles.includes("src/SKILL.md");
+  const derivedSkillSet = new Set<string>();
+  if (hasFlatEntry) derivedSkillSet.add(packSlug);
+  for (const { slug } of nestedIndex) derivedSkillSet.add(slug);
+
+  // Each derived skill is also subject to the pack importer's reserved
+  // name set; structurally off-limits even for nested bundles.
+  for (const slug of derivedSkillSet) {
+    if (RESERVED_SKILL_NAMES.has(slug)) {
+      throw new PaiPackReservedNameRefusal(slug);
+    }
+    if (!NORMALIZED_SKILL_NAME_PATTERN.test(slug)) {
+      throw new Error(`soma import pai-pack produced invalid normalized skill name '${slug}'.`);
+    }
+  }
+  // FLAT slug colliding with a nested slug (e.g., pack name "Foo" with
+  // nested src/Foo/SKILL.md) is a collision — both would target the
+  // same skill root. Refuse with the typed error.
+  if (hasFlatEntry && nestedIndex.some(({ slug }) => slug === packSlug)) {
+    throw new PaiPackNameCollisionRefusal(packSlug, ["src/SKILL.md", `src/${packSlug}/SKILL.md`]);
+  }
+
   if (!options.overwrite) {
-    await access(join(homes.somaHome, "skills", skillName))
+    for (const slug of derivedSkillSet) {
+      await access(join(homes.somaHome, "skills", slug))
+        .then(() => {
+          throw new Error(`Soma skill '${slug}' already exists. Re-run with --overwrite to replace it.`);
+        })
+        .catch((error: unknown) => {
+          if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
+          throw error;
+        });
+    }
+    await access(join(homes.somaHome, "imports", "pai-packs", packSlug))
       .then(() => {
-        throw new Error(`Soma skill '${skillName}' already exists. Re-run with --overwrite to replace it.`);
-      })
-      .catch((error: unknown) => {
-        if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
-        throw error;
-      });
-    await access(join(homes.somaHome, "imports", "pai-packs", skillName))
-      .then(() => {
-        throw new Error(`Soma PAI pack archive '${skillName}' already exists. Re-run with --overwrite to replace it.`);
+        throw new Error(`Soma PAI pack archive '${packSlug}' already exists. Re-run with --overwrite to replace it.`);
       })
       .catch((error: unknown) => {
         if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
@@ -505,7 +700,10 @@ async function buildPaiPackImportPlan(options: PaiPackImportOptions = {}): Promi
     throw new Error(`PAI pack import refused likely secret file(s): ${secretFiles.join(", ")}`);
   }
 
-  const routes = sourceFiles.map((path) => ({ path, route: routePaiPackSourceFile(path) }));
+  const routes = sourceFiles.map((path) => ({
+    path,
+    route: routePaiPackSourceFile(path, nestedRawNames),
+  }));
   const substrateSpecific = routes.filter(({ route }) => route.classification === "substrate-specific");
   if (substrateSpecific.length > 0 && !options.includeSubstrateSpecific) {
     // #97 — typed refusal so callers (the migrate orchestrator in
@@ -516,16 +714,55 @@ async function buildPaiPackImportPlan(options: PaiPackImportOptions = {}): Promi
     throw new PaiPackSubstrateSpecificRefusal(substrateSpecific.map(({ path }) => path));
   }
 
-  const routedFiles: RoutedPaiPackImportFile[] = routes.map(({ path, route }) => ({
-    source: join(homes.paiPackDir, path),
-    target: join(homes.somaHome, route.root === "skill" ? "skills" : "imports/pai-packs", skillName, route.relativePath),
-    classification: route.classification,
-    renderMode: route.renderMode,
-    origin: "source",
-  }));
+  const routedFiles: RoutedPaiPackImportFile[] = [];
+  for (const { path, route } of routes) {
+    // Resolve the destination skill slug for portable routes:
+    //   - route.skillName === null → pack-level (FLAT) slug
+    //   - route.skillName !== null → nested skill slug
+    const destSkill = route.skillName ?? packSlug;
+    const destRoot =
+      route.root === "skill"
+        ? join(homes.somaHome, "skills", destSkill)
+        : join(homes.somaHome, "imports/pai-packs", packSlug);
+    routedFiles.push({
+      source: join(homes.paiPackDir, path),
+      target: join(destRoot, route.relativePath),
+      classification: route.classification,
+      renderMode: route.renderMode,
+      origin: "source",
+      derivedSkill: route.root === "skill" ? destSkill : "",
+    });
+  }
+
+  // #105 — pack-level README/INSTALL/VERIFY land under EACH derived
+  // skill so each nested skill is independently invocable with the
+  // pack's context attached. The base routing only emits one copy
+  // (to the pack-level surface); we replicate it per nested skill.
+  for (const docName of REQUIRED_PACK_DOC_FILES) {
+    if (!sourceFiles.includes(docName)) continue;
+    const targetBasename = {
+      "README.md": "PAI-PACK-README.md",
+      "INSTALL.md": "PAI-PACK-INSTALL.md",
+      "VERIFY.md": "PAI-PACK-VERIFY.md",
+    }[docName];
+    if (!targetBasename) continue;
+    for (const { slug } of nestedIndex) {
+      // Skip if FLAT pack already has this slug — the route already
+      // landed it.
+      if (hasFlatEntry && slug === packSlug) continue;
+      routedFiles.push({
+        source: join(homes.paiPackDir, docName),
+        target: join(homes.somaHome, "skills", slug, "references", targetBasename),
+        classification: "source-doc",
+        renderMode: "copy",
+        origin: "source",
+        derivedSkill: slug,
+      });
+    }
+  }
 
   // AC-4 — preserve every normalized file's original under
-  // imports/pai-packs/<skill>/source/<original-path> so the un-normalized
+  // imports/pai-packs/<pack-slug>/source/<original-path> so the un-normalized
   // PAI source remains auditable. Copy mode; never normalized.
   // Both "skill" (entry SKILL.md) and "skill-body" (Workflows/Tools .md)
   // get archived — round-3 split introduced skill-body and the archive
@@ -534,10 +771,11 @@ async function buildPaiPackImportPlan(options: PaiPackImportOptions = {}): Promi
     if (route.renderMode === "skill" || route.renderMode === "skill-body") {
       routedFiles.push({
         source: join(homes.paiPackDir, path),
-        target: join(homes.somaHome, "imports", "pai-packs", skillName, "source", path),
+        target: join(homes.somaHome, "imports", "pai-packs", packSlug, "source", path),
         classification: "source-doc",
         renderMode: "copy",
         origin: "source",
+        derivedSkill: "",
       });
     }
   }
@@ -566,31 +804,39 @@ async function buildPaiPackImportPlan(options: PaiPackImportOptions = {}): Promi
     { actions: editorSymlinkSkipActions, warnings: [] },
   ]);
 
-  routedFiles.push({
-    target: join(homes.somaHome, `skills/${skillName}/soma-pack.json`),
-    classification: "portable",
-    renderMode: "manifest",
-    origin: "generated",
-    generator: "pai-pack-importer",
-  });
-  // Always emit a runtime skill manifest (soma-skill.json) alongside the
-  // pack provenance manifest.
-  routedFiles.push({
-    target: join(homes.somaHome, `skills/${skillName}/soma-skill.json`),
-    classification: "portable",
-    renderMode: "soma-skill-manifest",
-    origin: "generated",
-    generator: "pai-pack-importer",
-  });
-  if (substrateSpecific.length > 0) {
+  // Per-derived-skill manifests: each skill gets its own soma-pack.json
+  // (per-skill audit) and soma-skill.json (runtime manifest).
+  const derivedSkills = Array.from(derivedSkillSet).sort();
+  for (const slug of derivedSkills) {
     routedFiles.push({
-      target: join(homes.somaHome, `imports/pai-packs/${skillName}/soma-pack-archive.json`),
-      classification: "substrate-specific",
-      renderMode: "archive-manifest",
+      target: join(homes.somaHome, `skills/${slug}/soma-pack.json`),
+      classification: "portable",
+      renderMode: "manifest",
       origin: "generated",
       generator: "pai-pack-importer",
+      derivedSkill: slug,
+    });
+    routedFiles.push({
+      target: join(homes.somaHome, `skills/${slug}/soma-skill.json`),
+      classification: "portable",
+      renderMode: "soma-skill-manifest",
+      origin: "generated",
+      generator: "pai-pack-importer",
+      derivedSkill: slug,
     });
   }
+  // Pack-level archive manifest is always emitted when there are
+  // archive-bound files (substrate-specific OR every imported pack
+  // gets one as part of #105's auditability contract — the archive's
+  // `derivedSkills` list is principal-facing).
+  routedFiles.push({
+    target: join(homes.somaHome, `imports/pai-packs/${packSlug}/soma-pack-archive.json`),
+    classification: substrateSpecific.length > 0 ? "substrate-specific" : "portable",
+    renderMode: "archive-manifest",
+    origin: "generated",
+    generator: "pai-pack-importer",
+    derivedSkill: "",
+  });
 
   const escapedTargets = routedFiles.filter((file) => !isWithinPath(homes.somaHome, file.target));
   if (escapedTargets.length > 0) {
@@ -598,19 +844,24 @@ async function buildPaiPackImportPlan(options: PaiPackImportOptions = {}): Promi
   }
   assertUniqueTargets(routedFiles);
 
-  const files = routedFiles.map(({ renderMode: _renderMode, ...file }) => file);
+  const files = routedFiles.map(({ renderMode: _renderMode, derivedSkill: _derivedSkill, ...file }) => file);
 
   return {
     apply: false,
     paiPackDir: homes.paiPackDir,
     somaHome: homes.somaHome,
-    skillName,
+    // For the single-plan view, `skillName` is the pack slug — kept
+    // for back-compat with manifest renderers. Callers consume
+    // `derivedSkills` to enumerate per-skill landing pads.
+    skillName: packSlug,
     packName: metadata.name,
     description: normalizedDescription.description,
     files,
     routedFiles,
     normalization,
     normalizedSkillFiles,
+    packSlug,
+    derivedSkills,
   };
 }
 
@@ -638,10 +889,17 @@ async function normalizeSkillFiles(
   routedFiles: RoutedPaiPackImportFile[],
 ): Promise<Map<string, NormalizedSkillFile>> {
   const realPackRoot = await realpath(paiPackDir);
-  const skillFiles: PaiPackSourceImportFile[] = [];
+  const skillFiles: { source: string }[] = [];
+  const seen = new Set<string>();
   for (const file of routedFiles) {
-    if (file.renderMode === "skill" || file.renderMode === "skill-body") {
-      skillFiles.push(file);
+    if ((file.renderMode === "skill" || file.renderMode === "skill-body") && isRoutedSourceFile(file)) {
+      // Each unique source path normalizes once (multiple derived
+      // skills can reference the same source through different
+      // routings; we only run the normalizer once per source).
+      if (!seen.has(file.source)) {
+        seen.add(file.source);
+        skillFiles.push({ source: file.source });
+      }
     }
   }
   const results = await mapWithConcurrency(skillFiles, 8, (file) =>
@@ -660,9 +918,68 @@ function reportFromNormalizedFiles(files: Iterable<NormalizedSkillFile>): PaiPac
   );
 }
 
-export async function planPaiPackImport(options: PaiPackImportOptions = {}): Promise<PaiPackImportPlan> {
-  const { routedFiles: _routedFiles, ...plan } = await buildPaiPackImportPlan(options);
-  return plan;
+/**
+ * #105 — public-facing plan function. Returns one
+ * `PaiPackImportPlan` per derived skill in the pack (≥ 1 always).
+ *
+ * BREAKING CHANGE: previously returned a single `PaiPackImportPlan`.
+ * Callers that expected a scalar must adapt — the migration
+ * orchestrator (the primary consumer) handles the array shape
+ * natively. The standalone `soma import pai-pack` CLI verb prints
+ * each plan in turn.
+ */
+export async function planPaiPackImport(
+  options: PaiPackImportOptions = {},
+): Promise<PaiPackImportPlan[]> {
+  const internal = await buildPaiPackImportPlan(options);
+  return splitInternalPlanByDerivedSkill(internal);
+}
+
+/**
+ * #105 — split the single internal plan (which holds every routed
+ * file in one bag) into one externally-visible `PaiPackImportPlan`
+ * per derived skill. The archive surface (under
+ * `<somaHome>/imports/pai-packs/<pack-slug>/`) is attached to the
+ * first (sorted) derived skill so its files don't vanish — callers
+ * that want the archive listing can find it on `plans[0].files`.
+ *
+ * Each plan reports the same `paiPackDir`, `somaHome`, `packName`,
+ * `description`, `normalization` — those are pack-level properties
+ * shared by every derived skill.
+ */
+function splitInternalPlanByDerivedSkill(
+  internal: InternalPaiPackImportPlan,
+): PaiPackImportPlan[] {
+  const sharedFields = {
+    apply: internal.apply,
+    paiPackDir: internal.paiPackDir,
+    somaHome: internal.somaHome,
+    packName: internal.packName,
+    description: internal.description,
+    normalization: internal.normalization,
+  };
+
+  // Group every routed source file + every generated per-skill manifest
+  // under its derived-skill bucket. Archive-only files (derivedSkill ==
+  // "") attach to the first skill so they don't disappear from the
+  // public plan surface.
+  const buckets = new Map<string, PaiPackImportFile[]>();
+  for (const slug of internal.derivedSkills) buckets.set(slug, []);
+  const firstSlug = internal.derivedSkills[0];
+
+  for (const file of internal.routedFiles) {
+    const slug = file.derivedSkill || firstSlug;
+    if (!slug) continue;
+    if (!buckets.has(slug)) buckets.set(slug, []);
+    const { renderMode: _r, derivedSkill: _d, ...stripped } = file;
+    buckets.get(slug)!.push(stripped);
+  }
+
+  return internal.derivedSkills.map((slug) => ({
+    ...sharedFields,
+    skillName: slug,
+    files: buckets.get(slug) ?? [],
+  }));
 }
 
 async function stagePaiPackFiles(plan: InternalPaiPackImportPlan, stageRoot: string): Promise<void> {
@@ -678,15 +995,19 @@ async function stagePaiPackFiles(plan: InternalPaiPackImportPlan, stageRoot: str
     await mkdir(dirname(stagedTarget), { recursive: true });
 
     if (file.renderMode === "manifest") {
-      await writeFile(stagedTarget, renderManifest(plan), "utf8");
+      // Per-skill soma-pack.json (one per derived skill).
+      await writeFile(stagedTarget, renderManifestForSkill(plan, file.derivedSkill), "utf8");
     } else if (file.renderMode === "archive-manifest") {
       await writeFile(stagedTarget, renderArchiveManifest(plan), "utf8");
     } else if (file.renderMode === "soma-skill-manifest") {
-      await writeFile(stagedTarget, renderSomaSkillManifest(plan), "utf8");
+      await writeFile(stagedTarget, renderSomaSkillManifest(plan, file.derivedSkill), "utf8");
     } else if (file.renderMode === "skill" || file.renderMode === "skill-body") {
       // Reuse the cached normalization computed during plan construction
       // so we don't re-read or re-normalize the same source per Sage's
       // double-pass finding. Fallback: re-read if cache miss.
+      if (!isRoutedSourceFile(file)) {
+        throw new Error(`PAI pack import cannot normalize generated file: ${target}`);
+      }
       const cached = plan.normalizedSkillFiles.get(file.source);
       const normalizedContent = cached
         ? cached.normalized
@@ -698,7 +1019,13 @@ async function stagePaiPackFiles(plan: InternalPaiPackImportPlan, stageRoot: str
       // Workflows/Tools markdown keeps its original frontmatter intact —
       // Sage round-3 important: their identity isn't the root skill's.
       const finalContent = file.renderMode === "skill"
-        ? `${rewriteSkillFrontmatter(normalizedContent, plan.skillName, plan.description).trimEnd()}\n`
+        ? `${rewriteSkillFrontmatter(
+            normalizedContent,
+            file.derivedSkill,
+            file.derivedSkill === plan.packSlug
+              ? plan.description
+              : nestedSkillDescription(file.derivedSkill),
+          ).trimEnd()}\n`
         : `${normalizedContent.trimEnd()}\n`;
       await writeFile(stagedTarget, finalContent, "utf8");
     } else {
@@ -711,8 +1038,8 @@ async function stagePaiPackFiles(plan: InternalPaiPackImportPlan, stageRoot: str
   });
 }
 
-function renderSomaSkillManifest(plan: InternalPaiPackImportPlan): string {
-  const skillRoot = join(plan.somaHome, "skills", plan.skillName);
+function renderSomaSkillManifest(plan: InternalPaiPackImportPlan, skillSlug: string): string {
+  const skillRoot = join(plan.somaHome, "skills", skillSlug);
   const skillRelPath = (target: string): string => relative(skillRoot, target).split(sep).join("/");
   const skillFiles = plan.files.filter((file) => isWithinPath(skillRoot, file.target));
   const skillMd = skillFiles.find((file) => skillRelPath(file.target) === "SKILL.md");
@@ -723,8 +1050,11 @@ function renderSomaSkillManifest(plan: InternalPaiPackImportPlan): string {
     .filter((file) => skillRelPath(file.target).startsWith("Workflows/"))
     .map((file) => skillRelPath(file.target));
   const manifest: SomaSkillManifest = generateSomaSkillManifest({
-    skillName: plan.skillName,
-    description: plan.description,
+    skillName: skillSlug,
+    description:
+      skillSlug === plan.packSlug
+        ? plan.description
+        : nestedSkillDescription(skillSlug),
     packName: plan.packName,
     entrypoint: skillMd ? skillRelPath(skillMd.target) : "SKILL.md",
     references,
@@ -737,62 +1067,79 @@ interface PromotionContext {
   plan: InternalPaiPackImportPlan;
   stageRoot: string;
   backupRoot: string;
-  skillRoot: string;
-  sourceArchiveRoot: string;
   overwrite: boolean;
   cleanupRoots: Set<string>;
 }
 
 async function promoteStagedImportWithRollback(context: PromotionContext): Promise<void> {
-  const { plan, stageRoot, backupRoot, skillRoot, sourceArchiveRoot, overwrite, cleanupRoots } = context;
-  const backupSkillRoot = join(backupRoot, "skills", plan.skillName);
-  const backupArchiveRoot = join(backupRoot, "imports", "pai-packs", plan.skillName);
-  const hadSkillRoot = await pathExists(skillRoot);
-  const hadArchiveRoot = await pathExists(sourceArchiveRoot);
+  const { plan, stageRoot, backupRoot, overwrite, cleanupRoots } = context;
+  const archiveRoot = join(plan.somaHome, "imports", "pai-packs", plan.packSlug);
+  const backupArchiveRoot = join(backupRoot, "imports", "pai-packs", plan.packSlug);
+  const hadArchiveRoot = await pathExists(archiveRoot);
 
-  const stagedSkillRoot = join(stageRoot, "skills", plan.skillName);
-  const stagedArchiveRoot = join(stageRoot, "imports", "pai-packs", plan.skillName);
-  let promotedSkillRoot = false;
+  // Track every skill root that needs to be promoted + backed up.
+  const skillEntries = plan.derivedSkills.map((slug) => {
+    const dest = join(plan.somaHome, "skills", slug);
+    const backup = join(backupRoot, "skills", slug);
+    const staged = join(stageRoot, "skills", slug);
+    return { slug, dest, backup, staged };
+  });
+  const stagedArchiveRoot = join(stageRoot, "imports", "pai-packs", plan.packSlug);
+
+  const hadDest: Record<string, boolean> = {};
+  for (const entry of skillEntries) {
+    hadDest[entry.slug] = await pathExists(entry.dest);
+  }
+
+  const promotedDest = new Set<string>();
   let promotedArchiveRoot = false;
 
   try {
     if (overwrite) {
-      if (hadSkillRoot) {
-        await mkdir(dirname(backupSkillRoot), { recursive: true });
-        await rename(skillRoot, backupSkillRoot);
+      for (const entry of skillEntries) {
+        if (hadDest[entry.slug]) {
+          await mkdir(dirname(entry.backup), { recursive: true });
+          await rename(entry.dest, entry.backup);
+        }
       }
       if (hadArchiveRoot) {
         await mkdir(dirname(backupArchiveRoot), { recursive: true });
-        await rename(sourceArchiveRoot, backupArchiveRoot);
+        await rename(archiveRoot, backupArchiveRoot);
       }
     }
 
-    if (await pathExists(stagedSkillRoot)) {
-      await mkdir(dirname(skillRoot), { recursive: true });
-      await rename(stagedSkillRoot, skillRoot);
-      promotedSkillRoot = true;
+    for (const entry of skillEntries) {
+      if (await pathExists(entry.staged)) {
+        await mkdir(dirname(entry.dest), { recursive: true });
+        await rename(entry.staged, entry.dest);
+        promotedDest.add(entry.slug);
+      }
     }
 
     if (await pathExists(stagedArchiveRoot)) {
-      await mkdir(dirname(sourceArchiveRoot), { recursive: true });
-      await rename(stagedArchiveRoot, sourceArchiveRoot);
+      await mkdir(dirname(archiveRoot), { recursive: true });
+      await rename(stagedArchiveRoot, archiveRoot);
       promotedArchiveRoot = true;
     }
   } catch (error) {
     try {
-      if (promotedSkillRoot) {
-        await rm(skillRoot, { recursive: true, force: true });
+      for (const entry of skillEntries) {
+        if (promotedDest.has(entry.slug)) {
+          await rm(entry.dest, { recursive: true, force: true });
+        }
       }
       if (promotedArchiveRoot) {
-        await rm(sourceArchiveRoot, { recursive: true, force: true });
+        await rm(archiveRoot, { recursive: true, force: true });
       }
-      if (hadSkillRoot && (await pathExists(backupSkillRoot))) {
-        await mkdir(dirname(skillRoot), { recursive: true });
-        await rename(backupSkillRoot, skillRoot);
+      for (const entry of skillEntries) {
+        if (hadDest[entry.slug] && (await pathExists(entry.backup))) {
+          await mkdir(dirname(entry.dest), { recursive: true });
+          await rename(entry.backup, entry.dest);
+        }
       }
       if (hadArchiveRoot && (await pathExists(backupArchiveRoot))) {
-        await mkdir(dirname(sourceArchiveRoot), { recursive: true });
-        await rename(backupArchiveRoot, sourceArchiveRoot);
+        await mkdir(dirname(archiveRoot), { recursive: true });
+        await rename(backupArchiveRoot, archiveRoot);
       }
       await rm(backupRoot, { recursive: true, force: true }).catch(() => undefined);
       cleanupRoots.delete(backupRoot);
@@ -808,28 +1155,39 @@ async function promoteStagedImportWithRollback(context: PromotionContext): Promi
   }
 }
 
-export async function importPaiPack(options: PaiPackImportOptions = {}): Promise<PaiPackImportResult> {
+/**
+ * #105 — public-facing apply function. Returns one
+ * `PaiPackImportResult` per derived skill in the pack (≥ 1 always).
+ *
+ * BREAKING CHANGE: previously returned a single `PaiPackImportResult`.
+ * Callers must adapt to the array shape. The migration orchestrator
+ * is the primary consumer and handles N-per-pack natively. The
+ * standalone `soma import pai-pack` CLI verb iterates over the result
+ * array when rendering its summary.
+ */
+export async function importPaiPack(
+  options: PaiPackImportOptions = {},
+): Promise<PaiPackImportResult[]> {
   const plan = { ...(await buildPaiPackImportPlan(options)), apply: true };
   const written: string[] = [];
-  const skillRoot = join(plan.somaHome, "skills", plan.skillName);
-  const sourceArchiveRoot = join(plan.somaHome, "imports", "pai-packs", plan.skillName);
-  const stageRoot = join(plan.somaHome, ".tmp", `pai-pack-${plan.skillName}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-  const backupRoot = join(plan.somaHome, ".tmp", `pai-pack-backup-${plan.skillName}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const archiveRoot = join(plan.somaHome, "imports", "pai-packs", plan.packSlug);
+  const stageRoot = join(plan.somaHome, ".tmp", `pai-pack-${plan.packSlug}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const backupRoot = join(plan.somaHome, ".tmp", `pai-pack-backup-${plan.packSlug}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   const cleanupRoots = new Set([stageRoot, backupRoot]);
 
   try {
     await mkdir(plan.somaHome, { recursive: true });
     await assertParentWithinRealRoot(plan.somaHome, stageRoot);
-    await assertParentWithinRealRoot(plan.somaHome, skillRoot);
-    await assertParentWithinRealRoot(plan.somaHome, sourceArchiveRoot);
+    for (const slug of plan.derivedSkills) {
+      await assertParentWithinRealRoot(plan.somaHome, join(plan.somaHome, "skills", slug));
+    }
+    await assertParentWithinRealRoot(plan.somaHome, archiveRoot);
 
     await stagePaiPackFiles(plan, stageRoot);
     await promoteStagedImportWithRollback({
       plan,
       stageRoot,
       backupRoot,
-      skillRoot,
-      sourceArchiveRoot,
       overwrite: options.overwrite === true,
       cleanupRoots,
     });
@@ -839,11 +1197,35 @@ export async function importPaiPack(options: PaiPackImportOptions = {}): Promise
     await Promise.allSettled(Array.from(cleanupRoots, (path) => rm(path, { recursive: true, force: true })));
   }
 
-  return {
+  // Per-skill result split. Each skill carries its own files subset so
+  // the migration orchestrator can record N outcome rows.
+  const filesBySlug = new Map<string, string[]>();
+  for (const slug of plan.derivedSkills) filesBySlug.set(slug, []);
+  const firstSlug = plan.derivedSkills[0];
+  const skillRoots = new Map(
+    plan.derivedSkills.map((slug) => [slug, join(plan.somaHome, "skills", slug)]),
+  );
+  for (const target of written) {
+    let placed = false;
+    for (const [slug, root] of skillRoots) {
+      if (isWithinPath(root, target)) {
+        filesBySlug.get(slug)!.push(target);
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) {
+      // Archive / pack-level file — attach to first slug so it doesn't
+      // disappear from the result surface.
+      if (firstSlug) filesBySlug.get(firstSlug)!.push(target);
+    }
+  }
+
+  return plan.derivedSkills.map((slug) => ({
     paiPackDir: plan.paiPackDir,
     somaHome: plan.somaHome,
-    skillName: plan.skillName,
-    files: written,
+    skillName: slug,
+    files: filesBySlug.get(slug) ?? [],
     normalization: plan.normalization,
-  };
+  }));
 }

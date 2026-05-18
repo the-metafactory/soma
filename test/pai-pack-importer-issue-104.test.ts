@@ -90,7 +90,9 @@ test("AC-1+AC-2: `.cursor/rules/*.mdc` symlink is skipped, pack imports, audit r
     await symlink(externalRule, join(packDir, "src/Tools/.cursor/rules/use-bun.mdc"));
 
     // Plan must succeed — no `refused symlink` throw.
-    const plan = await planPaiPackImport({ homeDir, paiPackDir: packDir });
+    // #105 — `planPaiPackImport` returns one plan per derived skill.
+    // Single-skill packs (no nested SKILL.md) produce a one-element array.
+    const [plan] = await planPaiPackImport({ homeDir, paiPackDir: packDir });
     expect(plan.skillName).toBe("demo");
 
     // The cursor symlink must NOT appear in the routed file set.
@@ -104,7 +106,7 @@ test("AC-1+AC-2: `.cursor/rules/*.mdc` symlink is skipped, pack imports, audit r
     expect(skipActions[0]?.file).toBe("src/Tools/.cursor/rules/use-bun.mdc");
 
     // AC-1: apply path also succeeds end-to-end.
-    const result = await importPaiPack({ homeDir, paiPackDir: packDir });
+    const [result] = await importPaiPack({ homeDir, paiPackDir: packDir });
     expect(result.skillName).toBe("demo");
     expect(result.normalization.actions.some((a) => a.kind === "skipped-editor-config-symlink")).toBe(true);
 
@@ -128,7 +130,7 @@ test("AC-2: `.vscode/settings.json` symlink is skipped, pack imports, audit reco
     await mkdir(join(packDir, ".vscode"), { recursive: true });
     await symlink(externalSettings, join(packDir, ".vscode/settings.json"));
 
-    const plan = await planPaiPackImport({ homeDir, paiPackDir: packDir });
+    const [plan] = await planPaiPackImport({ homeDir, paiPackDir: packDir });
     expect(plan.files.every((file) => !file.target.includes(".vscode/"))).toBe(true);
     const skipActions = plan.normalization.actions.filter(
       (action) => action.kind === "skipped-editor-config-symlink",
@@ -136,7 +138,7 @@ test("AC-2: `.vscode/settings.json` symlink is skipped, pack imports, audit reco
     expect(skipActions).toHaveLength(1);
     expect(skipActions[0]?.file).toBe(".vscode/settings.json");
 
-    const result = await importPaiPack({ homeDir, paiPackDir: packDir });
+    const [result] = await importPaiPack({ homeDir, paiPackDir: packDir });
     expect(result.skillName).toBe("demo");
   });
 });
@@ -195,7 +197,7 @@ test("AC-4: mixed pack with editor symlinks AND normal files imports cleanly wit
     await mkdir(join(packDir, ".idea"), { recursive: true });
     await symlink(externalIdea, join(packDir, ".idea/workspace.xml"));
 
-    const plan = await planPaiPackImport({ homeDir, paiPackDir: packDir });
+    const [plan] = await planPaiPackImport({ homeDir, paiPackDir: packDir });
 
     // Audit has exactly 2 skip entries.
     const skipActions = plan.normalization.actions.filter(
@@ -214,7 +216,7 @@ test("AC-4: mixed pack with editor symlinks AND normal files imports cleanly wit
     expect(plan.files.every((file) => !file.target.includes(".cursor/") && !file.target.includes(".idea/"))).toBe(true);
 
     // Apply succeeds; no refusal.
-    const result = await importPaiPack({ homeDir, paiPackDir: packDir });
+    const [result] = await importPaiPack({ homeDir, paiPackDir: packDir });
     expect(result.skillName).toBe("demo");
   });
 });
@@ -233,7 +235,7 @@ test("AC-4: `.fleet/` and `.zed/` symlinks are also skipped (full denylist cover
     await symlink(fleetExt, join(packDir, ".fleet/settings.json"));
     await symlink(zedExt, join(packDir, ".zed/settings.json"));
 
-    const plan = await planPaiPackImport({ homeDir, paiPackDir: packDir });
+    const [plan] = await planPaiPackImport({ homeDir, paiPackDir: packDir });
     const skipActions = plan.normalization.actions.filter(
       (action) => action.kind === "skipped-editor-config-symlink",
     );
