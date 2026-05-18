@@ -72,7 +72,8 @@ import type {
 } from "./types";
 import { buildPiDevPortableSkillFiles } from "./adapters/pi-dev/skill-projection";
 
-// Holly r1 #117 finding S2 — share frontmatter regex + quote-stripping.
+// Shared frontmatter regex + quote-stripping — single source of truth
+// across migrator + verifier.
 import { FRONTMATTER_RE, stripQuotes } from "./claude-skills-frontmatter";
 
 const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5 MiB sanity per file.

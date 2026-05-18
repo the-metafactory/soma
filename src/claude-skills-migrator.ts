@@ -97,7 +97,8 @@ function normalizeSmokeSubstrates(
 // `name` field but not `description`, so a missing/changed
 // description after projection is a meaningful blocker.
 //
-// Holly r1 #117 finding S2 — single-source the parser. See
+// Shared frontmatter helpers — single source of truth for description
+// extraction across the migrator + verifier. See
 // `./claude-skills-frontmatter.ts` for the contract and reach.
 import { parseDescriptionFromFrontmatter as parseSourceDescription } from "./claude-skills-frontmatter";
 
