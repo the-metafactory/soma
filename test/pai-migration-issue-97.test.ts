@@ -17,7 +17,7 @@
  * them) is covered by a sixth test that asserts MIGRATION.md body
  * fingerprint contains the per-pack outcome lines.
  */
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { migratePai } from "../src/pai-migration";
@@ -25,6 +25,7 @@ import { runSomaCli, SomaCliError } from "../src/cli";
 import {
   withTempHome as withSharedTempHome,
   writePaiIdentityFixture as writeIdentityFixture,
+  writeMalformedPaiPack as makeMalformedPack,
   writePaiPackFixture as writePackFixture,
 } from "./fixtures/pai-migration-fixtures";
 
@@ -41,26 +42,6 @@ async function plantSubstrateSpecificFile(packDir: string): Promise<void> {
   await writeFile(
     join(packDir, "src/Foundation.md"),
     "# Foundation\n\nSubstrate-specific doc.\n",
-    "utf8",
-  );
-}
-
-async function makeMalformedPack(packsDir: string, packName: string): Promise<void> {
-  // A pack missing INSTALL.md is "malformed" by the importer's
-  // REQUIRED_PACK_FILES check — it raises a structural error that
-  // the issue's outcome enum classifies `refused-other`.
-  const packDir = join(packsDir, packName);
-  await mkdir(join(packDir, "src"), { recursive: true });
-  await writeFile(
-    join(packDir, "README.md"),
-    `---\nname: ${packName}\ndescription: malformed\n---\n\n# ${packName}\n`,
-    "utf8",
-  );
-  // INSTALL.md intentionally omitted.
-  await writeFile(join(packDir, "VERIFY.md"), "# Verify\n", "utf8");
-  await writeFile(
-    join(packDir, "src/SKILL.md"),
-    `---\nname: ${packName}\ndescription: malformed\n---\n\n# ${packName}\n`,
     "utf8",
   );
 }

@@ -35,35 +35,20 @@
  * with `src/Foundation.md` + `src/MethodSelection.md`) and confirms
  * the plan completes without the raw throw the user originally saw.
  */
-import { mkdir, stat, writeFile } from "node:fs/promises";
+import { stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { planPaiMigration } from "../src/pai-migration";
-import { runSomaCli, SomaCliError } from "../src/cli";
+import { runSomaCli } from "../src/cli";
 import {
-  withTempHome as withSharedTempHome,
-  writePaiIdentityFixture as writeIdentityFixture,
+  withMigrationHome as withSharedMigrationHome,
+  writeMalformedPaiPack as makeMalformedPack,
   writePaiPackFixture as writePackFixture,
 } from "./fixtures/pai-migration-fixtures";
 
-const withTempHome = <T>(fn: (homeDir: string) => Promise<T>): Promise<T> =>
-  withSharedTempHome(fn, "soma-102-");
-
-/**
- * Sage r1 #103 Maintainability — single-source the per-scenario
- * setup. Every test in this file writes the identity fixture and
- * derives `<homeDir>/Packs` as the packs root, so a helper keeps
- * future fixture changes one-edit-away from propagating everywhere.
- */
-async function withMigrationHome<T>(
+const withMigrationHome = <T>(
   fn: (ctx: { homeDir: string; packsDir: string }) => Promise<T>,
-): Promise<T> {
-  return withTempHome(async (homeDir) => {
-    await writeIdentityFixture(homeDir);
-    const packsDir = join(homeDir, "Packs");
-    return fn({ homeDir, packsDir });
-  });
-}
+): Promise<T> => withSharedMigrationHome(fn, "soma-102-");
 
 /**
  * Plant a substrate-specific file inside an existing pack fixture.
@@ -75,26 +60,6 @@ async function plantSubstrateSpecificFile(packDir: string, filename = "Foundatio
   await writeFile(
     join(packDir, "src", filename),
     `# ${filename.replace(".md", "")}\n\nSubstrate-specific doc.\n`,
-    "utf8",
-  );
-}
-
-async function makeMalformedPack(packsDir: string, packName: string): Promise<void> {
-  // Missing INSTALL.md → REQUIRED_PACK_FILES check fails → buildPaiPackImportPlan
-  // throws → planPaiPackImport surfaces it → orchestrator must catch it as
-  // refused-other (mirrors the apply path).
-  const packDir = join(packsDir, packName);
-  await mkdir(join(packDir, "src"), { recursive: true });
-  await writeFile(
-    join(packDir, "README.md"),
-    `---\nname: ${packName}\ndescription: malformed\n---\n\n# ${packName}\n`,
-    "utf8",
-  );
-  // INSTALL.md intentionally omitted.
-  await writeFile(join(packDir, "VERIFY.md"), "# Verify\n", "utf8");
-  await writeFile(
-    join(packDir, "src/SKILL.md"),
-    `---\nname: ${packName}\ndescription: malformed\n---\n\n# ${packName}\n`,
     "utf8",
   );
 }
@@ -223,7 +188,7 @@ test("AC-1 — CLI parses --include-unrecognized for `migrate pai` plan-mode (pa
   });
 });
 
-test("AC-4 — plan-mode CLI exit non-zero when a pack outcome is refused-other (after rest of plan completes)", async () => {
+test("AC-4 — plan-mode CLI exit ZERO on refused-other (per #112; full plan body still emitted with footer)", async () => {
   // #109 — unrecognized files no longer refuse the pack (partial-import).
   // The remaining `refused-other` branch is still exercised below.
   await withMigrationHome(async ({ homeDir, packsDir }) => {
@@ -240,32 +205,32 @@ test("AC-4 — plan-mode CLI exit non-zero when a pack outcome is refused-other 
     ]);
     expect(out).toContain("imported");
   });
-  // Malformed pack → SomaCliError exitCode 1; output still includes
-  // the full plan body for the other packs.
+  // #112 — plan-mode now exits 0 on `refused-other`. The full plan
+  // body — including the outcome table AND the "N pack(s) failed
+  // with genuine errors:" footer — is returned as the formatted
+  // output (not thrown). Apply-mode keeps exit 1 per #97 AC-4;
+  // that's covered in `pai-migration-issue-112.test.ts` AC-2.
+  //
+  // Pre-#112 this assertion was `toBeInstanceOf(SomaCliError) +
+  // exitCode === 1`. #112 intentionally inverts the contract for the
+  // plan path.
   await withMigrationHome(async ({ homeDir, packsDir }) => {
     await makeMalformedPack(packsDir, "Broken");
     await writePackFixture(packsDir, "Healthy");
-    let caught: unknown = null;
-    try {
-      await runSomaCli([
-        "migrate",
-        "pai",
-        "--home-dir",
-        homeDir,
-        "--pai-packs-dir",
-        packsDir,
-      ]);
-    } catch (err) {
-      caught = err;
-    }
-    expect(caught).toBeInstanceOf(SomaCliError);
-    expect((caught as SomaCliError).exitCode).toBe(1);
-    // The full plan body — including the outcome table — must be in
-    // the error message so the principal sees what happened.
-    const msg = (caught as SomaCliError).message;
-    expect(msg).toContain("Pack outcomes");
-    expect(msg).toContain("refused-other");
-    expect(msg).toContain("imported");
+    const out = await runSomaCli([
+      "migrate",
+      "pai",
+      "--home-dir",
+      homeDir,
+      "--pai-packs-dir",
+      packsDir,
+    ]);
+    // No throw → exit 0. Full plan body still emitted.
+    expect(out).toContain("Pack outcomes");
+    expect(out).toContain("refused-other");
+    expect(out).toContain("imported");
+    // Footer line — the principal signal — stays in plan mode.
+    expect(out).toMatch(/\d+ pack\(s\) failed with genuine errors:/);
   });
 });
 
