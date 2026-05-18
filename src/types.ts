@@ -841,6 +841,57 @@ export interface PaiMemoryMigrationManifest {
 // bundles. Per-skill portability is classified heuristically (regex
 // based, Phase 1) and recorded in a sibling report file. Phase 2
 // (deferred) adds a `--smoke <substrate>` flag for projection verify.
+// #115 Phase 2 — substrate identifier scope for the `--smoke` flag.
+// `claude-code` is intentionally excluded — it's the SOURCE substrate
+// for `soma migrate claude-skills`, so projecting an imported skill
+// back to Claude Code would only ever round-trip; the real verify
+// value is on the NON-source substrates (Codex + Pi.dev).
+export type ClaudeSkillsSmokeSubstrate = "codex" | "pi-dev";
+
+// #115 Phase 2 — per-skill, per-substrate static-shape verification
+// verdict. The verifier never EXECUTES the substrate; it only checks
+// that the projection bytes survive the substrate's projection
+// machinery and pass deterministic structural assertions.
+export type ClaudeSkillSubstrateVerifyStatus =
+  | "verified"
+  | "verified-with-warnings"
+  | "failed";
+
+export interface ClaudeSkillSubstrateVerifyResult {
+  substrate: ClaudeSkillsSmokeSubstrate;
+  status: ClaudeSkillSubstrateVerifyStatus;
+  // One-line reason — surfaced in the portability report column.
+  // For `verified`: "ok" or a short positive description.
+  // For `verified-with-warnings`: the warning summary (first issue).
+  // For `failed`: the blocking issue summary (first issue).
+  reason: string;
+  // Full list of issues surfaced by the static shape checks. Empty
+  // when status is `verified`. Test surface and audit trail.
+  issues: ClaudeSkillSubstrateVerifyIssue[];
+}
+
+export interface ClaudeSkillSubstrateVerifyIssue {
+  kind:
+    | "projection-throw"
+    | "missing-name"
+    | "missing-description"
+    | "description-mismatch"
+    | "dangling-internal-ref"
+    | "substrate-only-primitive"
+    | "empty-projection"
+    | "oversized-projection"
+    | "frontmatter-unparseable"
+    | "long-body";
+  // Severity decides whether this issue is a warning or a blocker.
+  // `error` → status becomes `failed`. `warning` → status becomes
+  // `verified-with-warnings` (unless an `error` is also present).
+  severity: "error" | "warning";
+  // Human-readable line, single sentence, no trailing newline.
+  message: string;
+  // Optional path of the projection file that triggered the issue.
+  file?: string;
+}
+
 export interface ClaudeSkillsMigrationOptions {
   // Source flat skills tree. REQUIRED. Must be a directory of
   // `<Name>/SKILL.md` direct children. Refused loud otherwise.
@@ -853,6 +904,13 @@ export interface ClaudeSkillsMigrationOptions {
   // When true, classifier outcomes tagged `claude-specific` are still
   // imported (with an audit warning). Default false → skipped.
   includeClaudeSpecific?: boolean;
+  // #115 Phase 2 — substrate(s) to run per-skill static-shape
+  // verification against after import. Ordered, de-duplicated. The
+  // CLI accepts `--smoke <substrate>` repeated and `--smoke all`
+  // (which the parser expands to `["codex", "pi-dev"]`). Absent /
+  // empty → Phase-1 behavior (no verify, no substrate columns in
+  // the report).
+  smokeSubstrates?: ClaudeSkillsSmokeSubstrate[];
 }
 
 // Heuristic portability tag assigned to every source skill. Phase 1
@@ -895,6 +953,12 @@ export interface ClaudeSkillOutcome {
   // on the apply path (SKILL.md + every Workflows/Tools/References/
   // file copied or rewritten). Zero when the skill was skipped.
   fileCount: number;
+  // #115 Phase 2 — per-substrate static-shape verify results. Keyed
+  // by substrate id. Populated only when the migrator was invoked
+  // with `--smoke <substrate>` AND the skill was actually imported
+  // (skipped skills have nothing to verify). Empty/undefined when
+  // no smoke run was requested — preserves Phase 1 report shape.
+  substrates?: Partial<Record<ClaudeSkillsSmokeSubstrate, ClaudeSkillSubstrateVerifyResult>>;
 }
 
 export interface ClaudeSkillsMigrationPlan {
@@ -914,6 +978,10 @@ export interface ClaudeSkillsMigrationPlan {
   // the manifest renderer can both reflect the same intent without
   // re-threading the option through helpers.
   includeClaudeSpecific: boolean;
+  // #115 Phase 2 — substrates requested for static-shape verify.
+  // Empty when `--smoke` was not passed; the report omits substrate
+  // columns in that case so Phase-1 formatter output is byte-stable.
+  smokeSubstrates: ClaudeSkillsSmokeSubstrate[];
 }
 
 export interface ClaudeSkillsMigrationResult extends ClaudeSkillsMigrationPlan {
@@ -934,6 +1002,17 @@ export interface ClaudeSkillsMigrationResult extends ClaudeSkillsMigrationPlan {
   // Skills skipped because verdict was `claude-specific` and the
   // override flag was off.
   skippedClaudeSpecificCount: number;
+  // #115 Phase 2 — per-substrate verify aggregate counts. Keyed by
+  // substrate id; entries present only for substrates requested via
+  // `--smoke`. Each entry counts `verified` / `verified-with-
+  // warnings` / `failed` across imported skills.
+  substrateVerifySummary?: Partial<Record<ClaudeSkillsSmokeSubstrate, ClaudeSkillSubstrateVerifySummary>>;
+}
+
+export interface ClaudeSkillSubstrateVerifySummary {
+  verified: number;
+  verifiedWithWarnings: number;
+  failed: number;
 }
 
 export interface ClaudeSkillsMigrationManifestEntry {
@@ -948,6 +1027,13 @@ export interface ClaudeSkillsMigrationManifestEntry {
   // `<somaHome>/skills/<kebab>/`. POSIX-style paths relative to
   // the skill root. Includes SKILL.md.
   fileShas: Record<string, string>;
+  // #115 Phase 2 — last-seen per-substrate verify verdicts. Mirror
+  // of `ClaudeSkillOutcome.substrates`. Idempotency contract: a
+  // re-run with the same `sourceSha` AND a substrate already
+  // `verified` here skips re-verification. A `failed`/`verified-
+  // with-warnings` entry is re-run every invocation so a fix to the
+  // adapter can flip the verdict without source churn.
+  substrates?: Partial<Record<ClaudeSkillsSmokeSubstrate, ClaudeSkillSubstrateVerifyResult>>;
 }
 
 export interface ClaudeSkillsMigrationManifest {
@@ -964,6 +1050,10 @@ export interface ClaudeSkillsMigrationManifest {
   // SHA isn't an idempotency anchor for anything that landed.
   // Sorted by `kebabName` for byte-stable reruns.
   skills: ClaudeSkillsMigrationManifestEntry[];
+  // #115 Phase 2 — substrate list captured at last write. Absent
+  // when no `--smoke` was ever run; present so the next invocation
+  // can detect a substrate-set change.
+  smokeSubstrates?: ClaudeSkillsSmokeSubstrate[];
 }
 
 export interface SomaMemoryEventInput {

@@ -206,3 +206,153 @@ test("soma migrate claude-skills --apply is idempotent", async () => {
     expect(second).toContain("Totals: 0 written, 2 skipped-idempotent");
   });
 });
+
+// #115 Phase 2 — `--smoke <substrate>` CLI surface tests.
+test("soma migrate claude-skills --apply --smoke codex prints per-substrate summary", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = await writeFixture(home);
+    const somaHome = join(home, "soma");
+    const output = await runSomaCli([
+      "migrate",
+      "claude-skills",
+      "--from",
+      fromDir,
+      "--soma-home",
+      somaHome,
+      "--apply",
+      "--smoke",
+      "codex",
+    ]);
+    expect(output).toContain("smoke-substrates: codex");
+    expect(output).toContain("Smoke codex:");
+    // Both imported skills survive the static-shape check on a
+    // clean fixture; the needs-adapt skill leaves a ~/.soma/UNMAPPED
+    // ref behind which trips the dangling-warning rule, so totals
+    // include warnings.
+  });
+});
+
+test("soma migrate claude-skills --apply --smoke pi-dev surfaces totals", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = await writeFixture(home);
+    const somaHome = join(home, "soma");
+    const output = await runSomaCli([
+      "migrate",
+      "claude-skills",
+      "--from",
+      fromDir,
+      "--soma-home",
+      somaHome,
+      "--apply",
+      "--smoke",
+      "pi-dev",
+    ]);
+    expect(output).toContain("smoke-substrates: pi-dev");
+    expect(output).toContain("Smoke pi-dev:");
+  });
+});
+
+test("soma migrate claude-skills --apply --smoke codex --smoke pi-dev surfaces both", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = await writeFixture(home);
+    const somaHome = join(home, "soma");
+    const output = await runSomaCli([
+      "migrate",
+      "claude-skills",
+      "--from",
+      fromDir,
+      "--soma-home",
+      somaHome,
+      "--apply",
+      "--smoke",
+      "codex",
+      "--smoke",
+      "pi-dev",
+    ]);
+    expect(output).toContain("smoke-substrates: codex, pi-dev");
+    expect(output).toContain("Smoke codex:");
+    expect(output).toContain("Smoke pi-dev:");
+  });
+});
+
+test("soma migrate claude-skills --smoke all expands to codex + pi-dev", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = await writeFixture(home);
+    const somaHome = join(home, "soma");
+    const output = await runSomaCli([
+      "migrate",
+      "claude-skills",
+      "--from",
+      fromDir,
+      "--soma-home",
+      somaHome,
+      "--apply",
+      "--smoke",
+      "all",
+    ]);
+    expect(output).toContain("smoke-substrates: codex, pi-dev");
+    expect(output).toContain("Smoke codex:");
+    expect(output).toContain("Smoke pi-dev:");
+  });
+});
+
+test("soma migrate claude-skills --smoke unknown substrate rejects loud", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = await writeFixture(home);
+    await expect(
+      runSomaCli([
+        "migrate",
+        "claude-skills",
+        "--from",
+        fromDir,
+        "--soma-home",
+        join(home, "soma"),
+        "--apply",
+        "--smoke",
+        "claude-code",
+      ]),
+    ).rejects.toThrow(/Unknown --smoke substrate/);
+  });
+});
+
+test("soma migrate claude-skills --smoke (no value) errors with readOption", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = await writeFixture(home);
+    await expect(
+      runSomaCli([
+        "migrate",
+        "claude-skills",
+        "--from",
+        fromDir,
+        "--soma-home",
+        join(home, "soma"),
+        "--apply",
+        "--smoke",
+      ]),
+    ).rejects.toThrow();
+  });
+});
+
+test("soma migrate claude-skills --smoke codex without --apply runs plan with smoke set", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = await writeFixture(home);
+    const somaHome = join(home, "soma");
+    const output = await runSomaCli([
+      "migrate",
+      "claude-skills",
+      "--from",
+      fromDir,
+      "--soma-home",
+      somaHome,
+      "--smoke",
+      "codex",
+    ]);
+    expect(output).toContain("plan (dry-run");
+    expect(output).toContain("smoke-substrates: codex");
+  });
+});
+
+test("soma migrate claude-skills --help surfaces --smoke", async () => {
+  const output = await runSomaCli(["migrate", "claude-skills", "--help"]);
+  expect(output).toContain("--smoke");
+});

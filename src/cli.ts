@@ -108,6 +108,7 @@ import type {
   ClaudeSkillsMigrationPlan,
   ClaudeSkillsMigrationResult,
   ClaudeSkillsMigrationManifest,
+  ClaudeSkillsSmokeSubstrate,
 } from "./types";
 // CLI formatter for `import pai-docs` needs the same in-scope subtree
 // list the importer iterates. Importing directly from the module
@@ -349,12 +350,15 @@ const TOP_LEVEL_COMMANDS = [
 
 const MIGRATE_PAI_USAGE =
   "Usage: soma migrate pai [--dry-run] [--apply] [--status] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>] [--pai-install <dir>] [--pai-repo <root>] [--pai-source-dir <dir>] [--pai-packs-dir <dir>] [--pai-pack-dir <dir>] [--skip-memory] [--skip-skills] [--skip-docs] [--overwrite-reserved] [--include-unrecognized] [--verbose]";
-// #115 — `soma migrate claude-skills` (Phase 1). Second migration
-// path, imports from a flat `.claude/skills/` tree. Phase 2 will add
-// `--smoke <substrate>` for per-substrate projection verify; that
-// flag is intentionally absent here.
+// #115 — `soma migrate claude-skills`. Phase 1 verb + classifier
+// (#116) ships the flat-tree import; Phase 2 adds `--smoke
+// <substrate>` (repeatable) for per-skill static-shape verify
+// against the requested target substrate's projection (codex, pi-dev,
+// or `all` which expands to both). `--smoke` is optional and absent
+// from the usage line below for non-Phase-2 callers — they keep the
+// Phase-1 surface intact.
 const MIGRATE_CLAUDE_SKILLS_USAGE =
-  "Usage: soma migrate claude-skills --from <skills-dir> [--dry-run] [--apply] [--status] [--home-dir <dir>] [--soma-home <dir>] [--include-claude-specific]";
+  "Usage: soma migrate claude-skills --from <skills-dir> [--dry-run] [--apply] [--status] [--home-dir <dir>] [--soma-home <dir>] [--include-claude-specific] [--smoke <codex|pi-dev|all>]";
 const ADOPT_CLAUDE_USAGE =
   "Usage: soma adopt claude [--dry-run] [--apply] [--uninstall] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
 const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string, string> }> = {
@@ -1660,6 +1664,12 @@ function parseMigrateClaudeSkillsArgs(args: string[]): ParsedMigrateClaudeSkills
   const [, , ...rest] = args;
   const options: ClaudeSkillsMigrationOptions = {};
   let mode: "plan" | "apply" | "status" = "plan";
+  // #115 Phase 2 — accumulator for `--smoke <substrate>` (repeatable).
+  // De-dup happens in the migrator; the parser preserves source-order
+  // entries so duplicate flags don't fail. `all` expands to the full
+  // substrate list at parse time so downstream consumers see a
+  // resolved substrate set.
+  const smokeAccumulator: ClaudeSkillsSmokeSubstrate[] = [];
 
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
@@ -1688,9 +1698,22 @@ function parseMigrateClaudeSkillsArgs(args: string[]): ParsedMigrateClaudeSkills
       case "--include-claude-specific":
         options.includeClaudeSpecific = true;
         break;
+      case "--smoke": {
+        const value = readOption(rest, index, arg);
+        index += 1;
+        const expanded = expandSmokeSubstrateArg(value);
+        for (const sub of expanded) {
+          smokeAccumulator.push(sub);
+        }
+        break;
+      }
       default:
         throw new Error(`Unknown option: ${arg}`);
     }
+  }
+
+  if (smokeAccumulator.length > 0) {
+    options.smokeSubstrates = smokeAccumulator;
   }
 
   if (!options.from && mode !== "status") {
@@ -1698,6 +1721,25 @@ function parseMigrateClaudeSkillsArgs(args: string[]): ParsedMigrateClaudeSkills
   }
 
   return { command: "migrate", source: "claude-skills", mode, options };
+}
+
+// #115 Phase 2 — expand `--smoke <value>`. `all` resolves to every
+// non-source substrate (codex + pi-dev — claude-code is the source
+// substrate of `migrate claude-skills` and intentionally excluded
+// because re-projecting an imported skill back to its source would
+// only ever round-trip). Unknown values throw with the canonical
+// allowed set so the principal sees what's accepted.
+const VALID_SMOKE_VALUES: readonly (ClaudeSkillsSmokeSubstrate | "all")[] = [
+  "codex",
+  "pi-dev",
+  "all",
+];
+function expandSmokeSubstrateArg(value: string): ClaudeSkillsSmokeSubstrate[] {
+  if (value === "all") return ["codex", "pi-dev"];
+  if (value === "codex" || value === "pi-dev") return [value];
+  throw new Error(
+    `Unknown --smoke substrate: ${JSON.stringify(value)}. Allowed: ${VALID_SMOKE_VALUES.join(", ")}.`,
+  );
 }
 
 function helpTopic(args: string[]): string[] {
@@ -2072,9 +2114,12 @@ function formatClaudeSkillsMigrationPlan(plan: ClaudeSkillsMigrationPlan): strin
     `from: ${plan.from}`,
     `somaHome: ${plan.somaHome}`,
     `include-claude-specific: ${plan.includeClaudeSpecific ? "yes" : "no"}`,
-    "",
-    "Per-skill plan:",
   ];
+  if (plan.smokeSubstrates.length > 0) {
+    lines.push(`smoke-substrates: ${plan.smokeSubstrates.join(", ")}`);
+  }
+  lines.push("");
+  lines.push("Per-skill plan:");
   for (const o of plan.outcomes) {
     lines.push(`  - ${o.kebabName} [${o.tag}] → ${o.disposition} (${o.reason})`);
   }
@@ -2101,16 +2146,38 @@ function formatClaudeSkillsMigrationResult(result: ClaudeSkillsMigrationResult):
     `manifest: ${result.manifestPath}`,
     `report:   ${result.reportPath}`,
     `include-claude-specific: ${result.includeClaudeSpecific ? "yes" : "no"}`,
-    "",
-    "Per-skill outcomes:",
   ];
+  if (result.smokeSubstrates.length > 0) {
+    lines.push(`smoke-substrates: ${result.smokeSubstrates.join(", ")}`);
+  }
+  lines.push("");
+  lines.push("Per-skill outcomes:");
   for (const o of result.outcomes) {
-    lines.push(`  - ${o.kebabName} [${o.tag}] → ${o.disposition} (${o.reason})`);
+    let suffix = "";
+    if (result.smokeSubstrates.length > 0 && o.substrates) {
+      const parts = result.smokeSubstrates
+        .map((sub) => {
+          const v = o.substrates?.[sub];
+          return v ? `${sub}=${v.status}` : null;
+        })
+        .filter((s): s is string => s !== null);
+      if (parts.length > 0) suffix = ` [${parts.join(", ")}]`;
+    }
+    lines.push(`  - ${o.kebabName} [${o.tag}] → ${o.disposition} (${o.reason})${suffix}`);
   }
   lines.push("");
   lines.push(
     `Totals: ${result.writtenCount} written, ${result.skippedIdempotentCount} skipped-idempotent, ${result.skippedClaudeSpecificCount} skipped-claude-specific.`,
   );
+  if (result.substrateVerifySummary) {
+    for (const substrate of result.smokeSubstrates) {
+      const bucket = result.substrateVerifySummary[substrate];
+      if (!bucket) continue;
+      lines.push(
+        `Smoke ${substrate}: ${bucket.verified} verified, ${bucket.verifiedWithWarnings} verified-with-warnings, ${bucket.failed} failed.`,
+      );
+    }
+  }
   if (result.skippedClaudeSpecificCount > 0 && !result.includeClaudeSpecific) {
     lines.push(
       `${result.skippedClaudeSpecificCount} skill(s) refused-claude-specific — re-run with --include-claude-specific to import them anyway.`,
