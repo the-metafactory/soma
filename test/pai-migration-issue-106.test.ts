@@ -182,8 +182,16 @@ test("AC-1: import pai-pack also accepts --include-substrate-specific as depreca
 });
 
 // ─── AC-3 (CLI): plan output collapses inline lists into counts ──────
+//
+// #109 — unrecognized files no longer refuse the pack. The collapsed
+// count form and the verbose-file-list form are now only reachable in
+// real life when an outdated SDK consumer throws
+// `PaiPackUnrecognizedLayoutRefusal` themselves; the importer no longer
+// does. We retain the rendering tests at the formatter level by
+// constructing the outcome row directly (rather than through the
+// importer pipeline that no longer produces it).
 
-test("AC-3: plan output prints per-pack counts, NOT inline file lists", async () => {
+test("AC-3 (#109): packs with unrecognized files now plan as imported (partial-import)", async () => {
   await withTempHome(async (homeDir) => {
     const claudeHome = join(homeDir, ".claude");
     const somaHome = join(homeDir, ".soma");
@@ -204,15 +212,13 @@ test("AC-3: plan output prints per-pack counts, NOT inline file lists", async ()
       packsDir,
     ]);
 
-    // Outcome row uses COUNT form (e.g. "(2 files — run --verbose...").
-    expect(output).toMatch(/refused-unrecognized-layout \(\d+ files? — run --verbose/);
-    // Inline path dump like "- src/Foundation.md" should NOT appear in
-    // the outcome-table portion of the default (non-verbose) output.
-    expect(output).not.toMatch(/^\s*-\s+src\/Foundation\.md\b/m);
+    // Pack imports successfully; no refused-unrecognized-layout row.
+    expect(output).toContain("imported");
+    expect(output).not.toContain("refused-unrecognized-layout");
   });
 });
 
-test("AC-3 --verbose: inline file lists DO appear", async () => {
+test("AC-3 --verbose (#109): packs with unrecognized files plan as imported, verbose still works", async () => {
   await withTempHome(async (homeDir) => {
     const claudeHome = join(homeDir, ".claude");
     const somaHome = join(homeDir, ".soma");
@@ -234,15 +240,14 @@ test("AC-3 --verbose: inline file lists DO appear", async () => {
       packsDir,
     ]);
 
-    // With --verbose, the individual file paths surface.
-    expect(output).toMatch(/src\/Foundation\.md/);
-    expect(output).toMatch(/src\/Extra\.md/);
+    // Plan completes without throwing; pack is imported.
+    expect(output).toContain("imported");
   });
 });
 
 // ─── AC-3 (manifest): full lists always in MIGRATION.md ─────────────
 
-test("AC-3 manifest: full unrecognized-layout file list lands in MIGRATION.md regardless of --verbose", async () => {
+test("AC-3 manifest (#109): pack with unrecognized files imports; manifest records the import", async () => {
   await withTempHome(async (homeDir) => {
     const claudeHome = join(homeDir, ".claude");
     const somaHome = join(homeDir, ".soma");
@@ -264,15 +269,13 @@ test("AC-3 manifest: full unrecognized-layout file list lands in MIGRATION.md re
     ]);
 
     const manifest = await readFile(join(somaHome, "profile/imports/claude/MIGRATION.md"), "utf8");
-    // The full file list IS in the manifest (per-pack section).
-    expect(manifest).toMatch(/src\/Foundation\.md/);
-    expect(manifest).toMatch(/src\/Extra\.md/);
+    expect(manifest).toContain("imported");
   });
 });
 
 // ─── AC-4: footer suggestion lines ───────────────────────────────────
 
-test("AC-4: footer suggests --include-unrecognized when ≥1 refused-unrecognized-layout", async () => {
+test("AC-4 (#109): footer no longer suggests --include-unrecognized when packs import cleanly", async () => {
   await withTempHome(async (homeDir) => {
     const claudeHome = join(homeDir, ".claude");
     const somaHome = join(homeDir, ".soma");
@@ -294,7 +297,10 @@ test("AC-4: footer suggests --include-unrecognized when ≥1 refused-unrecognize
       packsDir,
     ]);
 
-    expect(output).toMatch(/refused-unrecognized-layout — re-run with --include-unrecognized/);
+    // Both packs imported; no footer suggestion since there are no
+    // refused-unrecognized-layout rows.
+    expect(output).toContain("imported");
+    expect(output).not.toMatch(/refused-unrecognized-layout — re-run with --include-unrecognized/);
   });
 });
 

@@ -78,7 +78,7 @@ test("scenario 1 — all-packs-clean: every pack imports, every outcome is `impo
   });
 });
 
-test("scenario 2 — mixed substrate-specific without flag: refused-unrecognized-layout, others import, no throw", async () => {
+test("scenario 2 (#109) — mixed unrecognized without flag: both packs import (partial-import semantics)", async () => {
   await withTempHome(async (homeDir) => {
     await writeIdentityFixture(homeDir);
     const packsDir = join(homeDir, "Packs");
@@ -86,15 +86,21 @@ test("scenario 2 — mixed substrate-specific without flag: refused-unrecognized
     await plantSubstrateSpecificFile(subPack);
     await writePackFixture(packsDir, "Clean");
     const result = await migratePai({ homeDir, paiPacksDir: packsDir });
+    // #109 — the unrecognized sibling no longer poisons the SubA pack;
+    // both packs land their portable surfaces. Pre-#109 this was
+    // `refused-unrecognized-layout` for SubA (the pack-level poisoning
+    // bug surfaced as the universal real-PAI smoke-test failure mode).
     expect(result.packOutcomes.length).toBe(2);
     const byName = new Map(result.packOutcomes.map((o) => [o.skillName ?? o.paiPackDir, o]));
     const subOutcome = [...byName.values()].find((o) => /sub-a|suba/i.test(o.skillName ?? o.paiPackDir));
     const cleanOutcome = [...byName.values()].find((o) => /clean/i.test(o.skillName ?? o.paiPackDir));
-    expect(subOutcome?.outcome).toBe("refused-unrecognized-layout");
+    expect(subOutcome?.outcome).toBe("imported");
     expect(cleanOutcome?.outcome).toBe("imported");
-    // Clean pack is on disk; substrate-specific pack is NOT.
+    // BOTH packs land on disk.
     await stat(join(homeDir, ".soma/skills/clean/SKILL.md"));
-    await expect(stat(join(homeDir, ".soma/skills/sub-a"))).rejects.toThrow();
+    await stat(join(homeDir, ".soma/skills/sub-a/SKILL.md"));
+    // The unrecognized file does NOT land under the skill dir.
+    await expect(stat(join(homeDir, ".soma/skills/sub-a/Foundation.md"))).rejects.toThrow();
   });
 });
 
@@ -150,7 +156,8 @@ test("scenario 5 — single pack genuine failure (malformed): refused-other reco
 });
 
 test("AC-4 — CLI exit non-zero only when a pack outcome is refused-other; zero on policy-respected refusals", async () => {
-  // Substrate-specific + reserved without override → exit zero.
+  // #109 — unrecognized files no longer refuse the pack (partial-import).
+  // The reserved-name refusal is still tested via the ISA pack below.
   await withTempHome(async (homeDir) => {
     await writeIdentityFixture(homeDir);
     const packsDir = join(homeDir, "Packs");
@@ -168,7 +175,7 @@ test("AC-4 — CLI exit non-zero only when a pack outcome is refused-other; zero
       "--pai-packs-dir",
       packsDir,
     ]);
-    expect(out).toContain("refused-unrecognized-layout");
+    // ISA pack still surfaces as refused-reserved; SubA + Healthy import.
     expect(out).toContain("refused-reserved");
     expect(out).toContain("imported");
   });
@@ -220,22 +227,29 @@ test("AC-1 — CLI parses --include-unrecognized for `migrate pai` (passthrough)
   });
 });
 
-test("AC-3 — --status reports per-pack outcomes from the migration manifest", async () => {
+test("AC-3 (#109) — --status reports per-pack outcomes from the migration manifest", async () => {
   await withTempHome(async (homeDir) => {
     await writeIdentityFixture(homeDir);
     const packsDir = join(homeDir, "Packs");
-    const sub = await writePackFixture(packsDir, "SubA");
-    await plantSubstrateSpecificFile(sub);
+    // Use a malformed pack so we still exercise a non-`imported`
+    // outcome row in the status output; #109 makes plain unrecognized
+    // packs land cleanly via partial-import.
+    await makeMalformedPack(packsDir, "Broken");
     await writePackFixture(packsDir, "Healthy");
-    await runSomaCli([
-      "migrate",
-      "pai",
-      "--apply",
-      "--home-dir",
-      homeDir,
-      "--pai-packs-dir",
-      packsDir,
-    ]);
+    try {
+      await runSomaCli([
+        "migrate",
+        "pai",
+        "--apply",
+        "--home-dir",
+        homeDir,
+        "--pai-packs-dir",
+        packsDir,
+      ]);
+    } catch {
+      // Malformed pack → exit non-zero. We still want the status read
+      // below, so swallow the error here.
+    }
     const status = await runSomaCli([
       "migrate",
       "pai",
@@ -243,7 +257,7 @@ test("AC-3 — --status reports per-pack outcomes from the migration manifest", 
       "--home-dir",
       homeDir,
     ]);
-    expect(status).toMatch(/sub-a.*refused-unrecognized-layout/);
+    expect(status).toMatch(/broken.*refused-other/);
     expect(status).toMatch(/healthy.*imported/);
   });
 });
@@ -254,23 +268,22 @@ test("Sage r3 #99 — pack fingerprint lines pair correctly with imported pack n
   // the refused pack's fingerprint. The fix keys fingerprints by
   // `paiPackDir` so future edits to the orchestrator's pack-list
   // shape can't silently break the pairing.
+  //
+  // #109 — unrecognized files no longer refuse the pack, so we use a
+  // malformed pack (missing INSTALL.md) to keep an actual refused row
+  // alongside an imported row in the fingerprint output.
   await withTempHome(async (homeDir) => {
     await writeIdentityFixture(homeDir);
     const packsDir = join(homeDir, "Packs");
-    // Discovery order matters: "ARefused" sorts before "BImported"
+    // Discovery order matters: "a-refused" sorts before "b-imported"
     // so a buggy implementation would shift the imported pack's
     // fingerprint slot.
-    const refused = await writePackFixture(packsDir, "a-refused", { skillName: "a-refused" });
-    await plantSubstrateSpecificFile(refused);
+    await makeMalformedPack(packsDir, "a-refused");
     await writePackFixture(packsDir, "b-imported", { skillName: "b-imported" });
     const result = await migratePai({ homeDir, paiPacksDir: packsDir });
     expect(result.packs.length).toBe(1);
     expect(result.packs[0].skillName).toBe("b-imported");
     const manifest = await readFile(result.manifestPath, "utf8");
-    // The single "pack 1: b-imported" line must be followed by a
-    // fingerprint that matches the imported pack — not by an empty
-    // sentinel that would result from an off-by-one if the
-    // alignment broke.
     expect(manifest).toMatch(/pack 1: b-imported \(\d+ files\)/);
     const fpMatch = manifest.match(/pack 1 fingerprint: ([0-9a-f]+|empty)/);
     expect(fpMatch).not.toBeNull();

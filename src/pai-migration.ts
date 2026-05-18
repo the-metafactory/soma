@@ -855,6 +855,15 @@ async function runOnePackWithOutcome<TPayload extends { skillName: string }, TEx
     }));
     return { items: result.items, extras: result.extras, outcomes };
   } catch (error) {
+    // #109 — dead code retained for one release (back-compat): the
+    // pack importer no longer throws `PaiPackUnrecognizedLayoutRefusal`
+    // (partial-import semantics drop unrecognized files silently). The
+    // catch stays here so external SDK consumers that still produce
+    // the typed error themselves get the same classification path.
+    // The collapse-data shape below is preserved as-is; if the catch
+    // is removed in a future release, also remove the
+    // `refused-unrecognized-layout` outcome bucket from
+    // `PaiPackOutcomeKind` (`types.ts`) and the CLI footer hint.
     if (error instanceof PaiPackUnrecognizedLayoutRefusal) {
       // #106 — collapse data: stash the full file list + count so the
       // CLI plan formatter can render a one-line summary (`N files —
