@@ -212,7 +212,11 @@ export { importPaiIdentity, planPaiImport } from "./pai-importer";
 export {
   importPaiPack,
   PaiPackNameCollisionRefusal,
+  // #106 — `PaiPackSubstrateSpecificRefusal` is kept as a deprecated
+  // alias of `PaiPackUnrecognizedLayoutRefusal` (see pai-pack-importer.ts).
+  // Both names resolve to the same class.
   PaiPackSubstrateSpecificRefusal,
+  PaiPackUnrecognizedLayoutRefusal,
   planPaiPackImport,
 } from "./pai-pack-importer";
 // Sage r3 #108 Security (blocker) + Architecture (important):

@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { kebabNestedName, routePaiPackSourceFile, type PaiPackRenderMode } from "./pai-pack-routing";
 import { kebabSlug } from "./pai-pack-slug";
+import { EDITOR_CONFIG_DIRS, partitionNoise } from "./pai-pack-noise";
 import {
   generateSomaSkillManifest,
   mergeNormalizationReports,
@@ -32,24 +33,40 @@ const REQUIRED_PACK_DOC_FILES = ["README.md", "INSTALL.md", "VERIFY.md"];
 const NORMALIZED_SKILL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 /**
- * #97 — typed refusal raised when a pack contains substrate-specific
- * files and `options.includeSubstrateSpecific` is not set. Carries
- * the offending file list so the migration orchestrator can record a
- * structured per-pack outcome instead of string-matching error
- * messages. The standalone `soma import pai-pack` verb still surfaces
- * the same throw — only its `instanceof` discriminator changes.
+ * #97 / #106 — typed refusal raised when a pack contains files under
+ * `src/` the router didn't recognize and `options.includeSubstrateSpecific`
+ * (legacy option name for the `--include-unrecognized` flag) is not
+ * set. Carries the offending file list so the migration orchestrator
+ * can record a structured per-pack outcome instead of string-matching
+ * error messages. The standalone `soma import pai-pack` verb still
+ * surfaces the same throw — only its `instanceof` discriminator
+ * changes.
+ *
+ * Pre-#106 this class was `PaiPackSubstrateSpecificRefusal`. The
+ * legacy name is re-exported as an alias for one release so
+ * downstream SDK callers don't break on import. The error message and
+ * `kind` discriminator both use the new wording.
  */
-export class PaiPackSubstrateSpecificRefusal extends Error {
-  readonly kind = "substrate-specific" as const;
+export class PaiPackUnrecognizedLayoutRefusal extends Error {
+  readonly kind = "unrecognized-layout" as const;
   readonly files: readonly string[];
   constructor(files: readonly string[]) {
     super(
-      `PAI pack import refused substrate-specific file(s) without --include-substrate-specific: ${files.join(", ")}`,
+      `PAI pack import refused unrecognized-layout file(s) without --include-unrecognized: ${files.join(", ")}`,
     );
-    this.name = "PaiPackSubstrateSpecificRefusal";
+    this.name = "PaiPackUnrecognizedLayoutRefusal";
     this.files = files;
   }
 }
+
+/**
+ * #106 — deprecated alias for `PaiPackUnrecognizedLayoutRefusal`. Kept
+ * for one release so SDK consumers that imported the old name don't
+ * break. Slated for removal after the next minor version.
+ *
+ * @deprecated Use `PaiPackUnrecognizedLayoutRefusal` instead.
+ */
+export const PaiPackSubstrateSpecificRefusal = PaiPackUnrecognizedLayoutRefusal;
 
 /**
  * #102 (Sage r2 CodeQuality important) — typed refusal raised when a
@@ -149,21 +166,30 @@ export class PaiPackNameCollisionRefusal extends Error {
  * symlinked contents are silently skipped during pack enumeration
  * instead of aborting the pack. Match is on POSIX-style pack-relative
  * paths and triggers only when the file IS a symbolic link. Non-symlink
- * editor-config files take the normal classification path; non-editor
+ * editor-config files take the noise-classification path (#106)
+ * instead of falling into the unrecognized-layout refusal list. Non-editor
  * symlinks still abort the pack as `refused-other`. Keep this list
  * narrow — every entry widens the security envelope.
  *
- * Each pattern is anchored at either the pack root or a directory
- * boundary so a stray substring (e.g., `my.cursor.thing/`) does not
- * trigger the skip.
+ * #106 — the dir list is now sourced from the shared
+ * `EDITOR_CONFIG_DIRS` constant in `pai-pack-noise.ts` so the symlink
+ * denylist (this file) and the regular-file noise denylist
+ * (`pai-pack-noise.ts`) can't drift apart. Single-source rule.
+ *
+ * Each pattern is anchored at a directory boundary so a stray
+ * substring (e.g., `my.cursor.thing/`) does not trigger the skip.
  */
-const EDITOR_CONFIG_SYMLINK_PATTERNS: { pattern: RegExp; dir: string }[] = [
-  { pattern: /(?:^|\/)\.cursor\//, dir: ".cursor" },
-  { pattern: /(?:^|\/)\.vscode\//, dir: ".vscode" },
-  { pattern: /(?:^|\/)\.idea\//, dir: ".idea" },
-  { pattern: /(?:^|\/)\.fleet\//, dir: ".fleet" },
-  { pattern: /(?:^|\/)\.zed\//, dir: ".zed" },
-];
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+const EDITOR_CONFIG_SYMLINK_PATTERNS: { pattern: RegExp; dir: string }[] = EDITOR_CONFIG_DIRS.map((dir) => ({
+  // The trailing `/` requirement keeps these matches anchored to file
+  // CONTENTS of the dir, not the dir itself (which is a Dirent that
+  // never appears here anyway). The leading dot in each dir name is
+  // escaped via `escapeRegex` so `.cursor` doesn't match `xcursor`.
+  pattern: new RegExp(`(?:^|/)${escapeRegex(dir)}/`),
+  dir,
+}));
 
 function matchEditorConfigSymlinkDir(relativePosixPath: string): string | null {
   for (const { pattern, dir } of EDITOR_CONFIG_SYMLINK_PATTERNS) {
@@ -772,23 +798,65 @@ async function buildPaiPackImportPlan(options: PaiPackImportOptionsInternal = {}
       });
   }
 
-  const secretFiles = sourceFiles.filter(isLikelySecretPath);
+  // #106 — partition the source file list into NOISE (editor/IDE/
+  // language infrastructure; silently dropped) vs the rest. Noise is
+  // removed BEFORE routing so it never appears in the routed file
+  // set, never gets classified `unrecognized-layout`, and never
+  // appears in the refusal list when one is thrown below. Audit
+  // entries (one per skipped noise file) feed the normalization
+  // report just like #104's editor-config symlink skips.
+  //
+  // Two-step ordering with respect to the secret-file check:
+  //
+  //   1. Editor-config DIR contents (`.vscode/`, `.fleet/`, `.zed/`,
+  //      `.cursor/`, `.idea/`) are partitioned FIRST so editor
+  //      settings.json files don't trip the broader settings.json
+  //      secret pattern. These are pure structural noise; their
+  //      contents never represent an actual credential risk.
+  //   2. The secret-file check runs on what remains. `.npmrc`
+  //      outside an editor-config dir still refuses as a likely
+  //      credential file (the project's pre-existing secret contract
+  //      MUST hold; noise classification of `.npmrc` is a downgrade
+  //      from refusal, not from secret).
+  //   3. Remaining noise (lockfiles, .gitignore, .npmrc-IF-not-a-secret,
+  //      etc.) is partitioned next, with audit entries.
+  const { kept: keptSourceFiles, skipped: skippedNoiseFiles } = partitionNoise(sourceFiles);
+
+  // Secret check on the kept set — only editor-config-dir contents
+  // (which the partition already removed via the ide-config category)
+  // are exempt. `.npmrc` at pack root or under `src/Tools/` still
+  // matched by the partition AND would have matched the secret check
+  // too; we need both refusals to remain. Re-introduce secret refusal
+  // for any noise-skipped path that ALSO matches a secret pattern AND
+  // is NOT under an editor-config dir.
+  const noiseSecretLeaks = skippedNoiseFiles.filter(({ path, match }) => {
+    if (match.category === "ide-config") return false;
+    return isLikelySecretPath(path);
+  });
+  if (noiseSecretLeaks.length > 0) {
+    throw new Error(
+      `PAI pack import refused likely secret file(s): ${noiseSecretLeaks.map((f) => f.path).join(", ")}`,
+    );
+  }
+
+  const secretFiles = keptSourceFiles.filter(isLikelySecretPath);
   if (secretFiles.length > 0) {
     throw new Error(`PAI pack import refused likely secret file(s): ${secretFiles.join(", ")}`);
   }
 
-  const routes = sourceFiles.map((path) => ({
+  const routes = keptSourceFiles.map((path) => ({
     path,
     route: routePaiPackSourceFile(path, nestedRawNames),
   }));
-  const substrateSpecific = routes.filter(({ route }) => route.classification === "substrate-specific");
-  if (substrateSpecific.length > 0 && !options.includeSubstrateSpecific) {
-    // #97 — typed refusal so callers (the migrate orchestrator in
-    // particular) can classify the failure structurally without
-    // string-matching the message. The thrown message text is
-    // preserved verbatim for the standalone `soma import pai-pack`
-    // surface and existing tests that assert on it.
-    throw new PaiPackSubstrateSpecificRefusal(substrateSpecific.map(({ path }) => path));
+  const unrecognizedLayout = routes.filter(({ route }) => route.classification === "unrecognized-layout");
+  if (unrecognizedLayout.length > 0 && !options.includeSubstrateSpecific) {
+    // #97 / #106 — typed refusal so callers (the migrate orchestrator
+    // in particular) can classify the failure structurally without
+    // string-matching the message. `options.includeSubstrateSpecific`
+    // keeps its legacy SDK key (see PaiPackImportOptions docstring);
+    // the CLI flag is `--include-unrecognized` with a deprecated
+    // alias.
+    throw new PaiPackUnrecognizedLayoutRefusal(unrecognizedLayout.map(({ path }) => path));
   }
 
   const routedFiles: RoutedPaiPackImportFile[] = [];
@@ -800,7 +868,7 @@ async function buildPaiPackImportPlan(options: PaiPackImportOptionsInternal = {}
     // Sage r1 #108 BLOCKER: skip routed files for any skill that the
     // caller excluded. The pack-level archive surface (route.root ===
     // "archive") is unaffected — it lives under the pack slug, not a
-    // skill slug — so substrate-specific files still archive even
+    // skill slug — so unrecognized-layout files still archive even
     // when their associated skill is excluded.
     if (route.root === "skill" && !derivedSkillSet.has(destSkill)) {
       continue;
@@ -885,10 +953,19 @@ async function buildPaiPackImportPlan(options: PaiPackImportOptionsInternal = {}
     kind: "skipped-editor-config-symlink",
     detail: `editor-config denylist dir: ${dir}`,
   }));
+  // #106 — same shape for noise denylist matches. The detail field
+  // includes the category so reviewers can see WHY a file was
+  // classified noise (lockfile vs editor-config vs vcs-config vs ...).
+  const noiseSkipActions: PaiPackNormalizationAction[] = skippedNoiseFiles.map(({ path, match }) => ({
+    file: path,
+    kind: "skipped-noise-file",
+    detail: `${match.category}: ${match.detail}`,
+  }));
   const normalization = mergeNormalizationReports([
     reportFromNormalizedFiles(normalizedSkillFiles.values()),
     { actions: normalizedDescription.action ? [normalizedDescription.action] : [], warnings: [] },
     { actions: editorSymlinkSkipActions, warnings: [] },
+    { actions: noiseSkipActions, warnings: [] },
   ]);
 
   // Per-derived-skill manifests: each skill gets its own soma-pack.json
@@ -913,12 +990,12 @@ async function buildPaiPackImportPlan(options: PaiPackImportOptionsInternal = {}
     });
   }
   // Pack-level archive manifest is always emitted when there are
-  // archive-bound files (substrate-specific OR every imported pack
+  // archive-bound files (unrecognized-layout OR every imported pack
   // gets one as part of #105's auditability contract — the archive's
   // `derivedSkills` list is principal-facing).
   routedFiles.push({
     target: join(homes.somaHome, `imports/pai-packs/${packSlug}/soma-pack-archive.json`),
-    classification: substrateSpecific.length > 0 ? "substrate-specific" : "portable",
+    classification: unrecognizedLayout.length > 0 ? "unrecognized-layout" : "portable",
     renderMode: "archive-manifest",
     origin: "generated",
     generator: "pai-pack-importer",

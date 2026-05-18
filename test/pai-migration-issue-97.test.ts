@@ -4,8 +4,8 @@
  * Five fixture scenarios from the issue's AC-5:
  *   1. All packs clean → all imported.
  *   2. Mixed substrate-specific without flag → substrate packs refused
- *      with outcome `refused-substrate-specific`, others import, exit 0.
- *   3. Mixed substrate-specific WITH `--include-substrate-specific` →
+ *      with outcome `refused-unrecognized-layout`, others import, exit 0.
+ *   3. Mixed substrate-specific WITH `--include-unrecognized` →
  *      all import.
  *   4. Mixed reserved-collision without `--overwrite-reserved` →
  *      `refused-reserved` recorded, others import, exit 0.
@@ -34,7 +34,7 @@ const withTempHome = <T>(fn: (homeDir: string) => Promise<T>): Promise<T> =>
 /**
  * Plant a substrate-specific file inside an existing pack fixture.
  * `src/Foundation.md` is not under `src/Workflows/` or `src/Tools/`,
- * so the pack-router classifies it `substrate-specific`. This mirrors
+ * so the pack-router classifies it `unrecognized-layout`. This mirrors
  * the user-reported repro on SystemsThinking + RootCauseAnalysis.
  */
 async function plantSubstrateSpecificFile(packDir: string): Promise<void> {
@@ -78,7 +78,7 @@ test("scenario 1 — all-packs-clean: every pack imports, every outcome is `impo
   });
 });
 
-test("scenario 2 — mixed substrate-specific without flag: refused-substrate-specific, others import, no throw", async () => {
+test("scenario 2 — mixed substrate-specific without flag: refused-unrecognized-layout, others import, no throw", async () => {
   await withTempHome(async (homeDir) => {
     await writeIdentityFixture(homeDir);
     const packsDir = join(homeDir, "Packs");
@@ -90,7 +90,7 @@ test("scenario 2 — mixed substrate-specific without flag: refused-substrate-sp
     const byName = new Map(result.packOutcomes.map((o) => [o.skillName ?? o.paiPackDir, o]));
     const subOutcome = [...byName.values()].find((o) => /sub-a|suba/i.test(o.skillName ?? o.paiPackDir));
     const cleanOutcome = [...byName.values()].find((o) => /clean/i.test(o.skillName ?? o.paiPackDir));
-    expect(subOutcome?.outcome).toBe("refused-substrate-specific");
+    expect(subOutcome?.outcome).toBe("refused-unrecognized-layout");
     expect(cleanOutcome?.outcome).toBe("imported");
     // Clean pack is on disk; substrate-specific pack is NOT.
     await stat(join(homeDir, ".soma/skills/clean/SKILL.md"));
@@ -168,7 +168,7 @@ test("AC-4 — CLI exit non-zero only when a pack outcome is refused-other; zero
       "--pai-packs-dir",
       packsDir,
     ]);
-    expect(out).toContain("refused-substrate-specific");
+    expect(out).toContain("refused-unrecognized-layout");
     expect(out).toContain("refused-reserved");
     expect(out).toContain("imported");
   });
@@ -199,7 +199,7 @@ test("AC-4 — CLI exit non-zero only when a pack outcome is refused-other; zero
   });
 });
 
-test("AC-1 — CLI parses --include-substrate-specific for `migrate pai` (passthrough)", async () => {
+test("AC-1 — CLI parses --include-unrecognized for `migrate pai` (passthrough)", async () => {
   await withTempHome(async (homeDir) => {
     await writeIdentityFixture(homeDir);
     const packsDir = join(homeDir, "Packs");
@@ -209,7 +209,7 @@ test("AC-1 — CLI parses --include-substrate-specific for `migrate pai` (passth
       "migrate",
       "pai",
       "--apply",
-      "--include-substrate-specific",
+      "--include-unrecognized",
       "--home-dir",
       homeDir,
       "--pai-packs-dir",
@@ -243,7 +243,7 @@ test("AC-3 — --status reports per-pack outcomes from the migration manifest", 
       "--home-dir",
       homeDir,
     ]);
-    expect(status).toMatch(/sub-a.*refused-substrate-specific/);
+    expect(status).toMatch(/sub-a.*refused-unrecognized-layout/);
     expect(status).toMatch(/healthy.*imported/);
   });
 });

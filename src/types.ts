@@ -399,12 +399,42 @@ export interface PaiPackImportOptions {
   somaHome?: string;
   skillName?: string;
   overwrite?: boolean;
+  /**
+   * #106 — opt-in flag carrying the historical name. The CLI and SDK
+   * both still accept it; the canonical name is now
+   * `includeUnrecognized` and the CLI surface is `--include-unrecognized`.
+   * The legacy CLI flag `--include-substrate-specific` is a deprecated
+   * alias for one release that emits a stderr warning. The option key
+   * here keeps its old name to avoid churning every SDK consumer in
+   * one go; an `includeUnrecognized` getter can be added later if a
+   * second-pass rename is desired.
+   */
   includeSubstrateSpecific?: boolean;
 }
 
 export interface PaiPackImportFileBase {
   target: string;
-  classification: "portable" | "template" | "source-doc" | "substrate-specific";
+  /**
+   * File classification. The router emits these tags; the importer
+   * uses them to decide refusal vs. silent-skip vs. archive-only
+   * routing.
+   *
+   *   - `portable`              — flows into a derived Soma skill.
+   *   - `template`              — flows into a skill's template surface.
+   *   - `source-doc`            — README/INSTALL/VERIFY etc.
+   *   - `unrecognized-layout`   — file under `src/` the router didn't
+   *                              recognize; refused unless
+   *                              `--include-unrecognized` is set
+   *                              (in which case it lands in archive).
+   *                              Pre-#106 this was `substrate-specific`.
+   *   - `noise`                 — editor/IDE/language infrastructure
+   *                              (denylist). Silently skipped at routing
+   *                              time, counted in audit, NEVER refused.
+   *                              Pre-#106 these were mis-classified as
+   *                              `substrate-specific` and polluted
+   *                              refusal lists. (#106 AC-2)
+   */
+  classification: "portable" | "template" | "source-doc" | "unrecognized-layout" | "noise";
 }
 
 export interface PaiPackSourceImportFile extends PaiPackImportFileBase {
@@ -461,7 +491,17 @@ export interface PaiPackNormalizationAction {
      * the pack carried. `file` is the POSIX-style path relative to the
      * pack root. `detail` names the matched denylist directory segment.
      */
-    | "skipped-editor-config-symlink";
+    | "skipped-editor-config-symlink"
+    /**
+     * #106 — emitted at routing time when a regular file matches the
+     * noise denylist (`.gitignore`, `bun.lock`, `.vscode/`, etc.).
+     * The file is dropped from the import set BEFORE refusal accounting
+     * so it never pollutes a `refused-unrecognized-layout` outcome's
+     * file list. Counted in the audit so reviewers can see which
+     * editor/language infrastructure the pack carried. `detail` names
+     * the matched denylist pattern category.
+     */
+    | "skipped-noise-file";
   detail: string;
 }
 
@@ -536,17 +576,24 @@ export interface PaiPackImportResult {
 }
 
 /**
- * Per-pack migration outcome (#97). The bulk-pack phase of
+ * Per-pack migration outcome (#97 / #106). The bulk-pack phase of
  * `migratePai` no longer aborts on a per-pack failure — it classifies
- * each pack into one of these four buckets and continues. The CLI's
- * exit-code policy is: `imported` / `refused-substrate-specific` /
- * `refused-reserved` are zero-exit (policy-respected); `refused-other`
- * forces a non-zero exit (genuine error).
+ * each pack into one of these buckets and continues. The CLI's
+ * exit-code policy is: `imported` / `refused-unrecognized-layout` /
+ * `refused-reserved` / `refused-name-collision` are zero-exit
+ * (policy-respected); `refused-other` forces a non-zero exit (genuine
+ * error).
  *
  *   - `imported`                       — pack landed cleanly.
- *   - `refused-substrate-specific`     — pack contains substrate-specific
- *                                        files and `--include-substrate-specific`
- *                                        was not passed.
+ *   - `refused-unrecognized-layout`    — pack contains files under
+ *                                        `src/` the router didn't
+ *                                        recognize and `--include-unrecognized`
+ *                                        was not passed. #106 renamed
+ *                                        this from `refused-substrate-specific`
+ *                                        because the old name suggested
+ *                                        Codex/Claude/Pi-specific intent;
+ *                                        the real meaning is "layout
+ *                                        the router didn't recognize".
  *   - `refused-reserved`               — pack's normalized skill name is
  *                                        in the migration reserved-name set
  *                                        (`isa`, `the-algorithm`, `knowledge`,
@@ -558,7 +605,7 @@ export interface PaiPackImportResult {
  */
 export type PaiPackOutcomeKind =
   | "imported"
-  | "refused-substrate-specific"
+  | "refused-unrecognized-layout"
   | "refused-reserved"
   /**
    * #105 — emitted when a derived skill's kebab-cased name collides
@@ -585,17 +632,34 @@ export interface PaiPackOutcome {
   outcome: PaiPackOutcomeKind;
   /**
    * Pack's normalized skill name when known (always for `imported` and
-   * `refused-reserved`; usually for `refused-substrate-specific`; may
+   * `refused-reserved`; usually for `refused-unrecognized-layout`; may
    * be omitted for `refused-other` if metadata read itself failed).
    */
   skillName?: string;
   /**
-   * Human-readable reason. For `refused-substrate-specific` this lists
+   * Human-readable reason. For `refused-unrecognized-layout` this lists
    * the offending files; for `refused-reserved` it names the slug;
    * for `refused-other` it surfaces the underlying error message.
    * Empty/absent for `imported`.
    */
   reason?: string;
+  /**
+   * #106 — file counts for collapsed plan output. When the outcome is
+   * `refused-unrecognized-layout`, `unrecognizedFileCount` carries the
+   * exact number of files that triggered the refusal so the CLI plan
+   * formatter can render `(N files — run --verbose ...)` without
+   * re-parsing `reason`. For `imported` outcomes, `importedSkillCount`
+   * and `importedWorkflowCount` carry the per-skill / per-workflow
+   * counts used by the same formatter. All fields are optional;
+   * formatters fall back to `0`.
+   */
+  unrecognizedFileCount?: number;
+  /** #106 — files in the refused-unrecognized-layout file list, for verbose render + MIGRATION.md body. */
+  unrecognizedFiles?: readonly string[];
+  /** #106 — count of derived skills written by this pack (always 1 today; future-proofed for nested). */
+  importedSkillCount?: number;
+  /** #106 — count of workflow files written under this pack's skill(s). */
+  importedWorkflowCount?: number;
 }
 
 // soma import pai-docs — see src/pai-docs-importer.ts. Imports a
