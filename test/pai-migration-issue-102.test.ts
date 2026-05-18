@@ -50,6 +50,22 @@ const withTempHome = <T>(fn: (homeDir: string) => Promise<T>): Promise<T> =>
   withSharedTempHome(fn, "soma-102-");
 
 /**
+ * Sage r1 #103 Maintainability — single-source the per-scenario
+ * setup. Every test in this file writes the identity fixture and
+ * derives `<homeDir>/Packs` as the packs root, so a helper keeps
+ * future fixture changes one-edit-away from propagating everywhere.
+ */
+async function withMigrationHome<T>(
+  fn: (ctx: { homeDir: string; packsDir: string }) => Promise<T>,
+): Promise<T> {
+  return withTempHome(async (homeDir) => {
+    await writeIdentityFixture(homeDir);
+    const packsDir = join(homeDir, "Packs");
+    return fn({ homeDir, packsDir });
+  });
+}
+
+/**
  * Plant a substrate-specific file inside an existing pack fixture.
  * `src/Foundation.md` is not under `src/Workflows/` or `src/Tools/`,
  * so the pack-router classifies it `substrate-specific`. Mirrors the
@@ -84,9 +100,7 @@ async function makeMalformedPack(packsDir: string, packName: string): Promise<vo
 }
 
 test("scenario 1 — plan all-packs-clean: every pack planned, every outcome `imported`", async () => {
-  await withTempHome(async (homeDir) => {
-    await writeIdentityFixture(homeDir);
-    const packsDir = join(homeDir, "Packs");
+  await withMigrationHome(async ({ homeDir, packsDir }) => {
     await writePackFixture(packsDir, "Alpha");
     await writePackFixture(packsDir, "Beta");
     const plan = await planPaiMigration({ homeDir, paiPacksDir: packsDir });
@@ -98,9 +112,7 @@ test("scenario 1 — plan all-packs-clean: every pack planned, every outcome `im
 });
 
 test("scenario 2 — plan mixed substrate-specific without flag: refused-substrate-specific, others plan, no throw", async () => {
-  await withTempHome(async (homeDir) => {
-    await writeIdentityFixture(homeDir);
-    const packsDir = join(homeDir, "Packs");
+  await withMigrationHome(async ({ homeDir, packsDir }) => {
     const subPack = await writePackFixture(packsDir, "SubA");
     await plantSubstrateSpecificFile(subPack);
     await writePackFixture(packsDir, "Clean");
@@ -122,9 +134,7 @@ test("scenario 2 — plan mixed substrate-specific without flag: refused-substra
 });
 
 test("scenario 3 — plan mixed substrate-specific WITH includeSubstrateSpecific: all planned", async () => {
-  await withTempHome(async (homeDir) => {
-    await writeIdentityFixture(homeDir);
-    const packsDir = join(homeDir, "Packs");
+  await withMigrationHome(async ({ homeDir, packsDir }) => {
     const subPack = await writePackFixture(packsDir, "SubA");
     await plantSubstrateSpecificFile(subPack);
     await writePackFixture(packsDir, "Clean");
@@ -139,9 +149,7 @@ test("scenario 3 — plan mixed substrate-specific WITH includeSubstrateSpecific
 });
 
 test("scenario 4 — plan mixed reserved-collision without overwriteReserved: refused-reserved, others plan, no throw", async () => {
-  await withTempHome(async (homeDir) => {
-    await writeIdentityFixture(homeDir);
-    const packsDir = join(homeDir, "Packs");
+  await withMigrationHome(async ({ homeDir, packsDir }) => {
     await writePackFixture(packsDir, "ISA", { skillName: "ISA" });
     await writePackFixture(packsDir, "Clean");
     const plan = await planPaiMigration({ homeDir, paiPacksDir: packsDir });
@@ -156,9 +164,7 @@ test("scenario 4 — plan mixed reserved-collision without overwriteReserved: re
 });
 
 test("scenario 5 — plan single pack genuine failure (malformed): refused-other recorded; other packs still planned", async () => {
-  await withTempHome(async (homeDir) => {
-    await writeIdentityFixture(homeDir);
-    const packsDir = join(homeDir, "Packs");
+  await withMigrationHome(async ({ homeDir, packsDir }) => {
     await makeMalformedPack(packsDir, "Broken");
     await writePackFixture(packsDir, "Healthy");
     const plan = await planPaiMigration({ homeDir, paiPacksDir: packsDir });
@@ -177,9 +183,7 @@ test("scenario 6 (AC-5) — plan output includes per-pack outcome table; CLI pla
   // CLI plan surface: NOT `--apply`, NOT `--status`. The default plan
   // mode must include the per-pack outcome table and must not throw on
   // substrate-specific packs.
-  await withTempHome(async (homeDir) => {
-    await writeIdentityFixture(homeDir);
-    const packsDir = join(homeDir, "Packs");
+  await withMigrationHome(async ({ homeDir, packsDir }) => {
     const sub = await writePackFixture(packsDir, "SubA");
     await plantSubstrateSpecificFile(sub);
     await writePackFixture(packsDir, "ISA", { skillName: "ISA" });
@@ -202,9 +206,7 @@ test("scenario 6 (AC-5) — plan output includes per-pack outcome table; CLI pla
 });
 
 test("AC-1 — CLI parses --include-substrate-specific for `migrate pai` plan-mode (passthrough)", async () => {
-  await withTempHome(async (homeDir) => {
-    await writeIdentityFixture(homeDir);
-    const packsDir = join(homeDir, "Packs");
+  await withMigrationHome(async ({ homeDir, packsDir }) => {
     const sub = await writePackFixture(packsDir, "SubA");
     await plantSubstrateSpecificFile(sub);
     const out = await runSomaCli([
@@ -225,9 +227,7 @@ test("AC-1 — CLI parses --include-substrate-specific for `migrate pai` plan-mo
 
 test("AC-4 — plan-mode CLI exit non-zero when a pack outcome is refused-other (after rest of plan completes)", async () => {
   // Substrate-specific only → exit zero.
-  await withTempHome(async (homeDir) => {
-    await writeIdentityFixture(homeDir);
-    const packsDir = join(homeDir, "Packs");
+  await withMigrationHome(async ({ homeDir, packsDir }) => {
     const sub = await writePackFixture(packsDir, "SubA");
     await plantSubstrateSpecificFile(sub);
     await writePackFixture(packsDir, "Healthy");
@@ -244,9 +244,7 @@ test("AC-4 — plan-mode CLI exit non-zero when a pack outcome is refused-other 
   });
   // Malformed pack → SomaCliError exitCode 1; output still includes
   // the full plan body for the other packs.
-  await withTempHome(async (homeDir) => {
-    await writeIdentityFixture(homeDir);
-    const packsDir = join(homeDir, "Packs");
+  await withMigrationHome(async ({ homeDir, packsDir }) => {
     await makeMalformedPack(packsDir, "Broken");
     await writePackFixture(packsDir, "Healthy");
     let caught: unknown = null;
@@ -279,9 +277,7 @@ test("real-world repro — SystemsThinking + RootCauseAnalysis shape: plan compl
   // `src/MethodSelection.md`. Before #102 the first one encountered
   // would throw `PaiPackSubstrateSpecificRefusal` out of
   // `planPaiPackImport` and abort the whole plan.
-  await withTempHome(async (homeDir) => {
-    await writeIdentityFixture(homeDir);
-    const packsDir = join(homeDir, "Packs");
+  await withMigrationHome(async ({ homeDir, packsDir }) => {
     const st = await writePackFixture(packsDir, "SystemsThinking");
     await plantSubstrateSpecificFile(st, "Foundation.md");
     const rca = await writePackFixture(packsDir, "RootCauseAnalysis");
