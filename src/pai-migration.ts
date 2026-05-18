@@ -619,47 +619,71 @@ async function importPacksWithOutcomes(
   // can apply WITHOUT a second buildPaiPackImportPlan pass (Sage r2
   // #108 Performance).
   const planRows = await planAllPacksWithHandles(inputs);
-  // Phase 2a: shared cross-pack collision walk (Sage r2 #108
-  // Maintainability — single source for collision logic across the
-  // apply and plan-only paths).
-  const { resolved } = walkPlanRowsForCollisions(planRows, inputs.overwriteReserved);
 
-  // Phase 2b: emit per-pack outcomes and apply survivors via the
-  // cached internal plan handle. Per-pack outcome ordering follows
-  // the pre-refactor contract: refused plan rows first (in sort
-  // order), then per-resolved-pack collision rows interleaved with
-  // surviving "imported" rows.
+  // Phase 2: sequential apply with collision tracking. Sage r3 #108
+  // CodeQuality (important): the cross-pack collision set grows ONLY
+  // after a pack's apply actually succeeds. A pack that plans cleanly
+  // but fails inside apply must NOT block a later pack with the same
+  // slug — the earlier pack never wrote anything, so the slug is
+  // still free. The R2 walker pre-reserved on plan and got this
+  // wrong; the apply path now manages its own `landedSlugs`.
+  //
+  // Plan-only mode is unaffected (it can't fail mid-apply) and still
+  // uses `walkPlanRowsForCollisions` for its advisory partition.
   const packs: PaiPackImportResult[] = [];
   const outcomes: PaiPackOutcome[] = [];
+  const landedSlugs = new Set<string>();
 
   for (const row of planRows) {
     if (row.kind === "refused") outcomes.push(...row.outcomes);
   }
 
-  for (const resolvedRow of resolved) {
-    for (const slug of resolvedRow.collided) {
-      outcomes.push(crossPackCollisionOutcome(resolvedRow.paiPackDir, slug));
+  for (const row of planRows) {
+    if (row.kind !== "planned") continue;
+
+    // Partition this pack's derived skills against the current
+    // landed-slug set. `landedSlugs` reflects PRIOR SUCCESSFUL packs
+    // only — a pack ahead of us that failed apply is not in the set,
+    // so its slug is available to us.
+    const collided: string[] = [];
+    const survivors: string[] = [];
+    for (const plan of row.plans) {
+      const willCollide = landedSlugs.has(plan.skillName);
+      if (willCollide && !inputs.overwriteReserved) {
+        collided.push(plan.skillName);
+      } else {
+        survivors.push(plan.skillName);
+      }
     }
-    if (resolvedRow.survivors.length === 0) continue;
+
+    for (const slug of collided) {
+      outcomes.push(crossPackCollisionOutcome(row.paiPackDir, slug));
+    }
+    if (survivors.length === 0) continue;
 
     try {
-      const items = await importPaiPackFromPlan(resolvedRow.handle, {
-        excludeSkills: new Set(resolvedRow.collided),
+      const items = await importPaiPackFromPlan(row.handle, {
+        excludeSkills: new Set(collided),
         overwrite: true,
       });
       for (const item of items) {
         packs.push(item);
+        // Reserve only after a real, successful write. Future packs
+        // checking this slug will now collide; the pack-on-disk owns
+        // the surface.
+        landedSlugs.add(item.skillName);
         outcomes.push({
-          paiPackDir: resolvedRow.paiPackDir,
+          paiPackDir: row.paiPackDir,
           outcome: "imported",
           skillName: item.skillName,
         });
       }
     } catch (error) {
-      // Phase 2 errors are genuine — surface as refused-other and
-      // continue (no abort).
+      // Phase 2 apply errors are genuine — surface as refused-other.
+      // No slug from this pack joins `landedSlugs`; a later pack with
+      // the same slug correctly gets a chance to land.
       outcomes.push({
-        paiPackDir: resolvedRow.paiPackDir,
+        paiPackDir: row.paiPackDir,
         outcome: "refused-other",
         reason: errorMessage(error),
       });

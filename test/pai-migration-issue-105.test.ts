@@ -27,10 +27,19 @@ import {
   withTempHome as withSharedTempHome,
   writePaiIdentityFixture as writeIdentityFixture,
 } from "./fixtures/pai-migration-fixtures";
+import { writeNestedPackShell, writeNestedSkill } from "./fixtures/pai-pack-fixtures";
 
 const withTempHome = <T>(fn: (homeDir: string) => Promise<T>): Promise<T> =>
   withSharedTempHome(fn, "soma-105-");
 
+/**
+ * Sage r4 #108 (Maintainability suggestion): compose this multi-skill
+ * nested pack from the shared `writeNestedPackShell` +
+ * `writeNestedSkill` builders so the canonical pack shape is single-
+ * sourced in `test/fixtures/pai-pack-fixtures.ts`. The function still
+ * lives here because the (pack, [skills]) signature is migration-test
+ * specific.
+ */
 async function writeNestedPack(
   packsDir: string,
   packName: string,
@@ -38,22 +47,9 @@ async function writeNestedPack(
 ): Promise<string> {
   const packDir = join(packsDir, packName);
   await mkdir(packDir, { recursive: true });
-  await writeFile(
-    join(packDir, "README.md"),
-    `---\nname: ${packName}\ndescription: ${packName} pack\n---\n\n# ${packName}\n\nFixture.\n`,
-    "utf8",
-  );
-  await writeFile(join(packDir, "INSTALL.md"), "# Install\n", "utf8");
-  await writeFile(join(packDir, "VERIFY.md"), "# Verify\n", "utf8");
-  await mkdir(join(packDir, "src"), { recursive: true });
+  await writeNestedPackShell(packDir, packName);
   for (const skill of skills) {
-    await mkdir(join(packDir, "src", skill, "Workflows"), { recursive: true });
-    await writeFile(
-      join(packDir, "src", skill, "SKILL.md"),
-      `---\nname: ${skill}\ndescription: nested ${skill}\n---\n\n# ${skill}\n\nBody.\n`,
-      "utf8",
-    );
-    await writeFile(join(packDir, "src", skill, "Workflows/Default.md"), `# ${skill} Default\n`, "utf8");
+    await writeNestedSkill(packDir, skill);
   }
   return packDir;
 }
