@@ -93,6 +93,22 @@ import type {
 } from "./types";
 import { SOMA_FEEDBACK_STDIN_MAX_BYTES } from "./feedback-contract";
 import { ISA_SUBCOMMAND_HELP, ISA_USAGE_HEADER, runIsaCli } from "./cli-isa";
+// #115 — `soma migrate claude-skills` (Phase 1). Module-internal, not
+// re-exported from the package barrel, same pattern as
+// `pai-memory-migrator.ts` (#90 Sage r2 Architecture finding — the
+// migrator's public boundary is not yet stable; CLI imports
+// directly).
+import {
+  migrateClaudeSkills,
+  planClaudeSkillsMigration,
+  readClaudeSkillsMigrationStatus,
+} from "./claude-skills-migrator";
+import type {
+  ClaudeSkillsMigrationOptions,
+  ClaudeSkillsMigrationPlan,
+  ClaudeSkillsMigrationResult,
+  ClaudeSkillsMigrationManifest,
+} from "./types";
 // CLI formatter for `import pai-docs` needs the same in-scope subtree
 // list the importer iterates. Importing directly from the module
 // keeps the constant a module-internal contract rather than promoting
@@ -189,6 +205,20 @@ interface ParsedMigrateArgs {
   options: PaiMigrationOptions;
   /** #106 — when true, plan/apply formatter prints inline file lists. Default false. */
   verbose: boolean;
+}
+
+/**
+ * #115 — `soma migrate claude-skills` parsed args. Sibling to
+ * `ParsedMigrateArgs` (PAI path); a separate type because the option
+ * sets do not overlap and merging them would force every dispatch
+ * site to discriminate on `source` AND options shape. Keeping them
+ * separate keeps the type narrowing trivial.
+ */
+interface ParsedMigrateClaudeSkillsArgs {
+  command: "migrate";
+  source: "claude-skills";
+  mode: "plan" | "apply" | "status";
+  options: ClaudeSkillsMigrationOptions;
 }
 
 interface ParsedAdoptArgs {
@@ -290,6 +320,7 @@ type ParsedArgs =
   | ParsedDaemonArgs
   | ParsedImportArgs
   | ParsedMigrateArgs
+  | ParsedMigrateClaudeSkillsArgs
   | ParsedAdoptArgs
   | ParsedAlgorithmArgs
   | ParsedLifecycleArgs
@@ -318,6 +349,12 @@ const TOP_LEVEL_COMMANDS = [
 
 const MIGRATE_PAI_USAGE =
   "Usage: soma migrate pai [--dry-run] [--apply] [--status] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>] [--pai-install <dir>] [--pai-repo <root>] [--pai-source-dir <dir>] [--pai-packs-dir <dir>] [--pai-pack-dir <dir>] [--skip-memory] [--skip-skills] [--skip-docs] [--overwrite-reserved] [--include-unrecognized] [--verbose]";
+// #115 — `soma migrate claude-skills` (Phase 1). Second migration
+// path, imports from a flat `.claude/skills/` tree. Phase 2 will add
+// `--smoke <substrate>` for per-substrate projection verify; that
+// flag is intentionally absent here.
+const MIGRATE_CLAUDE_SKILLS_USAGE =
+  "Usage: soma migrate claude-skills --from <skills-dir> [--dry-run] [--apply] [--status] [--home-dir <dir>] [--soma-home <dir>] [--include-claude-specific]";
 const ADOPT_CLAUDE_USAGE =
   "Usage: soma adopt claude [--dry-run] [--apply] [--uninstall] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
 const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string, string> }> = {
@@ -400,8 +437,11 @@ const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string,
     },
   },
   migrate: {
-    usage: MIGRATE_PAI_USAGE,
-    subcommands: { pai: MIGRATE_PAI_USAGE },
+    usage: `${MIGRATE_PAI_USAGE}\n       ${MIGRATE_CLAUDE_SKILLS_USAGE.slice("Usage: ".length)}`,
+    subcommands: {
+      pai: MIGRATE_PAI_USAGE,
+      "claude-skills": MIGRATE_CLAUDE_SKILLS_USAGE,
+    },
   },
   adopt: {
     usage: ADOPT_CLAUDE_USAGE,
@@ -1492,11 +1532,24 @@ function parseAdoptArgs(args: string[]): ParsedAdoptArgs {
   return { command: "adopt", substrate: "claude", mode, options };
 }
 
-function parseMigrateArgs(args: string[]): ParsedMigrateArgs {
-  const [command, source, ...rest] = args;
-  if (command !== "migrate" || source !== "pai") {
+function parseMigrateArgs(args: string[]): ParsedMigrateArgs | ParsedMigrateClaudeSkillsArgs {
+  const [command, source] = args;
+  if (command !== "migrate") {
+    throw new Error(commandUsage("migrate"));
+  }
+  // #115 — second migration path. Routed early so the existing
+  // pai-only parser body stays untouched.
+  if (source === "claude-skills") {
+    return parseMigrateClaudeSkillsArgs(args);
+  }
+  if (source !== "pai") {
     throw new Error(commandUsage("migrate", source));
   }
+  return parseMigratePaiArgs(args);
+}
+
+function parseMigratePaiArgs(args: string[]): ParsedMigrateArgs {
+  const [, , ...rest] = args;
   const options: PaiMigrationOptions = {};
   let mode: "plan" | "apply" | "status" = "plan";
   const packPaths: string[] = [];
@@ -1601,6 +1654,50 @@ function parseMigrateArgs(args: string[]): ParsedMigrateArgs {
 
   if (packPaths.length > 0) options.paiPackPaths = packPaths;
   return { command: "migrate", source: "pai", mode, options, verbose };
+}
+
+function parseMigrateClaudeSkillsArgs(args: string[]): ParsedMigrateClaudeSkillsArgs {
+  const [, , ...rest] = args;
+  const options: ClaudeSkillsMigrationOptions = {};
+  let mode: "plan" | "apply" | "status" = "plan";
+
+  for (let index = 0; index < rest.length; index += 1) {
+    const arg = rest[index];
+    switch (arg) {
+      case "--dry-run":
+        mode = "plan";
+        break;
+      case "--apply":
+        mode = "apply";
+        break;
+      case "--status":
+        mode = "status";
+        break;
+      case "--from":
+        options.from = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--home-dir":
+        options.homeDir = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--soma-home":
+        options.somaHome = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--include-claude-specific":
+        options.includeClaudeSpecific = true;
+        break;
+      default:
+        throw new Error(`Unknown option: ${arg}`);
+    }
+  }
+
+  if (!options.from && mode !== "status") {
+    throw new Error(MIGRATE_CLAUDE_SKILLS_USAGE);
+  }
+
+  return { command: "migrate", source: "claude-skills", mode, options };
 }
 
 function helpTopic(args: string[]): string[] {
@@ -1953,6 +2050,110 @@ function formatPaiMigrationStatus(manifest: string | null): string {
     return "soma migrate pai — no migration manifest found. Run `soma migrate pai --apply` first.\n";
   }
   return `${manifest}\n`;
+}
+
+// #115 — `soma migrate claude-skills` formatters. Mirrors the `migrate
+// pai` shape (header line + per-row table) so principals reading
+// both surfaces don't need to context-switch.
+function formatClaudeSkillsMigrationPlan(plan: ClaudeSkillsMigrationPlan): string {
+  if (!plan.isFlatSkillsTree) {
+    return [
+      "soma migrate claude-skills — plan (dry-run)",
+      `from: ${plan.from}`,
+      `somaHome: ${plan.somaHome}`,
+      "",
+      "Refused: --from is not a flat skills tree (no <Name>/SKILL.md direct children).",
+      "Point --from at an installed `.claude/skills/` tree (e.g. ~/.claude/skills or ~/work/PAI/Releases/v5.0.0/.claude/skills).",
+      "",
+    ].join("\n");
+  }
+  const lines: string[] = [
+    "soma migrate claude-skills — plan (dry-run; pass --apply to execute)",
+    `from: ${plan.from}`,
+    `somaHome: ${plan.somaHome}`,
+    `include-claude-specific: ${plan.includeClaudeSpecific ? "yes" : "no"}`,
+    "",
+    "Per-skill plan:",
+  ];
+  for (const o of plan.outcomes) {
+    lines.push(`  - ${o.kebabName} [${o.tag}] → ${o.disposition} (${o.reason})`);
+  }
+  const counts = countOutcomesByDisposition(plan.outcomes);
+  lines.push("");
+  lines.push(
+    `Totals: ${counts.imported} imported, ${counts.skippedIdempotent} skipped-idempotent, ${counts.skippedClaudeSpecific} skipped-claude-specific.`,
+  );
+  if (counts.skippedClaudeSpecific > 0 && !plan.includeClaudeSpecific) {
+    lines.push(
+      `${counts.skippedClaudeSpecific} skill(s) tagged claude-specific — re-run with --include-claude-specific to import them anyway.`,
+    );
+  }
+  lines.push("");
+  return lines.join("\n");
+}
+
+function formatClaudeSkillsMigrationResult(result: ClaudeSkillsMigrationResult): string {
+  const lines: string[] = [
+    "soma migrate claude-skills — applied",
+    `from: ${result.from}`,
+    `somaHome: ${result.somaHome}`,
+    `importedAt: ${result.importedAt}`,
+    `manifest: ${result.manifestPath}`,
+    `report:   ${result.reportPath}`,
+    `include-claude-specific: ${result.includeClaudeSpecific ? "yes" : "no"}`,
+    "",
+    "Per-skill outcomes:",
+  ];
+  for (const o of result.outcomes) {
+    lines.push(`  - ${o.kebabName} [${o.tag}] → ${o.disposition} (${o.reason})`);
+  }
+  lines.push("");
+  lines.push(
+    `Totals: ${result.writtenCount} written, ${result.skippedIdempotentCount} skipped-idempotent, ${result.skippedClaudeSpecificCount} skipped-claude-specific.`,
+  );
+  if (result.skippedClaudeSpecificCount > 0 && !result.includeClaudeSpecific) {
+    lines.push(
+      `${result.skippedClaudeSpecificCount} skill(s) refused-claude-specific — re-run with --include-claude-specific to import them anyway.`,
+    );
+  }
+  lines.push("");
+  return lines.join("\n");
+}
+
+function formatClaudeSkillsMigrationStatus(
+  manifest: ClaudeSkillsMigrationManifest | null,
+): string {
+  if (manifest === null) {
+    return "soma migrate claude-skills — no migration manifest found. Run `soma migrate claude-skills --from <dir> --apply` first.\n";
+  }
+  const lines: string[] = [
+    "soma migrate claude-skills — status",
+    `from: ${manifest.from}`,
+    `somaHome: ${manifest.somaHome}`,
+    `importedAt: ${manifest.importedAt}`,
+    `include-claude-specific: ${manifest.includeClaudeSpecific ? "yes" : "no"}`,
+    `skills: ${manifest.skills.length}`,
+    "",
+  ];
+  for (const entry of manifest.skills) {
+    lines.push(`  - ${entry.kebabName} [${entry.tag}] (${Object.keys(entry.fileShas).length} files)`);
+  }
+  lines.push("");
+  return lines.join("\n");
+}
+
+function countOutcomesByDisposition(
+  outcomes: readonly { disposition: string }[],
+): { imported: number; skippedIdempotent: number; skippedClaudeSpecific: number } {
+  let imported = 0;
+  let skippedIdempotent = 0;
+  let skippedClaudeSpecific = 0;
+  for (const o of outcomes) {
+    if (o.disposition === "imported") imported += 1;
+    else if (o.disposition === "skipped-idempotent") skippedIdempotent += 1;
+    else if (o.disposition === "skipped-claude-specific") skippedClaudeSpecific += 1;
+  }
+  return { imported, skippedIdempotent, skippedClaudeSpecific };
 }
 
 function formatPaiImportPlan(plan: PaiImportPlan): string {
@@ -2549,6 +2750,24 @@ export async function runSomaCli(args: string[]): Promise<string> {
   }
 
   if (parsed.command === "migrate") {
+    // #115 — second migration path. Dispatched first so the
+    // existing PAI path stays untouched.
+    if (parsed.source === "claude-skills") {
+      const claudeOptions = parsed.options;
+      if (parsed.mode === "status") {
+        return formatClaudeSkillsMigrationStatus(
+          await readClaudeSkillsMigrationStatus(claudeOptions),
+        );
+      }
+      if (parsed.mode === "plan") {
+        return formatClaudeSkillsMigrationPlan(
+          await planClaudeSkillsMigration(claudeOptions),
+        );
+      }
+      return formatClaudeSkillsMigrationResult(
+        await migrateClaudeSkills(claudeOptions),
+      );
+    }
     if (parsed.mode === "status") {
       return formatPaiMigrationStatus(await readPaiMigrationManifest(parsed.options));
     }
