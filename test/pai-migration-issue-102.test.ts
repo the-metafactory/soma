@@ -35,35 +35,20 @@
  * with `src/Foundation.md` + `src/MethodSelection.md`) and confirms
  * the plan completes without the raw throw the user originally saw.
  */
-import { mkdir, stat, writeFile } from "node:fs/promises";
+import { stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { planPaiMigration } from "../src/pai-migration";
 import { runSomaCli } from "../src/cli";
 import {
-  withTempHome as withSharedTempHome,
-  writePaiIdentityFixture as writeIdentityFixture,
+  withMigrationHome as withSharedMigrationHome,
+  writeMalformedPaiPack as makeMalformedPack,
   writePaiPackFixture as writePackFixture,
 } from "./fixtures/pai-migration-fixtures";
 
-const withTempHome = <T>(fn: (homeDir: string) => Promise<T>): Promise<T> =>
-  withSharedTempHome(fn, "soma-102-");
-
-/**
- * Sage r1 #103 Maintainability — single-source the per-scenario
- * setup. Every test in this file writes the identity fixture and
- * derives `<homeDir>/Packs` as the packs root, so a helper keeps
- * future fixture changes one-edit-away from propagating everywhere.
- */
-async function withMigrationHome<T>(
+const withMigrationHome = <T>(
   fn: (ctx: { homeDir: string; packsDir: string }) => Promise<T>,
-): Promise<T> {
-  return withTempHome(async (homeDir) => {
-    await writeIdentityFixture(homeDir);
-    const packsDir = join(homeDir, "Packs");
-    return fn({ homeDir, packsDir });
-  });
-}
+): Promise<T> => withSharedMigrationHome(fn, "soma-102-");
 
 /**
  * Plant a substrate-specific file inside an existing pack fixture.
@@ -75,26 +60,6 @@ async function plantSubstrateSpecificFile(packDir: string, filename = "Foundatio
   await writeFile(
     join(packDir, "src", filename),
     `# ${filename.replace(".md", "")}\n\nSubstrate-specific doc.\n`,
-    "utf8",
-  );
-}
-
-async function makeMalformedPack(packsDir: string, packName: string): Promise<void> {
-  // Missing INSTALL.md → REQUIRED_PACK_FILES check fails → buildPaiPackImportPlan
-  // throws → planPaiPackImport surfaces it → orchestrator must catch it as
-  // refused-other (mirrors the apply path).
-  const packDir = join(packsDir, packName);
-  await mkdir(join(packDir, "src"), { recursive: true });
-  await writeFile(
-    join(packDir, "README.md"),
-    `---\nname: ${packName}\ndescription: malformed\n---\n\n# ${packName}\n`,
-    "utf8",
-  );
-  // INSTALL.md intentionally omitted.
-  await writeFile(join(packDir, "VERIFY.md"), "# Verify\n", "utf8");
-  await writeFile(
-    join(packDir, "src/SKILL.md"),
-    `---\nname: ${packName}\ndescription: malformed\n---\n\n# ${packName}\n`,
     "utf8",
   );
 }

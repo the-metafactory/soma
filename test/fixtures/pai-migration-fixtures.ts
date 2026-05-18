@@ -109,6 +109,46 @@ export async function writePaiPackFixture(
 }
 
 /**
+ * Holly #113 nit — single-source the per-scenario migration setup. Every
+ * orchestrator-level test (#97, #102, #112) writes the identity fixture
+ * and derives `<homeDir>/Packs` as the packs root. Wraps `withTempHome`
+ * with the identity-fixture write + packs-dir derivation.
+ */
+export async function withMigrationHome<T>(
+  fn: (ctx: { homeDir: string; packsDir: string }) => Promise<T>,
+  prefix = "soma-migrate-",
+): Promise<T> {
+  return withTempHome(async (homeDir) => {
+    await writePaiIdentityFixture(homeDir);
+    const packsDir = join(homeDir, "Packs");
+    return fn({ homeDir, packsDir });
+  }, prefix);
+}
+
+/**
+ * Holly #113 nit — single-source the malformed-pack fixture. Used by
+ * the apply-side (#97), plan-side (#102), and exit-code (#112) tests
+ * to trigger `refused-other` outcomes. Missing INSTALL.md is the
+ * structural error the importer's REQUIRED_PACK_FILES check raises.
+ */
+export async function writeMalformedPaiPack(packsDir: string, packName: string): Promise<void> {
+  const packDir = join(packsDir, packName);
+  await mkdir(join(packDir, "src"), { recursive: true });
+  await writeFile(
+    join(packDir, "README.md"),
+    `---\nname: ${packName}\ndescription: malformed\n---\n\n# ${packName}\n`,
+    "utf8",
+  );
+  // INSTALL.md intentionally omitted.
+  await writeFile(join(packDir, "VERIFY.md"), "# Verify\n", "utf8");
+  await writeFile(
+    join(packDir, "src/SKILL.md"),
+    `---\nname: ${packName}\ndescription: malformed\n---\n\n# ${packName}\n`,
+    "utf8",
+  );
+}
+
+/**
  * Write a minimal PAI release tree under
  * `<homeDir>/PAI/Releases/v5.0.0/.claude/PAI` sufficient for
  * `importPaiDocs` to recognize via its `DOCUMENTATION/` guard.

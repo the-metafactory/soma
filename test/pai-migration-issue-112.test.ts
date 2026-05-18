@@ -24,47 +24,24 @@
  * AC-4 of #112: fixture tests cover all 4 cells of the
  * mode × refused-other matrix. This file is those tests.
  */
-import { mkdir, stat, writeFile } from "node:fs/promises";
+import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { runSomaCli, SomaCliError } from "../src/cli";
 import {
-  withTempHome as withSharedTempHome,
-  writePaiIdentityFixture as writeIdentityFixture,
+  withMigrationHome as withSharedMigrationHome,
+  writeMalformedPaiPack as makeMalformedPack,
   writePaiPackFixture as writePackFixture,
 } from "./fixtures/pai-migration-fixtures";
 
-const withTempHome = <T>(fn: (homeDir: string) => Promise<T>): Promise<T> =>
-  withSharedTempHome(fn, "soma-112-");
-
-/**
- * A pack missing INSTALL.md is "malformed" by the importer's
- * REQUIRED_PACK_FILES check — the issue's outcome enum classifies it
- * `refused-other`. Mirrors the helper in `pai-migration-issue-97.test.ts`.
- */
-async function makeMalformedPack(packsDir: string, packName: string): Promise<void> {
-  const packDir = join(packsDir, packName);
-  await mkdir(join(packDir, "src"), { recursive: true });
-  await writeFile(
-    join(packDir, "README.md"),
-    `---\nname: ${packName}\ndescription: malformed\n---\n\n# ${packName}\n`,
-    "utf8",
-  );
-  // INSTALL.md intentionally omitted.
-  await writeFile(join(packDir, "VERIFY.md"), "# Verify\n", "utf8");
-  await writeFile(
-    join(packDir, "src/SKILL.md"),
-    `---\nname: ${packName}\ndescription: malformed\n---\n\n# ${packName}\n`,
-    "utf8",
-  );
-}
+const withMigrationHome = <T>(
+  fn: (ctx: { homeDir: string; packsDir: string }) => Promise<T>,
+): Promise<T> => withSharedMigrationHome(fn, "soma-112-");
 
 const FOOTER_RE = /\d+ pack\(s\) failed with genuine errors:/;
 
 test("AC-1 — plan mode (no --apply) with refused-other exits 0 + footer line present", async () => {
-  await withTempHome(async (homeDir) => {
-    await writeIdentityFixture(homeDir);
-    const packsDir = join(homeDir, "Packs");
+  await withMigrationHome(async ({ homeDir, packsDir }) => {
     await makeMalformedPack(packsDir, "Broken");
     await writePackFixture(packsDir, "Healthy");
     // Plan mode = no --apply.
@@ -83,9 +60,7 @@ test("AC-1 — plan mode (no --apply) with refused-other exits 0 + footer line p
 });
 
 test("AC-1 (matrix cell: plan + no refused-other) → exit 0 + no footer", async () => {
-  await withTempHome(async (homeDir) => {
-    await writeIdentityFixture(homeDir);
-    const packsDir = join(homeDir, "Packs");
+  await withMigrationHome(async ({ homeDir, packsDir }) => {
     await writePackFixture(packsDir, "Alpha");
     await writePackFixture(packsDir, "Beta");
     const out = await runSomaCli([
@@ -101,9 +76,7 @@ test("AC-1 (matrix cell: plan + no refused-other) → exit 0 + no footer", async
 });
 
 test("AC-2 — apply mode with refused-other exits 1 + footer line present (unchanged from #97 AC-4)", async () => {
-  await withTempHome(async (homeDir) => {
-    await writeIdentityFixture(homeDir);
-    const packsDir = join(homeDir, "Packs");
+  await withMigrationHome(async ({ homeDir, packsDir }) => {
     await makeMalformedPack(packsDir, "Broken");
     await writePackFixture(packsDir, "Healthy");
     let caught: unknown = null;
@@ -131,9 +104,7 @@ test("AC-2 — apply mode with refused-other exits 1 + footer line present (unch
 });
 
 test("AC-2 (matrix cell: apply + no refused-other) → exit 0 + no footer", async () => {
-  await withTempHome(async (homeDir) => {
-    await writeIdentityFixture(homeDir);
-    const packsDir = join(homeDir, "Packs");
+  await withMigrationHome(async ({ homeDir, packsDir }) => {
     await writePackFixture(packsDir, "Alpha");
     await writePackFixture(packsDir, "Beta");
     const out = await runSomaCli([
@@ -156,9 +127,7 @@ test("AC-3 — footer line wording matches across both modes (plan + apply)", as
   // The footer line is the principal signal regardless of exit code.
   // The wording must be byte-identical across modes so downstream
   // stdout parsers don't need to branch on mode.
-  await withTempHome(async (homeDir) => {
-    await writeIdentityFixture(homeDir);
-    const packsDir = join(homeDir, "Packs");
+  await withMigrationHome(async ({ homeDir, packsDir }) => {
     await makeMalformedPack(packsDir, "Broken");
     await writePackFixture(packsDir, "Healthy");
     const planOut = await runSomaCli([
