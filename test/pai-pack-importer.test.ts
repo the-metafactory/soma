@@ -68,7 +68,8 @@ test("requires an explicit PAI Pack directory", async () => {
 test("plans a PAI Pack import without writing files", async () => {
   await withTempHome(async (homeDir) => {
     const packDir = await writePackFixture(homeDir);
-    const plan = await planPaiPackImport({ homeDir, paiPackDir: packDir });
+    // #105 — `planPaiPackImport` returns array. FLAT pack → one plan.
+    const [plan] = await planPaiPackImport({ homeDir, paiPackDir: packDir });
 
     expect(plan.apply).toBe(false);
     expect(plan.skillName).toBe("telos");
@@ -97,7 +98,10 @@ test("rejects invalid, reserved, colliding, secret, and substrate-specific pack 
 
     await mkdir(join(homeDir, ".soma/skills/telos"), { recursive: true });
     await expect(planPaiPackImport({ homeDir, paiPackDir: packDir })).rejects.toThrow("already exists");
-    await expect(planPaiPackImport({ homeDir, paiPackDir: packDir, overwrite: true })).resolves.toMatchObject({ skillName: "telos" });
+    // #105 — planPaiPackImport returns array; assert first plan matches.
+    await expect(planPaiPackImport({ homeDir, paiPackDir: packDir, overwrite: true })).resolves.toMatchObject([
+      { skillName: "telos" },
+    ]);
 
     const secretPackDir = await writePackFixture(join(homeDir, "secret"));
     await writeFile(join(secretPackDir, "src/DashboardTemplate/.env"), "TOKEN=secret\n", "utf8");
@@ -147,7 +151,7 @@ test("rejects invalid, reserved, colliding, secret, and substrate-specific pack 
     await mkdir(join(substratePackDir, "claude"), { recursive: true });
     await writeFile(join(substratePackDir, "claude/profile.md"), "# Claude profile\n", "utf8");
     await expect(planPaiPackImport({ homeDir, paiPackDir: substratePackDir, overwrite: true })).rejects.toThrow("substrate-specific");
-    const substratePlan = await planPaiPackImport({ homeDir, paiPackDir: substratePackDir, overwrite: true, includeSubstrateSpecific: true });
+    const [substratePlan] = await planPaiPackImport({ homeDir, paiPackDir: substratePackDir, overwrite: true, includeSubstrateSpecific: true });
     expect(substratePlan.files).toContainEqual(
       expect.objectContaining({
         target: join(homeDir, ".soma/imports/pai-packs/telos/source/claude/profile.md"),
@@ -185,7 +189,8 @@ test("imports a PAI Pack as a Soma skill", async () => {
   await withTempHome(async (homeDir) => {
     const packDir = await writePackFixture(homeDir);
     await bootstrapSomaHome({ homeDir });
-    const result = await importPaiPack({ homeDir, paiPackDir: packDir });
+    // #105 — `importPaiPack` returns array. FLAT pack → one result.
+    const [result] = await importPaiPack({ homeDir, paiPackDir: packDir });
     const context = await loadSomaHome(result.somaHome);
 
     expect(result.files).toContain(join(homeDir, ".soma/skills/telos/SKILL.md"));

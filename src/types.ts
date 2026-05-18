@@ -490,6 +490,16 @@ export interface PaiPackManifest {
   description: string;
   files: PaiPackManifestFile[];
   normalization?: PaiPackNormalizationReport;
+  /**
+   * #105 — when the pack archive manifest is rendered (the
+   * `<somaHome>/imports/pai-packs/<pack-slug>/soma-pack-archive.json`
+   * surface), every Soma skill derived from the pack is listed here in
+   * sorted order. For per-skill manifests (`<somaHome>/skills/<slug>/
+   * soma-pack.json`) the field is omitted. Single-skill packs still
+   * emit the field on the archive manifest (one-element array) so the
+   * archive shape is stable across FLAT and nested layouts.
+   */
+  derivedSkills?: string[];
 }
 
 export interface SomaSkillManifest {
@@ -550,6 +560,23 @@ export type PaiPackOutcomeKind =
   | "imported"
   | "refused-substrate-specific"
   | "refused-reserved"
+  /**
+   * #105 — emitted when a derived skill's kebab-cased name collides
+   * with an already-landed Soma skill. Two flavors:
+   *
+   *   1. **Within one pack** — two `src/<Name>/SKILL.md` files kebab to
+   *      the same slug. The pack importer throws
+   *      `PaiPackNameCollisionRefusal`; the migration orchestrator
+   *      classifies it `refused-name-collision`.
+   *   2. **Across packs** — Pack A landed `browser`, Pack B's nested
+   *      `Browser` would also kebab to `browser`. The second pack's
+   *      derived skill records `refused-name-collision` unless
+   *      `--overwrite-reserved` is set.
+   *
+   * `outcome.skillName` is the colliding slug; `outcome.reason`
+   * names which pack already owned the surface.
+   */
+  | "refused-name-collision"
   | "refused-other";
 
 export interface PaiPackOutcome {

@@ -290,7 +290,9 @@ test("AC-3: bare ~/.claude prose mentions rewrite to ~/.soma (zero-residue grep)
 
 test("AC-3 + AC-4: importing the issue-86 fixture leaves zero ~/.claude/ residue", async () => {
   await withTempHome(async (homeDir, somaHome) => {
-    const result = await importPaiPack({ homeDir, somaHome, paiPackDir: FIXTURE_PACK_DIR });
+    // #105 — `importPaiPack` returns one result per derived skill.
+    // The issue-86 fixture has no nested skills, so we expect a one-element array.
+    const [result] = await importPaiPack({ homeDir, somaHome, paiPackDir: FIXTURE_PACK_DIR });
     const skillRoot = join(somaHome, "skills", result.skillName);
     // Match the issue 86 reproduction scope: SKILL.md + Workflows/*.md only.
     // The `references/` directory under the skill root preserves original

@@ -33,12 +33,15 @@ import { importPaiDocs, planPaiDocsImport } from "./pai-docs-importer";
 import { importPaiIdentity, planPaiImport } from "./pai-importer";
 import { migratePaiMemory, planPaiMemoryMigration } from "./pai-memory-migrator";
 import {
-  importPaiPack,
+  importPaiPackFromPlan,
+  PaiPackAllSkillsExcludedRefusal,
+  PaiPackNameCollisionRefusal,
   PaiPackReservedNameRefusal,
   PaiPackSubstrateSpecificRefusal,
-  planPaiPackImport,
+  planPaiPackImportHandle,
   readPackMetadata,
   slugifySkillName,
+  type PaiPackImportPlanHandle,
 } from "./pai-pack-importer";
 import type {
   AlgorithmImportPlan,
@@ -475,27 +478,250 @@ interface BulkImportResult {
   outcomes: PaiPackOutcome[];
 }
 
+/**
+ * #105 — bulk apply path. Two phases.
+ *
+ *   Phase 1 (PLAN, bounded 4-wide concurrent over sorted paths):
+ *     Plan every pack. Surfaces refusals that don't depend on
+ *     cross-pack state (substrate-specific, reserved, malformed,
+ *     within-pack collision) without writing anything. Each plan
+ *     yields a list of derived skill slugs.
+ *
+ *   Phase 2 (APPLY, sequential over sorted paths):
+ *     Walk planned packs in sorted order. For each, intersect its
+ *     derived skill slugs with `landedSlugs`. Slugs already landed
+ *     by an earlier pack record `refused-name-collision` and are
+ *     passed to the inner `importPaiPack` via `excludeSkills` so
+ *     they NEVER touch disk. Surviving slugs apply, record
+ *     `imported`, and are added to `landedSlugs`. If `overwriteReserved`
+ *     is set, the collision filter is a no-op — earlier surfaces are
+ *     clobbered (matches pre-#105 contract).
+ *
+ * Sage r1 #108 (blocker) drove the two-phase split: previously the
+ * collision check happened AFTER the inner apply wrote every derived
+ * skill, which let a later pack clobber an earlier skill while the
+ * outcome reported a refusal. Now writes never happen for collided
+ * slugs.
+ *
+ * Performance: per-pack apply still serial in Phase 2 to preserve
+ * deterministic collision ordering. Phase 1's plan fan-out is
+ * 4-wide bounded so the principal-facing latency on a 45-pack
+ * install matches the pre-#105 throughput.
+ */
+/**
+ * Single source for the plan-then-collision-walk that both the
+ * apply path and the plan-only path share. Phase 1 produces one
+ * `PlanRow` per pack (bounded concurrent); Phase 2 walks the rows
+ * sequentially in sorted order and partitions per-skill slugs into
+ * "collided" (already landed from an earlier pack) vs "survivors" —
+ * the partition is exactly the input both bulk paths need. Apply
+ * consumes survivors+handle to write; plan-only consumes
+ * survivors+plans to record advisory outcomes.
+ *
+ * Invariant: no excluded slug ever touches disk because the handle
+ * path filters `routedFiles` in-memory before stage.
+ */
+type SharedPlanRow =
+  | {
+      kind: "planned";
+      paiPackDir: string;
+      plans: PaiPackImportPlan[];
+      handle: PaiPackImportPlanHandle;
+    }
+  | { kind: "refused"; outcomes: PaiPackOutcome[] };
+
+interface ResolvedPlanRow {
+  paiPackDir: string;
+  plans: PaiPackImportPlan[];
+  handle: PaiPackImportPlanHandle;
+  collided: string[];
+  survivors: string[];
+}
+
+/**
+ * Single source for partitioning a pack's plans into `collided`
+ * (slug already landed)
+ * and `survivors`. Both the apply path (which builds `landedSlugs`
+ * sequentially as packs successfully apply) and the plan-only path
+ * (which builds it optimistically inside `walkPlanRowsForCollisions`)
+ * consume this helper, so the rule "a slug collides iff it is in
+ * landedSlugs AND overwriteReserved is false" lives in exactly one
+ * place.
+ *
+ * NOTE: this helper does NOT mutate `landedSlugs` — the caller is
+ * responsible for adding slugs when the partition's contract for
+ * "successfully landed" is satisfied (apply path: only after a
+ * successful `importPaiPackFromPlan`; plan-only path: at partition
+ * time, since plan can't fail mid-apply).
+ */
+function partitionPlansByCollision(
+  plans: readonly PaiPackImportPlan[],
+  landedSlugs: ReadonlySet<string>,
+  overwriteReserved: boolean,
+): { collided: string[]; survivors: string[] } {
+  const collided: string[] = [];
+  const survivors: string[] = [];
+  for (const plan of plans) {
+    if (landedSlugs.has(plan.skillName) && !overwriteReserved) {
+      collided.push(plan.skillName);
+    } else {
+      survivors.push(plan.skillName);
+    }
+  }
+  return { collided, survivors };
+}
+
+/**
+ * Single source for the cross-pack `refused-name-collision` outcome
+ * shape. Both bulk paths
+ * (apply + plan-only) emit identical rows; centralizing the
+ * construction prevents the reason text + outcome kind from drifting
+ * across the two surfaces.
+ */
+function crossPackCollisionOutcome(paiPackDir: string, slug: string): PaiPackOutcome {
+  return {
+    paiPackDir,
+    outcome: "refused-name-collision",
+    skillName: slug,
+    reason: `Soma skill '${slug}' already landed from an earlier pack — re-run with --overwrite-reserved to permit.`,
+  };
+}
+
+async function planAllPacksWithHandles(
+  inputs: BulkImportInputs,
+): Promise<SharedPlanRow[]> {
+  const sortedPaths = [...inputs.packPaths].sort();
+  return runBoundedConcurrent<string, SharedPlanRow>(
+    [...sortedPaths],
+    async (paiPackDir) => {
+      const { items, handle, outcomes } = await planOnePackForApply(inputs, paiPackDir);
+      if (items.length === 0 || !handle) return { kind: "refused", outcomes };
+      return { kind: "planned", paiPackDir, plans: items, handle };
+    },
+    4,
+  );
+}
+
+/**
+ * Shared cross-pack collision walk.
+ * Walks `planRows` in sorted order; for each `planned` row, partitions
+ * its per-skill slugs into `collided` (already landed) and `survivors`.
+ * Pure function — no file writes, no apply calls. Callers walk
+ * `resolved` in their own order to emit outcomes (preserving the
+ * per-pack-interleaved ordering both bulk paths previously hand-coded).
+ */
+function walkPlanRowsForCollisions(
+  planRows: readonly SharedPlanRow[],
+  overwriteReserved: boolean,
+): { resolved: ResolvedPlanRow[] } {
+  const resolved: ResolvedPlanRow[] = [];
+  const landedSlugs = new Set<string>();
+
+  for (const row of planRows) {
+    if (row.kind === "refused") continue;
+    const { collided, survivors } = partitionPlansByCollision(row.plans, landedSlugs, overwriteReserved);
+    // Plan-only mode: reserve every survivor up front. Plan can't
+    // fail mid-apply, so the optimistic-landing partition is correct.
+    // The apply path manages its own `landedSlugs` to track only
+    // packs whose write actually succeeded.
+    for (const slug of survivors) landedSlugs.add(slug);
+    resolved.push({
+      paiPackDir: row.paiPackDir,
+      plans: row.plans,
+      handle: row.handle,
+      collided,
+      survivors,
+    });
+  }
+  return { resolved };
+}
+
 async function importPacksWithOutcomes(
   inputs: BulkImportInputs,
 ): Promise<BulkImportResult> {
-  // Sage r2 #99 Performance: per-pack work is mostly I/O (small file
-  // reads + a directory copy); bounded concurrency mirrors the
-  // pre-#97 4-wide fan-out and the planner / fingerprint passes.
-  // `importOnePackWithOutcome` swallows its own per-pack errors into
-  // `outcome.outcome === "refused-other"`, so the helper is
-  // guaranteed to settle — `runBoundedConcurrent`'s "first error
-  // wins" abort contract never fires for legitimate pack failures.
-  const results = await runBoundedConcurrent(
-    [...inputs.packPaths],
-    (paiPackDir) => importOnePackWithOutcome(inputs, paiPackDir),
-    4,
-  );
+  // Phase 1: plan every pack (bounded concurrent). Each plan returns
+  // both the public per-skill plan view AND an opaque handle so Phase 2
+  // can apply WITHOUT a second `buildPaiPackImportPlan` pass.
+  const planRows = await planAllPacksWithHandles(inputs);
 
+  // Phase 2: sequential apply with collision tracking.
+  // Invariant: the cross-pack collision set grows ONLY after a
+  // pack's apply actually succeeds. A pack that plans cleanly but
+  // fails inside apply does NOT block a later pack with the same
+  // slug — the earlier pack never wrote anything, so the slug is
+  // still free. Plan-only mode is unaffected (it can't fail mid-
+  // apply) and uses `walkPlanRowsForCollisions` for its optimistic
+  // advisory partition.
   const packs: PaiPackImportResult[] = [];
   const outcomes: PaiPackOutcome[] = [];
-  for (const { pack, outcome } of results) {
-    if (pack) packs.push(pack);
-    outcomes.push(outcome);
+  const landedSlugs = new Set<string>();
+
+  for (const row of planRows) {
+    if (row.kind === "refused") outcomes.push(...row.outcomes);
+  }
+
+  for (const row of planRows) {
+    if (row.kind !== "planned") continue;
+
+    // Partition this pack's derived skills against the current
+    // landed-slug set. `landedSlugs` reflects PRIOR SUCCESSFUL packs
+    // only — a pack ahead of us that failed apply is not in the set,
+    // so its slug is available to us. Same partitioning logic as the
+    // plan-only walker, via the shared `partitionPlansByCollision`
+    // helper.
+    const { collided, survivors } = partitionPlansByCollision(row.plans, landedSlugs, inputs.overwriteReserved);
+
+    for (const slug of collided) {
+      outcomes.push(crossPackCollisionOutcome(row.paiPackDir, slug));
+    }
+    if (survivors.length === 0) continue;
+
+    try {
+      const items = await importPaiPackFromPlan(row.handle, {
+        excludeSkills: new Set(collided),
+        overwrite: true,
+      });
+      // Survivor-completeness check: the contract for
+      // `importPaiPackFromPlan(handle, {excludeSkills})` is that
+      // every survivor (i.e. every plan.skillName NOT in excludeSkills)
+      // lands and appears in the returned items. Any mismatch means
+      // a derived skill was silently dropped — either a contract bug
+      // in the importer or a future filter change drifted. Surface
+      // any silently-dropped survivor as `refused-other` so the
+      // principal sees a row instead of a missing outcome.
+      const itemsBySlug = new Set(items.map((item) => item.skillName));
+      for (const survivor of survivors) {
+        if (!itemsBySlug.has(survivor)) {
+          outcomes.push({
+            paiPackDir: row.paiPackDir,
+            outcome: "refused-other",
+            skillName: survivor,
+            reason: `Pack importer returned no result row for derived skill '${survivor}' — this is a contract violation; please file an issue with the pack name attached.`,
+          });
+        }
+      }
+      for (const item of items) {
+        packs.push(item);
+        // Reserve only after a real, successful write. Future packs
+        // checking this slug will now collide; the pack-on-disk owns
+        // the surface.
+        landedSlugs.add(item.skillName);
+        outcomes.push({
+          paiPackDir: row.paiPackDir,
+          outcome: "imported",
+          skillName: item.skillName,
+        });
+      }
+    } catch (error) {
+      // Phase 2 apply errors are genuine — surface as refused-other.
+      // No slug from this pack joins `landedSlugs`; a later pack with
+      // the same slug correctly gets a chance to land.
+      outcomes.push({
+        paiPackDir: row.paiPackDir,
+        outcome: "refused-other",
+        reason: errorMessage(error),
+      });
+    }
   }
 
   return { packs, outcomes };
@@ -529,15 +755,27 @@ interface OnePackInputs {
   includeSubstrateSpecific: boolean;
 }
 
-async function runOnePackWithOutcome<TPayload extends { skillName: string }>(
+/**
+ * #105 — generic per-pack runner. The `operation` callback returns an
+ * array of payloads (one per derived skill). Outcomes are emitted one-
+ * per-payload on success; on refusal a single outcome is emitted for
+ * the whole pack.
+ *
+ * Cross-pack collision tracking lives at the bulk-phase level (Sage
+ * r1 #108): the apply path now plans first, applies second, with
+ * per-skill exclusion via `excludeSkills`. This helper handles every
+ * other refusal kind (substrate-specific, reserved, within-pack
+ * collision, malformed metadata, genuine errors).
+ */
+async function runOnePackWithOutcome<TPayload extends { skillName: string }, TExtras = undefined>(
   inputs: OnePackInputs,
   operation: (opts: {
     homeDir: string | undefined;
     paiPackDir: string;
     somaHome: string;
     includeSubstrateSpecific: boolean;
-  }) => Promise<TPayload>,
-): Promise<{ payload?: TPayload; outcome: PaiPackOutcome }> {
+  }) => Promise<{ items: TPayload[]; extras?: TExtras }>,
+): Promise<{ items: TPayload[]; extras?: TExtras; outcomes: PaiPackOutcome[] }> {
   // Sage r2 #103 Performance — defer the slug read to the only paths
   // that actually need it: the migrate-level reserved pre-check
   // (when `overwriteReserved` is false) and the refusal-classification
@@ -560,7 +798,8 @@ async function runOnePackWithOutcome<TPayload extends { skillName: string }>(
       // verbatim; the principal needs the original reason in the
       // summary table. No `skillName` because metadata read failed.
       return {
-        outcome: { paiPackDir: inputs.paiPackDir, outcome: "refused-other", reason: errorMessage(error) },
+        items: [],
+        outcomes: [{ paiPackDir: inputs.paiPackDir, outcome: "refused-other", reason: errorMessage(error) }],
       };
     }
 
@@ -573,36 +812,47 @@ async function runOnePackWithOutcome<TPayload extends { skillName: string }>(
     // surfaces).
     if (MIGRATE_RESERVED_SKILL_NAMES.has(upfrontSlug)) {
       return {
-        outcome: {
-          paiPackDir: inputs.paiPackDir,
-          outcome: "refused-reserved",
-          skillName: upfrontSlug,
-          reason: `reserved Soma skill '${upfrontSlug}' — re-run with --overwrite-reserved to permit.`,
-        },
+        items: [],
+        outcomes: [
+          {
+            paiPackDir: inputs.paiPackDir,
+            outcome: "refused-reserved",
+            skillName: upfrontSlug,
+            reason: `reserved Soma skill '${upfrontSlug}' — re-run with --overwrite-reserved to permit.`,
+          },
+        ],
       };
     }
   }
 
   try {
-    const payload = await operation({
+    const result = await operation({
       homeDir: inputs.homeDir,
       paiPackDir: inputs.paiPackDir,
       somaHome: inputs.somaHome,
       includeSubstrateSpecific: inputs.includeSubstrateSpecific,
     });
-    return {
-      payload,
-      outcome: { paiPackDir: inputs.paiPackDir, outcome: "imported", skillName: payload.skillName },
-    };
+
+    // Per-payload outcome rows — one `imported` per derived skill.
+    // Cross-pack collision tracking happens in the bulk-phase caller.
+    const outcomes: PaiPackOutcome[] = result.items.map((item) => ({
+      paiPackDir: inputs.paiPackDir,
+      outcome: "imported",
+      skillName: item.skillName,
+    }));
+    return { items: result.items, extras: result.extras, outcomes };
   } catch (error) {
     if (error instanceof PaiPackSubstrateSpecificRefusal) {
       return {
-        outcome: {
-          paiPackDir: inputs.paiPackDir,
-          outcome: "refused-substrate-specific",
-          skillName: upfrontSlug ?? (await safeReadSkillSlug(inputs.paiPackDir)),
-          reason: `substrate-specific file(s): ${error.files.join(", ")}`,
-        },
+        items: [],
+        outcomes: [
+          {
+            paiPackDir: inputs.paiPackDir,
+            outcome: "refused-substrate-specific",
+            skillName: upfrontSlug ?? (await safeReadSkillSlug(inputs.paiPackDir)),
+            reason: `substrate-specific file(s): ${error.files.join(", ")}`,
+          },
+        ],
       };
     }
     // Sage r2 #103 CodeQuality important — the pack importer's own
@@ -615,21 +865,52 @@ async function runOnePackWithOutcome<TPayload extends { skillName: string }>(
     // don't need a second metadata read for `outcome.skillName`.
     if (error instanceof PaiPackReservedNameRefusal) {
       return {
-        outcome: {
-          paiPackDir: inputs.paiPackDir,
-          outcome: "refused-reserved",
-          skillName: error.skillName,
-          reason: `reserved by pack importer: '${error.skillName}'`,
-        },
+        items: [],
+        outcomes: [
+          {
+            paiPackDir: inputs.paiPackDir,
+            outcome: "refused-reserved",
+            skillName: error.skillName,
+            reason: `reserved by pack importer: '${error.skillName}'`,
+          },
+        ],
       };
     }
+    // #105 — within-pack name collision (two src/<Name>/SKILL.md files
+    // kebab to the same slug). The pack importer throws the typed
+    // refusal so we classify it before falling through to
+    // `refused-other`.
+    if (error instanceof PaiPackNameCollisionRefusal) {
+      return {
+        items: [],
+        outcomes: [
+          {
+            paiPackDir: inputs.paiPackDir,
+            outcome: "refused-name-collision",
+            skillName: error.skillName,
+            reason: `within-pack collision: ${error.sources.join(", ")} kebab to '${error.skillName}'`,
+          },
+        ],
+      };
+    }
+    // #105 (Sage r1 #108) — every derived skill in the pack was
+    // excluded by the caller (orchestrator's collision filter). The
+    // pack itself produces no `imported` rows; per-slug collisions
+    // were already recorded by the caller. Empty outcome list keeps
+    // the orchestrator's accounting consistent.
+    if (error instanceof PaiPackAllSkillsExcludedRefusal) {
+      return { items: [], outcomes: [] };
+    }
     return {
-      outcome: {
-        paiPackDir: inputs.paiPackDir,
-        outcome: "refused-other",
-        skillName: upfrontSlug ?? (await safeReadSkillSlug(inputs.paiPackDir)),
-        reason: errorMessage(error),
-      },
+      items: [],
+      outcomes: [
+        {
+          paiPackDir: inputs.paiPackDir,
+          outcome: "refused-other",
+          skillName: upfrontSlug ?? (await safeReadSkillSlug(inputs.paiPackDir)),
+          reason: errorMessage(error),
+        },
+      ],
     };
   }
 }
@@ -662,44 +943,17 @@ async function safeReadSkillSlug(paiPackDir: string): Promise<string | undefined
  * imported the pack. The pack importer's per-pack rollback contract
  * still protects on-disk safety.
  */
-async function importOnePackWithOutcome(
-  inputs: BulkImportInputs,
-  paiPackDir: string,
-): Promise<{ pack?: PaiPackImportResult; outcome: PaiPackOutcome }> {
-  const { payload, outcome } = await runOnePackWithOutcome<PaiPackImportResult>(
-    {
-      paiPackDir,
-      homeDir: inputs.homeDir,
-      somaHome: inputs.somaHome,
-      overwriteReserved: inputs.overwriteReserved,
-      includeSubstrateSpecific: inputs.includeSubstrateSpecific,
-    },
-    (opts) =>
-      importPaiPack({
-        homeDir: opts.homeDir,
-        paiPackDir: opts.paiPackDir,
-        somaHome: opts.somaHome,
-        overwrite: true,
-        includeSubstrateSpecific: opts.includeSubstrateSpecific,
-      }),
-  );
-  return { pack: payload, outcome };
-}
-
 /**
- * #102 — plan-side wrapper: runs `planPaiPackImport` per pack and
- * classifies the outcome with the SAME refusal taxonomy as the apply
- * path. Without this, plan-mode aborts on the first
- * `PaiPackSubstrateSpecificRefusal` (the user-visible bug). Plan path
- * doesn't write anything to disk, so `payload` is the
- * `PaiPackImportPlan` (not a result); callers surface it on
- * `PaiMigrationPlan.packs` for the principal to inspect.
+ * #105 (Sage r1 #108) — Phase 1 of the two-phase apply path. Runs
+ * `planPaiPackImport` and classifies non-cross-pack refusals. Returns
+ * the plan array on success so Phase 2 can compute per-skill
+ * collisions before any write.
  */
-async function planOnePackWithOutcome(
+async function planOnePackForApply(
   inputs: BulkImportInputs,
   paiPackDir: string,
-): Promise<{ pack?: PaiPackImportPlan; outcome: PaiPackOutcome }> {
-  const { payload, outcome } = await runOnePackWithOutcome<PaiPackImportPlan>(
+): Promise<{ items: PaiPackImportPlan[]; handle?: PaiPackImportPlanHandle; outcomes: PaiPackOutcome[] }> {
+  const result = await runOnePackWithOutcome<PaiPackImportPlan, PaiPackImportPlanHandle>(
     {
       paiPackDir,
       homeDir: inputs.homeDir,
@@ -707,23 +961,31 @@ async function planOnePackWithOutcome(
       overwriteReserved: inputs.overwriteReserved,
       includeSubstrateSpecific: inputs.includeSubstrateSpecific,
     },
-    (opts) =>
-      planPaiPackImport({
+    async (opts) => {
+      const { plans, handle } = await planPaiPackImportHandle({
         homeDir: opts.homeDir,
         paiPackDir: opts.paiPackDir,
         somaHome: opts.somaHome,
         includeSubstrateSpecific: opts.includeSubstrateSpecific,
-      }),
+        // Migration runs always pass `overwrite: true` to the apply path
+        // (mirrors pre-#105 behavior). Plan-phase must mirror that or
+        // a rerun against an already-populated Soma home throws on the
+        // "already exists" precheck during Phase 1.
+        overwrite: true,
+      });
+      return { items: plans, extras: handle };
+    },
   );
-  return { pack: payload, outcome };
+  return { items: result.items, handle: result.extras, outcomes: result.outcomes };
 }
 
 /**
- * #102 — plan-side counterpart to `importPacksWithOutcomes`. Runs
- * `planOnePackWithOutcome` per pack under the same bounded
- * concurrency model. Each pack's outcome is classified independently;
- * the plan phase never aborts on a per-pack failure, mirroring the
- * apply phase's contract.
+ * #102 / #105 — plan-side counterpart to `importPacksWithOutcomes`.
+ * Same two-phase shape: plan every pack (4-wide bounded), then walk
+ * sorted-by-path to compute cross-pack collisions. Plan mode never
+ * writes anything, so the "would have written" semantics are pure
+ * advisory — but the per-skill outcome rows match the apply path
+ * exactly so the principal sees the same future.
  */
 interface BulkPlanResult {
   packs: PaiPackImportPlan[];
@@ -731,17 +993,38 @@ interface BulkPlanResult {
 }
 
 async function planPacksWithOutcomes(inputs: BulkImportInputs): Promise<BulkPlanResult> {
-  const results = await runBoundedConcurrent(
-    [...inputs.packPaths],
-    (paiPackDir) => planOnePackWithOutcome(inputs, paiPackDir),
-    4,
-  );
+  // Sage r2 #108 (Maintainability) — share Phase 1 and the cross-pack
+  // collision walk with the apply path. Plan-only mode never touches
+  // disk; it just emits advisory `imported` rows for every survivor
+  // plus the same collision outcomes the apply path would produce.
+  const planRows = await planAllPacksWithHandles(inputs);
+  const { resolved } = walkPlanRowsForCollisions(planRows, inputs.overwriteReserved);
 
   const packs: PaiPackImportPlan[] = [];
   const outcomes: PaiPackOutcome[] = [];
-  for (const { pack, outcome } of results) {
-    if (pack) packs.push(pack);
-    outcomes.push(outcome);
+
+  // Refused plan rows come first in the original sort order.
+  for (const row of planRows) {
+    if (row.kind === "refused") outcomes.push(...row.outcomes);
+  }
+
+  // Per-pack: emit pack-scoped collision outcomes interleaved with
+  // surviving "imported" rows so the principal-facing summary table
+  // groups by pack identically to the apply path.
+  for (const resolvedRow of resolved) {
+    for (const slug of resolvedRow.collided) {
+      outcomes.push(crossPackCollisionOutcome(resolvedRow.paiPackDir, slug));
+    }
+    const survivorSet = new Set(resolvedRow.survivors);
+    for (const plan of resolvedRow.plans) {
+      if (!survivorSet.has(plan.skillName)) continue;
+      packs.push(plan);
+      outcomes.push({
+        paiPackDir: resolvedRow.paiPackDir,
+        outcome: "imported",
+        skillName: plan.skillName,
+      });
+    }
   }
   return { packs, outcomes };
 }
