@@ -2121,16 +2121,25 @@ function formatClaudeSkillsMigrationPlan(plan: ClaudeSkillsMigrationPlan): strin
   lines.push("");
   lines.push("Per-skill plan:");
   for (const o of plan.outcomes) {
-    lines.push(`  - ${o.kebabName} [${o.tag}] → ${o.disposition} (${o.reason})`);
+    // #118 — refused-other rows include the refusalReason (which
+    // already embeds <sourceName>/<rel>) so principals can locate
+    // the offending path from the CLI output alone.
+    const reason = o.disposition === "refused-other" ? (o.refusalReason ?? o.reason) : o.reason;
+    lines.push(`  - ${o.kebabName} [${o.tag}] → ${o.disposition} (${reason})`);
   }
   const counts = countOutcomesByDisposition(plan.outcomes);
   lines.push("");
   lines.push(
-    `Totals: ${counts.imported} imported, ${counts.skippedIdempotent} skipped-idempotent, ${counts.skippedClaudeSpecific} skipped-claude-specific.`,
+    `Totals: ${counts.imported} imported, ${counts.skippedIdempotent} skipped-idempotent, ${counts.skippedClaudeSpecific} skipped-claude-specific, ${counts.refusedOther} refused-other.`,
   );
   if (counts.skippedClaudeSpecific > 0 && !plan.includeClaudeSpecific) {
     lines.push(
       `${counts.skippedClaudeSpecific} skill(s) tagged claude-specific — re-run with --include-claude-specific to import them anyway.`,
+    );
+  }
+  if (counts.refusedOther > 0) {
+    lines.push(
+      `${counts.refusedOther} skill(s) refused (out-of-home symlink, cycle, or other genuine error). Plan mode exits 0; apply mode exits 1.`,
     );
   }
   lines.push("");
@@ -2163,11 +2172,12 @@ function formatClaudeSkillsMigrationResult(result: ClaudeSkillsMigrationResult):
         .filter((s): s is string => s !== null);
       if (parts.length > 0) suffix = ` [${parts.join(", ")}]`;
     }
-    lines.push(`  - ${o.kebabName} [${o.tag}] → ${o.disposition} (${o.reason})${suffix}`);
+    const reason = o.disposition === "refused-other" ? (o.refusalReason ?? o.reason) : o.reason;
+    lines.push(`  - ${o.kebabName} [${o.tag}] → ${o.disposition} (${reason})${suffix}`);
   }
   lines.push("");
   lines.push(
-    `Totals: ${result.writtenCount} written, ${result.skippedIdempotentCount} skipped-idempotent, ${result.skippedClaudeSpecificCount} skipped-claude-specific.`,
+    `Totals: ${result.writtenCount} written, ${result.skippedIdempotentCount} skipped-idempotent, ${result.skippedClaudeSpecificCount} skipped-claude-specific, ${result.refusedOtherCount} refused-other.`,
   );
   if (result.substrateVerifySummary) {
     for (const substrate of result.smokeSubstrates) {
@@ -2211,16 +2221,18 @@ function formatClaudeSkillsMigrationStatus(
 
 function countOutcomesByDisposition(
   outcomes: readonly { disposition: string }[],
-): { imported: number; skippedIdempotent: number; skippedClaudeSpecific: number } {
+): { imported: number; skippedIdempotent: number; skippedClaudeSpecific: number; refusedOther: number } {
   let imported = 0;
   let skippedIdempotent = 0;
   let skippedClaudeSpecific = 0;
+  let refusedOther = 0;
   for (const o of outcomes) {
     if (o.disposition === "imported") imported += 1;
     else if (o.disposition === "skipped-idempotent") skippedIdempotent += 1;
     else if (o.disposition === "skipped-claude-specific") skippedClaudeSpecific += 1;
+    else if (o.disposition === "refused-other") refusedOther += 1;
   }
-  return { imported, skippedIdempotent, skippedClaudeSpecific };
+  return { imported, skippedIdempotent, skippedClaudeSpecific, refusedOther };
 }
 
 function formatPaiImportPlan(plan: PaiImportPlan): string {
@@ -2827,13 +2839,32 @@ export async function runSomaCli(args: string[]): Promise<string> {
         );
       }
       if (parsed.mode === "plan") {
+        // #118 — plan mode is informative; refused-other rows are
+        // displayed but the CLI exits 0 (mirror of #112's plan/apply
+        // split for `migrate pai`).
         return formatClaudeSkillsMigrationPlan(
           await planClaudeSkillsMigration(claudeOptions),
         );
       }
-      return formatClaudeSkillsMigrationResult(
-        await migrateClaudeSkills(claudeOptions),
-      );
+      const csResult = await migrateClaudeSkills(claudeOptions);
+      const formatted = formatClaudeSkillsMigrationResult(csResult);
+      // #118 — apply mode: surface a non-zero exit code when any skill
+      // refused with a genuine error (out-of-home symlink target,
+      // cycle, broken link, denylisted target). Plan mode already
+      // returned without throwing above. Other dispositions
+      // (skipped-claude-specific, skipped-idempotent) are policy-
+      // respected and stay zero-exit.
+      if (csResult.refusedOtherCount > 0) {
+        const refused = csResult.outcomes.filter((o) => o.disposition === "refused-other");
+        const detail = refused
+          .map((o) => `  - ${o.sourceName}: ${o.refusalReason ?? o.reason}`)
+          .join("\n");
+        throw new SomaCliError(
+          `${formatted}\nsoma migrate claude-skills — ${csResult.refusedOtherCount} skill(s) refused with genuine errors:\n${detail}\n`,
+          1,
+        );
+      }
+      return formatted;
     }
     if (parsed.mode === "status") {
       return formatPaiMigrationStatus(await readPaiMigrationManifest(parsed.options));

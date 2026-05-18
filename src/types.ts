@@ -941,7 +941,19 @@ export interface ClaudeSkillOutcome {
   // `skipped-claude-specific` = classifier verdict was `claude-specific`
   // and `includeClaudeSpecific` was false. `skipped-idempotent` =
   // source SHA matched the manifest entry on rerun.
-  disposition: "imported" | "skipped-claude-specific" | "skipped-idempotent";
+  //
+  // #118 — `refused-other` is the per-skill log-and-continue verdict
+  // (mirrors `PaiPackOutcomeKind.refused-other`). Genuine errors while
+  // reading a source skill (out-of-home symlink target, symlink cycle,
+  // broken target, secret refusal, …) classify the surrounding skill
+  // as `refused-other` and let the other skills continue. The CLI
+  // turns any `refused-other` outcome into a non-zero exit ONLY in
+  // apply mode (matches #112's mode-gated exit policy).
+  disposition:
+    | "imported"
+    | "skipped-claude-specific"
+    | "skipped-idempotent"
+    | "refused-other";
   // SHA-256 of the source SKILL.md bytes (hex). Stable identity for
   // idempotency checks. Populated even on classify-only / plan runs.
   sourceSha: string;
@@ -959,6 +971,35 @@ export interface ClaudeSkillOutcome {
   // (skipped skills have nothing to verify). Empty/undefined when
   // no smoke run was requested — preserves Phase 1 report shape.
   substrates?: Partial<Record<ClaudeSkillsSmokeSubstrate, ClaudeSkillSubstrateVerifyResult>>;
+  /**
+   * #118 — per-skill audit trail. Each entry records a non-fatal event
+   * the source-side walker decided to handle silently (followed
+   * symlink resolutions to date). The audit feeds the portability
+   * report so principals can see which symlinks were resolved without
+   * grepping for them. Absent when the skill walked clean.
+   *
+   * Kinds:
+   *   - `followed-user-owned-symlink` — a symlink whose realpath
+   *     target stayed within `$HOME` was resolved + its bytes
+   *     imported. `detail` carries `<rel> → <realpath>`.
+   */
+  audit?: ClaudeSkillAuditEntry[];
+  /**
+   * #118 — reason text for the `refused-other` disposition. Includes
+   * the `<sourceName>/<rel>` path of the symlink (or other refusal
+   * trigger) so principals can locate it without grep. Absent for
+   * non-refused dispositions; the higher-level `reason` field carries
+   * the classifier verdict for those.
+   */
+  refusalReason?: string;
+}
+
+export interface ClaudeSkillAuditEntry {
+  kind: "followed-user-owned-symlink";
+  /** POSIX-style path relative to the skill root that triggered the event. */
+  relPath: string;
+  /** Resolved realpath of the symlink target (for principal audit). */
+  detail: string;
 }
 
 export interface ClaudeSkillsMigrationPlan {
@@ -1002,6 +1043,11 @@ export interface ClaudeSkillsMigrationResult extends ClaudeSkillsMigrationPlan {
   // Skills skipped because verdict was `claude-specific` and the
   // override flag was off.
   skippedClaudeSpecificCount: number;
+  // #118 — skills that hit a genuine read failure (out-of-home symlink,
+  // symlink cycle, broken target, denylisted target, etc.). Other
+  // skills continue. The CLI gates exit-code on this count being > 0
+  // in apply mode (mirror of #112's plan/apply split).
+  refusedOtherCount: number;
   // #115 Phase 2 — per-substrate verify aggregate counts. Keyed by
   // substrate id; entries present only for substrates requested via
   // `--smoke`. Each entry counts `verified` / `verified-with-
