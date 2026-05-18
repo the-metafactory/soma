@@ -81,6 +81,72 @@ When substrate-specific files are explicitly included, Soma stores them outside
 the skill payload under `~/.soma/imports/pai-packs/<skill>/source/`. They are
 kept as migration source material, not projected skill content.
 
+## Nested skill bundles (#105)
+
+Many PAI packs ship multiple skills under one pack root. The importer
+recognizes a nested bundle pattern alongside the FLAT layout: a `<Name>`
+directly under `src/` is treated as a nested skill iff `src/<Name>/SKILL.md`
+exists in the pack file set. A pack with N nested skills (plus an
+optional top-level FLAT skill) imports as 1 + N independent Soma
+skills, each at `~/.soma/skills/<kebab-name>/`.
+
+### Nested classification table
+
+| Path | Classification | Lands as |
+| --- | --- | --- |
+| `src/<Name>/SKILL.md` | `portable` (nested entry) | `~/.soma/skills/<kebab-name>/SKILL.md` |
+| `src/<Name>/Workflows/<rest>` | `portable` | `~/.soma/skills/<kebab-name>/Workflows/<rest>` |
+| `src/<Name>/Tools/<rest>` | `portable` | `~/.soma/skills/<kebab-name>/Tools/<rest>` |
+| `src/<Name>/References/<rest>` | `portable` | `~/.soma/skills/<kebab-name>/References/<rest>` |
+| `src/<Name>/Examples/<rest>` | `portable` | `~/.soma/skills/<kebab-name>/Examples/<rest>` |
+| `src/<Name>/<other>` | `substrate-specific` | archive only (e.g., `src/Art/Lib/midjourney.ts` stays under the pack archive) |
+
+The detection rule is structural: a `<Name>` is nested **only** when
+`src/<Name>/SKILL.md` is present. A directory without `SKILL.md` is not
+a skill — its files fall through to substrate-specific.
+
+### Kebab-casing
+
+`<Name>` is kebab-cased to produce the Soma skill slug. The transform
+handles both standard CamelCase (`ExtractWisdom` → `extract-wisdom`)
+and ALL-CAPS prefixes (`PAIUpgrade` → `pai-upgrade`,
+`WorldThreatModelHarness` → `world-threat-model-harness`).
+
+### Pack-level docs land on every derived skill
+
+Pack-level `README.md` / `INSTALL.md` / `VERIFY.md` attach to **each**
+derived skill as `references/PAI-PACK-{README,INSTALL,VERIFY}.md` so
+any nested skill can be invoked standalone with full pack-level
+context. The pack-level archive at
+`~/.soma/imports/pai-packs/<pack-slug>/` records the original pack
+layout for auditability and `soma-pack-archive.json` lists every
+`derivedSkills` slug.
+
+### Name collisions
+
+Two flavors of collision are surfaced:
+
+1. **Within one pack** — two `src/<Name>/SKILL.md` paths kebab to the
+   same slug (e.g., `src/ExtractWisdom/SKILL.md` +
+   `src/extract-wisdom/SKILL.md`). The importer throws
+   `PaiPackNameCollisionRefusal`; the migration orchestrator records
+   `refused-name-collision` for the entire pack and continues.
+2. **Across packs** — Pack A's `browser` slug already landed; Pack B's
+   nested `src/Browser/SKILL.md` would also produce `browser`. The
+   second pack's nested skill records `refused-name-collision` unless
+   `--overwrite-reserved` is set. Other derived skills from the same
+   pack still land.
+
+### Breaking change: array return shape
+
+`importPaiPack` / `planPaiPackImport` now return arrays
+(`PaiPackImportResult[]` / `PaiPackImportPlan[]`) — one entry per
+derived skill. Single-skill (FLAT) packs return a one-element array;
+multi-skill nested packs return N entries. Callers that previously
+destructured a single result must adopt the array shape (typically
+`const [r] = await importPaiPack(...)` for the single-skill case, or
+iteration for the multi-skill case).
+
 ## Normalization Actions
 
 `normalizeSkillContent` applies a fixed pipeline of deterministic

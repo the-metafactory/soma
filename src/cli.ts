@@ -1738,10 +1738,12 @@ function formatPaiMigrationPlan(plan: PaiMigrationPlan): string {
   const outcomeLines = formatPackOutcomeLines(plan.packOutcomes, {
     labelKind: "path",
   });
-  // `packs.length` now reflects "successfully planned" only (refused
-  // packs live in `packOutcomes`); use `packOutcomes.length` for the
-  // discovery count so the principal sees the same "N discovered"
-  // total they got pre-#102 + the per-outcome breakdown.
+  // `packs.length` now reflects "successfully planned" derived skills,
+  // not source packs (#105 — a pack with N nested skills emits N
+  // entries here, plus 1 row per outcome). The discovered count is
+  // unique pack directories from outcomes; the to-import count is the
+  // derived-skill cardinality.
+  const uniquePackDirs = new Set(plan.packOutcomes.map((o) => o.paiPackDir)).size;
   return [
     "soma migrate pai — plan (dry-run; pass --apply to execute)",
     "",
@@ -1754,7 +1756,7 @@ function formatPaiMigrationPlan(plan: PaiMigrationPlan): string {
     algorithmLine,
     memoryLine,
     docsLine,
-    `  - packs:    ${plan.packOutcomes.length} discovered, ${plan.packs.length} to import`,
+    `  - packs:    ${uniquePackDirs} discovered, ${plan.packs.length} skill(s) to import`,
     "",
     "Pack outcomes:",
     ...outcomeLines,
@@ -1780,6 +1782,13 @@ function formatPaiMigrationResult(result: PaiMigrationResult): string {
   const outcomeLines = formatPackOutcomeLines(result.packOutcomes, {
     labelKind: "path",
   });
+  // #105 — `result.packs` is now one-entry-per-derived-skill (a pack
+  // with N nested skills produces N entries). The summary line counts
+  // unique pack directories so the principal-facing count matches the
+  // source-of-truth `~/work/PAI/Packs/` cardinality, not the derived
+  // skill cardinality (which lives in the outcomes table immediately
+  // below).
+  const uniquePackDirs = new Set(result.packs.map((p) => p.paiPackDir)).size;
   return [
     "soma migrate pai — applied",
     "",
@@ -1792,7 +1801,7 @@ function formatPaiMigrationResult(result: PaiMigrationResult): string {
     result.algorithm ? `  - algorithm: ${result.algorithm.files.length} file(s)` : "  - algorithm: skipped (not present)",
     memoryLine,
     docsLine,
-    `  - packs:    ${result.packs.length} pack(s), ${result.packs.reduce((sum, p) => sum + p.files.length, 0)} file(s)`,
+    `  - packs:    ${uniquePackDirs} pack(s) → ${result.packs.length} skill(s), ${result.packs.reduce((sum, p) => sum + p.files.length, 0)} file(s)`,
     "",
     "Pack outcomes:",
     ...outcomeLines,
@@ -1894,7 +1903,7 @@ function formatAlgorithmImportResult(result: AlgorithmImportResult): string {
   ].join("\n");
 }
 
-function formatPaiPackImportPlan(plan: PaiPackImportPlan): string {
+function formatOnePaiPackImportPlan(plan: PaiPackImportPlan): string {
   const counts = plan.files.reduce<Partial<Record<string, number>>>((acc, file) => {
     acc[file.classification] = (acc[file.classification] ?? 0) + 1;
     return acc;
@@ -1944,7 +1953,20 @@ function formatPaiPackImportPlan(plan: PaiPackImportPlan): string {
   ].join("\n");
 }
 
-function formatPaiPackImportResult(result: PaiPackImportResult): string {
+/**
+ * #105 — `importPaiPack` / `planPaiPackImport` now return an array
+ * (one entry per derived skill). The CLI prints each plan/result in
+ * turn separated by a blank line so multi-skill packs surface every
+ * derived skill to the principal.
+ */
+function formatPaiPackImportPlan(plans: PaiPackImportPlan[]): string {
+  if (plans.length === 0) return "Soma PAI Pack import plan: no derived skills.";
+  if (plans.length === 1) return formatOnePaiPackImportPlan(plans[0]);
+  const header = `Soma PAI Pack import plan: ${plans.length} derived skill(s) — ${plans.map((p) => p.skillName).join(", ")}`;
+  return [header, "", ...plans.map(formatOnePaiPackImportPlan)].join("\n\n");
+}
+
+function formatOnePaiPackImportResult(result: PaiPackImportResult): string {
   const quotedSomaHome = quoteShellArg(result.somaHome);
 
   const normalizationLines: string[] = [];
@@ -1968,6 +1990,13 @@ function formatPaiPackImportResult(result: PaiPackImportResult): string {
     "Files:",
     ...result.files.map((path) => `- ${path}`),
   ].join("\n");
+}
+
+function formatPaiPackImportResult(results: PaiPackImportResult[]): string {
+  if (results.length === 0) return "Soma PAI Pack import applied: no derived skills.";
+  if (results.length === 1) return formatOnePaiPackImportResult(results[0]);
+  const header = `Soma PAI Pack import applied: ${results.length} derived skill(s) — ${results.map((r) => r.skillName).join(", ")}`;
+  return [header, "", ...results.map(formatOnePaiPackImportResult)].join("\n\n");
 }
 
 function formatPaiDocsImportPlan(plan: PaiDocsImportPlan): string {
