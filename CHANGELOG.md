@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-05-18
+
+### Added
+
+- `soma migrate claude-skills --rewrite-descriptions <claude|codex|pi|none>` — compresses oversize SKILL.md descriptions (>1024 chars, the Codex + Pi.dev substrate limit) via LLM agent. Synthesizes missing frontmatter from the body when description is absent. Without the flag, oversize/missing descriptions classify as a new `refused-description-limit` outcome with footer suggestion. Per-skill manifest records rewrite provenance (agent, ISO timestamp, original + rewritten SHA, original + rewritten length) for idempotent re-runs. ([#120], [#121])
+
+### Fixed
+
+- 10 PAI skills that previously loaded as `imported` from Soma but silently failed at Codex + Pi.dev runtime now import cleanly with `--rewrite-descriptions claude`: Apify, BrightData, Browser, Council, Ideate, Interceptor, Knowledge, Sales, SystemsThinking, mycelia. Real-world before/after on Apify: 1318 → 836 chars (USE WHEN triggers + domain identity preserved). ([#121])
+
+[#120]: https://github.com/the-metafactory/soma/issues/120
+[#121]: https://github.com/the-metafactory/soma/pull/121
+
 ## [0.4.0] - 2026-05-18
 
 ### Added — Canonical PAI migration sprint
