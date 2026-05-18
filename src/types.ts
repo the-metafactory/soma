@@ -449,7 +449,19 @@ export interface PaiPackNormalizationAction {
     | "rewrote-unmapped-claude-path"
     | "stripped-mandatory-runtime-block"
     | "stripped-pai-customization-block"
-    | "compacted-skill-description";
+    | "compacted-skill-description"
+    /**
+     * #104 — emitted during pack file enumeration (not normalization)
+     * when a symlink falls inside a well-known IDE/editor config
+     * directory denylist (`.cursor/`, `.vscode/`, `.idea/`, `.fleet/`,
+     * `.zed/`). The file is dropped from the import set instead of
+     * aborting the pack as `refused-other`. Every other symlink still
+     * refuses the pack. The audit entry surfaces in the per-pack
+     * `soma-pack.json` so reviewers can see which editor-config files
+     * the pack carried. `file` is the POSIX-style path relative to the
+     * pack root. `detail` names the matched denylist directory segment.
+     */
+    | "skipped-editor-config-symlink";
   detail: string;
 }
 
