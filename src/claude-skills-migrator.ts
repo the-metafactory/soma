@@ -811,6 +811,29 @@ async function buildPlanCore(
   // emitter handles TTY-vs-non-TTY mechanics; we only feed it
   // skill + phase + outcome detail.
   const nameToIndex = new Map<string, number>(names.map((n, i) => [n, i + 1]));
+  // #139 — bracket the read+classify phase with
+  // beginConcurrentPhase / endConcurrentPhase. The emitter suppresses
+  // per-skill output during the bracket and emits one banner + one
+  // summary, replacing the #125 behavior of 97 interleaved append-
+  // only lines (4-wide concurrent fan-out produced one stepComplete
+  // per skill, which the #125 emitter rendered as 97 `\n`-terminated
+  // lines because `\r`-overwrite would clobber 3 of 4 workers).
+  //
+  // The bracket extends across BOTH the concurrent read fan-out AND
+  // the sequential classification loop below — the `classified`
+  // stepComplete is conceptually part of the same "read + classify"
+  // phase (the principal sees one phase, not two), and emitting
+  // those 97 lines append-only would re-introduce the same #139
+  // symptom we're fixing.
+  //
+  // The migrator's own per-phase wall-clock timing
+  // (`readClassifyMs`) is computed by the outer caller around
+  // `buildPlanCore` and remains the source of truth for the
+  // stdout Timing block. The `concurrentStart` delta below is only
+  // used to feed the emitter's banner/summary line.
+  const READ_CLASSIFY_CONCURRENCY = 4;
+  const concurrentStart = Date.now();
+  progress.beginConcurrentPhase("read + classify", names.length, READ_CLASSIFY_CONCURRENCY);
   const readResults: ReadResult[] = await runBoundedConcurrent<string, ReadResult>(
     names,
     async (name) => {
@@ -826,7 +849,7 @@ async function buildPlanCore(
         return { ok: false, sourceName: name, reason };
       }
     },
-    4,
+    READ_CLASSIFY_CONCURRENCY,
   );
 
   const prevBySource = new Map<string, ClaudeSkillsMigrationManifestEntry>();
@@ -901,6 +924,12 @@ async function buildPlanCore(
     });
   }
   outcomes.sort((a, b) => a.sourceName.localeCompare(b.sourceName));
+  // #139 — close the concurrent phase here, AFTER the sequential
+  // classification loop. See the matching beginConcurrentPhase above:
+  // the bracket spans the full logical read+classify phase, not
+  // just the runBoundedConcurrent fan-out, so the per-skill
+  // `classified` stepComplete events stay suppressed too.
+  progress.endConcurrentPhase("read + classify", Date.now() - concurrentStart);
 
   return { isFlatSkillsTree: true, outcomes, reads };
 }

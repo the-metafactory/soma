@@ -87,6 +87,51 @@ export interface ProgressEmitter {
   ): void;
 
   /**
+   * #139 — open a concurrent phase. While a concurrent phase is
+   * active, all `step` / `stepComplete` calls are SUPPRESSED — only
+   * the begin banner (emitted here) and the end summary (emitted by
+   * `endConcurrentPhase`) reach stderr.
+   *
+   * Rationale: the read+classify phase runs 4-wide via
+   * `runBoundedConcurrent`. The #125 per-skill emitter falls through
+   * to `\n`-terminated lines for concurrent fan-out (because `\r`
+   * overwrite would clobber 3 of 4 in-flight lines), producing 97
+   * append-only lines for a real PAI tree (issue #139). The quick
+   * patch suppresses per-skill output entirely during the fan-out
+   * and emits one banner + one summary instead.
+   *
+   * `concurrency` is reported in the banner so a principal tail-ing
+   * stderr knows the fan-out width (`4-wide concurrent`).
+   *
+   * Banner line format (stable across re-runs):
+   *   `[<name>: <total> skills, <concurrency>-wide concurrent ...]\n`
+   *
+   * Multiple concurrent phases per run are supported (begin/end
+   * pairs). Nesting is NOT supported — a second `begin` before
+   * `end` is a contract violation (current implementation just
+   * overwrites the active-phase state; future enforcement TBD).
+   */
+  beginConcurrentPhase(name: string, total: number, concurrency: number): void;
+
+  /**
+   * #139 — close the active concurrent phase. Emits one summary
+   * line with elapsed total + per-step avg/max ms (tracked
+   * internally from suppressed `stepComplete` calls).
+   *
+   * Summary line format (stable across re-runs):
+   *   `[<name>: <total> skills in <elapsed>s (avg <avg>ms, max <max>ms)]\n`
+   *
+   * `elapsedMs` is the wall-clock duration of the concurrent phase
+   * (provided by the caller, NOT computed internally — the migrator
+   * already tracks phase elapsed times for the Timing block).
+   *
+   * If no `stepComplete` calls fired between begin and end (empty
+   * input), avg/max default to 0 (not NaN) so the summary stays
+   * readable.
+   */
+  endConcurrentPhase(name: string, elapsedMs: number): void;
+
+  /**
    * Render the Timing block. Returned for the caller to append to
    * stdout — NOT written to stderr by this helper. Stable formatting
    * across re-runs (numbers rounded to 1 decimal place).
@@ -112,6 +157,18 @@ interface ProgressEmitterOptions {
 export function createProgressEmitter(opts: ProgressEmitterOptions): ProgressEmitter {
   const { stderr, quiet, isatty } = opts;
   let total = 0;
+
+  // #139 — concurrent-phase state. When non-null, the emitter is
+  // inside a `beginConcurrentPhase` / `endConcurrentPhase` bracket
+  // and per-skill `step` / `stepComplete` calls are suppressed.
+  // We record per-step elapsed ms so the end summary can report
+  // avg + max without the caller having to thread stats through.
+  // Nesting is not supported (a second begin overwrites state).
+  let activeConcurrentPhase: {
+    name: string;
+    total: number;
+    elapsedSamples: number[]; // ms per stepComplete inside the phase
+  } | null = null;
 
   // Per-step elapsed: under 1 second → `<N>ms` (live progress wants
   // millisecond resolution so a 12ms classify doesn't read as `0s`).
@@ -155,6 +212,11 @@ export function createProgressEmitter(opts: ProgressEmitterOptions): ProgressEmi
 
     step(index: number, sourceName: string, phase: string, detail?: string): void {
       if (quiet) return;
+      // #139 — suppress per-skill output while a concurrent phase is
+      // active. The begin/end banner pair carries the user-facing
+      // signal; per-skill rows from 4-wide fan-out workers would
+      // otherwise produce ~totalSkills interleaved lines.
+      if (activeConcurrentPhase) return;
       const body = formatStepLine(index, sourceName, phase, detail);
       if (isatty) {
         // TTY: open with `\r` to overwrite any prior fast-phase line.
@@ -174,6 +236,15 @@ export function createProgressEmitter(opts: ProgressEmitterOptions): ProgressEmi
       detail?: string,
     ): void {
       if (quiet) return;
+      // #139 — record per-step elapsed for the eventual summary,
+      // then suppress per-skill output while in a concurrent phase.
+      // The migrator still calls stepComplete inside the concurrent
+      // loop (so its own timing accumulators stay accurate); the
+      // suppression is purely an output concern.
+      if (activeConcurrentPhase) {
+        activeConcurrentPhase.elapsedSamples.push(elapsedMs);
+        return;
+      }
       const elapsed = fmtElapsed(elapsedMs);
       const body = formatStepLine(index, sourceName, phase, detail);
       const closer = ` (${elapsed})`;
@@ -189,6 +260,52 @@ export function createProgressEmitter(opts: ProgressEmitterOptions): ProgressEmi
         // appears under the corresponding step.
         stderr.write(`${body}${closer}\n`);
       }
+    },
+
+    beginConcurrentPhase(name: string, totalSteps: number, concurrency: number): void {
+      // Open phase state regardless of `quiet` so the matching
+      // suppression in step/stepComplete still triggers (otherwise a
+      // quiet emitter would fall through to per-skill emission paths
+      // — though both paths are no-ops under quiet, keeping state in
+      // sync avoids surprise from future changes).
+      activeConcurrentPhase = {
+        name,
+        total: totalSteps,
+        elapsedSamples: [],
+      };
+      if (quiet) return;
+      // Banner is `\n`-terminated even on TTY: nothing subsequent
+      // overwrites it (per-skill rows are suppressed for the
+      // duration of the phase), and `\r` would be meaningless on
+      // non-TTY pipes. Stable byte sequence across both modes.
+      stderr.write(
+        `[${name}: ${totalSteps} skills, ${concurrency}-wide concurrent ...]\n`,
+      );
+    },
+
+    endConcurrentPhase(name: string, elapsedMs: number): void {
+      const phase = activeConcurrentPhase;
+      // Always clear state — even on quiet — so a subsequent
+      // sequential `step` call is no longer suppressed.
+      activeConcurrentPhase = null;
+      if (quiet) return;
+      // Defensive: end called without a matching begin. Emit
+      // nothing and don't crash — the migrator should never trigger
+      // this, but a misuse shouldn't blow up the run.
+      if (!phase) return;
+      const samples = phase.elapsedSamples;
+      const count = phase.total;
+      let avgMs = 0;
+      let maxMs = 0;
+      if (samples.length > 0) {
+        const sum = samples.reduce((a, b) => a + b, 0);
+        avgMs = Math.round(sum / samples.length);
+        maxMs = samples.reduce((a, b) => (b > a ? b : a), 0);
+      }
+      const elapsed = fmtElapsedSeconds(elapsedMs);
+      stderr.write(
+        `[${name}: ${count} skills in ${elapsed} (avg ${avgMs}ms, max ${maxMs}ms)]\n`,
+      );
     },
 
     finishTimingSummary(timings: PhaseTimings): string {
@@ -236,6 +353,8 @@ export function createNoopProgressEmitter(): ProgressEmitter {
     start: noop,
     step: noop,
     stepComplete: noop,
+    beginConcurrentPhase: noop,
+    endConcurrentPhase: noop,
     finishTimingSummary: (timings) => {
       // Even the no-op renders the Timing block — it's stdout
       // content the formatter wants regardless of stderr behavior.
