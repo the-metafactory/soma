@@ -51,6 +51,24 @@ test("allows public writes without private Soma markers", async () => {
   });
 });
 
+test("allows generic Soma home mentions in public docs and tests", async () => {
+  await withTempHome(async (homeDir) => {
+    await bootstrapSomaHome({ homeDir });
+    const genericHome = "~/" + ".soma";
+    const result = await checkSomaPolicy({
+      homeDir,
+      substrate: "codex",
+      action: "write",
+      destinationPath: join(homeDir, "work/public/paths.test.ts"),
+      content: `test("createPaths defaults to ${genericHome} under homeDir", () => {})`,
+      record: "none",
+    });
+
+    expect(result.decision).toBe("allow");
+    expect(result.findings).toEqual([]);
+  });
+});
+
 test("denies private Soma marker writes to public destinations", async () => {
   await withTempHome(async (homeDir) => {
     const { somaHome } = await bootstrapSomaHome({ homeDir });
@@ -120,12 +138,6 @@ test("treats the whole Soma home as private source material", async () => {
     expect(result.findings).toContainEqual(
       expect.objectContaining({
         kind: "private-source",
-      }),
-    );
-    expect(result.findings).toContainEqual(
-      expect.objectContaining({
-        kind: "private-marker",
-        detail: somaHome,
       }),
     );
   });
@@ -216,7 +228,7 @@ test("detects configured-home tilde private markers in content", async () => {
     expect(result.decision).toBe("deny");
     expect(result.findings[0]).toMatchObject({
       kind: "private-marker",
-      detail: "~/.soma",
+      detail: "~/" + ".soma/memory",
     });
   });
 });
@@ -236,18 +248,19 @@ test("does not treat private marker string prefixes as private paths", async () 
   });
 });
 
-test("detects private markers followed by structured data delimiters", async () => {
+test("allows generic Soma home markers followed by structured data delimiters", async () => {
   await withTempHome(async (homeDir) => {
     await bootstrapSomaHome({ homeDir });
+    const genericHome = "~/" + ".soma";
     const result = await checkSomaPolicy({
       homeDir,
       action: "write",
       destinationPath: "~/work/public/summary.md",
-      content: 'Config includes { "path": "~/.soma" }.',
+      content: `Config includes { "path": "${genericHome}" }.`,
       record: "none",
     });
 
-    expect(result.decision).toBe("deny");
+    expect(result.decision).toBe("allow");
   });
 });
 
