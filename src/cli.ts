@@ -133,6 +133,7 @@ import type {
 // keeps the constant a module-internal contract rather than promoting
 // importer policy through the package root surface.
 import { PAI_DOCS_IMPORT_SUBDIRS } from "./pai-docs-importer";
+import { runInferenceCli } from "./tools/inference/cli";
 
 /**
  * Typed CLI error carrying an exit code distinct from the default 1.
@@ -349,6 +350,11 @@ interface ParsedIsaArgs {
   args: string[];
 }
 
+interface ParsedInferenceArgs {
+  command: "inference";
+  args: string[];
+}
+
 type ParsedArgs =
   | ParsedHelpArgs
   | ParsedInstallArgs
@@ -367,7 +373,8 @@ type ParsedArgs =
   | ParsedFeedbackArgs
   | ParsedResultArgs
   | ParsedPolicyArgs
-  | ParsedIsaArgs;
+  | ParsedIsaArgs
+  | ParsedInferenceArgs;
 
 const TOP_LEVEL_COMMANDS = [
   "adopt",
@@ -376,6 +383,7 @@ const TOP_LEVEL_COMMANDS = [
   "export",
   "feedback",
   "import",
+  "inference",
   "install",
   "isa",
   "lifecycle",
@@ -432,6 +440,9 @@ const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string,
     subcommands: {
       capture: "Usage: soma feedback capture (--text <text> | --stdin) [--substrate <id>] [--source <source>] [--store-excerpt]",
     },
+  },
+  inference: {
+    usage: "Usage: soma inference [--level <fast|standard|smart>] [--mode <inference|advisor>] [--backend <auto|claude-code|anthropic-api>] [--allow-network] [--json] [--timeout <ms>] [--auto-state] [--home-dir <dir>] [--soma-home <dir>] [prompt...]",
   },
   result: {
     usage: "Usage: soma result <capture|search> ...",
@@ -1641,6 +1652,10 @@ function parseArgs(args: string[]): ParsedArgs {
 
   if (args[0] === "feedback") {
     return parseFeedbackArgs(args);
+  }
+
+  if (args[0] === "inference") {
+    return { command: "inference", args: args.slice(1) };
   }
 
   if (args[0] === "result") {
@@ -3280,6 +3295,10 @@ export async function runSomaCli(args: string[]): Promise<string> {
   if (parsed.command === "feedback") {
     const options = parsed.readTextFromStdin ? { ...parsed.options, text: readLimitedFeedbackStdin() } : parsed.options;
     return formatFeedbackCaptureResult(await captureSomaFeedback(options));
+  }
+
+  if (parsed.command === "inference") {
+    return runInferenceCli(parsed.args);
   }
 
   if (parsed.command === "result") {
