@@ -135,6 +135,7 @@ import type {
 import { PAI_DOCS_IMPORT_SUBDIRS } from "./pai-docs-importer";
 import { runInferenceCli } from "./tools/inference/cli";
 import { runLearningCli, runMetricsCli, runOpinionCli, runSessionCli } from "./tools/learning/cli";
+import { runWisdomCli } from "./tools/wisdom/cli";
 
 /**
  * Typed CLI error carrying an exit code distinct from the default 1.
@@ -357,7 +358,7 @@ interface ParsedInferenceArgs {
 }
 
 interface ParsedRawToolArgs {
-  command: "learning" | "opinion" | "metrics" | "session";
+  command: "learning" | "opinion" | "metrics" | "session" | "wisdom";
   args: string[];
 }
 
@@ -405,6 +406,7 @@ const TOP_LEVEL_COMMANDS = [
   "session",
   "uninstall",
   "upgrade",
+  "wisdom",
 ] as const;
 
 const MIGRATE_PAI_USAGE =
@@ -477,6 +479,16 @@ const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string,
   },
   session: {
     usage: "Usage: soma session <create|decision|work|blocker|next|handoff|resume|list|complete> ...",
+  },
+  wisdom: {
+    usage: "Usage: soma wisdom <classify|list|update|synthesize|health> ...",
+    subcommands: {
+      classify: "Usage: soma wisdom classify <text> [--home-dir <dir>] [--soma-home <dir>]",
+      list: "Usage: soma wisdom list [--home-dir <dir>] [--soma-home <dir>]",
+      update: "Usage: soma wisdom update --domain <domain> --type <principle|contextual-rule|prediction|anti-pattern|evolution> --observation <text> [--home-dir <dir>] [--soma-home <dir>]",
+      synthesize: "Usage: soma wisdom synthesize [--dry-run] [--home-dir <dir>] [--soma-home <dir>]",
+      health: "Usage: soma wisdom health [--dry-run] [--home-dir <dir>] [--soma-home <dir>]",
+    },
   },
   result: {
     usage: "Usage: soma result <capture|search> ...",
@@ -1692,7 +1704,7 @@ function parseArgs(args: string[]): ParsedArgs {
     return { command: "inference", args: args.slice(1) };
   }
 
-  if (args[0] === "learning" || args[0] === "opinion" || args[0] === "metrics" || args[0] === "session") {
+  if (args[0] === "learning" || args[0] === "opinion" || args[0] === "metrics" || args[0] === "session" || args[0] === "wisdom") {
     return { command: args[0], args: args.slice(1) };
   }
 
@@ -3353,6 +3365,10 @@ export async function runSomaCli(args: string[]): Promise<string> {
 
   if (parsed.command === "session") {
     return runSessionCli(parsed.args);
+  }
+
+  if (parsed.command === "wisdom") {
+    return runWisdomCli(parsed.args);
   }
 
   if (parsed.command === "result") {
