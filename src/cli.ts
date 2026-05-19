@@ -106,6 +106,7 @@ import { ISA_SUBCOMMAND_HELP, ISA_USAGE_HEADER, runIsaCli } from "./cli-isa";
 // migrator's public boundary is not yet stable; CLI imports
 // directly).
 import {
+  countOutcomesWithMissingDependencies,
   migrateClaudeSkills,
   planClaudeSkillsMigration,
   readClaudeSkillsMigrationStatus,
@@ -2571,6 +2572,7 @@ function formatClaudeSkillsMigrationPlan(plan: ClaudeSkillsMigrationPlan): strin
       `${counts.refusedDescriptionLimit} skill(s) refused-description-limit — re-run with --rewrite-descriptions claude (or codex/pi) to compress oversize descriptions via LLM.`,
     );
   }
+  appendMissingDependencyFooter(lines, plan.outcomes);
   lines.push("");
   return lines.join("\n");
 }
@@ -2625,6 +2627,7 @@ function formatClaudeSkillsMigrationResult(result: ClaudeSkillsMigrationResult):
       `${result.refusedDescriptionLimitCount} skill(s) refused-description-limit — re-run with --rewrite-descriptions claude (or codex/pi) to compress oversize descriptions via LLM.`,
     );
   }
+  appendMissingDependencyFooter(lines, result.outcomes);
   // #125 — Timing block. Appended to the standard summary so script
   // parsers that anchor on `Totals: ` keep working; the new block
   // lives BELOW the totals and rerun-suggestion lines. Renders even
@@ -2642,6 +2645,17 @@ function formatClaudeSkillsMigrationResult(result: ClaudeSkillsMigrationResult):
   }
   lines.push("");
   return lines.join("\n");
+}
+
+function appendMissingDependencyFooter(
+  lines: string[],
+  outcomes: readonly ClaudeSkillOutcome[],
+): void {
+  const missingDependencyCount = countOutcomesWithMissingDependencies(outcomes);
+  if (missingDependencyCount === 0) return;
+  lines.push(
+    `${missingDependencyCount} skill(s) depend on skipped/refused skills — see report for details.`,
+  );
 }
 
 function formatClaudeSkillsMigrationStatus(

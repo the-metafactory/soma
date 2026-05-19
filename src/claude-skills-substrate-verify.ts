@@ -252,6 +252,40 @@ export function verifySubstrateProjection(
     }
   }
 
+  // #126: executable TypeScript helpers under Tools/ are part of
+  // the skill's runtime surface. The smoke verifier does not execute
+  // them, but it must prove that projection kept the file and that
+  // the projected payload is non-empty.
+  const projectedToolByRelPath = new Map<string, ProjectedFile>();
+  for (const file of projected) {
+    const match = /(?:^|\/)(Tools\/.*\.ts)$/i.exec(file.path);
+    if (match) projectedToolByRelPath.set(match[1], file);
+  }
+  for (const file of skill.files ?? []) {
+    if (!/^Tools\/.*\.ts$/i.test(file.path)) continue;
+    const projectedTool = projectedToolByRelPath.get(file.path);
+    const expected = substrate === "codex"
+      ? `skills/${skill.name}/${file.path}`
+      : `agent/skills/<skill-id>/${file.path}`;
+    if (!projectedTool) {
+      issues.push({
+        kind: "unresolved-tool-path",
+        severity: "warning",
+        message: `${expected} is missing from ${substrate} projection`,
+        file: expected,
+      });
+      continue;
+    }
+    if (Buffer.byteLength(projectedTool.content, "utf8") === 0) {
+      issues.push({
+        kind: "unresolved-tool-path",
+        severity: "warning",
+        message: `${expected} is empty in ${substrate} projection`,
+        file: expected,
+      });
+    }
+  }
+
   // Step 4: SKILL.md frontmatter parsability + metadata.
   const skillMd = findSkillMd(projected);
   let fm: FrontmatterFields | undefined;
