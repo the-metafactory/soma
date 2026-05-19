@@ -223,6 +223,17 @@ export {
   type ToolCall,
 } from "./tools/learning";
 export {
+  parseRelationshipNotes,
+  reflectRelationship,
+  type RelationshipMilestone,
+  type RelationshipNote,
+  type RelationshipNoteKind,
+  type RelationshipNotification,
+  type RelationshipNotifier,
+  type RelationshipReflectOptions,
+  type RelationshipReflectResult,
+} from "./tools/relationship";
+export {
   classifyDomains,
   listFrames,
   synthesizeWisdom,

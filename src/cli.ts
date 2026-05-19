@@ -135,6 +135,7 @@ import type {
 import { PAI_DOCS_IMPORT_SUBDIRS } from "./pai-docs-importer";
 import { runInferenceCli } from "./tools/inference/cli";
 import { runLearningCli, runMetricsCli, runOpinionCli, runSessionCli } from "./tools/learning/cli";
+import { RELATIONSHIP_REFLECT_USAGE, runRelationshipCli } from "./tools/relationship/cli";
 import { runWisdomCli } from "./tools/wisdom/cli";
 
 /**
@@ -358,7 +359,7 @@ interface ParsedInferenceArgs {
 }
 
 interface ParsedRawToolArgs {
-  command: "learning" | "opinion" | "metrics" | "session" | "wisdom";
+  command: "learning" | "opinion" | "metrics" | "session" | "relationship" | "wisdom";
   args: string[];
 }
 
@@ -401,6 +402,7 @@ const TOP_LEVEL_COMMANDS = [
   "migrate",
   "opinion",
   "policy",
+  "relationship",
   "reproject",
   "result",
   "session",
@@ -479,6 +481,12 @@ const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string,
   },
   session: {
     usage: "Usage: soma session <create|decision|work|blocker|next|handoff|resume|list|complete> ...",
+  },
+  relationship: {
+    usage: RELATIONSHIP_REFLECT_USAGE,
+    subcommands: {
+      reflect: RELATIONSHIP_REFLECT_USAGE,
+    },
   },
   wisdom: {
     usage: "Usage: soma wisdom <classify|list|update|synthesize|health> ...",
@@ -1704,7 +1712,7 @@ function parseArgs(args: string[]): ParsedArgs {
     return { command: "inference", args: args.slice(1) };
   }
 
-  if (args[0] === "learning" || args[0] === "opinion" || args[0] === "metrics" || args[0] === "session" || args[0] === "wisdom") {
+  if (args[0] === "learning" || args[0] === "opinion" || args[0] === "metrics" || args[0] === "session" || args[0] === "relationship" || args[0] === "wisdom") {
     return { command: args[0], args: args.slice(1) };
   }
 
@@ -3365,6 +3373,10 @@ export async function runSomaCli(args: string[]): Promise<string> {
 
   if (parsed.command === "session") {
     return runSessionCli(parsed.args);
+  }
+
+  if (parsed.command === "relationship") {
+    return runRelationshipCli(parsed.args);
   }
 
   if (parsed.command === "wisdom") {
