@@ -74,15 +74,43 @@ Each line is one event:
   "id": "evt_...",
   "timestamp": "2026-05-14T12:00:00.000Z",
   "substrate": "codex",
-  "kind": "verification",
-  "summary": "Codex projection installed.",
-  "artifactPaths": ["~/.codex/skills/soma/SKILL.md"],
-  "metadata": {}
+  "kind": "result.captured",
+  "summary": "A skill produced a useful output for the current task.",
+  "artifactPaths": ["substrate-session/session.jsonl"],
+  "metadata": {
+    "source": "assistant-final",
+    "skill": "example-skill",
+    "sessionId": "session-123",
+    "promptStored": false,
+    "resultStored": false
+  }
 }
 ```
 
 This is not full shared memory yet. It is an audit log and inbox for later
 consolidation.
+
+V0 distinguishes four related flows:
+
+- **Feedback capture** appends `feedback.candidate` events for corrections,
+  preferences, missed surfaces, and similar candidate learning. It does not
+  store prompt excerpts unless explicitly requested.
+- **Result capture** appends `result.captured` events for useful agent or skill
+  outputs. It stores summary plus provenance by default, not the full prompt or
+  full generated result text.
+- **Typed PAI tool events** reuse the same event log with specific kinds:
+  `learning.signal`, `learning.pattern`, `learning.failure`,
+  `wisdom.frame-update`, `wisdom.cross-frame`, `relationship.reflection`, and
+  `opinion.tracked`.
+- **Promotion** writes a durable note under a reviewed memory store and appends
+  a `memory.promotion` event. Promotion is explicit and remains separate from
+  capture.
+
+Captured results are searchable through `soma result search --query <text>`.
+Search output cites the event path/line and event id, then includes artifact
+path provenance when present. The broader `soma memory search` also indexes
+STATE events and the shared artifact roots used by migrated tools, including
+LEARNING, WISDOM, RELATIONSHIP, KNOWLEDGE, WORK, STATE, and identity.
 
 Promotion from events into durable stores such as `KNOWLEDGE`, `WORK`, or
 `LEARNING` is a future design decision, not an oversight.
