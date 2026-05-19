@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
@@ -6,11 +6,14 @@ import {
   appendSomaMemoryEvent,
   bootstrapSomaHome,
   captureSomaFeedback,
+  captureSomaResult,
   classifySomaFeedback,
   createAlgorithmRun,
   promoteAlgorithmRunMemory,
   searchSomaMemory,
+  searchSomaResults,
   somaMemoryEventsPath,
+  SOMA_RESULT_EVENT_KINDS,
   writeAlgorithmRun,
   type SomaMemoryEvent,
 } from "../src/index";
@@ -247,6 +250,201 @@ test("does not capture non-feedback prompts", async () => {
   });
 });
 
+test("captures Codex skill results as append-only result events without full output text", async () => {
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    const result = await captureSomaResult({
+      homeDir,
+      substrate: "codex",
+      source: "assistant-final",
+      summary: "OfferPitch produced an offer draft for the current task.",
+      skill: "OfferPitch",
+      sessionId: "codex-session-1",
+      artifactPaths: ["codex-sessions/session.jsonl"],
+    });
+
+    expect(result.event).toMatchObject({
+      substrate: "codex",
+      kind: "result.captured",
+      summary: "OfferPitch produced an offer draft for the current task.",
+      artifactPaths: ["codex-sessions/session.jsonl"],
+      metadata: {
+        skill: "OfferPitch",
+        sessionId: "codex-session-1",
+        source: "assistant-final",
+        promptStored: false,
+        resultStored: false,
+        resultKind: "skill-output",
+      },
+    });
+
+    const events = await readFile(somaMemoryEventsPath(somaHome), "utf8");
+    expect(events).toContain("OfferPitch produced an offer draft");
+    expect(events).not.toContain("Full generated pitch text");
+  });
+});
+
+test("captures Pi.dev typed learning result events", async () => {
+  await withTempHome(async (homeDir) => {
+    await bootstrapSomaHome({ homeDir });
+    const result = await captureSomaResult({
+      homeDir,
+      substrate: "pi-dev",
+      source: "pai-tool",
+      kind: "learning.signal",
+      summary: "GetCounts appended a rating signal for the completed review.",
+      artifactPaths: ["memory/LEARNING/SIGNALS/ratings.jsonl"],
+    });
+
+    expect(result.event).toMatchObject({
+      substrate: "pi-dev",
+      kind: "learning.signal",
+      artifactPaths: ["memory/LEARNING/SIGNALS/ratings.jsonl"],
+      metadata: {
+        source: "pai-tool",
+        promptStored: false,
+        resultStored: false,
+      },
+    });
+  });
+});
+
+test("rejects full-result shaped capture summaries", async () => {
+  await withTempHome(async (homeDir) => {
+    await bootstrapSomaHome({ homeDir });
+
+    await expect(
+      captureSomaResult({
+        homeDir,
+        substrate: "codex",
+        source: "assistant-final",
+        summary: `Short heading\nFull generated result body follows.`,
+      }),
+    ).rejects.toThrow("summary must be a single line");
+    await expect(
+      captureSomaResult({
+        homeDir,
+        substrate: "codex",
+        source: "assistant-final",
+        summary: "x".repeat(501),
+      }),
+    ).rejects.toThrow("500 characters or fewer");
+  });
+});
+
+test("searches captured result events with event and artifact provenance", async () => {
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    const capture = await captureSomaResult({
+      homeDir,
+      substrate: "codex",
+      source: "assistant-final",
+      summary: "CourseBuilder produced a backward design outline for crisis training.",
+      skill: "CourseBuilder",
+      artifactPaths: ["codex-sessions/coursebuilder.jsonl"],
+    });
+
+    const result = await searchSomaResults({
+      homeDir,
+      query: "CourseBuilder crisis training",
+    });
+
+    expect(result.matches[0]).toMatchObject({
+      eventPath: somaMemoryEventsPath(somaHome),
+      line: 1,
+      eventId: capture.event.id,
+      kind: "result.captured",
+      artifactPaths: ["codex-sessions/coursebuilder.jsonl"],
+    });
+  });
+});
+
+test("result search skips malformed result-shaped events", async () => {
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    await appendFile(
+      somaMemoryEventsPath(somaHome),
+      [
+        JSON.stringify({ id: "bad-summary", kind: "result.captured", artifactPaths: ["bad.jsonl"] }),
+        JSON.stringify({ kind: "result.captured", summary: "AI missing id" }),
+        JSON.stringify({ id: "bad-artifacts", kind: "result.captured", summary: "AI malformed", artifactPaths: "bad.jsonl" }),
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const result = await searchSomaResults({ homeDir, query: "AI malformed" });
+
+    expect(result.matches).toEqual([
+      expect.objectContaining({
+        eventId: "bad-artifacts",
+        summary: "AI malformed",
+        artifactPaths: [],
+      }),
+    ]);
+  });
+});
+
+test("searches short result queries such as AI and Pi", async () => {
+  await withTempHome(async (homeDir) => {
+    await bootstrapSomaHome({ homeDir });
+    await captureSomaResult({
+      homeDir,
+      substrate: "pi-dev",
+      source: "pai-tool",
+      summary: "Pi tool produced an AI signal.",
+    });
+
+    await expect(searchSomaResults({ homeDir, query: "AI" })).resolves.toMatchObject({
+      matches: [expect.objectContaining({ summary: "Pi tool produced an AI signal." })],
+    });
+    await expect(searchSomaResults({ homeDir, query: "Pi" })).resolves.toMatchObject({
+      matches: [expect.objectContaining({ summary: "Pi tool produced an AI signal." })],
+    });
+  });
+});
+
+test("rejects invalid result search limits at the API boundary", async () => {
+  await withTempHome(async (homeDir) => {
+    await bootstrapSomaHome({ homeDir });
+
+    await expect(searchSomaResults({ homeDir, query: "AI", limit: 0 })).rejects.toThrow("positive safe integer");
+    await expect(searchSomaResults({ homeDir, query: "AI", limit: -1 })).rejects.toThrow("positive safe integer");
+    await expect(searchSomaResults({ homeDir, query: "AI", limit: 1.5 })).rejects.toThrow("positive safe integer");
+  });
+});
+
+test("caps large result search limits at the API boundary", async () => {
+  await withTempHome(async (homeDir) => {
+    await bootstrapSomaHome({ homeDir });
+    for (let index = 0; index < 105; index += 1) {
+      await captureSomaResult({
+        homeDir,
+        substrate: "codex",
+        source: "test",
+        summary: `Repeated result ${index}`,
+      });
+    }
+
+    const result = await searchSomaResults({ homeDir, query: "repeated", limit: 1000 });
+
+    expect(result.matches).toHaveLength(100);
+  });
+});
+
+test("defines migrated PAI tool event vocabulary", () => {
+  expect(SOMA_RESULT_EVENT_KINDS).toEqual([
+    "result.captured",
+    "learning.signal",
+    "learning.pattern",
+    "learning.failure",
+    "wisdom.frame-update",
+    "wisdom.cross-frame",
+    "relationship.reflection",
+    "opinion.tracked",
+  ]);
+});
+
 test("searches Soma memory and profile files with cited snippets", async () => {
   await withTempHome(async (homeDir) => {
     const { somaHome } = await bootstrapSomaHome({ homeDir });
@@ -269,6 +467,23 @@ test("searches Soma memory and profile files with cited snippets", async () => {
     });
     expect(result.matches[0]?.path).toEndWith("memory/KNOWLEDGE/consulting/autonomy.md");
     expect(result.matches[0]?.snippet).toContain("Client sovereignty");
+  });
+});
+
+test("searches migrated PAI artifact roots without exposing root constants", async () => {
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    await mkdir(join(somaHome, "memory/WISDOM/FRAMES"), { recursive: true });
+    await mkdir(join(somaHome, "identity"), { recursive: true });
+    await writeFile(join(somaHome, "memory/WISDOM/FRAMES/frame.md"), "Crystal clarity connects cross-frame synthesis.\n", "utf8");
+    await writeFile(join(somaHome, "identity/opinions.md"), "Opinion confidence favors explicit provenance.\n", "utf8");
+
+    await expect(searchSomaMemory({ homeDir, query: "crystal synthesis" })).resolves.toMatchObject({
+      matches: [expect.objectContaining({ snippet: expect.stringContaining("Crystal clarity") })],
+    });
+    await expect(searchSomaMemory({ homeDir, query: "opinion provenance" })).resolves.toMatchObject({
+      matches: [expect.objectContaining({ snippet: expect.stringContaining("Opinion confidence") })],
+    });
   });
 });
 

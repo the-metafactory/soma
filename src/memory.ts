@@ -13,8 +13,10 @@ const SEARCH_ROOTS = [
   "memory/WORK",
   "memory/KNOWLEDGE",
   "memory/LEARNING",
+  "memory/WISDOM",
   "memory/RELATIONSHIP",
   "memory/STATE",
+  "identity",
 ] as const;
 
 const SEARCH_EXTENSIONS = new Set([".md", ".txt", ".json", ".jsonl", ".yaml", ".yml", ".toml"]);

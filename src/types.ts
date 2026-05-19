@@ -1284,6 +1284,71 @@ export interface SomaMemorySearchResult {
   matches: SomaMemorySearchMatch[];
 }
 
+export const SOMA_RESULT_EVENT_KINDS = [
+  "result.captured",
+  "learning.signal",
+  "learning.pattern",
+  "learning.failure",
+  "wisdom.frame-update",
+  "wisdom.cross-frame",
+  "relationship.reflection",
+  "opinion.tracked",
+] as const;
+
+export type SomaResultEventKind = (typeof SOMA_RESULT_EVENT_KINDS)[number];
+
+export interface SomaResultMemoryEvent extends Omit<SomaMemoryEvent, "kind" | "metadata"> {
+  kind: SomaResultEventKind;
+  metadata: Record<string, unknown> & {
+    source: string;
+    promptStored: false;
+    resultStored: false;
+    skill?: string;
+    sessionId?: string;
+    resultKind?: "skill-output";
+  };
+}
+
+export interface SomaResultCaptureOptions {
+  homeDir?: string;
+  somaHome?: string;
+  substrate: SubstrateId;
+  source: string;
+  summary: string;
+  artifactPaths?: string[];
+  skill?: string;
+  sessionId?: string;
+  kind?: SomaResultEventKind;
+}
+
+export interface SomaResultCaptureResult {
+  somaHome: string;
+  event: SomaResultMemoryEvent;
+}
+
+export interface SomaResultSearchOptions {
+  homeDir?: string;
+  somaHome?: string;
+  query: string;
+  limit?: number;
+}
+
+export interface SomaResultSearchMatch {
+  eventPath: string;
+  line: number;
+  eventId: string;
+  kind: SomaResultEventKind;
+  score: number;
+  summary: string;
+  artifactPaths: string[];
+}
+
+export interface SomaResultSearchResult {
+  query: string;
+  somaHome: string;
+  matches: SomaResultSearchMatch[];
+}
+
 export type SomaMemoryPromotionStore = "learning" | "knowledge" | "relationship" | "work";
 
 export interface SomaMemoryPromotionOptions {

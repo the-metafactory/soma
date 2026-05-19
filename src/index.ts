@@ -61,6 +61,12 @@ export type {
   SomaMemorySearchMatch,
   SomaMemorySearchOptions,
   SomaMemorySearchResult,
+  SomaResultCaptureOptions,
+  SomaResultCaptureResult,
+  SomaResultEventKind,
+  SomaResultSearchMatch,
+  SomaResultSearchOptions,
+  SomaResultSearchResult,
   SomaPolicyAction,
   SomaPolicyCheckOptions,
   SomaPolicyCheckResult,
@@ -88,6 +94,7 @@ export type {
   SomaSkillManifest,
   WrittenProjection,
 } from "./types";
+export { SOMA_RESULT_EVENT_KINDS } from "./types";
 
 export {
   addAlgorithmCapabilities,
@@ -208,6 +215,7 @@ export {
 export { captureSomaFeedback, classifySomaFeedback, maybeSomaFeedbackPrompt } from "./feedback";
 export { appendSomaMemoryEvent, searchSomaMemory, somaMemoryEventsPath } from "./memory";
 export { promoteAlgorithmRunMemory } from "./memory-promotion";
+export { captureSomaResult, isSomaResultEventKind, searchSomaResults } from "./result-capture";
 export { importPaiIdentity, planPaiImport } from "./pai-importer";
 export {
   importPaiPack,

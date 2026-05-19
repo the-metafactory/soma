@@ -384,6 +384,169 @@ test("cli captures feedback candidates", async () => {
   });
 });
 
+test("cli captures and searches result events", async () => {
+  await withTempHome(async (homeDir) => {
+    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir]);
+
+    const capture = await runSomaCli([
+      "result",
+      "capture",
+      "--home-dir",
+      homeDir,
+      "--substrate",
+      "codex",
+      "--source",
+      "assistant-final",
+      "--summary",
+      "OfferPitch produced a concise offer draft.",
+      "--skill",
+      "OfferPitch",
+      "--session-id",
+      "session-123",
+      "--artifact-path",
+      "codex-sessions/session-123.jsonl",
+    ]);
+
+    expect(capture).toContain("Soma result capture");
+    expect(capture).toContain("kind: result.captured");
+    expect(capture).toContain("artifactPaths: codex-sessions/session-123.jsonl");
+
+    const search = await runSomaCli([
+      "result",
+      "search",
+      "--home-dir",
+      homeDir,
+      "--query",
+      "OfferPitch concise offer",
+    ]);
+
+    expect(search).toContain("Soma result search");
+    expect(search).toContain("events.jsonl:");
+    expect(search).toContain("[event ");
+    expect(search).toContain("codex-sessions/session-123.jsonl");
+  });
+});
+
+test("cli result search strips terminal control characters from captured fields", async () => {
+  await withTempHome(async (homeDir) => {
+    await runSomaCli([
+      "result",
+      "capture",
+      "--home-dir",
+      homeDir,
+      "--substrate",
+      "codex",
+      "--source",
+      "assistant-final",
+      "--summary",
+      "OfferPitch \x1B[31mred\x1B[0m result",
+      "--artifact-path",
+      "codex-sessions/\x1B[2Jsession.jsonl",
+    ]);
+
+    const search = await runSomaCli(["result", "search", "--home-dir", homeDir, "--query", "OfferPitch"]);
+
+    expect(search).toContain("OfferPitch red result");
+    expect(search).toContain("codex-sessions/session.jsonl");
+    expect(search).not.toContain("\x1B[31m");
+    expect(search).not.toContain("\x1B[2J");
+  });
+});
+
+test("cli result search strips terminal control characters from echoed query", async () => {
+  await withTempHome(async (homeDir) => {
+    await runSomaCli([
+      "result",
+      "capture",
+      "--home-dir",
+      homeDir,
+      "--substrate",
+      "codex",
+      "--source",
+      "assistant-final",
+      "--summary",
+      "OfferPitch result",
+    ]);
+
+    const search = await runSomaCli(["result", "search", "--home-dir", homeDir, "--query", "OfferPitch \x1B[2J"]);
+
+    expect(search).toContain("query: OfferPitch ");
+    expect(search).not.toContain("\x1B[2J");
+  });
+});
+
+test("cli result capture strips terminal control characters from displayed artifact paths", async () => {
+  await withTempHome(async (homeDir) => {
+    const capture = await runSomaCli([
+      "result",
+      "capture",
+      "--home-dir",
+      homeDir,
+      "--substrate",
+      "codex",
+      "--source",
+      "assistant-final",
+      "--summary",
+      "OfferPitch result",
+      "--artifact-path",
+      "codex-sessions/\x1B[2Jsession.jsonl",
+    ]);
+
+    expect(capture).toContain("artifactPaths: codex-sessions/session.jsonl");
+    expect(capture).not.toContain("\x1B[2J");
+  });
+});
+
+test("cli captures typed Pi.dev learning result events", async () => {
+  await withTempHome(async (homeDir) => {
+    await runSomaCli(["install", "pi-dev", "--apply", "--home-dir", homeDir]);
+
+    const output = await runSomaCli([
+      "result",
+      "capture",
+      "--home-dir",
+      homeDir,
+      "--substrate",
+      "pi-dev",
+      "--source",
+      "pai-tool",
+      "--kind",
+      "learning.signal",
+      "--summary",
+      "GetCounts appended a rating signal.",
+      "--artifact-path",
+      "memory/LEARNING/SIGNALS/ratings.jsonl",
+    ]);
+
+    expect(output).toContain("Soma result capture");
+    expect(output).toContain("kind: learning.signal");
+    await expect(readFile(join(homeDir, ".soma/memory/STATE/events.jsonl"), "utf8")).resolves.toContain("learning.signal");
+  });
+});
+
+test("cli rejects malformed result search limits", async () => {
+  await expect(runSomaCli(["result", "search", "--query", "offer", "--limit", "2abc"])).rejects.toThrow(
+    "--limit must be a positive integer.",
+  );
+});
+
+test("cli does not expose result capture timestamp override", async () => {
+  await expect(
+    runSomaCli([
+      "result",
+      "capture",
+      "--substrate",
+      "codex",
+      "--source",
+      "assistant-final",
+      "--summary",
+      "OfferPitch produced a concise offer draft.",
+      "--timestamp",
+      "2026-01-01T00:00:00.000Z",
+    ]),
+  ).rejects.toThrow("Unknown option: --timestamp");
+});
+
 test("cli warns when explicit feedback excerpt storage is enabled", async () => {
   await withTempHome(async (homeDir) => {
     await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir]);

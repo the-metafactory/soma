@@ -51,10 +51,27 @@ The initial portable operations are:
 - append learning notes through explicit tools or patches
 
 The first implemented recall surface is `soma memory search --query <text>`.
-It searches profile/import files plus WORK, KNOWLEDGE, LEARNING, RELATIONSHIP,
-and selected STATE files, then returns cited path/line/snippet matches. This is
-not semantic memory yet; it is the portable file-backed retrieval floor that
-substrates can call before answering.
+It searches profile/import files plus WORK, KNOWLEDGE, LEARNING, WISDOM,
+RELATIONSHIP, and selected STATE files, then returns cited path/line/snippet
+matches. This is not semantic memory yet; it is the portable file-backed
+retrieval floor that substrates can call before answering.
+
+The first implemented result-capture surface is
+`soma result capture --substrate <substrate> --source <source> --summary <text>`.
+It records a short result summary, provenance, optional skill/session metadata,
+and optional artifact paths as an append-only event. The default kind is
+`result.captured`; migrated PAI-style tools may use typed learning events:
+`learning.signal`, `learning.pattern`, `learning.failure`,
+`wisdom.frame-update`, `wisdom.cross-frame`, `relationship.reflection`, and
+`opinion.tracked`. Result capture records `promptStored: false` and
+`resultStored: false` by default. It does not store full prompts or full
+generated outputs.
+
+`soma result search --query <text>` searches captured result and typed tool
+events in `memory/STATE/events.jsonl` and returns event path/line, event id,
+summary, kind, score, and artifact path provenance. `soma memory search` also
+sees those JSONL events because STATE remains part of the normal memory search
+surface.
 
 The first implemented promotion surface is
 `soma memory promote --from-run <id> --store <learning|knowledge|relationship|work> --substrate <substrate>`.
@@ -71,6 +88,12 @@ learning, then appends a `feedback.candidate` event to
 `memory/STATE/events.jsonl`. Feedback capture never writes durable memory
 directly. Candidate events must be reviewed or promoted by a later explicit
 workflow.
+
+Feedback capture, result capture, and promotion are separate:
+feedback capture records candidate corrections or preferences, result capture
+records that useful work happened and where to inspect it, and promotion creates
+a durable memory note from verified source work. Later consolidation may read
+all three, but none silently performs another one's job.
 
 `PROMOTED/` has V0 merge semantics. Promoted notes are immutable additive
 records, keyed by sanitized title plus source run id. Creation is atomic and a
