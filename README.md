@@ -33,6 +33,17 @@ Install the package with Arc:
 arc install @metafactory/soma
 ```
 
+If `arc upgrade soma` resolves the new version but refuses to replace an
+older active install, use Arc's remove-then-install recovery path:
+
+```bash
+arc remove soma
+arc install @metafactory/soma
+```
+
+See [Arc install troubleshooting](docs/arc-install-troubleshooting.md) for the
+full note and pinned-version variant.
+
 Or run it from a source checkout:
 
 ```bash
