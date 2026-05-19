@@ -360,6 +360,68 @@ test("migrateClaudeSkills writes payload + manifest + portability report", async
   });
 });
 
+test("migrateClaudeSkills records cross-skill dependencies and warns when dependency is skipped", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = join(home, "skills");
+    const somaHome = join(home, "soma");
+    await writeFlatSkillsFixture(fromDir, {
+      Council: {
+        skillMd: [
+          "# Council",
+          "",
+          "Run `bun run ~/.claude/skills/Agents/Tools/ComposeAgent.ts` before debate.",
+        ].join("\n"),
+      },
+      Agents: {
+        skillMd: [
+          "# Agents",
+          "",
+          "Use /plan before composing an agent.",
+        ].join("\n"),
+        extra: [
+          { relPath: "Tools/ComposeAgent.ts", content: "export const compose = true;\n" },
+        ],
+      },
+    });
+
+    const result = await migrateClaudeSkills({ from: fromDir, somaHome });
+    const council = result.outcomes.find((o) => o.kebabName === "council");
+    expect(council?.dependencies).toEqual([
+      {
+        skill: "agents",
+        references: ["Tools/ComposeAgent.ts"],
+        sourceFiles: ["SKILL.md"],
+      },
+    ]);
+    expect(council?.dependencyMissing).toEqual(["agents"]);
+    expect(council?.disposition).toBe("imported");
+
+    const report = await readFile(result.reportPath, "utf8");
+    expect(report).toContain("| Skill | Tag | Disposition | Reason | Dependencies |");
+    expect(report).toContain("agents (Tools/ComposeAgent.ts) missing");
+    expect(report).toContain("1 skill(s) depend on skipped/refused skills");
+  });
+});
+
+test("migrateClaudeSkills dependency names use source skill kebab normalization", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = join(home, "skills");
+    await writeFlatSkillsFixture(fromDir, {
+      Referrer: {
+        skillMd: "See ~/.claude/skills/MySkill/Tools/x.ts for setup.\n",
+      },
+      MySkill: {
+        skillMd: "# MySkill\n\nportable dependency.\n",
+      },
+    });
+
+    const result = await migrateClaudeSkills({ from: fromDir, somaHome: join(home, "soma") });
+    const referrer = result.outcomes.find((o) => o.kebabName === "referrer");
+    expect(referrer?.dependencies?.[0]?.skill).toBe("my-skill");
+    expect(referrer?.dependencyMissing).toBeUndefined();
+  });
+});
+
 test("migrateClaudeSkills --include-claude-specific lands the skipped set", async () => {
   await withTempHome(async (home) => {
     const fromDir = join(home, "skills");
@@ -1241,4 +1303,3 @@ test("LLM returns >1024 twice → refuses with refused-other and surfaces the li
     expect(outcome?.refusalReason ?? "").toMatch(/1024|cap|limit/);
   });
 });
-

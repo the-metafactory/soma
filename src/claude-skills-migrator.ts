@@ -58,6 +58,7 @@ import { runBoundedConcurrent } from "./internal-concurrency";
 import { verifySubstrateProjection } from "./claude-skills-substrate-verify";
 import type {
   ClaudeSkillAuditEntry,
+  ClaudeSkillDependency,
   ClaudeSkillDescriptionRewrite,
   ClaudeSkillOutcome,
   ClaudeSkillPortabilityTag,
@@ -148,6 +149,9 @@ function buildSomaSkillFromPayload(
 // refusing the skill. Every OTHER symlink still refuses loud.
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+function sourceSkillKebabName(sourceName: string): string {
+  return kebabSlug(sourceName);
 }
 const EDITOR_CONFIG_SYMLINK_PATTERNS: { pattern: RegExp; dir: string }[] = EDITOR_CONFIG_DIRS.map((dir) => ({
   pattern: new RegExp(`(?:^|/)${escapeRegex(dir)}/`),
@@ -596,6 +600,42 @@ export function classifySkillPortability(files: readonly SkillFilePayload[]): Cl
   return { tag: "portable", reason: "clean" };
 }
 
+const CLAUDE_SKILL_DEP_RE = /~\/\.claude\/skills\/([^/\s`"'()<>\[\]{}]+)(?:\/([^\s`"'()<>\[\]{}]+))?/g;
+const DEPENDENCY_SCAN_EXTENSIONS = /\.(md|markdown|mdx|txt|json|yaml|yml|ts|js|tsx|jsx|mjs|cjs|py|rb|sh|bash|zsh|toml|hbs|handlebars|tmpl|tpl|xml|html|css)$/i;
+
+function isDependencyScannableFile(file: SkillFilePayload): boolean {
+  return DEPENDENCY_SCAN_EXTENSIONS.test(file.relPath) && file.content.byteLength <= 1024 * 1024;
+}
+
+function scanSkillDependencies(files: readonly SkillFilePayload[]): ClaudeSkillDependency[] {
+  const bySkill = new Map<string, { references: Set<string>; sourceFiles: Set<string> }>();
+  for (const file of files) {
+    if (!isDependencyScannableFile(file)) continue;
+    const text = file.content.toString("utf8");
+    CLAUDE_SKILL_DEP_RE.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = CLAUDE_SKILL_DEP_RE.exec(text)) !== null) {
+      const skill = sourceSkillKebabName(match[1]);
+      const reference = (match[2] ?? "").replace(/[.,;:!?]+$/g, "") || "(root)";
+      let entry = bySkill.get(skill);
+      if (!entry) {
+        entry = { references: new Set<string>(), sourceFiles: new Set<string>() };
+        bySkill.set(skill, entry);
+      }
+      entry.references.add(reference);
+      entry.sourceFiles.add(file.relPath);
+      if (CLAUDE_SKILL_DEP_RE.lastIndex === match.index) CLAUDE_SKILL_DEP_RE.lastIndex += 1;
+    }
+  }
+  return [...bySkill.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([skill, entry]) => ({
+      skill,
+      references: [...entry.references].sort(),
+      sourceFiles: [...entry.sourceFiles].sort(),
+    }));
+}
+
 // Test-only: lower-level signal accessors. Exported so the unit
 // tests can target the regex layer without rebuilding payload
 // objects. The CLI-facing classifier above is the canonical entry.
@@ -625,6 +665,7 @@ interface SourceSkillReadResult {
   // status is `missing` (no source bytes to hash). Idempotency
   // anchor for the rewrite path.
   originalDescriptionSha: string;
+  dependencies: ClaudeSkillDependency[];
 }
 
 async function readSourceSkill(
@@ -682,13 +723,14 @@ async function readSourceSkill(
     : sha256Utf8(originalDescription);
   return {
     sourceName,
-    kebabName: kebabSlug(sourceName),
+    kebabName: sourceSkillKebabName(sourceName),
     files,
     sourceSha: sha256Hex(Buffer.from(composite, "utf8")),
     audit,
     descriptionStatus,
     originalDescription: originalDescription ?? "",
     originalDescriptionSha,
+    dependencies: scanSkillDependencies(files),
   };
 }
 
@@ -871,7 +913,7 @@ async function buildPlanCore(
       // anchors only land for successfully-read skills).
       outcomes.push({
         sourceName: r.sourceName,
-        kebabName: kebabSlug(r.sourceName),
+        kebabName: sourceSkillKebabName(r.sourceName),
         tag: "portable",
         reason: r.reason,
         disposition: "refused-other",
@@ -917,6 +959,7 @@ async function buildPlanCore(
       // each pending write up-front.
       fileCount: read.files.length,
       ...(read.audit.length > 0 ? { audit: read.audit } : {}),
+      ...(read.dependencies.length > 0 ? { dependencies: read.dependencies } : {}),
       // #120 — every successfully-read skill carries a description
       // status so the portability report can show the original
       // length even when no rewrite was requested.
@@ -932,6 +975,34 @@ async function buildPlanCore(
   progress.endConcurrentPhase("read + classify", Date.now() - concurrentStart);
 
   return { isFlatSkillsTree: true, outcomes, reads };
+}
+
+function applyDependencyWarnings(outcomes: ClaudeSkillOutcome[]): void {
+  const dispositionBySkill = new Map(outcomes.map((o) => [o.kebabName, o.disposition]));
+  for (const outcome of outcomes) {
+    if (!outcome.dependencies || outcome.dependencies.length === 0) {
+      outcome.dependencyMissing = undefined;
+      continue;
+    }
+    const missing = new Set<string>();
+    for (const dependency of outcome.dependencies) {
+      if (dependency.skill === outcome.kebabName) continue;
+      const disposition = dispositionBySkill.get(dependency.skill);
+      if (
+        disposition === undefined ||
+        disposition === "skipped-claude-specific" ||
+        disposition === "refused-other" ||
+        disposition === "refused-description-limit"
+      ) {
+        missing.add(dependency.skill);
+      }
+    }
+    if (missing.size > 0) {
+      outcome.dependencyMissing = [...missing].sort();
+    } else {
+      outcome.dependencyMissing = undefined;
+    }
+  }
 }
 
 export async function planClaudeSkillsMigration(
@@ -969,6 +1040,7 @@ export async function planClaudeSkillsMigration(
     outcomes,
     rewriteDescriptionsAgent,
   });
+  applyDependencyWarnings(outcomes);
   return {
     apply: false,
     from,
@@ -1279,7 +1351,7 @@ function renderPortabilityReport(
   // `--rewrite-descriptions` was used. Without the flag the table
   // shape is byte-stable for principals who haven't opted in.
   const includeRewriteColumns = result.rewriteDescriptionsAgent !== "none";
-  const headerCells = ["Skill", "Tag", "Disposition", "Reason"];
+  const headerCells = ["Skill", "Tag", "Disposition", "Reason", "Dependencies"];
   if (includeRewriteColumns) {
     headerCells.push("Description");
     headerCells.push("Rewrite");
@@ -1294,7 +1366,7 @@ function renderPortabilityReport(
     // non-refusal dispositions surface the classifier `reason`.
     // Centralized in `resolveOutcomeReason` (Holly r1 S1).
     const reasonCell = escapeMarkdownCell(resolveOutcomeReason(o));
-    const row = [o.kebabName, o.tag, o.disposition, reasonCell];
+    const row = [o.kebabName, o.tag, o.disposition, reasonCell, renderDependenciesCell(o)];
     if (includeRewriteColumns) {
       row.push(renderDescriptionCell(o));
       row.push(renderRewriteCell(o));
@@ -1338,6 +1410,11 @@ function renderPortabilityReport(
     // can find it. Also documented in `src/types.ts`.
     lines.push("Audit kind: `followed-user-owned-symlink` (one entry per resolved symlink in the manifest).");
   }
+  const missingDependencyCount = countOutcomesWithMissingDependencies(result.outcomes);
+  if (missingDependencyCount > 0) {
+    lines.push("");
+    lines.push(`${missingDependencyCount} skill(s) depend on skipped/refused skills — see report for details.`);
+  }
   lines.push("");
   return lines.join("\n");
 }
@@ -1356,6 +1433,23 @@ function renderSubstrateCell(verify: ClaudeSkillSubstrateVerifyResult): string {
   // manifest (`substrates[].issues`) for audit.
   const trimmed = escapeMarkdownCell(verify.reason).slice(0, 120);
   return `${verify.status}: ${trimmed}`;
+}
+
+function renderDependenciesCell(outcome: ClaudeSkillOutcome): string {
+  if (!outcome.dependencies || outcome.dependencies.length === 0) return "—";
+  const missing = new Set(outcome.dependencyMissing ?? []);
+  return outcome.dependencies
+    .map((dep) => {
+      const refs = dep.references.join(", ");
+      const suffix = missing.has(dep.skill) ? " missing" : "";
+      return `${dep.skill} (${refs})${suffix}`;
+    })
+    .map(escapeMarkdownCell)
+    .join("<br>");
+}
+
+export function countOutcomesWithMissingDependencies(outcomes: readonly ClaudeSkillOutcome[]): number {
+  return outcomes.filter((outcome) => (outcome.dependencyMissing?.length ?? 0) > 0).length;
 }
 
 // #120 — Description column. Shows `<orig>→<rewrite>` when a rewrite
@@ -1609,6 +1703,7 @@ export async function migrateClaudeSkills(
     outcomes,
     rewriteDescriptionsAgent,
   });
+  applyDependencyWarnings(outcomes);
 
   // Apply phase: walk the outcome list, write payloads for imported
   // skills, carry prior manifest entries for `skipped-idempotent`.

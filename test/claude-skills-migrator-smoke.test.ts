@@ -119,6 +119,59 @@ test("--smoke codex --smoke pi-dev: both substrates populated", async () => {
   });
 });
 
+test("--smoke codex --smoke pi-dev verifies Tools/*.ts files project non-empty", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = join(home, "skills");
+    await writeSkillsFixture(fromDir, [
+      {
+        name: "ToolRunner",
+        skillMd: PORTABLE_SKILL_MD.replace("Portable", "ToolRunner"),
+        extras: [
+          { relPath: "Tools/Run.ts", content: "export const run = () => 'ok';\n" },
+        ],
+      },
+    ]);
+    const somaHome = join(home, "soma");
+    const result = await migrateClaudeSkills({
+      from: fromDir,
+      somaHome,
+      smokeSubstrates: ["codex", "pi-dev"],
+    });
+
+    const landedTool = await readFile(join(somaHome, "skills/tool-runner/Tools/Run.ts"), "utf8");
+    expect(landedTool).toContain("export const run");
+    const toolRunner = result.outcomes.find((o) => o.kebabName === "tool-runner");
+    expect(toolRunner?.substrates?.codex?.status).toBe("verified");
+    expect(toolRunner?.substrates?.["pi-dev"]?.status).toBe("verified");
+    expect(toolRunner?.substrates?.codex?.issues.some((issue) => issue.kind === "unresolved-tool-path")).toBe(false);
+    expect(toolRunner?.substrates?.["pi-dev"]?.issues.some((issue) => issue.kind === "unresolved-tool-path")).toBe(false);
+  });
+});
+
+test("--smoke codex surfaces empty Tools/*.ts as unresolved-tool-path warning", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = join(home, "skills");
+    await writeSkillsFixture(fromDir, [
+      {
+        name: "EmptyTool",
+        skillMd: PORTABLE_SKILL_MD.replace("Portable", "EmptyTool"),
+        extras: [
+          { relPath: "Tools/Empty.ts", content: "" },
+        ],
+      },
+    ]);
+    const result = await migrateClaudeSkills({
+      from: fromDir,
+      somaHome: join(home, "soma"),
+      smokeSubstrates: ["codex"],
+    });
+
+    const emptyTool = result.outcomes.find((o) => o.kebabName === "empty-tool");
+    expect(emptyTool?.substrates?.codex?.status).toBe("verified-with-warnings");
+    expect(emptyTool?.substrates?.codex?.issues.some((issue) => issue.kind === "unresolved-tool-path")).toBe(true);
+  });
+});
+
 test("--smoke <substrate>: codex-incompatible skill (hook binding under include-claude-specific) → failed", async () => {
   await withTempHome(async (home) => {
     const fromDir = join(home, "skills");
@@ -215,11 +268,11 @@ test("report contains substrate columns when --smoke given, absent without", asy
     });
     const reportWithSmoke = await readFile(reportPath, "utf8");
     expect(reportWithSmoke).toContain("Smoke substrates: codex, pi-dev");
-    expect(reportWithSmoke).toContain("| Skill | Tag | Disposition | Reason | codex | pi-dev |");
+    expect(reportWithSmoke).toContain("| Skill | Tag | Disposition | Reason | Dependencies | codex | pi-dev |");
     // Verified outcome appears in both substrate cells. The second
     // run rendered the row as skipped-idempotent (same source SHA),
     // but the substrate cells should still carry the prior verdict.
-    expect(reportWithSmoke).toMatch(/\|\s*portable\s*\|\s*portable\s*\|\s*(imported|skipped-idempotent)\s*\|[^|]+\|\s*verified\s*\|\s*verified\s*\|/);
+    expect(reportWithSmoke).toMatch(/\|\s*portable\s*\|\s*portable\s*\|\s*(imported|skipped-idempotent)\s*\|[^|]+\|\s*[^|]+\|\s*verified\s*\|\s*verified\s*\|/);
   });
 });
 
