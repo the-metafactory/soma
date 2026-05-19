@@ -1019,6 +1019,17 @@ function buildSkillWithFrontmatterDescription(description: string): string {
   ].join("\n");
 }
 
+async function writeOversizeApifyFixture(home: string): Promise<{ fromDir: string; somaHome: string }> {
+  const fromDir = join(home, "skills");
+  const somaHome = join(home, "soma");
+  await writeFlatSkillsFixture(fromDir, {
+    Apify: {
+      skillMd: buildSkillWithFrontmatterDescription(APIFY_LIKE_DESCRIPTION_1318),
+    },
+  });
+  return { fromDir, somaHome };
+}
+
 test("description ≤1024 chars + no rewrite agent → ok status, no rewrite recorded", async () => {
   await withTempHome(async (home) => {
     const fromDir = join(home, "skills");
@@ -1040,13 +1051,7 @@ test("description ≤1024 chars + no rewrite agent → ok status, no rewrite rec
 
 test("oversize description + agent absent → refused-description-limit, skill not written", async () => {
   await withTempHome(async (home) => {
-    const fromDir = join(home, "skills");
-    const somaHome = join(home, "soma");
-    await writeFlatSkillsFixture(fromDir, {
-      Apify: {
-        skillMd: buildSkillWithFrontmatterDescription(APIFY_LIKE_DESCRIPTION_1318),
-      },
-    });
+    const { fromDir, somaHome } = await writeOversizeApifyFixture(home);
     const result = await migrateClaudeSkills({ from: fromDir, somaHome });
     expect(result.writtenCount).toBe(0);
     expect(result.refusedDescriptionLimitCount).toBe(1);
@@ -1086,13 +1091,7 @@ test("missing frontmatter + agent absent → refused-description-limit", async (
 
 test("oversize + --rewrite-descriptions claude (stubbed) → rewrites under cap and imports", async () => {
   await withTempHome(async (home) => {
-    const fromDir = join(home, "skills");
-    const somaHome = join(home, "soma");
-    await writeFlatSkillsFixture(fromDir, {
-      Apify: {
-        skillMd: buildSkillWithFrontmatterDescription(APIFY_LIKE_DESCRIPTION_1318),
-      },
-    });
+    const { fromDir, somaHome } = await writeOversizeApifyFixture(home);
     const dispatchCalls: Array<{ agent: string; status: string; sourceName: string }> = [];
     const result = await migrateClaudeSkills({
       from: fromDir,
@@ -1172,13 +1171,7 @@ test("missing frontmatter + --rewrite-descriptions codex (stubbed) → synthesiz
 
 test("rewrite idempotency: unchanged source description SHA skips dispatcher on rerun", async () => {
   await withTempHome(async (home) => {
-    const fromDir = join(home, "skills");
-    const somaHome = join(home, "soma");
-    await writeFlatSkillsFixture(fromDir, {
-      Apify: {
-        skillMd: buildSkillWithFrontmatterDescription(APIFY_LIKE_DESCRIPTION_1318),
-      },
-    });
+    const { fromDir, somaHome } = await writeOversizeApifyFixture(home);
     let callCount = 0;
     const stub = async () =>
       "Apify scraper - compressed. USE WHEN Instagram, LinkedIn, TikTok scraping.";
@@ -1205,15 +1198,133 @@ test("rewrite idempotency: unchanged source description SHA skips dispatcher on 
   });
 });
 
-test("rewrite re-runs when source description bytes change between invocations", async () => {
+test("#123 rewrite idempotency: pre-rewrite oversize manifest reimports when rewrite requested", async () => {
+  await withTempHome(async (home) => {
+    const { fromDir, somaHome } = await writeOversizeApifyFixture(home);
+
+    const refused = await migrateClaudeSkills({ from: fromDir, somaHome });
+    const legacyOutcome = refused.outcomes.find((o) => o.sourceName === "Apify");
+    expect(legacyOutcome?.disposition).toBe("refused-description-limit");
+    await mkdir(join(somaHome, "skills/apify"), { recursive: true });
+    await writeFile(
+      join(somaHome, "skills/apify/SKILL.md"),
+      buildSkillWithFrontmatterDescription(APIFY_LIKE_DESCRIPTION_1318),
+      "utf8",
+    );
+    const legacyManifest: ClaudeSkillsMigrationManifest = {
+      schema: "soma.claude-skills-migration.v1",
+      from: fromDir,
+      somaHome,
+      importedAt: "2026-05-19T22:50:00.000Z",
+      includeClaudeSpecific: false,
+      skills: [
+        {
+          sourceName: "Apify",
+          kebabName: "apify",
+          tag: legacyOutcome!.tag,
+          sourceSha: legacyOutcome!.sourceSha,
+          fileShas: { "SKILL.md": "legacy-pre-rewrite" },
+        },
+      ],
+    };
+    await mkdir(join(somaHome, "imports/claude-skills"), { recursive: true });
+    await writeFile(
+      join(somaHome, "imports/claude-skills/.manifest.json"),
+      JSON.stringify(legacyManifest, null, 2),
+      "utf8",
+    );
+
+    let callCount = 0;
+    const result = await migrateClaudeSkills({
+      from: fromDir,
+      somaHome,
+      rewriteDescriptionsAgent: "claude",
+      rewriteDispatchOverride: async () => {
+        callCount += 1;
+        return "Apify actors for social and commerce scraping. USE WHEN Apify platform actors are the right extractor.";
+      },
+    });
+
+    expect(callCount).toBe(1);
+    expect(result.writtenCount).toBe(1);
+    expect(result.skippedIdempotentCount).toBe(0);
+    expect(result.descriptionRewrittenCount).toBe(1);
+    const outcome = result.outcomes.find((o) => o.sourceName === "Apify");
+    expect(outcome?.disposition).toBe("imported");
+    expect(outcome?.descriptionRewrite?.agent).toBe("claude");
+    const manifest = JSON.parse(
+      await readFile(join(somaHome, "imports/claude-skills/.manifest.json"), "utf8"),
+    ) as ClaudeSkillsMigrationManifest;
+    expect(manifest.skills[0]?.descriptionRewrite?.agent).toBe("claude");
+  });
+});
+
+test("#123 rewrite idempotency: ok description remains skipped when rewrite agent is set", async () => {
   await withTempHome(async (home) => {
     const fromDir = join(home, "skills");
     const somaHome = join(home, "soma");
     await writeFlatSkillsFixture(fromDir, {
-      Apify: {
-        skillMd: buildSkillWithFrontmatterDescription(APIFY_LIKE_DESCRIPTION_1318),
+      OkSkill: {
+        skillMd: buildSkillWithFrontmatterDescription("short and sweet description"),
       },
     });
+
+    await migrateClaudeSkills({ from: fromDir, somaHome });
+    let callCount = 0;
+    const second = await migrateClaudeSkills({
+      from: fromDir,
+      somaHome,
+      rewriteDescriptionsAgent: "claude",
+      rewriteDispatchOverride: async () => {
+        callCount += 1;
+        return "This should not be used.";
+      },
+    });
+
+    expect(callCount).toBe(0);
+    expect(second.writtenCount).toBe(0);
+    expect(second.skippedIdempotentCount).toBe(1);
+    expect(second.descriptionRewrittenCount).toBe(0);
+  });
+});
+
+test("#123 rewrite idempotency: different rewrite agent reimports and reruns dispatcher", async () => {
+  await withTempHome(async (home) => {
+    const { fromDir, somaHome } = await writeOversizeApifyFixture(home);
+
+    await migrateClaudeSkills({
+      from: fromDir,
+      somaHome,
+      rewriteDescriptionsAgent: "claude",
+      rewriteDispatchOverride: async () => "Compressed by Claude.",
+    });
+    let codexCalls = 0;
+    const second = await migrateClaudeSkills({
+      from: fromDir,
+      somaHome,
+      rewriteDescriptionsAgent: "codex",
+      rewriteDispatchOverride: async (req) => {
+        codexCalls += 1;
+        expect(req.agent).toBe("codex");
+        return "Compressed by Codex.";
+      },
+    });
+
+    expect(codexCalls).toBe(1);
+    expect(second.writtenCount).toBe(1);
+    expect(second.skippedIdempotentCount).toBe(0);
+    expect(second.descriptionRewrittenCount).toBe(1);
+    const outcome = second.outcomes.find((o) => o.sourceName === "Apify");
+    expect(outcome?.disposition).toBe("imported");
+    expect(outcome?.descriptionRewrite?.agent).toBe("codex");
+    const landed = await readFile(join(somaHome, "skills/apify/SKILL.md"), "utf8");
+    expect(landed).toContain("Compressed by Codex.");
+  });
+});
+
+test("rewrite re-runs when source description bytes change between invocations", async () => {
+  await withTempHome(async (home) => {
+    const { fromDir, somaHome } = await writeOversizeApifyFixture(home);
     let callCount = 0;
     await migrateClaudeSkills({
       from: fromDir,
@@ -1249,13 +1360,7 @@ test("rewrite re-runs when source description bytes change between invocations",
 
 test("LLM returns >1024 once, ≤1024 on retry → accepts retry result", async () => {
   await withTempHome(async (home) => {
-    const fromDir = join(home, "skills");
-    const somaHome = join(home, "soma");
-    await writeFlatSkillsFixture(fromDir, {
-      Apify: {
-        skillMd: buildSkillWithFrontmatterDescription(APIFY_LIKE_DESCRIPTION_1318),
-      },
-    });
+    const { fromDir, somaHome } = await writeOversizeApifyFixture(home);
     let attempt = 0;
     const result = await migrateClaudeSkills({
       from: fromDir,
@@ -1279,13 +1384,7 @@ test("LLM returns >1024 once, ≤1024 on retry → accepts retry result", async 
 
 test("LLM returns >1024 twice → refuses with refused-other and surfaces the limit in reason", async () => {
   await withTempHome(async (home) => {
-    const fromDir = join(home, "skills");
-    const somaHome = join(home, "soma");
-    await writeFlatSkillsFixture(fromDir, {
-      Apify: {
-        skillMd: buildSkillWithFrontmatterDescription(APIFY_LIKE_DESCRIPTION_1318),
-      },
-    });
+    const { fromDir, somaHome } = await writeOversizeApifyFixture(home);
     let attempt = 0;
     const result = await migrateClaudeSkills({
       from: fromDir,
