@@ -31,11 +31,11 @@ test("cli shows no-argument usage as normal help", async () => {
   const output = await runSomaCli([]);
 
   expect(output).toContain("Usage:");
-  expect(output).toContain("soma install <codex|pi-dev|claude-code>");
-  expect(output).toContain("soma uninstall <codex|pi-dev|claude-code>");
-  expect(output).toContain("soma reproject <codex|pi-dev|claude-code>");
-  expect(output).toContain("soma upgrade <codex|pi-dev|claude-code>");
-  expect(output).toContain("soma export <codex|pi-dev|claude-code>");
+  expect(output).toContain("soma install <codex|pi-dev|claude-code|cursor>");
+  expect(output).toContain("soma uninstall <codex|pi-dev|claude-code|cursor>");
+  expect(output).toContain("soma reproject <codex|pi-dev|claude-code|cursor>");
+  expect(output).toContain("soma upgrade <codex|pi-dev|claude-code|cursor>");
+  expect(output).toContain("soma export <codex|pi-dev|claude-code|cursor>");
   expect(output).toContain("soma daemon");
 
   const result = spawnSync(process.execPath, ["run", "soma"], {
@@ -52,7 +52,7 @@ test("cli supports explicit main help as normal help", async () => {
   const output = await runSomaCli(["--help"]);
 
   expect(output).toContain("Usage:");
-  expect(output).toContain("soma install <codex|pi-dev|claude-code>");
+  expect(output).toContain("soma install <codex|pi-dev|claude-code|cursor>");
 
   const result = spawnSync(process.execPath, ["run", "soma", "--help"], {
     cwd: join(import.meta.dir, ".."),
@@ -807,6 +807,25 @@ test("cli install supports claude-code substrate (dry-run)", async () => {
   });
 });
 
+test("cli dry-runs and applies cursor install", async () => {
+  await withTempHome(async (homeDir) => {
+    const dryRun = await runSomaCli(["install", "cursor", "--home-dir", homeDir]);
+
+    expect(dryRun).toContain("substrate: cursor");
+    expect(dryRun).toContain(join(homeDir, ".cursorrules"));
+    expect(dryRun).toContain(join(homeDir, ".cursor/rules/soma/CONTEXT.md"));
+    await expect(stat(join(homeDir, ".cursor"))).rejects.toThrow();
+
+    const output = await runSomaCli(["install", "cursor", "--apply", "--home-dir", homeDir]);
+
+    expect(output).toContain("Soma install applied");
+    expect(output).toContain("substrate: cursor");
+    await expect(readFile(join(homeDir, ".cursorrules"), "utf8")).resolves.toContain("Soma Cursor Projection");
+    await expect(readFile(join(homeDir, ".cursor/rules/soma/CONTEXT.md"), "utf8")).resolves.toContain("Soma Cursor Context");
+    await expect(readFile(join(homeDir, ".cursor/rules/soma/skills/ISA/SKILL.md"), "utf8")).resolves.toContain("name: ISA");
+  });
+});
+
 test("cli install --workspace defaults substrate-home to ./.<sub>/soma", async () => {
   await withTempHome(async (homeDir) => {
     const output = await runSomaCli(["install", "codex", "--workspace", "--home-dir", homeDir]);
@@ -815,6 +834,32 @@ test("cli install --workspace defaults substrate-home to ./.<sub>/soma", async (
     // workspace path is rooted in process.cwd(), not homeDir
     expect(output).toContain(`/.codex/soma`);
     expect(output).not.toContain(`${homeDir}/.codex/`);
+  });
+});
+
+test("cli install cursor --workspace targets the current workspace", async () => {
+  await withTempHome(async (homeDir) => {
+    const output = await runSomaCli(["install", "cursor", "--workspace", "--home-dir", homeDir]);
+
+    expect(output).toContain(`substrateHome: ${process.cwd()}`);
+    expect(output).toContain(`${process.cwd()}/.cursorrules`);
+    expect(output).not.toContain(`${homeDir}/.cursor/`);
+  });
+});
+
+test("cli install cursor preserves existing workspace .cursorrules", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeFile(join(homeDir, ".cursorrules"), "# Workspace rules\n\nKeep this file.\n", "utf8");
+
+    await runSomaCli(["install", "cursor", "--apply", "--home-dir", homeDir]);
+
+    const rules = await readFile(join(homeDir, ".cursorrules"), "utf8");
+    expect(rules).toContain("Keep this file.");
+    expect(rules).toContain("SOMA_CURSOR_BEGIN");
+    expect(rules).toContain("Soma Cursor Projection");
+
+    await runSomaCli(["uninstall", "cursor", "--home-dir", homeDir]);
+    await expect(readFile(join(homeDir, ".cursorrules"), "utf8")).resolves.toBe("# Workspace rules\n\nKeep this file.\n");
   });
 });
 
@@ -854,6 +899,50 @@ test("cli uninstall claude-code removes the rules/soma projection (always-apply)
 
     expect(output).toContain("Removed");
     await expect(stat(join(homeDir, ".claude/rules/soma"))).rejects.toThrow();
+  });
+});
+
+test("cli uninstall cursor removes generated Cursor projection files", async () => {
+  await withTempHome(async (homeDir) => {
+    await runSomaCli(["install", "cursor", "--apply", "--home-dir", homeDir]);
+    await expect(stat(join(homeDir, ".cursor/rules/soma"))).resolves.toBeDefined();
+    await expect(stat(join(homeDir, ".cursorrules"))).resolves.toBeDefined();
+
+    const output = await runSomaCli(["uninstall", "cursor", "--home-dir", homeDir]);
+
+    expect(output).toContain("soma uninstall cursor");
+    expect(output).toContain("Removed");
+    await expect(stat(join(homeDir, ".cursor/rules/soma"))).rejects.toThrow();
+    await expect(stat(join(homeDir, ".cursorrules"))).rejects.toThrow();
+  });
+});
+
+test("cli uninstall cursor preserves user-owned .cursorrules", async () => {
+  await withTempHome(async (homeDir) => {
+    await runSomaCli(["install", "cursor", "--apply", "--home-dir", homeDir]);
+    await writeFile(join(homeDir, ".cursorrules"), "# Workspace rules\n\nKeep this file.\n", "utf8");
+
+    const output = await runSomaCli(["uninstall", "cursor", "--home-dir", homeDir]);
+
+    expect(output).toContain("soma uninstall cursor");
+    expect(output).toContain("Removed");
+    await expect(stat(join(homeDir, ".cursor/rules/soma"))).rejects.toThrow();
+    await expect(readFile(join(homeDir, ".cursorrules"), "utf8")).resolves.toContain("Keep this file.");
+  });
+});
+
+test("cli uninstall cursor preserves user-owned .cursor/rules/soma directory", async () => {
+  await withTempHome(async (homeDir) => {
+    await mkdir(join(homeDir, ".cursor/rules/soma"), { recursive: true });
+    await writeFile(join(homeDir, ".cursor/rules/soma/project.mdc"), "# Project rule\n", "utf8");
+    await writeFile(join(homeDir, ".cursorrules"), "# Soma Cursor Projection\n\nGenerated marker.\n", "utf8");
+
+    const output = await runSomaCli(["uninstall", "cursor", "--home-dir", homeDir]);
+
+    expect(output).toContain("soma uninstall cursor");
+    expect(output).toContain("Removed");
+    await expect(readFile(join(homeDir, ".cursor/rules/soma/project.mdc"), "utf8")).resolves.toContain("Project rule");
+    await expect(stat(join(homeDir, ".cursorrules"))).rejects.toThrow();
   });
 });
 
@@ -899,6 +988,18 @@ test("cli export emits projection JSON without touching home", async () => {
     expect(parsed.length).toBeGreaterThan(0);
     expect(parsed.some((f) => f.path.endsWith("rules/soma.rules"))).toBe(true);
     await expect(stat(join(homeDir, ".codex"))).rejects.toThrow();
+  });
+});
+
+test("cli export cursor emits Cursor projection JSON", async () => {
+  await withTempHome(async (homeDir) => {
+    await runSomaCli(["install", "cursor", "--apply", "--home-dir", homeDir]);
+
+    const output = await runSomaCli(["export", "cursor", "--home-dir", homeDir]);
+    const parsed = JSON.parse(output) as { path: string; content: string }[];
+
+    expect(parsed.some((f) => f.path === ".cursorrules")).toBe(true);
+    expect(parsed.some((f) => f.path === ".cursor/rules/soma/CONTEXT.md")).toBe(true);
   });
 });
 

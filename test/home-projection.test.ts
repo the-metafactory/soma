@@ -4,8 +4,10 @@ import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import {
   buildCodexHomeProjection,
+  buildCursorHomeProjection,
   buildPiDevHomeProjection,
   installCodexHomeProjection,
+  installCursorHomeProjection,
   installPiDevHomeProjection,
   resolveHomeProjectionPaths,
 } from "../src/index";
@@ -42,6 +44,13 @@ test("resolves claude-code home projection paths (#37)", () => {
   expect(paths.substrate).toBe("claude-code");
   expect(paths.somaHome).toBe("/tmp/soma-test-home/.soma");
   expect(paths.substrateHome).toBe("/tmp/soma-test-home/.claude");
+});
+
+test("resolves cursor home projection paths", () => {
+  const paths = resolveHomeProjectionPaths("cursor", { homeDir: "/tmp/soma-test-home" });
+  expect(paths.substrate).toBe("cursor");
+  expect(paths.somaHome).toBe("/tmp/soma-test-home/.soma");
+  expect(paths.substrateHome).toBe("/tmp/soma-test-home");
 });
 
 test("rejects unimplemented home projection substrates", () => {
@@ -168,6 +177,35 @@ test("builds pi.dev home projection bundle for default availability", () => {
   expect(projection.bundle.files.find((file) => file.path === "agent/extensions/soma.ts")?.content).toContain("soma_memory_promote");
   expect(projection.bundle.files.find((file) => file.path === "agent/extensions/soma.ts")?.content).not.toContain('"memory_promote"');
   expect(projection.bundle.files.find((file) => file.path === "agent/skills/soma/SKILL.md")?.content).toContain("name: soma");
+});
+
+test("builds cursor home projection bundle for default availability", () => {
+  const projection = buildCursorHomeProjection(portableProjectionInput, { homeDir: "/tmp/soma-test-home" });
+
+  expect(projection.substrateHome).toBe("/tmp/soma-test-home");
+  expect(projection.somaHome).toBe("/tmp/soma-test-home/.soma");
+  expect(projection.bundle.files.map((file) => file.path)).toEqual([
+    ".cursorrules",
+    ".cursor/rules/soma/README.md",
+    ".cursor/rules/soma/CONTEXT.md",
+    ".cursor/rules/soma/PROFILE.md",
+    ".cursor/rules/soma/TELOS.md",
+    ".cursor/rules/soma/MEMORY_LAYOUT.md",
+    ".cursor/rules/soma/SKILLS.md",
+    ".cursor/rules/soma/POLICY.md",
+    ".cursor/rules/soma/MCP.md",
+    ".cursor/rules/soma/ACTIVE_ISA.md",
+  ]);
+  expect(projection.bundle.files.find((file) => file.path === ".cursorrules")?.content).toContain(".cursor/rules/soma/CONTEXT.md");
+  expect(projection.bundle.files.find((file) => file.path === ".cursor/rules/soma/MCP.md")?.content).toContain("MCP");
+});
+
+test("installs cursor home projection files", async () => {
+  await withTempHome(async (homeDir) => {
+    await installCursorHomeProjection(portableProjectionInput, { homeDir });
+    await expect(readFile(join(homeDir, ".cursorrules"), "utf8")).resolves.toContain("Soma Cursor Projection");
+    await expect(readFile(join(homeDir, ".cursor/rules/soma/CONTEXT.md"), "utf8")).resolves.toContain("Soma Cursor Context");
+  });
 });
 
 test("pi.dev home projection normalizes portable skill paths and frontmatter names", () => {

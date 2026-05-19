@@ -1,13 +1,21 @@
 import { homedir } from "node:os";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { configureCodexInstall } from "./adapters/codex";
+import { CURSOR_HOME_FILE_PATHS } from "./adapters/cursor";
 import {
   PI_DEV_ISA_SKILL_ID,
   piDevIsaSkillDestinationDir,
   removeLegacyPiDevIsaSkillProjection,
 } from "./adapters/pi-dev/skill-projection";
-import { installClaudeCodeHomeProjection, installCodexHomeProjection, installPiDevHomeProjection } from "./home-projection";
+import {
+  CURSOR_RULES_BLOCK_BEGIN,
+  CURSOR_RULES_BLOCK_END,
+  installClaudeCodeHomeProjection,
+  installCodexHomeProjection,
+  installCursorHomeProjection,
+  installPiDevHomeProjection,
+} from "./home-projection";
 import { buildSomaStartupContext, runSomaLifecycleAlgorithmUpdated } from "./lifecycle";
 import { SOMA_MEMORY_CATEGORIES } from "./memory-readmes";
 import { defaultSomaRepoPath } from "./repo-path";
@@ -34,6 +42,7 @@ const SOMA_BOOTSTRAP_DIRECTORIES = [
   "projections/codex",
   "projections/pi-dev",
   "projections/claude-code",
+  "projections/cursor",
 ] as const;
 
 const CODEX_HOME_FILES = [
@@ -87,15 +96,17 @@ const CLAUDE_CODE_HOME_FILES = CLAUDE_CODE_RULES_FILES;
 const SKILL_SUBPATHS: Record<Exclude<InstallSubstrate, "pi-dev">, string> = {
   codex: "skills/ISA",
   "claude-code": "skills/ISA",
+  cursor: ".cursor/rules/soma/skills/ISA",
 };
 
-type InstallSubstrate = "codex" | "pi-dev" | "claude-code";
+type InstallSubstrate = "codex" | "pi-dev" | "claude-code" | "cursor";
 
 function resolveInstallHomes(substrate: InstallSubstrate, options: SomaInstallOptions): { somaHome: string; substrateHome: string } {
   const homeDir = options.homeDir;
   const defaultSubstrateHome = DEFAULT_SUBSTRATE_HOMES[substrate];
   const somaHome = options.somaHome ?? `${homeDir ?? "~"}/.soma`;
-  const substrateHome = options.substrateHome ?? `${homeDir ?? "~"}/${defaultSubstrateHome}`;
+  const defaultRoot = defaultSubstrateHome === "." ? `${homeDir ?? "~"}` : `${homeDir ?? "~"}/${defaultSubstrateHome}`;
+  const substrateHome = options.substrateHome ?? defaultRoot;
 
   return {
     somaHome,
@@ -153,6 +164,10 @@ export function planSomaForClaudeCodeInstall(options: SomaInstallOptions = {}): 
   return planSomaInstall("claude-code", CLAUDE_CODE_HOME_FILES, options);
 }
 
+export function planSomaForCursorInstall(options: SomaInstallOptions = {}): SomaInstallPlan {
+  return planSomaInstall("cursor", CURSOR_HOME_FILE_PATHS, options);
+}
+
 async function installSomaForSubstrate(
   substrate: InstallSubstrate,
   options: SomaInstallOptions = {},
@@ -203,7 +218,7 @@ async function installSomaForSubstrate(
   const configFiles = substrate === "codex" ? [await configureCodexInstall(substrateHome.rootDir, somaHome.somaHome)] : [];
   const agentsFiles = substrate === "codex" ? [await configureCodexAgentsImport(substrateHome.rootDir)] : [];
   const lifecycleFiles =
-    substrate === "claude-code"
+    substrate === "claude-code" || substrate === "cursor"
       ? []
       : await installLifecycleProjection(substrate, substrateHome.rootDir, {
           homeDir: options.homeDir,
@@ -234,6 +249,8 @@ async function installHomeProjectionFor(
       return installPiDevHomeProjection(context, options);
     case "claude-code":
       return installClaudeCodeHomeProjection(context, options);
+    case "cursor":
+      return installCursorHomeProjection(context, options);
   }
 }
 
@@ -304,6 +321,10 @@ export async function installSomaForClaudeCode(options: SomaInstallOptions = {})
   return installSomaForSubstrate("claude-code", options);
 }
 
+export async function installSomaForCursor(options: SomaInstallOptions = {}): Promise<SomaInstallResult> {
+  return installSomaForSubstrate("cursor", options);
+}
+
 /**
  * Uninstall Soma's projection from a Claude Code home (#29). Removes
  * `<substrateHome>/rules/soma/` and `<substrateHome>/skills/ISA/`
@@ -323,8 +344,43 @@ export interface UninstallClaudeCodeResult {
   removed: string[];
 }
 
+export interface UninstallCursorOptions {
+  homeDir?: string;
+  substrateHome?: string;
+}
+
+export interface UninstallCursorResult {
+  substrate: "cursor";
+  substrateHome: string;
+  removed: string[];
+}
+
 function isEnoent(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "ENOENT";
+}
+
+async function removeExistingTargets(
+  targets: readonly string[],
+  shouldRemove: (target: string) => Promise<boolean> = async () => true,
+): Promise<string[]> {
+  const removed: string[] = [];
+  for (const target of targets) {
+    try {
+      await stat(target);
+    } catch (error) {
+      if (isEnoent(error)) continue;
+      throw error;
+    }
+    if (!(await shouldRemove(target))) continue;
+    try {
+      await rm(target, { recursive: true, force: true });
+      removed.push(target);
+    } catch (error) {
+      if (isEnoent(error)) continue;
+      throw error;
+    }
+  }
+  return removed;
 }
 
 export async function uninstallSomaForClaudeCode(
@@ -333,22 +389,59 @@ export async function uninstallSomaForClaudeCode(
   const resolvedHomeDir = resolve(options.homeDir ?? homedir());
   const substrateHome = resolve(options.substrateHome ?? join(resolvedHomeDir, DEFAULT_SUBSTRATE_HOMES["claude-code"]));
   const targets = [join(substrateHome, "rules/soma"), join(substrateHome, "skills/ISA")];
-  const { rm, stat } = await import("node:fs/promises");
-  const removed: string[] = [];
-  for (const target of targets) {
+  const removed = await removeExistingTargets(targets);
+  return { substrate: "claude-code", substrateHome, removed };
+}
+
+export async function uninstallSomaForCursor(
+  options: UninstallCursorOptions = {},
+): Promise<UninstallCursorResult> {
+  const resolvedHomeDir = resolve(options.homeDir ?? homedir());
+  const substrateHome = resolve(options.substrateHome ?? join(resolvedHomeDir, DEFAULT_SUBSTRATE_HOMES.cursor));
+  const cursorRulesDir = join(substrateHome, ".cursor/rules/soma");
+  const cursorRulesFile = join(substrateHome, ".cursorrules");
+  const removed = await removeExistingTargets([cursorRulesDir], async () => {
+    const markerFile = join(cursorRulesDir, "README.md");
     try {
-      await stat(target);
+      const content = await readFile(markerFile, "utf8");
+      return content.startsWith("# Soma Cursor Projection");
     } catch (error) {
-      if (isEnoent(error)) continue; // not installed → idempotent skip
-      throw error; // permissions or other I/O failure — sage r1: do NOT hide
-    }
-    try {
-      await rm(target, { recursive: true, force: true });
-      removed.push(target);
-    } catch (error) {
-      if (isEnoent(error)) continue; // race: gone between stat and rm
+      if (isEnoent(error)) return false;
       throw error;
     }
+  });
+  if (await removeCursorRulesProjection(cursorRulesFile)) {
+    removed.push(cursorRulesFile);
   }
-  return { substrate: "claude-code", substrateHome, removed };
+  return { substrate: "cursor", substrateHome, removed };
+}
+
+async function removeCursorRulesProjection(path: string): Promise<boolean> {
+  let content: string;
+  try {
+    content = await readFile(path, "utf8");
+  } catch (error) {
+    if (isEnoent(error)) return false;
+    throw error;
+  }
+
+  if (content.startsWith("# Soma Cursor Projection")) {
+    await rm(path, { force: true });
+    return true;
+  }
+
+  const start = content.indexOf(CURSOR_RULES_BLOCK_BEGIN);
+  if (start === -1) return false;
+  const end = content.indexOf(CURSOR_RULES_BLOCK_END, start);
+  if (end === -1) return false;
+
+  const before = content.slice(0, start).trimEnd();
+  const after = content.slice(end + CURSOR_RULES_BLOCK_END.length).trimStart();
+  const preserved = [before, after.trimEnd()].filter((part) => part.length > 0).join("\n\n");
+  if (preserved.length === 0) {
+    await rm(path, { force: true });
+    return true;
+  }
+  await writeFile(path, `${preserved}\n`, "utf8");
+  return true;
 }
