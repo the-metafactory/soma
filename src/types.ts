@@ -1,4 +1,4 @@
-export type SubstrateId = "codex" | "pi-dev" | "claude-code" | "cortex" | "custom";
+export type SubstrateId = "codex" | "pi-dev" | "claude-code" | "cursor" | "cortex" | "custom";
 
 export interface AssistantIdentity {
   name: string;
@@ -680,7 +680,7 @@ export interface SomaSkillManifest {
   workflows: string[];
   tools: string[];
   triggers: string[];
-  substrates: ("claude-code" | "codex" | "pi-dev" | "cortex" | "custom")[];
+  substrates: ("claude-code" | "codex" | "pi-dev" | "cursor" | "cortex" | "custom")[];
 }
 
 export interface PaiPackImportPlan {

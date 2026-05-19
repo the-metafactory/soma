@@ -1,4 +1,5 @@
 import { readSync } from "node:fs";
+import { cursorWorkspaceSubstrateHome } from "./adapters/cursor";
 import {
   addAlgorithmCapabilities,
   applyAlgorithmBatch,
@@ -20,13 +21,18 @@ import {
   type PaiMigrationResult,
   installSomaForClaudeCode,
   installSomaForCodex,
+  installSomaForCursor,
   installSomaForPiDev,
   planSomaForClaudeCodeInstall,
+  planSomaForCursorInstall,
   uninstallSomaForClaudeCode,
+  uninstallSomaForCursor,
   type UninstallClaudeCodeOptions,
   type UninstallClaudeCodeResult,
+  type UninstallCursorResult,
   buildClaudeCodeHomeProjection,
   buildCodexHomeProjection,
+  buildCursorHomeProjection,
   buildPiDevHomeProjection,
   loadSomaHome,
   listAlgorithmRunSummaries,
@@ -174,7 +180,7 @@ function warnDeprecatedSubstrateFlag(): void {
   );
 }
 
-type InstallSubstrate = "codex" | "pi-dev" | "claude-code";
+type InstallSubstrate = "codex" | "pi-dev" | "claude-code" | "cursor";
 
 interface ParsedInstallArgs {
   command: "install";
@@ -519,29 +525,31 @@ const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string,
     usage: "Usage: soma lifecycle <session-start|algorithm-updated|session-end> [--home-dir <dir>] [--soma-home <dir>] [--substrate <id>] [--session-id <id>]",
   },
   install: {
-    usage: "Usage: soma install <codex|pi-dev|claude-code> [--dry-run] [--apply] [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
+    usage: "Usage: soma install <codex|pi-dev|claude-code|cursor> [--dry-run] [--apply] [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
     subcommands: {
       codex: "Usage: soma install codex [--dry-run] [--apply] [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
       "pi-dev": "Usage: soma install pi-dev [--dry-run] [--apply] [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
       "claude-code": "Usage: soma install claude-code [--dry-run] [--apply] [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
+      cursor: "Usage: soma install cursor [--dry-run] [--apply] [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
     },
   },
   uninstall: {
-    usage: "Usage: soma uninstall <codex|pi-dev|claude-code> [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
+    usage: "Usage: soma uninstall <codex|pi-dev|claude-code|cursor> [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
     subcommands: {
       codex: "Usage: soma uninstall codex [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
       "pi-dev": "Usage: soma uninstall pi-dev [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
       "claude-code": "Usage: soma uninstall claude-code [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
+      cursor: "Usage: soma uninstall cursor [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
     },
   },
   reproject: {
-    usage: "Usage: soma reproject <codex|pi-dev|claude-code> [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
+    usage: "Usage: soma reproject <codex|pi-dev|claude-code|cursor> [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
   },
   upgrade: {
-    usage: "Usage: soma upgrade <codex|pi-dev|claude-code> [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
+    usage: "Usage: soma upgrade <codex|pi-dev|claude-code|cursor> [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
   },
   export: {
-    usage: "Usage: soma export <codex|pi-dev|claude-code> [--out <dir>] [--home-dir <dir>] [--soma-home <dir>]",
+    usage: "Usage: soma export <codex|pi-dev|claude-code|cursor> [--out <dir>] [--home-dir <dir>] [--soma-home <dir>]",
   },
   daemon: {
     usage: "Usage: soma daemon  (not yet implemented — placeholder reserves the runtime mode)",
@@ -588,7 +596,7 @@ function commandUsage(command: string, action?: string): string {
   return (action ? commandHelp?.subcommands?.[action] : undefined) ?? commandHelp?.usage ?? `Usage: soma ${command} ...`;
 }
 
-const INSTALL_SUBSTRATES = ["codex", "pi-dev", "claude-code"] as const satisfies readonly InstallSubstrate[];
+const INSTALL_SUBSTRATES = ["codex", "pi-dev", "claude-code", "cursor"] as const satisfies readonly InstallSubstrate[];
 
 function isInstallSubstrate(value: string | undefined): value is InstallSubstrate {
   return value !== undefined && (INSTALL_SUBSTRATES as readonly string[]).includes(value);
@@ -599,6 +607,7 @@ function workspaceSubstrateHome(substrate: InstallSubstrate): string {
   // `./.{codex,pi,claude}/soma` — a soma-scoped subdir so it doesn't
   // collide with substrate-native workspace files the principal may
   // already have for that repo.
+  if (substrate === "cursor") return cursorWorkspaceSubstrateHome();
   const folder = substrate === "pi-dev" ? ".pi" : substrate === "claude-code" ? ".claude" : ".codex";
   return resolveJoin(process.cwd(), folder, "soma");
 }
@@ -1002,11 +1011,11 @@ function parseBatchOperationsJson(value: string): AlgorithmBatchOperation[] {
 }
 
 function parseSubstrate(value: string): SubstrateId {
-  if (value === "codex" || value === "pi-dev" || value === "claude-code" || value === "cortex" || value === "custom") {
+  if (value === "codex" || value === "pi-dev" || value === "claude-code" || value === "cursor" || value === "cortex" || value === "custom") {
     return value;
   }
 
-  throw new Error("--substrate must be one of codex, pi-dev, claude-code, cortex, or custom.");
+  throw new Error("--substrate must be one of codex, pi-dev, claude-code, cursor, cortex, or custom.");
 }
 
 function parseMemoryPromotionStore(value: string): SomaMemoryPromotionStore {
@@ -2213,6 +2222,27 @@ function formatClaudeUninstallResult(result: UninstallClaudeCodeResult): string 
   }
   return [
     "soma adopt claude — uninstall",
+    "",
+    `Substrate home: ${result.substrateHome}`,
+    "",
+    "Removed:",
+    ...result.removed.map((p) => `  - ${p}`),
+    "",
+  ].join("\n");
+}
+
+function formatCursorUninstallResult(result: UninstallCursorResult): string {
+  if (result.removed.length === 0) {
+    return [
+      "soma uninstall cursor",
+      "",
+      `Substrate home: ${result.substrateHome}`,
+      "Nothing to remove — Soma was not installed at this substrate home.",
+      "",
+    ].join("\n");
+  }
+  return [
+    "soma uninstall cursor",
     "",
     `Substrate home: ${result.substrateHome}`,
     "",
@@ -3618,6 +3648,8 @@ function planInstall(substrate: InstallSubstrate, options: SomaInstallOptions): 
       return planSomaForPiDevInstall(options);
     case "claude-code":
       return planSomaForClaudeCodeInstall(options);
+    case "cursor":
+      return planSomaForCursorInstall(options);
   }
 }
 
@@ -3629,6 +3661,8 @@ async function runInstall(substrate: InstallSubstrate, options: SomaInstallOptio
       return installSomaForPiDev(options);
     case "claude-code":
       return installSomaForClaudeCode(options);
+    case "cursor":
+      return installSomaForCursor(options);
   }
 }
 
@@ -3636,11 +3670,14 @@ async function runUninstall(parsed: ParsedUninstallArgs): Promise<string> {
   if (parsed.substrate === "claude-code") {
     return formatClaudeUninstallResult(await uninstallSomaForClaudeCode(parsed.options));
   }
+  if (parsed.substrate === "cursor") {
+    return formatCursorUninstallResult(await uninstallSomaForCursor(parsed.options));
+  }
   // Codex and Pi.dev uninstallers are not yet implemented. The CLI
   // surface is reserved so CONTEXT.md's "Lifecycle verbs" table maps
   // one-to-one (#54 AC); functional removal lands in a follow-up.
   throw new SomaCliError(
-    `soma uninstall ${parsed.substrate} is not yet implemented (claude-code is currently the only functional uninstaller; codex and pi-dev removal land in a follow-up).`,
+    `soma uninstall ${parsed.substrate} is not yet implemented (claude-code and cursor are currently the functional uninstallers; codex and pi-dev removal land in a follow-up).`,
     1,
   );
 }
@@ -3695,6 +3732,8 @@ function projectionFilesFor(
       return buildPiDevHomeProjection(input, options).bundle.files;
     case "claude-code":
       return buildClaudeCodeHomeProjection(input, options).bundle.files;
+    case "cursor":
+      return buildCursorHomeProjection(input, options).bundle.files;
   }
 }
 

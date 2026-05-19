@@ -184,10 +184,13 @@ export {
   projectClaudeCodeHome,
   projectCodex,
   projectCodexHome,
+  projectCursor,
+  projectCursorHome,
   projectPiDev,
   projectPiDevHome,
   claudeCodeAdapter,
   codexAdapter,
+  cursorAdapter,
   piDevAdapter,
 } from "./adapters";
 // NOTE: #43 Algorithm renderer pure-logic helpers (phase parser,
@@ -279,22 +282,29 @@ export {
 export {
   buildClaudeCodeHomeProjection,
   buildCodexHomeProjection,
+  buildCursorHomeProjection,
   buildPiDevHomeProjection,
   installClaudeCodeHomeProjection,
   installCodexHomeProjection,
+  installCursorHomeProjection,
   installPiDevHomeProjection,
   resolveHomeProjectionPaths,
 } from "./home-projection";
 export {
   installSomaForClaudeCode,
   installSomaForCodex,
+  installSomaForCursor,
   installSomaForPiDev,
   planSomaForClaudeCodeInstall,
   planSomaForCodexInstall,
+  planSomaForCursorInstall,
   planSomaForPiDevInstall,
   uninstallSomaForClaudeCode,
+  uninstallSomaForCursor,
   type UninstallClaudeCodeOptions,
   type UninstallClaudeCodeResult,
+  type UninstallCursorOptions,
+  type UninstallCursorResult,
 } from "./install";
 // Adapter active-ISA projection helpers (#37).
 export {

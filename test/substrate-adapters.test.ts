@@ -2,8 +2,10 @@ import { expect, test } from "bun:test";
 import {
   projectClaudeCode,
   projectCodex,
+  projectCursor,
   projectPiDev,
   claudeCodeAdapter,
+  cursorAdapter,
   piDevAdapter,
   type Projection,
 } from "../src/index";
@@ -55,11 +57,23 @@ test("claude code adapter builds a claude-shaped context bundle", () => {
   expectPortableSemantics(bundle);
 });
 
-test("codex, pi.dev, and claude code preserve portable semantics from one input", () => {
+test("cursor adapter builds a Cursor rules-shaped context bundle", () => {
+  const bundle = projectCursor(portableProjectionInput);
+
+  expect(bundle.substrate).toBe("cursor");
+  expect(bundle.files.map((file) => file.path)).toContain(".cursorrules");
+  expect(bundle.files.map((file) => file.path)).toContain(".cursor/rules/soma/CONTEXT.md");
+  expect(bundle.files.map((file) => file.path)).toContain(".cursor/rules/soma/MCP.md");
+  expect(bundle.files.find((file) => file.path === ".cursorrules")?.content).toContain(".cursor/rules/soma/CONTEXT.md");
+  expectPortableSemantics(bundle);
+});
+
+test("codex, pi.dev, claude code, and cursor preserve portable semantics from one input", () => {
   const bundles = [
     projectCodex(portableProjectionInput),
     projectPiDev(portableProjectionInput),
     projectClaudeCode(portableProjectionInput),
+    projectCursor(portableProjectionInput),
   ];
 
   for (const bundle of bundles) {
@@ -67,7 +81,7 @@ test("codex, pi.dev, and claude code preserve portable semantics from one input"
   }
 });
 
-test("pi.dev and claude code adapters expose context build before execution", async () => {
+test("pi.dev, claude code, and cursor adapters expose context build before execution", async () => {
   await expect(piDevAdapter.project(portableProjectionInput)).resolves.toMatchObject({
     substrate: "pi-dev",
   });
@@ -76,12 +90,21 @@ test("pi.dev and claude code adapters expose context build before execution", as
     substrate: "claude-code",
   });
 
+  await expect(cursorAdapter.project(portableProjectionInput)).resolves.toMatchObject({
+    substrate: "cursor",
+  });
+
   await expect(piDevAdapter.run({ id: "task-1", substrate: "pi-dev", prompt: "run" })).resolves.toMatchObject({
     status: "failed",
     summary: expect.stringContaining("not implemented"),
   });
 
   await expect(claudeCodeAdapter.run({ id: "task-2", substrate: "claude-code", prompt: "run" })).resolves.toMatchObject({
+    status: "failed",
+    summary: expect.stringContaining("not implemented"),
+  });
+
+  await expect(cursorAdapter.run({ id: "task-3", substrate: "cursor", prompt: "run" })).resolves.toMatchObject({
     status: "failed",
     summary: expect.stringContaining("not implemented"),
   });
