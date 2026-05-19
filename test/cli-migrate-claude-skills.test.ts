@@ -167,6 +167,7 @@ test("soma migrate claude-skills --status (after apply) prints summary", async (
 test("soma migrate claude-skills --help surfaces usage", async () => {
   const output = await runSomaCli(["migrate", "claude-skills", "--help"]);
   expect(output).toContain("Usage: soma migrate claude-skills");
+  expect(output).toContain("[--verbose]");
 });
 
 // #125 — progress + timing + --quiet.

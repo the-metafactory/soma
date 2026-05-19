@@ -156,14 +156,11 @@ test("quiet=true still produces a finishTimingSummary string (timing belongs on 
 });
 
 // ──────────────────────────────────────────────────────────────
-// #139 quick patch — concurrent-phase suppression.
+// #139 — concurrent-phase rolling display.
 //
-// Concurrent phases (read+classify with 4-wide fan-out) emit ONE
-// banner line at phase begin and ONE summary line at phase end.
-// Per-skill `step` / `stepComplete` calls inside the phase are
-// suppressed entirely — otherwise the 4-wide concurrent worker
-// pool produces 97 interleaved append-only lines (the #139
-// symptom).
+// Concurrent phases (read+classify/apply write with 4-wide fan-out)
+// emit one rolling TTY line and one summary. Non-TTY and verbose
+// preserve append-only per-skill rows for logs/debugging.
 //
 // Sequential phases (rewrite, write, smoke verify) keep the #125
 // `\r`-overwrite behavior. `step` / `stepComplete` outside any
@@ -177,28 +174,44 @@ test("#139: beginConcurrentPhase emits one banner line on non-TTY", () => {
   expect(capture.text).toBe("[read + classify: 97 skills, 4-wide concurrent ...]\n");
 });
 
-test("#139: beginConcurrentPhase emits one banner line on TTY (still \\n-terminated)", () => {
-  // Concurrent banner is a phase-boundary marker, NOT a rolling-line
-  // candidate. It's safe to terminate with `\n` on TTY because no
-  // subsequent step writes will overwrite it (steps are suppressed
-  // entirely while a concurrent phase is active).
+test("#139: beginConcurrentPhase starts a rolling line on TTY", () => {
   const { stream, capture } = makeCapturingStream();
   const emitter = createProgressEmitter({ stderr: stream, quiet: false, isatty: true });
   emitter.beginConcurrentPhase("read + classify", 97, 4);
-  expect(capture.text).toBe("[read + classify: 97 skills, 4-wide concurrent ...]\n");
+  expect(capture.text).toBe("\r[0/97] processing skills...");
+  expect(capture.text).not.toContain("\n");
 });
 
-test("#139: step + stepComplete are no-op while a concurrent phase is active", () => {
+test("#139: non-TTY concurrent phase preserves append-only per-skill rows", () => {
   const { stream, capture } = makeCapturingStream();
   const emitter = createProgressEmitter({ stderr: stream, quiet: false, isatty: false });
   emitter.beginConcurrentPhase("read + classify", 3, 4);
-  // 3 per-skill `stepComplete` calls inside the concurrent phase
-  // must NOT emit any output.
+  emitter.step(1, "Foo", "reading + classifying", "read");
   emitter.stepComplete(1, "Foo", "reading + classifying", 12, "read");
   emitter.stepComplete(2, "Bar", "reading + classifying", 8, "read");
   emitter.stepComplete(3, "Baz", "reading + classifying", 15, "read");
-  // Only the begin banner should be in the capture.
-  expect(capture.text).toBe("[read + classify: 3 skills, 4-wide concurrent ...]\n");
+  expect(capture.text).not.toContain("\r");
+  expect(capture.text).toContain("[read + classify: 3 skills, 4-wide concurrent ...]\n");
+  expect(capture.text).toContain("Foo");
+  expect(capture.text).toContain("Bar");
+  expect(capture.text).toContain("Baz");
+  expect(capture.text.split("\n").filter((l) => l.length > 0).length).toBe(5);
+});
+
+test("#139: TTY concurrent phase rolls one line instead of appending per-skill rows", () => {
+  const { stream, capture } = makeCapturingStream();
+  const emitter = createProgressEmitter({ stderr: stream, quiet: false, isatty: true });
+  emitter.beginConcurrentPhase("read + classify", 3, 4);
+  emitter.step(1, "Foo", "reading + classifying", "read");
+  emitter.step(2, "Bar", "reading + classifying", "read");
+  emitter.stepComplete(1, "Foo", "reading + classifying", 12, "read");
+  emitter.stepComplete(2, "Bar", "reading + classifying", 8, "read");
+  expect(capture.text).toContain("\r[0/3] processing skills...");
+  expect(capture.text).toContain("\r[0/3] processing Foo...");
+  expect(capture.text).toContain("\r[0/3] processing Foo + 1 others...");
+  expect(capture.text).toContain("\r[1/3] processing Foo + 1 others...");
+  expect(capture.text).toContain("\r[2/3] processing Bar...");
+  expect(capture.text).not.toContain("\n[");
 });
 
 test("#139: endConcurrentPhase emits a summary line with elapsed + avg + max", () => {
@@ -209,16 +222,15 @@ test("#139: endConcurrentPhase emits a summary line with elapsed + avg + max", (
   emitter.stepComplete(2, "Bar", "reading + classifying", 20, "read");
   emitter.stepComplete(3, "Baz", "reading + classifying", 30, "read");
   emitter.endConcurrentPhase("read + classify", 900);
-  // Begin + end. Step calls suppressed.
   const lines = capture.text.split("\n").filter((l) => l.length > 0);
-  expect(lines.length).toBe(2);
+  expect(lines.length).toBe(5);
   expect(lines[0]).toBe("[read + classify: 3 skills, 4-wide concurrent ...]");
   // Summary: count, elapsed (seconds), avg (ms), max (ms).
-  expect(lines[1]).toContain("read + classify");
-  expect(lines[1]).toContain("3 skills");
-  expect(lines[1]).toContain("0.9s");
-  expect(lines[1]).toContain("avg 20ms");
-  expect(lines[1]).toContain("max 30ms");
+  expect(lines[4]).toContain("read + classify");
+  expect(lines[4]).toContain("3 skills");
+  expect(lines[4]).toContain("0.9s");
+  expect(lines[4]).toContain("avg 20ms");
+  expect(lines[4]).toContain("max 30ms");
 });
 
 test("#139: endConcurrentPhase with zero recorded steps emits avg 0ms max 0ms", () => {
@@ -258,23 +270,22 @@ test("#139: quiet=true suppresses concurrent banner + summary", () => {
   expect(capture.text).toBe("");
 });
 
-test("#139: TTY non-quiet — concurrent phase still suppresses per-skill rows", () => {
-  // Regression guard: the #139 symptom (97 interleaved lines on
-  // TTY) was specifically because step/stepComplete fell through
-  // to per-skill emission with `\r` overwrite that couldn't keep
-  // up with 4-wide fan-out. With the concurrent-phase wrapper, the
-  // emitter must suppress regardless of TTY-ness.
+test("#139: verbose TTY preserves append-only per-skill rows", () => {
   const { stream, capture } = makeCapturingStream();
-  const emitter = createProgressEmitter({ stderr: stream, quiet: false, isatty: true });
+  const emitter = createProgressEmitter({
+    stderr: stream,
+    quiet: false,
+    isatty: true,
+    verbose: true,
+  });
   emitter.beginConcurrentPhase("read + classify", 2, 4);
+  emitter.step(1, "Foo", "reading + classifying", "read");
   emitter.stepComplete(1, "Foo", "reading + classifying", 10, "read");
   emitter.stepComplete(2, "Bar", "reading + classifying", 12, "read");
   emitter.endConcurrentPhase("read + classify", 80);
-  // No "Foo" or "Bar" per-skill lines should leak through.
-  expect(capture.text).not.toContain("Foo");
-  expect(capture.text).not.toContain("Bar");
-  // Begin banner and end summary present.
+  expect(capture.text).not.toContain("\r");
   expect(capture.text).toContain("[read + classify: 2 skills, 4-wide concurrent ...]");
-  expect(capture.text).toContain("avg ");
-  expect(capture.text).toContain("max ");
+  expect(capture.text).toContain("Foo");
+  expect(capture.text).toContain("Bar");
+  expect(capture.text).toContain("avg 11ms");
 });
