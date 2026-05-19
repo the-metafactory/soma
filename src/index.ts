@@ -33,6 +33,7 @@ export type {
   Projection,
   ProjectionInput,
   SomaMemoryLayout,
+  SomaPaths,
   SomaProfile,
   SomaRunResult,
   SomaSkill,
@@ -170,6 +171,7 @@ export {
 // runtime shape in the follow-up PR. Tests can import the helpers
 // directly from the substrate path.
 export { writeProjection } from "./projection";
+export { createPaths, type SomaPathsOptions } from "./paths";
 export {
   buildClaudeCodeHomeProjection,
   buildCodexHomeProjection,
