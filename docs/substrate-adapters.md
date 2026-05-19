@@ -87,6 +87,28 @@ Claude Code skills, sub-agents, commands, principal identity, memory, and
 daemon support are available at every Claude Code startup. Soma should project
 into that shape without making Claude Code the source of truth.
 
+## Cursor
+
+Cursor reads project-level rule files and can use MCP servers for additional
+tools. The first Cursor adapter is intentionally filesystem-first:
+
+- `.cursorrules` points Cursor at the generated Soma rule directory
+- `.cursor/rules/soma/` carries context, profile, telos, memory layout, skills,
+  policy, MCP notes, and the active ISA when present
+- `.cursor/rules/soma/skills/ISA/` carries the portable ISA skill source
+
+Initial implementation: `projectCursor` and `projectCursorHome` generate the
+same portable Soma context in Cursor's native rules shape. `soma install cursor
+--apply` writes into the requested substrate home; `soma install cursor
+--workspace --apply` targets the current project workspace. `soma export cursor`
+emits the deterministic file bundle without writing files.
+
+`soma uninstall cursor` removes only the generated `.cursor/rules/soma/`
+projection and a Soma-owned `.cursorrules` marker file. A pre-existing
+workspace `.cursorrules` that does not start with the Soma marker is preserved.
+Cursor execution and MCP runtime wiring are deferred; the adapter exposes
+context projection first.
+
 ## Cortex / Myelin
 
 Cortex is the Meta Factory collaboration surface. Myelin is the protocol stack.

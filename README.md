@@ -10,13 +10,13 @@
 
 <p align="center">
   <strong>Your AI assistant's identity, memory, and skills.<br />
-  Kept in one place. Portable across Claude Code, OpenAI Codex, and Pi.dev.</strong>
+  Kept in one place. Portable across Claude Code, OpenAI Codex, Pi.dev, and Cursor.</strong>
 </p>
 
 <p align="center">
   <img alt="Version" src="https://img.shields.io/badge/version-0.4.1-2A3F6A?labelColor=0E1726" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-2A3F6A?labelColor=0E1726" />
-  <img alt="Runs in" src="https://img.shields.io/badge/runs%20in-Codex%20%C2%B7%20Pi.dev%20%C2%B7%20Claude%20Code-2A3F6A?labelColor=0E1726" />
+  <img alt="Runs in" src="https://img.shields.io/badge/runs%20in-Codex%20%C2%B7%20Pi.dev%20%C2%B7%20Claude%20Code%20%C2%B7%20Cursor-2A3F6A?labelColor=0E1726" />
 </p>
 
 <p align="center">
@@ -59,6 +59,7 @@ Then project Soma into the coding agent you use:
 bun run soma install codex --apply
 bun run soma install pi-dev --apply
 bun run soma install claude-code --apply
+bun run soma install cursor --apply
 ```
 
 > `soma adopt claude` still works as a legacy alias; new prose uses the
@@ -68,7 +69,7 @@ bun run soma install claude-code --apply
 
 ## What you get in 30 seconds
 
-- **One assistant, many coding agents.** Your principal profile, goals, memory, skills, and learning live on your machine in `<soma-home>/`. Move between Claude Code, OpenAI Codex, and Pi.dev. Your assistant keeps remembering, keeps learning, and keeps you.
+- **One assistant, many coding agents.** Your principal profile, goals, memory, skills, and learning live on your machine in `<soma-home>/`. Move between Claude Code, OpenAI Codex, Pi.dev, and Cursor. Your assistant keeps remembering, keeps learning, and keeps you.
 - **Filesystem-native by design.** Plain folders. Plain Markdown. You can read, edit, version, back up, and audit your assistant's brain with the same tools you use for everything else. No proprietary database. No vendor lock-in.
 - **Ideal state built in.** Soma stores project and task ISAs, keeps one active ISA available to adapters, and gives the Algorithm a verification contract.
 
@@ -116,14 +117,16 @@ Once installed, point Soma at the coding agent you want it to run in. Each adapt
 soma install codex --apply
 soma install pi-dev --apply
 soma install claude-code --apply
+soma install cursor --apply
 ```
 
 Then start a session and watch Soma surface its context.
 
 Claude Code uses its native rules directory as the home projection so Claude
 can auto-discover the Soma projection without depending on fragile
-home-directory imports. `soma uninstall claude-code` removes only the
-generated Soma projection.
+home-directory imports. Cursor uses `.cursorrules` plus `.cursor/rules/soma/`;
+`soma uninstall claude-code` and `soma uninstall cursor` remove only generated
+Soma projection files.
 
 <!--
   Demo recording brief (replace this whole block with the rendered asset).
@@ -204,7 +207,7 @@ readable migration manifest under the Soma profile import area.
 
 See **[docs/migration-from-pai.md](docs/migration-from-pai.md)** for the full
 walkthrough — prerequisites, every flag, per-substrate install (Codex,
-Claude Code, Pi.dev), verification steps, and troubleshooting.
+Claude Code, Pi.dev, Cursor), verification steps, and troubleshooting.
 
 ### Alternative path: import from your installed `~/.claude/skills/` tree
 
@@ -355,6 +358,7 @@ for the matcher rules.
 | **OpenAI Codex** (the command-line coding agent) | ✅ Shipping |
 | **Pi.dev** (the Pi developer harness) | ✅ Shipping |
 | **Claude Code** (Anthropic's terminal-and-IDE coding agent) | ✅ Shipping |
+| **Cursor** (the AI code editor) | ✅ Shipping |
 | **Cortex** (operator collaboration surface) | 🛠 Planned |
 
 The adapter contract is small enough to write in an afternoon. If you want Soma in an agent that is not on this list, see [docs/substrate-adapters.md](docs/substrate-adapters.md).
@@ -394,7 +398,7 @@ Soma also includes a dedicated importer for existing PAI installations, so the w
 ## Status
 
 Soma is now a typed CLI and library with shipping home projections for Codex,
-Pi.dev, and Claude Code. The current center of gravity is the filesystem
+Pi.dev, Claude Code, and Cursor. The current center of gravity is the filesystem
 contract: profile, telos, memory, policy, skills, Algorithm runs, and ISAs stay
 portable in the Soma home, while adapters project that same core into each
 substrate's native shape. The daemon and richer Cortex/Myelin integration come

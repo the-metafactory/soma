@@ -1,5 +1,6 @@
 export { projectClaudeCode, projectClaudeCodeHome, claudeCodeAdapter } from "./claude-code";
 export { projectCodex, projectCodexHome, codexAdapter } from "./codex";
+export { projectCursor, projectCursorHome, cursorAdapter } from "./cursor";
 export { projectPiDev, projectPiDevHome, piDevAdapter } from "./pi-dev";
 // NOTE: #43 Algorithm renderer pure-logic helpers (phase parser,
 // widget helpers, extension-source renderer) are intentionally NOT

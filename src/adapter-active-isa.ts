@@ -56,6 +56,7 @@ export function renderActiveIsaFile(isa: IdealStateArtifact): string {
  * | codex        | memories/soma/active-isa.md       |
  * | pi-dev       | agent/soma/active-isa.md          |
  * | claude-code  | rules/soma/ACTIVE_ISA.md          |
+ * | cursor       | .cursor/rules/soma/ACTIVE_ISA.md  |
  *
  * The Claude Code path moved from `PAI/ACTIVE_ISA.md` (the original
  * #37 spec) to `rules/soma/ACTIVE_ISA.md` per the soma#64 pivot (#29).
@@ -71,6 +72,8 @@ export function activeIsaProjectionPath(substrate: SubstrateId): string {
       return "agent/soma/active-isa.md";
     case "claude-code":
       return "rules/soma/ACTIVE_ISA.md";
+    case "cursor":
+      return ".cursor/rules/soma/ACTIVE_ISA.md";
     case "cortex":
     case "custom":
       throw new Error(`activeIsaProjectionPath: unsupported substrate '${substrate}'`);
@@ -96,8 +99,9 @@ export function activeIsaBundleFile(
  * and home-projection modules — kept here so adding a substrate is a
  * one-file change). Sage r1 finding.
  */
-export const DEFAULT_SUBSTRATE_HOMES: Record<"codex" | "pi-dev" | "claude-code", string> = {
+export const DEFAULT_SUBSTRATE_HOMES: Record<"codex" | "pi-dev" | "claude-code" | "cursor", string> = {
   codex: ".codex",
   "pi-dev": ".pi",
   "claude-code": ".claude",
+  cursor: ".",
 };
