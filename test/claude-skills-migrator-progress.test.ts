@@ -158,6 +158,38 @@ test("migrateClaudeSkills --apply emits writing step for each imported skill", a
   });
 });
 
+test("#139: migrateClaudeSkills brackets apply write with begin/endConcurrentPhase", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = await writeFixture(home);
+    const emitter = makeCapturingEmitter();
+    await migrateClaudeSkills({
+      from: fromDir,
+      somaHome: join(home, "soma"),
+      progressEmitter: emitter,
+    });
+    const begins = emitter.calls.filter((c) => c.method === "beginConcurrentPhase");
+    const ends = emitter.calls.filter((c) => c.method === "endConcurrentPhase");
+    expect(begins.map((c) => c.name)).toEqual(["read + classify", "apply write"]);
+    expect(ends.map((c) => c.name)).toEqual(["read + classify", "apply write"]);
+    expect(begins[1].total).toBe(2);
+    expect(begins[1].concurrency).toBe(4);
+    const writeBeginIdx = emitter.calls.findIndex(
+      (c) => c.method === "beginConcurrentPhase" && c.name === "apply write",
+    );
+    const writeEndIdx = emitter.calls.findIndex(
+      (c) => c.method === "endConcurrentPhase" && c.name === "apply write",
+    );
+    const writeStepIndices = emitter.calls
+      .map((c, i) => ({ c, i }))
+      .filter(({ c }) => c.method === "stepComplete" && c.phase === "writing")
+      .map(({ i }) => i);
+    for (const i of writeStepIndices) {
+      expect(i).toBeGreaterThan(writeBeginIdx);
+      expect(i).toBeLessThan(writeEndIdx);
+    }
+  });
+});
+
 test("migrateClaudeSkills brackets LLM rewrite with start + complete progress", async () => {
   await withTempHome(async (home) => {
     const fromDir = join(home, "skills");

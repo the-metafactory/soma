@@ -248,6 +248,8 @@ interface ParsedMigrateClaudeSkillsArgs {
   // quiet emitter to the migrator). The Timing block on stdout is
   // unaffected — it's part of the summary, not stderr noise.
   quiet?: boolean;
+  /** #139 — preserve append-only per-skill stderr rows for debugging. */
+  verbose?: boolean;
 }
 
 interface ParsedAdoptArgs {
@@ -421,7 +423,7 @@ const MIGRATE_PAI_USAGE =
 // from the usage line below for non-Phase-2 callers — they keep the
 // Phase-1 surface intact.
 const MIGRATE_CLAUDE_SKILLS_USAGE =
-  "Usage: soma migrate claude-skills --from <skills-dir> [--dry-run] [--apply] [--status] [--home-dir <dir>] [--soma-home <dir>] [--include-claude-specific] [--smoke <codex|pi-dev|all>] [--rewrite-descriptions <claude|codex|pi|none>] [--quiet]";
+  "Usage: soma migrate claude-skills --from <skills-dir> [--dry-run] [--apply] [--status] [--home-dir <dir>] [--soma-home <dir>] [--include-claude-specific] [--smoke <codex|pi-dev|all>] [--rewrite-descriptions <claude|codex|pi|none>] [--quiet] [--verbose]";
 const ADOPT_CLAUDE_USAGE =
   "Usage: soma adopt claude [--dry-run] [--apply] [--uninstall] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
 const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string, string> }> = {
@@ -1948,6 +1950,7 @@ function parseMigrateClaudeSkillsArgs(args: string[]): ParsedMigrateClaudeSkills
   // stdout is unaffected; principals who pipe stderr to /dev/null in
   // CI scripts no longer need to.
   let quiet = false;
+  let verbose = false;
 
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
@@ -2000,6 +2003,12 @@ function parseMigrateClaudeSkillsArgs(args: string[]): ParsedMigrateClaudeSkills
         // friendly for scripts that don't want the progress noise.
         quiet = true;
         break;
+      case "--verbose":
+        // #139 — force append-only per-skill stderr progress even
+        // inside concurrent phases. Useful for diagnosing a specific
+        // skill without changing stdout formatting.
+        verbose = true;
+        break;
       default:
         throw new Error(`Unknown option: ${arg}`);
     }
@@ -2013,7 +2022,7 @@ function parseMigrateClaudeSkillsArgs(args: string[]): ParsedMigrateClaudeSkills
     throw new Error(MIGRATE_CLAUDE_SKILLS_USAGE);
   }
 
-  return { command: "migrate", source: "claude-skills", mode, options, quiet };
+  return { command: "migrate", source: "claude-skills", mode, options, quiet, verbose };
 }
 
 // #115 Phase 2 — expand `--smoke <value>`. `all` resolves to every
@@ -3476,6 +3485,7 @@ export async function runSomaCli(args: string[]): Promise<string> {
           stderr: process.stderr,
           quiet: parsed.quiet === true,
           isatty: process.stderr.isTTY === true,
+          verbose: parsed.verbose === true,
         });
       }
       if (parsed.mode === "plan") {

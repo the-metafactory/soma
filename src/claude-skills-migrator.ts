@@ -1720,6 +1720,19 @@ export async function migrateClaudeSkills(
   // Skipped-idempotent skills fall back to disk re-read inside the
   // verify helper when a NEW substrate gets requested on rerun.
   const pendingVerifyPayloads: Map<string, Array<{ relPath: string; content: Buffer }>> = new Map();
+  interface ApplyWriteCandidate {
+    outcome: ClaudeSkillOutcome;
+    read: SourceSkillReadResult;
+    targetDir: string;
+    rewrittenSkillMdContent: string | null;
+    descriptionRewrite?: ClaudeSkillDescriptionRewrite;
+  }
+  interface ApplyWriteResult extends ApplyWriteCandidate {
+    fileShas: Record<string, string>;
+    rewrittenFiles: Array<{ relPath: string; content: Buffer }>;
+    elapsedMs: number;
+  }
+  const applyWriteCandidates: ApplyWriteCandidate[] = [];
 
   // #125 — index lookup for progress `[N/total]` prefix during the
   // apply phase. Built once over the post-classify outcomes so the
@@ -1914,58 +1927,84 @@ export async function migrateClaudeSkills(
       }
     }
 
-    // `needs-adapt` runs through the normalizer; `portable` and
-    // (when `--include-claude-specific`) `claude-specific` are
-    // pass-through. Running the normalizer on portable skills is
-    // safe (it's a no-op when no signals fire) but skipping the
-    // copy-byte-rewrite branch keeps the source SHA equal to the
-    // landed SHA for portable skills, which simplifies the audit
-    // trail.
-    const applyRewrites = outcome.tag === "needs-adapt";
-    // #125 — write-phase progress. Bytes are counted from the
-    // returned `fileShas` (one entry per landed file). The progress
-    // line wraps the I/O so principals see which skill is mid-write.
-    const writeIdx = outcomeIndexBySource.get(outcome.sourceName) ?? 0;
-    const writeT0 = Date.now();
-    const { fileShas, rewrittenFiles } = await writeSkillPayload(
+    applyWriteCandidates.push({
+      outcome,
       read,
       targetDir,
-      applyRewrites,
       rewrittenSkillMdContent,
-    );
-    const writeElapsed = Date.now() - writeT0;
-    applyWriteMs += writeElapsed;
-    progress.stepComplete(
-      writeIdx,
-      outcome.sourceName,
-      "writing",
-      writeElapsed,
-      `${Object.keys(fileShas).length} files`,
-    );
-    manifestEntries.push({
-      sourceName: outcome.sourceName,
-      kebabName: outcome.kebabName,
-      tag: outcome.tag,
-      sourceSha: outcome.sourceSha,
-      fileShas,
       ...(descriptionRewrite ? { descriptionRewrite } : {}),
     });
-    if (descriptionRewrite) {
-      outcome.descriptionRewrite = descriptionRewrite;
-    }
-    // Refresh the outcome's fileCount with the count of files actually
-    // landed under the skill root (always equal to source file count
-    // in Phase 1; the divergence shows up under Phase 2 if any per-
-    // substrate omits files).
-    outcome.fileCount = Object.keys(fileShas).length;
-    writtenCount += 1;
+  }
 
-    // Stash the post-rewrite payload for the smoke pass below. We
-    // don't run verify inline here so the idempotency contract is
-    // unambiguous — a re-run with no source churn but a fresh
-    // `--smoke <new-sub>` flag still triggers verify on the new
-    // substrate, even when the skill was skipped-idempotent above.
-    pendingVerifyPayloads.set(outcome.sourceName, rewrittenFiles);
+  // #139 — apply writes are independent per target skill directory,
+  // so run them through the same bounded-concurrency progress phase
+  // as read+classify. Results are returned in input order by
+  // runBoundedConcurrent, preserving manifest/report stability.
+  const APPLY_WRITE_CONCURRENCY = 4;
+  const writePhaseStart = Date.now();
+  progress.beginConcurrentPhase("apply write", applyWriteCandidates.length, APPLY_WRITE_CONCURRENCY);
+  try {
+    const writeResults = await runBoundedConcurrent<ApplyWriteCandidate, ApplyWriteResult>(
+      applyWriteCandidates,
+      async (candidate) => {
+        const { outcome, read, targetDir, rewrittenSkillMdContent } = candidate;
+        const applyRewrites = outcome.tag === "needs-adapt";
+        const writeIdx = outcomeIndexBySource.get(outcome.sourceName) ?? 0;
+        progress.step(writeIdx, outcome.sourceName, "writing");
+        const writeT0 = Date.now();
+        const { fileShas, rewrittenFiles } = await writeSkillPayload(
+          read,
+          targetDir,
+          applyRewrites,
+          rewrittenSkillMdContent,
+        );
+        const elapsedMs = Date.now() - writeT0;
+        progress.stepComplete(
+          writeIdx,
+          outcome.sourceName,
+          "writing",
+          elapsedMs,
+          `${Object.keys(fileShas).length} files`,
+        );
+        return {
+          ...candidate,
+          fileShas,
+          rewrittenFiles,
+          elapsedMs,
+        };
+      },
+      APPLY_WRITE_CONCURRENCY,
+    );
+    for (const result of writeResults) {
+      const { outcome, fileShas, rewrittenFiles, descriptionRewrite } = result;
+      applyWriteMs += result.elapsedMs;
+      manifestEntries.push({
+        sourceName: outcome.sourceName,
+        kebabName: outcome.kebabName,
+        tag: outcome.tag,
+        sourceSha: outcome.sourceSha,
+        fileShas,
+        ...(descriptionRewrite ? { descriptionRewrite } : {}),
+      });
+      if (descriptionRewrite) {
+        outcome.descriptionRewrite = descriptionRewrite;
+      }
+      // Refresh the outcome's fileCount with the count of files actually
+      // landed under the skill root (always equal to source file count
+      // in Phase 1; the divergence shows up under Phase 2 if any per-
+      // substrate omits files).
+      outcome.fileCount = Object.keys(fileShas).length;
+      writtenCount += 1;
+
+      // Stash the post-rewrite payload for the smoke pass below. We
+      // don't run verify inline here so the idempotency contract is
+      // unambiguous — a re-run with no source churn but a fresh
+      // `--smoke <new-sub>` flag still triggers verify on the new
+      // substrate, even when the skill was skipped-idempotent above.
+      pendingVerifyPayloads.set(outcome.sourceName, rewrittenFiles);
+    }
+  } finally {
+    progress.endConcurrentPhase("apply write", Date.now() - writePhaseStart);
   }
 
   // #115 Phase 2 — smoke pass. For each (imported skill, requested
