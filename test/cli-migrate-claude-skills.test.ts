@@ -58,9 +58,14 @@ test("soma migrate claude-skills --from <dir> → plan", async () => {
       join(home, "soma"),
     ]);
     expect(output).toContain("plan (dry-run");
-    expect(output).toContain("portable [portable] → imported");
-    expect(output).toContain("needs-adapt [needs-adapt] → imported");
-    expect(output).toContain("claude-specific [claude-specific] → skipped-claude-specific");
+    // #124 — grouped output by disposition
+    expect(output).toContain("### Imported (2)");
+    expect(output).toContain("Portable (1):");
+    expect(output).toContain("  - portable");
+    expect(output).toContain("Needs-adapt (1):");
+    expect(output).toContain("  - needs-adapt (1 refs)");
+    expect(output).toContain("### Skipped — claude-specific (1)");
+    expect(output).toContain("  - claude-specific");
     expect(output).toContain("Totals: 2 imported, 0 skipped-idempotent, 1 skipped-claude-specific");
     // No writes — soma home shouldn't have a manifest yet.
     await expect(
@@ -468,4 +473,149 @@ test("soma migrate claude-skills plan with oversize + no agent → refused-descr
 test("soma migrate claude-skills --help surfaces --rewrite-descriptions", async () => {
   const output = await runSomaCli(["migrate", "claude-skills", "--help"]);
   expect(output).toContain("--rewrite-descriptions");
+});
+
+// ---------------------------------------------------------------------
+// #124 — Grouped disposition output tests.
+// ---------------------------------------------------------------------
+
+async function writeMixedFixture(home: string): Promise<string> {
+  const fromDir = join(home, "skills");
+  // Portable
+  await mkdir(join(fromDir, "AlphaPortable"), { recursive: true });
+  await writeFile(
+    join(fromDir, "AlphaPortable", "SKILL.md"),
+    FM + "# AlphaPortable\n\nclean.\n",
+    "utf8",
+  );
+  await mkdir(join(fromDir, "BetaPortable"), { recursive: true });
+  await writeFile(
+    join(fromDir, "BetaPortable", "SKILL.md"),
+    FM + "# BetaPortable\n\nclean.\n",
+    "utf8",
+  );
+  // Needs-adapt
+  await mkdir(join(fromDir, "GammaAdapt"), { recursive: true });
+  await writeFile(
+    join(fromDir, "GammaAdapt", "SKILL.md"),
+    FM + "# GammaAdapt\n\nsee ~/.claude/PAI/X.md and ~/.claude/PAI/Y.md\n",
+    "utf8",
+  );
+  // Claude-specific — hook binding
+  await mkdir(join(fromDir, "DeltaHook"), { recursive: true });
+  await writeFile(
+    join(fromDir, "DeltaHook", "SKILL.md"),
+    FM + "# DeltaHook\n\nStop: cleanup hook\n",
+    "utf8",
+  );
+  // Claude-specific — slash-command
+  await mkdir(join(fromDir, "EpsilonSlash"), { recursive: true });
+  await writeFile(
+    join(fromDir, "EpsilonSlash", "SKILL.md"),
+    FM + "# EpsilonSlash\n\nuse /plan to design\n",
+    "utf8",
+  );
+  // Oversize description (refused-description-limit)
+  const desc = "USE WHEN test " + "x".repeat(1186);
+  await mkdir(join(fromDir, "ZetaOversize"), { recursive: true });
+  await writeFile(
+    join(fromDir, "ZetaOversize", "SKILL.md"),
+    `---\nname: ZetaOversize\ndescription: "${desc}"\n---\n\n# ZetaOversize\n\nbody.\n`,
+    "utf8",
+  );
+  return fromDir;
+}
+
+test("#124: plan output groups by disposition with correct section headers", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = await writeMixedFixture(home);
+    const output = await runSomaCli([
+      "migrate",
+      "claude-skills",
+      "--from",
+      fromDir,
+      "--soma-home",
+      join(home, "soma"),
+    ]);
+    // Imported group with sub-groups
+    expect(output).toContain("### Imported (3)");
+    expect(output).toContain("Portable (2):");
+    expect(output).toContain("  - alpha-portable");
+    expect(output).toContain("  - beta-portable");
+    expect(output).toContain("Needs-adapt (1):");
+    expect(output).toContain("  - gamma-adapt (2 refs)");
+
+    // Claude-specific group with sub-groups
+    expect(output).toContain("### Skipped — claude-specific (2)");
+    expect(output).toContain("Slash-command refs (1):");
+    expect(output).toContain("  - epsilon-slash");
+    expect(output).toContain("Hook bindings (1):");
+    expect(output).toContain("  - delta-hook");
+
+    // Refused group
+    expect(output).toContain("### Refused — description-limit (1)");
+    expect(output).toContain("  - zeta-oversize");
+
+    // Empty groups omitted
+    expect(output).not.toContain("### Skipped — idempotent");
+    expect(output).not.toContain("### Refused — other");
+
+    // Totals line preserved
+    expect(output).toContain("Totals: 3 imported");
+    expect(output).toContain("2 skipped-claude-specific");
+    expect(output).toContain("1 refused-description-limit");
+
+    // Footer suggestion preserved
+    expect(output).toContain("--include-claude-specific");
+    expect(output).toContain("--rewrite-descriptions claude");
+  });
+});
+
+test("#124: apply output groups by disposition", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = await writeMixedFixture(home);
+    const output = await runSomaCli([
+      "migrate",
+      "claude-skills",
+      "--from",
+      fromDir,
+      "--soma-home",
+      join(home, "soma"),
+      "--apply",
+    ]);
+    expect(output).toContain("### Imported (3)");
+    expect(output).toContain("Portable (2):");
+    expect(output).toContain("Needs-adapt (1):");
+    expect(output).toContain("### Skipped — claude-specific (2)");
+    expect(output).toContain("Totals: 3 written");
+  });
+});
+
+test("#124: idempotent re-run shows Skipped — idempotent group", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = await writeFixture(home);
+    const somaHome = join(home, "soma");
+    await runSomaCli([
+      "migrate",
+      "claude-skills",
+      "--from",
+      fromDir,
+      "--soma-home",
+      somaHome,
+      "--apply",
+    ]);
+    const second = await runSomaCli([
+      "migrate",
+      "claude-skills",
+      "--from",
+      fromDir,
+      "--soma-home",
+      somaHome,
+      "--apply",
+    ]);
+    expect(second).toContain("### Skipped — idempotent (2)");
+    expect(second).toContain("  - portable");
+    expect(second).toContain("  - needs-adapt");
+    expect(second).not.toContain("### Imported");
+  });
 });

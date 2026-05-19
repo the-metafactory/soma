@@ -103,12 +103,15 @@ import {
   planClaudeSkillsMigration,
   readClaudeSkillsMigrationStatus,
   resolveOutcomeReason,
+  REASON_PREFIX_HOOK_BINDING,
+  REASON_PREFIX_SLASH_COMMAND,
 } from "./claude-skills-migrator";
 import type {
   ClaudeSkillsMigrationOptions,
   ClaudeSkillsMigrationPlan,
   ClaudeSkillsMigrationResult,
   ClaudeSkillsMigrationManifest,
+  ClaudeSkillOutcome,
   ClaudeSkillsSmokeSubstrate,
   RewriteDescriptionsAgent,
 } from "./types";
@@ -2124,9 +2127,191 @@ function formatPaiMigrationStatus(manifest: string | null): string {
   return `${manifest}\n`;
 }
 
+// #124 — Grouped outcome structure for disposition-bucketed output.
+interface GroupedOutcomes {
+  imported: {
+    portable: ClaudeSkillOutcome[];
+    needsAdapt: ClaudeSkillOutcome[];
+    descriptionRewritten: ClaudeSkillOutcome[];
+  };
+  skippedClaudeSpecific: {
+    slashCommand: ClaudeSkillOutcome[];
+    hookBinding: ClaudeSkillOutcome[];
+    other: ClaudeSkillOutcome[];
+  };
+  skippedIdempotent: ClaudeSkillOutcome[];
+  refusedDescriptionLimit: ClaudeSkillOutcome[];
+  refusedOther: ClaudeSkillOutcome[];
+}
+
+function groupOutcomesByDisposition(outcomes: readonly ClaudeSkillOutcome[]): GroupedOutcomes {
+  const groups: GroupedOutcomes = {
+    imported: { portable: [], needsAdapt: [], descriptionRewritten: [] },
+    skippedClaudeSpecific: { slashCommand: [], hookBinding: [], other: [] },
+    skippedIdempotent: [],
+    refusedDescriptionLimit: [],
+    refusedOther: [],
+  };
+  for (const o of outcomes) {
+    switch (o.disposition) {
+      case "imported":
+        if (o.tag === "portable") groups.imported.portable.push(o);
+        else if (o.tag === "needs-adapt") groups.imported.needsAdapt.push(o);
+        else groups.imported.portable.push(o);
+        if (o.descriptionRewrite) groups.imported.descriptionRewritten.push(o);
+        break;
+      case "skipped-claude-specific":
+        if (o.reason.startsWith(REASON_PREFIX_SLASH_COMMAND)) groups.skippedClaudeSpecific.slashCommand.push(o);
+        else if (o.reason.startsWith(REASON_PREFIX_HOOK_BINDING)) groups.skippedClaudeSpecific.hookBinding.push(o);
+        else groups.skippedClaudeSpecific.other.push(o);
+        break;
+      case "skipped-idempotent":
+        groups.skippedIdempotent.push(o);
+        break;
+      case "refused-description-limit":
+        groups.refusedDescriptionLimit.push(o);
+        break;
+      case "refused-other":
+        groups.refusedOther.push(o);
+        break;
+    }
+  }
+  return groups;
+}
+
+function renderGroupedOutcomeLines(
+  groups: GroupedOutcomes,
+  opts: {
+    smokeSubstrates?: readonly ClaudeSkillsSmokeSubstrate[];
+  },
+): string[] {
+  const lines: string[] = [];
+  const importedTotal =
+    groups.imported.portable.length +
+    groups.imported.needsAdapt.length;
+
+  if (importedTotal > 0) {
+    lines.push(`### Imported (${importedTotal})`);
+    lines.push("");
+    if (groups.imported.portable.length > 0) {
+      lines.push(`Portable (${groups.imported.portable.length}):`);
+      for (const o of groups.imported.portable) {
+        lines.push(`  - ${o.kebabName}${renderSkillSuffix(o, opts)}`);
+      }
+      lines.push("");
+    }
+    if (groups.imported.needsAdapt.length > 0) {
+      lines.push(`Needs-adapt (${groups.imported.needsAdapt.length}):`);
+      for (const o of groups.imported.needsAdapt) {
+        const refCount = extractRefCount(o.reason);
+        lines.push(`  - ${o.kebabName} (${refCount} refs)${renderSkillSuffix(o, opts)}`);
+      }
+      lines.push("");
+    }
+    if (groups.imported.descriptionRewritten.length > 0) {
+      lines.push(`Description rewritten (${groups.imported.descriptionRewritten.length}):`);
+      for (const o of groups.imported.descriptionRewritten) {
+        const rw = o.descriptionRewrite!;
+        lines.push(`  - ${o.kebabName} (${rw.originalLength} → ${rw.rewrittenLength} chars, ${rw.agent})`);
+      }
+      lines.push("");
+    }
+  }
+
+  const claudeSpecificTotal =
+    groups.skippedClaudeSpecific.slashCommand.length +
+    groups.skippedClaudeSpecific.hookBinding.length +
+    groups.skippedClaudeSpecific.other.length;
+
+  if (claudeSpecificTotal > 0) {
+    lines.push(`### Skipped — claude-specific (${claudeSpecificTotal})`);
+    lines.push("");
+    if (groups.skippedClaudeSpecific.slashCommand.length > 0) {
+      lines.push(`Slash-command refs (${groups.skippedClaudeSpecific.slashCommand.length}):`);
+      for (const o of groups.skippedClaudeSpecific.slashCommand) {
+        lines.push(`  - ${o.kebabName} (${extractClassifierDetail(o.reason)})`);
+      }
+      lines.push("");
+    }
+    if (groups.skippedClaudeSpecific.hookBinding.length > 0) {
+      lines.push(`Hook bindings (${groups.skippedClaudeSpecific.hookBinding.length}):`);
+      for (const o of groups.skippedClaudeSpecific.hookBinding) {
+        lines.push(`  - ${o.kebabName} (${extractClassifierDetail(o.reason)})`);
+      }
+      lines.push("");
+    }
+    if (groups.skippedClaudeSpecific.other.length > 0) {
+      lines.push(`Other (${groups.skippedClaudeSpecific.other.length}):`);
+      for (const o of groups.skippedClaudeSpecific.other) {
+        lines.push(`  - ${o.kebabName} (${o.reason})`);
+      }
+      lines.push("");
+    }
+  }
+
+  if (groups.skippedIdempotent.length > 0) {
+    lines.push(`### Skipped — idempotent (${groups.skippedIdempotent.length})`);
+    lines.push("");
+    for (const o of groups.skippedIdempotent) {
+      lines.push(`  - ${o.kebabName}`);
+    }
+    lines.push("");
+  }
+
+  if (groups.refusedDescriptionLimit.length > 0) {
+    lines.push(`### Refused — description-limit (${groups.refusedDescriptionLimit.length})`);
+    lines.push("");
+    for (const o of groups.refusedDescriptionLimit) {
+      lines.push(`  - ${o.kebabName} (${resolveOutcomeReason(o)})`);
+    }
+    lines.push("");
+  }
+
+  if (groups.refusedOther.length > 0) {
+    lines.push(`### Refused — other (${groups.refusedOther.length})`);
+    lines.push("");
+    for (const o of groups.refusedOther) {
+      lines.push(`  - ${o.kebabName} (${resolveOutcomeReason(o)})`);
+    }
+    lines.push("");
+  }
+
+  return lines;
+}
+
+function renderSkillSuffix(
+  o: ClaudeSkillOutcome,
+  opts: {
+    smokeSubstrates?: readonly ClaudeSkillsSmokeSubstrate[];
+  },
+): string {
+  let suffix = "";
+  if (opts.smokeSubstrates && opts.smokeSubstrates.length > 0 && o.substrates) {
+    const parts = opts.smokeSubstrates
+      .map((sub) => {
+        const v = o.substrates?.[sub];
+        return v ? `${sub}=${v.status}` : null;
+      })
+      .filter((s): s is string => s !== null);
+    if (parts.length > 0) suffix = ` [${parts.join(", ")}]`;
+  }
+  return suffix;
+}
+
+function extractRefCount(reason: string): number {
+  const match = reason.match(/^(\d+)\s/);
+  return match ? parseInt(match[1], 10) : 0;
+}
+
+function extractClassifierDetail(reason: string): string {
+  const inMatch = reason.match(/in\s+(.+)$/);
+  return inMatch ? inMatch[1] : reason;
+}
+
 // #115 — `soma migrate claude-skills` formatters. Mirrors the `migrate
 // pai` shape (header line + per-row table) so principals reading
 // both surfaces don't need to context-switch.
+// #124 — Grouped by disposition for scannable outcome summaries.
 function formatClaudeSkillsMigrationPlan(plan: ClaudeSkillsMigrationPlan): string {
   if (!plan.isFlatSkillsTree) {
     return [
@@ -2152,14 +2337,12 @@ function formatClaudeSkillsMigrationPlan(plan: ClaudeSkillsMigrationPlan): strin
     lines.push(`rewrite-descriptions: ${plan.rewriteDescriptionsAgent}`);
   }
   lines.push("");
-  lines.push("Per-skill plan:");
-  for (const o of plan.outcomes) {
-    // #118 / #120 — refusal dispositions surface `refusalReason`
-    // (embeds source path + cap). Centralized in
-    // `resolveOutcomeReason` (Holly r1 S1).
-    lines.push(`  - ${o.kebabName} [${o.tag}] → ${o.disposition} (${resolveOutcomeReason(o)})`);
-  }
+  const groups = groupOutcomesByDisposition(plan.outcomes);
+  lines.push(...renderGroupedOutcomeLines(groups, {
+    smokeSubstrates: plan.smokeSubstrates,
+  }));
   const counts = countOutcomesByDisposition(plan.outcomes);
+  lines.push("---");
   lines.push("");
   lines.push(
     `Totals: ${counts.imported} imported, ${counts.skippedIdempotent} skipped-idempotent, ${counts.skippedClaudeSpecific} skipped-claude-specific, ${counts.refusedOther} refused-other, ${counts.refusedDescriptionLimit} refused-description-limit.`,
@@ -2200,28 +2383,11 @@ function formatClaudeSkillsMigrationResult(result: ClaudeSkillsMigrationResult):
     lines.push(`rewrite-descriptions: ${result.rewriteDescriptionsAgent}`);
   }
   lines.push("");
-  lines.push("Per-skill outcomes:");
-  for (const o of result.outcomes) {
-    let suffix = "";
-    if (result.smokeSubstrates.length > 0 && o.substrates) {
-      const parts = result.smokeSubstrates
-        .map((sub) => {
-          const v = o.substrates?.[sub];
-          return v ? `${sub}=${v.status}` : null;
-        })
-        .filter((s): s is string => s !== null);
-      if (parts.length > 0) suffix = ` [${parts.join(", ")}]`;
-    }
-    // #118 / #120 — centralized in `resolveOutcomeReason` (Holly r1 S1).
-    const reason = resolveOutcomeReason(o);
-    // #120 — when a rewrite landed, append `(rewrote <orig>→<new>)`
-    // so the per-skill line carries the rewrite footprint without
-    // forcing the principal to open the portability report.
-    if (o.descriptionRewrite) {
-      suffix += ` (rewrote ${o.descriptionRewrite.originalLength}→${o.descriptionRewrite.rewrittenLength} via ${o.descriptionRewrite.agent})`;
-    }
-    lines.push(`  - ${o.kebabName} [${o.tag}] → ${o.disposition} (${reason})${suffix}`);
-  }
+  const groups = groupOutcomesByDisposition(result.outcomes);
+  lines.push(...renderGroupedOutcomeLines(groups, {
+    smokeSubstrates: result.smokeSubstrates,
+  }));
+  lines.push("---");
   lines.push("");
   lines.push(
     `Totals: ${result.writtenCount} written, ${result.skippedIdempotentCount} skipped-idempotent, ${result.skippedClaudeSpecificCount} skipped-claude-specific, ${result.refusedOtherCount} refused-other, ${result.refusedDescriptionLimitCount} refused-description-limit.`,
