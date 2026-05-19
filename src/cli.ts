@@ -2174,6 +2174,10 @@ function groupOutcomesByDisposition(outcomes: readonly ClaudeSkillOutcome[]): Gr
       case "refused-other":
         groups.refusedOther.push(o);
         break;
+      default: {
+        const _exhaustive: never = o.disposition;
+        throw new Error(`unhandled disposition: ${_exhaustive}`);
+      }
     }
   }
   return groups;
