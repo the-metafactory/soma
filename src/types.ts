@@ -35,6 +35,97 @@ export type AlgorithmMode = "minimal" | "native" | "algorithm";
 
 export type AlgorithmEffortSource = "explicit" | "classifier" | "context-override" | "auto" | "fail-safe";
 
+export type AlgorithmLoopStatus = "running" | "paused" | "blocked" | "completed";
+
+export interface AlgorithmLoopIteration {
+  iteration: number;
+  timestamp: string;
+  progressBefore: string;
+  progressAfter: string;
+  summary?: string;
+}
+
+export interface AlgorithmLoopState {
+  status: AlgorithmLoopStatus;
+  iterationCount: number;
+  plateauCounter: number;
+  iterations: AlgorithmLoopIteration[];
+}
+
+export interface AlgorithmCriteriaPartition {
+  id: string;
+  domain: string;
+  criteria: IdealStateCriterion[];
+}
+
+export interface IdeateParameters {
+  problemConnection: number;
+  selectionPressure: number;
+  domainDiversity: number;
+  phaseBalance: number;
+  ideaVolume: number;
+  mutationRate: number;
+  generativeTemperature: number;
+  maxCycles: number;
+  contextCarryover: boolean;
+  parallelAgents: number;
+}
+
+export type IdeatePresetName = "dream" | "explore" | "balanced" | "directed" | "surgical";
+
+export interface OptimizeParameters {
+  stepSize: number;
+  regressionTolerance: number;
+  earlyStopPatience: number;
+  maxIterations: number;
+}
+
+export type OptimizePresetName = "cautious" | "standard-optimize" | "aggressive";
+
+export type AlgorithmNotificationEvent =
+  | {
+      kind: "algorithm.phase.entered";
+      runId: string;
+      phase: AlgorithmPhase;
+      timestamp: string;
+    }
+  | {
+      kind: "algorithm.loop.state_changed";
+      runId: string;
+      from: AlgorithmLoopStatus;
+      to: AlgorithmLoopStatus;
+      iterationCount: number;
+      timestamp: string;
+    }
+  | {
+      kind: "algorithm.loop.blocked";
+      runId: string;
+      plateauCounter: number;
+      threshold: number;
+      timestamp: string;
+    };
+
+export interface AlgorithmNotificationSink {
+  notify(event: AlgorithmNotificationEvent): Promise<void> | void;
+}
+
+export interface AlgorithmLoopExecutionContext {
+  run: AlgorithmRun;
+  iteration: number;
+  partition?: AlgorithmCriteriaPartition;
+}
+
+export interface AlgorithmLoopIterationResult {
+  run: AlgorithmRun;
+  progressBefore: string;
+  progressAfter: string;
+  summary?: string;
+}
+
+export interface AlgorithmLoopExecutor {
+  executeIteration(context: AlgorithmLoopExecutionContext): Promise<AlgorithmLoopIterationResult>;
+}
+
 export interface AuthoredFrontmatter {
   task: string;
   effort: AlgorithmEffortTier;
@@ -114,6 +205,7 @@ export interface AlgorithmRun {
   classificationReason: string;
   currentState: string;
   isa: IdealStateArtifact;
+  loop: AlgorithmLoopState;
   antiCriteria: IdealStateCriterion[];
   capabilities: string[];
   planSteps: AlgorithmPlanStep[];

@@ -13,6 +13,7 @@ import type {
 } from "./types";
 import { buildIsaArtifact, getCriteria, getGoal } from "./isa-accessors";
 import { getRunPhase } from "./algorithm-lifecycle";
+import { DEFAULT_ALGORITHM_LOOP_STATE } from "./algorithm-execution-modes";
 
 export interface AlgorithmStoreOptions {
   homeDir?: string;
@@ -98,6 +99,7 @@ type LegacyAlgorithmRun = Omit<
   currentState: string;
   phase?: AlgorithmPhase;
   isa: LegacyIsa;
+  loop?: AlgorithmRun["loop"];
   schemaVersion?: 1 | 2;
 };
 
@@ -112,9 +114,16 @@ export function loadAlgorithmRun(raw: unknown): AlgorithmRun {
   }
   const candidate = raw as Partial<AlgorithmRun & LegacyAlgorithmRun>;
   if (candidate.schemaVersion === 2 && isUnifiedShape(candidate.isa)) {
-    return candidate as AlgorithmRun;
+    return ensureAlgorithmRunDefaults(candidate as AlgorithmRun);
   }
-  return migrateRunV1toV2(candidate as LegacyAlgorithmRun);
+  return ensureAlgorithmRunDefaults(migrateRunV1toV2(candidate as LegacyAlgorithmRun));
+}
+
+function ensureAlgorithmRunDefaults(run: AlgorithmRun): AlgorithmRun {
+  return {
+    ...run,
+    loop: run.loop ?? { ...DEFAULT_ALGORITHM_LOOP_STATE, iterations: [] },
+  };
 }
 
 function isUnifiedShape(isa: unknown): boolean {
@@ -156,6 +165,7 @@ function migrateRunV1toV2(legacy: LegacyAlgorithmRun): AlgorithmRun {
     schemaVersion: 2,
     intent,
     isa,
+    loop: legacy.loop ?? { ...DEFAULT_ALGORITHM_LOOP_STATE, iterations: [] },
     antiCriteria: legacy.antiCriteria ?? [],
     capabilities: legacy.capabilities ?? [],
     planSteps: legacy.planSteps ?? [],
