@@ -63,6 +63,12 @@ maps Algorithm prompts to E1-E5 before a run is created. This adapts the useful
 part of PAI's Algorithm tool while leaving Claude-only PRD parsing, prompt
 curls, and loop execution outside the kernel.
 
+Execution-mode gap-fills from PAI are specified in
+[algorithm-execution-modes.md](./algorithm-execution-modes.md). Soma core owns
+loop state, plateau detection, criteria partitioning, ideate/optimize
+parameter presets, executor interfaces, and notification event contracts. The
+actual worker spawn remains a substrate or orchestration responsibility.
+
 ### Skills
 
 Skills are portable capability folders. A skill may contain a `SKILL.md`,

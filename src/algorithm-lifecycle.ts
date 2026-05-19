@@ -1,5 +1,7 @@
 import type { AlgorithmPhase, AlgorithmRun } from "./types";
 
+export { detectPlateau } from "./algorithm-execution-modes";
+
 /**
  * Phase accessor — `AlgorithmRun.phase` was removed in #41.
  * `run.isa.frontmatter.phase` is the only source of truth.

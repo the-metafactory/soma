@@ -17,6 +17,7 @@ import {
   verifiedFromCriteria,
 } from "./isa-accessors";
 import { getRunPhase } from "./algorithm-lifecycle";
+import { DEFAULT_ALGORITHM_LOOP_STATE } from "./algorithm-execution-modes";
 
 const PHASES: AlgorithmPhase[] = ["observe", "think", "plan", "build", "execute", "verify", "learn", "complete"];
 
@@ -103,6 +104,7 @@ export function createAlgorithmRun(input: AlgorithmRunInput): AlgorithmRun {
     mode,
     classificationReason,
     currentState: input.currentState,
+    loop: { ...DEFAULT_ALGORITHM_LOOP_STATE, iterations: [] },
     isa: buildIsaArtifact({
       slug,
       task: input.intent,
