@@ -816,14 +816,26 @@ interface PlanResult {
   reads: SourceSkillReadResult[];
 }
 
-async function buildPlanCore(
-  fromDir: string,
-  somaHome: string,
-  includeClaudeSpecific: boolean,
-  prevManifest: ClaudeSkillsMigrationManifest | null,
-  homeRealPath: string,
-  progress: ProgressEmitter,
-): Promise<PlanResult> {
+interface BuildPlanCoreOptions {
+  fromDir: string;
+  somaHome: string;
+  includeClaudeSpecific: boolean;
+  prevManifest: ClaudeSkillsMigrationManifest | null;
+  rewriteDescriptionsAgent: RewriteDescriptionsAgent;
+  homeRealPath: string;
+  progress: ProgressEmitter;
+}
+
+async function buildPlanCore(options: BuildPlanCoreOptions): Promise<PlanResult> {
+  const {
+    fromDir,
+    somaHome,
+    includeClaudeSpecific,
+    prevManifest,
+    rewriteDescriptionsAgent,
+    homeRealPath,
+    progress,
+  } = options;
   const names = await listFlatSkillNames(fromDir);
   if (names.length === 0) {
     return { isFlatSkillsTree: false, outcomes: [], reads: [] };
@@ -940,7 +952,15 @@ async function buildPlanCore(
       disposition = "skipped-claude-specific";
     } else {
       const prior = prevBySource.get(read.sourceName);
-      if (prior?.sourceSha === read.sourceSha && prior?.tag === classification.tag) {
+      const sourceAndTagUnchanged =
+        prior?.sourceSha === read.sourceSha && prior?.tag === classification.tag;
+      const needsDescriptionRewrite =
+        rewriteDescriptionsAgent !== "none" &&
+        (read.descriptionStatus.kind === "oversize" || read.descriptionStatus.kind === "missing");
+      const rewriteAlreadySatisfiesIntent =
+        prior?.descriptionRewrite?.agent === rewriteDescriptionsAgent &&
+        prior.descriptionRewrite.originalDescriptionSha === read.originalDescriptionSha;
+      if (sourceAndTagUnchanged && (!needsDescriptionRewrite || rewriteAlreadySatisfiesIntent)) {
         disposition = "skipped-idempotent";
       } else {
         disposition = "imported";
@@ -1025,14 +1045,15 @@ export async function planClaudeSkillsMigration(
   // what an `--apply` invocation would do (e.g. a re-run on unchanged
   // source shows `skipped-idempotent`, not `imported`).
   const prevManifest = await readExistingManifest(somaHome);
-  const { isFlatSkillsTree, outcomes } = await buildPlanCore(
-    from,
+  const { isFlatSkillsTree, outcomes } = await buildPlanCore({
+    fromDir: from,
     somaHome,
     includeClaudeSpecific,
     prevManifest,
+    rewriteDescriptionsAgent,
     homeRealPath,
     progress,
-  );
+  });
   // #120 — surface refused-description-limit in plan mode too so a
   // dry-run shows what the apply will refuse without committing to
   // writes. Mirrors the apply path's classification logic.
@@ -1674,14 +1695,15 @@ export async function migrateClaudeSkills(
   }
 
   const readClassifyStart = Date.now();
-  const { isFlatSkillsTree, outcomes, reads } = await buildPlanCore(
-    from,
+  const { isFlatSkillsTree, outcomes, reads } = await buildPlanCore({
+    fromDir: from,
     somaHome,
     includeClaudeSpecific,
-    previousManifest,
+    prevManifest: previousManifest,
+    rewriteDescriptionsAgent,
     homeRealPath,
     progress,
-  );
+  });
   const readClassifyMs = Date.now() - readClassifyStart;
 
   if (!isFlatSkillsTree) {
