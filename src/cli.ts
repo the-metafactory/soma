@@ -106,6 +106,11 @@ import {
   REASON_PREFIX_HOOK_BINDING,
   REASON_PREFIX_SLASH_COMMAND,
 } from "./claude-skills-migrator";
+// #125 — stderr-backed progress emitter for `migrate claude-skills`.
+// Library callers default to the no-op (avoids surprise stderr noise);
+// CLI builds the real one bound to `process.stderr` so principals see
+// per-skill progress lines without changing the stdout summary shape.
+import { createProgressEmitter } from "./claude-skills-progress";
 import type {
   ClaudeSkillsMigrationOptions,
   ClaudeSkillsMigrationPlan,
@@ -225,6 +230,10 @@ interface ParsedMigrateClaudeSkillsArgs {
   source: "claude-skills";
   mode: "plan" | "apply" | "status";
   options: ClaudeSkillsMigrationOptions;
+  // #125 — when true, the CLI suppresses stderr progress (passes a
+  // quiet emitter to the migrator). The Timing block on stdout is
+  // unaffected — it's part of the summary, not stderr noise.
+  quiet?: boolean;
 }
 
 interface ParsedAdoptArgs {
@@ -363,7 +372,7 @@ const MIGRATE_PAI_USAGE =
 // from the usage line below for non-Phase-2 callers — they keep the
 // Phase-1 surface intact.
 const MIGRATE_CLAUDE_SKILLS_USAGE =
-  "Usage: soma migrate claude-skills --from <skills-dir> [--dry-run] [--apply] [--status] [--home-dir <dir>] [--soma-home <dir>] [--include-claude-specific] [--smoke <codex|pi-dev|all>] [--rewrite-descriptions <claude|codex|pi|none>]";
+  "Usage: soma migrate claude-skills --from <skills-dir> [--dry-run] [--apply] [--status] [--home-dir <dir>] [--soma-home <dir>] [--include-claude-specific] [--smoke <codex|pi-dev|all>] [--rewrite-descriptions <claude|codex|pi|none>] [--quiet]";
 const ADOPT_CLAUDE_USAGE =
   "Usage: soma adopt claude [--dry-run] [--apply] [--uninstall] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
 const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string, string> }> = {
@@ -1675,6 +1684,10 @@ function parseMigrateClaudeSkillsArgs(args: string[]): ParsedMigrateClaudeSkills
   // substrate list at parse time so downstream consumers see a
   // resolved substrate set.
   const smokeAccumulator: ClaudeSkillsSmokeSubstrate[] = [];
+  // #125 — `--quiet` suppresses stderr progress. The Timing block on
+  // stdout is unaffected; principals who pipe stderr to /dev/null in
+  // CI scripts no longer need to.
+  let quiet = false;
 
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
@@ -1721,6 +1734,12 @@ function parseMigrateClaudeSkillsArgs(args: string[]): ParsedMigrateClaudeSkills
         options.rewriteDescriptionsAgent = parseRewriteDescriptionsAgent(value);
         break;
       }
+      case "--quiet":
+        // #125 — suppress per-skill stderr progress. Stdout summary
+        // (including the new Timing block) stays byte-stable. CI-
+        // friendly for scripts that don't want the progress noise.
+        quiet = true;
+        break;
       default:
         throw new Error(`Unknown option: ${arg}`);
     }
@@ -1734,7 +1753,7 @@ function parseMigrateClaudeSkillsArgs(args: string[]): ParsedMigrateClaudeSkills
     throw new Error(MIGRATE_CLAUDE_SKILLS_USAGE);
   }
 
-  return { command: "migrate", source: "claude-skills", mode, options };
+  return { command: "migrate", source: "claude-skills", mode, options, quiet };
 }
 
 // #115 Phase 2 — expand `--smoke <value>`. `all` resolves to every
@@ -2420,6 +2439,21 @@ function formatClaudeSkillsMigrationResult(result: ClaudeSkillsMigrationResult):
       `${result.refusedDescriptionLimitCount} skill(s) refused-description-limit — re-run with --rewrite-descriptions claude (or codex/pi) to compress oversize descriptions via LLM.`,
     );
   }
+  // #125 — Timing block. Appended to the standard summary so script
+  // parsers that anchor on `Totals: ` keep working; the new block
+  // lives BELOW the totals and rerun-suggestion lines. Renders even
+  // when stderr was quiet — the timing belongs to the stdout summary.
+  if (result.timing) {
+    // Build a lightweight emitter to reuse the formatting logic.
+    // The sink is unused (we only call `finishTimingSummary`).
+    const emitter = createProgressEmitter({
+      stderr: process.stderr,
+      quiet: true,
+      isatty: false,
+    });
+    lines.push("");
+    lines.push(emitter.finishTimingSummary(result.timing));
+  }
   lines.push("");
   return lines.join("\n");
 }
@@ -3075,6 +3109,21 @@ export async function runSomaCli(args: string[]): Promise<string> {
         return formatClaudeSkillsMigrationStatus(
           await readClaudeSkillsMigrationStatus(claudeOptions),
         );
+      }
+      // #125 — build the progress emitter once at the CLI boundary.
+      // `quiet` collapses to a no-op emitter; otherwise we bind to
+      // `process.stderr` and detect TTY via `isTTY === true` on the
+      // same stream. Tests inject `claudeOptions.progressEmitter`
+      // directly (the parser doesn't expose stream injection), so
+      // we only build the default when the caller didn't supply
+      // one. This keeps `runSomaCli`-based tests free to assert on
+      // a captured emitter.
+      if (!claudeOptions.progressEmitter) {
+        claudeOptions.progressEmitter = createProgressEmitter({
+          stderr: process.stderr,
+          quiet: parsed.quiet === true,
+          isatty: process.stderr.isTTY === true,
+        });
       }
       if (parsed.mode === "plan") {
         // #118 — plan mode is informative; refused-other rows are

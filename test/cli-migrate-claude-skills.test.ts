@@ -169,6 +169,97 @@ test("soma migrate claude-skills --help surfaces usage", async () => {
   expect(output).toContain("Usage: soma migrate claude-skills");
 });
 
+// #125 — progress + timing + --quiet.
+
+test("soma migrate claude-skills --apply stdout summary contains Timing block", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = await writeFixture(home);
+    const somaHome = join(home, "soma");
+    const output = await runSomaCli([
+      "migrate",
+      "claude-skills",
+      "--from",
+      fromDir,
+      "--soma-home",
+      somaHome,
+      "--apply",
+    ]);
+    // The Timing block lands on stdout (returned by runSomaCli),
+    // BELOW the existing totals line. Stable shape regardless of
+    // whether stderr progress is on or off.
+    expect(output).toContain("Timing:");
+    expect(output).toContain("total");
+    expect(output).toContain("read + classify");
+    expect(output).toContain("apply write");
+    expect(output).toContain("description rewrites");
+    // Smoke not requested → (not requested) tag.
+    expect(output).toContain("smoke verify: (not requested)");
+  });
+});
+
+test("soma migrate claude-skills --apply --quiet still emits Timing block on stdout", async () => {
+  // --quiet only suppresses stderr progress (per AC-3). The Timing
+  // block belongs to the stdout summary and stays.
+  await withTempHome(async (home) => {
+    const fromDir = await writeFixture(home);
+    const somaHome = join(home, "soma");
+    const output = await runSomaCli([
+      "migrate",
+      "claude-skills",
+      "--from",
+      fromDir,
+      "--soma-home",
+      somaHome,
+      "--apply",
+      "--quiet",
+    ]);
+    expect(output).toContain("Timing:");
+    // The totals line is still byte-stable so existing parsers work.
+    expect(output).toContain("Totals: 2 written, 0 skipped-idempotent, 1 skipped-claude-specific");
+  });
+});
+
+test("soma migrate claude-skills --apply plan mode also returns a stdout summary unchanged", async () => {
+  // Plan mode returns its formatted plan string. Confirms stdout
+  // stays byte-stable for the totals/grouping lines.
+  await withTempHome(async (home) => {
+    const fromDir = await writeFixture(home);
+    const somaHome = join(home, "soma");
+    const output = await runSomaCli([
+      "migrate",
+      "claude-skills",
+      "--from",
+      fromDir,
+      "--soma-home",
+      somaHome,
+    ]);
+    // Plan mode (#124 grouped output) — no Timing block by design
+    // (plan-mode is read-only; no apply work to time).
+    expect(output).toContain("Totals: 2 imported, 0 skipped-idempotent, 1 skipped-claude-specific");
+    expect(output).not.toContain("Timing:");
+  });
+});
+
+test("soma migrate claude-skills --apply --quiet --unknown-flag still rejects", async () => {
+  // --quiet doesn't change the parser's strict mode.
+  await withTempHome(async (home) => {
+    const fromDir = await writeFixture(home);
+    await expect(
+      runSomaCli([
+        "migrate",
+        "claude-skills",
+        "--from",
+        fromDir,
+        "--soma-home",
+        join(home, "soma"),
+        "--apply",
+        "--quiet",
+        "--bogus-flag",
+      ]),
+    ).rejects.toThrow(/Unknown option: --bogus-flag/);
+  });
+});
+
 test("soma migrate claude-skills --apply --unknown-flag errors", async () => {
   await withTempHome(async (home) => {
     const fromDir = await writeFixture(home);

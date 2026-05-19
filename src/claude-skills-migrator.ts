@@ -82,6 +82,7 @@ import {
   sha256Utf8,
   SUBSTRATE_DESCRIPTION_LIMIT,
 } from "./claude-skill-description-rewriter";
+import { createNoopProgressEmitter, type PhaseTimings, type ProgressEmitter } from "./claude-skills-progress";
 
 const MANIFEST_SCHEMA = "soma.claude-skills-migration.v1";
 const MANIFEST_RELATIVE = "imports/claude-skills/.manifest.json";
@@ -779,11 +780,17 @@ async function buildPlanCore(
   includeClaudeSpecific: boolean,
   prevManifest: ClaudeSkillsMigrationManifest | null,
   homeRealPath: string,
+  progress: ProgressEmitter,
 ): Promise<PlanResult> {
   const names = await listFlatSkillNames(fromDir);
   if (names.length === 0) {
     return { isFlatSkillsTree: false, outcomes: [], reads: [] };
   }
+  // #125 — discovery banner + per-skill index. The banner fires here
+  // (not inside `listFlatSkillNames`) so the count reflects the
+  // skills the orchestrator will actually walk; an empty tree no
+  // longer surprises the principal with a "0 skill(s)" message.
+  progress.start(names.length);
 
   // Bounded concurrency for the read + classify pass — per-skill work
   // is independent and dominated by file I/O, same as the memory
@@ -797,14 +804,25 @@ async function buildPlanCore(
   type ReadResult =
     | { ok: true; read: SourceSkillReadResult }
     | { ok: false; sourceName: string; reason: string };
+  // #125 — per-skill progress for the read+classify phase. Each
+  // entry records its own index relative to the alphabetical
+  // `names` order (consistent with the final outcomes ordering),
+  // so the `[N/total]` prefix matches the report's row order. The
+  // emitter handles TTY-vs-non-TTY mechanics; we only feed it
+  // skill + phase + outcome detail.
+  const nameToIndex = new Map<string, number>(names.map((n, i) => [n, i + 1]));
   const readResults: ReadResult[] = await runBoundedConcurrent<string, ReadResult>(
     names,
     async (name) => {
+      const idx = nameToIndex.get(name) ?? 0;
+      const t0 = Date.now();
       try {
         const read = await readSourceSkill(fromDir, name, homeRealPath);
+        progress.stepComplete(idx, name, "reading + classifying", Date.now() - t0, "read");
         return { ok: true, read };
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
+        progress.stepComplete(idx, name, "reading + classifying", Date.now() - t0, "refused-other");
         return { ok: false, sourceName: name, reason };
       }
     },
@@ -844,6 +862,13 @@ async function buildPlanCore(
     const read = r.read;
     reads.push(read);
     const classification = classifySkillPortability(read.files);
+    // #125 — emit the resolved classification verdict so the per-
+    // skill stderr row carries the final tag (portable / needs-adapt /
+    // claude-specific). The read+classify step already fired above;
+    // we follow with a `[classified ... <tag>]` line so a principal
+    // tail-ing the run can grep verdicts without reading the report.
+    const classifyIdx = nameToIndex.get(read.sourceName) ?? 0;
+    progress.stepComplete(classifyIdx, read.sourceName, "classified", 0, classification.tag);
     const target = join(somaHome, "skills", read.kebabName);
     let disposition: ClaudeSkillOutcome["disposition"];
     if (classification.tag === "claude-specific" && !includeClaudeSpecific) {
@@ -893,6 +918,9 @@ export async function planClaudeSkillsMigration(
   // /private/tmp) are correctly identified as in-bounds. The resolved
   // path is the security anchor for the safe-symlink helper.
   const homeRealPath = await realpath(resolve(options.homeDir ?? homedir()));
+  // #125 — resolve the progress emitter. Library callers default to
+  // the no-op; the CLI injects a stderr-backed emitter.
+  const progress = options.progressEmitter ?? createNoopProgressEmitter();
   // Plan mode reads any existing manifest so the dispositions match
   // what an `--apply` invocation would do (e.g. a re-run on unchanged
   // source shows `skipped-idempotent`, not `imported`).
@@ -903,6 +931,7 @@ export async function planClaudeSkillsMigration(
     includeClaudeSpecific,
     prevManifest,
     homeRealPath,
+    progress,
   );
   // #120 — surface refused-description-limit in plan mode too so a
   // dry-run shows what the apply will refuse without committing to
@@ -1344,10 +1373,16 @@ interface RunSmokeVerifyArgs {
   pendingVerifyPayloads: Map<string, Array<{ relPath: string; content: Buffer }>>;
   readsBySource: Map<string, SourceSkillReadResult>;
   summary: Partial<Record<ClaudeSkillsSmokeSubstrate, ClaudeSkillSubstrateVerifySummary>>;
+  // #125 — progress hook + per-skill index lookup. Defaults supplied
+  // by the apply path; smoke verify is the only phase whose callsites
+  // need both fields because each outcome can produce multiple
+  // per-substrate progress lines.
+  progress: ProgressEmitter;
+  outcomeIndexBySource: Map<string, number>;
 }
 
 async function runSmokeVerify(args: RunSmokeVerifyArgs): Promise<void> {
-  const { smokeSubstrates, outcomes, manifestEntries, previousBySource, somaHome, pendingVerifyPayloads, readsBySource, summary } = args;
+  const { smokeSubstrates, outcomes, manifestEntries, previousBySource, somaHome, pendingVerifyPayloads, readsBySource, summary, progress, outcomeIndexBySource } = args;
   const entryByName = new Map(manifestEntries.map((entry) => [entry.sourceName, entry]));
 
   for (const outcome of outcomes) {
@@ -1386,6 +1421,13 @@ async function runSmokeVerify(args: RunSmokeVerifyArgs): Promise<void> {
     const prior = previousBySource.get(outcome.sourceName);
 
     for (const substrate of smokeSubstrates) {
+      // #125 — per-substrate progress. The verify call itself is
+      // fast (pure projection + static-shape check), but with 100
+      // skills × 2 substrates the line count matters; we still
+      // emit each so the principal can see what passed/failed
+      // without grepping the report.
+      const idx = outcomeIndexBySource.get(outcome.sourceName) ?? 0;
+      const smokeT0 = Date.now();
       // Idempotency check: prior verdict was `verified` AND source
       // SHA unchanged → reuse. Anything weaker re-runs so a fix to
       // the substrate adapter can flip the verdict without source
@@ -1402,6 +1444,13 @@ async function runSmokeVerify(args: RunSmokeVerifyArgs): Promise<void> {
           sourceDescription: skill.description || undefined,
         });
       }
+      progress.stepComplete(
+        idx,
+        outcome.sourceName,
+        `smoke ${substrate}`,
+        Date.now() - smokeT0,
+        result.status,
+      );
 
       // Stamp the outcome (formatter consumes this) and the manifest
       // entry (idempotency anchor for the next run).
@@ -1476,6 +1525,16 @@ export async function migrateClaudeSkills(
     options.rewriteDispatchOverride ?? ((req) => defaultRewriteDispatch(req));
   // #118 — resolve `$HOME` once (see plan-mode helper above).
   const homeRealPath = await realpath(resolve(options.homeDir ?? homedir()));
+  // #125 — progress emitter: library callers default to no-op so
+  // adding this argument can't change observable behavior; CLI
+  // wires a stderr-backed emitter. Phase timings are accumulated in
+  // local `Date.now()` deltas so the Timing block survives even
+  // when the emitter is a no-op.
+  const progress = options.progressEmitter ?? createNoopProgressEmitter();
+  const runStart = Date.now();
+  let descriptionRewritesMs = 0;
+  let applyWriteMs = 0;
+  let smokeVerifyMs = 0;
 
   // Ensure imports/claude-skills/ exists so manifest + report writes
   // succeed even on a fully empty Soma home.
@@ -1491,13 +1550,16 @@ export async function migrateClaudeSkills(
     }
   }
 
+  const readClassifyStart = Date.now();
   const { isFlatSkillsTree, outcomes, reads } = await buildPlanCore(
     from,
     somaHome,
     includeClaudeSpecific,
     previousManifest,
     homeRealPath,
+    progress,
   );
+  const readClassifyMs = Date.now() - readClassifyStart;
 
   if (!isFlatSkillsTree) {
     throw new Error(
@@ -1534,6 +1596,15 @@ export async function migrateClaudeSkills(
   // Skipped-idempotent skills fall back to disk re-read inside the
   // verify helper when a NEW substrate gets requested on rerun.
   const pendingVerifyPayloads: Map<string, Array<{ relPath: string; content: Buffer }>> = new Map();
+
+  // #125 — index lookup for progress `[N/total]` prefix during the
+  // apply phase. Built once over the post-classify outcomes so the
+  // index is stable across the rewrite + write + smoke phases of a
+  // single skill. Holly r1 Nit-1: call sites use the Map directly
+  // (the prior `nameToIdx` wrapper carried an unused first arg).
+  const outcomeIndexBySource = new Map<string, number>(
+    outcomes.map((o, i) => [o.sourceName, i + 1]),
+  );
 
   for (const outcome of outcomes) {
     if (outcome.disposition === "skipped-claude-specific") {
@@ -1652,6 +1723,19 @@ export async function migrateClaudeSkills(
         const activeAgent: Exclude<RewriteDescriptionsAgent, "none"> =
           rewriteDescriptionsAgent === "claude" ? "claude" :
           rewriteDescriptionsAgent === "codex" ? "codex" : "pi";
+        // #125 — bracket the LLM call with start + complete progress
+        // lines so a principal sees `[N/total] <skill> [rewriting
+        // via claude (1318 chars → target 900)... <elapsed>s → 836
+        // chars]` instead of a silent 5-30s block.
+        const idx = outcomeIndexBySource.get(outcome.sourceName) ?? 0;
+        const oldLen = read.descriptionStatus.length;
+        progress.step(
+          idx,
+          outcome.sourceName,
+          `rewriting description via ${activeAgent}`,
+          `${oldLen} chars → target ${DEFAULT_REWRITE_TARGET}`,
+        );
+        const rewriteT0 = Date.now();
         try {
           const { rewritten, rewrittenSha } = await performRewriteWithRetry({
             dispatcher: rewriteDispatcher,
@@ -1661,6 +1745,15 @@ export async function migrateClaudeSkills(
             originalDescription: read.originalDescription,
             skillMdBody: skillMdSource.content.toString("utf8"),
           });
+          const rewriteElapsed = Date.now() - rewriteT0;
+          descriptionRewritesMs += rewriteElapsed;
+          progress.stepComplete(
+            idx,
+            outcome.sourceName,
+            `rewriting description via ${activeAgent}`,
+            rewriteElapsed,
+            `${rewritten.length} chars`,
+          );
           rewrittenSkillMdContent = spliceFrontmatterDescription({
             sourceName: outcome.sourceName,
             skillMdContent: skillMdSource.content.toString("utf8"),
@@ -1676,6 +1769,15 @@ export async function migrateClaudeSkills(
           };
           descriptionRewrittenCount += 1;
         } catch (error) {
+          const rewriteElapsed = Date.now() - rewriteT0;
+          descriptionRewritesMs += rewriteElapsed;
+          progress.stepComplete(
+            idx,
+            outcome.sourceName,
+            `rewriting description via ${activeAgent}`,
+            rewriteElapsed,
+            "failed",
+          );
           // Surfaces as `refused-other` on the outcome so other
           // skills in the run continue.
           const reason = error instanceof Error ? error.message : String(error);
@@ -1696,11 +1798,25 @@ export async function migrateClaudeSkills(
     // landed SHA for portable skills, which simplifies the audit
     // trail.
     const applyRewrites = outcome.tag === "needs-adapt";
+    // #125 — write-phase progress. Bytes are counted from the
+    // returned `fileShas` (one entry per landed file). The progress
+    // line wraps the I/O so principals see which skill is mid-write.
+    const writeIdx = outcomeIndexBySource.get(outcome.sourceName) ?? 0;
+    const writeT0 = Date.now();
     const { fileShas, rewrittenFiles } = await writeSkillPayload(
       read,
       targetDir,
       applyRewrites,
       rewrittenSkillMdContent,
+    );
+    const writeElapsed = Date.now() - writeT0;
+    applyWriteMs += writeElapsed;
+    progress.stepComplete(
+      writeIdx,
+      outcome.sourceName,
+      "writing",
+      writeElapsed,
+      `${Object.keys(fileShas).length} files`,
     );
     manifestEntries.push({
       sourceName: outcome.sourceName,
@@ -1739,6 +1855,11 @@ export async function migrateClaudeSkills(
     for (const substrate of smokeSubstrates) {
       substrateVerifySummary[substrate] = { verified: 0, verifiedWithWarnings: 0, failed: 0 };
     }
+    // #125 — smoke verify is a separate timed phase. The
+    // per-skill `[N/total] <skill> [smoke <substrate> ... <status>]`
+    // emissions live INSIDE `runSmokeVerify` so the progress hook
+    // is threaded through here.
+    const smokeT0 = Date.now();
     await runSmokeVerify({
       smokeSubstrates,
       outcomes,
@@ -1748,7 +1869,10 @@ export async function migrateClaudeSkills(
       pendingVerifyPayloads,
       readsBySource,
       summary: substrateVerifySummary,
+      progress,
+      outcomeIndexBySource,
     });
+    smokeVerifyMs = Date.now() - smokeT0;
   }
 
   // Manifest timestamp policy mirrors pai-memory-migrator:
@@ -1813,6 +1937,43 @@ export async function migrateClaudeSkills(
     "utf8",
   );
 
+  // #125 — assemble the PhaseTimings used to render the Timing
+  // block. Phases that didn't run (e.g. no smoke substrate, no
+  // rewrites) carry `unit: "(not requested)"` so the renderer can
+  // suppress the count gracefully.
+  const totalMs = Date.now() - runStart;
+  const timing: PhaseTimings = {
+    totalMs,
+    phases: [
+      {
+        name: "read + classify",
+        elapsedMs: readClassifyMs,
+        count: outcomes.length,
+        unit: "skills",
+      },
+      {
+        name: "description rewrites",
+        elapsedMs: descriptionRewritesMs,
+        count: descriptionRewrittenCount,
+        unit: rewriteDescriptionsAgent === "none"
+          ? "(not requested)"
+          : `LLM calls via ${rewriteDescriptionsAgent}`,
+      },
+      {
+        name: "apply write",
+        elapsedMs: applyWriteMs,
+        count: writtenCount,
+        unit: "files",
+      },
+      {
+        name: "smoke verify",
+        elapsedMs: smokeVerifyMs,
+        count: smokeSubstrates.length === 0 ? 0 : outcomes.length,
+        unit: smokeSubstrates.length === 0 ? "(not requested)" : `skill × substrate pairs`,
+      },
+    ],
+  };
+
   return {
     apply: true,
     from,
@@ -1832,6 +1993,7 @@ export async function migrateClaudeSkills(
     refusedDescriptionLimitCount,
     descriptionRewrittenCount,
     ...(smokeSubstrates.length > 0 ? { substrateVerifySummary } : {}),
+    timing,
   };
 }
 
