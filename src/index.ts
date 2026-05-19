@@ -173,6 +173,20 @@ export {
 export { writeProjection } from "./projection";
 export { createPaths, type SomaPathsOptions } from "./paths";
 export {
+  advisor,
+  inference,
+  parseInferenceJson,
+  synthesizeAdvisorState,
+  type AdvisorStateOptions,
+  type InferenceBackend,
+  type InferenceBackendKind,
+  type InferenceLevel,
+  type InferenceMode,
+  type InferenceOptions,
+  type InferenceRequest,
+  type InferenceResult,
+} from "./tools/inference";
+export {
   buildClaudeCodeHomeProjection,
   buildCodexHomeProjection,
   buildPiDevHomeProjection,
