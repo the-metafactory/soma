@@ -877,6 +877,7 @@ export interface ClaudeSkillSubstrateVerifyIssue {
     | "missing-description"
     | "description-mismatch"
     | "dangling-internal-ref"
+    | "unresolved-tool-path"
     | "substrate-only-primitive"
     | "empty-projection"
     | "oversized-projection"
@@ -1084,6 +1085,28 @@ export interface ClaudeSkillOutcome {
    * no rewrite was attempted.
    */
   descriptionRewrite?: ClaudeSkillDescriptionRewrite;
+  /**
+   * #126 — one-hop cross-skill code/documentation dependencies found
+   * while scanning source payloads for `~/.claude/skills/<Other>/...`
+   * references. `skill` is the kebab-cased referenced skill name;
+   * `references` are the relative paths inside that referenced skill
+   * (for example `Tools/ComposeAgent.ts`); `sourceFiles` are the
+   * current skill files that mention the dependency.
+   */
+  dependencies?: ClaudeSkillDependency[];
+  /**
+   * #126 — referenced skills whose own migration outcome means they
+   * will not be available in the projected skill tree. The dependent
+   * skill still imports, but reports and CLI output surface this
+   * loudly so the principal does not discover it at runtime.
+   */
+  dependencyMissing?: string[];
+}
+
+export interface ClaudeSkillDependency {
+  skill: string;
+  references: string[];
+  sourceFiles: string[];
 }
 
 /**
