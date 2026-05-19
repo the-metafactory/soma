@@ -925,6 +925,15 @@ export interface ClaudeSkillsMigrationOptions {
   // returns the rewritten description text; the migrator handles SHA
   // computation, length validation, and frontmatter splicing.
   rewriteDispatchOverride?: RewriteDispatchOverride;
+  // #125 — per-skill progress emitter for plan / apply phases.
+  // Optional; absent → no-op emitter (library callers don't get
+  // surprise stderr noise). The CLI wires a real stderr-backed
+  // emitter that respects `--quiet` and TTY detection. The
+  // migrator threads phase boundaries (discovery, read+classify,
+  // rewrite, apply write, smoke verify) through the emitter.
+  // The `quiet` flag belongs to the CLI surface (not the migrator)
+  // — pass a no-op emitter to suppress progress instead.
+  progressEmitter?: import("./claude-skills-progress").ProgressEmitter;
 }
 
 /**
@@ -1173,6 +1182,12 @@ export interface ClaudeSkillsMigrationResult extends ClaudeSkillsMigrationPlan {
   // `--smoke`. Each entry counts `verified` / `verified-with-
   // warnings` / `failed` across imported skills.
   substrateVerifySummary?: Partial<Record<ClaudeSkillsSmokeSubstrate, ClaudeSkillSubstrateVerifySummary>>;
+  // #125 — per-phase elapsed-time summary. Populated by the
+  // migrator and rendered into the stdout summary's Timing block.
+  // `phases` is ordered: discovery + read+classify, description
+  // rewrites, apply write, smoke verify. Phases that didn't run
+  // (e.g. `--smoke` absent) carry `unit: "(not requested)"`.
+  timing?: import("./claude-skills-progress").PhaseTimings;
 }
 
 export interface ClaudeSkillSubstrateVerifySummary {
