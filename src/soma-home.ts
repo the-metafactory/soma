@@ -1,7 +1,7 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 import { SOMA_MEMORY_CATEGORIES, SOMA_MEMORY_CATEGORY_READMES } from "./memory-readmes";
+import { createPaths } from "./paths";
 import type { ProjectionInput, SomaHomeBootstrapOptions, SomaHomeBootstrapResult, SomaSkill } from "./types";
 
 // #88 / DD-2: canonical PAI v5.0.0 memory taxonomy (17 substrate-neutral +
@@ -11,7 +11,7 @@ import type { ProjectionInput, SomaHomeBootstrapOptions, SomaHomeBootstrapResult
 const MEMORY_DIRS = SOMA_MEMORY_CATEGORIES;
 
 function resolveSomaHome(options: SomaHomeBootstrapOptions = {}): string {
-  return resolve(options.somaHome ?? join(resolve(options.homeDir ?? homedir()), ".soma"));
+  return createPaths(options).root();
 }
 
 function renderAssistantProfile(): string {
@@ -150,7 +150,8 @@ async function collectSkillFiles(root: string, current = root): Promise<{ path: 
 }
 
 async function loadSomaSkills(somaHome: string): Promise<SomaSkill[]> {
-  const skillsRoot = join(somaHome, "skills");
+  const paths = createPaths(somaHome);
+  const skillsRoot = paths.skills();
   const entries = await readdir(skillsRoot, { withFileTypes: true }).catch(() => []);
   const skills: SomaSkill[] = [];
 
@@ -179,10 +180,10 @@ async function loadSomaSkills(somaHome: string): Promise<SomaSkill[]> {
 }
 
 export async function loadSomaHome(somaHome: string): Promise<ProjectionInput> {
-  const assistant = await readFile(join(somaHome, "profile/assistant.md"), "utf8");
-  const principal = await readFile(join(somaHome, "profile/principal.md"), "utf8");
-  const telos = await readFile(join(somaHome, "profile/telos.md"), "utf8");
-  const memoryRoot = join(somaHome, "memory");
+  const paths = createPaths(somaHome);
+  const assistant = await readFile(paths.resolve("profile", "assistant.md"), "utf8");
+  const principal = await readFile(paths.resolve("profile", "principal.md"), "utf8");
+  const telos = await readFile(paths.resolve("profile", "telos.md"), "utf8");
   const skills = await loadSomaSkills(somaHome);
 
   return {
@@ -204,12 +205,12 @@ export async function loadSomaHome(somaHome: string): Promise<ProjectionInput> {
         commitments: sectionBullets(telos, "Commitments"),
       },
       memory: {
-        root: memoryRoot,
-        work: join(memoryRoot, "WORK"),
-        knowledge: join(memoryRoot, "KNOWLEDGE"),
-        learning: join(memoryRoot, "LEARNING"),
-        relationship: join(memoryRoot, "RELATIONSHIP"),
-        state: join(memoryRoot, "STATE"),
+        root: paths.memory(),
+        work: paths.work(),
+        knowledge: paths.resolve("memory", "KNOWLEDGE"),
+        learning: paths.learning(),
+        relationship: paths.relationship(),
+        state: paths.state(),
       },
       skills,
     },
@@ -218,6 +219,7 @@ export async function loadSomaHome(somaHome: string): Promise<ProjectionInput> {
 
 export async function bootstrapSomaHome(options: SomaHomeBootstrapOptions = {}): Promise<SomaHomeBootstrapResult> {
   const somaHome = resolveSomaHome(options);
+  const paths = createPaths(somaHome);
   const files = [
     {
       path: "profile/assistant.md",
@@ -258,11 +260,11 @@ export async function bootstrapSomaHome(options: SomaHomeBootstrapOptions = {}):
   // substrate provenance. README write uses `flag: "wx"` so principal edits
   // survive re-runs (idempotent contract — see test AC-3).
   for (const directory of MEMORY_DIRS) {
-    await mkdir(join(somaHome, "memory", directory), { recursive: true });
+    await mkdir(paths.resolve("memory", directory), { recursive: true });
   }
 
   for (const entry of SOMA_MEMORY_CATEGORY_READMES) {
-    const readmePath = join(somaHome, "memory", entry.category, "README.md");
+    const readmePath = paths.resolve("memory", entry.category, "README.md");
     // `flag: "wx"` makes README writes idempotent — principal edits survive
     // re-install (test AC-3). Sage R1: only record the path in `writtenFiles`
     // when the write actually happened, so callers don't see a skipped EEXIST

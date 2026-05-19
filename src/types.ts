@@ -206,6 +206,25 @@ export interface SomaMemoryLayout {
   state: string;
 }
 
+export interface SomaPaths {
+  root(): string;
+  identity(): string;
+  memory(): string;
+  profile(): string;
+  skills(): string;
+  learning(): string;
+  signals(): string;
+  wisdom(): string;
+  relationship(): string;
+  state(): string;
+  work(): string;
+  ratings(): string;
+  opinions(): string;
+  story(): string;
+  events(): string;
+  resolve(...segments: string[]): string;
+}
+
 export interface SomaProfile {
   assistant: AssistantIdentity;
   principal: PrincipalIdentity;
