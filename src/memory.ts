@@ -1,6 +1,6 @@
 import { mkdir, appendFile, readFile, readdir, stat } from "node:fs/promises";
-import { homedir } from "node:os";
-import { basename, dirname, extname, join, resolve } from "node:path";
+import { basename, dirname, extname, join } from "node:path";
+import { createPaths } from "./paths";
 import type {
   SomaMemoryEvent,
   SomaMemoryEventInput,
@@ -46,7 +46,7 @@ export async function appendSomaMemoryEvent(somaHome: string, input: SomaMemoryE
     artifactPaths: input.artifactPaths,
     metadata: input.metadata,
   };
-  const eventPath = resolve(somaHome, "memory/STATE/events.jsonl");
+  const eventPath = createPaths(somaHome).events();
 
   await mkdir(dirname(eventPath), { recursive: true });
   await appendFile(eventPath, `${JSON.stringify(event)}\n`, "utf8");
@@ -55,11 +55,11 @@ export async function appendSomaMemoryEvent(somaHome: string, input: SomaMemoryE
 }
 
 export function somaMemoryEventsPath(somaHome: string): string {
-  return join(somaHome, "memory/STATE/events.jsonl");
+  return createPaths(somaHome).events();
 }
 
 function resolveSomaHome(options: Pick<SomaMemorySearchOptions, "homeDir" | "somaHome"> = {}): string {
-  return resolve(options.somaHome ?? join(options.homeDir ?? homedir(), ".soma"));
+  return createPaths(options).root();
 }
 
 function queryTerms(query: string): string[] {
