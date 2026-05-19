@@ -223,6 +223,23 @@ export {
   type ToolCall,
 } from "./tools/learning";
 export {
+  classifyDomains,
+  listFrames,
+  synthesizeWisdom,
+  updateFrame,
+  type CrossFramePrinciple,
+  type DomainClassification,
+  type FrameHealth,
+  type FrameHealthStatus,
+  type FrameUpdateInput,
+  type FrameUpdateResult,
+  type WisdomFrame,
+  type WisdomFrameSummary,
+  type WisdomObservationType,
+  type WisdomSynthesisResult,
+  type WisdomToolOptions,
+} from "./tools/wisdom";
+export {
   buildClaudeCodeHomeProjection,
   buildCodexHomeProjection,
   buildPiDevHomeProjection,
