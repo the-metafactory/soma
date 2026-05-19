@@ -33,13 +33,16 @@ const withTempHome = <T>(fn: (homeDir: string) => Promise<T>): Promise<T> =>
 const FM = "---\nname: TestSkill\ndescription: \"short description\"\n---\n\n";
 
 interface RecordedCall {
-  method: "start" | "step" | "stepComplete";
+  method: "start" | "step" | "stepComplete" | "beginConcurrentPhase" | "endConcurrentPhase";
   index?: number;
   sourceName?: string;
   phase?: string;
   detail?: string;
   elapsedMs?: number;
   total?: number;
+  // #139 — concurrent-phase boundary args.
+  name?: string;
+  concurrency?: number;
 }
 
 interface CapturingEmitter extends ProgressEmitter {
@@ -58,6 +61,12 @@ function makeCapturingEmitter(): CapturingEmitter {
     },
     stepComplete(index, sourceName, phase, elapsedMs, detail) {
       calls.push({ method: "stepComplete", index, sourceName, phase, elapsedMs, detail });
+    },
+    beginConcurrentPhase(name, total, concurrency) {
+      calls.push({ method: "beginConcurrentPhase", name, total, concurrency });
+    },
+    endConcurrentPhase(name, elapsedMs) {
+      calls.push({ method: "endConcurrentPhase", name, elapsedMs });
     },
     finishTimingSummary(_t: PhaseTimings): string {
       return "Timing: 0s total";
@@ -219,6 +228,62 @@ test("library default (no emitter) does not error and produces a timing block", 
     });
     expect(result.timing).toBeDefined();
     expect(result.writtenCount).toBe(2);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────
+// #139 quick patch — migrator wraps the concurrent read+classify
+// loop with beginConcurrentPhase / endConcurrentPhase.
+//
+// Per-skill `stepComplete("reading + classifying", ...)` calls
+// during the concurrent loop still fire (the migrator records
+// them for timing) — but the real emitter (not this capturing
+// stub) suppresses their output. Here we just assert the phase
+// boundary methods are called with the right shape.
+// ──────────────────────────────────────────────────────────────
+
+test("#139: planClaudeSkillsMigration brackets concurrent read+classify with begin/endConcurrentPhase", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = await writeFixture(home);
+    const emitter = makeCapturingEmitter();
+    await planClaudeSkillsMigration({
+      from: fromDir,
+      somaHome: join(home, "soma"),
+      progressEmitter: emitter,
+    });
+    const begins = emitter.calls.filter((c) => c.method === "beginConcurrentPhase");
+    const ends = emitter.calls.filter((c) => c.method === "endConcurrentPhase");
+    expect(begins.length).toBe(1);
+    expect(ends.length).toBe(1);
+    expect(begins[0].name).toBe("read + classify");
+    expect(begins[0].total).toBe(3);
+    expect(begins[0].concurrency).toBe(4);
+    expect(ends[0].name).toBe("read + classify");
+    expect(ends[0].elapsedMs).toBeGreaterThanOrEqual(0);
+  });
+});
+
+test("#139: beginConcurrentPhase fires BEFORE per-skill read+classify steps; endConcurrentPhase fires AFTER", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = await writeFixture(home);
+    const emitter = makeCapturingEmitter();
+    await planClaudeSkillsMigration({
+      from: fromDir,
+      somaHome: join(home, "soma"),
+      progressEmitter: emitter,
+    });
+    const beginIdx = emitter.calls.findIndex((c) => c.method === "beginConcurrentPhase");
+    const endIdx = emitter.calls.findIndex((c) => c.method === "endConcurrentPhase");
+    const readIndices = emitter.calls
+      .map((c, i) => ({ c, i }))
+      .filter(({ c }) => c.method === "stepComplete" && c.phase === "reading + classifying")
+      .map(({ i }) => i);
+    expect(beginIdx).toBeGreaterThanOrEqual(0);
+    expect(endIdx).toBeGreaterThan(beginIdx);
+    for (const i of readIndices) {
+      expect(i).toBeGreaterThan(beginIdx);
+      expect(i).toBeLessThan(endIdx);
+    }
   });
 });
 
