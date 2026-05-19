@@ -134,6 +134,7 @@ import type {
 // importer policy through the package root surface.
 import { PAI_DOCS_IMPORT_SUBDIRS } from "./pai-docs-importer";
 import { runInferenceCli } from "./tools/inference/cli";
+import { runLearningCli, runMetricsCli, runOpinionCli, runSessionCli } from "./tools/learning/cli";
 
 /**
  * Typed CLI error carrying an exit code distinct from the default 1.
@@ -355,6 +356,11 @@ interface ParsedInferenceArgs {
   args: string[];
 }
 
+interface ParsedRawToolArgs {
+  command: "learning" | "opinion" | "metrics" | "session";
+  args: string[];
+}
+
 type ParsedArgs =
   | ParsedHelpArgs
   | ParsedInstallArgs
@@ -374,7 +380,8 @@ type ParsedArgs =
   | ParsedResultArgs
   | ParsedPolicyArgs
   | ParsedIsaArgs
-  | ParsedInferenceArgs;
+  | ParsedInferenceArgs
+  | ParsedRawToolArgs;
 
 const TOP_LEVEL_COMMANDS = [
   "adopt",
@@ -386,12 +393,16 @@ const TOP_LEVEL_COMMANDS = [
   "inference",
   "install",
   "isa",
+  "learning",
   "lifecycle",
   "memory",
+  "metrics",
   "migrate",
+  "opinion",
   "policy",
   "reproject",
   "result",
+  "session",
   "uninstall",
   "upgrade",
 ] as const;
@@ -443,6 +454,29 @@ const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string,
   },
   inference: {
     usage: "Usage: soma inference [--level <fast|standard|smart>] [--mode <inference|advisor>] [--backend <auto|claude-code|anthropic-api>] [--allow-network] [--json] [--timeout <ms>] [--auto-state] [--home-dir <dir>] [--soma-home <dir>] [prompt...]",
+  },
+  learning: {
+    usage: "Usage: soma learning <synthesize|capture-failure|harvest> ...",
+    subcommands: {
+      synthesize: "Usage: soma learning synthesize [--week|--month|--all] [--dry-run] [--home-dir <dir>] [--soma-home <dir>]",
+      "capture-failure": "Usage: soma learning capture-failure <transcript-path> <rating> <summary> [detailed-context] [--home-dir <dir>] [--soma-home <dir>]",
+      harvest: "Usage: soma learning harvest [--recent <n>|--all|--session <id>] [--session-dir <dir>] [--dry-run] [--home-dir <dir>] [--soma-home <dir>]",
+    },
+  },
+  opinion: {
+    usage: "Usage: soma opinion <add|evidence|list|show> ...",
+    subcommands: {
+      add: "Usage: soma opinion add <statement> [--category <communication|technical|relationship|work_style>] [--home-dir <dir>] [--soma-home <dir>]",
+      evidence: "Usage: soma opinion evidence <statement> (--supporting|--counter|--confirmation|--contradiction) <description> [--home-dir <dir>] [--soma-home <dir>]",
+      list: "Usage: soma opinion list [--home-dir <dir>] [--soma-home <dir>]",
+      show: "Usage: soma opinion show <statement> [--home-dir <dir>] [--soma-home <dir>]",
+    },
+  },
+  metrics: {
+    usage: "Usage: soma metrics [--shell] [--single <key>] [--home-dir <dir>] [--soma-home <dir>]",
+  },
+  session: {
+    usage: "Usage: soma session <create|decision|work|blocker|next|handoff|resume|list|complete> ...",
   },
   result: {
     usage: "Usage: soma result <capture|search> ...",
@@ -1656,6 +1690,10 @@ function parseArgs(args: string[]): ParsedArgs {
 
   if (args[0] === "inference") {
     return { command: "inference", args: args.slice(1) };
+  }
+
+  if (args[0] === "learning" || args[0] === "opinion" || args[0] === "metrics" || args[0] === "session") {
+    return { command: args[0], args: args.slice(1) };
   }
 
   if (args[0] === "result") {
@@ -3301,6 +3339,22 @@ export async function runSomaCli(args: string[]): Promise<string> {
     return runInferenceCli(parsed.args);
   }
 
+  if (parsed.command === "learning") {
+    return runLearningCli(parsed.args);
+  }
+
+  if (parsed.command === "opinion") {
+    return runOpinionCli(parsed.args);
+  }
+
+  if (parsed.command === "metrics") {
+    return runMetricsCli(parsed.args);
+  }
+
+  if (parsed.command === "session") {
+    return runSessionCli(parsed.args);
+  }
+
   if (parsed.command === "result") {
     if (parsed.action === "capture") {
       return formatResultCaptureResult(await captureSomaResult(parsed.options));
@@ -3505,6 +3559,10 @@ export async function runSomaCli(args: string[]): Promise<string> {
     // (#54: migration content is a follow-up). They always apply —
     // unlike `install`, the principal opted into the verb explicitly.
     return formatInstallResult(await runInstall(parsed.substrate, parsed.options));
+  }
+
+  if (parsed.command !== "install") {
+    throw new Error(`Unhandled command: ${parsed.command}`);
   }
 
   if (!parsed.apply) {
