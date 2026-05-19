@@ -10,6 +10,7 @@
     "soma": "bun src/cli.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
+    "test:portability": "bun test test/portability-ci.test.ts",
     "check-skill-version": "bun scripts/check-skill-version.ts"
   },
   "devDependencies": {

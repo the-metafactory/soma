@@ -36,3 +36,23 @@ The first implemented slice is projection:
 - `src/adapters/claude-code.ts` projects Soma into Claude Code shape.
 - Tests compare shared projection semantics before any daemon or plugin work
   begins.
+
+## CI Proof
+
+The V0 CI proof is deterministic and does not require live substrate runtimes.
+It is implemented in `test/portability-ci.test.ts` and run by the
+`Portability` GitHub Actions workflow on pull requests and pushes to `main`.
+
+The CI suite verifies:
+
+- Project projections for Codex, Pi.dev, Claude Code, and Cursor preserve the
+  same semantic Soma content from one `ProjectionInput`.
+- Portable skills pass the existing static smoke verifier for the CI-supported
+  smoke targets, Codex and Pi.dev.
+- Active ISA state survives a project -> writeback -> reproject round trip
+  across all shipping home projections.
+
+This is intentionally not a live behavioral equivalence test. Running the same
+task inside real Codex, Pi.dev, Claude Code, and Cursor sessions is a V2+
+runtime harness because it needs installed hosts, model execution, and
+substrate-specific authentication.
