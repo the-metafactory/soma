@@ -19,8 +19,13 @@ function somaPolicyPrivateRoots(somaHome: string, privateRoots: string[] = []): 
   return [somaHome, ...privateRoots].map((path) => resolve(path));
 }
 
+const SOMA_POLICY_PRIVATE_CONTENT_SUBPATHS = [
+  "memory",
+  "profile",
+  "imports",
+] as const;
+
 const SOMA_POLICY_PORTABLE_MARKERS = [
-  "~/.soma",
   "~/.codex/memories/soma",
   "~/.codex/skills/soma",
   "~/.pi/agent/soma",
@@ -76,7 +81,17 @@ function markerFor(path: string, homeDir?: string): string {
 
 export function somaPolicyPrivateMarkers(somaHome: string, homeDir?: string, privateRoots: string[] = []): string[] {
   const roots = somaPolicyPrivateRoots(somaHome, privateRoots);
-  return Array.from(new Set([...roots.flatMap((root) => [root, markerFor(root, homeDir)]), ...SOMA_POLICY_PORTABLE_MARKERS])).sort((left, right) => right.length - left.length);
+  const resolvedSomaHome = resolve(somaHome);
+  const rootMarkers = roots.flatMap((root) => {
+    if (root !== resolvedSomaHome) {
+      return [root, markerFor(root, homeDir)];
+    }
+    return SOMA_POLICY_PRIVATE_CONTENT_SUBPATHS.flatMap((subpath) => {
+      const sensitiveRoot = join(root, subpath);
+      return [sensitiveRoot, markerFor(sensitiveRoot, homeDir)];
+    });
+  });
+  return Array.from(new Set([...rootMarkers, ...SOMA_POLICY_PORTABLE_MARKERS])).sort((left, right) => right.length - left.length);
 }
 
 export { hasSomaPolicyPrivateMarker };
