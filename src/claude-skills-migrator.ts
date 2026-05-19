@@ -539,6 +539,9 @@ function isProseFile(relPath: string): boolean {
   return PROSE_EXTENSIONS.test(relPath);
 }
 
+export const REASON_PREFIX_HOOK_BINDING = "hook binding";
+export const REASON_PREFIX_SLASH_COMMAND = "slash-command";
+
 export function classifySkillPortability(files: readonly SkillFilePayload[]): ClassificationResult {
   // Pass 1: claude-specific signals (highest priority).
   for (const file of files) {
@@ -547,7 +550,7 @@ export function classifySkillPortability(files: readonly SkillFilePayload[]): Cl
       const sample = HOOK_BINDING.exec(text)?.[0]?.trim() ?? "hook binding";
       return {
         tag: "claude-specific",
-        reason: `hook binding detected in ${file.relPath} (${sample.slice(0, 32)})`,
+        reason: `${REASON_PREFIX_HOOK_BINDING} detected in ${file.relPath} (${sample.slice(0, 32)})`,
       };
     }
     if (!isProseFile(file.relPath)) continue;
@@ -556,7 +559,7 @@ export function classifySkillPortability(files: readonly SkillFilePayload[]): Cl
       const sample = SLASH_COMMAND_REF.exec(stripped)?.[0]?.trim() ?? "/slash-command";
       return {
         tag: "claude-specific",
-        reason: `slash-command reference detected in ${file.relPath} (${sample.slice(0, 32)})`,
+        reason: `${REASON_PREFIX_SLASH_COMMAND} reference detected in ${file.relPath} (${sample.slice(0, 32)})`,
       };
     }
   }
