@@ -24,6 +24,7 @@
  * this module — the caller passes `isatty` based on
  * `stream.isTTY === true`.
  */
+import { Writable as NodeWritable } from "node:stream";
 
 export interface PhaseTiming {
   /** Human-readable phase name (e.g. "read + classify"). */
@@ -219,14 +220,11 @@ export function createProgressEmitter(opts: ProgressEmitterOptions): ProgressEmi
  * — explicit no-op is clearer at the callsite than `quiet: true` with
  * a real stream.
  */
-/**
- * A `/dev/null`-style writable stream — used by the no-op emitter so
- * the formatter still receives a valid stream for the `quiet: true`
- * short-circuit (every write returns without touching the stream).
- * Module-scope so `createNoopProgressEmitter` doesn't allocate one
- * per call.
- */
-import { Writable as NodeWritable } from "node:stream";
+// A `/dev/null`-style writable stream — used by the no-op emitter so
+// the formatter still receives a valid stream for the `quiet: true`
+// short-circuit (every write returns without touching the stream).
+// Module-scope so `createNoopProgressEmitter` doesn't allocate one
+// per call.
 const NULL_STREAM: NodeJS.WritableStream = new NodeWritable({
   write(_chunk: unknown, _enc: unknown, cb: (e?: Error | null) => void): void {
     cb();

@@ -1600,12 +1600,11 @@ export async function migrateClaudeSkills(
   // #125 — index lookup for progress `[N/total]` prefix during the
   // apply phase. Built once over the post-classify outcomes so the
   // index is stable across the rewrite + write + smoke phases of a
-  // single skill.
+  // single skill. Holly r1 Nit-1: call sites use the Map directly
+  // (the prior `nameToIdx` wrapper carried an unused first arg).
   const outcomeIndexBySource = new Map<string, number>(
     outcomes.map((o, i) => [o.sourceName, i + 1]),
   );
-  const nameToIdx = (_unused: unknown, sourceName: string): number =>
-    outcomeIndexBySource.get(sourceName) ?? 0;
 
   for (const outcome of outcomes) {
     if (outcome.disposition === "skipped-claude-specific") {
@@ -1728,7 +1727,7 @@ export async function migrateClaudeSkills(
         // lines so a principal sees `[N/total] <skill> [rewriting
         // via claude (1318 chars → target 900)... <elapsed>s → 836
         // chars]` instead of a silent 5-30s block.
-        const idx = nameToIdx(outcomes, outcome.sourceName);
+        const idx = outcomeIndexBySource.get(outcome.sourceName) ?? 0;
         const oldLen = read.descriptionStatus.length;
         progress.step(
           idx,
@@ -1802,7 +1801,7 @@ export async function migrateClaudeSkills(
     // #125 — write-phase progress. Bytes are counted from the
     // returned `fileShas` (one entry per landed file). The progress
     // line wraps the I/O so principals see which skill is mid-write.
-    const writeIdx = nameToIdx(null, outcome.sourceName);
+    const writeIdx = outcomeIndexBySource.get(outcome.sourceName) ?? 0;
     const writeT0 = Date.now();
     const { fileShas, rewrittenFiles } = await writeSkillPayload(
       read,
