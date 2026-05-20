@@ -126,6 +126,22 @@ test("#114 review: invalid resolution collision keys refuse loud", async () => {
   });
 });
 
+test("#114 review: preamble metadata before collisions is ignored", async () => {
+  await withCollisionFixture(async ({ homeDir, packsDir, utilitiesPack }) => {
+    const resolution = join(homeDir, "migration-resolve.yaml");
+    await planPaiMigration({ homeDir, paiPacksDir: packsDir, skipMemory: true, emitResolutionPath: resolution });
+    await rewriteResolutionPick(resolution, utilitiesPack);
+    const body = await readFile(resolution, "utf8");
+    await writeFile(resolution, `  metadata:\n    pick: null\n${body}`, "utf8");
+
+    const result = await migratePai({ homeDir, paiPacksDir: packsDir, skipMemory: true, resolutionPath: resolution });
+    const importedBrowser = result.packOutcomes.find((outcome) =>
+      outcome.outcome === "imported" && outcome.skillName === "browser"
+    );
+    expect(importedBrowser?.paiPackDir).toBe(utilitiesPack);
+  });
+});
+
 test("#114 AC-5: no resolution preserves first-wins behavior", async () => {
   await withCollisionFixture(async ({ homeDir, packsDir, browserPack }) => {
     const result = await migratePai({ homeDir, paiPacksDir: packsDir, skipMemory: true });

@@ -673,24 +673,6 @@ function workflowCountForPlan(plan: PaiPackImportPlan): number {
   return plan.files.filter((file) => file.target.includes(skillRootSegment)).length;
 }
 
-async function sizeBytesForPlan(plan: PaiPackImportPlan): Promise<number> {
-  const sourceFiles = plan.files.filter((file) => file.origin === "source");
-  const sizes = await runBoundedConcurrent(
-    sourceFiles,
-    async (file) => {
-      try {
-        return (await stat(file.source)).size;
-      } catch {
-        // Resolution metadata is advisory; a raced source deletion will
-        // be handled by the actual import path. Keep the file writable.
-        return 0;
-      }
-    },
-    16,
-  );
-  return sizes.reduce((total, size) => total + size, 0);
-}
-
 async function collectCollisionGroups(
   planRows: readonly SharedPlanRow[],
   collectionOptions: { includeSizeBytes: boolean },
@@ -718,9 +700,26 @@ async function collectCollisionGroups(
   const candidates = [...grouped.values()].flat();
   const sizeByCandidate = new Map<CollisionGroupCandidate, number>();
   if (collectionOptions.includeSizeBytes) {
-    const sizes = await runBoundedConcurrent(candidates, (option) => sizeBytesForPlan(option.plan), 16);
-    for (let index = 0; index < candidates.length; index += 1) {
-      sizeByCandidate.set(candidates[index], sizes[index] ?? 0);
+    const statTargets = candidates.flatMap((candidate) =>
+      candidate.plan.files
+        .filter((file) => file.origin === "source")
+        .map((file) => ({ candidate, source: file.source }))
+    );
+    const sizes = await runBoundedConcurrent(
+      statTargets,
+      async (target) => {
+        try {
+          return { candidate: target.candidate, size: (await stat(target.source)).size };
+        } catch {
+          // Resolution metadata is advisory; a raced source deletion will
+          // be handled by the actual import path. Keep the file writable.
+          return { candidate: target.candidate, size: 0 };
+        }
+      },
+      16,
+    );
+    for (const item of sizes) {
+      sizeByCandidate.set(item.candidate, (sizeByCandidate.get(item.candidate) ?? 0) + item.size);
     }
   }
   const collisions: CollisionGroups = new Map();
@@ -819,17 +818,17 @@ function parsePaiMigrationResolution(content: string): ResolutionChoices {
       continue;
     }
     if (inCollisions && line === "  {}") continue;
-    const slugMatch = /^  ([a-z0-9]+(?:-[a-z0-9]+)*):\s*$/.exec(line);
+    const slugMatch = inCollisions ? /^  ([a-z0-9]+(?:-[a-z0-9]+)*):\s*$/.exec(line) : null;
     if (slugMatch) {
       currentSlug = slugMatch[1];
       seenSlugs.add(currentSlug);
       continue;
     }
-    const invalidSlugMatch = /^  ([^ ].*):\s*$/.exec(line);
+    const invalidSlugMatch = inCollisions ? /^  ([^ ].*):\s*$/.exec(line) : null;
     if (inCollisions && invalidSlugMatch) {
       throw new Error(`PAI migration resolution contains invalid collision key '${invalidSlugMatch[1]}'. Re-run --emit-resolution for the current pack set.`);
     }
-    const pickMatch = /^    pick:\s*(.*)$/.exec(line);
+    const pickMatch = inCollisions ? /^    pick:\s*(.*)$/.exec(line) : null;
     if (pickMatch && currentSlug) {
       choices.set(currentSlug, parseYamlScalar(pickMatch[1]));
     }
