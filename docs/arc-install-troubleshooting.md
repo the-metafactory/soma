@@ -18,7 +18,7 @@ To pin a specific release:
 
 ```bash
 arc remove soma
-arc install @metafactory/soma@0.4.1
+arc install @metafactory/soma@0.5.0
 ```
 
 This removes Arc's package registration and symlinks before installing the
@@ -36,4 +36,3 @@ soma install claude-code --apply
 
 If Arc later supports transparent in-place upgrades for extracted registry
 packages, this workaround can be removed from the docs.
-
