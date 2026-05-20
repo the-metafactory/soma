@@ -677,7 +677,11 @@ async function planAllPacksWithHandles(
 
 function workflowCountForPlan(plan: PaiPackImportPlan): number {
   const skillRootSegment = `/skills/${plan.skillName}/Workflows/`;
-  return plan.files.filter((file) => file.target.includes(skillRootSegment)).length;
+  let count = 0;
+  for (const file of plan.files) {
+    if (file.target.includes(skillRootSegment)) count += 1;
+  }
+  return count;
 }
 
 async function collectCollisionGroups(
@@ -780,7 +784,7 @@ function renderPaiMigrationResolution(groups: CollisionGroups): string {
 function parseQuotedYamlScalar(trimmed: string): string | undefined {
   if (trimmed.startsWith("\"")) {
     for (let index = 1; index < trimmed.length; index += 1) {
-      if (trimmed[index] !== "\"" || trimmed[index - 1] === "\\") continue;
+      if (trimmed[index] !== "\"" || isEscapedDoubleQuote(trimmed, index)) continue;
       try {
         return JSON.parse(trimmed.slice(0, index + 1));
       } catch {
@@ -804,6 +808,14 @@ function parseQuotedYamlScalar(trimmed: string): string | undefined {
     }
   }
   return undefined;
+}
+
+function isEscapedDoubleQuote(value: string, quoteIndex: number): boolean {
+  let backslashes = 0;
+  for (let index = quoteIndex - 1; index >= 0 && value[index] === "\\"; index -= 1) {
+    backslashes += 1;
+  }
+  return backslashes % 2 === 1;
 }
 
 function parseUnquotedYamlScalar(trimmed: string): string | null {
