@@ -439,7 +439,7 @@ const TOP_LEVEL_COMMANDS = [
 ] as const;
 
 const MIGRATE_PAI_USAGE =
-  "Usage: soma migrate pai [--dry-run] [--apply] [--status] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>] [--pai-install <dir>] [--pai-repo <root>] [--pai-source-dir <dir>] [--pai-packs-dir <dir>] [--pai-pack-dir <dir>] [--skip-memory] [--skip-skills] [--skip-docs] [--overwrite-reserved] [--include-unrecognized] [--verbose]";
+  "Usage: soma migrate pai [--dry-run] [--apply] [--status] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>] [--pai-install <dir>] [--pai-repo <root>] [--pai-source-dir <dir>] [--pai-packs-dir <dir>] [--pai-pack-dir <dir>] [--emit-resolution <path>] [--resolution <path>] [--skip-memory] [--skip-skills] [--skip-docs] [--overwrite-reserved] [--include-unrecognized] [--verbose]";
 // #115 — `soma migrate claude-skills`. Phase 1 verb + classifier
 // (#116) ships the flat-tree import; Phase 2 adds `--smoke
 // <substrate>` (repeatable) for per-skill static-shape verify
@@ -1989,6 +1989,14 @@ function parseMigratePaiArgs(args: string[]): ParsedMigrateArgs {
         // always win — `--pai-repo` only fills the unset slots. See
         // `applyPaiRepoDerivation` in `src/pai-migration.ts`.
         options.paiRepo = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--emit-resolution":
+        options.emitResolutionPath = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--resolution":
+        options.resolutionPath = readOption(rest, index, arg);
         index += 1;
         break;
       case "--skip-memory":

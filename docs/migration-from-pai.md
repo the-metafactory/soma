@@ -462,6 +462,35 @@ already marked `verified` for the same source SHA. Warnings and
 failures re-run every invocation so fixing the adapter can flip the
 verdict without source churn.
 
+### Resolving duplicate PAI pack skills
+
+Some PAI repos include collection packs whose nested skills duplicate
+standalone packs. A dry run reports these as `refused-name-collision`
+rows. Without extra flags Soma keeps the existing first-wins behavior:
+the earliest sorted pack owns the skill slug and later duplicates are
+skipped.
+
+To make the choice explicit, emit a resolution file:
+
+```bash
+soma migrate pai --pai-repo ~/work/PAI --emit-resolution migration-resolve.yaml
+```
+
+Edit each `pick:` to the source pack that should win. Set `pick: null`
+or comment out the `pick:` line to skip all versions of that collision.
+In this first non-interactive flow, each `source` value is the pack
+directory that produced the duplicate skill slug.
+Then apply with the edited file:
+
+```bash
+soma migrate pai --pai-repo ~/work/PAI --apply --resolution migration-resolve.yaml
+```
+
+The resolution file is intentionally small and forward-compatible:
+extra fields under known collisions are ignored, but a collision key
+that does not exist in the current pack set refuses loud so stale files
+do not silently select the wrong import.
+
 ### Phase 3: `--rewrite-descriptions <agent>` LLM description compression
 
 PAI skills routinely pack multi-paragraph descriptions with usage
