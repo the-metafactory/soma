@@ -157,6 +157,16 @@ export interface PaiMigrationOptions {
    * is filtered out before the highest is picked.
    */
   paiRepo?: string;
+  /**
+   * #114 — write a principal-editable resolution file during plan mode
+   * for cross-pack skill-name collisions.
+   */
+  emitResolutionPath?: string;
+  /**
+   * #114 — apply an edited resolution file. Each collision slug can
+   * pick one source pack path or `null` to skip every option.
+   */
+  resolutionPath?: string;
 }
 
 export interface PaiMigrationPlan {
@@ -474,6 +484,8 @@ interface BulkImportInputs {
   packPaths: readonly string[];
   overwriteReserved: boolean;
   includeSubstrateSpecific: boolean;
+  emitResolutionPath?: string;
+  resolutionPath?: string;
 }
 
 interface BulkImportResult {
@@ -537,9 +549,25 @@ interface ResolvedPlanRow {
   paiPackDir: string;
   plans: PaiPackImportPlan[];
   handle: PaiPackImportPlanHandle;
-  collided: string[];
+  denied: DeniedSkill[];
   survivors: string[];
 }
+
+interface DeniedSkill {
+  slug: string;
+  reason: string;
+}
+
+interface ResolutionOption {
+  slug: string;
+  source: string;
+  description: string;
+  workflows: number;
+  sizeBytes: number;
+}
+
+type CollisionGroups = Map<string, ResolutionOption[]>;
+type ResolutionChoices = Map<string, string | null>;
 
 /**
  * Single source for partitioning a pack's plans into `collided`
@@ -561,10 +589,23 @@ function partitionPlansByCollision(
   plans: readonly PaiPackImportPlan[],
   landedSlugs: ReadonlySet<string>,
   overwriteReserved: boolean,
+  resolutionChoices: ResolutionChoices,
+  paiPackDir: string,
 ): { collided: string[]; survivors: string[] } {
   const collided: string[] = [];
   const survivors: string[] = [];
   for (const plan of plans) {
+    if (resolutionChoices.has(plan.skillName)) {
+      const pick = resolutionChoices.get(plan.skillName) ?? null;
+      if (pick === null) {
+        collided.push(plan.skillName);
+      } else if (resolve(pick) === resolve(paiPackDir)) {
+        survivors.push(plan.skillName);
+      } else {
+        collided.push(plan.skillName);
+      }
+      continue;
+    }
     if (landedSlugs.has(plan.skillName) && !overwriteReserved) {
       collided.push(plan.skillName);
     } else {
@@ -581,12 +622,26 @@ function partitionPlansByCollision(
  * construction prevents the reason text + outcome kind from drifting
  * across the two surfaces.
  */
-function crossPackCollisionOutcome(paiPackDir: string, slug: string): PaiPackOutcome {
+function deniedSkillReason(
+  slug: string,
+  deniedByResolution: ResolutionChoices,
+  paiPackDir: string,
+): string {
+  if (deniedByResolution.has(slug)) {
+    const pick = deniedByResolution.get(slug) ?? null;
+    return pick === null
+      ? `Resolution file set '${slug}' pick to null — skipped all collision options.`
+      : `Resolution file picked ${pick}; skipped ${paiPackDir}.`;
+  }
+  return `Soma skill '${slug}' already landed from an earlier pack — re-run with --overwrite-reserved to permit.`;
+}
+
+function crossPackCollisionOutcome(paiPackDir: string, slug: string, reason?: string): PaiPackOutcome {
   return {
     paiPackDir,
     outcome: "refused-name-collision",
     skillName: slug,
-    reason: `Soma skill '${slug}' already landed from an earlier pack — re-run with --overwrite-reserved to permit.`,
+    reason: reason ?? `Soma skill '${slug}' already landed from an earlier pack — re-run with --overwrite-reserved to permit.`,
   };
 }
 
@@ -605,6 +660,140 @@ async function planAllPacksWithHandles(
   );
 }
 
+function workflowCountForPlan(plan: PaiPackImportPlan): number {
+  const skillRootSegment = `/skills/${plan.skillName}/Workflows/`;
+  return plan.files.filter((file) => file.target.includes(skillRootSegment)).length;
+}
+
+async function sizeBytesForPlan(plan: PaiPackImportPlan): Promise<number> {
+  let total = 0;
+  for (const file of plan.files) {
+    if (file.origin !== "source") continue;
+    try {
+      total += (await stat(file.source)).size;
+    } catch {
+      // Resolution metadata is advisory; a raced source deletion will
+      // be handled by the actual import path. Keep the file writable.
+    }
+  }
+  return total;
+}
+
+async function collectCollisionGroups(planRows: readonly SharedPlanRow[]): Promise<CollisionGroups> {
+  const grouped = new Map<string, ResolutionOption[]>();
+  for (const row of planRows) {
+    if (row.kind !== "planned") continue;
+    for (const plan of row.plans) {
+      const options = grouped.get(plan.skillName) ?? [];
+      options.push({
+        slug: plan.skillName,
+        source: row.paiPackDir,
+        description: plan.description,
+        workflows: workflowCountForPlan(plan),
+        sizeBytes: await sizeBytesForPlan(plan),
+      });
+      grouped.set(plan.skillName, options);
+    }
+  }
+  for (const [slug, options] of [...grouped.entries()]) {
+    const uniqueSources = new Set(options.map((option) => resolve(option.source)));
+    if (uniqueSources.size < 2) grouped.delete(slug);
+  }
+  return grouped;
+}
+
+function yamlString(value: string): string {
+  return JSON.stringify(value);
+}
+
+function renderPaiMigrationResolution(groups: CollisionGroups): string {
+  const lines = [
+    "# soma migrate pai — resolution file",
+    "# Edit each pick field to choose which source pack wins on collision.",
+    "# Set pick: null, or comment out the pick line, to skip every option for that slug.",
+    "collisions:",
+  ];
+  const slugs = [...groups.keys()].sort();
+  if (slugs.length === 0) {
+    lines.push("  {}");
+    return `${lines.join("\n")}\n`;
+  }
+  for (const slug of slugs) {
+    const options = [...(groups.get(slug) ?? [])].sort((a, b) => a.source.localeCompare(b.source));
+    lines.push(`  ${slug}:`);
+    lines.push(`    pick: ${yamlString(options[0]?.source ?? "")}`);
+    lines.push("    options:");
+    for (const option of options) {
+      lines.push(`      - source: ${yamlString(option.source)}`);
+      lines.push(`        description: ${yamlString(option.description)}`);
+      lines.push(`        workflows: ${option.workflows}`);
+      lines.push(`        sizeBytes: ${option.sizeBytes}`);
+    }
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+function parseYamlScalar(raw: string): string | null {
+  const value = raw.split(/\s+#/, 1)[0].trim();
+  if (value === "" || value === "null" || value === "~") return null;
+  if ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'"))) {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value.slice(1, -1);
+    }
+  }
+  return value;
+}
+
+function parsePaiMigrationResolution(content: string): ResolutionChoices {
+  const choices: ResolutionChoices = new Map();
+  let currentSlug: string | null = null;
+  const seenSlugs = new Set<string>();
+  for (const line of content.split(/\r?\n/)) {
+    if (/^\s*(#|$)/.test(line)) continue;
+    const slugMatch = /^  ([a-z0-9]+(?:-[a-z0-9]+)*):\s*$/.exec(line);
+    if (slugMatch) {
+      currentSlug = slugMatch[1];
+      seenSlugs.add(currentSlug);
+      continue;
+    }
+    const pickMatch = /^    pick:\s*(.*)$/.exec(line);
+    if (pickMatch && currentSlug) {
+      choices.set(currentSlug, parseYamlScalar(pickMatch[1]));
+    }
+  }
+  for (const slug of seenSlugs) {
+    if (!choices.has(slug)) choices.set(slug, null);
+  }
+  return choices;
+}
+
+async function loadResolutionChoices(path: string | undefined, groups: CollisionGroups): Promise<ResolutionChoices> {
+  if (!path) return new Map();
+  const choices = parsePaiMigrationResolution(await readFile(resolve(path), "utf8"));
+  for (const slug of choices.keys()) {
+    if (!groups.has(slug)) {
+      throw new Error(`PAI migration resolution contains unknown collision '${slug}'. Re-run --emit-resolution for the current pack set.`);
+    }
+  }
+  for (const [slug, pick] of choices.entries()) {
+    if (pick === null) continue;
+    const allowed = new Set((groups.get(slug) ?? []).map((option) => resolve(option.source)));
+    if (!allowed.has(resolve(pick))) {
+      throw new Error(`PAI migration resolution pick for '${slug}' does not match any current option: ${pick}`);
+    }
+  }
+  return choices;
+}
+
+async function maybeWriteResolutionFile(path: string | undefined, groups: CollisionGroups): Promise<void> {
+  if (!path) return;
+  const target = resolve(path);
+  await mkdir(dirname(target), { recursive: true });
+  await writeFile(target, renderPaiMigrationResolution(groups), "utf8");
+}
+
 /**
  * Shared cross-pack collision walk.
  * Walks `planRows` in sorted order; for each `planned` row, partitions
@@ -616,13 +805,20 @@ async function planAllPacksWithHandles(
 function walkPlanRowsForCollisions(
   planRows: readonly SharedPlanRow[],
   overwriteReserved: boolean,
+  resolutionChoices: ResolutionChoices,
 ): { resolved: ResolvedPlanRow[] } {
   const resolved: ResolvedPlanRow[] = [];
   const landedSlugs = new Set<string>();
 
   for (const row of planRows) {
     if (row.kind === "refused") continue;
-    const { collided, survivors } = partitionPlansByCollision(row.plans, landedSlugs, overwriteReserved);
+    const { collided, survivors } = partitionPlansByCollision(
+      row.plans,
+      landedSlugs,
+      overwriteReserved,
+      resolutionChoices,
+      row.paiPackDir,
+    );
     // Plan-only mode: reserve every survivor up front. Plan can't
     // fail mid-apply, so the optimistic-landing partition is correct.
     // The apply path manages its own `landedSlugs` to track only
@@ -632,7 +828,10 @@ function walkPlanRowsForCollisions(
       paiPackDir: row.paiPackDir,
       plans: row.plans,
       handle: row.handle,
-      collided,
+      denied: collided.map((slug) => ({
+        slug,
+        reason: deniedSkillReason(slug, resolutionChoices, row.paiPackDir),
+      })),
       survivors,
     });
   }
@@ -646,6 +845,9 @@ async function importPacksWithOutcomes(
   // both the public per-skill plan view AND an opaque handle so Phase 2
   // can apply WITHOUT a second `buildPaiPackImportPlan` pass.
   const planRows = await planAllPacksWithHandles(inputs);
+  const collisionGroups = await collectCollisionGroups(planRows);
+  await maybeWriteResolutionFile(inputs.emitResolutionPath, collisionGroups);
+  const resolutionChoices = await loadResolutionChoices(inputs.resolutionPath, collisionGroups);
 
   // Phase 2: sequential apply with collision tracking.
   // Invariant: the cross-pack collision set grows ONLY after a
@@ -672,10 +874,16 @@ async function importPacksWithOutcomes(
     // so its slug is available to us. Same partitioning logic as the
     // plan-only walker, via the shared `partitionPlansByCollision`
     // helper.
-    const { collided, survivors } = partitionPlansByCollision(row.plans, landedSlugs, inputs.overwriteReserved);
+    const { collided, survivors } = partitionPlansByCollision(
+      row.plans,
+      landedSlugs,
+      inputs.overwriteReserved,
+      resolutionChoices,
+      row.paiPackDir,
+    );
 
     for (const slug of collided) {
-      outcomes.push(crossPackCollisionOutcome(row.paiPackDir, slug));
+      outcomes.push(crossPackCollisionOutcome(row.paiPackDir, slug, deniedSkillReason(slug, resolutionChoices, row.paiPackDir)));
     }
     if (survivors.length === 0) continue;
 
@@ -1028,7 +1236,10 @@ async function planPacksWithOutcomes(inputs: BulkImportInputs): Promise<BulkPlan
   // disk; it just emits advisory `imported` rows for every survivor
   // plus the same collision outcomes the apply path would produce.
   const planRows = await planAllPacksWithHandles(inputs);
-  const { resolved } = walkPlanRowsForCollisions(planRows, inputs.overwriteReserved);
+  const collisionGroups = await collectCollisionGroups(planRows);
+  await maybeWriteResolutionFile(inputs.emitResolutionPath, collisionGroups);
+  const resolutionChoices = await loadResolutionChoices(inputs.resolutionPath, collisionGroups);
+  const { resolved } = walkPlanRowsForCollisions(planRows, inputs.overwriteReserved, resolutionChoices);
 
   const packs: PaiPackImportPlan[] = [];
   const outcomes: PaiPackOutcome[] = [];
@@ -1042,8 +1253,8 @@ async function planPacksWithOutcomes(inputs: BulkImportInputs): Promise<BulkPlan
   // surviving "imported" rows so the principal-facing summary table
   // groups by pack identically to the apply path.
   for (const resolvedRow of resolved) {
-    for (const slug of resolvedRow.collided) {
-      outcomes.push(crossPackCollisionOutcome(resolvedRow.paiPackDir, slug));
+    for (const denied of resolvedRow.denied) {
+      outcomes.push(crossPackCollisionOutcome(resolvedRow.paiPackDir, denied.slug, denied.reason));
     }
     const survivorSet = new Set(resolvedRow.survivors);
     for (const plan of resolvedRow.plans) {
@@ -1259,6 +1470,8 @@ export async function planPaiMigration(options: PaiMigrationOptions = {}): Promi
         packPaths,
         overwriteReserved: options.overwriteReserved === true,
         includeSubstrateSpecific: options.includeSubstrateSpecific === true,
+        emitResolutionPath: options.emitResolutionPath,
+        resolutionPath: options.resolutionPath,
       });
   const memory = options.skipMemory === true
     ? null
@@ -1592,6 +1805,8 @@ export async function migratePai(options: PaiMigrationOptions = {}): Promise<Pai
         packPaths,
         overwriteReserved: options.overwriteReserved === true,
         includeSubstrateSpecific: options.includeSubstrateSpecific === true,
+        emitResolutionPath: options.emitResolutionPath,
+        resolutionPath: options.resolutionPath,
       });
   for (const r of packs) filesWritten.push(...r.files);
 
