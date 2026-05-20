@@ -709,30 +709,9 @@ async function collectCollisionGroups(
     if (uniqueSources.size < 2) grouped.delete(slug);
   }
   const candidates = [...grouped.values()].flat();
-  const sizeByCandidate = new Map<CollisionGroupCandidate, number>();
-  if (collectionOptions.includeSizeBytes) {
-    const statTargets = candidates.flatMap((candidate) =>
-      candidate.plan.files
-        .filter((file) => file.origin === "source")
-        .map((file) => ({ candidate, source: file.source }))
-    );
-    const sizes = await runBoundedConcurrent(
-      statTargets,
-      async (target) => {
-        try {
-          return { candidate: target.candidate, size: (await stat(target.source)).size };
-        } catch {
-          // Resolution metadata is advisory; a raced source deletion will
-          // be handled by the actual import path. Keep the file writable.
-          return { candidate: target.candidate, size: 0 };
-        }
-      },
-      16,
-    );
-    for (const item of sizes) {
-      sizeByCandidate.set(item.candidate, (sizeByCandidate.get(item.candidate) ?? 0) + item.size);
-    }
-  }
+  const sizeByCandidate = collectionOptions.includeSizeBytes
+    ? await collectCandidateSizes(candidates)
+    : new Map<CollisionGroupCandidate, number>();
   const collisions: CollisionGroups = new Map();
   for (const [slug, options] of grouped.entries()) {
     const resolvedOptions: ResolutionOption[] = [];
@@ -748,6 +727,34 @@ async function collectCollisionGroups(
     collisions.set(slug, resolvedOptions);
   }
   return collisions;
+}
+
+async function collectCandidateSizes(
+  candidates: readonly CollisionGroupCandidate[],
+): Promise<Map<CollisionGroupCandidate, number>> {
+  const statTargets = candidates.flatMap((candidate) =>
+    candidate.plan.files
+      .filter((file) => file.origin === "source")
+      .map((file) => ({ candidate, source: file.source }))
+  );
+  const sizes = await runBoundedConcurrent(
+    statTargets,
+    async (target) => {
+      try {
+        return { candidate: target.candidate, size: (await stat(target.source)).size };
+      } catch {
+        // Resolution metadata is advisory; a raced source deletion will
+        // be handled by the actual import path. Keep the file writable.
+        return { candidate: target.candidate, size: 0 };
+      }
+    },
+    16,
+  );
+  const sizeByCandidate = new Map<CollisionGroupCandidate, number>();
+  for (const item of sizes) {
+    sizeByCandidate.set(item.candidate, (sizeByCandidate.get(item.candidate) ?? 0) + item.size);
+  }
+  return sizeByCandidate;
 }
 
 function yamlString(value: string): string {
@@ -785,6 +792,10 @@ function parseQuotedYamlScalar(trimmed: string): string | undefined {
   if (trimmed.startsWith("\"")) {
     for (let index = 1; index < trimmed.length; index += 1) {
       if (trimmed[index] !== "\"" || isEscapedDoubleQuote(trimmed, index)) continue;
+      const trailing = trimmed.slice(index + 1).trim();
+      if (trailing !== "" && !trailing.startsWith("#")) {
+        throw new Error(`PAI migration resolution contains invalid quoted scalar trailing content: ${trailing}`);
+      }
       try {
         return JSON.parse(trimmed.slice(0, index + 1));
       } catch {
@@ -803,6 +814,10 @@ function parseQuotedYamlScalar(trimmed: string): string | undefined {
         value += "'";
         index += 1;
         continue;
+      }
+      const trailing = trimmed.slice(index + 1).trim();
+      if (trailing !== "" && !trailing.startsWith("#")) {
+        throw new Error(`PAI migration resolution contains invalid quoted scalar trailing content: ${trailing}`);
       }
       return value;
     }

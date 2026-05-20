@@ -259,3 +259,23 @@ test("#114 review: single-quoted YAML picks preserve doubled apostrophes", async
     expect(importedBrowser?.paiPackDir).toBe(utilitiesPack);
   }, "soma-114-John's-path-");
 });
+
+test("#114 review: quoted picks allow comments and reject trailing tokens", async () => {
+  await withCollisionFixture(async ({ homeDir, packsDir, utilitiesPack }) => {
+    const resolution = join(homeDir, "migration-resolve.yaml");
+    await planPaiMigration({ homeDir, paiPacksDir: packsDir, skipMemory: true, emitResolutionPath: resolution });
+    let body = await readFile(resolution, "utf8");
+    body = body.replace(/^    pick: .+$/m, `    pick: "${utilitiesPack}" # choose nested`);
+    await writeFile(resolution, body, "utf8");
+    const result = await migratePai({ homeDir, paiPacksDir: packsDir, skipMemory: true, resolutionPath: resolution });
+    const importedBrowser = result.packOutcomes.find((outcome) =>
+      outcome.outcome === "imported" && outcome.skillName === "browser"
+    );
+    expect(importedBrowser?.paiPackDir).toBe(utilitiesPack);
+
+    body = body.replace(" # choose nested", " unexpected");
+    await writeFile(resolution, body, "utf8");
+    await expect(migratePai({ homeDir, paiPacksDir: packsDir, skipMemory: true, resolutionPath: resolution }))
+      .rejects.toThrow("invalid quoted scalar trailing content");
+  });
+});
