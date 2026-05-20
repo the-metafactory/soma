@@ -213,8 +213,7 @@ function toolCallDestinations(event: unknown, cwd: string): string[] {
   const e = event as { path?: unknown; destination?: unknown; target?: unknown; args?: unknown; input?: unknown };
   if (toolCallIsShell(event)) {
     const command = toolCallContent(event);
-    const targets = command ? parseBashDestructivePaths(command, cwd).targetPaths : [];
-    return targets.length > 0 ? targets : [cwd];
+    return command ? parseBashDestructivePaths(command, cwd).targetPaths : [];
   }
   for (const candidate of [e.destination, e.path, e.target]) {
     if (typeof candidate === "string" && candidate.trim()) return [candidate];
@@ -269,10 +268,21 @@ function toolCallAction(event: unknown): "read" | "write" | "delete" | "modify" 
   if (/(read|list|search|grep|find|query|view)/u.test(name)) return "read";
   if (/(rm|delete|trash|unlink)/u.test(name)) return "delete";
   if (/(edit|write|patch|cp|copy)/u.test(name)) return "write";
-  if (/(bash|shell)/u.test(name) && /(^|\\s)(rm|delete|trash|unlink)\\b/u.test(toolCallContent(event) ?? "")) return "delete";
+  if (/(bash|shell)/u.test(name) && /^(rm|delete|trash|unlink)$/u.test(shellCommandName(event) ?? "")) return "delete";
   if (/(bash|shell)/u.test(name)) return "write";
   if (/(mv|move)/u.test(name)) return "modify";
   return "modify";
+}
+
+function shellCommandName(event: unknown): string | undefined {
+  const command = toolCallContent(event);
+  if (!command) return undefined;
+  return parseBashDestructivePaths(command, process.cwd()).command.toLowerCase();
+}
+
+function isPathlessShellRead(event: unknown): boolean {
+  const command = toolCallContent(event)?.trim();
+  return !!command && /^(npm|pnpm|yarn|bun|bunx|node|tsc|pytest|cargo|go|make|just|git)\\b/u.test(command);
 }
 
 async function runSomaPolicyCheck(event: unknown, ctx: unknown): Promise<{ block: boolean; reason: string }> {
@@ -283,6 +293,7 @@ async function runSomaPolicyCheck(event: unknown, ctx: unknown): Promise<{ block
   const sourcePath = toolCallSource(event);
   const content = toolCallContent(event);
   if (destinations.length === 0) {
+    if (toolCallIsShell(event) && isPathlessShellRead(event)) return { block: false, reason: "" };
     return { block: true, reason: "Soma policy blocked mutating tool_call without a parseable destination." };
   }
   try {
