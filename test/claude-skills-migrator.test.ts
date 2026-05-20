@@ -21,8 +21,8 @@
  *   - Mixed tree: per-skill routing decision is independent.
  *   - Manifest schema invariants.
  */
-import { mkdir, readFile, readdir, writeFile, symlink } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, mkdtemp, readFile, readdir, writeFile, symlink } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { expect, test } from "bun:test";
 import {
   classifySkillPortability,
@@ -640,6 +640,67 @@ test("#118 migrateClaudeSkills follows user-owned symlinked top-level SKILL.md",
     expect(result.writtenCount).toBe(1);
     const landed = await readFile(join(home, "soma/skills/linked/SKILL.md"), "utf8");
     expect(landed).toContain("followed top-level");
+  });
+});
+
+// #166: top-level skill entries can themselves be symlinked
+// directories, e.g. ~/.claude/skills/pilot-review-loop ->
+// ~/work/mf/pilot/skill. Discovery must surface the skill instead of
+// silently skipping it before the safe symlink handling layer runs.
+test("#166 migrateClaudeSkills imports user-owned top-level symlinked skill directory", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = join(home, "skills");
+    const targetDir = join(home, "work/mf/pilot/skill");
+    await mkdir(fromDir, { recursive: true });
+    await mkdir(join(targetDir, "Workflows"), { recursive: true });
+    await writeFile(
+      join(targetDir, "SKILL.md"),
+      withDefaultFrontmatter("# Pilot Review Loop\n\nreview loop.\n"),
+      "utf8",
+    );
+    await writeFile(join(targetDir, "Workflows/Run.md"), "# Run\n", "utf8");
+    await symlink(targetDir, join(fromDir, "pilot-review-loop"));
+
+    const result = await migrateClaudeSkills({
+      from: fromDir,
+      somaHome: join(home, "soma"),
+      homeDir: home,
+    });
+
+    const outcome = result.outcomes.find((o) => o.sourceName === "pilot-review-loop");
+    expect(outcome?.disposition).toBe("imported");
+    expect(result.writtenCount).toBe(1);
+    expect(
+      await readFile(
+        join(home, "soma/skills/pilot-review-loop/Workflows/Run.md"),
+        "utf8",
+      ),
+    ).toContain("Run");
+  });
+});
+
+test("#166 planClaudeSkillsMigration refuses unsafe top-level symlinked skill directory per skill", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = join(home, "skills");
+    const outsideDir = await mkdtemp(join(dirname(home), "outside-skill-"));
+    await mkdir(fromDir, { recursive: true });
+    await writeFile(
+      join(outsideDir, "SKILL.md"),
+      withDefaultFrontmatter("# Outside\n\noutside home.\n"),
+      "utf8",
+    );
+    await symlink(outsideDir, join(fromDir, "OutsideLink"));
+
+    const plan = await planClaudeSkillsMigration({
+      from: fromDir,
+      homeDir: home,
+    });
+
+    expect(plan.isFlatSkillsTree).toBe(true);
+    const outcome = plan.outcomes.find((o) => o.sourceName === "OutsideLink");
+    expect(outcome?.disposition).toBe("refused-other");
+    expect(outcome?.refusalReason).toContain("OutsideLink");
+    expect(outcome?.refusalReason).toContain("outside $HOME");
   });
 });
 
