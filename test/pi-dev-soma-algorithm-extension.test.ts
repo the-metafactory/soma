@@ -45,9 +45,9 @@ describe("renderSomaAlgorithmExtension", () => {
     expect(source).toContain('from "file:///tmp/override/phase-parser.ts"');
     expect(source).toContain('from "file:///tmp/override/widget-renderers.ts"');
     expect(source).toContain('from "file:///tmp/override/isa-checklist.ts"');
-    expect(source).toMatch(/from "file:\/\/.*\/src\/policy-audit\.ts"/u);
-    expect(source).toMatch(/from "file:\/\/.*\/src\/policy-path-guard\.ts"/u);
-    expect(source).toMatch(/from "file:\/\/.*\/src\/adapters\/pi-dev\/algorithm-run-snapshot\.ts"/u);
+    expect(source).toContain('from "file:///tmp/override/policy-audit.ts"');
+    expect(source).toContain('from "file:///tmp/override/policy-path-guard.ts"');
+    expect(source).toContain('from "file:///tmp/override/algorithm-run-snapshot.ts"');
   });
 
   test("renders the installed Soma home into policy checks", () => {
