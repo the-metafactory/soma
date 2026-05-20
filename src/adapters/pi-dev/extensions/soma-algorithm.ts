@@ -280,11 +280,6 @@ function shellCommandName(event: unknown): string | undefined {
   return parseBashDestructivePaths(command, process.cwd()).command.toLowerCase();
 }
 
-function isPathlessShellRead(event: unknown): boolean {
-  const command = toolCallContent(event)?.trim();
-  return !!command && /^(npm|pnpm|yarn|bun|bunx|node|tsc|pytest|cargo|go|make|just|git)\\b/u.test(command);
-}
-
 async function runSomaPolicyCheck(event: unknown, ctx: unknown): Promise<{ block: boolean; reason: string }> {
   const action = toolCallAction(event);
   if (action === "read") return { block: false, reason: "" };
@@ -293,7 +288,6 @@ async function runSomaPolicyCheck(event: unknown, ctx: unknown): Promise<{ block
   const sourcePath = toolCallSource(event);
   const content = toolCallContent(event);
   if (destinations.length === 0) {
-    if (toolCallIsShell(event) && isPathlessShellRead(event)) return { block: false, reason: "" };
     return { block: true, reason: "Soma policy blocked mutating tool_call without a parseable destination." };
   }
   try {
