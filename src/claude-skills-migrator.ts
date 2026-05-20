@@ -678,6 +678,20 @@ async function readSourceSkill(
   if (!(await pathExists(skillMdPath))) {
     throw new Error(`soma migrate claude-skills: ${sourceName}/SKILL.md not found.`);
   }
+  const rootStat = await lstat(skillDir);
+  if (rootStat.isSymbolicLink()) {
+    const resolvedRoot = await resolveSymlinkSafely(skillDir, homeRealPath, new Set());
+    if ("refused" in resolvedRoot) {
+      throw new Error(
+        `soma migrate claude-skills refused symlink path: ${sourceName} — ${resolvedRoot.reason}`,
+      );
+    }
+    if (resolvedRoot.kind !== "dir") {
+      throw new Error(
+        `soma migrate claude-skills refused symlink path: ${sourceName} — top-level skill symlink target is not a directory: ${resolvedRoot.realPath}`,
+      );
+    }
+  }
   // #118 — wrap collect errors with the source skill name so the
   // refusal reason includes `<sourceName>/<rel>` per AC-4. The walker's
   // error messages all follow the shape `soma migrate claude-skills
@@ -754,9 +768,20 @@ async function listFlatSkillNames(fromDir: string): Promise<string[]> {
   const entries = await readdir(fromDir, { withFileTypes: true });
   const names: string[] = [];
   for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
     if (entry.name.startsWith(".")) continue;
+    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
     const skillMdPath = join(fromDir, entry.name, "SKILL.md");
+    if (entry.isSymbolicLink()) {
+      // #166 — top-level symlinked skill directories are common in PAI
+      // development (`~/.claude/skills/name -> ~/work/.../skill`). List
+      // entries that look like skill roots so `readSourceSkill` can
+      // apply the same safe symlink policy used inside skill trees and
+      // classify failures per skill instead of silently skipping them.
+      if (await pathExists(skillMdPath)) {
+        names.push(entry.name);
+      }
+      continue;
+    }
     if (await pathExists(skillMdPath)) {
       // #118 — a symlinked top-level SKILL.md is no longer an outright
       // refusal at the listing phase. The walker in `collectSkillFiles`
