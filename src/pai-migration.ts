@@ -764,7 +764,7 @@ function renderPaiMigrationResolution(groups: CollisionGroups): string {
   }
   for (const slug of slugs) {
     const options = [...(groups.get(slug) ?? [])].sort((a, b) => a.source.localeCompare(b.source));
-    lines.push(`  ${slug}:`);
+    lines.push(`  ${yamlString(slug)}:`);
     lines.push(`    pick: ${yamlString(options[0]?.source ?? "")}`);
     lines.push("    options:");
     for (const option of options) {
@@ -817,6 +817,15 @@ function parseYamlScalar(raw: string): string | null {
   return parseQuotedYamlScalar(trimmed) ?? parseUnquotedYamlScalar(trimmed);
 }
 
+function parseCollisionKeyLine(line: string): string | null {
+  if (!line.startsWith("  ") || line.startsWith("    ") || !line.trimEnd().endsWith(":")) return null;
+  const rawKey = line.trim().slice(0, -1).trim();
+  const quotedKey = parseQuotedYamlScalar(rawKey);
+  if (quotedKey !== undefined) return quotedKey;
+  if (/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(rawKey)) return rawKey;
+  throw new Error(`PAI migration resolution contains invalid collision key '${rawKey}'. Re-run --emit-resolution for the current pack set.`);
+}
+
 function parsePaiMigrationResolution(content: string): ResolutionChoices {
   const choices: ResolutionChoices = new Map();
   let currentSlug: string | null = null;
@@ -829,15 +838,11 @@ function parsePaiMigrationResolution(content: string): ResolutionChoices {
       continue;
     }
     if (inCollisions && line === "  {}") continue;
-    const slugMatch = inCollisions ? /^  ([a-z0-9]+(?:-[a-z0-9]+)*):\s*$/.exec(line) : null;
-    if (slugMatch) {
-      currentSlug = slugMatch[1];
+    const collisionKey = inCollisions ? parseCollisionKeyLine(line) : null;
+    if (collisionKey !== null) {
+      currentSlug = collisionKey;
       seenSlugs.add(currentSlug);
       continue;
-    }
-    const invalidSlugMatch = inCollisions ? /^  ([^ ].*):\s*$/.exec(line) : null;
-    if (inCollisions && invalidSlugMatch) {
-      throw new Error(`PAI migration resolution contains invalid collision key '${invalidSlugMatch[1]}'. Re-run --emit-resolution for the current pack set.`);
     }
     const pickMatch = inCollisions ? /^    pick:\s*(.*)$/.exec(line) : null;
     if (pickMatch && currentSlug) {

@@ -57,7 +57,7 @@ test("#114 AC-1: --emit-resolution writes collision metadata", async () => {
 
     const body = await readFile(resolution, "utf8");
     expect(body).toContain("collisions:");
-    expect(body).toContain("browser:");
+    expect(body).toContain("\"browser\":");
     expect(body).toContain(`pick: "${browserPack}"`);
     expect(body).toContain(`source: "${browserPack}"`);
     expect(body).toContain(`source: "${utilitiesPack}"`);
