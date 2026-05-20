@@ -212,12 +212,9 @@ async function restoreLatestRun(pi: ExtensionAPI, ctx: unknown): Promise<void> {
 function toolCallDestinations(event: unknown, cwd: string): string[] {
   const e = event as { path?: unknown; destination?: unknown; target?: unknown; args?: unknown; input?: unknown };
   if (toolCallIsShell(event)) {
-    const command = typeof (e.input as { command?: unknown } | undefined)?.command === "string"
-      ? (e.input as { command: string }).command
-      : typeof (e.args as { command?: unknown } | undefined)?.command === "string"
-        ? (e.args as { command: string }).command
-        : "";
-    return command ? parseBashDestructivePaths(command, cwd).targetPaths : [];
+    const command = toolCallContent(event);
+    const targets = command ? parseBashDestructivePaths(command, cwd).targetPaths : [];
+    return targets.length > 0 ? targets : [cwd];
   }
   for (const candidate of [e.destination, e.path, e.target]) {
     if (typeof candidate === "string" && candidate.trim()) return [candidate];
@@ -232,16 +229,49 @@ function toolCallDestinations(event: unknown, cwd: string): string[] {
   return [];
 }
 
+function toolCallSource(event: unknown): string | undefined {
+  const e = event as { source?: unknown; sourcePath?: unknown; source_path?: unknown; from?: unknown; args?: unknown; input?: unknown };
+  for (const candidate of [e.sourcePath, e.source_path, e.source, e.from]) {
+    if (typeof candidate === "string" && candidate.trim()) return candidate;
+  }
+  for (const bag of [e.args, e.input]) {
+    if (!bag || typeof bag !== "object") continue;
+    const b = bag as { source?: unknown; sourcePath?: unknown; source_path?: unknown; from?: unknown };
+    for (const candidate of [b.sourcePath, b.source_path, b.source, b.from]) {
+      if (typeof candidate === "string" && candidate.trim()) return candidate;
+    }
+  }
+  return undefined;
+}
+
+function toolCallContent(event: unknown): string | undefined {
+  const e = event as { command?: unknown; content?: unknown; text?: unknown; args?: unknown; input?: unknown };
+  for (const candidate of [e.command, e.content, e.text]) {
+    if (typeof candidate === "string" && candidate.trim()) return candidate;
+  }
+  for (const bag of [e.args, e.input]) {
+    if (!bag || typeof bag !== "object") continue;
+    const b = bag as { command?: unknown; content?: unknown; text?: unknown };
+    for (const candidate of [b.command, b.content, b.text]) {
+      if (typeof candidate === "string" && candidate.trim()) return candidate;
+    }
+  }
+  return undefined;
+}
+
 function toolCallIsShell(event: unknown): boolean {
   const name = String((event as { toolName?: unknown; name?: unknown }).toolName ?? (event as { name?: unknown }).name ?? "").toLowerCase();
   return /(bash|shell)/u.test(name);
 }
 
-function toolCallAction(event: unknown): "read" | "delete" | "modify" {
+function toolCallAction(event: unknown): "read" | "write" | "delete" | "modify" {
   const name = String((event as { toolName?: unknown; name?: unknown }).toolName ?? (event as { name?: unknown }).name ?? "").toLowerCase();
   if (/(read|list|search|grep|find|query|view)/u.test(name)) return "read";
   if (/(rm|delete|trash|unlink)/u.test(name)) return "delete";
-  if (/(edit|write|patch|bash|shell|mv|move|cp|copy)/u.test(name)) return "modify";
+  if (/(edit|write|patch|cp|copy)/u.test(name)) return "write";
+  if (/(bash|shell)/u.test(name) && /(^|\\s)(rm|delete|trash|unlink)\\b/u.test(toolCallContent(event) ?? "")) return "delete";
+  if (/(bash|shell)/u.test(name)) return "write";
+  if (/(mv|move)/u.test(name)) return "modify";
   return "modify";
 }
 
@@ -250,6 +280,8 @@ async function runSomaPolicyCheck(event: unknown, ctx: unknown): Promise<{ block
   if (action === "read") return { block: false, reason: "" };
   const cwd = typeof (ctx as { cwd?: unknown }).cwd === "string" ? (ctx as { cwd: string }).cwd : process.cwd();
   const destinations = [...new Set(toolCallDestinations(event, cwd))].slice(0, MAX_POLICY_TARGETS);
+  const sourcePath = toolCallSource(event);
+  const content = toolCallContent(event);
   if (destinations.length === 0) {
     return { block: true, reason: "Soma policy blocked mutating tool_call without a parseable destination." };
   }
@@ -261,6 +293,8 @@ async function runSomaPolicyCheck(event: unknown, ctx: unknown): Promise<{ block
         action,
         cwd,
         destinationPath: destination,
+        sourcePath,
+        content,
         record: "deny",
       })),
     );
