@@ -66,6 +66,8 @@ import type {
   ClaudeSkillSubstrateVerifySummary,
   ClaudeSkillsMigrationManifest,
   ClaudeSkillsMigrationManifestEntry,
+  ClaudeSkillsMigrationManifestLastRun,
+  ClaudeSkillsMigrationManifestOutcome,
   ClaudeSkillsMigrationOptions,
   ClaudeSkillsMigrationPlan,
   ClaudeSkillsMigrationResult,
@@ -1327,6 +1329,14 @@ function renderManifest(manifest: ClaudeSkillsMigrationManifest): string {
   const sorted: ClaudeSkillsMigrationManifest = {
     ...manifest,
     skills: [...manifest.skills].sort((a, b) => a.kebabName.localeCompare(b.kebabName)),
+    ...(manifest.lastRun
+      ? {
+          lastRun: {
+            ...manifest.lastRun,
+            outcomes: [...manifest.lastRun.outcomes].sort((a, b) => a.kebabName.localeCompare(b.kebabName)),
+          },
+        }
+      : {}),
   };
   return `${JSON.stringify(sorted, null, 2)}\n`;
 }
@@ -1350,6 +1360,86 @@ export function resolveOutcomeReason(outcome: ClaudeSkillOutcome): string {
     return outcome.refusalReason ?? outcome.reason;
   }
   return outcome.reason;
+}
+
+function remediationForOutcome(outcome: ClaudeSkillOutcome): string | undefined {
+  if (outcome.disposition === "skipped-claude-specific") {
+    return "Re-run with --include-claude-specific if this Claude-only skill should still be imported.";
+  }
+  if (outcome.disposition === "refused-description-limit") {
+    return "Re-run with --rewrite-descriptions claude (or codex/pi) to compress the description before import.";
+  }
+  if (outcome.disposition !== "refused-other") return undefined;
+  const reason = resolveOutcomeReason(outcome);
+  if (reason.includes("VCS metadata directory")) {
+    return "remove or move embedded VCS metadata such as .git/.hg/.svn out of the skill directory, then rerun.";
+  }
+  if (reason.includes("symlink cycle") || reason.includes("symlink loop")) {
+    return "Break the symlink cycle or replace the symlink with regular files, then rerun.";
+  }
+  if (reason.includes("broken link") || reason.includes("target does not exist")) {
+    return "Repair or remove the broken symlink target, then rerun.";
+  }
+  if (reason.includes("outside $HOME")) {
+    return "Move the symlink target under $HOME or copy the files into the skill tree, then rerun.";
+  }
+  if (reason.includes("denylisted")) {
+    return "Remove links to credential or secret-bearing home subpaths, then rerun.";
+  }
+  return "Fix the refused source path shown in the reason, then rerun.";
+}
+
+function isActionableManifestOutcome(outcome: ClaudeSkillOutcome): boolean {
+  return (
+    outcome.disposition === "skipped-claude-specific" ||
+    outcome.disposition === "refused-other" ||
+    outcome.disposition === "refused-description-limit" ||
+    (outcome.dependencyMissing?.length ?? 0) > 0
+  );
+}
+
+function buildManifestLastRun(
+  outcomes: readonly ClaudeSkillOutcome[],
+): ClaudeSkillsMigrationManifestLastRun | undefined {
+  const exceptional = outcomes.filter(isActionableManifestOutcome);
+  if (exceptional.length === 0) return undefined;
+  let imported = 0;
+  let skippedIdempotent = 0;
+  let skippedClaudeSpecific = 0;
+  let refusedOther = 0;
+  let refusedDescriptionLimit = 0;
+  for (const outcome of outcomes) {
+    if (outcome.disposition === "imported") imported += 1;
+    else if (outcome.disposition === "skipped-idempotent") skippedIdempotent += 1;
+    else if (outcome.disposition === "skipped-claude-specific") skippedClaudeSpecific += 1;
+    else if (outcome.disposition === "refused-other") refusedOther += 1;
+    else if (outcome.disposition === "refused-description-limit") refusedDescriptionLimit += 1;
+  }
+  const manifestOutcomes: ClaudeSkillsMigrationManifestOutcome[] = exceptional.map((outcome) => {
+    const remediation = remediationForOutcome(outcome);
+    return {
+      sourceName: outcome.sourceName,
+      kebabName: outcome.kebabName,
+      tag: outcome.tag,
+      disposition: outcome.disposition,
+      reason: outcome.reason,
+      ...(outcome.refusalReason ? { refusalReason: outcome.refusalReason } : {}),
+      ...(remediation ? { remediation } : {}),
+      ...(outcome.dependencyMissing && outcome.dependencyMissing.length > 0
+        ? { dependencyMissing: [...outcome.dependencyMissing].sort() }
+        : {}),
+    };
+  });
+  return {
+    totals: {
+      imported,
+      skippedIdempotent,
+      skippedClaudeSpecific,
+      refusedOther,
+      refusedDescriptionLimit,
+    },
+    outcomes: manifestOutcomes,
+  };
 }
 
 function renderPortabilityReport(
@@ -2121,6 +2211,7 @@ export async function migrateClaudeSkills(
     return previousManifest.importedAt;
   })();
 
+  const manifestLastRun = buildManifestLastRun(outcomes);
   const newManifest: ClaudeSkillsMigrationManifest = {
     schema: MANIFEST_SCHEMA,
     from,
@@ -2128,6 +2219,7 @@ export async function migrateClaudeSkills(
     importedAt,
     includeClaudeSpecific,
     skills: manifestEntries,
+    ...(manifestLastRun ? { lastRun: manifestLastRun } : {}),
     ...(smokeSubstrates.length > 0 ? { smokeSubstrates } : {}),
   };
   await writeFile(manifestPath, renderManifest(newManifest), "utf8");

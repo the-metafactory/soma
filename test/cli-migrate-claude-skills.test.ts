@@ -164,6 +164,44 @@ test("soma migrate claude-skills --status (after apply) prints summary", async (
   });
 });
 
+test("soma migrate claude-skills --status shows refused outcomes from the latest apply", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = await writeFixture(home);
+    await mkdir(join(fromDir, "EmbeddedGit", ".git"), { recursive: true });
+    await writeFile(
+      join(fromDir, "EmbeddedGit", "SKILL.md"),
+      FM + "# EmbeddedGit\n\ncontains vcs metadata.\n",
+      "utf8",
+    );
+    const somaHome = join(home, "soma");
+
+    await expect(
+      runSomaCli([
+        "migrate",
+        "claude-skills",
+        "--from",
+        fromDir,
+        "--soma-home",
+        somaHome,
+        "--apply",
+      ]),
+    ).rejects.toThrow(/EmbeddedGit/);
+
+    const status = await runSomaCli([
+      "migrate",
+      "claude-skills",
+      "--status",
+      "--soma-home",
+      somaHome,
+    ]);
+    expect(status).toContain("latest outcomes:");
+    expect(status).toContain("refused-other: 1");
+    expect(status).toContain("embedded-git [refused-other]");
+    expect(status).toContain("remove or move embedded VCS metadata");
+    expect(status).toContain("claude-specific [skipped-claude-specific]");
+  });
+});
+
 test("soma migrate claude-skills --help surfaces usage", async () => {
   const output = await runSomaCli(["migrate", "claude-skills", "--help"]);
   expect(output).toContain("Usage: soma migrate claude-skills");

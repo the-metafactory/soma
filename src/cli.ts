@@ -2788,6 +2788,21 @@ function formatClaudeSkillsMigrationStatus(
   for (const entry of manifest.skills) {
     lines.push(`  - ${entry.kebabName} [${entry.tag}] (${Object.keys(entry.fileShas).length} files)`);
   }
+  if (manifest.lastRun && manifest.lastRun.outcomes.length > 0) {
+    const totals = manifest.lastRun.totals;
+    lines.push("");
+    lines.push("latest outcomes:");
+    lines.push(
+      `  imported: ${totals.imported}, skipped-idempotent: ${totals.skippedIdempotent}, skipped-claude-specific: ${totals.skippedClaudeSpecific}, refused-other: ${totals.refusedOther}, refused-description-limit: ${totals.refusedDescriptionLimit}`,
+    );
+    for (const outcome of manifest.lastRun.outcomes) {
+      const reason = outcome.refusalReason ?? outcome.reason;
+      const detail = outcome.remediation
+        ? `${reason}; remediation: ${outcome.remediation}`
+        : reason;
+      lines.push(`  - ${outcome.kebabName} [${outcome.disposition}] ${detail}`);
+    }
+  }
   lines.push("");
   return lines.join("\n");
 }
