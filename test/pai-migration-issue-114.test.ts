@@ -142,6 +142,16 @@ test("#114 review: preamble metadata before collisions is ignored", async () => 
   });
 });
 
+test("#114 review: non-empty resolution without collisions block refuses loud", async () => {
+  await withCollisionFixture(async ({ homeDir, packsDir }) => {
+    const resolution = join(homeDir, "bad-resolution.yaml");
+    await writeFile(resolution, "metadata:\n  generatedBy: test\n", "utf8");
+
+    await expect(migratePai({ homeDir, paiPacksDir: packsDir, skipMemory: true, resolutionPath: resolution }))
+      .rejects.toThrow("missing a collisions block");
+  });
+});
+
 test("#114 AC-5: no resolution preserves first-wins behavior", async () => {
   await withCollisionFixture(async ({ homeDir, packsDir, browserPack }) => {
     const result = await migratePai({ homeDir, paiPacksDir: packsDir, skipMemory: true });
