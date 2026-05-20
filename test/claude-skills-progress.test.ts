@@ -229,6 +229,20 @@ test("#168: TTY concurrent counter counts each skill once across multi-step phas
   expect(capture.text).not.toContain("[4/2]");
 });
 
+test("#168: concurrent summary average samples each skill once across multi-step phases", () => {
+  const { stream, capture } = makeCapturingStream();
+  const emitter = createProgressEmitter({ stderr: stream, quiet: false, isatty: false });
+  emitter.beginConcurrentPhase("read + classify", 2, 4);
+  emitter.stepComplete(1, "Foo", "reading + classifying", 10, "read");
+  emitter.stepComplete(1, "Foo", "classified", 1000, "portable");
+  emitter.stepComplete(2, "Bar", "reading + classifying", 30, "read");
+  emitter.stepComplete(2, "Bar", "classified", 1000, "needs-adapt");
+  emitter.endConcurrentPhase("read + classify", 100);
+
+  expect(capture.text).toContain("avg 20ms");
+  expect(capture.text).toContain("max 30ms");
+});
+
 test("#168: TTY rewrites clear residue from longer previous lines", () => {
   const { stream, capture } = makeCapturingStream();
   const emitter = createProgressEmitter({ stderr: stream, quiet: false, isatty: true });

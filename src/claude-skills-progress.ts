@@ -255,10 +255,10 @@ export function createProgressEmitter(opts: ProgressEmitterOptions): ProgressEmi
       if (quiet) return;
       if (activeConcurrentPhase) {
         const current = activeConcurrentPhase;
-        current.elapsedSamples.push(elapsedMs);
         if (!current.completedItems.has(sourceName)) {
           current.completedItems.add(sourceName);
           current.completedCount += 1;
+          current.elapsedSamples.push(elapsedMs);
         }
         current.latestCompleted = sourceName;
         current.inFlight.delete(sourceName);
