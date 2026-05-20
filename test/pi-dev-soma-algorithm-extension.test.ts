@@ -36,7 +36,7 @@ describe("renderSomaAlgorithmExtension", () => {
     expect(source).toMatch(/from "file:\/\/.*widget-renderers\.ts"/u);
     expect(source).toMatch(/from "file:\/\/.*isa-checklist\.ts"/u);
     expect(source).toMatch(/from "file:\/\/.*\/src\/policy-audit\.ts"/u);
-    expect(source).toMatch(/from "file:\/\/.*\/src\/algorithm-run-snapshot\.ts"/u);
+    expect(source).toMatch(/from "file:\/\/.*\/src\/adapters\/pi-dev\/algorithm-run-snapshot\.ts"/u);
   });
 
   test("respects an explicit runtimeModuleDir override (used in tests + uninstall)", () => {
@@ -47,7 +47,7 @@ describe("renderSomaAlgorithmExtension", () => {
     expect(source).toContain('from "file:///tmp/override/isa-checklist.ts"');
     expect(source).toMatch(/from "file:\/\/.*\/src\/policy-audit\.ts"/u);
     expect(source).toMatch(/from "file:\/\/.*\/src\/policy-path-guard\.ts"/u);
-    expect(source).toMatch(/from "file:\/\/.*\/src\/algorithm-run-snapshot\.ts"/u);
+    expect(source).toMatch(/from "file:\/\/.*\/src\/adapters\/pi-dev\/algorithm-run-snapshot\.ts"/u);
   });
 
   test("#85 AC-7: tool_call during EXECUTE runs Soma policy and can block", () => {

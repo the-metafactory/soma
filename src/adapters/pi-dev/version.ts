@@ -22,6 +22,10 @@ export async function validatePiDevInstallRuntime(substrateRoot: string): Promis
     throw invalidPiDevVersionError(packagePath);
   }
 
+  if (!version.trim().includes("-") && !parseVersion(version)) {
+    throw invalidPiDevVersionError(packagePath);
+  }
+
   if (isUnsupportedPiDevVersion(version)) {
     throw new Error(
       `Unsupported pi.dev version ${version}. Soma requires pi.dev >= ${MINIMUM_PI_DEV_VERSION} for ExtensionAPI widgets, session entries, and tool_call blocking. Upgrade pi.dev and rerun soma install pi-dev.`,
@@ -41,6 +45,7 @@ export function isUnsupportedPiDevVersion(version: string): boolean {
 function compareVersions(left: string, right: string): number {
   const leftParts = parseVersion(left);
   const rightParts = parseVersion(right);
+  if (!leftParts || !rightParts) return -1;
   for (let index = 0; index < 3; index += 1) {
     const diff = leftParts[index] - rightParts[index];
     if (diff !== 0) return diff;
@@ -48,8 +53,8 @@ function compareVersions(left: string, right: string): number {
   return 0;
 }
 
-function parseVersion(version: string): [number, number, number] {
+function parseVersion(version: string): [number, number, number] | undefined {
   const match = /^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?$/.exec(version.trim());
-  if (!match) return [0, 0, 0];
+  if (!match) return undefined;
   return [Number(match[1]), Number(match[2] ?? 0), Number(match[3] ?? 0)];
 }
