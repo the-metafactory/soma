@@ -49,22 +49,19 @@ async function writePaiFixture(homeDir: string): Promise<void> {
     "utf8",
   );
 
-  await writeFile(join(userRoot, "TELOS", "MISSION.md"), "# Mission\n\nBuild useful test systems without leaking publisher context.\n", "utf8");
-  await writeFile(
-    join(userRoot, "TELOS", "GOALS.md"),
-    ["# Goals", "", "- Keep imported goals fixture-local.", "- Preserve assistant portability."].join("\n"),
-    "utf8",
-  );
-  await writeFile(
-    join(userRoot, "TELOS", "STRATEGIES.md"),
-    ["# Strategies", "", "- Verify projections after import.", "- Keep source snapshots under Soma home."].join("\n"),
-    "utf8",
-  );
-  await writeFile(
-    join(userRoot, "TELOS", "BELIEFS.md"),
-    ["# Beliefs", "", "- Tests should describe the imported fixture.", "- Generated profile summaries must come from selected sources."].join("\n"),
-    "utf8",
-  );
+  const telosFixtures = [
+    { file: "MISSION.md", content: "# Mission\n\nBuild useful test systems without leaking publisher context.\n" },
+    { file: "GOALS.md", content: ["# Goals", "", "- Keep imported goals fixture-local.", "- Preserve assistant portability."].join("\n") },
+    { file: "STRATEGIES.md", content: ["# Strategies", "", "- Verify projections after import.", "- Keep source snapshots under Soma home."].join("\n") },
+    {
+      file: "BELIEFS.md",
+      content: ["# Beliefs", "", "- Tests should describe the imported fixture.", "- Generated profile summaries must come from selected sources."].join("\n"),
+    },
+  ];
+
+  for (const fixture of telosFixtures) {
+    await writeFile(join(userRoot, "TELOS", fixture.file), fixture.content, "utf8");
+  }
 }
 
 test("plans a PAI import without writing files", async () => {
