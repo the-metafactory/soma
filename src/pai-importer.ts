@@ -192,7 +192,12 @@ function meaningfulMarkdownLines(content: string): string[] {
 }
 
 function sourceContent(sources: Record<string, string>, role: PaiSourceRole): string | undefined {
-  return Object.entries(sources).find(([path]) => SOURCE_SPECS.find((spec) => spec.role === role)?.candidates.includes(path))?.[1];
+  const spec = SOURCE_SPECS.find((candidate) => candidate.role === role);
+  if (!spec) {
+    return undefined;
+  }
+
+  return Object.entries(sources).find(([path]) => spec.candidates.includes(path))?.[1];
 }
 
 function sourceLines(sources: Record<string, string>, role: PaiSourceRole): string[] {
