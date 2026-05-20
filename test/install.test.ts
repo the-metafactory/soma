@@ -1075,6 +1075,16 @@ test("#85: pi.dev install refuses explicitly unsupported runtime versions", asyn
   });
 });
 
+test("#85: pi.dev install refuses prerelease versions at the stable minimum", async () => {
+  await withTempHome(async (homeDir) => {
+    const agentDir = join(homeDir, ".pi/agent");
+    await mkdir(agentDir, { recursive: true });
+    await writeFile(join(agentDir, "package.json"), JSON.stringify({ version: "0.10.0-beta.1" }), "utf8");
+
+    await expect(installSomaForPiDev({ homeDir })).rejects.toThrow("Unsupported pi.dev version 0.10.0-beta.1");
+  });
+});
+
 // #88 AC-1 + AC-3 + AC-4 — Canonical memory taxonomy bootstrap.
 //
 // DD-2 binds the 19-category v5.0.0 taxonomy to every Soma install. The

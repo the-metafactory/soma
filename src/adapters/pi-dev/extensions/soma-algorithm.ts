@@ -71,7 +71,8 @@ export function renderSomaAlgorithmExtension(options: RenderSomaAlgorithmExtensi
 // call sites no-op except policy checks, which fail closed.
 
 import { readFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import {
   ALGORITHM_PHASES,
@@ -109,6 +110,7 @@ const STREAM_INPUT_MAX_BYTES = 256 * 1024; // 256 KiB per delta/snapshot
 const CARRY_MAX_BYTES = 64 * 1024;          // 64 KiB unterminated line
 const SOMA_ALGORITHM_ENTRY_KIND = "soma-algorithm-run";
 const PI_SOMA_HOME = \`\${process.env.HOME ?? ""}/.pi/agent/soma\`;
+const execFileAsync = promisify(execFile);
 
 interface SeenPhase {
   readonly marker: PhaseMarker;
@@ -244,17 +246,22 @@ function toolCallDestination(event: unknown): string | undefined {
   return undefined;
 }
 
-function toolCallAction(event: unknown): "write" | "delete" | "modify" {
+function toolCallAction(event: unknown): "read" | "write" | "delete" | "modify" {
   const name = String((event as { toolName?: unknown; name?: unknown }).toolName ?? (event as { name?: unknown }).name ?? "").toLowerCase();
+  if (/(read|list|search|grep|find|query|view)/u.test(name)) return "read";
   if (/(rm|delete|trash|unlink)/u.test(name)) return "delete";
   if (/(edit|write|patch|bash|shell|mv|move|cp|copy)/u.test(name)) return "modify";
   return "modify";
 }
 
-function runSomaPolicyCheck(event: unknown): { block: boolean; reason: string } {
+async function runSomaPolicyCheck(event: unknown): Promise<{ block: boolean; reason: string }> {
+  const action = toolCallAction(event);
+  if (action === "read") return { block: false, reason: "" };
   const destination = toolCallDestination(event);
-  if (!destination) return { block: false, reason: "" };
-  const result = spawnSync("bun", [
+  if (!destination) {
+    return { block: true, reason: "Soma policy blocked mutating tool_call without a parseable destination." };
+  }
+  const args = [
     "run",
     "soma",
     "policy",
@@ -264,19 +271,24 @@ function runSomaPolicyCheck(event: unknown): { block: boolean; reason: string } 
     "--substrate",
     "pi-dev",
     "--action",
-    toolCallAction(event),
+    action,
     "--destination",
     destination,
     "--record",
     "deny",
     "--json",
-  ], { cwd: somaRepoPath(), encoding: "utf8", timeout: 25000 });
-  if (result.status !== 0) {
-    const reason = result.stderr || result.stdout || "Soma policy check failed";
+  ];
+  let stdout = "";
+  try {
+    const result = await execFileAsync("bun", args, { cwd: somaRepoPath(), encoding: "utf8", timeout: 25000 });
+    stdout = result.stdout;
+  } catch (error) {
+    const failure = error as { stdout?: string; stderr?: string; message?: string };
+    const reason = failure.stderr || failure.stdout || failure.message || "Soma policy check failed";
     return { block: true, reason };
   }
   try {
-    const parsed = JSON.parse(result.stdout || "{}") as { decision?: unknown; findings?: unknown[] };
+    const parsed = JSON.parse(stdout || "{}") as { decision?: unknown; findings?: unknown[] };
     if (parsed.decision === "deny") return { block: true, reason: JSON.stringify(parsed.findings ?? []) };
   } catch {
     return { block: true, reason: "Soma policy check returned malformed JSON" };
@@ -656,7 +668,7 @@ export default function (pi: ExtensionAPI): void {
   on("tool_call", async (event) => {
     const run = ensureRun(defaultRunId());
     if (run.currentPhase !== "execute") return undefined;
-    const policy = runSomaPolicyCheck(event);
+    const policy = await runSomaPolicyCheck(event);
     if (policy.block) return { block: true, reason: policy.reason };
     return undefined;
   });

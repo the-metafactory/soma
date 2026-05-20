@@ -63,7 +63,8 @@ PAI source files under `~/.soma`.
 Compatibility: `installSomaForPiDev` probes `~/.pi/agent/package.json` when it
 exists and refuses versions older than `0.10.0`. That minimum is the pinned
 runtime surface for `ui.setWidget`, `ui.setStatus`, `message_update`, session
-entries (`appendEntry`/`readEntries`), and `tool_call` blocking. Missing
+entries (`appendEntry`/`readEntries`), and `tool_call` blocking. Prerelease
+versions do not satisfy the stable minimum. Missing
 `package.json` is treated as an unknown local/dev runtime and does not block
 install; explicit old versions fail with upgrade guidance.
 

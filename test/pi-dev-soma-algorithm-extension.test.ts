@@ -52,6 +52,9 @@ describe("renderSomaAlgorithmExtension", () => {
     expect(source).toContain("runSomaPolicyCheck");
     expect(source).toContain('run.currentPhase !== "execute"');
     expect(source).toContain('return { block: true, reason: policy.reason }');
+    expect(source).toContain("execFileAsync");
+    expect(source).not.toContain("spawnSync");
+    expect(source).toContain("mutating tool_call without a parseable destination");
     expect(source).toContain('"policy"');
     expect(source).toContain('"check"');
     expect(source).toContain('"--json"');

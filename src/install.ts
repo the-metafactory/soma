@@ -8,6 +8,7 @@ import {
   piDevIsaSkillDestinationDir,
   removeLegacyPiDevIsaSkillProjection,
 } from "./adapters/pi-dev/skill-projection";
+import { validatePiDevInstallRuntime } from "./adapters/pi-dev/version";
 import {
   CURSOR_RULES_BLOCK_BEGIN,
   CURSOR_RULES_BLOCK_END,
@@ -87,8 +88,6 @@ const PI_DEV_HOME_FILES = [
   "agent/skills/soma/SKILL.md",
 ] as const;
 
-export const MINIMUM_PI_DEV_VERSION = "0.10.0";
-
 // Claude Code home files written by the full #29 installer
 // (`.claude/rules/soma/`-pivot per soma#64). Sourced from the adapter
 // so the planner and writer can't drift (sage r1 finding).
@@ -102,6 +101,10 @@ const SKILL_SUBPATHS: Record<Exclude<InstallSubstrate, "pi-dev">, string> = {
 };
 
 type InstallSubstrate = "codex" | "pi-dev" | "claude-code" | "cursor";
+
+const INSTALL_VALIDATORS: Partial<Record<InstallSubstrate, (substrateRoot: string) => Promise<void>>> = {
+  "pi-dev": validatePiDevInstallRuntime,
+};
 
 function resolveInstallHomes(substrate: InstallSubstrate, options: SomaInstallOptions): { somaHome: string; substrateHome: string } {
   const homeDir = options.homeDir;
@@ -202,9 +205,7 @@ async function installSomaForSubstrate(
   // inherits installIsaSkill's local-edits-preserved contract.
   const resolvedHomeDir = resolve(options.homeDir ?? homedir());
   const substrateRoot = resolve(options.substrateHome ?? join(resolvedHomeDir, DEFAULT_SUBSTRATE_HOMES[substrate]));
-  if (substrate === "pi-dev") {
-    await assertSupportedPiDevVersion(substrateRoot);
-  }
+  await INSTALL_VALIDATORS[substrate]?.(substrateRoot);
   await prepareSubstrateSkillDestination(substrate, substrateRoot);
   await installIsaSkillProjection({
     homeDir: options.homeDir,
@@ -240,44 +241,6 @@ async function installSomaForSubstrate(
       files: [...substrateHome.files, ...agentsFiles, ...configFiles, ...lifecycleFiles],
     },
   };
-}
-
-async function assertSupportedPiDevVersion(substrateRoot: string): Promise<void> {
-  const packageJson = await readFile(join(substrateRoot, "agent/package.json"), "utf8").catch((error) => {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-    throw error;
-  });
-  if (!packageJson) return;
-  let version: unknown;
-  try {
-    version = (JSON.parse(packageJson) as { version?: unknown }).version;
-  } catch {
-    throw new Error(`Unable to read pi.dev version from ${join(substrateRoot, "agent/package.json")}. Reinstall or repair pi.dev before installing Soma.`);
-  }
-  if (typeof version !== "string" || version.trim() === "") {
-    throw new Error(`Unable to read pi.dev version from ${join(substrateRoot, "agent/package.json")}. Reinstall or repair pi.dev before installing Soma.`);
-  }
-  if (compareVersions(version, MINIMUM_PI_DEV_VERSION) < 0) {
-    throw new Error(
-      `Unsupported pi.dev version ${version}. Soma requires pi.dev >= ${MINIMUM_PI_DEV_VERSION} for ExtensionAPI widgets, session entries, and tool_call blocking. Upgrade pi.dev and rerun soma install pi-dev.`,
-    );
-  }
-}
-
-function compareVersions(left: string, right: string): number {
-  const leftParts = parseVersion(left);
-  const rightParts = parseVersion(right);
-  for (let index = 0; index < 3; index += 1) {
-    const diff = leftParts[index] - rightParts[index];
-    if (diff !== 0) return diff;
-  }
-  return 0;
-}
-
-function parseVersion(version: string): [number, number, number] {
-  const match = /^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?/.exec(version.trim());
-  if (!match) return [0, 0, 0];
-  return [Number(match[1]), Number(match[2] ?? 0), Number(match[3] ?? 0)];
 }
 
 async function installHomeProjectionFor(
