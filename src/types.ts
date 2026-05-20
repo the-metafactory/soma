@@ -1358,6 +1358,28 @@ export interface ClaudeSkillsMigrationManifestEntry {
   descriptionRewrite?: ClaudeSkillDescriptionRewrite;
 }
 
+export interface ClaudeSkillsMigrationManifestOutcome {
+  sourceName: string;
+  kebabName: string;
+  tag: ClaudeSkillPortabilityTag;
+  disposition: ClaudeSkillOutcome["disposition"];
+  reason: string;
+  refusalReason?: string;
+  remediation?: string;
+  dependencyMissing?: string[];
+}
+
+export interface ClaudeSkillsMigrationManifestLastRun {
+  totals: {
+    imported: number;
+    skippedIdempotent: number;
+    skippedClaudeSpecific: number;
+    refusedOther: number;
+    refusedDescriptionLimit: number;
+  };
+  outcomes: ClaudeSkillsMigrationManifestOutcome[];
+}
+
 export interface ClaudeSkillsMigrationManifest {
   schema: "soma.claude-skills-migration.v1";
   from: string;
@@ -1372,6 +1394,11 @@ export interface ClaudeSkillsMigrationManifest {
   // SHA isn't an idempotency anchor for anything that landed.
   // Sorted by `kebabName` for byte-stable reruns.
   skills: ClaudeSkillsMigrationManifestEntry[];
+  // #175 — latest actionable skipped/refused outcomes. `skills`
+  // stays the idempotency anchor for landed payloads; this ledger lets
+  // `--status` report unresolved migration work without scraping the
+  // Markdown portability report.
+  lastRun?: ClaudeSkillsMigrationManifestLastRun;
   // #115 Phase 2 — substrate list captured at last write. Absent
   // when no `--smoke` was ever run; present so the next invocation
   // can detect a substrate-set change.
