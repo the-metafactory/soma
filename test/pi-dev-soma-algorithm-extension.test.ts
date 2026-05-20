@@ -55,6 +55,10 @@ describe("renderSomaAlgorithmExtension", () => {
     expect(source).toContain('return { block: true, reason: policy.reason }');
     expect(source).toContain("checkSomaPolicy");
     expect(source).toContain("policy-audit.ts");
+    expect(source).toContain("policy-path-guard.ts");
+    expect(source).toContain("parseBashDestructivePaths(command, cwd).targetPaths");
+    expect(source).toContain('const cwd = typeof (ctx as { cwd?: unknown }).cwd === "string"');
+    expect(source).toContain("cwd,");
     expect(source).not.toContain("execFileAsync");
     expect(source).not.toContain("spawnSync");
     expect(source).toContain("mutating tool_call without a parseable destination");
