@@ -715,6 +715,14 @@ async function collectCollisionGroups(
     const uniqueSources = new Set(options.map((option) => resolve(option.source)));
     if (uniqueSources.size < 2) grouped.delete(slug);
   }
+  const candidates = [...grouped.values()].flat();
+  const sizeByCandidate = new Map<CollisionGroupCandidate, number>();
+  if (collectionOptions.includeSizeBytes) {
+    const sizes = await runBoundedConcurrent(candidates, (option) => sizeBytesForPlan(option.plan), 16);
+    for (let index = 0; index < candidates.length; index += 1) {
+      sizeByCandidate.set(candidates[index], sizes[index] ?? 0);
+    }
+  }
   const collisions: CollisionGroups = new Map();
   for (const [slug, options] of grouped.entries()) {
     const resolvedOptions: ResolutionOption[] = [];
@@ -724,7 +732,7 @@ async function collectCollisionGroups(
         source: option.source,
         description: option.description,
         workflows: option.workflows,
-        sizeBytes: collectionOptions.includeSizeBytes ? await sizeBytesForPlan(option.plan) : 0,
+        sizeBytes: sizeByCandidate.get(option) ?? 0,
       });
     }
     collisions.set(slug, resolvedOptions);
@@ -763,8 +771,7 @@ function renderPaiMigrationResolution(groups: CollisionGroups): string {
   return `${lines.join("\n")}\n`;
 }
 
-function parseYamlScalar(raw: string): string | null {
-  const trimmed = raw.trim();
+function parseQuotedYamlScalar(trimmed: string): string | undefined {
   if (trimmed.startsWith("\"")) {
     for (let index = 1; index < trimmed.length; index += 1) {
       if (trimmed[index] !== "\"" || trimmed[index - 1] === "\\") continue;
@@ -779,6 +786,10 @@ function parseYamlScalar(raw: string): string | null {
     const end = trimmed.indexOf("'", 1);
     if (end !== -1) return trimmed.slice(1, end);
   }
+  return undefined;
+}
+
+function parseUnquotedYamlScalar(trimmed: string): string | null {
   const value = trimmed.split(/\s+#/, 1)[0].trim();
   if (value === "" || value === "null" || value === "~") return null;
   if ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'"))) {
@@ -791,17 +802,32 @@ function parseYamlScalar(raw: string): string | null {
   return value;
 }
 
+function parseYamlScalar(raw: string): string | null {
+  const trimmed = raw.trim();
+  return parseQuotedYamlScalar(trimmed) ?? parseUnquotedYamlScalar(trimmed);
+}
+
 function parsePaiMigrationResolution(content: string): ResolutionChoices {
   const choices: ResolutionChoices = new Map();
   let currentSlug: string | null = null;
   const seenSlugs = new Set<string>();
+  let inCollisions = false;
   for (const line of content.split(/\r?\n/)) {
     if (/^\s*(#|$)/.test(line)) continue;
+    if (line === "collisions:") {
+      inCollisions = true;
+      continue;
+    }
+    if (inCollisions && line === "  {}") continue;
     const slugMatch = /^  ([a-z0-9]+(?:-[a-z0-9]+)*):\s*$/.exec(line);
     if (slugMatch) {
       currentSlug = slugMatch[1];
       seenSlugs.add(currentSlug);
       continue;
+    }
+    const invalidSlugMatch = /^  ([^ ].*):\s*$/.exec(line);
+    if (inCollisions && invalidSlugMatch) {
+      throw new Error(`PAI migration resolution contains invalid collision key '${invalidSlugMatch[1]}'. Re-run --emit-resolution for the current pack set.`);
     }
     const pickMatch = /^    pick:\s*(.*)$/.exec(line);
     if (pickMatch && currentSlug) {

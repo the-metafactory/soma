@@ -116,6 +116,16 @@ test("#114 AC-4: unknown resolution collisions refuse loud", async () => {
   });
 });
 
+test("#114 review: invalid resolution collision keys refuse loud", async () => {
+  await withCollisionFixture(async ({ homeDir, packsDir }) => {
+    const resolution = join(homeDir, "bad-resolution.yaml");
+    await writeFile(resolution, "collisions:\n  browser_v2:\n    pick: null\n", "utf8");
+
+    await expect(migratePai({ homeDir, paiPacksDir: packsDir, skipMemory: true, resolutionPath: resolution }))
+      .rejects.toThrow("invalid collision key 'browser_v2'");
+  });
+});
+
 test("#114 AC-5: no resolution preserves first-wins behavior", async () => {
   await withCollisionFixture(async ({ homeDir, packsDir, browserPack }) => {
     const result = await migratePai({ homeDir, paiPacksDir: packsDir, skipMemory: true });
