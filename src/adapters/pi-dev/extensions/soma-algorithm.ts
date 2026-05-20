@@ -16,16 +16,8 @@
  * Open-question resolutions baked into this file (see issue body):
  *   Q1 (TS vs JS):       ship `.ts`.
  *   Q2 (concurrent runs): widget keys include `runId`.
- *   Q3 (version probe):   DEFERRED — TODO in the extension header.
+ *   Q3 (version probe):   install-time probe in `installSomaForPiDev`.
  *   Q4 (other substrates): pi.dev only.
- *
- * Out of scope (deferred ACs filed as follow-up issue):
- *   AC-7  tool_call blocking via soma policy check
- *   AC-8  /reload widget restoration
- *   AC-9  session_compact checkpoint
- *   AC-10 install-time version refusal
- *   AC-11 compat matrix doc
- *   AC-12 live e2e against pi.dev
  *
  * Pi.dev `ExtensionAPI` is NOT a Soma build-time dep. The extension
  * imports the type from `@mariozechner/pi-coding-agent` directly — that
@@ -73,12 +65,13 @@ export function renderSomaAlgorithmExtension(options: RenderSomaAlgorithmExtensi
 //   ▸ soma-<runId>-isa-criteria
 //   ▸ status slot "soma" = "Phase N/7 — NAME"
 //
-// TODO(#43 follow-up): probe pi-dev version + refuse-install on old hosts
-// (AC-10). For now this extension assumes pi-dev >= the release that
-// landed \`ctx.ui.setWidget\` + \`ctx.ui.setStatus\` + the \`message_update\`
-// event. If those primitives are absent the extension no-ops safely
-// (every call site is optional-chained).
+// Requires the pi.dev ExtensionAPI surface pinned by Soma's install-time
+// version probe: widgets/status, message_update, session entries, and
+// tool_call blocking. If a primitive is unexpectedly absent, optional
+// call sites no-op except policy checks, which fail closed.
 
+import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import {
   ALGORITHM_PHASES,
@@ -114,6 +107,8 @@ const PHASE_BODY_TRUNCATION_LINE = "… (older lines truncated) …";
 // newline arrives). Sage R7 security important.
 const STREAM_INPUT_MAX_BYTES = 256 * 1024; // 256 KiB per delta/snapshot
 const CARRY_MAX_BYTES = 64 * 1024;          // 64 KiB unterminated line
+const SOMA_ALGORITHM_ENTRY_KIND = "soma-algorithm-run";
+const PI_SOMA_HOME = \`\${process.env.HOME ?? ""}/.pi/agent/soma\`;
 
 interface SeenPhase {
   readonly marker: PhaseMarker;
@@ -152,6 +147,142 @@ interface RunState {
 }
 
 const runs = new Map<string, RunState>();
+
+interface RunSnapshot {
+  readonly runId: string;
+  readonly carry: string;
+  readonly lineCount: number;
+  readonly lastSnapshotLength: number;
+  readonly seenPhases: SeenPhase[];
+  readonly currentPhase?: AlgorithmPhaseKey;
+  readonly isaCriteria: IsaChecklistCriterion[];
+  readonly reason: string;
+  readonly timestamp: string;
+}
+
+function readOptionalText(path: string): string {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return "";
+  }
+}
+
+function somaRepoPath(): string {
+  return process.env.SOMA_REPO || readOptionalText(\`\${PI_SOMA_HOME}/soma-repo.txt\`).trim() || process.cwd();
+}
+
+function somaHomePath(): string {
+  return process.env.SOMA_HOME || \`\${process.env.HOME ?? ""}/.soma\`;
+}
+
+function snapshotRun(run: RunState, reason: string): RunSnapshot {
+  return {
+    runId: run.runId,
+    carry: run.carry,
+    lineCount: run.lineCount,
+    lastSnapshotLength: run.lastSnapshotLength,
+    seenPhases: run.seenPhases.map((seen) => ({ marker: seen.marker, body: [...seen.body] })),
+    currentPhase: run.currentPhase,
+    isaCriteria: [...run.isaCriteria],
+    reason,
+    timestamp: new Date().toISOString(),
+  };
+}
+
+function hydrateRun(snapshot: unknown): RunState | undefined {
+  if (!snapshot || typeof snapshot !== "object") return undefined;
+  const s = snapshot as Partial<RunSnapshot>;
+  if (typeof s.runId !== "string" || !Array.isArray(s.seenPhases)) return undefined;
+  const run: RunState = {
+    runId: s.runId,
+    carry: typeof s.carry === "string" ? s.carry : "",
+    lineCount: typeof s.lineCount === "number" ? s.lineCount : 0,
+    lastSnapshotLength: typeof s.lastSnapshotLength === "number" ? s.lastSnapshotLength : 0,
+    seenPhases: s.seenPhases
+      .filter((seen): seen is SeenPhase => !!seen && typeof seen === "object" && "marker" in seen && Array.isArray((seen as SeenPhase).body))
+      .map((seen) => ({ marker: seen.marker, body: [...seen.body] })),
+    activePhase: undefined,
+    currentPhase: s.currentPhase,
+    isaCriteria: Array.isArray(s.isaCriteria) ? s.isaCriteria : [],
+  };
+  run.activePhase = run.currentPhase ? run.seenPhases.find((seen) => seen.marker.phase === run.currentPhase) : run.seenPhases.at(-1);
+  return run;
+}
+
+async function checkpointRun(pi: ExtensionAPI, run: RunState, reason: string): Promise<void> {
+  await (pi as unknown as { appendEntry?: (kind: string, payload: RunSnapshot) => Promise<void> | void })
+    .appendEntry?.(SOMA_ALGORITHM_ENTRY_KIND, snapshotRun(run, reason));
+}
+
+async function restoreLatestRun(pi: ExtensionAPI, ctx: unknown): Promise<void> {
+  const entries = await (pi as unknown as { readEntries?: (kind: string) => Promise<unknown[]> | unknown[] })
+    .readEntries?.(SOMA_ALGORITHM_ENTRY_KIND);
+  if (!Array.isArray(entries) || entries.length === 0) return;
+  for (const entry of [...entries].reverse()) {
+    const payload = (entry as { payload?: unknown }).payload ?? entry;
+    const run = hydrateRun(payload);
+    if (!run || run.seenPhases.length === 0) continue;
+    runs.set(run.runId, run);
+    renderAllPhases(pi, ctx, run);
+    return;
+  }
+}
+
+function toolCallDestination(event: unknown): string | undefined {
+  const e = event as { path?: unknown; destination?: unknown; target?: unknown; args?: unknown; input?: unknown };
+  for (const candidate of [e.destination, e.path, e.target]) {
+    if (typeof candidate === "string" && candidate.trim()) return candidate;
+  }
+  for (const bag of [e.args, e.input]) {
+    if (!bag || typeof bag !== "object") continue;
+    const b = bag as { path?: unknown; destination?: unknown; file_path?: unknown };
+    for (const candidate of [b.destination, b.path, b.file_path]) {
+      if (typeof candidate === "string" && candidate.trim()) return candidate;
+    }
+  }
+  return undefined;
+}
+
+function toolCallAction(event: unknown): "write" | "delete" | "modify" {
+  const name = String((event as { toolName?: unknown; name?: unknown }).toolName ?? (event as { name?: unknown }).name ?? "").toLowerCase();
+  if (/(rm|delete|trash|unlink)/u.test(name)) return "delete";
+  if (/(edit|write|patch|bash|shell|mv|move|cp|copy)/u.test(name)) return "modify";
+  return "modify";
+}
+
+function runSomaPolicyCheck(event: unknown): { block: boolean; reason: string } {
+  const destination = toolCallDestination(event);
+  if (!destination) return { block: false, reason: "" };
+  const result = spawnSync("bun", [
+    "run",
+    "soma",
+    "policy",
+    "check",
+    "--soma-home",
+    somaHomePath(),
+    "--substrate",
+    "pi-dev",
+    "--action",
+    toolCallAction(event),
+    "--destination",
+    destination,
+    "--record",
+    "deny",
+    "--json",
+  ], { cwd: somaRepoPath(), encoding: "utf8", timeout: 25000 });
+  if (result.status !== 0) {
+    const reason = result.stderr || result.stdout || "Soma policy check failed";
+    return { block: true, reason };
+  }
+  try {
+    const parsed = JSON.parse(result.stdout || "{}") as { decision?: unknown; findings?: unknown[] };
+    if (parsed.decision === "deny") return { block: true, reason: JSON.stringify(parsed.findings ?? []) };
+  } catch {
+    return { block: true, reason: "Soma policy check returned malformed JSON" };
+  }
+  return { block: false, reason: "" };
+}
 
 function defaultRunId(): string {
   // One implicit run per pi.dev session for now. Concurrent runs (open
@@ -392,6 +523,10 @@ export default function (pi: ExtensionAPI): void {
     (pi as unknown as { on?: (event: string, handler: Handler) => void }).on?.(event, handler);
   };
 
+  on("session_start", async (_event, ctx) => {
+    await restoreLatestRun(pi, ctx);
+  });
+
   // AC-1: slash command \`/algorithm <prompt>\` — steers the session
   // into an Algorithm run with the canonical primer prepended.
   pi.registerCommand("algorithm", {
@@ -505,14 +640,26 @@ export default function (pi: ExtensionAPI): void {
   // comment about Sage R5 partial-line flush) gets parsed before the
   // session/agent fully ends.
   for (const terminal of ["agent_end", "message_end", "session_before_compact", "session_shutdown"] as const) {
-    on(terminal, (_event, ctx) => {
+    on(terminal, async (_event, ctx) => {
       const run = ensureRun(defaultRunId());
       const { changed, phaseAdded } = ingestStream("", defaultRunId(), { flush: true });
-      if (!changed) return;
-      if (phaseAdded) renderAllPhases(pi, ctx, run);
-      else renderActivePhase(pi, ctx, run);
+      if (changed) {
+        if (phaseAdded) renderAllPhases(pi, ctx, run);
+        else renderActivePhase(pi, ctx, run);
+      }
+      if (terminal === "session_before_compact") {
+        await checkpointRun(pi, run, "session_before_compact");
+      }
     });
   }
+
+  on("tool_call", async (event) => {
+    const run = ensureRun(defaultRunId());
+    if (run.currentPhase !== "execute") return undefined;
+    const policy = runSomaPolicyCheck(event);
+    if (policy.block) return { block: true, reason: policy.reason };
+    return undefined;
+  });
 
   // AC-5: ISA criteria widget updates whenever the soma \`isa_update\`
   // tool returns. Minimal parsing for this PR — full criteria diff

@@ -45,12 +45,28 @@ describe("renderSomaAlgorithmExtension", () => {
     expect(source).toContain('from "file:///tmp/override/isa-checklist.ts"');
   });
 
-  test("flags the deferred version-probe (AC-10) inline in the generated source", () => {
+  test("#85 AC-7: tool_call during EXECUTE runs Soma policy and can block", () => {
     const source = renderSomaAlgorithmExtension();
 
-    // Documented TODO so a reader of the on-disk extension can see what
-    // was deferred. Cross-referenced in the follow-up issue.
-    expect(source).toContain("TODO(#43 follow-up)");
+    expect(source).toContain('on("tool_call"');
+    expect(source).toContain("runSomaPolicyCheck");
+    expect(source).toContain('run.currentPhase !== "execute"');
+    expect(source).toContain('return { block: true, reason: policy.reason }');
+    expect(source).toContain('"policy"');
+    expect(source).toContain('"check"');
+    expect(source).toContain('"--json"');
+  });
+
+  test("#85 AC-8/9: session_start restores and compaction checkpoints run state", () => {
+    const source = renderSomaAlgorithmExtension();
+
+    expect(source).toContain('const SOMA_ALGORITHM_ENTRY_KIND = "soma-algorithm-run"');
+    expect(source).toContain("function checkpointRun");
+    expect(source).toContain("function restoreLatestRun");
+    expect(source).toContain(".appendEntry");
+    expect(source).toContain(".readEntries");
+    expect(source).toContain('on("session_start"');
+    expect(source).toContain('checkpointRun(pi, run, "session_before_compact")');
   });
 
   test("ingest path caps per-phase body to keep memory bounded (Sage R2 perf)", () => {
