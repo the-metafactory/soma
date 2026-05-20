@@ -298,7 +298,6 @@ function isReadOnlyShellCommand(event: unknown): boolean {
 
 async function runSomaPolicyCheck(event: unknown, ctx: unknown): Promise<{ block: boolean; reason: string }> {
   const action = toolCallAction(event);
-  if (action === "read") return { block: false, reason: "" };
   const cwd = typeof (ctx as { cwd?: unknown }).cwd === "string" ? (ctx as { cwd: string }).cwd : process.cwd();
   const allDestinations = [...new Set(toolCallDestinations(event, cwd))];
   if (allDestinations.length > MAX_POLICY_TARGETS) {
@@ -308,14 +307,16 @@ async function runSomaPolicyCheck(event: unknown, ctx: unknown): Promise<{ block
   const sourcePath = toolCallSource(event);
   const content = toolCallContent(event);
   if (destinations.length === 0) {
+    if (action === "read") return { block: false, reason: "" };
     return { block: true, reason: "Soma policy blocked mutating tool_call without a parseable destination." };
   }
+  const policyAction = action === "read" ? "modify" : action;
   try {
     const results = await Promise.all(
       destinations.map((destination) => checkSomaPolicy({
         somaHome: somaHomePath(),
         substrate: "pi-dev",
-        action,
+        action: policyAction,
         cwd,
         destinationPath: destination,
         sourcePath,

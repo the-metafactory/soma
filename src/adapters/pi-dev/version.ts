@@ -54,7 +54,7 @@ function compareVersions(left: string, right: string): number {
 }
 
 function parseVersion(version: string): [number, number, number] | undefined {
-  const match = /^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?$/.exec(version.trim());
+  const match = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(version.trim());
   if (!match) return undefined;
   return [Number(match[1]), Number(match[2] ?? 0), Number(match[3] ?? 0)];
 }
