@@ -50,6 +50,13 @@ describe("renderSomaAlgorithmExtension", () => {
     expect(source).toMatch(/from "file:\/\/.*\/src\/adapters\/pi-dev\/algorithm-run-snapshot\.ts"/u);
   });
 
+  test("renders the installed Soma home into policy checks", () => {
+    const source = renderSomaAlgorithmExtension({ somaHome: "/workspace/.soma" });
+
+    expect(source).toContain('const INSTALLED_SOMA_HOME = "/workspace/.soma"');
+    expect(source).toContain("return INSTALLED_SOMA_HOME");
+  });
+
   test("#85 AC-7: tool_call during EXECUTE runs Soma policy and can block", () => {
     const source = renderSomaAlgorithmExtension();
 
@@ -69,6 +76,7 @@ describe("renderSomaAlgorithmExtension", () => {
     expect(source).toContain("cwd,");
     expect(source).toContain("sourcePath,");
     expect(source).toContain("content,");
+    expect(source).toContain('action: "modify"');
     expect(source).toContain("Promise.all");
     expect(source).toContain('if (action === "read") return { block: false, reason: "" }');
     expect(source).toContain("MAX_POLICY_TARGETS");
