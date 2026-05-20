@@ -782,8 +782,19 @@ function parseQuotedYamlScalar(trimmed: string): string | undefined {
     }
   }
   if (trimmed.startsWith("'")) {
-    const end = trimmed.indexOf("'", 1);
-    if (end !== -1) return trimmed.slice(1, end);
+    let value = "";
+    for (let index = 1; index < trimmed.length; index += 1) {
+      if (trimmed[index] !== "'") {
+        value += trimmed[index];
+        continue;
+      }
+      if (trimmed[index + 1] === "'") {
+        value += "'";
+        index += 1;
+        continue;
+      }
+      return value;
+    }
   }
   return undefined;
 }
@@ -791,13 +802,6 @@ function parseQuotedYamlScalar(trimmed: string): string | undefined {
 function parseUnquotedYamlScalar(trimmed: string): string | null {
   const value = trimmed.split(/\s+#/, 1)[0].trim();
   if (value === "" || value === "null" || value === "~") return null;
-  if ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'"))) {
-    try {
-      return JSON.parse(value);
-    } catch {
-      return value.slice(1, -1);
-    }
-  }
   return value;
 }
 

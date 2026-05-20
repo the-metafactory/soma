@@ -227,3 +227,25 @@ test("#114 review: emitted quoted paths preserve hash-looking text", async () =>
     expect(importedBrowser?.paiPackDir).toBe(utilitiesPack);
   }, "soma-114- # hash-path-");
 });
+
+test("#114 review: single-quoted YAML picks preserve doubled apostrophes", async () => {
+  await withSharedTempHome(async (homeDir) => {
+    await writeIdentityFixture(homeDir);
+    const packsDir = join(homeDir, "Packs");
+    const browserPack = join(packsDir, "Browser");
+    await writeFlatPack(browserPack, "Browser");
+    const utilitiesPack = await writeNestedPack(packsDir, "Utilities", ["Browser"]);
+    const resolution = join(homeDir, "migration-resolve.yaml");
+
+    await planPaiMigration({ homeDir, paiPacksDir: packsDir, skipMemory: true, emitResolutionPath: resolution });
+    let body = await readFile(resolution, "utf8");
+    body = body.replace(/^    pick: .+$/m, `    pick: '${utilitiesPack.replaceAll("'", "''")}'`);
+    await writeFile(resolution, body, "utf8");
+
+    const result = await migratePai({ homeDir, paiPacksDir: packsDir, skipMemory: true, resolutionPath: resolution });
+    const importedBrowser = result.packOutcomes.find((outcome) =>
+      outcome.outcome === "imported" && outcome.skillName === "browser"
+    );
+    expect(importedBrowser?.paiPackDir).toBe(utilitiesPack);
+  }, "soma-114-John's-path-");
+});
