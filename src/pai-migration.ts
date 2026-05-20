@@ -569,6 +569,10 @@ interface ResolutionOption {
 type CollisionGroups = Map<string, ResolutionOption[]>;
 type ResolutionChoices = Map<string, string | null>;
 
+interface CollisionGroupCandidate extends ResolutionOption {
+  plan: PaiPackImportPlan;
+}
+
 /**
  * Single source for partitioning a pack's plans into `collided`
  * (slug already landed)
@@ -683,7 +687,7 @@ async function collectCollisionGroups(
   planRows: readonly SharedPlanRow[],
   collectionOptions: { includeSizeBytes: boolean },
 ): Promise<CollisionGroups> {
-  const grouped = new Map<string, ResolutionOption[]>();
+  const grouped = new Map<string, CollisionGroupCandidate[]>();
   for (const row of planRows) {
     if (row.kind !== "planned") continue;
     for (const plan of row.plans) {
@@ -693,7 +697,8 @@ async function collectCollisionGroups(
         source: row.paiPackDir,
         description: plan.description,
         workflows: workflowCountForPlan(plan),
-        sizeBytes: collectionOptions.includeSizeBytes ? await sizeBytesForPlan(plan) : 0,
+        sizeBytes: 0,
+        plan,
       });
       grouped.set(plan.skillName, options);
     }
@@ -702,7 +707,21 @@ async function collectCollisionGroups(
     const uniqueSources = new Set(options.map((option) => resolve(option.source)));
     if (uniqueSources.size < 2) grouped.delete(slug);
   }
-  return grouped;
+  const collisions: CollisionGroups = new Map();
+  for (const [slug, options] of grouped.entries()) {
+    const resolvedOptions: ResolutionOption[] = [];
+    for (const option of options) {
+      resolvedOptions.push({
+        slug: option.slug,
+        source: option.source,
+        description: option.description,
+        workflows: option.workflows,
+        sizeBytes: collectionOptions.includeSizeBytes ? await sizeBytesForPlan(option.plan) : 0,
+      });
+    }
+    collisions.set(slug, resolvedOptions);
+  }
+  return collisions;
 }
 
 function yamlString(value: string): string {
@@ -737,7 +756,22 @@ function renderPaiMigrationResolution(groups: CollisionGroups): string {
 }
 
 function parseYamlScalar(raw: string): string | null {
-  const value = raw.split(/\s+#/, 1)[0].trim();
+  const trimmed = raw.trim();
+  if (trimmed.startsWith("\"")) {
+    for (let index = 1; index < trimmed.length; index += 1) {
+      if (trimmed[index] !== "\"" || trimmed[index - 1] === "\\") continue;
+      try {
+        return JSON.parse(trimmed.slice(0, index + 1));
+      } catch {
+        return trimmed.slice(1, index);
+      }
+    }
+  }
+  if (trimmed.startsWith("'")) {
+    const end = trimmed.indexOf("'", 1);
+    if (end !== -1) return trimmed.slice(1, end);
+  }
+  const value = trimmed.split(/\s+#/, 1)[0].trim();
   if (value === "" || value === "null" || value === "~") return null;
   if ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'"))) {
     try {

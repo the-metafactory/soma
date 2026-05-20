@@ -38,6 +38,12 @@ async function withCollisionFixture<T>(
   });
 }
 
+async function rewriteResolutionPick(resolution: string, pick: string | null): Promise<void> {
+  let body = await readFile(resolution, "utf8");
+  body = body.replace(/^    pick: .+$/m, pick === null ? "    pick: null" : `    pick: "${pick}"`);
+  await writeFile(resolution, body, "utf8");
+}
+
 test("#114 AC-1: --emit-resolution writes collision metadata", async () => {
   await withCollisionFixture(async ({ homeDir, packsDir, browserPack, utilitiesPack }) => {
     const resolution = join(homeDir, "migration-resolve.yaml");
@@ -64,9 +70,7 @@ test("#114 AC-2: --resolution pick selects the later collision winner", async ()
   await withCollisionFixture(async ({ homeDir, packsDir, utilitiesPack }) => {
     const resolution = join(homeDir, "migration-resolve.yaml");
     await planPaiMigration({ homeDir, paiPacksDir: packsDir, skipMemory: true, emitResolutionPath: resolution });
-    let body = await readFile(resolution, "utf8");
-    body = body.replace(/^    pick: .+$/m, `    pick: "${utilitiesPack}"`);
-    await writeFile(resolution, body, "utf8");
+    await rewriteResolutionPick(resolution, utilitiesPack);
 
     const result = await migratePai({
       homeDir,
@@ -91,9 +95,7 @@ test("#114 AC-3: pick null skips every collision option", async () => {
   await withCollisionFixture(async ({ homeDir, packsDir }) => {
     const resolution = join(homeDir, "migration-resolve.yaml");
     await planPaiMigration({ homeDir, paiPacksDir: packsDir, skipMemory: true, emitResolutionPath: resolution });
-    let body = await readFile(resolution, "utf8");
-    body = body.replace(/^    pick: .+$/m, "    pick: null");
-    await writeFile(resolution, body, "utf8");
+    await rewriteResolutionPick(resolution, null);
 
     const result = await migratePai({ homeDir, paiPacksDir: packsDir, skipMemory: true, resolutionPath: resolution });
 
@@ -142,9 +144,7 @@ test("#114 AC-6: CLI emits and consumes resolution files", async () => {
       "--emit-resolution",
       resolution,
     ]);
-    let body = await readFile(resolution, "utf8");
-    body = body.replace(/^    pick: .+$/m, `    pick: "${utilitiesPack}"`);
-    await writeFile(resolution, body, "utf8");
+    await rewriteResolutionPick(resolution, utilitiesPack);
 
     const output = await runSomaCli([
       "migrate",
@@ -168,9 +168,7 @@ test("#114 review: emit and consume refuse the same resolution path", async () =
   await withCollisionFixture(async ({ homeDir, packsDir, utilitiesPack }) => {
     const resolution = join(homeDir, "migration-resolve.yaml");
     await planPaiMigration({ homeDir, paiPacksDir: packsDir, skipMemory: true, emitResolutionPath: resolution });
-    let body = await readFile(resolution, "utf8");
-    body = body.replace(/^    pick: .+$/m, `    pick: "${utilitiesPack}"`);
-    await writeFile(resolution, body, "utf8");
+    await rewriteResolutionPick(resolution, utilitiesPack);
 
     await expect(migratePai({
       homeDir,
@@ -182,4 +180,24 @@ test("#114 review: emit and consume refuse the same resolution path", async () =
 
     expect(await readFile(resolution, "utf8")).toContain(`pick: "${utilitiesPack}"`);
   });
+});
+
+test("#114 review: emitted quoted paths preserve hash-looking text", async () => {
+  await withSharedTempHome(async (homeDir) => {
+    await writeIdentityFixture(homeDir);
+    const packsDir = join(homeDir, "Packs");
+    const browserPack = join(packsDir, "Browser");
+    await writeFlatPack(browserPack, "Browser");
+    const utilitiesPack = await writeNestedPack(packsDir, "Utilities", ["Browser"]);
+    const resolution = join(homeDir, "migration-resolve.yaml");
+
+    await planPaiMigration({ homeDir, paiPacksDir: packsDir, skipMemory: true, emitResolutionPath: resolution });
+    await rewriteResolutionPick(resolution, utilitiesPack);
+
+    const result = await migratePai({ homeDir, paiPacksDir: packsDir, skipMemory: true, resolutionPath: resolution });
+    const importedBrowser = result.packOutcomes.find((outcome) =>
+      outcome.outcome === "imported" && outcome.skillName === "browser"
+    );
+    expect(importedBrowser?.paiPackDir).toBe(utilitiesPack);
+  }, "soma-114- # hash-path-");
 });
