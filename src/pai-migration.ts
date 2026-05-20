@@ -679,7 +679,10 @@ async function sizeBytesForPlan(plan: PaiPackImportPlan): Promise<number> {
   return total;
 }
 
-async function collectCollisionGroups(planRows: readonly SharedPlanRow[]): Promise<CollisionGroups> {
+async function collectCollisionGroups(
+  planRows: readonly SharedPlanRow[],
+  collectionOptions: { includeSizeBytes: boolean },
+): Promise<CollisionGroups> {
   const grouped = new Map<string, ResolutionOption[]>();
   for (const row of planRows) {
     if (row.kind !== "planned") continue;
@@ -690,7 +693,7 @@ async function collectCollisionGroups(planRows: readonly SharedPlanRow[]): Promi
         source: row.paiPackDir,
         description: plan.description,
         workflows: workflowCountForPlan(plan),
-        sizeBytes: await sizeBytesForPlan(plan),
+        sizeBytes: collectionOptions.includeSizeBytes ? await sizeBytesForPlan(plan) : 0,
       });
       grouped.set(plan.skillName, options);
     }
@@ -794,6 +797,27 @@ async function maybeWriteResolutionFile(path: string | undefined, groups: Collis
   await writeFile(target, renderPaiMigrationResolution(groups), "utf8");
 }
 
+function sameResolvedPath(left: string | undefined, right: string | undefined): boolean {
+  return left !== undefined && right !== undefined && resolve(left) === resolve(right);
+}
+
+async function prepareResolutionChoices(
+  inputs: BulkImportInputs,
+  planRows: readonly SharedPlanRow[],
+): Promise<ResolutionChoices> {
+  if (!inputs.emitResolutionPath && !inputs.resolutionPath) return new Map();
+  if (sameResolvedPath(inputs.emitResolutionPath, inputs.resolutionPath)) {
+    throw new Error("PAI migration --emit-resolution and --resolution must use different files.");
+  }
+
+  const collisionGroups = await collectCollisionGroups(planRows, {
+    includeSizeBytes: inputs.emitResolutionPath !== undefined,
+  });
+  const resolutionChoices = await loadResolutionChoices(inputs.resolutionPath, collisionGroups);
+  await maybeWriteResolutionFile(inputs.emitResolutionPath, collisionGroups);
+  return resolutionChoices;
+}
+
 /**
  * Shared cross-pack collision walk.
  * Walks `planRows` in sorted order; for each `planned` row, partitions
@@ -845,9 +869,7 @@ async function importPacksWithOutcomes(
   // both the public per-skill plan view AND an opaque handle so Phase 2
   // can apply WITHOUT a second `buildPaiPackImportPlan` pass.
   const planRows = await planAllPacksWithHandles(inputs);
-  const collisionGroups = await collectCollisionGroups(planRows);
-  await maybeWriteResolutionFile(inputs.emitResolutionPath, collisionGroups);
-  const resolutionChoices = await loadResolutionChoices(inputs.resolutionPath, collisionGroups);
+  const resolutionChoices = await prepareResolutionChoices(inputs, planRows);
 
   // Phase 2: sequential apply with collision tracking.
   // Invariant: the cross-pack collision set grows ONLY after a
@@ -1236,9 +1258,7 @@ async function planPacksWithOutcomes(inputs: BulkImportInputs): Promise<BulkPlan
   // disk; it just emits advisory `imported` rows for every survivor
   // plus the same collision outcomes the apply path would produce.
   const planRows = await planAllPacksWithHandles(inputs);
-  const collisionGroups = await collectCollisionGroups(planRows);
-  await maybeWriteResolutionFile(inputs.emitResolutionPath, collisionGroups);
-  const resolutionChoices = await loadResolutionChoices(inputs.resolutionPath, collisionGroups);
+  const resolutionChoices = await prepareResolutionChoices(inputs, planRows);
   const { resolved } = walkPlanRowsForCollisions(planRows, inputs.overwriteReserved, resolutionChoices);
 
   const packs: PaiPackImportPlan[] = [];

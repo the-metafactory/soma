@@ -163,3 +163,23 @@ test("#114 AC-6: CLI emits and consumes resolution files", async () => {
     expect(output).toContain("Resolution file picked");
   });
 });
+
+test("#114 review: emit and consume refuse the same resolution path", async () => {
+  await withCollisionFixture(async ({ homeDir, packsDir, utilitiesPack }) => {
+    const resolution = join(homeDir, "migration-resolve.yaml");
+    await planPaiMigration({ homeDir, paiPacksDir: packsDir, skipMemory: true, emitResolutionPath: resolution });
+    let body = await readFile(resolution, "utf8");
+    body = body.replace(/^    pick: .+$/m, `    pick: "${utilitiesPack}"`);
+    await writeFile(resolution, body, "utf8");
+
+    await expect(migratePai({
+      homeDir,
+      paiPacksDir: packsDir,
+      skipMemory: true,
+      emitResolutionPath: resolution,
+      resolutionPath: resolution,
+    })).rejects.toThrow("--emit-resolution and --resolution must use different files");
+
+    expect(await readFile(resolution, "utf8")).toContain(`pick: "${utilitiesPack}"`);
+  });
+});
