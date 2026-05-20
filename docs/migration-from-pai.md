@@ -473,6 +473,10 @@ skill with no frontmatter at all). #120 added per-skill LLM rewrite
 to compress these descriptions under a 900-char safety target.
 
 ```bash
+# Non-interactive batch mode: preapprove every needed rewrite and use
+# the default provider, Codex.
+soma migrate claude-skills --from ~/.claude/skills --apply --rewrite-descriptions auto
+
 # Compress oversize descriptions via subscription-billed claude
 # (Sonnet for speed). 10 PAI skills go from 1037–1318 chars down to
 # ~800–900 chars and import cleanly.
@@ -491,6 +495,8 @@ soma migrate claude-skills --from ~/.claude/skills --apply --rewrite-description
 **Behavior:**
 
 - Description ≤ 1024 chars: untouched. Imports as-is.
+- `--rewrite-descriptions auto`: batch/non-interactive approval for
+  every needed rewrite; dispatches through Codex.
 - Description > 1024 chars (oversize): LLM compresses it; the
   rewritten text is spliced into the frontmatter; body untouched.
 - No frontmatter at all (missing): LLM synthesizes a description

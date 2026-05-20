@@ -1194,6 +1194,28 @@ test("oversize + --rewrite-descriptions claude (stubbed) → rewrites under cap 
   });
 });
 
+test("oversize + --rewrite-descriptions auto (stubbed) → preapproves rewrite via codex", async () => {
+  await withTempHome(async (home) => {
+    const { fromDir, somaHome } = await writeOversizeApifyFixture(home);
+    const dispatchAgents: string[] = [];
+    const result = await migrateClaudeSkills({
+      from: fromDir,
+      somaHome,
+      rewriteDescriptionsAgent: "auto",
+      rewriteDispatchOverride: async (req) => {
+        dispatchAgents.push(req.agent);
+        return "Apify scraping skill. USE WHEN social media, maps, e-commerce, and actor-backed extraction are needed.";
+      },
+    });
+
+    expect(dispatchAgents).toEqual(["codex"]);
+    expect(result.rewriteDescriptionsAgent).toBe("auto");
+    expect(result.descriptionRewrittenCount).toBe(1);
+    const outcome = result.outcomes.find((o) => o.sourceName === "Apify");
+    expect(outcome?.descriptionRewrite?.agent).toBe("codex");
+  });
+});
+
 test("missing frontmatter + --rewrite-descriptions codex (stubbed) → synthesizes + imports", async () => {
   await withTempHome(async (home) => {
     const fromDir = join(home, "skills");

@@ -230,8 +230,9 @@ skill projects cleanly into the named substrate — turns the heuristic verdict
 into a checked one before you trust it cross-substrate.
 
 If your skills carry oversize descriptions (Codex and Pi.dev cap at 1024
-chars) or missing frontmatter, add `--rewrite-descriptions claude` (or
-`codex`, `pi`) to compress / synthesize via an LLM agent in one pass.
+chars) or missing frontmatter, add `--rewrite-descriptions auto` to
+preapprove batch compression via Codex, or choose `claude`, `codex`, or
+`pi` explicitly.
 
 User-owned symlinks inside the skills tree (private skills you keep in
 another worktree) are followed automatically when their target resolves

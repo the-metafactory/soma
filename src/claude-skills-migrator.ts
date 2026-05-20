@@ -108,6 +108,12 @@ function normalizeSmokeSubstrates(
   return ALL_SMOKE_SUBSTRATES.filter((sub) => set.has(sub));
 }
 
+type ConcreteRewriteDescriptionsAgent = Exclude<RewriteDescriptionsAgent, "none" | "auto">;
+
+function resolveRewriteDescriptionsAgent(agent: Exclude<RewriteDescriptionsAgent, "none">): ConcreteRewriteDescriptionsAgent {
+  return agent === "auto" ? "codex" : agent;
+}
+
 // Parse the front-matter description of a source SKILL.md so the
 // per-substrate verifier can run the description-mismatch check
 // against the projected SKILL.md. The Pi.dev projector rewrites the
@@ -1130,8 +1136,8 @@ function applyDescriptionLimitClassification(args: {
       outcome.disposition = "refused-description-limit";
       outcome.target = null;
       outcome.refusalReason = status.kind === "oversize"
-        ? `description length ${status.length} exceeds substrate cap of ${status.threshold} — re-run with --rewrite-descriptions <claude|codex|pi>`
-        : `SKILL.md has no frontmatter description (substrate cap ${status.threshold}) — re-run with --rewrite-descriptions <claude|codex|pi> to synthesize one`;
+        ? `description length ${status.length} exceeds substrate cap of ${status.threshold} — re-run with --rewrite-descriptions auto or <claude|codex|pi>`
+        : `SKILL.md has no frontmatter description (substrate cap ${status.threshold}) — re-run with --rewrite-descriptions auto or <claude|codex|pi> to synthesize one`;
     }
   }
 }
@@ -1367,7 +1373,7 @@ function remediationForOutcome(outcome: ClaudeSkillOutcome): string | undefined 
     return "Re-run with --include-claude-specific if this Claude-only skill should still be imported.";
   }
   if (outcome.disposition === "refused-description-limit") {
-    return "Re-run with --rewrite-descriptions claude (or codex/pi) to compress the description before import.";
+    return "Re-run with --rewrite-descriptions auto (or claude/codex/pi) to compress the description before import.";
   }
   if (outcome.disposition !== "refused-other") return undefined;
   const reason = resolveOutcomeReason(outcome);
@@ -1994,9 +2000,7 @@ export async function migrateClaudeSkills(
         // The `needsRewrite` guard above ensured `rewriteDescriptions-
         // Agent !== "none"`; assign once so the narrowed type flows
         // through both the dispatcher call AND the provenance entry.
-        const activeAgent: Exclude<RewriteDescriptionsAgent, "none"> =
-          rewriteDescriptionsAgent === "claude" ? "claude" :
-          rewriteDescriptionsAgent === "codex" ? "codex" : "pi";
+        const activeAgent = resolveRewriteDescriptionsAgent(rewriteDescriptionsAgent);
         // #125 — bracket the LLM call with start + complete progress
         // lines so a principal sees `[N/total] <skill> [rewriting
         // via claude (1318 chars → target 900)... <elapsed>s → 836

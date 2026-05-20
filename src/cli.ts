@@ -448,7 +448,7 @@ const MIGRATE_PAI_USAGE =
 // from the usage line below for non-Phase-2 callers — they keep the
 // Phase-1 surface intact.
 const MIGRATE_CLAUDE_SKILLS_USAGE =
-  "Usage: soma migrate claude-skills --from <skills-dir> [--dry-run] [--apply] [--status] [--home-dir <dir>] [--soma-home <dir>] [--include-claude-specific] [--smoke <codex|pi-dev|all>] [--rewrite-descriptions <claude|codex|pi|none>] [--quiet] [--verbose]";
+  "Usage: soma migrate claude-skills --from <skills-dir> [--dry-run] [--apply] [--status] [--home-dir <dir>] [--soma-home <dir>] [--include-claude-specific] [--smoke <codex|pi-dev|all>] [--rewrite-descriptions <claude|codex|pi|none|auto>] [--quiet] [--verbose]";
 const ADOPT_CLAUDE_USAGE =
   "Usage: soma adopt claude [--dry-run] [--apply] [--uninstall] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
 const INIT_USAGE =
@@ -2144,15 +2144,15 @@ function expandSmokeSubstrateArg(value: string): ClaudeSkillsSmokeSubstrate[] {
   );
 }
 
-// #120 — `--rewrite-descriptions <value>` enum gate. The four accepted
-// values are claude, codex, pi, none. Unknown rejects with a clear
-// error listing every valid form. `none` is permitted explicitly so
-// scripts can be parameterized without a separate "absent" branch.
+// #120/#174 — `--rewrite-descriptions <value>` enum gate. `auto` is
+// the batch/non-interactive approval mode; the migrator resolves it
+// to the default concrete provider at dispatch time.
 const VALID_REWRITE_DESCRIPTIONS_AGENTS: readonly RewriteDescriptionsAgent[] = [
   "claude",
   "codex",
   "pi",
   "none",
+  "auto",
 ];
 function parseRewriteDescriptionsAgent(value: string): RewriteDescriptionsAgent {
   if ((VALID_REWRITE_DESCRIPTIONS_AGENTS as readonly string[]).includes(value)) {
@@ -2829,7 +2829,7 @@ function formatClaudeSkillsMigrationPlan(plan: ClaudeSkillsMigrationPlan): strin
   }
   if (counts.refusedDescriptionLimit > 0) {
     lines.push(
-      `${counts.refusedDescriptionLimit} skill(s) refused-description-limit — re-run with --rewrite-descriptions claude (or codex/pi) to compress oversize descriptions via LLM.`,
+      `${counts.refusedDescriptionLimit} skill(s) refused-description-limit — re-run with --rewrite-descriptions auto (or claude/codex/pi) to compress oversize descriptions via LLM.`,
     );
   }
   appendMissingDependencyFooter(lines, plan.outcomes);
@@ -2884,7 +2884,7 @@ function formatClaudeSkillsMigrationResult(result: ClaudeSkillsMigrationResult):
   }
   if (result.refusedDescriptionLimitCount > 0) {
     lines.push(
-      `${result.refusedDescriptionLimitCount} skill(s) refused-description-limit — re-run with --rewrite-descriptions claude (or codex/pi) to compress oversize descriptions via LLM.`,
+      `${result.refusedDescriptionLimitCount} skill(s) refused-description-limit — re-run with --rewrite-descriptions auto (or claude/codex/pi) to compress oversize descriptions via LLM.`,
     );
   }
   appendMissingDependencyFooter(lines, result.outcomes);

@@ -1055,8 +1055,10 @@ export interface ClaudeSkillsMigrationOptions {
  *   - `claude` — subscription-billed `claude` subprocess (Sonnet).
  *   - `codex`  — `codex exec` subprocess (cross-vendor GPT path).
  *   - `pi`     — Pi.dev local LLM API (refused loud if unavailable).
+ *   - `auto`   — non-interactive batch approval; dispatches via the
+ *                default provider (`codex`) without prompting.
  */
-export type RewriteDescriptionsAgent = "claude" | "codex" | "pi" | "none";
+export type RewriteDescriptionsAgent = "claude" | "codex" | "pi" | "none" | "auto";
 
 /**
  * #120 — status of a skill's frontmatter description relative to the
@@ -1131,8 +1133,8 @@ export interface ClaudeSkillOutcome {
   // skill whose frontmatter description exceeds 1024 chars OR whose
   // SKILL.md has no frontmatter, AND `--rewrite-descriptions` was
   // absent or set to `none`. The skill is NOT imported; the CLI
-  // footer suggests re-running with `--rewrite-descriptions claude`
-  // (or codex / pi) so the LLM dispatcher can compress the text.
+  // footer suggests re-running with `--rewrite-descriptions auto`
+  // (or claude / codex / pi) so the LLM dispatcher can compress the text.
   disposition:
     | "imported"
     | "skipped-claude-specific"
@@ -1303,8 +1305,8 @@ export interface ClaudeSkillsMigrationResult extends ClaudeSkillsMigrationPlan {
   // #120 — skills refused because their frontmatter description
   // exceeded the 1024-char substrate cap (or was missing) AND no
   // `--rewrite-descriptions <agent>` was set. The CLI footer
-  // suggests re-running with `--rewrite-descriptions claude`
-  // (or codex / pi) so the LLM dispatcher compresses the text.
+  // suggests re-running with `--rewrite-descriptions auto`
+  // (or claude / codex / pi) so the LLM dispatcher compresses the text.
   refusedDescriptionLimitCount: number;
   // #120 — skills whose description was actually rewritten via the
   // LLM dispatcher this run. Reported separately from `writtenCount`
