@@ -537,10 +537,10 @@ test("soma migrate claude-skills --rewrite-descriptions: unknown agent → error
   });
 });
 
-test("soma migrate claude-skills --rewrite-descriptions accepts claude|codex|pi|none", async () => {
+test("soma migrate claude-skills --rewrite-descriptions accepts claude|codex|pi|none|auto", async () => {
   await withTempHome(async (home) => {
     const fromDir = await writeFixture(home);
-    for (const agent of ["claude", "codex", "pi", "none"]) {
+    for (const agent of ["claude", "codex", "pi", "none", "auto"]) {
       // We only validate parser-acceptance here; the apply path with
       // each agent is exercised in the migrator integration tests with
       // a stubbed dispatcher. `claude`/`codex`/`pi` would invoke real
@@ -596,7 +596,7 @@ test("soma migrate claude-skills plan with oversize + no agent → refused-descr
       join(home, "soma"),
     ]);
     expect(output).toContain("refused-description-limit");
-    expect(output).toContain("--rewrite-descriptions claude");
+    expect(output).toContain("--rewrite-descriptions auto");
   });
 });
 
@@ -697,7 +697,7 @@ test("#124: plan output groups by disposition with correct section headers", asy
 
     // Footer suggestion preserved
     expect(output).toContain("--include-claude-specific");
-    expect(output).toContain("--rewrite-descriptions claude");
+    expect(output).toContain("--rewrite-descriptions auto");
   });
 });
 
