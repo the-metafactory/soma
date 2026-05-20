@@ -190,8 +190,9 @@ async function checkpointRun(pi: ExtensionAPI, run: RunState, reason: string): P
   if (isRunComplete(run)) return;
   const checkpointCount = checkpointCounts.get(run.runId) ?? 0;
   if (checkpointCount >= MAX_CHECKPOINTS_PER_RUN) return;
-  await (pi as unknown as { appendEntry?: (kind: string, payload: AlgorithmRunSnapshot) => Promise<void> | void })
-    .appendEntry?.(SOMA_ALGORITHM_ENTRY_KIND, snapshotAlgorithmRunState(run, reason));
+  const appendEntry = (pi as unknown as { appendEntry?: (kind: string, payload: AlgorithmRunSnapshot) => Promise<void> | void }).appendEntry;
+  if (!appendEntry) return;
+  await appendEntry(SOMA_ALGORITHM_ENTRY_KIND, snapshotAlgorithmRunState(run, reason));
   checkpointCounts.set(run.runId, checkpointCount + 1);
 }
 
