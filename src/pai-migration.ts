@@ -876,7 +876,7 @@ function parsePaiMigrationResolution(content: string): ResolutionChoices {
       choices.set(currentSlug, parseYamlScalar(pickMatch[1]));
     }
   }
-  if (!inCollisions && content.trim() !== "") {
+  if (!inCollisions) {
     throw new Error("PAI migration resolution file is missing a collisions block. Re-run --emit-resolution for the current pack set.");
   }
   for (const slug of seenSlugs) {
