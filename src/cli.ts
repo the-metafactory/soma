@@ -85,6 +85,9 @@ import type {
   SomaInstallOptions,
   SomaInstallPlan,
   SomaInstallResult,
+  SomaDoctorDiagnosis,
+  SomaInitPlan,
+  SomaOnboardingOptions,
   SomaFeedbackCaptureOptions,
   SomaFeedbackCaptureResult,
   SomaLifecycleOptions,
@@ -143,6 +146,7 @@ import { runInferenceCli } from "./tools/inference/cli";
 import { runLearningCli, runMetricsCli, runOpinionCli, runSessionCli } from "./tools/learning/cli";
 import { RELATIONSHIP_REFLECT_USAGE, runRelationshipCli } from "./tools/relationship/cli";
 import { runWisdomCli } from "./tools/wisdom/cli";
+import { applySomaInit, diagnoseSomaDoctor, planSomaInit } from "./onboarding";
 
 /**
  * Typed CLI error carrying an exit code distinct from the default 1.
@@ -220,6 +224,17 @@ interface ParsedExportArgs {
 
 interface ParsedDaemonArgs {
   command: "daemon";
+}
+
+interface ParsedInitArgs {
+  command: "init";
+  apply: boolean;
+  options: SomaOnboardingOptions;
+}
+
+interface ParsedDoctorArgs {
+  command: "doctor";
+  options: SomaOnboardingOptions;
 }
 
 interface ParsedImportArgs {
@@ -379,6 +394,8 @@ type ParsedArgs =
   | ParsedUpgradeArgs
   | ParsedExportArgs
   | ParsedDaemonArgs
+  | ParsedInitArgs
+  | ParsedDoctorArgs
   | ParsedImportArgs
   | ParsedMigrateArgs
   | ParsedMigrateClaudeSkillsArgs
@@ -397,11 +414,13 @@ const TOP_LEVEL_COMMANDS = [
   "adopt",
   "algorithm",
   "daemon",
+  "doctor",
   "export",
   "feedback",
   "import",
   "inference",
   "install",
+  "init",
   "isa",
   "learning",
   "lifecycle",
@@ -432,6 +451,10 @@ const MIGRATE_CLAUDE_SKILLS_USAGE =
   "Usage: soma migrate claude-skills --from <skills-dir> [--dry-run] [--apply] [--status] [--home-dir <dir>] [--soma-home <dir>] [--include-claude-specific] [--smoke <codex|pi-dev|all>] [--rewrite-descriptions <claude|codex|pi|none>] [--quiet] [--verbose]";
 const ADOPT_CLAUDE_USAGE =
   "Usage: soma adopt claude [--dry-run] [--apply] [--uninstall] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
+const INIT_USAGE =
+  "Usage: soma init [--dry-run] [--yes] [--home-dir <dir>] [--soma-home <dir>] [--substrate <codex|pi-dev|claude-code|cursor>]";
+const DOCTOR_USAGE =
+  "Usage: soma doctor [--home-dir <dir>] [--soma-home <dir>] [--substrate codex]";
 const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string, string> }> = {
   algorithm: {
     usage: "Usage: soma algorithm <new|classify|list|show|capabilities|plan|decision|change|step|verify|learn|batch|advance> ...",
@@ -554,6 +577,12 @@ const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string,
   daemon: {
     usage: "Usage: soma daemon  (not yet implemented — placeholder reserves the runtime mode)",
   },
+  init: {
+    usage: INIT_USAGE,
+  },
+  doctor: {
+    usage: DOCTOR_USAGE,
+  },
   import: {
     usage: "Usage: soma import <pai|algorithm|pai-pack|pai-docs> ...",
     subcommands: {
@@ -600,6 +629,11 @@ const INSTALL_SUBSTRATES = ["codex", "pi-dev", "claude-code", "cursor"] as const
 
 function isInstallSubstrate(value: string | undefined): value is InstallSubstrate {
   return value !== undefined && (INSTALL_SUBSTRATES as readonly string[]).includes(value);
+}
+
+function parseOnboardingSubstrate(value: string): InstallSubstrate {
+  if (isInstallSubstrate(value)) return value;
+  throw new Error("--substrate must be one of codex, pi-dev, claude-code, or cursor.");
 }
 
 function workspaceSubstrateHome(substrate: InstallSubstrate): string {
@@ -1763,6 +1797,14 @@ function parseArgs(args: string[]): ParsedArgs {
     return parseDaemonArgs(args);
   }
 
+  if (args[0] === "init") {
+    return parseInitArgs(args);
+  }
+
+  if (args[0] === "doctor") {
+    return parseDoctorArgs(args);
+  }
+
   if (args[0] === "import") {
     return parseImportArgs(args);
   }
@@ -1776,6 +1818,55 @@ function parseArgs(args: string[]): ParsedArgs {
   }
 
   throw new Error(renderUnknownCommand(args[0]));
+}
+
+function parseOnboardingOptions(rest: string[]): SomaOnboardingOptions {
+  const options: SomaOnboardingOptions = {};
+  for (let index = 0; index < rest.length; index += 1) {
+    const arg = rest[index];
+    switch (arg) {
+      case "--home-dir":
+        options.homeDir = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--soma-home":
+        options.somaHome = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--substrate":
+        options.substrate = parseOnboardingSubstrate(readOption(rest, index, arg));
+        index += 1;
+        break;
+      default:
+        throw new Error(`Unknown option: ${arg}`);
+    }
+  }
+  return options;
+}
+
+function parseInitArgs(args: string[]): ParsedInitArgs {
+  const [, ...rest] = args;
+  let apply = false;
+  const optionArgs: string[] = [];
+  for (const arg of rest) {
+    if (arg === "--yes") {
+      apply = true;
+    } else if (arg === "--dry-run") {
+      apply = false;
+    } else {
+      optionArgs.push(arg);
+    }
+  }
+  return { command: "init", apply, options: parseOnboardingOptions(optionArgs) };
+}
+
+function parseDoctorArgs(args: string[]): ParsedDoctorArgs {
+  const [, ...rest] = args;
+  const options = parseOnboardingOptions(rest);
+  if (options.substrate && options.substrate !== "codex") {
+    throw new Error("soma doctor currently supports --substrate codex only.");
+  }
+  return { command: "doctor", options };
 }
 
 function parseAdoptArgs(args: string[]): ParsedAdoptArgs {
@@ -2207,6 +2298,63 @@ function formatInstallResult(result: SomaInstallResult): string {
     "",
     "Substrate files:",
     ...result.substrateHome.files.map((path) => `- ${path}`),
+  ].join("\n");
+}
+
+function formatSomaInitPlan(plan: SomaInitPlan): string {
+  return [
+    `soma init — ${plan.mode === "apply" ? "apply plan" : "plan (dry-run; pass --yes to execute)"}`,
+    "",
+    `Home:       ${plan.homeDir}`,
+    `Soma home:  ${plan.somaHome}`,
+    `Substrate:  ${plan.substrate}`,
+    "",
+    "Detected:",
+    `  - PAI install:    ${plan.detected.paiInstall ?? "not found"}`,
+    `  - Claude skills:  ${plan.detected.claudeSkillsDir ?? "not found"}`,
+    `  - CORE_USER:      ${plan.detected.coreUserDir ?? "not found"}`,
+    "",
+    "Soma state:",
+    `  - exists:          ${plan.soma.exists ? "yes" : "no"}`,
+    `  - starter profile: ${plan.soma.starterProfile ? "yes" : "no"}`,
+    `  - skills:          ${plan.soma.skillsPopulated ? "populated" : "empty"}`,
+    `  - Algorithm skill: ${plan.soma.algorithmSkillPresent ? "present" : "missing"}`,
+    "",
+    "Steps:",
+    ...plan.steps.map((step, index) => `${index + 1}. ${step.command}`),
+    "",
+  ].join("\n");
+}
+
+function formatSomaInitApplied(results: { id: string; status: "applied" | "skipped"; detail: string }[]): string {
+  return [
+    "soma init — applied",
+    "",
+    ...results.map((result) => `${result.id}: ${result.status}${result.detail ? ` (${result.detail})` : ""}`),
+    "",
+  ].join("\n");
+}
+
+function formatSomaDoctorDiagnosis(diagnosis: SomaDoctorDiagnosis): string {
+  if (diagnosis.status === "ok") {
+    return [
+      "soma doctor — ok",
+      "",
+      `Home:      ${diagnosis.homeDir}`,
+      `Soma home: ${diagnosis.somaHome}`,
+      "No onboarding drift detected.",
+      "",
+    ].join("\n");
+  }
+  return [
+    "soma doctor — drift detected",
+    "",
+    `Home:      ${diagnosis.homeDir}`,
+    `Soma home: ${diagnosis.somaHome}`,
+    "",
+    "Findings:",
+    ...diagnosis.findings.map((finding) => `- ${finding.id}: ${finding.message}\n  action: ${finding.action}`),
+    "",
   ].join("\n");
 }
 
@@ -3380,6 +3528,17 @@ export async function runSomaCli(args: string[]): Promise<string> {
     }
 
     return formatLifecycleResult(await runSomaLifecycleSessionEnd(parsed.options));
+  }
+
+  if (parsed.command === "doctor") {
+    return formatSomaDoctorDiagnosis(await diagnoseSomaDoctor(parsed.options));
+  }
+
+  if (parsed.command === "init") {
+    if (!parsed.apply) {
+      return formatSomaInitPlan(await planSomaInit(parsed.options));
+    }
+    return formatSomaInitApplied((await applySomaInit(parsed.options)).steps);
   }
 
   if (parsed.command === "algorithm") {

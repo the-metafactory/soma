@@ -58,6 +58,15 @@ export type {
   SomaInstallOptions,
   SomaInstallPlan,
   SomaInstallResult,
+  SomaDoctorDiagnosis,
+  SomaDoctorFinding,
+  SomaDoctorFindingId,
+  SomaInitPlan,
+  SomaInitApplyResult,
+  SomaInitApplyStepResult,
+  SomaInitStep,
+  SomaInitStepId,
+  SomaOnboardingOptions,
   SomaLifecycleEventName,
   SomaLifecycleOptions,
   SomaLifecycleResult,
@@ -215,6 +224,11 @@ export {
   type InferenceRequest,
   type InferenceResult,
 } from "./tools/inference";
+export {
+  applySomaInit,
+  diagnoseSomaDoctor,
+  planSomaInit,
+} from "./onboarding";
 export {
   addOpinion,
   addOpinionEvidence,
