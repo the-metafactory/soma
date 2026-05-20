@@ -108,6 +108,8 @@ const PHASE_BODY_TRUNCATION_LINE = "… (older lines truncated) …";
 const STREAM_INPUT_MAX_BYTES = 256 * 1024; // 256 KiB per delta/snapshot
 const CARRY_MAX_BYTES = 64 * 1024;          // 64 KiB unterminated line
 const SOMA_ALGORITHM_ENTRY_KIND = "soma-algorithm-run";
+const MAX_CHECKPOINTS_PER_RUN = 8;
+const RESTORE_ENTRY_SCAN_LIMIT = 16;
 
 interface SeenPhase {
   readonly marker: PhaseMarker;
@@ -146,6 +148,7 @@ interface RunState {
 }
 
 const runs = new Map<string, RunState>();
+const checkpointCounts = new Map<string, number>();
 
 interface RunSnapshot {
   readonly runId: string;
@@ -212,15 +215,18 @@ function isSeenPhaseSnapshot(seen: unknown): seen is SeenPhase {
 }
 
 async function checkpointRun(pi: ExtensionAPI, run: RunState, reason: string): Promise<void> {
+  const checkpointCount = checkpointCounts.get(run.runId) ?? 0;
+  if (checkpointCount >= MAX_CHECKPOINTS_PER_RUN) return;
   await (pi as unknown as { appendEntry?: (kind: string, payload: RunSnapshot) => Promise<void> | void })
     .appendEntry?.(SOMA_ALGORITHM_ENTRY_KIND, snapshotRun(run, reason));
+  checkpointCounts.set(run.runId, checkpointCount + 1);
 }
 
 async function restoreLatestRun(pi: ExtensionAPI, ctx: unknown): Promise<void> {
   const entries = await (pi as unknown as { readEntries?: (kind: string) => Promise<unknown[]> | unknown[] })
     .readEntries?.(SOMA_ALGORITHM_ENTRY_KIND);
   if (!Array.isArray(entries) || entries.length === 0) return;
-  for (const entry of [...entries].reverse()) {
+  for (const entry of entries.slice(-RESTORE_ENTRY_SCAN_LIMIT).reverse()) {
     const payload = (entry as { payload?: unknown }).payload ?? entry;
     const run = hydrateRun(payload);
     if (!run || run.seenPhases.length === 0) continue;
@@ -245,7 +251,7 @@ function toolCallDestination(event: unknown): string | undefined {
   return undefined;
 }
 
-function toolCallAction(event: unknown): "write" | "delete" | "modify" {
+function toolCallAction(event: unknown): "delete" | "modify" {
   const name = String((event as { toolName?: unknown; name?: unknown }).toolName ?? (event as { name?: unknown }).name ?? "").toLowerCase();
   if (/(rm|delete|trash|unlink)/u.test(name)) return "delete";
   if (/(edit|write|patch|bash|shell|mv|move|cp|copy)/u.test(name)) return "modify";

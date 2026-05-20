@@ -35,6 +35,7 @@ describe("renderSomaAlgorithmExtension", () => {
     expect(source).toMatch(/from "file:\/\/.*phase-parser\.ts"/u);
     expect(source).toMatch(/from "file:\/\/.*widget-renderers\.ts"/u);
     expect(source).toMatch(/from "file:\/\/.*isa-checklist\.ts"/u);
+    expect(source).toMatch(/from "file:\/\/.*\/src\/policy-audit\.ts"/u);
   });
 
   test("respects an explicit runtimeModuleDir override (used in tests + uninstall)", () => {
@@ -67,6 +68,9 @@ describe("renderSomaAlgorithmExtension", () => {
     expect(source).toContain('const SOMA_ALGORITHM_ENTRY_KIND = "soma-algorithm-run"');
     expect(source).toContain("function checkpointRun");
     expect(source).toContain("function restoreLatestRun");
+    expect(source).toContain("MAX_CHECKPOINTS_PER_RUN");
+    expect(source).toContain("RESTORE_ENTRY_SCAN_LIMIT");
+    expect(source).toContain("entries.slice(-RESTORE_ENTRY_SCAN_LIMIT).reverse()");
     expect(source).toContain(".appendEntry");
     expect(source).toContain(".readEntries");
     expect(source).toContain('on("session_start"');
