@@ -300,7 +300,11 @@ async function runSomaPolicyCheck(event: unknown, ctx: unknown): Promise<{ block
   const action = toolCallAction(event);
   if (action === "read") return { block: false, reason: "" };
   const cwd = typeof (ctx as { cwd?: unknown }).cwd === "string" ? (ctx as { cwd: string }).cwd : process.cwd();
-  const destinations = [...new Set(toolCallDestinations(event, cwd))].slice(0, MAX_POLICY_TARGETS);
+  const allDestinations = [...new Set(toolCallDestinations(event, cwd))];
+  if (allDestinations.length > MAX_POLICY_TARGETS) {
+    return { block: true, reason: \`Soma policy blocked tool_call with \${allDestinations.length} destinations; maximum is \${MAX_POLICY_TARGETS}.\` };
+  }
+  const destinations = allDestinations;
   const sourcePath = toolCallSource(event);
   const content = toolCallContent(event);
   if (destinations.length === 0) {
