@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-05-20
+
+### Added
+
+- Migrated PAI runtime tools for memory search, result capture/search, learning capture, Wisdom Frames, relationship reflection, and Algorithm execution modes. These are now exposed through deterministic Soma CLI/tool surfaces instead of remaining only as migrated source artifacts. ([#129], [#130], [#131], [#132], [#133])
+- Cursor is now a first-class substrate for `install`, `export`, `reproject`, `upgrade`, and `uninstall`. Soma writes `.cursorrules` plus `.cursor/rules/soma/*.md`, preserves user-owned Cursor rules, and carries active ISA context into Cursor projections. ([#148], [#162])
+- Deterministic portability CI now runs on pull requests and pushes to `main`, covering shared projection semantics, portable skill smoke verification, and active ISA writeback/reprojection across shipping home projections. ([#154], [#163])
+
+### Fixed
+
+- `soma migrate claude-skills --rewrite-descriptions <agent>` now participates in the idempotency decision. Skills imported before description rewriting, or with a different rewrite agent, re-import and record rewrite provenance instead of staying `skipped-idempotent` forever. ([#123], [#164])
+- Arc upgrade troubleshooting now documents the remove-then-install recovery path for active extracted installs. ([#127], [#159])
+- Claude-skills migration progress output no longer floods non-TTY logs with concurrent per-skill phase rows. ([#139], [#160])
+- Generic Soma home references in public docs/tests no longer trip the private-source guard. ([#144], [#161])
+
 ## [0.4.1] - 2026-05-18
 
 ### Added
@@ -19,6 +34,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [#120]: https://github.com/the-metafactory/soma/issues/120
 [#121]: https://github.com/the-metafactory/soma/pull/121
+[#123]: https://github.com/the-metafactory/soma/issues/123
+[#127]: https://github.com/the-metafactory/soma/issues/127
+[#129]: https://github.com/the-metafactory/soma/issues/129
+[#130]: https://github.com/the-metafactory/soma/issues/130
+[#131]: https://github.com/the-metafactory/soma/issues/131
+[#132]: https://github.com/the-metafactory/soma/issues/132
+[#133]: https://github.com/the-metafactory/soma/issues/133
+[#139]: https://github.com/the-metafactory/soma/issues/139
+[#144]: https://github.com/the-metafactory/soma/issues/144
+[#148]: https://github.com/the-metafactory/soma/issues/148
+[#154]: https://github.com/the-metafactory/soma/issues/154
+[#159]: https://github.com/the-metafactory/soma/pull/159
+[#160]: https://github.com/the-metafactory/soma/pull/160
+[#161]: https://github.com/the-metafactory/soma/pull/161
+[#162]: https://github.com/the-metafactory/soma/pull/162
+[#163]: https://github.com/the-metafactory/soma/pull/163
+[#164]: https://github.com/the-metafactory/soma/pull/164
 
 ## [0.4.0] - 2026-05-18
 
