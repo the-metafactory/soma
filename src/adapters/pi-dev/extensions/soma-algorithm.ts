@@ -268,7 +268,7 @@ function toolCallAction(event: unknown): "read" | "write" | "delete" | "modify" 
   if (/(read|list|search|grep|find|query|view)/u.test(name)) return "read";
   if (/(rm|delete|trash|unlink)/u.test(name)) return "delete";
   if (/(edit|write|patch|cp|copy)/u.test(name)) return "write";
-  if (/(bash|shell)/u.test(name) && /^(rm|delete|trash|unlink)$/u.test(shellCommandName(event) ?? "")) return "delete";
+  if (/(bash|shell)/u.test(name) && isDeleteShellCommand(event)) return "delete";
   if (/(bash|shell)/u.test(name) && isReadOnlyShellCommand(event)) return "read";
   if (/(bash|shell)/u.test(name)) return "write";
   if (/(mv|move)/u.test(name)) return "modify";
@@ -281,10 +281,18 @@ function shellCommandName(event: unknown): string | undefined {
   return parseBashDestructivePaths(command, process.cwd()).command.toLowerCase();
 }
 
+function isDeleteShellCommand(event: unknown): boolean {
+  const command = toolCallContent(event)?.trim();
+  if (!command) return false;
+  if (/^(sudo\\s+|command\\s+|env\\s+)*\\b(rm|delete|trash|unlink)\\b/u.test(command)) return true;
+  return /^(rm|delete|trash|unlink)$/u.test(shellCommandName(event) ?? "");
+}
+
 function isReadOnlyShellCommand(event: unknown): boolean {
   const command = toolCallContent(event)?.trim();
-  if (!command || /[><|;&]/u.test(command)) return false;
-  return /^(pwd|ls|rg|grep|cat|git status|git diff|git log|git show|git branch\\b)/u.test(command);
+  if (!command || command.includes("\`") || /[$\\n\\r><|;&(){}]/u.test(command)) return false;
+  if (parseBashDestructivePaths(command, process.cwd()).targetPaths.length > 0) return false;
+  return /^(pwd|ls(\\s+-[A-Za-z0-9]+)*(\\s+[A-Za-z0-9._/:-]+)*|rg(\\s+[-A-Za-z0-9._/:'=]+)*|grep(\\s+[-A-Za-z0-9._/:'=]+)*|cat(\\s+[A-Za-z0-9._/:-]+)+|git\\s+(status|diff|log|show|branch)(\\s+[-A-Za-z0-9._/:'=]+)*)$/u.test(command);
 }
 
 async function runSomaPolicyCheck(event: unknown, ctx: unknown): Promise<{ block: boolean; reason: string }> {
