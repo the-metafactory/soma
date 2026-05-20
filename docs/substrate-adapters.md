@@ -60,6 +60,22 @@ skill. The extension appends Soma identity to the LLM context on
 `before_agent_start`; the tool can read projection files and detailed imported
 PAI source files under `~/.soma`.
 
+Compatibility: `installSomaForPiDev` probes `~/.pi/agent/package.json` when it
+exists and refuses versions older than `0.10.0`. That minimum is the pinned
+runtime surface for `ui.setWidget`, `ui.setStatus`, `message_update`, session
+entries (`appendEntry`/`readEntries`), and `tool_call` blocking. Prerelease
+versions do not satisfy the stable minimum. Missing
+`package.json` is treated as an unknown local/dev runtime and does not block
+install; explicit old versions fail with upgrade guidance.
+
+Algorithm renderer: `agent/extensions/soma-algorithm.ts` persists active run
+snapshots under the `soma-algorithm-run` session entry kind before compaction
+and restores the latest unfinished snapshot on `session_start`. During EXECUTE
+it calls Soma's policy API for tool-call targets and returns Pi.dev's blocking
+shape when Soma denies the action or when a mutating tool call has no parseable
+destination. Live RPC end-to-end coverage remains a
+runtime-environment test, not a unit-test dependency of this repo.
+
 ## Claude Code
 
 Claude Code has the richest native surface:

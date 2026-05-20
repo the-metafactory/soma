@@ -35,6 +35,8 @@ describe("renderSomaAlgorithmExtension", () => {
     expect(source).toMatch(/from "file:\/\/.*phase-parser\.ts"/u);
     expect(source).toMatch(/from "file:\/\/.*widget-renderers\.ts"/u);
     expect(source).toMatch(/from "file:\/\/.*isa-checklist\.ts"/u);
+    expect(source).toMatch(/from "file:\/\/.*\/src\/policy-audit\.ts"/u);
+    expect(source).toMatch(/from "file:\/\/.*\/src\/adapters\/pi-dev\/algorithm-run-snapshot\.ts"/u);
   });
 
   test("respects an explicit runtimeModuleDir override (used in tests + uninstall)", () => {
@@ -43,14 +45,67 @@ describe("renderSomaAlgorithmExtension", () => {
     expect(source).toContain('from "file:///tmp/override/phase-parser.ts"');
     expect(source).toContain('from "file:///tmp/override/widget-renderers.ts"');
     expect(source).toContain('from "file:///tmp/override/isa-checklist.ts"');
+    expect(source).toContain('from "file:///tmp/override/policy-audit.ts"');
+    expect(source).toContain('from "file:///tmp/override/policy-path-guard.ts"');
+    expect(source).toContain('from "file:///tmp/override/algorithm-run-snapshot.ts"');
   });
 
-  test("flags the deferred version-probe (AC-10) inline in the generated source", () => {
+  test("renders the installed Soma home into policy checks", () => {
+    const source = renderSomaAlgorithmExtension({ somaHome: "/workspace/.soma" });
+
+    expect(source).toContain('const INSTALLED_SOMA_HOME = "/workspace/.soma"');
+    expect(source).toContain("return INSTALLED_SOMA_HOME");
+  });
+
+  test("#85 AC-7: tool_call during EXECUTE runs Soma policy and can block", () => {
     const source = renderSomaAlgorithmExtension();
 
-    // Documented TODO so a reader of the on-disk extension can see what
-    // was deferred. Cross-referenced in the follow-up issue.
-    expect(source).toContain("TODO(#43 follow-up)");
+    expect(source).toContain('on("tool_call"');
+    expect(source).toContain("runSomaPolicyCheck");
+    expect(source).toContain('run.currentPhase !== "execute"');
+    expect(source).toContain('return { block: true, reason: policy.reason }');
+    expect(source).toContain("checkSomaPolicy");
+    expect(source).toContain("policy-audit.ts");
+    expect(source).toContain("policy-path-guard.ts");
+    expect(source).toContain("parseBashDestructivePaths(command, cwd).targetPaths");
+    expect(source).toContain("function shellCommandName");
+    expect(source).toContain("function isReadOnlyShellCommand");
+    expect(source).toContain("function toolCallSource");
+    expect(source).toContain("function toolCallContent");
+    expect(source).toContain('const cwd = typeof (ctx as { cwd?: unknown }).cwd === "string"');
+    expect(source).toContain("cwd,");
+    expect(source).toContain("sourcePath,");
+    expect(source).toContain("content,");
+    expect(source).toContain('action: "modify"');
+    expect(source).toContain("Promise.all");
+    expect(source).toContain('if (action === "read") return { block: false, reason: "" }');
+    expect(source).toContain("MAX_POLICY_TARGETS");
+    expect(source).not.toContain("execFileAsync");
+    expect(source).not.toContain("spawnSync");
+    expect(source).toContain("mutating tool_call without a parseable destination");
+    expect(source).toContain('substrate: "pi-dev"');
+    expect(source).toContain('record: "deny"');
+  });
+
+  test("#85 AC-8/9: session_start restores and compaction checkpoints run state", () => {
+    const source = renderSomaAlgorithmExtension();
+
+    expect(source).toContain('const SOMA_ALGORITHM_ENTRY_KIND = "soma-algorithm-run"');
+    expect(source).toContain("function checkpointRun");
+    expect(source).toContain("function restoreLatestRun");
+    expect(source).toContain("function isRunComplete");
+    expect(source).toContain("isAlgorithmRunSnapshotComplete(run)");
+    expect(source).toContain("hydrateAlgorithmRunSnapshot");
+    expect(source).toContain("snapshotAlgorithmRunState");
+    expect(source).toContain("isRunComplete(run)) return");
+    expect(source).toContain("MAX_CHECKPOINTS_PER_RUN");
+    expect(source).toContain("RESTORE_ENTRY_SCAN_LIMIT");
+    expect(source).toContain("readEntries?.(SOMA_ALGORITHM_ENTRY_KIND, { limit: RESTORE_ENTRY_SCAN_LIMIT })");
+    expect(source).toContain("entries.slice(-RESTORE_ENTRY_SCAN_LIMIT).reverse()");
+    expect(source).toContain(".appendEntry");
+    expect(source).toContain(".readEntries");
+    expect(source).toContain('on("session_start"');
+    expect(source).toContain('checkpointRun(pi, run, "session_before_compact")');
   });
 
   test("ingest path caps per-phase body to keep memory bounded (Sage R2 perf)", () => {

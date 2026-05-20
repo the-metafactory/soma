@@ -8,6 +8,7 @@ import {
   piDevIsaSkillDestinationDir,
   removeLegacyPiDevIsaSkillProjection,
 } from "./adapters/pi-dev/skill-projection";
+import { validatePiDevInstallRuntime } from "./adapters/pi-dev/version";
 import {
   CURSOR_RULES_BLOCK_BEGIN,
   CURSOR_RULES_BLOCK_END,
@@ -100,6 +101,10 @@ const SKILL_SUBPATHS: Record<Exclude<InstallSubstrate, "pi-dev">, string> = {
 };
 
 type InstallSubstrate = "codex" | "pi-dev" | "claude-code" | "cursor";
+
+const INSTALL_VALIDATORS: Partial<Record<InstallSubstrate, (substrateRoot: string) => Promise<void>>> = {
+  "pi-dev": validatePiDevInstallRuntime,
+};
 
 function resolveInstallHomes(substrate: InstallSubstrate, options: SomaInstallOptions): { somaHome: string; substrateHome: string } {
   const homeDir = options.homeDir;
@@ -200,6 +205,7 @@ async function installSomaForSubstrate(
   // inherits installIsaSkill's local-edits-preserved contract.
   const resolvedHomeDir = resolve(options.homeDir ?? homedir());
   const substrateRoot = resolve(options.substrateHome ?? join(resolvedHomeDir, DEFAULT_SUBSTRATE_HOMES[substrate]));
+  await INSTALL_VALIDATORS[substrate]?.(substrateRoot);
   await prepareSubstrateSkillDestination(substrate, substrateRoot);
   await installIsaSkillProjection({
     homeDir: options.homeDir,

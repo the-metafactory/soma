@@ -520,7 +520,7 @@ export function projectPiDevHome(input: ProjectionInput, somaHome: string): Proj
       // stays locked to the parser/widget unit tests.
       {
         path: "agent/extensions/soma-algorithm.ts",
-        content: renderSomaAlgorithmExtension(),
+        content: renderSomaAlgorithmExtension({ somaHome }),
       },
       {
         path: "agent/skills/soma/SKILL.md",
