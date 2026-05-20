@@ -114,6 +114,16 @@ with `--record deny`. Denials and checker failures both return a Codex
 
 ## Non-Goals
 
-This is not ShadowRelease. It does not scan staged releases, run TruffleHog,
-validate dashboards, or prove public artifact cleanliness. Those retrospective
-release gates can be built later on top of the same policy model.
+This is not ShadowRelease. It does not run TruffleHog, validate dashboards, or
+prove full public artifact cleanliness.
+
+Soma does include a narrow release-time privacy check:
+
+```bash
+bun run check-release-privacy
+```
+
+That script scans tracked text files, flags absolute private PAI/Soma source
+roots, and matches configured forbidden phrase hashes without storing raw private
+phrases in the repository. It is a deterministic fail-fast guard for known leak
+classes, not a comprehensive secret scanner.
