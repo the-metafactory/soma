@@ -59,6 +59,7 @@ describe("renderSomaAlgorithmExtension", () => {
     expect(source).toContain("parseBashDestructivePaths(command, cwd).targetPaths");
     expect(source).toContain('const cwd = typeof (ctx as { cwd?: unknown }).cwd === "string"');
     expect(source).toContain("cwd,");
+    expect(source).toContain("Promise.all");
     expect(source).not.toContain("execFileAsync");
     expect(source).not.toContain("spawnSync");
     expect(source).toContain("mutating tool_call without a parseable destination");
@@ -72,6 +73,9 @@ describe("renderSomaAlgorithmExtension", () => {
     expect(source).toContain('const SOMA_ALGORITHM_ENTRY_KIND = "soma-algorithm-run"');
     expect(source).toContain("function checkpointRun");
     expect(source).toContain("function restoreLatestRun");
+    expect(source).toContain("function isRunComplete");
+    expect(source).toContain('run.currentPhase === "summary"');
+    expect(source).toContain("isRunComplete(run)) return");
     expect(source).toContain("MAX_CHECKPOINTS_PER_RUN");
     expect(source).toContain("RESTORE_ENTRY_SCAN_LIMIT");
     expect(source).toContain("entries.slice(-RESTORE_ENTRY_SCAN_LIMIT).reverse()");

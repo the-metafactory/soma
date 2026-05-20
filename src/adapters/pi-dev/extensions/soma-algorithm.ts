@@ -202,6 +202,10 @@ function hydrateRun(snapshot: unknown): RunState | undefined {
   return run;
 }
 
+function isRunComplete(run: RunState): boolean {
+  return run.currentPhase === "summary";
+}
+
 function isSeenPhaseSnapshot(seen: unknown): seen is SeenPhase {
   if (!seen || typeof seen !== "object") return false;
   const candidate = seen as { marker?: unknown; body?: unknown };
@@ -217,6 +221,7 @@ function isSeenPhaseSnapshot(seen: unknown): seen is SeenPhase {
 }
 
 async function checkpointRun(pi: ExtensionAPI, run: RunState, reason: string): Promise<void> {
+  if (isRunComplete(run)) return;
   const checkpointCount = checkpointCounts.get(run.runId) ?? 0;
   if (checkpointCount >= MAX_CHECKPOINTS_PER_RUN) return;
   await (pi as unknown as { appendEntry?: (kind: string, payload: RunSnapshot) => Promise<void> | void })
@@ -231,7 +236,7 @@ async function restoreLatestRun(pi: ExtensionAPI, ctx: unknown): Promise<void> {
   for (const entry of entries.slice(-RESTORE_ENTRY_SCAN_LIMIT).reverse()) {
     const payload = (entry as { payload?: unknown }).payload ?? entry;
     const run = hydrateRun(payload);
-    if (!run || run.seenPhases.length === 0) continue;
+    if (!run || run.seenPhases.length === 0 || isRunComplete(run)) continue;
     runs.set(run.runId, run);
     renderAllPhases(pi, ctx, run);
     return;
@@ -278,21 +283,21 @@ async function runSomaPolicyCheck(event: unknown, ctx: unknown): Promise<{ block
   const cwd = typeof (ctx as { cwd?: unknown }).cwd === "string" ? (ctx as { cwd: string }).cwd : process.cwd();
   const destinations = toolCallDestinations(event, cwd);
   if (destinations.length === 0) {
-    if (toolCallIsShell(event)) return { block: false, reason: "" };
     return { block: true, reason: "Soma policy blocked mutating tool_call without a parseable destination." };
   }
   try {
-    for (const destination of destinations) {
-      const result = await checkSomaPolicy({
+    const results = await Promise.all(
+      destinations.map((destination) => checkSomaPolicy({
         somaHome: somaHomePath(),
         substrate: "pi-dev",
         action,
         cwd,
         destinationPath: destination,
         record: "deny",
-      });
-      if (result.decision === "deny") return { block: true, reason: result.reason };
-    }
+      })),
+    );
+    const denied = results.find((result) => result.decision === "deny");
+    if (denied) return { block: true, reason: denied.reason };
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     return { block: true, reason };
