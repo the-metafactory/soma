@@ -20,12 +20,14 @@ export interface AlgorithmRunSnapshotState {
 }
 
 export interface AlgorithmRunSnapshot extends AlgorithmRunSnapshotState {
+  readonly schemaVersion: 1;
   readonly reason: string;
   readonly timestamp: string;
 }
 
 export function snapshotAlgorithmRunState(run: AlgorithmRunSnapshotState, reason: string): AlgorithmRunSnapshot {
   return {
+    schemaVersion: 1,
     runId: run.runId,
     carry: run.carry,
     lineCount: run.lineCount,
@@ -41,6 +43,7 @@ export function snapshotAlgorithmRunState(run: AlgorithmRunSnapshotState, reason
 export function hydrateAlgorithmRunSnapshot(snapshot: unknown): AlgorithmRunSnapshotState | undefined {
   if (!snapshot || typeof snapshot !== "object") return undefined;
   const s = snapshot as Partial<AlgorithmRunSnapshot>;
+  if (s.schemaVersion !== 1) return undefined;
   if (typeof s.runId !== "string" || !Array.isArray(s.seenPhases)) return undefined;
   return {
     runId: s.runId,

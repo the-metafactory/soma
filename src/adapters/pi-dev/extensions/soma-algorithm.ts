@@ -269,6 +269,7 @@ function toolCallAction(event: unknown): "read" | "write" | "delete" | "modify" 
   if (/(rm|delete|trash|unlink)/u.test(name)) return "delete";
   if (/(edit|write|patch|cp|copy)/u.test(name)) return "write";
   if (/(bash|shell)/u.test(name) && /^(rm|delete|trash|unlink)$/u.test(shellCommandName(event) ?? "")) return "delete";
+  if (/(bash|shell)/u.test(name) && isReadOnlyShellCommand(event)) return "read";
   if (/(bash|shell)/u.test(name)) return "write";
   if (/(mv|move)/u.test(name)) return "modify";
   return "modify";
@@ -278,6 +279,12 @@ function shellCommandName(event: unknown): string | undefined {
   const command = toolCallContent(event);
   if (!command) return undefined;
   return parseBashDestructivePaths(command, process.cwd()).command.toLowerCase();
+}
+
+function isReadOnlyShellCommand(event: unknown): boolean {
+  const command = toolCallContent(event)?.trim();
+  if (!command || /[><|;&]/u.test(command)) return false;
+  return /^(pwd|ls|rg|grep|cat|git status|git diff|git log|git show|git branch\\b)/u.test(command);
 }
 
 async function runSomaPolicyCheck(event: unknown, ctx: unknown): Promise<{ block: boolean; reason: string }> {
