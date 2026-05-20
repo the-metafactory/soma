@@ -637,6 +637,10 @@ function deniedSkillReason(
       ? `Resolution file set '${slug}' pick to null — skipped all collision options.`
       : `Resolution file picked ${pick}; skipped ${paiPackDir}.`;
   }
+  return defaultCrossPackCollisionReason(slug);
+}
+
+function defaultCrossPackCollisionReason(slug: string): string {
   return `Soma skill '${slug}' already landed from an earlier pack — re-run with --overwrite-reserved to permit.`;
 }
 
@@ -645,7 +649,7 @@ function crossPackCollisionOutcome(paiPackDir: string, slug: string, reason?: st
     paiPackDir,
     outcome: "refused-name-collision",
     skillName: slug,
-    reason: reason ?? `Soma skill '${slug}' already landed from an earlier pack — re-run with --overwrite-reserved to permit.`,
+    reason: reason ?? defaultCrossPackCollisionReason(slug),
   };
 }
 
@@ -670,17 +674,21 @@ function workflowCountForPlan(plan: PaiPackImportPlan): number {
 }
 
 async function sizeBytesForPlan(plan: PaiPackImportPlan): Promise<number> {
-  let total = 0;
-  for (const file of plan.files) {
-    if (file.origin !== "source") continue;
-    try {
-      total += (await stat(file.source)).size;
-    } catch {
-      // Resolution metadata is advisory; a raced source deletion will
-      // be handled by the actual import path. Keep the file writable.
-    }
-  }
-  return total;
+  const sourceFiles = plan.files.filter((file) => file.origin === "source");
+  const sizes = await runBoundedConcurrent(
+    sourceFiles,
+    async (file) => {
+      try {
+        return (await stat(file.source)).size;
+      } catch {
+        // Resolution metadata is advisory; a raced source deletion will
+        // be handled by the actual import path. Keep the file writable.
+        return 0;
+      }
+    },
+    16,
+  );
+  return sizes.reduce((total, size) => total + size, 0);
 }
 
 async function collectCollisionGroups(
