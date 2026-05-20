@@ -598,22 +598,29 @@ function partitionPlansByCollision(
 ): { collided: string[]; survivors: string[] } {
   const collided: string[] = [];
   const survivors: string[] = [];
+  const survivorSlugs = new Set<string>();
   for (const plan of plans) {
     if (resolutionChoices.has(plan.skillName)) {
       const pick = resolutionChoices.get(plan.skillName) ?? null;
       if (pick === null) {
         collided.push(plan.skillName);
       } else if (resolve(pick) === resolve(paiPackDir)) {
-        survivors.push(plan.skillName);
+        if (landedSlugs.has(plan.skillName) || survivorSlugs.has(plan.skillName)) {
+          collided.push(plan.skillName);
+        } else {
+          survivors.push(plan.skillName);
+          survivorSlugs.add(plan.skillName);
+        }
       } else {
         collided.push(plan.skillName);
       }
       continue;
     }
-    if (landedSlugs.has(plan.skillName) && !overwriteReserved) {
+    if ((landedSlugs.has(plan.skillName) && !overwriteReserved) || survivorSlugs.has(plan.skillName)) {
       collided.push(plan.skillName);
     } else {
       survivors.push(plan.skillName);
+      survivorSlugs.add(plan.skillName);
     }
   }
   return { collided, survivors };
