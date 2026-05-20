@@ -162,6 +162,7 @@ export function createProgressEmitter(opts: ProgressEmitterOptions): ProgressEmi
     total: number;
     concurrency: number;
     completedCount: number;
+    completedItems: Set<string>;
     inFlight: Set<string>;
     latestCompleted: string | null;
     elapsedSamples: number[]; // ms per stepComplete inside the phase
@@ -202,11 +203,15 @@ export function createProgressEmitter(opts: ProgressEmitterOptions): ProgressEmi
     return !isatty || verbose;
   }
 
+  function writeTtyRewrite(body: string, close = false): void {
+    stderr.write(`\r${body}\x1b[K${close ? "\n" : ""}`);
+  }
+
   function renderConcurrentLine(phase: NonNullable<typeof activeConcurrentPhase>): void {
     const active = phase.latestCompleted ?? phase.inFlight.values().next().value ?? "skills";
     const visibleInFlight = phase.inFlight.has(active) ? phase.inFlight.size - 1 : phase.inFlight.size;
     const others = visibleInFlight > 0 ? ` + ${visibleInFlight} others` : "";
-    stderr.write(`\r[${phase.completedCount}/${phase.total}] processing ${active}${others}...`);
+    writeTtyRewrite(`[${phase.completedCount}/${phase.total}] processing ${active}${others}...`);
   }
 
   return {
@@ -233,7 +238,7 @@ export function createProgressEmitter(opts: ProgressEmitterOptions): ProgressEmi
       if (isatty) {
         // TTY: open with `\r` to overwrite any prior fast-phase line.
         // No trailing `\n` — `stepComplete` will close the row.
-        stderr.write(`\r${body}`);
+        writeTtyRewrite(body);
       } else {
         // Non-TTY: append-only with `\n`.
         stderr.write(`${body}\n`);
@@ -251,7 +256,10 @@ export function createProgressEmitter(opts: ProgressEmitterOptions): ProgressEmi
       if (activeConcurrentPhase) {
         const current = activeConcurrentPhase;
         current.elapsedSamples.push(elapsedMs);
-        current.completedCount += 1;
+        if (!current.completedItems.has(sourceName)) {
+          current.completedItems.add(sourceName);
+          current.completedCount += 1;
+        }
         current.latestCompleted = sourceName;
         current.inFlight.delete(sourceName);
         if (shouldAppendConcurrentLines()) {
@@ -272,7 +280,7 @@ export function createProgressEmitter(opts: ProgressEmitterOptions): ProgressEmi
         // partial), then closes with `\n` so the next step starts
         // fresh. If no prior step() was issued for this index (some
         // phases skip the open-line), the `\r` is harmless.
-        stderr.write(`\r${body}${closer}\n`);
+        writeTtyRewrite(`${body}${closer}`, true);
       } else {
         // Non-TTY: emit a separate `\n` line so the elapsed suffix
         // appears under the corresponding step.
@@ -291,6 +299,7 @@ export function createProgressEmitter(opts: ProgressEmitterOptions): ProgressEmi
         total: totalSteps,
         concurrency,
         completedCount: 0,
+        completedItems: new Set(),
         inFlight: new Set(),
         latestCompleted: null,
         elapsedSamples: [],
@@ -326,7 +335,11 @@ export function createProgressEmitter(opts: ProgressEmitterOptions): ProgressEmi
       }
       const elapsed = fmtElapsedSeconds(elapsedMs);
       const summary = `[${name}: ${count} skills in ${elapsed} (avg ${avgMs}ms, max ${maxMs}ms)]`;
-      stderr.write(`${isatty && !verbose ? "\r" : ""}${summary}\n`);
+      if (isatty && !verbose) {
+        writeTtyRewrite(summary, true);
+      } else {
+        stderr.write(`${summary}\n`);
+      }
     },
 
     finishTimingSummary(timings: PhaseTimings): string {

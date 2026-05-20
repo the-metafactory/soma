@@ -178,7 +178,7 @@ test("#139: beginConcurrentPhase starts a rolling line on TTY", () => {
   const { stream, capture } = makeCapturingStream();
   const emitter = createProgressEmitter({ stderr: stream, quiet: false, isatty: true });
   emitter.beginConcurrentPhase("read + classify", 97, 4);
-  expect(capture.text).toBe("\r[0/97] processing skills...");
+  expect(capture.text).toBe("\r[0/97] processing skills...\x1b[K");
   expect(capture.text).not.toContain("\n");
 });
 
@@ -212,6 +212,33 @@ test("#139: TTY concurrent phase rolls one line instead of appending per-skill r
   expect(capture.text).toContain("\r[1/3] processing Foo + 1 others...");
   expect(capture.text).toContain("\r[2/3] processing Bar...");
   expect(capture.text).not.toContain("\n[");
+});
+
+test("#168: TTY concurrent counter counts each skill once across multi-step phases", () => {
+  const { stream, capture } = makeCapturingStream();
+  const emitter = createProgressEmitter({ stderr: stream, quiet: false, isatty: true });
+  emitter.beginConcurrentPhase("read + classify", 2, 4);
+  emitter.stepComplete(1, "Foo", "reading + classifying", 12, "read");
+  emitter.stepComplete(1, "Foo", "classified", 0, "portable");
+  emitter.stepComplete(2, "Bar", "reading + classifying", 8, "read");
+  emitter.stepComplete(2, "Bar", "classified", 0, "needs-adapt");
+
+  expect(capture.text).toContain("\r[1/2] processing Foo...");
+  expect(capture.text).toContain("\r[2/2] processing Bar...");
+  expect(capture.text).not.toContain("[3/2]");
+  expect(capture.text).not.toContain("[4/2]");
+});
+
+test("#168: TTY rewrites clear residue from longer previous lines", () => {
+  const { stream, capture } = makeCapturingStream();
+  const emitter = createProgressEmitter({ stderr: stream, quiet: false, isatty: true });
+  emitter.beginConcurrentPhase("read + classify", 2, 4);
+  emitter.step(1, "LongSkillNameWithVerboseSuffix", "reading + classifying", "read");
+  emitter.stepComplete(1, "A", "reading + classifying", 3, "read");
+
+  const writes = capture.bytes.map((b) => b.toString("utf8"));
+  expect(writes.every((write) => write.startsWith("\r"))).toBe(true);
+  expect(writes.every((write) => write.includes("\x1b[K"))).toBe(true);
 });
 
 test("#139: endConcurrentPhase emits a summary line with elapsed + avg + max", () => {
