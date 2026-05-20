@@ -1405,6 +1405,77 @@ export interface ClaudeSkillsMigrationManifest {
   smokeSubstrates?: ClaudeSkillsSmokeSubstrate[];
 }
 
+export type SomaInitStepId =
+  | "migrate-claude-skills"
+  | "migrate-pai"
+  | "install-codex"
+  | "install-pi-dev"
+  | "install-claude-code"
+  | "install-cursor";
+
+export type SomaDoctorFindingId =
+  | "starter-profile"
+  | "claude-skills-not-migrated"
+  | "pai-not-migrated"
+  | "codex-projection-stale";
+
+export interface SomaOnboardingOptions {
+  homeDir?: string;
+  somaHome?: string;
+  substrate?: Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor">;
+}
+
+export interface SomaInitStep {
+  id: SomaInitStepId;
+  command: string;
+  description: string;
+}
+
+export interface SomaInitPlan {
+  mode: "dry-run" | "apply";
+  homeDir: string;
+  somaHome: string;
+  substrate: Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor">;
+  detected: {
+    paiInstall: string | null;
+    paiUserDir: string | null;
+    claudeSkillsDir: string | null;
+    coreUserDir: string | null;
+  };
+  soma: {
+    exists: boolean;
+    starterProfile: boolean;
+    skillsPopulated: boolean;
+    algorithmSkillPresent: boolean;
+  };
+  steps: SomaInitStep[];
+}
+
+export interface SomaInitApplyStepResult {
+  id: SomaInitStepId;
+  status: "applied" | "skipped";
+  detail: string;
+}
+
+export interface SomaInitApplyResult {
+  plan: SomaInitPlan;
+  steps: SomaInitApplyStepResult[];
+}
+
+export interface SomaDoctorFinding {
+  id: SomaDoctorFindingId;
+  severity: "info" | "warning";
+  message: string;
+  action: string;
+}
+
+export interface SomaDoctorDiagnosis {
+  status: "ok" | "drift";
+  homeDir: string;
+  somaHome: string;
+  findings: SomaDoctorFinding[];
+}
+
 export interface SomaMemoryEventInput {
   id?: string;
   timestamp?: string;
