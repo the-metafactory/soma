@@ -15,11 +15,11 @@ export async function validatePiDevInstallRuntime(substrateRoot: string): Promis
   try {
     version = (JSON.parse(packageJson) as { version?: unknown }).version;
   } catch {
-    throw new Error(`Unable to read pi.dev version from ${packagePath}. Reinstall or repair pi.dev before installing Soma.`);
+    throw invalidPiDevVersionError(packagePath);
   }
 
   if (typeof version !== "string" || version.trim() === "") {
-    throw new Error(`Unable to read pi.dev version from ${packagePath}. Reinstall or repair pi.dev before installing Soma.`);
+    throw invalidPiDevVersionError(packagePath);
   }
 
   if (isUnsupportedPiDevVersion(version)) {
@@ -27,6 +27,10 @@ export async function validatePiDevInstallRuntime(substrateRoot: string): Promis
       `Unsupported pi.dev version ${version}. Soma requires pi.dev >= ${MINIMUM_PI_DEV_VERSION} for ExtensionAPI widgets, session entries, and tool_call blocking. Upgrade pi.dev and rerun soma install pi-dev.`,
     );
   }
+}
+
+function invalidPiDevVersionError(packagePath: string): Error {
+  return new Error(`Unable to read pi.dev version from ${packagePath}. Reinstall or repair pi.dev before installing Soma.`);
 }
 
 export function isUnsupportedPiDevVersion(version: string): boolean {

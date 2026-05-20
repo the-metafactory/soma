@@ -71,8 +71,9 @@ install; explicit old versions fail with upgrade guidance.
 Algorithm renderer: `agent/extensions/soma-algorithm.ts` persists active run
 snapshots under the `soma-algorithm-run` session entry kind before compaction
 and restores the latest unfinished snapshot on `session_start`. During EXECUTE
-it runs `soma policy check` for tool-call targets and returns Pi.dev's blocking
-shape when Soma denies the action. Live RPC end-to-end coverage remains a
+it calls Soma's policy API for tool-call targets and returns Pi.dev's blocking
+shape when Soma denies the action or when a mutating tool call has no parseable
+destination. Live RPC end-to-end coverage remains a
 runtime-environment test, not a unit-test dependency of this repo.
 
 ## Claude Code

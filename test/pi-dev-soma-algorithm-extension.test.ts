@@ -52,12 +52,13 @@ describe("renderSomaAlgorithmExtension", () => {
     expect(source).toContain("runSomaPolicyCheck");
     expect(source).toContain('run.currentPhase !== "execute"');
     expect(source).toContain('return { block: true, reason: policy.reason }');
-    expect(source).toContain("execFileAsync");
+    expect(source).toContain("checkSomaPolicy");
+    expect(source).toContain("policy-audit.ts");
+    expect(source).not.toContain("execFileAsync");
     expect(source).not.toContain("spawnSync");
     expect(source).toContain("mutating tool_call without a parseable destination");
-    expect(source).toContain('"policy"');
-    expect(source).toContain('"check"');
-    expect(source).toContain('"--json"');
+    expect(source).toContain('substrate: "pi-dev"');
+    expect(source).toContain('record: "deny"');
   });
 
   test("#85 AC-8/9: session_start restores and compaction checkpoints run state", () => {
