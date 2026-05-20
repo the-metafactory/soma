@@ -44,6 +44,8 @@ describe("renderSomaAlgorithmExtension", () => {
     expect(source).toContain('from "file:///tmp/override/phase-parser.ts"');
     expect(source).toContain('from "file:///tmp/override/widget-renderers.ts"');
     expect(source).toContain('from "file:///tmp/override/isa-checklist.ts"');
+    expect(source).toMatch(/from "file:\/\/.*\/src\/policy-audit\.ts"/u);
+    expect(source).toMatch(/from "file:\/\/.*\/src\/policy-path-guard\.ts"/u);
   });
 
   test("#85 AC-7: tool_call during EXECUTE runs Soma policy and can block", () => {
@@ -78,6 +80,7 @@ describe("renderSomaAlgorithmExtension", () => {
     expect(source).toContain("isRunComplete(run)) return");
     expect(source).toContain("MAX_CHECKPOINTS_PER_RUN");
     expect(source).toContain("RESTORE_ENTRY_SCAN_LIMIT");
+    expect(source).toContain("readEntries?.(SOMA_ALGORITHM_ENTRY_KIND, { limit: RESTORE_ENTRY_SCAN_LIMIT })");
     expect(source).toContain("entries.slice(-RESTORE_ENTRY_SCAN_LIMIT).reverse()");
     expect(source).toContain(".appendEntry");
     expect(source).toContain(".readEntries");
