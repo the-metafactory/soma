@@ -1194,7 +1194,7 @@ test("oversize + --rewrite-descriptions claude (stubbed) → rewrites under cap 
   });
 });
 
-test("oversize + --rewrite-descriptions auto (stubbed) → preapproves rewrite via codex", async () => {
+test("oversize + --rewrite-descriptions auto (stubbed) → preapproves rewrite via claude", async () => {
   await withTempHome(async (home) => {
     const { fromDir, somaHome } = await writeOversizeApifyFixture(home);
     const dispatchAgents: string[] = [];
@@ -1208,11 +1208,11 @@ test("oversize + --rewrite-descriptions auto (stubbed) → preapproves rewrite v
       },
     });
 
-    expect(dispatchAgents).toEqual(["codex"]);
+    expect(dispatchAgents).toEqual(["claude"]);
     expect(result.rewriteDescriptionsAgent).toBe("auto");
     expect(result.descriptionRewrittenCount).toBe(1);
     const outcome = result.outcomes.find((o) => o.sourceName === "Apify");
-    expect(outcome?.descriptionRewrite?.agent).toBe("codex");
+    expect(outcome?.descriptionRewrite?.agent).toBe("claude");
   });
 });
 

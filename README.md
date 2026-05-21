@@ -317,7 +317,7 @@ into a checked one before you trust it cross-substrate.
 
 If your skills carry oversize descriptions (Codex and Pi.dev cap at 1024
 chars) or missing frontmatter, add `--rewrite-descriptions auto` to
-preapprove batch compression via Codex, or choose `claude`, `codex`, or
+preapprove batch compression via Claude, or choose `claude`, `codex`, or
 `pi` explicitly.
 
 User-owned symlinks inside the skills tree (private skills you keep in

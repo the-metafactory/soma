@@ -503,7 +503,7 @@ to compress these descriptions under a 900-char safety target.
 
 ```bash
 # Non-interactive batch mode: preapprove every needed rewrite and use
-# the default provider, Codex.
+# the default provider, Claude.
 soma migrate claude-skills --from ~/.claude/skills --apply --rewrite-descriptions auto
 
 # Compress oversize descriptions via subscription-billed claude
@@ -525,7 +525,7 @@ soma migrate claude-skills --from ~/.claude/skills --apply --rewrite-description
 
 - Description ≤ 1024 chars: untouched. Imports as-is.
 - `--rewrite-descriptions auto`: batch/non-interactive approval for
-  every needed rewrite; dispatches through Codex.
+  every needed rewrite; dispatches through Claude for lower latency.
 - Description > 1024 chars (oversize): LLM compresses it; the
   rewritten text is spliced into the frontmatter; body untouched.
 - No frontmatter at all (missing): LLM synthesizes a description

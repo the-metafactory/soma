@@ -227,6 +227,38 @@ test("migrateClaudeSkills brackets LLM rewrite with start + complete progress", 
   });
 });
 
+test("migrateClaudeSkills brackets smoke verify as a rolling progress phase", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = await writeFixture(home);
+    const emitter = makeCapturingEmitter();
+    await migrateClaudeSkills({
+      from: fromDir,
+      somaHome: join(home, "soma"),
+      smokeSubstrates: ["codex", "pi-dev"],
+      progressEmitter: emitter,
+    });
+
+    const beginIdx = emitter.calls.findIndex(
+      (c) => c.method === "beginConcurrentPhase" && c.name === "smoke verify",
+    );
+    const endIdx = emitter.calls.findIndex(
+      (c) => c.method === "endConcurrentPhase" && c.name === "smoke verify",
+    );
+    expect(beginIdx).toBeGreaterThan(-1);
+    expect(endIdx).toBeGreaterThan(beginIdx);
+
+    const smokeStepIndices = emitter.calls
+      .map((c, i) => ({ c, i }))
+      .filter(({ c }) => c.method === "stepComplete" && c.phase?.startsWith("smoke "))
+      .map(({ i }) => i);
+    expect(smokeStepIndices.length).toBeGreaterThan(0);
+    for (const i of smokeStepIndices) {
+      expect(i).toBeGreaterThan(beginIdx);
+      expect(i).toBeLessThan(endIdx);
+    }
+  });
+});
+
 test("migrateClaudeSkills returns a timing block with non-zero totalMs", async () => {
   await withTempHome(async (home) => {
     const fromDir = await writeFixture(home);

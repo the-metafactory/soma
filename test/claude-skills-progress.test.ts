@@ -330,3 +330,20 @@ test("#139: verbose TTY preserves append-only per-skill rows", () => {
   expect(capture.text).toContain("Bar");
   expect(capture.text).toContain("avg 11ms");
 });
+
+test("TTY smoke verify rolls one line instead of appending per-substrate rows", () => {
+  const { stream, capture } = makeCapturingStream();
+  const emitter = createProgressEmitter({ stderr: stream, quiet: false, isatty: true });
+  emitter.beginConcurrentPhase("smoke verify", 2, 1);
+  emitter.stepComplete(1, "writer", "smoke codex", 0, "verified");
+  emitter.stepComplete(1, "writer", "smoke pi-dev", 0, "verified");
+  emitter.stepComplete(2, "WriteStory", "smoke codex", 1, "verified-with-warnings");
+  emitter.stepComplete(2, "WriteStory", "smoke pi-dev", 1, "verified-with-warnings");
+  emitter.endConcurrentPhase("smoke verify", 2);
+
+  expect(capture.text).toContain("\r[1/2] processing writer...");
+  expect(capture.text).toContain("\r[2/2] processing WriteStory...");
+  expect(capture.text).toContain("\r[smoke verify: 2 skills in 0.0s");
+  expect(capture.text).not.toContain("\n[1/2] writer  [smoke codex");
+  expect(capture.text).not.toContain("\n[1/2] writer  [smoke pi-dev");
+});

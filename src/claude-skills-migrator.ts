@@ -111,7 +111,7 @@ function normalizeSmokeSubstrates(
 type ConcreteRewriteDescriptionsAgent = Exclude<RewriteDescriptionsAgent, "none" | "auto">;
 
 function resolveRewriteDescriptionsAgent(agent: Exclude<RewriteDescriptionsAgent, "none">): ConcreteRewriteDescriptionsAgent {
-  return agent === "auto" ? "codex" : agent;
+  return agent === "auto" ? "claude" : agent;
 }
 
 // Parse the front-matter description of a source SKILL.md so the
@@ -1736,6 +1736,14 @@ async function runSmokeVerify(args: RunSmokeVerifyArgs): Promise<void> {
   }
 }
 
+function countSmokeVerifySkills(outcomes: ClaudeSkillOutcome[]): number {
+  return outcomes.filter(
+    (outcome) =>
+      outcome.disposition !== "skipped-claude-specific" &&
+      outcome.disposition !== "refused-other",
+  ).length;
+}
+
 /**
  * Re-read the landed payload for a skill from disk. Used by the
  * smoke pass when the apply loop didn't produce an in-memory
@@ -2159,24 +2167,29 @@ export async function migrateClaudeSkills(
     for (const substrate of smokeSubstrates) {
       substrateVerifySummary[substrate] = { verified: 0, verifiedWithWarnings: 0, failed: 0 };
     }
-    // #125 — smoke verify is a separate timed phase. The
-    // per-skill `[N/total] <skill> [smoke <substrate> ... <status>]`
-    // emissions live INSIDE `runSmokeVerify` so the progress hook
-    // is threaded through here.
+    // #125 — smoke verify is a separate timed phase. On TTY we
+    // wrap it as a rolling line so `--smoke all` does not print one
+    // row per skill/substrate pair; non-TTY and `--verbose` keep the
+    // append-only detail for logs.
     const smokeT0 = Date.now();
-    await runSmokeVerify({
-      smokeSubstrates,
-      outcomes,
-      manifestEntries,
-      previousBySource,
-      somaHome,
-      pendingVerifyPayloads,
-      readsBySource,
-      summary: substrateVerifySummary,
-      progress,
-      outcomeIndexBySource,
-    });
-    smokeVerifyMs = Date.now() - smokeT0;
+    progress.beginConcurrentPhase("smoke verify", countSmokeVerifySkills(outcomes), 1);
+    try {
+      await runSmokeVerify({
+        smokeSubstrates,
+        outcomes,
+        manifestEntries,
+        previousBySource,
+        somaHome,
+        pendingVerifyPayloads,
+        readsBySource,
+        summary: substrateVerifySummary,
+        progress,
+        outcomeIndexBySource,
+      });
+    } finally {
+      smokeVerifyMs = Date.now() - smokeT0;
+      progress.endConcurrentPhase("smoke verify", smokeVerifyMs);
+    }
   }
 
   // Manifest timestamp policy mirrors pai-memory-migrator:
