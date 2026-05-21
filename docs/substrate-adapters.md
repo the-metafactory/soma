@@ -158,6 +158,13 @@ Adapters should be thin. They do not own identity, memory, ISA, skill schemas, o
 policy semantics. They only project those contracts into a substrate's native
 mechanisms, and write back substrate-side events through the writeback gate.
 
+Adapters own their substrate-native install facts: default home, projected file
+paths, substrate-specific skill destinations, lifecycle projection paths,
+validators, cleanup hooks, private projection roots, and uninstall targets. The
+installer owns orchestration: bootstrapping Soma home, loading active ISA,
+running lifecycle updates, writing projections, and applying the install,
+reproject, upgrade, and uninstall verbs.
+
 The first portability proof is documented in
 [portability-proof.md](./portability-proof.md). Memory and policy v0 are
 documented in [memory-policy-v0.md](./memory-policy-v0.md).

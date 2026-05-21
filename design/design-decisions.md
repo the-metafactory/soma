@@ -111,3 +111,52 @@ Three candidates:
 **Supersedes:** `CONTEXT.md` line 235 ("`migrate`, `republish`, `bump` → `upgrade`") — `migrate` removed from that kill-list; `republish` and `bump` remain killed.
 
 **Discussion:** `/grill-with-docs` session 2026-05-17 (Q8).
+
+## 4. Adapter Install Facts
+
+### DD-4: Adapters own install facts; installer owns lifecycle orchestration
+
+**Status:** Decided (2026-05-22)
+
+**Context:** Soma's install path had substrate-specific facts spread across the
+installer, home projection, active ISA projection paths, private projection
+roots, and adapter modules. Adding or changing a substrate required editing
+multiple unrelated modules, which weakened locality and made install,
+reproject, upgrade, and uninstall behavior harder to compare.
+
+Three candidates surfaced:
+- **(a) Central install registry.** Keep all substrate install facts in one
+  installer-owned module.
+- **(b) Adapter-owned install facts.** Each adapter exports its own install
+  facts; the installer consumes them.
+- **(c) Push full install behavior into adapters.** Each adapter owns planning,
+  projection writing, lifecycle refresh, and uninstall behavior end to end.
+
+**Decision:** **(b)** — adapter-owned install facts with installer-owned
+orchestration.
+
+Adapters own substrate-native facts: default home, projected file paths,
+substrate-specific skill destinations, lifecycle projection paths, validators,
+cleanup hooks, private projection roots, and uninstall targets. The installer
+owns orchestration: bootstrapping Soma home, loading active ISA, running
+lifecycle updates, writing projections, and applying the install, reproject,
+upgrade, and uninstall verbs.
+
+**Rejected:**
+- (a) improves switch locality but keeps substrate-native knowledge far from
+  the adapter code that defines the projection.
+- (c) gives maximum adapter autonomy but makes adapters too deep in the wrong
+  direction: they would own lifecycle and Soma home behavior that is
+  substrate-neutral.
+
+**Implications:**
+- A future substrate should add an adapter-local install spec rather than
+  editing scattered installer tables.
+- Existing public per-substrate projection functions can remain as compatibility
+  and test surface while sharing a generic internal install/projection path.
+- The install spec stays internal until external/custom adapter installation
+  needs a stable public API.
+- Missing uninstall support should be represented explicitly as reserved install
+  spec data, not hidden only in CLI branching.
+
+**Discussion:** `/grill-with-docs` session 2026-05-22.
