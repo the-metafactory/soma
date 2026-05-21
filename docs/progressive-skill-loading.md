@@ -109,6 +109,11 @@ interface SomaSkillManifest {
     description: string;
     substrateSupport: string[];
   }[];
+  algorithmCapability?: {
+    kind: "skill" | "inline" | "agent" | "command" | "adapter";
+    phases: string[];
+    triggerSignals: string[];
+  };
 }
 ```
 
@@ -292,6 +297,10 @@ frontmatter, copied reference files, and safe defaults:
 - `entrypoint`: `SKILL.md`
 - `references`: copied reference files with descriptions when available
 - `tools`: copied portable tools when available
+- `algorithmCapability`: optional run-scoped Algorithm capability metadata when
+  the skill should be selectable inside Algorithm runs. It describes routing
+  signals, not substrate execution bindings; adapters or the registry derive
+  invocation contract and target.
 
 This is distinct from `soma-pack.json`. `soma-pack.json` records import
 provenance and file classification. `soma-skill.json` records runtime routing
