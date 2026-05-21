@@ -31,8 +31,8 @@ async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> 
   }
 }
 
-async function writeSkill(homeDir: string, slug: string, name: string): Promise<void> {
-  const root = join(homeDir, ".soma", "skills", slug);
+async function writeSkill(homeDir: string, slug: string, name: string, somaHome = ".soma"): Promise<void> {
+  const root = join(homeDir, somaHome, "skills", slug);
   await mkdir(root, { recursive: true });
   await writeFile(
     join(root, "SKILL.md"),
@@ -41,8 +41,8 @@ async function writeSkill(homeDir: string, slug: string, name: string): Promise<
   );
 }
 
-async function writeAlgorithmCapabilitiesReference(homeDir: string): Promise<void> {
-  const root = join(homeDir, ".soma", "skills", "the-algorithm", "references");
+async function writeAlgorithmCapabilitiesReference(homeDir: string, somaHome = ".soma"): Promise<void> {
+  const root = join(homeDir, somaHome, "skills", "the-algorithm", "references");
   await mkdir(root, { recursive: true });
   await writeFile(
     join(root, "capabilities.md"),
@@ -284,6 +284,20 @@ test("loads migrated PAI Algorithm skill capabilities from Soma home", async () 
     });
     expect(registry.definitions.some((definition) => definition.name === "MissingSkill")).toBe(false);
     expect(registry.unsupported).toContain("MissingSkill");
+  });
+});
+
+test("resolves relative Soma home capability paths under homeDir", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeAlgorithmCapabilitiesReference(homeDir, "runtime-soma");
+    await writeSkill(homeDir, "first-principles", "FirstPrinciples", "runtime-soma");
+
+    const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir, somaHome: "runtime-soma" });
+
+    expect(registry.definitions.find((definition) => definition.name === "FirstPrinciples")).toMatchObject({
+      kind: "skill",
+      invoke: { contract: "skill", target: "FirstPrinciples" },
+    });
   });
 });
 

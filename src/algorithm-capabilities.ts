@@ -95,7 +95,7 @@ function cloneCapabilityDefinition(definition: AlgorithmCapabilityDefinition): A
 
 function resolveSomaHome(options: SomaHomeAlgorithmCapabilityOptions = {}): string {
   const home = resolve(options.homeDir ?? homedir());
-  return resolve(options.somaHome ?? join(home, ".soma"));
+  return options.somaHome ? resolve(home, options.somaHome) : join(home, ".soma");
 }
 
 function normalizeCapabilityKey(value: string): string {
