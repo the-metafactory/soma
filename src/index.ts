@@ -344,6 +344,7 @@ export {
 } from "./lifecycle";
 export { captureSomaFeedback, classifySomaFeedback, maybeSomaFeedbackPrompt } from "./feedback";
 export { appendSomaMemoryEvent, searchSomaMemory, somaMemoryEventsPath } from "./memory";
+export { applySomaWriteback, type SomaWritebackOptions, type SomaWritebackResult } from "./writeback";
 export { promoteAlgorithmRunMemory } from "./memory-promotion";
 export { captureSomaResult, isSomaResultEventKind, searchSomaResults } from "./result-capture";
 export { importPaiIdentity, planPaiImport } from "./pai-importer";

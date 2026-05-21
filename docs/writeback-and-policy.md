@@ -54,7 +54,7 @@ verb):
 This intentionally favors clear failure modes over clever sync. If a projection
 is stale, refresh it from `~/.soma`.
 
-## Writeback V0
+## Writeback V0/V1
 
 The only approved writeback path is:
 
@@ -115,6 +115,30 @@ LEARNING, WISDOM, RELATIONSHIP, KNOWLEDGE, WORK, STATE, and identity.
 Promotion from events into durable stores such as `KNOWLEDGE`, `WORK`, or
 `LEARNING` is a future design decision, not an oversight.
 
+### V1 Gate API
+
+Soma exposes a small trusted writeback gate:
+
+```ts
+applySomaWriteback({
+  somaHome,
+  substrate,
+  operation,
+})
+```
+
+The gate is intentionally narrow. It supports only compartments whose merge
+semantics are deterministic:
+
+- `memory-event` writes append one event to `memory/STATE/events.jsonl`.
+- `isa-log` appends Decisions, Changelog, and Verification entries to the
+  active ISA, or to an explicit slug only when that slug matches the active ISA.
+
+Every supported operation first runs Soma policy against the target path. Direct
+durable writes to stores such as `KNOWLEDGE`, `LEARNING`, `RELATIONSHIP`,
+`WISDOM`, or arbitrary `WORK` files are refused until that store has an
+explicit merge rule.
+
 All substrates append to the same shared file. Ordering is file append order,
 with each event carrying its own timestamp. V0 does not claim total ordering
 across concurrent writers beyond what the filesystem append operation records.
@@ -138,6 +162,7 @@ Each memory store needs its own merge semantics before direct writes are allowed
 | Store | Likely merge strategy |
 | --- | --- |
 | `STATE` | Easy: append-only events, latest cache can be regenerated |
+| `ISA` | Supported for log sections only: append Decisions, Changelog, Verification through `applySomaWriteback` |
 | `LEARNING` | Medium: append candidate, consolidate into lessons explicitly |
 | `WORK` | Hard: task/ISA scoped updates with criteria-level history |
 | `RELATIONSHIP` | Hard: conservative append plus review due privacy/sensitivity |
