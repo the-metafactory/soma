@@ -255,7 +255,7 @@ export async function loadSomaHomeAlgorithmCapabilityRegistry(
 
   for (const row of parseMarkdownTableRows(markdown)) {
     const name = stripCapabilityLabel(row[0] ?? "");
-    const phaseCell = row.length >= 5 ? row[1] ?? "" : row[1] ?? "";
+    const phaseCell = row[1] ?? "";
     const triggerCell = row.length >= 5 ? row[2] ?? "" : row[1] ?? "";
     const invokeCell = row.length >= 5 ? row[3] ?? "" : row[2] ?? "";
 
