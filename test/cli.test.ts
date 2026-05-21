@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { runSomaCli } from "../src/cli";
+import { ALGORITHM_ACTIONS } from "../src/cli/algorithm";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-cli-"));
@@ -143,6 +144,22 @@ test("cli supports concrete subcommand help as read-only normal help", async () 
   await expect(runSomaCli(["policy", "check", "--help"])).resolves.toContain("Usage: soma policy check");
   await expect(runSomaCli(["install", "codex", "--help"])).resolves.toContain("Usage: soma install");
   await expect(runSomaCli(["import", "pai", "--help"])).resolves.toContain("Usage: soma import pai");
+});
+
+test("algorithm command module keeps actions and help in sync", async () => {
+  const groupHelp = await runSomaCli(["algorithm", "--help"]);
+
+  for (const action of ALGORITHM_ACTIONS) {
+    expect(groupHelp).toContain(action);
+    await expect(runSomaCli(["algorithm", action, "--help"])).resolves.toContain(`Usage: soma algorithm ${action}`);
+  }
+});
+
+test("algorithm step help only advertises supported statuses", async () => {
+  const output = await runSomaCli(["algorithm", "step", "--help"]);
+
+  expect(output).toContain("--status <open|done|blocked>");
+  expect(output).not.toContain("dropped");
 });
 
 test("cli reports unknown top-level command with suggestion", async () => {
@@ -486,6 +503,25 @@ test("cli batch capability invocation preserves evidence that starts with substr
   });
 });
 
+test("cli batch capability invocation reports missing evidence as a CLI error", async () => {
+  await withTempHome(async (homeDir) => {
+    await expect(
+      runSomaCli([
+        "algorithm",
+        "batch",
+        "--home-dir",
+        homeDir,
+        "--id",
+        "example",
+        "--op",
+        "capability-invocation:FirstPrinciples",
+      ]),
+    ).rejects.toThrow(
+      "--op capability-invocation requires capability-invocation:<name>:<evidence> or capability-invocation:<name>:substrate=<id>:<evidence>.",
+    );
+  });
+});
+
 test("cli batch capability invocation accepts explicit substrate prefix", async () => {
   await withTempHome(async (homeDir) => {
     await runSomaCli([
@@ -522,6 +558,74 @@ test("cli batch capability invocation accepts explicit substrate prefix", async 
     ]);
 
     expect(output).toContain("reviewed with explicit substrate");
+  });
+});
+
+test("cli batch refreshes Soma home Algorithm capability registration", async () => {
+  await withTempHome(async (homeDir) => {
+    await runSomaCli([
+      "algorithm",
+      "new",
+      "--home-dir",
+      homeDir,
+      "--id",
+      "batch-refresh-capability-run",
+      "--prompt",
+      "Refresh batch capabilities",
+      "--intent",
+      "Select a capability added after run creation.",
+      "--current-state",
+      "The migrated capability is not registered yet.",
+      "--goal",
+      "Batch command refreshes capabilities before mutation.",
+      "--criterion",
+      "C1:Batch refreshes capability definitions.",
+    ]);
+    await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "batch-refresh-capability-run"]);
+    await writeAlgorithmCapabilityFixture(homeDir);
+
+    const output = await runSomaCli([
+      "algorithm",
+      "batch",
+      "--home-dir",
+      homeDir,
+      "--id",
+      "batch-refresh-capability-run",
+      "--op",
+      "capability:FirstPrinciples",
+    ]);
+
+    expect(output).toContain("[selected] FirstPrinciples");
+  });
+});
+
+test("cli advance refreshes Soma home Algorithm capability registration", async () => {
+  await withTempHome(async (homeDir) => {
+    await runSomaCli([
+      "algorithm",
+      "new",
+      "--home-dir",
+      homeDir,
+      "--id",
+      "advance-refresh-capability-run",
+      "--prompt",
+      "Refresh advance capabilities",
+      "--intent",
+      "Refresh capability definitions while advancing.",
+      "--current-state",
+      "The migrated capability is not registered yet.",
+      "--goal",
+      "Advance command refreshes capabilities before mutation.",
+      "--criterion",
+      "C1:Advance refreshes capability definitions.",
+    ]);
+    await writeAlgorithmCapabilityFixture(homeDir);
+
+    await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "advance-refresh-capability-run"]);
+
+    await expect(readFile(join(homeDir, ".soma/memory/WORK/algorithm-runs/advance-refresh-capability-run.json"), "utf8")).resolves.toContain(
+      '"name": "FirstPrinciples"',
+    );
   });
 });
 
