@@ -3670,7 +3670,7 @@ async function runAlgorithmCli(parsed: ParsedAlgorithmArgs): Promise<string> {
     return updateAndReportAlgorithmRun(options, (run) => applyAlgorithmBatch(run, operations), { registerCapabilities: true });
   }
 
-  return updateAndReportAlgorithmRun(options, (run) => advanceAlgorithmRun(run));
+  return updateAndReportAlgorithmRun(options, (run) => advanceAlgorithmRun(run), { registerCapabilities: true });
 }
 
 export async function runSomaCli(args: string[]): Promise<string> {
