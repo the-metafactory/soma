@@ -142,12 +142,10 @@ export {
 export {
   assertAlgorithmCapabilitiesSatisfied,
   getAlgorithmCapabilityDefinition,
-  loadSomaHomeAlgorithmCapabilityRegistry,
   listAlgorithmCapabilityDefinitions,
   recordAlgorithmCapabilityInvocation,
   registerAlgorithmCapabilityDefinition,
   registerAlgorithmCapabilityDefinitions,
-  registerSomaHomeAlgorithmCapabilities,
   removeAlgorithmCapabilitySelection,
   selectAlgorithmCapability,
   unresolvedAlgorithmCapabilitySelections,

@@ -9,7 +9,6 @@ import {
   createAlgorithmRun,
   getCriteria,
   getRunPhase,
-  loadSomaHomeAlgorithmCapabilityRegistry,
   recordAlgorithmCapabilityInvocation,
   registerAlgorithmCapabilityDefinition,
   applyAlgorithmBatch,
@@ -20,6 +19,7 @@ import {
   verifyAlgorithmCriterion,
   writeAlgorithmRun,
 } from "../src/index";
+import { loadSomaHomeAlgorithmCapabilityRegistry } from "../src/algorithm-capabilities";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-algorithm-"));
@@ -55,6 +55,10 @@ async function writeAlgorithmCapabilitiesReference(homeDir: string): Promise<voi
       '| MissingSkill | THINK | Missing target | `Skill("MissingSkill")` | E2+ |',
       '| ReReadCheck | VERIFY->LEARN | Final check | *(inline doctrine step - no external tool)* | E1+ |',
       '| Forge (code producer) | EXECUTE | Code production | `Agent(subagent_type="Forge", prompt="...")` | E3+ |',
+      "",
+      "| Capability | When | Invoke |",
+      "|------------|------|--------|",
+      "| BuildCommand | EXECUTE | `bun run build` |",
       "",
     ].join("\n"),
     "utf8",
@@ -271,6 +275,12 @@ test("loads migrated PAI Algorithm skill capabilities from Soma home", async () 
       name: "ReReadCheck",
       kind: "inline",
       phases: ["verify", "learn"],
+    });
+    expect(registry.definitions.find((definition) => definition.name === "BuildCommand")).toMatchObject({
+      name: "BuildCommand",
+      kind: "command",
+      phases: ["execute"],
+      invoke: { contract: "command", target: "bun run build" },
     });
     expect(registry.definitions.some((definition) => definition.name === "MissingSkill")).toBe(false);
     expect(registry.unsupported).toContain("MissingSkill");

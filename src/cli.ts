@@ -48,7 +48,6 @@ import {
   recordAlgorithmChange,
   recordAlgorithmDecision,
   recordAlgorithmLearning,
-  registerSomaHomeAlgorithmCapabilities,
   removeAlgorithmCapabilitySelection,
   runSomaLifecycleAlgorithmUpdated,
   runSomaLifecycleSessionEnd,
@@ -61,6 +60,7 @@ import {
   verifyAlgorithmCriterion,
   writeAlgorithmRun,
 } from "./index";
+import { registerSomaHomeAlgorithmCapabilities } from "./algorithm-capabilities";
 // Sage r2 #99 Architecture: presentation helper imported directly
 // (not re-exported from the package root) so the text-rendering shape
 // stays internal and revisable without an SDK breakage.

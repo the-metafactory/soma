@@ -127,23 +127,28 @@ async function loadAvailableSkillNames(somaHome: string): Promise<Map<string, st
   const entries = await readdir(skillsRoot, { withFileTypes: true }).catch(() => []);
   const names = new Map<string, string>();
 
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
+  const skillMetadata = await Promise.all(
+    entries
+      .filter((entry) => entry.isDirectory())
+      .map(async (entry) => {
+        const skillRoot = join(skillsRoot, entry.name);
+        const skillMd = await readFile(join(skillRoot, "SKILL.md"), "utf8").catch(() => undefined);
+        return skillMd ? { dirName: entry.name, name: frontmatterValue(skillMd, "name", entry.name) } : undefined;
+      }),
+  );
 
-    const skillRoot = join(skillsRoot, entry.name);
-    const skillMd = await readFile(join(skillRoot, "SKILL.md"), "utf8").catch(() => undefined);
-    if (!skillMd) continue;
+  for (const metadata of skillMetadata) {
+    if (!metadata) continue;
 
-    const name = frontmatterValue(skillMd, "name", entry.name);
-    names.set(normalizeCapabilityKey(name), name);
-    names.set(normalizeCapabilityKey(entry.name), name);
-    names.set(normalizeCapabilityKey(basename(skillRoot)), name);
+    names.set(normalizeCapabilityKey(metadata.name), metadata.name);
+    names.set(normalizeCapabilityKey(metadata.dirName), metadata.name);
+    names.set(normalizeCapabilityKey(basename(metadata.dirName)), metadata.name);
   }
 
   return names;
 }
 
-function parsePhaseCell(value: string): AlgorithmPhase[] {
+function parsePhaseCell(value: string, fallback: AlgorithmPhase[] = ["think"]): AlgorithmPhase[] {
   const normalized = stripMarkdownEmphasis(value).toLowerCase();
   if (normalized === "any") {
     return [...CORE_PHASES];
@@ -157,7 +162,7 @@ function parsePhaseCell(value: string): AlgorithmPhase[] {
     }
   }
 
-  return phases.size > 0 ? Array.from(phases) : ["think"];
+  return phases.size > 0 ? Array.from(phases) : [...fallback];
 }
 
 function parseMarkdownTableRows(markdown: string): string[][] {
@@ -204,8 +209,9 @@ function agentInvocationTarget(value: string, capabilityName: string): string | 
 }
 
 function commandInvocationTarget(value: string): string | undefined {
-  if (value.includes("Bash(")) return stripMarkdownEmphasis(value);
-  if (value.startsWith("bun ")) return value;
+  const stripped = stripMarkdownEmphasis(value);
+  if (stripped.includes("Bash(")) return stripped;
+  if (stripped.startsWith("bun ")) return stripped;
   return undefined;
 }
 
@@ -215,6 +221,22 @@ function inlineInvocationTarget(value: string): string | undefined {
     return stripped;
   }
   return undefined;
+}
+
+function buildCapabilityDefinition(
+  name: string,
+  kind: AlgorithmCapabilityDefinition["kind"],
+  phases: AlgorithmPhase[],
+  triggerSignals: string[],
+  target: string,
+): AlgorithmCapabilityDefinition {
+  return {
+    name,
+    kind,
+    phases,
+    triggerSignals,
+    invoke: { contract: kind, target },
+  };
 }
 
 export async function loadSomaHomeAlgorithmCapabilityRegistry(
@@ -233,13 +255,13 @@ export async function loadSomaHomeAlgorithmCapabilityRegistry(
 
   for (const row of parseMarkdownTableRows(markdown)) {
     const name = stripCapabilityLabel(row[0] ?? "");
-    const phaseCell = row.length >= 5 ? row[1] ?? "" : "plan";
+    const phaseCell = row.length >= 5 ? row[1] ?? "" : row[1] ?? "";
     const triggerCell = row.length >= 5 ? row[2] ?? "" : row[1] ?? "";
     const invokeCell = row.length >= 5 ? row[3] ?? "" : row[2] ?? "";
 
     if (!name) continue;
 
-    const phases = parsePhaseCell(phaseCell);
+    const phases = parsePhaseCell(phaseCell, row.length >= 5 ? ["think"] : ["plan"]);
     const triggerSignals = [stripMarkdownEmphasis(triggerCell)].filter((signal) => signal.length > 0);
     const skillTarget = skillInvocationTarget(invokeCell);
     const agentTarget = agentInvocationTarget(invokeCell, name);
@@ -253,46 +275,22 @@ export async function loadSomaHomeAlgorithmCapabilityRegistry(
         continue;
       }
 
-      definitions.set(name, {
-        name,
-        kind: "skill",
-        phases,
-        triggerSignals,
-        invoke: { contract: "skill", target: availableTarget },
-      });
+      definitions.set(name, buildCapabilityDefinition(name, "skill", phases, triggerSignals, availableTarget));
       continue;
     }
 
     if (agentTarget) {
-      definitions.set(name, {
-        name,
-        kind: "agent",
-        phases,
-        triggerSignals,
-        invoke: { contract: "agent", target: agentTarget },
-      });
+      definitions.set(name, buildCapabilityDefinition(name, "agent", phases, triggerSignals, agentTarget));
       continue;
     }
 
     if (inlineTarget) {
-      definitions.set(name, {
-        name,
-        kind: "inline",
-        phases,
-        triggerSignals,
-        invoke: { contract: "inline", target: inlineTarget },
-      });
+      definitions.set(name, buildCapabilityDefinition(name, "inline", phases, triggerSignals, inlineTarget));
       continue;
     }
 
     if (commandTarget) {
-      definitions.set(name, {
-        name,
-        kind: "command",
-        phases,
-        triggerSignals,
-        invoke: { contract: "command", target: commandTarget },
-      });
+      definitions.set(name, buildCapabilityDefinition(name, "command", phases, triggerSignals, commandTarget));
       continue;
     }
 
