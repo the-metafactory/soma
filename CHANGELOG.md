@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-05-21
+
+### Added
+
+- Added guided PAI onboarding and drift-detection surfaces for Soma initialization and diagnosis. ([#171], [#179])
+- Added a plan-resolve flow and clearer duplicate-pack remediation for `soma migrate pai`. ([#114], [#181])
+
+### Changed
+
+- Improved Claude skill migration remediation by persisting refused outcomes and giving clearer recovery guidance for symlink and `.git` failures. ([#175], [#177])
+- Installer migration can now prompt for oversized skill-description rewrites instead of leaving users to discover the rewrite flag manually. ([#174], [#180])
+
+### Fixed
+
+- Removed the default German TELOS data leak from install-time seed content. ([#170], [#178])
+- Hardened the pi.dev Algorithm renderer runtime hooks with install-time version checks, checkpoint/restore bounds, and EXECUTE-phase policy handling. ([#85], [#182])
+
 ## [0.5.0] - 2026-05-20
 
 ### Added
@@ -51,6 +68,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#162]: https://github.com/the-metafactory/soma/pull/162
 [#163]: https://github.com/the-metafactory/soma/pull/163
 [#164]: https://github.com/the-metafactory/soma/pull/164
+[#170]: https://github.com/the-metafactory/soma/issues/170
+[#171]: https://github.com/the-metafactory/soma/issues/171
+[#174]: https://github.com/the-metafactory/soma/issues/174
+[#175]: https://github.com/the-metafactory/soma/issues/175
+[#177]: https://github.com/the-metafactory/soma/pull/177
+[#178]: https://github.com/the-metafactory/soma/pull/178
+[#179]: https://github.com/the-metafactory/soma/pull/179
+[#180]: https://github.com/the-metafactory/soma/pull/180
+[#181]: https://github.com/the-metafactory/soma/pull/181
+[#182]: https://github.com/the-metafactory/soma/pull/182
 
 ## [0.4.0] - 2026-05-18
 
