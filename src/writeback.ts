@@ -24,7 +24,6 @@ export interface SomaDurableMemoryWritebackOperation {
   kind: "durable-memory";
   store: string;
   relativePath: string;
-  content: string;
 }
 
 export interface SomaIsaLogWritebackOperation {

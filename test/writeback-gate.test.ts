@@ -50,7 +50,6 @@ describe("applySomaWriteback", () => {
           kind: "durable-memory",
           store: "KNOWLEDGE",
           relativePath: "facts/example.md",
-          content: "unreviewed fact",
         },
       }),
     ).rejects.toThrow("Unsupported writeback store KNOWLEDGE");
