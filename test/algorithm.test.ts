@@ -41,6 +41,17 @@ async function writeSkill(homeDir: string, slug: string, name: string, somaHome 
   );
 }
 
+async function writeSkillManifest(
+  homeDir: string,
+  slug: string,
+  manifest: Record<string, unknown>,
+  somaHome = ".soma",
+): Promise<void> {
+  const root = join(homeDir, somaHome, "skills", slug);
+  await mkdir(root, { recursive: true });
+  await writeFile(join(root, "soma-skill.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+}
+
 async function writeAlgorithmCapabilitiesReference(homeDir: string, somaHome = ".soma"): Promise<void> {
   const root = join(homeDir, somaHome, "skills", "the-algorithm", "references");
   await mkdir(root, { recursive: true });
@@ -291,6 +302,344 @@ test("loads migrated PAI Algorithm skill capabilities from Soma home", async () 
     });
     expect(registry.definitions.some((definition) => definition.name === "MissingSkill")).toBe(false);
     expect(registry.unsupported).toContain("MissingSkill");
+  });
+});
+
+test("prefers explicit skill manifest Algorithm capability metadata", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeAlgorithmCapabilitiesReference(homeDir);
+    await writeSkill(homeDir, "first-principles", "FirstPrinciples");
+    await writeSkillManifest(homeDir, "first-principles", {
+      schema: "soma.skill.v1",
+      name: "FirstPrinciples",
+      description: "Manifest-backed first principles skill.",
+      source: { kind: "pai-pack", packName: "FirstPrinciples" },
+      entrypoint: "SKILL.md",
+      references: [],
+      workflows: [],
+      tools: [],
+      triggers: ["manifest trigger"],
+      substrates: ["codex", "pi-dev"],
+      algorithmCapability: {
+        kind: "skill",
+        phases: ["verify"],
+        triggerSignals: ["manifest signal"],
+      },
+    });
+
+    const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir, substrate: "codex" });
+
+    expect(registry.definitions.find((definition) => definition.name === "FirstPrinciples")).toMatchObject({
+      name: "FirstPrinciples",
+      kind: "skill",
+      phases: ["verify"],
+      triggerSignals: ["manifest signal"],
+      invoke: { contract: "skill", target: "FirstPrinciples" },
+    });
+  });
+});
+
+test("derives manifest capability contract from kind", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeSkill(homeDir, "delegate", "Delegate");
+    await writeSkillManifest(homeDir, "delegate", {
+      schema: "soma.skill.v1",
+      name: "Delegate",
+      description: "Agent-backed delegation skill.",
+      source: { kind: "pai-pack", packName: "Delegate" },
+      entrypoint: "SKILL.md",
+      references: [],
+      workflows: [],
+      tools: [],
+      triggers: ["delegate"],
+      substrates: ["codex"],
+      algorithmCapability: {
+        kind: "agent",
+        phases: ["execute"],
+        triggerSignals: ["delegate"],
+      },
+    });
+
+    const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir, substrate: "codex" });
+
+    expect(registry.definitions.find((definition) => definition.name === "Delegate")).toMatchObject({
+      name: "Delegate",
+      kind: "agent",
+      phases: ["execute"],
+      invoke: { contract: "agent", target: "Delegate" },
+    });
+  });
+});
+
+test("treats explicitly invalid manifest capability phases as unsupported", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeSkill(homeDir, "bad-phases", "BadPhases");
+    await writeSkillManifest(homeDir, "bad-phases", {
+      schema: "soma.skill.v1",
+      name: "BadPhases",
+      description: "Invalid phase metadata.",
+      source: { kind: "pai-pack", packName: "BadPhases" },
+      entrypoint: "SKILL.md",
+      references: [],
+      workflows: [],
+      tools: [],
+      triggers: ["bad phases"],
+      substrates: ["codex"],
+      algorithmCapability: {
+        kind: "skill",
+        phases: ["verfy"],
+        triggerSignals: ["bad phases"],
+      },
+    });
+
+    const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir, substrate: "codex" });
+
+    expect(registry.definitions.some((definition) => definition.name === "BadPhases")).toBe(false);
+    expect(registry.unsupported).toContain("BadPhases");
+  });
+});
+
+test("falls back to loaded Soma skills when no Algorithm reference exists", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeSkill(homeDir, "context-search", "ContextSearch");
+
+    const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir });
+
+    expect(registry.definitions.find((definition) => definition.name === "ContextSearch")).toMatchObject({
+      name: "ContextSearch",
+      kind: "skill",
+      phases: ["observe", "think", "plan", "build", "execute", "verify", "learn"],
+      invoke: { contract: "skill", target: "ContextSearch" },
+    });
+  });
+});
+
+test("filters manifest-declared Algorithm capabilities by substrate", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeAlgorithmCapabilitiesReference(homeDir);
+    await writeSkill(homeDir, "pi-only", "PiOnly");
+    await writeSkillManifest(homeDir, "pi-only", {
+      schema: "soma.skill.v1",
+      name: "PiOnly",
+      description: "Pi-only skill.",
+      source: { kind: "pai-pack", packName: "PiOnly" },
+      entrypoint: "SKILL.md",
+      references: [],
+      workflows: [],
+      tools: [],
+      triggers: ["pi only"],
+      substrates: ["pi-dev"],
+      algorithmCapability: {
+        kind: "skill",
+        phases: ["think"],
+        triggerSignals: ["pi only"],
+      },
+    });
+
+    const codexRegistry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir, substrate: "codex" });
+    const piRegistry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir, substrate: "pi-dev" });
+
+    expect(codexRegistry.definitions.some((definition) => definition.name === "PiOnly")).toBe(false);
+    expect(codexRegistry.unsupported).toContain("PiOnly");
+    expect(piRegistry.definitions.find((definition) => definition.name === "PiOnly")).toMatchObject({
+      name: "PiOnly",
+      phases: ["think"],
+    });
+  });
+});
+
+test("migrated reference rows cannot re-register substrate-unsupported skills", async () => {
+  await withTempHome(async (homeDir) => {
+    const root = join(homeDir, ".soma", "skills", "the-algorithm", "references");
+    await mkdir(root, { recursive: true });
+    await writeFile(
+      join(root, "capabilities.md"),
+      [
+        "# Algorithm Capabilities Reference",
+        "",
+        "| Capability | Phases | Trigger Signal | Invoke | Typical Cost |",
+        "|------------|--------|----------------|--------|--------------|",
+        '| PiOnly | THINK | Pi only | `Skill("PiOnly")` | E2+ |',
+        '| WrapperCapability | THINK | Wraps PiOnly | `Skill("PiOnly")` | E2+ |',
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    await writeSkill(homeDir, "pi-only", "PiOnly");
+    await writeSkillManifest(homeDir, "pi-only", {
+      schema: "soma.skill.v1",
+      name: "PiOnly",
+      description: "Pi-only skill.",
+      source: { kind: "pai-pack", packName: "PiOnly" },
+      entrypoint: "SKILL.md",
+      references: [],
+      workflows: [],
+      tools: [],
+      triggers: ["pi only"],
+      substrates: ["pi-dev"],
+      algorithmCapability: {
+        kind: "skill",
+        phases: ["think"],
+        triggerSignals: ["pi only"],
+      },
+    });
+
+    const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir, substrate: "codex" });
+
+    expect(registry.definitions.some((definition) => definition.name === "PiOnly")).toBe(false);
+    expect(registry.definitions.some((definition) => definition.name === "WrapperCapability")).toBe(false);
+    expect(registry.unsupported).toContain("PiOnly");
+    expect(registry.unsupported).toContain("WrapperCapability");
+  });
+});
+
+test("treats malformed manifest substrate metadata as unsupported without throwing", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeSkill(homeDir, "broken", "BrokenSkill");
+    await writeSkillManifest(homeDir, "broken", {
+      schema: "soma.skill.v1",
+      name: "BrokenSkill",
+      description: "Broken substrate metadata.",
+      source: { kind: "pai-pack", packName: "BrokenSkill" },
+      entrypoint: "SKILL.md",
+      references: [],
+      workflows: [],
+      tools: [],
+      triggers: ["broken"],
+      substrates: "codex",
+      algorithmCapability: {
+        kind: "skill",
+        phases: ["think"],
+        triggerSignals: ["broken"],
+      },
+    });
+
+    const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir, substrate: "codex" });
+
+    expect(registry.definitions.some((definition) => definition.name === "BrokenSkill")).toBe(false);
+    expect(registry.unsupported).toContain("BrokenSkill");
+  });
+});
+
+test("ignores malformed manifest trigger metadata without throwing", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeSkill(homeDir, "broken-triggers", "BrokenTriggers");
+    await writeSkillManifest(homeDir, "broken-triggers", {
+      schema: "soma.skill.v1",
+      name: "BrokenTriggers",
+      description: "Broken trigger metadata.",
+      source: { kind: "pai-pack", packName: "BrokenTriggers" },
+      entrypoint: "SKILL.md",
+      references: [],
+      workflows: [],
+      tools: [],
+      triggers: "not-an-array",
+      substrates: ["codex"],
+      algorithmCapability: {
+        kind: "skill",
+        phases: ["think"],
+        triggerSignals: [123],
+      },
+    });
+
+    const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir, substrate: "codex" });
+
+    expect(registry.definitions.find((definition) => definition.name === "BrokenTriggers")).toMatchObject({
+      name: "BrokenTriggers",
+      phases: ["think"],
+      triggerSignals: ["Broken trigger metadata."],
+      invoke: { contract: "skill", target: "BrokenTriggers" },
+    });
+  });
+});
+
+test("empty manifest names fall back to SKILL name while preserving metadata", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeSkill(homeDir, "empty-name", "FallbackName");
+    await writeSkillManifest(homeDir, "empty-name", {
+      schema: "soma.skill.v1",
+      name: "",
+      description: "Invalid empty manifest name.",
+      source: { kind: "pai-pack", packName: "FallbackName" },
+      entrypoint: "SKILL.md",
+      references: [],
+      workflows: [],
+      tools: [],
+      triggers: ["invalid"],
+      substrates: ["codex"],
+      algorithmCapability: {
+        kind: "skill",
+        phases: ["think"],
+        triggerSignals: ["invalid"],
+      },
+    });
+
+    const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir, substrate: "codex" });
+
+    expect(registry.definitions.find((definition) => definition.name === "FallbackName")).toMatchObject({
+      name: "FallbackName",
+      phases: ["think"],
+      triggerSignals: ["invalid"],
+      invoke: { contract: "skill", target: "FallbackName" },
+    });
+    expect(registry.definitions.some((definition) => definition.name === "")).toBe(false);
+  });
+});
+
+test("empty manifest names still preserve substrate filtering", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeSkill(homeDir, "empty-pi-only", "EmptyPiOnly");
+    await writeSkillManifest(homeDir, "empty-pi-only", {
+      schema: "soma.skill.v1",
+      name: "",
+      description: "Pi-only manifest with invalid name.",
+      source: { kind: "pai-pack", packName: "EmptyPiOnly" },
+      entrypoint: "SKILL.md",
+      references: [],
+      workflows: [],
+      tools: [],
+      triggers: ["pi only"],
+      substrates: ["pi-dev"],
+      algorithmCapability: {
+        kind: "skill",
+        phases: ["think"],
+        triggerSignals: ["pi only"],
+      },
+    });
+
+    const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir, substrate: "codex" });
+
+    expect(registry.definitions.some((definition) => definition.name === "EmptyPiOnly")).toBe(false);
+    expect(registry.unsupported).toContain("EmptyPiOnly");
+  });
+});
+
+test("treats non-object manifest capability metadata as absent", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeSkill(homeDir, "bad-capability-shape", "BadCapabilityShape");
+    await writeSkillManifest(homeDir, "bad-capability-shape", {
+      schema: "soma.skill.v1",
+      name: "BadCapabilityShape",
+      description: "Malformed capability metadata.",
+      source: { kind: "pai-pack", packName: "BadCapabilityShape" },
+      entrypoint: "SKILL.md",
+      references: [],
+      workflows: [],
+      tools: [],
+      triggers: ["fallback trigger"],
+      substrates: ["codex"],
+      algorithmCapability: "bad",
+    });
+
+    const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir, substrate: "codex" });
+
+    expect(registry.definitions.find((definition) => definition.name === "BadCapabilityShape")).toMatchObject({
+      name: "BadCapabilityShape",
+      kind: "skill",
+      phases: ["observe", "think", "plan", "build", "execute", "verify", "learn"],
+      triggerSignals: ["fallback trigger"],
+      invoke: { contract: "skill", target: "BadCapabilityShape" },
+    });
   });
 });
 

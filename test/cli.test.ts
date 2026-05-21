@@ -37,6 +37,36 @@ async function writeAlgorithmCapabilityFixture(homeDir: string): Promise<void> {
   );
 }
 
+async function writeManifestOnlyCapabilityFixture(homeDir: string): Promise<void> {
+  await mkdir(join(homeDir, ".soma/skills/pi-only"), { recursive: true });
+  await writeFile(
+    join(homeDir, ".soma/skills/pi-only/SKILL.md"),
+    ["---", "name: PiOnly", "description: Pi-only test skill.", "---", "", "# PiOnly", ""].join("\n"),
+    "utf8",
+  );
+  await writeFile(
+    join(homeDir, ".soma/skills/pi-only/soma-skill.json"),
+    `${JSON.stringify({
+      schema: "soma.skill.v1",
+      name: "PiOnly",
+      description: "Pi-only test skill.",
+      source: { kind: "pai-pack", packName: "PiOnly" },
+      entrypoint: "SKILL.md",
+      references: [],
+      workflows: [],
+      tools: [],
+      triggers: ["pi only"],
+      substrates: ["pi-dev"],
+      algorithmCapability: {
+        kind: "skill",
+        phases: ["think"],
+        triggerSignals: ["pi only"],
+      },
+    }, null, 2)}\n`,
+    "utf8",
+  );
+}
+
 test("cli dry-runs codex install without writing files", async () => {
   await withTempHome(async (homeDir) => {
     const output = await runSomaCli(["install", "codex", "--home-dir", homeDir]);
@@ -552,6 +582,53 @@ test("cli selects migrated PAI skill capabilities from Soma home", async () => {
     await expect(readFile(join(homeDir, ".soma/memory/WORK/algorithm-runs/migrated-skill-capability-run.json"), "utf8")).resolves.toContain(
       '"target": "FirstPrinciples"',
     );
+  });
+});
+
+test("cli persists algorithm new substrate and filters manifest capabilities", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeManifestOnlyCapabilityFixture(homeDir);
+    await runSomaCli([
+      "algorithm",
+      "new",
+      "--home-dir",
+      homeDir,
+      "--id",
+      "substrate-filter-run",
+      "--substrate",
+      "codex",
+      "--prompt",
+      "Use substrate filtering",
+      "--intent",
+      "Filter skill capabilities by substrate.",
+      "--current-state",
+      "PiOnly declares pi-dev support.",
+      "--goal",
+      "Codex runs do not register PiOnly.",
+      "--criterion",
+      "C1:Substrate filtering works.",
+    ]);
+
+    const raw = await readFile(join(homeDir, ".soma/memory/WORK/algorithm-runs/substrate-filter-run.json"), "utf8");
+    expect(raw).toContain('"substrate": "codex"');
+    expect(raw).not.toContain('"name": "PiOnly"');
+
+    await expect(
+      runSomaCli([
+        "algorithm",
+        "capabilities",
+        "--home-dir",
+        homeDir,
+        "--id",
+        "substrate-filter-run",
+        "--capability",
+        "PiOnly",
+        "--phase",
+        "think",
+        "--reason",
+        "Should be unavailable for Codex.",
+      ]),
+    ).rejects.toThrow("not registered");
   });
 });
 
