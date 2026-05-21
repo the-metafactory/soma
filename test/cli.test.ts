@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { runSomaCli } from "../src/cli";
+import { ALGORITHM_ACTIONS } from "../src/cli/algorithm";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-cli-"));
@@ -143,6 +144,15 @@ test("cli supports concrete subcommand help as read-only normal help", async () 
   await expect(runSomaCli(["policy", "check", "--help"])).resolves.toContain("Usage: soma policy check");
   await expect(runSomaCli(["install", "codex", "--help"])).resolves.toContain("Usage: soma install");
   await expect(runSomaCli(["import", "pai", "--help"])).resolves.toContain("Usage: soma import pai");
+});
+
+test("algorithm command module keeps actions and help in sync", async () => {
+  const groupHelp = await runSomaCli(["algorithm", "--help"]);
+
+  for (const action of ALGORITHM_ACTIONS) {
+    expect(groupHelp).toContain(action);
+    await expect(runSomaCli(["algorithm", action, "--help"])).resolves.toContain(`Usage: soma algorithm ${action}`);
+  }
 });
 
 test("cli reports unknown top-level command with suggestion", async () => {
