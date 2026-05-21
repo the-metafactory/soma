@@ -155,6 +155,13 @@ test("algorithm command module keeps actions and help in sync", async () => {
   }
 });
 
+test("algorithm step help only advertises supported statuses", async () => {
+  const output = await runSomaCli(["algorithm", "step", "--help"]);
+
+  expect(output).toContain("--status <open|done|blocked>");
+  expect(output).not.toContain("dropped");
+});
+
 test("cli reports unknown top-level command with suggestion", async () => {
   await expect(runSomaCli(["inatall", "codex", "--apply"])).rejects.toThrow("Unknown command: inatall");
   await expect(runSomaCli(["inatall", "codex", "--apply"])).rejects.toThrow("Did you mean: install?");
