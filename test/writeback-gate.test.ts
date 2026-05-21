@@ -107,4 +107,22 @@ describe("applySomaWriteback", () => {
       }),
     ).rejects.toThrow("does not match active ISA");
   });
+
+  test("#147: refuses explicit ISA writeback when no active ISA is set", async () => {
+    const homeDir = await tempHome();
+    await bootstrapSomaHome({ homeDir });
+    await scaffoldIsa({ homeDir, slug: "demo", goal: "G", effort: "E1" });
+
+    await expect(
+      applySomaWriteback({
+        somaHome: join(homeDir, ".soma"),
+        substrate: "codex",
+        operation: {
+          kind: "isa-log",
+          slug: "demo",
+          entries: { decisions: [{ text: "No active target" }] },
+        },
+      }),
+    ).rejects.toThrow("requires an active ISA");
+  });
 });

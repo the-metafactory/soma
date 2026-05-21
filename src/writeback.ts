@@ -87,11 +87,11 @@ export async function applySomaWriteback(options: SomaWritebackOptions): Promise
     case "isa-log": {
       const active = await getActiveIsa({ somaHome: options.somaHome });
       const activeSlug = active?.activeSlug ?? null;
-      const slug = options.operation.slug ?? activeSlug;
-      if (!slug) {
-        throw new Error("ISA writeback requires an active ISA or explicit slug.");
+      if (!activeSlug) {
+        throw new Error("ISA writeback requires an active ISA.");
       }
-      if (options.operation.slug && activeSlug && options.operation.slug !== activeSlug) {
+      const slug = options.operation.slug ?? activeSlug;
+      if (options.operation.slug && options.operation.slug !== activeSlug) {
         await appendSomaMemoryEvent(options.somaHome, {
           substrate,
           kind: "writeback.isa_log.refused_scope",
