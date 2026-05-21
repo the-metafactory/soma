@@ -36,6 +36,7 @@ describe("renderSomaAlgorithmExtension", () => {
     expect(source).toMatch(/from "file:\/\/.*widget-renderers\.ts"/u);
     expect(source).toMatch(/from "file:\/\/.*isa-checklist\.ts"/u);
     expect(source).toMatch(/from "file:\/\/.*\/src\/policy-audit\.ts"/u);
+    expect(source).toMatch(/from "file:\/\/.*\/src\/adapters\/pi-dev\/extensions\/policy-targets\.ts"/u);
     expect(source).toMatch(/from "file:\/\/.*\/src\/adapters\/pi-dev\/algorithm-run-snapshot\.ts"/u);
   });
 
@@ -46,7 +47,7 @@ describe("renderSomaAlgorithmExtension", () => {
     expect(source).toContain('from "file:///tmp/override/widget-renderers.ts"');
     expect(source).toContain('from "file:///tmp/override/isa-checklist.ts"');
     expect(source).toContain('from "file:///tmp/override/policy-audit.ts"');
-    expect(source).toContain('from "file:///tmp/override/policy-path-guard.ts"');
+    expect(source).toContain('from "file:///tmp/override/policy-targets.ts"');
     expect(source).toContain('from "file:///tmp/override/algorithm-run-snapshot.ts"');
   });
 
@@ -66,23 +67,20 @@ describe("renderSomaAlgorithmExtension", () => {
     expect(source).toContain('return { block: true, reason: policy.reason }');
     expect(source).toContain("checkSomaPolicy");
     expect(source).toContain("policy-audit.ts");
-    expect(source).toContain("policy-path-guard.ts");
-    expect(source).toContain("parseBashDestructivePaths(command, cwd).targetPaths");
-    expect(source).toContain("function shellCommandName");
-    expect(source).toContain("function isReadOnlyShellCommand");
-    expect(source).toContain("function toolCallSource");
-    expect(source).toContain("function toolCallContent");
+    expect(source).toContain("policy-targets.ts");
+    expect(source).toContain("extractToolCallPolicyTargets");
+    expect(source).toContain("somaPolicyActionForToolAction");
     expect(source).toContain('const cwd = typeof (ctx as { cwd?: unknown }).cwd === "string"');
     expect(source).toContain("cwd,");
     expect(source).toContain("sourcePath,");
     expect(source).toContain("content,");
     expect(source).toContain('action: "modify"');
     expect(source).toContain("Promise.all");
-    expect(source).toContain('if (action === "read") return { block: false, reason: "" }');
+    expect(source).toContain("if (extraction.targets.length === 0) return { block: false, reason: \"\" }");
     expect(source).toContain("MAX_POLICY_TARGETS");
     expect(source).not.toContain("execFileAsync");
     expect(source).not.toContain("spawnSync");
-    expect(source).toContain("mutating tool_call without a parseable destination");
+    expect(source).toContain("extraction.blockReason");
     expect(source).toContain('substrate: "pi-dev"');
     expect(source).toContain('record: "deny"');
   });
