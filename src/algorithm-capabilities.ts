@@ -2,17 +2,21 @@ import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import type {
+  AlgorithmCapabilityContract,
   AlgorithmCapabilityDefinition,
   AlgorithmCapabilitySelection,
   AlgorithmCapabilitySelectionStatus,
   AlgorithmCapabilityInvocation,
+  AlgorithmCapabilityKind,
   AlgorithmPhase,
   AlgorithmRun,
+  SomaSkillManifest,
   SubstrateId,
 } from "./types";
 import { getRunPhase } from "./algorithm-lifecycle";
 
 const CORE_PHASES: AlgorithmPhase[] = ["observe", "think", "plan", "build", "execute", "verify", "learn"];
+const CAPABILITY_INVOKE_KINDS = ["skill", "inline", "agent", "command", "adapter"] as const;
 
 const DEFAULT_CAPABILITY_REGISTRY: AlgorithmCapabilityDefinition[] = [
   {
@@ -34,6 +38,7 @@ const DEFAULT_CAPABILITY_REGISTRY: AlgorithmCapabilityDefinition[] = [
 export interface SomaHomeAlgorithmCapabilityOptions {
   homeDir?: string;
   somaHome?: string;
+  substrate?: SubstrateId;
 }
 
 export interface SomaHomeAlgorithmCapabilityRegistry {
@@ -115,6 +120,22 @@ function stripCapabilityLabel(value: string): string {
   return label === "ISA Skill" ? "ISA" : label;
 }
 
+function nonEmptyStrings(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
+function hasOwnField(value: unknown, field: string): boolean {
+  return typeof value === "object" && value !== null && Object.prototype.hasOwnProperty.call(value, field);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
 function frontmatterValue(content: string, key: string, fallback: string): string {
   const pattern = new RegExp(`^${key}:\\s*(.+)$`, "m");
   const match = content.match(pattern);
@@ -123,30 +144,84 @@ function frontmatterValue(content: string, key: string, fallback: string): strin
   return value.length > 0 ? value : fallback;
 }
 
-async function loadAvailableSkillNames(somaHome: string): Promise<Map<string, string>> {
-  const skillsRoot = join(somaHome, "skills");
-  const entries = await readdir(skillsRoot, { withFileTypes: true }).catch(() => []);
-  const names = new Map<string, string>();
+function sectionBullets(content: string, heading: string): string[] {
+  const lines = content.split(/\r?\n/);
+  const start = lines.findIndex((line) => line.trim().toLowerCase() === `## ${heading}`.toLowerCase());
+  if (start === -1) return [];
 
-  const skillMetadata = await Promise.all(
-    entries
-      .filter((entry) => entry.isDirectory())
-      .map(async (entry) => {
-        const skillRoot = join(skillsRoot, entry.name);
-        const skillMd = await readFile(join(skillRoot, "SKILL.md"), "utf8").catch(() => undefined);
-        return skillMd ? { dirName: entry.name, name: frontmatterValue(skillMd, "name", entry.name) } : undefined;
-      }),
-  );
-
-  for (const metadata of skillMetadata) {
-    if (!metadata) continue;
-
-    names.set(normalizeCapabilityKey(metadata.name), metadata.name);
-    names.set(normalizeCapabilityKey(metadata.dirName), metadata.name);
-    names.set(normalizeCapabilityKey(basename(metadata.dirName)), metadata.name);
+  const bullets: string[] = [];
+  for (const line of lines.slice(start + 1)) {
+    if (line.startsWith("## ")) break;
+    const match = line.match(/^\s*[-*]\s+(.+)$/);
+    if (match) bullets.push(stripMarkdownEmphasis(match[1]));
   }
 
-  return names;
+  return bullets;
+}
+
+interface AvailableSkill {
+  dirName: string;
+  name: string;
+  description: string;
+  triggers: string[];
+  manifest?: SomaSkillManifest;
+}
+
+async function readSomaSkillManifest(skillRoot: string): Promise<SomaSkillManifest | undefined> {
+  const raw = await readFile(join(skillRoot, "soma-skill.json"), "utf8").catch(() => undefined);
+  if (!raw) return undefined;
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<SomaSkillManifest>;
+    if (
+      parsed.schema !== "soma.skill.v1"
+      || typeof parsed.name !== "string"
+    ) {
+      return undefined;
+    }
+
+    return parsed as SomaSkillManifest;
+  } catch {
+    return undefined;
+  }
+}
+
+async function loadAvailableSkills(somaHome: string): Promise<{ skills: AvailableSkill[]; byKey: Map<string, AvailableSkill> }> {
+  const skillsRoot = join(somaHome, "skills");
+  const entries = await readdir(skillsRoot, { withFileTypes: true }).catch(() => []);
+  const byKey = new Map<string, AvailableSkill>();
+
+  const skillCandidates: Array<AvailableSkill | undefined> = await Promise.all(
+    entries
+      .filter((entry) => entry.isDirectory())
+      .map(async (entry): Promise<AvailableSkill | undefined> => {
+        const skillRoot = join(skillsRoot, entry.name);
+        const skillMd = await readFile(join(skillRoot, "SKILL.md"), "utf8").catch(() => undefined);
+        if (!skillMd) return undefined;
+
+        const manifest = await readSomaSkillManifest(skillRoot);
+        const manifestName = typeof manifest?.name === "string" && manifest.name.trim().length > 0
+          ? manifest.name
+          : undefined;
+        const name = manifestName ?? frontmatterValue(skillMd, "name", entry.name);
+        const description = typeof manifest?.description === "string"
+          ? manifest.description
+          : frontmatterValue(skillMd, "description", "");
+        const manifestTriggers = nonEmptyStrings(manifest?.triggers);
+        const triggers = manifestTriggers.length > 0 ? manifestTriggers : sectionBullets(skillMd, "Triggers");
+
+        return { dirName: entry.name, name, description, triggers, manifest };
+      }),
+  );
+  const skills = skillCandidates.filter((skill): skill is AvailableSkill => skill !== undefined);
+
+  for (const skill of skills) {
+    byKey.set(normalizeCapabilityKey(skill.name), skill);
+    byKey.set(normalizeCapabilityKey(skill.dirName), skill);
+    byKey.set(normalizeCapabilityKey(basename(skill.dirName)), skill);
+  }
+
+  return { skills, byKey };
 }
 
 function parsePhaseCell(value: string, fallback: AlgorithmPhase[] = ["think"]): AlgorithmPhase[] {
@@ -230,14 +305,90 @@ function buildCapabilityDefinition(
   phases: AlgorithmPhase[],
   triggerSignals: string[],
   target: string,
+  contract: AlgorithmCapabilityContract = kind,
 ): AlgorithmCapabilityDefinition {
   return {
     name,
     kind,
     phases,
     triggerSignals,
-    invoke: { contract: kind, target },
+    invoke: { contract, target },
   };
+}
+
+function isSubstrateSupported(manifest: SomaSkillManifest | undefined, substrate: SubstrateId | undefined): boolean {
+  if (!manifest || !substrate) return true;
+  if (!Array.isArray(manifest.substrates)) return false;
+  return manifest.substrates.includes(substrate);
+}
+
+function isCapabilityInvokeKind(value: unknown): value is AlgorithmCapabilityContract & AlgorithmCapabilityKind {
+  return typeof value === "string" && CAPABILITY_INVOKE_KINDS.includes(value as (typeof CAPABILITY_INVOKE_KINDS)[number]);
+}
+
+function isCapabilityKind(value: unknown): value is AlgorithmCapabilityKind {
+  return isCapabilityInvokeKind(value);
+}
+
+function isAlgorithmPhase(value: unknown): value is AlgorithmPhase {
+  return value === "observe" || value === "think" || value === "plan" || value === "build" || value === "execute" || value === "verify" || value === "learn" || value === "complete";
+}
+
+function fallbackTriggerSignals(skill: AvailableSkill): string[] {
+  const triggers = skill.triggers.map((trigger) => trigger.trim()).filter((trigger) => trigger.length > 0);
+  if (triggers.length > 0) return triggers;
+
+  const description = skill.description.trim();
+  return description.length > 0 ? [description] : [skill.name];
+}
+
+function skillManifestCapabilityDefinition(skill: AvailableSkill): AlgorithmCapabilityDefinition | undefined {
+  const metadata = isRecord(skill.manifest?.algorithmCapability)
+    ? skill.manifest.algorithmCapability
+    : undefined;
+  const kind = isCapabilityKind(metadata?.kind) ? metadata.kind : "skill";
+  const phases = Array.isArray(metadata?.phases)
+    ? metadata.phases.filter(isAlgorithmPhase)
+    : [];
+  if (hasOwnField(metadata, "phases") && phases.length === 0) {
+    return undefined;
+  }
+  const triggerSignals = nonEmptyStrings(metadata?.triggerSignals);
+
+  return buildCapabilityDefinition(
+    skill.name,
+    kind,
+    phases.length > 0 ? phases : [...CORE_PHASES],
+    triggerSignals.length > 0 ? triggerSignals : fallbackTriggerSignals(skill),
+    skill.name,
+    kind,
+  );
+}
+
+function maybeRegisterSkillCapability(
+  definitions: Map<string, AlgorithmCapabilityDefinition>,
+  unsupported: Set<string>,
+  skill: AvailableSkill,
+  substrate: SubstrateId | undefined,
+  options: { requireManifestCapability: boolean },
+): void {
+  if (definitions.has(skill.name) || unsupported.has(skill.name)) {
+    return;
+  }
+  if (!isSubstrateSupported(skill.manifest, substrate)) {
+    unsupported.add(skill.name);
+    return;
+  }
+  if (options.requireManifestCapability && !isRecord(skill.manifest?.algorithmCapability)) {
+    return;
+  }
+
+  const definition = skillManifestCapabilityDefinition(skill);
+  if (!definition) {
+    unsupported.add(skill.name);
+    return;
+  }
+  definitions.set(definition.name, definition);
 }
 
 export async function loadSomaHomeAlgorithmCapabilityRegistry(
@@ -246,21 +397,22 @@ export async function loadSomaHomeAlgorithmCapabilityRegistry(
   const somaHome = resolveSomaHome(options);
   const referencePath = join(somaHome, "skills", "the-algorithm", "references", "capabilities.md");
   const markdown = await readFile(referencePath, "utf8").catch(() => "");
-  if (!markdown) {
-    return { definitions: [], unsupported: [] };
-  }
-
-  const availableSkills = await loadAvailableSkillNames(somaHome);
+  const availableSkills = await loadAvailableSkills(somaHome);
   const definitions = new Map<string, AlgorithmCapabilityDefinition>();
   const unsupported = new Set<string>();
 
-  for (const row of parseMarkdownTableRows(markdown)) {
+  for (const skill of availableSkills.skills) {
+    maybeRegisterSkillCapability(definitions, unsupported, skill, options.substrate, { requireManifestCapability: true });
+  }
+
+  for (const row of markdown ? parseMarkdownTableRows(markdown) : []) {
     const name = stripCapabilityLabel(row[0] ?? "");
     const phaseCell = row[1] ?? "";
     const triggerCell = row.length >= 5 ? row[2] ?? "" : row[1] ?? "";
     const invokeCell = row.length >= 5 ? row[3] ?? "" : row[2] ?? "";
 
     if (!name) continue;
+    if (definitions.has(name) || unsupported.has(name)) continue;
 
     const phases = parsePhaseCell(phaseCell, row.length >= 5 ? ["think"] : ["plan"]);
     const triggerSignals = [stripMarkdownEmphasis(triggerCell)].filter((signal) => signal.length > 0);
@@ -270,13 +422,17 @@ export async function loadSomaHomeAlgorithmCapabilityRegistry(
     const inlineTarget = inlineInvocationTarget(invokeCell);
 
     if (skillTarget) {
-      const availableTarget = availableSkills.get(normalizeCapabilityKey(skillTarget));
-      if (!availableTarget) {
+      const targetSkill = availableSkills.byKey.get(normalizeCapabilityKey(skillTarget));
+      if (!targetSkill) {
+        unsupported.add(name);
+        continue;
+      }
+      if (!isSubstrateSupported(targetSkill.manifest, options.substrate)) {
         unsupported.add(name);
         continue;
       }
 
-      definitions.set(name, buildCapabilityDefinition(name, "skill", phases, triggerSignals, availableTarget));
+      definitions.set(name, buildCapabilityDefinition(name, "skill", phases, triggerSignals, targetSkill.name));
       continue;
     }
 
@@ -296,6 +452,10 @@ export async function loadSomaHomeAlgorithmCapabilityRegistry(
     }
 
     unsupported.add(name);
+  }
+
+  for (const skill of availableSkills.skills) {
+    maybeRegisterSkillCapability(definitions, unsupported, skill, options.substrate, { requireManifestCapability: false });
   }
 
   return {

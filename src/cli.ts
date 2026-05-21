@@ -1274,6 +1274,7 @@ function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
 
   if (action === "new") {
     run.id = options.id;
+    run.substrate = options.substrate;
     options.run = run as AlgorithmRunInput;
   }
 
@@ -3514,6 +3515,7 @@ async function updateAndReportAlgorithmRun(
       ? await registerSomaHomeAlgorithmCapabilities(run, {
           homeDir: options.homeDir,
           somaHome: options.somaHome,
+          substrate: run.substrate,
         })
       : run;
   const written = await writeAlgorithmRun(update(registered), {
@@ -3539,9 +3541,11 @@ async function runAlgorithmCli(parsed: ParsedAlgorithmArgs): Promise<string> {
   }
 
   if (parsed.action === "new") {
-    const run = await registerSomaHomeAlgorithmCapabilities(createAlgorithmRun(requireAlgorithmRunInput(options)), {
+    const input = requireAlgorithmRunInput(options);
+    const run = await registerSomaHomeAlgorithmCapabilities(createAlgorithmRun(input), {
       homeDir: options.homeDir,
       somaHome: options.somaHome,
+      substrate: input.substrate,
     });
     const written = await writeAlgorithmRun(run, {
       homeDir: options.homeDir,

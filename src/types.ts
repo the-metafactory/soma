@@ -208,6 +208,12 @@ export interface AlgorithmCapabilityDefinition {
   };
 }
 
+export interface SomaSkillAlgorithmCapabilityManifest {
+  kind?: AlgorithmCapabilityKind;
+  phases?: AlgorithmPhase[];
+  triggerSignals?: string[];
+}
+
 export interface AlgorithmCapabilityInvocation {
   timestamp: string;
   substrate: SubstrateId;
@@ -732,6 +738,7 @@ export interface SomaSkillManifest {
   tools: string[];
   triggers: string[];
   substrates: ("claude-code" | "codex" | "pi-dev" | "cursor" | "cortex" | "custom")[];
+  algorithmCapability?: SomaSkillAlgorithmCapabilityManifest;
 }
 
 export interface PaiPackImportPlan {

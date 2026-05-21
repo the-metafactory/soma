@@ -69,14 +69,32 @@ contract:
 - `status`: `selected`, `invoked`, `removed`, or `failed`
 - `invocation`: substrate, contract, target, timestamp, and evidence once used
 
-The built-in registry includes inline checks that are always available. When a
-Soma home contains an imported Algorithm capability reference at
-`skills/the-algorithm/references/capabilities.md`, the CLI registers matching
-PAI-style capabilities onto each run before mutating it. `Skill("Name")`
-entries are registered only when the corresponding Soma skill exists in the
-same home; `Agent(...)`, inline, and command entries become agent, inline, or
-command capability definitions. Missing skill targets remain unsupported so the
-selection fails loudly instead of pretending a capability can be invoked.
+The built-in registry includes inline checks that are always available. Before
+the CLI writes a Soma-home backed run, it registers portable skills as
+run-scoped capability definitions. The preferred source is
+`skills/<skill>/soma-skill.json` with optional `algorithmCapability` metadata:
+
+```json
+{
+  "algorithmCapability": {
+    "kind": "skill",
+    "phases": ["think", "plan"],
+    "triggerSignals": ["assumption", "root cause"]
+  }
+}
+```
+
+When explicit manifest metadata is absent, Soma falls back to the imported
+Algorithm capability reference at
+`skills/the-algorithm/references/capabilities.md`. `Skill("Name")` entries are
+registered only when the corresponding Soma skill exists in the same home;
+`Agent(...)`, inline, and command entries become agent, inline, or command
+capability definitions. Remaining loaded skills receive broad skill-backed
+defaults. Manifest metadata describes when the skill-backed capability is
+relevant; concrete invocation binding remains registry- or adapter-derived.
+Manifest substrate support is honored when the run declares a substrate.
+Missing skill targets remain unsupported so the selection fails loudly instead
+of pretending a capability can be invoked.
 
 Adapters can add startup capabilities to the run with
 `registerAlgorithmCapabilityDefinition(run, definition)` or
