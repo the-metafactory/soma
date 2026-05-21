@@ -80,27 +80,34 @@ export type ParsedSubstrateLifecycleArgs =
 
 export const INSTALL_SUBSTRATES = ["codex", "pi-dev", "claude-code", "cursor"] as const satisfies readonly InstallSubstrate[];
 
+const substrateList = INSTALL_SUBSTRATES.join("|");
+const installOptions = "[--dry-run] [--apply] [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
+const uninstallOptions = "[--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
+
+function lifecycleUsage(command: string, target: string, options: string): string {
+  return `Usage: soma ${command} ${target} ${options}`;
+}
+
+function lifecycleSubcommandUsage(command: string, options: string): Record<InstallSubstrate, string> {
+  return Object.fromEntries(
+    INSTALL_SUBSTRATES.map((substrate) => [
+      substrate,
+      lifecycleUsage(command, substrate, options),
+    ]),
+  ) as Record<InstallSubstrate, string>;
+}
+
 export const SUBSTRATE_LIFECYCLE_COMMAND_HELP: Record<
   "install" | "uninstall" | "reproject" | "upgrade" | "export" | "daemon",
   { usage: string; subcommands?: Record<string, string> }
 > = {
   install: {
-    usage: "Usage: soma install <codex|pi-dev|claude-code|cursor> [--dry-run] [--apply] [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
-    subcommands: {
-      codex: "Usage: soma install codex [--dry-run] [--apply] [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
-      "pi-dev": "Usage: soma install pi-dev [--dry-run] [--apply] [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
-      "claude-code": "Usage: soma install claude-code [--dry-run] [--apply] [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
-      cursor: "Usage: soma install cursor [--dry-run] [--apply] [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
-    },
+    usage: lifecycleUsage("install", `<${substrateList}>`, installOptions),
+    subcommands: lifecycleSubcommandUsage("install", installOptions),
   },
   uninstall: {
-    usage: "Usage: soma uninstall <codex|pi-dev|claude-code|cursor> [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
-    subcommands: {
-      codex: "Usage: soma uninstall codex [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
-      "pi-dev": "Usage: soma uninstall pi-dev [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
-      "claude-code": "Usage: soma uninstall claude-code [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
-      cursor: "Usage: soma uninstall cursor [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
-    },
+    usage: lifecycleUsage("uninstall", `<${substrateList}>`, uninstallOptions),
+    subcommands: lifecycleSubcommandUsage("uninstall", uninstallOptions),
   },
   reproject: {
     usage: "Usage: soma reproject <codex|pi-dev|claude-code|cursor> [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
