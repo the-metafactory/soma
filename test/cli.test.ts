@@ -496,6 +496,25 @@ test("cli batch capability invocation preserves evidence that starts with substr
   });
 });
 
+test("cli batch capability invocation reports missing evidence as a CLI error", async () => {
+  await withTempHome(async (homeDir) => {
+    await expect(
+      runSomaCli([
+        "algorithm",
+        "batch",
+        "--home-dir",
+        homeDir,
+        "--id",
+        "example",
+        "--op",
+        "capability-invocation:FirstPrinciples",
+      ]),
+    ).rejects.toThrow(
+      "--op capability-invocation requires capability-invocation:<name>:<evidence> or capability-invocation:<name>:substrate=<id>:<evidence>.",
+    );
+  });
+});
+
 test("cli batch capability invocation accepts explicit substrate prefix", async () => {
   await withTempHome(async (homeDir) => {
     await runSomaCli([

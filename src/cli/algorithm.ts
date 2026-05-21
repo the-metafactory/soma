@@ -251,12 +251,14 @@ function parseBatchOperation(value: string): AlgorithmBatchOperation {
 }
 
 function parseCapabilityInvocationOperation(payload: string): AlgorithmBatchOperation {
-  const [capability, maybeSubstrate, ...restParts] = payload.split(":");
-  const maybeSubstrateValue = maybeSubstrate.trim();
+  const parts = payload.split(":");
+  const capability = parts[0];
+  const restParts = parts.slice(2);
+  const maybeSubstrateValue = parts.length > 1 ? parts[1].trim() : "";
   const explicitSubstrate = maybeSubstrateValue.startsWith("substrate=")
     ? maybeSubstrateValue.slice("substrate=".length)
     : undefined;
-  const evidence = (explicitSubstrate ? restParts : [maybeSubstrate, ...restParts]).join(":").trim();
+  const evidence = (explicitSubstrate ? restParts : parts.slice(1)).join(":").trim();
 
   if (!capability || !evidence) {
     throw new Error("--op capability-invocation requires capability-invocation:<name>:<evidence> or capability-invocation:<name>:substrate=<id>:<evidence>.");
