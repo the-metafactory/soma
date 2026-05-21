@@ -32,6 +32,7 @@ After reinstalling, refresh the substrate projections you use:
 soma install codex --apply
 soma install pi-dev --apply
 soma install claude-code --apply
+soma install cursor --apply
 ```
 
 If Arc later supports transparent in-place upgrades for extracted registry

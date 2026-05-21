@@ -33,6 +33,12 @@ Install the package with Arc:
 arc install @metafactory/soma
 ```
 
+To pin a release:
+
+```bash
+arc install @metafactory/soma@0.6.1
+```
+
 If `arc upgrade soma` resolves the new version but refuses to replace an
 older active install, use Arc's remove-then-install recovery path:
 
@@ -53,17 +59,93 @@ bun install
 bun run soma --help
 ```
 
-Then project Soma into the coding agent you use:
+### Set up your Soma home
+
+Start with a dry-run. It shows which assistant home and substrate files Soma
+will create or refresh.
 
 ```bash
-bun run soma install codex --apply
-bun run soma install pi-dev --apply
-bun run soma install claude-code --apply
-bun run soma install cursor --apply
+soma init --dry-run
+soma init --yes
 ```
 
-> `soma adopt claude` still works as a legacy alias; new prose uses the
-> unified `soma install claude-code` verb.
+If you are running from source, replace `soma` with `bun run soma`.
+
+Run a quick diagnosis after onboarding:
+
+```bash
+soma doctor --substrate codex
+```
+
+`doctor` currently checks the Codex projection.
+
+### Project Soma into your coding agents
+
+Soma supports home projections for Codex, Pi.dev, Claude Code, and Cursor.
+Every install command supports the same dry-run/apply pattern:
+
+```bash
+soma install codex --dry-run
+soma install codex --apply
+```
+
+Install the projections you use:
+
+```bash
+soma install codex --apply
+soma install pi-dev --apply
+soma install claude-code --apply
+soma install cursor --apply
+```
+
+Use a workspace overlay when a repo should carry its own generated Soma
+projection in addition to the home projection:
+
+```bash
+cd <project>
+soma install codex --workspace --apply
+soma install pi-dev --workspace --apply
+soma install claude-code --workspace --apply
+soma install cursor --workspace --apply
+```
+
+Refresh an existing projection after changing `~/.soma`:
+
+```bash
+soma reproject codex
+soma reproject pi-dev
+soma reproject claude-code
+soma reproject cursor
+```
+
+`soma upgrade <substrate>` currently follows the same projection-refresh path
+and reserves the command for future migration work.
+
+```bash
+soma upgrade codex
+```
+
+Use explicit homes when testing or installing into non-default locations:
+
+```bash
+soma install codex --apply \
+  --home-dir "$HOME" \
+  --soma-home "$HOME/.soma" \
+  --substrate-home "$HOME/.codex"
+```
+
+Generated projection files can be removed for Claude Code and Cursor:
+
+```bash
+soma uninstall claude-code
+soma uninstall cursor
+```
+
+Codex and Pi.dev uninstallers are reserved but not implemented yet. Remove or
+replace those generated files manually until their uninstall commands land.
+
+`soma adopt claude` still works as a legacy alias; new docs use the unified
+`soma install claude-code` verb.
 
 ---
 
@@ -127,6 +209,10 @@ can auto-discover the Soma projection without depending on fragile
 home-directory imports. Cursor uses `.cursorrules` plus `.cursor/rules/soma/`;
 `soma uninstall claude-code` and `soma uninstall cursor` remove only generated
 Soma projection files.
+
+When you change Soma's profile, skills, memory, or active ISA, rerun
+`soma reproject <substrate>` for the agent you are about to use. Projections are
+generated snapshots, not live symlinks.
 
 <!--
   Demo recording brief (replace this whole block with the rendered asset).
