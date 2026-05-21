@@ -9,6 +9,7 @@ import {
   buildSomaStartupContext,
   captureCompletedAlgorithmLearnings,
   createAlgorithmRun,
+  recordAlgorithmCapabilityInvocation,
   recordAlgorithmChange,
   recordAlgorithmLearning,
   runSomaLifecycleAlgorithmUpdated,
@@ -42,7 +43,7 @@ function completeRun() {
   });
 
   run = advanceAlgorithmRun(run, "2026-05-14T10:01:00.000Z");
-  run = addAlgorithmCapabilities(run, ["FeedbackMemoryConsult"], "2026-05-14T10:02:00.000Z");
+  run = addAlgorithmCapabilities(run, ["sequential-analysis"], "2026-05-14T10:02:00.000Z");
   run = advanceAlgorithmRun(run, "2026-05-14T10:03:00.000Z");
   run = setAlgorithmPlan(run, [{ id: "P1", text: "Capture session learning.", criteriaIds: ["C1"], status: "open" }], "2026-05-14T10:04:00.000Z");
   run = advanceAlgorithmRun(run, "2026-05-14T10:05:00.000Z");
@@ -53,6 +54,15 @@ function completeRun() {
   run = verifyAlgorithmCriterion(run, "C1", "passed", "Learning file was written.", "2026-05-14T10:10:00.000Z");
   run = advanceAlgorithmRun(run, "2026-05-14T10:11:00.000Z");
   run = recordAlgorithmLearning(run, "Lifecycle should capture completed runs once.", "2026-05-14T10:12:00.000Z");
+  run = recordAlgorithmCapabilityInvocation(
+    run,
+    {
+      name: "sequential-analysis",
+      substrate: "codex",
+      evidence: "Used sequential analysis while deciding what completed learning to capture.",
+    },
+    "2026-05-14T10:12:30.000Z",
+  );
   return advanceAlgorithmRun(run, "2026-05-14T10:13:00.000Z");
 }
 

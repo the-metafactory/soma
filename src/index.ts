@@ -2,6 +2,12 @@ export type {
   AlgorithmEffortTier,
   AlgorithmEffortSource,
   AlgorithmBatchOperation,
+  AlgorithmCapabilityContract,
+  AlgorithmCapabilityDefinition,
+  AlgorithmCapabilityInvocation,
+  AlgorithmCapabilityKind,
+  AlgorithmCapabilitySelection,
+  AlgorithmCapabilitySelectionStatus,
   AlgorithmImportOptions,
   AlgorithmImportPlan,
   AlgorithmImportResult,
@@ -133,6 +139,17 @@ export {
   updateAlgorithmPlanStep,
   verifyAlgorithmCriterion,
 } from "./algorithm";
+export {
+  assertAlgorithmCapabilitiesSatisfied,
+  getAlgorithmCapabilityDefinition,
+  listAlgorithmCapabilityDefinitions,
+  recordAlgorithmCapabilityInvocation,
+  registerAlgorithmCapabilityDefinition,
+  registerAlgorithmCapabilityDefinitions,
+  removeAlgorithmCapabilitySelection,
+  selectAlgorithmCapability,
+  unresolvedAlgorithmCapabilitySelections,
+} from "./algorithm-capabilities";
 export { classifyAlgorithmPrompt } from "./algorithm-classifier";
 export {
   DEFAULT_ALGORITHM_LOOP_STATE,

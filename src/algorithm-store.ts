@@ -123,6 +123,8 @@ function ensureAlgorithmRunDefaults(run: AlgorithmRun): AlgorithmRun {
   return {
     ...run,
     loop: run.loop ?? { ...DEFAULT_ALGORITHM_LOOP_STATE, iterations: [] },
+    capabilityDefinitions: run.capabilityDefinitions ?? [],
+    capabilitySelections: run.capabilitySelections ?? [],
   };
 }
 
@@ -168,6 +170,8 @@ function migrateRunV1toV2(legacy: LegacyAlgorithmRun): AlgorithmRun {
     loop: legacy.loop ?? { ...DEFAULT_ALGORITHM_LOOP_STATE, iterations: [] },
     antiCriteria: legacy.antiCriteria ?? [],
     capabilities: legacy.capabilities ?? [],
+    capabilityDefinitions: legacy.capabilityDefinitions ?? [],
+    capabilitySelections: legacy.capabilitySelections ?? [],
     planSteps: legacy.planSteps ?? [],
     decisions: legacy.decisions ?? [],
     changelog: legacy.changelog ?? [],

@@ -191,6 +191,42 @@ export interface AlgorithmLogEntry {
   text: string;
 }
 
+export type AlgorithmCapabilityKind = "skill" | "inline" | "agent" | "command" | "adapter";
+
+export type AlgorithmCapabilityContract = "skill" | "inline" | "agent" | "command" | "adapter";
+
+export type AlgorithmCapabilitySelectionStatus = "selected" | "invoked" | "removed" | "failed";
+
+export interface AlgorithmCapabilityDefinition {
+  name: string;
+  kind: AlgorithmCapabilityKind;
+  phases: AlgorithmPhase[];
+  triggerSignals: string[];
+  invoke: {
+    contract: AlgorithmCapabilityContract;
+    target: string;
+  };
+}
+
+export interface AlgorithmCapabilityInvocation {
+  timestamp: string;
+  substrate: SubstrateId;
+  contract: AlgorithmCapabilityContract;
+  target: string;
+  evidence: string;
+}
+
+export interface AlgorithmCapabilitySelection {
+  name: string;
+  phase: AlgorithmPhase;
+  reason: string;
+  status: AlgorithmCapabilitySelectionStatus;
+  selectedAt: string;
+  invocation?: AlgorithmCapabilityInvocation;
+  removalReason?: string;
+  removedAt?: string;
+}
+
 export interface AlgorithmRun {
   schemaVersion: 2;
   id: string;
@@ -208,6 +244,8 @@ export interface AlgorithmRun {
   loop: AlgorithmLoopState;
   antiCriteria: IdealStateCriterion[];
   capabilities: string[];
+  capabilityDefinitions?: AlgorithmCapabilityDefinition[];
+  capabilitySelections?: AlgorithmCapabilitySelection[];
   planSteps: AlgorithmPlanStep[];
   decisions: AlgorithmLogEntry[];
   changelog: AlgorithmLogEntry[];
@@ -273,6 +311,19 @@ export type AlgorithmBatchOperation =
   | {
       kind: "capability";
       capability: string;
+      phase?: AlgorithmPhase;
+      reason?: string;
+    }
+  | {
+      kind: "capability-invocation";
+      capability: string;
+      substrate?: SubstrateId;
+      evidence: string;
+    }
+  | {
+      kind: "capability-removal";
+      capability: string;
+      reason: string;
     }
   | {
       kind: "advance";

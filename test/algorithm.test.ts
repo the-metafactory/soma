@@ -9,7 +9,12 @@ import {
   createAlgorithmRun,
   getCriteria,
   getRunPhase,
+  recordAlgorithmCapabilityInvocation,
+  registerAlgorithmCapabilityDefinition,
+  applyAlgorithmBatch,
+  removeAlgorithmCapabilitySelection,
   setAlgorithmPlan,
+  selectAlgorithmCapability,
   updateAlgorithmPlanStep,
   verifyAlgorithmCriterion,
   writeAlgorithmRun,
@@ -23,6 +28,16 @@ async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> 
   } finally {
     await rm(homeDir, { recursive: true, force: true });
   }
+}
+
+function registerFirstPrinciples(run: ReturnType<typeof createAlgorithmRun>) {
+  return registerAlgorithmCapabilityDefinition(run, {
+    name: "FirstPrinciples",
+    kind: "skill",
+    phases: ["think", "plan"],
+    triggerSignals: ["assumption", "root cause", "fundamentals", "first principles"],
+    invoke: { contract: "skill", target: "FirstPrinciples" },
+  });
 }
 
 test("creates deterministic Algorithm runs around ISA criteria", () => {
@@ -149,8 +164,267 @@ test("enforces Algorithm phase gates", () => {
     ...run,
     learning: [{ timestamp: "2026-05-14T10:12:00.000Z", phase: "learn", text: "Harness gates doctrine." }],
   };
+  expect(() => advanceAlgorithmRun(run)).toThrow("not invoked or removed");
+  run = recordAlgorithmCapabilityInvocation(
+    run,
+    { name: "sequential-analysis", substrate: "codex", evidence: "Used sequential analysis to reduce the phase gates to necessary state transitions." },
+    "2026-05-14T10:12:30.000Z",
+  );
   run = advanceAlgorithmRun(run, "2026-05-14T10:13:00.000Z");
   expect(getRunPhase(run)).toBe("complete");
+});
+
+test("records structured Algorithm capability selections and invocations", () => {
+  let run = createAlgorithmRun({
+    id: "capability-binding",
+    timestamp: "2026-05-21T10:00:00.000Z",
+    prompt: "Use structured capabilities",
+    intent: "Port PAI capability invocation semantics.",
+    currentState: "Capabilities are only strings.",
+    goal: "Selected capabilities require invocation evidence.",
+    criteria: [{ id: "C1", text: "Capability selection is structured." }],
+  });
+  run = registerFirstPrinciples(run);
+
+  run = selectAlgorithmCapability(
+    run,
+    { name: "FirstPrinciples", phase: "think", reason: "Need to reduce the issue to portable primitives." },
+    "2026-05-21T10:01:00.000Z",
+  );
+
+  expect(run.capabilities).toEqual(["FirstPrinciples"]);
+  expect(run.capabilitySelections?.[0]).toMatchObject({
+    name: "FirstPrinciples",
+    phase: "think",
+    reason: "Need to reduce the issue to portable primitives.",
+    status: "selected",
+  });
+
+  run = recordAlgorithmCapabilityInvocation(
+    run,
+    { name: "FirstPrinciples", substrate: "codex", evidence: "Deconstructed PAI semantics into registry, selection, and invocation evidence." },
+    "2026-05-21T10:02:00.000Z",
+  );
+
+  expect(run.capabilitySelections?.[0]).toMatchObject({
+    status: "invoked",
+    invocation: {
+      substrate: "codex",
+      contract: "skill",
+      target: "FirstPrinciples",
+      evidence: "Deconstructed PAI semantics into registry, selection, and invocation evidence.",
+    },
+  });
+});
+
+test("rejects phantom Algorithm capabilities", () => {
+  let run = createAlgorithmRun({
+    id: "phantom-capability",
+    timestamp: "2026-05-21T10:00:00.000Z",
+    prompt: "Reject invented capability",
+    intent: "Keep capability names portable.",
+    currentState: "Names could drift.",
+    goal: "Only registry names are accepted.",
+    criteria: [{ id: "C1", text: "Unknown names fail." }],
+  });
+
+  expect(() => selectAlgorithmCapability(run, { name: "MadeUpCapability" })).toThrow("not registered");
+});
+
+test("rejects Algorithm capabilities selected for unsupported phases", () => {
+  let run = createAlgorithmRun({
+    id: "wrong-capability-phase",
+    timestamp: "2026-05-21T10:00:00.000Z",
+    prompt: "Reject wrong phase",
+    intent: "Keep capability contracts meaningful.",
+    currentState: "Phase can be supplied by callers.",
+    goal: "Selection honors registered phases.",
+    criteria: [{ id: "C1", text: "Unsupported phases fail." }],
+  });
+  run = registerFirstPrinciples(run);
+
+  expect(() => selectAlgorithmCapability(run, { name: "FirstPrinciples", phase: "complete" })).toThrow("cannot be selected for complete");
+});
+
+test("registers adapter-provided Algorithm skill capabilities", () => {
+  let run = createAlgorithmRun({
+    id: "adapter-capability",
+    timestamp: "2026-05-21T10:00:00.000Z",
+    prompt: "Use adapter capability",
+    intent: "Allow adapter startup registration.",
+    currentState: "Registry is in core.",
+    goal: "Adapter capability can be selected.",
+    criteria: [{ id: "C1", text: "Registered adapter capability selects." }],
+  });
+  run = registerAlgorithmCapabilityDefinition(
+    run,
+    {
+      name: "FirstPrinciples",
+      kind: "skill",
+      phases: ["think", "plan"],
+      triggerSignals: ["assumption", "root cause", "fundamentals", "first principles"],
+      invoke: { contract: "skill", target: "FirstPrinciples" },
+    },
+    "2026-05-21T10:01:00.000Z",
+  );
+
+  run = selectAlgorithmCapability(
+    run,
+    { name: "FirstPrinciples", phase: "think", reason: "Registered by adapter startup." },
+    "2026-05-21T10:02:00.000Z",
+  );
+
+  expect(run.capabilityDefinitions?.[0]?.name).toBe("FirstPrinciples");
+  expect(run.capabilitySelections?.[0]).toMatchObject({
+    name: "FirstPrinciples",
+    status: "selected",
+  });
+});
+
+test("rejects malformed adapter capability definitions", () => {
+  const run = createAlgorithmRun({
+    id: "malformed-adapter-capability",
+    timestamp: "2026-05-21T10:00:00.000Z",
+    prompt: "Reject malformed capability",
+    intent: "Validate adapter registrations before cloning.",
+    currentState: "Adapter definition is malformed.",
+    goal: "Registration fails with a domain error.",
+    criteria: [{ id: "C1", text: "Malformed registration is rejected." }],
+  });
+
+  expect(() =>
+    registerAlgorithmCapabilityDefinition(run, {
+      name: "MalformedCapability",
+      kind: "adapter",
+      phases: ["think"],
+      invoke: { contract: "adapter", target: "adapter.malformed" },
+    } as Parameters<typeof registerAlgorithmCapabilityDefinition>[1]),
+  ).toThrow("triggerSignals");
+});
+
+test("removes stale adapter capability selections without current definitions", () => {
+  let run = createAlgorithmRun({
+    id: "stale-adapter-capability",
+    timestamp: "2026-05-21T10:00:00.000Z",
+    prompt: "Remove stale adapter selection",
+    intent: "Unblock completion after registry drift.",
+    currentState: "Adapter definition is not registered in this process.",
+    goal: "Stored selection can still be removed.",
+    criteria: [{ id: "C1", text: "Removal does not require current definition." }],
+  });
+  run = {
+    ...run,
+    capabilitySelections: [
+      {
+        name: "AdapterOnlyCapability",
+        phase: "think",
+        reason: "Selected in a previous adapter process.",
+        status: "selected",
+        selectedAt: "2026-05-21T10:01:00.000Z",
+      },
+    ],
+  };
+
+  run = removeAlgorithmCapabilitySelection(run, { name: "AdapterOnlyCapability", reason: "Adapter is not available now." });
+
+  expect(run.capabilitySelections?.[0]).toMatchObject({
+    name: "AdapterOnlyCapability",
+    status: "removed",
+  });
+});
+
+test("reselecting an invoked capability creates a fresh unresolved commitment", () => {
+  let run = createAlgorithmRun({
+    id: "reselected-capability",
+    timestamp: "2026-05-21T10:00:00.000Z",
+    prompt: "Reselect capability",
+    intent: "Avoid stale invocation reuse.",
+    currentState: "Capability was invoked for an earlier reason.",
+    goal: "New reason requires new evidence.",
+    criteria: [{ id: "C1", text: "Reselection is unresolved." }],
+  });
+  run = registerFirstPrinciples(run);
+  run = selectAlgorithmCapability(run, { name: "FirstPrinciples", phase: "think", reason: "Initial decomposition." });
+  run = recordAlgorithmCapabilityInvocation(run, { name: "FirstPrinciples", evidence: "Initial invocation." });
+
+  run = selectAlgorithmCapability(run, { name: "FirstPrinciples", phase: "plan", reason: "New planning decomposition." });
+
+  expect(run.capabilitySelections).toHaveLength(2);
+  expect(run.capabilitySelections?.[1]).toMatchObject({
+    name: "FirstPrinciples",
+    phase: "plan",
+    reason: "New planning decomposition.",
+    status: "selected",
+  });
+});
+
+test("reselecting an unchanged invoked capability preserves invocation evidence", () => {
+  let run = createAlgorithmRun({
+    id: "idempotent-reselected-capability",
+    timestamp: "2026-05-21T10:00:00.000Z",
+    prompt: "Reselect same capability",
+    intent: "Keep idempotent selection safe.",
+    currentState: "Capability was invoked.",
+    goal: "Same selection preserves evidence.",
+    criteria: [{ id: "C1", text: "Invocation evidence remains." }],
+  });
+  run = registerFirstPrinciples(run);
+  run = selectAlgorithmCapability(run, { name: "FirstPrinciples", phase: "think", reason: "Initial decomposition." });
+  run = recordAlgorithmCapabilityInvocation(run, { name: "FirstPrinciples", evidence: "Initial invocation." });
+
+  run = selectAlgorithmCapability(run, { name: "FirstPrinciples", phase: "think", reason: "Initial decomposition." });
+
+  expect(run.capabilitySelections).toHaveLength(1);
+  expect(run.capabilitySelections?.[0]).toMatchObject({
+    status: "invoked",
+    invocation: { evidence: "Initial invocation." },
+  });
+});
+
+test("removed Algorithm capabilities do not block completion", () => {
+  let run = createAlgorithmRun({
+    id: "removed-capability",
+    timestamp: "2026-05-21T10:00:00.000Z",
+    prompt: "Remove unnecessary capability",
+    intent: "Allow explicit de-selection.",
+    currentState: "Capability was selected too early.",
+    goal: "Completion is not blocked after removal.",
+    criteria: [{ id: "C1", text: "Removal records reason." }],
+  });
+
+  run = selectAlgorithmCapability(run, { name: "ReReadCheck", phase: "verify", reason: "Initial verification concern." });
+  run = removeAlgorithmCapabilitySelection(run, { name: "ReReadCheck", reason: "Covered by a narrower manual check." });
+
+  expect(run.capabilitySelections?.[0]).toMatchObject({
+    status: "removed",
+    removalReason: "Covered by a narrower manual check.",
+  });
+});
+
+test("applies Algorithm batch operations with one timestamp", () => {
+  let run = createAlgorithmRun({
+    id: "batch-timestamp",
+    timestamp: "2026-05-21T10:00:00.000Z",
+    prompt: "Batch timestamps",
+    intent: "Keep batch mutations coherent.",
+    currentState: "Batch operations can touch several capability fields.",
+    goal: "Batch mutation timestamps are consistent.",
+    criteria: [{ id: "C1", text: "Capability selection and invocation share a timestamp." }],
+  });
+  run = advanceAlgorithmRun(run, "2026-05-21T10:01:00.000Z");
+
+  run = applyAlgorithmBatch(
+    run,
+    [
+      { kind: "capability", capability: "sequential-analysis" },
+      { kind: "capability-invocation", capability: "sequential-analysis", evidence: "Batch invocation evidence." },
+    ],
+    "2026-05-21T10:02:00.000Z",
+  );
+
+  expect(run.updatedAt).toBe("2026-05-21T10:02:00.000Z");
+  expect(run.capabilitySelections?.[0]?.selectedAt).toBe("2026-05-21T10:02:00.000Z");
+  expect(run.capabilitySelections?.[0]?.invocation?.timestamp).toBe("2026-05-21T10:02:00.000Z");
 });
 
 test("abandoned runs cannot advance", async () => {
