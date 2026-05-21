@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { mkdtemp } from "node:fs/promises";
 import { applySomaWriteback, bootstrapSomaHome, readIsa, scaffoldIsa, setActiveIsa } from "../src/index";
 
 async function tempHome(): Promise<string> {

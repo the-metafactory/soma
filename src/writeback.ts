@@ -47,6 +47,26 @@ export interface SomaWritebackResult {
   writes: string[];
 }
 
+async function assertWritebackAllowed(options: {
+  somaHome: string;
+  substrate: SubstrateId;
+  destinationPath: string;
+  timestamp?: string;
+  deniedMessage: string;
+}): Promise<void> {
+  const policy = await checkSomaPolicy({
+    somaHome: options.somaHome,
+    substrate: options.substrate,
+    action: "modify",
+    destinationPath: options.destinationPath,
+    record: "deny",
+    timestamp: options.timestamp,
+  });
+  if (policy.decision === "deny") {
+    throw new Error(`${options.deniedMessage}: ${policy.reason}`);
+  }
+}
+
 function assertRelativePath(path: string): void {
   if (path.trim().length === 0 || path.startsWith("/") || path.split(/[\\/]+/u).includes("..")) {
     throw new Error(`Invalid writeback relative path: ${path}`);
@@ -59,17 +79,13 @@ export async function applySomaWriteback(options: SomaWritebackOptions): Promise
   switch (options.operation.kind) {
     case "memory-event": {
       const eventPath = somaMemoryEventsPath(options.somaHome);
-      const policy = await checkSomaPolicy({
+      await assertWritebackAllowed({
         somaHome: options.somaHome,
         substrate,
-        action: "modify",
         destinationPath: eventPath,
-        record: "deny",
         timestamp: options.timestamp,
+        deniedMessage: "Writeback gate denied memory-event write",
       });
-      if (policy.decision === "deny") {
-        throw new Error(`Writeback gate denied memory-event write: ${policy.reason}`);
-      }
 
       await appendSomaMemoryEvent(options.somaHome, {
         ...options.operation.event,
@@ -111,17 +127,13 @@ export async function applySomaWriteback(options: SomaWritebackOptions): Promise
       }
 
       const targetPath = isaPath(options.somaHome, slug);
-      const policy = await checkSomaPolicy({
+      await assertWritebackAllowed({
         somaHome: options.somaHome,
         substrate,
-        action: "modify",
         destinationPath: targetPath,
-        record: "deny",
         timestamp: options.timestamp,
+        deniedMessage: "Writeback gate denied ISA write",
       });
-      if (policy.decision === "deny") {
-        throw new Error(`Writeback gate denied ISA write: ${policy.reason}`);
-      }
 
       const write = await applyIsaUpdate(slug, entries, { somaHome: options.somaHome, timestamp: options.timestamp, substrate });
       await appendSomaMemoryEvent(options.somaHome, {
