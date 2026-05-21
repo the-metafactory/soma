@@ -54,6 +54,7 @@ const CODEX_HOME_FILES = [
   "hooks/codex-hook-entry.mjs",
   "hooks/soma-feedback-capture.mjs",
   "hooks/codex-policy-hook.mjs",
+  "hooks/codex-policy-targets.mjs",
   "hooks/policy-marker.mjs",
   "skills/soma/SKILL.md",
   "skills/the-algorithm/SKILL.md",
