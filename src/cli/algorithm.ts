@@ -712,8 +712,12 @@ export async function runAlgorithmCli(parsed: ParsedAlgorithmArgs): Promise<stri
 
   if (parsed.action === "batch") {
     const operations = options.batchOperations ?? [];
-    return updateAndReportAlgorithmRun(options, (run) => applyAlgorithmBatch(run, operations));
+    return updateAndReportAlgorithmRun(options, (run) => applyAlgorithmBatch(run, operations), {
+      registerCapabilities: true,
+    });
   }
 
-  return updateAndReportAlgorithmRun(options, (run) => advanceAlgorithmRun(run));
+  return updateAndReportAlgorithmRun(options, (run) => advanceAlgorithmRun(run), {
+    registerCapabilities: true,
+  });
 }
