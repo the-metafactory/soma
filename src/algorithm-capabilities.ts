@@ -105,6 +105,7 @@ function normalizeCapabilityKey(value: string): string {
 function stripMarkdownEmphasis(value: string): string {
   return value
     .replaceAll("**", "")
+    .replaceAll("*", "")
     .replaceAll("`", "")
     .trim();
 }

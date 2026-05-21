@@ -3502,16 +3502,20 @@ function requireText(options: AlgorithmCliOptions): string {
 async function updateAndReportAlgorithmRun(
   options: AlgorithmCliOptions,
   update: (run: AlgorithmRun) => AlgorithmRun,
+  registration: { registerCapabilities?: boolean } = {},
 ): Promise<string> {
   const id = requireAlgorithmId(options);
   const { run } = await readAlgorithmRunById(id, {
     homeDir: options.homeDir,
     somaHome: options.somaHome,
   });
-  const registered = await registerSomaHomeAlgorithmCapabilities(run, {
-    homeDir: options.homeDir,
-    somaHome: options.somaHome,
-  });
+  const registered =
+    registration.registerCapabilities === true
+      ? await registerSomaHomeAlgorithmCapabilities(run, {
+          homeDir: options.homeDir,
+          somaHome: options.somaHome,
+        })
+      : run;
   const written = await writeAlgorithmRun(update(registered), {
     homeDir: options.homeDir,
     somaHome: options.somaHome,
@@ -3575,18 +3579,22 @@ async function runAlgorithmCli(parsed: ParsedAlgorithmArgs): Promise<string> {
     if (capabilities.length > 1 && options.capabilityReason) {
       throw new Error("--reason can only be used with one --capability at a time.");
     }
-    return updateAndReportAlgorithmRun(options, (run) => {
-      const currentRun = run;
-      return capabilities.reduce(
-        (current, capability) =>
-          selectAlgorithmCapability(current, {
-            name: capability,
-            phase: options.capabilityPhase,
-            reason: options.capabilityReason,
-          }),
-        currentRun,
-      );
-    });
+    return updateAndReportAlgorithmRun(
+      options,
+      (run) => {
+        const currentRun = run;
+        return capabilities.reduce(
+          (current, capability) =>
+            selectAlgorithmCapability(current, {
+              name: capability,
+              phase: options.capabilityPhase,
+              reason: options.capabilityReason,
+            }),
+          currentRun,
+        );
+      },
+      { registerCapabilities: true },
+    );
   }
 
   if (parsed.action === "invoke") {
@@ -3594,12 +3602,15 @@ async function runAlgorithmCli(parsed: ParsedAlgorithmArgs): Promise<string> {
     if (!capability || !options.evidence) {
       throw new Error("--capability and --evidence are required.");
     }
-    return updateAndReportAlgorithmRun(options, (run) =>
-      recordAlgorithmCapabilityInvocation(run, {
-        name: capability,
-        substrate: options.substrate,
-        evidence: options.evidence ?? "",
-      }),
+    return updateAndReportAlgorithmRun(
+      options,
+      (run) =>
+        recordAlgorithmCapabilityInvocation(run, {
+          name: capability,
+          substrate: options.substrate,
+          evidence: options.evidence ?? "",
+        }),
+      { registerCapabilities: true },
     );
   }
 
@@ -3656,7 +3667,7 @@ async function runAlgorithmCli(parsed: ParsedAlgorithmArgs): Promise<string> {
 
   if (parsed.action === "batch") {
     const operations = options.batchOperations ?? [];
-    return updateAndReportAlgorithmRun(options, (run) => applyAlgorithmBatch(run, operations));
+    return updateAndReportAlgorithmRun(options, (run) => applyAlgorithmBatch(run, operations), { registerCapabilities: true });
   }
 
   return updateAndReportAlgorithmRun(options, (run) => advanceAlgorithmRun(run));

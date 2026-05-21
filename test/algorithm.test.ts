@@ -59,6 +59,7 @@ async function writeAlgorithmCapabilitiesReference(homeDir: string, somaHome = "
       "| Capability | When | Invoke |",
       "|------------|------|--------|",
       "| BuildCommand | EXECUTE | `bun run build` |",
+      "| WrappedBuildCommand | EXECUTE | *bun run wrapped* |",
       "",
     ].join("\n"),
     "utf8",
@@ -281,6 +282,12 @@ test("loads migrated PAI Algorithm skill capabilities from Soma home", async () 
       kind: "command",
       phases: ["execute"],
       invoke: { contract: "command", target: "bun run build" },
+    });
+    expect(registry.definitions.find((definition) => definition.name === "WrappedBuildCommand")).toMatchObject({
+      name: "WrappedBuildCommand",
+      kind: "command",
+      phases: ["execute"],
+      invoke: { contract: "command", target: "bun run wrapped" },
     });
     expect(registry.definitions.some((definition) => definition.name === "MissingSkill")).toBe(false);
     expect(registry.unsupported).toContain("MissingSkill");
