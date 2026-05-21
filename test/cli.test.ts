@@ -5,6 +5,10 @@ import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { runSomaCli } from "../src/cli";
 import { ALGORITHM_ACTIONS } from "../src/cli/algorithm";
+import {
+  INSTALL_SUBSTRATES,
+  SUBSTRATE_LIFECYCLE_COMMAND_HELP,
+} from "../src/cli/substrate-lifecycle";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-cli-"));
@@ -160,6 +164,23 @@ test("algorithm step help only advertises supported statuses", async () => {
 
   expect(output).toContain("--status <open|done|blocked>");
   expect(output).not.toContain("dropped");
+});
+
+test("substrate lifecycle command module keeps substrates and help in sync", async () => {
+  for (const command of ["install", "uninstall"] as const) {
+    const groupHelp = await runSomaCli([command, "--help"]);
+
+    expect(groupHelp).toBe(SUBSTRATE_LIFECYCLE_COMMAND_HELP[command].usage);
+    for (const substrate of INSTALL_SUBSTRATES) {
+      const expected = SUBSTRATE_LIFECYCLE_COMMAND_HELP[command].subcommands?.[substrate];
+      expect(expected).toBeDefined();
+      await expect(runSomaCli([command, substrate, "--help"])).resolves.toBe(expected!);
+    }
+  }
+
+  for (const command of ["reproject", "upgrade", "export", "daemon"] as const) {
+    await expect(runSomaCli([command, "--help"])).resolves.toBe(SUBSTRATE_LIFECYCLE_COMMAND_HELP[command].usage);
+  }
 });
 
 test("cli reports unknown top-level command with suggestion", async () => {
