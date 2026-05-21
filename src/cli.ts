@@ -1,9 +1,9 @@
 import { readSync } from "node:fs";
 import { cursorWorkspaceSubstrateHome } from "./adapters/cursor";
 import {
-  addAlgorithmCapabilities,
   applyAlgorithmBatch,
   advanceAlgorithmRun,
+  algorithmPhaseOrder,
   checkSomaPolicyBatch,
   checkSomaPolicy,
   classifyAlgorithmPrompt,
@@ -44,15 +44,18 @@ import {
   planSomaForPiDevInstall,
   promoteAlgorithmRunMemory,
   readAlgorithmRunById,
+  recordAlgorithmCapabilityInvocation,
   recordAlgorithmChange,
   recordAlgorithmDecision,
   recordAlgorithmLearning,
+  removeAlgorithmCapabilitySelection,
   runSomaLifecycleAlgorithmUpdated,
   runSomaLifecycleSessionEnd,
   runSomaLifecycleSessionStart,
   searchSomaMemory,
   searchSomaResults,
   setAlgorithmPlan,
+  selectAlgorithmCapability,
   updateAlgorithmPlanStep,
   updateAlgorithmRunById,
   verifyAlgorithmCriterion,
@@ -68,6 +71,7 @@ import type {
   AlgorithmImportOptions,
   AlgorithmImportPlan,
   AlgorithmImportResult,
+  AlgorithmPhase,
   AlgorithmPlanStep,
   AlgorithmRun,
   AlgorithmRunInput,
@@ -288,6 +292,8 @@ interface ParsedAlgorithmArgs {
     | "list"
     | "show"
     | "capabilities"
+    | "invoke"
+    | "remove-capability"
     | "plan"
     | "decision"
     | "change"
@@ -306,6 +312,8 @@ interface AlgorithmCliOptions {
   id?: string;
   prompt?: string;
   capabilities?: string[];
+  capabilityPhase?: AlgorithmPhase;
+  capabilityReason?: string;
   planSteps?: AlgorithmPlanStep[];
   text?: string;
   stepId?: string;
@@ -313,6 +321,7 @@ interface AlgorithmCliOptions {
   criterionId?: string;
   criterionStatus?: "passed" | "failed" | "dropped";
   evidence?: string;
+  substrate?: SubstrateId;
   batchOperations?: AlgorithmBatchOperation[];
   json?: boolean;
 }
@@ -457,14 +466,16 @@ const DOCTOR_USAGE =
   "Usage: soma doctor [--home-dir <dir>] [--soma-home <dir>] [--substrate codex]";
 const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string, string> }> = {
   algorithm: {
-    usage: "Usage: soma algorithm <new|classify|list|show|capabilities|plan|decision|change|step|verify|learn|batch|advance> ...",
+    usage: "Usage: soma algorithm <new|classify|list|show|capabilities|invoke|remove-capability|plan|decision|change|step|verify|learn|batch|advance> ...",
     subcommands: {
       new: "Usage: soma algorithm new --prompt <text> --intent <text> --current-state <text> --goal <text> --criterion <id:text> [--effort <E1|E2|E3|E4|E5>] [--home-dir <dir>] [--soma-home <dir>]",
       classify: "Usage: soma algorithm classify --prompt <text> [--json]",
       batch: "Usage: soma algorithm batch --id <run-id> --op <kind:...> [--op <kind:...>]",
       list: "Usage: soma algorithm list [--home-dir <dir>] [--soma-home <dir>]",
       show: "Usage: soma algorithm show --id <run-id> [--home-dir <dir>] [--soma-home <dir>]",
-      capabilities: "Usage: soma algorithm capabilities --id <run-id> --capability <name> [--home-dir <dir>] [--soma-home <dir>]",
+      capabilities: "Usage: soma algorithm capabilities --id <run-id> --capability <name> [--phase <phase>] [--reason <text>] [--home-dir <dir>] [--soma-home <dir>]",
+      invoke: "Usage: soma algorithm invoke --id <run-id> --capability <name> --evidence <text> [--substrate <id>] [--home-dir <dir>] [--soma-home <dir>]",
+      "remove-capability": "Usage: soma algorithm remove-capability --id <run-id> --capability <name> --reason <text> [--home-dir <dir>] [--soma-home <dir>]",
       plan: "Usage: soma algorithm plan --id <run-id> --step <id:criteria:text> [--home-dir <dir>] [--soma-home <dir>]",
       decision: "Usage: soma algorithm decision --id <run-id> --text <text> [--home-dir <dir>] [--soma-home <dir>]",
       change: "Usage: soma algorithm change --id <run-id> --text <text> [--home-dir <dir>] [--soma-home <dir>]",
@@ -996,6 +1007,23 @@ function parseBatchOperation(value: string): AlgorithmBatchOperation {
     return { kind, capability: payload };
   }
 
+  if (kind === "capability-invocation") {
+    return parseCapabilityInvocationOperation(payload);
+  }
+
+  if (kind === "capability-removal") {
+    const [capability, ...reasonParts] = payload.split(":");
+    const reason = reasonParts.join(":").trim();
+    if (!capability || !reason) {
+      throw new Error("--op capability-removal requires capability-removal:<name>:<reason>.");
+    }
+    return {
+      kind,
+      capability: capability.trim(),
+      reason,
+    };
+  }
+
   if (kind === "advance") {
     return { kind };
   }
@@ -1025,7 +1053,26 @@ function parseBatchOperation(value: string): AlgorithmBatchOperation {
     };
   }
 
-  throw new Error("--op must start with decision, change, learn, capability, step, verify, or advance.");
+  throw new Error("--op must start with decision, change, learn, capability, capability-invocation, capability-removal, step, verify, or advance.");
+}
+
+function parseCapabilityInvocationOperation(payload: string): AlgorithmBatchOperation {
+  const [capability, maybeSubstrate, ...restParts] = payload.split(":");
+  const explicitSubstrate = maybeSubstrate?.trim().startsWith("substrate=") === true
+    ? maybeSubstrate.trim().slice("substrate=".length)
+    : undefined;
+  const evidence = (explicitSubstrate ? restParts : [maybeSubstrate, ...restParts]).join(":").trim();
+
+  if (!capability || !evidence) {
+    throw new Error("--op capability-invocation requires capability-invocation:<name>:<evidence> or capability-invocation:<name>:substrate=<id>:<evidence>.");
+  }
+
+  return {
+    kind: "capability-invocation",
+    capability: capability.trim(),
+    substrate: explicitSubstrate ? parseSubstrate(explicitSubstrate) : undefined,
+    evidence,
+  };
 }
 
 function parseBatchOperationsJson(value: string): AlgorithmBatchOperation[] {
@@ -1045,11 +1092,24 @@ function parseBatchOperationsJson(value: string): AlgorithmBatchOperation[] {
 }
 
 function parseSubstrate(value: string): SubstrateId {
-  if (value === "codex" || value === "pi-dev" || value === "claude-code" || value === "cursor" || value === "cortex" || value === "custom") {
+  if (isSubstrateId(value)) {
     return value;
   }
 
   throw new Error("--substrate must be one of codex, pi-dev, claude-code, cursor, cortex, or custom.");
+}
+
+function isSubstrateId(value: string): value is SubstrateId {
+  return value === "codex" || value === "pi-dev" || value === "claude-code" || value === "cursor" || value === "cortex" || value === "custom";
+}
+
+function parseAlgorithmPhase(value: string): AlgorithmPhase {
+  const phases = algorithmPhaseOrder();
+  if (phases.includes(value as AlgorithmPhase)) {
+    return value as AlgorithmPhase;
+  }
+
+  throw new Error(`--phase must be one of ${phases.join(", ")}.`);
 }
 
 function parseMemoryPromotionStore(value: string): SomaMemoryPromotionStore {
@@ -1069,6 +1129,8 @@ function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
     "list",
     "show",
     "capabilities",
+    "invoke",
+    "remove-capability",
     "plan",
     "decision",
     "change",
@@ -1146,6 +1208,18 @@ function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
         break;
       case "--capability":
         capabilities.push(readOption(rest, index, arg));
+        index += 1;
+        break;
+      case "--phase":
+        options.capabilityPhase = parseAlgorithmPhase(readOption(rest, index, arg));
+        index += 1;
+        break;
+      case "--reason":
+        options.capabilityReason = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--substrate":
+        options.substrate = parseSubstrate(readOption(rest, index, arg));
         index += 1;
         break;
       case "--step":
@@ -3389,6 +3463,15 @@ function formatAlgorithmRun(run: AlgorithmRun, path: string): string {
     "",
     "Plan:",
     ...(run.planSteps.length > 0 ? run.planSteps.map((step) => `- [${step.status}] ${step.id}: ${step.text} (${step.criteriaIds.join(",")})`) : ["- none"]),
+    "",
+    "Capabilities:",
+    ...((run.capabilitySelections ?? []).length > 0
+      ? (run.capabilitySelections ?? []).map((selection) =>
+          `- [${selection.status}] ${selection.name} (${selection.phase})${selection.invocation ? ` | ${selection.invocation.evidence}` : ""}`,
+        )
+      : run.capabilities.length > 0
+        ? run.capabilities.map((capability) => `- [legacy] ${capability}`)
+        : ["- none"]),
   ].join("\n");
 }
 
@@ -3470,7 +3553,51 @@ async function runAlgorithmCli(parsed: ParsedAlgorithmArgs): Promise<string> {
   }
 
   if (parsed.action === "capabilities") {
-    return updateAndReportAlgorithmRun(options, (run) => addAlgorithmCapabilities(run, options.capabilities ?? []));
+    const capabilities = options.capabilities ?? [];
+    if (capabilities.length === 0) {
+      throw new Error("--capability is required.");
+    }
+    if (capabilities.length > 1 && options.capabilityReason) {
+      throw new Error("--reason can only be used with one --capability at a time.");
+    }
+    return updateAndReportAlgorithmRun(options, (run) =>
+      capabilities.reduce(
+        (current, capability) =>
+          selectAlgorithmCapability(current, {
+            name: capability,
+            phase: options.capabilityPhase,
+            reason: options.capabilityReason,
+          }),
+        run,
+      ),
+    );
+  }
+
+  if (parsed.action === "invoke") {
+    const [capability] = options.capabilities ?? [];
+    if (!capability || !options.evidence) {
+      throw new Error("--capability and --evidence are required.");
+    }
+    return updateAndReportAlgorithmRun(options, (run) =>
+      recordAlgorithmCapabilityInvocation(run, {
+        name: capability,
+        substrate: options.substrate,
+        evidence: options.evidence ?? "",
+      }),
+    );
+  }
+
+  if (parsed.action === "remove-capability") {
+    const [capability] = options.capabilities ?? [];
+    if (!capability || !options.capabilityReason) {
+      throw new Error("--capability and --reason are required.");
+    }
+    return updateAndReportAlgorithmRun(options, (run) =>
+      removeAlgorithmCapabilitySelection(run, {
+        name: capability,
+        reason: options.capabilityReason ?? "",
+      }),
+    );
   }
 
   if (parsed.action === "plan") {
