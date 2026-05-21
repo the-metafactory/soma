@@ -431,6 +431,7 @@ export function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
   if (action === "new") {
     validateAlgorithmRunInput(run);
     run.id = options.id;
+    run.substrate = options.substrate;
     options.run = run as AlgorithmRunInput;
   }
 
