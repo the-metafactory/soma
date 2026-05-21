@@ -85,10 +85,10 @@ import type {
   SomaPolicyCheckOptions,
   SomaPolicyCheckResult,
   SomaPolicyBatchTarget,
-  SubstrateId,
 } from "./types";
 import { SOMA_FEEDBACK_STDIN_MAX_BYTES } from "./feedback-contract";
 import { ISA_SUBCOMMAND_HELP, ISA_USAGE_HEADER, runIsaCli } from "./cli-isa";
+import { parseSubstrate } from "./cli/substrate";
 import {
   ALGORITHM_COMMAND_HELP,
   parseAlgorithmArgs,
@@ -836,18 +836,6 @@ function parseImportArgs(args: string[]): ParsedImportArgs {
     apply,
     options,
   };
-}
-
-function parseSubstrate(value: string): SubstrateId {
-  if (isSubstrateId(value)) {
-    return value;
-  }
-
-  throw new Error("--substrate must be one of codex, pi-dev, claude-code, cursor, cortex, or custom.");
-}
-
-function isSubstrateId(value: string): value is SubstrateId {
-  return value === "codex" || value === "pi-dev" || value === "claude-code" || value === "cursor" || value === "cortex" || value === "custom";
 }
 
 function parseMemoryPromotionStore(value: string): SomaMemoryPromotionStore {
