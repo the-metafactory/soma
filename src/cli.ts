@@ -1,15 +1,9 @@
 import { readSync } from "node:fs";
-import { cursorWorkspaceSubstrateHome } from "./adapters/cursor";
 import {
-  applyAlgorithmBatch,
-  advanceAlgorithmRun,
-  algorithmPhaseOrder,
   checkSomaPolicyBatch,
   checkSomaPolicy,
-  classifyAlgorithmPrompt,
   captureSomaFeedback,
   captureSomaResult,
-  createAlgorithmRun,
   importAlgorithm,
   importPaiDocs,
   importPaiIdentity,
@@ -20,61 +14,28 @@ import {
   type PaiMigrationPlan,
   type PaiMigrationResult,
   installSomaForClaudeCode,
-  installSomaForCodex,
-  installSomaForCursor,
-  installSomaForPiDev,
   planSomaForClaudeCodeInstall,
-  planSomaForCursorInstall,
   uninstallSomaForClaudeCode,
-  uninstallSomaForCursor,
   type UninstallClaudeCodeOptions,
-  type UninstallClaudeCodeResult,
-  type UninstallCursorResult,
-  buildClaudeCodeHomeProjection,
-  buildCodexHomeProjection,
-  buildCursorHomeProjection,
-  buildPiDevHomeProjection,
-  loadSomaHome,
-  listAlgorithmRunSummaries,
   planAlgorithmImport,
   planPaiDocsImport,
   planPaiImport,
   planPaiPackImport,
-  planSomaForCodexInstall,
-  planSomaForPiDevInstall,
   promoteAlgorithmRunMemory,
-  readAlgorithmRunById,
-  recordAlgorithmCapabilityInvocation,
-  recordAlgorithmChange,
-  recordAlgorithmDecision,
-  recordAlgorithmLearning,
-  removeAlgorithmCapabilitySelection,
   runSomaLifecycleAlgorithmUpdated,
   runSomaLifecycleSessionEnd,
   runSomaLifecycleSessionStart,
   searchSomaMemory,
   searchSomaResults,
-  setAlgorithmPlan,
-  selectAlgorithmCapability,
-  updateAlgorithmPlanStep,
-  updateAlgorithmRunById,
-  verifyAlgorithmCriterion,
-  writeAlgorithmRun,
 } from "./index";
 // Sage r2 #99 Architecture: presentation helper imported directly
 // (not re-exported from the package root) so the text-rendering shape
 // stays internal and revisable without an SDK breakage.
 import { formatPackOutcomeLines } from "./pai-migration";
 import type {
-  AlgorithmEffortTier,
-  AlgorithmBatchOperation,
   AlgorithmImportOptions,
   AlgorithmImportPlan,
   AlgorithmImportResult,
-  AlgorithmPhase,
-  AlgorithmPlanStep,
-  AlgorithmRun,
-  AlgorithmRunInput,
   PaiImportOptions,
   PaiImportPlan,
   PaiImportResult,
@@ -85,10 +46,7 @@ import type {
   PaiDocsImportOptions,
   PaiDocsImportPlan,
   PaiDocsImportResult,
-  ProjectionInput,
   SomaInstallOptions,
-  SomaInstallPlan,
-  SomaInstallResult,
   SomaDoctorDiagnosis,
   SomaInitPlan,
   SomaOnboardingOptions,
@@ -113,6 +71,34 @@ import type {
 } from "./types";
 import { SOMA_FEEDBACK_STDIN_MAX_BYTES } from "./feedback-contract";
 import { ISA_SUBCOMMAND_HELP, ISA_USAGE_HEADER, runIsaCli } from "./cli-isa";
+import {
+  ALGORITHM_COMMAND_HELP,
+  parseAlgorithmArgs,
+  runAlgorithmCli,
+  type ParsedAlgorithmArgs,
+} from "./cli/algorithm";
+import { SomaCliError } from "./cli/errors";
+import {
+  SUBSTRATE_LIFECYCLE_COMMAND_HELP,
+  formatClaudeUninstallResult,
+  formatInstallResult,
+  formatPlan,
+  parseDaemonArgs,
+  parseExportArgs,
+  parseInstallArgs,
+  parseOnboardingSubstrate,
+  parseReprojectArgs,
+  parseUninstallArgs,
+  parseUpgradeArgs,
+  runSubstrateLifecycleCli,
+  type ParsedDaemonArgs,
+  type ParsedExportArgs,
+  type ParsedInstallArgs,
+  type ParsedReprojectArgs,
+  type ParsedSubstrateLifecycleArgs,
+  type ParsedUninstallArgs,
+  type ParsedUpgradeArgs,
+} from "./cli/substrate-lifecycle";
 // #115 — `soma migrate claude-skills` (Phase 1). Module-internal, not
 // re-exported from the package barrel, same pattern as
 // `pai-memory-migrator.ts` (#90 Sage r2 Architecture finding — the
@@ -152,23 +138,10 @@ import { RELATIONSHIP_REFLECT_USAGE, runRelationshipCli } from "./tools/relation
 import { runWisdomCli } from "./tools/wisdom/cli";
 import { applySomaInit, diagnoseSomaDoctor, planSomaInit } from "./onboarding";
 
-/**
- * Typed CLI error carrying an exit code distinct from the default 1.
- * Used by `soma isa` (#36) to surface system errors (2) vs user errors (1)
- * vs success (0) per the established CLI convention.
- */
-export class SomaCliError extends Error {
-  readonly exitCode: 1 | 2;
-  constructor(message: string, exitCode: 1 | 2) {
-    super(message);
-    this.name = "SomaCliError";
-    this.exitCode = exitCode;
-  }
-}
-import { getCriteria, getGoal } from "./isa-accessors";
-import { getRunPhase } from "./algorithm-lifecycle";
 import { isSomaResultEventKind } from "./result-capture";
 import { SOMA_RESULT_EVENT_KINDS } from "./types";
+
+export { SomaCliError } from "./cli/errors";
 
 /**
  * #106 — single-source helper for emitting the
@@ -186,48 +159,6 @@ function warnDeprecatedSubstrateFlag(): void {
   process.stderr.write(
     "Warning: --include-substrate-specific is deprecated; use --include-unrecognized.\n",
   );
-}
-
-type InstallSubstrate = "codex" | "pi-dev" | "claude-code" | "cursor";
-
-interface ParsedInstallArgs {
-  command: "install";
-  substrate: InstallSubstrate;
-  apply: boolean;
-  workspace: boolean;
-  options: SomaInstallOptions;
-}
-
-interface ParsedUninstallArgs {
-  command: "uninstall";
-  substrate: InstallSubstrate;
-  workspace: boolean;
-  options: SomaInstallOptions & UninstallClaudeCodeOptions;
-}
-
-interface ParsedReprojectArgs {
-  command: "reproject";
-  substrate: InstallSubstrate;
-  workspace: boolean;
-  options: SomaInstallOptions;
-}
-
-interface ParsedUpgradeArgs {
-  command: "upgrade";
-  substrate: InstallSubstrate;
-  workspace: boolean;
-  options: SomaInstallOptions;
-}
-
-interface ParsedExportArgs {
-  command: "export";
-  substrate: InstallSubstrate;
-  out?: string;
-  options: SomaInstallOptions;
-}
-
-interface ParsedDaemonArgs {
-  command: "daemon";
 }
 
 interface ParsedInitArgs {
@@ -282,48 +213,6 @@ interface ParsedAdoptArgs {
   substrate: "claude";
   mode: "plan" | "apply" | "uninstall";
   options: SomaInstallOptions & UninstallClaudeCodeOptions;
-}
-
-interface ParsedAlgorithmArgs {
-  command: "algorithm";
-  action:
-    | "new"
-    | "classify"
-    | "list"
-    | "show"
-    | "capabilities"
-    | "invoke"
-    | "remove-capability"
-    | "plan"
-    | "decision"
-    | "change"
-    | "step"
-    | "verify"
-    | "learn"
-    | "batch"
-    | "advance";
-  options: AlgorithmCliOptions;
-}
-
-interface AlgorithmCliOptions {
-  homeDir?: string;
-  somaHome?: string;
-  run?: AlgorithmRunInput;
-  id?: string;
-  prompt?: string;
-  capabilities?: string[];
-  capabilityPhase?: AlgorithmPhase;
-  capabilityReason?: string;
-  planSteps?: AlgorithmPlanStep[];
-  text?: string;
-  stepId?: string;
-  stepStatus?: AlgorithmPlanStep["status"];
-  criterionId?: string;
-  criterionStatus?: "passed" | "failed" | "dropped";
-  evidence?: string;
-  substrate?: SubstrateId;
-  batchOperations?: AlgorithmBatchOperation[];
-  json?: boolean;
 }
 
 interface ParsedLifecycleArgs {
@@ -465,26 +354,7 @@ const INIT_USAGE =
 const DOCTOR_USAGE =
   "Usage: soma doctor [--home-dir <dir>] [--soma-home <dir>] [--substrate codex]";
 const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string, string> }> = {
-  algorithm: {
-    usage: "Usage: soma algorithm <new|classify|list|show|capabilities|invoke|remove-capability|plan|decision|change|step|verify|learn|batch|advance> ...",
-    subcommands: {
-      new: "Usage: soma algorithm new --prompt <text> --intent <text> --current-state <text> --goal <text> --criterion <id:text> [--effort <E1|E2|E3|E4|E5>] [--home-dir <dir>] [--soma-home <dir>]",
-      classify: "Usage: soma algorithm classify --prompt <text> [--json]",
-      batch: "Usage: soma algorithm batch --id <run-id> --op <kind:...> [--op <kind:...>]",
-      list: "Usage: soma algorithm list [--home-dir <dir>] [--soma-home <dir>]",
-      show: "Usage: soma algorithm show --id <run-id> [--home-dir <dir>] [--soma-home <dir>]",
-      capabilities: "Usage: soma algorithm capabilities --id <run-id> --capability <name> [--phase <phase>] [--reason <text>] [--home-dir <dir>] [--soma-home <dir>]",
-      invoke: "Usage: soma algorithm invoke --id <run-id> --capability <name> --evidence <text> [--substrate <id>] [--home-dir <dir>] [--soma-home <dir>]",
-      "remove-capability": "Usage: soma algorithm remove-capability --id <run-id> --capability <name> --reason <text> [--home-dir <dir>] [--soma-home <dir>]",
-      plan: "Usage: soma algorithm plan --id <run-id> --step <id:criteria:text> [--home-dir <dir>] [--soma-home <dir>]",
-      decision: "Usage: soma algorithm decision --id <run-id> --text <text> [--home-dir <dir>] [--soma-home <dir>]",
-      change: "Usage: soma algorithm change --id <run-id> --text <text> [--home-dir <dir>] [--soma-home <dir>]",
-      step: "Usage: soma algorithm step --id <run-id> --step-id <id> --status <open|done|blocked|dropped> [--evidence <text>]",
-      verify: "Usage: soma algorithm verify --id <run-id> --criterion-id <id> --status <passed|failed|dropped> --evidence <text>",
-      learn: "Usage: soma algorithm learn --id <run-id> --text <text> [--home-dir <dir>] [--soma-home <dir>]",
-      advance: "Usage: soma algorithm advance --id <run-id> [--home-dir <dir>] [--soma-home <dir>]",
-    },
-  },
+  algorithm: ALGORITHM_COMMAND_HELP,
   memory: {
     usage: "Usage: soma memory <search|promote> ...",
     subcommands: {
@@ -558,36 +428,12 @@ const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string,
   lifecycle: {
     usage: "Usage: soma lifecycle <session-start|algorithm-updated|session-end> [--home-dir <dir>] [--soma-home <dir>] [--substrate <id>] [--session-id <id>]",
   },
-  install: {
-    usage: "Usage: soma install <codex|pi-dev|claude-code|cursor> [--dry-run] [--apply] [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
-    subcommands: {
-      codex: "Usage: soma install codex [--dry-run] [--apply] [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
-      "pi-dev": "Usage: soma install pi-dev [--dry-run] [--apply] [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
-      "claude-code": "Usage: soma install claude-code [--dry-run] [--apply] [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
-      cursor: "Usage: soma install cursor [--dry-run] [--apply] [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
-    },
-  },
-  uninstall: {
-    usage: "Usage: soma uninstall <codex|pi-dev|claude-code|cursor> [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
-    subcommands: {
-      codex: "Usage: soma uninstall codex [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
-      "pi-dev": "Usage: soma uninstall pi-dev [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
-      "claude-code": "Usage: soma uninstall claude-code [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
-      cursor: "Usage: soma uninstall cursor [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
-    },
-  },
-  reproject: {
-    usage: "Usage: soma reproject <codex|pi-dev|claude-code|cursor> [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
-  },
-  upgrade: {
-    usage: "Usage: soma upgrade <codex|pi-dev|claude-code|cursor> [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
-  },
-  export: {
-    usage: "Usage: soma export <codex|pi-dev|claude-code|cursor> [--out <dir>] [--home-dir <dir>] [--soma-home <dir>]",
-  },
-  daemon: {
-    usage: "Usage: soma daemon  (not yet implemented — placeholder reserves the runtime mode)",
-  },
+  install: SUBSTRATE_LIFECYCLE_COMMAND_HELP.install,
+  uninstall: SUBSTRATE_LIFECYCLE_COMMAND_HELP.uninstall,
+  reproject: SUBSTRATE_LIFECYCLE_COMMAND_HELP.reproject,
+  upgrade: SUBSTRATE_LIFECYCLE_COMMAND_HELP.upgrade,
+  export: SUBSTRATE_LIFECYCLE_COMMAND_HELP.export,
+  daemon: SUBSTRATE_LIFECYCLE_COMMAND_HELP.daemon,
   init: {
     usage: INIT_USAGE,
   },
@@ -634,176 +480,6 @@ function readOption(args: string[], index: number, name: string): string {
 function commandUsage(command: string, action?: string): string {
   const commandHelp = COMMAND_HELP[command] as { usage: string; subcommands?: Record<string, string> } | undefined;
   return (action ? commandHelp?.subcommands?.[action] : undefined) ?? commandHelp?.usage ?? `Usage: soma ${command} ...`;
-}
-
-const INSTALL_SUBSTRATES = ["codex", "pi-dev", "claude-code", "cursor"] as const satisfies readonly InstallSubstrate[];
-
-function isInstallSubstrate(value: string | undefined): value is InstallSubstrate {
-  return value !== undefined && (INSTALL_SUBSTRATES as readonly string[]).includes(value);
-}
-
-function parseOnboardingSubstrate(value: string): InstallSubstrate {
-  if (isInstallSubstrate(value)) return value;
-  throw new Error("--substrate must be one of codex, pi-dev, claude-code, or cursor.");
-}
-
-function workspaceSubstrateHome(substrate: InstallSubstrate): string {
-  // CONTEXT.md Runtime modes: workspace projection lives at
-  // `./.{codex,pi,claude}/soma` — a soma-scoped subdir so it doesn't
-  // collide with substrate-native workspace files the principal may
-  // already have for that repo.
-  if (substrate === "cursor") return cursorWorkspaceSubstrateHome();
-  const folder = substrate === "pi-dev" ? ".pi" : substrate === "claude-code" ? ".claude" : ".codex";
-  return resolveJoin(process.cwd(), folder, "soma");
-}
-
-function resolveJoin(...parts: string[]): string {
-  // Local helper to keep the cli surface free of an extra import.
-  return parts.join("/").replace(/\/+/g, "/");
-}
-
-// Shared option parser used by install/uninstall/reproject/upgrade.
-// All four verbs accept the same workspace + path triplet; this
-// keeps the workspace-default fallback in one place (Sage r1
-// maintainability finding on #54).
-function parseSubstrateLifecycleOptions(
-  substrate: InstallSubstrate,
-  rest: string[],
-  extra: (arg: string, index: number) => boolean,
-): { workspace: boolean; options: SomaInstallOptions } {
-  const options: SomaInstallOptions = {};
-  let workspace = false;
-  let substrateHomeExplicit = false;
-
-  for (let index = 0; index < rest.length; index += 1) {
-    const arg = rest[index];
-
-    switch (arg) {
-      case "--workspace":
-        workspace = true;
-        continue;
-      case "--home-dir":
-        options.homeDir = readOption(rest, index, arg);
-        index += 1;
-        continue;
-      case "--soma-home":
-        options.somaHome = readOption(rest, index, arg);
-        index += 1;
-        continue;
-      case "--substrate-home":
-        options.substrateHome = readOption(rest, index, arg);
-        substrateHomeExplicit = true;
-        index += 1;
-        continue;
-    }
-
-    if (extra(arg, index)) continue;
-
-    throw new Error(`Unknown option: ${arg}`);
-  }
-
-  if (workspace && !substrateHomeExplicit) {
-    options.substrateHome = workspaceSubstrateHome(substrate);
-  }
-
-  return { workspace, options };
-}
-
-function parseInstallArgs(args: string[]): ParsedInstallArgs {
-  const [command, substrate, ...rest] = args;
-
-  if (command !== "install" || !isInstallSubstrate(substrate)) {
-    throw new Error(commandUsage("install"));
-  }
-
-  let apply = false;
-  // The install verb layers --dry-run / --apply on top of the
-  // shared substrate-lifecycle option set. The `extra` callback
-  // hands those two flags to the shared parser so it can recognize
-  // them without claiming the other options.
-  const { workspace, options } = parseSubstrateLifecycleOptions(substrate, rest, (arg) => {
-    switch (arg) {
-      case "--dry-run":
-        apply = false;
-        return true;
-      case "--apply":
-        apply = true;
-        return true;
-    }
-    return false;
-  });
-
-  return { command, substrate, apply, workspace, options };
-}
-
-function parseLifecycleVerbArgs<T extends "uninstall" | "reproject" | "upgrade">(
-  verb: T,
-  args: string[],
-): { substrate: InstallSubstrate; workspace: boolean; options: SomaInstallOptions } {
-  const [command, substrate, ...rest] = args;
-
-  if (command !== verb || !isInstallSubstrate(substrate)) {
-    throw new Error(commandUsage(verb));
-  }
-
-  const { workspace, options } = parseSubstrateLifecycleOptions(substrate, rest, () => false);
-  return { substrate, workspace, options };
-}
-
-function parseUninstallArgs(args: string[]): ParsedUninstallArgs {
-  const { substrate, workspace, options } = parseLifecycleVerbArgs("uninstall", args);
-  return { command: "uninstall", substrate, workspace, options };
-}
-
-function parseReprojectArgs(args: string[]): ParsedReprojectArgs {
-  const { substrate, workspace, options } = parseLifecycleVerbArgs("reproject", args);
-  return { command: "reproject", substrate, workspace, options };
-}
-
-function parseUpgradeArgs(args: string[]): ParsedUpgradeArgs {
-  const { substrate, workspace, options } = parseLifecycleVerbArgs("upgrade", args);
-  return { command: "upgrade", substrate, workspace, options };
-}
-
-function parseExportArgs(args: string[]): ParsedExportArgs {
-  const [command, substrate, ...rest] = args;
-
-  if (command !== "export" || !isInstallSubstrate(substrate)) {
-    throw new Error(commandUsage("export"));
-  }
-
-  const options: SomaInstallOptions = {};
-  let out: string | undefined;
-
-  for (let index = 0; index < rest.length; index += 1) {
-    const arg = rest[index];
-
-    switch (arg) {
-      case "--out":
-        out = readOption(rest, index, arg);
-        index += 1;
-        break;
-      case "--home-dir":
-        options.homeDir = readOption(rest, index, arg);
-        index += 1;
-        break;
-      case "--soma-home":
-        options.somaHome = readOption(rest, index, arg);
-        index += 1;
-        break;
-      default:
-        throw new Error(`Unknown option: ${arg}`);
-    }
-  }
-
-  return { command: "export", substrate, out, options };
-}
-
-function parseDaemonArgs(args: string[]): ParsedDaemonArgs {
-  if (args[0] !== "daemon" || args.length > 1) {
-    throw new Error(commandUsage("daemon"));
-  }
-  return { command: "daemon" };
 }
 
 function parseImportArgs(args: string[]): ParsedImportArgs {
@@ -919,178 +595,6 @@ function parseImportArgs(args: string[]): ParsedImportArgs {
   };
 }
 
-function parseCriterion(value: string): { id: string; text: string; verification?: string } {
-  const separator = value.indexOf(":");
-
-  if (separator === -1) {
-    throw new Error("--criterion requires id:text.");
-  }
-
-  return {
-    id: value.slice(0, separator).trim(),
-    text: value.slice(separator + 1).trim(),
-  };
-}
-
-function isAntiCriterion(criterion: { id: string }): boolean {
-  return criterion.id.toLowerCase() === "anti" || criterion.id.toLowerCase().startsWith("anti-");
-}
-
-function validateAlgorithmRunInput(run: Partial<AlgorithmRunInput> & { criteria: AlgorithmRunInput["criteria"] }): void {
-  const missing: string[] = [];
-
-  if (!run.prompt) missing.push("--prompt");
-  if (!run.intent) missing.push("--intent");
-  if (!run.currentState) missing.push("--current-state");
-  if (!run.goal) missing.push("--goal");
-  if (run.criteria.length === 0) missing.push("--criterion");
-
-  if (missing.length > 0) {
-    throw new Error(`soma algorithm new is missing required option(s): ${missing.join(", ")}.`);
-  }
-}
-
-function parseEffort(value: string): AlgorithmEffortTier {
-  if (value === "E1" || value === "E2" || value === "E3" || value === "E4" || value === "E5") {
-    return value;
-  }
-
-  throw new Error("--effort must be one of E1, E2, E3, E4, or E5.");
-}
-
-function parseStepStatus(value: string): AlgorithmPlanStep["status"] {
-  if (value === "open" || value === "done" || value === "blocked") {
-    return value;
-  }
-
-  throw new Error("--status must be one of open, done, or blocked.");
-}
-
-function parseCriterionStatus(value: string): "passed" | "failed" | "dropped" {
-  if (value === "passed" || value === "failed" || value === "dropped") {
-    return value;
-  }
-
-  throw new Error("--status must be one of passed, failed, or dropped.");
-}
-
-function parsePlanStep(value: string): AlgorithmPlanStep {
-  const [id, criteria, ...textParts] = value.split(":");
-  const text = textParts.join(":").trim();
-
-  if (!id || !criteria || !text) {
-    throw new Error("--step requires id:criterion[,criterion]:text.");
-  }
-
-  return {
-    id: id.trim(),
-    criteriaIds: criteria
-      .split(",")
-      .map((criterionId) => criterionId.trim())
-      .filter((criterionId) => criterionId.length > 0),
-    text,
-    status: "open",
-  };
-}
-
-function parseBatchOperation(value: string): AlgorithmBatchOperation {
-  const [kind, ...rest] = value.split(":");
-  const payload = rest.join(":").trim();
-
-  if (kind === "decision" || kind === "change" || kind === "learn") {
-    if (!payload) throw new Error(`--op ${kind} requires text.`);
-    return { kind, text: payload };
-  }
-
-  if (kind === "capability") {
-    if (!payload) throw new Error("--op capability requires a capability name.");
-    return { kind, capability: payload };
-  }
-
-  if (kind === "capability-invocation") {
-    return parseCapabilityInvocationOperation(payload);
-  }
-
-  if (kind === "capability-removal") {
-    const [capability, ...reasonParts] = payload.split(":");
-    const reason = reasonParts.join(":").trim();
-    if (!capability || !reason) {
-      throw new Error("--op capability-removal requires capability-removal:<name>:<reason>.");
-    }
-    return {
-      kind,
-      capability: capability.trim(),
-      reason,
-    };
-  }
-
-  if (kind === "advance") {
-    return { kind };
-  }
-
-  if (kind === "step") {
-    const [stepId, status, ...evidenceParts] = payload.split(":");
-    if (!stepId || !status) throw new Error("--op step requires step:<step-id>:<open|done|blocked>[:evidence].");
-    return {
-      kind,
-      stepId: stepId.trim(),
-      status: parseStepStatus(status.trim()),
-      evidence: evidenceParts.join(":").trim() || undefined,
-    };
-  }
-
-  if (kind === "verify") {
-    const [criterionId, status, ...evidenceParts] = payload.split(":");
-    const evidence = evidenceParts.join(":").trim();
-    if (!criterionId || !status || !evidence) {
-      throw new Error("--op verify requires verify:<criterion-id>:<passed|failed|dropped>:<evidence>.");
-    }
-    return {
-      kind,
-      criterionId: criterionId.trim(),
-      status: parseCriterionStatus(status.trim()),
-      evidence,
-    };
-  }
-
-  throw new Error("--op must start with decision, change, learn, capability, capability-invocation, capability-removal, step, verify, or advance.");
-}
-
-function parseCapabilityInvocationOperation(payload: string): AlgorithmBatchOperation {
-  const [capability, maybeSubstrate, ...restParts] = payload.split(":");
-  const explicitSubstrate = maybeSubstrate?.trim().startsWith("substrate=") === true
-    ? maybeSubstrate.trim().slice("substrate=".length)
-    : undefined;
-  const evidence = (explicitSubstrate ? restParts : [maybeSubstrate, ...restParts]).join(":").trim();
-
-  if (!capability || !evidence) {
-    throw new Error("--op capability-invocation requires capability-invocation:<name>:<evidence> or capability-invocation:<name>:substrate=<id>:<evidence>.");
-  }
-
-  return {
-    kind: "capability-invocation",
-    capability: capability.trim(),
-    substrate: explicitSubstrate ? parseSubstrate(explicitSubstrate) : undefined,
-    evidence,
-  };
-}
-
-function parseBatchOperationsJson(value: string): AlgorithmBatchOperation[] {
-  const parsed = JSON.parse(value) as unknown;
-
-  if (!Array.isArray(parsed)) {
-    throw new Error("--ops-json must be a JSON array.");
-  }
-
-  return parsed.map((operation) => {
-    if (!operation || typeof operation !== "object" || !("kind" in operation)) {
-      throw new Error("--ops-json entries must be objects with kind.");
-    }
-
-    return operation as AlgorithmBatchOperation;
-  });
-}
-
 function parseSubstrate(value: string): SubstrateId {
   if (isSubstrateId(value)) {
     return value;
@@ -1103,197 +607,12 @@ function isSubstrateId(value: string): value is SubstrateId {
   return value === "codex" || value === "pi-dev" || value === "claude-code" || value === "cursor" || value === "cortex" || value === "custom";
 }
 
-function parseAlgorithmPhase(value: string): AlgorithmPhase {
-  const phases = algorithmPhaseOrder();
-  if (phases.includes(value as AlgorithmPhase)) {
-    return value as AlgorithmPhase;
-  }
-
-  throw new Error(`--phase must be one of ${phases.join(", ")}.`);
-}
-
 function parseMemoryPromotionStore(value: string): SomaMemoryPromotionStore {
   if (value === "learning" || value === "knowledge" || value === "relationship" || value === "work") {
     return value;
   }
 
   throw new Error("--store must be one of learning, knowledge, relationship, or work.");
-}
-
-function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
-  const [command, action, ...rest] = args;
-
-  const validActions = new Set([
-    "new",
-    "classify",
-    "list",
-    "show",
-    "capabilities",
-    "invoke",
-    "remove-capability",
-    "plan",
-    "decision",
-    "change",
-    "step",
-    "verify",
-    "learn",
-    "batch",
-    "advance",
-  ]);
-
-  if (command !== "algorithm" || !validActions.has(action)) {
-    throw new Error(commandUsage("algorithm"));
-  }
-
-  const run: Partial<AlgorithmRunInput> & { criteria: AlgorithmRunInput["criteria"] } = {
-    criteria: [],
-    antiCriteria: [],
-  };
-  const options: AlgorithmCliOptions = {};
-  const capabilities: string[] = [];
-  const planSteps: AlgorithmPlanStep[] = [];
-  const batchOperations: AlgorithmBatchOperation[] = [];
-
-  for (let index = 0; index < rest.length; index += 1) {
-    const arg = rest[index];
-
-    switch (arg) {
-      case "--home-dir":
-        options.homeDir = readOption(rest, index, arg);
-        index += 1;
-        break;
-      case "--soma-home":
-        options.somaHome = readOption(rest, index, arg);
-        index += 1;
-        break;
-      case "--id":
-        options.id = readOption(rest, index, arg);
-        index += 1;
-        break;
-      case "--prompt":
-        run.prompt = readOption(rest, index, arg);
-        options.prompt = run.prompt;
-        index += 1;
-        break;
-      case "--intent":
-        run.intent = readOption(rest, index, arg);
-        index += 1;
-        break;
-      case "--current-state":
-        run.currentState = readOption(rest, index, arg);
-        index += 1;
-        break;
-      case "--goal":
-        run.goal = readOption(rest, index, arg);
-        index += 1;
-        break;
-      case "--effort":
-        run.effort = parseEffort(readOption(rest, index, arg));
-        index += 1;
-        break;
-      case "--criterion":
-        {
-          const criterion = parseCriterion(readOption(rest, index, arg));
-          if (isAntiCriterion(criterion)) {
-            run.antiCriteria?.push(criterion);
-          } else {
-            run.criteria.push(criterion);
-          }
-        }
-        index += 1;
-        break;
-      case "--anti-criterion":
-        run.antiCriteria?.push(parseCriterion(readOption(rest, index, arg)));
-        index += 1;
-        break;
-      case "--capability":
-        capabilities.push(readOption(rest, index, arg));
-        index += 1;
-        break;
-      case "--phase":
-        options.capabilityPhase = parseAlgorithmPhase(readOption(rest, index, arg));
-        index += 1;
-        break;
-      case "--reason":
-        options.capabilityReason = readOption(rest, index, arg);
-        index += 1;
-        break;
-      case "--substrate":
-        options.substrate = parseSubstrate(readOption(rest, index, arg));
-        index += 1;
-        break;
-      case "--step":
-        planSteps.push(parsePlanStep(readOption(rest, index, arg)));
-        index += 1;
-        break;
-      case "--text":
-        options.text = readOption(rest, index, arg);
-        index += 1;
-        break;
-      case "--step-id":
-        options.stepId = readOption(rest, index, arg);
-        index += 1;
-        break;
-      case "--status":
-        if (action === "step") {
-          options.stepStatus = parseStepStatus(readOption(rest, index, arg));
-        } else if (action === "verify") {
-          options.criterionStatus = parseCriterionStatus(readOption(rest, index, arg));
-        } else {
-          throw new Error("--status is only valid for step or verify.");
-        }
-        index += 1;
-        break;
-      case "--criterion-id":
-        options.criterionId = readOption(rest, index, arg);
-        index += 1;
-        break;
-      case "--evidence":
-        options.evidence = readOption(rest, index, arg);
-        index += 1;
-        break;
-      case "--op":
-        batchOperations.push(parseBatchOperation(readOption(rest, index, arg)));
-        index += 1;
-        break;
-      case "--ops-json":
-        batchOperations.push(...parseBatchOperationsJson(readOption(rest, index, arg)));
-        index += 1;
-        break;
-      case "--json":
-        options.json = true;
-        break;
-      default:
-        throw new Error(`Unknown option: ${arg}`);
-    }
-  }
-
-  if (action === "new") {
-    validateAlgorithmRunInput(run);
-  }
-
-  if (action === "new") {
-    run.id = options.id;
-    options.run = run as AlgorithmRunInput;
-  }
-
-  if (capabilities.length > 0) {
-    options.capabilities = capabilities;
-  }
-
-  if (planSteps.length > 0) {
-    options.planSteps = planSteps;
-  }
-
-  if (batchOperations.length > 0) {
-    options.batchOperations = batchOperations;
-  }
-
-  return {
-    command,
-    action: action as ParsedAlgorithmArgs["action"],
-    options,
-  };
 }
 
 function parseLifecycleArgs(args: string[]): ParsedLifecycleArgs {
@@ -1894,6 +1213,17 @@ function parseArgs(args: string[]): ParsedArgs {
   throw new Error(renderUnknownCommand(args[0]));
 }
 
+function isSubstrateLifecycleArgs(parsed: ParsedArgs): parsed is ParsedSubstrateLifecycleArgs {
+  return (
+    parsed.command === "install" ||
+    parsed.command === "uninstall" ||
+    parsed.command === "reproject" ||
+    parsed.command === "upgrade" ||
+    parsed.command === "export" ||
+    parsed.command === "daemon"
+  );
+}
+
 function parseOnboardingOptions(rest: string[]): SomaOnboardingOptions {
   const options: SomaOnboardingOptions = {};
   for (let index = 0; index < rest.length; index += 1) {
@@ -2349,40 +1679,6 @@ function readLimitedFeedbackStdin(): string {
   return Buffer.concat(chunks).toString("utf8");
 }
 
-function formatPlan(plan: SomaInstallPlan): string {
-  return [
-    "Soma install plan",
-    `substrate: ${plan.substrate}`,
-    `mode: ${plan.apply ? "apply" : "dry-run"}`,
-    `somaHome: ${plan.somaHome}`,
-    `substrateHome: ${plan.substrateHome}`,
-    "",
-    "Soma directories:",
-    ...plan.somaDirectories.map((path) => `- ${path}`),
-    "",
-    "Soma files:",
-    ...plan.somaFiles.map((path) => `- ${path}`),
-    "",
-    "Substrate files:",
-    ...plan.substrateFiles.map((path) => `- ${path}`),
-  ].join("\n");
-}
-
-function formatInstallResult(result: SomaInstallResult): string {
-  return [
-    "Soma install applied",
-    `substrate: ${result.substrate}`,
-    `somaHome: ${result.somaHome.somaHome}`,
-    `substrateHome: ${result.substrateHome.rootDir}`,
-    "",
-    "Soma files:",
-    ...result.somaHome.files.map((path) => `- ${path}`),
-    "",
-    "Substrate files:",
-    ...result.substrateHome.files.map((path) => `- ${path}`),
-  ].join("\n");
-}
-
 function formatSomaInitPlan(plan: SomaInitPlan): string {
   return [
     `soma init — ${plan.mode === "apply" ? "apply plan" : "plan (dry-run; pass --yes to execute)"}`,
@@ -2436,48 +1732,6 @@ function formatSomaDoctorDiagnosis(diagnosis: SomaDoctorDiagnosis): string {
     "",
     "Findings:",
     ...diagnosis.findings.map((finding) => `- ${finding.id}: ${finding.message}\n  action: ${finding.action}`),
-    "",
-  ].join("\n");
-}
-
-function formatClaudeUninstallResult(result: UninstallClaudeCodeResult): string {
-  if (result.removed.length === 0) {
-    return [
-      "soma adopt claude — uninstall",
-      "",
-      `Substrate home: ${result.substrateHome}`,
-      "Nothing to remove — Soma was not installed at this substrate home.",
-      "",
-    ].join("\n");
-  }
-  return [
-    "soma adopt claude — uninstall",
-    "",
-    `Substrate home: ${result.substrateHome}`,
-    "",
-    "Removed:",
-    ...result.removed.map((p) => `  - ${p}`),
-    "",
-  ].join("\n");
-}
-
-function formatCursorUninstallResult(result: UninstallCursorResult): string {
-  if (result.removed.length === 0) {
-    return [
-      "soma uninstall cursor",
-      "",
-      `Substrate home: ${result.substrateHome}`,
-      "Nothing to remove — Soma was not installed at this substrate home.",
-      "",
-    ].join("\n");
-  }
-  return [
-    "soma uninstall cursor",
-    "",
-    `Substrate home: ${result.substrateHome}`,
-    "",
-    "Removed:",
-    ...result.removed.map((p) => `  - ${p}`),
     "",
   ].join("\n");
 }
@@ -3270,32 +2524,6 @@ function quoteShellArg(value: string): string {
   return `'${value.replaceAll("'", "'\"'\"'")}'`;
 }
 
-function formatAlgorithmRunResult(result: { path: string; run: AlgorithmRun }): string {
-  return [
-    "Soma Algorithm run created",
-    `id: ${result.run.id}`,
-    `phase: ${getRunPhase(result.run)}`,
-    `effort: ${result.run.effort}`,
-    `path: ${result.path}`,
-  ].join("\n");
-}
-
-function formatAlgorithmClassification(prompt: string): string {
-  const classification = classifyAlgorithmPrompt(prompt);
-
-  return [
-    "Soma Algorithm prompt classification",
-    `mode: ${classification.mode}`,
-    `effort: ${classification.effort ?? "none"}`,
-    `source: ${classification.source}`,
-    `reason: ${classification.reason}`,
-  ].join("\n");
-}
-
-function formatAlgorithmClassificationJson(prompt: string): string {
-  return `${JSON.stringify(classifyAlgorithmPrompt(prompt))}\n`;
-}
-
 function formatLifecycleResult(result: SomaLifecycleResult): string {
   const lines = [
     "Soma lifecycle event handled",
@@ -3444,206 +2672,6 @@ function readPolicyTargetsEnv(envName: string): SomaPolicyBatchTarget[] {
   }
 
   return targets as SomaPolicyBatchTarget[];
-}
-
-function formatAlgorithmRun(run: AlgorithmRun, path: string): string {
-  return [
-    "Soma Algorithm run",
-    `id: ${run.id}`,
-    `phase: ${getRunPhase(run)}`,
-    `effort: ${run.effort}`,
-    `effortSource: ${run.effortSource}`,
-    `mode: ${run.mode}`,
-    `classificationReason: ${run.classificationReason}`,
-    `path: ${path}`,
-    `goal: ${getGoal(run.isa) ?? ""}`,
-    "",
-    "Criteria:",
-    ...getCriteria(run.isa).map((criterion) => `- [${criterion.status}] ${criterion.id}: ${criterion.text}${criterion.verification ? ` | ${criterion.verification}` : ""}`),
-    "",
-    "Plan:",
-    ...(run.planSteps.length > 0 ? run.planSteps.map((step) => `- [${step.status}] ${step.id}: ${step.text} (${step.criteriaIds.join(",")})`) : ["- none"]),
-    "",
-    "Capabilities:",
-    ...((run.capabilitySelections ?? []).length > 0
-      ? (run.capabilitySelections ?? []).map((selection) =>
-          `- [${selection.status}] ${selection.name} (${selection.phase})${selection.invocation ? ` | ${selection.invocation.evidence}` : ""}`,
-        )
-      : run.capabilities.length > 0
-        ? run.capabilities.map((capability) => `- [legacy] ${capability}`)
-        : ["- none"]),
-  ].join("\n");
-}
-
-function requireAlgorithmId(options: AlgorithmCliOptions): string {
-  if (!options.id) {
-    throw new Error("--id is required.");
-  }
-
-  return options.id;
-}
-
-function requireAlgorithmRunInput(options: AlgorithmCliOptions): AlgorithmRunInput {
-  if (!options.run) {
-    throw new Error("Algorithm run input is required.");
-  }
-
-  return options.run;
-}
-
-function requireText(options: AlgorithmCliOptions): string {
-  if (!options.text) {
-    throw new Error("--text is required.");
-  }
-
-  return options.text;
-}
-
-async function updateAndReportAlgorithmRun(
-  options: AlgorithmCliOptions,
-  update: (run: AlgorithmRun) => AlgorithmRun,
-): Promise<string> {
-  const id = requireAlgorithmId(options);
-  const written = await updateAlgorithmRunById(id, { homeDir: options.homeDir, somaHome: options.somaHome }, update);
-
-  await runSomaLifecycleAlgorithmUpdated({
-    homeDir: options.homeDir,
-    somaHome: options.somaHome,
-    substrate: "custom",
-  });
-
-  return formatAlgorithmRun(written.run, written.path);
-}
-
-async function runAlgorithmCli(parsed: ParsedAlgorithmArgs): Promise<string> {
-  const options = parsed.options;
-
-  if (parsed.action === "classify") {
-    if (!options.prompt) throw new Error("--prompt is required.");
-    return options.json ? formatAlgorithmClassificationJson(options.prompt) : formatAlgorithmClassification(options.prompt);
-  }
-
-  if (parsed.action === "new") {
-    const written = await writeAlgorithmRun(createAlgorithmRun(requireAlgorithmRunInput(options)), {
-      homeDir: options.homeDir,
-      somaHome: options.somaHome,
-    });
-    await runSomaLifecycleAlgorithmUpdated({
-      homeDir: options.homeDir,
-      somaHome: options.somaHome,
-      substrate: "custom",
-    });
-    return formatAlgorithmRunResult(written);
-  }
-
-  if (parsed.action === "list") {
-    const summaries = await listAlgorithmRunSummaries({ homeDir: options.homeDir, somaHome: options.somaHome });
-    return [
-      "Soma Algorithm runs",
-      ...summaries.map((run) => `- ${run.id}: ${run.phase} ${run.progress} ${run.effort} - ${run.goal}`),
-    ].join("\n");
-  }
-
-  if (parsed.action === "show") {
-    const { path, run } = await readAlgorithmRunById(requireAlgorithmId(options), {
-      homeDir: options.homeDir,
-      somaHome: options.somaHome,
-    });
-    return formatAlgorithmRun(run, path);
-  }
-
-  if (parsed.action === "capabilities") {
-    const capabilities = options.capabilities ?? [];
-    if (capabilities.length === 0) {
-      throw new Error("--capability is required.");
-    }
-    if (capabilities.length > 1 && options.capabilityReason) {
-      throw new Error("--reason can only be used with one --capability at a time.");
-    }
-    return updateAndReportAlgorithmRun(options, (run) =>
-      capabilities.reduce(
-        (current, capability) =>
-          selectAlgorithmCapability(current, {
-            name: capability,
-            phase: options.capabilityPhase,
-            reason: options.capabilityReason,
-          }),
-        run,
-      ),
-    );
-  }
-
-  if (parsed.action === "invoke") {
-    const [capability] = options.capabilities ?? [];
-    if (!capability || !options.evidence) {
-      throw new Error("--capability and --evidence are required.");
-    }
-    return updateAndReportAlgorithmRun(options, (run) =>
-      recordAlgorithmCapabilityInvocation(run, {
-        name: capability,
-        substrate: options.substrate,
-        evidence: options.evidence ?? "",
-      }),
-    );
-  }
-
-  if (parsed.action === "remove-capability") {
-    const [capability] = options.capabilities ?? [];
-    if (!capability || !options.capabilityReason) {
-      throw new Error("--capability and --reason are required.");
-    }
-    return updateAndReportAlgorithmRun(options, (run) =>
-      removeAlgorithmCapabilitySelection(run, {
-        name: capability,
-        reason: options.capabilityReason ?? "",
-      }),
-    );
-  }
-
-  if (parsed.action === "plan") {
-    return updateAndReportAlgorithmRun(options, (run) => setAlgorithmPlan(run, options.planSteps ?? []));
-  }
-
-  if (parsed.action === "decision") {
-    const text = requireText(options);
-    return updateAndReportAlgorithmRun(options, (run) => recordAlgorithmDecision(run, text));
-  }
-
-  if (parsed.action === "change") {
-    const text = requireText(options);
-    return updateAndReportAlgorithmRun(options, (run) => recordAlgorithmChange(run, text));
-  }
-
-  if (parsed.action === "step") {
-    if (!options.stepId || !options.stepStatus) throw new Error("--step-id and --status are required.");
-    const stepId = options.stepId;
-    const stepStatus = options.stepStatus;
-    return updateAndReportAlgorithmRun(options, (run) => updateAlgorithmPlanStep(run, stepId, stepStatus, options.evidence));
-  }
-
-  if (parsed.action === "verify") {
-    if (!options.criterionId || !options.criterionStatus || !options.evidence) {
-      throw new Error("--criterion-id, --status, and --evidence are required.");
-    }
-    const criterionId = options.criterionId;
-    const criterionStatus = options.criterionStatus;
-    const evidence = options.evidence;
-    return updateAndReportAlgorithmRun(options, (run) =>
-      verifyAlgorithmCriterion(run, criterionId, criterionStatus, evidence),
-    );
-  }
-
-  if (parsed.action === "learn") {
-    const text = requireText(options);
-    return updateAndReportAlgorithmRun(options, (run) => recordAlgorithmLearning(run, text));
-  }
-
-  if (parsed.action === "batch") {
-    const operations = options.batchOperations ?? [];
-    return updateAndReportAlgorithmRun(options, (run) => applyAlgorithmBatch(run, operations));
-  }
-
-  return updateAndReportAlgorithmRun(options, (run) => advanceAlgorithmRun(run));
 }
 
 export async function runSomaCli(args: string[]): Promise<string> {
@@ -3913,195 +2941,11 @@ export async function runSomaCli(args: string[]): Promise<string> {
     return formatInstallResult(await installSomaForClaudeCode(parsed.options));
   }
 
-  if (parsed.command === "daemon") {
-    // Reserved CLI surface — `daemon` mode (long-lived Myelin
-    // subscriber) is not yet implemented. The verb exists so that
-    // CONTEXT.md's "Runtime modes" table maps onto the CLI surface
-    // one-to-one (#54 AC). Implementation lands in a follow-up
-    // issue.
-    throw new SomaCliError("soma daemon is not yet implemented (placeholder reserves the runtime mode).", 1);
+  if (isSubstrateLifecycleArgs(parsed)) {
+    return runSubstrateLifecycleCli(parsed);
   }
 
-  if (parsed.command === "export") {
-    return formatExportResult(await runExport(parsed));
-  }
-
-  if (parsed.command === "uninstall") {
-    return runUninstall(parsed);
-  }
-
-  if (parsed.command === "reproject" || parsed.command === "upgrade") {
-    // Both verbs reuse the install code path: reproject re-emits the
-    // projection; upgrade is reproject + future migration work
-    // (#54: migration content is a follow-up). They always apply —
-    // unlike `install`, the principal opted into the verb explicitly.
-    return formatInstallResult(await runInstall(parsed.substrate, parsed.options));
-  }
-
-  if (parsed.command !== "install") {
-    throw new Error(`Unhandled command: ${parsed.command}`);
-  }
-
-  if (!parsed.apply) {
-    return formatPlan(planInstall(parsed.substrate, parsed.options));
-  }
-
-  return formatInstallResult(await runInstall(parsed.substrate, parsed.options));
-}
-
-function planInstall(substrate: InstallSubstrate, options: SomaInstallOptions): SomaInstallPlan {
-  switch (substrate) {
-    case "codex":
-      return planSomaForCodexInstall(options);
-    case "pi-dev":
-      return planSomaForPiDevInstall(options);
-    case "claude-code":
-      return planSomaForClaudeCodeInstall(options);
-    case "cursor":
-      return planSomaForCursorInstall(options);
-  }
-}
-
-async function runInstall(substrate: InstallSubstrate, options: SomaInstallOptions): Promise<SomaInstallResult> {
-  switch (substrate) {
-    case "codex":
-      return installSomaForCodex(options);
-    case "pi-dev":
-      return installSomaForPiDev(options);
-    case "claude-code":
-      return installSomaForClaudeCode(options);
-    case "cursor":
-      return installSomaForCursor(options);
-  }
-}
-
-async function runUninstall(parsed: ParsedUninstallArgs): Promise<string> {
-  if (parsed.substrate === "claude-code") {
-    return formatClaudeUninstallResult(await uninstallSomaForClaudeCode(parsed.options));
-  }
-  if (parsed.substrate === "cursor") {
-    return formatCursorUninstallResult(await uninstallSomaForCursor(parsed.options));
-  }
-  // Codex and Pi.dev uninstallers are not yet implemented. The CLI
-  // surface is reserved so CONTEXT.md's "Lifecycle verbs" table maps
-  // one-to-one (#54 AC); functional removal lands in a follow-up.
-  throw new SomaCliError(
-    `soma uninstall ${parsed.substrate} is not yet implemented (claude-code and cursor are currently the functional uninstallers; codex and pi-dev removal land in a follow-up).`,
-    1,
-  );
-}
-
-async function runExport(parsed: ParsedExportArgs): Promise<{ files: { path: string; content: string }[]; out?: string }> {
-  const projection = await buildExportProjection(parsed.substrate, parsed.options);
-  if (!parsed.out) {
-    return { files: projection };
-  }
-  const outRoot = resolveAbsolute(parsed.out);
-  // Compute realpath(--out) once per export run instead of per file
-  // (sage r2 performance finding on #54). The symlink guard inside
-  // `writeProjectionExportFile` reuses this cached value.
-  const { mkdir, realpath } = await import("node:fs/promises");
-  await mkdir(outRoot, { recursive: true });
-  const realOutRoot = await realpath(outRoot);
-  // Parallel writes — independent files, order preserved by mapping
-  // over the original projection array (sage r1 performance finding
-  // on #54).
-  const written = await Promise.all(
-    projection.map(async (file) => {
-      const absolute = await writeProjectionExportFile(outRoot, realOutRoot, file.path, file.content);
-      return { path: absolute, content: file.content };
-    }),
-  );
-  return { files: written, out: outRoot };
-}
-
-async function buildExportProjection(
-  substrate: InstallSubstrate,
-  options: SomaInstallOptions,
-): Promise<{ path: string; content: string }[]> {
-  const projectionInput = await loadSomaHome(options.somaHome ?? defaultSomaHomePath(options.homeDir));
-  const projectionOptions = {
-    homeDir: options.homeDir,
-    somaHome: options.somaHome,
-    substrateHome: options.substrateHome,
-  };
-  const files = projectionFilesFor(substrate, projectionInput, projectionOptions);
-  return files.map((f) => ({ path: f.path, content: f.content }));
-}
-
-function projectionFilesFor(
-  substrate: InstallSubstrate,
-  input: ProjectionInput,
-  options: { homeDir?: string; somaHome?: string; substrateHome?: string },
-): readonly { path: string; content: string }[] {
-  switch (substrate) {
-    case "codex":
-      return buildCodexHomeProjection(input, options).bundle.files;
-    case "pi-dev":
-      return buildPiDevHomeProjection(input, options).bundle.files;
-    case "claude-code":
-      return buildClaudeCodeHomeProjection(input, options).bundle.files;
-    case "cursor":
-      return buildCursorHomeProjection(input, options).bundle.files;
-  }
-}
-
-function defaultSomaHomePath(homeDir?: string): string {
-  const base = homeDir ?? process.env.HOME ?? process.cwd();
-  return resolveJoin(base, ".soma");
-}
-
-function resolveAbsolute(path: string): string {
-  return path.startsWith("/") ? path : resolveJoin(process.cwd(), path);
-}
-
-async function writeProjectionExportFile(
-  outRoot: string,
-  realOutRoot: string,
-  relativePath: string,
-  content: string,
-): Promise<string> {
-  const { mkdir, realpath, writeFile } = await import("node:fs/promises");
-  const path = await import("node:path");
-  // Lexical guard: reject paths that try to escape --out via
-  // absolute paths or `..` segments before we touch the disk.
-  const safeRelative = relativePath.replace(/^[/\\]+/, "");
-  const absolute = path.resolve(outRoot, safeRelative);
-  const resolvedOutRoot = path.resolve(outRoot);
-  if (absolute !== resolvedOutRoot && !absolute.startsWith(resolvedOutRoot + path.sep)) {
-    throw new SomaCliError(`soma export refused to write outside --out (path: ${relativePath}).`, 2);
-  }
-  // Symlink guard (sage r1 security finding on #54): after mkdir,
-  // resolve the real path of the parent directory and verify it is
-  // still under --out's real path. A symlink such as
-  // `<out>/rules -> ~/.ssh` would let writeFile land outside --out
-  // even though the lexical check passed. `realOutRoot` is computed
-  // once by `runExport` (sage r2 performance finding).
-  const parent = path.dirname(absolute);
-  await mkdir(parent, { recursive: true });
-  const realParent = await realpath(parent);
-  if (realParent !== realOutRoot && !realParent.startsWith(realOutRoot + path.sep)) {
-    throw new SomaCliError(
-      `soma export refused to follow a symlink that escapes --out (path: ${relativePath}).`,
-      2,
-    );
-  }
-  await writeFile(absolute, content, "utf8");
-  return absolute;
-}
-
-function formatExportResult(result: { files: { path: string; content: string }[]; out?: string }): string {
-  if (result.out) {
-    return [
-      "Soma export applied",
-      `out: ${result.out}`,
-      "",
-      "Files:",
-      ...result.files.map((f) => `- ${f.path}`),
-    ].join("\n");
-  }
-  // No --out → emit JSON to stdout for downstream tools / diffing.
-  return JSON.stringify(result.files, null, 2);
+  throw new Error("Unhandled command.");
 }
 
 if (import.meta.main) {

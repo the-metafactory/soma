@@ -4,6 +4,11 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { runSomaCli } from "../src/cli";
+import { ALGORITHM_ACTIONS } from "../src/cli/algorithm";
+import {
+  INSTALL_SUBSTRATES,
+  SUBSTRATE_LIFECYCLE_COMMAND_HELP,
+} from "../src/cli/substrate-lifecycle";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-cli-"));
@@ -91,6 +96,32 @@ test("cli supports concrete subcommand help as read-only normal help", async () 
   await expect(runSomaCli(["policy", "check", "--help"])).resolves.toContain("Usage: soma policy check");
   await expect(runSomaCli(["install", "codex", "--help"])).resolves.toContain("Usage: soma install");
   await expect(runSomaCli(["import", "pai", "--help"])).resolves.toContain("Usage: soma import pai");
+});
+
+test("algorithm command module keeps actions and help in sync", async () => {
+  const groupHelp = await runSomaCli(["algorithm", "--help"]);
+
+  for (const action of ALGORITHM_ACTIONS) {
+    expect(groupHelp).toContain(action);
+    await expect(runSomaCli(["algorithm", action, "--help"])).resolves.toContain(`Usage: soma algorithm ${action}`);
+  }
+});
+
+test("substrate lifecycle command module keeps substrates and help in sync", async () => {
+  for (const command of ["install", "uninstall"] as const) {
+    const groupHelp = await runSomaCli([command, "--help"]);
+
+    expect(groupHelp).toBe(SUBSTRATE_LIFECYCLE_COMMAND_HELP[command].usage);
+    for (const substrate of INSTALL_SUBSTRATES) {
+      const expected = SUBSTRATE_LIFECYCLE_COMMAND_HELP[command].subcommands?.[substrate];
+      expect(expected).toBeDefined();
+      await expect(runSomaCli([command, substrate, "--help"])).resolves.toBe(expected!);
+    }
+  }
+
+  for (const command of ["reproject", "upgrade", "export", "daemon"] as const) {
+    await expect(runSomaCli([command, "--help"])).resolves.toBe(SUBSTRATE_LIFECYCLE_COMMAND_HELP[command].usage);
+  }
 });
 
 test("cli reports unknown top-level command with suggestion", async () => {
