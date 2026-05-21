@@ -143,6 +143,15 @@ The daemon shape should follow the existing standalone Cortex agent pattern:
 - NATS credentials issued by Cortex
 - capabilities registered on startup
 
+When a Cortex/Myelin agent drives a Soma Algorithm run, capability names must
+come from Soma's registry or the run's adapter-provided capability definitions.
+Agents can register startup capabilities on the run with
+`registerAlgorithmCapabilityDefinition(run, definition)` or
+`registerAlgorithmCapabilityDefinitions(run, definitions)`. A selected
+capability is a binding commitment until the agent either records invocation
+evidence or removes the selection with a reason; COMPLETE is rejected while
+structured selections remain unresolved.
+
 ## Adapter Contract
 
 Adapters should be thin. They do not own identity, memory, ISA, skill schemas, or

@@ -236,7 +236,7 @@ test("cli drives Algorithm runs through gated mutations", async () => {
     await expect(readFile(join(homeDir, ".soma/memory/STATE/algorithm-work-index.json"), "utf8")).resolves.toContain("cli-run");
 
     await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "cli-run"]);
-    await runSomaCli(["algorithm", "capabilities", "--home-dir", homeDir, "--id", "cli-run", "--capability", "FeedbackMemoryConsult"]);
+    await runSomaCli(["algorithm", "capabilities", "--home-dir", homeDir, "--id", "cli-run", "--capability", "sequential-analysis"]);
     await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "cli-run"]);
     await runSomaCli(["algorithm", "plan", "--home-dir", homeDir, "--id", "cli-run", "--step", "P1:C1:Exercise mutation commands."]);
     await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "cli-run"]);
@@ -286,7 +286,7 @@ test("cli batches routine Algorithm run mutations", async () => {
       "C1:Batch command works.",
     ]);
     await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "batch-run"]);
-    await runSomaCli(["algorithm", "capabilities", "--home-dir", homeDir, "--id", "batch-run", "--capability", "FeedbackMemoryConsult"]);
+    await runSomaCli(["algorithm", "capabilities", "--home-dir", homeDir, "--id", "batch-run", "--capability", "sequential-analysis"]);
     await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "batch-run"]);
     await runSomaCli(["algorithm", "plan", "--home-dir", homeDir, "--id", "batch-run", "--step", "P1:C1:Exercise batch command."]);
     await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "batch-run"]);
@@ -311,6 +311,255 @@ test("cli batches routine Algorithm run mutations", async () => {
     await expect(readFile(join(homeDir, ".soma/memory/WORK/algorithm-runs/batch-run.json"), "utf8")).resolves.toContain(
       "Use one command for routine evidence.",
     );
+  });
+});
+
+test("cli batch capability invocation defaults substrate when omitted", async () => {
+  await withTempHome(async (homeDir) => {
+    await runSomaCli([
+      "algorithm",
+      "new",
+      "--home-dir",
+      homeDir,
+      "--id",
+      "batch-capability-run",
+      "--prompt",
+      "Use batch capability invocation",
+      "--intent",
+      "Record invocation evidence in a batch.",
+      "--current-state",
+      "Capability is not selected.",
+      "--goal",
+      "Batch parser accepts omitted substrate.",
+      "--criterion",
+      "C1:Batch invocation works.",
+    ]);
+    await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "batch-capability-run"]);
+
+    const output = await runSomaCli([
+      "algorithm",
+      "batch",
+      "--home-dir",
+      homeDir,
+      "--id",
+      "batch-capability-run",
+      "--op",
+      "capability:sequential-analysis",
+      "--op",
+      "capability-invocation:sequential-analysis:Used the capability without specifying a substrate.",
+    ]);
+
+    expect(output).toContain("[invoked] sequential-analysis");
+    expect(output).toContain("without specifying a substrate");
+  });
+});
+
+test("cli rejects one shared reason for multiple Algorithm capabilities", async () => {
+  await withTempHome(async (homeDir) => {
+    await runSomaCli([
+      "algorithm",
+      "new",
+      "--home-dir",
+      homeDir,
+      "--id",
+      "multi-capability-reason-run",
+      "--prompt",
+      "Reject ambiguous capability reason",
+      "--intent",
+      "Keep capability reasons attached to one selection.",
+      "--current-state",
+      "Capability reason is a single CLI option.",
+      "--goal",
+      "Multi-capability selection requires unambiguous reasons.",
+      "--criterion",
+      "C1:Ambiguous reason is rejected.",
+    ]);
+    await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "multi-capability-reason-run"]);
+
+    await expect(
+      runSomaCli([
+        "algorithm",
+        "capabilities",
+        "--home-dir",
+        homeDir,
+        "--id",
+        "multi-capability-reason-run",
+        "--capability",
+        "sequential-analysis",
+        "--capability",
+        "ReReadCheck",
+        "--reason",
+        "This reason cannot describe both selections.",
+      ]),
+    ).rejects.toThrow("one --capability");
+  });
+});
+
+test("cli batch capability invocation preserves evidence that starts with substrate names", async () => {
+  await withTempHome(async (homeDir) => {
+    await runSomaCli([
+      "algorithm",
+      "new",
+      "--home-dir",
+      homeDir,
+      "--id",
+      "batch-evidence-prefix-run",
+      "--prompt",
+      "Preserve evidence prefixes",
+      "--intent",
+      "Avoid ambiguous substrate parsing.",
+      "--current-state",
+      "Evidence can start with codex.",
+      "--goal",
+      "Evidence text is preserved.",
+      "--criterion",
+      "C1:Evidence prefix survives.",
+    ]);
+    await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "batch-evidence-prefix-run"]);
+
+    const output = await runSomaCli([
+      "algorithm",
+      "batch",
+      "--home-dir",
+      homeDir,
+      "--id",
+      "batch-evidence-prefix-run",
+      "--op",
+      "capability:sequential-analysis",
+      "--op",
+      "capability-invocation:sequential-analysis:codex: reviewed the diff.",
+    ]);
+
+    expect(output).toContain("codex: reviewed the diff.");
+  });
+});
+
+test("cli batch capability invocation accepts explicit substrate prefix", async () => {
+  await withTempHome(async (homeDir) => {
+    await runSomaCli([
+      "algorithm",
+      "new",
+      "--home-dir",
+      homeDir,
+      "--id",
+      "batch-explicit-substrate-run",
+      "--prompt",
+      "Use explicit substrate prefix",
+      "--intent",
+      "Record substrate without evidence ambiguity.",
+      "--current-state",
+      "Substrate is optional.",
+      "--goal",
+      "Explicit substrate syntax works.",
+      "--criterion",
+      "C1:Explicit substrate persists.",
+    ]);
+    await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "batch-explicit-substrate-run"]);
+
+    const output = await runSomaCli([
+      "algorithm",
+      "batch",
+      "--home-dir",
+      homeDir,
+      "--id",
+      "batch-explicit-substrate-run",
+      "--op",
+      "capability:sequential-analysis",
+      "--op",
+      "capability-invocation:sequential-analysis:substrate=codex:reviewed with explicit substrate.",
+    ]);
+
+    expect(output).toContain("reviewed with explicit substrate");
+  });
+});
+
+test("cli selects, invokes, and removes Algorithm capabilities", async () => {
+  await withTempHome(async (homeDir) => {
+    await runSomaCli([
+      "algorithm",
+      "new",
+      "--home-dir",
+      homeDir,
+      "--id",
+      "capability-run",
+      "--prompt",
+      "Use capability binding",
+      "--intent",
+      "Record capability invocation evidence.",
+      "--current-state",
+      "Capabilities are unstructured.",
+      "--goal",
+      "Capabilities have binding semantics.",
+      "--criterion",
+      "C1:Capability state persists.",
+    ]);
+    await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "capability-run"]);
+    let output = await runSomaCli([
+      "algorithm",
+      "capabilities",
+      "--home-dir",
+      homeDir,
+      "--id",
+      "capability-run",
+      "--capability",
+      "sequential-analysis",
+      "--phase",
+      "think",
+      "--reason",
+      "Need primitive capability semantics.",
+    ]);
+
+    expect(output).toContain("[selected] sequential-analysis");
+    await expect(
+      runSomaCli(["algorithm", "capabilities", "--home-dir", homeDir, "--id", "capability-run", "--capability", "MadeUpCapability"]),
+    ).rejects.toThrow("not registered");
+
+    output = await runSomaCli([
+      "algorithm",
+      "invoke",
+      "--home-dir",
+      homeDir,
+      "--id",
+      "capability-run",
+      "--capability",
+      "sequential-analysis",
+      "--substrate",
+      "codex",
+      "--evidence",
+      "Reduced issue #176 to registry, selection, invocation, and completion gate.",
+    ]);
+    expect(output).toContain("[invoked] sequential-analysis");
+    expect(output).toContain("Reduced issue #176");
+
+    output = await runSomaCli([
+      "algorithm",
+      "capabilities",
+      "--home-dir",
+      homeDir,
+      "--id",
+      "capability-run",
+      "--capability",
+      "ReReadCheck",
+      "--phase",
+      "verify",
+      "--reason",
+      "Initial final-answer drift check.",
+    ]);
+    expect(output).toContain("[selected] ReReadCheck");
+
+    output = await runSomaCli([
+      "algorithm",
+      "remove-capability",
+      "--home-dir",
+      homeDir,
+      "--id",
+      "capability-run",
+      "--capability",
+      "ReReadCheck",
+      "--reason",
+      "Manual review covers this narrow path.",
+    ]);
+    expect(output).toContain("[removed] ReReadCheck");
   });
 });
 

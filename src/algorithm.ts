@@ -8,6 +8,12 @@ import type {
   IdealStateArtifact,
   IdealStateCriterion,
 } from "./types";
+import {
+  assertAlgorithmCapabilitiesSatisfied,
+  recordAlgorithmCapabilityInvocation,
+  removeAlgorithmCapabilitySelection,
+  selectAlgorithmCapability,
+} from "./algorithm-capabilities";
 import { classifyAlgorithmPrompt } from "./algorithm-classifier";
 import {
   buildIsaArtifact,
@@ -116,6 +122,8 @@ export function createAlgorithmRun(input: AlgorithmRunInput): AlgorithmRun {
     }),
     antiCriteria: (input.antiCriteria ?? []).map(criterionFromInput),
     capabilities: [],
+    capabilityDefinitions: [],
+    capabilitySelections: [],
     planSteps: [],
     decisions: [logEntry("observe", `Intent: ${input.intent}`, timestamp)],
     changelog: [],
@@ -139,15 +147,10 @@ export function addAlgorithmCapabilities(run: AlgorithmRun, capabilities: string
     throw new Error("Algorithm capabilities update requires at least one capability.");
   }
 
-  for (const capability of capabilities) {
-    assertNonEmpty(capability, "capability");
-  }
-
-  return {
-    ...run,
-    updatedAt: timestamp ?? new Date().toISOString(),
-    capabilities: Array.from(new Set([...run.capabilities, ...capabilities])),
-  };
+  return capabilities.reduce(
+    (current, capability) => selectAlgorithmCapability(current, { name: capability }, timestamp),
+    run,
+  );
 }
 
 export function setAlgorithmPlan(run: AlgorithmRun, planSteps: AlgorithmPlanStep[], timestamp?: string): AlgorithmRun {
@@ -283,6 +286,7 @@ function assertGate(run: AlgorithmRun, target: AlgorithmPhase): void {
       break;
     }
     case "complete":
+      assertAlgorithmCapabilitiesSatisfied(run);
       if (run.learning.length === 0) {
         throw new Error("Algorithm cannot COMPLETE without a learning entry.");
       }
@@ -353,7 +357,11 @@ export function updateAlgorithmPlanStep(
   };
 }
 
-export function applyAlgorithmBatch(run: AlgorithmRun, operations: AlgorithmBatchOperation[]): AlgorithmRun {
+export function applyAlgorithmBatch(
+  run: AlgorithmRun,
+  operations: AlgorithmBatchOperation[],
+  timestamp = new Date().toISOString(),
+): AlgorithmRun {
   if (operations.length === 0) {
     throw new Error("Algorithm batch requires at least one operation.");
   }
@@ -361,19 +369,34 @@ export function applyAlgorithmBatch(run: AlgorithmRun, operations: AlgorithmBatc
   return operations.reduce((current, operation) => {
     switch (operation.kind) {
       case "decision":
-        return recordAlgorithmDecision(current, operation.text);
+        return recordAlgorithmDecision(current, operation.text, timestamp);
       case "change":
-        return recordAlgorithmChange(current, operation.text);
+        return recordAlgorithmChange(current, operation.text, timestamp);
       case "learn":
-        return recordAlgorithmLearning(current, operation.text);
+        return recordAlgorithmLearning(current, operation.text, timestamp);
       case "step":
-        return updateAlgorithmPlanStep(current, operation.stepId, operation.status, operation.evidence);
+        return updateAlgorithmPlanStep(current, operation.stepId, operation.status, operation.evidence, timestamp);
       case "verify":
-        return verifyAlgorithmCriterion(current, operation.criterionId, operation.status, operation.evidence);
+        return verifyAlgorithmCriterion(current, operation.criterionId, operation.status, operation.evidence, timestamp);
       case "capability":
-        return addAlgorithmCapabilities(current, [operation.capability]);
+        return selectAlgorithmCapability(current, {
+          name: operation.capability,
+          phase: operation.phase,
+          reason: operation.reason,
+        }, timestamp);
+      case "capability-invocation":
+        return recordAlgorithmCapabilityInvocation(current, {
+          name: operation.capability,
+          substrate: operation.substrate,
+          evidence: operation.evidence,
+        }, timestamp);
+      case "capability-removal":
+        return removeAlgorithmCapabilitySelection(current, {
+          name: operation.capability,
+          reason: operation.reason,
+        }, timestamp);
       case "advance":
-        return advanceAlgorithmRun(current);
+        return advanceAlgorithmRun(current, timestamp);
       default:
         operation satisfies never;
         return current;

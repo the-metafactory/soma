@@ -96,6 +96,7 @@ test("loadAlgorithmRun passes through schema 2 runs unchanged", () => {
   expect(run.schemaVersion).toBe(2);
   expect(getGoal(run.isa)).toBe("Already unified");
   expect(getRunPhase(run)).toBe("observe");
+  expect(run.capabilitySelections).toEqual([]);
 });
 
 test("AlgorithmRun has no top-level phase field (AC-11)", () => {

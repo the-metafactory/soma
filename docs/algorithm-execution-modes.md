@@ -55,6 +55,32 @@ Soma does not spawn agents from this interface. A substrate adapter provides
 the executor and returns a new `AlgorithmRun` plus progress evidence after
 each iteration.
 
+## Capability Invocation Semantics
+
+Algorithm capabilities are a registry-backed binding, not freeform labels.
+`AlgorithmRun.capabilities` remains the compatibility list of selected names,
+while `AlgorithmRun.capabilitySelections[]` records the portable selection
+contract:
+
+- `name`: registered capability name, for example `ReReadCheck` or an
+  adapter-provided skill such as `FirstPrinciples`
+- `phase`: the phase where the capability was selected
+- `reason`: why the capability is needed for this run
+- `status`: `selected`, `invoked`, `removed`, or `failed`
+- `invocation`: substrate, contract, target, timestamp, and evidence once used
+
+The initial registry includes PAI-style skill capabilities and inline checks.
+Adapters can add startup capabilities to the run with
+`registerAlgorithmCapabilityDefinition(run, definition)` or
+`registerAlgorithmCapabilityDefinitions(run, definitions)`. Adapter
+definitions are run-scoped so one substrate's startup contracts do not leak to
+other hosts in the same process. Unknown names are rejected so substrates do not
+silently invent capability contracts. Selecting a capability creates a
+commitment: before COMPLETE, every structured selection must be invoked with
+evidence or explicitly removed with a reason. Legacy schema-2 runs that only
+contain the string list still load safely; the completion gate applies to
+structured selections.
+
 ## Notification Events
 
 Algorithm notifications are typed events:
@@ -79,4 +105,3 @@ work-tracking semantics in typed Algorithm structures:
 Adding a second feature tracker would create two sources of truth. If future
 work needs richer feature metadata, extend `planSteps[]` rather than adding a
 parallel registry.
-
