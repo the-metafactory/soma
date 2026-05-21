@@ -59,7 +59,7 @@ export function renderSomaAlgorithmExtension(options: RenderSomaAlgorithmExtensi
   const widgetsModule = JSON.stringify(`${runtimeDir}widget-renderers.ts`);
   const checklistModule = JSON.stringify(`${runtimeDir}isa-checklist.ts`);
   const policyModule = JSON.stringify(options.runtimeModuleDir ? `${runtimeDir}policy-audit.ts` : new URL("../../../policy-audit.ts", sourceDir).href);
-  const pathGuardModule = JSON.stringify(options.runtimeModuleDir ? `${runtimeDir}policy-path-guard.ts` : new URL("../../../policy-path-guard.ts", sourceDir).href);
+  const policyTargetsModule = JSON.stringify(options.runtimeModuleDir ? `${runtimeDir}policy-targets.ts` : new URL("policy-targets.ts", sourceDir).href);
   const runSnapshotModule = JSON.stringify(options.runtimeModuleDir ? `${runtimeDir}algorithm-run-snapshot.ts` : new URL("../algorithm-run-snapshot.ts", sourceDir).href);
   const installedSomaHome = JSON.stringify(options.somaHome ?? `${process.env.HOME ?? ""}/.soma`);
 
@@ -78,7 +78,10 @@ export function renderSomaAlgorithmExtension(options: RenderSomaAlgorithmExtensi
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { checkSomaPolicy } from ${policyModule};
-import { parseBashDestructivePaths } from ${pathGuardModule};
+import {
+  extractToolCallPolicyTargets,
+  somaPolicyActionForToolAction,
+} from ${policyTargetsModule};
 import {
   hydrateAlgorithmRunSnapshot,
   isAlgorithmRunSnapshotComplete,
@@ -213,117 +216,22 @@ async function restoreLatestRun(pi: ExtensionAPI, ctx: unknown): Promise<void> {
   }
 }
 
-function toolCallDestinations(event: unknown, cwd: string): string[] {
-  const e = event as { path?: unknown; destination?: unknown; target?: unknown; args?: unknown; input?: unknown };
-  if (toolCallIsShell(event)) {
-    const command = toolCallContent(event);
-    return command ? parseBashDestructivePaths(command, cwd).targetPaths : [];
-  }
-  for (const candidate of [e.destination, e.path, e.target]) {
-    if (typeof candidate === "string" && candidate.trim()) return [candidate];
-  }
-  for (const bag of [e.args, e.input]) {
-    if (!bag || typeof bag !== "object") continue;
-    const b = bag as { path?: unknown; destination?: unknown; file_path?: unknown };
-    for (const candidate of [b.destination, b.path, b.file_path]) {
-      if (typeof candidate === "string" && candidate.trim()) return [candidate];
-    }
-  }
-  return [];
-}
-
-function toolCallSource(event: unknown): string | undefined {
-  const e = event as { source?: unknown; sourcePath?: unknown; source_path?: unknown; from?: unknown; args?: unknown; input?: unknown };
-  for (const candidate of [e.sourcePath, e.source_path, e.source, e.from]) {
-    if (typeof candidate === "string" && candidate.trim()) return candidate;
-  }
-  for (const bag of [e.args, e.input]) {
-    if (!bag || typeof bag !== "object") continue;
-    const b = bag as { source?: unknown; sourcePath?: unknown; source_path?: unknown; from?: unknown };
-    for (const candidate of [b.sourcePath, b.source_path, b.source, b.from]) {
-      if (typeof candidate === "string" && candidate.trim()) return candidate;
-    }
-  }
-  return undefined;
-}
-
-function toolCallContent(event: unknown): string | undefined {
-  const e = event as { command?: unknown; content?: unknown; text?: unknown; args?: unknown; input?: unknown };
-  for (const candidate of [e.command, e.content, e.text]) {
-    if (typeof candidate === "string" && candidate.trim()) return candidate;
-  }
-  for (const bag of [e.args, e.input]) {
-    if (!bag || typeof bag !== "object") continue;
-    const b = bag as { command?: unknown; content?: unknown; text?: unknown };
-    for (const candidate of [b.command, b.content, b.text]) {
-      if (typeof candidate === "string" && candidate.trim()) return candidate;
-    }
-  }
-  return undefined;
-}
-
-function toolCallIsShell(event: unknown): boolean {
-  const name = String((event as { toolName?: unknown; name?: unknown }).toolName ?? (event as { name?: unknown }).name ?? "").toLowerCase();
-  return /(bash|shell)/u.test(name);
-}
-
-function toolCallAction(event: unknown): "read" | "write" | "delete" | "modify" {
-  const name = String((event as { toolName?: unknown; name?: unknown }).toolName ?? (event as { name?: unknown }).name ?? "").toLowerCase();
-  if (/(rm|delete|trash|unlink)/u.test(name)) return "delete";
-  if (/(edit|write|patch|cp|copy)/u.test(name)) return "write";
-  if (/(bash|shell)/u.test(name) && isDeleteShellCommand(event)) return "delete";
-  if (/(bash|shell)/u.test(name) && isReadOnlyShellCommand(event)) return "read";
-  if (/(bash|shell)/u.test(name)) return "write";
-  if (/(mv|move)/u.test(name)) return "modify";
-  if (/^(read|list|search|grep|find|query|view)([_:-].*)?$/u.test(name)) return "read";
-  return "modify";
-}
-
-function shellCommandName(event: unknown): string | undefined {
-  const command = toolCallContent(event);
-  if (!command) return undefined;
-  return parseBashDestructivePaths(command, process.cwd()).command.toLowerCase();
-}
-
-function isDeleteShellCommand(event: unknown): boolean {
-  const command = toolCallContent(event)?.trim();
-  if (!command) return false;
-  if (/^(sudo\\s+|command\\s+|env\\s+)*\\b(rm|delete|trash|unlink)\\b/u.test(command)) return true;
-  return /^(rm|delete|trash|unlink)$/u.test(shellCommandName(event) ?? "");
-}
-
-function isReadOnlyShellCommand(event: unknown): boolean {
-  const command = toolCallContent(event)?.trim();
-  if (!command || command.includes("\`") || /[$\\n\\r><|;&(){}]/u.test(command)) return false;
-  if (parseBashDestructivePaths(command, process.cwd()).targetPaths.length > 0) return false;
-  return /^(pwd|ls(\\s+-[A-Za-z0-9]+)*(\\s+[A-Za-z0-9._/:-]+)*|rg(\\s+[-A-Za-z0-9._/:'=]+)*|grep(\\s+[-A-Za-z0-9._/:'=]+)*|cat(\\s+[A-Za-z0-9._/:-]+)+|git\\s+(status|diff|log|show|branch)(\\s+[-A-Za-z0-9._/:'=]+)*)$/u.test(command);
-}
-
 async function runSomaPolicyCheck(event: unknown, ctx: unknown): Promise<{ block: boolean; reason: string }> {
-  const action = toolCallAction(event);
   const cwd = typeof (ctx as { cwd?: unknown }).cwd === "string" ? (ctx as { cwd: string }).cwd : process.cwd();
-  const allDestinations = [...new Set(toolCallDestinations(event, cwd))];
-  if (allDestinations.length > MAX_POLICY_TARGETS) {
-    return { block: true, reason: \`Soma policy blocked tool_call with \${allDestinations.length} destinations; maximum is \${MAX_POLICY_TARGETS}.\` };
-  }
-  const destinations = allDestinations;
-  const sourcePath = toolCallSource(event);
-  const content = toolCallContent(event);
-  if (destinations.length === 0) {
-    if (action === "read") return { block: false, reason: "" };
-    return { block: true, reason: "Soma policy blocked mutating tool_call without a parseable destination." };
-  }
-  const policyAction = action === "read" ? "modify" : action;
+  const extraction = extractToolCallPolicyTargets(event, { cwd, maxTargets: MAX_POLICY_TARGETS });
+  if (extraction.blockReason) return { block: true, reason: extraction.blockReason };
+  if (extraction.targets.length === 0) return { block: false, reason: "" };
+  const policyAction = somaPolicyActionForToolAction(extraction.action);
   try {
     const results = await Promise.all(
-      destinations.map(async (destination) => {
-        if (action === "write") {
+      extraction.targets.map(async (target) => {
+        if (extraction.action === "write") {
           const guard = await checkSomaPolicy({
             somaHome: somaHomePath(),
             substrate: "pi-dev",
             action: "modify",
             cwd,
-            destinationPath: destination,
+            destinationPath: target.filePath,
             record: "deny",
           });
           if (guard.decision === "deny") return guard;
@@ -333,9 +241,9 @@ async function runSomaPolicyCheck(event: unknown, ctx: unknown): Promise<{ block
           substrate: "pi-dev",
           action: policyAction,
           cwd,
-          destinationPath: destination,
-          sourcePath,
-          content,
+          destinationPath: target.filePath,
+          sourcePath: target.sourcePath,
+          content: target.content,
           record: "deny",
         });
       }),

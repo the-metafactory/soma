@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 import type { SomaAdapter, Projection, ProjectionInput, SomaTask } from "../../types";
 import { defaultSomaRepoPath } from "../../repo-path";
 import { resolveBunExecutable } from "../../bun-probe";
-import { readCodexHookAsset } from "./hooks/assets";
+import { readCodexHookAsset, renderCodexPolicyHook, renderCodexPolicyTargets } from "./hooks/assets";
 import { renderFeedbackHookModule } from "../shared/feedback-helper";
 import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "../shared";
 import { activeIsaBundleFile } from "../../adapter-active-isa";
@@ -478,7 +478,11 @@ export function projectCodexHome(input: ProjectionInput, somaHome: string, homeD
       },
       {
         path: "hooks/codex-policy-hook.mjs",
-        content: readCodexHookAsset("codex-policy-hook.mjs"),
+        content: renderCodexPolicyHook(),
+      },
+      {
+        path: "hooks/codex-policy-targets.mjs",
+        content: renderCodexPolicyTargets(),
       },
       {
         path: "hooks/policy-marker.mjs",
