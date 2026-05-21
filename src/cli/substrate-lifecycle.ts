@@ -97,6 +97,34 @@ function lifecycleSubcommandUsage(command: string, options: string): Record<Inst
   ) as Record<InstallSubstrate, string>;
 }
 
+type ProjectionOptions = { homeDir?: string; somaHome?: string; substrateHome?: string };
+type ProjectionFile = { path: string; content: string };
+type UninstallResult = { substrateHome: string; removed: string[] };
+
+const installPlanners: Record<InstallSubstrate, (options: SomaInstallOptions) => SomaInstallPlan> = {
+  codex: planSomaForCodexInstall,
+  "pi-dev": planSomaForPiDevInstall,
+  "claude-code": planSomaForClaudeCodeInstall,
+  cursor: planSomaForCursorInstall,
+};
+
+const installers: Record<InstallSubstrate, (options: SomaInstallOptions) => Promise<SomaInstallResult>> = {
+  codex: installSomaForCodex,
+  "pi-dev": installSomaForPiDev,
+  "claude-code": installSomaForClaudeCode,
+  cursor: installSomaForCursor,
+};
+
+const projectionBuilders: Record<
+  InstallSubstrate,
+  (input: ProjectionInput, options: ProjectionOptions) => readonly ProjectionFile[]
+> = {
+  codex: (input, options) => buildCodexHomeProjection(input, options).bundle.files,
+  "pi-dev": (input, options) => buildPiDevHomeProjection(input, options).bundle.files,
+  "claude-code": (input, options) => buildClaudeCodeHomeProjection(input, options).bundle.files,
+  cursor: (input, options) => buildCursorHomeProjection(input, options).bundle.files,
+};
+
 export const SUBSTRATE_LIFECYCLE_COMMAND_HELP: Record<
   "install" | "uninstall" | "reproject" | "upgrade" | "export" | "daemon",
   { usage: string; subcommands?: Record<string, string> }
@@ -325,29 +353,11 @@ export async function runSubstrateLifecycleCli(parsed: ParsedSubstrateLifecycleA
 }
 
 function planInstall(substrate: InstallSubstrate, options: SomaInstallOptions): SomaInstallPlan {
-  switch (substrate) {
-    case "codex":
-      return planSomaForCodexInstall(options);
-    case "pi-dev":
-      return planSomaForPiDevInstall(options);
-    case "claude-code":
-      return planSomaForClaudeCodeInstall(options);
-    case "cursor":
-      return planSomaForCursorInstall(options);
-  }
+  return installPlanners[substrate](options);
 }
 
 async function runInstall(substrate: InstallSubstrate, options: SomaInstallOptions): Promise<SomaInstallResult> {
-  switch (substrate) {
-    case "codex":
-      return installSomaForCodex(options);
-    case "pi-dev":
-      return installSomaForPiDev(options);
-    case "claude-code":
-      return installSomaForClaudeCode(options);
-    case "cursor":
-      return installSomaForCursor(options);
-  }
+  return installers[substrate](options);
 }
 
 async function runUninstall(parsed: ParsedUninstallArgs): Promise<string> {
@@ -407,18 +417,9 @@ async function buildExportProjection(
 function projectionFilesFor(
   substrate: InstallSubstrate,
   input: ProjectionInput,
-  options: { homeDir?: string; somaHome?: string; substrateHome?: string },
-): readonly { path: string; content: string }[] {
-  switch (substrate) {
-    case "codex":
-      return buildCodexHomeProjection(input, options).bundle.files;
-    case "pi-dev":
-      return buildPiDevHomeProjection(input, options).bundle.files;
-    case "claude-code":
-      return buildClaudeCodeHomeProjection(input, options).bundle.files;
-    case "cursor":
-      return buildCursorHomeProjection(input, options).bundle.files;
-  }
+  options: ProjectionOptions,
+): readonly ProjectionFile[] {
+  return projectionBuilders[substrate](input, options);
 }
 
 function defaultSomaHomePath(homeDir?: string): string {
@@ -514,30 +515,17 @@ export function formatInstallResult(result: SomaInstallResult): string {
 }
 
 export function formatClaudeUninstallResult(result: UninstallClaudeCodeResult): string {
-  if (result.removed.length === 0) {
-    return [
-      "soma adopt claude — uninstall",
-      "",
-      `Substrate home: ${result.substrateHome}`,
-      "Nothing to remove — Soma was not installed at this substrate home.",
-      "",
-    ].join("\n");
-  }
-  return [
-    "soma adopt claude — uninstall",
-    "",
-    `Substrate home: ${result.substrateHome}`,
-    "",
-    "Removed:",
-    ...result.removed.map((p) => `  - ${p}`),
-    "",
-  ].join("\n");
+  return formatUninstallResult("soma adopt claude — uninstall", result);
 }
 
 function formatCursorUninstallResult(result: UninstallCursorResult): string {
+  return formatUninstallResult("soma uninstall cursor", result);
+}
+
+function formatUninstallResult(title: string, result: UninstallResult): string {
   if (result.removed.length === 0) {
     return [
-      "soma uninstall cursor",
+      title,
       "",
       `Substrate home: ${result.substrateHome}`,
       "Nothing to remove — Soma was not installed at this substrate home.",
@@ -545,7 +533,7 @@ function formatCursorUninstallResult(result: UninstallCursorResult): string {
     ].join("\n");
   }
   return [
-    "soma uninstall cursor",
+    title,
     "",
     `Substrate home: ${result.substrateHome}`,
     "",
