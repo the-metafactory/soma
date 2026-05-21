@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
@@ -19,6 +19,7 @@ import {
   verifyAlgorithmCriterion,
   writeAlgorithmRun,
 } from "../src/index";
+import { loadSomaHomeAlgorithmCapabilityRegistry } from "../src/algorithm-capabilities";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-algorithm-"));
@@ -28,6 +29,41 @@ async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> 
   } finally {
     await rm(homeDir, { recursive: true, force: true });
   }
+}
+
+async function writeSkill(homeDir: string, slug: string, name: string, somaHome = ".soma"): Promise<void> {
+  const root = join(homeDir, somaHome, "skills", slug);
+  await mkdir(root, { recursive: true });
+  await writeFile(
+    join(root, "SKILL.md"),
+    ["---", `name: ${name}`, `description: ${name} test skill.`, "---", "", `# ${name}`, ""].join("\n"),
+    "utf8",
+  );
+}
+
+async function writeAlgorithmCapabilitiesReference(homeDir: string, somaHome = ".soma"): Promise<void> {
+  const root = join(homeDir, somaHome, "skills", "the-algorithm", "references");
+  await mkdir(root, { recursive: true });
+  await writeFile(
+    join(root, "capabilities.md"),
+    [
+      "# Algorithm Capabilities Reference",
+      "",
+      "| Capability | Phases | Trigger Signal | Invoke | Typical Cost |",
+      "|------------|--------|----------------|--------|--------------|",
+      '| FirstPrinciples | THINK | Architecture decisions | `Skill("FirstPrinciples")` | E2+ |',
+      '| MissingSkill | THINK | Missing target | `Skill("MissingSkill")` | E2+ |',
+      '| ReReadCheck | VERIFY->LEARN | Final check | *(inline doctrine step - no external tool)* | E1+ |',
+      '| Forge (code producer) | EXECUTE | Code production | `Agent(subagent_type="Forge", prompt="...")` | E3+ |',
+      "",
+      "| Capability | When | Invoke |",
+      "|------------|------|--------|",
+      "| BuildCommand | EXECUTE | `bun run build` |",
+      "| WrappedBuildCommand | EXECUTE | *bun run wrapped* |",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
 }
 
 function registerFirstPrinciples(run: ReturnType<typeof createAlgorithmRun>) {
@@ -217,8 +253,63 @@ test("records structured Algorithm capability selections and invocations", () =>
   });
 });
 
+test("loads migrated PAI Algorithm skill capabilities from Soma home", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeAlgorithmCapabilitiesReference(homeDir);
+    await writeSkill(homeDir, "first-principles", "FirstPrinciples");
+
+    const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir });
+
+    expect(registry.definitions.find((definition) => definition.name === "FirstPrinciples")).toMatchObject({
+      name: "FirstPrinciples",
+      kind: "skill",
+      phases: ["think"],
+      invoke: { contract: "skill", target: "FirstPrinciples" },
+    });
+    expect(registry.definitions.find((definition) => definition.name === "Forge")).toMatchObject({
+      name: "Forge",
+      kind: "agent",
+      phases: ["execute"],
+      invoke: { contract: "agent", target: "Forge" },
+    });
+    expect(registry.definitions.find((definition) => definition.name === "ReReadCheck")).toMatchObject({
+      name: "ReReadCheck",
+      kind: "inline",
+      phases: ["verify", "learn"],
+    });
+    expect(registry.definitions.find((definition) => definition.name === "BuildCommand")).toMatchObject({
+      name: "BuildCommand",
+      kind: "command",
+      phases: ["execute"],
+      invoke: { contract: "command", target: "bun run build" },
+    });
+    expect(registry.definitions.find((definition) => definition.name === "WrappedBuildCommand")).toMatchObject({
+      name: "WrappedBuildCommand",
+      kind: "command",
+      phases: ["execute"],
+      invoke: { contract: "command", target: "bun run wrapped" },
+    });
+    expect(registry.definitions.some((definition) => definition.name === "MissingSkill")).toBe(false);
+    expect(registry.unsupported).toContain("MissingSkill");
+  });
+});
+
+test("resolves relative Soma home capability paths under homeDir", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeAlgorithmCapabilitiesReference(homeDir, "runtime-soma");
+    await writeSkill(homeDir, "first-principles", "FirstPrinciples", "runtime-soma");
+
+    const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir, somaHome: "runtime-soma" });
+
+    expect(registry.definitions.find((definition) => definition.name === "FirstPrinciples")).toMatchObject({
+      kind: "skill",
+      invoke: { contract: "skill", target: "FirstPrinciples" },
+    });
+  });
+});
+
 test("rejects phantom Algorithm capabilities", () => {
-  let run = createAlgorithmRun({
+  const run = createAlgorithmRun({
     id: "phantom-capability",
     timestamp: "2026-05-21T10:00:00.000Z",
     prompt: "Reject invented capability",

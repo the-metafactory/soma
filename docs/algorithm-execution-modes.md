@@ -69,7 +69,15 @@ contract:
 - `status`: `selected`, `invoked`, `removed`, or `failed`
 - `invocation`: substrate, contract, target, timestamp, and evidence once used
 
-The initial registry includes PAI-style skill capabilities and inline checks.
+The built-in registry includes inline checks that are always available. When a
+Soma home contains an imported Algorithm capability reference at
+`skills/the-algorithm/references/capabilities.md`, the CLI registers matching
+PAI-style capabilities onto each run before mutating it. `Skill("Name")`
+entries are registered only when the corresponding Soma skill exists in the
+same home; `Agent(...)`, inline, and command entries become agent, inline, or
+command capability definitions. Missing skill targets remain unsupported so the
+selection fails loudly instead of pretending a capability can be invoked.
+
 Adapters can add startup capabilities to the run with
 `registerAlgorithmCapabilityDefinition(run, definition)` or
 `registerAlgorithmCapabilityDefinitions(run, definitions)`. Adapter

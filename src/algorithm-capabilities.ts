@@ -1,3 +1,6 @@
+import { readdir, readFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { basename, join, resolve } from "node:path";
 import type {
   AlgorithmCapabilityDefinition,
   AlgorithmCapabilitySelection,
@@ -8,6 +11,8 @@ import type {
   SubstrateId,
 } from "./types";
 import { getRunPhase } from "./algorithm-lifecycle";
+
+const CORE_PHASES: AlgorithmPhase[] = ["observe", "think", "plan", "build", "execute", "verify", "learn"];
 
 const DEFAULT_CAPABILITY_REGISTRY: AlgorithmCapabilityDefinition[] = [
   {
@@ -25,6 +30,16 @@ const DEFAULT_CAPABILITY_REGISTRY: AlgorithmCapabilityDefinition[] = [
     invoke: { contract: "inline", target: "Analyze the work as an ordered sequence before planning." },
   },
 ];
+
+export interface SomaHomeAlgorithmCapabilityOptions {
+  homeDir?: string;
+  somaHome?: string;
+}
+
+export interface SomaHomeAlgorithmCapabilityRegistry {
+  definitions: AlgorithmCapabilityDefinition[];
+  unsupported: string[];
+}
 
 export interface SelectAlgorithmCapabilityInput {
   name: string;
@@ -76,6 +91,230 @@ function cloneCapabilityDefinition(definition: AlgorithmCapabilityDefinition): A
     triggerSignals: [...definition.triggerSignals],
     invoke: { ...definition.invoke },
   };
+}
+
+function resolveSomaHome(options: SomaHomeAlgorithmCapabilityOptions = {}): string {
+  const home = resolve(options.homeDir ?? homedir());
+  return options.somaHome ? resolve(home, options.somaHome) : join(home, ".soma");
+}
+
+function normalizeCapabilityKey(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function stripMarkdownEmphasis(value: string): string {
+  return value
+    .replaceAll("**", "")
+    .replaceAll("*", "")
+    .replaceAll("`", "")
+    .trim();
+}
+
+function stripCapabilityLabel(value: string): string {
+  const label = stripMarkdownEmphasis(value).replace(/\s*\([^)]*\)\s*$/, "").trim();
+  return label === "ISA Skill" ? "ISA" : label;
+}
+
+function frontmatterValue(content: string, key: string, fallback: string): string {
+  const pattern = new RegExp(`^${key}:\\s*(.+)$`, "m");
+  const match = content.match(pattern);
+  if (!match) return fallback;
+  const value = match[1].trim().replace(/^["']|["']$/g, "");
+  return value.length > 0 ? value : fallback;
+}
+
+async function loadAvailableSkillNames(somaHome: string): Promise<Map<string, string>> {
+  const skillsRoot = join(somaHome, "skills");
+  const entries = await readdir(skillsRoot, { withFileTypes: true }).catch(() => []);
+  const names = new Map<string, string>();
+
+  const skillMetadata = await Promise.all(
+    entries
+      .filter((entry) => entry.isDirectory())
+      .map(async (entry) => {
+        const skillRoot = join(skillsRoot, entry.name);
+        const skillMd = await readFile(join(skillRoot, "SKILL.md"), "utf8").catch(() => undefined);
+        return skillMd ? { dirName: entry.name, name: frontmatterValue(skillMd, "name", entry.name) } : undefined;
+      }),
+  );
+
+  for (const metadata of skillMetadata) {
+    if (!metadata) continue;
+
+    names.set(normalizeCapabilityKey(metadata.name), metadata.name);
+    names.set(normalizeCapabilityKey(metadata.dirName), metadata.name);
+    names.set(normalizeCapabilityKey(basename(metadata.dirName)), metadata.name);
+  }
+
+  return names;
+}
+
+function parsePhaseCell(value: string, fallback: AlgorithmPhase[] = ["think"]): AlgorithmPhase[] {
+  const normalized = stripMarkdownEmphasis(value).toLowerCase();
+  if (normalized === "any") {
+    return [...CORE_PHASES];
+  }
+
+  const phases = new Set<AlgorithmPhase>();
+  const phaseNames: AlgorithmPhase[] = [...CORE_PHASES, "complete"];
+  for (const phase of phaseNames) {
+    if (normalized.includes(phase)) {
+      phases.add(phase);
+    }
+  }
+
+  return phases.size > 0 ? Array.from(phases) : [...fallback];
+}
+
+function parseMarkdownTableRows(markdown: string): string[][] {
+  const rows: string[][] = [];
+  let inCapabilityTable = false;
+
+  for (const rawLine of markdown.split("\n")) {
+    const line = rawLine.trim();
+    if (!line.startsWith("|") || !line.endsWith("|")) {
+      inCapabilityTable = false;
+      continue;
+    }
+
+    const cells = line.slice(1, -1).split("|").map((cell) => cell.trim());
+    const first = cells[0]?.toLowerCase() ?? "";
+    if (first === "capability") {
+      inCapabilityTable = true;
+      continue;
+    }
+
+    if (!inCapabilityTable) {
+      continue;
+    }
+
+    if (cells.every((cell) => /^:?-{3,}:?$/.test(cell.trim()))) {
+      continue;
+    }
+
+    if (cells.length >= 3) {
+      rows.push(cells);
+    }
+  }
+
+  return rows;
+}
+
+function skillInvocationTarget(value: string): string | undefined {
+  return /Skill\("([^"]+)"/.exec(value)?.[1];
+}
+
+function agentInvocationTarget(value: string, capabilityName: string): string | undefined {
+  const subtype = /subagent_type\s*=\s*"([^"]+)"/.exec(value)?.[1];
+  return subtype ?? (value.includes("Agent(") ? capabilityName : undefined);
+}
+
+function commandInvocationTarget(value: string): string | undefined {
+  const stripped = stripMarkdownEmphasis(value);
+  if (stripped.includes("Bash(")) return stripped;
+  if (stripped.startsWith("bun ")) return stripped;
+  return undefined;
+}
+
+function inlineInvocationTarget(value: string): string | undefined {
+  const stripped = stripMarkdownEmphasis(value);
+  if (stripped.includes("inline doctrine") || stripped.includes("no external tool")) {
+    return stripped;
+  }
+  return undefined;
+}
+
+function buildCapabilityDefinition(
+  name: string,
+  kind: AlgorithmCapabilityDefinition["kind"],
+  phases: AlgorithmPhase[],
+  triggerSignals: string[],
+  target: string,
+): AlgorithmCapabilityDefinition {
+  return {
+    name,
+    kind,
+    phases,
+    triggerSignals,
+    invoke: { contract: kind, target },
+  };
+}
+
+export async function loadSomaHomeAlgorithmCapabilityRegistry(
+  options: SomaHomeAlgorithmCapabilityOptions = {},
+): Promise<SomaHomeAlgorithmCapabilityRegistry> {
+  const somaHome = resolveSomaHome(options);
+  const referencePath = join(somaHome, "skills", "the-algorithm", "references", "capabilities.md");
+  const markdown = await readFile(referencePath, "utf8").catch(() => "");
+  if (!markdown) {
+    return { definitions: [], unsupported: [] };
+  }
+
+  const availableSkills = await loadAvailableSkillNames(somaHome);
+  const definitions = new Map<string, AlgorithmCapabilityDefinition>();
+  const unsupported = new Set<string>();
+
+  for (const row of parseMarkdownTableRows(markdown)) {
+    const name = stripCapabilityLabel(row[0] ?? "");
+    const phaseCell = row[1] ?? "";
+    const triggerCell = row.length >= 5 ? row[2] ?? "" : row[1] ?? "";
+    const invokeCell = row.length >= 5 ? row[3] ?? "" : row[2] ?? "";
+
+    if (!name) continue;
+
+    const phases = parsePhaseCell(phaseCell, row.length >= 5 ? ["think"] : ["plan"]);
+    const triggerSignals = [stripMarkdownEmphasis(triggerCell)].filter((signal) => signal.length > 0);
+    const skillTarget = skillInvocationTarget(invokeCell);
+    const agentTarget = agentInvocationTarget(invokeCell, name);
+    const commandTarget = commandInvocationTarget(invokeCell);
+    const inlineTarget = inlineInvocationTarget(invokeCell);
+
+    if (skillTarget) {
+      const availableTarget = availableSkills.get(normalizeCapabilityKey(skillTarget));
+      if (!availableTarget) {
+        unsupported.add(name);
+        continue;
+      }
+
+      definitions.set(name, buildCapabilityDefinition(name, "skill", phases, triggerSignals, availableTarget));
+      continue;
+    }
+
+    if (agentTarget) {
+      definitions.set(name, buildCapabilityDefinition(name, "agent", phases, triggerSignals, agentTarget));
+      continue;
+    }
+
+    if (inlineTarget) {
+      definitions.set(name, buildCapabilityDefinition(name, "inline", phases, triggerSignals, inlineTarget));
+      continue;
+    }
+
+    if (commandTarget) {
+      definitions.set(name, buildCapabilityDefinition(name, "command", phases, triggerSignals, commandTarget));
+      continue;
+    }
+
+    unsupported.add(name);
+  }
+
+  return {
+    definitions: Array.from(definitions.values()).map(cloneCapabilityDefinition),
+    unsupported: Array.from(unsupported).sort(),
+  };
+}
+
+export async function registerSomaHomeAlgorithmCapabilities(
+  run: AlgorithmRun,
+  options: SomaHomeAlgorithmCapabilityOptions = {},
+  timestamp = run.updatedAt,
+): Promise<AlgorithmRun> {
+  const { definitions } = await loadSomaHomeAlgorithmCapabilityRegistry(options);
+  if (definitions.length === 0) {
+    return run;
+  }
+
+  return registerAlgorithmCapabilityDefinitions(run, definitions, timestamp);
 }
 
 export function listAlgorithmCapabilityDefinitions(): AlgorithmCapabilityDefinition[] {
@@ -159,7 +398,8 @@ export function selectAlgorithmCapability(
   const name = input.name.trim();
   const definition = getAlgorithmCapabilityDefinition(name, run);
   const phase = input.phase ?? getRunPhase(run);
-  const reason = input.reason?.trim() || `Selected ${definition.name} for ${phase}.`;
+  const trimmedReason = input.reason?.trim();
+  const reason = trimmedReason && trimmedReason.length > 0 ? trimmedReason : `Selected ${definition.name} for ${phase}.`;
   const selections = run.capabilitySelections ?? [];
   const existingIndex = findSelectionIndex(selections, name);
 

@@ -15,6 +15,28 @@ async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> 
   }
 }
 
+async function writeAlgorithmCapabilityFixture(homeDir: string): Promise<void> {
+  await mkdir(join(homeDir, ".soma/skills/the-algorithm/references"), { recursive: true });
+  await mkdir(join(homeDir, ".soma/skills/first-principles"), { recursive: true });
+  await writeFile(
+    join(homeDir, ".soma/skills/the-algorithm/references/capabilities.md"),
+    [
+      "# Algorithm Capabilities Reference",
+      "",
+      "| Capability | Phases | Trigger Signal | Invoke | Typical Cost |",
+      "|------------|--------|----------------|--------|--------------|",
+      '| FirstPrinciples | THINK | Architecture decisions | `Skill("FirstPrinciples")` | E2+ |',
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  await writeFile(
+    join(homeDir, ".soma/skills/first-principles/SKILL.md"),
+    ["---", "name: FirstPrinciples", "description: Test first principles skill.", "---", "", "# FirstPrinciples", ""].join("\n"),
+    "utf8",
+  );
+}
+
 test("cli dry-runs codex install without writing files", async () => {
   await withTempHome(async (homeDir) => {
     const output = await runSomaCli(["install", "codex", "--home-dir", homeDir]);
@@ -470,6 +492,66 @@ test("cli batch capability invocation accepts explicit substrate prefix", async 
     ]);
 
     expect(output).toContain("reviewed with explicit substrate");
+  });
+});
+
+test("cli selects migrated PAI skill capabilities from Soma home", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeAlgorithmCapabilityFixture(homeDir);
+    await runSomaCli([
+      "algorithm",
+      "new",
+      "--home-dir",
+      homeDir,
+      "--id",
+      "migrated-skill-capability-run",
+      "--prompt",
+      "Use migrated PAI capability",
+      "--intent",
+      "Select a migrated skill capability.",
+      "--current-state",
+      "FirstPrinciples exists as a migrated Soma skill.",
+      "--goal",
+      "FirstPrinciples can be selected and invoked.",
+      "--criterion",
+      "C1:FirstPrinciples selection works.",
+    ]);
+    await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "migrated-skill-capability-run"]);
+
+    const selected = await runSomaCli([
+      "algorithm",
+      "capabilities",
+      "--home-dir",
+      homeDir,
+      "--id",
+      "migrated-skill-capability-run",
+      "--capability",
+      "FirstPrinciples",
+      "--phase",
+      "think",
+      "--reason",
+      "Use the migrated PAI skill.",
+    ]);
+
+    expect(selected).toContain("[selected] FirstPrinciples");
+
+    const invoked = await runSomaCli([
+      "algorithm",
+      "invoke",
+      "--home-dir",
+      homeDir,
+      "--id",
+      "migrated-skill-capability-run",
+      "--capability",
+      "FirstPrinciples",
+      "--evidence",
+      "Deconstructed the registration problem.",
+    ]);
+
+    expect(invoked).toContain("[invoked] FirstPrinciples");
+    await expect(readFile(join(homeDir, ".soma/memory/WORK/algorithm-runs/migrated-skill-capability-run.json"), "utf8")).resolves.toContain(
+      '"target": "FirstPrinciples"',
+    );
   });
 });
 

@@ -57,10 +57,10 @@ import {
   setAlgorithmPlan,
   selectAlgorithmCapability,
   updateAlgorithmPlanStep,
-  updateAlgorithmRunById,
   verifyAlgorithmCriterion,
   writeAlgorithmRun,
 } from "./index";
+import { registerSomaHomeAlgorithmCapabilities } from "./algorithm-capabilities";
 // Sage r2 #99 Architecture: presentation helper imported directly
 // (not re-exported from the package root) so the text-rendering shape
 // stays internal and revisable without an SDK breakage.
@@ -3502,9 +3502,24 @@ function requireText(options: AlgorithmCliOptions): string {
 async function updateAndReportAlgorithmRun(
   options: AlgorithmCliOptions,
   update: (run: AlgorithmRun) => AlgorithmRun,
+  registration: { registerCapabilities?: boolean } = {},
 ): Promise<string> {
   const id = requireAlgorithmId(options);
-  const written = await updateAlgorithmRunById(id, { homeDir: options.homeDir, somaHome: options.somaHome }, update);
+  const { run } = await readAlgorithmRunById(id, {
+    homeDir: options.homeDir,
+    somaHome: options.somaHome,
+  });
+  const registered =
+    registration.registerCapabilities === true
+      ? await registerSomaHomeAlgorithmCapabilities(run, {
+          homeDir: options.homeDir,
+          somaHome: options.somaHome,
+        })
+      : run;
+  const written = await writeAlgorithmRun(update(registered), {
+    homeDir: options.homeDir,
+    somaHome: options.somaHome,
+  });
 
   await runSomaLifecycleAlgorithmUpdated({
     homeDir: options.homeDir,
@@ -3524,7 +3539,11 @@ async function runAlgorithmCli(parsed: ParsedAlgorithmArgs): Promise<string> {
   }
 
   if (parsed.action === "new") {
-    const written = await writeAlgorithmRun(createAlgorithmRun(requireAlgorithmRunInput(options)), {
+    const run = await registerSomaHomeAlgorithmCapabilities(createAlgorithmRun(requireAlgorithmRunInput(options)), {
+      homeDir: options.homeDir,
+      somaHome: options.somaHome,
+    });
+    const written = await writeAlgorithmRun(run, {
       homeDir: options.homeDir,
       somaHome: options.somaHome,
     });
@@ -3560,16 +3579,21 @@ async function runAlgorithmCli(parsed: ParsedAlgorithmArgs): Promise<string> {
     if (capabilities.length > 1 && options.capabilityReason) {
       throw new Error("--reason can only be used with one --capability at a time.");
     }
-    return updateAndReportAlgorithmRun(options, (run) =>
-      capabilities.reduce(
-        (current, capability) =>
-          selectAlgorithmCapability(current, {
-            name: capability,
-            phase: options.capabilityPhase,
-            reason: options.capabilityReason,
-          }),
-        run,
-      ),
+    return updateAndReportAlgorithmRun(
+      options,
+      (run) => {
+        const currentRun = run;
+        return capabilities.reduce(
+          (current, capability) =>
+            selectAlgorithmCapability(current, {
+              name: capability,
+              phase: options.capabilityPhase,
+              reason: options.capabilityReason,
+            }),
+          currentRun,
+        );
+      },
+      { registerCapabilities: true },
     );
   }
 
@@ -3578,12 +3602,15 @@ async function runAlgorithmCli(parsed: ParsedAlgorithmArgs): Promise<string> {
     if (!capability || !options.evidence) {
       throw new Error("--capability and --evidence are required.");
     }
-    return updateAndReportAlgorithmRun(options, (run) =>
-      recordAlgorithmCapabilityInvocation(run, {
-        name: capability,
-        substrate: options.substrate,
-        evidence: options.evidence ?? "",
-      }),
+    return updateAndReportAlgorithmRun(
+      options,
+      (run) =>
+        recordAlgorithmCapabilityInvocation(run, {
+          name: capability,
+          substrate: options.substrate,
+          evidence: options.evidence ?? "",
+        }),
+      { registerCapabilities: true },
     );
   }
 
@@ -3640,10 +3667,10 @@ async function runAlgorithmCli(parsed: ParsedAlgorithmArgs): Promise<string> {
 
   if (parsed.action === "batch") {
     const operations = options.batchOperations ?? [];
-    return updateAndReportAlgorithmRun(options, (run) => applyAlgorithmBatch(run, operations));
+    return updateAndReportAlgorithmRun(options, (run) => applyAlgorithmBatch(run, operations), { registerCapabilities: true });
   }
 
-  return updateAndReportAlgorithmRun(options, (run) => advanceAlgorithmRun(run));
+  return updateAndReportAlgorithmRun(options, (run) => advanceAlgorithmRun(run), { registerCapabilities: true });
 }
 
 export async function runSomaCli(args: string[]): Promise<string> {
