@@ -3,17 +3,12 @@ import {
   planSomaForClaudeCodeInstall,
   uninstallSomaForClaudeCode,
   type UninstallClaudeCodeOptions,
-  runSomaLifecycleAlgorithmUpdated,
-  runSomaLifecycleSessionEnd,
-  runSomaLifecycleSessionStart,
 } from "./index";
 import type {
   SomaInstallOptions,
   SomaDoctorDiagnosis,
   SomaInitPlan,
   SomaOnboardingOptions,
-  SomaLifecycleOptions,
-  SomaLifecycleResult,
 } from "./types";
 import { ISA_SUBCOMMAND_HELP, ISA_USAGE_HEADER, runIsaCli } from "./cli-isa";
 import { readOption } from "./cli/parse-utils";
@@ -82,6 +77,12 @@ import {
   runFeedbackCli,
   type ParsedFeedbackArgs,
 } from "./cli/feedback";
+import {
+  LIFECYCLE_COMMAND_HELP,
+  parseLifecycleArgs,
+  runLifecycleCli,
+  type ParsedLifecycleArgs,
+} from "./cli/lifecycle";
 import { runInferenceCli } from "./tools/inference/cli";
 import { runLearningCli, runMetricsCli, runOpinionCli, runSessionCli } from "./tools/learning/cli";
 import { RELATIONSHIP_REFLECT_USAGE, runRelationshipCli } from "./tools/relationship/cli";
@@ -106,12 +107,6 @@ interface ParsedAdoptArgs {
   substrate: "claude";
   mode: "plan" | "apply" | "uninstall";
   options: SomaInstallOptions & UninstallClaudeCodeOptions;
-}
-
-interface ParsedLifecycleArgs {
-  command: "lifecycle";
-  event: "session-start" | "algorithm-updated" | "session-end";
-  options: SomaLifecycleOptions;
 }
 
 interface ParsedHelpArgs {
@@ -239,9 +234,7 @@ const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string,
   },
   result: RESULT_COMMAND_HELP,
   policy: POLICY_COMMAND_HELP,
-  lifecycle: {
-    usage: "Usage: soma lifecycle <session-start|algorithm-updated|session-end> [--home-dir <dir>] [--soma-home <dir>] [--substrate <id>] [--session-id <id>]",
-  },
+  lifecycle: LIFECYCLE_COMMAND_HELP,
   install: SUBSTRATE_LIFECYCLE_COMMAND_HELP.install,
   uninstall: SUBSTRATE_LIFECYCLE_COMMAND_HELP.uninstall,
   reproject: SUBSTRATE_LIFECYCLE_COMMAND_HELP.reproject,
@@ -270,47 +263,6 @@ const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string,
 function commandUsage(command: string, action?: string): string {
   const commandHelp = COMMAND_HELP[command] as { usage: string; subcommands?: Record<string, string> } | undefined;
   return (action ? commandHelp?.subcommands?.[action] : undefined) ?? commandHelp?.usage ?? `Usage: soma ${command} ...`;
-}
-
-function parseLifecycleArgs(args: string[]): ParsedLifecycleArgs {
-  const [command, event, ...rest] = args;
-
-  if (command !== "lifecycle" || (event !== "session-start" && event !== "algorithm-updated" && event !== "session-end")) {
-    throw new Error(commandUsage("lifecycle"));
-  }
-
-  const options: SomaLifecycleOptions = {};
-
-  for (let index = 0; index < rest.length; index += 1) {
-    const arg = rest[index];
-
-    switch (arg) {
-      case "--home-dir":
-        options.homeDir = readOption(rest, index, arg);
-        index += 1;
-        break;
-      case "--soma-home":
-        options.somaHome = readOption(rest, index, arg);
-        index += 1;
-        break;
-      case "--substrate":
-        options.substrate = parseSubstrate(readOption(rest, index, arg));
-        index += 1;
-        break;
-      case "--session-id":
-        options.sessionId = readOption(rest, index, arg);
-        index += 1;
-        break;
-      default:
-        throw new Error(`Unknown option: ${arg}`);
-    }
-  }
-
-  return {
-    command,
-    event,
-    options,
-  };
 }
 
 function parseArgs(args: string[]): ParsedArgs {
@@ -658,24 +610,6 @@ function formatSomaDoctorDiagnosis(diagnosis: SomaDoctorDiagnosis): string {
   ].join("\n");
 }
 
-function formatLifecycleResult(result: SomaLifecycleResult): string {
-  const lines = [
-    "Soma lifecycle event handled",
-    `event: ${result.event}`,
-    `somaHome: ${result.somaHome}`,
-    `timestamp: ${result.timestamp}`,
-    "",
-    "Files:",
-    ...result.files.map((path) => `- ${path}`),
-  ];
-
-  if (result.context) {
-    lines.push("", result.context);
-  }
-
-  return lines.join("\n");
-}
-
 export async function runSomaCli(args: string[]): Promise<string> {
   const parsed = parseArgs(args);
 
@@ -684,15 +618,7 @@ export async function runSomaCli(args: string[]): Promise<string> {
   }
 
   if (parsed.command === "lifecycle") {
-    if (parsed.event === "session-start") {
-      return formatLifecycleResult(await runSomaLifecycleSessionStart(parsed.options));
-    }
-
-    if (parsed.event === "algorithm-updated") {
-      return formatLifecycleResult(await runSomaLifecycleAlgorithmUpdated(parsed.options));
-    }
-
-    return formatLifecycleResult(await runSomaLifecycleSessionEnd(parsed.options));
+    return runLifecycleCli(parsed);
   }
 
   if (parsed.command === "doctor") {
