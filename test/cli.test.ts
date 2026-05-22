@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { runSomaCli } from "../src/cli";
 import { ALGORITHM_ACTIONS } from "../src/cli/algorithm";
+import { IMPORT_COMMAND_HELP } from "../src/cli/import";
 import { MIGRATE_COMMAND_HELP } from "../src/cli/migrate";
 import {
   INSTALL_SUBSTRATES,
@@ -190,6 +191,14 @@ test("migrate command module keeps migration sources and help in sync", async ()
 
   for (const [source, usage] of Object.entries(MIGRATE_COMMAND_HELP.subcommands)) {
     await expect(runSomaCli(["migrate", source, "--help"])).resolves.toBe(usage);
+  }
+});
+
+test("import command module keeps import sources and help in sync", async () => {
+  await expect(runSomaCli(["import", "--help"])).resolves.toBe(IMPORT_COMMAND_HELP.usage);
+
+  for (const [source, usage] of Object.entries(IMPORT_COMMAND_HELP.subcommands)) {
+    await expect(runSomaCli(["import", source, "--help"])).resolves.toBe(usage);
   }
 });
 
