@@ -88,6 +88,12 @@ export function parseAdoptArgs(args: string[]): ParsedAdoptArgs {
   let mode: "plan" | "apply" | "uninstall" = "plan";
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
+    const sharedOptionIndex = readCommonDirOption(options, rest, index, arg);
+    if (sharedOptionIndex !== undefined) {
+      index = sharedOptionIndex;
+      continue;
+    }
+
     switch (arg) {
       case "--dry-run":
         mode = "plan";
@@ -97,14 +103,6 @@ export function parseAdoptArgs(args: string[]): ParsedAdoptArgs {
         break;
       case "--uninstall":
         mode = "uninstall";
-        break;
-      case "--home-dir":
-        options.homeDir = readOption(rest, index, arg);
-        index += 1;
-        break;
-      case "--soma-home":
-        options.somaHome = readOption(rest, index, arg);
-        index += 1;
         break;
       case "--substrate-home":
         options.substrateHome = readOption(rest, index, arg);
@@ -126,15 +124,13 @@ function parseOnboardingOptions(rest: string[]): SomaOnboardingOptions {
   const options: SomaOnboardingOptions = {};
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
+    const sharedOptionIndex = readCommonDirOption(options, rest, index, arg);
+    if (sharedOptionIndex !== undefined) {
+      index = sharedOptionIndex;
+      continue;
+    }
+
     switch (arg) {
-      case "--home-dir":
-        options.homeDir = readOption(rest, index, arg);
-        index += 1;
-        break;
-      case "--soma-home":
-        options.somaHome = readOption(rest, index, arg);
-        index += 1;
-        break;
       case "--substrate":
         options.substrate = parseOnboardingSubstrate(readOption(rest, index, arg));
         index += 1;
@@ -144,6 +140,24 @@ function parseOnboardingOptions(rest: string[]): SomaOnboardingOptions {
     }
   }
   return options;
+}
+
+function readCommonDirOption(
+  options: Pick<Partial<SomaInstallOptions & SomaOnboardingOptions>, "homeDir" | "somaHome">,
+  args: string[],
+  index: number,
+  arg: string,
+): number | undefined {
+  switch (arg) {
+    case "--home-dir":
+      options.homeDir = readOption(args, index, arg);
+      return index + 1;
+    case "--soma-home":
+      options.somaHome = readOption(args, index, arg);
+      return index + 1;
+    default:
+      return undefined;
+  }
 }
 
 export async function runOnboardingCli(parsed: ParsedOnboardingArgs): Promise<string> {
