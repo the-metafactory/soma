@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { codexInstallSpec } from "./adapters/codex";
+import { codexInstallSpec } from "./adapters/codex/install";
 import { CURSOR_HOME_FILE_PATHS } from "./adapters/cursor";
 import {
   PI_DEV_ISA_SKILL_ID,
