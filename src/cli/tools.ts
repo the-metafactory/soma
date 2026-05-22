@@ -64,6 +64,16 @@ export const TOOL_COMMAND_HELP: Record<ParsedToolArgs["command"], { usage: strin
   },
 };
 
+const TOOL_RUNNERS: Record<ParsedToolArgs["command"], (args: string[]) => Promise<string> | string> = {
+  inference: runInferenceCli,
+  learning: runLearningCli,
+  opinion: runOpinionCli,
+  metrics: runMetricsCli,
+  session: runSessionCli,
+  relationship: runRelationshipCli,
+  wisdom: runWisdomCli,
+};
+
 export function isToolCommand(command: string): command is ParsedToolArgs["command"] {
   return (TOOL_COMMANDS as readonly string[]).includes(command);
 }
@@ -82,29 +92,5 @@ export function parseToolArgs(args: string[]): ParsedToolArgs {
 }
 
 export async function runToolCli(parsed: ParsedToolArgs): Promise<string> {
-  if (parsed.command === "inference") {
-    return runInferenceCli(parsed.args);
-  }
-
-  if (parsed.command === "learning") {
-    return runLearningCli(parsed.args);
-  }
-
-  if (parsed.command === "opinion") {
-    return runOpinionCli(parsed.args);
-  }
-
-  if (parsed.command === "metrics") {
-    return runMetricsCli(parsed.args);
-  }
-
-  if (parsed.command === "session") {
-    return runSessionCli(parsed.args);
-  }
-
-  if (parsed.command === "relationship") {
-    return runRelationshipCli(parsed.args);
-  }
-
-  return runWisdomCli(parsed.args);
+  return TOOL_RUNNERS[parsed.command](parsed.args);
 }
