@@ -83,7 +83,11 @@ export interface ParsedMigrateClaudeSkillsArgs {
 export type ParsedMigrateArgs = ParsedMigratePaiArgs | ParsedMigrateClaudeSkillsArgs;
 
 function commandUsage(action?: string): string {
-  return (action ? MIGRATE_COMMAND_HELP.subcommands[action as "pai" | "claude-skills"] : undefined) ?? MIGRATE_COMMAND_HELP.usage;
+  return (isMigrateSource(action) ? MIGRATE_COMMAND_HELP.subcommands[action] : undefined) ?? MIGRATE_COMMAND_HELP.usage;
+}
+
+function isMigrateSource(action: string | undefined): action is keyof typeof MIGRATE_COMMAND_HELP.subcommands {
+  return action === "pai" || action === "claude-skills";
 }
 
 export function parseMigrateArgs(args: string[]): ParsedMigrateArgs {
