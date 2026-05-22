@@ -16,7 +16,8 @@ manual.
 
 The 120-line limit is intentionally simple. It catches the failure mode that
 hurts Codex most: a selected skill pasting a long manual into context before the
-task-local repo evidence has been read.
+task-local repo evidence has been read. The enforced source for these limits is
+`test/skill-entrypoints.test.ts`; update this document when changing that test.
 
 Rare exceptions are allowed only when the extra entrypoint material is needed
 before routing. Record the exception in `SKILL.md` frontmatter:
@@ -35,7 +36,7 @@ Use this structure unless a skill has a strong reason to differ:
 
 1. Frontmatter with name, description, effort, version, and pack id if relevant.
 2. One short purpose paragraph.
-3. `Codex Fast Path` with the common execution route.
+3. `Fast Path` with the common execution route.
 4. `When To Use` and `Do Not Use` guidance.
 5. Workflow or command routing table.
 6. Critical invariants only.

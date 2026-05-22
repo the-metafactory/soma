@@ -3,6 +3,7 @@ import { join, relative } from "node:path";
 import { expect, test } from "bun:test";
 
 const REPO_ROOT = join(import.meta.dirname, "..");
+// Enforced source for the budget documented in docs/codex-friendly-skills.md.
 const MAX_SKILL_ENTRYPOINT_LINES = 120;
 const MAX_WAIVED_SKILL_ENTRYPOINT_LINES = 240;
 

@@ -13,7 +13,7 @@ being pursued: a project, feature, library, infrastructure change, work session,
 art piece, or strategic decision. It acts as ideal-state articulation, test
 harness, done condition, verification record, and system of record.
 
-## Codex Fast Path
+## Fast Path
 
 1. Identify the requested ISA workflow from the routing table below.
 2. Load only that workflow file from `Workflows/`.
