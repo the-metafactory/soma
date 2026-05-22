@@ -73,10 +73,14 @@ import {
   runOnboardingCli,
   type ParsedOnboardingArgs,
 } from "./cli/onboarding";
-import { runInferenceCli } from "./tools/inference/cli";
-import { runLearningCli, runMetricsCli, runOpinionCli, runSessionCli } from "./tools/learning/cli";
-import { RELATIONSHIP_REFLECT_USAGE, runRelationshipCli } from "./tools/relationship/cli";
-import { runWisdomCli } from "./tools/wisdom/cli";
+import {
+  TOOL_COMMAND_HELP,
+  isParsedToolArgs,
+  isToolCommand,
+  parseToolArgs,
+  runToolCli,
+  type ParsedToolArgs,
+} from "./cli/tools";
 
 export { SomaCliError } from "./cli/errors";
 
@@ -87,16 +91,6 @@ interface ParsedHelpArgs {
 
 interface ParsedIsaArgs {
   command: "isa";
-  args: string[];
-}
-
-interface ParsedInferenceArgs {
-  command: "inference";
-  args: string[];
-}
-
-interface ParsedRawToolArgs {
-  command: "learning" | "opinion" | "metrics" | "session" | "relationship" | "wisdom";
   args: string[];
 }
 
@@ -118,8 +112,7 @@ type ParsedArgs =
   | ParsedResultArgs
   | ParsedPolicyArgs
   | ParsedIsaArgs
-  | ParsedInferenceArgs
-  | ParsedRawToolArgs;
+  | ParsedToolArgs;
 
 const TOP_LEVEL_COMMANDS = [
   "adopt",
@@ -153,48 +146,7 @@ const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string,
   algorithm: ALGORITHM_COMMAND_HELP,
   memory: MEMORY_COMMAND_HELP,
   feedback: FEEDBACK_COMMAND_HELP,
-  inference: {
-    usage: "Usage: soma inference [--level <fast|standard|smart>] [--mode <inference|advisor>] [--backend <auto|claude-code|anthropic-api>] [--allow-network] [--json] [--timeout <ms>] [--auto-state] [--home-dir <dir>] [--soma-home <dir>] [prompt...]",
-  },
-  learning: {
-    usage: "Usage: soma learning <synthesize|capture-failure|harvest> ...",
-    subcommands: {
-      synthesize: "Usage: soma learning synthesize [--week|--month|--all] [--dry-run] [--home-dir <dir>] [--soma-home <dir>]",
-      "capture-failure": "Usage: soma learning capture-failure <transcript-path> <rating> <summary> [detailed-context] [--home-dir <dir>] [--soma-home <dir>]",
-      harvest: "Usage: soma learning harvest [--recent <n>|--all|--session <id>] [--session-dir <dir>] [--dry-run] [--home-dir <dir>] [--soma-home <dir>]",
-    },
-  },
-  opinion: {
-    usage: "Usage: soma opinion <add|evidence|list|show> ...",
-    subcommands: {
-      add: "Usage: soma opinion add <statement> [--category <communication|technical|relationship|work_style>] [--home-dir <dir>] [--soma-home <dir>]",
-      evidence: "Usage: soma opinion evidence <statement> (--supporting|--counter|--confirmation|--contradiction) <description> [--home-dir <dir>] [--soma-home <dir>]",
-      list: "Usage: soma opinion list [--home-dir <dir>] [--soma-home <dir>]",
-      show: "Usage: soma opinion show <statement> [--home-dir <dir>] [--soma-home <dir>]",
-    },
-  },
-  metrics: {
-    usage: "Usage: soma metrics [--shell] [--single <key>] [--home-dir <dir>] [--soma-home <dir>]",
-  },
-  session: {
-    usage: "Usage: soma session <create|decision|work|blocker|next|handoff|resume|list|complete> ...",
-  },
-  relationship: {
-    usage: RELATIONSHIP_REFLECT_USAGE,
-    subcommands: {
-      reflect: RELATIONSHIP_REFLECT_USAGE,
-    },
-  },
-  wisdom: {
-    usage: "Usage: soma wisdom <classify|list|update|synthesize|health> ...",
-    subcommands: {
-      classify: "Usage: soma wisdom classify <text> [--home-dir <dir>] [--soma-home <dir>]",
-      list: "Usage: soma wisdom list [--home-dir <dir>] [--soma-home <dir>]",
-      update: "Usage: soma wisdom update --domain <domain> --type <principle|contextual-rule|prediction|anti-pattern|evolution> --observation <text> [--home-dir <dir>] [--soma-home <dir>]",
-      synthesize: "Usage: soma wisdom synthesize [--dry-run] [--home-dir <dir>] [--soma-home <dir>]",
-      health: "Usage: soma wisdom health [--dry-run] [--home-dir <dir>] [--soma-home <dir>]",
-    },
-  },
+  ...TOOL_COMMAND_HELP,
   result: RESULT_COMMAND_HELP,
   policy: POLICY_COMMAND_HELP,
   lifecycle: LIFECYCLE_COMMAND_HELP,
@@ -253,12 +205,8 @@ function parseArgs(args: string[]): ParsedArgs {
     return parseFeedbackArgs(args);
   }
 
-  if (args[0] === "inference") {
-    return { command: "inference", args: args.slice(1) };
-  }
-
-  if (args[0] === "learning" || args[0] === "opinion" || args[0] === "metrics" || args[0] === "session" || args[0] === "relationship" || args[0] === "wisdom") {
-    return { command: args[0], args: args.slice(1) };
+  if (isToolCommand(args[0])) {
+    return parseToolArgs(args);
   }
 
   if (args[0] === "result") {
@@ -454,32 +402,8 @@ export async function runSomaCli(args: string[]): Promise<string> {
     return runFeedbackCli(parsed);
   }
 
-  if (parsed.command === "inference") {
-    return runInferenceCli(parsed.args);
-  }
-
-  if (parsed.command === "learning") {
-    return runLearningCli(parsed.args);
-  }
-
-  if (parsed.command === "opinion") {
-    return runOpinionCli(parsed.args);
-  }
-
-  if (parsed.command === "metrics") {
-    return runMetricsCli(parsed.args);
-  }
-
-  if (parsed.command === "session") {
-    return runSessionCli(parsed.args);
-  }
-
-  if (parsed.command === "relationship") {
-    return runRelationshipCli(parsed.args);
-  }
-
-  if (parsed.command === "wisdom") {
-    return runWisdomCli(parsed.args);
+  if (isParsedToolArgs(parsed)) {
+    return runToolCli(parsed);
   }
 
   if (parsed.command === "result") {

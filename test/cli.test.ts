@@ -13,6 +13,7 @@ import { MIGRATE_COMMAND_HELP } from "../src/cli/migrate";
 import { ONBOARDING_COMMAND_HELP } from "../src/cli/onboarding";
 import { POLICY_COMMAND_HELP } from "../src/cli/policy";
 import { RESULT_COMMAND_HELP } from "../src/cli/result";
+import { TOOL_COMMAND_HELP } from "../src/cli/tools";
 import {
   INSTALL_SUBSTRATES,
   SUBSTRATE_LIFECYCLE_COMMAND_HELP,
@@ -250,6 +251,16 @@ test("lifecycle command module keeps lifecycle events and help in sync", async (
 
 test("onboarding command module keeps onboarding commands and help in sync", async () => {
   for (const [command, help] of Object.entries(ONBOARDING_COMMAND_HELP)) {
+    await expect(runSomaCli([command, "--help"])).resolves.toBe(help.usage);
+
+    for (const [action, usage] of Object.entries(help.subcommands ?? {})) {
+      await expect(runSomaCli([command, action, "--help"])).resolves.toBe(usage);
+    }
+  }
+});
+
+test("tool command module keeps pass-through tools and help in sync", async () => {
+  for (const [command, help] of Object.entries(TOOL_COMMAND_HELP)) {
     await expect(runSomaCli([command, "--help"])).resolves.toBe(help.usage);
 
     for (const [action, usage] of Object.entries(help.subcommands ?? {})) {
