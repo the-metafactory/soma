@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { runSomaCli } from "../src/cli";
 import { ALGORITHM_ACTIONS } from "../src/cli/algorithm";
+import { MIGRATE_COMMAND_HELP } from "../src/cli/migrate";
 import {
   INSTALL_SUBSTRATES,
   SUBSTRATE_LIFECYCLE_COMMAND_HELP,
@@ -148,6 +149,7 @@ test("cli supports concrete subcommand help as read-only normal help", async () 
   await expect(runSomaCli(["policy", "check", "--help"])).resolves.toContain("Usage: soma policy check");
   await expect(runSomaCli(["install", "codex", "--help"])).resolves.toContain("Usage: soma install");
   await expect(runSomaCli(["import", "pai", "--help"])).resolves.toContain("Usage: soma import pai");
+  await expect(runSomaCli(["migrate", "pai", "--help"])).resolves.toContain("Usage: soma migrate pai");
 });
 
 test("algorithm command module keeps actions and help in sync", async () => {
@@ -180,6 +182,14 @@ test("substrate lifecycle command module keeps substrates and help in sync", asy
 
   for (const command of ["reproject", "upgrade", "export", "daemon"] as const) {
     await expect(runSomaCli([command, "--help"])).resolves.toBe(SUBSTRATE_LIFECYCLE_COMMAND_HELP[command].usage);
+  }
+});
+
+test("migrate command module keeps migration sources and help in sync", async () => {
+  await expect(runSomaCli(["migrate", "--help"])).resolves.toBe(MIGRATE_COMMAND_HELP.usage);
+
+  for (const [source, usage] of Object.entries(MIGRATE_COMMAND_HELP.subcommands)) {
+    await expect(runSomaCli(["migrate", source, "--help"])).resolves.toBe(usage);
   }
 });
 
