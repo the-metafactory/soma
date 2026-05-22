@@ -8,6 +8,7 @@ import { ALGORITHM_ACTIONS } from "../src/cli/algorithm";
 import { IMPORT_COMMAND_HELP } from "../src/cli/import";
 import { MEMORY_COMMAND_HELP } from "../src/cli/memory";
 import { MIGRATE_COMMAND_HELP } from "../src/cli/migrate";
+import { RESULT_COMMAND_HELP } from "../src/cli/result";
 import {
   INSTALL_SUBSTRATES,
   SUBSTRATE_LIFECYCLE_COMMAND_HELP,
@@ -208,6 +209,14 @@ test("memory command module keeps memory actions and help in sync", async () => 
 
   for (const [action, usage] of Object.entries(MEMORY_COMMAND_HELP.subcommands)) {
     await expect(runSomaCli(["memory", action, "--help"])).resolves.toBe(usage);
+  }
+});
+
+test("result command module keeps result actions and help in sync", async () => {
+  await expect(runSomaCli(["result", "--help"])).resolves.toBe(RESULT_COMMAND_HELP.usage);
+
+  for (const [action, usage] of Object.entries(RESULT_COMMAND_HELP.subcommands)) {
+    await expect(runSomaCli(["result", action, "--help"])).resolves.toBe(usage);
   }
 });
 
