@@ -6,6 +6,7 @@ import { expect, test } from "bun:test";
 import { runSomaCli } from "../src/cli";
 import { ALGORITHM_ACTIONS } from "../src/cli/algorithm";
 import { IMPORT_COMMAND_HELP } from "../src/cli/import";
+import { MEMORY_COMMAND_HELP } from "../src/cli/memory";
 import { MIGRATE_COMMAND_HELP } from "../src/cli/migrate";
 import {
   INSTALL_SUBSTRATES,
@@ -199,6 +200,14 @@ test("import command module keeps import sources and help in sync", async () => 
 
   for (const [source, usage] of Object.entries(IMPORT_COMMAND_HELP.subcommands)) {
     await expect(runSomaCli(["import", source, "--help"])).resolves.toBe(usage);
+  }
+});
+
+test("memory command module keeps memory actions and help in sync", async () => {
+  await expect(runSomaCli(["memory", "--help"])).resolves.toBe(MEMORY_COMMAND_HELP.usage);
+
+  for (const [action, usage] of Object.entries(MEMORY_COMMAND_HELP.subcommands)) {
+    await expect(runSomaCli(["memory", action, "--help"])).resolves.toBe(usage);
   }
 });
 
