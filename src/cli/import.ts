@@ -163,7 +163,16 @@ export function parseImportArgs(args: string[]): ParsedImportArgs {
     }
   }
 
-  return { command, source, apply, options } as ParsedImportArgs;
+  if (source === "algorithm") {
+    return { command, source, apply, options };
+  }
+  if (source === "pai-pack") {
+    return { command, source, apply, options };
+  }
+  if (source === "pai-docs") {
+    return { command, source, apply, options };
+  }
+  return { command, source, apply, options };
 }
 
 function isImportSource(source: string | undefined): source is ImportSource {
@@ -200,15 +209,18 @@ function formatPaiImportPlan(plan: PaiImportPlan): string {
   return formatSimpleImportPlan("Soma PAI import plan", "pai", [`claudeHome: ${plan.claudeHome}`, `somaHome: ${plan.somaHome}`], plan);
 }
 
-function formatPaiImportResult(result: PaiImportResult): string {
+function formatSimpleImportResult(title: string, dirEntries: string[], files: string[]): string {
   return [
-    "Soma PAI import applied",
-    `claudeHome: ${result.claudeHome}`,
-    `somaHome: ${result.somaHome}`,
+    title,
+    ...dirEntries,
     "",
     "Files:",
-    ...result.files.map((path) => `- ${path}`),
+    ...files.map((path) => `- ${path}`),
   ].join("\n");
+}
+
+function formatPaiImportResult(result: PaiImportResult): string {
+  return formatSimpleImportResult("Soma PAI import applied", [`claudeHome: ${result.claudeHome}`, `somaHome: ${result.somaHome}`], result.files);
 }
 
 function formatAlgorithmImportPlan(plan: AlgorithmImportPlan): string {
@@ -216,14 +228,7 @@ function formatAlgorithmImportPlan(plan: AlgorithmImportPlan): string {
 }
 
 function formatAlgorithmImportResult(result: AlgorithmImportResult): string {
-  return [
-    "Soma Algorithm import applied",
-    `paiAlgorithmDir: ${result.paiAlgorithmDir}`,
-    `somaHome: ${result.somaHome}`,
-    "",
-    "Files:",
-    ...result.files.map((path) => `- ${path}`),
-  ].join("\n");
+  return formatSimpleImportResult("Soma Algorithm import applied", [`paiAlgorithmDir: ${result.paiAlgorithmDir}`, `somaHome: ${result.somaHome}`], result.files);
 }
 
 function formatOnePaiPackImportPlan(plan: PaiPackImportPlan): string {
