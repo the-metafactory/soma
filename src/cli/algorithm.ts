@@ -21,6 +21,7 @@ import {
 import { registerSomaHomeAlgorithmCapabilities } from "../algorithm-capabilities";
 import { getCriteria, getGoal } from "../isa-accessors";
 import { getRunPhase } from "../algorithm-lifecycle";
+import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
 import type {
   AlgorithmBatchOperation,
@@ -98,16 +99,6 @@ interface AlgorithmCliOptions {
   substrate?: SubstrateId;
   batchOperations?: AlgorithmBatchOperation[];
   json?: boolean;
-}
-
-function readOption(args: string[], index: number, name: string): string {
-  const value = args[index + 1];
-
-  if (!value || value.startsWith("--")) {
-    throw new Error(`${name} requires a value.`);
-  }
-
-  return value;
 }
 
 function isAlgorithmAction(value: string | undefined): value is AlgorithmCliAction {

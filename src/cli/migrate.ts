@@ -28,6 +28,7 @@ import type {
 } from "../types";
 import { SomaCliError } from "./errors";
 import { warnDeprecatedSubstrateFlag } from "./deprecated-flags";
+import { readOption } from "./parse-utils";
 
 export const MIGRATE_PAI_USAGE =
   "Usage: soma migrate pai [--dry-run] [--apply] [--status] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>] [--pai-install <dir>] [--pai-repo <root>] [--pai-source-dir <dir>] [--pai-packs-dir <dir>] [--pai-pack-dir <dir>] [--emit-resolution <path>] [--resolution <path>] [--skip-memory] [--skip-skills] [--skip-docs] [--overwrite-reserved] [--include-unrecognized] [--verbose]";
@@ -80,16 +81,6 @@ export interface ParsedMigrateClaudeSkillsArgs {
 }
 
 export type ParsedMigrateArgs = ParsedMigratePaiArgs | ParsedMigrateClaudeSkillsArgs;
-
-function readOption(args: string[], index: number, name: string): string {
-  const value = args[index + 1];
-
-  if (!value || value.startsWith("--")) {
-    throw new Error(`${name} requires a value.`);
-  }
-
-  return value;
-}
 
 function commandUsage(action?: string): string {
   return (action ? MIGRATE_COMMAND_HELP.subcommands[action as "pai" | "claude-skills"] : undefined) ?? MIGRATE_COMMAND_HELP.usage;

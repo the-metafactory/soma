@@ -61,6 +61,7 @@ import type {
 import { SOMA_FEEDBACK_STDIN_MAX_BYTES } from "./feedback-contract";
 import { ISA_SUBCOMMAND_HELP, ISA_USAGE_HEADER, runIsaCli } from "./cli-isa";
 import { warnDeprecatedSubstrateFlag } from "./cli/deprecated-flags";
+import { readOption } from "./cli/parse-utils";
 import { parseSubstrate } from "./cli/substrate";
 import {
   ALGORITHM_COMMAND_HELP,
@@ -370,16 +371,6 @@ const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string,
     subcommands: ISA_SUBCOMMAND_HELP,
   },
 };
-
-function readOption(args: string[], index: number, name: string): string {
-  const value = args[index + 1];
-
-  if (!value || value.startsWith("--")) {
-    throw new Error(`${name} requires a value.`);
-  }
-
-  return value;
-}
 
 function commandUsage(command: string, action?: string): string {
   const commandHelp = COMMAND_HELP[command] as { usage: string; subcommands?: Record<string, string> } | undefined;
