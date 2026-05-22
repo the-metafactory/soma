@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { runSomaCli } from "../src/cli";
 import { ALGORITHM_ACTIONS } from "../src/cli/algorithm";
+import { FEEDBACK_COMMAND_HELP } from "../src/cli/feedback";
 import { IMPORT_COMMAND_HELP } from "../src/cli/import";
 import { MEMORY_COMMAND_HELP } from "../src/cli/memory";
 import { MIGRATE_COMMAND_HELP } from "../src/cli/migrate";
@@ -226,6 +227,14 @@ test("policy command module keeps policy actions and help in sync", async () => 
 
   for (const [action, usage] of Object.entries(POLICY_COMMAND_HELP.subcommands)) {
     await expect(runSomaCli(["policy", action, "--help"])).resolves.toBe(usage);
+  }
+});
+
+test("feedback command module keeps feedback actions and help in sync", async () => {
+  await expect(runSomaCli(["feedback", "--help"])).resolves.toBe(FEEDBACK_COMMAND_HELP.usage);
+
+  for (const [action, usage] of Object.entries(FEEDBACK_COMMAND_HELP.subcommands)) {
+    await expect(runSomaCli(["feedback", action, "--help"])).resolves.toBe(usage);
   }
 });
 
