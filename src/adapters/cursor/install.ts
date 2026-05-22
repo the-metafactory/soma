@@ -1,7 +1,7 @@
 import { readFile, rm, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { isEnoent } from "../../fs-errors";
-import type { SubstrateInstallSpec } from "../../install-spec";
+import { isaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
 import { CURSOR_HOME_FILE_PATHS, CURSOR_RULES_BLOCK_BEGIN, CURSOR_RULES_BLOCK_END, CURSOR_RULES_PATH } from "../cursor";
 
 async function shouldRemoveSomaRulesDir(target: string): Promise<boolean> {
@@ -50,7 +50,7 @@ export const cursorInstallSpec: SubstrateInstallSpec<"cursor"> = {
   defaultHome: ".",
   homeFiles: CURSOR_HOME_FILE_PATHS,
   isaSkillProjection: {
-    destinationDir: (substrateHome) => resolve(substrateHome, ".cursor/rules/soma/skills/ISA"),
+    destinationDir: isaSkillUnder(".cursor/rules/soma"),
   },
   uninstall: {
     kind: "implemented",

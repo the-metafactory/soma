@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { configureCodexInstall } from "./config";
-import type { SubstrateInstallSpec } from "../../install-spec";
+import { isaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
 import type { SubstrateId } from "../../types";
 
 const CODEX_DEFAULT_HOME = ".codex";
@@ -65,7 +65,7 @@ export const codexInstallSpec: SubstrateInstallSpec<"codex"> = {
   defaultHome: CODEX_DEFAULT_HOME,
   homeFiles: CODEX_HOME_FILES,
   isaSkillProjection: {
-    destinationDir: (substrateHome) => resolve(substrateHome, "skills/ISA"),
+    destinationDir: isaSkillUnder(),
   },
   lifecycleProjection: {
     startupContextPath: "memories/soma/startup-context.md",

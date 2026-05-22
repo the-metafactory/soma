@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import type { SubstrateId } from "./types";
 
 export type InstallSubstrate = Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor">;
@@ -23,6 +24,10 @@ export interface IsaSkillProjectionSpec {
   destinationDir(substrateHome: string): string;
   skillNameOverride?: string;
   prepare?(substrateHome: string): Promise<void>;
+}
+
+export function isaSkillUnder(...pathSegments: string[]): (substrateHome: string) => string {
+  return (substrateHome) => resolve(substrateHome, ...pathSegments, "skills/ISA");
 }
 
 export type InstallValidator = (substrateRoot: string) => Promise<void>;

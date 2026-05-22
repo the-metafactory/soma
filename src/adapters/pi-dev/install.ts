@@ -33,7 +33,7 @@ function piDevProjectionPrivateRoots(options: { homeDir?: string; substrate?: Su
   return [
     join(home, PI_DEV_DEFAULT_HOME, "agent", "soma"),
     join(home, PI_DEV_DEFAULT_HOME, "agent", "skills", "soma"),
-  ].map((path) => resolve(path));
+  ];
 }
 
 export const piDevInstallSpec: SubstrateInstallSpec<"pi-dev"> = {
