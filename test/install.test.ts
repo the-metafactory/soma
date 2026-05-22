@@ -4,11 +4,13 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { installSomaForCodex, installSomaForPiDev, planSomaForCodexInstall, planSomaForPiDevInstall } from "../src/index";
+import { codexInstallSpec } from "../src/adapters/codex/install";
 import { renderStartupContextSummary } from "../src/adapters/codex/hooks/codex-hook-entry.mjs";
 import {
   SOMA_MEMORY_CATEGORIES,
   SOMA_PAI_BOUND_MEMORY_CATEGORIES,
 } from "../src/memory-readmes";
+import { somaMemoryPrivateRoots, somaProjectionPrivateRoots } from "../src/projection-private-roots";
 
 // #88 — Canonical PAI v5.0.0 memory taxonomy (DD-2). 17 substrate-neutral +
 // 2 PAI-bound = 19. Tests consume the production-exported lists from
@@ -158,12 +160,27 @@ test("codex install dry-run lists every substrate file apply reports", async () 
     const plan = planSomaForCodexInstall({ homeDir });
     const result = await installSomaForCodex({ homeDir });
 
+    expect(plan.substrateHome).toBe(join(homeDir, codexInstallSpec.defaultHome));
+    expect(plan.substrateFiles).toEqual(codexInstallSpec.homeFiles.map((path) => join(homeDir, ".codex", path)));
     expect(plan.substrateFiles).toContain(join(homeDir, ".codex/config.toml"));
     expect(plan.substrateFiles).toContain(join(homeDir, ".codex/memories/soma/soma-repo.txt"));
     expect(plan.substrateFiles).toContain(join(homeDir, ".codex/AGENTS.md"));
     expect(plan.substrateFiles).toContain(join(homeDir, ".codex/skills/the-algorithm/SKILL.md"));
     expect(new Set(plan.substrateFiles)).toEqual(new Set(result.substrateHome.files));
   });
+});
+
+test("codex install spec owns lifecycle and private root facts", () => {
+  const homeDir = "/tmp/soma-install-spec-home";
+
+  expect(codexInstallSpec.lifecycleProjection).toEqual({
+    startupContextPath: "memories/soma/startup-context.md",
+    somaRepoPathPath: "memories/soma/soma-repo.txt",
+  });
+  expect(codexInstallSpec.postProjection?.map((step) => step.name)).toEqual(["codex-agents-import", "codex-config"]);
+  expect(codexInstallSpec.uninstall.kind).toBe("reserved");
+  expect(somaProjectionPrivateRoots({ homeDir, substrate: "codex" })).toEqual([join(homeDir, ".codex/skills/soma")]);
+  expect(somaMemoryPrivateRoots({ homeDir, substrate: "codex" })).toEqual([join(homeDir, ".codex/memories")]);
 });
 
 test("pi.dev install dry-run lists every substrate file apply reports", async () => {
