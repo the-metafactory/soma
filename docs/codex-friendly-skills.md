@@ -18,6 +18,17 @@ The 120-line limit is intentionally simple. It catches the failure mode that
 hurts Codex most: a selected skill pasting a long manual into context before the
 task-local repo evidence has been read.
 
+Rare exceptions are allowed only when the extra entrypoint material is needed
+before routing. Record the exception in `SKILL.md` frontmatter:
+
+```yaml
+codex-entrypoint-max-lines: 160
+codex-entrypoint-exception: "Why this skill needs more pre-routing material."
+```
+
+Waived entrypoints are still capped at 240 lines by the repository test. Prefer
+splitting to references before using a waiver.
+
 ## Entrypoint Shape
 
 Use this structure unless a skill has a strong reason to differ:
