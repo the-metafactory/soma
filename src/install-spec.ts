@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import type { SubstrateId } from "./types";
 
 export type InstallSubstrate = Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor">;
@@ -19,6 +20,23 @@ export interface InstallPostProjectionStep {
   run(context: InstallPostProjectionContext): Promise<string[]>;
 }
 
+export interface IsaSkillProjectionSpec {
+  destinationDir(substrateHome: string): string;
+  skillNameOverride?: string;
+  prepare?(substrateHome: string): Promise<void>;
+}
+
+export function isaSkillUnder(...pathSegments: string[]): (substrateHome: string) => string {
+  return (substrateHome) => resolve(substrateHome, ...pathSegments, "skills/ISA");
+}
+
+export type InstallValidator = (substrateRoot: string) => Promise<void>;
+
+export interface UninstallContext {
+  homeDir?: string;
+  substrateHome: string;
+}
+
 export interface ReservedUninstallSpec {
   kind: "reserved";
   reason: string;
@@ -27,6 +45,8 @@ export interface ReservedUninstallSpec {
 export interface ImplementedUninstallSpec {
   kind: "implemented";
   remove: readonly string[];
+  shouldRemove?(target: string, context: UninstallContext): Promise<boolean>;
+  postRemove?(context: UninstallContext): Promise<string[]>;
 }
 
 export type UninstallSpec = ReservedUninstallSpec | ImplementedUninstallSpec;
@@ -40,6 +60,8 @@ export interface SubstrateInstallSpec<S extends InstallSubstrate = InstallSubstr
   substrate: S;
   defaultHome: string;
   homeFiles: readonly string[];
+  isaSkillProjection: IsaSkillProjectionSpec;
+  validator?: InstallValidator;
   lifecycleProjection?: LifecycleProjectionSpec;
   postProjection?: readonly InstallPostProjectionStep[];
   privateRoots?: PrivateRootSpec;

@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { dirname } from "node:path";
-import { CURSOR_RULES_PATH } from "./adapters/cursor";
+import { CURSOR_RULES_BLOCK_BEGIN, CURSOR_RULES_BLOCK_END, CURSOR_RULES_PATH } from "./adapters/cursor";
 import { projectClaudeCodeHome, projectCodexHome, projectCursorHome, projectPiDevHome } from "./adapters";
 import { writeProjection } from "./projection";
 import { defaultSomaRepoPath } from "./repo-path";
@@ -113,8 +113,7 @@ export async function installCursorHomeProjection(
   return written;
 }
 
-export const CURSOR_RULES_BLOCK_BEGIN = "<!-- SOMA_CURSOR_BEGIN -->";
-export const CURSOR_RULES_BLOCK_END = "<!-- SOMA_CURSOR_END -->";
+export { CURSOR_RULES_BLOCK_BEGIN, CURSOR_RULES_BLOCK_END };
 
 function renderCursorRulesBlock(content: string): string {
   return `${CURSOR_RULES_BLOCK_BEGIN}\n${content.trimEnd()}\n${CURSOR_RULES_BLOCK_END}`;
