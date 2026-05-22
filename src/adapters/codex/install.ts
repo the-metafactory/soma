@@ -5,6 +5,8 @@ import { configureCodexInstall } from "./config";
 import type { SubstrateInstallSpec } from "../../install-spec";
 import type { SubstrateId } from "../../types";
 
+const CODEX_DEFAULT_HOME = ".codex";
+
 export const CODEX_HOME_FILES = [
   "rules/soma.rules",
   "hooks.json",
@@ -34,13 +36,13 @@ export const CODEX_AGENTS_IMPORTS = ["@./skills/the-algorithm/SKILL.md", "@./mem
 export function codexProjectionPrivateRoots(options: { homeDir?: string; substrate?: SubstrateId } = {}): string[] {
   if (options.substrate !== undefined && options.substrate !== "codex") return [];
   const home = resolve(options.homeDir ?? homedir());
-  return [join(home, ".codex", "skills", "soma")].map((path) => resolve(path));
+  return [join(home, CODEX_DEFAULT_HOME, "skills", "soma")].map((path) => resolve(path));
 }
 
 export function codexMemoryPrivateRoots(options: { homeDir?: string; substrate?: SubstrateId } = {}): string[] {
   if (options.substrate !== undefined && options.substrate !== "codex") return [];
   const home = resolve(options.homeDir ?? homedir());
-  return [join(home, ".codex", "memories")].map((path) => resolve(path));
+  return [join(home, CODEX_DEFAULT_HOME, "memories")].map((path) => resolve(path));
 }
 
 export async function configureCodexAgentsImport(codexHome: string): Promise<string[]> {
@@ -60,7 +62,7 @@ export async function configureCodexAgentsImport(codexHome: string): Promise<str
 
 export const codexInstallSpec: SubstrateInstallSpec<"codex"> = {
   substrate: "codex",
-  defaultHome: ".codex",
+  defaultHome: CODEX_DEFAULT_HOME,
   homeFiles: CODEX_HOME_FILES,
   lifecycleProjection: {
     startupContextPath: "memories/soma/startup-context.md",
