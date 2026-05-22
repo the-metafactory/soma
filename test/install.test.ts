@@ -11,6 +11,7 @@ import {
   SOMA_PAI_BOUND_MEMORY_CATEGORIES,
 } from "../src/memory-readmes";
 import { somaMemoryPrivateRoots, somaProjectionPrivateRoots } from "../src/projection-private-roots";
+import { allInstallSpecs, installSpecFor } from "../src/install-spec-registry";
 
 // #88 — Canonical PAI v5.0.0 memory taxonomy (DD-2). 17 substrate-neutral +
 // 2 PAI-bound = 19. Tests consume the production-exported lists from
@@ -181,6 +182,47 @@ test("codex install spec owns lifecycle and private root facts", () => {
   expect(codexInstallSpec.uninstall.kind).toBe("reserved");
   expect(somaProjectionPrivateRoots({ homeDir, substrate: "codex" })).toEqual([join(homeDir, ".codex/skills/soma")]);
   expect(somaMemoryPrivateRoots({ homeDir, substrate: "codex" })).toEqual([join(homeDir, ".codex/memories")]);
+});
+
+test("install spec registry has adapter-owned facts for every install substrate", () => {
+  const substrates = ["codex", "pi-dev", "claude-code", "cursor"] as const;
+
+  expect(allInstallSpecs().map((spec) => spec.substrate).sort()).toEqual([...substrates].sort());
+
+  for (const substrate of substrates) {
+    const spec = installSpecFor(substrate);
+    expect(spec.substrate).toBe(substrate);
+    expect(spec.defaultHome.length).toBeGreaterThan(0);
+    expect(spec.homeFiles.length).toBeGreaterThan(0);
+    expect(spec.isaSkillProjection.destinationDir("/tmp/substrate-home")).toContain("/tmp/substrate-home");
+    expect(spec.uninstall.kind).toMatch(/implemented|reserved/);
+  }
+
+  expect(installSpecFor("pi-dev").validator).toBeDefined();
+  expect(installSpecFor("pi-dev").lifecycleProjection).toEqual({
+    startupContextPath: "agent/soma/startup-context.md",
+    somaRepoPathPath: "agent/soma/soma-repo.txt",
+  });
+  expect(installSpecFor("pi-dev").isaSkillProjection.skillNameOverride).toBe("isa");
+  expect(installSpecFor("claude-code").uninstall).toMatchObject({
+    kind: "implemented",
+    remove: ["rules/soma", "skills/ISA"],
+  });
+  expect(installSpecFor("cursor").uninstall.kind).toBe("implemented");
+});
+
+test("projection private roots aggregate adapter specs", () => {
+  const homeDir = "/tmp/soma-install-spec-home";
+
+  expect(somaProjectionPrivateRoots({ homeDir, substrate: "pi-dev" })).toEqual([
+    join(homeDir, ".pi/agent/soma"),
+    join(homeDir, ".pi/agent/skills/soma"),
+  ]);
+  expect(somaProjectionPrivateRoots({ homeDir })).toEqual([
+    join(homeDir, ".codex/skills/soma"),
+    join(homeDir, ".pi/agent/soma"),
+    join(homeDir, ".pi/agent/skills/soma"),
+  ]);
 });
 
 test("pi.dev install dry-run lists every substrate file apply reports", async () => {

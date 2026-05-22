@@ -1,17 +1,7 @@
 import { homedir } from "node:os";
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { codexInstallSpec } from "./adapters/codex/install";
-import { CURSOR_HOME_FILE_PATHS } from "./adapters/cursor";
 import {
-  PI_DEV_ISA_SKILL_ID,
-  piDevIsaSkillDestinationDir,
-  removeLegacyPiDevIsaSkillProjection,
-} from "./adapters/pi-dev/skill-projection";
-import { validatePiDevInstallRuntime } from "./adapters/pi-dev/version";
-import {
-  CURSOR_RULES_BLOCK_BEGIN,
-  CURSOR_RULES_BLOCK_END,
   installClaudeCodeHomeProjection,
   installCodexHomeProjection,
   installCursorHomeProjection,
@@ -21,9 +11,16 @@ import { buildSomaStartupContext, runSomaLifecycleAlgorithmUpdated } from "./lif
 import { SOMA_MEMORY_CATEGORIES } from "./memory-readmes";
 import { defaultSomaRepoPath } from "./repo-path";
 import { bootstrapSomaHome } from "./soma-home";
-import { installIsaSkill, installIsaSkillProjection } from "./isa-skill-installer";
+import { installIsaSkillProjection } from "./isa-skill-installer";
 import { loadActiveIsaForBundle } from "./adapter-active-isa";
-import { type InstallSubstrate, type LifecycleProjectionSpec, type SubstrateInstallSpec } from "./install-spec";
+import { isEnoent } from "./fs-errors";
+import {
+  type ImplementedUninstallSpec,
+  type InstallSubstrate,
+  type LifecycleProjectionSpec,
+  type SubstrateInstallSpec,
+  type UninstallContext,
+} from "./install-spec";
 import { defaultSubstrateHome, installSpecFor } from "./install-spec-registry";
 import type { ProjectionInput, SomaInstallOptions, SomaInstallPlan, SomaInstallResult } from "./types";
 
@@ -48,39 +45,6 @@ const SOMA_BOOTSTRAP_DIRECTORIES = [
   "projections/cursor",
 ] as const;
 
-const PI_DEV_HOME_FILES = [
-  "agent/extensions/soma.ts",
-  "agent/extensions/soma-path-guard.ts",
-  // #43 minimal-correct slice — Algorithm phase renderer extension.
-  "agent/extensions/soma-algorithm.ts",
-  "agent/soma/context.md",
-  "agent/soma/profile.md",
-  "agent/soma/startup-context.md",
-  "agent/soma/memory-layout.md",
-  "agent/soma/pai-imports.md",
-  "agent/soma/tools.md",
-  "agent/soma/skills.md",
-  "agent/soma/policy.md",
-  "agent/soma/soma-repo.txt",
-  "agent/skills/soma/SKILL.md",
-] as const;
-
-// Claude Code home files written by the full #29 installer
-// (`.claude/rules/soma/`-pivot per soma#64). Sourced from the adapter
-// so the planner and writer can't drift (sage r1 finding).
-import { CLAUDE_CODE_RULES_FILES } from "./adapters/claude-code";
-const CLAUDE_CODE_HOME_FILES = CLAUDE_CODE_RULES_FILES;
-
-const SKILL_SUBPATHS: Record<Exclude<InstallSubstrate, "pi-dev">, string> = {
-  codex: "skills/ISA",
-  "claude-code": "skills/ISA",
-  cursor: ".cursor/rules/soma/skills/ISA",
-};
-
-const INSTALL_VALIDATORS: Partial<Record<InstallSubstrate, (substrateRoot: string) => Promise<void>>> = {
-  "pi-dev": validatePiDevInstallRuntime,
-};
-
 function resolveInstallHomes(substrate: InstallSubstrate, options: SomaInstallOptions): { somaHome: string; substrateHome: string } {
   const homeDir = options.homeDir;
   const defaultHome = defaultSubstrateHome(substrate);
@@ -94,31 +58,15 @@ function resolveInstallHomes(substrate: InstallSubstrate, options: SomaInstallOp
   };
 }
 
-function resolveSubstrateSkillDir(substrate: InstallSubstrate, substrateHome: string): string {
-  if (substrate === "pi-dev") return piDevIsaSkillDestinationDir(substrateHome);
-  return resolve(substrateHome, SKILL_SUBPATHS[substrate]);
-}
-
-function substrateSkillNameOverride(substrate: InstallSubstrate): string | undefined {
-  if (substrate === "pi-dev") return PI_DEV_ISA_SKILL_ID;
-  return undefined;
-}
-
-async function prepareSubstrateSkillDestination(substrate: InstallSubstrate, substrateHome: string): Promise<void> {
-  if (substrate === "pi-dev") {
-    await removeLegacyPiDevIsaSkillProjection(substrateHome);
-  }
-}
-
 // soma#73 pre-flight is shared with the codex adapter — see
 // `src/bun-probe.ts` for the discovery + remediation logic.
 import { requireBunInPath } from "./bun-probe";
 
-function planSomaInstall(
+export function planSomaInstall(
   substrate: InstallSubstrate,
-  substrateFiles: readonly string[],
   options: SomaInstallOptions = {},
 ): SomaInstallPlan {
+  const spec = installSpecFor(substrate);
   const homes = resolveInstallHomes(substrate, options);
 
   return {
@@ -128,30 +76,31 @@ function planSomaInstall(
     substrateHome: homes.substrateHome,
     somaDirectories: SOMA_BOOTSTRAP_DIRECTORIES.map((path) => `${homes.somaHome}/${path}`),
     somaFiles: SOMA_BOOTSTRAP_FILES.map((path) => `${homes.somaHome}/${path}`),
-    substrateFiles: substrateFiles.map((path) => `${homes.substrateHome}/${path}`),
+    substrateFiles: spec.homeFiles.map((path) => `${homes.substrateHome}/${path}`),
   };
 }
 
 export function planSomaForCodexInstall(options: SomaInstallOptions = {}): SomaInstallPlan {
-  return planSomaInstall(codexInstallSpec.substrate, codexInstallSpec.homeFiles, options);
+  return planSomaInstall("codex", options);
 }
 
 export function planSomaForPiDevInstall(options: SomaInstallOptions = {}): SomaInstallPlan {
-  return planSomaInstall("pi-dev", PI_DEV_HOME_FILES, options);
+  return planSomaInstall("pi-dev", options);
 }
 
 export function planSomaForClaudeCodeInstall(options: SomaInstallOptions = {}): SomaInstallPlan {
-  return planSomaInstall("claude-code", CLAUDE_CODE_HOME_FILES, options);
+  return planSomaInstall("claude-code", options);
 }
 
 export function planSomaForCursorInstall(options: SomaInstallOptions = {}): SomaInstallPlan {
-  return planSomaInstall("cursor", CURSOR_HOME_FILE_PATHS, options);
+  return planSomaInstall("cursor", options);
 }
 
 async function installSomaForSubstrate(
   substrate: InstallSubstrate,
   options: SomaInstallOptions = {},
 ): Promise<SomaInstallResult> {
+  const spec = installSpecFor(substrate);
   // soma#73 pre-flight: every soma substrate hook now runs under Bun
   // (#!/usr/bin/env bun shebang). The adopter rejects loud + early
   // when bun is missing rather than producing a half-broken install
@@ -179,15 +128,15 @@ async function installSomaForSubstrate(
   // baseline tracking via `skillDestinationDir`. AC-5: drift detection
   // inherits installIsaSkill's local-edits-preserved contract.
   const resolvedHomeDir = resolve(options.homeDir ?? homedir());
-  const substrateRoot = resolve(options.substrateHome ?? join(resolvedHomeDir, defaultSubstrateHome(substrate)));
-  await INSTALL_VALIDATORS[substrate]?.(substrateRoot);
-  await prepareSubstrateSkillDestination(substrate, substrateRoot);
+  const substrateRoot = resolve(options.substrateHome ?? join(resolvedHomeDir, spec.defaultHome));
+  await spec.validator?.(substrateRoot);
+  await spec.isaSkillProjection.prepare?.(substrateRoot);
   await installIsaSkillProjection({
     homeDir: options.homeDir,
     somaHome: somaHome.somaHome,
     somaRepoPath,
-    skillDestinationDir: resolveSubstrateSkillDir(substrate, substrateRoot),
-    skillNameOverride: substrateSkillNameOverride(substrate),
+    skillDestinationDir: spec.isaSkillProjection.destinationDir(substrateRoot),
+    skillNameOverride: spec.isaSkillProjection.skillNameOverride,
   });
   // Populate the projection input with the active ISA so each
   // substrate writes its `active-isa.md` file (#37 AC-1/AC-2).
@@ -196,14 +145,13 @@ async function installSomaForSubstrate(
     activeIsa: (await loadActiveIsaForBundle({ somaHome: somaHome.somaHome })) ?? undefined,
   };
   const substrateHome = await installHomeProjectionFor(substrate, contextWithActiveIsa, projectionOptions);
-  const spec = installSpecFor(substrate);
   const postProjectionFiles = await runPostProjectionSteps(spec, {
     homeDir: options.homeDir,
     somaHome: somaHome.somaHome,
     somaRepoPath: projectionOptions.somaRepoPath,
     substrateHome: substrateHome.rootDir,
   });
-  const lifecycleSpec = spec?.lifecycleProjection ?? legacyLifecycleProjectionSpec(substrate);
+  const lifecycleSpec = spec.lifecycleProjection;
   const lifecycleFiles = lifecycleSpec
     ? await installLifecycleProjection(lifecycleSpec, substrateHome.rootDir, {
         homeDir: options.homeDir,
@@ -224,11 +172,11 @@ async function installSomaForSubstrate(
 }
 
 async function runPostProjectionSteps(
-  spec: SubstrateInstallSpec | undefined,
+  spec: SubstrateInstallSpec,
   context: { homeDir?: string; somaHome: string; somaRepoPath: string; substrateHome: string },
 ): Promise<string[]> {
   const files: string[] = [];
-  for (const step of spec?.postProjection ?? []) {
+  for (const step of spec.postProjection ?? []) {
     files.push(...(await step.run(context)));
   }
   return files;
@@ -258,16 +206,6 @@ async function writeProjectionFile(root: string, relativePath: string, content: 
   await writeFile(path, `${content.trimEnd()}\n`, "utf8");
 
   return path;
-}
-
-function legacyLifecycleProjectionSpec(substrate: InstallSubstrate): LifecycleProjectionSpec | undefined {
-  if (substrate === "pi-dev") {
-    return {
-      startupContextPath: "agent/soma/startup-context.md",
-      somaRepoPathPath: "agent/soma/soma-repo.txt",
-    };
-  }
-  return undefined;
 }
 
 async function installLifecycleProjection(
@@ -342,9 +280,13 @@ export interface UninstallCursorResult {
   removed: string[];
 }
 
-function isEnoent(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "ENOENT";
-}
+type ImplementedUninstallSubstrate = "claude-code" | "cursor";
+type ImplementedUninstallOptions = { homeDir?: string; substrateHome?: string };
+type ImplementedUninstallResult<S extends ImplementedUninstallSubstrate> = {
+  substrate: S;
+  substrateHome: string;
+  removed: string[];
+};
 
 async function removeExistingTargets(
   targets: readonly string[],
@@ -370,65 +312,35 @@ async function removeExistingTargets(
   return removed;
 }
 
+async function runImplementedUninstall(
+  spec: ImplementedUninstallSpec,
+  context: UninstallContext,
+): Promise<string[]> {
+  const targets = spec.remove.map((target) => resolve(context.substrateHome, target));
+  const removed = await removeExistingTargets(targets, async (target) => spec.shouldRemove?.(target, context) ?? true);
+  removed.push(...(await spec.postRemove?.(context) ?? []));
+  return removed;
+}
+
+async function uninstallSomaForSubstrate<S extends ImplementedUninstallSubstrate>(
+  substrate: S,
+  options: ImplementedUninstallOptions = {},
+): Promise<ImplementedUninstallResult<S>> {
+  const resolvedHomeDir = resolve(options.homeDir ?? homedir());
+  const substrateHome = resolve(options.substrateHome ?? join(resolvedHomeDir, defaultSubstrateHome(substrate)));
+  const spec = installSpecFor(substrate).uninstall;
+  const removed = spec.kind === "implemented" ? await runImplementedUninstall(spec, { homeDir: options.homeDir, substrateHome }) : [];
+  return { substrate, substrateHome, removed };
+}
+
 export async function uninstallSomaForClaudeCode(
   options: UninstallClaudeCodeOptions = {},
 ): Promise<UninstallClaudeCodeResult> {
-  const resolvedHomeDir = resolve(options.homeDir ?? homedir());
-  const substrateHome = resolve(options.substrateHome ?? join(resolvedHomeDir, defaultSubstrateHome("claude-code")));
-  const targets = [join(substrateHome, "rules/soma"), join(substrateHome, "skills/ISA")];
-  const removed = await removeExistingTargets(targets);
-  return { substrate: "claude-code", substrateHome, removed };
+  return uninstallSomaForSubstrate("claude-code", options);
 }
 
 export async function uninstallSomaForCursor(
   options: UninstallCursorOptions = {},
 ): Promise<UninstallCursorResult> {
-  const resolvedHomeDir = resolve(options.homeDir ?? homedir());
-  const substrateHome = resolve(options.substrateHome ?? join(resolvedHomeDir, defaultSubstrateHome("cursor")));
-  const cursorRulesDir = join(substrateHome, ".cursor/rules/soma");
-  const cursorRulesFile = join(substrateHome, ".cursorrules");
-  const removed = await removeExistingTargets([cursorRulesDir], async () => {
-    const markerFile = join(cursorRulesDir, "README.md");
-    try {
-      const content = await readFile(markerFile, "utf8");
-      return content.startsWith("# Soma Cursor Projection");
-    } catch (error) {
-      if (isEnoent(error)) return false;
-      throw error;
-    }
-  });
-  if (await removeCursorRulesProjection(cursorRulesFile)) {
-    removed.push(cursorRulesFile);
-  }
-  return { substrate: "cursor", substrateHome, removed };
-}
-
-async function removeCursorRulesProjection(path: string): Promise<boolean> {
-  let content: string;
-  try {
-    content = await readFile(path, "utf8");
-  } catch (error) {
-    if (isEnoent(error)) return false;
-    throw error;
-  }
-
-  if (content.startsWith("# Soma Cursor Projection")) {
-    await rm(path, { force: true });
-    return true;
-  }
-
-  const start = content.indexOf(CURSOR_RULES_BLOCK_BEGIN);
-  if (start === -1) return false;
-  const end = content.indexOf(CURSOR_RULES_BLOCK_END, start);
-  if (end === -1) return false;
-
-  const before = content.slice(0, start).trimEnd();
-  const after = content.slice(end + CURSOR_RULES_BLOCK_END.length).trimStart();
-  const preserved = [before, after.trimEnd()].filter((part) => part.length > 0).join("\n\n");
-  if (preserved.length === 0) {
-    await rm(path, { force: true });
-    return true;
-  }
-  await writeFile(path, `${preserved}\n`, "utf8");
-  return true;
+  return uninstallSomaForSubstrate("cursor", options);
 }

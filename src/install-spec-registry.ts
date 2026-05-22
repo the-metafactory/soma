@@ -1,18 +1,30 @@
 import { codexInstallSpec } from "./adapters/codex/install";
+import { claudeCodeInstallSpec } from "./adapters/claude-code/install";
+import { cursorInstallSpec } from "./adapters/cursor/install";
+import { piDevInstallSpec } from "./adapters/pi-dev/install";
 import type { InstallSubstrate, SubstrateInstallSpec } from "./install-spec";
 
-const LEGACY_DEFAULT_SUBSTRATE_HOMES: Record<InstallSubstrate, string> = {
-  codex: codexInstallSpec.defaultHome,
-  "pi-dev": ".pi",
-  "claude-code": ".claude",
-  cursor: ".",
-};
+type InstallSpecRegistry = { [S in InstallSubstrate]: SubstrateInstallSpec<S> };
 
-export function installSpecFor(substrate: InstallSubstrate): SubstrateInstallSpec | undefined {
-  if (substrate === "codex") return codexInstallSpec;
-  return undefined;
+const INSTALL_SPECS = {
+  codex: codexInstallSpec,
+  "pi-dev": piDevInstallSpec,
+  "claude-code": claudeCodeInstallSpec,
+  cursor: cursorInstallSpec,
+} satisfies InstallSpecRegistry;
+
+export function installSpecFor<S extends InstallSubstrate>(substrate: S): InstallSpecRegistry[S] {
+  return INSTALL_SPECS[substrate];
+}
+
+export function allInstallSpecs(): readonly SubstrateInstallSpec[] {
+  return Object.values(INSTALL_SPECS);
+}
+
+export function isRegisteredInstallSubstrate(value: string | undefined): value is InstallSubstrate {
+  return value !== undefined && Object.prototype.hasOwnProperty.call(INSTALL_SPECS, value);
 }
 
 export function defaultSubstrateHome(substrate: InstallSubstrate): string {
-  return installSpecFor(substrate)?.defaultHome ?? LEGACY_DEFAULT_SUBSTRATE_HOMES[substrate];
+  return installSpecFor(substrate).defaultHome;
 }

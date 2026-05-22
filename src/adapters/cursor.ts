@@ -4,6 +4,8 @@ import { activeIsaBundleFile } from "../adapter-active-isa";
 import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "./shared";
 
 export const CURSOR_RULES_PATH = ".cursorrules";
+export const CURSOR_RULES_BLOCK_BEGIN = "<!-- SOMA_CURSOR_BEGIN -->";
+export const CURSOR_RULES_BLOCK_END = "<!-- SOMA_CURSOR_END -->";
 export const CURSOR_RULES_README_PATH = ".cursor/rules/soma/README.md";
 export const CURSOR_CONTEXT_PATH = ".cursor/rules/soma/CONTEXT.md";
 export const CURSOR_PROFILE_PATH = ".cursor/rules/soma/PROFILE.md";
