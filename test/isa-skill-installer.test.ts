@@ -315,5 +315,6 @@ test("ship config: real src/skills/ISA description fits portable metadata limit"
   const description = /^description:\s*"([\s\S]*?)"$/m.exec(content)?.[1];
   expect(description).toBeDefined();
   expect(description!.length).toBeLessThanOrEqual(SOMA_SKILL_DESCRIPTION_MAX_LENGTH);
-  expect(content).toContain("## Routing Details");
+  expect(content).toContain("## Fast Path");
+  expect(content).toContain("## Reference Loading");
 });
