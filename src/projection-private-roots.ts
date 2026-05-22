@@ -1,23 +1,20 @@
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
-import { codexInstallSpec } from "./adapters/codex/install";
+import { resolve } from "node:path";
+import { allInstallSpecs, installSpecFor } from "./install-spec-registry";
+import type { InstallSubstrate } from "./install-spec";
 import type { SubstrateId } from "./types";
 
+const INSTALL_SUBSTRATES = ["codex", "pi-dev", "claude-code", "cursor"] as const satisfies readonly InstallSubstrate[];
+
+function isInstallSubstrate(substrate: SubstrateId | undefined): substrate is InstallSubstrate {
+  return substrate !== undefined && (INSTALL_SUBSTRATES as readonly string[]).includes(substrate);
+}
+
 export function somaProjectionPrivateRoots(options: { homeDir?: string; substrate?: SubstrateId } = {}): string[] {
-  const home = resolve(options.homeDir ?? homedir());
-  const codexRoots = codexInstallSpec.privateRoots?.projection?.(options) ?? [];
-  const piDevRoots = [join(home, ".pi", "agent", "soma"), join(home, ".pi", "agent", "skills", "soma")];
-
-  if (options.substrate === "codex") return codexRoots.map((path) => resolve(path));
-  if (options.substrate === "pi-dev") return piDevRoots.map((path) => resolve(path));
-
-  return [...codexRoots, ...piDevRoots].map((path) => resolve(path));
+  const specs = isInstallSubstrate(options.substrate) ? [installSpecFor(options.substrate)] : allInstallSpecs();
+  return specs.flatMap((spec) => spec.privateRoots?.projection?.(options) ?? []).map((path) => resolve(path));
 }
 
 export function somaMemoryPrivateRoots(options: { homeDir?: string; substrate?: SubstrateId } = {}): string[] {
-  const codexMemoryRoots = codexInstallSpec.privateRoots?.memory?.(options) ?? [];
-
-  if (options.substrate === undefined || options.substrate === "codex") return codexMemoryRoots.map((path) => resolve(path));
-
-  return [];
+  const specs = isInstallSubstrate(options.substrate) ? [installSpecFor(options.substrate)] : allInstallSpecs();
+  return specs.flatMap((spec) => spec.privateRoots?.memory?.(options) ?? []).map((path) => resolve(path));
 }

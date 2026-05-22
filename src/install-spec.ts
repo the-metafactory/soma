@@ -19,6 +19,19 @@ export interface InstallPostProjectionStep {
   run(context: InstallPostProjectionContext): Promise<string[]>;
 }
 
+export interface IsaSkillProjectionSpec {
+  destinationDir(substrateHome: string): string;
+  skillNameOverride?: string;
+  prepare?(substrateHome: string): Promise<void>;
+}
+
+export type InstallValidator = (substrateRoot: string) => Promise<void>;
+
+export interface UninstallContext {
+  homeDir?: string;
+  substrateHome: string;
+}
+
 export interface ReservedUninstallSpec {
   kind: "reserved";
   reason: string;
@@ -27,6 +40,8 @@ export interface ReservedUninstallSpec {
 export interface ImplementedUninstallSpec {
   kind: "implemented";
   remove: readonly string[];
+  shouldRemove?(target: string, context: UninstallContext): Promise<boolean>;
+  postRemove?(context: UninstallContext): Promise<string[]>;
 }
 
 export type UninstallSpec = ReservedUninstallSpec | ImplementedUninstallSpec;
@@ -40,6 +55,8 @@ export interface SubstrateInstallSpec<S extends InstallSubstrate = InstallSubstr
   substrate: S;
   defaultHome: string;
   homeFiles: readonly string[];
+  isaSkillProjection: IsaSkillProjectionSpec;
+  validator?: InstallValidator;
   lifecycleProjection?: LifecycleProjectionSpec;
   postProjection?: readonly InstallPostProjectionStep[];
   privateRoots?: PrivateRootSpec;

@@ -64,6 +64,9 @@ export const codexInstallSpec: SubstrateInstallSpec<"codex"> = {
   substrate: "codex",
   defaultHome: CODEX_DEFAULT_HOME,
   homeFiles: CODEX_HOME_FILES,
+  isaSkillProjection: {
+    destinationDir: (substrateHome) => resolve(substrateHome, "skills/ISA"),
+  },
   lifecycleProjection: {
     startupContextPath: "memories/soma/startup-context.md",
     somaRepoPathPath: "memories/soma/soma-repo.txt",
