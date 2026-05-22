@@ -61,11 +61,11 @@ function resolveInstallHomes(substrate: InstallSubstrate, options: SomaInstallOp
 // `src/bun-probe.ts` for the discovery + remediation logic.
 import { requireBunInPath } from "./bun-probe";
 
-function planSomaInstall(
+export function planSomaInstall(
   substrate: InstallSubstrate,
-  substrateFiles: readonly string[],
   options: SomaInstallOptions = {},
 ): SomaInstallPlan {
+  const spec = installSpecFor(substrate);
   const homes = resolveInstallHomes(substrate, options);
 
   return {
@@ -75,28 +75,24 @@ function planSomaInstall(
     substrateHome: homes.substrateHome,
     somaDirectories: SOMA_BOOTSTRAP_DIRECTORIES.map((path) => `${homes.somaHome}/${path}`),
     somaFiles: SOMA_BOOTSTRAP_FILES.map((path) => `${homes.somaHome}/${path}`),
-    substrateFiles: substrateFiles.map((path) => `${homes.substrateHome}/${path}`),
+    substrateFiles: spec.homeFiles.map((path) => `${homes.substrateHome}/${path}`),
   };
 }
 
 export function planSomaForCodexInstall(options: SomaInstallOptions = {}): SomaInstallPlan {
-  const spec = installSpecFor("codex");
-  return planSomaInstall(spec.substrate, spec.homeFiles, options);
+  return planSomaInstall("codex", options);
 }
 
 export function planSomaForPiDevInstall(options: SomaInstallOptions = {}): SomaInstallPlan {
-  const spec = installSpecFor("pi-dev");
-  return planSomaInstall(spec.substrate, spec.homeFiles, options);
+  return planSomaInstall("pi-dev", options);
 }
 
 export function planSomaForClaudeCodeInstall(options: SomaInstallOptions = {}): SomaInstallPlan {
-  const spec = installSpecFor("claude-code");
-  return planSomaInstall(spec.substrate, spec.homeFiles, options);
+  return planSomaInstall("claude-code", options);
 }
 
 export function planSomaForCursorInstall(options: SomaInstallOptions = {}): SomaInstallPlan {
-  const spec = installSpecFor("cursor");
-  return planSomaInstall(spec.substrate, spec.homeFiles, options);
+  return planSomaInstall("cursor", options);
 }
 
 async function installSomaForSubstrate(
@@ -283,6 +279,14 @@ export interface UninstallCursorResult {
   removed: string[];
 }
 
+type ImplementedUninstallSubstrate = "claude-code" | "cursor";
+type ImplementedUninstallOptions = { homeDir?: string; substrateHome?: string };
+type ImplementedUninstallResult<S extends ImplementedUninstallSubstrate> = {
+  substrate: S;
+  substrateHome: string;
+  removed: string[];
+};
+
 function isEnoent(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "ENOENT";
 }
@@ -321,22 +325,25 @@ async function runImplementedUninstall(
   return removed;
 }
 
+async function uninstallSomaForSubstrate<S extends ImplementedUninstallSubstrate>(
+  substrate: S,
+  options: ImplementedUninstallOptions = {},
+): Promise<ImplementedUninstallResult<S>> {
+  const resolvedHomeDir = resolve(options.homeDir ?? homedir());
+  const substrateHome = resolve(options.substrateHome ?? join(resolvedHomeDir, defaultSubstrateHome(substrate)));
+  const spec = installSpecFor(substrate).uninstall;
+  const removed = spec.kind === "implemented" ? await runImplementedUninstall(spec, { homeDir: options.homeDir, substrateHome }) : [];
+  return { substrate, substrateHome, removed };
+}
+
 export async function uninstallSomaForClaudeCode(
   options: UninstallClaudeCodeOptions = {},
 ): Promise<UninstallClaudeCodeResult> {
-  const resolvedHomeDir = resolve(options.homeDir ?? homedir());
-  const substrateHome = resolve(options.substrateHome ?? join(resolvedHomeDir, defaultSubstrateHome("claude-code")));
-  const spec = installSpecFor("claude-code").uninstall;
-  const removed = spec.kind === "implemented" ? await runImplementedUninstall(spec, { homeDir: options.homeDir, substrateHome }) : [];
-  return { substrate: "claude-code", substrateHome, removed };
+  return uninstallSomaForSubstrate("claude-code", options);
 }
 
 export async function uninstallSomaForCursor(
   options: UninstallCursorOptions = {},
 ): Promise<UninstallCursorResult> {
-  const resolvedHomeDir = resolve(options.homeDir ?? homedir());
-  const substrateHome = resolve(options.substrateHome ?? join(resolvedHomeDir, defaultSubstrateHome("cursor")));
-  const spec = installSpecFor("cursor").uninstall;
-  const removed = spec.kind === "implemented" ? await runImplementedUninstall(spec, { homeDir: options.homeDir, substrateHome }) : [];
-  return { substrate: "cursor", substrateHome, removed };
+  return uninstallSomaForSubstrate("cursor", options);
 }

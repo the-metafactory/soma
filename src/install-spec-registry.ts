@@ -19,6 +19,10 @@ export function allInstallSpecs(): readonly SubstrateInstallSpec[] {
   return Object.values(INSTALL_SPECS);
 }
 
+export function isRegisteredInstallSubstrate(value: string | undefined): value is InstallSubstrate {
+  return value !== undefined && Object.prototype.hasOwnProperty.call(INSTALL_SPECS, value);
+}
+
 export function defaultSubstrateHome(substrate: InstallSubstrate): string {
   return installSpecFor(substrate).defaultHome;
 }

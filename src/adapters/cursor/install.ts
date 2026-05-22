@@ -4,7 +4,7 @@ import type { SubstrateInstallSpec } from "../../install-spec";
 import { CURSOR_HOME_FILE_PATHS, CURSOR_RULES_BLOCK_BEGIN, CURSOR_RULES_BLOCK_END, CURSOR_RULES_PATH } from "../cursor";
 
 function isEnoent(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "ENOENT";
+  return (error as NodeJS.ErrnoException).code === "ENOENT";
 }
 
 async function shouldRemoveSomaRulesDir(target: string): Promise<boolean> {
