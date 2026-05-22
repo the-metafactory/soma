@@ -7,6 +7,7 @@ import { runSomaCli } from "../src/cli";
 import { ALGORITHM_ACTIONS } from "../src/cli/algorithm";
 import { FEEDBACK_COMMAND_HELP } from "../src/cli/feedback";
 import { IMPORT_COMMAND_HELP } from "../src/cli/import";
+import { LIFECYCLE_COMMAND_HELP } from "../src/cli/lifecycle";
 import { MEMORY_COMMAND_HELP } from "../src/cli/memory";
 import { MIGRATE_COMMAND_HELP } from "../src/cli/migrate";
 import { POLICY_COMMAND_HELP } from "../src/cli/policy";
@@ -235,6 +236,14 @@ test("feedback command module keeps feedback actions and help in sync", async ()
 
   for (const [action, usage] of Object.entries(FEEDBACK_COMMAND_HELP.subcommands)) {
     await expect(runSomaCli(["feedback", action, "--help"])).resolves.toBe(usage);
+  }
+});
+
+test("lifecycle command module keeps lifecycle events and help in sync", async () => {
+  await expect(runSomaCli(["lifecycle", "--help"])).resolves.toBe(LIFECYCLE_COMMAND_HELP.usage);
+
+  for (const [event, usage] of Object.entries(LIFECYCLE_COMMAND_HELP.subcommands)) {
+    await expect(runSomaCli(["lifecycle", event, "--help"])).resolves.toBe(usage);
   }
 });
 
