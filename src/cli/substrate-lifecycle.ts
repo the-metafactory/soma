@@ -27,6 +27,7 @@ import type {
   SubstrateId,
 } from "../types";
 import { SomaCliError } from "./errors";
+import { readOption } from "./parse-utils";
 
 export type InstallSubstrate = Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor">;
 
@@ -150,16 +151,6 @@ export const SUBSTRATE_LIFECYCLE_COMMAND_HELP: Record<
     usage: "Usage: soma daemon  (not yet implemented - placeholder reserves the runtime mode)",
   },
 };
-
-function readOption(args: string[], index: number, name: string): string {
-  const value = args[index + 1];
-
-  if (!value || value.startsWith("--")) {
-    throw new Error(`${name} requires a value.`);
-  }
-
-  return value;
-}
 
 export function isInstallSubstrate(value: string | undefined): value is InstallSubstrate {
   return value !== undefined && (INSTALL_SUBSTRATES as readonly string[]).includes(value);
