@@ -8,6 +8,7 @@ import { ALGORITHM_ACTIONS } from "../src/cli/algorithm";
 import { IMPORT_COMMAND_HELP } from "../src/cli/import";
 import { MEMORY_COMMAND_HELP } from "../src/cli/memory";
 import { MIGRATE_COMMAND_HELP } from "../src/cli/migrate";
+import { POLICY_COMMAND_HELP } from "../src/cli/policy";
 import { RESULT_COMMAND_HELP } from "../src/cli/result";
 import {
   INSTALL_SUBSTRATES,
@@ -217,6 +218,14 @@ test("result command module keeps result actions and help in sync", async () => 
 
   for (const [action, usage] of Object.entries(RESULT_COMMAND_HELP.subcommands)) {
     await expect(runSomaCli(["result", action, "--help"])).resolves.toBe(usage);
+  }
+});
+
+test("policy command module keeps policy actions and help in sync", async () => {
+  await expect(runSomaCli(["policy", "--help"])).resolves.toBe(POLICY_COMMAND_HELP.usage);
+
+  for (const [action, usage] of Object.entries(POLICY_COMMAND_HELP.subcommands)) {
+    await expect(runSomaCli(["policy", action, "--help"])).resolves.toBe(usage);
   }
 });
 
