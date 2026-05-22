@@ -11,12 +11,13 @@ export interface ParsedPolicyArgs {
   json: boolean;
 }
 
+const POLICY_CHECK_USAGE =
+  "Usage: soma policy check --action write --destination <path> [--content <text>|--content-env <name>] [--source <path>] [--substrate <id>] [--record <all|deny|none>] [--json]";
+
 export const POLICY_COMMAND_HELP: { usage: string; subcommands: Record<ParsedPolicyArgs["action"], string> } = {
-  usage:
-    "Usage: soma policy check --action write --destination <path> [--content <text>|--content-env <name>] [--source <path>] [--substrate <id>] [--record <all|deny|none>] [--json]",
+  usage: POLICY_CHECK_USAGE,
   subcommands: {
-    check:
-      "Usage: soma policy check --action write --destination <path> [--content <text>|--content-env <name>] [--source <path>] [--substrate <id>] [--record <all|deny|none>] [--json]",
+    check: POLICY_CHECK_USAGE,
   },
 };
 
