@@ -179,12 +179,13 @@ function isImportSource(source: string | undefined): source is ImportSource {
   return source === "pai" || source === "algorithm" || source === "pai-pack" || source === "pai-docs";
 }
 
-function formatPaiImportPlan(plan: PaiImportPlan): string {
-  const sourceLines =
-    plan.sourceChecks && plan.sourceChecks.length > 0
-      ? plan.sourceChecks.map((check) => `- [${check.present ? "present" : "missing"}] ${check.required ? "required" : "optional"} ${check.path}`)
-      : plan.sourceFiles.map((path) => `- ${path}`);
+function formatImportSourceLines(plan: Pick<PaiImportPlan | AlgorithmImportPlan, "sourceChecks" | "sourceFiles">): string[] {
+  return plan.sourceChecks && plan.sourceChecks.length > 0
+    ? plan.sourceChecks.map((check) => `- [${check.present ? "present" : "missing"}] ${check.required ? "required" : "optional"} ${check.path}`)
+    : plan.sourceFiles.map((path) => `- ${path}`);
+}
 
+function formatPaiImportPlan(plan: PaiImportPlan): string {
   return [
     "Soma PAI import plan",
     "source: pai",
@@ -193,7 +194,7 @@ function formatPaiImportPlan(plan: PaiImportPlan): string {
     `somaHome: ${plan.somaHome}`,
     "",
     "Source files:",
-    ...sourceLines,
+    ...formatImportSourceLines(plan),
     "",
     "Target files:",
     ...plan.targetFiles.map((path) => `- ${path}`),
@@ -212,11 +213,6 @@ function formatPaiImportResult(result: PaiImportResult): string {
 }
 
 function formatAlgorithmImportPlan(plan: AlgorithmImportPlan): string {
-  const sourceLines =
-    plan.sourceChecks && plan.sourceChecks.length > 0
-      ? plan.sourceChecks.map((check) => `- [${check.present ? "present" : "missing"}] ${check.required ? "required" : "optional"} ${check.path}`)
-      : plan.sourceFiles.map((path) => `- ${path}`);
-
   return [
     "Soma Algorithm import plan",
     "source: algorithm",
@@ -225,7 +221,7 @@ function formatAlgorithmImportPlan(plan: AlgorithmImportPlan): string {
     `somaHome: ${plan.somaHome}`,
     "",
     "Source files:",
-    ...sourceLines,
+    ...formatImportSourceLines(plan),
     "",
     "Target files:",
     ...plan.targetFiles.map((path) => `- ${path}`),
