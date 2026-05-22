@@ -88,12 +88,5 @@ taxonomy, ID-stability contract, and Algorithm relationship.
 ## Example Selection
 
 Start with `Examples/canonical-isa.md` only when you need the full shape or
-tone. Otherwise choose the closest small reference:
-
-- E1 quick task: `Examples/e1-minimal.md`
-- E2 operational or implementation task: `Examples/e2-backup-verify.md` or
-  `Examples/e2-rotate-credential.md`
-- E3 project or experiential task: `Examples/e3-project.md`,
-  `Examples/e3-essay.md`, or `Examples/e3-help-redesign.md`
-- E4/E5 large system, brand, desktop app, album, or enterprise work: load the
-  matching E4/E5 example only after the workflow needs it.
+tone. Otherwise load `references/examples.md` and choose the closest small
+reference from that single map.
