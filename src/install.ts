@@ -13,6 +13,7 @@ import { defaultSomaRepoPath } from "./repo-path";
 import { bootstrapSomaHome } from "./soma-home";
 import { installIsaSkillProjection } from "./isa-skill-installer";
 import { loadActiveIsaForBundle } from "./adapter-active-isa";
+import { isEnoent } from "./fs-errors";
 import {
   type ImplementedUninstallSpec,
   type InstallSubstrate,
@@ -286,10 +287,6 @@ type ImplementedUninstallResult<S extends ImplementedUninstallSubstrate> = {
   substrateHome: string;
   removed: string[];
 };
-
-function isEnoent(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "ENOENT";
-}
 
 async function removeExistingTargets(
   targets: readonly string[],

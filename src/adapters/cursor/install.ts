@@ -1,11 +1,8 @@
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { isEnoent } from "../../fs-errors";
 import type { SubstrateInstallSpec } from "../../install-spec";
 import { CURSOR_HOME_FILE_PATHS, CURSOR_RULES_BLOCK_BEGIN, CURSOR_RULES_BLOCK_END, CURSOR_RULES_PATH } from "../cursor";
-
-function isEnoent(error: unknown): boolean {
-  return (error as NodeJS.ErrnoException).code === "ENOENT";
-}
 
 async function shouldRemoveSomaRulesDir(target: string): Promise<boolean> {
   const markerFile = join(target, "README.md");

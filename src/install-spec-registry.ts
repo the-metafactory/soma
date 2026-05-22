@@ -4,15 +4,17 @@ import { cursorInstallSpec } from "./adapters/cursor/install";
 import { piDevInstallSpec } from "./adapters/pi-dev/install";
 import type { InstallSubstrate, SubstrateInstallSpec } from "./install-spec";
 
+type InstallSpecRegistry = { [S in InstallSubstrate]: SubstrateInstallSpec<S> };
+
 const INSTALL_SPECS = {
   codex: codexInstallSpec,
   "pi-dev": piDevInstallSpec,
   "claude-code": claudeCodeInstallSpec,
   cursor: cursorInstallSpec,
-} satisfies Record<InstallSubstrate, SubstrateInstallSpec>;
+} satisfies InstallSpecRegistry;
 
-export function installSpecFor<S extends InstallSubstrate>(substrate: S): SubstrateInstallSpec<S> {
-  return INSTALL_SPECS[substrate] as SubstrateInstallSpec<S>;
+export function installSpecFor<S extends InstallSubstrate>(substrate: S): InstallSpecRegistry[S] {
+  return INSTALL_SPECS[substrate];
 }
 
 export function allInstallSpecs(): readonly SubstrateInstallSpec[] {
