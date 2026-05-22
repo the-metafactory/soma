@@ -1,6 +1,4 @@
-import { readSync } from "node:fs";
 import {
-  captureSomaFeedback,
   installSomaForClaudeCode,
   planSomaForClaudeCodeInstall,
   uninstallSomaForClaudeCode,
@@ -14,12 +12,9 @@ import type {
   SomaDoctorDiagnosis,
   SomaInitPlan,
   SomaOnboardingOptions,
-  SomaFeedbackCaptureOptions,
-  SomaFeedbackCaptureResult,
   SomaLifecycleOptions,
   SomaLifecycleResult,
 } from "./types";
-import { SOMA_FEEDBACK_STDIN_MAX_BYTES } from "./feedback-contract";
 import { ISA_SUBCOMMAND_HELP, ISA_USAGE_HEADER, runIsaCli } from "./cli-isa";
 import { readOption } from "./cli/parse-utils";
 import { parseSubstrate } from "./cli/substrate";
@@ -81,6 +76,12 @@ import {
   runPolicyCli,
   type ParsedPolicyArgs,
 } from "./cli/policy";
+import {
+  FEEDBACK_COMMAND_HELP,
+  parseFeedbackArgs,
+  runFeedbackCli,
+  type ParsedFeedbackArgs,
+} from "./cli/feedback";
 import { runInferenceCli } from "./tools/inference/cli";
 import { runLearningCli, runMetricsCli, runOpinionCli, runSessionCli } from "./tools/learning/cli";
 import { RELATIONSHIP_REFLECT_USAGE, runRelationshipCli } from "./tools/relationship/cli";
@@ -111,13 +112,6 @@ interface ParsedLifecycleArgs {
   command: "lifecycle";
   event: "session-start" | "algorithm-updated" | "session-end";
   options: SomaLifecycleOptions;
-}
-
-interface ParsedFeedbackArgs {
-  command: "feedback";
-  action: "capture";
-  options: SomaFeedbackCaptureOptions;
-  readTextFromStdin: boolean;
 }
 
 interface ParsedHelpArgs {
@@ -200,12 +194,7 @@ const DOCTOR_USAGE =
 const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string, string> }> = {
   algorithm: ALGORITHM_COMMAND_HELP,
   memory: MEMORY_COMMAND_HELP,
-  feedback: {
-    usage: "Usage: soma feedback capture (--text <text> | --stdin) [--substrate <id>] [--source <source>] [--store-excerpt]",
-    subcommands: {
-      capture: "Usage: soma feedback capture (--text <text> | --stdin) [--substrate <id>] [--source <source>] [--store-excerpt]",
-    },
-  },
+  feedback: FEEDBACK_COMMAND_HELP,
   inference: {
     usage: "Usage: soma inference [--level <fast|standard|smart>] [--mode <inference|advisor>] [--backend <auto|claude-code|anthropic-api>] [--allow-network] [--json] [--timeout <ms>] [--auto-state] [--home-dir <dir>] [--soma-home <dir>] [prompt...]",
   },
@@ -321,87 +310,6 @@ function parseLifecycleArgs(args: string[]): ParsedLifecycleArgs {
     command,
     event,
     options,
-  };
-}
-
-function parseFeedbackCaptureArgs(args: string[]): { options: SomaFeedbackCaptureOptions; readTextFromStdin: boolean } {
-  const options: Partial<SomaFeedbackCaptureOptions> = {};
-  let readTextFromStdin = false;
-
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
-
-    switch (arg) {
-      case "--home-dir":
-        options.homeDir = readOption(args, index, arg);
-        index += 1;
-        break;
-      case "--soma-home":
-        options.somaHome = readOption(args, index, arg);
-        index += 1;
-        break;
-      case "--substrate":
-        options.substrate = parseSubstrate(readOption(args, index, arg));
-        index += 1;
-        break;
-      case "--text":
-        options.text = readOption(args, index, arg);
-        index += 1;
-        break;
-      case "--stdin":
-        readTextFromStdin = true;
-        break;
-      case "--no-excerpt":
-        options.storeExcerpt = false;
-        break;
-      case "--store-excerpt":
-        options.storeExcerpt = true;
-        break;
-      case "--source":
-        options.source = readOption(args, index, arg);
-        index += 1;
-        break;
-      case "--timestamp":
-        options.timestamp = readOption(args, index, arg);
-        index += 1;
-        break;
-      default:
-        throw new Error(`Unknown option: ${arg}`);
-    }
-  }
-
-  if (!options.text && !readTextFromStdin) {
-    throw new Error("soma feedback capture is missing required option: --text or --stdin.");
-  }
-  if (options.text && readTextFromStdin) {
-    throw new Error("soma feedback capture accepts either --text or --stdin, not both.");
-  }
-
-  const parsedOptions: SomaFeedbackCaptureOptions = {
-    ...options,
-    text: options.text ?? "",
-  };
-
-  return {
-    options: parsedOptions,
-    readTextFromStdin,
-  };
-}
-
-function parseFeedbackArgs(args: string[]): ParsedFeedbackArgs {
-  const [command, action, ...rest] = args;
-
-  if (command !== "feedback" || action !== "capture") {
-    throw new Error(commandUsage("feedback", "capture"));
-  }
-
-  const parsed = parseFeedbackCaptureArgs(rest);
-
-  return {
-    command,
-    action,
-    options: parsed.options,
-    readTextFromStdin: parsed.readTextFromStdin,
   };
 }
 
@@ -693,24 +601,6 @@ function editDistance(left: string, right: string): number {
   return previous[right.length] ?? left.length;
 }
 
-function readLimitedFeedbackStdin(): string {
-  const chunks: Buffer[] = [];
-  let total = 0;
-
-  for (;;) {
-    const buffer = Buffer.alloc(Math.min(8192, SOMA_FEEDBACK_STDIN_MAX_BYTES + 1 - total));
-    const bytesRead = readSync(0, buffer, 0, buffer.length, null);
-    if (bytesRead === 0) break;
-    total += bytesRead;
-    if (total > SOMA_FEEDBACK_STDIN_MAX_BYTES) {
-      throw new Error(`soma feedback capture --stdin exceeds ${SOMA_FEEDBACK_STDIN_MAX_BYTES} byte limit.`);
-    }
-    chunks.push(buffer.subarray(0, bytesRead));
-  }
-
-  return Buffer.concat(chunks).toString("utf8");
-}
-
 function formatSomaInitPlan(plan: SomaInitPlan): string {
   return [
     `soma init — ${plan.mode === "apply" ? "apply plan" : "plan (dry-run; pass --yes to execute)"}`,
@@ -786,22 +676,6 @@ function formatLifecycleResult(result: SomaLifecycleResult): string {
   return lines.join("\n");
 }
 
-function formatFeedbackCaptureResult(result: SomaFeedbackCaptureResult): string {
-  return [
-    "Soma feedback capture",
-    `captured: ${result.captured ? "yes" : "no"}`,
-    `kind: ${result.classification.kind}`,
-    `confidence: ${result.classification.confidence}`,
-    `reason: ${result.classification.reason}`,
-    result.event?.metadata?.excerptStored === true
-      ? "warning: --store-excerpt persists a best-effort redacted excerpt; redaction is not a secret scanner."
-      : undefined,
-    result.event ? `event: ${result.event.id}` : undefined,
-  ]
-    .filter((line) => line !== undefined)
-    .join("\n");
-}
-
 export async function runSomaCli(args: string[]): Promise<string> {
   const parsed = parseArgs(args);
 
@@ -851,8 +725,7 @@ export async function runSomaCli(args: string[]): Promise<string> {
   }
 
   if (parsed.command === "feedback") {
-    const options = parsed.readTextFromStdin ? { ...parsed.options, text: readLimitedFeedbackStdin() } : parsed.options;
-    return formatFeedbackCaptureResult(await captureSomaFeedback(options));
+    return runFeedbackCli(parsed);
   }
 
   if (parsed.command === "inference") {
