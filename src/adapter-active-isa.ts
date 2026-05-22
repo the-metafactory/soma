@@ -93,15 +93,3 @@ export function activeIsaBundleFile(
   if (!activeIsa) return [];
   return [{ path: activeIsaProjectionPath(substrate), content: renderActiveIsaFile(activeIsa) }];
 }
-
-/**
- * Per-substrate default home directory name (used by both installer
- * and home-projection modules — kept here so adding a substrate is a
- * one-file change). Sage r1 finding.
- */
-export const DEFAULT_SUBSTRATE_HOMES: Record<"codex" | "pi-dev" | "claude-code" | "cursor", string> = {
-  codex: ".codex",
-  "pi-dev": ".pi",
-  "claude-code": ".claude",
-  cursor: ".",
-};

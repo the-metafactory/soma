@@ -6,8 +6,8 @@ import { CURSOR_RULES_PATH } from "./adapters/cursor";
 import { projectClaudeCodeHome, projectCodexHome, projectCursorHome, projectPiDevHome } from "./adapters";
 import { writeProjection } from "./projection";
 import { defaultSomaRepoPath } from "./repo-path";
-import { DEFAULT_SUBSTRATE_HOMES } from "./adapter-active-isa";
-import type { ProjectionInput, SomaHomeProjection, SomaHomeProjectionOptions, SubstrateId, WrittenProjection } from "./types";
+import { defaultSubstrateHome } from "./install-spec-registry";
+import type { Projection, ProjectionInput, SomaHomeProjection, SomaHomeProjectionOptions, SubstrateId, WrittenProjection } from "./types";
 
 export function resolveHomeProjectionPaths(
   substrate: SubstrateId,
@@ -18,24 +18,33 @@ export function resolveHomeProjectionPaths(
   }
 
   const homeDir = resolve(options.homeDir ?? homedir());
-  const defaultSubstrateHome = DEFAULT_SUBSTRATE_HOMES[substrate];
+  const defaultHome = defaultSubstrateHome(substrate);
 
   return {
     substrate,
     somaHome: resolve(options.somaHome ?? join(homeDir, ".soma")),
-    substrateHome: resolve(options.substrateHome ?? join(homeDir, defaultSubstrateHome)),
+    substrateHome: resolve(options.substrateHome ?? join(homeDir, defaultHome)),
+  };
+}
+
+function buildHomeProjectionFor(
+  substrate: Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor">,
+  options: SomaHomeProjectionOptions,
+  project: (paths: Omit<SomaHomeProjection, "bundle">) => Projection,
+): SomaHomeProjection {
+  const paths = resolveHomeProjectionPaths(substrate, options);
+
+  return {
+    ...paths,
+    bundle: project(paths),
   };
 }
 
 export function buildCodexHomeProjection(input: ProjectionInput, options: SomaHomeProjectionOptions = {}): SomaHomeProjection {
-  const paths = resolveHomeProjectionPaths("codex", options);
   const homeDir = resolve(options.homeDir ?? homedir());
   const somaRepoPath = resolve(options.somaRepoPath ?? defaultSomaRepoPath());
 
-  return {
-    ...paths,
-    bundle: projectCodexHome(input, paths.somaHome, homeDir, somaRepoPath),
-  };
+  return buildHomeProjectionFor("codex", options, (paths) => projectCodexHome(input, paths.somaHome, homeDir, somaRepoPath));
 }
 
 export async function installCodexHomeProjection(
@@ -47,12 +56,7 @@ export async function installCodexHomeProjection(
 }
 
 export function buildPiDevHomeProjection(input: ProjectionInput, options: SomaHomeProjectionOptions = {}): SomaHomeProjection {
-  const paths = resolveHomeProjectionPaths("pi-dev", options);
-
-  return {
-    ...paths,
-    bundle: projectPiDevHome(input, paths.somaHome),
-  };
+  return buildHomeProjectionFor("pi-dev", options, (paths) => projectPiDevHome(input, paths.somaHome));
 }
 
 export async function installPiDevHomeProjection(
@@ -72,12 +76,7 @@ export function buildClaudeCodeHomeProjection(
   input: ProjectionInput,
   options: SomaHomeProjectionOptions = {},
 ): SomaHomeProjection {
-  const paths = resolveHomeProjectionPaths("claude-code", options);
-
-  return {
-    ...paths,
-    bundle: projectClaudeCodeHome(input),
-  };
+  return buildHomeProjectionFor("claude-code", options, () => projectClaudeCodeHome(input));
 }
 
 export async function installClaudeCodeHomeProjection(
@@ -89,12 +88,7 @@ export async function installClaudeCodeHomeProjection(
 }
 
 export function buildCursorHomeProjection(input: ProjectionInput, options: SomaHomeProjectionOptions = {}): SomaHomeProjection {
-  const paths = resolveHomeProjectionPaths("cursor", options);
-
-  return {
-    ...paths,
-    bundle: projectCursorHome(input),
-  };
+  return buildHomeProjectionFor("cursor", options, () => projectCursorHome(input));
 }
 
 export async function installCursorHomeProjection(
