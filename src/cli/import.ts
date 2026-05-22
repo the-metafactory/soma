@@ -163,16 +163,7 @@ export function parseImportArgs(args: string[]): ParsedImportArgs {
     }
   }
 
-  if (source === "algorithm") {
-    return { command, source, apply, options };
-  }
-  if (source === "pai-pack") {
-    return { command, source, apply, options };
-  }
-  if (source === "pai-docs") {
-    return { command, source, apply, options };
-  }
-  return { command, source, apply, options };
+  return { command, source, apply, options } as ParsedImportArgs;
 }
 
 function isImportSource(source: string | undefined): source is ImportSource {
@@ -185,13 +176,17 @@ function formatImportSourceLines(plan: Pick<PaiImportPlan | AlgorithmImportPlan,
     : plan.sourceFiles.map((path) => `- ${path}`);
 }
 
-function formatPaiImportPlan(plan: PaiImportPlan): string {
+function formatSimpleImportPlan(
+  title: string,
+  source: ImportSource,
+  dirEntries: string[],
+  plan: Pick<PaiImportPlan | AlgorithmImportPlan, "apply" | "sourceChecks" | "sourceFiles" | "targetFiles">,
+): string {
   return [
-    "Soma PAI import plan",
-    "source: pai",
+    title,
+    `source: ${source}`,
     `mode: ${plan.apply ? "apply" : "dry-run"}`,
-    `claudeHome: ${plan.claudeHome}`,
-    `somaHome: ${plan.somaHome}`,
+    ...dirEntries,
     "",
     "Source files:",
     ...formatImportSourceLines(plan),
@@ -199,6 +194,10 @@ function formatPaiImportPlan(plan: PaiImportPlan): string {
     "Target files:",
     ...plan.targetFiles.map((path) => `- ${path}`),
   ].join("\n");
+}
+
+function formatPaiImportPlan(plan: PaiImportPlan): string {
+  return formatSimpleImportPlan("Soma PAI import plan", "pai", [`claudeHome: ${plan.claudeHome}`, `somaHome: ${plan.somaHome}`], plan);
 }
 
 function formatPaiImportResult(result: PaiImportResult): string {
@@ -213,19 +212,7 @@ function formatPaiImportResult(result: PaiImportResult): string {
 }
 
 function formatAlgorithmImportPlan(plan: AlgorithmImportPlan): string {
-  return [
-    "Soma Algorithm import plan",
-    "source: algorithm",
-    `mode: ${plan.apply ? "apply" : "dry-run"}`,
-    `paiAlgorithmDir: ${plan.paiAlgorithmDir}`,
-    `somaHome: ${plan.somaHome}`,
-    "",
-    "Source files:",
-    ...formatImportSourceLines(plan),
-    "",
-    "Target files:",
-    ...plan.targetFiles.map((path) => `- ${path}`),
-  ].join("\n");
+  return formatSimpleImportPlan("Soma Algorithm import plan", "algorithm", [`paiAlgorithmDir: ${plan.paiAlgorithmDir}`, `somaHome: ${plan.somaHome}`], plan);
 }
 
 function formatAlgorithmImportResult(result: AlgorithmImportResult): string {
