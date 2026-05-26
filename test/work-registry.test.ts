@@ -66,3 +66,27 @@ test("work registry helper writes PAI-aligned shared state without transcripts",
     ]);
   });
 });
+
+test("work registry upsert replaces stale slug for the same session", async () => {
+  await withTempHome(async (homeDir) => {
+    await upsertSomaWorkRegistryEntry({
+      homeDir,
+      sessionId: "session-1",
+      sessionName: "first name",
+      substrate: "codex",
+    });
+    await upsertSomaWorkRegistryEntry({
+      homeDir,
+      sessionId: "session-1",
+      sessionName: "renamed session",
+      substrate: "codex",
+    });
+
+    const work = JSON.parse(await readFile(join(homeDir, ".soma/memory/STATE/work.json"), "utf8"));
+
+    expect(Object.keys(work.sessions)).toEqual(["renamed-session"]);
+    await expect(listSomaWorkRegistryEntries({ homeDir })).resolves.toEqual([
+      expect.objectContaining({ sessionUUID: "session-1", sessionName: "renamed session" }),
+    ]);
+  });
+});

@@ -96,7 +96,13 @@ export async function upsertSomaWorkRegistryEntry(
   const pointerPath = currentWorkPath(options, options.sessionId);
   const registry = await readSomaWorkRegistry(options);
   const names = await readJsonFile<Record<string, string>>(namesPath, {}, "session-name registry");
-  const existing = registry.sessions[slug];
+  const existingSlug = Object.entries(registry.sessions).find(([, entry]) => entry.sessionUUID === options.sessionId)?.[0];
+  const existing = registry.sessions[slug] ?? (existingSlug ? registry.sessions[existingSlug] : undefined);
+  for (const [candidateSlug, candidateEntry] of Object.entries(registry.sessions)) {
+    if (candidateSlug !== slug && candidateEntry.sessionUUID === options.sessionId) {
+      delete registry.sessions[candidateSlug];
+    }
+  }
   const artifacts = options.artifacts ?? existing?.artifacts ?? {};
   const entry: SomaWorkRegistryEntry = {
     ...(artifacts.isa ? { isa: artifacts.isa } : {}),
