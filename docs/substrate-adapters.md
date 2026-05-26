@@ -158,6 +158,26 @@ Adapters should be thin. They do not own identity, memory, ISA, skill schemas, o
 policy semantics. They only project those contracts into a substrate's native
 mechanisms, and write back substrate-side events through the writeback gate.
 
+Shared work state is a core contract, not a substrate convention. Adapters that
+can identify a session should update:
+
+- `<soma-home>/memory/STATE/work.json`
+- `<soma-home>/memory/STATE/session-names.json`
+- `<soma-home>/memory/STATE/current-work-<safe-session-token>-<session-id-hash>.json`
+- `<soma-home>/memory/WORK/<slug>/` artifacts when they produce durable work
+
+Adapters should treat `somaWorkRegistryPaths(..., sessionId).currentWork` as the
+canonical resolver for the current-work pointer. The safe token is bounded and
+human-readable; the hash suffix is part of the filesystem contract so distinct
+raw session IDs that sanitize to the same token cannot overwrite each other.
+
+The registry stores metadata and artifact pointers. It must not mirror full
+private prompts, results, or raw transcripts by default. Session-end writeback
+also appends a metadata-only `lifecycle.session_end` event to
+`<soma-home>/memory/STATE/events.jsonl` with pointers to the shared state files
+it updated. Full tool activity and tool failure telemetry are separate
+observability work.
+
 Adapters own their substrate-native install facts: default home, projected file
 paths, substrate-specific skill destinations, lifecycle projection paths,
 validators, cleanup hooks, private projection roots, and uninstall targets. The

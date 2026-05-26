@@ -359,6 +359,42 @@ This makes Soma a closed loop, not a one-way pipe.
 
 ---
 
+## work registry
+
+The canonical Soma state that records active and historical work across substrates.
+
+The work registry is Soma-native. It is not a PAI compatibility shim.
+
+## session name registry
+
+The canonical Soma state that maps substrate session identifiers to human-readable work names.
+
+The session name registry is Soma-native. It is not a PAI compatibility shim.
+
+## raw transcript source
+
+A substrate-local directory or file set containing full session transcripts that Soma may harvest only when explicitly requested or adapter-declared.
+
+Raw transcript sources are not default Soma state.
+
+## observability event
+
+A bounded structured event that records substrate activity for monitoring and continuation without storing full transcripts by default.
+
+### Relationship
+
+- A **work registry** entry may reference one or more substrate sessions.
+- The **session name registry** gives those substrate sessions stable human-readable names.
+- Durable work artifacts belong in the **Memory** compartment, not in substrate-local transcript stores.
+- A **raw transcript source** may feed learning harvest, but only when the principal passes it explicitly or an adapter declares it as a policy-governed source.
+- An **observability event** may point to work registry entries and artifacts, but it is not a transcript.
+
+**Not synonyms:** Do not use `progress registry`, `session registry`, or `transcript registry` for the work registry. Do not use `session map` for the session name registry. Do not use `session directory` to mean raw transcript source unless the content is specifically full substrate transcripts. Do not use `event log` to imply full observability coverage; #165 only needs the minimal writeback event contract.
+
+**Why:** Cross-substrate continuation needs one shared state model. PAI proved the work-registry shape; Soma adopts it as canonical state so Codex, Claude Code, Pi.dev, and Cortex can converge on the same continuation surface.
+
+---
+
 ## eager, indexed, on-demand (loading tiers)
 
 Three adjectives describing how a piece of a [[project|projection]] enters the LLM's [[context]] window at session start.

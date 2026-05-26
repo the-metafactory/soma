@@ -2,6 +2,21 @@
 
 Soma learning tools read and write through `createPaths()`. Portable tools must not address `~/.claude/PAI` directly.
 
+## Session Harvest Sources
+
+`soma learning harvest` has two source modes:
+
+- **Default mode:** reads canonical shared work state from
+  `<soma-home>/memory/STATE/work.json` and creates metadata-only learning
+  candidates from registry entries.
+- **Explicit transcript mode:** reads raw transcript JSONL files only when the
+  caller passes `--session-dir <dir>`.
+
+Soma does not treat `<soma-home>/memory/STATE/sessions/*.jsonl` as a default
+source. Raw transcript sources are substrate-local unless an adapter explicitly
+declares and policy-gates them. Default harvest output must not mirror full
+private prompts or results.
+
 ## Ratings JSONL
 
 Path: `<soma-home>/memory/LEARNING/SIGNALS/ratings.jsonl`

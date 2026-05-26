@@ -10,6 +10,7 @@ import {
   harvestSessions,
   resumeSessionProgress,
   synthesizeLearningPatterns,
+  upsertSomaWorkRegistryEntry,
   type InferenceBackend,
   type InferenceRequest,
 } from "../src";
@@ -152,6 +153,106 @@ test("session harvester extracts learnings from recent session transcripts", asy
     expect(learnings.some((learning) => learning.type === "correction")).toBe(true);
     expect(learnings.some((learning) => learning.path?.includes("memory/LEARNING/ALGORITHM/2026-05"))).toBe(true);
     await expect(readFile(join(somaHome, "memory/LEARNING/ALGORITHM/2026-05/2026-05-191200_correction_abc123.md"), "utf8")).resolves.toContain("Actually");
+  });
+});
+
+test("session harvester explicit transcript filter matches exact session ids", async () => {
+  await withTempHome(async (homeDir) => {
+    const sessionDir = join(homeDir, "sessions");
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(join(sessionDir, "alpha.jsonl"), [
+      JSON.stringify({ type: "user", timestamp: "2026-05-19T12:00:00Z", message: { content: "Actually, I meant keep the smaller implementation." } }),
+    ].join("\n"), "utf8");
+    await writeFile(join(sessionDir, "beta-alpha.jsonl"), [
+      JSON.stringify({ type: "user", timestamp: "2026-05-19T12:01:00Z", message: { content: "Actually, I meant this should not be harvested." } }),
+    ].join("\n"), "utf8");
+
+    const learnings = await harvestSessions({
+      homeDir,
+      sessionDir,
+      sessionId: "alpha",
+      dryRun: true,
+    });
+
+    expect(learnings.map((learning) => learning.sessionId)).toEqual(["alpha"]);
+  });
+});
+
+test("session harvester explicit transcript filter matches sanitized raw ids", async () => {
+  await withTempHome(async (homeDir) => {
+    const sessionDir = join(homeDir, "sessions");
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(join(sessionDir, "a-b.jsonl"), [
+      JSON.stringify({ type: "user", timestamp: "2026-05-19T12:00:00Z", message: { content: "Actually, I meant keep the smaller implementation." } }),
+    ].join("\n"), "utf8");
+
+    const learnings = await harvestSessions({
+      homeDir,
+      sessionDir,
+      sessionId: "a/b",
+      dryRun: true,
+    });
+
+    expect(learnings.map((learning) => learning.sessionId)).toEqual(["a-b"]);
+  });
+});
+
+test("session harvester defaults to canonical work registry state", async () => {
+  await withTempHome(async (homeDir, somaHome) => {
+    await upsertSomaWorkRegistryEntry({
+      homeDir,
+      sessionId: "session-2",
+      sessionName: "align shared work state",
+      substrate: "codex",
+      task: "Align shared session state",
+      phase: "complete",
+      progress: "1/1",
+      timestamp: "2026-05-26T10:00:00.000Z",
+      artifacts: {
+        isa: "memory/WORK/align-shared-work-state/ISA.md",
+      },
+    });
+
+    const learnings = await harvestSessions({ homeDir });
+
+    expect(learnings).toEqual([
+      expect.objectContaining({
+        sessionId: "session-2",
+        timestamp: "2026-05-26T10:00:00.000Z",
+        type: "insight",
+        category: "ALGORITHM",
+        source: "work-registry",
+      }),
+    ]);
+    expect(learnings[0]?.content).toContain("Align shared session state");
+    expect(learnings[0]?.path).toContain("memory/LEARNING/ALGORITHM/2026-05");
+    await expect(readFile(join(somaHome, "memory/LEARNING/ALGORITHM/2026-05/2026-05-261000_insight_session-.md"), "utf8")).resolves.toContain("Align shared session state");
+  });
+});
+
+test("session harvester work-registry filter matches exact session ids only", async () => {
+  await withTempHome(async (homeDir) => {
+    await upsertSomaWorkRegistryEntry({
+      homeDir,
+      sessionId: "alpha",
+      sessionName: "target session",
+      substrate: "codex",
+      task: "Target work",
+      timestamp: "2026-05-26T10:00:00.000Z",
+    });
+    await upsertSomaWorkRegistryEntry({
+      homeDir,
+      sessionId: "beta",
+      sessionName: "alpha adjacent session",
+      substrate: "codex",
+      task: "Unrelated work",
+      timestamp: "2026-05-26T10:01:00.000Z",
+    });
+
+    const learnings = await harvestSessions({ homeDir, sessionId: "alpha" });
+
+    expect(learnings.map((learning) => learning.sessionId)).toEqual(["alpha"]);
+    expect(learnings[0]?.content).toContain("Target work");
   });
 });
 
