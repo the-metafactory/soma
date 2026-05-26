@@ -123,7 +123,12 @@ function resolveRewriteDescriptionsAgent(agent: Exclude<RewriteDescriptionsAgent
 // Shared frontmatter helpers — single source of truth for description
 // extraction across the migrator + verifier. See
 // `./claude-skills-frontmatter.ts` for the contract and reach.
-import { FRONTMATTER_RE, parseDescriptionFromFrontmatter as parseSourceDescription } from "./claude-skills-frontmatter";
+import {
+  findFrontmatterBlockScalarEndIndex,
+  FRONTMATTER_RE,
+  isFrontmatterBlockScalarMarker,
+  parseDescriptionFromFrontmatter as parseSourceDescription,
+} from "./claude-skills-frontmatter";
 
 /**
  * Materialize an imported skill as a `SomaSkill`-shaped object so
@@ -1184,19 +1189,23 @@ function spliceFrontmatterDescription(args: {
   const fmBlock = fm[1];
   const lines = fmBlock.split(/\r?\n/);
   let replaced = false;
-  const newLines = lines.map((line: string) => {
+  const newLines: string[] = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] ?? "";
     if (line.trimStart().startsWith("description:")) {
       replaced = true;
       // Preserve the leading indentation (rare but possible if the
       // skill author indented their frontmatter).
       const indent = /^\s*/.exec(line)?.[0] ?? "";
-      return `${indent}description: ${quoted}`;
+      newLines.push(`${indent}description: ${quoted}`);
+      const value = line.trimStart().slice("description:".length).trim();
+      if (isFrontmatterBlockScalarMarker(value)) {
+        i = findFrontmatterBlockScalarEndIndex(lines, i, indent.length);
+      }
+      continue;
     }
-    return line;
-  });
-  // `replaced` is mutated inside the `.map` closure above; the lint
-  // narrowing can't see it, hence the suppress.
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    newLines.push(line);
+  }
   if (!replaced) {
     // No description line; append one. Substrates require it; the
     // synthesis path means we MUST always end up with a description.

@@ -1062,6 +1062,13 @@ const APIFY_LIKE_DESCRIPTION_1318 = (() => {
   return text.slice(0, 1318);
 })();
 
+const BLOCK_SCALAR_DESCRIPTION_1400 = [
+  APIFY_LIKE_DESCRIPTION_1318.trim(),
+  "This extra block-scalar-only section ensures the expanded YAML description remains above the substrate cap after normal YAML indentation trimming.",
+  "It preserves enough real words to prove the migrator counts actual description text rather than the literal block marker.",
+  "The skill should therefore be refused without rewrite and rewritten when rewrite-descriptions is enabled.",
+].join(" ");
+
 function buildSkillWithFrontmatterDescription(description: string): string {
   // Quote the value so embedded colons / quotes don't break the parser.
   // The migrator's frontmatter helpers handle a single matching outer
@@ -1071,6 +1078,26 @@ function buildSkillWithFrontmatterDescription(description: string): string {
     "---",
     "name: TestSkill",
     `description: "${escaped}"`,
+    "---",
+    "",
+    "# TestSkill",
+    "",
+    "Body content here.",
+    "",
+  ].join("\n");
+}
+
+function buildSkillWithBlockScalarDescription(description: string, marker: "|" | ">" = "|"): string {
+  const wrapped: string[] = [];
+  for (let offset = 0; offset < description.length; offset += 88) {
+    wrapped.push(description.slice(offset, offset + 88).trimEnd());
+  }
+  return [
+    "---",
+    "name: TestSkill",
+    `description: ${marker}`,
+    ...wrapped.map((line) => `  ${line}`),
+    "allowed-tools: Read",
     "---",
     "",
     "# TestSkill",
@@ -1128,6 +1155,27 @@ test("oversize description + agent absent → refused-description-limit, skill n
   });
 });
 
+test("oversize block-scalar description + agent absent → refused using expanded length", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = join(home, "skills");
+    const somaHome = join(home, "soma");
+    await writeFlatSkillsFixture(fromDir, {
+      Confluence: {
+        skillMd: buildSkillWithBlockScalarDescription(BLOCK_SCALAR_DESCRIPTION_1400),
+      },
+    });
+
+    const result = await migrateClaudeSkills({ from: fromDir, somaHome });
+    expect(result.writtenCount).toBe(0);
+    expect(result.refusedDescriptionLimitCount).toBe(1);
+    const outcome = result.outcomes.find((o) => o.sourceName === "Confluence");
+    expect(outcome?.disposition).toBe("refused-description-limit");
+    expect(outcome?.descriptionStatus?.kind).toBe("oversize");
+    expect(outcome?.descriptionStatus?.length).toBeGreaterThan(1024);
+    expect(outcome?.descriptionStatus?.length).not.toBe(1);
+  });
+});
+
 test("missing frontmatter + agent absent → refused-description-limit", async () => {
   await withTempHome(async (home) => {
     const fromDir = join(home, "skills");
@@ -1150,10 +1198,46 @@ test("missing frontmatter + agent absent → refused-description-limit", async (
   });
 });
 
+test("oversize block-scalar description + --rewrite-descriptions auto → rewrites and removes old block body", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = join(home, "skills");
+    const somaHome = join(home, "soma");
+    await writeFlatSkillsFixture(fromDir, {
+      Confluence: {
+        skillMd: buildSkillWithBlockScalarDescription(BLOCK_SCALAR_DESCRIPTION_1400),
+      },
+    });
+
+    const dispatchStatuses: string[] = [];
+    const result = await migrateClaudeSkills({
+      from: fromDir,
+      somaHome,
+      rewriteDescriptionsAgent: "auto",
+      rewriteDispatchOverride: async (req) => {
+        dispatchStatuses.push(`${req.status.kind}:${req.status.length}`);
+        expect(req.originalDescription).toContain("Scrape social media platforms");
+        return "Confluence skill rewritten under the substrate description cap. USE WHEN importing block scalar frontmatter descriptions.";
+      },
+    });
+
+    expect(dispatchStatuses.length).toBe(1);
+    expect(dispatchStatuses[0]).toMatch(/^oversize:/);
+    expect(result.writtenCount).toBe(1);
+    expect(result.descriptionRewrittenCount).toBe(1);
+    const outcome = result.outcomes.find((o) => o.sourceName === "Confluence");
+    expect(outcome?.descriptionStatus?.length).toBeGreaterThan(1024);
+    const landed = await readFile(join(somaHome, "skills/confluence/SKILL.md"), "utf8");
+    expect(landed).toContain("description: \"Confluence skill rewritten");
+    expect(landed).toContain("allowed-tools: Read");
+    expect(landed).not.toContain("description: |");
+    expect(landed).not.toContain("  Scrape social media platforms");
+  });
+});
+
 test("oversize + --rewrite-descriptions claude (stubbed) → rewrites under cap and imports", async () => {
   await withTempHome(async (home) => {
     const { fromDir, somaHome } = await writeOversizeApifyFixture(home);
-    const dispatchCalls: Array<{ agent: string; status: string; sourceName: string }> = [];
+    const dispatchCalls: { agent: string; status: string; sourceName: string }[] = [];
     const result = await migrateClaudeSkills({
       from: fromDir,
       somaHome,
