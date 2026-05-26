@@ -133,6 +133,34 @@ test("work registry rejects malformed object shapes", async () => {
   });
 });
 
+test("work registry rejects malformed entry fields", async () => {
+  await withTempHome(async (homeDir) => {
+    const stateDir = join(homeDir, ".soma/memory/STATE");
+    await mkdir(stateDir, { recursive: true });
+    await writeFile(
+      join(stateDir, "work.json"),
+      `${JSON.stringify({
+        sessions: {
+          bad: {
+            task: "Bad registry",
+            sessionName: "bad",
+            sessionUUID: "session-bad",
+            substrate: "codex",
+            phase: "complete",
+            progress: "1/1",
+            started: "2026-05-26T10:00:00.000Z",
+            updatedAt: 123,
+            artifacts: {},
+          },
+        },
+      })}\n`,
+      "utf8",
+    );
+
+    await expect(listSomaWorkRegistryEntries({ homeDir })).rejects.toThrow("session entry bad.updatedAt must be a string");
+  });
+});
+
 test("work registry normalizes artifact pointers and rejects leaks", async () => {
   await withTempHome(async (homeDir) => {
     await upsertSomaWorkRegistryEntry({

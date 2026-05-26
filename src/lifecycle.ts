@@ -478,6 +478,11 @@ export function buildSessionEndRegistryArtifacts(input: {
   return normalizeSomaWorkRegistryArtifacts({ somaHome: input.somaHome }, rawArtifacts);
 }
 
+function normalizeLifecycleArtifactPaths(somaHome: string, artifactPaths: string[]): string[] {
+  const artifacts = Object.fromEntries(artifactPaths.map((artifactPath, index) => [`artifact${index + 1}`, artifactPath]));
+  return Object.values(normalizeSomaWorkRegistryArtifacts({ somaHome }, artifacts));
+}
+
 export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions = {}): Promise<SomaLifecycleResult> {
   const somaHome = resolveSomaHome(options);
   const timestamp = options.timestamp ?? new Date().toISOString();
@@ -524,7 +529,7 @@ export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions =
     kind: "lifecycle.session_end",
     summary: `Session ended; captured ${learningFiles.length} Algorithm learning artifact(s).${tierGateNote}`,
     timestamp,
-    artifactPaths: [index.path, index.activePath, ...learningFiles, ...registryFiles],
+    artifactPaths: normalizeLifecycleArtifactPaths(somaHome, [index.path, index.activePath, ...learningFiles, ...registryFiles]),
     metadata: {
       sessionId: options.sessionId,
     },

@@ -138,18 +138,59 @@ async function readJsonFile<T>(path: string, fallback: T, label: string): Promis
   }
 }
 
+function requireStringField(entry: Record<string, unknown>, path: string, slug: string, field: keyof SomaWorkRegistryEntry): string {
+  const value = entry[field];
+  if (typeof value !== "string") {
+    throw malformedJsonError("work registry", path, `session entry ${slug}.${field} must be a string`);
+  }
+  return value;
+}
+
+function validateRegistryEntry(path: string, slug: string, entry: Record<string, unknown>): SomaWorkRegistryEntry {
+  const artifacts = entry.artifacts;
+  if (!isPlainRecord(artifacts)) {
+    throw malformedJsonError("work registry", path, `session entry ${slug}.artifacts must be an object`);
+  }
+
+  for (const [artifactKey, artifactPath] of Object.entries(artifacts)) {
+    if (typeof artifactPath !== "string") {
+      throw malformedJsonError("work registry", path, `session entry ${slug}.artifacts.${artifactKey} must be a string`);
+    }
+  }
+
+  const isa = entry.isa;
+  if (isa !== undefined && typeof isa !== "string") {
+    throw malformedJsonError("work registry", path, `session entry ${slug}.isa must be a string`);
+  }
+
+  return {
+    ...(isa !== undefined ? { isa } : {}),
+    task: requireStringField(entry, path, slug, "task"),
+    sessionName: requireStringField(entry, path, slug, "sessionName"),
+    sessionUUID: requireStringField(entry, path, slug, "sessionUUID"),
+    substrate: requireStringField(entry, path, slug, "substrate"),
+    phase: requireStringField(entry, path, slug, "phase"),
+    progress: requireStringField(entry, path, slug, "progress"),
+    started: requireStringField(entry, path, slug, "started"),
+    updatedAt: requireStringField(entry, path, slug, "updatedAt"),
+    artifacts: artifacts as Record<string, string>,
+  };
+}
+
 function validateRegistrySessions(path: string, value: unknown): Record<string, SomaWorkRegistryEntry> {
   if (!isPlainRecord(value)) {
     throw malformedJsonError("work registry", path, "sessions must be an object");
   }
 
+  const sessions: Record<string, SomaWorkRegistryEntry> = {};
   for (const [slug, entry] of Object.entries(value)) {
     if (!isPlainRecord(entry)) {
       throw malformedJsonError("work registry", path, `session entry ${slug} must be an object`);
     }
+    sessions[slug] = validateRegistryEntry(path, slug, entry);
   }
 
-  return value as Record<string, SomaWorkRegistryEntry>;
+  return sessions;
 }
 
 async function readSessionNames(path: string): Promise<Record<string, string>> {
