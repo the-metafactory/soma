@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { expect, test } from "bun:test";
 import {
   listSomaWorkRegistryEntries,
+  somaWorkRegistryPaths,
   upsertSomaWorkRegistryEntry,
 } from "../src";
 
@@ -35,7 +36,7 @@ test("work registry helper writes PAI-aligned shared state without transcripts",
 
     const workPath = join(homeDir, ".soma/memory/STATE/work.json");
     const namesPath = join(homeDir, ".soma/memory/STATE/session-names.json");
-    const currentPath = join(homeDir, ".soma/memory/STATE/current-work-session-1.json");
+    const currentPath = somaWorkRegistryPaths({ homeDir }, "session-1").currentWork!;
 
     expect(result.files).toEqual([workPath, namesPath, currentPath]);
     const work = JSON.parse(await readFile(workPath, "utf8"));
@@ -83,7 +84,7 @@ test("work registry upsert replaces stale slug for the same session", async () =
     });
 
     const work = JSON.parse(await readFile(join(homeDir, ".soma/memory/STATE/work.json"), "utf8"));
-    const current = JSON.parse(await readFile(join(homeDir, ".soma/memory/STATE/current-work-session-1.json"), "utf8"));
+    const current = JSON.parse(await readFile(somaWorkRegistryPaths({ homeDir }, "session-1").currentWork!, "utf8"));
 
     expect(Object.keys(work.sessions)).toEqual(["renamed-session"]);
     expect(current).toMatchObject({ slug: "renamed-session", sessionUUID: "session-1" });
@@ -113,6 +114,48 @@ test("work registry upsert disambiguates equal names for different sessions", as
     expect(Object.keys(work.sessions).sort()).toEqual(["shared-name", "shared-name-session-2"]);
     expect(work.sessions["shared-name"]).toMatchObject({ sessionUUID: "session-1", substrate: "codex" });
     expect(work.sessions["shared-name-session-2"]).toMatchObject({ sessionUUID: "session-2", substrate: "pi-dev" });
+  });
+});
+
+test("work registry upserts preserve concurrent sessions", async () => {
+  await withTempHome(async (homeDir) => {
+    await Promise.all(
+      Array.from({ length: 12 }, (_, index) =>
+        upsertSomaWorkRegistryEntry({
+          homeDir,
+          sessionId: `session-${index + 1}`,
+          sessionName: `parallel session ${index + 1}`,
+          substrate: "codex",
+        }),
+      ),
+    );
+
+    const work = JSON.parse(await readFile(join(homeDir, ".soma/memory/STATE/work.json"), "utf8"));
+    expect(Object.keys(work.sessions)).toHaveLength(12);
+  });
+});
+
+test("work registry current-work filenames resist sanitized session id collisions", async () => {
+  await withTempHome(async (homeDir) => {
+    const slash = await upsertSomaWorkRegistryEntry({
+      homeDir,
+      sessionId: "a/b",
+      sessionName: "slash",
+      substrate: "codex",
+    });
+    const colon = await upsertSomaWorkRegistryEntry({
+      homeDir,
+      sessionId: "a:b",
+      sessionName: "colon",
+      substrate: "codex",
+    });
+
+    const slashPointerPath = slash.files.find((file) => file.includes("current-work-"))!;
+    const colonPointerPath = colon.files.find((file) => file.includes("current-work-"))!;
+
+    expect(slashPointerPath).not.toBe(colonPointerPath);
+    await expect(readFile(slashPointerPath, "utf8")).resolves.toContain('"sessionUUID": "a/b"');
+    await expect(readFile(colonPointerPath, "utf8")).resolves.toContain('"sessionUUID": "a:b"');
   });
 });
 

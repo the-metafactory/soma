@@ -1,6 +1,6 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { expect, test } from "bun:test";
 import { buildSessionEndRegistryArtifacts } from "../src/lifecycle";
 import {
@@ -17,6 +17,7 @@ import {
   runSomaLifecycleSessionEnd,
   runSomaLifecycleSessionStart,
   setAlgorithmPlan,
+  somaWorkRegistryPaths,
   updateAlgorithmPlanStep,
   verifyAlgorithmCriterion,
   writeAlgorithmRun,
@@ -185,7 +186,8 @@ test("session-end writes shared work registry state and metadata-only event", as
 
     const workPath = join(homeDir, ".soma/memory/STATE/work.json");
     const namesPath = join(homeDir, ".soma/memory/STATE/session-names.json");
-    const currentPath = join(homeDir, ".soma/memory/STATE/current-work-session-3.json");
+    const currentPath = somaWorkRegistryPaths({ homeDir }, "session-3").currentWork!;
+    const currentArtifactPath = relative(join(homeDir, ".soma"), currentPath);
     const events = (await readFile(join(homeDir, ".soma/memory/STATE/events.jsonl"), "utf8"))
       .trim()
       .split("\n")
@@ -208,7 +210,7 @@ test("session-end writes shared work registry state and metadata-only event", as
       expect.arrayContaining([
         "memory/STATE/work.json",
         "memory/STATE/session-names.json",
-        "memory/STATE/current-work-session-3.json",
+        currentArtifactPath,
       ]),
     );
     expect(JSON.stringify(sessionEnd.artifactPaths)).not.toContain(homeDir);

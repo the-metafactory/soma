@@ -1,5 +1,7 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { createPaths, type SomaPathsOptions } from "./paths";
 
 export interface SomaWorkRegistryEntry {
@@ -40,6 +42,10 @@ export interface UpsertSomaWorkRegistryEntryResult {
 function safeToken(value: string): string {
   const safe = value.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
   return safe || "unknown";
+}
+
+function shortHash(value: string): string {
+  return createHash("sha256").update(value).digest("hex").slice(0, 12);
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
@@ -114,14 +120,39 @@ function sessionNamesPath(options: SomaPathsOptions): string {
 }
 
 function currentWorkPath(options: SomaPathsOptions, sessionId: string): string {
-  return createPaths(options).resolve("memory", "STATE", `current-work-${safeToken(sessionId)}.json`);
+  return createPaths(options).resolve("memory", "STATE", `current-work-${safeToken(sessionId)}-${shortHash(sessionId)}.json`);
 }
 
 async function writeJson(path: string, value: unknown): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
-  const tmp = `${path}.tmp`;
+  const tmp = `${path}.${process.pid}.${shortHash(`${path}:${Date.now()}:${Math.random()}`)}.tmp`;
   await writeFile(tmp, `${JSON.stringify(value, null, 2)}\n`, "utf8");
   await rename(tmp, path);
+}
+
+async function withRegistryFileLock<T>(registryPath: string, fn: () => Promise<T>): Promise<T> {
+  await mkdir(dirname(registryPath), { recursive: true });
+  const lockPath = `${registryPath}.lock`;
+  const started = Date.now();
+
+  while (true) {
+    try {
+      await mkdir(lockPath);
+      break;
+    } catch (error: unknown) {
+      if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
+      if (Date.now() - started > 30_000) {
+        throw new Error(`Timed out waiting for work registry lock at ${lockPath}`);
+      }
+      await sleep(10);
+    }
+  }
+
+  try {
+    return await fn();
+  } finally {
+    await rm(lockPath, { recursive: true, force: true });
+  }
 }
 
 async function readJsonFile<T>(path: string, fallback: T, label: string): Promise<T> {
@@ -251,6 +282,12 @@ export async function listSomaWorkRegistryEntries(options: SomaPathsOptions = {}
 }
 
 export async function upsertSomaWorkRegistryEntry(
+  options: UpsertSomaWorkRegistryEntryOptions,
+): Promise<UpsertSomaWorkRegistryEntryResult> {
+  return withRegistryFileLock(workRegistryPath(options), () => upsertSomaWorkRegistryEntryLocked(options));
+}
+
+async function upsertSomaWorkRegistryEntryLocked(
   options: UpsertSomaWorkRegistryEntryOptions,
 ): Promise<UpsertSomaWorkRegistryEntryResult> {
   const timestamp = options.timestamp ?? new Date().toISOString();
