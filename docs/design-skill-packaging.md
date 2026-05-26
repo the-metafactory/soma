@@ -67,9 +67,10 @@ This document specifies the unified contract.
 ## Goals
 
 - One skill per repo, independently versioned, attributed, and capability-scoped.
-- One canonical manifest schema (`soma-skill/v1`) replacing both
-  `arc-manifest.yaml` (metafactory blueprint format) and the import-emitted
-  `soma-skill.json` (PAI pack derivation).
+- One canonical Soma skill manifest schema (`soma-skill/v1`) consumed by
+  arc's `--host soma` adapter. It normalizes existing `arc-manifest.yaml`
+  skill repos and the import-emitted `soma-skill.json` shape without turning
+  Arc's generic `arc/v1` package manifest into a Soma-specific schema.
 - One canonical skill repo layout supporting substrate-neutral content plus
   optional per-substrate overlays.
 - `arc install <skill> --host soma` lands the skill in `~/.soma/skills/<slug>/`,
@@ -99,6 +100,11 @@ This document specifies the unified contract.
 - Replacing `soma migrate pai` or `soma import pai-pack`. Both remain. The PAI
   pack importer becomes one specific way skills enter soma; `arc install` is
   the routine way.
+- Importing skills authored directly inside a local substrate home
+  (`~/.claude/skills/`, `~/.codex/skills/`, `~/.pi/agent/skills/`, etc.) is out
+  of scope for v1. The supported substrate-to-soma ingestion path remains
+  `soma migrate claude-skills`; broader local-substrate-origin import is a
+  follow-up design question.
 
 ## Concepts
 
@@ -117,6 +123,12 @@ The terminology this design uses, deliberately precise:
 - **skill** — a directory at `~/.soma/skills/<slug>/` containing a valid
   `soma-skill.json` + `SKILL.md`. The slug is the canonical name used by soma,
   arc, and projection paths.
+- **the-algorithm as a skill** — when imported, `the-algorithm` is an instance
+  of this same `soma-skill` contract: it lands at
+  `~/.soma/skills/the-algorithm/` and is projected by the same adapter
+  machinery as any other installed skill. That portable skill artifact is
+  distinct from the core Algorithm harness/state machine in `src/algorithm.ts`,
+  which remains a soma core primitive.
 - **skill repo** — the upstream source of a skill: a GitHub (or other VCS) repo
   named `soma-skill-<slug>` containing the canonical layout.
 - **arc** — the package manager. Fetches, verifies, prompts for capabilities,
@@ -163,9 +175,11 @@ entirely.
 Notes:
 
 - The skill folder is a self-contained bun project when it ships TS tools. Arc
-  runs `bun install` inside `~/.soma/skills/<slug>/` after fetch, so the skill's
-  deps live alongside the skill — no clash with soma core deps, no clash with
-  other skills.
+  runs `bun install --ignore-scripts` inside `~/.soma/skills/<slug>/` after
+  fetch, so the skill's deps live alongside the skill — no clash with soma core
+  deps, no clash with other skills. Package lifecycle scripts are disabled by
+  default; any build or setup action must be declared as a tool/capability and
+  run only after explicit approval inside the enforced sandbox.
 - `substrate/<id>/` mirrors the substrate's own concept names. Claude Code has
   `commands`, `hooks`, `agents`; Codex has `rules` + `hooks`; Pi.dev has
   `extensions`. The adapter knows where each piece lands in the substrate-shaped
@@ -233,14 +247,25 @@ Notes:
 }
 ```
 
-This is a strict superset of metafactory `arc/v1` plus the routing fields
+This is a Soma skill manifest consumed by the `--host soma` adapter, not a
+replacement for Arc's generic `arc/v1` package manifest. It carries the skill
+identity and capability fields Arc already understands plus the routing fields
 specified in `progressive-skill-loading.md`. Migration of an
-`arc-manifest.yaml`: rename file to `soma-skill.json`, convert YAML→JSON,
-change `schema: arc/v1` → `schema: soma-skill/v1`, add the new
-substrate/loading fields (most can be defaulted).
+`arc-manifest.yaml` that represents a skill: rename file to `soma-skill.json`,
+convert YAML→JSON, change `schema: arc/v1` → `schema: soma-skill/v1`, add the
+new substrate/loading fields (most can be defaulted).
 
 ### Validation rules
 
+- Manifest `name` must match `^[a-z0-9][a-z0-9-]*$` before LAND or PROJECT,
+  because the manifest-controlled slug is used in filesystem paths.
+- UNINSTALL validates the requested CLI slug or install record against the same
+  regex, not the installed manifest name, so a missing or corrupted manifest
+  cannot strand an installed skill.
+- Any manifest field or overlay entry used to derive a projected path segment
+  must match the same safe slug regex before LAND or PROJECT. This includes
+  `provides.tools[*].name`, `provides.slashCommands[*].name`, hook names,
+  subagent names, and generated wrapper names.
 - `name` must be unique across `~/.soma/skills/` after install. Arc rejects a
   name collision at install time.
 - `version` must be semver. Arc tracks installed version per skill.
@@ -282,28 +307,41 @@ What happens, in order:
 3. VALIDATE  — arc parses soma-skill.json against the v1 schema; refuse on invalid
 4. RISK      — arc shows capability + secret summary, prompts principal to approve
                   (skipped on update if capabilities are unchanged)
-5. LAND      — arc copies the validated tree to ~/.soma/skills/<slug>/
+5. RECORD    — arc records the approved manifest digest + source before any
+                  dependency resolution:
+                  { slug, version, upstream_url, upstream_ref,
+                    manifest_digest, capabilities_approved_at,
+                    status: "installing" }
+6. LAND      — arc copies the validated tree to ~/.soma/skills/<slug>/
                   (full copy, not symlink — works on Linux, macOS, Windows,
                   through iCloud/Dropbox, inside Docker volumes)
-6. DEPS      — arc runs `bun install` inside ~/.soma/skills/<slug>/ if
-                  package.json exists
-7. RECORD    — arc records the install in its own DB:
-                  { slug, version, upstream_url, upstream_ref, installed_at,
-                    capabilities_approved_at }
+7. DEPS      — arc runs `bun install --ignore-scripts` inside
+                  ~/.soma/skills/<slug>/ if package.json exists
 8. DETECT    — arc reads ~/.soma/config/substrates.yaml (creating it via
                   first-run prompt if absent — see "Auto-Detection" below)
 9. PROJECT   — for each enabled substrate whose id is in skill.substrateSupport[]:
-                  call soma's adapter to (re-)project that substrate, which now
-                  includes this skill
-10. VERIFY   — arc reports per-substrate projection result; refuses to consider
+                  call soma's stable projection API for that substrate id,
+                  which now includes this skill
+10. COMPLETE — arc marks the install record complete with installed_at only
+                  after projection succeeds
+11. VERIFY   — arc reports per-substrate projection result; refuses to consider
                   the install complete if any required substrate failed
 ```
 
-Step 9 calls into soma's existing adapter code (`projectClaudeCodeHome`,
-`projectCodexHome`, `projectPiDevHome`). The adapters gain a new input —
-`installedSkills: SomaSkillManifest[]` — alongside the existing
-`ProjectionInput`. They iterate skills, write per-skill projection files, and
-return a unified projection.
+Step 9 calls a stable soma projection API, not concrete adapter functions. Arc
+passes a substrate id and soma home path; soma owns dispatch to
+`projectClaudeCodeHome`, `projectCodexHome`, `projectPiDevHome`, or future
+adapter implementations internally. The adapter-facing projection input gains
+`installedSkills: SomaSkillManifest[]` alongside the existing
+`ProjectionInput`. Adapters iterate skills, write per-skill projection files,
+and return a unified projection.
+
+Fresh installs are allowed to have the Algorithm rendering contract and adapter
+projection support without the imported Algorithm methodology skill. The
+portable `the-algorithm` skill is present only after `soma import algorithm` or
+`soma migrate pai` lands `~/.soma/skills/the-algorithm/`; substrate projections
+must reflect that presence or absence instead of implying every fresh soma home
+already carries the imported methodology.
 
 ### Update
 
@@ -365,9 +403,10 @@ scratch). For routine use the principal never types it.
 
 ## Auto-Detection
 
-On first install, arc detects substrates available on the host and asks the
-principal which should be projection targets. The answer persists, so
-subsequent installs run silently.
+On first install, arc calls soma's projection-config API/CLI. Soma detects
+substrates available on the host, asks the principal which should be projection
+targets, and persists the answer. Subsequent installs read the resulting
+enabled targets silently.
 
 ### Detection rules
 
@@ -375,7 +414,7 @@ subsequent installs run silently.
 interface SubstrateDetection {
   id: SubstrateId;
   detected: boolean;
-  signals: string[];   // why arc thinks the substrate is present
+  signals: string[];   // why soma thinks the substrate is present
 }
 
 const rules: DetectionRule[] = [
@@ -392,7 +431,7 @@ Presence of `~/.claude/` does not imply intent to project soma into it.
 ### First-run prompt
 
 ```text
-$ arc install soma-skill-art --host soma
+$ arc install art --host soma
 
 Detecting substrates on this host…
   ✓ ~/.claude/         (Claude Code)
@@ -488,7 +527,7 @@ For each substrate `S` and each installed skill with `S ∈ substrateSupport`:
 | Claude Code | The skill's Claude Code projection: `~/.claude/skills/<slug>/SKILL.md` (rewritten with claude-native frontmatter, description compacted to ≤1024 chars), `~/.claude/skills/<slug>/workflows/*`, `~/.claude/skills/<slug>/references/*`, `~/.claude/commands/<name>.md` from `substrate/claude-code/commands/`, `~/.claude/hooks/<skill>-<event>.mjs` from `substrate/claude-code/hooks/`, Claude Code sub-agent specs from `substrate/claude-code/agents/`, capability allowlist merged into `~/.claude/settings.local.json`. The substrate primitive surfaced is a **Claude Code skill**. |
 | Codex | The skill's Codex projection: `~/.codex/skills/<slug>/SKILL.md`, `~/.codex/rules/<slug>.rules` (substrate-neutral content + fragment from `substrate/codex/`), `~/.codex/hooks/` entries, capability declarations into `~/.codex/config.toml`. Codex has no native skill primitive; the surfaced shape is a **Codex instruction**. |
 | Pi.dev | The skill's Pi.dev projection: `~/.pi/agent/skills/<slug>/SKILL.md`, optional `~/.pi/agent/extensions/<slug>.ts` from `substrate/pi-dev/extension.ts.fragment` wrapped in a generated substrate-side stub. The substrate primitive surfaced is a **Pi.dev skill**. |
-| Cortex | The skill's Cortex projection: manifest registered with the Cortex daemon's skill registry via Myelin envelope; bodies remain readable from `~/.soma/skills/<slug>/` on demand. The substrate-bound process that consumes the projection is a **Cortex agent** running in daemon mode. |
+| Cortex | The skill's Cortex projection: capability/discovery metadata published via Myelin; skill bodies and registry ownership remain in soma at `~/.soma/skills/<slug>/`. The wire-facing primitive is a **Cortex capability** that may be fulfilled by a soma skill. |
 
 The projection adds a registry-index file per substrate (e.g.
 `~/.claude/rules/soma/SKILLS.md`) listing every projected skill with name,
@@ -536,7 +575,7 @@ content is untouched.
 
 ### Existing metafactory skills (`arc-skill-*` repos)
 
-Five repos today: `arc-skill-art`, `arc-skill-code-review`, `arc-skill-harvester`, `arc-skill-slides`, plus the manifest-fix variant. Per-repo migration is mechanical:
+Several repos today: `arc-skill-art`, `arc-skill-code-review`, `arc-skill-doc`, `arc-skill-harvester`, `arc-skill-slides`, plus the manifest-fix variant. Per-repo migration is mechanical:
 
 1. `gh repo rename soma-skill-<slug>` from the repo root (GitHub auto-redirects old URLs).
 2. Rename `arc-manifest.yaml` → `soma-skill.json`. Convert YAML → JSON.
@@ -586,7 +625,7 @@ These are domain-specific behaviours that consume the core primitives. They migr
 | [soma#131](https://github.com/the-metafactory/soma/issues/131) — Phase 3 (Wisdom Frames, 3 tools) | domain classifier, frame updater, cross-frame synthesizer | `soma-skill-wisdom-frames` | Single skill repo — the three tools genuinely co-evolve (shared frame schema). The architecture decision soma#131 calls out (knowledge taxonomy ownership) becomes a DD inside soma core: "where do frame schemas live, who can extend them." |
 | [soma#132](https://github.com/the-metafactory/soma/issues/132) — Phase 4 | `RelationshipReflect.ts` (opinion updates, milestone detection, notification) | `soma-skill-relationship-reflect` | Single skill. Notification dispatch goes through soma core's notification primitive (or a separate `soma-skill-notify` if more skills need notification). |
 
-**Net outcome:** 6–8 new `soma-skill-*` repos instead of 13 monolithic merges into soma core. Each ships its own semver, capability sandbox, and tests. Each is installable independently — a principal who doesn't care about wisdom frames just doesn't `arc install soma-skill-wisdom-frames`.
+**Net outcome:** 6–8 new `soma-skill-*` repos instead of 13 monolithic merges into soma core. Each ships its own semver, capability sandbox, and tests. Each is installable independently — a principal who doesn't care about wisdom frames just doesn't `arc install wisdom-frames --host soma`.
 
 ### Sequencing
 
@@ -607,14 +646,18 @@ These are domain-specific behaviours that consume the core primitives. They migr
 6. **Hand-edit policy.** If a principal hand-edits `~/.soma/skills/<slug>/`, what does `arc update` do? Default proposal: overwrite with warning, `--preserve-local` errors out. The "correct" home for principal customisations is a separate overlay under `~/.soma/skills/<slug>/local/` that arc never touches.
 7. **Reserved slug list.** PAI migration already refuses to overwrite `isa` (bundled). What is the full reserved set for v1? Recommend: `isa`, `the-algorithm`, plus any slug that ships with soma core.
 8. **Multi-skill repos (the `soma-pack-*` case).** Should arc support `arc install soma-pack-foo --host soma` installing all nested skills atomically? Or must each be installed by slug? Recommend: pack-level install with per-skill capability prompts.
+9. **Local-substrate-origin imports.** Should soma eventually import skills that were authored directly in a substrate home, such as `~/.claude/skills/<slug>/` or `~/.codex/skills/<slug>/`, and normalize them into `soma-skill/v1`? If yes, which substrate shapes are authoritative when their metadata conflicts?
 
 ## Verification Criteria
 
 The packaging contract is considered shipped when each of these is true:
 
 1. `soma-skill.json` schema exists, is documented, and ships with a JSON Schema for editor validation.
-2. Arc accepts `--host soma`, lands a valid skill at `~/.soma/skills/<slug>/`, runs `bun install` inside it, and records the install in its DB.
-3. Arc auto-detects substrates on first install and writes `~/.soma/config/substrates.yaml`.
+2. Arc accepts `--host soma`, records the approved manifest digest and upstream
+   ref before dependency resolution, lands a valid skill at
+   `~/.soma/skills/<slug>/`, runs `bun install --ignore-scripts` inside it, and
+   marks the install complete only after projection succeeds.
+3. Arc calls soma's projection-config API/CLI on first install; soma detects substrates, prompts for enabled targets, and writes `~/.soma/config/substrates.yaml`.
 4. `arc install` projects to every enabled substrate whose id is in the skill's `substrateSupport[]`, end-to-end, in one command.
 5. `arc update <slug>` re-fetches, re-validates, and re-projects. Capability diffs trigger a re-approval prompt.
 6. `arc uninstall <slug>` removes the skill from soma home and from every projection, untouching any file outside the projection envelope.
@@ -630,7 +673,7 @@ The packaging contract is considered shipped when each of these is true:
 When this design is approved, add to `design/design-decisions.md`:
 
 - **DD-N**: Skills are first-class portable artifacts authored in `soma-skill-<name>` repos, installed via arc, projected by soma.
-- **DD-N+1**: `soma-skill/v1` is the canonical manifest schema; `arc/v1` is deprecated (one-release acceptance window with warning).
+- **DD-N+1**: `soma-skill/v1` is the canonical Soma skill manifest consumed by arc's `--host soma` adapter; Arc's generic `arc/v1` manifest remains valid for non-Soma package shapes.
 - **DD-N+2**: Projection is generation, never symlinking, for multi-substrate portability and OS/cloud-sync neutrality.
-- **DD-N+3**: Arc auto-detects substrates on first install; principal confirms per-substrate; config persists in `~/.soma/config/substrates.yaml`.
+- **DD-N+3**: Arc delegates first-install substrate detection and target selection to soma's projection-config API/CLI; principal confirms per-substrate; config persists in `~/.soma/config/substrates.yaml`.
 - **DD-N+4**: PAI Tools migration splits Track A (core primitives) from Track B (`soma-skill-*` repos). Inference, path resolver, Algorithm harness are Track A. Learning pipeline, wisdom frames, relationship reflection are Track B.
