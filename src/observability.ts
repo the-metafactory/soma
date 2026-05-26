@@ -233,7 +233,7 @@ function isSessionStartEvent(event: SomaMemoryEvent): boolean {
 }
 
 function isSessionEndEvent(event: SomaMemoryEvent): boolean {
-  return event.kind === "lifecycle.session_end" || event.kind.startsWith("lifecycle.session_end.");
+  return event.kind === "lifecycle.session_end";
 }
 
 function recordSessionEvent(event: SomaMemoryEvent, sessions: SessionAggregationState): void {

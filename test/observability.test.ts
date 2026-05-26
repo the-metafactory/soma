@@ -111,6 +111,14 @@ test("telemetry summary aggregates sessions, kinds, substrates, and durations", 
     });
     await appendSomaMemoryEvent(somaHome, {
       id: "evt-5",
+      timestamp: "2026-05-26T09:01:00.000Z",
+      substrate: "pi-dev",
+      kind: "lifecycle.session_end",
+      summary: "Session ended.",
+      metadata: { sessionId: "s2" },
+    });
+    await appendSomaMemoryEvent(somaHome, {
+      id: "evt-6",
       timestamp: "2026-05-26T09:05:00.000Z",
       substrate: "codex",
       kind: "skill.loaded",
@@ -120,8 +128,8 @@ test("telemetry summary aggregates sessions, kinds, substrates, and durations", 
 
     const summary = await summarizeSomaTelemetry({ homeDir });
 
-    expect(summary.totalEvents).toBe(5);
-    expect(summary.bySubstrate).toEqual({ codex: 4, "pi-dev": 1 });
+    expect(summary.totalEvents).toBe(6);
+    expect(summary.bySubstrate).toEqual({ codex: 4, "pi-dev": 2 });
     expect(summary.byKind["lifecycle.session_start"]).toBe(1);
     expect(summary.sessions).toMatchObject({
       started: 1,
