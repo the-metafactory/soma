@@ -90,3 +90,26 @@ test("work registry upsert replaces stale slug for the same session", async () =
     ]);
   });
 });
+
+test("work registry upsert disambiguates equal names for different sessions", async () => {
+  await withTempHome(async (homeDir) => {
+    await upsertSomaWorkRegistryEntry({
+      homeDir,
+      sessionId: "session-1",
+      sessionName: "shared name",
+      substrate: "codex",
+    });
+    await upsertSomaWorkRegistryEntry({
+      homeDir,
+      sessionId: "session-2",
+      sessionName: "shared name",
+      substrate: "pi-dev",
+    });
+
+    const work = JSON.parse(await readFile(join(homeDir, ".soma/memory/STATE/work.json"), "utf8"));
+
+    expect(Object.keys(work.sessions).sort()).toEqual(["shared-name", "shared-name-session-2"]);
+    expect(work.sessions["shared-name"]).toMatchObject({ sessionUUID: "session-1", substrate: "codex" });
+    expect(work.sessions["shared-name-session-2"]).toMatchObject({ sessionUUID: "session-2", substrate: "pi-dev" });
+  });
+});
