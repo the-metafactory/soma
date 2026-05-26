@@ -104,13 +104,18 @@ function matchesTelemetryQuery(event: SomaMemoryEvent, options: SomaTelemetryQue
   return true;
 }
 
+function telemetryLimit(limit: number | undefined): number {
+  const boundedLimit = limit ?? 20;
+  if (!Number.isSafeInteger(boundedLimit) || boundedLimit < 1) {
+    throw new Error("Soma telemetry limit must be a positive integer.");
+  }
+  return boundedLimit;
+}
+
 export async function querySomaTelemetryEvents(options: SomaTelemetryQueryOptions = {}): Promise<SomaTelemetryQueryResult> {
   const somaHome = resolveSomaHome(options);
   const events: SomaMemoryEvent[] = [];
-  const boundedLimit = options.limit ?? 20;
-  if (boundedLimit < 1) {
-    throw new Error("Soma telemetry limit must be a positive integer.");
-  }
+  const boundedLimit = telemetryLimit(options.limit);
   const read = await streamTelemetryEvents(somaHome, (event) => {
     if (!matchesTelemetryQuery(event, options)) return;
     events.push(event);
@@ -164,16 +169,24 @@ function timestampMs(value: string): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-function averageDuration(durations: number[]): number | null {
-  return durations.length > 0
-    ? Math.round(durations.reduce((sum, duration) => sum + duration, 0) / durations.length)
-    : null;
+interface DurationStats {
+  count: number;
+  totalMs: number;
+}
+
+function recordDuration(stats: DurationStats, durationMs: number): void {
+  stats.count += 1;
+  stats.totalMs += durationMs;
+}
+
+function averageDuration(stats: DurationStats): number | null {
+  return stats.count > 0 ? Math.round(stats.totalMs / stats.count) : null;
 }
 
 interface MutableSessionStats {
   started: number;
   ended: number;
-  durations: number[];
+  durations: DurationStats;
 }
 
 function ensureSessionStats(
@@ -186,7 +199,7 @@ function ensureSessionStats(
   const created: MutableSessionStats = {
     started: 0,
     ended: 0,
-    durations: [],
+    durations: { count: 0, totalMs: 0 },
   };
   stats[substrate] = created;
   return created;
@@ -198,11 +211,71 @@ function publicSessionStats(stats: Partial<Record<SubstrateId, MutableSessionSta
     result[substrate] = {
       started: value.started,
       ended: value.ended,
-      completedWithDuration: value.durations.length,
+      completedWithDuration: value.durations.count,
       averageDurationMs: averageDuration(value.durations),
     };
   }
   return result;
+}
+
+interface SessionAggregationState {
+  starts: Map<string, number>;
+  bySubstrate: Partial<Record<SubstrateId, MutableSessionStats>>;
+  totalDurations: DurationStats;
+  started: number;
+  ended: number;
+}
+
+function recordSessionEvent(event: SomaMemoryEvent, sessions: SessionAggregationState): void {
+  if (event.kind === "lifecycle.session_start") {
+    sessions.started += 1;
+    ensureSessionStats(sessions.bySubstrate, event.substrate).started += 1;
+    const sessionId = eventSessionId(event);
+    const startedAt = timestampMs(event.timestamp);
+    if (sessionId !== undefined && startedAt !== undefined) {
+      sessions.starts.set(`${event.substrate}\0${sessionId}`, startedAt);
+    }
+  }
+
+  if (event.kind === "lifecycle.session_end") {
+    sessions.ended += 1;
+    const substrateStats = ensureSessionStats(sessions.bySubstrate, event.substrate);
+    substrateStats.ended += 1;
+    const sessionId = eventSessionId(event);
+    const endedAt = timestampMs(event.timestamp);
+    const startedAt = sessionId === undefined ? undefined : sessions.starts.get(`${event.substrate}\0${sessionId}`);
+    if (startedAt !== undefined && endedAt !== undefined && endedAt >= startedAt) {
+      const duration = endedAt - startedAt;
+      recordDuration(sessions.totalDurations, duration);
+      recordDuration(substrateStats.durations, duration);
+    }
+  }
+}
+
+function recordSkillEvent(event: SomaMemoryEvent, skillByName: Record<string, number>): boolean {
+  const skillName = eventSkillName(event);
+  if (!event.kind.includes("skill") && skillName === undefined) return false;
+  if (skillName !== undefined) {
+    incrementRecord(skillByName, skillName);
+  }
+  return true;
+}
+
+function recordAlgorithmEvent(event: SomaMemoryEvent, algorithmByPhase: Partial<Record<AlgorithmPhase, number>>): boolean {
+  if (!event.kind.includes("algorithm")) return false;
+  const phase = eventPhase(event);
+  if (phase !== undefined) {
+    increment(algorithmByPhase, phase);
+  }
+  return true;
+}
+
+function isWritebackEvent(event: SomaMemoryEvent): boolean {
+  return event.kind.includes("writeback") || event.kind.endsWith(".failed") || event.kind.includes("registry-write");
+}
+
+function isWritebackFailureEvent(event: SomaMemoryEvent): boolean {
+  return event.kind.endsWith(".failed") || event.kind.includes("failed");
 }
 
 export async function summarizeSomaTelemetry(options: SomaTelemetrySummaryOptions = {}): Promise<SomaTelemetrySummary> {
@@ -211,11 +284,13 @@ export async function summarizeSomaTelemetry(options: SomaTelemetrySummaryOption
   const byKind: Record<string, number> = {};
   const algorithmByPhase: Partial<Record<AlgorithmPhase, number>> = {};
   const skillByName: Record<string, number> = {};
-  const sessionStarts = new Map<string, number>();
-  const sessionStatsBySubstrate: Partial<Record<SubstrateId, MutableSessionStats>> = {};
-  const durations: number[] = [];
-  let sessionStartCount = 0;
-  let sessionEndCount = 0;
+  const sessions: SessionAggregationState = {
+    starts: new Map<string, number>(),
+    bySubstrate: {},
+    totalDurations: { count: 0, totalMs: 0 },
+    started: 0,
+    ended: 0,
+  };
   let skillEventCount = 0;
   let algorithmEventCount = 0;
   let writebackEventCount = 0;
@@ -229,49 +304,16 @@ export async function summarizeSomaTelemetry(options: SomaTelemetrySummaryOption
     increment(bySubstrate, event.substrate);
     incrementRecord(byKind, event.kind);
 
-    if (event.kind === "lifecycle.session_start") {
-      sessionStartCount += 1;
-      ensureSessionStats(sessionStatsBySubstrate, event.substrate).started += 1;
-      const sessionId = eventSessionId(event);
-      const startedAt = timestampMs(event.timestamp);
-      if (sessionId !== undefined && startedAt !== undefined) {
-        sessionStarts.set(`${event.substrate}\0${sessionId}`, startedAt);
-      }
-    }
-
-    if (event.kind === "lifecycle.session_end") {
-      sessionEndCount += 1;
-      const substrateStats = ensureSessionStats(sessionStatsBySubstrate, event.substrate);
-      substrateStats.ended += 1;
-      const sessionId = eventSessionId(event);
-      const endedAt = timestampMs(event.timestamp);
-      const startedAt = sessionId === undefined ? undefined : sessionStarts.get(`${event.substrate}\0${sessionId}`);
-      if (startedAt !== undefined && endedAt !== undefined && endedAt >= startedAt) {
-        const duration = endedAt - startedAt;
-        durations.push(duration);
-        substrateStats.durations.push(duration);
-      }
-    }
-
-    const skillName = eventSkillName(event);
-    if (event.kind.includes("skill") || skillName !== undefined) {
+    recordSessionEvent(event, sessions);
+    if (recordSkillEvent(event, skillByName)) {
       skillEventCount += 1;
-      if (skillName !== undefined) {
-        incrementRecord(skillByName, skillName);
-      }
     }
-
-    if (event.kind.includes("algorithm")) {
+    if (recordAlgorithmEvent(event, algorithmByPhase)) {
       algorithmEventCount += 1;
-      const phase = eventPhase(event);
-      if (phase !== undefined) {
-        increment(algorithmByPhase, phase);
-      }
     }
-
-    if (event.kind.includes("writeback") || event.kind.endsWith(".failed") || event.kind.includes("registry-write")) {
+    if (isWritebackEvent(event)) {
       writebackEventCount += 1;
-      if (event.kind.endsWith(".failed") || event.kind.includes("failed")) {
+      if (isWritebackFailureEvent(event)) {
         writebackFailureCount += 1;
       }
     }
@@ -287,11 +329,11 @@ export async function summarizeSomaTelemetry(options: SomaTelemetrySummaryOption
     bySubstrate,
     byKind,
     sessions: {
-      started: sessionStartCount,
-      ended: sessionEndCount,
-      completedWithDuration: durations.length,
-      averageDurationMs: averageDuration(durations),
-      bySubstrate: publicSessionStats(sessionStatsBySubstrate),
+      started: sessions.started,
+      ended: sessions.ended,
+      completedWithDuration: sessions.totalDurations.count,
+      averageDurationMs: averageDuration(sessions.totalDurations),
+      bySubstrate: publicSessionStats(sessions.bySubstrate),
     },
     skills: {
       events: skillEventCount,

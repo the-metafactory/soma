@@ -292,6 +292,12 @@ test("cli lists and summarizes telemetry events", async () => {
   });
 });
 
+test("cli rejects malformed telemetry limits", async () => {
+  await expect(runSomaCli(["telemetry", "list", "--limit", "1x"])).rejects.toThrow("--limit must be a positive integer.");
+  await expect(runSomaCli(["telemetry", "list", "--limit", "1.5"])).rejects.toThrow("--limit must be a positive integer.");
+  await expect(runSomaCli(["telemetry", "list", "--limit", "0"])).rejects.toThrow("--limit must be a positive integer.");
+});
+
 test("lifecycle command module keeps lifecycle events and help in sync", async () => {
   await expect(runSomaCli(["lifecycle", "--help"])).resolves.toBe(LIFECYCLE_COMMAND_HELP.usage);
 

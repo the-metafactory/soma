@@ -90,10 +90,7 @@ function parseTelemetryListOptions(args: string[]): SomaTelemetryQueryOptions & 
         index += 1;
         break;
       case "--limit":
-        options.limit = Number.parseInt(readOption(args, index, arg), 10);
-        if (!Number.isFinite(options.limit) || options.limit < 1) {
-          throw new Error("--limit must be a positive integer.");
-        }
+        options.limit = parsePositiveInteger(readOption(args, index, arg), "--limit");
         index += 1;
         break;
       default:
@@ -102,6 +99,17 @@ function parseTelemetryListOptions(args: string[]): SomaTelemetryQueryOptions & 
   }
 
   return options;
+}
+
+function parsePositiveInteger(value: string, option: string): number {
+  if (!/^\d+$/.test(value)) {
+    throw new Error(`${option} must be a positive integer.`);
+  }
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) {
+    throw new Error(`${option} must be a positive integer.`);
+  }
+  return parsed;
 }
 
 function parseTelemetryStatsOptions(args: string[]): SomaTelemetrySummaryOptions & { json?: boolean } {

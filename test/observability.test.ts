@@ -60,6 +60,20 @@ test("telemetry query filters event log and counts malformed lines", async () =>
   });
 });
 
+test("telemetry query rejects non-integer limits", async () => {
+  await withTempHome(async (homeDir) => {
+    await expect(querySomaTelemetryEvents({ homeDir, limit: Number.NaN })).rejects.toThrow(
+      "Soma telemetry limit must be a positive integer.",
+    );
+    await expect(querySomaTelemetryEvents({ homeDir, limit: Number.POSITIVE_INFINITY })).rejects.toThrow(
+      "Soma telemetry limit must be a positive integer.",
+    );
+    await expect(querySomaTelemetryEvents({ homeDir, limit: 1.5 })).rejects.toThrow(
+      "Soma telemetry limit must be a positive integer.",
+    );
+  });
+});
+
 test("telemetry summary aggregates sessions, kinds, substrates, and durations", async () => {
   await withTempHome(async (homeDir) => {
     const { somaHome } = await bootstrapSomaHome({ homeDir });
