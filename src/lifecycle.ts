@@ -1,10 +1,10 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { listAlgorithmRunSummaries, listAlgorithmRuns } from "./algorithm-store";
 import { appendSomaMemoryEvent } from "./memory";
 import { loadSomaHome } from "./soma-home";
-import { upsertSomaWorkRegistryEntry } from "./work-registry";
+import { normalizeSomaWorkRegistryArtifacts, upsertSomaWorkRegistryEntry } from "./work-registry";
 import { getCriteria, getGoal } from "./isa-accessors";
 import { getRunPhase } from "./algorithm-lifecycle";
 import {
@@ -433,11 +433,18 @@ async function writeSessionEndWorkRegistry(input: {
   somaHome: string;
   options: SomaLifecycleOptions;
   timestamp: string;
+  algorithmWorkIndexPath: string;
+  activeAlgorithmRunPath: string;
   learningFiles: string[];
 }): Promise<string[]> {
   if (input.options.sessionId === undefined) return [];
 
-  const learningArtifacts = buildSessionEndRegistryArtifacts(input.somaHome, input.learningFiles);
+  const artifacts = buildSessionEndRegistryArtifacts({
+    somaHome: input.somaHome,
+    algorithmWorkIndexPath: input.algorithmWorkIndexPath,
+    activeAlgorithmRunPath: input.activeAlgorithmRunPath,
+    learningFiles: input.learningFiles,
+  });
   const registryWrite = await upsertSomaWorkRegistryEntry({
     somaHome: input.somaHome,
     sessionId: input.options.sessionId,
@@ -447,31 +454,28 @@ async function writeSessionEndWorkRegistry(input: {
     phase: "complete",
     progress: "1/1",
     timestamp: input.timestamp,
-    artifacts: {
-      algorithmWorkIndex: "memory/STATE/algorithm-work-index.json",
-      activeAlgorithmRun: "memory/STATE/active-algorithm-run.json",
-      ...learningArtifacts,
-    },
+    artifacts,
   });
 
   return registryWrite.files;
 }
 
-export function buildSessionEndRegistryArtifacts(somaHome: string, learningFiles: string[]): Record<string, string> {
-  const root = resolve(somaHome);
-  const artifacts: Record<string, string> = {};
-  let artifactIndex = 1;
+export function buildSessionEndRegistryArtifacts(input: {
+  somaHome: string;
+  algorithmWorkIndexPath: string;
+  activeAlgorithmRunPath: string;
+  learningFiles: string[];
+}): Record<string, string> {
+  const rawArtifacts: Record<string, string> = {
+    algorithmWorkIndex: input.algorithmWorkIndexPath,
+    activeAlgorithmRun: input.activeAlgorithmRunPath,
+  };
 
-  for (const file of learningFiles) {
-    const resolvedFile = resolve(root, file);
-    const artifactPath = relative(root, resolvedFile);
-    if (artifactPath === "" || artifactPath.startsWith("..") || isAbsolute(artifactPath)) continue;
-
-    artifacts[`learning${artifactIndex}`] = artifactPath;
-    artifactIndex += 1;
+  for (const [index, file] of input.learningFiles.entries()) {
+    rawArtifacts[`learning${index + 1}`] = file;
   }
 
-  return artifacts;
+  return normalizeSomaWorkRegistryArtifacts({ somaHome: input.somaHome }, rawArtifacts);
 }
 
 export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions = {}): Promise<SomaLifecycleResult> {
@@ -479,7 +483,14 @@ export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions =
   const timestamp = options.timestamp ?? new Date().toISOString();
   const index = await writeAlgorithmWorkIndex({ ...options, somaHome, timestamp });
   const learningFiles = await captureCompletedAlgorithmLearnings({ ...options, somaHome, timestamp });
-  const registryFiles = await writeSessionEndWorkRegistry({ somaHome, options, timestamp, learningFiles });
+  const registryFiles = await writeSessionEndWorkRegistry({
+    somaHome,
+    options,
+    timestamp,
+    algorithmWorkIndexPath: index.path,
+    activeAlgorithmRunPath: index.activePath,
+    learningFiles,
+  });
 
   // #38 AC-4: If an active ISA is set, run checkCompleteness and emit a
   // warning event when tier gate is unmet. NEVER blocks session end.

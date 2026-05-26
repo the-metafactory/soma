@@ -212,16 +212,31 @@ test("session-end writes shared work registry state and metadata-only event", as
 
 test("session-end registry artifact pointers stay relative to Soma home", () => {
   const somaHome = join(tmpdir(), "soma-artifact-home", ".soma");
-  const artifacts = buildSessionEndRegistryArtifacts(somaHome, [
-    join(somaHome, "memory/LEARNING/ALGORITHM/complete-run.md"),
-    "memory/LEARNING/ALGORITHM/relative-run.md",
-    join(somaHome, "../outside.md"),
-  ]);
+  const artifacts = buildSessionEndRegistryArtifacts({
+    somaHome,
+    algorithmWorkIndexPath: join(somaHome, "memory/STATE/algorithm-work-index.json"),
+    activeAlgorithmRunPath: join(somaHome, "memory/STATE/active-algorithm-run.json"),
+    learningFiles: [join(somaHome, "memory/LEARNING/ALGORITHM/complete-run.md"), "memory/LEARNING/ALGORITHM/relative-run.md"],
+  });
 
   expect(artifacts).toEqual({
+    activeAlgorithmRun: "memory/STATE/active-algorithm-run.json",
+    algorithmWorkIndex: "memory/STATE/algorithm-work-index.json",
     learning1: "memory/LEARNING/ALGORITHM/complete-run.md",
     learning2: "memory/LEARNING/ALGORITHM/relative-run.md",
   });
   expect(JSON.stringify(artifacts)).not.toContain(somaHome);
-  expect(JSON.stringify(artifacts)).not.toContain("outside.md");
+});
+
+test("session-end registry artifact pointers reject escaped paths", () => {
+  const somaHome = join(tmpdir(), "soma-artifact-home", ".soma");
+
+  expect(() =>
+    buildSessionEndRegistryArtifacts({
+      somaHome,
+      algorithmWorkIndexPath: join(somaHome, "memory/STATE/algorithm-work-index.json"),
+      activeAlgorithmRunPath: join(somaHome, "memory/STATE/active-algorithm-run.json"),
+      learningFiles: [join(somaHome, "../outside.md")],
+    }),
+  ).toThrow("escapes Soma home");
 });

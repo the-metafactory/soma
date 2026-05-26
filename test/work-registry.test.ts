@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
@@ -113,5 +113,67 @@ test("work registry upsert disambiguates equal names for different sessions", as
     expect(Object.keys(work.sessions).sort()).toEqual(["shared-name", "shared-name-session-2"]);
     expect(work.sessions["shared-name"]).toMatchObject({ sessionUUID: "session-1", substrate: "codex" });
     expect(work.sessions["shared-name-session-2"]).toMatchObject({ sessionUUID: "session-2", substrate: "pi-dev" });
+  });
+});
+
+test("work registry rejects malformed object shapes", async () => {
+  await withTempHome(async (homeDir) => {
+    const stateDir = join(homeDir, ".soma/memory/STATE");
+    await mkdir(stateDir, { recursive: true });
+    await writeFile(join(stateDir, "work.json"), "{\"sessions\":[]}\n", "utf8");
+
+    await expect(
+      upsertSomaWorkRegistryEntry({
+        homeDir,
+        sessionId: "session-1",
+        sessionName: "malformed registry",
+        substrate: "codex",
+      }),
+    ).rejects.toThrow("sessions must be an object");
+  });
+});
+
+test("work registry normalizes artifact pointers and rejects leaks", async () => {
+  await withTempHome(async (homeDir) => {
+    await upsertSomaWorkRegistryEntry({
+      homeDir,
+      sessionId: "session-1",
+      sessionName: "artifact pointers",
+      substrate: "codex",
+      artifacts: {
+        learning: join(homeDir, ".soma/memory/LEARNING/ALGORITHM/run.md"),
+        state: "memory/STATE/algorithm-work-index.json",
+      },
+    });
+
+    const work = JSON.parse(await readFile(join(homeDir, ".soma/memory/STATE/work.json"), "utf8"));
+    expect(work.sessions["artifact-pointers"].artifacts).toEqual({
+      learning: "memory/LEARNING/ALGORITHM/run.md",
+      state: "memory/STATE/algorithm-work-index.json",
+    });
+
+    await expect(
+      upsertSomaWorkRegistryEntry({
+        homeDir,
+        sessionId: "session-2",
+        sessionName: "leaky artifact",
+        substrate: "codex",
+        artifacts: {
+          leak: join(homeDir, "outside.md"),
+        },
+      }),
+    ).rejects.toThrow("escapes Soma home");
+
+    await expect(
+      upsertSomaWorkRegistryEntry({
+        homeDir,
+        sessionId: "session-3",
+        sessionName: "private artifact",
+        substrate: "codex",
+        artifacts: {
+          profile: "profile.md",
+        },
+      }),
+    ).rejects.toThrow("must stay under memory/");
   });
 });

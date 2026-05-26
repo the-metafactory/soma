@@ -1,5 +1,5 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { createPaths, type SomaPathsOptions } from "./paths";
 
 export interface SomaWorkRegistryEntry {
@@ -40,6 +40,16 @@ export interface UpsertSomaWorkRegistryEntryResult {
 function safeToken(value: string): string {
   const safe = value.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
   return safe || "unknown";
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function malformedJsonError(label: string, path: string, detail: string): Error {
+  return new Error(`Malformed ${label} JSON at ${path}: ${detail}`);
 }
 
 function uniqueSessionSlug(sessions: Record<string, SomaWorkRegistryEntry>, baseSlug: string, sessionId: string): string {
@@ -128,9 +138,70 @@ async function readJsonFile<T>(path: string, fallback: T, label: string): Promis
   }
 }
 
+function validateRegistrySessions(path: string, value: unknown): Record<string, SomaWorkRegistryEntry> {
+  if (!isPlainRecord(value)) {
+    throw malformedJsonError("work registry", path, "sessions must be an object");
+  }
+
+  for (const [slug, entry] of Object.entries(value)) {
+    if (!isPlainRecord(entry)) {
+      throw malformedJsonError("work registry", path, `session entry ${slug} must be an object`);
+    }
+  }
+
+  return value as Record<string, SomaWorkRegistryEntry>;
+}
+
+async function readSessionNames(path: string): Promise<Record<string, string>> {
+  const parsed = await readJsonFile<unknown>(path, {}, "session-name registry");
+  if (!isPlainRecord(parsed)) {
+    throw malformedJsonError("session-name registry", path, "root must be an object");
+  }
+
+  for (const [sessionId, sessionName] of Object.entries(parsed)) {
+    if (typeof sessionName !== "string") {
+      throw malformedJsonError("session-name registry", path, `session name ${sessionId} must be a string`);
+    }
+  }
+
+  return parsed as Record<string, string>;
+}
+
+export function normalizeSomaWorkRegistryArtifacts(
+  options: SomaPathsOptions,
+  artifacts: Record<string, string>,
+): Record<string, string> {
+  const root = resolve(createPaths(options).root());
+  const normalized: Record<string, string> = {};
+
+  for (const [key, value] of Object.entries(artifacts)) {
+    if (typeof value !== "string") {
+      throw new Error(`Artifact pointer ${key} must be a string`);
+    }
+
+    const resolvedArtifact = isAbsolute(value) ? resolve(value) : resolve(root, value);
+    const artifactPath = relative(root, resolvedArtifact).replaceAll("\\", "/");
+    if (artifactPath === "" || artifactPath.startsWith("../") || artifactPath === ".." || isAbsolute(artifactPath)) {
+      throw new Error(`Artifact pointer ${key} escapes Soma home: ${value}`);
+    }
+    if (!artifactPath.startsWith("memory/")) {
+      throw new Error(`Artifact pointer ${key} must stay under memory/: ${value}`);
+    }
+
+    normalized[key] = artifactPath;
+  }
+
+  return normalized;
+}
+
 export async function readSomaWorkRegistry(options: SomaPathsOptions = {}): Promise<SomaWorkRegistry> {
-  const registry = await readJsonFile<Partial<SomaWorkRegistry>>(workRegistryPath(options), { sessions: {} }, "work registry");
-  return { sessions: registry.sessions ?? {} };
+  const path = workRegistryPath(options);
+  const registry = await readJsonFile<unknown>(path, { sessions: {} }, "work registry");
+  if (!isPlainRecord(registry)) {
+    throw malformedJsonError("work registry", path, "root must be an object");
+  }
+
+  return { sessions: validateRegistrySessions(path, registry.sessions ?? {}) };
 }
 
 export async function listSomaWorkRegistryEntries(options: SomaPathsOptions = {}): Promise<SomaWorkRegistryEntry[]> {
@@ -148,12 +219,18 @@ export async function upsertSomaWorkRegistryEntry(
   const namesPath = sessionNamesPath(options);
   const pointerPath = currentWorkPath(options, options.sessionId);
   const registry = await readSomaWorkRegistry(options);
-  const names = await readJsonFile<Record<string, string>>(namesPath, {}, "session-name registry");
+  const names = await readSessionNames(namesPath);
   const existing = findExistingSession(registry.sessions, options.sessionId, baseSlug);
 
   removeSessionEntries(registry.sessions, options.sessionId);
   const slug = uniqueSessionSlug(registry.sessions, baseSlug, options.sessionId);
-  const entry = buildRegistryEntry(options, sessionName, timestamp, existing);
+  const rawArtifacts = options.artifacts ?? existing?.artifacts ?? {};
+  const entry = buildRegistryEntry(
+    { ...options, artifacts: normalizeSomaWorkRegistryArtifacts(options, rawArtifacts) },
+    sessionName,
+    timestamp,
+    existing,
+  );
 
   registry.sessions[slug] = entry;
   names[options.sessionId] = sessionName;
