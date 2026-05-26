@@ -54,7 +54,7 @@ export async function discoverSessionFiles(options: HarvestOptions = {}): Promis
   if (options.sessionId) {
     const requested = safeFileToken(options.sessionId);
     return sorted
-      .filter((file) => safeFileToken(basename(file.path, ".jsonl")) === requested)
+      .filter((file) => basename(file.path, ".jsonl") === requested)
       .map((file) => file.path);
   }
   if (options.all) return sorted.map((file) => file.path);

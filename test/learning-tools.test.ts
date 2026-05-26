@@ -178,6 +178,25 @@ test("session harvester explicit transcript filter matches exact session ids", a
   });
 });
 
+test("session harvester explicit transcript filter matches sanitized raw ids", async () => {
+  await withTempHome(async (homeDir) => {
+    const sessionDir = join(homeDir, "sessions");
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(join(sessionDir, "a-b.jsonl"), [
+      JSON.stringify({ type: "user", timestamp: "2026-05-19T12:00:00Z", message: { content: "Actually, I meant keep the smaller implementation." } }),
+    ].join("\n"), "utf8");
+
+    const learnings = await harvestSessions({
+      homeDir,
+      sessionDir,
+      sessionId: "a/b",
+      dryRun: true,
+    });
+
+    expect(learnings.map((learning) => learning.sessionId)).toEqual(["a-b"]);
+  });
+});
+
 test("session harvester defaults to canonical work registry state", async () => {
   await withTempHome(async (homeDir, somaHome) => {
     await upsertSomaWorkRegistryEntry({
