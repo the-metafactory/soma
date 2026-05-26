@@ -239,7 +239,9 @@ test("session-end continues when work registry writeback fails", async () => {
       .map((line) => JSON.parse(line));
 
     expect(end.files).not.toContain(workPath);
-    expect(events.some((event) => event.kind === "lifecycle.session_end.registry-write-failed")).toBe(true);
+    const failed = events.find((event) => event.kind === "lifecycle.session_end.registry-write-failed");
+    expect(failed?.metadata.error).toContain("sessions must be an object");
+    expect(failed?.metadata.error).not.toContain(homeDir);
     expect(events.some((event) => event.kind === "lifecycle.session_end")).toBe(true);
   });
 });

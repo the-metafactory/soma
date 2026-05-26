@@ -458,7 +458,7 @@ async function writeSessionEndWorkRegistry(input: {
       timestamp: input.timestamp,
       artifacts,
     });
-  } catch {
+  } catch (error: unknown) {
     await appendSomaMemoryEvent(input.somaHome, {
       substrate: substrate(input.options),
       kind: "lifecycle.session_end.registry-write-failed",
@@ -467,6 +467,7 @@ async function writeSessionEndWorkRegistry(input: {
       metadata: {
         sessionId: input.options.sessionId,
         substrate: substrate(input.options),
+        error: lifecycleErrorMessage(error, input.somaHome),
       },
     });
     return [];
@@ -491,6 +492,11 @@ export function buildSessionEndRegistryArtifacts(input: {
   }
 
   return normalizeSomaWorkRegistryArtifacts({ somaHome: input.somaHome }, rawArtifacts);
+}
+
+function lifecycleErrorMessage(error: unknown, somaHome: string): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.replaceAll(somaHome, "<soma-home>").slice(0, 300);
 }
 
 function normalizeLifecycleArtifactPaths(somaHome: string, artifactPaths: string[]): string[] {
