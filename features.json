@@ -1,0 +1,37 @@
+[
+  {
+    "id": "F-1",
+    "name": "Document canonical shared work state",
+    "description": "Record the decision that Soma canonicalizes the PAI-style work registry and clarify how it relates to raw transcripts, learning artifacts, and observability events.",
+    "dependencies": [],
+    "priority": 1
+  },
+  {
+    "id": "F-2",
+    "name": "Canonical work registry filesystem contract",
+    "description": "Implement deterministic helpers for Soma's canonical work registry, session-name registry, current-work pointer, and WORK artifact paths without storing full private transcripts.",
+    "dependencies": ["F-1"],
+    "priority": 2
+  },
+  {
+    "id": "F-3",
+    "name": "Learning harvest uses canonical state by default",
+    "description": "Replace the orphan raw-transcript default with PAI-aligned work-state harvesting, while requiring --session-dir for raw transcript harvesting.",
+    "dependencies": ["F-1"],
+    "priority": 3
+  },
+  {
+    "id": "F-4",
+    "name": "Lifecycle writeback updates shared work state",
+    "description": "Make lifecycle writeback record minimal work/session metadata in the canonical registries for cross-substrate continuation.",
+    "dependencies": ["F-2"],
+    "priority": 4
+  },
+  {
+    "id": "F-5",
+    "name": "Writeback events point to shared state artifacts",
+    "description": "Append a minimal session-end writeback event that names the shared state files and artifacts updated by lifecycle writeback.",
+    "dependencies": ["F-4"],
+    "priority": 5
+  }
+]

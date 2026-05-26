@@ -10,6 +10,7 @@ import {
   harvestSessions,
   resumeSessionProgress,
   synthesizeLearningPatterns,
+  upsertSomaWorkRegistryEntry,
   type InferenceBackend,
   type InferenceRequest,
 } from "../src";
@@ -152,6 +153,39 @@ test("session harvester extracts learnings from recent session transcripts", asy
     expect(learnings.some((learning) => learning.type === "correction")).toBe(true);
     expect(learnings.some((learning) => learning.path?.includes("memory/LEARNING/ALGORITHM/2026-05"))).toBe(true);
     await expect(readFile(join(somaHome, "memory/LEARNING/ALGORITHM/2026-05/2026-05-191200_correction_abc123.md"), "utf8")).resolves.toContain("Actually");
+  });
+});
+
+test("session harvester defaults to canonical work registry state", async () => {
+  await withTempHome(async (homeDir, somaHome) => {
+    await upsertSomaWorkRegistryEntry({
+      homeDir,
+      sessionId: "session-2",
+      sessionName: "align shared work state",
+      substrate: "codex",
+      task: "Align shared session state",
+      phase: "complete",
+      progress: "1/1",
+      timestamp: "2026-05-26T10:00:00.000Z",
+      artifacts: {
+        isa: "memory/WORK/align-shared-work-state/ISA.md",
+      },
+    });
+
+    const learnings = await harvestSessions({ homeDir });
+
+    expect(learnings).toEqual([
+      expect.objectContaining({
+        sessionId: "session-2",
+        timestamp: "2026-05-26T10:00:00.000Z",
+        type: "insight",
+        category: "ALGORITHM",
+        source: "work-registry",
+      }),
+    ]);
+    expect(learnings[0]?.content).toContain("Align shared session state");
+    expect(learnings[0]?.path).toContain("memory/LEARNING/ALGORITHM/2026-05");
+    await expect(readFile(join(somaHome, "memory/LEARNING/ALGORITHM/2026-05/2026-05-261000_insight_session-.md"), "utf8")).resolves.toContain("Align shared session state");
   });
 });
 

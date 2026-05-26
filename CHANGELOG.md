@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Added canonical PAI-aligned shared work state for lifecycle writeback and
+  learning harvest defaults: `work.json`, `session-names.json`,
+  `current-work-<session-id>.json`, and metadata-only writeback events. ([#165])
+
 ## [0.6.0] - 2026-05-21
 
 ### Added
@@ -68,6 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#162]: https://github.com/the-metafactory/soma/pull/162
 [#163]: https://github.com/the-metafactory/soma/pull/163
 [#164]: https://github.com/the-metafactory/soma/pull/164
+[#165]: https://github.com/the-metafactory/soma/issues/165
 [#170]: https://github.com/the-metafactory/soma/issues/170
 [#171]: https://github.com/the-metafactory/soma/issues/171
 [#174]: https://github.com/the-metafactory/soma/issues/174

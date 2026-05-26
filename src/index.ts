@@ -361,6 +361,16 @@ export {
 } from "./lifecycle";
 export { captureSomaFeedback, classifySomaFeedback, maybeSomaFeedbackPrompt } from "./feedback";
 export { appendSomaMemoryEvent, searchSomaMemory, somaMemoryEventsPath } from "./memory";
+export {
+  listSomaWorkRegistryEntries,
+  readSomaWorkRegistry,
+  somaWorkRegistryPaths,
+  upsertSomaWorkRegistryEntry,
+  type SomaWorkRegistry,
+  type SomaWorkRegistryEntry,
+  type UpsertSomaWorkRegistryEntryOptions,
+  type UpsertSomaWorkRegistryEntryResult,
+} from "./work-registry";
 export { applySomaWriteback, type SomaWritebackOptions, type SomaWritebackResult } from "./writeback";
 export { promoteAlgorithmRunMemory } from "./memory-promotion";
 export { captureSomaResult, isSomaResultEventKind, searchSomaResults } from "./result-capture";

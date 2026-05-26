@@ -170,3 +170,41 @@ test("lifecycle CLI-facing handlers append events and include context", async ()
     expect(events).toContain("lifecycle.session_end");
   });
 });
+
+test("session-end writes shared work registry state and metadata-only event", async () => {
+  await withTempHome(async (homeDir) => {
+    await bootstrapSomaHome({ homeDir });
+
+    const end = await runSomaLifecycleSessionEnd({
+      homeDir,
+      substrate: "codex",
+      sessionId: "session-3",
+      timestamp: "2026-05-26T10:30:00.000Z",
+    });
+
+    const workPath = join(homeDir, ".soma/memory/STATE/work.json");
+    const namesPath = join(homeDir, ".soma/memory/STATE/session-names.json");
+    const currentPath = join(homeDir, ".soma/memory/STATE/current-work-session-3.json");
+    const events = (await readFile(join(homeDir, ".soma/memory/STATE/events.jsonl"), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    const sessionEnd = events.find((event) => event.kind === "lifecycle.session_end");
+    const work = JSON.parse(await readFile(workPath, "utf8"));
+    const names = JSON.parse(await readFile(namesPath, "utf8"));
+
+    expect(end.files).toContain(workPath);
+    expect(end.files).toContain(namesPath);
+    expect(end.files).toContain(currentPath);
+    expect(names).toEqual({ "session-3": "session session-3" });
+    expect(work.sessions["session-session-3"]).toMatchObject({
+      sessionUUID: "session-3",
+      sessionName: "session session-3",
+      substrate: "codex",
+      phase: "complete",
+    });
+    expect(sessionEnd.artifactPaths).toEqual(expect.arrayContaining([workPath, namesPath, currentPath]));
+    expect(JSON.stringify(sessionEnd)).not.toContain("prompt");
+    expect(JSON.stringify(sessionEnd)).not.toContain("result");
+  });
+});

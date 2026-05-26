@@ -4,6 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { listAlgorithmRunSummaries, listAlgorithmRuns } from "./algorithm-store";
 import { appendSomaMemoryEvent } from "./memory";
 import { loadSomaHome } from "./soma-home";
+import { upsertSomaWorkRegistryEntry } from "./work-registry";
 import { getCriteria, getGoal } from "./isa-accessors";
 import { getRunPhase } from "./algorithm-lifecycle";
 import {
@@ -433,6 +434,26 @@ export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions =
   const timestamp = options.timestamp ?? new Date().toISOString();
   const index = await writeAlgorithmWorkIndex({ ...options, somaHome, timestamp });
   const learningFiles = await captureCompletedAlgorithmLearnings({ ...options, somaHome, timestamp });
+  const registryFiles: string[] = [];
+
+  if (options.sessionId !== undefined) {
+    const registryWrite = await upsertSomaWorkRegistryEntry({
+      somaHome,
+      sessionId: options.sessionId,
+      sessionName: `session ${options.sessionId}`,
+      substrate: substrate(options),
+      task: `Session ${options.sessionId}`,
+      phase: "complete",
+      progress: "1/1",
+      timestamp,
+      artifacts: {
+        algorithmWorkIndex: "memory/STATE/algorithm-work-index.json",
+        activeAlgorithmRun: "memory/STATE/active-algorithm-run.json",
+        ...Object.fromEntries(learningFiles.map((file, index) => [`learning${index + 1}`, file.replace(`${somaHome}/`, "")])),
+      },
+    });
+    registryFiles.push(...registryWrite.files);
+  }
 
   // #38 AC-4: If an active ISA is set, run checkCompleteness and emit a
   // warning event when tier gate is unmet. NEVER blocks session end.
@@ -466,16 +487,17 @@ export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions =
     kind: "lifecycle.session_end",
     summary: `Session ended; captured ${learningFiles.length} Algorithm learning artifact(s).${tierGateNote}`,
     timestamp,
-    artifactPaths: [index.path, index.activePath, ...learningFiles],
+    artifactPaths: [index.path, index.activePath, ...learningFiles, ...registryFiles],
     metadata: {
       sessionId: options.sessionId,
     },
   });
 
+  const files = [index.path, index.activePath, ...learningFiles, ...registryFiles, join(somaHome, "memory/STATE/events.jsonl")];
   return {
     event: "session_end",
     somaHome,
     timestamp,
-    files: [index.path, index.activePath, ...learningFiles, join(somaHome, "memory/STATE/events.jsonl")],
+    files: Array.from(new Set(files)),
   };
 }

@@ -160,3 +160,52 @@ upgrade, and uninstall verbs.
   spec data, not hidden only in CLI branching.
 
 **Discussion:** `/grill-with-docs` session 2026-05-22.
+
+## 5. Shared Work State
+
+### DD-5: Soma canonicalizes the PAI-style work registry
+
+**Status:** Decided (2026-05-26)
+
+**Context:** Issue #165 exposed a mismatch between Soma learning tools and
+live PAI conventions. `soma learning harvest` had an implicit default
+`memory/STATE/sessions/*.jsonl`, but current PAI v5 uses
+`MEMORY/STATE/work.json`, `MEMORY/STATE/session-names.json`,
+session-scoped `current-work-<session-id>.json`, and durable
+`MEMORY/WORK/<slug>/` artifacts as the continuation surface. PAI v5 no longer
+treats full session transcripts as the primary memory model.
+
+Three candidates surfaced:
+- **(a) Preserve `STATE/sessions` as a Soma-native transcript store.**
+- **(b) Invent a cleaner Soma-only registry and map PAI into it.**
+- **(c) Canonicalize the PAI-style work/session registry in Soma.**
+
+**Decision:** **(c)** — Soma adopts the PAI-style work/session registry as
+canonical Soma state. `memory/STATE/work.json` is the **work registry** and
+`memory/STATE/session-names.json` is the **session name registry**. They are
+not compatibility shims.
+
+Raw transcript sources are explicit, adapter-declared, and policy-governed.
+They are not default Soma state and `soma learning harvest` must not silently
+scan an unproduced transcript directory.
+
+Issue #165 should define the minimal writeback observability event that points
+to updated state and artifacts. Full tool activity/failure observability remains
+separate work, tracked by the observability feature area.
+
+**Rejected:**
+- (a) recreates an older PAI model that v5 intentionally moved away from and
+  risks storing full private prompts/results by default.
+- (b) is theoretically cleaner but creates unnecessary translation work and
+  loses parity with the already-proven PAI continuation model.
+
+**Implications:**
+- Substrate adapters should converge on the same work registry and session name
+  registry instead of inventing per-substrate continuation state.
+- Learning harvest defaults should read canonical work state/artifacts or
+  require an explicit raw transcript source.
+- Session-end writeback should append a bounded observability event that names
+  the state files and artifacts touched.
+- Full transcript mirroring, if added later, needs an explicit policy gate.
+
+**Discussion:** `/grill-with-docs` session 2026-05-26 for issue #165.

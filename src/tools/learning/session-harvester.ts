@@ -2,6 +2,7 @@ import { createReadStream } from "node:fs";
 import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { createInterface } from "node:readline/promises";
+import { listSomaWorkRegistryEntries, type SomaWorkRegistryEntry } from "../../work-registry";
 import { isoTimestamp, pathsForLearningOptions, safeFileToken } from "./paths";
 import { transcriptContentToText } from "./transcript";
 import type { HarvestOptions, HarvestedLearning } from "./types";
@@ -39,7 +40,8 @@ function firstMatch(text: string, patterns: RegExp[]): string | undefined {
 }
 
 export async function discoverSessionFiles(options: HarvestOptions = {}): Promise<string[]> {
-  const sessionDir = options.sessionDir ?? pathsForLearningOptions(options).resolve("memory", "STATE", "sessions");
+  if (options.sessionDir === undefined) return [];
+  const sessionDir = options.sessionDir;
   const entries = await readdir(sessionDir, { withFileTypes: true }).catch((error: unknown) => {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return [];
     throw error;
@@ -52,6 +54,34 @@ export async function discoverSessionFiles(options: HarvestOptions = {}): Promis
   if (options.sessionId) return sorted.filter((file) => basename(file.path).includes(options.sessionId!)).map((file) => file.path);
   if (options.all) return sorted.map((file) => file.path);
   return sorted.slice(0, options.recent ?? 10).map((file) => file.path);
+}
+
+function learningFromWorkRegistryEntry(entry: SomaWorkRegistryEntry): HarvestedLearning {
+  const artifactList = Object.entries(entry.artifacts)
+    .map(([kind, path]) => `${kind}: ${path}`)
+    .join("\n");
+  return {
+    sessionId: entry.sessionUUID,
+    timestamp: isoTimestamp(entry.updatedAt),
+    category: "ALGORITHM",
+    type: "insight",
+    context: `Shared work state from ${entry.substrate}; phase ${entry.phase}; progress ${entry.progress}.`,
+    content: [
+      `Work registry session: ${entry.task}`,
+      `Session name: ${entry.sessionName}`,
+      artifactList ? `Artifacts:\n${artifactList}` : "Artifacts: none recorded",
+    ].join("\n"),
+    source: "work-registry",
+  };
+}
+
+async function harvestWorkRegistrySessions(options: HarvestOptions): Promise<HarvestedLearning[]> {
+  const entries = await listSomaWorkRegistryEntries(options);
+  const filtered = options.sessionId
+    ? entries.filter((entry) => entry.sessionUUID === options.sessionId || entry.sessionName.includes(options.sessionId!))
+    : entries;
+  const selected = options.all ? filtered : filtered.slice(0, options.recent ?? 10);
+  return selected.map(learningFromWorkRegistryEntry);
 }
 
 export async function harvestSessionFile(sessionPath: string): Promise<HarvestedLearning[]> {
@@ -132,8 +162,9 @@ async function mapLimited<T, U>(items: T[], limit: number, fn: (item: T) => Prom
 }
 
 export async function harvestSessions(options: HarvestOptions = {}): Promise<HarvestedLearning[]> {
-  const files = await discoverSessionFiles(options);
-  const learnings = (await mapLimited(files, HARVEST_CONCURRENCY, harvestSessionFile)).flat();
+  const learnings = options.sessionDir === undefined
+    ? await harvestWorkRegistrySessions(options)
+    : (await mapLimited(await discoverSessionFiles(options), HARVEST_CONCURRENCY, harvestSessionFile)).flat();
   if (options.dryRun) return learnings;
   await mapLimited(learnings, HARVEST_CONCURRENCY, async (learning) => {
     learning.path = await writeLearning(learning, options);
