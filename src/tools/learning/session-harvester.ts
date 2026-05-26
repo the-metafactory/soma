@@ -51,7 +51,12 @@ export async function discoverSessionFiles(options: HarvestOptions = {}): Promis
     return { path, mtime: (await stat(path)).mtimeMs };
   }));
   const sorted = files.sort((a, b) => b.mtime - a.mtime);
-  if (options.sessionId) return sorted.filter((file) => basename(file.path).includes(options.sessionId!)).map((file) => file.path);
+  if (options.sessionId) {
+    const requested = safeFileToken(options.sessionId);
+    return sorted
+      .filter((file) => safeFileToken(basename(file.path, ".jsonl")) === requested)
+      .map((file) => file.path);
+  }
   if (options.all) return sorted.map((file) => file.path);
   return sorted.slice(0, options.recent ?? 10).map((file) => file.path);
 }

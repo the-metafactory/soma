@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { expect, test } from "bun:test";
 import {
   listSomaWorkRegistryEntries,
@@ -156,6 +156,20 @@ test("work registry current-work filenames resist sanitized session id collision
     expect(slashPointerPath).not.toBe(colonPointerPath);
     await expect(readFile(slashPointerPath, "utf8")).resolves.toContain('"sessionUUID": "a/b"');
     await expect(readFile(colonPointerPath, "utf8")).resolves.toContain('"sessionUUID": "a:b"');
+  });
+});
+
+test("work registry current-work filenames bound long session ids", async () => {
+  await withTempHome(async (homeDir) => {
+    const result = await upsertSomaWorkRegistryEntry({
+      homeDir,
+      sessionId: "session-".padEnd(400, "x"),
+      sessionName: "long session",
+      substrate: "codex",
+    });
+
+    const pointerPath = result.files.find((file) => file.includes("current-work-"))!;
+    expect(basename(pointerPath).length).toBeLessThan(120);
   });
 });
 

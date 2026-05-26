@@ -156,6 +156,28 @@ test("session harvester extracts learnings from recent session transcripts", asy
   });
 });
 
+test("session harvester explicit transcript filter matches exact session ids", async () => {
+  await withTempHome(async (homeDir) => {
+    const sessionDir = join(homeDir, "sessions");
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(join(sessionDir, "alpha.jsonl"), [
+      JSON.stringify({ type: "user", timestamp: "2026-05-19T12:00:00Z", message: { content: "Actually, I meant keep the smaller implementation." } }),
+    ].join("\n"), "utf8");
+    await writeFile(join(sessionDir, "beta-alpha.jsonl"), [
+      JSON.stringify({ type: "user", timestamp: "2026-05-19T12:01:00Z", message: { content: "Actually, I meant this should not be harvested." } }),
+    ].join("\n"), "utf8");
+
+    const learnings = await harvestSessions({
+      homeDir,
+      sessionDir,
+      sessionId: "alpha",
+      dryRun: true,
+    });
+
+    expect(learnings.map((learning) => learning.sessionId)).toEqual(["alpha"]);
+  });
+});
+
 test("session harvester defaults to canonical work registry state", async () => {
   await withTempHome(async (homeDir, somaHome) => {
     await upsertSomaWorkRegistryEntry({

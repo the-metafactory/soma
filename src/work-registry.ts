@@ -44,6 +44,10 @@ function safeToken(value: string): string {
   return safe || "unknown";
 }
 
+function safeFilenameToken(value: string): string {
+  return safeToken(value).slice(0, 64);
+}
+
 function shortHash(value: string): string {
   return createHash("sha256").update(value).digest("hex").slice(0, 12);
 }
@@ -133,7 +137,7 @@ function sessionNamesPath(options: SomaPathsOptions): string {
 }
 
 function currentWorkPath(options: SomaPathsOptions, sessionId: string): string {
-  return createPaths(options).resolve("memory", "STATE", `current-work-${safeToken(sessionId)}-${shortHash(sessionId)}.json`);
+  return createPaths(options).resolve("memory", "STATE", `current-work-${safeFilenameToken(sessionId)}-${shortHash(sessionId)}.json`);
 }
 
 async function writeJson(path: string, value: unknown): Promise<void> {

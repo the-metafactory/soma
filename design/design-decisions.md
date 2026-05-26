@@ -183,8 +183,8 @@ Three candidates surfaced:
 **Decision:** **(c)** — Soma adopts the PAI-style work/session registry as
 canonical Soma state. `memory/STATE/work.json` is the **work registry** and
 `memory/STATE/session-names.json` is the **session name registry**. They are
-not compatibility shims. Current-work pointer filenames include a safe session
-token plus a hash suffix; adapters should resolve them through
+not compatibility shims. Current-work pointer filenames include a bounded safe
+session token plus a hash suffix; adapters should resolve them through
 `somaWorkRegistryPaths(..., sessionId).currentWork` rather than constructing
 the filename by hand.
 
