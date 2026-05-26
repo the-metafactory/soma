@@ -130,6 +130,9 @@ test("work registry rejects malformed object shapes", async () => {
         substrate: "codex",
       }),
     ).rejects.toThrow("sessions must be an object");
+
+    await writeFile(join(stateDir, "work.json"), "{\"sessions\":null}\n", "utf8");
+    await expect(listSomaWorkRegistryEntries({ homeDir })).rejects.toThrow("sessions must be an object");
   });
 });
 

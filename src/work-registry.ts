@@ -242,7 +242,7 @@ export async function readSomaWorkRegistry(options: SomaPathsOptions = {}): Prom
     throw malformedJsonError("work registry", path, "root must be an object");
   }
 
-  return { sessions: validateRegistrySessions(path, registry.sessions ?? {}) };
+  return { sessions: validateRegistrySessions(path, registry.sessions === undefined ? {} : registry.sessions) };
 }
 
 export async function listSomaWorkRegistryEntries(options: SomaPathsOptions = {}): Promise<SomaWorkRegistryEntry[]> {

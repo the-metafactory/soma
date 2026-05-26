@@ -212,6 +212,7 @@ test("session-end writes shared work registry state and metadata-only event", as
       ]),
     );
     expect(JSON.stringify(sessionEnd.artifactPaths)).not.toContain(homeDir);
+    expect(sessionEnd.metadata).toMatchObject({ sessionId: "session-3", substrate: "codex" });
     expect(JSON.stringify(sessionEnd)).not.toContain("prompt");
     expect(JSON.stringify(sessionEnd)).not.toContain("result");
   });

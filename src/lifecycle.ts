@@ -532,6 +532,7 @@ export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions =
     artifactPaths: normalizeLifecycleArtifactPaths(somaHome, [index.path, index.activePath, ...learningFiles, ...registryFiles]),
     metadata: {
       sessionId: options.sessionId,
+      substrate: substrate(options),
     },
   });
 
