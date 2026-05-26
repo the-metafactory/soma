@@ -189,6 +189,32 @@ test("session harvester defaults to canonical work registry state", async () => 
   });
 });
 
+test("session harvester work-registry filter matches exact session ids only", async () => {
+  await withTempHome(async (homeDir) => {
+    await upsertSomaWorkRegistryEntry({
+      homeDir,
+      sessionId: "alpha",
+      sessionName: "target session",
+      substrate: "codex",
+      task: "Target work",
+      timestamp: "2026-05-26T10:00:00.000Z",
+    });
+    await upsertSomaWorkRegistryEntry({
+      homeDir,
+      sessionId: "beta",
+      sessionName: "alpha adjacent session",
+      substrate: "codex",
+      task: "Unrelated work",
+      timestamp: "2026-05-26T10:01:00.000Z",
+    });
+
+    const learnings = await harvestSessions({ homeDir, sessionId: "alpha" });
+
+    expect(learnings.map((learning) => learning.sessionId)).toEqual(["alpha"]);
+    expect(learnings[0]?.content).toContain("Target work");
+  });
+});
+
 test("learning CLI rejects invalid ratings and harvester rejects unsafe timestamps", async () => {
   await withTempHome(async (homeDir, somaHome) => {
     const transcript = join(homeDir, "transcript.jsonl");

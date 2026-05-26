@@ -78,7 +78,7 @@ function learningFromWorkRegistryEntry(entry: SomaWorkRegistryEntry): HarvestedL
 async function harvestWorkRegistrySessions(options: HarvestOptions): Promise<HarvestedLearning[]> {
   const entries = await listSomaWorkRegistryEntries(options);
   const filtered = options.sessionId
-    ? entries.filter((entry) => entry.sessionUUID === options.sessionId || entry.sessionName.includes(options.sessionId!))
+    ? entries.filter((entry) => entry.sessionUUID === options.sessionId)
     : entries;
   const selected = options.all ? filtered : filtered.slice(0, options.recent ?? 10);
   return selected.map(learningFromWorkRegistryEntry);

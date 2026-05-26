@@ -429,31 +429,39 @@ export async function runSomaLifecycleAlgorithmUpdated(options: SomaLifecycleOpt
   };
 }
 
+async function writeSessionEndWorkRegistry(input: {
+  somaHome: string;
+  options: SomaLifecycleOptions;
+  timestamp: string;
+  learningFiles: string[];
+}): Promise<string[]> {
+  if (input.options.sessionId === undefined) return [];
+
+  const registryWrite = await upsertSomaWorkRegistryEntry({
+    somaHome: input.somaHome,
+    sessionId: input.options.sessionId,
+    sessionName: `session ${input.options.sessionId}`,
+    substrate: substrate(input.options),
+    task: `Session ${input.options.sessionId}`,
+    phase: "complete",
+    progress: "1/1",
+    timestamp: input.timestamp,
+    artifacts: {
+      algorithmWorkIndex: "memory/STATE/algorithm-work-index.json",
+      activeAlgorithmRun: "memory/STATE/active-algorithm-run.json",
+      ...Object.fromEntries(input.learningFiles.map((file, index) => [`learning${index + 1}`, file.replace(`${input.somaHome}/`, "")])),
+    },
+  });
+
+  return registryWrite.files;
+}
+
 export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions = {}): Promise<SomaLifecycleResult> {
   const somaHome = resolveSomaHome(options);
   const timestamp = options.timestamp ?? new Date().toISOString();
   const index = await writeAlgorithmWorkIndex({ ...options, somaHome, timestamp });
   const learningFiles = await captureCompletedAlgorithmLearnings({ ...options, somaHome, timestamp });
-  const registryFiles: string[] = [];
-
-  if (options.sessionId !== undefined) {
-    const registryWrite = await upsertSomaWorkRegistryEntry({
-      somaHome,
-      sessionId: options.sessionId,
-      sessionName: `session ${options.sessionId}`,
-      substrate: substrate(options),
-      task: `Session ${options.sessionId}`,
-      phase: "complete",
-      progress: "1/1",
-      timestamp,
-      artifacts: {
-        algorithmWorkIndex: "memory/STATE/algorithm-work-index.json",
-        activeAlgorithmRun: "memory/STATE/active-algorithm-run.json",
-        ...Object.fromEntries(learningFiles.map((file, index) => [`learning${index + 1}`, file.replace(`${somaHome}/`, "")])),
-      },
-    });
-    registryFiles.push(...registryWrite.files);
-  }
+  const registryFiles = await writeSessionEndWorkRegistry({ somaHome, options, timestamp, learningFiles });
 
   // #38 AC-4: If an active ISA is set, run checkCompleteness and emit a
   // warning event when tier gate is unmet. NEVER blocks session end.
