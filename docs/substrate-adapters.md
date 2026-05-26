@@ -163,8 +163,13 @@ can identify a session should update:
 
 - `<soma-home>/memory/STATE/work.json`
 - `<soma-home>/memory/STATE/session-names.json`
-- `<soma-home>/memory/STATE/current-work-<session-id>.json`
+- `<soma-home>/memory/STATE/current-work-<safe-session-token>-<session-id-hash>.json`
 - `<soma-home>/memory/WORK/<slug>/` artifacts when they produce durable work
+
+Adapters should treat `somaWorkRegistryPaths(..., sessionId).currentWork` as the
+canonical resolver for the current-work pointer. The hash suffix is part of the
+filesystem contract so distinct raw session IDs that sanitize to the same token
+cannot overwrite each other.
 
 The registry stores metadata and artifact pointers. It must not mirror full
 private prompts, results, or raw transcripts by default. Session-end writeback

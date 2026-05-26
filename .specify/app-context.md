@@ -20,7 +20,7 @@ of public templates.
 Soma writes lifecycle events and learning artifacts, and `soma learning harvest`
 can harvest explicit transcript directories. It does not currently write
 PAI-compatible `memory/STATE/work.json`, `memory/STATE/session-names.json`, or
-`memory/STATE/current-work-<session-id>.json`. The learning harvester silently
+resolver-backed `memory/STATE/current-work-<safe-session-token>-<session-id-hash>.json`. The learning harvester silently
 defaults to `memory/STATE/sessions`, which is not a canonical source.
 
 ## Constraints & Requirements

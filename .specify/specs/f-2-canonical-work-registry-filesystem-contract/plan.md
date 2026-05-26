@@ -16,7 +16,7 @@ src/work-registry.ts
 
 memory/STATE/work.json
 memory/STATE/session-names.json
-memory/STATE/current-work-<session-id>.json
+memory/STATE/current-work-<safe-session-token>-<session-id-hash>.json
 memory/WORK/<slug>/
 ```
 

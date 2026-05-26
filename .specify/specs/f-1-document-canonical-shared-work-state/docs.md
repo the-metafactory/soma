@@ -8,7 +8,7 @@ Entry added to `CHANGELOG.md`:
 
 - Added canonical PAI-aligned shared work state for lifecycle writeback and
   learning harvest defaults: `work.json`, `session-names.json`,
-  `current-work-<session-id>.json`, and metadata-only writeback events.
+  resolver-backed current-work pointers, and metadata-only writeback events.
 
 ## User-Facing Changes
 

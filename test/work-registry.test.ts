@@ -159,6 +159,25 @@ test("work registry current-work filenames resist sanitized session id collision
   });
 });
 
+test("work registry persists special session ids as data keys", async () => {
+  await withTempHome(async (homeDir) => {
+    await upsertSomaWorkRegistryEntry({
+      homeDir,
+      sessionId: "__proto__",
+      sessionName: "__proto__",
+      substrate: "codex",
+    });
+
+    const work = JSON.parse(await readFile(join(homeDir, ".soma/memory/STATE/work.json"), "utf8"));
+    const names = JSON.parse(await readFile(join(homeDir, ".soma/memory/STATE/session-names.json"), "utf8"));
+
+    expect(Object.hasOwn(work.sessions, "__proto__")).toBe(true);
+    expect(Object.hasOwn(names, "__proto__")).toBe(true);
+    expect(work.sessions["__proto__"]).toMatchObject({ sessionUUID: "__proto__" });
+    expect(names["__proto__"]).toBe("__proto__");
+  });
+});
+
 test("work registry rejects malformed object shapes", async () => {
   await withTempHome(async (homeDir) => {
     const stateDir = join(homeDir, ".soma/memory/STATE");

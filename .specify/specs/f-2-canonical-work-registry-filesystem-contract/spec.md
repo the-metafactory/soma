@@ -23,7 +23,7 @@ tools update the same files with the same minimal schema.
 **Acceptance Criteria:**
 - [ ] Upsert creates `memory/STATE/work.json`.
 - [ ] Upsert creates `memory/STATE/session-names.json`.
-- [ ] Upsert creates `memory/STATE/current-work-<session-id>.json`.
+- [ ] Upsert creates a resolver-backed current-work pointer under `memory/STATE/`.
 - [ ] No full prompt or result text is required or written.
 
 ### Scenario 2: Tool Reads Shared State

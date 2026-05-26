@@ -58,6 +58,19 @@ function malformedJsonError(label: string, path: string, detail: string): Error 
   return new Error(`Malformed ${label} JSON at ${path}: ${detail}`);
 }
 
+function createRecord<T>(): Record<string, T> {
+  return Object.create(null) as Record<string, T>;
+}
+
+function setRecordValue<T>(record: Record<string, T>, key: string, value: T): void {
+  Object.defineProperty(record, key, {
+    configurable: true,
+    enumerable: true,
+    value,
+    writable: true,
+  });
+}
+
 function uniqueSessionSlug(sessions: Record<string, SomaWorkRegistryEntry>, baseSlug: string, sessionId: string): string {
   const occupied = sessions[baseSlug];
   if (occupied === undefined || occupied.sessionUUID === sessionId) return baseSlug;
@@ -213,12 +226,12 @@ function validateRegistrySessions(path: string, value: unknown): Record<string, 
     throw malformedJsonError("work registry", path, "sessions must be an object");
   }
 
-  const sessions: Record<string, SomaWorkRegistryEntry> = {};
+  const sessions = createRecord<SomaWorkRegistryEntry>();
   for (const [slug, entry] of Object.entries(value)) {
     if (!isPlainRecord(entry)) {
       throw malformedJsonError("work registry", path, `session entry ${slug} must be an object`);
     }
-    sessions[slug] = validateRegistryEntry(path, slug, entry);
+    setRecordValue(sessions, slug, validateRegistryEntry(path, slug, entry));
   }
 
   return sessions;
@@ -236,7 +249,12 @@ async function readSessionNames(path: string): Promise<Record<string, string>> {
     }
   }
 
-  return parsed as Record<string, string>;
+  const names = createRecord<string>();
+  for (const [sessionId, sessionName] of Object.entries(parsed)) {
+    setRecordValue(names, sessionId, sessionName);
+  }
+
+  return names;
 }
 
 export function normalizeSomaWorkRegistryArtifacts(
@@ -244,7 +262,7 @@ export function normalizeSomaWorkRegistryArtifacts(
   artifacts: Record<string, string>,
 ): Record<string, string> {
   const root = resolve(createPaths(options).root());
-  const normalized: Record<string, string> = {};
+  const normalized = createRecord<string>();
 
   for (const [key, value] of Object.entries(artifacts)) {
     if (typeof value !== "string") {
@@ -260,7 +278,7 @@ export function normalizeSomaWorkRegistryArtifacts(
       throw new Error(`Artifact pointer ${key} must stay under memory/: ${value}`);
     }
 
-    normalized[key] = artifactPath;
+    setRecordValue(normalized, key, artifactPath);
   }
 
   return normalized;
@@ -310,8 +328,8 @@ async function upsertSomaWorkRegistryEntryLocked(
     existing,
   );
 
-  registry.sessions[slug] = entry;
-  names[options.sessionId] = sessionName;
+  setRecordValue(registry.sessions, slug, entry);
+  setRecordValue(names, options.sessionId, sessionName);
 
   await writeJson(registryPath, registry);
   await writeJson(namesPath, names);

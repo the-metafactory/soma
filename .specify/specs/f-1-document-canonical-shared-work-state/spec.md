@@ -11,7 +11,7 @@ created: "2026-05-26"
 
 Soma must document the shared work-state model before code relies on it. The
 canonical state follows the PAI-style work registry: `memory/STATE/work.json`,
-`memory/STATE/session-names.json`, `memory/STATE/current-work-<session-id>.json`,
+`memory/STATE/session-names.json`, resolver-backed current-work pointer files,
 and durable artifacts under `memory/WORK/<slug>/`.
 
 ## User Scenarios

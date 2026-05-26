@@ -171,7 +171,7 @@ upgrade, and uninstall verbs.
 live PAI conventions. `soma learning harvest` had an implicit default
 `memory/STATE/sessions/*.jsonl`, but current PAI v5 uses
 `MEMORY/STATE/work.json`, `MEMORY/STATE/session-names.json`,
-session-scoped `current-work-<session-id>.json`, and durable
+session-scoped current-work pointers, and durable
 `MEMORY/WORK/<slug>/` artifacts as the continuation surface. PAI v5 no longer
 treats full session transcripts as the primary memory model.
 
@@ -183,7 +183,10 @@ Three candidates surfaced:
 **Decision:** **(c)** — Soma adopts the PAI-style work/session registry as
 canonical Soma state. `memory/STATE/work.json` is the **work registry** and
 `memory/STATE/session-names.json` is the **session name registry**. They are
-not compatibility shims.
+not compatibility shims. Current-work pointer filenames include a safe session
+token plus a hash suffix; adapters should resolve them through
+`somaWorkRegistryPaths(..., sessionId).currentWork` rather than constructing
+the filename by hand.
 
 Raw transcript sources are explicit, adapter-declared, and policy-governed.
 They are not default Soma state and `soma learning harvest` must not silently

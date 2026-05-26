@@ -11,5 +11,5 @@ Verified: 2026-05-26
 ## Result
 
 The registry helper creates `work.json`, `session-names.json`, and
-`current-work-<session-id>.json`; lists entries through the public API; and does
+resolver-backed current-work pointer files; lists entries through the public API; and does
 not require or store prompt/result transcript text.
