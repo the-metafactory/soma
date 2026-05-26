@@ -445,17 +445,32 @@ async function writeSessionEndWorkRegistry(input: {
     activeAlgorithmRunPath: input.activeAlgorithmRunPath,
     learningFiles: input.learningFiles,
   });
-  const registryWrite = await upsertSomaWorkRegistryEntry({
-    somaHome: input.somaHome,
-    sessionId: input.options.sessionId,
-    sessionName: `session ${input.options.sessionId}`,
-    substrate: substrate(input.options),
-    task: `Session ${input.options.sessionId}`,
-    phase: "complete",
-    progress: "1/1",
-    timestamp: input.timestamp,
-    artifacts,
-  });
+  let registryWrite: Awaited<ReturnType<typeof upsertSomaWorkRegistryEntry>>;
+  try {
+    registryWrite = await upsertSomaWorkRegistryEntry({
+      somaHome: input.somaHome,
+      sessionId: input.options.sessionId,
+      sessionName: `session ${input.options.sessionId}`,
+      substrate: substrate(input.options),
+      task: `Session ${input.options.sessionId}`,
+      phase: "complete",
+      progress: "1/1",
+      timestamp: input.timestamp,
+      artifacts,
+    });
+  } catch {
+    await appendSomaMemoryEvent(input.somaHome, {
+      substrate: substrate(input.options),
+      kind: "lifecycle.session_end.registry-write-failed",
+      summary: "Session ended; shared work registry writeback failed.",
+      timestamp: input.timestamp,
+      metadata: {
+        sessionId: input.options.sessionId,
+        substrate: substrate(input.options),
+      },
+    });
+    return [];
+  }
 
   return registryWrite.files;
 }

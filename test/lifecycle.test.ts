@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { expect, test } from "bun:test";
@@ -217,6 +217,30 @@ test("session-end writes shared work registry state and metadata-only event", as
     expect(sessionEnd.metadata).toMatchObject({ sessionId: "session-3", substrate: "codex" });
     expect(JSON.stringify(sessionEnd)).not.toContain("prompt");
     expect(JSON.stringify(sessionEnd)).not.toContain("result");
+  });
+});
+
+test("session-end continues when work registry writeback fails", async () => {
+  await withTempHome(async (homeDir) => {
+    await bootstrapSomaHome({ homeDir });
+    const workPath = join(homeDir, ".soma/memory/STATE/work.json");
+    await writeFile(workPath, "{\"sessions\":null}\n", "utf8");
+
+    const end = await runSomaLifecycleSessionEnd({
+      homeDir,
+      substrate: "codex",
+      sessionId: "session-bad-registry",
+      timestamp: "2026-05-26T10:31:00.000Z",
+    });
+
+    const events = (await readFile(join(homeDir, ".soma/memory/STATE/events.jsonl"), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+
+    expect(end.files).not.toContain(workPath);
+    expect(events.some((event) => event.kind === "lifecycle.session_end.registry-write-failed")).toBe(true);
+    expect(events.some((event) => event.kind === "lifecycle.session_end")).toBe(true);
   });
 });
 

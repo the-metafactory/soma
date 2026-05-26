@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added canonical PAI-aligned shared work state for lifecycle writeback and
   learning harvest defaults: `work.json`, `session-names.json`,
-  `current-work-<session-id>.json`, and metadata-only writeback events. ([#165])
+  resolver-backed `current-work-<safe-session-token>-<session-id-hash>.json`,
+  and metadata-only writeback events. ([#165])
 
 ## [0.6.0] - 2026-05-21
 
