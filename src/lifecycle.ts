@@ -1,6 +1,6 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { listAlgorithmRunSummaries, listAlgorithmRuns } from "./algorithm-store";
 import { appendSomaMemoryEvent } from "./memory";
 import { loadSomaHome } from "./soma-home";
@@ -437,6 +437,7 @@ async function writeSessionEndWorkRegistry(input: {
 }): Promise<string[]> {
   if (input.options.sessionId === undefined) return [];
 
+  const learningArtifacts = buildSessionEndRegistryArtifacts(input.somaHome, input.learningFiles);
   const registryWrite = await upsertSomaWorkRegistryEntry({
     somaHome: input.somaHome,
     sessionId: input.options.sessionId,
@@ -449,11 +450,28 @@ async function writeSessionEndWorkRegistry(input: {
     artifacts: {
       algorithmWorkIndex: "memory/STATE/algorithm-work-index.json",
       activeAlgorithmRun: "memory/STATE/active-algorithm-run.json",
-      ...Object.fromEntries(input.learningFiles.map((file, index) => [`learning${index + 1}`, file.replace(`${input.somaHome}/`, "")])),
+      ...learningArtifacts,
     },
   });
 
   return registryWrite.files;
+}
+
+export function buildSessionEndRegistryArtifacts(somaHome: string, learningFiles: string[]): Record<string, string> {
+  const root = resolve(somaHome);
+  const artifacts: Record<string, string> = {};
+  let artifactIndex = 1;
+
+  for (const file of learningFiles) {
+    const resolvedFile = resolve(root, file);
+    const artifactPath = relative(root, resolvedFile);
+    if (artifactPath === "" || artifactPath.startsWith("..") || isAbsolute(artifactPath)) continue;
+
+    artifacts[`learning${artifactIndex}`] = artifactPath;
+    artifactIndex += 1;
+  }
+
+  return artifacts;
 }
 
 export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions = {}): Promise<SomaLifecycleResult> {

@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
+import { buildSessionEndRegistryArtifacts } from "../src/lifecycle";
 import {
   addAlgorithmCapabilities,
   advanceAlgorithmRun,
@@ -207,4 +208,20 @@ test("session-end writes shared work registry state and metadata-only event", as
     expect(JSON.stringify(sessionEnd)).not.toContain("prompt");
     expect(JSON.stringify(sessionEnd)).not.toContain("result");
   });
+});
+
+test("session-end registry artifact pointers stay relative to Soma home", () => {
+  const somaHome = join(tmpdir(), "soma-artifact-home", ".soma");
+  const artifacts = buildSessionEndRegistryArtifacts(somaHome, [
+    join(somaHome, "memory/LEARNING/ALGORITHM/complete-run.md"),
+    "memory/LEARNING/ALGORITHM/relative-run.md",
+    join(somaHome, "../outside.md"),
+  ]);
+
+  expect(artifacts).toEqual({
+    learning1: "memory/LEARNING/ALGORITHM/complete-run.md",
+    learning2: "memory/LEARNING/ALGORITHM/relative-run.md",
+  });
+  expect(JSON.stringify(artifacts)).not.toContain(somaHome);
+  expect(JSON.stringify(artifacts)).not.toContain("outside.md");
 });
