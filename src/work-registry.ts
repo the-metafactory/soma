@@ -56,6 +56,45 @@ function uniqueSessionSlug(sessions: Record<string, SomaWorkRegistryEntry>, base
   return candidate;
 }
 
+function findExistingSession(
+  sessions: Record<string, SomaWorkRegistryEntry>,
+  sessionId: string,
+  baseSlug: string,
+): SomaWorkRegistryEntry | undefined {
+  const baseEntry = sessions[baseSlug];
+  if (baseEntry?.sessionUUID === sessionId) return baseEntry;
+  return Object.values(sessions).find((entry) => entry.sessionUUID === sessionId);
+}
+
+function removeSessionEntries(sessions: Record<string, SomaWorkRegistryEntry>, sessionId: string): void {
+  for (const [candidateSlug, candidateEntry] of Object.entries(sessions)) {
+    if (candidateEntry.sessionUUID === sessionId) {
+      delete sessions[candidateSlug];
+    }
+  }
+}
+
+function buildRegistryEntry(
+  options: UpsertSomaWorkRegistryEntryOptions,
+  sessionName: string,
+  timestamp: string,
+  existing?: SomaWorkRegistryEntry,
+): SomaWorkRegistryEntry {
+  const artifacts = options.artifacts ?? existing?.artifacts ?? {};
+  return {
+    ...(artifacts.isa ? { isa: artifacts.isa } : {}),
+    task: options.task?.trim() || existing?.task || sessionName,
+    sessionName,
+    sessionUUID: options.sessionId,
+    substrate: options.substrate,
+    phase: options.phase ?? existing?.phase ?? "native",
+    progress: options.progress ?? existing?.progress ?? "0/0",
+    started: existing?.started ?? timestamp,
+    updatedAt: timestamp,
+    artifacts,
+  };
+}
+
 function workRegistryPath(options: SomaPathsOptions): string {
   return createPaths(options).resolve("memory", "STATE", "work.json");
 }
@@ -110,28 +149,11 @@ export async function upsertSomaWorkRegistryEntry(
   const pointerPath = currentWorkPath(options, options.sessionId);
   const registry = await readSomaWorkRegistry(options);
   const names = await readJsonFile<Record<string, string>>(namesPath, {}, "session-name registry");
-  const existingSlug = Object.entries(registry.sessions).find(([, entry]) => entry.sessionUUID === options.sessionId)?.[0];
-  const baseEntry = registry.sessions[baseSlug];
-  const existing = baseEntry?.sessionUUID === options.sessionId ? baseEntry : existingSlug ? registry.sessions[existingSlug] : undefined;
-  for (const [candidateSlug, candidateEntry] of Object.entries(registry.sessions)) {
-    if (candidateEntry.sessionUUID === options.sessionId) {
-      delete registry.sessions[candidateSlug];
-    }
-  }
+  const existing = findExistingSession(registry.sessions, options.sessionId, baseSlug);
+
+  removeSessionEntries(registry.sessions, options.sessionId);
   const slug = uniqueSessionSlug(registry.sessions, baseSlug, options.sessionId);
-  const artifacts = options.artifacts ?? existing?.artifacts ?? {};
-  const entry: SomaWorkRegistryEntry = {
-    ...(artifacts.isa ? { isa: artifacts.isa } : {}),
-    task: options.task?.trim() || existing?.task || sessionName,
-    sessionName,
-    sessionUUID: options.sessionId,
-    substrate: options.substrate,
-    phase: options.phase ?? existing?.phase ?? "native",
-    progress: options.progress ?? existing?.progress ?? "0/0",
-    started: existing?.started ?? timestamp,
-    updatedAt: timestamp,
-    artifacts,
-  };
+  const entry = buildRegistryEntry(options, sessionName, timestamp, existing);
 
   registry.sessions[slug] = entry;
   names[options.sessionId] = sessionName;

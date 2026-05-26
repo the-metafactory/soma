@@ -83,8 +83,10 @@ test("work registry upsert replaces stale slug for the same session", async () =
     });
 
     const work = JSON.parse(await readFile(join(homeDir, ".soma/memory/STATE/work.json"), "utf8"));
+    const current = JSON.parse(await readFile(join(homeDir, ".soma/memory/STATE/current-work-session-1.json"), "utf8"));
 
     expect(Object.keys(work.sessions)).toEqual(["renamed-session"]);
+    expect(current).toMatchObject({ slug: "renamed-session", sessionUUID: "session-1" });
     await expect(listSomaWorkRegistryEntries({ homeDir })).resolves.toEqual([
       expect.objectContaining({ sessionUUID: "session-1", sessionName: "renamed session" }),
     ]);
