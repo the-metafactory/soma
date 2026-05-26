@@ -4,6 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { listAlgorithmRunSummaries, listAlgorithmRuns } from "./algorithm-store";
 import { appendSomaMemoryEvent } from "./memory";
 import { loadSomaHome } from "./soma-home";
+import { normalizeSomaWorkRegistryArtifacts, upsertSomaWorkRegistryEntry } from "./work-registry";
 import { getCriteria, getGoal } from "./isa-accessors";
 import { getRunPhase } from "./algorithm-lifecycle";
 import {
@@ -428,11 +429,94 @@ export async function runSomaLifecycleAlgorithmUpdated(options: SomaLifecycleOpt
   };
 }
 
+async function writeSessionEndWorkRegistry(input: {
+  somaHome: string;
+  options: SomaLifecycleOptions;
+  timestamp: string;
+  algorithmWorkIndexPath: string;
+  activeAlgorithmRunPath: string;
+  learningFiles: string[];
+}): Promise<string[]> {
+  if (input.options.sessionId === undefined) return [];
+
+  const artifacts = buildSessionEndRegistryArtifacts({
+    somaHome: input.somaHome,
+    algorithmWorkIndexPath: input.algorithmWorkIndexPath,
+    activeAlgorithmRunPath: input.activeAlgorithmRunPath,
+    learningFiles: input.learningFiles,
+  });
+  let registryWrite: Awaited<ReturnType<typeof upsertSomaWorkRegistryEntry>>;
+  try {
+    registryWrite = await upsertSomaWorkRegistryEntry({
+      somaHome: input.somaHome,
+      sessionId: input.options.sessionId,
+      sessionName: `session ${input.options.sessionId}`,
+      substrate: substrate(input.options),
+      task: `Session ${input.options.sessionId}`,
+      phase: "complete",
+      progress: "1/1",
+      timestamp: input.timestamp,
+      artifacts,
+    });
+  } catch (error: unknown) {
+    await appendSomaMemoryEvent(input.somaHome, {
+      substrate: substrate(input.options),
+      kind: "lifecycle.session_end.registry-write-failed",
+      summary: "Session ended; shared work registry writeback failed.",
+      timestamp: input.timestamp,
+      metadata: {
+        sessionId: input.options.sessionId,
+        substrate: substrate(input.options),
+        error: lifecycleErrorMessage(error, input.somaHome),
+      },
+    });
+    return [];
+  }
+
+  return registryWrite.files;
+}
+
+export function buildSessionEndRegistryArtifacts(input: {
+  somaHome: string;
+  algorithmWorkIndexPath: string;
+  activeAlgorithmRunPath: string;
+  learningFiles: string[];
+}): Record<string, string> {
+  const rawArtifacts: Record<string, string> = {
+    algorithmWorkIndex: input.algorithmWorkIndexPath,
+    activeAlgorithmRun: input.activeAlgorithmRunPath,
+  };
+
+  for (const [index, file] of input.learningFiles.entries()) {
+    rawArtifacts[`learning${index + 1}`] = file;
+  }
+
+  return normalizeSomaWorkRegistryArtifacts({ somaHome: input.somaHome }, rawArtifacts);
+}
+
+function lifecycleErrorMessage(error: unknown, somaHome: string): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.replaceAll(somaHome, "<soma-home>").slice(0, 300);
+}
+
+function normalizeLifecycleArtifactPaths(somaHome: string, artifactPaths: string[]): string[] {
+  const artifacts = Object.fromEntries(artifactPaths.map((artifactPath, index) => [`artifact${index + 1}`, artifactPath]));
+  return Object.values(normalizeSomaWorkRegistryArtifacts({ somaHome }, artifacts));
+}
+
 export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions = {}): Promise<SomaLifecycleResult> {
   const somaHome = resolveSomaHome(options);
   const timestamp = options.timestamp ?? new Date().toISOString();
   const index = await writeAlgorithmWorkIndex({ ...options, somaHome, timestamp });
   const learningFiles = await captureCompletedAlgorithmLearnings({ ...options, somaHome, timestamp });
+  const registryFiles = await writeSessionEndWorkRegistry({
+    somaHome,
+    options,
+    timestamp,
+    algorithmWorkIndexPath: index.path,
+    activeAlgorithmRunPath: index.activePath,
+    learningFiles,
+  });
 
   // #38 AC-4: If an active ISA is set, run checkCompleteness and emit a
   // warning event when tier gate is unmet. NEVER blocks session end.
@@ -466,16 +550,18 @@ export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions =
     kind: "lifecycle.session_end",
     summary: `Session ended; captured ${learningFiles.length} Algorithm learning artifact(s).${tierGateNote}`,
     timestamp,
-    artifactPaths: [index.path, index.activePath, ...learningFiles],
+    artifactPaths: normalizeLifecycleArtifactPaths(somaHome, [index.path, index.activePath, ...learningFiles, ...registryFiles]),
     metadata: {
       sessionId: options.sessionId,
+      substrate: substrate(options),
     },
   });
 
+  const files = [index.path, index.activePath, ...learningFiles, ...registryFiles, join(somaHome, "memory/STATE/events.jsonl")];
   return {
     event: "session_end",
     somaHome,
     timestamp,
-    files: [index.path, index.activePath, ...learningFiles, join(somaHome, "memory/STATE/events.jsonl")],
+    files: Array.from(new Set(files)),
   };
 }

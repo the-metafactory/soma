@@ -1,7 +1,8 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { expect, test } from "bun:test";
+import { buildSessionEndRegistryArtifacts } from "../src/lifecycle";
 import {
   addAlgorithmCapabilities,
   advanceAlgorithmRun,
@@ -16,6 +17,7 @@ import {
   runSomaLifecycleSessionEnd,
   runSomaLifecycleSessionStart,
   setAlgorithmPlan,
+  somaWorkRegistryPaths,
   updateAlgorithmPlanStep,
   verifyAlgorithmCriterion,
   writeAlgorithmRun,
@@ -169,4 +171,108 @@ test("lifecycle CLI-facing handlers append events and include context", async ()
     expect(events).toContain("lifecycle.session_start");
     expect(events).toContain("lifecycle.session_end");
   });
+});
+
+test("session-end writes shared work registry state and metadata-only event", async () => {
+  await withTempHome(async (homeDir) => {
+    await bootstrapSomaHome({ homeDir });
+
+    const end = await runSomaLifecycleSessionEnd({
+      homeDir,
+      substrate: "codex",
+      sessionId: "session-3",
+      timestamp: "2026-05-26T10:30:00.000Z",
+    });
+
+    const workPath = join(homeDir, ".soma/memory/STATE/work.json");
+    const namesPath = join(homeDir, ".soma/memory/STATE/session-names.json");
+    const currentPath = somaWorkRegistryPaths({ homeDir }, "session-3").currentWork!;
+    const currentArtifactPath = relative(join(homeDir, ".soma"), currentPath);
+    const events = (await readFile(join(homeDir, ".soma/memory/STATE/events.jsonl"), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    const sessionEnd = events.find((event) => event.kind === "lifecycle.session_end");
+    const work = JSON.parse(await readFile(workPath, "utf8"));
+    const names = JSON.parse(await readFile(namesPath, "utf8"));
+
+    expect(end.files).toContain(workPath);
+    expect(end.files).toContain(namesPath);
+    expect(end.files).toContain(currentPath);
+    expect(names).toEqual({ "session-3": "session session-3" });
+    expect(work.sessions["session-session-3"]).toMatchObject({
+      sessionUUID: "session-3",
+      sessionName: "session session-3",
+      substrate: "codex",
+      phase: "complete",
+    });
+    expect(sessionEnd.artifactPaths).toEqual(
+      expect.arrayContaining([
+        "memory/STATE/work.json",
+        "memory/STATE/session-names.json",
+        currentArtifactPath,
+      ]),
+    );
+    expect(JSON.stringify(sessionEnd.artifactPaths)).not.toContain(homeDir);
+    expect(sessionEnd.metadata).toMatchObject({ sessionId: "session-3", substrate: "codex" });
+    expect(JSON.stringify(sessionEnd)).not.toContain("prompt");
+    expect(JSON.stringify(sessionEnd)).not.toContain("result");
+  });
+});
+
+test("session-end continues when work registry writeback fails", async () => {
+  await withTempHome(async (homeDir) => {
+    await bootstrapSomaHome({ homeDir });
+    const workPath = join(homeDir, ".soma/memory/STATE/work.json");
+    await writeFile(workPath, "{\"sessions\":null}\n", "utf8");
+
+    const end = await runSomaLifecycleSessionEnd({
+      homeDir,
+      substrate: "codex",
+      sessionId: "session-bad-registry",
+      timestamp: "2026-05-26T10:31:00.000Z",
+    });
+
+    const events = (await readFile(join(homeDir, ".soma/memory/STATE/events.jsonl"), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+
+    expect(end.files).not.toContain(workPath);
+    const failed = events.find((event) => event.kind === "lifecycle.session_end.registry-write-failed");
+    expect(failed?.metadata.error).toContain("sessions must be an object");
+    expect(failed?.metadata.error).not.toContain(homeDir);
+    expect(events.some((event) => event.kind === "lifecycle.session_end")).toBe(true);
+  });
+});
+
+test("session-end registry artifact pointers stay relative to Soma home", () => {
+  const somaHome = join(tmpdir(), "soma-artifact-home", ".soma");
+  const artifacts = buildSessionEndRegistryArtifacts({
+    somaHome,
+    algorithmWorkIndexPath: join(somaHome, "memory/STATE/algorithm-work-index.json"),
+    activeAlgorithmRunPath: join(somaHome, "memory/STATE/active-algorithm-run.json"),
+    learningFiles: [join(somaHome, "memory/LEARNING/ALGORITHM/complete-run.md"), "memory/LEARNING/ALGORITHM/relative-run.md"],
+  });
+
+  expect(artifacts).toEqual({
+    activeAlgorithmRun: "memory/STATE/active-algorithm-run.json",
+    algorithmWorkIndex: "memory/STATE/algorithm-work-index.json",
+    learning1: "memory/LEARNING/ALGORITHM/complete-run.md",
+    learning2: "memory/LEARNING/ALGORITHM/relative-run.md",
+  });
+  expect(JSON.stringify(artifacts)).not.toContain(somaHome);
+});
+
+test("session-end registry artifact pointers reject escaped paths", () => {
+  const somaHome = join(tmpdir(), "soma-artifact-home", ".soma");
+
+  expect(() =>
+    buildSessionEndRegistryArtifacts({
+      somaHome,
+      algorithmWorkIndexPath: join(somaHome, "memory/STATE/algorithm-work-index.json"),
+      activeAlgorithmRunPath: join(somaHome, "memory/STATE/active-algorithm-run.json"),
+      learningFiles: [join(somaHome, "../outside.md")],
+    }),
+  ).toThrow("escapes Soma home");
 });
