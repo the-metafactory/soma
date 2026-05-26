@@ -116,20 +116,22 @@ export async function querySomaTelemetryEvents(options: SomaTelemetryQueryOption
   const somaHome = resolveSomaHome(options);
   const events: SomaMemoryEvent[] = [];
   const boundedLimit = telemetryLimit(options.limit);
+  let matchedEvents = 0;
   const read = await streamTelemetryEvents(somaHome, (event) => {
     if (!matchesTelemetryQuery(event, options)) return;
-    events.push(event);
-    if (events.length > boundedLimit) {
-      events.shift();
-    }
+    events[matchedEvents % boundedLimit] = event;
+    matchedEvents += 1;
   });
+  const retainedEvents = Math.min(matchedEvents, boundedLimit);
+  const oldestIndex = matchedEvents > boundedLimit ? matchedEvents % boundedLimit : 0;
+  const recentEvents = Array.from({ length: retainedEvents }, (_, offset) => events[(oldestIndex + offset) % boundedLimit]).reverse();
 
   return {
     somaHome,
     eventPath: read.eventPath,
     totalEvents: read.totalEvents,
     skippedMalformedLines: read.skippedMalformedLines,
-    events: events.reverse(),
+    events: recentEvents,
   };
 }
 
@@ -226,8 +228,16 @@ interface SessionAggregationState {
   ended: number;
 }
 
+function isSessionStartEvent(event: SomaMemoryEvent): boolean {
+  return event.kind === "lifecycle.session_start";
+}
+
+function isSessionEndEvent(event: SomaMemoryEvent): boolean {
+  return event.kind === "lifecycle.session_end" || event.kind.startsWith("lifecycle.session_end.");
+}
+
 function recordSessionEvent(event: SomaMemoryEvent, sessions: SessionAggregationState): void {
-  if (event.kind === "lifecycle.session_start") {
+  if (isSessionStartEvent(event)) {
     sessions.started += 1;
     ensureSessionStats(sessions.bySubstrate, event.substrate).started += 1;
     const sessionId = eventSessionId(event);
@@ -237,7 +247,7 @@ function recordSessionEvent(event: SomaMemoryEvent, sessions: SessionAggregation
     }
   }
 
-  if (event.kind === "lifecycle.session_end") {
+  if (isSessionEndEvent(event)) {
     sessions.ended += 1;
     const substrateStats = ensureSessionStats(sessions.bySubstrate, event.substrate);
     substrateStats.ended += 1;

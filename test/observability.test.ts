@@ -125,7 +125,7 @@ test("telemetry summary aggregates sessions, kinds, substrates, and durations", 
     expect(summary.byKind["lifecycle.session_start"]).toBe(1);
     expect(summary.sessions).toMatchObject({
       started: 1,
-      ended: 1,
+      ended: 2,
       completedWithDuration: 1,
       averageDurationMs: 20 * 60 * 1000,
       bySubstrate: {
@@ -134,6 +134,12 @@ test("telemetry summary aggregates sessions, kinds, substrates, and durations", 
           ended: 1,
           completedWithDuration: 1,
           averageDurationMs: 20 * 60 * 1000,
+        },
+        "pi-dev": {
+          started: 0,
+          ended: 1,
+          completedWithDuration: 0,
+          averageDurationMs: null,
         },
       },
     });
