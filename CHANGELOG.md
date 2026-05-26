@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Added observability V0 over `memory/STATE/events.jsonl` with
+  `soma telemetry list`, `soma telemetry stats`, and `soma stats` for local
+  event queries, summaries, malformed-row accounting, and JSON output. ([#151])
 - Added canonical PAI-aligned shared work state for lifecycle writeback and
   learning harvest defaults: `work.json`, `session-names.json`,
   resolver-backed `current-work-<safe-session-token>-<session-id-hash>.json`,
@@ -66,6 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#139]: https://github.com/the-metafactory/soma/issues/139
 [#144]: https://github.com/the-metafactory/soma/issues/144
 [#148]: https://github.com/the-metafactory/soma/issues/148
+[#151]: https://github.com/the-metafactory/soma/issues/151
 [#154]: https://github.com/the-metafactory/soma/issues/154
 [#159]: https://github.com/the-metafactory/soma/pull/159
 [#160]: https://github.com/the-metafactory/soma/pull/160

@@ -361,6 +361,7 @@ export {
 } from "./lifecycle";
 export { captureSomaFeedback, classifySomaFeedback, maybeSomaFeedbackPrompt } from "./feedback";
 export { appendSomaMemoryEvent, searchSomaMemory, somaMemoryEventsPath } from "./memory";
+export { querySomaTelemetryEvents, summarizeSomaTelemetry } from "./observability";
 export {
   listSomaWorkRegistryEntries,
   readSomaWorkRegistry,

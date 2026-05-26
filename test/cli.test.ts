@@ -11,9 +11,11 @@ import { LIFECYCLE_COMMAND_HELP } from "../src/cli/lifecycle";
 import { MEMORY_COMMAND_HELP } from "../src/cli/memory";
 import { MIGRATE_COMMAND_HELP } from "../src/cli/migrate";
 import { ONBOARDING_COMMAND_HELP } from "../src/cli/onboarding";
+import { TELEMETRY_COMMAND_HELP } from "../src/cli/telemetry";
 import { POLICY_COMMAND_HELP } from "../src/cli/policy";
 import { RESULT_COMMAND_HELP } from "../src/cli/result";
 import { TOOL_COMMAND_HELP } from "../src/cli/tools";
+import { appendSomaMemoryEvent, bootstrapSomaHome } from "../src/index";
 import {
   INSTALL_SUBSTRATES,
   SUBSTRATE_LIFECYCLE_COMMAND_HELP,
@@ -239,6 +241,61 @@ test("feedback command module keeps feedback actions and help in sync", async ()
   for (const [action, usage] of Object.entries(FEEDBACK_COMMAND_HELP.subcommands)) {
     await expect(runSomaCli(["feedback", action, "--help"])).resolves.toBe(usage);
   }
+});
+
+test("telemetry command module keeps telemetry actions and help in sync", async () => {
+  await expect(runSomaCli(["telemetry", "--help"])).resolves.toBe(TELEMETRY_COMMAND_HELP.usage);
+
+  for (const [action, usage] of Object.entries(TELEMETRY_COMMAND_HELP.subcommands)) {
+    await expect(runSomaCli(["telemetry", action, "--help"])).resolves.toBe(usage);
+  }
+});
+
+test("cli lists and summarizes telemetry events", async () => {
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    await appendSomaMemoryEvent(somaHome, {
+      id: "evt-cli-1",
+      timestamp: "2026-05-26T08:00:00.000Z",
+      substrate: "codex",
+      kind: "lifecycle.session_start",
+      summary: "Session started: cli-session",
+      metadata: { sessionId: "cli-session" },
+    });
+    await appendSomaMemoryEvent(somaHome, {
+      id: "evt-cli-2",
+      timestamp: "2026-05-26T08:10:00.000Z",
+      substrate: "codex",
+      kind: "lifecycle.session_end",
+      summary: "Session ended.",
+      metadata: { sessionId: "cli-session" },
+    });
+    await appendSomaMemoryEvent(somaHome, {
+      id: "evt-cli-3",
+      timestamp: "2026-05-26T08:15:00.000Z",
+      substrate: "pi-dev",
+      kind: "feedback.candidate",
+      summary: "Feedback candidate captured.",
+    });
+
+    const list = await runSomaCli(["telemetry", "list", "--home-dir", homeDir, "--substrate", "codex", "--limit", "1"]);
+    expect(list).toContain("Soma telemetry events");
+    expect(list).toContain("evt-cli-2");
+    expect(list).not.toContain("evt-cli-1");
+    expect(list).not.toContain("evt-cli-3");
+
+    const stats = await runSomaCli(["stats", "--home-dir", homeDir, "--json"]);
+    const parsed = JSON.parse(stats) as { totalEvents: number; sessions: { averageDurationMs: number }; bySubstrate: Record<string, number> };
+    expect(parsed.totalEvents).toBe(3);
+    expect(parsed.sessions.averageDurationMs).toBe(10 * 60 * 1000);
+    expect(parsed.bySubstrate.codex).toBe(2);
+  });
+});
+
+test("cli rejects malformed telemetry limits", async () => {
+  await expect(runSomaCli(["telemetry", "list", "--limit", "1x"])).rejects.toThrow("--limit must be a positive integer.");
+  await expect(runSomaCli(["telemetry", "list", "--limit", "1.5"])).rejects.toThrow("--limit must be a positive integer.");
+  await expect(runSomaCli(["telemetry", "list", "--limit", "0"])).rejects.toThrow("--limit must be a positive integer.");
 });
 
 test("lifecycle command module keeps lifecycle events and help in sync", async () => {

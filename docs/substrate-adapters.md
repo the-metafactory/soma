@@ -175,8 +175,10 @@ The registry stores metadata and artifact pointers. It must not mirror full
 private prompts, results, or raw transcripts by default. Session-end writeback
 also appends a metadata-only `lifecycle.session_end` event to
 `<soma-home>/memory/STATE/events.jsonl` with pointers to the shared state files
-it updated. Full tool activity and tool failure telemetry are separate
-observability work.
+it updated. Soma's V0 observability surface reads the same append-only event
+log through `soma telemetry list`, `soma telemetry stats`, and `soma stats`.
+Full tool activity and tool failure capture remain adapter-specific event
+extensions; Signal remains the telemetry-system owner.
 
 Adapters own their substrate-native install facts: default home, projected file
 paths, substrate-specific skill destinations, lifecycle projection paths,
