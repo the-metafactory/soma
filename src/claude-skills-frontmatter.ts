@@ -5,9 +5,11 @@
  * bugfix could land in one and miss the other. Holly r1 #117 finding
  * S2 surfaced the duplication.
  *
- * **Scope.** Single-line `key: value` frontmatter only — substrate
- * projection skill bodies follow that convention. No support for
- * folded scalars, block scalars, or anchors.
+ * **Scope.** Minimal frontmatter parsing for the claude-skills
+ * migration path. Supports single-line `key: value` fields plus
+ * `description: |` / `description: >` block scalars. This is not a
+ * general YAML parser; anchors, tags, and nested objects stay out of
+ * scope.
  *
  * **Reach.** The functions here are also safe to use from new code in
  * the same family (Phase 3 verifiers, etc.). Don't reach for these
@@ -31,18 +33,74 @@ export function stripQuotes(value: string): string {
   return value;
 }
 
+export function leadingWhitespaceLength(value: string): number {
+  return value.length - value.trimStart().length;
+}
+
+export function isFrontmatterBlockScalarMarker(value: string): boolean {
+  return /^[|>][+-]?\d*$/.test(value);
+}
+
+export function findFrontmatterBlockScalarEndIndex(lines: string[], startIndex: number, parentIndent: number): number {
+  let endIndex = startIndex;
+  for (let i = startIndex + 1; i < lines.length; i += 1) {
+    const raw = lines[i] ?? "";
+    if (raw.trim().length > 0 && leadingWhitespaceLength(raw) <= parentIndent) {
+      break;
+    }
+    endIndex = i;
+  }
+  return endIndex;
+}
+
+function parseDescriptionBlockScalar(lines: string[], startIndex: number, marker: string, parentIndent: number): string {
+  const blockLines: string[] = [];
+  const endIndex = findFrontmatterBlockScalarEndIndex(lines, startIndex, parentIndent);
+  for (let i = startIndex + 1; i <= endIndex; i += 1) {
+    blockLines.push(lines[i] ?? "");
+  }
+
+  const contentIndent = blockLines
+    .filter((line) => line.trim().length > 0)
+    .reduce<number | null>((min, line) => {
+      const indent = leadingWhitespaceLength(line);
+      return min === null ? indent : Math.min(min, indent);
+    }, null);
+  const dedented = blockLines.map((line) => {
+    if (line.trim().length === 0) return "";
+    return line.slice(contentIndent ?? 0);
+  });
+
+  if (marker.startsWith("|")) {
+    return dedented.join("\n").trimEnd();
+  }
+
+  return dedented
+    .join("\n")
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.split(/\n/).map((line) => line.trim()).filter(Boolean).join(" "))
+    .join("\n")
+    .trimEnd();
+}
+
 /**
  * Extract the `description:` field from a frontmatter block, with
- * single-pair outer-quote stripping. Returns `undefined` if no
- * frontmatter or no `description:` line.
+ * single-pair outer-quote stripping for single-line values. Returns
+ * `undefined` if no frontmatter or no `description:` line.
  */
 export function parseDescriptionFromFrontmatter(skillMdContent: string): string | undefined {
   const match = FRONTMATTER_RE.exec(skillMdContent);
   if (!match) return undefined;
-  for (const raw of match[1].split(/\r?\n/)) {
+  const lines = match[1].split(/\r?\n/);
+  for (let i = 0; i < lines.length; i += 1) {
+    const raw = lines[i] ?? "";
     const line = raw.trimEnd();
     if (line.startsWith("description:")) {
-      return stripQuotes(line.slice("description:".length).trim());
+      const value = line.slice("description:".length).trim();
+      if (isFrontmatterBlockScalarMarker(value)) {
+        return parseDescriptionBlockScalar(lines, i, value, leadingWhitespaceLength(raw));
+      }
+      return stripQuotes(value);
     }
   }
   return undefined;
