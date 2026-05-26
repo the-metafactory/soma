@@ -85,9 +85,11 @@ test("relationship reflection supports dry-run and notification injection", asyn
 
 test("relationship CLI reflects modes", async () => {
   await withTempHome(async (homeDir, somaHome) => {
-    const noteDir = join(somaHome, "memory/RELATIONSHIP/2026-05");
+    const today = new Date().toISOString().slice(0, 10);
+    const month = today.slice(0, 7);
+    const noteDir = join(somaHome, "memory/RELATIONSHIP", month);
     await mkdir(noteDir, { recursive: true });
-    await writeFile(join(noteDir, "2026-05-19.md"), "W: assistant — challenged the vague plan\n", "utf8");
+    await writeFile(join(noteDir, `${today}.md`), "W: assistant — challenged the vague plan\n", "utf8");
 
     const full = await runSomaCli(["relationship", "reflect", "--home-dir", homeDir]);
     expect(full).toContain("relationship reflect");
