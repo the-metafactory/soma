@@ -42,6 +42,13 @@ import {
   type ParsedMemoryArgs,
 } from "./cli/memory";
 import {
+  STATS_COMMAND_HELP,
+  TELEMETRY_COMMAND_HELP,
+  parseTelemetryArgs,
+  runTelemetryCli,
+  type ParsedTelemetryArgs,
+} from "./cli/telemetry";
+import {
   RESULT_COMMAND_HELP,
   parseResultArgs,
   runResultCli,
@@ -108,6 +115,7 @@ type ParsedArgs =
   | ParsedAlgorithmArgs
   | ParsedLifecycleArgs
   | ParsedMemoryArgs
+  | ParsedTelemetryArgs
   | ParsedFeedbackArgs
   | ParsedResultArgs
   | ParsedPolicyArgs
@@ -137,6 +145,8 @@ const TOP_LEVEL_COMMANDS = [
   "reproject",
   "result",
   "session",
+  "stats",
+  "telemetry",
   "uninstall",
   "upgrade",
   "wisdom",
@@ -145,6 +155,8 @@ const TOP_LEVEL_COMMANDS = [
 const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string, string> }> = {
   algorithm: ALGORITHM_COMMAND_HELP,
   memory: MEMORY_COMMAND_HELP,
+  telemetry: TELEMETRY_COMMAND_HELP,
+  stats: STATS_COMMAND_HELP,
   feedback: FEEDBACK_COMMAND_HELP,
   ...TOOL_COMMAND_HELP,
   result: RESULT_COMMAND_HELP,
@@ -199,6 +211,10 @@ function parseArgs(args: string[]): ParsedArgs {
 
   if (args[0] === "memory") {
     return parseMemoryArgs(args);
+  }
+
+  if (args[0] === "telemetry" || args[0] === "stats") {
+    return parseTelemetryArgs(args);
   }
 
   if (args[0] === "feedback") {
@@ -396,6 +412,10 @@ export async function runSomaCli(args: string[]): Promise<string> {
 
   if (parsed.command === "memory") {
     return runMemoryCli(parsed);
+  }
+
+  if (parsed.command === "telemetry" || parsed.command === "stats") {
+    return runTelemetryCli(parsed);
   }
 
   if (parsed.command === "feedback") {

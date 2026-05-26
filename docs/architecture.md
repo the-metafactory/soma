@@ -194,3 +194,16 @@ The V0 lifecycle surface has three events:
 
 Substrates can call these events through the CLI or library. Cortex can later
 subscribe to the same lifecycle surface as bus-visible work state.
+
+## Observability
+
+Observability V0 is a filesystem-native read model over
+`memory/STATE/events.jsonl`. `soma telemetry list` queries recent events and
+`soma telemetry stats` / `soma stats` summarizes event counts, lifecycle
+sessions, writeback failures, Algorithm event phases when present, and skipped
+malformed rows. This gives Soma a local inspection surface without adding a
+database, daemon, dashboard, or Signal dependency.
+
+Signal still owns telemetry systems. Soma emits and summarizes local events;
+future Signal export should consume the same read model. See
+[observability.md](./observability.md).

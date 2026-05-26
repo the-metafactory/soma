@@ -1576,6 +1576,62 @@ export interface SomaMemorySearchResult {
   matches: SomaMemorySearchMatch[];
 }
 
+export interface SomaTelemetryQueryOptions {
+  homeDir?: string;
+  somaHome?: string;
+  substrate?: SubstrateId;
+  kind?: string;
+  limit?: number;
+}
+
+export interface SomaTelemetryQueryResult {
+  somaHome: string;
+  eventPath: string;
+  totalEvents: number;
+  skippedMalformedLines: number;
+  events: SomaMemoryEvent[];
+}
+
+export interface SomaTelemetrySummaryOptions {
+  homeDir?: string;
+  somaHome?: string;
+}
+
+export interface SomaTelemetrySummary {
+  somaHome: string;
+  eventPath: string;
+  totalEvents: number;
+  skippedMalformedLines: number;
+  firstTimestamp?: string;
+  lastTimestamp?: string;
+  bySubstrate: Partial<Record<SubstrateId, number>>;
+  byKind: Record<string, number>;
+  sessions: {
+    started: number;
+    ended: number;
+    completedWithDuration: number;
+    averageDurationMs: number | null;
+    bySubstrate: Partial<Record<SubstrateId, {
+      started: number;
+      ended: number;
+      completedWithDuration: number;
+      averageDurationMs: number | null;
+    }>>;
+  };
+  skills: {
+    events: number;
+    byName: Record<string, number>;
+  };
+  algorithm: {
+    events: number;
+    byPhase: Partial<Record<AlgorithmPhase, number>>;
+  };
+  writeback: {
+    events: number;
+    failures: number;
+  };
+}
+
 export const SOMA_RESULT_EVENT_KINDS = [
   "result.captured",
   "learning.signal",
