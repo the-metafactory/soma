@@ -142,3 +142,39 @@ test("telemetry summary aggregates sessions, kinds, substrates, and durations", 
     expect(summary.writeback.failures).toBe(1);
   });
 });
+
+test("telemetry summary consumes matched session starts once", async () => {
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    await appendSomaMemoryEvent(somaHome, {
+      id: "evt-1",
+      timestamp: "2026-05-26T08:00:00.000Z",
+      substrate: "codex",
+      kind: "lifecycle.session_start",
+      summary: "Session started: s1",
+      metadata: { sessionId: "s1" },
+    });
+    await appendSomaMemoryEvent(somaHome, {
+      id: "evt-2",
+      timestamp: "2026-05-26T08:10:00.000Z",
+      substrate: "codex",
+      kind: "lifecycle.session_end",
+      summary: "Session ended.",
+      metadata: { sessionId: "s1" },
+    });
+    await appendSomaMemoryEvent(somaHome, {
+      id: "evt-3",
+      timestamp: "2026-05-26T08:20:00.000Z",
+      substrate: "codex",
+      kind: "lifecycle.session_end",
+      summary: "Duplicate session end.",
+      metadata: { sessionId: "s1" },
+    });
+
+    const summary = await summarizeSomaTelemetry({ homeDir });
+
+    expect(summary.sessions.ended).toBe(2);
+    expect(summary.sessions.completedWithDuration).toBe(1);
+    expect(summary.sessions.averageDurationMs).toBe(10 * 60 * 1000);
+  });
+});

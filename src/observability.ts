@@ -243,11 +243,15 @@ function recordSessionEvent(event: SomaMemoryEvent, sessions: SessionAggregation
     substrateStats.ended += 1;
     const sessionId = eventSessionId(event);
     const endedAt = timestampMs(event.timestamp);
-    const startedAt = sessionId === undefined ? undefined : sessions.starts.get(`${event.substrate}\0${sessionId}`);
+    const sessionKey = sessionId === undefined ? undefined : `${event.substrate}\0${sessionId}`;
+    const startedAt = sessionKey === undefined ? undefined : sessions.starts.get(sessionKey);
     if (startedAt !== undefined && endedAt !== undefined && endedAt >= startedAt) {
       const duration = endedAt - startedAt;
       recordDuration(sessions.totalDurations, duration);
       recordDuration(substrateStats.durations, duration);
+      if (sessionKey !== undefined) {
+        sessions.starts.delete(sessionKey);
+      }
     }
   }
 }
