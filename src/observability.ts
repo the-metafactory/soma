@@ -1,6 +1,8 @@
-import { readFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { access } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { createInterface } from "node:readline/promises";
 import { somaMemoryEventsPath } from "./memory";
 import type {
   AlgorithmPhase,
@@ -44,65 +46,85 @@ function isSomaMemoryEvent(value: unknown): value is SomaMemoryEvent {
   );
 }
 
-async function readTelemetryEvents(somaHome: string): Promise<{
+function parseTelemetryLine(line: string): SomaMemoryEvent | undefined {
+  try {
+    const event = JSON.parse(line) as unknown;
+    return isSomaMemoryEvent(event) ? event : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function streamTelemetryEvents(
+  somaHome: string,
+  onEvent: (event: SomaMemoryEvent) => void,
+): Promise<{
   eventPath: string;
-  events: SomaMemoryEvent[];
+  totalEvents: number;
   skippedMalformedLines: number;
 }> {
   const eventPath = somaMemoryEventsPath(somaHome);
-  const content = await readFile(eventPath, "utf8").catch((error: unknown) => {
-    if (isRecord(error) && error.code === "ENOENT") return "";
-    throw error;
+  const exists = await access(eventPath).then(
+    () => true,
+    (error: unknown) => {
+      if (isRecord(error) && error.code === "ENOENT") return false;
+      throw error;
+    },
+  );
+  if (!exists) {
+    return { eventPath, totalEvents: 0, skippedMalformedLines: 0 };
+  }
+
+  const lines = createInterface({
+    input: createReadStream(eventPath, { encoding: "utf8" }),
+    crlfDelay: Infinity,
   });
-  const events: SomaMemoryEvent[] = [];
+  let totalEvents = 0;
   let skippedMalformedLines = 0;
 
-  for (const line of content.split("\n")) {
+  for await (const line of lines) {
     if (line.trim().length === 0) continue;
 
-    try {
-      const event = JSON.parse(line) as unknown;
-      if (!isSomaMemoryEvent(event)) {
-        skippedMalformedLines += 1;
-        continue;
-      }
-      events.push(event);
-    } catch {
+    const event = parseTelemetryLine(line);
+    if (event === undefined) {
       skippedMalformedLines += 1;
+      continue;
     }
+
+    totalEvents += 1;
+    onEvent(event);
   }
 
-  return { eventPath, events, skippedMalformedLines };
+  return { eventPath, totalEvents, skippedMalformedLines };
 }
 
-function applyTelemetryFilters(events: SomaMemoryEvent[], options: SomaTelemetryQueryOptions): SomaMemoryEvent[] {
-  return events.filter((event) => {
-    if (options.substrate !== undefined && event.substrate !== options.substrate) return false;
-    if (options.kind !== undefined && event.kind !== options.kind) return false;
-    return true;
-  });
-}
-
-function recentEvents(events: SomaMemoryEvent[], limit: number | undefined): SomaMemoryEvent[] {
-  const boundedLimit = limit ?? 20;
-  if (boundedLimit < 1) {
-    throw new Error("Soma telemetry limit must be a positive integer.");
-  }
-
-  return events.slice(-boundedLimit).reverse();
+function matchesTelemetryQuery(event: SomaMemoryEvent, options: SomaTelemetryQueryOptions): boolean {
+  if (options.substrate !== undefined && event.substrate !== options.substrate) return false;
+  if (options.kind !== undefined && event.kind !== options.kind) return false;
+  return true;
 }
 
 export async function querySomaTelemetryEvents(options: SomaTelemetryQueryOptions = {}): Promise<SomaTelemetryQueryResult> {
   const somaHome = resolveSomaHome(options);
-  const read = await readTelemetryEvents(somaHome);
-  const filtered = applyTelemetryFilters(read.events, options);
+  const events: SomaMemoryEvent[] = [];
+  const boundedLimit = options.limit ?? 20;
+  if (boundedLimit < 1) {
+    throw new Error("Soma telemetry limit must be a positive integer.");
+  }
+  const read = await streamTelemetryEvents(somaHome, (event) => {
+    if (!matchesTelemetryQuery(event, options)) return;
+    events.push(event);
+    if (events.length > boundedLimit) {
+      events.shift();
+    }
+  });
 
   return {
     somaHome,
     eventPath: read.eventPath,
-    totalEvents: read.events.length,
+    totalEvents: read.totalEvents,
     skippedMalformedLines: read.skippedMalformedLines,
-    events: recentEvents(filtered, options.limit),
+    events: events.reverse(),
   };
 }
 
@@ -185,7 +207,6 @@ function publicSessionStats(stats: Partial<Record<SubstrateId, MutableSessionSta
 
 export async function summarizeSomaTelemetry(options: SomaTelemetrySummaryOptions = {}): Promise<SomaTelemetrySummary> {
   const somaHome = resolveSomaHome(options);
-  const read = await readTelemetryEvents(somaHome);
   const bySubstrate: Partial<Record<SubstrateId, number>> = {};
   const byKind: Record<string, number> = {};
   const algorithmByPhase: Partial<Record<AlgorithmPhase, number>> = {};
@@ -199,8 +220,12 @@ export async function summarizeSomaTelemetry(options: SomaTelemetrySummaryOption
   let algorithmEventCount = 0;
   let writebackEventCount = 0;
   let writebackFailureCount = 0;
+  let firstTimestamp: string | undefined;
+  let lastTimestamp: string | undefined;
 
-  for (const event of read.events) {
+  const read = await streamTelemetryEvents(somaHome, (event) => {
+    firstTimestamp ??= event.timestamp;
+    lastTimestamp = event.timestamp;
     increment(bySubstrate, event.substrate);
     incrementRecord(byKind, event.kind);
 
@@ -250,15 +275,15 @@ export async function summarizeSomaTelemetry(options: SomaTelemetrySummaryOption
         writebackFailureCount += 1;
       }
     }
-  }
+  });
 
   return {
     somaHome,
     eventPath: read.eventPath,
-    totalEvents: read.events.length,
+    totalEvents: read.totalEvents,
     skippedMalformedLines: read.skippedMalformedLines,
-    firstTimestamp: read.events[0]?.timestamp,
-    lastTimestamp: read.events.at(-1)?.timestamp,
+    firstTimestamp,
+    lastTimestamp,
     bySubstrate,
     byKind,
     sessions: {

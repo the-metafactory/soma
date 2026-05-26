@@ -74,16 +74,13 @@ function parseTelemetryListOptions(args: string[]): SomaTelemetryQueryOptions & 
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
+    const commonIndex = parseTelemetryCommonOption(options, args, index, arg);
+    if (commonIndex !== undefined) {
+      index = commonIndex;
+      continue;
+    }
 
     switch (arg) {
-      case "--home-dir":
-        options.homeDir = readOption(args, index, arg);
-        index += 1;
-        break;
-      case "--soma-home":
-        options.somaHome = readOption(args, index, arg);
-        index += 1;
-        break;
       case "--substrate":
         options.substrate = parseSubstrate(readOption(args, index, arg));
         index += 1;
@@ -99,9 +96,6 @@ function parseTelemetryListOptions(args: string[]): SomaTelemetryQueryOptions & 
         }
         index += 1;
         break;
-      case "--json":
-        options.json = true;
-        break;
       default:
         throw new Error(`Unknown option: ${arg}`);
     }
@@ -115,25 +109,37 @@ function parseTelemetryStatsOptions(args: string[]): SomaTelemetrySummaryOptions
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-
-    switch (arg) {
-      case "--home-dir":
-        options.homeDir = readOption(args, index, arg);
-        index += 1;
-        break;
-      case "--soma-home":
-        options.somaHome = readOption(args, index, arg);
-        index += 1;
-        break;
-      case "--json":
-        options.json = true;
-        break;
-      default:
-        throw new Error(`Unknown option: ${arg}`);
+    const commonIndex = parseTelemetryCommonOption(options, args, index, arg);
+    if (commonIndex !== undefined) {
+      index = commonIndex;
+      continue;
     }
+
+    throw new Error(`Unknown option: ${arg}`);
   }
 
   return options;
+}
+
+function parseTelemetryCommonOption(
+  options: SomaTelemetrySummaryOptions & { json?: boolean },
+  args: string[],
+  index: number,
+  arg: string,
+): number | undefined {
+  switch (arg) {
+    case "--home-dir":
+      options.homeDir = readOption(args, index, arg);
+      return index + 1;
+    case "--soma-home":
+      options.somaHome = readOption(args, index, arg);
+      return index + 1;
+    case "--json":
+      options.json = true;
+      return index;
+    default:
+      return undefined;
+  }
 }
 
 export async function runTelemetryCli(parsed: ParsedTelemetryArgs): Promise<string> {
