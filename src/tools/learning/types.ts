@@ -116,15 +116,20 @@ export interface SomaCounts {
   events: number;
 }
 
+export interface SessionProgressEntry {
+  text: string;
+  timestamp: string;
+}
+
 export interface SessionProgressRecord {
   project: string;
   created: string;
   updated: string;
   status: "active" | "completed" | "blocked";
   objectives: string[];
-  decisions: { text: string; timestamp: string }[];
-  work_completed: { text: string; timestamp: string }[];
-  blockers: { text: string; timestamp: string }[];
-  handoff_notes: string[];
-  next_steps: string[];
+  decisions: SessionProgressEntry[];
+  work_completed: SessionProgressEntry[];
+  blockers: SessionProgressEntry[];
+  handoff_notes: SessionProgressEntry[];
+  next_steps: SessionProgressEntry[];
 }
