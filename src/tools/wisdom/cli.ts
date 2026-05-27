@@ -1,4 +1,4 @@
-import { classifyDomains, listFrames, synthesizeWisdom, updateFrame } from "./index";
+import { classifyDomains, listFrames, normalizeSimilarityThreshold, synthesizeWisdom, updateFrame } from "./index";
 import type { WisdomObservationType, WisdomToolOptions } from "./types";
 
 function readOption(args: string[], index: number, name: string): string {
@@ -10,8 +10,9 @@ function readOption(args: string[], index: number, name: string): string {
 function readOptionText(args: string[], index: number, name: string): string {
   const values: string[] = [];
   for (let cursor = index + 1; cursor < args.length; cursor += 1) {
-    if (args[cursor]!.startsWith("--")) break;
-    values.push(args[cursor]!);
+    const value = args[cursor];
+    if (value.startsWith("--")) break;
+    values.push(value);
   }
   if (values.length === 0) throw new Error(`${name} requires a value.`);
   return values.join(" ");
@@ -30,8 +31,8 @@ function stripCommon(args: string[]): string[] {
   const stripped: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     if (args[index] === "--home-dir" || args[index] === "--soma-home") {
-      if (index > 0 && ["--domain", "--type", "--observation"].includes(args[index - 1]!)) {
-        stripped.push(args[index]!);
+      if (index > 0 && ["--domain", "--type", "--observation"].includes(args[index - 1])) {
+        stripped.push(args[index]);
         continue;
       }
       index += 1;
@@ -40,6 +41,14 @@ function stripCommon(args: string[]): string[] {
     stripped.push(args[index]);
   }
   return stripped;
+}
+
+function parseThreshold(args: string[]): number | undefined {
+  const index = args.indexOf("--threshold");
+  if (index === -1) return undefined;
+  const value = readOption(args, index, "--threshold");
+  const parsed = Number(value);
+  return normalizeSimilarityThreshold(parsed, "--threshold");
 }
 
 function parseUpdateArgs(args: string[]): { domain: string; type: WisdomObservationType; observation: string } {
@@ -58,7 +67,7 @@ function parseUpdateArgs(args: string[]): { domain: string; type: WisdomObservat
     }
     if (arg === "--observation") {
       parsed.observation = readOptionText(args, index, "--observation");
-      while (args[index + 1] && !args[index + 1]!.startsWith("--")) index += 1;
+      while (args[index + 1] && !args[index + 1].startsWith("--")) index += 1;
       continue;
     }
     throw new Error(`Unknown wisdom update argument: ${arg}`);
@@ -99,6 +108,7 @@ export async function runWisdomCli(args: string[]): Promise<string> {
       ...options,
       dryRun: local.includes("--dry-run"),
       healthOnly: action === "health",
+      similarityThreshold: parseThreshold(local),
     });
     return [
       `wisdom ${action}: ${result.principles.length} cross-frame principle(s), ${result.health.length} frame(s)`,

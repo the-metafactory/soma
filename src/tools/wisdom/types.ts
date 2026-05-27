@@ -5,6 +5,7 @@ export type FrameHealthStatus = "growing" | "stable" | "stale";
 
 export interface WisdomToolOptions extends SomaPathsOptions {
   now?: Date;
+  similarityThreshold?: number;
 }
 
 export interface WisdomFrameSummary {

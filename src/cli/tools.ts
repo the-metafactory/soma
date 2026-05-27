@@ -58,8 +58,8 @@ export const TOOL_COMMAND_HELP: Record<ParsedToolArgs["command"], { usage: strin
       list: "Usage: soma wisdom list [--home-dir <dir>] [--soma-home <dir>]",
       update:
         "Usage: soma wisdom update --domain <domain> --type <principle|contextual-rule|prediction|anti-pattern|evolution> --observation <text> [--home-dir <dir>] [--soma-home <dir>]",
-      synthesize: "Usage: soma wisdom synthesize [--dry-run] [--home-dir <dir>] [--soma-home <dir>]",
-      health: "Usage: soma wisdom health [--dry-run] [--home-dir <dir>] [--soma-home <dir>]",
+      synthesize: "Usage: soma wisdom synthesize [--dry-run] [--threshold <0..1>] [--home-dir <dir>] [--soma-home <dir>]",
+      health: "Usage: soma wisdom health [--dry-run] [--threshold <0..1>] [--home-dir <dir>] [--soma-home <dir>]",
     },
   },
 };

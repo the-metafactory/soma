@@ -209,6 +209,111 @@ test("wisdom synthesis detects cross-frame principles and health thresholds", as
   });
 });
 
+test("wisdom synthesis supports dry-run previews and configurable similarity thresholds", async () => {
+  await withTempHome(async (homeDir, somaHome) => {
+    await updateFrame({
+      homeDir,
+      domain: "development",
+      type: "principle",
+      observation: "Small review catches integration bugs early",
+      now: new Date("2026-05-19T12:00:00Z"),
+    });
+    await updateFrame({
+      homeDir,
+      domain: "deployment",
+      type: "principle",
+      observation: "Small review catches integration failures early",
+      now: new Date("2026-05-19T12:00:00Z"),
+    });
+
+    const preview = await synthesizeWisdom({
+      homeDir,
+      dryRun: true,
+      similarityThreshold: 0.7,
+      now: new Date("2026-05-20T12:00:00Z"),
+    });
+    expect(preview.principles).toHaveLength(1);
+    expect(preview.principlesPath).toBeUndefined();
+    expect(preview.healthPath).toBeUndefined();
+    await expect(readFile(join(somaHome, "memory/WISDOM/PRINCIPLES/verified.md"), "utf8")).rejects.toThrow();
+    await expect(readFile(join(somaHome, "memory/WISDOM/META/frame-health.md"), "utf8")).rejects.toThrow();
+
+    const strictPreview = await synthesizeWisdom({
+      homeDir,
+      dryRun: true,
+      similarityThreshold: 0.9,
+      now: new Date("2026-05-20T12:00:00Z"),
+    });
+    expect(strictPreview.principles).toHaveLength(0);
+
+    const cliPreview = await runSomaCli([
+      "wisdom",
+      "synthesize",
+      "--dry-run",
+      "--threshold",
+      "0.9",
+      "--home-dir",
+      homeDir,
+    ]);
+    expect(cliPreview).toContain("wisdom synthesize: 0 cross-frame principle(s)");
+
+    await expect(runSomaCli(["wisdom", "synthesize", "--dry-run", "--threshold", "1.1", "--home-dir", homeDir])).rejects.toThrow(
+      "--threshold must be a number between 0 and 1.",
+    );
+  });
+});
+
+test("wisdom synthesis validates library similarity thresholds", async () => {
+  await withTempHome(async (homeDir) => {
+    await expect(synthesizeWisdom({ homeDir, similarityThreshold: Number.NaN })).rejects.toThrow(
+      "similarityThreshold must be a number between 0 and 1.",
+    );
+    await expect(synthesizeWisdom({ homeDir, similarityThreshold: 1.1 })).rejects.toThrow(
+      "similarityThreshold must be a number between 0 and 1.",
+    );
+  });
+});
+
+test("wisdom health reports growing stable and stale frames without writing principles", async () => {
+  await withTempHome(async (homeDir, somaHome) => {
+    for (let index = 0; index < 10; index += 1) {
+      await updateFrame({
+        homeDir,
+        domain: "growing-domain",
+        type: "principle",
+        observation: `Fresh principle ${index}`,
+        now: new Date("2026-05-27T12:00:00Z"),
+      });
+    }
+    await updateFrame({
+      homeDir,
+      domain: "stable-domain",
+      type: "principle",
+      observation: "Moderately recent principle",
+      now: new Date("2026-05-07T12:00:00Z"),
+    });
+    await updateFrame({
+      homeDir,
+      domain: "stale-domain",
+      type: "principle",
+      observation: "Old principle",
+      now: new Date("2026-03-01T12:00:00Z"),
+    });
+
+    const output = await runSomaCli(["wisdom", "health", "--home-dir", homeDir]);
+    expect(output).toContain("wisdom health: 0 cross-frame principle(s), 3 frame(s)");
+    expect(output).toContain(".soma/memory/WISDOM/META/frame-health.md");
+    expect(output).not.toContain(".claude");
+
+    const health = await readFile(join(somaHome, "memory/WISDOM/META/frame-health.md"), "utf8");
+    expect(health).toContain("growing-domain: growing");
+    expect(health).toContain("stable-domain: stable");
+    expect(health).toContain("stale-domain: stale");
+    expect(health).not.toContain(".claude");
+    await expect(readFile(join(somaHome, "memory/WISDOM/PRINCIPLES/verified.md"), "utf8")).rejects.toThrow();
+  });
+});
+
 test("wisdom CLI routes classify, list, update, synthesize, and health", async () => {
   await withTempHome(async (homeDir) => {
     await runSomaCli([
