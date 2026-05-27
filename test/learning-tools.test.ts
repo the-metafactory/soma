@@ -166,18 +166,17 @@ test("opinion CLI covers confidence math, stable markdown, list, and show", asyn
       runSomaCli(["opinion", "add", "Prefer direct technical summaries", "--category", "communication", "--home-dir", homeDir]),
     ).resolves.toBe("added opinion: Prefer direct technical summaries (communication, 0.50)\n");
 
-    await expect(
-      runSomaCli(["opinion", "evidence", "Prefer direct technical summaries", "--supporting", "Direct summary landed well.", "--home-dir", homeDir]),
-    ).resolves.toContain("confidence: 0.50 -> 0.52");
-    await expect(
-      runSomaCli(["opinion", "evidence", "Prefer direct technical summaries", "--counter", "More context was needed.", "--home-dir", homeDir]),
-    ).resolves.toContain("confidence: 0.52 -> 0.47");
-    await expect(
-      runSomaCli(["opinion", "evidence", "Prefer direct technical summaries", "--confirmation", "Explicitly confirmed preference.", "--home-dir", homeDir]),
-    ).resolves.toContain("confidence: 0.47 -> 0.57");
-    await expect(
-      runSomaCli(["opinion", "evidence", "Prefer direct technical summaries", "--contradiction", "Explicitly contradicted preference.", "--home-dir", homeDir]),
-    ).resolves.toContain("confidence: 0.57 -> 0.37");
+    const evidenceCases = [
+      { flag: "--supporting", text: "Direct summary landed well.", expected: "confidence: 0.50 -> 0.52" },
+      { flag: "--counter", text: "More context was needed.", expected: "confidence: 0.52 -> 0.47" },
+      { flag: "--confirmation", text: "Explicitly confirmed preference.", expected: "confidence: 0.47 -> 0.57" },
+      { flag: "--contradiction", text: "Explicitly contradicted preference.", expected: "confidence: 0.57 -> 0.37" },
+    ];
+    for (const { flag, text, expected } of evidenceCases) {
+      await expect(
+        runSomaCli(["opinion", "evidence", "Prefer direct technical summaries", flag, text, "--home-dir", homeDir]),
+      ).resolves.toContain(expected);
+    }
 
     const list = await runSomaCli(["opinion", "list", "--home-dir", homeDir]);
     expect(list).toBe("0.37 communication Prefer direct technical summaries\n");
