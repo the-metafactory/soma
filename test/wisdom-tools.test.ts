@@ -65,6 +65,53 @@ test("wisdom update creates frames, appends observations, and lists counts", asy
   });
 });
 
+test("wisdom update appends every observation type with stable frame metadata", async () => {
+  await withTempHome(async (homeDir, somaHome) => {
+    const updates = [
+      ["principle", "Prefer small verified changes"],
+      ["contextual-rule", "Use explicit handoff notes before pausing"],
+      ["prediction", "Missing rollback notes will slow incident recovery"],
+      ["anti-pattern", "Bundling unrelated claims hides weak evidence"],
+      ["evolution", "Frame split from general development wisdom"],
+    ] as const;
+
+    for (const [type, observation] of updates) {
+      const output = await runSomaCli([
+        "wisdom",
+        "update",
+        "--domain",
+        "operating-practice",
+        "--type",
+        type,
+        "--observation",
+        observation,
+        "--home-dir",
+        homeDir,
+      ]);
+      expect(output).toContain(".soma/memory/WISDOM/FRAMES/operating-practice.md");
+      expect(output).not.toContain(".claude");
+    }
+
+    const framePath = join(somaHome, "memory/WISDOM/FRAMES/operating-practice.md");
+    const content = await readFile(framePath, "utf8");
+    expect(content).toContain("# Operating Practice Wisdom Frame");
+    expect(content).toContain("## Crystallized Principles\n- [CRYSTAL] Prefer small verified changes");
+    expect(content).toContain("## Contextual Rules\n- Use explicit handoff notes before pausing");
+    expect(content).toContain("## Predictive Model\n- Missing rollback notes will slow incident recovery");
+    expect(content).toContain("## Anti-Patterns\n- Bundling unrelated claims hides weak evidence");
+    expect(content).toContain("## Evolution Log");
+    expect(content).toContain("Frame split from general development wisdom (type: evolution)");
+    expect(content).toContain("- Observation Count: 5");
+    expect(content).not.toContain(".claude");
+
+    const headings = [...content.matchAll(/^## /gm)];
+    expect(headings).toHaveLength(7);
+
+    const frames = await listFrames({ homeDir });
+    expect(frames).toMatchObject([{ domain: "operating-practice", observationCount: 5 }]);
+  });
+});
+
 test("wisdom classifier handles default and dynamic frame domains", async () => {
   await withTempHome(async (homeDir) => {
     const defaults = await classifyDomains("how should I structure the PR review", { homeDir });
