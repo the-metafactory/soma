@@ -113,6 +113,7 @@ export interface SomaCounts {
   work: number;
   research: number;
   ratings: number;
+  events: number;
 }
 
 export interface SessionProgressRecord {
@@ -121,9 +122,9 @@ export interface SessionProgressRecord {
   updated: string;
   status: "active" | "completed" | "blocked";
   objectives: string[];
-  decisions: Array<{ text: string; timestamp: string }>;
-  work_completed: Array<{ text: string; timestamp: string }>;
-  blockers: Array<{ text: string; timestamp: string }>;
+  decisions: { text: string; timestamp: string }[];
+  work_completed: { text: string; timestamp: string }[];
+  blockers: { text: string; timestamp: string }[];
   handoff_notes: string[];
   next_steps: string[];
 }

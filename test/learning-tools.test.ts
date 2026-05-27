@@ -446,12 +446,23 @@ test("metrics and session progress CLIs operate on Soma paths", async () => {
     await mkdir(join(somaHome, "memory/LEARNING/SIGNALS"), { recursive: true });
     await writeFile(join(somaHome, "memory/LEARNING/SIGNALS/ratings.jsonl"), "{}\n{}\n", "utf8");
     await mkdir(join(somaHome, "memory/WORK/example"), { recursive: true });
+    await mkdir(join(somaHome, "memory/STATE"), { recursive: true });
+    await writeFile(join(somaHome, "memory/STATE/events.jsonl"), "{}\n{}\n", "utf8");
 
     const counts = await getSomaCounts({ homeDir });
     expect(counts.skills).toBe(1);
     expect(counts.workflows).toBe(1);
     expect(counts.ratings).toBe(2);
-    expect(JSON.parse(await runSomaCli(["metrics", "--home-dir", homeDir]))).toMatchObject({ skills: 1, workflows: 1, ratings: 2 });
+    expect(counts.events).toBe(2);
+    expect(JSON.parse(await runSomaCli(["metrics", "--home-dir", homeDir]))).toMatchObject({
+      skills: 1,
+      workflows: 1,
+      ratings: 2,
+      work: 1,
+      events: 2,
+    });
+    expect(await runSomaCli(["metrics", "--single", "events", "--home-dir", homeDir])).toBe("2\n");
+    expect(await runSomaCli(["metrics", "--shell", "--home-dir", homeDir])).toContain("events_count=2\n");
 
     await runSomaCli(["session", "create", "proj", "ship feature", "--home-dir", homeDir]);
     await runSomaCli(["session", "decision", "proj", "Use native Soma paths", "--home-dir", homeDir]);
@@ -460,5 +471,37 @@ test("metrics and session progress CLIs operate on Soma paths", async () => {
     const resume = await resumeSessionProgress("proj", { homeDir });
     expect(resume).toContain("Use native Soma paths");
     expect(resume).toContain("Implemented core module");
+  });
+});
+
+test("metrics CLI treats missing Soma paths as zero and avoids Claude settings", async () => {
+  await withTempHome(async (homeDir) => {
+    await mkdir(join(homeDir, ".claude/PAI/Skills/legacy/Workflows"), { recursive: true });
+    await writeFile(join(homeDir, ".claude/settings.json"), JSON.stringify({ hooks: ["legacy"] }), "utf8");
+    await writeFile(join(homeDir, ".claude/PAI/Skills/legacy/SKILL.md"), "# Legacy Claude Skill\n", "utf8");
+    await writeFile(join(homeDir, ".claude/PAI/Skills/legacy/Workflows/run.md"), "# Legacy Workflow\n", "utf8");
+
+    const output = JSON.parse(await runSomaCli(["metrics", "--home-dir", homeDir])) as Record<string, number>;
+    expect(output).toEqual({
+      skills: 0,
+      workflows: 0,
+      signals: 0,
+      files: 0,
+      work: 0,
+      research: 0,
+      ratings: 0,
+      events: 0,
+    });
+    expect(await runSomaCli(["metrics", "--shell", "--home-dir", homeDir])).toBe([
+      "skills_count=0",
+      "workflows_count=0",
+      "signals_count=0",
+      "files_count=0",
+      "work_count=0",
+      "research_count=0",
+      "ratings_count=0",
+      "events_count=0",
+      "",
+    ].join("\n"));
   });
 });
