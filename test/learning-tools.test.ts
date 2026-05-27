@@ -88,7 +88,7 @@ test("opinion tracker creates opinions and applies asymmetric confidence deltas"
 });
 
 test("failure capture writes structured failure directory using injected inference", async () => {
-  await withTempHome(async (homeDir, somaHome) => {
+  await withTempHome(async (homeDir) => {
     const transcript = join(homeDir, "transcript.jsonl");
     await writeFile(transcript, [
       JSON.stringify({ type: "user", timestamp: "2026-05-19T12:00:00Z", message: { content: "Please run the tests before saying done." } }),
@@ -131,6 +131,48 @@ test("failure capture defaults to deterministic local descriptions without remot
     });
 
     expect(result.description).toBe("private-transcript-should-stay-local");
+  });
+});
+
+test("failure capture CLI writes Soma artifacts and skips non-failure ratings", async () => {
+  await withTempHome(async (homeDir, somaHome) => {
+    const transcript = join(homeDir, "transcript.jsonl");
+    const transcriptContent = [
+      JSON.stringify({ type: "user", timestamp: "2026-05-19T12:00:00Z", message: { content: "The workflow failed after a tool error." } }),
+      JSON.stringify({ type: "assistant", timestamp: "2026-05-19T12:01:00Z", message: { content: [{ type: "tool_use", name: "exec_command", input: { cmd: "bun test" } }] } }),
+      JSON.stringify({ type: "tool_result", content: "failing test output" }),
+    ].join("\n");
+    await writeFile(transcript, transcriptContent, "utf8");
+
+    const output = await runSomaCli([
+      "learning",
+      "capture-failure",
+      transcript,
+      "3",
+      "tool failure blocked migration",
+      "Tests failed after the tool call.",
+      "--home-dir",
+      homeDir,
+    ]);
+
+    const failurePath = output.trim();
+    expect(failurePath).toContain(join(somaHome, "memory/LEARNING/FAILURES"));
+    expect(failurePath).not.toContain(".claude/PAI");
+    await expect(readFile(join(failurePath, "transcript.jsonl"), "utf8")).resolves.toBe(transcriptContent);
+    await expect(readFile(join(failurePath, "sentiment.json"), "utf8")).resolves.toContain("\"rating\": 3");
+    await expect(readFile(join(failurePath, "tool-calls.json"), "utf8")).resolves.toContain("exec_command");
+
+    await expect(
+      runSomaCli([
+        "learning",
+        "capture-failure",
+        transcript,
+        "4",
+        "not a low rating",
+        "--home-dir",
+        homeDir,
+      ]),
+    ).resolves.toBe("failure capture skipped\n");
   });
 });
 
