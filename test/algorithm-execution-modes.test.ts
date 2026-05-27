@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import {
   IDEATE_PRESETS,
   OPTIMIZE_PRESETS,
@@ -14,6 +15,9 @@ import {
 } from "../src";
 import type { AlgorithmRun, IdealStateCriterion } from "../src";
 import { loadAlgorithmRun } from "../src/algorithm-store";
+
+const algorithmExecutionModesDocs = readFileSync("docs/algorithm-execution-modes.md", "utf8");
+const normalizedAlgorithmExecutionModesDocs = algorithmExecutionModesDocs.replace(/\s+/g, " ");
 
 function criterion(id: string): IdealStateCriterion {
   return { id, text: `${id} criterion`, status: "open" };
@@ -112,9 +116,9 @@ test("#133 detectPlateau uses plateau counter and consecutive zero-progress iter
     loop: {
       ...zeroProgress.loop,
       iterations: [
-        zeroProgress.loop.iterations[0]!,
+        zeroProgress.loop.iterations[0],
         { iteration: 2, timestamp: "2026-05-19T12:02:00.000Z", progressBefore: "0/3", progressAfter: "1/3" },
-        zeroProgress.loop.iterations[2]!,
+        zeroProgress.loop.iterations[2],
       ],
     },
   };
@@ -139,7 +143,7 @@ test("#133 partitions criteria by ISC domain and load-balances when worker count
   const balanced = partitionCriteriaByDomain(criteria, 2);
   expect(balanced).toHaveLength(2);
   expect(balanced.flatMap((partition) => partition.criteria).map((item) => item.id).sort()).toEqual(criteria.map((item) => item.id).sort());
-  expect(Math.abs(balanced[0]!.criteria.length - balanced[1]!.criteria.length)).toBeLessThanOrEqual(1);
+  expect(Math.abs(balanced[0].criteria.length - balanced[1].criteria.length)).toBeLessThanOrEqual(1);
 });
 
 test("#133 partitions run criteria through the ISA accessor", () => {
@@ -196,4 +200,20 @@ test("#133 notification events are substrate-neutral data contracts", () => {
     plateauCounter: 3,
     threshold: 3,
   });
+});
+
+test("#220 documents FeatureRegistry as an Algorithm plan-state decision", () => {
+  expect(algorithmExecutionModesDocs).toContain("## FeatureRegistry");
+  expect(normalizedAlgorithmExecutionModesDocs).toContain("FeatureRegistry is not migrated as a standalone Soma tool");
+  expect(normalizedAlgorithmExecutionModesDocs).toContain("No `soma feature-registry` command");
+
+  for (const command of ["init", "add", "update", "verify", "next"]) {
+    expect(algorithmExecutionModesDocs).toContain(`\`${command}\``);
+  }
+
+  expect(algorithmExecutionModesDocs).toContain("`planSteps[]`");
+  expect(algorithmExecutionModesDocs).toContain("`setAlgorithmPlan`");
+  expect(algorithmExecutionModesDocs).toContain("`updateAlgorithmPlanStep`");
+  expect(algorithmExecutionModesDocs).toContain("`verifyAlgorithmCriterion`");
+  expect(algorithmExecutionModesDocs).toContain("extend `AlgorithmPlanStep`");
 });

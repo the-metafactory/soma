@@ -120,14 +120,24 @@ owned by the host substrate.
 
 ## FeatureRegistry
 
-PAI's FeatureRegistry is intentionally not migrated. Soma already has the same
-work-tracking semantics in typed Algorithm structures:
+PAI's FeatureRegistry is not migrated as a standalone Soma tool. No `soma feature-registry`
+command or JSON registry should be added unless a future design decision
+explicitly reverses this rule. Soma already has the same work-tracking
+semantics in typed Algorithm structures:
 
-- Features map to `planSteps[]`.
-- Priority maps to criteria and plan-step order.
-- Status maps to criterion and plan-step status enums.
-- Blockers map to blocked plan steps with evidence.
+- `init`: create an Algorithm run with criteria, then establish the first
+  tracked work items through `setAlgorithmPlan`.
+- `add`: add features as criterion-mapped `planSteps[]`; priority is expressed
+  by criteria and plan-step order.
+- `update`: change feature status through `updateAlgorithmPlanStep`, using
+  `open`, `done`, or `blocked` plus evidence.
+- `verify`: record acceptance through `verifyAlgorithmCriterion` and keep the
+  linked plan step evidence in the same run.
+- `next`: read the next open or blocked `planSteps[]` item from the Algorithm
+  run state instead of maintaining a separate queue.
 
-Adding a second feature tracker would create two sources of truth. If future
-work needs richer feature metadata, extend `planSteps[]` rather than adding a
+This preserves a single source of truth for plan state, criterion status,
+verification evidence, blockers, and handoff context. If future work needs
+richer feature metadata such as explicit dependency edges or owner fields,
+extend `AlgorithmPlanStep` and the Algorithm CLI surface rather than adding a
 parallel registry.
