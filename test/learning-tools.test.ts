@@ -15,6 +15,7 @@ import {
   type InferenceRequest,
 } from "../src";
 import { runSomaCli } from "../src/cli";
+import { formatOpinionsMarkdown, parseOpinionsMarkdown } from "../src/tools/learning/opinion-tracker";
 
 class DescriptionBackend implements InferenceBackend {
   readonly kind = "claude-code" as const;
@@ -156,6 +157,48 @@ test("opinion tracker creates opinions and applies asymmetric confidence deltas"
     const content = await readFile(join(somaHome, "identity/opinions.md"), "utf8");
     expect(content).toContain("soma-opinions-v1");
     expect(content).not.toContain(".claude");
+  });
+});
+
+test("opinion CLI covers confidence math, stable markdown, list, and show", async () => {
+  await withTempHome(async (homeDir, somaHome) => {
+    await expect(
+      runSomaCli(["opinion", "add", "Prefer direct technical summaries", "--category", "communication", "--home-dir", homeDir]),
+    ).resolves.toBe("added opinion: Prefer direct technical summaries (communication, 0.50)\n");
+
+    await expect(
+      runSomaCli(["opinion", "evidence", "Prefer direct technical summaries", "--supporting", "Direct summary landed well.", "--home-dir", homeDir]),
+    ).resolves.toContain("confidence: 0.50 -> 0.52");
+    await expect(
+      runSomaCli(["opinion", "evidence", "Prefer direct technical summaries", "--counter", "More context was needed.", "--home-dir", homeDir]),
+    ).resolves.toContain("confidence: 0.52 -> 0.47");
+    await expect(
+      runSomaCli(["opinion", "evidence", "Prefer direct technical summaries", "--confirmation", "Explicitly confirmed preference.", "--home-dir", homeDir]),
+    ).resolves.toContain("confidence: 0.47 -> 0.57");
+    await expect(
+      runSomaCli(["opinion", "evidence", "Prefer direct technical summaries", "--contradiction", "Explicitly contradicted preference.", "--home-dir", homeDir]),
+    ).resolves.toContain("confidence: 0.57 -> 0.37");
+
+    const list = await runSomaCli(["opinion", "list", "--home-dir", homeDir]);
+    expect(list).toBe("0.37 communication Prefer direct technical summaries\n");
+
+    const shown = JSON.parse(await runSomaCli(["opinion", "show", "Prefer direct technical summaries", "--home-dir", homeDir])) as {
+      confidence: number;
+      evidence: { type: string }[];
+    };
+    expect(shown.confidence).toBeCloseTo(0.37);
+    expect(shown.evidence.map((entry) => entry.type)).toEqual(["supporting", "counter", "confirmation", "contradiction"]);
+
+    const opinionsPath = join(somaHome, "identity/opinions.md");
+    const content = await readFile(opinionsPath, "utf8");
+    const parsed = parseOpinionsMarkdown(content);
+    const rerendered = formatOpinionsMarkdown(parsed);
+
+    expect(parsed).toHaveLength(1);
+    expect(rerendered).toBe(formatOpinionsMarkdown(parseOpinionsMarkdown(rerendered)));
+    expect(opinionsPath).not.toContain(".claude/PAI");
+    expect(content).not.toContain(".claude/PAI");
+    await expect(stat(join(somaHome, "memory/RELATIONSHIP"))).resolves.toBeDefined();
   });
 });
 
