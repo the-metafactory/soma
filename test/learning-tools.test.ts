@@ -15,6 +15,7 @@ import {
   type InferenceRequest,
 } from "../src";
 import { runSomaCli } from "../src/cli";
+import { formatOpinionsMarkdown, parseOpinionsMarkdown } from "../src/tools/learning/opinion-tracker";
 
 class DescriptionBackend implements InferenceBackend {
   readonly kind = "claude-code" as const;
@@ -156,6 +157,47 @@ test("opinion tracker creates opinions and applies asymmetric confidence deltas"
     const content = await readFile(join(somaHome, "identity/opinions.md"), "utf8");
     expect(content).toContain("soma-opinions-v1");
     expect(content).not.toContain(".claude");
+  });
+});
+
+test("opinion CLI covers confidence math, stable markdown, list, and show", async () => {
+  await withTempHome(async (homeDir, somaHome) => {
+    await expect(
+      runSomaCli(["opinion", "add", "Prefer direct technical summaries", "--category", "communication", "--home-dir", homeDir]),
+    ).resolves.toBe("added opinion: Prefer direct technical summaries (communication, 0.50)\n");
+
+    const evidenceCases = [
+      { flag: "--supporting", text: "Direct summary landed well.", expected: "confidence: 0.50 -> 0.52" },
+      { flag: "--counter", text: "More context was needed.", expected: "confidence: 0.52 -> 0.47" },
+      { flag: "--confirmation", text: "Explicitly confirmed preference.", expected: "confidence: 0.47 -> 0.57" },
+      { flag: "--contradiction", text: "Explicitly contradicted preference.", expected: "confidence: 0.57 -> 0.37" },
+    ];
+    for (const { flag, text, expected } of evidenceCases) {
+      await expect(
+        runSomaCli(["opinion", "evidence", "Prefer direct technical summaries", flag, text, "--home-dir", homeDir]),
+      ).resolves.toContain(expected);
+    }
+
+    const list = await runSomaCli(["opinion", "list", "--home-dir", homeDir]);
+    expect(list).toBe("0.37 communication Prefer direct technical summaries\n");
+
+    const shown = JSON.parse(await runSomaCli(["opinion", "show", "Prefer direct technical summaries", "--home-dir", homeDir])) as {
+      confidence: number;
+      evidence: { type: string }[];
+    };
+    expect(shown.confidence).toBeCloseTo(0.37);
+    expect(shown.evidence.map((entry) => entry.type)).toEqual(["supporting", "counter", "confirmation", "contradiction"]);
+
+    const opinionsPath = join(somaHome, "identity/opinions.md");
+    const content = await readFile(opinionsPath, "utf8");
+    const parsed = parseOpinionsMarkdown(content);
+    const rerendered = formatOpinionsMarkdown(parsed);
+
+    expect(parsed).toHaveLength(1);
+    expect(rerendered).toBe(formatOpinionsMarkdown(parseOpinionsMarkdown(rerendered)));
+    expect(opinionsPath).not.toContain(".claude/PAI");
+    expect(content).not.toContain(".claude/PAI");
+    await expect(stat(join(somaHome, "memory/RELATIONSHIP"))).resolves.toBeDefined();
   });
 });
 
