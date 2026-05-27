@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { addOpinion, parseRelationshipNotes, reflectRelationship, type RelationshipNotification } from "../src";
 import { runSomaCli } from "../src/cli";
+import { adjustOpinionConfidence, type EvidenceType } from "../src/tools/learning";
 
 async function withTempHome(fn: (homeDir: string, somaHome: string) => Promise<void>): Promise<void> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-relationship-"));
@@ -68,9 +69,20 @@ test("relationship reflection supports dry-run and notification injection", asyn
     ].join("\n"), "utf8");
 
     const dryRun = await reflectRelationship({ homeDir, dryRun: true, now: new Date("2026-05-20T12:00:00Z") });
-    expect(dryRun.opinionUpdates[0]?.newConfidence).toBeCloseTo(0.3);
+    const evidenceTypes: EvidenceType[] = ["counter", "counter", "counter", "counter"];
+    const expectedConfidence = evidenceTypes.reduce(
+      (confidence, evidenceType) => adjustOpinionConfidence(confidence, evidenceType),
+      0.5,
+    );
+    expect(dryRun.opinionUpdates[0]?.newConfidence).toBeCloseTo(expectedConfidence);
     expect(dryRun.opinionUpdates[0]?.notified).toBe(false);
     await expect(readFile(join(somaHome, "identity/our-story.md"), "utf8")).rejects.toThrow();
+
+    const noNotifier = await reflectRelationship({
+      homeDir,
+      now: new Date("2026-05-20T12:00:00Z"),
+    });
+    expect(noNotifier.opinionUpdates[0]?.notified).toBe(false);
 
     const notifications: RelationshipNotification[] = [];
     const result = await reflectRelationship({
@@ -80,6 +92,42 @@ test("relationship reflection supports dry-run and notification injection", asyn
     });
     expect(result.opinionUpdates[0]?.notified).toBe(true);
     expect(notifications).toHaveLength(1);
+  });
+});
+
+test("relationship reflection scans recent notes and ratings in milestones-only mode", async () => {
+  await withTempHome(async (homeDir, somaHome) => {
+    const recentDir = join(somaHome, "memory/RELATIONSHIP/2026-05");
+    const oldDir = join(somaHome, "memory/RELATIONSHIP/2026-04");
+    await mkdir(recentDir, { recursive: true });
+    await mkdir(oldDir, { recursive: true });
+    await writeFile(join(recentDir, "2026-05-27.md"), "W: assistant — challenged the vague plan\n", "utf8");
+    await writeFile(join(oldDir, "2026-04-01.md"), "O: collaboration — voice exchange made the collaborator smile\n", "utf8");
+
+    const ratingsDir = join(somaHome, "memory/LEARNING/SIGNALS");
+    await mkdir(ratingsDir, { recursive: true });
+    await writeFile(
+      join(ratingsDir, "ratings.jsonl"),
+      Array.from({ length: 100 }, (_, index) => JSON.stringify({ timestamp: `2026-05-27T00:00:${String(index % 60).padStart(2, "0")}Z`, rating: 8 })).join("\n"),
+      "utf8",
+    );
+
+    const output = await runSomaCli([
+      "relationship",
+      "reflect",
+      "--milestones-only",
+      "--home-dir",
+      homeDir,
+    ]);
+    expect(output).toContain("opinion updates: 0");
+    expect(output).toContain("milestones: 2");
+
+    await expect(readFile(join(somaHome, "identity/opinions.md"), "utf8")).rejects.toThrow();
+    const story = await readFile(join(somaHome, "identity/our-story.md"), "utf8");
+    expect(story).toContain("milestone:first-pushback");
+    expect(story).toContain("milestone:100-sessions");
+    expect(story).not.toContain("milestone:voice-smile");
+    expect(story).not.toContain(".claude");
   });
 });
 
