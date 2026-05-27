@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import {
+  DEFAULT_ALGORITHM_LOOP_ITERATION_HISTORY_LIMIT,
   IDEATE_PRESETS,
   OPTIMIZE_PRESETS,
   algorithmLoopBlockedEvent,
@@ -10,6 +11,7 @@ import {
   detectPlateau,
   partitionCriteriaByDomain,
   partitionRunCriteriaByDomain,
+  recordAlgorithmLoopIterationResult,
   validateIdeateParameters,
   validateOptimizeParameters,
 } from "../src";
@@ -128,6 +130,107 @@ test("#133 detectPlateau uses plateau counter and consecutive zero-progress iter
   expect(detectPlateau(progressMade)).toBe(false);
 });
 
+test("#222 records executor iteration results into portable loop metadata", () => {
+  const run: AlgorithmRun = {
+    ...createAlgorithmRun({
+      id: "loop-record-test",
+      timestamp: "2026-05-27T12:20:00.000Z",
+      prompt: "Record loop iterations",
+      intent: "Verify substrate-neutral loop metadata.",
+      currentState: "Executor has not run.",
+      goal: "Loop iterations are tracked.",
+      criteria: [{ id: "C1", text: "Iteration metadata is present." }],
+    }),
+    loop: {
+      status: "running",
+      iterationCount: 0,
+      plateauCounter: 0,
+      iterations: [],
+    },
+  };
+
+  const stalled = recordAlgorithmLoopIterationResult(
+    { run, progressBefore: "0/1", progressAfter: "0/1", summary: "No criterion moved." },
+    "2026-05-27T12:21:00.000Z",
+  );
+  expect(stalled.updatedAt).toBe("2026-05-27T12:21:00.000Z");
+  expect(stalled.loop).toEqual({
+    status: "running",
+    iterationCount: 1,
+    plateauCounter: 1,
+    iterations: [
+      {
+        iteration: 1,
+        timestamp: "2026-05-27T12:21:00.000Z",
+        progressBefore: "0/1",
+        progressAfter: "0/1",
+        summary: "No criterion moved.",
+      },
+    ],
+  });
+
+  const progressed = recordAlgorithmLoopIterationResult(
+    { run: stalled, progressBefore: "0/1", progressAfter: "1/1" },
+    "2026-05-27T12:22:00.000Z",
+  );
+  expect(progressed.loop.iterationCount).toBe(2);
+  expect(progressed.loop.plateauCounter).toBe(0);
+  expect(progressed.loop.iterations.at(-1)).toEqual({
+    iteration: 2,
+    timestamp: "2026-05-27T12:22:00.000Z",
+    progressBefore: "0/1",
+    progressAfter: "1/1",
+  });
+});
+
+test("#222 loop result recording keeps bounded recent history", () => {
+  expect(DEFAULT_ALGORITHM_LOOP_ITERATION_HISTORY_LIMIT).toBe(200);
+  const base = createAlgorithmRun({
+    id: "loop-history-limit-test",
+    timestamp: "2026-05-27T12:25:00.000Z",
+    prompt: "Bound loop history",
+    intent: "Verify loop history cap.",
+    currentState: "Two iterations are already recorded.",
+    goal: "Only recent iterations are retained.",
+    criteria: [{ id: "C1", text: "History is bounded." }],
+  });
+  const run: AlgorithmRun = {
+    ...base,
+    loop: {
+      status: "running",
+      iterationCount: 2,
+      plateauCounter: 2,
+      iterations: [
+        { iteration: 1, timestamp: "2026-05-27T12:25:00.000Z", progressBefore: "0/1", progressAfter: "0/1" },
+        { iteration: 2, timestamp: "2026-05-27T12:26:00.000Z", progressBefore: "0/1", progressAfter: "0/1" },
+      ],
+    },
+  };
+
+  const bounded = recordAlgorithmLoopIterationResult(
+    { run, progressBefore: "0/1", progressAfter: "0/1" },
+    "2026-05-27T12:27:00.000Z",
+    2,
+  );
+
+  expect(bounded.loop.iterationCount).toBe(3);
+  expect(bounded.loop.plateauCounter).toBe(3);
+  expect(bounded.loop.iterations.map((iteration) => iteration.iteration)).toEqual([2, 3]);
+  const lastOnly = recordAlgorithmLoopIterationResult(
+    { run, progressBefore: "0/1", progressAfter: "0/1" },
+    "2026-05-27T12:28:00.000Z",
+    1,
+  );
+  expect(lastOnly.loop.iterations.map((iteration) => iteration.iteration)).toEqual([3]);
+  expect(() =>
+    recordAlgorithmLoopIterationResult(
+      { run, progressBefore: "0/1", progressAfter: "0/1" },
+      "2026-05-27T12:29:00.000Z",
+      0,
+    ),
+  ).toThrow("maxRecordedIterations");
+});
+
 test("#133 partitions criteria by ISC domain and load-balances when worker count is lower", () => {
   const criteria = [
     criterion("ISC-UI-1"),
@@ -200,6 +303,15 @@ test("#133 notification events are substrate-neutral data contracts", () => {
     plateauCounter: 3,
     threshold: 3,
   });
+});
+
+test("#222 execution-mode contracts avoid hardcoded Claude invocation paths", () => {
+  const executionModeSource = readFileSync("src/algorithm-execution-modes.ts", "utf8");
+  const contractSurface = `${executionModeSource}\n${algorithmExecutionModesDocs}`;
+
+  for (const forbidden of ["~/.claude", ".claude/", "claude -p", "ClaudeCLI", "CodexAPI", "Pi.dev API"]) {
+    expect(contractSurface).not.toContain(forbidden);
+  }
 });
 
 test("#220 documents FeatureRegistry as an Algorithm plan-state decision", () => {

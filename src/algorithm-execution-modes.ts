@@ -1,5 +1,6 @@
 import type {
   AlgorithmCriteriaPartition,
+  AlgorithmLoopIterationResult,
   AlgorithmLoopState,
   AlgorithmNotificationEvent,
   AlgorithmPhase,
@@ -18,6 +19,8 @@ export const DEFAULT_ALGORITHM_LOOP_STATE: AlgorithmLoopState = {
   plateauCounter: 0,
   iterations: [],
 };
+
+export const DEFAULT_ALGORITHM_LOOP_ITERATION_HISTORY_LIMIT = 200;
 
 export const IDEATE_PRESETS: Record<IdeatePresetName, IdeateParameters> = {
   dream: {
@@ -146,8 +149,38 @@ export function detectPlateau(run: Pick<AlgorithmRun, "loop">, threshold = 3): b
   return recent.length === threshold && recent.every((iteration) => iteration.progressBefore === iteration.progressAfter);
 }
 
+export function recordAlgorithmLoopIterationResult(
+  result: AlgorithmLoopIterationResult,
+  timestamp = new Date().toISOString(),
+  maxRecordedIterations = DEFAULT_ALGORITHM_LOOP_ITERATION_HISTORY_LIMIT,
+): AlgorithmRun {
+  assertPositiveInteger(maxRecordedIterations, "maxRecordedIterations");
+  const iteration = result.run.loop.iterationCount + 1;
+  const madeProgress = result.progressBefore !== result.progressAfter;
+  const loopIteration = {
+    iteration,
+    timestamp,
+    progressBefore: result.progressBefore,
+    progressAfter: result.progressAfter,
+    ...(result.summary !== undefined ? { summary: result.summary } : {}),
+  };
+  const retainedIterations =
+    maxRecordedIterations === 1 ? [] : result.run.loop.iterations.slice(-(maxRecordedIterations - 1));
+
+  return {
+    ...result.run,
+    updatedAt: timestamp,
+    loop: {
+      ...result.run.loop,
+      iterationCount: iteration,
+      plateauCounter: madeProgress ? 0 : result.run.loop.plateauCounter + 1,
+      iterations: [...retainedIterations, loopIteration],
+    },
+  };
+}
+
 function domainFromCriterionId(id: string): string {
-  const match = id.match(/^(?:ISC|C)-([A-Za-z][A-Za-z0-9]*)-\d+$/);
+  const match = /^(?:ISC|C)-([A-Za-z][A-Za-z0-9]*)-\d+$/.exec(id);
   return match ? match[1].toLowerCase() : "general";
 }
 

@@ -53,7 +53,12 @@ interface AlgorithmLoopExecutor {
 
 Soma does not spawn agents from this interface. A substrate adapter provides
 the executor and returns a new `AlgorithmRun` plus progress evidence after
-each iteration.
+each iteration. After the executor returns, `recordAlgorithmLoopIterationResult`
+copies the progress summary into `AlgorithmRun.loop`, increments
+`iterationCount`, and updates `plateauCounter` without knowing how the
+substrate invoked the model or worker. Recorded iteration history is bounded
+by `DEFAULT_ALGORITHM_LOOP_ITERATION_HISTORY_LIMIT` so long-running loops keep
+recent progress evidence without unbounded array growth.
 
 ## Capability Invocation Semantics
 
