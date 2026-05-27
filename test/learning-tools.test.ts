@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
@@ -31,6 +31,12 @@ async function withTempHome(fn: (homeDir: string, somaHome: string) => Promise<v
   await fn(homeDir, join(homeDir, ".soma"));
 }
 
+function reportPathFromOutput(output: string): string {
+  const reportLine = output.split("\n").find((line) => line.startsWith("report: "));
+  if (!reportLine) throw new Error(`CLI output did not include report path:\n${output}`);
+  return reportLine.slice("report: ".length);
+}
+
 test("learning synthesis detects frustration and success patterns from ratings", async () => {
   await withTempHome(async (homeDir, somaHome) => {
     const signals = join(somaHome, "memory/LEARNING/SIGNALS");
@@ -51,6 +57,72 @@ test("learning synthesis detects frustration and success patterns from ratings",
     expect(result.successes.map((group) => group.pattern)).toContain("Clean Implementation");
     expect(result.path).toContain("memory/LEARNING/SYNTHESIS/2026-05");
     await expect(readFile(result.path!, "utf8")).resolves.toContain("Learning Pattern Synthesis");
+  });
+});
+
+test("learning synthesis CLI writes weekly Soma report with recurring counts and confidence", async () => {
+  await withTempHome(async (homeDir, somaHome) => {
+    const signals = join(somaHome, "memory/LEARNING/SIGNALS");
+    await mkdir(signals, { recursive: true });
+    const now = new Date();
+    await writeFile(join(signals, "ratings.jsonl"), [
+      JSON.stringify({ timestamp: now.toISOString(), rating: 2, sentiment_summary: "slow delay in wrong approach", confidence: 0.9 }),
+      JSON.stringify({ timestamp: now.toISOString(), rating: 4, sentiment_summary: "slow delay from the same tool issue", confidence: 0.7 }),
+      JSON.stringify({ timestamp: now.toISOString(), rating: 9, sentiment_summary: "quick clean implementation", confidence: 0.8 }),
+      JSON.stringify({ timestamp: now.toISOString(), rating: 8, sentiment_summary: "quick smooth and clean result", confidence: 0.6 }),
+    ].join("\n"), "utf8");
+
+    const output = await runSomaCli(["learning", "synthesize", "--week", "--home-dir", homeDir]);
+    const reportPath = reportPathFromOutput(output);
+    const report = await readFile(reportPath, "utf8");
+
+    expect(output).toContain("soma learning synthesize - Weekly");
+    expect(output).toContain("ratings: 4");
+    expect(reportPath).toContain(join(somaHome, "memory/LEARNING/SYNTHESIS"));
+    expect(reportPath).not.toContain(".claude/PAI");
+    expect(report).toContain("### Time/Performance Issues");
+    expect(report).toContain("- Occurrences: 2");
+    expect(report).toContain("- Average confidence: 0.80");
+    expect(report).toContain("### Quick Resolution");
+    expect(report).toContain("Input ratings come from `memory/LEARNING/SIGNALS/ratings.jsonl`");
+    expect(report).not.toContain(".claude/PAI");
+  });
+});
+
+test("learning synthesis filters week, month, and all-time windows without writing on dry-run", async () => {
+  await withTempHome(async (homeDir, somaHome) => {
+    const signals = join(somaHome, "memory/LEARNING/SIGNALS");
+    await mkdir(signals, { recursive: true });
+    await writeFile(join(signals, "ratings.jsonl"), [
+      JSON.stringify({ timestamp: "2026-05-26T12:00:00Z", rating: 2, sentiment_summary: "slow delay this week", confidence: 0.9 }),
+      JSON.stringify({ timestamp: "2026-05-10T12:00:00Z", rating: 3, sentiment_summary: "slow delay this month", confidence: 0.8 }),
+      JSON.stringify({ timestamp: "2026-03-01T12:00:00Z", rating: 4, sentiment_summary: "slow delay older pattern", confidence: 0.7 }),
+    ].join("\n"), "utf8");
+
+    const options = { homeDir, now: new Date("2026-05-27T12:00:00Z"), dryRun: true };
+    const weekly = await synthesizeLearningPatterns("week", options);
+    const monthly = await synthesizeLearningPatterns("month", options);
+    const allTime = await synthesizeLearningPatterns("all", options);
+
+    expect(weekly.totalRatings).toBe(1);
+    expect(monthly.totalRatings).toBe(2);
+    expect(allTime.totalRatings).toBe(3);
+    expect(allTime.frustrations.find((group) => group.pattern === "Time/Performance Issues")?.count).toBe(3);
+    expect(weekly.path).toBeUndefined();
+    expect(monthly.path).toBeUndefined();
+    expect(allTime.path).toBeUndefined();
+    await expect(stat(join(somaHome, "memory/LEARNING/SYNTHESIS"))).rejects.toThrow();
+  });
+});
+
+test("learning synthesis handles missing ratings files gracefully in dry-run mode", async () => {
+  await withTempHome(async (homeDir, somaHome) => {
+    const output = await runSomaCli(["learning", "synthesize", "--all", "--dry-run", "--home-dir", homeDir]);
+
+    expect(output).toContain("soma learning synthesize - All Time");
+    expect(output).toContain("ratings: 0");
+    expect(output).toContain("dry-run: report not written");
+    await expect(stat(join(somaHome, "memory/LEARNING/SYNTHESIS"))).rejects.toThrow();
   });
 });
 
