@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
@@ -48,6 +48,18 @@ function textStream(text: string): ReadableStream<Uint8Array> {
       controller.close();
     },
   });
+}
+
+async function collectTypeScriptFiles(dir: string): Promise<string[]> {
+  const entries = await readdir(dir, { withFileTypes: true });
+  const files = await Promise.all(entries.map(async (entry) => {
+    const fullPath = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      return collectTypeScriptFiles(fullPath);
+    }
+    return entry.isFile() && entry.name.endsWith(".ts") ? [fullPath] : [];
+  }));
+  return files.flat();
 }
 
 test("parseInferenceJson greedily extracts object and array payloads", () => {
@@ -249,4 +261,15 @@ test("Claude Code backend scrubs Anthropic env, writes prompt to stdin, and time
   expect(launches[0]?.killed).toBe(true);
 
   await expect(readFile(join(import.meta.dir, "..", "src/tools/inference/index.ts"), "utf8")).resolves.not.toContain(".claude");
+});
+
+test("inference tool source tree has no legacy PAI path literals", async () => {
+  const files = await collectTypeScriptFiles(join(import.meta.dir, "..", "src/tools/inference"));
+  expect(files.length).toBeGreaterThan(0);
+
+  for (const file of files) {
+    const content = await readFile(file, "utf8");
+    expect(content).not.toContain("~/.claude/PAI");
+    expect(content).not.toContain(".claude/PAI");
+  }
 });
