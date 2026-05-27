@@ -386,6 +386,41 @@ test("session harvester defaults to canonical work registry state", async () => 
   });
 });
 
+test("session harvester CLI reads recent Soma work state and ignores legacy Claude paths", async () => {
+  await withTempHome(async (homeDir, somaHome) => {
+    await mkdir(join(homeDir, ".claude/PAI/sessions"), { recursive: true });
+    await writeFile(join(homeDir, ".claude/PAI/sessions/legacy.jsonl"), [
+      JSON.stringify({ type: "user", timestamp: "2026-05-26T10:02:00.000Z", message: { content: "Actually, legacy Claude path should not be harvested." } }),
+    ].join("\n"), "utf8");
+    await upsertSomaWorkRegistryEntry({
+      homeDir,
+      sessionId: "old-session",
+      sessionName: "old registry session",
+      substrate: "codex",
+      task: "Old work",
+      timestamp: "2026-05-26T09:00:00.000Z",
+    });
+    await upsertSomaWorkRegistryEntry({
+      homeDir,
+      sessionId: "new-session",
+      sessionName: "new registry session",
+      substrate: "codex",
+      task: "New work",
+      timestamp: "2026-05-26T10:00:00.000Z",
+    });
+
+    const output = await runSomaCli(["learning", "harvest", "--recent", "1", "--home-dir", homeDir]);
+    const learningPath = output.trim().split("\n").at(1);
+
+    expect(output).toStartWith("soma learning harvest - 1 learning(s)\n");
+    expect(output).not.toContain(".claude");
+    expect(learningPath).toContain(join(somaHome, "memory/LEARNING/ALGORITHM/2026-05"));
+    await expect(readFile(learningPath!, "utf8")).resolves.toContain("New work");
+    await expect(readFile(learningPath!, "utf8")).resolves.not.toContain("Old work");
+    await expect(readFile(learningPath!, "utf8")).resolves.not.toContain("legacy Claude path");
+  });
+});
+
 test("session harvester work-registry filter matches exact session ids only", async () => {
   await withTempHome(async (homeDir) => {
     await upsertSomaWorkRegistryEntry({
