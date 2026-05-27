@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
@@ -9,11 +9,28 @@ import {
   updateFrame,
 } from "../src";
 import { runSomaCli } from "../src/cli";
-import { jaccardSimilarity } from "../src/tools/wisdom";
+import { jaccardSimilarity, loadRelevantFrames } from "../src/tools/wisdom";
 
 async function withTempHome(fn: (homeDir: string, somaHome: string) => Promise<void>): Promise<void> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-wisdom-"));
   await fn(homeDir, join(homeDir, ".soma"));
+}
+
+async function seedClassifierFrames(homeDir: string): Promise<void> {
+  await updateFrame({
+    homeDir,
+    domain: "security-review",
+    type: "principle",
+    observation: "OAuth token audit catches permission boundary mistakes before release",
+    now: new Date("2026-05-21T12:00:00Z"),
+  });
+  await updateFrame({
+    homeDir,
+    domain: "deployment",
+    type: "contextual-rule",
+    observation: "Cloudflare worker DNS changes need explicit rollback notes",
+    now: new Date("2026-05-21T12:00:00Z"),
+  });
 }
 
 test("wisdom update creates frames, appends observations, and lists counts", async () => {
@@ -52,7 +69,9 @@ test("wisdom classifier handles default and dynamic frame domains", async () => 
   await withTempHome(async (homeDir) => {
     const defaults = await classifyDomains("how should I structure the PR review", { homeDir });
     expect(defaults[0]).toMatchObject({ domain: "development" });
-    expect(defaults[0]!.relevance).toBeGreaterThanOrEqual(0.8);
+    expect(defaults[0].relevance).toBeGreaterThanOrEqual(0.8);
+    expect(defaults[0].path).toContain(".soma/memory/WISDOM/FRAMES/development.md");
+    expect(defaults[0].path).not.toContain(".claude");
 
     await updateFrame({
       homeDir,
@@ -62,6 +81,58 @@ test("wisdom classifier handles default and dynamic frame domains", async () => 
     });
     const dynamic = await classifyDomains("auth boundary threat modeling for release", { homeDir });
     expect(dynamic.map((item) => item.domain)).toContain("security-review");
+  });
+});
+
+test("wisdom classifier orders multi-domain matches from dynamic and default frames", async () => {
+  await withTempHome(async (homeDir) => {
+    await seedClassifierFrames(homeDir);
+
+    const classifications = await classifyDomains("oauth token audit before cloudflare worker deploy review", { homeDir });
+    expect(classifications.map((item) => item.domain)).toEqual(["security-review", "deployment", "development"]);
+    expect(classifications[0].relevance).toBeGreaterThan(classifications[1].relevance);
+    expect(classifications[0].matches).toEqual(expect.arrayContaining(["oauth", "token", "audit"]));
+    expect(classifications.map((item) => item.path)).toEqual(expect.arrayContaining([
+      expect.stringContaining(".soma/memory/WISDOM/FRAMES/security-review.md"),
+      expect.stringContaining(".soma/memory/WISDOM/FRAMES/deployment.md"),
+      expect.stringContaining(".soma/memory/WISDOM/FRAMES/development.md"),
+    ]));
+    expect(classifications.map((item) => item.path).join("\n")).not.toContain(".claude");
+  });
+});
+
+test("wisdom classifier loads relevant dynamic frame content", async () => {
+  await withTempHome(async (homeDir) => {
+    await seedClassifierFrames(homeDir);
+
+    const frames = await loadRelevantFrames("token permission boundary", { homeDir });
+    expect(frames.map((frame) => frame.domain)).toEqual(["security-review"]);
+    expect(frames[0].content).toContain("OAuth token audit catches permission boundary mistakes before release");
+  });
+});
+
+test("wisdom CLI classifies and lists dynamic frame domains", async () => {
+  await withTempHome(async (homeDir) => {
+    await seedClassifierFrames(homeDir);
+
+    const cliClassified = JSON.parse(await runSomaCli([
+      "wisdom",
+      "classify",
+      "oauth",
+      "token",
+      "audit",
+      "cloudflare",
+      "worker",
+      "deploy",
+      "review",
+      "--home-dir",
+      homeDir,
+    ])) as { domain: string; relevance: number; matches: string[] }[];
+    expect(cliClassified.map((item) => item.domain)).toEqual(["security-review", "deployment", "development"]);
+
+    const list = await runSomaCli(["wisdom", "list", "--home-dir", homeDir]);
+    expect(list).toContain("security-review\t1\t");
+    expect(list).toContain("deployment\t1\t");
   });
 });
 
