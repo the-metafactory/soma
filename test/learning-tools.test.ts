@@ -476,6 +476,11 @@ test("metrics and session progress CLIs operate on Soma paths", async () => {
 
 test("metrics CLI treats missing Soma paths as zero and avoids Claude settings", async () => {
   await withTempHome(async (homeDir) => {
+    await mkdir(join(homeDir, ".claude/PAI/Skills/legacy/Workflows"), { recursive: true });
+    await writeFile(join(homeDir, ".claude/settings.json"), JSON.stringify({ hooks: ["legacy"] }), "utf8");
+    await writeFile(join(homeDir, ".claude/PAI/Skills/legacy/SKILL.md"), "# Legacy Claude Skill\n", "utf8");
+    await writeFile(join(homeDir, ".claude/PAI/Skills/legacy/Workflows/run.md"), "# Legacy Workflow\n", "utf8");
+
     const output = JSON.parse(await runSomaCli(["metrics", "--home-dir", homeDir])) as Record<string, number>;
     expect(output).toEqual({
       skills: 0,
@@ -498,9 +503,5 @@ test("metrics CLI treats missing Soma paths as zero and avoids Claude settings",
       "events_count=0",
       "",
     ].join("\n"));
-
-    const metricsSource = await readFile("src/tools/learning/metrics.ts", "utf8");
-    expect(metricsSource).not.toContain(".claude/settings.json");
-    expect(metricsSource).not.toContain(".claude/PAI");
   });
 });
