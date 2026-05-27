@@ -152,6 +152,7 @@ export {
 } from "./algorithm-capabilities";
 export { classifyAlgorithmPrompt } from "./algorithm-classifier";
 export {
+  DEFAULT_ALGORITHM_LOOP_ITERATION_HISTORY_LIMIT,
   DEFAULT_ALGORITHM_LOOP_STATE,
   IDEATE_PRESETS,
   OPTIMIZE_PRESETS,
@@ -161,6 +162,7 @@ export {
   detectPlateau,
   partitionCriteriaByDomain,
   partitionRunCriteriaByDomain,
+  recordAlgorithmLoopIterationResult,
   validateIdeateParameters,
   validateOptimizeParameters,
 } from "./algorithm-execution-modes";
@@ -382,6 +384,7 @@ export {
   // #106 — `PaiPackSubstrateSpecificRefusal` is kept as a deprecated
   // alias of `PaiPackUnrecognizedLayoutRefusal` (see pai-pack-importer.ts).
   // Both names resolve to the same class.
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   PaiPackSubstrateSpecificRefusal,
   PaiPackUnrecognizedLayoutRefusal,
   planPaiPackImport,
