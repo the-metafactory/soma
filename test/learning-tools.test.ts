@@ -509,6 +509,55 @@ test("metrics and session progress CLIs operate on Soma paths", async () => {
   });
 });
 
+test("session progress CLI persists every command with timestamped resume context", async () => {
+  await withTempHome(async (homeDir, somaHome) => {
+    await mkdir(join(homeDir, ".claude/PAI/progress"), { recursive: true });
+    await writeFile(join(homeDir, ".claude/PAI/progress/launch-progress.json"), JSON.stringify({ project: "legacy" }), "utf8");
+
+    await expect(runSomaCli(["session", "create", "Launch", "ship beta", "write docs", "--home-dir", homeDir]))
+      .resolves.toBe("created session: launch\n");
+    await expect(runSomaCli(["session", "decision", "Launch", "Use Soma state", "--home-dir", homeDir]))
+      .resolves.toBe("recorded decision: launch\n");
+    await expect(runSomaCli(["session", "work", "Launch", "Implemented tracker", "--home-dir", homeDir]))
+      .resolves.toBe("recorded work: launch\n");
+    await expect(runSomaCli(["session", "blocker", "Launch", "Need review", "--home-dir", homeDir]))
+      .resolves.toBe("recorded blocker: launch\n");
+    await expect(runSomaCli(["session", "next", "Launch", "Merge PR", "--home-dir", homeDir]))
+      .resolves.toBe("recorded next step: launch\n");
+    await expect(runSomaCli(["session", "handoff", "Launch", "Reviewer should check state paths", "--home-dir", homeDir]))
+      .resolves.toBe("recorded handoff: launch\n");
+    await expect(runSomaCli(["session", "complete", "Launch", "--home-dir", homeDir]))
+      .resolves.toBe("completed session: launch\n");
+
+    const progressPath = join(somaHome, "memory/STATE/progress/launch-progress.json");
+    const progress = JSON.parse(await readFile(progressPath, "utf8")) as {
+      status: string;
+      objectives: string[];
+      decisions: { text: string; timestamp: string }[];
+      work_completed: { text: string; timestamp: string }[];
+      blockers: { text: string; timestamp: string }[];
+      next_steps: { text: string; timestamp: string }[];
+      handoff_notes: { text: string; timestamp: string }[];
+    };
+
+    expect(progress.status).toBe("completed");
+    expect(progress.objectives).toEqual(["ship beta", "write docs"]);
+    expect(progress.decisions[0]).toMatchObject({ text: "Use Soma state", timestamp: expect.stringContaining("T") });
+    expect(progress.work_completed[0]).toMatchObject({ text: "Implemented tracker", timestamp: expect.stringContaining("T") });
+    expect(progress.blockers[0]).toMatchObject({ text: "Need review", timestamp: expect.stringContaining("T") });
+    expect(progress.next_steps[0]).toMatchObject({ text: "Merge PR", timestamp: expect.stringContaining("T") });
+    expect(progress.handoff_notes[0]).toMatchObject({ text: "Reviewer should check state paths", timestamp: expect.stringContaining("T") });
+
+    const resume = await runSomaCli(["session", "resume", "Launch", "--home-dir", homeDir]);
+    expect(resume).toContain("SESSION RESUME: launch");
+    expect(resume).toContain("Use Soma state");
+    expect(resume).toContain("Merge PR");
+    expect(resume).toContain("Reviewer should check state paths");
+    expect(resume).not.toContain(".claude");
+    expect(await runSomaCli(["session", "list", "--home-dir", homeDir])).toContain("launch completed ");
+  });
+});
+
 test("metrics CLI treats missing Soma paths as zero and avoids Claude settings", async () => {
   await withTempHome(async (homeDir) => {
     await mkdir(join(homeDir, ".claude/PAI/Skills/legacy/Workflows"), { recursive: true });
