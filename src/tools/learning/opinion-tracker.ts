@@ -29,10 +29,15 @@ function today(now = new Date()): string {
   return now.toISOString().slice(0, 10);
 }
 
+export function adjustOpinionConfidence(confidence: number, type: EvidenceType): number {
+  assertEvidenceType(type);
+  return Math.max(0.01, Math.min(0.99, confidence + CONFIDENCE_ADJUSTMENTS[type]));
+}
+
 export function parseOpinionsMarkdown(content: string): Opinion[] {
   const machineDataIndex = content.indexOf("## Machine Data");
   const machineData = machineDataIndex === -1 ? content : content.slice(machineDataIndex);
-  const parsed = machineData.match(/```json\n([\s\S]*?)\n```/);
+  const parsed = /```json\n([\s\S]*?)\n```/.exec(machineData);
   if (parsed?.[1]) {
     const value = JSON.parse(parsed[1]) as { opinions?: Opinion[] };
     return Array.isArray(value.opinions) ? value.opinions : [];
@@ -145,7 +150,7 @@ export async function addOpinionEvidence(
   if (!opinion) throw new Error(`Opinion not found: ${statement}`);
 
   const oldConfidence = opinion.confidence;
-  opinion.confidence = Math.max(0.01, Math.min(0.99, opinion.confidence + CONFIDENCE_ADJUSTMENTS[type]));
+  opinion.confidence = adjustOpinionConfidence(opinion.confidence, type);
   opinion.lastUpdated = today(options.now ?? new Date());
   const evidence: OpinionEvidence = {
     date: opinion.lastUpdated,

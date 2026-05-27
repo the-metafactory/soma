@@ -1,7 +1,7 @@
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { createPaths } from "../../paths";
-import { addOpinion, addOpinionEvidence, listOpinions } from "../learning";
+import { addOpinion, addOpinionEvidence, adjustOpinionConfidence, listOpinions } from "../learning";
 import type { EvidenceType } from "../learning";
 import type { RelationshipMilestone, RelationshipNote, RelationshipReflectOptions, RelationshipReflectResult } from "./types";
 
@@ -10,6 +10,7 @@ const DEFAULT_MILESTONES = [
   { id: "genuine-unknown", description: "Assistant admitted genuine uncertainty", pattern: /don't know|do not know|not sure|uncertain/i },
   { id: "voice-smile", description: "Emotional response to voice interaction", pattern: /voice|smiled|laughed/i },
 ];
+const NOTE_LINE_PATTERN = /^\s*([WBO]):\s*(.+?)\s+(?:—|--|-)\s+(.+?)\s*$/;
 
 function pathsFor(options: RelationshipReflectOptions) {
   return createPaths(options.somaHome ? { somaHome: options.somaHome } : { homeDir: options.homeDir });
@@ -20,12 +21,14 @@ function isoDate(value: Date): string {
 }
 
 function parseNoteLine(line: string, date: string, path: string): RelationshipNote | undefined {
-  const match = line.match(/^\s*([WBO]):\s*(.+?)\s+(?:—|--|-)\s+(.+?)\s*$/);
+  const match = NOTE_LINE_PATTERN.exec(line);
   if (!match) return undefined;
+  const [, kind, entity, observation] = match;
+  if (!kind || !entity || !observation) return undefined;
   return {
-    kind: match[1] as RelationshipNote["kind"],
-    entity: match[2]!.trim(),
-    observation: match[3]!.trim(),
+    kind: kind as RelationshipNote["kind"],
+    entity: entity.trim(),
+    observation: observation.trim(),
     date,
     path,
   };
@@ -44,7 +47,7 @@ async function readDirIfExists(path: string) {
   });
 }
 
-async function discoverNoteFiles(options: RelationshipReflectOptions): Promise<Array<{ path: string; date: string }>> {
+async function discoverNoteFiles(options: RelationshipReflectOptions): Promise<{ path: string; date: string }[]> {
   const paths = pathsFor(options);
   const now = options.now ?? new Date();
   const recentDays = options.recentDays ?? 7;
@@ -52,7 +55,7 @@ async function discoverNoteFiles(options: RelationshipReflectOptions): Promise<A
   cutoff.setDate(cutoff.getDate() - recentDays);
   const root = paths.relationship();
   const months = await readDirIfExists(root);
-  const files: Array<{ path: string; date: string }> = [];
+  const files: { path: string; date: string }[] = [];
   for (const month of months.filter((entry) => entry.isDirectory())) {
     for (const entry of await readDirIfExists(join(root, month.name))) {
       if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
@@ -79,7 +82,7 @@ function noteEvidenceType(note: RelationshipNote): EvidenceType {
 }
 
 function applyDryRunConfidence(confidence: number, note: RelationshipNote): number {
-  return Math.max(0.01, Math.min(0.99, confidence + (note.kind === "B" ? -0.05 : 0.02)));
+  return adjustOpinionConfidence(confidence, noteEvidenceType(note));
 }
 
 async function emitConfidenceNotification(
