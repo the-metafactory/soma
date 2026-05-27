@@ -63,10 +63,18 @@ export function synthesizeCrossFramePrinciples(frames: WisdomFrame[], threshold 
   const principles: CrossFramePrinciple[] = [];
   for (let leftIndex = 0; leftIndex < frames.length; leftIndex += 1) {
     for (let rightIndex = leftIndex + 1; rightIndex < frames.length; rightIndex += 1) {
-      principles.push(...synthesizeFramePair(frames[leftIndex]!, frames[rightIndex]!, threshold));
+      principles.push(...synthesizeFramePair(frames[leftIndex], frames[rightIndex], threshold));
     }
   }
   return principles.sort((a, b) => b.similarity - a.similarity || a.domains.join(",").localeCompare(b.domains.join(",")));
+}
+
+export function normalizeSimilarityThreshold(value: number | undefined, label = "similarityThreshold"): number {
+  if (value === undefined) return 0.3;
+  if (!Number.isFinite(value) || value < 0 || value > 1) {
+    throw new Error(`${label} must be a number between 0 and 1.`);
+  }
+  return value;
 }
 
 function renderPrinciples(result: WisdomSynthesisResult, now: Date): string {
@@ -94,8 +102,9 @@ ${result.health.map((health) =>
 export async function synthesizeWisdom(options: WisdomToolOptions & { dryRun?: boolean; healthOnly?: boolean } = {}): Promise<WisdomSynthesisResult> {
   const now = options.now ?? new Date();
   const frames = await readAllWisdomFrames(options);
+  const threshold = normalizeSimilarityThreshold(options.similarityThreshold);
   const result: WisdomSynthesisResult = {
-    principles: options.healthOnly ? [] : synthesizeCrossFramePrinciples(frames),
+    principles: options.healthOnly ? [] : synthesizeCrossFramePrinciples(frames, threshold),
     health: frames.map((frame) => assessFrameHealth(frame, now)),
   };
 
