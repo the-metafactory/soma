@@ -74,14 +74,14 @@ export async function recordSessionBlocker(project: string, text: string, option
 }
 
 export async function recordSessionNextStep(project: string, text: string, options: LearningToolOptions = {}): Promise<SessionProgressRecord> {
-  return updateProgress(project, options, (progress) => {
-    progress.next_steps.push(text);
+  return updateProgress(project, options, (progress, timestamp) => {
+    progress.next_steps.push({ text, timestamp });
   });
 }
 
 export async function recordSessionHandoff(project: string, text: string, options: LearningToolOptions = {}): Promise<SessionProgressRecord> {
-  return updateProgress(project, options, (progress) => {
-    progress.handoff_notes.push(text);
+  return updateProgress(project, options, (progress, timestamp) => {
+    progress.handoff_notes.push({ text, timestamp });
   });
 }
 
@@ -102,6 +102,10 @@ async function updateProgress(
   return progress;
 }
 
+function progressEntryText(entry: string | { text: string }): string {
+  return typeof entry === "string" ? entry : entry.text;
+}
+
 export async function resumeSessionProgress(project: string, options: LearningToolOptions = {}): Promise<string> {
   const progress = await loadProgress(project, options);
   return [
@@ -119,13 +123,13 @@ export async function resumeSessionProgress(project: string, options: LearningTo
     ...(progress.work_completed.slice(-5).map((item) => `- ${item.text}`)),
     "",
     "Blockers:",
-    ...(progress.blockers.filter((item) => item).map((item) => `- ${item.text}`)),
+    ...(progress.blockers.map((item) => `- ${item.text}`)),
     "",
     "Next steps:",
-    ...(progress.next_steps.map((item, index) => `${index + 1}. ${item}`)),
+    ...(progress.next_steps.map((item, index) => `${index + 1}. ${progressEntryText(item)}`)),
     "",
     "Handoff:",
-    ...(progress.handoff_notes.map((item) => `- ${item}`)),
+    ...(progress.handoff_notes.map((item) => `- ${progressEntryText(item)}`)),
     "",
   ].join("\n");
 }
