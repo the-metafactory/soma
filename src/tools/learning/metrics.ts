@@ -59,7 +59,7 @@ async function countJsonlLines(path: string): Promise<number> {
 
 export async function getSomaCounts(options: LearningToolOptions = {}): Promise<SomaCounts> {
   const paths = pathsForLearningOptions(options);
-  const [skills, workflows, signals, files, work, research, ratings] = await Promise.all([
+  const [skills, workflows, signals, files, work, research, ratings, events] = await Promise.all([
     countSkills(paths.skills()),
     countWorkflowFiles(paths.skills()),
     countFilesRecursive(paths.learning(), (file) => file.endsWith(".md")),
@@ -67,6 +67,7 @@ export async function getSomaCounts(options: LearningToolOptions = {}): Promise<
     countDirectDirectories(paths.work()),
     countFilesRecursive(paths.resolve("memory", "RESEARCH"), (file) => file.endsWith(".md") || file.endsWith(".json")),
     countJsonlLines(paths.ratings()),
+    countJsonlLines(paths.events()),
   ]);
   return {
     skills,
@@ -76,6 +77,7 @@ export async function getSomaCounts(options: LearningToolOptions = {}): Promise<
     work,
     research,
     ratings,
+    events,
   };
 }
 
