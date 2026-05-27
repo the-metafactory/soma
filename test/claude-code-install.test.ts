@@ -1,10 +1,10 @@
 /**
  * #29 Claude Code adapter — full install + projection (per soma#64 pivot).
  * Minimal-correct scope: rules/soma/ skeleton + ISA skill projection +
- * uninstaller. Hooks/settings.local.json patching/CLI integration land in
- * the follow-up issue tracked in the PR body.
+ * lifecycle/writeback hooks + uninstaller.
  */
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
@@ -26,6 +26,60 @@ async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> 
   } finally {
     await rm(homeDir, { recursive: true, force: true });
   }
+}
+
+function readJson<T>(path: string): Promise<T> {
+  return readFile(path, "utf8").then((content) => JSON.parse(content) as T);
+}
+
+function countSomaHookCommands(settings: { hooks?: Record<string, unknown[]> }): number {
+  return Object.values(settings.hooks ?? {}).flatMap((groups) =>
+    groups.flatMap((group) => {
+      if (!group || typeof group !== "object" || !("hooks" in group) || !Array.isArray(group.hooks)) return [];
+      return group.hooks.filter((hook) =>
+        hook &&
+        typeof hook === "object" &&
+        "command" in hook &&
+        typeof hook.command === "string" &&
+        hook.command.includes("hooks/soma/soma-claude-code-hook.mjs"),
+      );
+    }),
+  ).length;
+}
+
+function runClaudeHook(homeDir: string, event: string, input: Record<string, unknown>): void {
+  const hook = join(homeDir, ".claude/hooks/soma/soma-claude-code-hook.mjs");
+  const result = spawnSync(process.execPath, [hook, event], {
+    cwd: process.cwd(),
+    env: { ...process.env, HOME: homeDir },
+    input: JSON.stringify(input),
+    encoding: "utf8",
+  });
+  expect(result.status).toBe(0);
+}
+
+async function waitForEvents(homeDir: string, predicate: (events: ClaudeHookEvent[]) => boolean): Promise<ClaudeHookEvent[]> {
+  const eventsPath = join(homeDir, ".soma/memory/STATE/events.jsonl");
+  let events: ClaudeHookEvent[] = [];
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    const content = await readFile(eventsPath, "utf8").catch(() => "");
+    events = content
+      .trim()
+      .split("\n")
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line) as ClaudeHookEvent);
+    if (predicate(events)) return events;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return events;
+}
+
+interface ClaudeHookEvent {
+  substrate: string;
+  kind: string;
+  summary: string;
+  artifactPaths?: string[];
+  metadata?: Record<string, unknown>;
 }
 
 test("AC-1: projectClaudeCodeHome writes everything under rules/soma/", () => {
@@ -60,6 +114,9 @@ test("AC-2: planSomaForClaudeCodeInstall lists every file written", () => {
     "/tmp/test-home/.claude/rules/soma/SKILLS.md",
     "/tmp/test-home/.claude/rules/soma/POLICY.md",
     "/tmp/test-home/.claude/rules/soma/ACTIVE_ISA.md",
+    "/tmp/test-home/.claude/hooks/soma/soma-claude-code-hook.mjs",
+    "/tmp/test-home/.claude/hooks/soma/soma-claude-code-hook.config.json",
+    "/tmp/test-home/.claude/settings.json",
   ]);
 });
 
@@ -75,9 +132,82 @@ test("AC-4: installSomaForClaudeCode is idempotent (second install bytes-identic
   await withTempHome(async (homeDir) => {
     await installSomaForClaudeCode({ homeDir });
     const before = await readFile(join(homeDir, ".claude/rules/soma/CONTEXT.md"), "utf8");
+    const settingsBefore = await readFile(join(homeDir, ".claude/settings.json"), "utf8");
     await installSomaForClaudeCode({ homeDir });
     const after = await readFile(join(homeDir, ".claude/rules/soma/CONTEXT.md"), "utf8");
+    const settingsAfter = await readFile(join(homeDir, ".claude/settings.json"), "utf8");
     expect(after).toBe(before);
+    expect(settingsAfter).toBe(settingsBefore);
+  });
+});
+
+test("issue #236: claude-code install wires Soma-owned hooks without overwriting user hooks", async () => {
+  await withTempHome(async (homeDir) => {
+    await mkdir(join(homeDir, ".claude"), { recursive: true });
+    await writeFile(
+      join(homeDir, ".claude/settings.json"),
+      JSON.stringify({
+        hooks: {
+          SessionStart: [
+            {
+              description: "user hook",
+              hooks: [{ type: "command", command: "echo user-start" }],
+            },
+          ],
+        },
+      }, null, 2),
+      "utf8",
+    );
+
+    await installSomaForClaudeCode({ homeDir });
+    await installSomaForClaudeCode({ homeDir });
+
+    const hookInfo = await stat(join(homeDir, ".claude/hooks/soma/soma-claude-code-hook.mjs"));
+    expect((hookInfo.mode & 0o100) !== 0).toBe(true);
+    const hookContent = await readFile(join(homeDir, ".claude/hooks/soma/soma-claude-code-hook.mjs"), "utf8");
+    expect(hookContent).toContain('"src/cli.ts"');
+    expect(hookContent).not.toContain('"run",\n    "soma"');
+    expect(hookContent).toContain('child.on("error", onError)');
+    expect(hookContent).toContain("flush-writeback-queue");
+    const settings = await readJson<{ hooks: Record<string, unknown[]> }>(join(homeDir, ".claude/settings.json"));
+    const config = await readJson<{ bunPath: string }>(join(homeDir, ".claude/hooks/soma/soma-claude-code-hook.config.json"));
+    expect(JSON.stringify(settings)).toContain("echo user-start");
+    expect(JSON.stringify(settings)).toContain(config.bunPath);
+    expect(Object.keys(settings.hooks).sort()).toEqual(["PostToolUse", "SessionEnd", "SessionStart", "SubagentStart", "SubagentStop"]);
+    expect(countSomaHookCommands(settings)).toBe(5);
+  });
+});
+
+test("issue #236: installed Claude hook appends lifecycle and metadata-only writeback events", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForClaudeCode({ homeDir });
+
+    runClaudeHook(homeDir, "session-start", { session_id: "claude-session-1" });
+    runClaudeHook(homeDir, "writeback-tool", {
+      session_id: "claude-session-1",
+      hook_event_name: "PostToolUse",
+      cwd: "/workspace/example",
+      tool_name: "Write",
+      tool_input: { file_path: "/workspace/example/result.md", content: "private transcript content must not be mirrored" },
+    });
+    runClaudeHook(homeDir, "session-end", { session_id: "claude-session-1" });
+
+    const events = await waitForEvents(homeDir, (items) =>
+      ["lifecycle.session_start", "writeback.claude_code.tool", "lifecycle.session_end"].every((kind) =>
+        items.some((event) => event.kind === kind),
+      ),
+    );
+    expect(events.some((event) => event.substrate === "claude-code" && event.kind === "lifecycle.session_start")).toBe(true);
+    expect(events.some((event) => event.substrate === "claude-code" && event.kind === "lifecycle.session_end")).toBe(true);
+    const toolEvent = events.find((event) => event.kind === "writeback.claude_code.tool");
+    expect(toolEvent).toBeDefined();
+    expect(toolEvent?.artifactPaths).toEqual(["/workspace/example/result.md"]);
+    expect(toolEvent?.metadata).toMatchObject({
+      sessionId: "claude-session-1",
+      source: "PostToolUse",
+      toolName: "Write",
+    });
+    expect(JSON.stringify(toolEvent)).not.toContain("private transcript content");
   });
 });
 
@@ -92,23 +222,70 @@ test("AC-5: CLAUDE.md left untouched (pivot dropped @-import composition)", asyn
   });
 });
 
-test("AC-10: uninstallSomaForClaudeCode removes rules/soma/ and skills/ISA/ only", async () => {
+test("AC-10: uninstallSomaForClaudeCode removes only Soma-owned projection and hook entries", async () => {
   await withTempHome(async (homeDir) => {
     // User-owned sibling file that must survive uninstall.
     await mkdir(join(homeDir, ".claude/rules/user-rule"), { recursive: true });
     await writeFile(join(homeDir, ".claude/rules/user-rule/note.md"), "user note", "utf8");
     await mkdir(join(homeDir, ".claude/skills/UserSkill"), { recursive: true });
     await writeFile(join(homeDir, ".claude/skills/UserSkill/SKILL.md"), "user skill", "utf8");
+    await mkdir(join(homeDir, ".claude/hooks/user"), { recursive: true });
+    await writeFile(join(homeDir, ".claude/hooks/user/hook.mjs"), "user hook", "utf8");
+    await mkdir(join(homeDir, ".claude"), { recursive: true });
+    await writeFile(
+      join(homeDir, ".claude/settings.json"),
+      JSON.stringify({
+        hooks: {
+          PostToolUse: [
+            {
+              description: "user-owned empty group",
+              hooks: [],
+            },
+          ],
+        },
+      }, null, 2),
+      "utf8",
+    );
 
     await installSomaForClaudeCode({ homeDir });
     const result = await uninstallSomaForClaudeCode({ homeDir });
 
-    expect(result.removed.length).toBe(2);
+    expect(result.removed).toContain(join(homeDir, ".claude/rules/soma"));
+    expect(result.removed).toContain(join(homeDir, ".claude/skills/ISA"));
+    expect(result.removed).toContain(join(homeDir, ".claude/hooks/soma/soma-claude-code-hook.mjs"));
+    expect(result.removed).toContain(join(homeDir, ".claude/hooks/soma/soma-claude-code-hook.config.json"));
     await expect(stat(join(homeDir, ".claude/rules/soma"))).rejects.toThrow();
     await expect(stat(join(homeDir, ".claude/skills/ISA"))).rejects.toThrow();
+    await expect(stat(join(homeDir, ".claude/hooks/soma/soma-claude-code-hook.mjs"))).rejects.toThrow();
     // User-owned siblings survive.
     expect(await readFile(join(homeDir, ".claude/rules/user-rule/note.md"), "utf8")).toBe("user note");
     expect(await readFile(join(homeDir, ".claude/skills/UserSkill/SKILL.md"), "utf8")).toBe("user skill");
+    expect(await readFile(join(homeDir, ".claude/hooks/user/hook.mjs"), "utf8")).toBe("user hook");
+    const settings = await readJson<Record<string, unknown>>(join(homeDir, ".claude/settings.json"));
+    expect(JSON.stringify(settings)).not.toContain("soma-claude-code-hook");
+    expect(settings).toMatchObject({
+      hooks: {
+        PostToolUse: [{ description: "user-owned empty group", hooks: [] }],
+      },
+    });
+  });
+});
+
+test("issue #236: uninstall removes settings entries using the installed Bun path", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForClaudeCode({ homeDir });
+    const configPath = join(homeDir, ".claude/hooks/soma/soma-claude-code-hook.config.json");
+    const settingsPath = join(homeDir, ".claude/settings.json");
+    const config = await readJson<{ bunPath: string }>(configPath);
+    const oldBunPath = "/tmp/soma-test-old-bun";
+    await writeFile(configPath, `${JSON.stringify({ ...config, bunPath: oldBunPath }, null, 2)}\n`, "utf8");
+    const settings = await readFile(settingsPath, "utf8");
+    await writeFile(settingsPath, settings.replaceAll(config.bunPath, oldBunPath), "utf8");
+
+    await uninstallSomaForClaudeCode({ homeDir });
+
+    const after = await readFile(settingsPath, "utf8");
+    expect(after).not.toContain("soma-claude-code-hook");
   });
 });
 

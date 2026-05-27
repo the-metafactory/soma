@@ -110,22 +110,21 @@ The first end-to-end install function is `installSomaForCodex`. It bootstraps
 
 ### Claude Code
 
-Initial Soma projection target:
+Current Soma projection target:
 
 ```text
-~/.claude/
-  CLAUDE.md
+<claude-home>/
   settings.json
-  skills/Soma/
-  hooks/soma/
-  agents/soma/
-  commands/soma.md
-  soma/
+  rules/soma/
+  skills/ISA/
+  hooks/soma/soma-claude-code-hook.mjs
+  hooks/soma/soma-claude-code-hook.config.json
 ```
 
-This projection should merge or patch existing user config instead of blindly
-replacing it. PAI's installer warns and backs up because it owns the whole
-Claude home; Soma should be less invasive.
+This projection patches existing user config instead of replacing it. The
+settings patch adds Soma-owned lifecycle/writeback hook entries and leaves
+non-Soma hook entries intact. Uninstall removes only generated Soma files and
+matching Soma hook entries.
 
 ### Pi.dev
 

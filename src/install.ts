@@ -237,10 +237,9 @@ export async function installSomaForPiDev(options: SomaInstallOptions = {}): Pro
  * installs the ISA skill into `~/.claude/skills/ISA/`, and writes the
  * full projection skeleton at `~/.claude/rules/soma/` (auto-discovered
  * by Claude Code, per the soma#64 pivot away from `@`-imports).
- *
- * Out of scope (follow-up issue): hook scripts +
- * settings.local.json patching, CLI command wiring, CLAUDE.md
- * composition.
+ * It also installs Soma-owned lifecycle/writeback hooks and patches
+ * `~/.claude/settings.json` idempotently. CLAUDE.md composition remains
+ * intentionally out of scope.
  */
 export async function installSomaForClaudeCode(options: SomaInstallOptions = {}): Promise<SomaInstallResult> {
   return installSomaForSubstrate("claude-code", options);

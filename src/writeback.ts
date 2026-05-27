@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { applyIsaUpdate, getActiveIsa, isaPath } from "./isa";
-import { appendSomaMemoryEvent, somaMemoryEventsPath } from "./memory";
+import { appendSomaMemoryEvent, appendSomaMemoryEvents, somaMemoryEventsPath } from "./memory";
 import { checkSomaPolicy } from "./policy-audit";
 import type { IsaUpdatePayload, SomaMemoryEventInput, SubstrateId } from "./types";
 
@@ -78,26 +78,12 @@ export async function applySomaWriteback(options: SomaWritebackOptions): Promise
 
   switch (options.operation.kind) {
     case "memory-event": {
-      const eventPath = somaMemoryEventsPath(options.somaHome);
-      await assertWritebackAllowed({
+      return applySomaMemoryEventWritebacks({
         somaHome: options.somaHome,
         substrate,
-        destinationPath: eventPath,
         timestamp: options.timestamp,
-        deniedMessage: "Writeback gate denied memory-event write",
+        events: [options.operation.event],
       });
-
-      await appendSomaMemoryEvent(options.somaHome, {
-        ...options.operation.event,
-        substrate: options.operation.event.substrate ?? substrate,
-        timestamp: options.operation.event.timestamp ?? options.timestamp,
-      });
-
-      return {
-        decision: "applied",
-        merge: "append-only",
-        writes: [eventPath],
-      };
     }
     case "isa-log": {
       const active = await getActiveIsa({ somaHome: options.somaHome });
@@ -158,4 +144,41 @@ export async function applySomaWriteback(options: SomaWritebackOptions): Promise
       );
     }
   }
+}
+
+export async function applySomaMemoryEventWritebacks(
+  options: SomaWritebackBaseOptions & {
+    events: readonly SomaMemoryEventWritebackOperation["event"][];
+  },
+): Promise<SomaWritebackResult> {
+  const substrate = options.substrate ?? "custom";
+  const eventPath = somaMemoryEventsPath(options.somaHome);
+  if (options.events.length === 0) {
+    return { decision: "applied", merge: "append-only", writes: [] };
+  }
+  const substrates = new Set(options.events.map((event) => event.substrate ?? substrate));
+  for (const eventSubstrate of substrates) {
+    await assertWritebackAllowed({
+      somaHome: options.somaHome,
+      substrate: eventSubstrate,
+      destinationPath: eventPath,
+      timestamp: options.timestamp,
+      deniedMessage: "Writeback gate denied memory-event write",
+    });
+  }
+
+  await appendSomaMemoryEvents(
+    options.somaHome,
+    options.events.map((event) => ({
+      ...event,
+      substrate: event.substrate ?? substrate,
+      timestamp: event.timestamp ?? options.timestamp,
+    })),
+  );
+
+  return {
+    decision: "applied",
+    merge: "append-only",
+    writes: [eventPath],
+  };
 }

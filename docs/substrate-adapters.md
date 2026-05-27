@@ -103,6 +103,30 @@ Claude Code skills, sub-agents, commands, principal identity, memory, and
 daemon support are available at every Claude Code startup. Soma should project
 into that shape without making Claude Code the source of truth.
 
+Current home install behavior:
+
+- `soma install claude-code --apply` writes context under
+  `<claude-home>/rules/soma/` and the ISA skill under
+  `<claude-home>/skills/ISA/`.
+- It installs a Soma-owned hook runner at
+  `<claude-home>/hooks/soma/soma-claude-code-hook.mjs` with colocated runtime
+  config.
+- It patches `<claude-home>/settings.json` with Soma-owned hook entries for
+  `SessionStart`, `SessionEnd`, `PostToolUse`, `SubagentStart`, and
+  `SubagentStop`. Re-running install is idempotent and preserves existing
+  user, project, PAI, and non-Soma hook entries.
+- Lifecycle hooks call Soma lifecycle APIs with `--substrate claude-code`.
+  Tool and subagent hooks emit metadata-only events through the Soma writeback
+  gate; they do not mirror full raw transcripts or prompt text.
+- `soma uninstall claude-code` removes only the generated `rules/soma/`
+  projection, `skills/ISA/`, the Soma-owned hook runner/config, and matching
+  Soma hook entries in `settings.json`.
+
+Context projection, PAI Native Mode memory, and Soma shared memory remain
+distinct. Claude Code may keep rich substrate-local PAI artifacts, while Soma
+shared memory records portable lifecycle events, work-registry pointers, and
+policy-gated writeback metadata in `<soma-home>/memory/STATE/events.jsonl`.
+
 ## Cursor
 
 Cursor reads project-level rule files and can use MCP servers for additional

@@ -205,12 +205,9 @@ const CLAUDE_RULES_CONTENT_BUILDERS: Record<
  * file set in the same order, so a second install with unchanged
  * input writes byte-identical content (AC-4 idempotency).
  *
- * Out of scope for #29 (filed as follow-up):
- *   - Hook scripts (.claude/hooks/soma-*.mjs) + settings.local.json
- *     patching: AC-6/AC-7/AC-8/AC-12 from the original #29 spec.
- *   - CLI command (`soma install claude-code`): AC-9 — depends on
- *     the CLI surface refactor in #30 split.
- *   - Active CLAUDE.md modification: dropped by the #64 pivot.
+ * Hook scripts and settings patching are installed by the Claude Code
+ * install spec postProjection step, not by this pure projection bundle.
+ * Active CLAUDE.md modification remains dropped by the #64 pivot.
  */
 export function projectClaudeCodeHome(input: ProjectionInput): Projection {
   const skeleton = (Object.keys(CLAUDE_RULES_CONTENT_BUILDERS) as (keyof typeof CLAUDE_RULES_CONTENT_BUILDERS)[]).map((path) => ({

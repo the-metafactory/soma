@@ -73,6 +73,12 @@ import {
   type ParsedLifecycleArgs,
 } from "./cli/lifecycle";
 import {
+  WRITEBACK_COMMAND_HELP,
+  parseWritebackArgs,
+  runWritebackCli,
+  type ParsedWritebackArgs,
+} from "./cli/writeback";
+import {
   ONBOARDING_COMMAND_HELP,
   parseAdoptArgs,
   parseDoctorArgs,
@@ -119,6 +125,7 @@ type ParsedArgs =
   | ParsedFeedbackArgs
   | ParsedResultArgs
   | ParsedPolicyArgs
+  | ParsedWritebackArgs
   | ParsedIsaArgs
   | ParsedToolArgs;
 
@@ -149,6 +156,7 @@ const TOP_LEVEL_COMMANDS = [
   "telemetry",
   "uninstall",
   "upgrade",
+  "writeback",
   "wisdom",
 ] as const;
 
@@ -161,6 +169,7 @@ const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string,
   ...TOOL_COMMAND_HELP,
   result: RESULT_COMMAND_HELP,
   policy: POLICY_COMMAND_HELP,
+  writeback: WRITEBACK_COMMAND_HELP,
   lifecycle: LIFECYCLE_COMMAND_HELP,
   install: SUBSTRATE_LIFECYCLE_COMMAND_HELP.install,
   uninstall: SUBSTRATE_LIFECYCLE_COMMAND_HELP.uninstall,
@@ -235,6 +244,10 @@ function parseArgs(args: string[]): ParsedArgs {
 
   if (args[0] === "policy") {
     return parsePolicyArgs(args);
+  }
+
+  if (args[0] === "writeback") {
+    return parseWritebackArgs(args);
   }
 
   if (args[0] === "install") {
@@ -432,6 +445,10 @@ export async function runSomaCli(args: string[]): Promise<string> {
 
   if (parsed.command === "policy") {
     return runPolicyCli(parsed);
+  }
+
+  if (parsed.command === "writeback") {
+    return runWritebackCli(parsed);
   }
 
   if (parsed.command === "import") {
