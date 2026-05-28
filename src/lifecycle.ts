@@ -1,6 +1,8 @@
+import { execFile } from "node:child_process";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { promisify } from "node:util";
 import { listAlgorithmRunSummaries, listAlgorithmRuns } from "./algorithm-store";
 import { appendSomaMemoryEvent } from "./memory";
 import { loadSomaProfile } from "./soma-home";
@@ -26,6 +28,8 @@ import type {
   SubstrateId,
 } from "./types";
 
+const execFileAsync = promisify(execFile);
+
 function resolveSomaHome(options: SomaLifecycleOptions = {}): string {
   const home = resolve(options.homeDir ?? homedir());
   return resolve(options.somaHome ?? join(home, ".soma"));
@@ -33,6 +37,97 @@ function resolveSomaHome(options: SomaLifecycleOptions = {}): string {
 
 function substrate(options: SomaLifecycleOptions): SubstrateId {
   return options.substrate ?? "custom";
+}
+
+export interface DeriveSessionNameInput {
+  sessionId: string;
+  activeIsaSlug?: string;
+  activeIsaGoal?: string;
+  cwd?: string;
+  gitBranch?: string;
+}
+
+export interface DerivedSessionName {
+  slug: string;
+  sessionName: string;
+  task?: string;
+}
+
+const UNINTERESTING_BRANCHES = new Set(["", "main", "master", "head", "trunk", "develop"]);
+
+function lastPathSegment(value: string): string {
+  const segments = value.split(/[/\\]+/u).filter((segment) => segment.length > 0);
+  return segments[segments.length - 1] ?? "";
+}
+
+/**
+ * Choose a human-meaningful session name, preferring (1) the active ISA slug
+ * so sessions align with the goal-derived `memory/WORK/{slug}` names, then
+ * (2) the working directory basename plus a non-default git branch, and
+ * finally (3) the legacy `session <uuid>` fallback. Pure: git/ISA lookups
+ * happen in the caller and are passed in.
+ *
+ * Names are not unique keys: concurrent sessions sharing a long-lived
+ * project ISA (or the same cwd) derive the same slug. `upsertSomaWorkRegistry`
+ * resolves the collision — the first session keeps the clean slug and later
+ * ones get a `-<sessionId>` suffix via `uniqueSessionSlug` — so the name
+ * groups by project/repo while each session keeps its own entry (keyed by
+ * `sessionUUID`).
+ */
+export function deriveSessionName(input: DeriveSessionNameInput): DerivedSessionName {
+  const isaSlug = input.activeIsaSlug?.trim();
+  if (isaSlug !== undefined && isaSlug.length > 0) {
+    const goal = input.activeIsaGoal?.trim();
+    return {
+      slug: isaSlug,
+      sessionName: isaSlug,
+      ...(goal !== undefined && goal.length > 0 ? { task: goal } : {}),
+    };
+  }
+
+  const base = input.cwd === undefined ? "" : lastPathSegment(input.cwd.trim());
+  if (base.length > 0) {
+    const branch = input.gitBranch?.trim();
+    const useBranch = branch !== undefined && branch.length > 0 && !UNINTERESTING_BRANCHES.has(branch.toLowerCase());
+    const name = useBranch ? `${base}/${branch}` : base;
+    return { slug: name, sessionName: name };
+  }
+
+  return {
+    slug: `session ${input.sessionId}`,
+    sessionName: `session ${input.sessionId}`,
+    task: `Session ${input.sessionId}`,
+  };
+}
+
+/** Best-effort git branch detection for `cwd`. Never throws. */
+async function detectGitBranch(cwd: string | undefined): Promise<string | undefined> {
+  if (cwd === undefined || cwd.trim().length === 0) return undefined;
+  try {
+    const { stdout } = await execFileAsync("git", ["-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"], {
+      timeout: 1000,
+      windowsHide: true,
+    });
+    const branch = stdout.trim();
+    return branch.length > 0 && branch !== "HEAD" ? branch : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function resolveSessionName(
+  options: SomaLifecycleOptions,
+  active: { slug: string; isa: IdealStateArtifact } | null,
+): Promise<DerivedSessionName> {
+  const sessionId = options.sessionId ?? "";
+  const gitBranch = active === null ? options.gitBranch ?? (await detectGitBranch(options.cwd)) : undefined;
+  return deriveSessionName({
+    sessionId,
+    activeIsaSlug: active?.slug,
+    activeIsaGoal: active === null ? undefined : getGoal(active.isa) ?? undefined,
+    cwd: options.cwd,
+    gitBranch,
+  });
 }
 
 async function readRecentMarkdown(root: string, limit: number): Promise<string[]> {
@@ -218,18 +313,21 @@ export async function runSomaLifecycleSessionStart(options: SomaLifecycleOptions
   const eventsPath = join(startup.somaHome, "memory/STATE/events.jsonl");
   let registryFiles: string[] = [];
   if (startup.sessionId !== undefined) {
+    const name = await resolveSessionName({ ...options, sessionId: startup.sessionId }, active);
     try {
       registryFiles = (
         await upsertSomaCurrentWorkPointer({
           somaHome: startup.somaHome,
           sessionId: startup.sessionId,
-          sessionName: `session ${startup.sessionId}`,
+          slug: name.slug,
+          sessionName: name.sessionName,
           substrate: startup.substrate,
-          task: `Session ${startup.sessionId}`,
+          ...(name.task !== undefined ? { task: name.task } : {}),
           phase: "native",
           progress: "0/1",
           status: "active",
           timestamp: startup.timestamp,
+          ...(options.cwd !== undefined ? { signals: { cwd: options.cwd } } : {}),
           artifacts: {
             events: eventsPath,
           },
@@ -469,6 +567,7 @@ export async function runSomaLifecycleAlgorithmUpdated(options: SomaLifecycleOpt
 async function writeSessionEndWorkRegistry(input: {
   somaHome: string;
   options: SomaLifecycleOptions;
+  active: { slug: string; isa: IdealStateArtifact } | null;
   timestamp: string;
   algorithmWorkIndexPath: string;
   activeAlgorithmRunPath: string;
@@ -482,18 +581,21 @@ async function writeSessionEndWorkRegistry(input: {
     activeAlgorithmRunPath: input.activeAlgorithmRunPath,
     learningFiles: input.learningFiles,
   });
+  const name = await resolveSessionName({ ...input.options, sessionId: input.options.sessionId }, input.active);
   let registryWrite: Awaited<ReturnType<typeof upsertSomaCurrentWorkPointer>>;
   try {
     registryWrite = await upsertSomaCurrentWorkPointer({
       somaHome: input.somaHome,
       sessionId: input.options.sessionId,
-      sessionName: `session ${input.options.sessionId}`,
+      slug: name.slug,
+      sessionName: name.sessionName,
       substrate: substrate(input.options),
-      task: `Session ${input.options.sessionId}`,
+      ...(name.task !== undefined ? { task: name.task } : {}),
       phase: "complete",
       progress: "1/1",
       status: "complete",
       timestamp: input.timestamp,
+      ...(input.options.cwd !== undefined ? { signals: { cwd: input.options.cwd } } : {}),
       artifacts,
       learningSources: {
         events: join(input.somaHome, "memory/STATE/events.jsonl"),
@@ -551,9 +653,11 @@ export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions =
   const timestamp = options.timestamp ?? new Date().toISOString();
   const index = await writeAlgorithmWorkIndex({ ...options, somaHome, timestamp });
   const learningFiles = await captureCompletedAlgorithmLearnings({ ...options, somaHome, timestamp });
+  const activeForName = await loadActiveIsaForLifecycle(somaHome);
   const registryFiles = await writeSessionEndWorkRegistry({
     somaHome,
     options,
+    active: activeForName,
     timestamp,
     algorithmWorkIndexPath: index.path,
     activeAlgorithmRunPath: index.activePath,

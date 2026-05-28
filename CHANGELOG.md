@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Named session work-registry entries by active ISA slug (then `cwd`
+  basename + non-default git branch), falling back to `session <uuid>`,
+  so sessions align with the goal-derived `memory/WORK/{slug}` names
+  instead of showing up as `(unnamed)`. Plumbs `cwd`/`--cwd` from the
+  Claude Code hook through the lifecycle CLI. ([#242])
 - Added observability V0 over `memory/STATE/events.jsonl` with
   `soma telemetry list`, `soma telemetry stats`, and `soma stats` for local
   event queries, summaries, malformed-row accounting, and JSON output. ([#151])
@@ -88,6 +93,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#180]: https://github.com/the-metafactory/soma/pull/180
 [#181]: https://github.com/the-metafactory/soma/pull/181
 [#182]: https://github.com/the-metafactory/soma/pull/182
+[#242]: https://github.com/the-metafactory/soma/pull/242
 
 ## [0.4.0] - 2026-05-18
 

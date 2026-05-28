@@ -1835,6 +1835,10 @@ export interface SomaLifecycleOptions {
   substrate?: SubstrateId;
   sessionId?: string;
   timestamp?: string;
+  /** Working directory of the substrate session (from the hook payload). */
+  cwd?: string;
+  /** Git branch of `cwd`, when known. Detected from `cwd` when omitted. */
+  gitBranch?: string;
 }
 
 export interface SomaStartupContext {
