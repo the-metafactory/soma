@@ -1,8 +1,8 @@
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import { bootstrapSomaHome, buildCodexHomeProjection, loadSomaHome } from "../src/index";
+import { bootstrapSomaHome, buildCodexHomeProjection, loadSomaHome, loadSomaProfile } from "../src/index";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-bootstrap-"));
@@ -49,6 +49,20 @@ test("loads edited soma home profile files into context", async () => {
     expect(context.profile.principal.profile).toEqual({
       timezone: "Europe/Zurich",
     });
+  });
+});
+
+test("loads profile without loading skill file payloads", async () => {
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    await mkdir(join(somaHome, "skills", "heavy"), { recursive: true });
+    await writeFile(join(somaHome, "skills", "heavy", "SKILL.md"), "# Heavy\n\nname: heavy\n", "utf8");
+    await writeFile(join(somaHome, "skills", "heavy", "payload.md"), "large payload that startup context must not read\n", "utf8");
+
+    const profile = await loadSomaProfile(somaHome);
+
+    expect(profile.principal.preferredName).toBe("Principal");
+    expect("skills" in profile).toBe(false);
   });
 });
 

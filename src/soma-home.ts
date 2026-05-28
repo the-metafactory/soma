@@ -179,39 +179,47 @@ async function loadSomaSkills(somaHome: string): Promise<SomaSkill[]> {
   return skills.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export async function loadSomaHome(somaHome: string): Promise<ProjectionInput> {
+export async function loadSomaProfile(somaHome: string): Promise<Omit<ProjectionInput["profile"], "skills">> {
   const paths = createPaths(somaHome);
   const assistant = await readFile(paths.resolve("profile", "assistant.md"), "utf8");
   const principal = await readFile(paths.resolve("profile", "principal.md"), "utf8");
   const telos = await readFile(paths.resolve("profile", "telos.md"), "utf8");
+
+  return {
+    assistant: {
+      name: valueAfterPrefix(assistant, "Name:", "soma"),
+      displayName: valueAfterPrefix(assistant, "Display name:", "Soma"),
+      traits: recordFromBullets(sectionBullets(assistant, "Traits")),
+    },
+    principal: {
+      name: valueAfterPrefix(principal, "Name:", "principal"),
+      preferredName: valueAfterPrefix(principal, "Preferred name:", "Principal"),
+      profile: recordFromBullets(sectionBullets(principal, "Profile")),
+    },
+    telos: {
+      mission: valueAfterPrefix(telos, "Mission:", "Keep personal assistant context portable across substrates."),
+      goals: sectionBullets(telos, "Goals"),
+      principles: sectionBullets(telos, "Principles"),
+      commitments: sectionBullets(telos, "Commitments"),
+    },
+    memory: {
+      root: paths.memory(),
+      work: paths.work(),
+      knowledge: paths.resolve("memory", "KNOWLEDGE"),
+      learning: paths.learning(),
+      relationship: paths.relationship(),
+      state: paths.state(),
+    },
+  };
+}
+
+export async function loadSomaHome(somaHome: string): Promise<ProjectionInput> {
+  const profile = await loadSomaProfile(somaHome);
   const skills = await loadSomaSkills(somaHome);
 
   return {
     profile: {
-      assistant: {
-        name: valueAfterPrefix(assistant, "Name:", "soma"),
-        displayName: valueAfterPrefix(assistant, "Display name:", "Soma"),
-        traits: recordFromBullets(sectionBullets(assistant, "Traits")),
-      },
-      principal: {
-        name: valueAfterPrefix(principal, "Name:", "principal"),
-        preferredName: valueAfterPrefix(principal, "Preferred name:", "Principal"),
-        profile: recordFromBullets(sectionBullets(principal, "Profile")),
-      },
-      telos: {
-        mission: valueAfterPrefix(telos, "Mission:", "Keep personal assistant context portable across substrates."),
-        goals: sectionBullets(telos, "Goals"),
-        principles: sectionBullets(telos, "Principles"),
-        commitments: sectionBullets(telos, "Commitments"),
-      },
-      memory: {
-        root: paths.memory(),
-        work: paths.work(),
-        knowledge: paths.resolve("memory", "KNOWLEDGE"),
-        learning: paths.learning(),
-        relationship: paths.relationship(),
-        state: paths.state(),
-      },
+      ...profile,
       skills,
     },
   };

@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { listAlgorithmRunSummaries, listAlgorithmRuns } from "./algorithm-store";
 import { appendSomaMemoryEvent } from "./memory";
-import { loadSomaHome } from "./soma-home";
+import { loadSomaProfile } from "./soma-home";
 import { normalizeSomaWorkRegistryArtifacts, upsertSomaCurrentWorkPointer } from "./work-registry";
 import { getCriteria, getGoal } from "./isa-accessors";
 import { getRunPhase } from "./algorithm-lifecycle";
@@ -103,15 +103,15 @@ function renderStartupContext(input: {
 export async function buildSomaStartupContext(options: SomaLifecycleOptions = {}): Promise<SomaStartupContext> {
   const somaHome = resolveSomaHome(options);
   const timestamp = options.timestamp ?? new Date().toISOString();
-  const profile = await loadSomaHome(somaHome);
+  const profile = await loadSomaProfile(somaHome);
   const summaries = await listAlgorithmRunSummaries({ somaHome });
   const activeRuns = summaries.filter((run) => run.phase !== "complete").slice(0, 8);
   const recentLearnings = await readRecentMarkdown(join(somaHome, "memory/LEARNING"), 8);
   const relationshipNotes = await readRecentMarkdown(join(somaHome, "memory/RELATIONSHIP"), 8);
   const context = renderStartupContext({
-    assistantName: profile.profile.assistant.displayName ?? profile.profile.assistant.name,
-    principalName: profile.profile.principal.preferredName ?? profile.profile.principal.name,
-    mission: profile.profile.telos.mission,
+    assistantName: profile.assistant.displayName ?? profile.assistant.name,
+    principalName: profile.principal.preferredName ?? profile.principal.name,
+    mission: profile.telos.mission,
     activeRuns,
     recentLearnings,
     relationshipNotes,
