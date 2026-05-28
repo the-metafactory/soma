@@ -33,25 +33,33 @@ function assertNonEmpty(value: string, field: string): void {
 }
 
 export async function appendSomaMemoryEvent(somaHome: string, input: SomaMemoryEventInput): Promise<SomaMemoryEvent> {
-  assertNonEmpty(input.substrate, "substrate");
-  assertNonEmpty(input.kind, "kind");
-  assertNonEmpty(input.summary, "summary");
+  const [event] = await appendSomaMemoryEvents(somaHome, [input]);
+  return event;
+}
 
-  const event: SomaMemoryEvent = {
-    id: input.id ?? createEventId(),
-    timestamp: input.timestamp ?? new Date().toISOString(),
-    substrate: input.substrate,
-    kind: input.kind,
-    summary: input.summary,
-    artifactPaths: input.artifactPaths,
-    metadata: input.metadata,
-  };
+export async function appendSomaMemoryEvents(somaHome: string, inputs: readonly SomaMemoryEventInput[]): Promise<SomaMemoryEvent[]> {
+  if (inputs.length === 0) return [];
+  const events = inputs.map((input) => {
+    assertNonEmpty(input.substrate, "substrate");
+    assertNonEmpty(input.kind, "kind");
+    assertNonEmpty(input.summary, "summary");
+
+    return {
+      id: input.id ?? createEventId(),
+      timestamp: input.timestamp ?? new Date().toISOString(),
+      substrate: input.substrate,
+      kind: input.kind,
+      summary: input.summary,
+      artifactPaths: input.artifactPaths,
+      metadata: input.metadata,
+    };
+  });
   const eventPath = createPaths(somaHome).events();
 
   await mkdir(dirname(eventPath), { recursive: true });
-  await appendFile(eventPath, `${JSON.stringify(event)}\n`, "utf8");
+  await appendFile(eventPath, `${events.map((event) => JSON.stringify(event)).join("\n")}\n`, "utf8");
 
-  return event;
+  return events;
 }
 
 export function somaMemoryEventsPath(somaHome: string): string {

@@ -208,6 +208,7 @@ test("install spec registry has adapter-owned facts for every install substrate"
     kind: "implemented",
     remove: ["rules/soma", "skills/ISA"],
   });
+  expect(installSpecFor("claude-code").postProjection?.map((step) => step.name)).toEqual(["claude-code-soma-hooks"]);
   expect(installSpecFor("cursor").uninstall.kind).toBe("implemented");
 });
 

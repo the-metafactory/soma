@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { parseWritebackArgs, runWritebackCli } from "../src/cli/writeback";
 import { applySomaWriteback, bootstrapSomaHome, readIsa, scaffoldIsa, setActiveIsa } from "../src/index";
 
 async function tempHome(): Promise<string> {
@@ -122,5 +123,106 @@ describe("applySomaWriteback", () => {
         },
       }),
     ).rejects.toThrow("requires an active ISA");
+  });
+});
+
+describe("writeback queue CLI", () => {
+  test("#236: drains large queues in bounded batches and clears checkpoint state", async () => {
+    const homeDir = await tempHome();
+    const somaHome = join(homeDir, ".soma");
+    const queueFile = join(homeDir, "writeback-queue.jsonl");
+    const queuedEvents = Array.from({ length: 501 }, (_, index) => ({
+      kind: "writeback.queue.test",
+      summary: `Queued writeback ${index}`,
+    }));
+    await writeFile(queueFile, `${queuedEvents.map((event) => JSON.stringify(event)).join("\n")}\n`, "utf8");
+
+    const output = await runWritebackCli(parseWritebackArgs([
+      "writeback",
+      "events",
+      "--soma-home",
+      somaHome,
+      "--queue-file",
+      queueFile,
+      "--substrate",
+      "claude-code",
+    ]));
+
+    expect(output).toContain("events: 501");
+    const events = await readFile(join(somaHome, "memory/STATE/events.jsonl"), "utf8");
+    expect(events.trim().split("\n")).toHaveLength(501);
+    await expect(stat(queueFile)).rejects.toThrow();
+    await expect(stat(`${queueFile}.checkpoint`)).rejects.toThrow();
+  });
+
+  test("#236: removes the claimed retry queue after a successful drain", async () => {
+    const homeDir = await tempHome();
+    const somaHome = join(homeDir, ".soma");
+    const baseQueueFile = join(homeDir, "writeback-queue.jsonl");
+    const checkpointFile = `${baseQueueFile}.checkpoint`;
+    const retryQueueFile = join(homeDir, "writeback-queue.jsonl.retry");
+    await writeFile(
+      retryQueueFile,
+      `${JSON.stringify({ kind: "writeback.queue.retry", summary: "Retry queue event" })}\n`,
+      "utf8",
+    );
+
+    const output = await runWritebackCli(parseWritebackArgs([
+      "writeback",
+      "events",
+      "--soma-home",
+      somaHome,
+      "--queue-file",
+      retryQueueFile,
+      "--checkpoint-file",
+      checkpointFile,
+      "--substrate",
+      "claude-code",
+    ]));
+
+    expect(output).toContain("events: 1");
+    const events = await readFile(join(somaHome, "memory/STATE/events.jsonl"), "utf8");
+    expect(events).toContain('"kind":"writeback.queue.retry"');
+    await expect(stat(retryQueueFile)).rejects.toThrow();
+    await expect(stat(checkpointFile)).rejects.toThrow();
+  });
+
+  test("#236: missing queue file is refused instead of reported as drained", async () => {
+    const homeDir = await tempHome();
+    const somaHome = join(homeDir, ".soma");
+    const queueFile = join(homeDir, "missing-writeback-queue.jsonl");
+
+    await expect(
+      runWritebackCli(parseWritebackArgs([
+        "writeback",
+        "events",
+        "--soma-home",
+        somaHome,
+        "--queue-file",
+        queueFile,
+        "--substrate",
+        "claude-code",
+      ])),
+    ).rejects.toThrow("Queued writeback file does not exist");
+  });
+
+  test("#236: blank queue lines are refused to keep checkpoint accounting unambiguous", async () => {
+    const homeDir = await tempHome();
+    const somaHome = join(homeDir, ".soma");
+    const queueFile = join(homeDir, "blank-writeback-queue.jsonl");
+    await writeFile(queueFile, "\n", "utf8");
+
+    await expect(
+      runWritebackCli(parseWritebackArgs([
+        "writeback",
+        "events",
+        "--soma-home",
+        somaHome,
+        "--queue-file",
+        queueFile,
+        "--substrate",
+        "claude-code",
+      ])),
+    ).rejects.toThrow("Queued writeback event line must not be blank");
   });
 });
