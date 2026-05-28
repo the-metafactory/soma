@@ -12,6 +12,11 @@ translation, the bulk pack import, and the PAI docs import as ordered
 phases against your Claude home (`~/.claude` by default) and a PAI
 release checkout. Every phase is idempotent — rerun is safe.
 
+The follow-on PAI tools migration is tracked separately. See
+[PAI Tools Migration Inventory](./pai-tools-migration-inventory.md) for the
+13-tool map covering inference, learning, wisdom frames, relationship
+reflection, and Algorithm execution-mode gaps.
+
 ## Prerequisites
 
 - A PAI repo checked out somewhere on disk. The canonical location is

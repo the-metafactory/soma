@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-05-29
+
+- Added an MIT `LICENSE` file.
+- Renamed `docs/migration-from-pai.md` to `docs/integration-with-pai.md`
+  to match the companion/integration framing, and updated README links.
+
 ## [0.7.0] - 2026-05-29
 
 - Repositioned the README around substrate portability ("change tools
@@ -257,7 +263,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See git history. 0.1.x predates this changelog and was iterated rapidly during the initial ISA + adapter bootstrap. The 0.2.0 entry above marks the first stable surface.
 
-[Unreleased]: https://github.com/the-metafactory/soma/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/the-metafactory/soma/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/the-metafactory/soma/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/the-metafactory/soma/compare/v0.6.4...v0.7.0
 [0.3.1]: https://github.com/the-metafactory/soma/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/the-metafactory/soma/compare/v0.2.0...v0.3.0

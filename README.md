@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.7.0-2A3F6A?labelColor=0E1726" />
+  <img alt="Version" src="https://img.shields.io/badge/version-0.7.1-2A3F6A?labelColor=0E1726" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-2A3F6A?labelColor=0E1726" />
   <img alt="Runs in" src="https://img.shields.io/badge/runs%20in-Codex%20%C2%B7%20Pi.dev%20%C2%B7%20Claude%20Code%20%C2%B7%20Cursor-2A3F6A?labelColor=0E1726" />
 </p>
@@ -173,7 +173,7 @@ The sync is idempotent. Dry-run first, inspect what would be written, then
 apply. Afterward the Soma home is the source of truth and each coding agent
 gets a projection from it — a companion layer over PAI, not a replacement.
 
-See [docs/migration-from-pai.md](docs/migration-from-pai.md) for the complete
+See [docs/integration-with-pai.md](docs/integration-with-pai.md) for the complete
 walkthrough, flags, verification steps, and troubleshooting.
 
 ### 2. The skills on top: Daniel's published library (and your own)
@@ -401,7 +401,7 @@ writeback gates, and adapter behavior are stable.
 - [docs/architecture.md](docs/architecture.md), the core/adapters/runtime model
 - [docs/boundaries.md](docs/boundaries.md), exactly what Soma owns and does not own
 - [docs/substrate-adapters.md](docs/substrate-adapters.md), adapter behavior by host
-- [docs/migration-from-pai.md](docs/migration-from-pai.md), PAI sync walkthrough
+- [docs/integration-with-pai.md](docs/integration-with-pai.md), PAI integration walkthrough
 - [docs/pai-pack-importer.md](docs/pai-pack-importer.md), PAI pack import rules
 - [docs/progressive-skill-loading.md](docs/progressive-skill-loading.md), skill registry and just-in-time loading
 - [docs/writeback-and-policy.md](docs/writeback-and-policy.md), projection, writeback, conflict, and policy semantics
