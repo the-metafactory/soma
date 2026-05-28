@@ -14,7 +14,7 @@ export interface ParsedLifecycleArgs {
 }
 
 const LIFECYCLE_USAGE =
-  "Usage: soma lifecycle <session-start|algorithm-updated|session-end> [--home-dir <dir>] [--soma-home <dir>] [--substrate <id>] [--session-id <id>]";
+  "Usage: soma lifecycle <session-start|algorithm-updated|session-end> [--home-dir <dir>] [--soma-home <dir>] [--substrate <id>] [--session-id <id>] [--cwd <dir>] [--git-branch <branch>]";
 
 export const LIFECYCLE_COMMAND_HELP: { usage: string; subcommands: Record<ParsedLifecycleArgs["event"], string> } = {
   usage: LIFECYCLE_USAGE,
@@ -52,6 +52,14 @@ export function parseLifecycleArgs(args: string[]): ParsedLifecycleArgs {
         break;
       case "--session-id":
         options.sessionId = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--cwd":
+        options.cwd = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--git-branch":
+        options.gitBranch = readOption(rest, index, arg);
         index += 1;
         break;
       default:

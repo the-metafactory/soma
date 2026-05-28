@@ -82,6 +82,8 @@ function lifecycle(config, event, input) {
   const args = ["src/cli.ts", "lifecycle", event, "--soma-home", config.somaHome, "--substrate", "claude-code"];
   const id = sessionId(input);
   if (id) args.push("--session-id", id);
+  const cwd = typeof input.cwd === "string" && input.cwd.trim().length > 0 ? input.cwd : undefined;
+  if (cwd) args.push("--cwd", cwd);
   runSomaDetached(config, args);
 }
 
