@@ -368,9 +368,15 @@ export {
   listSomaWorkRegistryEntries,
   readSomaWorkRegistry,
   somaWorkRegistryPaths,
+  upsertSomaCurrentWorkPointer,
   upsertSomaWorkRegistryEntry,
+  type SomaCurrentWorkPointer,
+  type SomaCurrentWorkPointerLearningSources,
+  type SomaCurrentWorkPointerSignals,
+  type SomaCurrentWorkPointerStatus,
   type SomaWorkRegistry,
   type SomaWorkRegistryEntry,
+  type UpsertSomaCurrentWorkPointerOptions,
   type UpsertSomaWorkRegistryEntryOptions,
   type UpsertSomaWorkRegistryEntryResult,
 } from "./work-registry";
@@ -428,7 +434,7 @@ export {
 } from "./pai-migration";
 export { checkSomaPolicy, checkSomaPolicyBatch } from "./policy-audit";
 export { evaluateSomaPolicy } from "./policy";
-export { bootstrapSomaHome, loadSomaHome } from "./soma-home";
+export { bootstrapSomaHome, loadSomaHome, loadSomaProfile } from "./soma-home";
 // Algorithm ↔ ISA bridge (#39) — advisory, non-blocking.
 export {
   markIsaVerifiedFromCriteria,
