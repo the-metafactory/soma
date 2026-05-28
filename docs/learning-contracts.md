@@ -6,16 +6,22 @@ Soma learning tools read and write through `createPaths()`. Portable tools must 
 
 `soma learning harvest` has two source modes:
 
-- **Default mode:** reads canonical shared work state from
-  `<soma-home>/memory/STATE/work.json` and creates metadata-only learning
-  candidates from registry entries.
+- **Default mode:** first discovers retained current-work snapshots at
+  `<soma-home>/memory/STATE/current-work-*.json` with
+  `schema: "soma-current-work-v1"`. Valid snapshots become metadata-only
+  learning candidates that cite the pointer path, artifact pointers, and event
+  ids from declared learning-source files. If no valid snapshot is available,
+  harvest falls back to canonical shared work state from
+  `<soma-home>/memory/STATE/work.json`.
 - **Explicit transcript mode:** reads raw transcript JSONL files only when the
   caller passes `--session-dir <dir>`.
 
 Soma does not treat `<soma-home>/memory/STATE/sessions/*.jsonl` as a default
 source. Raw transcript sources are substrate-local unless an adapter explicitly
-declares and policy-gates them. Default harvest output must not mirror full
-private prompts or results.
+declares and policy-gates them. A current-work pointer may declare a raw
+transcript source, but default harvest does not read it. Default harvest output
+must not mirror full private prompts, results, transcripts, or current-work
+pointer payloads.
 
 ## Ratings JSONL
 
