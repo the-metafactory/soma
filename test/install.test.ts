@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import { installSomaForCodex, installSomaForPiDev, planSomaForCodexInstall, planSomaForPiDevInstall } from "../src/index";
+import { installSomaForCodex, installSomaForPiDev, planSomaForCodexInstall, planSomaForPiDevInstall, somaWorkRegistryPaths } from "../src/index";
 import { codexInstallSpec } from "../src/adapters/codex/install";
 import { renderStartupContextSummary } from "../src/adapters/codex/hooks/codex-hook-entry.mjs";
 import {
@@ -571,6 +571,8 @@ test("installed codex session-start hook returns concise visible context", async
     const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
     const result = runCodexHook(hook, "session-start", homeDir, { session_id: "session-1" });
     const startupContext = await readFile(join(homeDir, ".codex/memories/soma/startup-context.md"), "utf8");
+    const pointerPath = somaWorkRegistryPaths({ homeDir }, "session-1").currentWork!;
+    const pointer = JSON.parse(await readFile(pointerPath, "utf8"));
 
     expect(result.status).toBe(0);
     expect(result.output.hookSpecificOutput?.additionalContext).toContain("Soma:");
@@ -578,6 +580,12 @@ test("installed codex session-start hook returns concise visible context", async
     expect(result.output.hookSpecificOutput?.additionalContext).not.toContain("Soma Startup Context");
     expect(result.output.hookSpecificOutput?.additionalContext).not.toContain("## Active Algorithm Runs");
     expect(startupContext).toContain("Soma Startup Context");
+    expect(pointer).toMatchObject({
+      schema: "soma-current-work-v1",
+      sessionUUID: "session-1",
+      substrate: "codex",
+      status: "active",
+    });
   });
 });
 
