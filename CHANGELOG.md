@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-05-29
+
+- Repositioned the README around substrate portability ("change tools
+  without losing the assistant"): framed PAI/TELOS as inspiration and a
+  first-class import source rather than a fork, split the PAI path into
+  the ideas (`soma migrate pai`) and Daniel's published skill library on
+  top (`soma migrate claude-skills`), added a "see it work in Codex"
+  quickstart, and credited Soma as a Meta Factory project. Dropped the
+  fork-implying `PAI for Codex` skill trigger in `arc-manifest.yaml`.
 - Named session work-registry entries by active ISA slug (then `cwd`
   basename + non-default git branch), falling back to `session <uuid>`,
   so sessions align with the goal-derived `memory/WORK/{slug}` names
@@ -248,7 +257,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See git history. 0.1.x predates this changelog and was iterated rapidly during the initial ISA + adapter bootstrap. The 0.2.0 entry above marks the first stable surface.
 
-[Unreleased]: https://github.com/the-metafactory/soma/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/the-metafactory/soma/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/the-metafactory/soma/compare/v0.6.4...v0.7.0
 [0.3.1]: https://github.com/the-metafactory/soma/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/the-metafactory/soma/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/the-metafactory/soma/releases/tag/v0.2.0

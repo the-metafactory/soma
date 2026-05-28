@@ -9,17 +9,22 @@
 <h1 align="center">Soma</h1>
 
 <p align="center">
-  <strong>Your AI assistant's identity, memory, skills, and working method.<br />
-  Kept in one place. Projected into Claude Code, OpenAI Codex, Pi.dev, Cursor, and future substrates.</strong>
+  <strong>Soma lets you change tools without losing the assistant.</strong>
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.6.4-2A3F6A?labelColor=0E1726" />
+  Your assistant's identity, telos, memory, skills, and working method kept in one place —<br />
+  projected into Claude Code, OpenAI Codex, Pi.dev, Cursor, and future substrates.
+</p>
+
+<p align="center">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.7.0-2A3F6A?labelColor=0E1726" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-2A3F6A?labelColor=0E1726" />
   <img alt="Runs in" src="https://img.shields.io/badge/runs%20in-Codex%20%C2%B7%20Pi.dev%20%C2%B7%20Claude%20Code%20%C2%B7%20Cursor-2A3F6A?labelColor=0E1726" />
 </p>
 
 <p align="center">
+  Soma is <a href="https://meta-factory.ai">Meta Factory</a>'s first Arc-distributed package.<br />
   Join the Meta Factory community on <a href="https://discord.gg/32xa5ev6Tq">Discord</a>.
 </p>
 
@@ -27,10 +32,15 @@
 
 ## Why this project?
 
-[Personal AI Infrastructure (PAI)](https://github.com/danielmiessler/Personal_AI_Infrastructure)
-and Daniel Miessler's [TELOS](https://github.com/danielmiessler/telos)
-project proved a strong idea: a useful AI assistant is not just a model
-prompt. It is a portable operating context around the model:
+Every coding agent you adopt rebuilds the assistant from scratch. Claude Code,
+Codex, Pi.dev, and Cursor each want their own instruction files, their own
+memory, their own skill format. Switch tools and you start over; run two at
+once and you maintain two drifting assistants. The work that makes an assistant
+*yours* — who it is, what it is for, what it has learned, how it works — ends up
+trapped inside whichever host you happened to use.
+
+A useful AI assistant is not just a model prompt. It is a portable operating
+context around the model:
 
 - identity: who the assistant is and who it serves
 - telos: goals, principles, commitments, and desired state
@@ -39,18 +49,19 @@ prompt. It is a portable operating context around the model:
 - working method: Algorithm, ISA, verification, and learning loops
 - policy: privacy, permission, and evidence rules
 
-TELOS provides the deep-context structure for articulating what a person,
-team, or organization is about: missions, goals, problems, strategies,
-projects, and measures of progress. PAI showed how that kind of context can
-become active inside an AI assistant. Soma extracts the durable parts into a
-shared assistant core that can be projected into many hosts.
+Soma keeps that core in one filesystem-native home and projects it into each
+host, so Codex, Claude Code, Pi.dev, Cursor, and future substrates share one
+assistant instead of each becoming a separate island. Change tools without
+losing the assistant.
 
-Soma exists to abstract those ideas out of one host and make them usable across
-many substrates. The assistant core lives in a filesystem-native Soma home.
-Codex, Claude Code, Pi.dev, Cursor, and future hosts receive projections of
-that same core instead of each becoming a separate assistant island.
-
-The result is simple: change tools without losing the assistant.
+This idea was proven before Soma. Daniel Miessler's
+[Personal AI Infrastructure (PAI)](https://github.com/danielmiessler/Personal_AI_Infrastructure)
+showed that deep operating context can become active inside an AI assistant,
+and his [TELOS](https://github.com/danielmiessler/telos) framework gave that
+context a structure — missions, goals, problems, strategies, projects, and
+measures of progress. Soma takes the durable parts of that approach and makes
+them substrate-portable. PAI and TELOS are the inspiration and a first-class
+import source; Soma is independent, MIT-licensed tooling, not a PAI fork.
 
 ---
 
@@ -86,17 +97,69 @@ host substrate and the surrounding Meta Factory stack. See
 
 ---
 
-## Migrate from PAI
+## See it work in Codex (~5 minutes)
 
-If you already have a PAI installation, Soma can import the durable parts so
-you do not start over.
+The fastest way to understand Soma is to project it into one substrate and run
+a single gated task. This walk-through uses Codex; any supported host works.
+
+```bash
+# 1. Install (Arc, or from source — see Install below)
+arc install @metafactory/soma
+
+# 2. Create your Soma home (identity, telos, memory, skills, policy)
+soma init --yes
+
+# 3. Project that core into Codex
+soma install codex --apply
+
+# 4. Inspect exactly what was generated for the host
+soma export codex --out ./soma-codex-preview
+soma doctor --substrate codex
+```
+
+Open `./soma-codex-preview` and you will see the same assistant context rendered
+in Codex's native shape: AGENTS instructions, rules, skills, and memory
+summaries. Nothing is hidden in a binary — it is all readable files.
+
+Now run one Algorithm-backed task to see the working method, not just the
+context:
+
+```bash
+soma algorithm classify --prompt "Add a health-check endpoint to the API"
+soma algorithm new \
+  --prompt "Add a health-check endpoint to the API" \
+  --intent "Expose service liveness" \
+  --current-state "No health endpoint exists" \
+  --goal "GET /health returns 200 with build info" \
+  --criterion "C1:Endpoint returns 200 and is covered by a test"
+soma algorithm verify --id <run-id> --criterion-id C1 --status passed --evidence "bun test"
+soma algorithm advance --id <run-id>
+```
+
+That run, your identity, telos, and anything learned now travel with you to the
+next host. Switch to Claude Code or Cursor (`soma install claude-code --apply`)
+and the same assistant shows up.
+
+---
+
+## Bring your PAI along
+
+Soma runs alongside PAI, not instead of it — your PAI keeps working untouched.
+There are two complementary things worth bringing across, and you can use
+either or both.
+
+### 1. The ideas: algorithm, memory, learning
+
+Daniel Miessler's deep-context approach — the Algorithm harness, structured
+memory, the learning loop, identity, and Telos — is the durable base. Sync it
+from a PAI git repository into your Soma home:
 
 ```bash
 soma migrate pai --pai-repo <path-to-pai>
 soma migrate pai --pai-repo <path-to-pai> --apply
 ```
 
-The migration orchestrator plans or applies these phases in order:
+The sync plans or applies these phases in order:
 
 - principal and assistant identity
 - Telos and profile material
@@ -104,19 +167,21 @@ The migration orchestrator plans or applies these phases in order:
 - translated memory
 - PAI documentation and templates
 - portable PAI packs as Soma skills
-- a readable migration manifest for audit and reruns
+- a readable manifest for audit and reruns
 
-Migration is designed to be idempotent. Dry-run first, inspect what would be
-written, then apply. After migration, the Soma home is the source of truth and
-each coding agent gets a projection from it.
+The sync is idempotent. Dry-run first, inspect what would be written, then
+apply. Afterward the Soma home is the source of truth and each coding agent
+gets a projection from it — a companion layer over PAI, not a replacement.
 
 See [docs/migration-from-pai.md](docs/migration-from-pai.md) for the complete
 walkthrough, flags, verification steps, and troubleshooting.
 
-### Import installed PAI skills
+### 2. The skills on top: Daniel's published library (and your own)
 
-When you want to import the skills your running PAI already exposes through
-Claude Code, use the installed-skill path:
+On top of those ideas, Daniel has published a rich and generous set of skills.
+If you already run them through a `.claude` installation, Soma can pull that
+whole skill library into a portable home — every skill you have installed, not
+only PAI's, so anything you have added comes along too:
 
 ```bash
 soma migrate claude-skills --from <claude-home>/skills
@@ -185,10 +250,10 @@ soma install cursor --workspace --apply
 
 ---
 
-## PAI-inspired tools
+## Portable tools
 
-Soma does not merely copy PAI files. It turns the useful PAI patterns into
-typed, substrate-portable tools.
+Soma turns proven assistant patterns — several of them first demonstrated by
+PAI — into typed, substrate-portable tools.
 
 ### The Algorithm
 
@@ -336,7 +401,7 @@ writeback gates, and adapter behavior are stable.
 - [docs/architecture.md](docs/architecture.md), the core/adapters/runtime model
 - [docs/boundaries.md](docs/boundaries.md), exactly what Soma owns and does not own
 - [docs/substrate-adapters.md](docs/substrate-adapters.md), adapter behavior by host
-- [docs/migration-from-pai.md](docs/migration-from-pai.md), PAI migration walkthrough
+- [docs/migration-from-pai.md](docs/migration-from-pai.md), PAI sync walkthrough
 - [docs/pai-pack-importer.md](docs/pai-pack-importer.md), PAI pack import rules
 - [docs/progressive-skill-loading.md](docs/progressive-skill-loading.md), skill registry and just-in-time loading
 - [docs/writeback-and-policy.md](docs/writeback-and-policy.md), projection, writeback, conflict, and policy semantics
@@ -351,6 +416,8 @@ MIT.
 ---
 
 <p align="center">
-  <sub>Built by <a href="https://github.com/jcfischer">Jens-Christian Fischer</a>.</sub><br />
-  <sub>Built on the shoulders of <a href="https://github.com/danielmiessler/Personal_AI_Infrastructure">Daniel Miessler's PAI</a> and <a href="https://github.com/danielmiessler/telos">TELOS</a>.</sub>
+  <sub>A <a href="https://meta-factory.ai">Meta Factory</a> project, by
+  <a href="https://github.com/jcfischer">Jens-Christian Fischer</a> and
+  <a href="https://github.com/mellanon">Andreas Aaström</a>.</sub><br />
+  <sub>Inspired by <a href="https://github.com/danielmiessler/Personal_AI_Infrastructure">Daniel Miessler's PAI</a> and <a href="https://github.com/danielmiessler/telos">TELOS</a>.</sub>
 </p>

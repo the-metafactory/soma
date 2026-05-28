@@ -1,6 +1,6 @@
 schema: arc/v1
 name: soma
-version: 0.6.4
+version: 0.7.0
 type: tool
 tier: community
 description: Substrate-portable Personal AI Assistant core for identity, memory, ISA, skills, learning, and adapters.
@@ -9,6 +9,7 @@ repository: https://github.com/the-metafactory/soma
 
 authors:
   - Jens-Christian Fischer
+  - Andreas Aaström
 
 runtime:
   substrates:
@@ -28,7 +29,7 @@ provides:
       trigger: substrate-neutral assistant core
     - name: Soma
       path: skill/
-      trigger: PAI for Codex Pi Claude Cortex
+      trigger: portable assistant core across Codex Pi Claude Cortex
 
 capabilities:
   filesystem:
