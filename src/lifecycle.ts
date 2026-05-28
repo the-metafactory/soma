@@ -3,8 +3,6 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
-
-const execFileAsync = promisify(execFile);
 import { listAlgorithmRunSummaries, listAlgorithmRuns } from "./algorithm-store";
 import { appendSomaMemoryEvent } from "./memory";
 import { loadSomaProfile } from "./soma-home";
@@ -29,6 +27,8 @@ import type {
   SomaStartupContext,
   SubstrateId,
 } from "./types";
+
+const execFileAsync = promisify(execFile);
 
 function resolveSomaHome(options: SomaLifecycleOptions = {}): string {
   const home = resolve(options.homeDir ?? homedir());
