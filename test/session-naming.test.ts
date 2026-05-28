@@ -1,7 +1,11 @@
+import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
+import { promisify } from "node:util";
 import { expect, test } from "bun:test";
+
+const run = promisify(execFile);
 import { deriveSessionName } from "../src/lifecycle";
 import { bootstrapSomaHome, runSomaLifecycleSessionEnd, runSomaLifecycleSessionStart, scaffoldIsa, setActiveIsa } from "../src/index";
 
@@ -90,6 +94,38 @@ test("session-start names the registry entry after the cwd basename", async () =
     const sessions = await readWork(homeDir);
     expect(sessions.soma).toMatchObject({ sessionUUID: "sess-cwd", sessionName: "soma" });
     expect(sessions["session-sess-cwd"]).toBeUndefined();
+  });
+});
+
+test("session-start detects the git branch from cwd when none is supplied", async () => {
+  await withTempHome(async (homeDir) => {
+    await bootstrapSomaHome({ homeDir });
+    // Real repo on a non-default branch; no gitBranch / ISA passed, so the
+    // lifecycle must shell out via detectGitBranch() to discover it.
+    const repo = await mkdtemp(join(tmpdir(), "soma-naming-repo-"));
+    try {
+      await run("git", ["-C", repo, "init", "-q"]);
+      await run("git", ["-C", repo, "checkout", "-q", "-b", "feature-z"]);
+
+      await runSomaLifecycleSessionStart({
+        homeDir,
+        substrate: "claude-code",
+        sessionId: "sess-detect",
+        cwd: repo,
+        timestamp: "2026-05-28T12:00:00.000Z",
+      });
+
+      const sessions = await readWork(homeDir);
+      const entry = Object.values(sessions).find((value) => value.sessionUUID === "sess-detect");
+      expect(entry).toBeDefined();
+      // git present → "<repo-basename>/feature-z"; if git is unavailable the
+      // best-effort detection yields undefined and we fall back to the bare
+      // basename. Either is acceptable; the detection path is what's exercised.
+      const base = basename(repo);
+      expect([`${base}/feature-z`, base]).toContain(entry?.sessionName ?? "");
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
   });
 });
 

@@ -66,6 +66,13 @@ function lastPathSegment(value: string): string {
  * (2) the working directory basename plus a non-default git branch, and
  * finally (3) the legacy `session <uuid>` fallback. Pure: git/ISA lookups
  * happen in the caller and are passed in.
+ *
+ * Names are not unique keys: concurrent sessions sharing a long-lived
+ * project ISA (or the same cwd) derive the same slug. `upsertSomaWorkRegistry`
+ * resolves the collision — the first session keeps the clean slug and later
+ * ones get a `-<sessionId>` suffix via `uniqueSessionSlug` — so the name
+ * groups by project/repo while each session keeps its own entry (keyed by
+ * `sessionUUID`).
  */
 export function deriveSessionName(input: DeriveSessionNameInput): DerivedSessionName {
   const isaSlug = input.activeIsaSlug?.trim();
