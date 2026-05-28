@@ -17,6 +17,31 @@ export interface SomaWorkRegistryEntry {
   artifacts: Record<string, string>;
 }
 
+export type SomaCurrentWorkPointerStatus = "active" | "idle" | "complete" | "failed";
+
+export interface SomaCurrentWorkPointerLearningSources {
+  events?: string;
+  ratings?: string;
+  feedback?: string;
+  results?: string[];
+  rawTranscript?: string;
+}
+
+export interface SomaCurrentWorkPointerSignals {
+  mode?: "minimal" | "native" | "algorithm";
+  classifier?: string;
+  cwd?: string;
+}
+
+export interface SomaCurrentWorkPointer extends SomaWorkRegistryEntry {
+  schema: "soma-current-work-v1";
+  slug: string;
+  status: SomaCurrentWorkPointerStatus;
+  completedAt?: string;
+  learningSources?: SomaCurrentWorkPointerLearningSources;
+  signals?: SomaCurrentWorkPointerSignals;
+}
+
 export interface SomaWorkRegistry {
   sessions: Record<string, SomaWorkRegistryEntry>;
 }
@@ -31,6 +56,12 @@ export interface UpsertSomaWorkRegistryEntryOptions extends SomaPathsOptions {
   progress?: string;
   timestamp?: string;
   artifacts?: Record<string, string>;
+}
+
+export interface UpsertSomaCurrentWorkPointerOptions extends UpsertSomaWorkRegistryEntryOptions {
+  status?: SomaCurrentWorkPointerStatus;
+  learningSources?: SomaCurrentWorkPointerLearningSources;
+  signals?: SomaCurrentWorkPointerSignals;
 }
 
 export interface UpsertSomaWorkRegistryEntryResult {
@@ -107,8 +138,17 @@ function removeSessionEntries(sessions: Record<string, SomaWorkRegistryEntry>, s
   }
 }
 
+function boundedMetadataLine(value: string, fallback: string, maxLength = 160): string {
+  const firstLine = value
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+  const normalized = (firstLine ?? fallback).replace(/\s+/g, " ").trim() || fallback;
+  return normalized.length <= maxLength ? normalized : normalized.slice(0, maxLength).trimEnd();
+}
+
 function buildRegistryEntry(
-  options: UpsertSomaWorkRegistryEntryOptions,
+  options: UpsertSomaCurrentWorkPointerOptions,
   sessionName: string,
   timestamp: string,
   existing?: SomaWorkRegistryEntry,
@@ -116,12 +156,12 @@ function buildRegistryEntry(
   const artifacts = options.artifacts ?? existing?.artifacts ?? {};
   return {
     ...(artifacts.isa ? { isa: artifacts.isa } : {}),
-    task: options.task?.trim() || existing?.task || sessionName,
+    task: boundedMetadataLine(options.task ?? existing?.task ?? sessionName, sessionName),
     sessionName,
     sessionUUID: options.sessionId,
     substrate: options.substrate,
-    phase: options.phase ?? existing?.phase ?? "native",
-    progress: options.progress ?? existing?.progress ?? "0/0",
+    phase: boundedMetadataLine(options.phase ?? existing?.phase ?? "native", "native", 64),
+    progress: boundedMetadataLine(options.progress ?? existing?.progress ?? "0/0", "0/0", 32),
     started: existing?.started ?? timestamp,
     updatedAt: timestamp,
     artifacts,
@@ -288,6 +328,38 @@ export function normalizeSomaWorkRegistryArtifacts(
   return normalized;
 }
 
+function normalizeSomaCurrentWorkLearningSources(
+  options: SomaPathsOptions,
+  sources?: SomaCurrentWorkPointerLearningSources,
+): SomaCurrentWorkPointerLearningSources | undefined {
+  if (sources === undefined) return undefined;
+
+  const raw: Record<string, string> = {};
+  if (sources.events !== undefined) raw.events = sources.events;
+  if (sources.ratings !== undefined) raw.ratings = sources.ratings;
+  if (sources.feedback !== undefined) raw.feedback = sources.feedback;
+  if (sources.rawTranscript !== undefined) raw.rawTranscript = sources.rawTranscript;
+
+  const normalized = normalizeSomaWorkRegistryArtifacts(options, raw);
+  const results =
+    sources.results === undefined
+      ? undefined
+      : Object.values(
+          normalizeSomaWorkRegistryArtifacts(
+            options,
+            Object.fromEntries(sources.results.map((path, index) => [`result${index}`, path])),
+          ),
+        );
+
+  return {
+    ...(normalized.events !== undefined ? { events: normalized.events } : {}),
+    ...(normalized.ratings !== undefined ? { ratings: normalized.ratings } : {}),
+    ...(normalized.feedback !== undefined ? { feedback: normalized.feedback } : {}),
+    ...(results !== undefined ? { results } : {}),
+    ...(normalized.rawTranscript !== undefined ? { rawTranscript: normalized.rawTranscript } : {}),
+  };
+}
+
 export async function readSomaWorkRegistry(options: SomaPathsOptions = {}): Promise<SomaWorkRegistry> {
   const path = workRegistryPath(options);
   const registry = await readJsonFile<unknown>(path, { sessions: {} }, "work registry");
@@ -310,11 +382,11 @@ export async function upsertSomaWorkRegistryEntry(
 }
 
 async function upsertSomaWorkRegistryEntryLocked(
-  options: UpsertSomaWorkRegistryEntryOptions,
+  options: UpsertSomaCurrentWorkPointerOptions,
 ): Promise<UpsertSomaWorkRegistryEntryResult> {
   const timestamp = options.timestamp ?? new Date().toISOString();
-  const sessionName = options.sessionName?.trim() || options.task?.trim() || options.sessionId;
-  const baseSlug = safeToken(options.slug ?? sessionName);
+  const sessionName = boundedMetadataLine(options.sessionName ?? options.task ?? options.sessionId, options.sessionId);
+  const baseSlug = safeToken(boundedMetadataLine(options.slug ?? sessionName, sessionName));
   const registryPath = workRegistryPath(options);
   const namesPath = sessionNamesPath(options);
   const pointerPath = currentWorkPath(options, options.sessionId);
@@ -331,19 +403,46 @@ async function upsertSomaWorkRegistryEntryLocked(
     timestamp,
     existing,
   );
+  const pointer = buildCurrentWorkPointer(options, slug, entry, timestamp);
 
   setRecordValue(registry.sessions, slug, entry);
   setRecordValue(names, options.sessionId, sessionName);
 
   await writeJson(registryPath, registry);
   await writeJson(namesPath, names);
-  await writeJson(pointerPath, { slug, ...entry });
+  await writeJson(pointerPath, pointer);
 
   return {
     slug,
     entry,
     files: [registryPath, namesPath, pointerPath],
   };
+}
+
+function buildCurrentWorkPointer(
+  options: UpsertSomaCurrentWorkPointerOptions,
+  slug: string,
+  entry: SomaWorkRegistryEntry,
+  timestamp: string,
+): SomaCurrentWorkPointer {
+  const status = options.status ?? "active";
+  return {
+    schema: "soma-current-work-v1",
+    slug,
+    ...entry,
+    status,
+    ...(status === "complete" || status === "failed" ? { completedAt: timestamp } : {}),
+    ...(options.learningSources !== undefined
+      ? { learningSources: normalizeSomaCurrentWorkLearningSources(options, options.learningSources) }
+      : {}),
+    ...(options.signals !== undefined ? { signals: options.signals } : {}),
+  };
+}
+
+export async function upsertSomaCurrentWorkPointer(
+  options: UpsertSomaCurrentWorkPointerOptions,
+): Promise<UpsertSomaWorkRegistryEntryResult> {
+  return withRegistryFileLock(workRegistryPath(options), () => upsertSomaWorkRegistryEntryLocked(options));
 }
 
 export function somaWorkRegistryPaths(options: SomaPathsOptions = {}, sessionId?: string): {

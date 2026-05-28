@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { listAlgorithmRunSummaries, listAlgorithmRuns } from "./algorithm-store";
 import { appendSomaMemoryEvent } from "./memory";
 import { loadSomaHome } from "./soma-home";
-import { normalizeSomaWorkRegistryArtifacts, upsertSomaWorkRegistryEntry } from "./work-registry";
+import { normalizeSomaWorkRegistryArtifacts, upsertSomaCurrentWorkPointer } from "./work-registry";
 import { getCriteria, getGoal } from "./isa-accessors";
 import { getRunPhase } from "./algorithm-lifecycle";
 import {
@@ -215,6 +215,43 @@ export async function runSomaLifecycleSessionStart(options: SomaLifecycleOptions
   const startup = await buildSomaStartupContext(options);
   const active = await loadActiveIsaForLifecycle(startup.somaHome);
   const activeNote = active === null ? "" : ` | active ISA: ${active.slug} (${active.isa.frontmatter.phase})`;
+  const eventsPath = join(startup.somaHome, "memory/STATE/events.jsonl");
+  let registryFiles: string[] = [];
+  if (startup.sessionId !== undefined) {
+    try {
+      registryFiles = (
+        await upsertSomaCurrentWorkPointer({
+          somaHome: startup.somaHome,
+          sessionId: startup.sessionId,
+          sessionName: `session ${startup.sessionId}`,
+          substrate: startup.substrate,
+          task: `Session ${startup.sessionId}`,
+          phase: "native",
+          progress: "0/1",
+          status: "active",
+          timestamp: startup.timestamp,
+          artifacts: {
+            events: eventsPath,
+          },
+          learningSources: {
+            events: eventsPath,
+          },
+        })
+      ).files;
+    } catch (error: unknown) {
+      await appendSomaMemoryEvent(startup.somaHome, {
+        substrate: startup.substrate,
+        kind: "lifecycle.session_start.registry-write-failed",
+        summary: "Session started; shared work registry writeback failed.",
+        timestamp: startup.timestamp,
+        metadata: {
+          sessionId: startup.sessionId,
+          substrate: startup.substrate,
+          error: lifecycleErrorMessage(error, startup.somaHome),
+        },
+      });
+    }
+  }
   await appendSomaMemoryEvent(startup.somaHome, {
     substrate: startup.substrate,
     kind: "lifecycle.session_start",
@@ -231,7 +268,7 @@ export async function runSomaLifecycleSessionStart(options: SomaLifecycleOptions
     event: "session_start",
     somaHome: startup.somaHome,
     timestamp: startup.timestamp,
-    files: [join(startup.somaHome, "memory/STATE/events.jsonl")],
+    files: Array.from(new Set([...registryFiles, eventsPath])),
     context: startup.context,
     activeIsa: active === null ? null : { slug: active.slug, phase: active.isa.frontmatter.phase },
   };
@@ -445,9 +482,9 @@ async function writeSessionEndWorkRegistry(input: {
     activeAlgorithmRunPath: input.activeAlgorithmRunPath,
     learningFiles: input.learningFiles,
   });
-  let registryWrite: Awaited<ReturnType<typeof upsertSomaWorkRegistryEntry>>;
+  let registryWrite: Awaited<ReturnType<typeof upsertSomaCurrentWorkPointer>>;
   try {
-    registryWrite = await upsertSomaWorkRegistryEntry({
+    registryWrite = await upsertSomaCurrentWorkPointer({
       somaHome: input.somaHome,
       sessionId: input.options.sessionId,
       sessionName: `session ${input.options.sessionId}`,
@@ -455,8 +492,13 @@ async function writeSessionEndWorkRegistry(input: {
       task: `Session ${input.options.sessionId}`,
       phase: "complete",
       progress: "1/1",
+      status: "complete",
       timestamp: input.timestamp,
       artifacts,
+      learningSources: {
+        events: join(input.somaHome, "memory/STATE/events.jsonl"),
+        results: input.learningFiles,
+      },
     });
   } catch (error: unknown) {
     await appendSomaMemoryEvent(input.somaHome, {
