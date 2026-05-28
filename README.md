@@ -9,8 +9,8 @@
 <h1 align="center">Soma</h1>
 
 <p align="center">
-  <strong>Your AI assistant's identity, memory, and skills.<br />
-  Kept in one place. Portable across Claude Code, OpenAI Codex, Pi.dev, and Cursor.</strong>
+  <strong>Your AI assistant's identity, memory, skills, and working method.<br />
+  Kept in one place. Projected into Claude Code, OpenAI Codex, Pi.dev, Cursor, and future substrates.</strong>
 </p>
 
 <p align="center">
@@ -25,257 +25,204 @@
 
 ---
 
-## Install
+## Why this project?
 
-Install the package with Arc:
+[Personal AI Infrastructure (PAI)](https://github.com/danielmiessler/Personal_AI_Infrastructure)
+and Daniel Miessler's [TELOS](https://github.com/danielmiessler/telos)
+project proved a strong idea: a useful AI assistant is not just a model
+prompt. It is a portable operating context around the model:
 
-```bash
-arc install @metafactory/soma
-```
+- identity: who the assistant is and who it serves
+- telos: goals, principles, commitments, and desired state
+- memory: what has been learned across sessions
+- skills: reusable procedures and capability folders
+- working method: Algorithm, ISA, verification, and learning loops
+- policy: privacy, permission, and evidence rules
 
-If `arc upgrade soma` resolves the new version but refuses to replace an
-older active install, use Arc's remove-then-install recovery path:
+TELOS provides the deep-context structure for articulating what a person,
+team, or organization is about: missions, goals, problems, strategies,
+projects, and measures of progress. PAI showed how that kind of context can
+become active inside an AI assistant. Soma extracts the durable parts into a
+shared assistant core that can be projected into many hosts.
 
-```bash
-arc remove soma
-arc install @metafactory/soma
-```
+Soma exists to abstract those ideas out of one host and make them usable across
+many substrates. The assistant core lives in a filesystem-native Soma home.
+Codex, Claude Code, Pi.dev, Cursor, and future hosts receive projections of
+that same core instead of each becoming a separate assistant island.
 
-See [Arc install troubleshooting](docs/arc-install-troubleshooting.md) for the
-full note and pinned-version variant.
-
-Or run it from a source checkout:
-
-```bash
-git clone https://github.com/the-metafactory/soma.git
-cd soma
-bun install
-bun run soma --help
-```
-
-Then project Soma into the coding agent you use:
-
-```bash
-bun run soma install codex --apply
-bun run soma install pi-dev --apply
-bun run soma install claude-code --apply
-bun run soma install cursor --apply
-```
-
-> `soma adopt claude` still works as a legacy alias; new prose uses the
-> unified `soma install claude-code` verb.
+The result is simple: change tools without losing the assistant.
 
 ---
 
-## What you get in 30 seconds
+## The shape
 
-- **One assistant, many coding agents.** Your principal profile, goals, memory, skills, and learning live on your machine in `<soma-home>/`. Move between Claude Code, OpenAI Codex, Pi.dev, and Cursor. Your assistant keeps remembering, keeps learning, and keeps you.
-- **Filesystem-native by design.** Plain folders. Plain Markdown. You can read, edit, version, back up, and audit your assistant's brain with the same tools you use for everything else. No proprietary database. No vendor lock-in.
-- **Ideal state built in.** Soma stores project and task ISAs, keeps one active ISA available to adapters, and gives the Algorithm a verification contract.
+```text
+             +----------------+
+             |   Soma home    |
+             | identity       |
+             | telos          |
+             | ISA            |
+             | skills         |
+             | memory         |
+             | policy         |
+             | Algorithm runs |
+             +--------+-------+
+                      |
+        +-------------+-------------+
+        |             |             |
+     Codex      Claude Code      Pi.dev      Cursor      Cortex/Myelin
+  projection     projection   projection   projection      planned
+```
 
----
+Soma owns the durable assistant core. Adapters own the substrate-native shape:
+instruction files, rules, hooks, skills, extensions, lifecycle writeback, and
+cleanup behavior.
 
-## Why Soma exists
-
-The valuable part of a personal AI assistant is not one model and not one CLI. It is the operating system around the model. Who the assistant is, who *you* are, what you want, what good work looks like, what was learned last time, how work is verified.
-
-Most AI tools today couple all of that to themselves. Change tools and you lose the assistant.
-
-Soma decouples the durable parts from the tool that happens to run them. The tool becomes replaceable. The assistant keeps going.
-
----
-
-## Architecture
-
-<p align="center">
-  <img src="docs/diagrams/2026-05-16-soma-nervous-system.jpg" alt="FIG. 0.1 — Soma at the centre of its adapters, with the Myelin spine running through" />
-</p>
-
-Soma owns the durable parts of your assistant.
-
-| Layer | What lives there |
-| --- | --- |
-| **Identity** | Principal profile, assistant profile, voice and personality |
-| **Telos** | Goals, principles, active commitments, desired state |
-| **ISA** | Ideal-state artefacts for the projects and tasks you are running |
-| **Skills** | Portable capability folders with instructions, workflows, and tools |
-| **Memory** | Work, knowledge, learning, relationship, and state stores |
-| **Policy** | Privacy, permission, and verification rules |
-| **Adapters** | Thin bridges into the coding agents where Soma runs |
-
-Soma deliberately does not own model selection, chat UI, tool runtimes, agent routing, or package distribution. Those belong to the coding agent you happen to be using, or to the surrounding tools that install and host Soma.
-
-See [docs/boundaries.md](docs/boundaries.md) for the exact split.
+Soma deliberately does not own the chat UI, model provider, package manager,
+observability stack, bus, or agent orchestration layer. Those stay with the
+host substrate and the surrounding Meta Factory stack. See
+[docs/boundaries.md](docs/boundaries.md) and
+[docs/substrate-adapters.md](docs/substrate-adapters.md).
 
 ---
 
-## Your first session
+## Migrate from PAI
 
-Once installed, point Soma at the coding agent you want it to run in. Each adapter writes a small set of hooks and memory files into that agent's home so Soma activates on startup.
+If you already have a PAI installation, Soma can import the durable parts so
+you do not start over.
+
+```bash
+soma migrate pai --pai-repo <path-to-pai>
+soma migrate pai --pai-repo <path-to-pai> --apply
+```
+
+The migration orchestrator plans or applies these phases in order:
+
+- principal and assistant identity
+- Telos and profile material
+- Algorithm doctrine and harness material
+- translated memory
+- PAI documentation and templates
+- portable PAI packs as Soma skills
+- a readable migration manifest for audit and reruns
+
+Migration is designed to be idempotent. Dry-run first, inspect what would be
+written, then apply. After migration, the Soma home is the source of truth and
+each coding agent gets a projection from it.
+
+See [docs/migration-from-pai.md](docs/migration-from-pai.md) for the complete
+walkthrough, flags, verification steps, and troubleshooting.
+
+### Import installed PAI skills
+
+When you want to import the skills your running PAI already exposes through
+Claude Code, use the installed-skill path:
+
+```bash
+soma migrate claude-skills --from <claude-home>/skills
+soma migrate claude-skills --from <claude-home>/skills --apply
+```
+
+The migrator classifies each skill as portable, needs adaptation, or
+Claude-specific. Add substrate smoke checks when you want proof that imported
+skills project cleanly:
+
+```bash
+soma migrate claude-skills --from <claude-home>/skills --smoke codex --smoke pi-dev
+```
+
+Oversize descriptions can be rewritten for substrate limits:
+
+```bash
+soma migrate claude-skills --from <claude-home>/skills --rewrite-descriptions auto --apply
+```
+
+For lower-level pack imports, see
+[docs/pai-pack-importer.md](docs/pai-pack-importer.md).
+
+---
+
+## One assistant, many substrates
+
+Install Soma once, then project it into the agents you use:
 
 ```bash
 soma install codex --apply
-soma install pi-dev --apply
 soma install claude-code --apply
+soma install pi-dev --apply
 soma install cursor --apply
 ```
 
-Then start a session and watch Soma surface its context.
+Each adapter writes the same assistant context into the host's native shape:
 
-Claude Code uses its native rules directory as the home projection so Claude
-can auto-discover the Soma projection without depending on fragile
-home-directory imports. Cursor uses `.cursorrules` plus `.cursor/rules/soma/`;
-`soma uninstall claude-code` and `soma uninstall cursor` remove only generated
-Soma projection files.
+| Substrate | Projection |
+| --- | --- |
+| OpenAI Codex | AGENTS instructions, rules, hooks, skills, and memory summaries |
+| Claude Code | rules, hooks, settings entries, and generated Soma-owned skill files |
+| Pi.dev | extensions, context files, skills, and Algorithm rendering support |
+| Cursor | `.cursorrules` and `.cursor/rules/soma/` projection files |
+| Cortex/Myelin | planned agent/daemon integration |
 
-<!--
-  Demo recording brief (replace this whole block with the rendered asset).
+The shared experience comes from a single source of truth:
 
-  Goal: a ~30-second animated demo that drops into the README as a GIF and
-  shows Soma surfacing context, switching agents, and searching memory.
+- session startup reads the same identity, telos, active work, and learning
+- Algorithm runs and ISA state stay portable
+- feedback and lifecycle events write back through Soma's memory and policy gates
+- uninstall removes only generated Soma projection files
 
-  Recommended tooling: charmbracelet/vhs (https://github.com/charmbracelet/vhs).
-  Write the script as docs/demos/2026-05-16-soma-first-session.tape and render
-  to docs/demos/2026-05-16-soma-first-session.gif. vhs is deterministic, so
-  the same .tape file can be re-rendered every release for a refreshed GIF.
+The home projection is the default assistant context for a substrate: identity,
+telos, memory layout, policy, active work, and shared skills. A workspace
+projection is an extra project-local layer. Use it when a repository needs its
+own ISA, local rules, local skills, or project-specific memory pointers. The
+workspace layer adds that context for sessions started in that repository
+without forking the assistant or replacing the shared Soma home.
 
-  Alternative: asciinema if a terminal-text recording is preferred over a GIF.
-  Output to docs/demos/2026-05-16-soma-first-session.cast and embed via the
-  asciinema SVG link.
-
-  Shot list (~30 seconds, six beats):
-
-    1. Title beat (2s)
-       # Soma — same self, any coding agent.
-
-    2. Start a session in Codex (4s)
-       $ soma lifecycle session-start --substrate codex
-       → startup-context block: principal, active commitments, recent learning
-
-    3. Switch to Pi.dev — same identity, different agent (4s)
-       $ soma lifecycle session-start --substrate pi-dev
-       → same identity surfaces, agent-specific projection
-
-    4. Search memory (6s)
-       $ soma memory search --query "client sovereignty"
-       → matches across WORK, KNOWLEDGE, LEARNING with line numbers
-
-    5. Promote a verified run to durable learning (5s)
-       $ soma memory promote --from-run <run-id> --store learning \
-           --title "Client sovereignty matters"
-       → promoted with source link
-
-    6. Capture in-session feedback as a candidate event (4s)
-       $ soma feedback capture --text "Forgot the arc-manifest check" \
-           --substrate codex
-       → classified and recorded
-
-    Closing card (2s)
-       soma install codex --apply
--->
-
-> [!NOTE]
-> **Demo · first session in 30 seconds** *(animated GIF in production)*
->
-> A six-beat run starting a Soma session in OpenAI Codex, switching to Pi.dev with the same identity intact, searching memory, promoting a verified run to durable learning, and capturing in-session feedback. Recorded with [`vhs`](https://github.com/charmbracelet/vhs) so it can be re-rendered every release. Full shot list in the HTML comment above this callout.
-
-<!-- asset-slot: docs/demos/2026-05-16-soma-first-session.gif -->
-<!-- replace with: ![Soma · first session in 30 seconds](docs/demos/2026-05-16-soma-first-session.gif) -->
-
-> [!NOTE]
-> **What you see when a session starts** *(screenshot in production)*
->
-> The assistant identity card produced by `soma lifecycle session-start`. Principal, telos, active commitments, recent learning. Concrete, scannable, the same in every coding agent.
-
-<!-- asset-slot: docs/screenshots/2026-05-16-session-start.png -->
-<!-- replace with: ![Session-start output](docs/screenshots/2026-05-16-session-start.png) -->
+```bash
+soma install codex --workspace --apply
+soma install claude-code --workspace --apply
+soma install cursor --workspace --apply
+```
 
 ---
 
-## Bringing in your existing assistant
+## PAI-inspired tools
 
-If you already run an assistant inside [Daniel Miessler's Personal AI Infrastructure (PAI)](https://github.com/danielmiessler/Personal_AI_Infrastructure), Soma can import the durable parts so you do not start from scratch.
+Soma does not merely copy PAI files. It turns the useful PAI patterns into
+typed, substrate-portable tools.
 
-```bash
-soma migrate pai
-soma migrate pai --apply
+### The Algorithm
+
+The Algorithm is the deterministic work harness around non-trivial AI work.
+It turns "help me do this" into a gated run:
+
+```text
+OBSERVE -> THINK -> PLAN -> BUILD -> EXECUTE -> VERIFY -> LEARN -> COMPLETE
 ```
 
-The migration orchestrator plans or applies identity, Algorithm, memory
-translation, docs import, and bulk PAI pack imports in one pass, then writes a
-readable migration manifest under the Soma profile import area.
-
-See **[docs/migration-from-pai.md](docs/migration-from-pai.md)** for the full
-walkthrough — prerequisites, every flag, per-substrate install (Codex,
-Claude Code, Pi.dev, Cursor), verification steps, and troubleshooting.
-
-### Alternative path: import from your installed `~/.claude/skills/` tree
-
-`soma migrate pai` reads PAI's distribution source at `~/work/PAI/Packs/`. If
-you'd rather import from the *installed* form (the skills your running PAI
-already projects into `~/.claude/skills/`), use:
+The assistant proposes current state, goal, criteria, plan, changes, evidence,
+and learning. Soma stores the run and decides whether phase gates are allowed
+to advance.
 
 ```bash
-soma migrate claude-skills --from ~/.claude/skills
-soma migrate claude-skills --from ~/.claude/skills --apply
+soma algorithm classify --prompt "..."
+soma algorithm new --prompt "..." --intent "..." --current-state "..." --goal "..." --criterion "C1:..."
+soma algorithm plan --id <run-id> --step "P1:C1:Implement the adapter"
+soma algorithm verify --id <run-id> --criterion-id C1 --status passed --evidence "bun test"
+soma algorithm advance --id <run-id>
 ```
 
-The installed tree is collision-free (no collection-pack duplicates), and a
-per-skill **portability classifier** tags each skill as `portable`,
-`needs-adapt` (rewritten via the normalizer), or `claude-specific` (skipped
-unless `--include-claude-specific` is set).
-
-Add `--smoke codex` or `--smoke pi-dev` (or both) to verify each imported
-skill projects cleanly into the named substrate — turns the heuristic verdict
-into a checked one before you trust it cross-substrate.
-
-If your skills carry oversize descriptions (Codex and Pi.dev cap at 1024
-chars) or missing frontmatter, add `--rewrite-descriptions auto` to
-preapprove batch compression via Codex, or choose `claude`, `codex`, or
-`pi` explicitly.
-
-User-owned symlinks inside the skills tree (private skills you keep in
-another worktree) are followed automatically when their target resolves
-within `$HOME`.
-
-### The lower-level commands
-
-The fine-grained import commands are still available when you want to move
-one category at a time:
+Capabilities are registry-backed commitments. If a run selects a capability,
+it must be invoked with evidence or explicitly removed before completion.
 
 ```bash
-soma import pai --dry-run
-soma import pai --apply
+soma algorithm capabilities --id <run-id> --capability sequential-analysis --reason "Order the migration steps"
+soma algorithm invoke --id <run-id> --capability sequential-analysis --evidence "Plan sequenced and recorded"
 ```
 
-This pulls your principal profile, assistant identity, and Telos summary into
-`<soma-home>/profile/`. Source snapshots are kept under
-`<soma-home>/profile/imports/claude/` so you can always trace what came from
-where.
+### ISA
 
-To port over the Algorithm (a small decision and verification harness that wraps AI work in a one-way phase machine):
-
-```bash
-soma import algorithm --apply
-```
-
-And to bring across a PAI skill pack. Soma converts portable workflows and tools, marks the rest as references, and refuses to copy anything that looks like a secret.
-
-```bash
-soma import pai-pack --pai-pack-dir <path-to-pack>
-soma import pai-pack --apply --pai-pack-dir <path-to-pack>
-```
-
-See [docs/pai-pack-importer.md](docs/pai-pack-importer.md) for the rules.
-
----
-
-## ISA: ideal state you can verify
-
-Soma treats an ISA as the durable definition of "done" for a project, task, or
-work session. ISAs live in the Soma home, and the active ISA is projected into
-Codex, Pi.dev, and Claude Code so every substrate sees the same goal, criteria,
-and verification contract.
+An Ideal State Artifact is the definition of done for a project, task, or work
+session. It carries criteria and verification evidence across substrates.
 
 ```bash
 soma isa scaffold --slug launch-plan --effort E2 --goal "Ship the launch plan with evidence"
@@ -284,136 +231,126 @@ soma isa active
 soma isa check launch-plan
 ```
 
-The `soma isa` CLI can list, show, activate, scaffold, check, archive, and
-upgrade the bundled ISA skill. Its library layer exposes the same behavior for
-adapters and future daemons.
+For parallel feature work, Soma can reconcile feature ISAs back into a master
+ISA by stable criterion IDs. See [docs/isa-reconcile.md](docs/isa-reconcile.md).
 
-For parallel feature work, Soma can deterministically reconcile a derived
-feature ISA back into its master by stable ISC IDs. Reconcile appends
-verification, decisions, and changelog entries without treating feature files as
-the source of truth. See [docs/isa-reconcile.md](docs/isa-reconcile.md).
+### Skills
 
----
+Skills are portable capability folders. A skill can include `SKILL.md`,
+workflows, references, examples, tools, and a `soma-skill.json` manifest.
+Adapters decide how the skill is projected into each substrate.
 
-## The Algorithm in one breath
+Soma supports progressive skill loading: project a compact registry by default,
+then load the selected skill body only when a task route needs it. See
+[docs/progressive-skill-loading.md](docs/progressive-skill-loading.md).
 
-Soma ships a small deterministic harness for non-trivial work. It walks every task through eight phases:
+### Learning patterns
 
-```text
-OBSERVE → THINK → PLAN → BUILD → EXECUTE → VERIFY → LEARN → COMPLETE
-```
-
-Your AI assistant proposes the state, the criteria, the plan, the decisions, the changes, and the evidence. Soma decides whether the run is allowed to advance. Nothing moves forward without verifiable evidence.
-
-```bash
-soma algorithm classify --prompt "..."
-soma algorithm new --prompt "..." --intent "..." --current-state "..." --goal "..." --criterion "C1:..."
-soma algorithm plan --id <run-id> --step "P1:C1:Implement the harness"
-soma algorithm verify --id <run-id> --criterion-id C1 --status passed --evidence "bun test"
-soma algorithm advance --id <run-id>
-```
-
-Effort scales automatically (E1 through E5) based on the prompt. Generated run IDs are date-first (`YYYYMMDD_alg_<suffix>`) so chronology is the default sort.
-
-When an active ISA exists, Algorithm decisions, changes, and verification can
-flow through the ISA lifecycle path. When no active ISA exists, Soma stays
-non-blocking: substantial E3+ work receives an advisory scaffold hint, but
-ordinary Algorithm runs can still complete without being forced into an ISA.
-
----
-
-## Memory you can actually read
-
-Soma keeps memory as plain files in five stores: **WORK**, **KNOWLEDGE**, **LEARNING**, **RELATIONSHIP**, and **STATE**. Search and promotion are deterministic.
+PAI's strongest lesson is that the assistant should improve from verified
+work, not vague session vibes. Soma keeps memory as readable files and exposes
+explicit learning paths:
 
 ```bash
 soma memory search --query "client sovereignty agency"
 soma memory promote --from-run <run-id> --store learning --title "Reusable lesson"
-soma feedback capture --text "you missed the arc-manifest"
+soma feedback capture --text "you missed the arc-manifest check"
 ```
 
-Feedback capture is intentionally weaker than promotion. It classifies what looks like a correction, a preference, a relationship note, or a learning, and appends a *candidate* event for later review. Prompt excerpts are not stored by default. The `--store-excerpt` flag is explicit opt-in.
+Promotion is deliberate: a verified run can become durable learning. Feedback
+capture is weaker by design: it records candidate corrections, preferences, or
+learning events for review. Prompt excerpts are not stored by default; storing
+one requires explicit opt-in.
+
+---
+
+## Install
+
+Install with Arc:
+
+```bash
+arc install @metafactory/soma
+```
+
+If `arc upgrade soma` resolves the new version but refuses to replace an older
+active install, use Arc's remove-then-install recovery path:
+
+```bash
+arc remove soma
+arc install @metafactory/soma
+```
+
+See [docs/arc-install-troubleshooting.md](docs/arc-install-troubleshooting.md)
+for the pinned-version variant.
+
+Or run from source:
+
+```bash
+git clone https://github.com/the-metafactory/soma.git
+cd soma
+bun install
+bun run soma --help
+```
+
+Then project Soma into at least one substrate:
+
+```bash
+bun run soma install codex --apply
+bun run soma install claude-code --apply
+bun run soma install pi-dev --apply
+bun run soma install cursor --apply
+```
 
 ---
 
 ## Privacy and policy
 
-A deterministic privacy guard ships in V0.
+Soma's V0 policy guard blocks obvious movement of private Soma or projection
+source material into public destinations and records checks as events.
 
 ```bash
 soma policy check --action write --destination ./README.md --content "..."
 ```
 
-The guard blocks obvious movement of private Soma or projection source material
-into public destinations and records every check as an event. It allows normal
-memory writes under Soma's own memory tree while still guarding destructive
-root-level paths. See [docs/private-source-guard-v0.md](docs/private-source-guard-v0.md)
-for the matcher rules.
+The guard allows normal writes under Soma's memory tree while protecting
+public files and destructive root-level paths. See
+[docs/private-source-guard-v0.md](docs/private-source-guard-v0.md).
 
 ---
 
-## What runs Soma today
+## Status
 
-| Coding agent | Status |
-| --- | --- |
-| **OpenAI Codex** (the command-line coding agent) | ✅ Shipping |
-| **Pi.dev** (the Pi developer harness) | ✅ Shipping |
-| **Claude Code** (Anthropic's terminal-and-IDE coding agent) | ✅ Shipping |
-| **Cursor** (the AI code editor) | ✅ Shipping |
-| **Cortex** (operator collaboration surface) | 🛠 Planned |
+Soma is a typed CLI and library with shipping home projections for Codex,
+Claude Code, Pi.dev, and Cursor. The current center of gravity is the portable
+filesystem contract: profile, telos, memory, policy, skills, Algorithm runs,
+and ISAs stay in the Soma home while adapters project that core into each
+substrate's native shape.
 
-The adapter contract is small enough to write in an afternoon. If you want Soma in an agent that is not on this list, see [docs/substrate-adapters.md](docs/substrate-adapters.md).
+Daemon mode and deeper Cortex/Myelin integration come after the file format,
+writeback gates, and adapter behavior are stable.
 
 ---
 
 ## Documentation
 
 - [CONTEXT.md](CONTEXT.md), the shared Soma vocabulary used by docs, CLI, and ISA
+- [docs/architecture.md](docs/architecture.md), the core/adapters/runtime model
 - [docs/boundaries.md](docs/boundaries.md), exactly what Soma owns and does not own
-- [docs/default-availability.md](docs/default-availability.md), home install versus workspace overlay
-- [docs/isa-reconcile.md](docs/isa-reconcile.md), deterministic ISA feature-file reconciliation
-- [docs/progressive-skill-loading.md](docs/progressive-skill-loading.md), the skill registry and just-in-time loading
+- [docs/substrate-adapters.md](docs/substrate-adapters.md), adapter behavior by host
+- [docs/migration-from-pai.md](docs/migration-from-pai.md), PAI migration walkthrough
+- [docs/pai-pack-importer.md](docs/pai-pack-importer.md), PAI pack import rules
+- [docs/progressive-skill-loading.md](docs/progressive-skill-loading.md), skill registry and just-in-time loading
 - [docs/writeback-and-policy.md](docs/writeback-and-policy.md), projection, writeback, conflict, and policy semantics
-- [docs/pai-pack-importer.md](docs/pai-pack-importer.md), what a PAI pack import does and refuses
-- [docs/private-source-guard-v0.md](docs/private-source-guard-v0.md), the V0 privacy guard rules
-- [docs/portability-proof.md](docs/portability-proof.md), the first portability proof and what counts as evidence
-
----
-
-## Origins and inspiration
-
-Soma stands on the shoulders of [Daniel Miessler](https://github.com/danielmiessler) and his [Personal AI Infrastructure (PAI)](https://github.com/danielmiessler/Personal_AI_Infrastructure) project. Many of the core ideas Soma builds on — the principal profile, Telos as a first-class structure for goals and principles, the assistant as an operating system rather than a single CLI, the Algorithm as a deterministic harness around AI work, and the conviction that the durable parts of a personal assistant should live in your filesystem and belong to you — come directly from PAI.
-
-What Soma adds is the **portability layer**, and a few deliberate departures from how PAI organises the durable parts. PAI lives inside one coding agent at a time and bundles the assistant's operating system into one integrated tree. Soma extracts the durable parts, gives them a stable file format and a small adapter contract, and lets the same assistant move between agents without losing itself. Where PAI is the operating system, Soma is the body that can move between hosts.
-
-Soma also takes the concepts further:
-
-- **More modular than monolithic.** Skills, memory stores, and policies are first-class folders that can be installed, upgraded, audited, and removed independently. The assistant is composed, not bundled.
-- **Lightweight by default.** The runtime is a small typed CLI with deterministic mutations. Light enough to drop into any coding agent without dragging a framework behind it.
-- **Built for distributed agentic workloads.** The adapter contract and memory layout are designed for agent teams and swarms running in parallel, not just one principal on one laptop talking to one agent.
-
-Soma also includes a dedicated importer for existing PAI installations, so the work you have already put into your assistant inside PAI travels with you.
-
----
-
-## Status
-
-Soma is now a typed CLI and library with shipping home projections for Codex,
-Pi.dev, Claude Code, and Cursor. The current center of gravity is the filesystem
-contract: profile, telos, memory, policy, skills, Algorithm runs, and ISAs stay
-portable in the Soma home, while adapters project that same core into each
-substrate's native shape. The daemon and richer Cortex/Myelin integration come
-after the file format, writeback gates, and adapter behavior are stable.
+- [docs/portability-proof.md](docs/portability-proof.md), the first portability proof and evidence contract
 
 ---
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT.
 
 ---
 
 <p align="center">
   <sub>Built by <a href="https://github.com/jcfischer">Jens-Christian Fischer</a>.</sub><br />
-  <sub>Built on the shoulders of <a href="https://github.com/danielmiessler/Personal_AI_Infrastructure">Daniel Miessler's PAI</a>.</sub>
+  <sub>Built on the shoulders of <a href="https://github.com/danielmiessler/Personal_AI_Infrastructure">Daniel Miessler's PAI</a> and <a href="https://github.com/danielmiessler/telos">TELOS</a>.</sub>
 </p>
