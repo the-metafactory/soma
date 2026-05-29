@@ -125,7 +125,10 @@ function isIsaPath(path) {
   const normalized = path.replaceAll("\\", "/");
   if (!normalized.endsWith("/ISA.md") && normalized !== "ISA.md") return false;
   if (/\/MEMORY\/WORK\/[^/]+\/ISA\.md$/.test(normalized)) return true;
-  // Project-root ISA.md (no nested MEMORY/WORK ancestry) — treat as project ISA.
+  // Otherwise any `ISA.md` basename (project-root OR nested, e.g. src/ISA.md).
+  // Broader than the MEMORY/WORK case by design: false positives are harmless
+  // because sync-from-isa runs parseIsa, which validates slug + criteria and
+  // no-ops on anything that isn't a real ISA.
   return /(^|\/)ISA\.md$/.test(normalized);
 }
 

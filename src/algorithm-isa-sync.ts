@@ -124,10 +124,18 @@ async function writeIndexAtomic(somaHome: string, index: IsaRunIndex): Promise<v
   await mkdir(dirname(path), { recursive: true });
   const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`;
   await writeFile(tmp, `${JSON.stringify(index, null, 2)}\n`, "utf8");
+  // write-tmp + rename is atomic for a single writer. Concurrent syncs for
+  // DIFFERENT slugs can still race (both read, both append, one rename wins) —
+  // accepted within the fire-and-forget budget: a lost mapping self-heals,
+  // since a missing slug entry is recreated on the next sync for that slug.
   await rename(tmp, path);
 }
 
 function phaseIndex(phase: AlgorithmPhase): number {
+  // "abandoned" is terminal and not part of the linear advance order; map it
+  // past the end so sync never tries to advance an abandoned run. Other unknown
+  // phases fall back to 0 (harmless — nextAlgorithmPhase guards the advance loop).
+  if (phase === "abandoned") return PHASE_ORDER.length;
   const idx = PHASE_ORDER.indexOf(phase);
   return idx === -1 ? 0 : idx;
 }
