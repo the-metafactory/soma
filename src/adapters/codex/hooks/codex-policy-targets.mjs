@@ -405,6 +405,17 @@ function normalizeToolInvocation(input) {
   };
 }
 
+function isInsideInboundRoot(path, root) {
+  const resolvedPath = resolve(path);
+  const resolvedRoot = resolve(root);
+  return resolvedPath === resolvedRoot || resolvedPath.startsWith(`${resolvedRoot}/`);
+}
+
+function extractReadInboundContentTarget(config, context) {
+  const roots = config.inboundSecurity?.untrustedRoots || [];
+  return roots.some((root) => isInsideInboundRoot(context.filePath, root)) ? [{ filePath: context.filePath }] : [];
+}
+
 function pushPatchTarget(config, targets, target) {
   if (!target) return;
   targets.push({
@@ -500,9 +511,19 @@ const targetExtractors = {
   exec_command: extractShellTarget,
 };
 
+const inboundTargetExtractors = {
+  Read: extractReadInboundContentTarget,
+};
+
 export function extractWriteTargets(config, input) {
   const context = normalizeToolInvocation(input);
   const extractor = targetExtractors[context.toolName];
+  return extractor ? extractor(config, context) : [];
+}
+
+export function extractInboundContentTargets(config, input) {
+  const context = normalizeToolInvocation(input);
+  const extractor = inboundTargetExtractors[context.toolName];
   return extractor ? extractor(config, context) : [];
 }
 

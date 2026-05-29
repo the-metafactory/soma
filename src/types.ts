@@ -1751,6 +1751,71 @@ export type SomaPolicyAction = "write" | "delete" | "modify";
 
 export type SomaPolicyDecision = "allow" | "deny";
 
+export type InboundContentDecision = "ALLOWED" | "BLOCKED" | "HUMAN_REVIEW";
+
+export interface InboundContentFinding {
+  kind: string;
+  detail: string;
+}
+
+export interface InboundContentScanInput {
+  content: string;
+  sourcePath?: string;
+  sourceUri?: string;
+}
+
+export interface InboundContentScanResult {
+  decision: InboundContentDecision;
+  reason: string;
+  scanner: string;
+  contentHash: string;
+  findings: InboundContentFinding[];
+}
+
+export interface InboundContentScanner {
+  id: string;
+  scan(input: InboundContentScanInput): Promise<Omit<InboundContentScanResult, "scanner" | "contentHash">> | Omit<InboundContentScanResult, "scanner" | "contentHash">;
+}
+
+export interface InboundContentSecurityConfig {
+  untrustedRoots: string[];
+  traceRoot: string;
+}
+
+export interface InboundContentScanOptions {
+  homeDir?: string;
+  somaHome?: string;
+  substrate?: SubstrateId;
+  content?: string;
+  sourcePath?: string;
+  sourceUri?: string;
+  scanner?: InboundContentScanner;
+  record?: "all" | "deny" | "none";
+  timestamp?: string;
+}
+
+export interface InboundContentScanAudit {
+  event?: SomaMemoryEvent;
+  tracePath?: string;
+}
+
+export interface InboundContentScanOutput extends InboundContentScanResult {
+  somaHome: string;
+  sourcePath?: string;
+  sourceUri?: string;
+  audit?: InboundContentScanAudit;
+}
+
+export interface InboundContentPromotionResult {
+  somaHome: string;
+  sourcePath: string;
+  contentRef: {
+    hash: string;
+    algorithm: "sha256";
+  };
+  scan: InboundContentScanOutput;
+}
+
 export interface SomaProtectedPath {
   path: string;
   description: string;

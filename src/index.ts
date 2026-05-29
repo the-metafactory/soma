@@ -103,6 +103,14 @@ export type {
   SomaPolicyDecision,
   SomaPolicyFinding,
   SomaPolicyFindingKind,
+  InboundContentDecision,
+  InboundContentFinding,
+  InboundContentScanInput,
+  InboundContentScanOptions,
+  InboundContentScanOutput,
+  InboundContentScanner,
+  InboundContentSecurityConfig,
+  InboundContentPromotionResult,
   SomaProtectedPath,
   PaiImportOptions,
   PaiImportPlan,
@@ -440,6 +448,14 @@ export {
 } from "./pai-migration";
 export { checkSomaPolicy, checkSomaPolicyBatch } from "./policy-audit";
 export { evaluateSomaPolicy } from "./policy";
+export {
+  createDeterministicInboundContentScanner,
+  defaultInboundContentSecurityConfig,
+  inboundContentHash,
+  isInboundUntrustedPath,
+  promoteInboundContent,
+  scanInboundContent,
+} from "./inbound-security";
 export { bootstrapSomaHome, loadSomaHome, loadSomaProfile } from "./soma-home";
 // Algorithm ↔ ISA bridge (#39) — advisory, non-blocking.
 export {

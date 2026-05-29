@@ -9,6 +9,7 @@ import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, render
 import { activeIsaBundleFile } from "../../adapter-active-isa";
 import { somaPolicyPrivateMarkers } from "../../policy";
 import { somaMemoryPrivateRoots, somaProjectionPrivateRoots } from "../../projection-private-roots";
+import { defaultInboundContentSecurityConfig } from "../../inbound-security";
 
 /**
  * Compute the runtime config the soma-lifecycle.mjs hook reads at
@@ -24,6 +25,10 @@ function codexLifecycleConfig(somaHome: string, homeDir?: string, somaRepoPath =
   bunPath: string;
   privateRoots: string[];
   policyMarkers: string[];
+  inboundSecurity: {
+    untrustedRoots: string[];
+    traceRoot: string;
+  };
 } {
   const home = resolve(homeDir ?? homedir());
   const privateRoots = [
@@ -40,6 +45,7 @@ function codexLifecycleConfig(somaHome: string, homeDir?: string, somaRepoPath =
     bunPath: resolveBunExecutable(),
     privateRoots,
     policyMarkers,
+    inboundSecurity: defaultInboundContentSecurityConfig({ somaHome }),
   };
 }
 
@@ -309,7 +315,7 @@ function renderCodexHooksJson(): string {
         ],
         PreToolUse: [
           {
-            matcher: "Edit|Write|MultiEdit|apply_patch|Bash|Shell|exec_command",
+            matcher: "Read|Edit|Write|MultiEdit|apply_patch|Bash|Shell|exec_command",
             hooks: [
               {
                 type: "command",
