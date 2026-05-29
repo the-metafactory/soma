@@ -116,6 +116,21 @@ test("cli shows no-argument usage as normal help", async () => {
   expect(result.stderr).not.toContain("error: script");
 });
 
+test("cli reports version via --version and -v", async () => {
+  const packageJson = (await import("../package.json")).default as { version: string };
+  const expected = `soma ${packageJson.version}`;
+
+  await expect(runSomaCli(["--version"])).resolves.toBe(expected);
+  await expect(runSomaCli(["-v"])).resolves.toBe(expected);
+});
+
+test("cli lists --version under global flags in usage", async () => {
+  const output = await runSomaCli([]);
+
+  expect(output).toContain("Global flags:");
+  expect(output).toContain("--version, -v");
+});
+
 test("cli supports explicit main help as normal help", async () => {
   const output = await runSomaCli(["--help"]);
 

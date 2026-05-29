@@ -1,3 +1,4 @@
+import packageJson from "../package.json";
 import { ISA_SUBCOMMAND_HELP, ISA_USAGE_HEADER, runIsaCli } from "./cli-isa";
 import {
   ALGORITHM_COMMAND_HELP,
@@ -102,6 +103,10 @@ interface ParsedHelpArgs {
   topic: string[];
 }
 
+interface ParsedVersionArgs {
+  command: "version";
+}
+
 interface ParsedIsaArgs {
   command: "isa";
   args: string[];
@@ -109,6 +114,7 @@ interface ParsedIsaArgs {
 
 type ParsedArgs =
   | ParsedHelpArgs
+  | ParsedVersionArgs
   | ParsedInstallArgs
   | ParsedUninstallArgs
   | ParsedReprojectArgs
@@ -197,6 +203,10 @@ function commandUsage(command: string, action?: string): string {
 function parseArgs(args: string[]): ParsedArgs {
   if (args.length === 0) {
     return { command: "help", topic: [] };
+  }
+
+  if (args.length === 1 && (args[0] === "--version" || args[0] === "-v")) {
+    return { command: "version" };
   }
 
   if (isHelpRequest(args)) {
@@ -332,6 +342,9 @@ function renderUsage(): string {
   return [
     "Usage:",
     ...usageLines,
+    "",
+    "Global flags:",
+    "  --version, -v   Print the soma version and exit",
   ].join("\n");
 }
 
@@ -399,6 +412,10 @@ export async function runSomaCli(args: string[]): Promise<string> {
 
   if (parsed.command === "help") {
     return renderHelp(parsed.topic);
+  }
+
+  if (parsed.command === "version") {
+    return `soma ${packageJson.version}`;
   }
 
   if (parsed.command === "lifecycle") {
