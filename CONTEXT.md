@@ -106,6 +106,190 @@ The seven compartments:
 
 ---
 
+## inbound security decision
+
+A [[Policy]] decision about whether externally sourced content may enter substrate context from an [[untrusted root]].
+
+Allowed decisions are `ALLOWED`, `BLOCKED`, and `HUMAN_REVIEW`. Content scanners may provide evidence, but Policy owns the decision and its audit semantics. Override, human approval, and human rejection are workflow events around the decision, not additional decision values.
+
+**Not synonyms:** Do not use `filter result` to mean the Policy decision. A filter result is scanner evidence; an inbound security decision is Soma's authorization outcome.
+
+**Why:** Soma integrates scanners without letting scanner-specific vocabulary become the core policy model. The same decision must project into substrates with different enforcement capabilities.
+
+---
+
+## inbound content scanner
+
+A replaceable scanner that evaluates externally sourced content and returns evidence for an [[inbound security decision]].
+
+An inbound content scanner does not decide Policy, write audit events as the source of truth, or define substrate enforcement semantics. Those remain Soma responsibilities.
+
+**Not synonyms:** Do not call this the `content-filter` layer. `@metafactory/content-filter` may implement the scanner interface, but the interface is Soma-owned.
+
+**Why:** Keeps PAI-shaped library vocabulary out of Soma's core policy model while still allowing a public scanner package to do the detection work.
+
+---
+
+## policy enforcement level
+
+An adapter-declared statement of how strongly a substrate can apply a Soma [[Policy]] rule at runtime.
+
+Allowed levels are `enforced`, `advisory`, and `ingress-gated`. `enforced` means the substrate can synchronously block the action. `advisory` means Soma can project rules or instructions but cannot reliably block. `ingress-gated` means Soma can block content before it becomes a routed artifact, even if it cannot control every editor or tool read.
+
+**Not synonyms:** Do not use `supported` to imply enforcement. A supported policy may still be advisory on a substrate.
+
+**Why:** Soma has one policy model, but substrate enforcement varies. Naming the enforcement level prevents projection docs from overclaiming uniform behavior.
+
+---
+
+## security trace
+
+A detailed private [[Memory]] artifact for security review, override workflow, and incident reconstruction.
+
+Security traces live under `memory/SECURITY/`. They may expand on an [[observability event]], but the normalized cross-substrate event stream remains `memory/STATE/events.jsonl`.
+
+**Not synonyms:** Do not call a security trace a transcript. Do not use `SECURITY/` as the canonical event stream.
+
+**Why:** Security work needs richer review material than a minimal event, but Soma's cross-substrate continuation contract depends on bounded append-only events in `STATE/events.jsonl`.
+
+---
+
+## allowed content reference
+
+A Soma-owned reference that lets externally sourced content enter context after an [[inbound security decision]] allows a specific content hash.
+
+The source file may remain in an [[untrusted root]]. Trust attaches to the referenced content hash, origin metadata, scanner evidence, and decision record; it does not attach permanently to the mutable source path.
+
+**Not synonyms:** Do not say the original file is "trusted" after it passes. Say Soma created an allowed content reference for a specific version of that content.
+
+**Why:** Inbound security must preserve provenance across substrates and prevent "allowed once" from becoming "trusted forever" after source mutation.
+
+---
+
+## acquisition gate
+
+A [[Policy]] gate that routes externally sourced content into an [[untrusted root]] where the substrate can enforce or encourage that routing.
+
+The acquisition gate applies before content becomes a local file or routed artifact. It is separate from the [[context-entry gate]] because acquisition routing does not prove the content is safe to read.
+
+## context-entry gate
+
+A [[Policy]] gate that evaluates externally sourced content before it enters substrate context.
+
+The context-entry gate uses scanner evidence to produce an [[inbound security decision]] and, when allowed, an [[allowed content reference]]. It applies even when content already exists in an [[untrusted root]].
+
+**Why:** Inbound security has two different jobs: keep external bytes in a known place, and decide whether specific bytes may enter context. Collapsing them hides bypass paths.
+
+---
+
+## inbound security config
+
+The Soma [[Policy]] configuration that names [[untrusted root|untrusted roots]], scanner settings, and substrate projection inputs for inbound-content security.
+
+Adapters render substrate-native hook, extension, rules, or ingress settings from inbound security config. Scanner package config paths and environment variables are implementation details, not the canonical Soma configuration surface.
+
+**Why:** Policy must stay Soma-owned even when a scanner or substrate hook has its own config format.
+
+---
+
+## inbound security failure
+
+A failure while applying an [[acquisition gate]], [[context-entry gate]], or [[inbound content scanner]].
+
+At the context-entry gate, inbound security failures are `BLOCKED` decisions with explicit reasons such as `scanner_error`. At the acquisition gate, malformed enforceable configuration blocks; unavailable enforcement must be declared in the adapter's [[policy enforcement level]] instead of silently pretending to enforce.
+
+**Not synonyms:** Do not describe failure as "allow by default" for content inside an [[untrusted root]]. Fail-open behavior must be a substrate limitation stated by enforcement level, not hidden inside the policy model.
+
+**Why:** Security failures must be observable and conservative without overclaiming uniform substrate enforcement.
+
+---
+
+## runtime policy inspection
+
+A Soma [[Policy]] evaluation of runtime substrate activity before, during, or after that activity is allowed to affect the session.
+
+Runtime policy inspection may evaluate prompts, tool calls, permission requests, configuration changes, or task/assistant-work events. Substrate hooks, extensions, MCP gates, or daemon dispatchers may invoke it, but they are projection mechanisms, not the core concept.
+
+Runtime policy inspection surfaces are `prompt`, `tool_call`, `permission_request`, `config_change`, and `governance_event`.
+
+**Not synonyms:** Do not call the Soma core concept a `hook`. Hooks are substrate-native projection mechanisms.
+
+**Why:** Soma needs one policy vocabulary that can project into Claude Code hooks, Codex hooks, Pi.dev extensions, Cursor rules, and Cortex/Myelin gates without making Claude's hook model canonical.
+
+---
+
+## principal prompt inspection
+
+A [[runtime policy inspection]] of a prompt submitted by the [[principal]].
+
+Principal prompt inspection may detect security-disable requests, exfiltration intent, encoded payloads, or instruction-override patterns in the submitted prompt. It is not [[inbound security decision|inbound security]] unless the prompt causes externally sourced content to be acquired or read.
+
+**Not synonyms:** Do not classify the principal's prompt itself as content from an [[untrusted root]]. If the prompt references an external artifact, that artifact is governed by inbound security when acquired or read.
+
+**Why:** PAI's `PromptGuard` protected the live prompt boundary. Soma keeps that protection, but separates it from the external-content model introduced for #250.
+
+---
+
+## inspector
+
+A check that contributes findings to a [[runtime policy inspection]].
+
+An inspector may be deterministic or model-backed. It does not own the final policy decision, audit contract, or substrate enforcement semantics.
+
+**Not synonyms:** Do not use `inspector` to mean the substrate wrapper that invokes Policy. The wrapper is an adapter projection; the inspector is the check inside Soma Policy.
+
+**Why:** PAI's security pipeline had useful inspector decomposition, but Soma keeps the decision and projection boundaries explicit.
+
+---
+
+## runtime policy decision
+
+The outcome of a [[runtime policy inspection]].
+
+Allowed decisions are `allow`, `deny`, `ask`, and `alert`. `allow` means no policy objection. `deny` means block where the substrate can enforce. `ask` means require principal approval where the substrate supports approval. `alert` means allow while recording or surfacing a warning. Alert handling is surface-specific: some alerts should enter model context, while audit and config alerts may only write events or traces.
+
+When a substrate cannot ask the principal synchronously, `ask` degrades by [[policy enforcement level]]: enforceable surfaces without approval support treat it as `deny`; advisory surfaces treat it as `alert` and record that approval was unavailable.
+
+**Not synonyms:** Do not use `require_approval` as the Soma term. That is PAI and Claude Code hook vocabulary. Do not use the uppercase [[inbound security decision]] values for runtime policy inspections.
+
+**Why:** Runtime policy needs an advisory path and a principal-approval path in addition to allow/deny, but the terms must stay substrate-neutral.
+
+---
+
+## runtime policy failure
+
+A failure while performing a [[runtime policy inspection]].
+
+Runtime policy failures are interpreted by surface. Enforceable pre-action gates fail closed when the core evaluator cannot produce a trustworthy decision. Advisory, audit, and recovery surfaces fail soft by recording the failure where possible and allowing the substrate activity to continue.
+
+**Not synonyms:** Do not say "security always fails closed" without naming the surface. Do not hide fail-open behavior inside an inspector.
+
+**Why:** A broken pre-tool gate can permit unsafe action, while a broken audit trace should not freeze normal work. Soma needs explicit failure semantics per runtime surface.
+
+---
+
+## runtime policy config
+
+The Soma [[Policy]] configuration that defines deterministic rules for [[runtime policy inspection]].
+
+Runtime policy config may describe command, path, prompt, permission, config-change, or governance-event rules. It is Soma-owned; PAI file names such as `PATTERNS.yaml` are source material, not canonical Soma vocabulary.
+
+**Why:** Soma should preserve the useful PAI rule capability without importing PAI's file layout or names as the policy model.
+
+---
+
+## runtime policy rules
+
+Principal-authored natural-language rules used by explicitly enabled model-backed [[inspector|inspectors]].
+
+Runtime policy rules complement deterministic [[runtime policy config]]. They do not override deterministic denies and are not enabled implicitly just because a rules file exists.
+
+**Not synonyms:** Do not call these `SECURITY_RULES.md` in Soma core. That is a possible imported source name, not the canonical term.
+
+**Why:** Natural-language rules are useful for principal intent, but model-backed policy must be clearly separated from deterministic policy.
+
+---
+
 ## assistant
 
 The named being that [[Soma]] makes portable. Examples: Ivy, Cedar, Sage, Fern, Alpha, Gorse.
@@ -371,6 +555,14 @@ The canonical Soma state that maps substrate session identifiers to human-readab
 
 The session name registry is Soma-native. It is not a PAI compatibility shim.
 
+## current-work pointer
+
+The session-scoped Soma state file that points to the work currently being continued.
+
+The current-work pointer is live continuation state, not a shutdown summary. It gives another substrate enough metadata to identify the active task, owning session, substrate, phase, progress, durable artifacts, and learning sources without reading a raw transcript.
+
+The current-work pointer routes learning; it does not contain learning material directly.
+
 ## raw transcript source
 
 A substrate-local directory or file set containing full session transcripts that Soma may harvest only when explicitly requested or adapter-declared.
@@ -447,6 +639,7 @@ Three adjectives that classify a piece of Soma or [[project|projection]] data. E
 - **private root** — filesystem root containing private content. Examples: `~/.soma/profile`, `~/.soma/memory`, `~/.codex/memories/soma/`, `~/.pi/agent/soma/`, Claude memory roots under `<claude-home>/memory` / `memories` / `PAI/MEMORY`. Listed in `docs/private-source-guard-v0.md`.
 - **protected root** — filesystem root containing protected content. Largely overlaps with private roots; the distinction matters for the path guard (`policy-path-guard.ts`), which permits writes inside protected roots but blocks destructive operations against them.
 - **public root** — any filesystem path that is neither private nor protected. Safe destination for non-private derivative content (e.g., `./README.md` of a public repo).
+- **untrusted root** — filesystem root containing externally sourced content that [[Policy]] treats as untrusted until inbound security allows it into context. The default home-level untrusted root is `<soma-home>/memory/RAW/untrusted/`; workspace-level untrusted roots must be explicit [[inbound security config]]. Do not call this a sandbox unless the substrate-native enforcement actually isolates or routes access to the content.
 
 **Not synonyms — killed from glossary:**
 - `principal-only` → `private`.
