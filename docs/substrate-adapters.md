@@ -35,6 +35,13 @@ from `<soma-home>/memory/RAW/untrusted/` call `soma policy scan`. `BLOCKED` and
 `HUMAN_REVIEW` decisions deny the read. Acquisition routing is still advisory
 until Codex exposes a reliable external-content ingress surface.
 
+Runtime policy: the same lifecycle hook now calls `soma policy inspect` for
+`UserPromptSubmit` and `PreToolUse`. Prompt and tool-call decisions of `deny`
+or `ask` block the substrate action; `allow` and `alert` continue. Runtime
+policy is documented in
+[runtime-policy-inspection.md](./runtime-policy-inspection.md) and remains
+separate from both private-source path guarding and inbound-content scanning.
+
 ## Pi.dev
 
 Pi.dev is model-agnostic and supports extensions and skills. The adapter should

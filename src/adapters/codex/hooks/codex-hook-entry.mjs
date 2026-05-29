@@ -87,6 +87,36 @@ function runSomaInboundContentScan(config, target) {
   ]);
 }
 
+function runSomaRuntimePolicyInspect(config, surface, payload) {
+  const args = [
+    "run",
+    "soma",
+    "policy",
+    "inspect",
+    "--soma-home",
+    config.somaHome,
+    "--substrate",
+    "codex",
+    "--surface",
+    surface,
+    "--record",
+    "deny",
+    "--json",
+  ];
+  const env = {};
+  if (surface === "prompt") {
+    args.push("--prompt-env", "SOMA_RUNTIME_POLICY_PROMPT");
+    env.SOMA_RUNTIME_POLICY_PROMPT = payload.prompt || "";
+  } else if (surface === "tool_call") {
+    args.push("--tool-name", payload.toolName || "");
+    args.push("--tool-input-env", "SOMA_RUNTIME_POLICY_TOOL_INPUT");
+    const input = payload.input && typeof payload.input === "object" && !Array.isArray(payload.input) ? payload.input : { raw: String(payload.input || "") };
+    env.SOMA_RUNTIME_POLICY_TOOL_INPUT = JSON.stringify(input);
+  }
+
+  return runSomaCommand(config, args, env);
+}
+
 function emitAndExit(payload) {
   console.log(JSON.stringify(payload));
   process.exit(0);
@@ -100,6 +130,35 @@ function denyPreToolUse(reason) {
       permissionDecisionReason: reason,
     },
   });
+}
+
+function denyPromptSubmit(reason) {
+  emitAndExit({
+    continue: false,
+    stopReason: reason,
+    hookSpecificOutput: {
+      hookEventName: "UserPromptSubmit",
+      decision: "block",
+      reason,
+    },
+  });
+}
+
+function parseRuntimePolicyResult(output, failurePrefix) {
+  let inspection;
+  try {
+    inspection = JSON.parse(output);
+  } catch {
+    throw new Error(`${failurePrefix} returned invalid JSON: ${output || "empty output"}`);
+  }
+  if (!inspection || typeof inspection !== "object" || typeof inspection.decision !== "string") {
+    throw new Error(`${failurePrefix} returned unexpected structure: ${output || "empty output"}`);
+  }
+  return inspection;
+}
+
+function shouldBlockRuntimePolicyDecision(decision) {
+  return decision === "deny" || decision === "ask";
 }
 
 function parseClassification(output) {
@@ -178,6 +237,24 @@ function handlePreToolUse(config, input) {
   if (input.__somaParseError) {
     denyPreToolUse(`Soma policy check failed closed: malformed hook input (${input.__somaParseError})`);
   }
+  const runtimeResult = runSomaRuntimePolicyInspect(config, "tool_call", {
+    toolName: input.tool_name || input.toolName,
+    input: input.tool_input || input.toolInput || {},
+  });
+  const runtimeOutput = runtimeResult.stdout || runtimeResult.stderr || "";
+  if (runtimeResult.status !== 0) {
+    denyPreToolUse(`Soma runtime policy inspection failed closed: ${runtimeOutput || "unknown error"}`);
+  }
+  let runtimeInspection;
+  try {
+    runtimeInspection = parseRuntimePolicyResult(runtimeOutput, "Soma runtime policy inspection");
+  } catch (error) {
+    denyPreToolUse(error instanceof Error ? error.message : String(error));
+  }
+  if (shouldBlockRuntimePolicyDecision(runtimeInspection.decision)) {
+    denyPreToolUse(runtimeInspection.reason || `Soma runtime policy ${runtimeInspection.decision}.`);
+  }
+
   const inboundTargets = extractInboundContentTargets(config, input);
   for (const target of inboundTargets) {
     const result = runSomaInboundContentScan(config, target);
@@ -220,6 +297,21 @@ function handlePreToolUse(config, input) {
 }
 
 function handlePromptSubmit(config, input) {
+  const runtimeResult = runSomaRuntimePolicyInspect(config, "prompt", { prompt: input.prompt });
+  const runtimeOutput = runtimeResult.stdout || runtimeResult.stderr || "";
+  if (runtimeResult.status !== 0) {
+    denyPromptSubmit(`Soma runtime policy inspection failed closed: ${runtimeOutput || "unknown error"}`);
+  }
+  let runtimeInspection;
+  try {
+    runtimeInspection = parseRuntimePolicyResult(runtimeOutput, "Soma runtime policy inspection");
+  } catch (error) {
+    denyPromptSubmit(error instanceof Error ? error.message : String(error));
+  }
+  if (shouldBlockRuntimePolicyDecision(runtimeInspection.decision)) {
+    denyPromptSubmit(runtimeInspection.reason || `Soma runtime policy ${runtimeInspection.decision}.`);
+  }
+
   runSomaFeedbackCapture(config, input.prompt);
   const result = runSomaClassification(config, input.prompt);
   if (result.status !== 0) {

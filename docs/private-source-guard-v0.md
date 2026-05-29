@@ -119,6 +119,11 @@ continue. `BLOCKED`, `HUMAN_REVIEW`, scanner failures, and malformed scanner
 output fail closed with a Codex `PreToolUse` denial. See
 [inbound-content-security.md](./inbound-content-security.md).
 
+For runtime prompt and tool-call policy, the hook calls `soma policy inspect`.
+This covers deterministic prompt and shell-command inspection that is not a
+path/private-source check. `deny` and `ask` decisions block the Codex action.
+See [runtime-policy-inspection.md](./runtime-policy-inspection.md).
+
 ## Non-Goals
 
 This is not ShadowRelease. It does not run TruffleHog, validate dashboards, or
