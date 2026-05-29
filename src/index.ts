@@ -111,6 +111,14 @@ export type {
   InboundContentScanner,
   InboundContentSecurityConfig,
   InboundContentPromotionResult,
+  RuntimePolicyDecision,
+  RuntimePolicyFinding,
+  RuntimePolicyFindingSeverity,
+  RuntimePolicyInspectAudit,
+  RuntimePolicyInspectOptions,
+  RuntimePolicyInspectResult,
+  RuntimePolicySurface,
+  RuntimePolicyToolCall,
   SomaProtectedPath,
   PaiImportOptions,
   PaiImportPlan,
@@ -456,6 +464,11 @@ export {
   promoteInboundContent,
   scanInboundContent,
 } from "./inbound-security";
+export {
+  inspectRuntimePolicy,
+  runtimePolicyTraceRoot,
+  RUNTIME_POLICY_SURFACES,
+} from "./runtime-policy";
 export { bootstrapSomaHome, loadSomaHome, loadSomaProfile } from "./soma-home";
 // Algorithm ↔ ISA bridge (#39) — advisory, non-blocking.
 export {
