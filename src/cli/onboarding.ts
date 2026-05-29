@@ -4,6 +4,7 @@ import {
   uninstallSomaForClaudeCode,
   type UninstallClaudeCodeOptions,
 } from "../index";
+import { DOCTOR_UNSUPPORTED_SUBSTRATE_MESSAGE } from "../adapters/doctor";
 import { applySomaInit, diagnoseSomaDoctor, planSomaInit } from "../onboarding";
 import type { SomaDoctorDiagnosis, SomaInitPlan, SomaInstallOptions, SomaOnboardingOptions } from "../types";
 import {
@@ -39,7 +40,7 @@ const ADOPT_CLAUDE_USAGE =
 const INIT_USAGE =
   "Usage: soma init [--dry-run] [--yes] [--home-dir <dir>] [--soma-home <dir>] [--substrate <codex|pi-dev|claude-code|cursor>]";
 const DOCTOR_USAGE =
-  "Usage: soma doctor [--home-dir <dir>] [--soma-home <dir>] [--substrate codex]";
+  "Usage: soma doctor [--home-dir <dir>] [--soma-home <dir>] [--substrate <codex|claude-code>]";
 
 export const ONBOARDING_COMMAND_HELP: Record<ParsedOnboardingArgs["command"], { usage: string; subcommands?: Record<string, string> }> = {
   init: {
@@ -73,8 +74,8 @@ export function parseInitArgs(args: string[]): ParsedInitArgs {
 export function parseDoctorArgs(args: string[]): ParsedDoctorArgs {
   const [, ...rest] = args;
   const options = parseOnboardingOptions(rest);
-  if (options.substrate && options.substrate !== "codex") {
-    throw new Error("soma doctor currently supports --substrate codex only.");
+  if (options.substrate && options.substrate !== "codex" && options.substrate !== "claude-code") {
+    throw new Error(DOCTOR_UNSUPPORTED_SUBSTRATE_MESSAGE);
   }
   return { command: "doctor", options };
 }

@@ -1477,7 +1477,10 @@ export type SomaDoctorFindingId =
   | "starter-profile"
   | "claude-skills-not-migrated"
   | "pai-not-migrated"
-  | "codex-projection-stale";
+  | "codex-projection-stale"
+  | "claude-code-projection-stale"
+  | "claude-code-hook-missing"
+  | "claude-code-settings-missing";
 
 export interface SomaOnboardingOptions {
   homeDir?: string;
