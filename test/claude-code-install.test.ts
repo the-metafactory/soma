@@ -346,3 +346,87 @@ test("README documents the directory contract for humans", () => {
   expect(readme!.content).toContain("rules");
   expect(readme!.content).toContain("uninstall");
 });
+
+async function waitForRunFile(homeDir: string, slug: string): Promise<boolean> {
+  const runPath = join(homeDir, ".soma/memory/WORK/algorithm-runs", `${slug}.json`);
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    const exists = await stat(runPath).then(() => true, () => false);
+    if (exists) return true;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return false;
+}
+
+test("hook bridge: editing an ISA file via writeback-tool mirrors it into a soma Algorithm run", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForClaudeCode({ homeDir });
+
+    const slug = "hook-bridge-demo";
+    const isaPath = join(homeDir, "PAI/MEMORY/WORK", slug, "ISA.md");
+    await mkdir(join(homeDir, "PAI/MEMORY/WORK", slug), { recursive: true });
+    await writeFile(
+      isaPath,
+      [
+        "---",
+        "task: Hook bridge demo",
+        `slug: ${slug}`,
+        "effort: E2",
+        "phase: think",
+        "progress: 0/1",
+        "mode: ALGORITHM",
+        "started: 2026-05-29",
+        "updated: 2026-05-29",
+        "---",
+        "",
+        "## Goal",
+        "",
+        "Mirror this ISA into a soma run.",
+        "",
+        "## Criteria",
+        "",
+        "- [ ] ISC-1: the run exists",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    runClaudeHook(homeDir, "writeback-tool", {
+      session_id: "claude-session-hook-bridge",
+      hook_event_name: "PostToolUse",
+      cwd: join(homeDir, "PAI/MEMORY/WORK", slug),
+      tool_name: "Write",
+      tool_input: { file_path: isaPath, content: "..." },
+    });
+
+    expect(await waitForRunFile(homeDir, slug)).toBe(true);
+    const run = await readJson<{ id: string; substrate: string }>(
+      join(homeDir, ".soma/memory/WORK/algorithm-runs", `${slug}.json`),
+    );
+    expect(run.id).toBe(slug);
+    expect(run.substrate).toBe("claude-code");
+  });
+});
+
+test("hook bridge: a non-ISA file edit does not create any soma Algorithm run", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForClaudeCode({ homeDir });
+
+    runClaudeHook(homeDir, "writeback-tool", {
+      session_id: "claude-session-no-isa",
+      hook_event_name: "PostToolUse",
+      cwd: join(homeDir, "workspace"),
+      tool_name: "Write",
+      tool_input: { file_path: join(homeDir, "workspace/notes.md"), content: "not an ISA" },
+    });
+
+    // Give the detached path a beat; then assert the runs dir has nothing.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const runsDir = join(homeDir, ".soma/memory/WORK/algorithm-runs");
+    const exists = await stat(runsDir).then(() => true, () => false);
+    if (exists) {
+      const { readdir } = await import("node:fs/promises");
+      const entries = await readdir(runsDir);
+      expect(entries.filter((e) => e.endsWith(".json"))).toEqual([]);
+    }
+  });
+});

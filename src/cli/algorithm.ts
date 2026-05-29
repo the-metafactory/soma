@@ -19,6 +19,7 @@ import {
   writeAlgorithmRun,
 } from "../index";
 import { registerSomaHomeAlgorithmCapabilities } from "../algorithm-capabilities";
+import { syncAlgorithmRunFromIsa, formatSyncResult } from "../algorithm-isa-sync";
 import { getCriteria, getGoal } from "../isa-accessors";
 import { getRunPhase } from "../algorithm-lifecycle";
 import { readOption } from "./parse-utils";
@@ -49,6 +50,7 @@ export const ALGORITHM_ACTIONS = [
   "learn",
   "batch",
   "advance",
+  "sync-from-isa",
 ] as const;
 
 export type AlgorithmCliAction = (typeof ALGORITHM_ACTIONS)[number];
@@ -71,6 +73,8 @@ export const ALGORITHM_COMMAND_HELP: { usage: string; subcommands: Record<Algori
     verify: "Usage: soma algorithm verify --id <run-id> --criterion-id <id> --status <passed|failed|dropped> --evidence <text>",
     learn: "Usage: soma algorithm learn --id <run-id> --text <text> [--home-dir <dir>] [--soma-home <dir>]",
     advance: "Usage: soma algorithm advance --id <run-id> [--home-dir <dir>] [--soma-home <dir>]",
+    "sync-from-isa":
+      "Usage: soma algorithm sync-from-isa --isa <path> --substrate <id> [--soma-home <dir>] [--home-dir <dir>] [--promote-on-complete]",
   },
 };
 
@@ -99,6 +103,8 @@ interface AlgorithmCliOptions {
   substrate?: SubstrateId;
   batchOperations?: AlgorithmBatchOperation[];
   json?: boolean;
+  isaPath?: string;
+  promoteOnComplete?: boolean;
 }
 
 function isAlgorithmAction(value: string | undefined): value is AlgorithmCliAction {
@@ -414,6 +420,13 @@ export function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
       case "--json":
         options.json = true;
         break;
+      case "--isa":
+        options.isaPath = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--promote-on-complete":
+        options.promoteOnComplete = true;
+        break;
       default:
         throw new Error(`Unknown option: ${arg}`);
     }
@@ -696,6 +709,19 @@ export async function runAlgorithmCli(parsed: ParsedAlgorithmArgs): Promise<stri
     return updateAndReportAlgorithmRun(options, (run) => applyAlgorithmBatch(run, operations), {
       registerCapabilities: true,
     });
+  }
+
+  if (parsed.action === "sync-from-isa") {
+    if (!options.isaPath) throw new Error("--isa is required.");
+    if (!options.substrate) throw new Error("--substrate is required.");
+    const result = await syncAlgorithmRunFromIsa({
+      isaPath: options.isaPath,
+      substrate: options.substrate,
+      homeDir: options.homeDir,
+      somaHome: options.somaHome,
+      promoteOnComplete: options.promoteOnComplete === true,
+    });
+    return formatSyncResult(result);
   }
 
   return updateAndReportAlgorithmRun(options, (run) => advanceAlgorithmRun(run), {
