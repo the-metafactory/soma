@@ -1,7 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { diagnoseProjectionDrift } from "./adapters/doctor";
+import { DOCTOR_UNSUPPORTED_DRIFT_MESSAGE, diagnoseProjectionDrift } from "./adapters/doctor";
 import { installSomaForClaudeCode, installSomaForCodex, installSomaForCursor, installSomaForPiDev } from "./install";
 import { migrateClaudeSkills } from "./claude-skills-migrator";
 import { migratePai } from "./pai-migration";
@@ -232,7 +232,7 @@ export async function diagnoseSomaDoctor(options: SomaOnboardingOptions = {}): P
   const detected = await detectOnboarding(options);
   const findings: SomaDoctorFinding[] = [];
   if (detected.substrate !== "codex" && detected.substrate !== "claude-code") {
-    throw new Error("soma doctor currently supports projection drift checks for --substrate codex and claude-code only.");
+    throw new Error(DOCTOR_UNSUPPORTED_DRIFT_MESSAGE);
   }
 
   if (detected.soma.starterProfile) {

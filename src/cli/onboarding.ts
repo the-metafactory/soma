@@ -4,6 +4,7 @@ import {
   uninstallSomaForClaudeCode,
   type UninstallClaudeCodeOptions,
 } from "../index";
+import { DOCTOR_UNSUPPORTED_SUBSTRATE_MESSAGE } from "../adapters/doctor";
 import { applySomaInit, diagnoseSomaDoctor, planSomaInit } from "../onboarding";
 import type { SomaDoctorDiagnosis, SomaInitPlan, SomaInstallOptions, SomaOnboardingOptions } from "../types";
 import {
@@ -74,7 +75,7 @@ export function parseDoctorArgs(args: string[]): ParsedDoctorArgs {
   const [, ...rest] = args;
   const options = parseOnboardingOptions(rest);
   if (options.substrate && options.substrate !== "codex" && options.substrate !== "claude-code") {
-    throw new Error("soma doctor currently supports --substrate codex and claude-code only.");
+    throw new Error(DOCTOR_UNSUPPORTED_SUBSTRATE_MESSAGE);
   }
   return { command: "doctor", options };
 }
