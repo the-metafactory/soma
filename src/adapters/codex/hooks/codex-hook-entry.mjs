@@ -191,6 +191,9 @@ function handlePreToolUse(config, input) {
     } catch {
       denyPreToolUse(`Soma inbound content scan returned invalid JSON: ${output || "empty output"}`);
     }
+    if (!scan || typeof scan !== "object" || typeof scan.decision !== "string") {
+      denyPreToolUse(`Soma inbound content scan returned unexpected structure: ${output || "empty output"}`);
+    }
     if (scan.decision === "BLOCKED" || scan.decision === "HUMAN_REVIEW") {
       denyPreToolUse(`Soma inbound content ${scan.decision}: ${scan.reason || "scan did not allow this content"}`);
     }

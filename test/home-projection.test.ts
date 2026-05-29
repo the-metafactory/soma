@@ -91,6 +91,7 @@ test("builds codex home projection bundle for default availability", () => {
   expect(projection.bundle.files.find((file) => file.path === "hooks/soma-lifecycle.config.json")?.content).toContain("memory/RAW/untrusted");
   expect(projection.bundle.files.find((file) => file.path === "hooks/codex-hook-entry.mjs")?.content).toContain("runSomaPolicyCheck");
   expect(projection.bundle.files.find((file) => file.path === "hooks/codex-hook-entry.mjs")?.content).toContain("runSomaInboundContentScan");
+  expect(projection.bundle.files.find((file) => file.path === "hooks/codex-hook-entry.mjs")?.content).toContain("unexpected structure");
   expect(projection.bundle.files.find((file) => file.path === "hooks/codex-hook-entry.mjs")?.content).toContain('"./codex-policy-hook.mjs"');
   expect(projection.bundle.files.find((file) => file.path === "hooks/codex-hook-entry.mjs")?.content).toContain(
     '"./soma-feedback-capture.mjs"',
