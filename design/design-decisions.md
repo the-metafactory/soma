@@ -442,3 +442,74 @@ Soma-owned runtime policy inspection model. The canonical model is:
   warning channel.
 
 **Discussion:** `/grill-with-docs` session 2026-05-29 for issue #251.
+
+### DD-9: Governance events model assistant-work control, not bare agents
+
+**Status:** Decided (2026-05-29)
+
+**Context:** Issue #255 covers the runtime policy surface reserved by DD-8 as
+`governance_event`. The source material is PAI's governance-oriented Claude Code
+hooks: `TaskGovernance.hook.ts`, `SkillGuard.hook.ts`, and
+`AgentExecutionGuard.hook.ts`. These hooks mix task quality/rate checks, false
+positive skill invocation checks, and Claude Code sub-agent execution nudges.
+Soma needs a portable model without using bare `agent` as a core term.
+
+Three candidates surfaced:
+- **(a) Treat governance as another tool-call policy.** Reuse `tool_call`
+  inspection and avoid a separate event family.
+- **(b) Define governance events as assistant-work control-plane policy.**
+  Model task requests, skill invocations, and qualified substrate-assistant
+  delegations as metadata-only runtime policy inputs.
+- **(c) Treat governance as observability only.** Record task/skill/delegation
+  metadata but never produce runtime policy decisions.
+
+**Decision:** **(b)** — `governance_event` is the runtime policy surface for
+assistant-work control events. The canonical event family is:
+- `task_request`
+- `soma_skill_invocation`
+- `substrate_skill_invocation`
+- `substrate_assistant_delegation`
+
+The model uses qualified substrate terms such as `Claude Code sub-agent` or
+`Cortex agent` when a substrate primitive is itself named agent. Soma core does
+not introduce bare `agent event` or bare `agent` as governance vocabulary.
+
+Governance events can return `allow`, `deny`, `ask`, or `alert`, but the first
+implementation should prefer `alert` and `ask` for quality and coordination
+nudges. `deny` is reserved for malformed enforceable pre-action payloads,
+explicit deterministic policy violations, or deterministic delegation risks.
+
+Governance uses the DD-8 event/trace split:
+`memory/STATE/events.jsonl` gets normalized `runtime_policy.inspect` events,
+while detailed enforcement-affecting traces land under
+`memory/SECURITY/runtime-policy/`. Pure quality/recovery telemetry may later
+route to `memory/OBSERVABILITY/`, but that is not the source of truth for
+runtime policy decisions.
+
+**Rejected:**
+- (a) would hide task/skill/delegation semantics inside generic tool-call
+  parsing and lose the ability to reason about governance by substrate.
+- (c) would preserve useful telemetry but prevent enforceable governance where
+  substrates can ask or block before work starts.
+
+**Implications:**
+- The later governance implementation should extend `RuntimePolicyInspectOptions`
+  with a `governanceEvent` payload rather than adding a new CLI namespace.
+- `soma policy inspect --surface governance_event` should accept metadata-only
+  task/skill/delegation payloads. It must not store raw prompts, full delegated
+  task bodies, transcripts, skill outputs, or tool outputs by default.
+- PAI `TaskGovernance` maps to `task_request` checks. Vague tasks should start
+  as `alert`; excessive task creation may become `ask` where enforceable.
+- PAI `SkillGuard` maps to `soma_skill_invocation` and
+  `substrate_skill_invocation` checks. False-positive skill invocation should
+  start as `alert` or `ask`, not `deny`.
+- PAI `AgentExecutionGuard` maps mostly to substrate projection behavior. A
+  Claude Code sub-agent background-execution nudge is not automatically a Soma
+  core denial; core policy only sees `substrate_assistant_delegation` when a
+  portable decision is needed.
+- Codex has no governance enforcement surface in the current projection beyond
+  generic prompt/tool-call inspection. Claude Code, Pi.dev, and Cortex/Myelin
+  have plausible pre-action or dispatch surfaces; Cursor is advisory until it
+  exposes a reliable gate.
+
+**Discussion:** issue #255 design pass, 2026-05-29.

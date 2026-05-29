@@ -218,6 +218,30 @@ Runtime policy inspection surfaces are `prompt`, `tool_call`, `permission_reques
 
 ---
 
+## governance event
+
+A [[runtime policy inspection]] surface for proposed, started, or completed assistant-work control events: task requests, skill invocations, and qualified substrate-assistant delegations.
+
+Governance events describe control-plane activity around work, not the content of the work itself. A governance event may ask whether a task request is too vague, whether a skill invocation appears false-positive, whether a Claude Code sub-agent launch should be nudged to background execution, or whether a Cortex agent dispatch should be observable before it starts.
+
+**Not synonyms:** Do not use bare `agent event`. Do not collapse governance events into [[tool call|tool_call]] unless the substrate exposes only a generic tool surface. Do not use `governance_event` for config auditing; that is `config_change`.
+
+**Why:** PAI's governance hooks mixed task quality, skill invocation, and Claude sub-agent execution behavior. Soma needs a portable policy surface that can classify those behaviors without importing Claude-only nouns.
+
+---
+
+## assistant-work event
+
+A substrate-neutral event about work being requested, delegated, started, stopped, or bounded for the [[assistant]].
+
+Assistant-work events include task requests, Soma skill invocations, substrate skill invocations, and qualified substrate-assistant delegations such as a Claude Code sub-agent run or Cortex agent dispatch. They are the input family for [[governance event]] inspection.
+
+**Not synonyms:** Do not shorten this to `agent event`. Use qualified terms such as `Claude Code sub-agent` or `Cortex agent` when naming substrate-native primitives.
+
+**Why:** Governance needs to talk about work coordination without turning the overloaded word `agent` into a Soma core noun.
+
+---
+
 ## principal prompt inspection
 
 A [[runtime policy inspection]] of a prompt submitted by the [[principal]].

@@ -23,6 +23,11 @@ The reserved surfaces are `permission_request`, `config_change`, and
 `governance_event`. They are vocabulary-stable but intentionally no-op until
 their issue slices define enforcement semantics.
 
+`governance_event` is designed in
+[governance-event-runtime-policy.md](./governance-event-runtime-policy.md). It
+covers assistant-work control events such as task requests, skill invocations,
+and qualified substrate-assistant delegations.
+
 Runtime inspection uses the same audit split as inbound-content security:
 
 - `memory/STATE/events.jsonl` receives append-only metadata events with kind
