@@ -1,5 +1,5 @@
-import { checkSomaPolicy, checkSomaPolicyBatch, promoteInboundContent, scanInboundContent } from "../index";
-import type { InboundContentScanOptions, SomaPolicyBatchTarget, SomaPolicyCheckOptions, SomaPolicyCheckResult } from "../types";
+import { checkSomaPolicy, checkSomaPolicyBatch, inspectRuntimePolicy, promoteInboundContent, RUNTIME_POLICY_SURFACES, scanInboundContent } from "../index";
+import type { InboundContentScanOptions, RuntimePolicyInspectOptions, RuntimePolicySurface, SomaPolicyBatchTarget, SomaPolicyCheckOptions, SomaPolicyCheckResult } from "../types";
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
 
@@ -25,7 +25,14 @@ export interface ParsedPolicyPromoteArgs {
   json: boolean;
 }
 
-export type ParsedPolicyArgs = ParsedPolicyCheckArgs | ParsedPolicyScanArgs | ParsedPolicyPromoteArgs;
+export interface ParsedPolicyInspectArgs {
+  command: "policy";
+  action: "inspect";
+  options: RuntimePolicyInspectOptions;
+  json: boolean;
+}
+
+export type ParsedPolicyArgs = ParsedPolicyCheckArgs | ParsedPolicyScanArgs | ParsedPolicyPromoteArgs | ParsedPolicyInspectArgs;
 
 const POLICY_CHECK_USAGE =
   "Usage: soma policy check --action write --destination <path> [--content <text>|--content-env <name>] [--source <path>] [--substrate <id>] [--record <all|deny|none>] [--json]";
@@ -33,13 +40,16 @@ const POLICY_SCAN_USAGE =
   "Usage: soma policy scan (--path <path>|--content <text>|--content-env <name>) [--source-uri <uri>] [--substrate <id>] [--record <all|deny|none>] [--json]";
 const POLICY_PROMOTE_USAGE =
   "Usage: soma policy promote --path <path> [--source-uri <uri>] [--substrate <id>] [--record <all|deny|none>] [--json]";
+const POLICY_INSPECT_USAGE =
+  "Usage: soma policy inspect --surface <prompt|tool_call|permission_request|config_change|governance_event> [--prompt <text>|--prompt-env <name>] [--tool-name <name> --tool-input-env <name>] [--substrate <id>] [--record <all|deny|none>] [--json]";
 
 export const POLICY_COMMAND_HELP: { usage: string; subcommands: Record<ParsedPolicyArgs["action"], string> } = {
-  usage: [POLICY_CHECK_USAGE, POLICY_SCAN_USAGE, POLICY_PROMOTE_USAGE].join("\n"),
+  usage: [POLICY_CHECK_USAGE, POLICY_SCAN_USAGE, POLICY_PROMOTE_USAGE, POLICY_INSPECT_USAGE].join("\n"),
   subcommands: {
     check: POLICY_CHECK_USAGE,
     scan: POLICY_SCAN_USAGE,
     promote: POLICY_PROMOTE_USAGE,
+    inspect: POLICY_INSPECT_USAGE,
   },
 };
 
@@ -52,6 +62,7 @@ export function parsePolicyArgs(args: string[]): ParsedPolicyArgs {
 
   if (action === "scan") return parsePolicyScanArgs(command, action, rest);
   if (action === "promote") return parsePolicyPromoteArgs(command, action, rest);
+  if (action === "inspect") return parsePolicyInspectArgs(command, action, rest);
   if (action !== "check") throw new Error(POLICY_COMMAND_HELP.usage);
 
   const options: Partial<SomaPolicyCheckOptions> = {};
@@ -161,6 +172,11 @@ export function parsePolicyArgs(args: string[]): ParsedPolicyArgs {
 }
 
 export async function runPolicyCli(parsed: ParsedPolicyArgs): Promise<string> {
+  if (parsed.action === "inspect") {
+    const result = await inspectRuntimePolicy(parsed.options);
+    return parsed.json ? `${JSON.stringify(result, null, 2)}\n` : formatRuntimePolicyInspectResult(result);
+  }
+
   if (parsed.action === "scan") {
     const result = await scanInboundContent(parsed.options);
     return parsed.json ? `${JSON.stringify(result, null, 2)}\n` : formatInboundScanResult(result);
@@ -288,6 +304,102 @@ function parsePolicyPromoteArgs(command: "policy", action: "promote", rest: stri
   return { command, action, options: parsed.options as InboundContentScanOptions & { sourcePath: string }, json: parsed.json };
 }
 
+function parsePolicyInspectArgs(command: "policy", action: "inspect", rest: string[]): ParsedPolicyInspectArgs {
+  const options: Partial<RuntimePolicyInspectOptions> = {};
+  let json = false;
+
+  for (let index = 0; index < rest.length; index += 1) {
+    const arg = rest[index];
+
+    switch (arg) {
+      case "--home-dir":
+        options.homeDir = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--soma-home":
+        options.somaHome = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--substrate":
+        options.substrate = parseSubstrate(readOption(rest, index, arg));
+        index += 1;
+        break;
+      case "--surface": {
+        const surface = readOption(rest, index, arg);
+        if (!RUNTIME_POLICY_SURFACES.includes(surface as RuntimePolicySurface)) {
+          throw new Error("--surface must be one of prompt, tool_call, permission_request, config_change, or governance_event.");
+        }
+        options.surface = surface as RuntimePolicySurface;
+        index += 1;
+        break;
+      }
+      case "--prompt":
+        options.prompt = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--prompt-env": {
+        const envName = readOption(rest, index, arg);
+        const envPrompt = process.env[envName];
+        if (envPrompt === undefined) {
+          throw new Error(`--prompt-env ${envName} is not set.`);
+        }
+        options.prompt = envPrompt;
+        index += 1;
+        break;
+      }
+      case "--tool-name":
+        options.toolCall = { ...(options.toolCall ?? { toolName: "" }), toolName: readOption(rest, index, arg) };
+        index += 1;
+        break;
+      case "--tool-input-env": {
+        const envName = readOption(rest, index, arg);
+        const envInput = process.env[envName];
+        if (envInput === undefined) {
+          throw new Error(`--tool-input-env ${envName} is not set.`);
+        }
+        let input: unknown;
+        try {
+          input = JSON.parse(envInput);
+        } catch {
+          throw new Error(`--tool-input-env ${envName} must contain a JSON object.`);
+        }
+        if (!input || typeof input !== "object" || Array.isArray(input)) {
+          throw new Error(`--tool-input-env ${envName} must contain a JSON object.`);
+        }
+        options.toolCall = { ...(options.toolCall ?? { toolName: "" }), input: input as Record<string, unknown> };
+        index += 1;
+        break;
+      }
+      case "--record": {
+        const value = readOption(rest, index, arg);
+        if (value !== "all" && value !== "deny" && value !== "none") {
+          throw new Error("--record must be one of all, deny, or none.");
+        }
+        options.record = value;
+        index += 1;
+        break;
+      }
+      case "--json":
+        json = true;
+        break;
+      default:
+        throw new Error(`Unknown option: ${arg}`);
+    }
+  }
+
+  if (!options.surface) {
+    throw new Error("soma policy inspect is missing required option: --surface.");
+  }
+  if (options.surface === "prompt" && options.prompt === undefined) {
+    throw new Error("soma policy inspect --surface prompt requires --prompt or --prompt-env.");
+  }
+  if (options.surface === "tool_call" && (!options.toolCall?.toolName || !options.toolCall.input)) {
+    throw new Error("soma policy inspect --surface tool_call requires --tool-name and --tool-input-env.");
+  }
+
+  return { command, action, options: options as RuntimePolicyInspectOptions, json };
+}
+
 function formatInboundScanResult(result: Awaited<ReturnType<typeof scanInboundContent>>): string {
   return [
     "Soma inbound content scan",
@@ -301,6 +413,23 @@ function formatInboundScanResult(result: Awaited<ReturnType<typeof scanInboundCo
     "",
     "Findings:",
     ...(result.findings.length > 0 ? result.findings.map((finding) => `- ${finding.kind}: ${finding.detail}`) : ["- none"]),
+  ]
+    .filter((line): line is string => line !== undefined)
+    .join("\n");
+}
+
+function formatRuntimePolicyInspectResult(result: Awaited<ReturnType<typeof inspectRuntimePolicy>>): string {
+  return [
+    "Soma runtime policy inspection",
+    `surface: ${result.surface}`,
+    `decision: ${result.decision}`,
+    `reason: ${result.reason}`,
+    `somaHome: ${result.somaHome}`,
+    result.audit?.event ? `event: ${result.audit.event.id}` : undefined,
+    result.audit?.tracePath ? `trace: ${result.audit.tracePath}` : undefined,
+    "",
+    "Findings:",
+    ...(result.findings.length > 0 ? result.findings.map((finding) => `- ${finding.severity} ${finding.kind}: ${finding.detail}`) : ["- none"]),
   ]
     .filter((line): line is string => line !== undefined)
     .join("\n");

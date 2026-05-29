@@ -1816,6 +1816,49 @@ export interface InboundContentPromotionResult {
   scan: InboundContentScanOutput;
 }
 
+export type RuntimePolicySurface = "prompt" | "tool_call" | "permission_request" | "config_change" | "governance_event";
+
+export type RuntimePolicyDecision = "allow" | "deny" | "ask" | "alert";
+
+export type RuntimePolicyFindingSeverity = "low" | "medium" | "high" | "critical";
+
+export interface RuntimePolicyFinding {
+  kind: string;
+  severity: RuntimePolicyFindingSeverity;
+  detail: string;
+  inspector: string;
+}
+
+export interface RuntimePolicyToolCall {
+  toolName: string;
+  input?: Record<string, unknown>;
+}
+
+export interface RuntimePolicyInspectOptions {
+  homeDir?: string;
+  somaHome?: string;
+  substrate?: SubstrateId;
+  surface: RuntimePolicySurface;
+  prompt?: string;
+  toolCall?: RuntimePolicyToolCall;
+  record?: "all" | "deny" | "none";
+  timestamp?: string;
+}
+
+export interface RuntimePolicyInspectAudit {
+  event?: SomaMemoryEvent;
+  tracePath?: string;
+}
+
+export interface RuntimePolicyInspectResult {
+  somaHome: string;
+  surface: RuntimePolicySurface;
+  decision: RuntimePolicyDecision;
+  reason: string;
+  findings: RuntimePolicyFinding[];
+  audit?: RuntimePolicyInspectAudit;
+}
+
 export interface SomaProtectedPath {
   path: string;
   description: string;
