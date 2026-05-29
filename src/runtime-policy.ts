@@ -38,7 +38,7 @@ function inspectPrompt(prompt: string): RuntimePolicyFinding[] {
   if (/\b(ignore|override)\s+(all\s+)?(previous|prior|system|developer)\s+instructions\b/u.test(normalized)) {
     findings.push(finding("instruction-override", "high", "Prompt attempts to override higher-priority instructions.", PROMPT_INSPECTOR_ID));
   }
-  if (/\b(reveal|print|dump|exfiltrate|leak|steal)\b.{0,80}\b(private memory|memory|secret|token|credential|private key)\b/u.test(normalized)) {
+  if (/\b(reveal|print|dump|exfiltrate|leak|steal)\b.{0,60}\b(private memory|secret|token|credential|private key)\b/u.test(normalized)) {
     findings.push(finding("data-exfiltration-intent", "high", "Prompt requests private memory or credential disclosure.", PROMPT_INSPECTOR_ID));
   }
   if (/\b(jailbreak|do anything now|roleplay as|pretend to be unrestricted)\b/u.test(normalized)) {

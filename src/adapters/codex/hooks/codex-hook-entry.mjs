@@ -158,6 +158,8 @@ function parseRuntimePolicyResult(output, failurePrefix) {
 }
 
 function shouldBlockRuntimePolicyDecision(decision) {
+  // Codex PreToolUse has no portable "ask principal" shape here, so Soma's
+  // substrate-neutral ask decision projects to a denial with an approval reason.
   return decision === "deny" || decision === "ask";
 }
 
