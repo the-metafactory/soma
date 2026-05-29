@@ -110,7 +110,7 @@ Empty in fresh installs. Populates the first time an observability hook fires. S
 
 \`SECURITY/\` records security-relevant events the substrate captured — task-governance decisions, hook stop-failure diagnostics, permission-denial traces, and any other signal worth preserving for post-hoc review. PAI's \`TaskGovernance\` and \`StopFailureHandler\` hooks write here; substrate-equivalent hooks on other adapters do the same.
 
-Where \`OBSERVABILITY/\` is general operational telemetry, \`SECURITY/\` is the subset worth preserving for incident review and audit. Entries are typically structured JSONL with timestamps, actor, action, and decision.
+Where \`OBSERVABILITY/\` is general operational telemetry, \`SECURITY/\` is the subset worth preserving for incident review and audit. Entries are typically structured JSONL with timestamps, actor, action, and decision. Inbound-content scans write private traces under \`SECURITY/inbound-content/\` while the normalized event lands in \`STATE/events.jsonl\`.
 
 Empty in fresh installs. Populates the first time a security hook fires. Treat entries as sensitive — they may contain command excerpts, file paths, and policy decisions that reveal the principal's workflow.
 `,
@@ -196,7 +196,7 @@ Empty in fresh installs. Populates when you run any skill that maintains a local
     "RAW",
     `# RAW
 
-\`RAW/\` stores unprocessed source material captured by the system before any parsing, classification, or summarization — raw HTML pulls, full API responses, transcript dumps, podcast audio metadata, original feed payloads, and similar inputs. Parsers and harvesters read from \`RAW/\` and write structured output elsewhere.
+\`RAW/\` stores unprocessed source material captured by the system before any parsing, classification, or summarization — raw HTML pulls, full API responses, transcript dumps, podcast audio metadata, original feed payloads, and similar inputs. Parsers and harvesters read from \`RAW/\` and write structured output elsewhere. Externally sourced content that has not passed context-entry scanning belongs under \`RAW/untrusted/\`.
 
 Keeping the raw form lets the system re-parse with improved logic later without re-fetching, and lets the principal inspect the original data when a downstream artifact looks wrong.
 

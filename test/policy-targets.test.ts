@@ -5,6 +5,7 @@ import {
   somaPolicyActionForToolAction,
 } from "../src/policy-targets";
 import { extractCodexPolicyTargets } from "../src/adapters/codex/policy-targets";
+import { extractCodexInboundContentTargets } from "../src/adapters/codex/policy-targets";
 import { extractToolCallPolicyTargets } from "../src/adapters/pi-dev/extensions/policy-targets";
 
 const privateHome = "/home/me/." + "soma";
@@ -104,6 +105,30 @@ test("extractCodexPolicyTargets preserves Codex private shell transfer detection
     },
   ]);
   expect(shouldCheckSomaPolicyTarget(config, targets[0])).toBe(true);
+});
+
+test("extractCodexInboundContentTargets flags reads from untrusted inbound roots", () => {
+  const config = {
+    somaHome: privateHome,
+    policyMarkers: [`${privateHome}/profile`, `${privateTilde}/profile`],
+    inboundSecurity: {
+      untrustedRoots: [`${privateHome}/memory/RAW/untrusted`],
+    },
+  };
+
+  const targets = extractCodexInboundContentTargets(config, {
+    tool_name: "Read",
+    cwd: "/repo",
+    tool_input: {
+      file_path: `${privateHome}/memory/RAW/untrusted/upstream.md`,
+    },
+  });
+
+  expect(targets).toEqual([
+    {
+      filePath: `${privateHome}/memory/RAW/untrusted/upstream.md`,
+    },
+  ]);
 });
 
 test("extractCodexPolicyTargets flags protected mv sources", () => {

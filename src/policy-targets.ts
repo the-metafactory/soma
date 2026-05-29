@@ -7,6 +7,9 @@ export type SomaToolPolicyAction = SomaPolicyAction | "read";
 export interface SomaPolicyTargetConfig {
   somaHome: string;
   policyMarkers: readonly string[];
+  inboundSecurity?: {
+    untrustedRoots?: readonly string[];
+  };
 }
 
 export interface SomaToolPolicyExtractionOptions {

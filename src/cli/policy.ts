@@ -1,9 +1,9 @@
-import { checkSomaPolicy, checkSomaPolicyBatch } from "../index";
-import type { SomaPolicyBatchTarget, SomaPolicyCheckOptions, SomaPolicyCheckResult } from "../types";
+import { checkSomaPolicy, checkSomaPolicyBatch, promoteInboundContent, scanInboundContent } from "../index";
+import type { InboundContentScanOptions, SomaPolicyBatchTarget, SomaPolicyCheckOptions, SomaPolicyCheckResult } from "../types";
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
 
-export interface ParsedPolicyArgs {
+export interface ParsedPolicyCheckArgs {
   command: "policy";
   action: "check";
   options: SomaPolicyCheckOptions;
@@ -11,22 +11,48 @@ export interface ParsedPolicyArgs {
   json: boolean;
 }
 
+export interface ParsedPolicyScanArgs {
+  command: "policy";
+  action: "scan";
+  options: InboundContentScanOptions;
+  json: boolean;
+}
+
+export interface ParsedPolicyPromoteArgs {
+  command: "policy";
+  action: "promote";
+  options: InboundContentScanOptions & { sourcePath: string };
+  json: boolean;
+}
+
+export type ParsedPolicyArgs = ParsedPolicyCheckArgs | ParsedPolicyScanArgs | ParsedPolicyPromoteArgs;
+
 const POLICY_CHECK_USAGE =
   "Usage: soma policy check --action write --destination <path> [--content <text>|--content-env <name>] [--source <path>] [--substrate <id>] [--record <all|deny|none>] [--json]";
+const POLICY_SCAN_USAGE =
+  "Usage: soma policy scan (--path <path>|--content <text>|--content-env <name>) [--source-uri <uri>] [--substrate <id>] [--record <all|deny|none>] [--json]";
+const POLICY_PROMOTE_USAGE =
+  "Usage: soma policy promote --path <path> [--source-uri <uri>] [--substrate <id>] [--record <all|deny|none>] [--json]";
 
 export const POLICY_COMMAND_HELP: { usage: string; subcommands: Record<ParsedPolicyArgs["action"], string> } = {
-  usage: POLICY_CHECK_USAGE,
+  usage: [POLICY_CHECK_USAGE, POLICY_SCAN_USAGE, POLICY_PROMOTE_USAGE].join("\n"),
   subcommands: {
     check: POLICY_CHECK_USAGE,
+    scan: POLICY_SCAN_USAGE,
+    promote: POLICY_PROMOTE_USAGE,
   },
 };
 
 export function parsePolicyArgs(args: string[]): ParsedPolicyArgs {
   const [command, action, ...rest] = args;
 
-  if (command !== "policy" || action !== "check") {
+  if (command !== "policy") {
     throw new Error(POLICY_COMMAND_HELP.subcommands.check);
   }
+
+  if (action === "scan") return parsePolicyScanArgs(command, action, rest);
+  if (action === "promote") return parsePolicyPromoteArgs(command, action, rest);
+  if (action !== "check") throw new Error(POLICY_COMMAND_HELP.usage);
 
   const options: Partial<SomaPolicyCheckOptions> = {};
   let json = false;
@@ -135,6 +161,18 @@ export function parsePolicyArgs(args: string[]): ParsedPolicyArgs {
 }
 
 export async function runPolicyCli(parsed: ParsedPolicyArgs): Promise<string> {
+  if (parsed.action === "scan") {
+    const result = await scanInboundContent(parsed.options);
+    return parsed.json ? `${JSON.stringify(result, null, 2)}\n` : formatInboundScanResult(result);
+  }
+
+  if (parsed.action === "promote") {
+    const result = await promoteInboundContent(parsed.options);
+    return parsed.json
+      ? `${JSON.stringify(result, null, 2)}\n`
+      : [`Soma inbound content promotion`, `decision: ${result.scan.decision}`, `contentRef: sha256:${result.contentRef.hash}`, `sourcePath: ${result.sourcePath}`].join("\n");
+  }
+
   if (parsed.targetsEnv) {
     const targets = readPolicyTargetsEnv(parsed.targetsEnv);
     const result = await checkSomaPolicyBatch({
@@ -163,6 +201,103 @@ function formatPolicyCheckResult(result: SomaPolicyCheckResult): string {
     `reason: ${result.reason}`,
     `somaHome: ${result.somaHome}`,
     result.event ? `event: ${result.event.id}` : undefined,
+    "",
+    "Findings:",
+    ...(result.findings.length > 0 ? result.findings.map((finding) => `- ${finding.kind}: ${finding.detail}`) : ["- none"]),
+  ]
+    .filter((line): line is string => line !== undefined)
+    .join("\n");
+}
+
+function parseInboundPolicyOptions(rest: string[], requirePath: boolean): { options: InboundContentScanOptions; json: boolean } {
+  const options: Partial<InboundContentScanOptions> = {};
+  let json = false;
+
+  for (let index = 0; index < rest.length; index += 1) {
+    const arg = rest[index];
+
+    switch (arg) {
+      case "--home-dir":
+        options.homeDir = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--soma-home":
+        options.somaHome = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--substrate":
+        options.substrate = parseSubstrate(readOption(rest, index, arg));
+        index += 1;
+        break;
+      case "--path":
+        options.sourcePath = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--source-uri":
+        options.sourceUri = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--content":
+        options.content = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--content-env": {
+        const envName = readOption(rest, index, arg);
+        const envContent = process.env[envName];
+        if (envContent === undefined) {
+          throw new Error(`--content-env ${envName} is not set.`);
+        }
+        options.content = envContent;
+        index += 1;
+        break;
+      }
+      case "--record": {
+        const value = readOption(rest, index, arg);
+        if (value !== "all" && value !== "deny" && value !== "none") {
+          throw new Error("--record must be one of all, deny, or none.");
+        }
+        options.record = value;
+        index += 1;
+        break;
+      }
+      case "--json":
+        json = true;
+        break;
+      default:
+        throw new Error(`Unknown option: ${arg}`);
+    }
+  }
+
+  if (requirePath && !options.sourcePath) {
+    throw new Error("soma policy promote is missing required option: --path.");
+  }
+  if (!requirePath && !options.sourcePath && options.content === undefined) {
+    throw new Error("soma policy scan requires --path, --content, or --content-env.");
+  }
+
+  return { options, json };
+}
+
+function parsePolicyScanArgs(command: "policy", action: "scan", rest: string[]): ParsedPolicyScanArgs {
+  const parsed = parseInboundPolicyOptions(rest, false);
+  return { command, action, ...parsed };
+}
+
+function parsePolicyPromoteArgs(command: "policy", action: "promote", rest: string[]): ParsedPolicyPromoteArgs {
+  const parsed = parseInboundPolicyOptions(rest, true);
+  return { command, action, options: parsed.options as InboundContentScanOptions & { sourcePath: string }, json: parsed.json };
+}
+
+function formatInboundScanResult(result: Awaited<ReturnType<typeof scanInboundContent>>): string {
+  return [
+    "Soma inbound content scan",
+    `decision: ${result.decision}`,
+    `reason: ${result.reason}`,
+    `scanner: ${result.scanner}`,
+    `contentRef: sha256:${result.contentHash}`,
+    `somaHome: ${result.somaHome}`,
+    result.audit?.event ? `event: ${result.audit.event.id}` : undefined,
+    result.audit?.tracePath ? `trace: ${result.audit.tracePath}` : undefined,
     "",
     "Findings:",
     ...(result.findings.length > 0 ? result.findings.map((finding) => `- ${finding.kind}: ${finding.detail}`) : ["- none"]),

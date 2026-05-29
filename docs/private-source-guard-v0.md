@@ -98,7 +98,8 @@ calls into `~/.soma/isa/*.md` and `~/.soma/memory/*/` pass while
 ## Codex Projection
 
 The Codex home projection installs a `PreToolUse` hook for `Write`, `Edit`,
-`MultiEdit`, `apply_patch`, and shell tools. The hook calls:
+`MultiEdit`, `apply_patch`, shell tools, and inbound-content `Read` checks. The
+private-source write path calls:
 
 ```bash
 SOMA_POLICY_TARGETS='[{"filePath":"<path>","content":"<content>","action":"write"}]' \
@@ -111,6 +112,12 @@ operation, it does not start the CLI or write an audit event. If a private marke
 or protected destructive operation is present, it calls the checker in JSON mode
 with `--record deny`. Denials and checker failures both return a Codex
 `PreToolUse` `permissionDecision: deny`.
+
+For inbound-content reads, the same hook scans files under
+`<soma-home>/memory/RAW/untrusted/` with `soma policy scan`. `ALLOWED` reads
+continue. `BLOCKED`, `HUMAN_REVIEW`, scanner failures, and malformed scanner
+output fail closed with a Codex `PreToolUse` denial. See
+[inbound-content-security.md](./inbound-content-security.md).
 
 ## Non-Goals
 
