@@ -250,9 +250,11 @@ function handlePreToolUse(config, input) {
     runtimeInspection = parseRuntimePolicyResult(runtimeOutput, "Soma runtime policy inspection");
   } catch (error) {
     denyPreToolUse(error instanceof Error ? error.message : String(error));
+    return;
   }
   if (shouldBlockRuntimePolicyDecision(runtimeInspection.decision)) {
     denyPreToolUse(runtimeInspection.reason || `Soma runtime policy ${runtimeInspection.decision}.`);
+    return;
   }
 
   const inboundTargets = extractInboundContentTargets(config, input);
@@ -307,9 +309,11 @@ function handlePromptSubmit(config, input) {
     runtimeInspection = parseRuntimePolicyResult(runtimeOutput, "Soma runtime policy inspection");
   } catch (error) {
     denyPromptSubmit(error instanceof Error ? error.message : String(error));
+    return;
   }
   if (shouldBlockRuntimePolicyDecision(runtimeInspection.decision)) {
     denyPromptSubmit(runtimeInspection.reason || `Soma runtime policy ${runtimeInspection.decision}.`);
+    return;
   }
 
   runSomaFeedbackCapture(config, input.prompt);

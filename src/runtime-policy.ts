@@ -89,6 +89,8 @@ function inspectToolCall(options: RuntimePolicyInspectOptions): RuntimePolicyFin
 }
 
 function decisionForFindings(findings: RuntimePolicyFinding[]): RuntimePolicyDecision {
+  // Critical command findings deny by severity; prompt-integrity findings deny
+  // by kind because they are high-confidence policy bypass/exfiltration intents.
   if (findings.some((item) => item.severity === "critical" || item.kind === "security-disable-request" || item.kind === "instruction-override" || item.kind === "data-exfiltration-intent")) {
     return "deny";
   }
