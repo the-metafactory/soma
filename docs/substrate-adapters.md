@@ -28,6 +28,13 @@ Next answer: add a home projection for `~/.codex/` so Soma is available by
 default. Workspace projections under `.codex/soma/` overlay the home projection,
 they are not the main install surface.
 
+Inbound security: Codex is the first enforceable context-entry projection for
+Soma inbound-content security. The home projection writes inbound security
+config beside the lifecycle hook and registers `Read` in `PreToolUse`; reads
+from `<soma-home>/memory/RAW/untrusted/` call `soma policy scan`. `BLOCKED` and
+`HUMAN_REVIEW` decisions deny the read. Acquisition routing is still advisory
+until Codex exposes a reliable external-content ingress surface.
+
 ## Pi.dev
 
 Pi.dev is model-agnostic and supports extensions and skills. The adapter should

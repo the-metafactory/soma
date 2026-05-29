@@ -35,7 +35,7 @@ function normalizeCodexToolInvocation(input: Record<string, unknown>): SomaPolic
   };
 }
 
-const codexTargetExtractors: Record<string, (config: SomaPolicyTargetConfig, context: SomaPolicyToolInvocation) => SomaPolicyBatchTarget[]> = {
+const codexTargetExtractors: Partial<Record<string, (config: SomaPolicyTargetConfig, context: SomaPolicyToolInvocation) => SomaPolicyBatchTarget[]>> = {
   Write: extractWritePolicyTargets,
   Edit: extractEditPolicyTargets,
   MultiEdit: extractMultiEditPolicyTargets,
@@ -45,8 +45,29 @@ const codexTargetExtractors: Record<string, (config: SomaPolicyTargetConfig, con
   exec_command: extractShellPolicyTargets,
 };
 
+function isInsideInboundRoot(path: string, root: string): boolean {
+  const resolvedPath = resolve(path);
+  const resolvedRoot = resolve(root);
+  return resolvedPath === resolvedRoot || resolvedPath.startsWith(`${resolvedRoot}/`);
+}
+
+function extractReadInboundContentTargets(config: SomaPolicyTargetConfig, context: SomaPolicyToolInvocation): SomaPolicyBatchTarget[] {
+  const roots = config.inboundSecurity?.untrustedRoots ?? [];
+  return roots.some((root) => isInsideInboundRoot(context.filePath, root)) ? [{ filePath: context.filePath }] : [];
+}
+
+const codexInboundTargetExtractors: Partial<Record<string, (config: SomaPolicyTargetConfig, context: SomaPolicyToolInvocation) => SomaPolicyBatchTarget[]>> = {
+  Read: extractReadInboundContentTargets,
+};
+
 export function extractCodexPolicyTargets(config: SomaPolicyTargetConfig, input: Record<string, unknown>): SomaPolicyBatchTarget[] {
   const context = normalizeCodexToolInvocation(input);
   const extractor = codexTargetExtractors[context.toolName];
+  return extractor ? extractor(config, context) : [];
+}
+
+export function extractCodexInboundContentTargets(config: SomaPolicyTargetConfig, input: Record<string, unknown>): SomaPolicyBatchTarget[] {
+  const context = normalizeCodexToolInvocation(input);
+  const extractor = codexInboundTargetExtractors[context.toolName];
   return extractor ? extractor(config, context) : [];
 }

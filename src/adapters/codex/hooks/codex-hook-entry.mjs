@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
-import { extractWriteTargets, shouldCheckPolicyTarget } from "./codex-policy-hook.mjs";
+import { extractInboundContentTargets, extractWriteTargets, shouldCheckPolicyTarget } from "./codex-policy-hook.mjs";
 // __SOMA_HOOK_MODULE_IMPORTS__
 
 // __SOMA_PROMPT_SUBMIT_EXTENSION_START__
@@ -67,6 +67,24 @@ function runSomaPolicyCheck(config, targets, action = "write") {
   }
 
   return runSomaCommand(config, args, { SOMA_POLICY_TARGETS: JSON.stringify(targets) });
+}
+
+function runSomaInboundContentScan(config, target) {
+  return runSomaCommand(config, [
+    "run",
+    "soma",
+    "policy",
+    "scan",
+    "--soma-home",
+    config.somaHome,
+    "--substrate",
+    "codex",
+    "--path",
+    target.filePath,
+    "--record",
+    "deny",
+    "--json",
+  ]);
 }
 
 function emitAndExit(payload) {
@@ -159,6 +177,23 @@ export function renderStartupContextSummary(context) {
 function handlePreToolUse(config, input) {
   if (input.__somaParseError) {
     denyPreToolUse(`Soma policy check failed closed: malformed hook input (${input.__somaParseError})`);
+  }
+  const inboundTargets = extractInboundContentTargets(config, input);
+  for (const target of inboundTargets) {
+    const result = runSomaInboundContentScan(config, target);
+    const output = result.stdout || result.stderr || "";
+    if (result.status !== 0) {
+      denyPreToolUse(`Soma inbound content scan failed closed: ${output || "unknown error"}`);
+    }
+    let scan;
+    try {
+      scan = JSON.parse(output);
+    } catch {
+      denyPreToolUse(`Soma inbound content scan returned invalid JSON: ${output || "empty output"}`);
+    }
+    if (scan.decision === "BLOCKED" || scan.decision === "HUMAN_REVIEW") {
+      denyPreToolUse(`Soma inbound content ${scan.decision}: ${scan.reason || "scan did not allow this content"}`);
+    }
   }
   const targets = extractWriteTargets(config, input).filter((target) => shouldCheckPolicyTarget(config, target));
   if (targets.length > 0) {

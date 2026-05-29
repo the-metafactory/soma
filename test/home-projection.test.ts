@@ -88,7 +88,9 @@ test("builds codex home projection bundle for default availability", () => {
   // soma#73: lifecycle hook is shipped verbatim, config lives in colocated JSON.
   expect(projection.bundle.files.find((file) => file.path === "hooks/soma-lifecycle.mjs")?.content).toContain("#!/usr/bin/env bun");
   expect(projection.bundle.files.find((file) => file.path === "hooks/soma-lifecycle.config.json")?.content).toContain("policyMarkers");
+  expect(projection.bundle.files.find((file) => file.path === "hooks/soma-lifecycle.config.json")?.content).toContain("memory/RAW/untrusted");
   expect(projection.bundle.files.find((file) => file.path === "hooks/codex-hook-entry.mjs")?.content).toContain("runSomaPolicyCheck");
+  expect(projection.bundle.files.find((file) => file.path === "hooks/codex-hook-entry.mjs")?.content).toContain("runSomaInboundContentScan");
   expect(projection.bundle.files.find((file) => file.path === "hooks/codex-hook-entry.mjs")?.content).toContain('"./codex-policy-hook.mjs"');
   expect(projection.bundle.files.find((file) => file.path === "hooks/codex-hook-entry.mjs")?.content).toContain(
     '"./soma-feedback-capture.mjs"',
@@ -98,7 +100,9 @@ test("builds codex home projection bundle for default availability", () => {
     "__SOMA_FEEDBACK_TRIGGER_PATTERN_SOURCE__",
   );
   expect(projection.bundle.files.find((file) => file.path === "hooks/codex-policy-hook.mjs")?.content).toContain("./codex-policy-targets.mjs");
+  expect(projection.bundle.files.find((file) => file.path === "hooks/codex-policy-hook.mjs")?.content).toContain("extractInboundContentTargets");
   expect(projection.bundle.files.find((file) => file.path === "hooks/codex-policy-targets.mjs")?.content).toContain("targetExtractors");
+  expect(projection.bundle.files.find((file) => file.path === "hooks/codex-policy-targets.mjs")?.content).toContain("inboundTargetExtractors");
   expect(projection.bundle.files.find((file) => file.path === "skills/the-algorithm/SKILL.md")?.content).toContain(
     "━━━ 👁️ OBSERVE ━━━ 1/7",
   );
@@ -145,6 +149,10 @@ test("soma#73: codex lifecycle hook ships verbatim with bun shebang + colocated 
   expect(parsed.bunPath).toBeDefined();
   expect(Array.isArray(parsed.privateRoots)).toBe(true);
   expect(Array.isArray(parsed.policyMarkers)).toBe(true);
+  expect(parsed.inboundSecurity).toMatchObject({
+    untrustedRoots: ["/tmp/soma-test-home/.soma/memory/RAW/untrusted"],
+    traceRoot: "/tmp/soma-test-home/.soma/memory/SECURITY/inbound-content",
+  });
 });
 
 test("builds pi.dev home projection bundle for default availability", () => {

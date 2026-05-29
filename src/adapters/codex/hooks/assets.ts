@@ -14,6 +14,7 @@ export function readCodexHookAsset(
 
 export function renderCodexPolicyHook(): string {
   return `export {
+  extractInboundContentTargets,
   extractWriteTargets,
   shouldCheckPolicyTarget,
 } from "./codex-policy-targets.mjs";
