@@ -382,6 +382,12 @@ export {
 } from "./work-registry";
 export { applySomaWriteback, type SomaWritebackOptions, type SomaWritebackResult } from "./writeback";
 export { promoteAlgorithmRunMemory } from "./memory-promotion";
+export {
+  syncAlgorithmRunFromIsa,
+  formatSyncResult,
+  type SyncAlgorithmRunFromIsaOptions,
+  type SyncAlgorithmRunFromIsaResult,
+} from "./algorithm-isa-sync";
 export { captureSomaResult, isSomaResultEventKind, searchSomaResults } from "./result-capture";
 export { importPaiIdentity, planPaiImport } from "./pai-importer";
 export {
