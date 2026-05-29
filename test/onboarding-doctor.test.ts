@@ -176,3 +176,77 @@ test("soma doctor reports ok after init applies the detected plan", async () => 
     expect(migration).toContain("Last migrated at:");
   });
 });
+
+async function writeSomaProfile(homeDir: string): Promise<void> {
+  await mkdir(join(homeDir, ".soma/profile"), { recursive: true });
+  await writeFile(join(homeDir, ".soma/profile/principal.md"), "# Principal\n\nName: Principal\n", "utf8");
+}
+
+async function writeClaudeCodeProjection(homeDir: string): Promise<void> {
+  await mkdir(join(homeDir, ".claude/rules/soma"), { recursive: true });
+  await mkdir(join(homeDir, ".claude/hooks/soma"), { recursive: true });
+  await writeFile(join(homeDir, ".claude/rules/soma/CONTEXT.md"), "# Soma Claude Code Context\n", "utf8");
+  await writeFile(join(homeDir, ".claude/hooks/soma/soma-claude-code-hook.mjs"), "// hook\n", "utf8");
+  await writeFile(join(homeDir, ".claude/hooks/soma/soma-claude-code-hook.config.json"), "{}\n", "utf8");
+  await writeFile(join(homeDir, ".claude/settings.json"), "{}\n", "utf8");
+}
+
+test("soma doctor --substrate claude-code reports a fully missing projection as drift", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeSomaProfile(homeDir);
+
+    const diagnosis = await diagnoseSomaDoctor({ homeDir, substrate: "claude-code" });
+
+    expect(diagnosis.status).toBe("drift");
+    const ids = diagnosis.findings.map((finding) => finding.id);
+    expect(ids).toContain("claude-code-projection-stale");
+    expect(ids).toContain("claude-code-hook-missing");
+    expect(ids).toContain("claude-code-settings-missing");
+    expect(diagnosis.findings).toContainEqual({
+      id: "claude-code-projection-stale",
+      severity: "warning",
+      message: "Claude Code projection is missing.",
+      action: "soma reproject claude-code",
+    });
+  });
+});
+
+test("soma doctor --substrate claude-code reports a stale projection", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeClaudeCodeProjection(homeDir);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await writeSomaProfile(homeDir);
+
+    const diagnosis = await diagnoseSomaDoctor({ homeDir, substrate: "claude-code" });
+
+    expect(diagnosis.findings).toContainEqual({
+      id: "claude-code-projection-stale",
+      severity: "warning",
+      message: "Claude Code projection is older than the Soma profile files.",
+      action: "soma reproject claude-code",
+    });
+  });
+});
+
+test("soma doctor --substrate claude-code is clean when the projection is current", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeSomaProfile(homeDir);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await writeClaudeCodeProjection(homeDir);
+
+    const diagnosis = await diagnoseSomaDoctor({ homeDir, substrate: "claude-code" });
+    const output = await runSomaCli(["doctor", "--substrate", "claude-code", "--home-dir", homeDir]);
+
+    const claudeFindings = diagnosis.findings.filter((finding) => finding.id.startsWith("claude-code-"));
+    expect(claudeFindings).toEqual([]);
+    expect(output).not.toContain("soma reproject claude-code");
+  });
+});
+
+test("soma doctor rejects unsupported substrates", async () => {
+  await withTempHome(async (homeDir) => {
+    await expect(runSomaCli(["doctor", "--substrate", "pi-dev", "--home-dir", homeDir])).rejects.toThrow(
+      "soma doctor currently supports --substrate codex and claude-code only.",
+    );
+  });
+});

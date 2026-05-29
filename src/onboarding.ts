@@ -231,8 +231,8 @@ async function maxProfileMtime(somaHome: string): Promise<number | null> {
 export async function diagnoseSomaDoctor(options: SomaOnboardingOptions = {}): Promise<SomaDoctorDiagnosis> {
   const detected = await detectOnboarding(options);
   const findings: SomaDoctorFinding[] = [];
-  if (detected.substrate !== "codex") {
-    throw new Error("soma doctor currently supports projection drift checks for --substrate codex only.");
+  if (detected.substrate !== "codex" && detected.substrate !== "claude-code") {
+    throw new Error("soma doctor currently supports projection drift checks for --substrate codex and claude-code only.");
   }
 
   if (detected.soma.starterProfile) {
