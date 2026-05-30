@@ -2,7 +2,6 @@ import { readFile } from "node:fs/promises";
 import { createPaths } from "../../paths";
 import type {
   AdvisorStateOptions,
-  InferenceBackend,
   InferenceLevel,
   InferenceMode,
   InferenceOptions,
@@ -88,9 +87,7 @@ function* balancedJsonCandidates(text: string): Generator<string> {
     }
 
     if (char === "{" || char === "[") {
-      if (start === undefined) {
-        start = index;
-      }
+    start ??= index;
       stack.push(char === "{" ? "}" : "]");
       continue;
     }

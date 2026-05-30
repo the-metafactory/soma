@@ -266,7 +266,7 @@ test("Sage r3 #99 — pack fingerprint lines pair correctly with imported pack n
     expect(result.packs[0].skillName).toBe("b-imported");
     const manifest = await readFile(result.manifestPath, "utf8");
     expect(manifest).toMatch(/pack 1: b-imported \(\d+ files\)/);
-    const fpMatch = manifest.match(/pack 1 fingerprint: ([0-9a-f]+|empty)/);
+    const fpMatch = /pack 1 fingerprint: ([0-9a-f]+|empty)/.exec(manifest);
     expect(fpMatch).not.toBeNull();
     expect(fpMatch![1]).not.toBe("empty");
   });

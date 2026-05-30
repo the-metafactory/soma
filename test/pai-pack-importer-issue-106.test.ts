@@ -139,7 +139,7 @@ test("AC-1: import with --include-unrecognized archives unrecognized files (clas
 
 // ─── AC-2: noise classification + silent skip ────────────────────────
 
-const NOISE_FIXTURES: Array<{ name: string; relativePath: string; content: string }> = [
+const NOISE_FIXTURES: { name: string; relativePath: string; content: string }[] = [
   { name: ".gitignore", relativePath: ".gitignore", content: "node_modules\n" },
   { name: ".gitattributes", relativePath: ".gitattributes", content: "* text=auto\n" },
   { name: ".editorconfig", relativePath: ".editorconfig", content: "root = true\n" },

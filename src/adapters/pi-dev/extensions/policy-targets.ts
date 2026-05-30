@@ -46,7 +46,7 @@ function toolCallSource(event: unknown): string | undefined {
 
 function toolCallName(event: unknown): string {
   const e = eventBag(event);
-  return String(e.toolName ?? e.name ?? "").toLowerCase();
+  return firstString([e.toolName, e.name])?.toLowerCase() ?? "";
 }
 
 function toolCallIsShell(event: unknown): boolean {

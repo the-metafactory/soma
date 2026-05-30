@@ -591,10 +591,6 @@ function groupOutcomesByDisposition(outcomes: readonly ClaudeSkillOutcome[]): Gr
       case "refused-other":
         groups.refusedOther.push(o);
         break;
-      default: {
-        const _exhaustive: never = o.disposition;
-        throw new Error(`unhandled disposition: ${_exhaustive}`);
-      }
     }
   }
   return groups;
@@ -632,7 +628,8 @@ function renderGroupedOutcomeLines(
     if (groups.imported.descriptionRewritten.length > 0) {
       lines.push(`Description rewritten (${groups.imported.descriptionRewritten.length}):`);
       for (const o of groups.imported.descriptionRewritten) {
-        const rw = o.descriptionRewrite!;
+        const rw = o.descriptionRewrite;
+        if (!rw) continue;
         lines.push(`  - ${o.kebabName} (${rw.originalLength} → ${rw.rewrittenLength} chars, ${rw.agent})`);
       }
       lines.push("");
@@ -720,12 +717,12 @@ function renderSkillSuffix(
 }
 
 function extractRefCount(reason: string): number {
-  const match = reason.match(/^(\d+)\s/);
+  const match = /^(\d+)\s/.exec(reason);
   return match ? parseInt(match[1], 10) : 0;
 }
 
 function extractClassifierDetail(reason: string): string {
-  const inMatch = reason.match(/in\s+(.+)$/);
+  const inMatch = /in\s+(.+)$/.exec(reason);
   return inMatch ? inMatch[1] : reason;
 }
 
@@ -951,14 +948,12 @@ export async function runMigrateCli(parsed: ParsedMigrateArgs): Promise<string> 
     // we only build the default when the caller didn't supply
     // one. This keeps `runSomaCli`-based tests free to assert on
     // a captured emitter.
-    if (!claudeOptions.progressEmitter) {
-      claudeOptions.progressEmitter = createProgressEmitter({
+    claudeOptions.progressEmitter ??= createProgressEmitter({
         stderr: process.stderr,
         quiet: parsed.quiet === true,
-        isatty: process.stderr.isTTY === true,
+        isatty: process.stderr.isTTY,
         verbose: parsed.verbose === true,
       });
-    }
     if (parsed.mode === "plan") {
       // #118 — plan mode is informative; refused-other rows are
       // displayed but the CLI exits 0 (mirror of #112's plan/apply

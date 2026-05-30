@@ -83,7 +83,7 @@ function learningFromWorkRegistryEntry(entry: SomaWorkRegistryEntry): HarvestedL
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-  const prototype = Object.getPrototypeOf(value);
+  const prototype: unknown = Object.getPrototypeOf(value);
   return prototype === Object.prototype || prototype === null;
 }
 
@@ -229,7 +229,7 @@ function eventIdsForPointer(pointer: SomaCurrentWorkPointer, idsByPath: EventIds
   return idsByPath.get(eventsPath)?.get(pointer.sessionUUID) ?? [];
 }
 
-function safeMemoryRecord(record: Record<string, string>): Array<[string, string]> {
+function safeMemoryRecord(record: Record<string, string>): [string, string][] {
   return Object.entries(record)
     .map(([kind, path]) => [safeMetadataToken(kind, 64), safeMemoryPath(path)] as const)
     .filter((entry): entry is [string, string] => entry[0] !== undefined && entry[1] !== undefined);
@@ -251,7 +251,7 @@ function learningFromCurrentWorkPointer(pointer: SomaCurrentWorkPointer, pointer
   const labelledSourceFiles = [
     ...sourceFiles.flatMap(([label, path]) => path === undefined ? [] : [`${label}: ${path}`]),
     ...safeMemoryArray(pointer.learningSources?.results).map((path) => `result: ${path}`),
-  ].filter((line): line is string => line !== undefined);
+  ];
 
   return {
     sessionId: pointer.sessionUUID,
@@ -271,7 +271,7 @@ function learningFromCurrentWorkPointer(pointer: SomaCurrentWorkPointer, pointer
   };
 }
 
-type CurrentWorkPointerRecord = { path: string; pointer: SomaCurrentWorkPointer };
+interface CurrentWorkPointerRecord { path: string; pointer: SomaCurrentWorkPointer }
 
 async function discoverCurrentWorkPointers(options: HarvestOptions): Promise<CurrentWorkPointerRecord[]> {
   const paths = pathsForLearningOptions(options);

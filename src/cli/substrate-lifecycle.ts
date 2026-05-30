@@ -98,9 +98,9 @@ function lifecycleSubcommandUsage(command: string, options: string): Record<Inst
   ) as Record<InstallSubstrate, string>;
 }
 
-type ProjectionOptions = { homeDir?: string; somaHome?: string; substrateHome?: string };
-type ProjectionFile = { path: string; content: string };
-type UninstallResult = { substrateHome: string; removed: string[] };
+interface ProjectionOptions { homeDir?: string; somaHome?: string; substrateHome?: string }
+interface ProjectionFile { path: string; content: string }
+interface UninstallResult { substrateHome: string; removed: string[] }
 
 const installPlanners: Record<InstallSubstrate, (options: SomaInstallOptions) => SomaInstallPlan> = {
   codex: planSomaForCodexInstall,

@@ -12,7 +12,7 @@ const SECTION_BY_TYPE: Record<WisdomObservationType, string> = {
 };
 
 function titleCaseDomain(domain: string): string {
-  return domain.split(/[-_]/).filter(Boolean).map((part) => part[0]!.toUpperCase() + part.slice(1)).join(" ");
+  return domain.split(/[-_]/).filter(Boolean).map((part) => part[0].toUpperCase() + part.slice(1)).join(" ");
 }
 
 export function emptyFrameMarkdown(domain: string, now = new Date()): string {
@@ -70,12 +70,12 @@ async function readdirIfExists(path: string) {
 }
 
 function readObservationCount(content: string): number {
-  const match = content.match(/^- Observation Count:\s*(\d+)/m);
+  const match = /^- Observation Count:\s*(\d+)/m.exec(content);
   return match ? Number(match[1]) : 0;
 }
 
 function readLastUpdated(content: string): string | undefined {
-  return content.match(/^- Last Crystallized:\s*(\d{4}-\d{2}-\d{2})/m)?.[1];
+  return (/^- Last Crystallized:\s*(\d{4}-\d{2}-\d{2})/m.exec(content))?.[1];
 }
 
 function sectionBullet(type: WisdomObservationType, observation: string, date: string): string {
@@ -105,7 +105,7 @@ function updateMetadata(content: string, count: number, date: string): string {
 }
 
 export function parseWisdomFrame(domain: string, path: string, content: string): WisdomFrame {
-  const principles = [...content.matchAll(/\[CRYSTAL\]\s*(.+)/g)].map((match) => match[1]!.trim());
+  const principles = [...content.matchAll(/\[CRYSTAL\]\s*(.+)/g)].map((match) => match[1].trim());
   return {
     domain,
     path,

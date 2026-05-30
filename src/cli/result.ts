@@ -206,7 +206,9 @@ function formatResultCaptureResult(result: SomaResultCaptureResult): string {
 }
 
 function sanitizeTerminalText(value: string): string {
-  return value.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "").replace(/[\x00-\x1F\x7F]/g, " ");
+  const escapePattern = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, "g");
+  const controlPattern = new RegExp(`[${String.fromCharCode(0)}-${String.fromCharCode(31)}${String.fromCharCode(127)}]`, "g");
+  return value.replace(escapePattern, "").replace(controlPattern, " ");
 }
 
 function formatResultSearchResult(result: SomaResultSearchResult): string {

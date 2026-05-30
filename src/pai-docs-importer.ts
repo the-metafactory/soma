@@ -288,7 +288,7 @@ async function readExistingManifest(
   const raw = await readFile(manifestPath, "utf8");
   try {
     const parsed = JSON.parse(raw) as PaiDocsImportManifest;
-    if (parsed.schema !== MANIFEST_SCHEMA || !Array.isArray(parsed.files)) return null;
+    if (!Array.isArray(parsed.files)) return null;
     const map = new Map<string, string>();
     for (const entry of parsed.files) {
       map.set(entry.target, entry.sha256);
@@ -334,11 +334,11 @@ async function prepareSafeTargetParent(
   // below, so no symlink can pre-exist on those segments.
   const ancestors: string[] = [];
   let cursor = parent;
-  while (true) {
+  for (;;) {
     ancestors.push(cursor);
-    if (cursor === somaHomeRoot) break;
     const next = dirname(cursor);
     if (next === cursor) break;
+    if (cursor === somaHomeRoot) break;
     cursor = next;
   }
   // Top-down: verify the highest existing ancestor first.

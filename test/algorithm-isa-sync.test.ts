@@ -83,7 +83,7 @@ test("creates a soma run from an ISA, keyed by slug, mapping goal + criteria", a
     expect(result.runId).toBeTruthy();
     expect(result.criteriaTotal).toBe(2);
 
-    const { run } = await readAlgorithmRunById(result.runId as string, { somaHome });
+    const { run } = await readAlgorithmRunById(result.runId!, { somaHome });
     expect(run.substrate).toBe("claude-code");
     const criteria = getCriteria(run.isa);
     expect(criteria.map((c) => c.id)).toEqual(["ISC-1", "ISC-2"]);
@@ -130,7 +130,7 @@ test("advances the run forward across the build->execute gate, recording a synth
     const result = await syncAlgorithmRunFromIsa({ isaPath, substrate: "claude-code", somaHome });
     expect(result.phase).toBe("execute");
 
-    const { run } = await readAlgorithmRunById(result.runId as string, { somaHome });
+    const { run } = await readAlgorithmRunById(result.runId!, { somaHome });
     expect(getRunPhase(run)).toBe("execute");
     // A synthetic build change was recorded to satisfy the gate.
     expect(run.changelog.length).toBeGreaterThan(0);
@@ -157,7 +157,7 @@ test("reconciles checked ISA criteria [x] into passed run criteria", async () =>
     expect(result.criteriaPassed).toBe(1);
     expect(result.criteriaTotal).toBe(2);
 
-    const { run } = await readAlgorithmRunById(result.runId as string, { somaHome });
+    const { run } = await readAlgorithmRunById(result.runId!, { somaHome });
     const criteria = getCriteria(run.isa);
     expect(criteria.find((c) => c.id === "ISC-1")?.status).toBe("passed");
     expect(criteria.find((c) => c.id === "ISC-2")?.status).toBe("open");
@@ -181,11 +181,11 @@ test("idempotent re-run with an unchanged ISA is a no-op (no extra changelog/ver
     );
 
     const first = await syncAlgorithmRunFromIsa({ isaPath, substrate: "claude-code", somaHome });
-    const { run: runAfterFirst } = await readAlgorithmRunById(first.runId as string, { somaHome });
+    const { run: runAfterFirst } = await readAlgorithmRunById(first.runId!, { somaHome });
 
     const second = await syncAlgorithmRunFromIsa({ isaPath, substrate: "claude-code", somaHome });
     expect(second.noop).toBe(true);
-    const { run: runAfterSecond } = await readAlgorithmRunById(second.runId as string, { somaHome });
+    const { run: runAfterSecond } = await readAlgorithmRunById(second.runId!, { somaHome });
 
     expect(runAfterSecond.changelog.length).toBe(runAfterFirst.changelog.length);
     expect(runAfterSecond.verification.length).toBe(runAfterFirst.verification.length);
@@ -269,10 +269,10 @@ test("promote-on-complete records learning and promotes when all criteria pass",
     expect(result.promoted).toBe(true);
     expect(result.promotionPath).toBeTruthy();
 
-    const { run } = await readAlgorithmRunById(result.runId as string, { somaHome });
+    const { run } = await readAlgorithmRunById(result.runId!, { somaHome });
     expect(run.learning.length).toBeGreaterThan(0);
 
-    const promoted = await readFile(result.promotionPath as string, "utf8");
+    const promoted = await readFile(result.promotionPath!, "utf8");
     expect(promoted).toContain("Promote goal");
   });
 });

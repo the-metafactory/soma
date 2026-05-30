@@ -32,12 +32,12 @@ export interface RelationshipReflectOptions extends LearningToolOptions {
   dryRun?: boolean;
   recentDays?: number;
   notifier?: RelationshipNotifier;
-  milestones?: Array<{ id: string; description: string; pattern: RegExp }>;
+  milestones?: { id: string; description: string; pattern: RegExp }[];
 }
 
 export interface RelationshipReflectResult {
   notes: RelationshipNote[];
-  opinionUpdates: Array<{ statement: string; oldConfidence: number; newConfidence: number; evidenceCount: number; notified: boolean }>;
+  opinionUpdates: { statement: string; oldConfidence: number; newConfidence: number; evidenceCount: number; notified: boolean }[];
   milestones: RelationshipMilestone[];
   storyPath?: string;
   dryRun: boolean;

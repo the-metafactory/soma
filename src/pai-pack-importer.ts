@@ -1244,10 +1244,11 @@ interface TrustedPlanData {
 const TRUSTED_PLAN_BY_HANDLE = new WeakMap<object, TrustedPlanData>();
 
 function castHandle(handle: PaiPackImportPlanHandle): TrustedPlanData {
-  if (handle === null || typeof handle !== "object") {
+  const candidate: unknown = handle;
+  if (candidate === null || typeof candidate !== "object") {
     throw new TypeError("importPaiPackFromPlan: handle must be a PaiPackImportPlanHandle object.");
   }
-  const data = TRUSTED_PLAN_BY_HANDLE.get(handle);
+  const data = TRUSTED_PLAN_BY_HANDLE.get(candidate);
   if (!data) {
     throw new TypeError(
       "importPaiPackFromPlan: handle was not produced by planPaiPackImportHandle. " +
@@ -1348,7 +1349,8 @@ function splitInternalPlanByDerivedSkill(
     if (!slug) continue;
     if (!buckets.has(slug)) buckets.set(slug, []);
     const { renderMode: _r, derivedSkill: _d, ...stripped } = file;
-    buckets.get(slug)!.push(stripped);
+    const bucket = buckets.get(slug);
+    if (bucket) bucket.push(stripped);
   }
 
   return internal.derivedSkills.map((slug) => ({
@@ -1698,7 +1700,8 @@ async function applyInternalPlan(
     let placed = false;
     for (const [slug, root] of skillRoots) {
       if (isWithinPath(root, target)) {
-        filesBySlug.get(slug)!.push(target);
+        const files = filesBySlug.get(slug);
+        if (files) files.push(target);
         placed = true;
         break;
       }
@@ -1707,7 +1710,8 @@ async function applyInternalPlan(
       // Archive / pack-level file — bucket to the first derived
       // skill via the shared `attachArchiveToFirstSkill` rule.
       const slug = attachArchiveToFirstSkill("", plan.derivedSkills);
-      if (slug) filesBySlug.get(slug)!.push(target);
+      const files = slug ? filesBySlug.get(slug) : undefined;
+      if (files) files.push(target);
     }
   }
 

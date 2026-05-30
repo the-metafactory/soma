@@ -65,7 +65,7 @@ export async function diagnoseClaudeCodeProjectionDrift(options: {
   }
 
   const settingsRaw = await readFileOrNull(join(substrateHome, CLAUDE_CODE_SETTINGS_RELATIVE_PATH));
-  if (settingsRaw === null || !settingsRaw.includes(SOMA_HOOK_MARKER)) {
+  if (!settingsRaw?.includes(SOMA_HOOK_MARKER)) {
     findings.push({
       id: "claude-code-settings-missing",
       severity: "warning",

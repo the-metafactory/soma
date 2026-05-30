@@ -5,8 +5,8 @@ export const MINIMUM_PI_DEV_VERSION = "0.10.0";
 
 export async function validatePiDevInstallRuntime(substrateRoot: string): Promise<void> {
   const packagePath = join(substrateRoot, "agent/package.json");
-  const packageJson = await readFile(packagePath, "utf8").catch((error) => {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+  const packageJson = await readFile(packagePath, "utf8").catch((error: unknown) => {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return undefined;
     throw error;
   });
   if (!packageJson) return;
@@ -56,5 +56,5 @@ function compareVersions(left: string, right: string): number {
 function parseVersion(version: string): [number, number, number] | undefined {
   const match = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(version.trim());
   if (!match) return undefined;
-  return [Number(match[1]), Number(match[2] ?? 0), Number(match[3] ?? 0)];
+  return [Number(match[1]), Number(match[2]), Number(match[3])];
 }

@@ -29,7 +29,7 @@ const DEFAULT_FORBIDDEN_HASHES: ReleasePrivacyForbiddenHash[] = [
   },
 ];
 
-const PRIVATE_MARKERS: Array<{ label: string; pattern: RegExp }> = [
+const PRIVATE_MARKERS: { label: string; pattern: RegExp }[] = [
   {
     label: "absolute private PAI USER root",
     pattern: /\/Users\/[^/\s]+\/\.claude\/PAI\/USER\b/,

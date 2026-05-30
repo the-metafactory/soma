@@ -208,7 +208,7 @@ async function readExistingManifest(
   try {
     const raw = await readFile(path, "utf8");
     const parsed = JSON.parse(raw) as PaiMemoryMigrationManifest;
-    if (parsed.schema !== MANIFEST_SCHEMA || !Array.isArray(parsed.files)) return null;
+    if (!Array.isArray(parsed.files)) return null;
     const map = new Map<string, string>();
     for (const entry of parsed.files) {
       map.set(entry.relativePath, entry.sha256);
@@ -364,11 +364,11 @@ export async function migratePaiMemory(
     const parent = join(target, "..");
     const ancestors: string[] = [];
     let cursor = parent;
-    while (true) {
+    for (;;) {
       ancestors.push(cursor);
-      if (cursor === plan.somaHome) break;
       const next = join(cursor, "..");
       if (next === cursor) break;
+      if (cursor === plan.somaHome) break;
       cursor = next;
     }
     // Top-down: parent of <somaHome> back down to immediate parent.
@@ -392,7 +392,7 @@ export async function migratePaiMemory(
     }
   }
 
-  type Outcome = { written: boolean; target: string };
+  interface Outcome { written: boolean; target: string }
   async function processFile(file: PaiMemoryMigrationFile): Promise<Outcome> {
     await assertSafeMemoryTarget(file.target);
 

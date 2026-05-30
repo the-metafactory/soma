@@ -27,3 +27,4 @@ export {
   renderSomaAlgorithmExtension,
   type RenderSomaAlgorithmExtensionOptions,
 } from "./extensions/soma-algorithm";
+export { buildPiDevPortableSkillFiles } from "./skill-projection";

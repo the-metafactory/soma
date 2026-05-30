@@ -33,7 +33,7 @@ export interface ClaudeCodeBackendOptions {
 function allowedSubprocessEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   return Object.fromEntries(
     Object.entries(env).filter(([key]) => ALLOWED_ENV.has(key)),
-  ) as NodeJS.ProcessEnv;
+  );
 }
 
 function promptStream(prompt: string): ReadableStream<Uint8Array> {
@@ -51,7 +51,7 @@ async function readStreamWithLimit(stream: ReadableStream<Uint8Array>, limit: nu
   let size = 0;
 
   try {
-    while (true) {
+    for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
       size += value.byteLength;

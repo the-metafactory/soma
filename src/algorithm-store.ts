@@ -119,7 +119,9 @@ export function loadAlgorithmRun(raw: unknown): AlgorithmRun {
   return ensureAlgorithmRunDefaults(migrateRunV1toV2(candidate as LegacyAlgorithmRun));
 }
 
-function ensureAlgorithmRunDefaults(run: AlgorithmRun): AlgorithmRun {
+type AlgorithmRunWithDefaults = Omit<AlgorithmRun, "loop"> & Partial<Pick<AlgorithmRun, "loop">>;
+
+function ensureAlgorithmRunDefaults(run: AlgorithmRunWithDefaults): AlgorithmRun {
   return {
     ...run,
     loop: run.loop ?? { ...DEFAULT_ALGORITHM_LOOP_STATE, iterations: [] },

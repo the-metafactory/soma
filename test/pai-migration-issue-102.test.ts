@@ -249,7 +249,7 @@ test("Sage r2 #103 CodeQuality — inner pack-importer reserved-name throw class
       paiPacksDir: packsDir,
       overwriteReserved: true,
     });
-    const algo = plan.packOutcomes.find((o) => /the-algorithm/.test(o.skillName ?? ""));
+    const algo = plan.packOutcomes.find((o) => (o.skillName ?? "").includes('the-algorithm'));
     const clean = plan.packOutcomes.find((o) => /clean/i.test(o.skillName ?? ""));
     expect(algo?.outcome).toBe("refused-reserved");
     expect(algo?.skillName).toBe("the-algorithm");

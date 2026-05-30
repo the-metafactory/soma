@@ -139,8 +139,9 @@ async function resolveCliBackend(options: InferenceCliOptions, deps: InferenceCl
 
 export async function runInferenceCli(args: string[], deps: InferenceCliDeps = {}): Promise<string> {
   const options = parseInferenceCliArgs(args);
-  const prompt = options.prompt
-    || (options.mode === "advisor" && options.autoState ? "" : (await (deps.readStdin ?? readNodeStdin)()).trim());
+  const prompt = options.prompt && options.prompt.length > 0
+    ? options.prompt
+    : (options.mode === "advisor" && options.autoState ? "" : (await (deps.readStdin ?? readNodeStdin)()).trim());
   if (!prompt && !(options.mode === "advisor" && options.autoState)) {
     throw new Error("soma inference requires a prompt argument or stdin input.");
   }

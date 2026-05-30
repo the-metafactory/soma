@@ -108,7 +108,7 @@ async function readIndex(somaHome: string): Promise<IsaRunIndex> {
     const raw = await readFile(indexPath(somaHome), "utf8");
     const parsed: unknown = JSON.parse(raw);
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && "bySlug" in parsed) {
-      const bySlug = (parsed as { bySlug: unknown }).bySlug;
+      const bySlug = (parsed).bySlug;
       if (bySlug && typeof bySlug === "object" && !Array.isArray(bySlug)) {
         return { bySlug: bySlug as Record<string, string> };
       }
@@ -210,7 +210,7 @@ function advanceRunToPhase(run: AlgorithmRun, target: AlgorithmPhase, timestamp:
   let guard = 0;
   while (phaseIndex(getRunPhase(next)) < phaseIndex(target) && guard < PHASE_ORDER.length) {
     const upcoming = nextAlgorithmPhase(getRunPhase(next));
-    if (upcoming === undefined) break;
+    if (upcoming === undefined) return next;
     next = prepareAndAdvance(next, upcoming, timestamp);
     guard += 1;
   }
@@ -226,7 +226,8 @@ function reconcileCriteria(run: AlgorithmRun, isaCriteria: readonly IdealStateCr
     const existing = runCriteriaById.get(isaCriterion.id);
     if (existing === undefined) continue;
     if (existing.status === isaCriterion.status) continue; // already reconciled — idempotent
-    const evidence = isaCriterion.verification?.trim() || `synced from ISA: ${isaCriterion.text}`;
+    const verification = isaCriterion.verification?.trim();
+    const evidence = verification && verification.length > 0 ? verification : `synced from ISA: ${isaCriterion.text}`;
     next = verifyAlgorithmCriterion(next, isaCriterion.id, isaCriterion.status, evidence, timestamp);
   }
   return next;
@@ -241,7 +242,7 @@ function deriveLearningText(isa: IdealStateArtifact): string {
 }
 
 function buildRunFromIsa(isa: IdealStateArtifact, slug: string, substrate: SubstrateId, timestamp: string): AlgorithmRun {
-  const goal = getGoal(isa) ?? isa.frontmatter.task ?? slug;
+  const goal = getGoal(isa) ?? slug;
   const criteria = getCriteria(isa);
   return createAlgorithmRun({
     id: slug,

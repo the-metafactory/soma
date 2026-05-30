@@ -16,6 +16,10 @@ interface TranscriptEntry {
   output?: unknown;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function pathsFor(options: FailureCaptureInput) {
   return pathsForLearningOptions(options);
 }
@@ -23,11 +27,11 @@ function pathsFor(options: FailureCaptureInput) {
 async function parseTranscript(transcriptPath: string): Promise<{
   entryCount: number;
   toolCalls: ToolCall[];
-  conversations: Array<{ role: string; content: string; timestamp?: string }>;
+  conversations: { role: string; content: string; timestamp?: string }[];
 }> {
   let entryCount = 0;
   const toolCalls: ToolCall[] = [];
-  const conversations: Array<{ role: string; content: string; timestamp?: string }> = [];
+  const conversations: { role: string; content: string; timestamp?: string }[] = [];
   const lines = createInterface({ input: createReadStream(transcriptPath, { encoding: "utf8" }), crlfDelay: Infinity });
 
   for await (const line of lines) {
@@ -44,17 +48,18 @@ async function parseTranscript(transcriptPath: string): Promise<{
       conversations.push({ role: entry.type, content: text, timestamp: entry.timestamp });
       if (conversations.length > 20) conversations.shift();
     }
-    if (entry.type === "assistant" && Array.isArray(entry.message?.content)) {
-      for (const block of entry.message.content) {
-        if (block && typeof block === "object" && "type" in block && block.type === "tool_use" && "name" in block) {
-          toolCalls.push({ name: String(block.name), input: "input" in block ? block.input : undefined, timestamp: entry.timestamp });
+    const messageContent = entry.message?.content;
+    if (entry.type === "assistant" && Array.isArray(messageContent)) {
+      for (const block of messageContent as unknown[]) {
+        if (isRecord(block) && block.type === "tool_use" && typeof block.name === "string") {
+          toolCalls.push({ name: block.name, input: block.input, timestamp: entry.timestamp });
           if (toolCalls.length > 50) toolCalls.shift();
         }
       }
     }
     if ((entry.type === "tool_result" || entry.type === "tool_output") && toolCalls.length > 0) {
       const last = toolCalls[toolCalls.length - 1];
-      if (last && !last.output) last.output = transcriptContentToText(entry.content ?? entry.output);
+      last.output ??= transcriptContentToText(entry.content ?? entry.output);
     }
   }
 
@@ -67,7 +72,7 @@ function sanitizeDescription(text: string): string {
     || "unspecified-failure-needs-review";
 }
 
-async function generateDescription(input: FailureCaptureInput, conversations: Array<{ role: string; content: string }>, toolCalls: ToolCall[]): Promise<string> {
+async function generateDescription(input: FailureCaptureInput, conversations: { role: string; content: string }[], toolCalls: ToolCall[]): Promise<string> {
   const backend = input.backend ?? (input.allowRemoteInference ? await createAutoInferenceBackend() : undefined);
   if (!backend) return sanitizeDescription(input.sentimentSummary);
 

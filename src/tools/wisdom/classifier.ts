@@ -61,7 +61,7 @@ async function keywordMaps(options: WisdomToolOptions): Promise<Record<string, {
   }
   for (const frame of await readAllWisdomFrames(options)) {
     const dynamic = frameKeywords(frame.content);
-    const existing = maps[frame.domain];
+    const existing = maps[frame.domain] as { primary: string[]; secondary: string[]; path: string } | undefined;
     maps[frame.domain] = {
       primary: [...new Set([...(existing?.primary ?? []), ...dynamic.primary])],
       secondary: [...new Set([...(existing?.secondary ?? []), ...dynamic.secondary])],

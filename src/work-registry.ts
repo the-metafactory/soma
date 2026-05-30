@@ -85,7 +85,7 @@ function shortHash(value: string): string {
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-  const prototype = Object.getPrototypeOf(value);
+  const prototype: unknown = Object.getPrototypeOf(value);
   return prototype === Object.prototype || prototype === null;
 }
 
@@ -106,14 +106,18 @@ function setRecordValue<T>(record: Record<string, T>, key: string, value: T): vo
   });
 }
 
-function uniqueSessionSlug(sessions: Record<string, SomaWorkRegistryEntry>, baseSlug: string, sessionId: string): string {
+type SparseRegistrySessions = Record<string, SomaWorkRegistryEntry | undefined>;
+
+function uniqueSessionSlug(sessions: SparseRegistrySessions, baseSlug: string, sessionId: string): string {
   const occupied = sessions[baseSlug];
   if (occupied === undefined || occupied.sessionUUID === sessionId) return baseSlug;
 
   const sessionSuffix = safeToken(sessionId);
   let candidate = `${baseSlug}-${sessionSuffix}`;
   let counter = 2;
-  while (sessions[candidate] !== undefined && sessions[candidate].sessionUUID !== sessionId) {
+  for (;;) {
+    const candidateEntry = sessions[candidate];
+    if (candidateEntry === undefined || candidateEntry.sessionUUID === sessionId) break;
     candidate = `${baseSlug}-${sessionSuffix}-${counter}`;
     counter += 1;
   }
@@ -121,19 +125,19 @@ function uniqueSessionSlug(sessions: Record<string, SomaWorkRegistryEntry>, base
 }
 
 function findExistingSession(
-  sessions: Record<string, SomaWorkRegistryEntry>,
+  sessions: SparseRegistrySessions,
   sessionId: string,
   baseSlug: string,
 ): SomaWorkRegistryEntry | undefined {
   const baseEntry = sessions[baseSlug];
   if (baseEntry?.sessionUUID === sessionId) return baseEntry;
-  return Object.values(sessions).find((entry) => entry.sessionUUID === sessionId);
+  return Object.values(sessions).find((entry) => entry?.sessionUUID === sessionId);
 }
 
 function removeSessionEntries(sessions: Record<string, SomaWorkRegistryEntry>, sessionId: string): void {
   for (const [candidateSlug, candidateEntry] of Object.entries(sessions)) {
     if (candidateEntry.sessionUUID === sessionId) {
-      delete sessions[candidateSlug];
+      Reflect.deleteProperty(sessions, candidateSlug);
     }
   }
 }
@@ -192,14 +196,14 @@ async function withRegistryFileLock<T>(registryPath: string, fn: () => Promise<T
   const lockPath = `${registryPath}.lock`;
   const started = Date.now();
 
-  while (true) {
+  for (;;) {
     try {
       await mkdir(lockPath);
       break;
     } catch (error: unknown) {
       if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
       if (Date.now() - started > 30_000) {
-        throw new Error(`Timed out waiting for work registry lock at ${lockPath}`);
+        throw new Error(`Timed out waiting for work registry lock at ${lockPath}`, { cause: error });
       }
       await sleep(10);
     }
@@ -220,7 +224,7 @@ async function readJsonFile<T>(path: string, fallback: T, label: string): Promis
       return fallback;
     }
     if (error instanceof SyntaxError) {
-      throw new Error(`Malformed ${label} JSON at ${path}: ${error.message}`);
+      throw new Error(`Malformed ${label} JSON at ${path}: ${error.message}`, { cause: error });
     }
     throw error;
   }
@@ -340,7 +344,7 @@ function normalizeSomaCurrentWorkLearningSources(
   if (sources.feedback !== undefined) raw.feedback = sources.feedback;
   if (sources.rawTranscript !== undefined) raw.rawTranscript = sources.rawTranscript;
 
-  const normalized = normalizeSomaWorkRegistryArtifacts(options, raw);
+  const normalized = normalizeSomaWorkRegistryArtifacts(options, raw) as Partial<Record<"events" | "ratings" | "feedback" | "rawTranscript", string>>;
   const results =
     sources.results === undefined
       ? undefined

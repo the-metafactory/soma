@@ -133,7 +133,7 @@ function retainTopResultMatch(
 
   let worstIndex = 0;
   for (let index = 1; index < matches.length; index += 1) {
-    if (isBetterResultMatch(matches[worstIndex]!, matches[index]!)) {
+    if (isBetterResultMatch(matches[worstIndex], matches[index])) {
       worstIndex = index;
     }
   }

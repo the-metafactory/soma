@@ -11,18 +11,22 @@ import {
 import type { SomaPolicyBatchTarget } from "../../types";
 
 function resolveToolPath(path: string, cwd: string): string {
-  return isAbsolute(path) ? path : resolve(cwd || process.cwd(), path);
+  return isAbsolute(path) ? path : resolve(cwd, path);
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
 }
 
 function normalizeCodexToolInvocation(input: Record<string, unknown>): SomaPolicyToolInvocation {
-  const toolName = String(input.tool_name || input.toolName || "");
+  const toolName = stringValue(input.tool_name) ?? stringValue(input.toolName) ?? "";
   const rawToolInput = input.tool_input ?? input.toolInput;
   const toolInput = rawToolInput && typeof rawToolInput === "object" && !Array.isArray(rawToolInput) ? rawToolInput as Record<string, unknown> : {};
-  const cwd = String(input.cwd || process.cwd());
-  const fileCandidate = toolInput.file_path || toolInput.filePath || cwd;
-  const filePath = resolveToolPath(String(fileCandidate), cwd);
-  const rawSourcePath = toolInput.source_path || toolInput.sourcePath;
-  const commandCandidate = typeof rawToolInput === "string" ? rawToolInput : toolInput.command || toolInput.cmd || "";
+  const cwd = stringValue(input.cwd) ?? process.cwd();
+  const fileCandidate = stringValue(toolInput.file_path) ?? stringValue(toolInput.filePath) ?? cwd;
+  const filePath = resolveToolPath(fileCandidate, cwd);
+  const rawSourcePath = stringValue(toolInput.source_path) ?? stringValue(toolInput.sourcePath);
+  const commandCandidate = typeof rawToolInput === "string" ? rawToolInput : stringValue(toolInput.command) ?? stringValue(toolInput.cmd) ?? "";
 
   return {
     toolName,
@@ -30,8 +34,8 @@ function normalizeCodexToolInvocation(input: Record<string, unknown>): SomaPolic
     toolInput,
     cwd,
     filePath,
-    sourcePath: rawSourcePath ? resolveToolPath(String(rawSourcePath), cwd) : undefined,
-    command: String(commandCandidate),
+    sourcePath: rawSourcePath ? resolveToolPath(rawSourcePath, cwd) : undefined,
+    command: commandCandidate,
   };
 }
 

@@ -152,7 +152,7 @@ function sectionBullets(content: string, heading: string): string[] {
   const bullets: string[] = [];
   for (const line of lines.slice(start + 1)) {
     if (line.startsWith("## ")) break;
-    const match = line.match(/^\s*[-*]\s+(.+)$/);
+    const match = /^\s*[-*]\s+(.+)$/.exec(line);
     if (match) bullets.push(stripMarkdownEmphasis(match[1]));
   }
 
@@ -191,7 +191,7 @@ async function loadAvailableSkills(somaHome: string): Promise<{ skills: Availabl
   const entries = await readdir(skillsRoot, { withFileTypes: true }).catch(() => []);
   const byKey = new Map<string, AvailableSkill>();
 
-  const skillCandidates: Array<AvailableSkill | undefined> = await Promise.all(
+  const skillCandidates: (AvailableSkill | undefined)[] = await Promise.all(
     entries
       .filter((entry) => entry.isDirectory())
       .map(async (entry): Promise<AvailableSkill | undefined> => {

@@ -33,7 +33,7 @@ import { normalizeSkillContent } from "../src/pai-pack-normalizer";
 // `~/.soma/memory/` (lowercase, no PAI/ prefix) per DD-1, DD-2 — Soma's
 // memory is canonical, not a PAI projection. The other three preserve
 // the `PAI/` prefix because `~/.soma/PAI/` is the imported-docs surface.
-const DETERMINISTIC_REWRITE_CASES: ReadonlyArray<{
+const DETERMINISTIC_REWRITE_CASES: readonly {
   label: string;
   inputLine: string;
   expectedTarget: string;
@@ -42,7 +42,7 @@ const DETERMINISTIC_REWRITE_CASES: ReadonlyArray<{
     | "rewrote-pai-template-path"
     | "rewrote-pai-algorithm-path"
     | "rewrote-pai-memory-path";
-}> = [
+}[] = [
   {
     label: "PAI/DOCUMENTATION → ~/.soma/PAI/DOCUMENTATION",
     inputLine: "See `~/.claude/PAI/DOCUMENTATION/Skills/SkillSystem.md` for details.",

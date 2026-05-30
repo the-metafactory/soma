@@ -187,8 +187,8 @@ test("work registry persists special session ids as data keys", async () => {
 
     expect(Object.hasOwn(work.sessions, "__proto__")).toBe(true);
     expect(Object.hasOwn(names, "__proto__")).toBe(true);
-    expect(work.sessions["__proto__"]).toMatchObject({ sessionUUID: "__proto__" });
-    expect(names["__proto__"]).toBe("__proto__");
+    expect(work.sessions.__proto__).toMatchObject({ sessionUUID: "__proto__" });
+    expect(names.__proto__).toBe("__proto__");
   });
 });
 

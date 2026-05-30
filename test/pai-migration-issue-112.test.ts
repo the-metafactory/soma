@@ -154,8 +154,8 @@ test("AC-3 — footer line wording matches across both modes (plan + apply)", as
     }
     expect(applyErr).not.toBeNull();
     // Same footer line in both outputs.
-    const planFooter = planOut.match(/\d+ pack\(s\) failed with genuine errors:.*?(?:\n|$)/);
-    const applyFooter = applyErr!.message.match(/\d+ pack\(s\) failed with genuine errors:.*?(?:\n|$)/);
+    const planFooter = /\d+ pack\(s\) failed with genuine errors:.*?(?:\n|$)/.exec(planOut);
+    const applyFooter = /\d+ pack\(s\) failed with genuine errors:.*?(?:\n|$)/.exec(applyErr!.message);
     expect(planFooter).not.toBeNull();
     expect(applyFooter).not.toBeNull();
     expect(planFooter![0]).toBe(applyFooter![0]);

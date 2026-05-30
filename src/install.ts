@@ -49,7 +49,7 @@ function resolveInstallHomes(substrate: InstallSubstrate, options: SomaInstallOp
   const homeDir = options.homeDir;
   const defaultHome = defaultSubstrateHome(substrate);
   const somaHome = options.somaHome ?? `${homeDir ?? "~"}/.soma`;
-  const defaultRoot = defaultHome === "." ? `${homeDir ?? "~"}` : `${homeDir ?? "~"}/${defaultHome}`;
+  const defaultRoot = defaultHome === "." ? (homeDir ?? "~") : `${homeDir ?? "~"}/${defaultHome}`;
   const substrateHome = options.substrateHome ?? defaultRoot;
 
   return {
@@ -280,16 +280,16 @@ export interface UninstallCursorResult {
 }
 
 type ImplementedUninstallSubstrate = "claude-code" | "cursor";
-type ImplementedUninstallOptions = { homeDir?: string; substrateHome?: string };
-type ImplementedUninstallResult<S extends ImplementedUninstallSubstrate> = {
+interface ImplementedUninstallOptions { homeDir?: string; substrateHome?: string }
+interface ImplementedUninstallResult<S extends ImplementedUninstallSubstrate> {
   substrate: S;
   substrateHome: string;
   removed: string[];
-};
+}
 
 async function removeExistingTargets(
   targets: readonly string[],
-  shouldRemove: (target: string) => Promise<boolean> = async () => true,
+  shouldRemove: (target: string) => boolean | Promise<boolean> = () => true,
 ): Promise<string[]> {
   const removed: string[] = [];
   for (const target of targets) {

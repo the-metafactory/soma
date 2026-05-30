@@ -336,6 +336,7 @@ async function pickLatestSemverDir(releasesDir: string): Promise<string> {
     if (isEnoent(error)) {
       throw new Error(
         `--pai-repo derivation: ${releasesDir} does not exist. Expected a directory of semver-named release subdirectories.`,
+        { cause: error },
       );
     }
     throw error;
@@ -439,7 +440,7 @@ async function readManifestBytes(manifestPath: string): Promise<string | null> {
 }
 
 function extractMigrationTimestamp(manifest: string): string | null {
-  const match = manifest.match(/^Last migrated at: (.+)$/m);
+  const match = /^Last migrated at: (.+)$/m.exec(manifest);
   return match ? match[1] : null;
 }
 
@@ -797,7 +798,7 @@ function parseQuotedYamlScalar(trimmed: string): string | undefined {
         throw new Error(`PAI migration resolution contains invalid quoted scalar trailing content: ${trailing}`);
       }
       try {
-        return JSON.parse(trimmed.slice(0, index + 1));
+        return JSON.parse(trimmed.slice(0, index + 1)) as string;
       } catch {
         return trimmed.slice(1, index);
       }
@@ -871,7 +872,7 @@ function parsePaiMigrationResolution(content: string): ResolutionChoices {
       seenSlugs.add(currentSlug);
       continue;
     }
-    const pickMatch = inCollisions ? /^    pick:\s*(.*)$/.exec(line) : null;
+    const pickMatch = inCollisions ? /^ {4}pick:\s*(.*)$/.exec(line) : null;
     if (pickMatch && currentSlug) {
       choices.set(currentSlug, parseYamlScalar(pickMatch[1]));
     }

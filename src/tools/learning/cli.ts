@@ -100,7 +100,7 @@ export async function runOpinionCli(args: string[]): Promise<string> {
   if (action === "evidence") {
     const statement = local[1];
     if (!statement) throw new Error("Usage: soma opinion evidence <statement> --supporting|--counter|--confirmation|--contradiction <description>");
-    const flags: Array<[string, EvidenceType]> = [["--supporting", "supporting"], ["--counter", "counter"], ["--confirmation", "confirmation"], ["--contradiction", "contradiction"]];
+    const flags: [string, EvidenceType][] = [["--supporting", "supporting"], ["--counter", "counter"], ["--confirmation", "confirmation"], ["--contradiction", "contradiction"]];
     const found = flags.map(([flag, type]) => ({ flag, type, index: local.indexOf(flag) })).find((item) => item.index !== -1);
     if (!found) throw new Error("Opinion evidence requires --supporting, --counter, --confirmation, or --contradiction.");
     const result = await addOpinionEvidence(statement, found.type, readOption(local, found.index, found.flag), options);

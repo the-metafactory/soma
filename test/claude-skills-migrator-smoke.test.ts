@@ -30,7 +30,7 @@ import { withTempHome } from "./fixtures/pai-migration-fixtures";
 interface FixtureSkill {
   name: string;
   skillMd: string;
-  extras?: Array<{ relPath: string; content: string }>;
+  extras?: { relPath: string; content: string }[];
 }
 
 async function writeSkillsFixture(

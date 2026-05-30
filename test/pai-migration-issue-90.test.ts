@@ -306,8 +306,8 @@ test("migratePai timestamp bumps when identity content changes (file count uncha
     await writeIdentityFixture(homeDir);
     const first = await migratePai({ homeDir });
     const firstManifest = await readFile(first.manifestPath, "utf8");
-    const firstTs = firstManifest.match(/^Last migrated at: (.+)$/m)?.[1];
-    const firstFp = firstManifest.match(/identity fingerprint: ([0-9a-f]+)/)?.[1];
+    const firstTs = (/^Last migrated at: (.+)$/m.exec(firstManifest))?.[1];
+    const firstFp = (/identity fingerprint: ([0-9a-f]+)/.exec(firstManifest))?.[1];
     expect(firstTs).toBeDefined();
     expect(firstFp).toBeDefined();
     await new Promise((r) => setTimeout(r, 5));
@@ -323,8 +323,8 @@ test("migratePai timestamp bumps when identity content changes (file count uncha
     );
     const second = await migratePai({ homeDir });
     const secondManifest = await readFile(second.manifestPath, "utf8");
-    const secondTs = secondManifest.match(/^Last migrated at: (.+)$/m)?.[1];
-    const secondFp = secondManifest.match(/identity fingerprint: ([0-9a-f]+)/)?.[1];
+    const secondTs = (/^Last migrated at: (.+)$/m.exec(secondManifest))?.[1];
+    const secondFp = (/identity fingerprint: ([0-9a-f]+)/.exec(secondManifest))?.[1];
     expect(secondTs).not.toBe(firstTs);
     expect(secondFp).not.toBe(firstFp);
   });
@@ -336,14 +336,14 @@ test("migratePai timestamp preserved across idempotent rerun (no writes)", async
     await writeMemoryFixture(homeDir);
     const first = await migratePai({ homeDir });
     const firstManifest = await readFile(first.manifestPath, "utf8");
-    const firstTs = firstManifest.match(/^Last migrated at: (.+)$/m)?.[1];
+    const firstTs = (/^Last migrated at: (.+)$/m.exec(firstManifest))?.[1];
     expect(firstTs).toBeDefined();
     // Wait a real moment so a non-preserved timestamp would diverge.
     await new Promise((r) => setTimeout(r, 5));
     await migratePai({ homeDir });
     const secondManifest = await readFile(first.manifestPath, "utf8");
-    const secondTs = secondManifest.match(/^Last migrated at: (.+)$/m)?.[1];
-    expect(secondTs).toBe(firstTs!);
+    const secondTs = (/^Last migrated at: (.+)$/m.exec(secondManifest))?.[1];
+    expect(secondTs).toBe(firstTs);
   });
 });
 

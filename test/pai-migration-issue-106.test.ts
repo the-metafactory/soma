@@ -91,7 +91,7 @@ async function captureStderr<T>(fn: () => Promise<T>): Promise<{ result: T; stde
   process.stderr.write = ((chunk: string | Uint8Array) => {
     chunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
     return true;
-  }) as typeof process.stderr.write;
+  });
   try {
     const result = await fn();
     return { result, stderr: chunks.join("") };

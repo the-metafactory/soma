@@ -139,7 +139,7 @@ import {
  */
 function buildSomaSkillFromPayload(
   sourceName: string,
-  rewrittenFiles: Array<{ relPath: string; content: Buffer }>,
+  rewrittenFiles: { relPath: string; content: Buffer }[],
 ): SomaSkill {
   const skillMd = rewrittenFiles.find((f) => f.relPath === "SKILL.md");
   const description = skillMd ? parseSourceDescription(skillMd.content.toString("utf8")) ?? "" : "";
@@ -613,7 +613,7 @@ export function classifySkillPortability(files: readonly SkillFilePayload[]): Cl
   return { tag: "portable", reason: "clean" };
 }
 
-const CLAUDE_SKILL_DEP_RE = /~\/\.claude\/skills\/([^/\s`"'()<>\[\]{}]+)(?:\/([^\s`"'()<>\[\]{}]+))?/g;
+const CLAUDE_SKILL_DEP_RE = /~\/\.claude\/skills\/([^/\s`"'()<>[\]{}]+)(?:\/([^\s`"'()<>[\]{}]+))?/g;
 const DEPENDENCY_SCAN_EXTENSIONS = /\.(md|markdown|mdx|txt|json|yaml|yml|ts|js|tsx|jsx|mjs|cjs|py|rb|sh|bash|zsh|toml|hbs|handlebars|tmpl|tpl|xml|html|css)$/i;
 
 function isDependencyScannableFile(file: SkillFilePayload): boolean {
@@ -629,7 +629,8 @@ function scanSkillDependencies(files: readonly SkillFilePayload[]): ClaudeSkillD
     let match: RegExpExecArray | null;
     while ((match = CLAUDE_SKILL_DEP_RE.exec(text)) !== null) {
       const skill = sourceSkillKebabName(match[1]);
-      const reference = (match[2] ?? "").replace(/[.,;:!?]+$/g, "") || "(root)";
+      const rawReference = (match as unknown as (string | undefined)[])[2] ?? "";
+      const reference = rawReference.replace(/[.,;:!?]+$/g, "") || "(root)";
       let entry = bySkill.get(skill);
       if (!entry) {
         entry = { references: new Set<string>(), sourceFiles: new Set<string>() };
@@ -832,9 +833,9 @@ async function readExistingManifest(
     // fingerprint fields) would otherwise blow up downstream with opaque
     // errors. The probe is cheap; one bad entry rejects the whole manifest
     // and the migrator falls back to a fresh run.
-    const skills = parsed.skills as Array<Record<string, unknown>>;
+    const skills = parsed.skills as Record<string, unknown>[];
     for (const entry of skills) {
-      if (typeof entry?.sourceName !== "string" || typeof entry?.sourceSha !== "string") {
+      if (typeof entry.sourceName !== "string" || typeof entry.sourceSha !== "string") {
         return null;
       }
     }
@@ -991,7 +992,7 @@ async function buildPlanCore(options: BuildPlanCoreOptions): Promise<PlanResult>
     } else {
       const prior = prevBySource.get(read.sourceName);
       const sourceAndTagUnchanged =
-        prior?.sourceSha === read.sourceSha && prior?.tag === classification.tag;
+        prior?.sourceSha === read.sourceSha && prior.tag === classification.tag;
       const needsDescriptionRewrite =
         rewriteDescriptionsAgent !== "none" &&
         (read.descriptionStatus.kind === "oversize" || read.descriptionStatus.kind === "missing");
@@ -1281,14 +1282,14 @@ async function writeSkillPayload(
   // #115 Phase 2 — POST-rewrite, in-memory payload. Threaded into the
   // verifier so it sees the bytes a substrate would consume, without
   // re-reading the just-written files from disk.
-  rewrittenFiles: Array<{ relPath: string; content: Buffer }>;
+  rewrittenFiles: { relPath: string; content: Buffer }[];
 }> {
   // Make sure the target directory tree exists. Per-file `mkdir` of
   // the parent happens inside the loop so deep payloads
   // (`Workflows/SubDir/file.md`) work without precomputed dir lists.
   await mkdir(targetDir, { recursive: true });
   const fileShas: Record<string, string> = {};
-  const rewrittenFiles: Array<{ relPath: string; content: Buffer }> = [];
+  const rewrittenFiles: { relPath: string; content: Buffer }[] = [];
 
   for (const file of read.files) {
     const target = join(targetDir, ...file.relPath.split("/"));
@@ -1428,7 +1429,7 @@ function buildManifestLastRun(
     else if (outcome.disposition === "skipped-idempotent") skippedIdempotent += 1;
     else if (outcome.disposition === "skipped-claude-specific") skippedClaudeSpecific += 1;
     else if (outcome.disposition === "refused-other") refusedOther += 1;
-    else if (outcome.disposition === "refused-description-limit") refusedDescriptionLimit += 1;
+    else refusedDescriptionLimit += 1;
   }
   const manifestOutcomes: ClaudeSkillsMigrationManifestOutcome[] = exceptional.map((outcome) => {
     const remediation = remediationForOutcome(outcome);
@@ -1644,7 +1645,7 @@ interface RunSmokeVerifyArgs {
   manifestEntries: ClaudeSkillsMigrationManifestEntry[];
   previousBySource: Map<string, ClaudeSkillsMigrationManifestEntry>;
   somaHome: string;
-  pendingVerifyPayloads: Map<string, Array<{ relPath: string; content: Buffer }>>;
+  pendingVerifyPayloads: Map<string, { relPath: string; content: Buffer }[]>;
   readsBySource: Map<string, SourceSkillReadResult>;
   summary: Partial<Record<ClaudeSkillsSmokeSubstrate, ClaudeSkillSubstrateVerifySummary>>;
   // #125 — progress hook + per-skill index lookup. Defaults supplied
@@ -1709,13 +1710,13 @@ async function runSmokeVerify(args: RunSmokeVerifyArgs): Promise<void> {
       const priorVerify = prior?.substrates?.[substrate];
       const sourceUnchanged = prior?.sourceSha === outcome.sourceSha;
       let result: ClaudeSkillSubstrateVerifyResult;
-      if (priorVerify && priorVerify.status === "verified" && sourceUnchanged) {
+      if (priorVerify?.status === "verified" && sourceUnchanged) {
         result = priorVerify;
       } else {
         result = verifySubstrateProjection({
           skill,
           substrate,
-          sourceDescription: skill.description || undefined,
+          sourceDescription: skill.description,
         });
       }
       progress.stepComplete(
@@ -1728,10 +1729,10 @@ async function runSmokeVerify(args: RunSmokeVerifyArgs): Promise<void> {
 
       // Stamp the outcome (formatter consumes this) and the manifest
       // entry (idempotency anchor for the next run).
-      if (!outcome.substrates) outcome.substrates = {};
+      outcome.substrates ??= {};
       outcome.substrates[substrate] = result;
       if (entry) {
-        if (!entry.substrates) entry.substrates = {};
+        entry.substrates ??= {};
         entry.substrates[substrate] = result;
       }
 
@@ -1754,8 +1755,8 @@ async function runSmokeVerify(args: RunSmokeVerifyArgs): Promise<void> {
  */
 async function readLandedSkillPayload(
   targetDir: string,
-): Promise<Array<{ relPath: string; content: Buffer }>> {
-  const out: Array<{ relPath: string; content: Buffer }> = [];
+): Promise<{ relPath: string; content: Buffer }[]> {
+  const out: { relPath: string; content: Buffer }[] = [];
   async function visit(dir: string): Promise<void> {
     const entries = await readdir(dir, { withFileTypes: true });
     for (const entry of entries) {
@@ -1871,7 +1872,7 @@ export async function migrateClaudeSkills(
   // ferried into the smoke pass below to avoid a second disk read.
   // Skipped-idempotent skills fall back to disk re-read inside the
   // verify helper when a NEW substrate gets requested on rerun.
-  const pendingVerifyPayloads: Map<string, Array<{ relPath: string; content: Buffer }>> = new Map();
+  const pendingVerifyPayloads = new Map<string, { relPath: string; content: Buffer }[]>();
   interface ApplyWriteCandidate {
     outcome: ClaudeSkillOutcome;
     read: SourceSkillReadResult;
@@ -1881,7 +1882,7 @@ export async function migrateClaudeSkills(
   }
   interface ApplyWriteResult extends ApplyWriteCandidate {
     fileShas: Record<string, string>;
-    rewrittenFiles: Array<{ relPath: string; content: Buffer }>;
+    rewrittenFiles: { relPath: string; content: Buffer }[];
     elapsedMs: number;
   }
   const applyWriteCandidates: ApplyWriteCandidate[] = [];

@@ -40,7 +40,7 @@ async function withCollisionFixture<T>(
 
 async function rewriteResolutionPick(resolution: string, pick: string | null): Promise<void> {
   let body = await readFile(resolution, "utf8");
-  body = body.replace(/^    pick: .+$/m, pick === null ? "    pick: null" : `    pick: "${pick}"`);
+  body = body.replace(/^ {4}pick: .+$/m, pick === null ? "    pick: null" : `    pick: "${pick}"`);
   await writeFile(resolution, body, "utf8");
 }
 
@@ -259,7 +259,7 @@ test("#114 review: single-quoted YAML picks preserve doubled apostrophes", async
 
     await planPaiMigration({ homeDir, paiPacksDir: packsDir, skipMemory: true, emitResolutionPath: resolution });
     let body = await readFile(resolution, "utf8");
-    body = body.replace(/^    pick: .+$/m, `    pick: '${utilitiesPack.replaceAll("'", "''")}'`);
+    body = body.replace(/^ {4}pick: .+$/m, `    pick: '${utilitiesPack.replaceAll("'", "''")}'`);
     await writeFile(resolution, body, "utf8");
 
     const result = await migratePai({ homeDir, paiPacksDir: packsDir, skipMemory: true, resolutionPath: resolution });
@@ -275,7 +275,7 @@ test("#114 review: quoted picks allow comments and reject trailing tokens", asyn
     const resolution = join(homeDir, "migration-resolve.yaml");
     await planPaiMigration({ homeDir, paiPacksDir: packsDir, skipMemory: true, emitResolutionPath: resolution });
     let body = await readFile(resolution, "utf8");
-    body = body.replace(/^    pick: .+$/m, `    pick: "${utilitiesPack}" # choose nested`);
+    body = body.replace(/^ {4}pick: .+$/m, `    pick: "${utilitiesPack}" # choose nested`);
     await writeFile(resolution, body, "utf8");
     const result = await migratePai({ homeDir, paiPacksDir: packsDir, skipMemory: true, resolutionPath: resolution });
     const importedBrowser = result.packOutcomes.find((outcome) =>

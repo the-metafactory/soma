@@ -32,7 +32,7 @@ function initSubstrate(options: SomaOnboardingOptions): InitSubstrate {
 }
 
 function installStepId(substrate: InitSubstrate): SomaInitStepId {
-  return `install-${substrate}` as SomaInitStepId;
+  return `install-${substrate}`;
 }
 
 function installCommand(substrate: InitSubstrate, apply: boolean): string {

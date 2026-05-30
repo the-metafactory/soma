@@ -155,7 +155,7 @@ test("R2 #2: importPaiPackFromPlan produces the same on-disk output as importPai
       expect(treeB).toEqual(treeA);
 
       // Same content for SKILL.md.
-      const slug = resultA[0]!.skillName;
+      const slug = resultA[0].skillName;
       const skillMdA = await readFile(join(somaA, "skills", slug, "SKILL.md"), "utf8");
       const skillMdB = await readFile(join(somaB, "skills", slug, "SKILL.md"), "utf8");
       expect(skillMdB).toBe(skillMdA);
@@ -217,7 +217,7 @@ test("R2 #2: importPaiPackFromPlan throws PaiPackAllSkillsExcludedRefusal when e
       paiPackDir: packDir,
       somaHome,
     });
-    const slug = plans[0]!.skillName;
+    const slug = plans[0].skillName;
 
     await expect(
       importPaiPackFromPlan(handle, {
@@ -322,7 +322,7 @@ test("R7 #1: pure-nested pack with reserved pack name is permitted (only archive
 
     const result = await importPaiPack({ homeDir: home, paiPackDir: packDir, somaHome });
     expect(result.length).toBe(1);
-    expect(result[0]!.skillName).toBe("foo");
+    expect(result[0].skillName).toBe("foo");
 
     // The archive landed under `imports/pai-packs/soma/` — the
     // reserved pack name is only used as an archive identifier,
@@ -438,7 +438,7 @@ test("R5 #2: importPaiPackFromPlan rejects a forged handle (not produced by plan
     // NOT registered in the module-private trusted WeakSet.
     const forged = { __brand: "PaiPackImportPlanHandle" as const };
     await expect(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       importPaiPackFromPlan(forged as any, { overwrite: false }),
     ).rejects.toThrow(/was not produced by planPaiPackImportHandle/i);
   });
@@ -446,11 +446,11 @@ test("R5 #2: importPaiPackFromPlan rejects a forged handle (not produced by plan
 
 test("R5 #2: importPaiPackFromPlan rejects null and non-object handles", async () => {
   await expect(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     importPaiPackFromPlan(null as any),
   ).rejects.toThrow(/must be a PaiPackImportPlanHandle/i);
   await expect(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     importPaiPackFromPlan("nope" as any),
   ).rejects.toThrow(/must be a PaiPackImportPlanHandle/i);
 });
@@ -473,16 +473,16 @@ test("R6 #1: legitimate handle carries NO addressable plan state (immutable)", a
     expect(Object.isFrozen(handle)).toBe(true);
     const keys = Object.keys(handle);
     expect(keys).toEqual(["__brand"]);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     expect((handle as any).plan).toBeUndefined();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     expect((handle as any).options).toBeUndefined();
     // Mutation attempts must NOT silently install a `.plan` either.
     expect(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       (handle as any).plan = { evil: true };
     }).toThrow(); // frozen object → strict mode TypeError
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     expect((handle as any).plan).toBeUndefined();
   });
 });

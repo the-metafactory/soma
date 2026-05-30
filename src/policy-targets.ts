@@ -51,14 +51,29 @@ function hasPotentialPrivateSourceReference(config: SomaPolicyTargetConfig, cont
 
 function policyRelevantContent(config: SomaPolicyTargetConfig, content: string | undefined): string {
   if (!hasSomaPolicyMarker(config, content)) return "";
-  return (content || "")
+  return (content ?? "")
     .split("\n")
     .filter((line) => hasSomaPolicyMarker(config, line))
     .join("\n");
 }
 
 function resolveToolPath(path: string, cwd: string): string {
-  return isAbsolute(path) ? path : resolve(cwd || process.cwd(), path);
+  return isAbsolute(path) ? path : resolve(cwd, path);
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function toolText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") return String(value);
+  if (value === undefined || value === null) return "";
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return "";
+  }
 }
 
 function resolveShellPath(config: SomaPolicyTargetConfig, path: string, cwd: string): string {
@@ -66,7 +81,7 @@ function resolveShellPath(config: SomaPolicyTargetConfig, path: string, cwd: str
     return `${config.somaHome}${path.slice("~/.soma".length)}`;
   }
 
-  const home = config.somaHome.endsWith("/.soma") ? config.somaHome.slice(0, -"/.soma".length) : process.env.HOME || "";
+  const home = config.somaHome.endsWith("/.soma") ? config.somaHome.slice(0, -"/.soma".length) : process.env.HOME ?? "";
   if (home && path.startsWith("$HOME/")) {
     return `${home}/${path.slice("$HOME/".length)}`;
   }
@@ -86,8 +101,11 @@ function cleanShellToken(token: string): string {
 }
 
 function tokenizeShellCommand(command: string): string[] {
-  return [...(command || "").matchAll(/"([^"]*)"|'([^']*)'|[^\s]+/g)]
-    .map((match) => cleanShellToken(match[1] || match[2] || match[0]))
+  return [...command.matchAll(/"([^"]*)"|'([^']*)'|[^\s]+/g)]
+    .map((match) => {
+      const groups = match as unknown as (string | undefined)[];
+      return cleanShellToken(groups[1] ?? groups[2] ?? match[0]);
+    })
     .filter(Boolean);
 }
 
@@ -171,7 +189,7 @@ function shellSegmentsWithOperators(tokens: string[]): { tokens: string[]; opera
 }
 
 function shellCommandName(token: string | undefined): string {
-  return (token || "").split("/").pop() || "";
+  return token?.split("/").pop() ?? "";
 }
 
 function skipShellPrefixes(tokens: string[]): number {
@@ -393,7 +411,7 @@ function extractPipedPrivateShellTransferTargets(config: SomaPolicyTargetConfig,
     }
 
     const privateSource = firstPrivatePathToken(config, segment, cwd);
-    pipedPrivateSource = operatorAfter === "|" ? privateSource || pipedPrivateSource : undefined;
+    pipedPrivateSource = operatorAfter === "|" ? privateSource ?? pipedPrivateSource : undefined;
   }
 
   return targets;
@@ -415,20 +433,20 @@ function extractPatchTargets(config: SomaPolicyTargetConfig, patch: string, cwd:
   const pattern = /^\*\*\* (Add|Update|Delete) File: (.+)$/;
   const movePattern = /^\*\*\* Move to: (.+)$/;
 
-  for (const line of (patch || "").split("\n")) {
-    const moveMatch = line.match(movePattern);
+  for (const line of patch.split("\n")) {
+    const moveMatch = movePattern.exec(line);
     if (moveMatch) {
       if (current) {
         const originalFilePath = current.filePath;
         current.filePath = resolveToolPath(moveMatch[1].trim(), cwd);
-        current.sourcePath = current.sourcePath || originalFilePath;
+        current.sourcePath = current.sourcePath ?? originalFilePath;
       } else {
         current = { filePath: resolveToolPath(moveMatch[1].trim(), cwd), sourcePath: config.somaHome, lines: [] };
       }
       continue;
     }
 
-    const fileMatch = line.match(pattern);
+    const fileMatch = pattern.exec(line);
     if (fileMatch) {
       pushPatchTarget(config, targets, current);
       const operation = fileMatch[1];
@@ -450,11 +468,12 @@ function extractPatchTargets(config: SomaPolicyTargetConfig, patch: string, cwd:
 }
 
 export function extractWritePolicyTargets(config: SomaPolicyTargetConfig, context: SomaPolicyToolInvocation): SomaPolicyBatchTarget[] {
-  return [{ filePath: context.filePath, sourcePath: context.sourcePath, content: policyRelevantContent(config, String(context.toolInput.content || "")) }];
+  return [{ filePath: context.filePath, sourcePath: context.sourcePath, content: policyRelevantContent(config, toolText(context.toolInput.content)) }];
 }
 
 export function extractEditPolicyTargets(config: SomaPolicyTargetConfig, context: SomaPolicyToolInvocation): SomaPolicyBatchTarget[] {
-  return [{ filePath: context.filePath, sourcePath: context.sourcePath, content: policyRelevantContent(config, String(context.toolInput.new_string || context.toolInput.newString || "")) }];
+  const content = stringValue(context.toolInput.new_string) ?? stringValue(context.toolInput.newString) ?? "";
+  return [{ filePath: context.filePath, sourcePath: context.sourcePath, content: policyRelevantContent(config, content) }];
 }
 
 export function extractMultiEditPolicyTargets(config: SomaPolicyTargetConfig, context: SomaPolicyToolInvocation): SomaPolicyBatchTarget[] {
@@ -464,7 +483,7 @@ export function extractMultiEditPolicyTargets(config: SomaPolicyTargetConfig, co
     return {
       filePath: context.filePath,
       sourcePath: context.sourcePath,
-      content: policyRelevantContent(config, String(entry.new_string || entry.newString || "")),
+      content: policyRelevantContent(config, stringValue(entry.new_string) ?? stringValue(entry.newString) ?? ""),
     };
   });
 }
@@ -473,7 +492,7 @@ export function extractApplyPatchPolicyTargets(config: SomaPolicyTargetConfig, c
   const content =
     typeof context.rawToolInput === "string"
       ? context.rawToolInput
-      : String(context.toolInput.patch || context.toolInput.command || context.toolInput.cmd || JSON.stringify(context.toolInput));
+      : stringValue(context.toolInput.patch) ?? stringValue(context.toolInput.command) ?? stringValue(context.toolInput.cmd) ?? toolText(context.toolInput);
   if (!hasPotentialPrivateSourceReference(config, content) && !content.includes("*** Move to:")) return [];
   const targets = extractPatchTargets(config, content, context.cwd);
   return targets.length > 0 ? targets : [{ filePath: context.cwd, content: policyRelevantContent(config, content) }];
