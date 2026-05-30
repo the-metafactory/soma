@@ -1856,6 +1856,21 @@ export interface RuntimePolicyConfig {
   privateRoots?: readonly string[];
 }
 
+export type RuntimePolicyConfigChangeErrorKind = "unreadable" | "malformed";
+
+export interface RuntimePolicyConfigChangeError {
+  kind: RuntimePolicyConfigChangeErrorKind;
+  detail?: string;
+}
+
+export interface RuntimePolicyConfigChange {
+  configSurface: string;
+  before?: Record<string, unknown>;
+  after?: Record<string, unknown>;
+  error?: RuntimePolicyConfigChangeError;
+  securityRelevantKeys?: readonly string[];
+}
+
 export interface RuntimePolicyInspectOptions {
   homeDir?: string;
   somaHome?: string;
@@ -1863,6 +1878,7 @@ export interface RuntimePolicyInspectOptions {
   surface: RuntimePolicySurface;
   prompt?: string;
   toolCall?: RuntimePolicyToolCall;
+  configChange?: RuntimePolicyConfigChange;
   runtimePolicy?: RuntimePolicyConfig;
   record?: "all" | "deny" | "none";
   timestamp?: string;

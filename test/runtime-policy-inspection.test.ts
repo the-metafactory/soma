@@ -246,6 +246,152 @@ test("runtime policy command config adds deterministic pattern rules and outboun
   });
 });
 
+test("inspects config changes with sanitized security-relevant key findings and audit traces", async () => {
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    const result = await inspectRuntimePolicy({
+      homeDir,
+      substrate: "codex",
+      surface: "config_change",
+      configChange: {
+        configSurface: "codex.config",
+        before: {
+          hooks: { PreToolUse: true },
+          env: { API_TOKEN: "old-secret-value" },
+          theme: "dark",
+        },
+        after: {
+          hooks: { PreToolUse: false },
+          env: { API_TOKEN: "new-secret-value" },
+          theme: "dark",
+        },
+      },
+    });
+
+    expect(result.decision).toBe("alert");
+    expect(result.findings).toContainEqual(expect.objectContaining({ kind: "config-security-key-changed", severity: "medium" }));
+    expect(result.audit?.tracePath).toStartWith(runtimePolicyTraceRoot({ somaHome }));
+
+    const events = await readFile(join(somaHome, "memory/STATE/events.jsonl"), "utf8");
+    const trace = await readFile(result.audit!.tracePath!, "utf8");
+
+    expect(events).toContain("runtime_policy.inspect");
+    expect(events).toContain("config_change");
+    expect(trace).toContain("hooks.PreToolUse");
+    expect(trace).toContain("env.API_TOKEN");
+    expect(trace).not.toContain("old-secret-value");
+    expect(trace).not.toContain("new-secret-value");
+  });
+});
+
+test("inspects added, removed, unreadable, malformed, and no-op config changes", async () => {
+  await withTempHome(async (homeDir) => {
+    await bootstrapSomaHome({ homeDir });
+
+    const addedRemoved = await inspectRuntimePolicy({
+      homeDir,
+      substrate: "claude-code",
+      surface: "config_change",
+      configChange: {
+        configSurface: "claude-code.settings",
+        before: {
+          permissions: { allow: ["Read"] },
+          mcpServers: { local: { command: "server" } },
+        },
+        after: {
+          permissions: { ask: ["Bash"] },
+          hooks: { PreToolUse: ["soma"] },
+        },
+      },
+      record: "none",
+    });
+    const unreadable = await inspectRuntimePolicy({
+      homeDir,
+      surface: "config_change",
+      configChange: {
+        configSurface: "codex.config",
+        error: { kind: "unreadable", detail: "permission denied" },
+      },
+      record: "none",
+    });
+    const malformed = await inspectRuntimePolicy({
+      homeDir,
+      surface: "config_change",
+      configChange: {
+        configSurface: "pi-dev.extension-settings",
+        error: { kind: "malformed", detail: "invalid json" },
+      },
+      record: "none",
+    });
+    const noOp = await inspectRuntimePolicy({
+      homeDir,
+      surface: "config_change",
+      configChange: {
+        configSurface: "cursor.rules",
+        before: { editor: { fontSize: 14 } },
+        after: { editor: { fontSize: 14 } },
+      },
+      record: "none",
+    });
+
+    expect(addedRemoved.decision).toBe("alert");
+    expect(addedRemoved.findings).toContainEqual(expect.objectContaining({ kind: "config-security-key-added" }));
+    expect(addedRemoved.findings).toContainEqual(expect.objectContaining({ kind: "config-security-key-removed" }));
+    expect(unreadable).toMatchObject({
+      decision: "alert",
+      findings: [expect.objectContaining({ kind: "config-unreadable", severity: "high" })],
+    });
+    expect(malformed).toMatchObject({
+      decision: "alert",
+      findings: [expect.objectContaining({ kind: "config-malformed", severity: "high" })],
+    });
+    expect(noOp).toMatchObject({
+      decision: "allow",
+      findings: [],
+    });
+  });
+});
+
+test("policy inspect CLI accepts config-change payloads as JSON env input", async () => {
+  await withTempHome(async (homeDir) => {
+    await bootstrapSomaHome({ homeDir });
+    const envName = "SOMA_TEST_CONFIG_CHANGE";
+    const previousEnv = process.env.SOMA_TEST_CONFIG_CHANGE;
+    process.env[envName] = JSON.stringify({
+      configSurface: "codex.config",
+      before: { hooks: { PreToolUse: true } },
+      after: { hooks: { PreToolUse: false } },
+    });
+
+    try {
+      const output = await runSomaCli([
+        "policy",
+        "inspect",
+        "--home-dir",
+        homeDir,
+        "--surface",
+        "config_change",
+        "--config-change-env",
+        envName,
+        "--record",
+        "none",
+        "--json",
+      ]);
+      const parsed = JSON.parse(output);
+
+      expect(parsed.surface).toBe("config_change");
+      expect(parsed.decision).toBe("alert");
+      expect(parsed.findings).toContainEqual(expect.objectContaining({ kind: "config-security-key-changed" }));
+    } finally {
+      if (previousEnv === undefined) {
+        delete process.env.SOMA_TEST_CONFIG_CHANGE;
+      } else {
+        process.env.SOMA_TEST_CONFIG_CHANGE = previousEnv;
+      }
+    }
+  });
+});
+
 test("policy inspect CLI emits runtime policy decisions as JSON", async () => {
   await withTempHome(async (homeDir) => {
     await bootstrapSomaHome({ homeDir });

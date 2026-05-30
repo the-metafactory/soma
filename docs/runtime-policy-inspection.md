@@ -20,13 +20,19 @@ The first implemented surfaces are:
 - `tool_call`: tool-call inspection.
 
 The reserved surfaces are `permission_request`, `config_change`, and
-`governance_event`. They are vocabulary-stable; `governance_event` now has a
-design model, but enforcement remains deferred to its implementation slice.
+`governance_event`. They are vocabulary-stable; `config_change` and
+`governance_event` now have design models, while permission-request
+intelligence remains deferred.
 
 `governance_event` is designed in
 [governance-event-runtime-policy.md](./governance-event-runtime-policy.md). It
 covers assistant-work control events such as task requests, skill invocations,
 and qualified substrate-assistant delegations.
+
+`config_change` is implemented in
+[runtime-config-change-audit.md](./runtime-config-change-audit.md). It covers
+metadata-only auditing for security-relevant substrate configuration keys
+without storing raw config snapshots or secret values by default.
 
 Runtime inspection uses the same audit split as inbound-content security:
 
@@ -106,7 +112,7 @@ the DD-7 inbound-content scanner.
 | `SecurityPipeline.hook.ts` | portable runtime policy | Reimplemented as deterministic `tool_call` inspection plus existing path guard reuse. |
 | `PromptGuard.hook.ts` | portable runtime policy | Reimplemented as deterministic `prompt` inspection. |
 | `SmartApprover.hook.ts` | deferred permission policy | Tracked by #259 because substrate permission surfaces differ. |
-| `ConfigAudit.hook.ts` | deferred config-change policy | Tracked by #258; requires per-substrate config surface mapping and redaction. |
+| `ConfigAudit.hook.ts` | portable config-change policy | Reimplemented as metadata-only `config_change` inspection with sanitized key-path findings and runtime policy events/traces. |
 | `TaskGovernance.hook.ts` | deferred governance-event model | Tracked by #255; terminology must avoid making Claude/PAI task primitives canonical. |
 | `SkillGuard.hook.ts` | deferred governance-event model | Tracked by #255 for portable skill invocation semantics. |
 | Agent execution guard behavior | deferred governance-event model | Tracked by #255; Cortex/Myelin dispatch is different from Claude subagents. |
