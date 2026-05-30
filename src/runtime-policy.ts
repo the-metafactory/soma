@@ -258,11 +258,12 @@ function inspectToolCall(options: RuntimePolicyInspectOptions): RuntimePolicyFin
 
   findings.push(...inspectConfiguredPatternRules(command, config));
   findings.push(...inspectSegmentedCommand(command, options, somaHome, config));
+  const hasCredentialFileEgress = findings.some((item) => item.kind === "credential-file-egress");
 
-  if (hasEnvDump && hasOutboundIntent) {
+  if (hasEnvDump && hasOutboundIntent && !hasCredentialFileEgress) {
     findings.push(finding("env-egress", "critical", "Command appears to send environment data to an outbound destination.", COMMAND_INSPECTOR_ID));
   }
-  if (hasCredentialTerm && hasOutboundIntent) {
+  if (hasCredentialTerm && hasOutboundIntent && !hasCredentialFileEgress) {
     findings.push(finding("credential-egress", "critical", "Command appears to send credential-like data to an outbound destination.", COMMAND_INSPECTOR_ID));
   }
   if (/\b(curl|wget)\b[^|]{0,200}\|\s*(?:sh|bash|zsh|fish|python|ruby|perl|node|bun)\b/u.test(normalized)) {

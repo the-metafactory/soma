@@ -164,6 +164,7 @@ test("inspects segmented shell commands for private path and credential-file egr
     expect(privatePipe.findings).toContainEqual(expect.objectContaining({ kind: "private-path-egress", severity: "critical" }));
     expect(envUpload.decision).toBe("deny");
     expect(envUpload.findings).toContainEqual(expect.objectContaining({ kind: "credential-file-egress", severity: "critical" }));
+    expect(envUpload.findings.map((item) => item.kind)).toEqual(["credential-file-egress"]);
     expect(scpCredentialFile.decision).toBe("deny");
     expect(scpCredentialFile.findings).toContainEqual(expect.objectContaining({ kind: "credential-file-egress", severity: "critical" }));
   });
