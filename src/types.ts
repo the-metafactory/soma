@@ -1851,8 +1851,29 @@ export interface RuntimePolicyCommandInspectionConfig {
   inlineInterpreterDecision?: Exclude<RuntimePolicyDecision, "allow">;
 }
 
+export type RuntimePolicyPermissionAction = "read" | "write" | "delete" | "execute" | "network" | "unknown";
+
+export interface RuntimePolicyTrustedRoot {
+  path: string;
+  actions: readonly RuntimePolicyPermissionAction[];
+  description?: string;
+}
+
+export interface RuntimePolicyApprovalCacheEntry {
+  cacheKey: string;
+  action: RuntimePolicyPermissionAction;
+  targetPath?: string;
+  expiresAt?: string;
+}
+
+export interface RuntimePolicyPermissionConfig {
+  trustedRoots?: readonly RuntimePolicyTrustedRoot[];
+  approvalCache?: readonly RuntimePolicyApprovalCacheEntry[];
+}
+
 export interface RuntimePolicyConfig {
   command?: RuntimePolicyCommandInspectionConfig;
+  permission?: RuntimePolicyPermissionConfig;
   privateRoots?: readonly string[];
 }
 
@@ -1871,6 +1892,15 @@ export interface RuntimePolicyConfigChange {
   securityRelevantKeys?: readonly string[];
 }
 
+export interface RuntimePolicyPermissionRequest {
+  requestId: string;
+  action: RuntimePolicyPermissionAction;
+  targetPath?: string;
+  toolName?: string;
+  cacheKey?: string;
+  substrateSupportsAsk?: boolean;
+}
+
 export interface RuntimePolicyInspectOptions {
   homeDir?: string;
   somaHome?: string;
@@ -1879,6 +1909,7 @@ export interface RuntimePolicyInspectOptions {
   prompt?: string;
   toolCall?: RuntimePolicyToolCall;
   configChange?: RuntimePolicyConfigChange;
+  permissionRequest?: RuntimePolicyPermissionRequest;
   runtimePolicy?: RuntimePolicyConfig;
   record?: "all" | "deny" | "none";
   timestamp?: string;
