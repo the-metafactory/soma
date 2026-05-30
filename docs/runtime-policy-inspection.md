@@ -50,11 +50,17 @@ Tool-call inspection currently covers shell-like tools and detects:
 
 - environment dump with outbound intent: `deny`
 - credential-like outbound intent: `deny`
+- credential-file or private Soma path egress through outbound tools: `deny`
 - remote fetch piped into an interpreter: `ask`
-- inline interpreter snippets such as `python -c` or `node -e`: `alert`
+- inline interpreter snippets such as `python -c` or `node -e`: configurable,
+  default `alert`
+- configured deterministic command pattern rules with explicit `deny`, `ask`,
+  or `alert` decisions
 
-This is deliberately narrow. It is not a full shell parser, network firewall,
-or model-backed classifier.
+The command-inspection inventory, config shape, and non-guarantees are in
+[runtime-command-inspection.md](./runtime-command-inspection.md). This is
+deliberately narrow. It is not a full shell parser, network firewall, or
+model-backed classifier.
 
 ## CLI
 
