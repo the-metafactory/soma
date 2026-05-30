@@ -18,11 +18,11 @@ The first implemented surfaces are:
 
 - `prompt`: principal prompt inspection.
 - `tool_call`: tool-call inspection.
+- `permission_request`: conservative permission-request inspection.
+- `config_change`: metadata-only config-change inspection.
 
-The reserved surfaces are `permission_request`, `config_change`, and
-`governance_event`. They are vocabulary-stable; `config_change` and
-`governance_event` now have design models, while permission-request
-intelligence remains deferred.
+The remaining reserved surface is `governance_event`. It is vocabulary-stable
+and has a design model, but it is not yet an implemented inspector.
 
 `governance_event` is designed in
 [governance-event-runtime-policy.md](./governance-event-runtime-policy.md). It
@@ -33,6 +33,11 @@ and qualified substrate-assistant delegations.
 [runtime-config-change-audit.md](./runtime-config-change-audit.md). It covers
 metadata-only auditing for security-relevant substrate configuration keys
 without storing raw config snapshots or secret values by default.
+
+`permission_request` is implemented in
+[runtime-permission-request-policy.md](./runtime-permission-request-policy.md).
+It covers explicit trusted roots, approval-cache semantics, sensitive-path
+overrides, and ask-unavailable degradation.
 
 Runtime inspection uses the same audit split as inbound-content security:
 
@@ -67,6 +72,18 @@ The command-inspection inventory, config shape, and non-guarantees are in
 [runtime-command-inspection.md](./runtime-command-inspection.md). This is
 deliberately narrow. It is not a full shell parser, network firewall, or
 model-backed classifier.
+
+Permission-request inspection currently detects:
+
+- explicit trusted-root allow matches by action
+- explicit approval-cache allow matches by cache key, action, optional target,
+  and expiry
+- sensitive or private target paths: `ask` when approval is available
+- missing synchronous approval support: `alert`
+- all other requests: `ask`
+
+The substrate inventory, PAI SmartApprover comparison, and non-goals are in
+[runtime-permission-request-policy.md](./runtime-permission-request-policy.md).
 
 ## CLI
 
@@ -111,7 +128,7 @@ the DD-7 inbound-content scanner.
 | --- | --- | --- |
 | `SecurityPipeline.hook.ts` | portable runtime policy | Reimplemented as deterministic `tool_call` inspection plus existing path guard reuse. |
 | `PromptGuard.hook.ts` | portable runtime policy | Reimplemented as deterministic `prompt` inspection. |
-| `SmartApprover.hook.ts` | deferred permission policy | Tracked by #259 because substrate permission surfaces differ. |
+| `SmartApprover.hook.ts` | portable permission-request policy | Reimplemented as conservative `permission_request` inspection without PAI trusted-prefix defaults or mandatory read auto-approval. |
 | `ConfigAudit.hook.ts` | portable config-change policy | Reimplemented as metadata-only `config_change` inspection with sanitized key-path findings and runtime policy events/traces. |
 | `TaskGovernance.hook.ts` | deferred governance-event model | Tracked by #255; terminology must avoid making Claude/PAI task primitives canonical. |
 | `SkillGuard.hook.ts` | deferred governance-event model | Tracked by #255 for portable skill invocation semantics. |
