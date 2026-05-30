@@ -379,8 +379,9 @@ function parsePolicyInspectArgs(command: "policy", action: "inspect", rest: stri
         let input: unknown;
         try {
           input = JSON.parse(envInput);
-        } catch {
-          throw new Error(`--config-change-env ${envName} must contain a JSON object.`);
+        } catch (err: unknown) {
+          const detail = err instanceof Error ? err.message : String(err);
+          throw new Error(`--config-change-env ${envName} must contain a JSON object: ${detail}`, { cause: err });
         }
         if (!input || typeof input !== "object" || Array.isArray(input)) {
           throw new Error(`--config-change-env ${envName} must contain a JSON object.`);

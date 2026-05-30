@@ -300,6 +300,7 @@ function inspectToolCall(options: RuntimePolicyInspectOptions): RuntimePolicyFin
 }
 
 function stableSummary(value: unknown): string {
+  if (value === undefined) return "undefined";
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableSummary).join(",")}]`;
   const record = value as Record<string, unknown>;
