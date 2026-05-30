@@ -1,5 +1,5 @@
 import { checkSomaPolicy, checkSomaPolicyBatch, inspectRuntimePolicy, promoteInboundContent, RUNTIME_POLICY_SURFACES, scanInboundContent } from "../index";
-import type { InboundContentScanOptions, RuntimePolicyInspectOptions, RuntimePolicySurface, SomaPolicyBatchTarget, SomaPolicyCheckOptions, SomaPolicyCheckResult } from "../types";
+import type { InboundContentScanOptions, RuntimePolicyConfigChange, RuntimePolicyInspectOptions, RuntimePolicySurface, SomaPolicyBatchTarget, SomaPolicyCheckOptions, SomaPolicyCheckResult } from "../types";
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
 
@@ -41,7 +41,7 @@ const POLICY_SCAN_USAGE =
 const POLICY_PROMOTE_USAGE =
   "Usage: soma policy promote --path <path> [--source-uri <uri>] [--substrate <id>] [--record <all|deny|none>] [--json]";
 const POLICY_INSPECT_USAGE =
-  "Usage: soma policy inspect --surface <prompt|tool_call|permission_request|config_change|governance_event> [--prompt <text>|--prompt-env <name>] [--tool-name <name> --tool-input-env <name>] [--substrate <id>] [--record <all|deny|none>] [--json]";
+  "Usage: soma policy inspect --surface <prompt|tool_call|permission_request|config_change|governance_event> [--prompt <text>|--prompt-env <name>] [--tool-name <name> --tool-input-env <name>] [--config-change-env <name>] [--substrate <id>] [--record <all|deny|none>] [--json]";
 
 export const POLICY_COMMAND_HELP: { usage: string; subcommands: Record<ParsedPolicyArgs["action"], string> } = {
   usage: [POLICY_CHECK_USAGE, POLICY_SCAN_USAGE, POLICY_PROMOTE_USAGE, POLICY_INSPECT_USAGE].join("\n"),
@@ -370,6 +370,26 @@ function parsePolicyInspectArgs(command: "policy", action: "inspect", rest: stri
         index += 1;
         break;
       }
+      case "--config-change-env": {
+        const envName = readOption(rest, index, arg);
+        const envInput = process.env[envName];
+        if (envInput === undefined) {
+          throw new Error(`--config-change-env ${envName} is not set.`);
+        }
+        let input: unknown;
+        try {
+          input = JSON.parse(envInput);
+        } catch (err: unknown) {
+          const detail = err instanceof Error ? err.message : String(err);
+          throw new Error(`--config-change-env ${envName} must contain a JSON object: ${detail}`, { cause: err });
+        }
+        if (!input || typeof input !== "object" || Array.isArray(input)) {
+          throw new Error(`--config-change-env ${envName} must contain a JSON object.`);
+        }
+        options.configChange = input as RuntimePolicyConfigChange;
+        index += 1;
+        break;
+      }
       case "--record": {
         const value = readOption(rest, index, arg);
         if (value !== "all" && value !== "deny" && value !== "none") {
@@ -395,6 +415,9 @@ function parsePolicyInspectArgs(command: "policy", action: "inspect", rest: stri
   }
   if (options.surface === "tool_call" && (!options.toolCall?.toolName || !options.toolCall.input)) {
     throw new Error("soma policy inspect --surface tool_call requires --tool-name and --tool-input-env.");
+  }
+  if (options.surface === "config_change" && !options.configChange) {
+    throw new Error("soma policy inspect --surface config_change requires --config-change-env.");
   }
 
   return { command, action, options: options as RuntimePolicyInspectOptions, json };
