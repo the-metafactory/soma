@@ -90,6 +90,8 @@ function commandFromToolCall(options: RuntimePolicyInspectOptions): string | und
 }
 
 function cleanShellToken(token: string): string {
+  // Bounded token cleanup for policy signals, not full shell syntax. This may
+  // simplify process-substitution tokens; docs keep that outside guarantees.
   return token.replace(/^[<>"']+|[>"']+$/g, "");
 }
 
@@ -154,7 +156,8 @@ function escapeRegExp(value: string): string {
 function matchesPattern(value: string, pattern: string): boolean {
   try {
     return new RegExp(pattern, "iu").test(value);
-  } catch {
+  } catch (_err) {
+    // Keep invalid operator-supplied patterns deterministic and non-throwing.
     return value.toLowerCase().includes(pattern.toLowerCase());
   }
 }
@@ -168,6 +171,8 @@ function configuredOutboundTools(config: RuntimePolicyCommandInspectionConfig): 
 }
 
 function commandHasOutboundIntent(command: string, config: RuntimePolicyCommandInspectionConfig): boolean {
+  // Config is per inspection, so the regex is intentionally built from the
+  // current Soma-owned command config rather than cached globally.
   const toolPattern = new RegExp(`\\b(?:${configuredOutboundTools(config).map(escapeRegExp).join("|")})\\b`, "iu");
   return toolPattern.test(command) || /https?:\/\//iu.test(command);
 }
@@ -223,6 +228,8 @@ function inspectSegmentedCommand(command: string, options: RuntimePolicyInspectO
       findings.push(finding("credential-file-egress", "critical", "Command appears to send credential-file content to an outbound destination.", COMMAND_INSPECTOR_ID));
     }
 
+    // Only pipes propagate source context. Command separators and boolean
+    // operators reset it to avoid pretending we do full shell data-flow.
     pipedPrivateSource = segment.operatorAfter === "|" && (pipedPrivateSource || hasPrivatePath);
     pipedCredentialSource = segment.operatorAfter === "|" && (pipedCredentialSource || hasCredentialPath);
   }
