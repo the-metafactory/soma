@@ -1827,11 +1827,33 @@ export interface RuntimePolicyFinding {
   severity: RuntimePolicyFindingSeverity;
   detail: string;
   inspector: string;
+  decision?: Exclude<RuntimePolicyDecision, "allow">;
 }
 
 export interface RuntimePolicyToolCall {
   toolName: string;
   input?: Record<string, unknown>;
+}
+
+export interface RuntimePolicyCommandPatternRule {
+  kind: string;
+  pattern: string;
+  detail: string;
+  decision: Exclude<RuntimePolicyDecision, "allow">;
+  severity?: RuntimePolicyFindingSeverity;
+}
+
+export interface RuntimePolicyCommandInspectionConfig {
+  outboundTools?: readonly string[];
+  privatePathPatterns?: readonly string[];
+  credentialPathPatterns?: readonly string[];
+  patternRules?: readonly RuntimePolicyCommandPatternRule[];
+  inlineInterpreterDecision?: Exclude<RuntimePolicyDecision, "allow">;
+}
+
+export interface RuntimePolicyConfig {
+  command?: RuntimePolicyCommandInspectionConfig;
+  privateRoots?: readonly string[];
 }
 
 export interface RuntimePolicyInspectOptions {
@@ -1841,6 +1863,7 @@ export interface RuntimePolicyInspectOptions {
   surface: RuntimePolicySurface;
   prompt?: string;
   toolCall?: RuntimePolicyToolCall;
+  runtimePolicy?: RuntimePolicyConfig;
   record?: "all" | "deny" | "none";
   timestamp?: string;
 }
