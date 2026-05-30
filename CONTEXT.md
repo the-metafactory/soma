@@ -218,6 +218,16 @@ Runtime policy inspection surfaces are `prompt`, `tool_call`, `permission_reques
 
 ---
 
+## tool_call
+
+A [[runtime policy inspection]] surface for a proposed or observed tool invocation, including bounded metadata such as tool name, command shape, target paths, and substrate-provided arguments.
+
+Tool-call inspection is for concrete tool activity. Use [[governance event|governance events]] for task requests, skill invocations, and qualified assistant-work delegation unless the substrate exposes only a generic tool surface.
+
+**Why:** Runtime policy needs to distinguish concrete tool execution from assistant-work coordination so governance rules do not become fragile command parsers.
+
+---
+
 ## governance event
 
 A [[runtime policy inspection]] surface for proposed, started, or completed assistant-work control events: task requests, skill invocations, and qualified substrate-assistant delegations.

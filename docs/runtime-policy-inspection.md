@@ -20,8 +20,8 @@ The first implemented surfaces are:
 - `tool_call`: tool-call inspection.
 
 The reserved surfaces are `permission_request`, `config_change`, and
-`governance_event`. They are vocabulary-stable but intentionally no-op until
-their issue slices define enforcement semantics.
+`governance_event`. They are vocabulary-stable; `governance_event` now has a
+design model, but enforcement remains deferred to its implementation slice.
 
 `governance_event` is designed in
 [governance-event-runtime-policy.md](./governance-event-runtime-policy.md). It
