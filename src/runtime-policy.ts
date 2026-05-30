@@ -6,6 +6,7 @@ import { createPaths } from "./paths";
 import { hasSomaPolicyPrivateMarker, somaPolicyPrivateMarkers } from "./policy";
 import type {
   RuntimePolicyCommandInspectionConfig,
+  RuntimePolicyConfigChange,
   RuntimePolicyDecision,
   RuntimePolicyFinding,
   RuntimePolicyInspectAudit,
@@ -16,6 +17,7 @@ import type {
 
 const PROMPT_INSPECTOR_ID = "soma-deterministic-prompt-v0";
 const COMMAND_INSPECTOR_ID = "soma-deterministic-command-v0";
+const CONFIG_INSPECTOR_ID = "soma-deterministic-config-v0";
 const INPUT_INSPECTOR_ID = "soma-runtime-input-v0";
 
 const DEFAULT_OUTBOUND_TOOLS = [
@@ -49,6 +51,26 @@ const DEFAULT_CREDENTIAL_PATH_PATTERNS = [
 ] as const;
 
 const INLINE_INTERPRETER_PATTERN = /\b(?:python|python3|node|ruby|perl|bun)\s+-(?:c|e)\b/u;
+
+const COMMON_SECURITY_CONFIG_KEYS = [
+  "hooks",
+  "permissions",
+  "env",
+  "mcpServers",
+  "runtimePolicy",
+  "policy",
+  "tools",
+  "extensions",
+] as const;
+
+const SUBSTRATE_SECURITY_CONFIG_KEYS = {
+  codex: ["hooks", "hooksJson", "config.hooks", "tools", "sandbox", "network", "approvalPolicy"],
+  "claude-code": ["hooks", "permissions", "mcpServers", "env"],
+  "pi-dev": ["extensions", "toolGuard", "policyCheck", "runtimePolicy"],
+  cursor: ["rules", "mcpServers", "tools"],
+  cortex: ["dispatcher", "artifactIngress", "taskRouting", "capabilities"],
+  custom: [],
+} as const;
 
 export function runtimePolicyTraceRoot(options: Pick<RuntimePolicyInspectOptions, "homeDir" | "somaHome"> = {}): string {
   return createPaths(options).resolve("memory", "SECURITY", "runtime-policy");
@@ -277,6 +299,84 @@ function inspectToolCall(options: RuntimePolicyInspectOptions): RuntimePolicyFin
   return findings;
 }
 
+function stableSummary(value: unknown): string {
+  if (value === undefined) return "undefined";
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableSummary).join(",")}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableSummary(record[key])}`).join(",")}}`;
+}
+
+function flattenConfigKeys(value: Record<string, unknown> | undefined, prefix = ""): Map<string, string> {
+  const result = new Map<string, string>();
+  if (!value) return result;
+
+  for (const key of Object.keys(value).sort()) {
+    const path = prefix ? `${prefix}.${key}` : key;
+    const item = value[key];
+    if (item && typeof item === "object" && !Array.isArray(item)) {
+      const nested = flattenConfigKeys(item as Record<string, unknown>, path);
+      if (nested.size > 0) {
+        for (const [nestedKey, nestedValue] of nested) result.set(nestedKey, nestedValue);
+      } else {
+        result.set(path, stableSummary(item));
+      }
+    } else {
+      result.set(path, stableSummary(item));
+    }
+  }
+
+  return result;
+}
+
+function securityRelevantConfigKeys(options: RuntimePolicyInspectOptions, change: RuntimePolicyConfigChange): string[] {
+  const substrate = options.substrate ?? "custom";
+  return Array.from(new Set([...COMMON_SECURITY_CONFIG_KEYS, ...SUBSTRATE_SECURITY_CONFIG_KEYS[substrate], ...(change.securityRelevantKeys ?? [])]));
+}
+
+function isSecurityRelevantConfigKey(key: string, relevantKeys: readonly string[]): boolean {
+  return relevantKeys.some((candidate) => key === candidate || key.startsWith(`${candidate}.`));
+}
+
+function inspectConfigChange(options: RuntimePolicyInspectOptions): RuntimePolicyFinding[] {
+  const change = options.configChange;
+  if (!change || typeof change.configSurface !== "string" || change.configSurface.length === 0) {
+    return [finding("malformed-config-change", "critical", "Config-change inspection requires a configSurface.", INPUT_INSPECTOR_ID)];
+  }
+
+  if (change.error?.kind === "unreadable") {
+    return [finding("config-unreadable", "high", `Could not read ${change.configSurface}: ${change.error.detail ?? "unreadable"}.`, CONFIG_INSPECTOR_ID, "alert")];
+  }
+  if (change.error?.kind === "malformed") {
+    return [finding("config-malformed", "high", `Could not parse ${change.configSurface}: ${change.error.detail ?? "malformed"}.`, CONFIG_INSPECTOR_ID, "alert")];
+  }
+
+  const before = flattenConfigKeys(change.before);
+  const after = flattenConfigKeys(change.after);
+  const relevantKeys = securityRelevantConfigKeys(options, change);
+  const findings: RuntimePolicyFinding[] = [];
+
+  for (const key of Array.from(new Set([...before.keys(), ...after.keys()])).sort()) {
+    if (!isSecurityRelevantConfigKey(key, relevantKeys)) continue;
+    const beforeValue = before.get(key);
+    const afterValue = after.get(key);
+    if (beforeValue === afterValue) continue;
+
+    const state = beforeValue === undefined ? "added" : afterValue === undefined ? "removed" : "changed";
+    findings.push(
+      finding(
+        `config-security-key-${state}`,
+        "medium",
+        `Security-relevant config key ${key} ${state} on ${change.configSurface}.`,
+        CONFIG_INSPECTOR_ID,
+        "alert",
+      ),
+    );
+  }
+
+  return findings;
+}
+
 function decisionForFindings(findings: RuntimePolicyFinding[]): RuntimePolicyDecision {
   if (findings.some((item) => item.decision === "deny")) return "deny";
   // Critical command findings deny by severity; prompt-integrity findings deny
@@ -313,11 +413,21 @@ function inspectFindings(options: RuntimePolicyInspectOptions): RuntimePolicyFin
   }
 
   if (options.surface === "tool_call") return inspectToolCall(options);
+  if (options.surface === "config_change") return inspectConfigChange(options);
 
   return [];
 }
 
-function inspectedInputRef(options: RuntimePolicyInspectOptions): { kind: string; hash?: string; toolName?: string } {
+function changedConfigKeys(change: RuntimePolicyConfigChange | undefined): string[] {
+  if (!change) return [];
+  const before = flattenConfigKeys(change.before);
+  const after = flattenConfigKeys(change.after);
+  return Array.from(new Set([...before.keys(), ...after.keys()]))
+    .filter((key) => before.get(key) !== after.get(key))
+    .sort();
+}
+
+function inspectedInputRef(options: RuntimePolicyInspectOptions): { kind: string; hash?: string; toolName?: string; configSurface?: string; changedKeys?: string[]; error?: string } {
   if (options.surface === "prompt") {
     return {
       kind: "prompt",
@@ -331,6 +441,15 @@ function inspectedInputRef(options: RuntimePolicyInspectOptions): { kind: string
       kind: "tool_call",
       toolName: options.toolCall?.toolName,
       hash: command ? inputHash(command) : undefined,
+    };
+  }
+
+  if (options.surface === "config_change") {
+    return {
+      kind: "config_change",
+      configSurface: options.configChange?.configSurface,
+      changedKeys: changedConfigKeys(options.configChange),
+      error: options.configChange?.error?.kind,
     };
   }
 
