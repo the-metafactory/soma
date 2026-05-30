@@ -392,6 +392,194 @@ test("policy inspect CLI accepts config-change payloads as JSON env input", asyn
   });
 });
 
+test("inspects permission requests with conservative default, trusted roots, and cache hits", async () => {
+  await withTempHome(async (homeDir) => {
+    await bootstrapSomaHome({ homeDir });
+
+    const defaultRead = await inspectRuntimePolicy({
+      homeDir,
+      substrate: "codex",
+      surface: "permission_request",
+      permissionRequest: {
+        requestId: "read-public",
+        action: "read",
+        targetPath: "/repo/README.md",
+        substrateSupportsAsk: true,
+      },
+      record: "none",
+    });
+    const trustedRead = await inspectRuntimePolicy({
+      homeDir,
+      surface: "permission_request",
+      permissionRequest: {
+        requestId: "read-doc",
+        action: "read",
+        targetPath: "/repo/docs/guide.md",
+        substrateSupportsAsk: true,
+      },
+      runtimePolicy: {
+        permission: {
+          trustedRoots: [{ path: "/repo/docs", actions: ["read"], description: "project docs" }],
+        },
+      },
+      record: "none",
+    });
+    const trustedWriteMiss = await inspectRuntimePolicy({
+      homeDir,
+      surface: "permission_request",
+      permissionRequest: {
+        requestId: "write-doc",
+        action: "write",
+        targetPath: "/repo/docs/guide.md",
+        substrateSupportsAsk: true,
+      },
+      runtimePolicy: {
+        permission: {
+          trustedRoots: [{ path: "/repo/docs", actions: ["read"], description: "project docs" }],
+        },
+      },
+      record: "none",
+    });
+    const cached = await inspectRuntimePolicy({
+      homeDir,
+      surface: "permission_request",
+      permissionRequest: {
+        requestId: "cached-read",
+        action: "read",
+        targetPath: "/repo/src/index.ts",
+        cacheKey: "read:/repo/src/index.ts",
+        substrateSupportsAsk: true,
+      },
+      runtimePolicy: {
+        permission: {
+          approvalCache: [{ cacheKey: "read:/repo/src/index.ts", action: "read", targetPath: "/repo/src/index.ts" }],
+        },
+      },
+      record: "none",
+    });
+    const malformedCacheExpiry = await inspectRuntimePolicy({
+      homeDir,
+      surface: "permission_request",
+      permissionRequest: {
+        requestId: "bad-cache-read",
+        action: "read",
+        targetPath: "/repo/src/index.ts",
+        cacheKey: "read:/repo/src/index.ts",
+        substrateSupportsAsk: true,
+      },
+      runtimePolicy: {
+        permission: {
+          approvalCache: [{ cacheKey: "read:/repo/src/index.ts", action: "read", targetPath: "/repo/src/index.ts", expiresAt: "not-a-date" }],
+        },
+      },
+      record: "none",
+    });
+
+    expect(defaultRead).toMatchObject({
+      decision: "ask",
+      findings: [expect.objectContaining({ kind: "permission-approval-required" })],
+    });
+    expect(trustedRead).toMatchObject({
+      decision: "allow",
+      findings: [],
+    });
+    expect(trustedWriteMiss.decision).toBe("ask");
+    expect(trustedWriteMiss.findings).toContainEqual(expect.objectContaining({ kind: "permission-approval-required" }));
+    expect(cached).toMatchObject({
+      decision: "allow",
+      findings: [],
+    });
+    expect(malformedCacheExpiry).toMatchObject({
+      decision: "ask",
+      findings: [expect.objectContaining({ kind: "permission-approval-required" })],
+    });
+  });
+});
+
+test("permission requests flag suspicious paths and degrade ask when approval is unavailable", async () => {
+  await withTempHome(async (homeDir) => {
+    await bootstrapSomaHome({ homeDir });
+    const privateProfile = "~/" + ".soma/profile/private.md";
+
+    const suspicious = await inspectRuntimePolicy({
+      homeDir,
+      surface: "permission_request",
+      permissionRequest: {
+        requestId: "read-secret",
+        action: "read",
+        targetPath: privateProfile,
+        substrateSupportsAsk: true,
+      },
+      runtimePolicy: {
+        permission: {
+          trustedRoots: [{ path: "~/" + ".soma", actions: ["read"], description: "too broad private trust" }],
+        },
+      },
+      record: "none",
+    });
+    const unavailableAsk = await inspectRuntimePolicy({
+      homeDir,
+      substrate: "cursor",
+      surface: "permission_request",
+      permissionRequest: {
+        requestId: "cursor-write",
+        action: "write",
+        targetPath: "/repo/config.json",
+        substrateSupportsAsk: false,
+      },
+      record: "none",
+    });
+
+    expect(suspicious.decision).toBe("ask");
+    expect(suspicious.findings).toContainEqual(expect.objectContaining({ kind: "permission-sensitive-path", severity: "high" }));
+    expect(unavailableAsk).toMatchObject({
+      decision: "alert",
+      findings: [expect.objectContaining({ kind: "permission-approval-unavailable" })],
+    });
+  });
+});
+
+test("policy inspect CLI accepts permission-request payloads as JSON env input", async () => {
+  await withTempHome(async (homeDir) => {
+    await bootstrapSomaHome({ homeDir });
+    const envName = "SOMA_TEST_PERMISSION_REQUEST";
+    const previousEnv = process.env.SOMA_TEST_PERMISSION_REQUEST;
+    process.env[envName] = JSON.stringify({
+      requestId: "cli-permission",
+      action: "read",
+      targetPath: "/repo/README.md",
+      substrateSupportsAsk: true,
+    });
+
+    try {
+      const output = await runSomaCli([
+        "policy",
+        "inspect",
+        "--home-dir",
+        homeDir,
+        "--surface",
+        "permission_request",
+        "--permission-request-env",
+        envName,
+        "--record",
+        "none",
+        "--json",
+      ]);
+      const parsed = JSON.parse(output);
+
+      expect(parsed.surface).toBe("permission_request");
+      expect(parsed.decision).toBe("ask");
+      expect(parsed.findings).toContainEqual(expect.objectContaining({ kind: "permission-approval-required" }));
+    } finally {
+      if (previousEnv === undefined) {
+        delete process.env.SOMA_TEST_PERMISSION_REQUEST;
+      } else {
+        process.env.SOMA_TEST_PERMISSION_REQUEST = previousEnv;
+      }
+    }
+  });
+});
+
 test("policy inspect CLI emits runtime policy decisions as JSON", async () => {
   await withTempHome(async (homeDir) => {
     await bootstrapSomaHome({ homeDir });

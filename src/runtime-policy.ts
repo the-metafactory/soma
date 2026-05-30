@@ -1,12 +1,14 @@
 import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { appendSomaMemoryEvent } from "./memory";
 import { createPaths } from "./paths";
 import { hasSomaPolicyPrivateMarker, somaPolicyPrivateMarkers } from "./policy";
 import type {
   RuntimePolicyCommandInspectionConfig,
   RuntimePolicyConfigChange,
+  RuntimePolicyPermissionConfig,
+  RuntimePolicyPermissionRequest,
   RuntimePolicyDecision,
   RuntimePolicyFinding,
   RuntimePolicyInspectAudit,
@@ -18,6 +20,7 @@ import type {
 const PROMPT_INSPECTOR_ID = "soma-deterministic-prompt-v0";
 const COMMAND_INSPECTOR_ID = "soma-deterministic-command-v0";
 const CONFIG_INSPECTOR_ID = "soma-deterministic-config-v0";
+const PERMISSION_INSPECTOR_ID = "soma-deterministic-permission-v0";
 const INPUT_INSPECTOR_ID = "soma-runtime-input-v0";
 
 const DEFAULT_OUTBOUND_TOOLS = [
@@ -48,6 +51,16 @@ const DEFAULT_CREDENTIAL_PATH_PATTERNS = [
   "(^|/)\\.kube/config$",
   "(^|/)credentials(\\.json)?$",
   "private[_-]?key",
+] as const;
+
+const DEFAULT_PERMISSION_SENSITIVE_PATH_PATTERNS = [
+  "(^|/)\\.env(\\.|$|/)?",
+  "(^|/)\\.ssh($|/)",
+  "(^|/)\\.aws/credentials$",
+  "(^|/)\\.docker/config\\.json$",
+  "(^|/)\\.kube/config$",
+  "(^|/)id_(rsa|dsa|ecdsa|ed25519)$",
+  "\\.(pem|p12|pfx|key)$",
 ] as const;
 
 const INLINE_INTERPRETER_PATTERN = /\b(?:python|python3|node|ruby|perl|bun)\s+-(?:c|e)\b/u;
@@ -377,6 +390,101 @@ function inspectConfigChange(options: RuntimePolicyInspectOptions): RuntimePolic
   return findings;
 }
 
+function permissionConfig(options: RuntimePolicyInspectOptions): RuntimePolicyPermissionConfig {
+  return options.runtimePolicy?.permission ?? {};
+}
+
+function normalizePermissionPath(path: string, homeDir: string): string {
+  const expanded = path === "~" ? homeDir : path.startsWith("~/") ? join(homeDir, path.slice(2)) : path;
+  return resolve(expanded);
+}
+
+function isSameOrInsidePath(target: string, root: string): boolean {
+  const relation = relative(root, target);
+  return relation === "" || (!relation.startsWith("..") && !isAbsolute(relation));
+}
+
+function permissionApprovalCacheHit(request: RuntimePolicyPermissionRequest, config: RuntimePolicyPermissionConfig, homeDir: string, now: Date): boolean {
+  if (!request.cacheKey) return false;
+
+  return (config.approvalCache ?? []).some((entry) => {
+    if (entry.cacheKey !== request.cacheKey || entry.action !== request.action) return false;
+    if (entry.expiresAt) {
+      const expiresAt = Date.parse(entry.expiresAt);
+      if (!Number.isFinite(expiresAt) || expiresAt <= now.getTime()) return false;
+    }
+    if (!entry.targetPath) return true;
+    if (!request.targetPath) return false;
+    return normalizePermissionPath(entry.targetPath, homeDir) === normalizePermissionPath(request.targetPath, homeDir);
+  });
+}
+
+function permissionTrustedRootAllows(request: RuntimePolicyPermissionRequest, config: RuntimePolicyPermissionConfig, homeDir: string): boolean {
+  if (!request.targetPath) return false;
+  const target = normalizePermissionPath(request.targetPath, homeDir);
+
+  return (config.trustedRoots ?? []).some((root) => {
+    if (!root.actions.includes(request.action)) return false;
+    return isSameOrInsidePath(target, normalizePermissionPath(root.path, homeDir));
+  });
+}
+
+function permissionTargetsSensitivePath(request: RuntimePolicyPermissionRequest, options: RuntimePolicyInspectOptions, somaHome: string): boolean {
+  if (!request.targetPath) return false;
+
+  const targetPath = request.targetPath;
+  if (DEFAULT_PERMISSION_SENSITIVE_PATH_PATTERNS.some((pattern) => matchesPattern(targetPath, pattern))) return true;
+
+  return somaPolicyPrivateMarkers(somaHome, options.homeDir, [...(options.runtimePolicy?.privateRoots ?? [])]).some((marker) =>
+    hasSomaPolicyPrivateMarker(targetPath, marker),
+  );
+}
+
+function approvalUnavailableFinding(): RuntimePolicyFinding {
+  return finding(
+    "permission-approval-unavailable",
+    "medium",
+    "Permission request needs principal approval, but this substrate cannot synchronously ask.",
+    PERMISSION_INSPECTOR_ID,
+    "alert",
+  );
+}
+
+function approvalRequiredFinding(): RuntimePolicyFinding {
+  return finding("permission-approval-required", "medium", "Permission request requires explicit principal approval.", PERMISSION_INSPECTOR_ID, "ask");
+}
+
+function sensitivePathFinding(supportsAsk: boolean): RuntimePolicyFinding {
+  return finding(
+    "permission-sensitive-path",
+    "high",
+    "Permission request targets a sensitive or private path.",
+    PERMISSION_INSPECTOR_ID,
+    supportsAsk ? "ask" : "alert",
+  );
+}
+
+function inspectPermissionRequest(options: RuntimePolicyInspectOptions, somaHome: string): RuntimePolicyFinding[] {
+  const request = options.permissionRequest;
+  if (!request || typeof request.requestId !== "string" || request.requestId.length === 0) {
+    return [finding("malformed-permission-request", "critical", "Permission-request inspection requires a requestId.", INPUT_INSPECTOR_ID)];
+  }
+
+  const config = permissionConfig(options);
+  const homeDir = options.homeDir ?? process.env.HOME ?? "";
+  const now = new Date(options.timestamp ?? Date.now());
+  const supportsAsk = request.substrateSupportsAsk !== false;
+  const sensitivePath = permissionTargetsSensitivePath(request, options, somaHome);
+
+  if (!sensitivePath && permissionApprovalCacheHit(request, config, homeDir, now)) return [];
+  if (!sensitivePath && permissionTrustedRootAllows(request, config, homeDir)) return [];
+
+  const findings: RuntimePolicyFinding[] = [];
+  if (sensitivePath) findings.push(sensitivePathFinding(supportsAsk));
+  findings.push(supportsAsk ? approvalRequiredFinding() : approvalUnavailableFinding());
+  return findings;
+}
+
 function decisionForFindings(findings: RuntimePolicyFinding[]): RuntimePolicyDecision {
   if (findings.some((item) => item.decision === "deny")) return "deny";
   // Critical command findings deny by severity; prompt-integrity findings deny
@@ -404,7 +512,7 @@ function eventRecordAllowed(record: RuntimePolicyInspectOptions["record"], decis
   return mode === "all" || (mode === "deny" && decision !== "allow");
 }
 
-function inspectFindings(options: RuntimePolicyInspectOptions): RuntimePolicyFinding[] {
+function inspectFindings(options: RuntimePolicyInspectOptions, somaHome: string): RuntimePolicyFinding[] {
   if (options.surface === "prompt") {
     if (typeof options.prompt !== "string") {
       return [finding("malformed-prompt", "critical", "Prompt inspection requires prompt text.", INPUT_INSPECTOR_ID)];
@@ -413,6 +521,7 @@ function inspectFindings(options: RuntimePolicyInspectOptions): RuntimePolicyFin
   }
 
   if (options.surface === "tool_call") return inspectToolCall(options);
+  if (options.surface === "permission_request") return inspectPermissionRequest(options, somaHome);
   if (options.surface === "config_change") return inspectConfigChange(options);
 
   return [];
@@ -427,7 +536,18 @@ function changedConfigKeys(change: RuntimePolicyConfigChange | undefined): strin
     .sort();
 }
 
-function inspectedInputRef(options: RuntimePolicyInspectOptions): { kind: string; hash?: string; toolName?: string; configSurface?: string; changedKeys?: string[]; error?: string } {
+function inspectedInputRef(options: RuntimePolicyInspectOptions): {
+  kind: string;
+  hash?: string;
+  toolName?: string;
+  requestId?: string;
+  action?: string;
+  cacheKey?: string;
+  targetHash?: string;
+  configSurface?: string;
+  changedKeys?: string[];
+  error?: string;
+} {
   if (options.surface === "prompt") {
     return {
       kind: "prompt",
@@ -450,6 +570,16 @@ function inspectedInputRef(options: RuntimePolicyInspectOptions): { kind: string
       configSurface: options.configChange?.configSurface,
       changedKeys: changedConfigKeys(options.configChange),
       error: options.configChange?.error?.kind,
+    };
+  }
+
+  if (options.surface === "permission_request") {
+    return {
+      kind: "permission_request",
+      requestId: options.permissionRequest?.requestId,
+      action: options.permissionRequest?.action,
+      cacheKey: options.permissionRequest?.cacheKey,
+      targetHash: options.permissionRequest?.targetPath ? inputHash(options.permissionRequest.targetPath) : undefined,
     };
   }
 
@@ -500,7 +630,7 @@ async function auditRuntimePolicy(result: RuntimePolicyInspectResult, options: R
 export async function inspectRuntimePolicy(options: RuntimePolicyInspectOptions): Promise<RuntimePolicyInspectResult> {
   const somaHome = createPaths(options).root();
   const surface = options.surface;
-  const findings = inspectFindings(options);
+  const findings = inspectFindings(options, somaHome);
   const decision = decisionForFindings(findings);
   const result: RuntimePolicyInspectResult = {
     somaHome,
