@@ -341,6 +341,33 @@ test("blocks rm -rf on Claude/PAI home", () => {
   expect(result.matchedDescriptions[0]).toContain("Claude Code / PAI home");
 });
 
+test("blocks direct tilde delete targets on Claude/PAI home", () => {
+  const claudeMemory = "~/." + "claude/memory";
+  const result = evaluatePathGuard({
+    targetPaths: [claudeMemory],
+    cwd: "/tmp",
+    action: "delete",
+  });
+
+  expect(result.blocked).toBe(true);
+  expect(result.matchedPaths[0]).toContain(".claude/memory");
+  expect(result.matchedDescriptions[0]).toContain("Claude Code / PAI home");
+});
+
+test("blocks direct relative delete targets under protected roots", () => {
+  const root = "/tmp/soma-direct-path-guard";
+  const result = evaluatePathGuard({
+    targetPaths: ["memory"],
+    cwd: root,
+    action: "delete",
+    protectedPaths: [{ path: root, description: "custom" }],
+  });
+
+  expect(result.blocked).toBe(true);
+  expect(result.matchedPaths).toEqual([resolve(root, "memory")]);
+  expect(result.matchedDescriptions[0]).toContain("custom");
+});
+
 test("blocks rm -rf on Pi.dev home", () => {
   const piHome = join(process.env.HOME ?? "/tmp", ".pi");
   const result = evaluatePathGuard({
