@@ -1,3 +1,5 @@
+import type { InferenceBackend, InferenceLevel } from "./tools/inference/types";
+
 export type SubstrateId = "codex" | "pi-dev" | "claude-code" | "cursor" | "cortex" | "custom";
 
 export interface AssistantIdentity {
@@ -1871,9 +1873,25 @@ export interface RuntimePolicyPermissionConfig {
   approvalCache?: readonly RuntimePolicyApprovalCacheEntry[];
 }
 
+export interface RuntimePolicyModelRule {
+  id: string;
+  description: string;
+  surfaces?: readonly RuntimePolicySurface[];
+  decision?: Exclude<RuntimePolicyDecision, "allow" | "deny">;
+  severity?: RuntimePolicyFindingSeverity;
+}
+
+export interface RuntimePolicyModelInspectorConfig {
+  enabled?: boolean;
+  rules?: readonly RuntimePolicyModelRule[];
+  level?: InferenceLevel;
+  timeoutMs?: number;
+}
+
 export interface RuntimePolicyConfig {
   command?: RuntimePolicyCommandInspectionConfig;
   permission?: RuntimePolicyPermissionConfig;
+  model?: RuntimePolicyModelInspectorConfig;
   privateRoots?: readonly string[];
 }
 
@@ -1911,6 +1929,7 @@ export interface RuntimePolicyInspectOptions {
   configChange?: RuntimePolicyConfigChange;
   permissionRequest?: RuntimePolicyPermissionRequest;
   runtimePolicy?: RuntimePolicyConfig;
+  modelInspectorBackend?: InferenceBackend;
   record?: "all" | "deny" | "none";
   timestamp?: string;
 }

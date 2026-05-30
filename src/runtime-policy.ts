@@ -4,9 +4,12 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { appendSomaMemoryEvent } from "./memory";
 import { createPaths } from "./paths";
 import { hasSomaPolicyPrivateMarker, somaPolicyPrivateMarkers } from "./policy";
+import { inference } from "./tools/inference";
 import type {
   RuntimePolicyCommandInspectionConfig,
   RuntimePolicyConfigChange,
+  RuntimePolicyModelInspectorConfig,
+  RuntimePolicyModelRule,
   RuntimePolicyPermissionConfig,
   RuntimePolicyPermissionRequest,
   RuntimePolicyDecision,
@@ -21,6 +24,7 @@ const PROMPT_INSPECTOR_ID = "soma-deterministic-prompt-v0";
 const COMMAND_INSPECTOR_ID = "soma-deterministic-command-v0";
 const CONFIG_INSPECTOR_ID = "soma-deterministic-config-v0";
 const PERMISSION_INSPECTOR_ID = "soma-deterministic-permission-v0";
+const MODEL_INSPECTOR_ID = "soma-model-backed-runtime-policy-v0";
 const INPUT_INSPECTOR_ID = "soma-runtime-input-v0";
 
 const DEFAULT_OUTBOUND_TOOLS = [
@@ -485,6 +489,131 @@ function inspectPermissionRequest(options: RuntimePolicyInspectOptions, somaHome
   return findings;
 }
 
+interface ModelPolicyResponseFinding {
+  ruleId?: unknown;
+  decision?: unknown;
+  severity?: unknown;
+  detail?: unknown;
+}
+
+interface ModelPolicyResponse {
+  findings?: unknown;
+}
+
+function modelConfig(options: RuntimePolicyInspectOptions): RuntimePolicyModelInspectorConfig {
+  return options.runtimePolicy?.model ?? {};
+}
+
+function modelRulesForSurface(config: RuntimePolicyModelInspectorConfig, surface: RuntimePolicySurface): RuntimePolicyModelRule[] {
+  return (config.rules ?? []).filter((rule) => !rule.surfaces || rule.surfaces.includes(surface));
+}
+
+function modelFailureFinding(kind: string, detail: string): RuntimePolicyFinding {
+  return finding(kind, "medium", detail, MODEL_INSPECTOR_ID, "alert");
+}
+
+function runtimePolicyModelPrompt(options: RuntimePolicyInspectOptions, rules: readonly RuntimePolicyModelRule[]): string {
+  const inputRef = inspectedInputRef(options);
+  const payload = {
+    surface: options.surface,
+    prompt: options.surface === "prompt" ? options.prompt : undefined,
+    toolCall: options.surface === "tool_call" ? options.toolCall : undefined,
+    permissionRequest: options.surface === "permission_request" ? options.permissionRequest : undefined,
+    configChange: options.surface === "config_change"
+      ? {
+        configSurface: options.configChange?.configSurface,
+        changedKeys: changedConfigKeys(options.configChange),
+        error: options.configChange?.error?.kind,
+      }
+      : undefined,
+    inputRef,
+  };
+
+  return [
+    "You are a Soma runtime policy evaluator.",
+    "Evaluate only the listed principal-authored runtime policy rules.",
+    "Return JSON only: {\"findings\":[{\"ruleId\":\"...\",\"decision\":\"alert|ask|allow\",\"severity\":\"low|medium|high\",\"detail\":\"one sentence\"}]}",
+    "Do not return deny. Deterministic policy owns deny decisions.",
+    "",
+    "Rules:",
+    JSON.stringify(rules, null, 2),
+    "",
+    "Runtime input:",
+    JSON.stringify(payload, null, 2),
+  ].join("\n");
+}
+
+function isModelDecision(value: unknown): value is "allow" | "alert" | "ask" {
+  return value === "allow" || value === "alert" || value === "ask";
+}
+
+function isModelSeverity(value: unknown): value is RuntimePolicyFinding["severity"] {
+  return value === "low" || value === "medium" || value === "high" || value === "critical";
+}
+
+function modelFindingFromResponse(item: ModelPolicyResponseFinding, rulesById: Map<string, RuntimePolicyModelRule>): RuntimePolicyFinding | undefined {
+  if (typeof item.ruleId !== "string" || !rulesById.has(item.ruleId)) return undefined;
+  if (!isModelDecision(item.decision)) return undefined;
+  if (item.decision === "allow") return undefined;
+  const rule = rulesById.get(item.ruleId);
+  const decision = item.decision === "ask" && rule?.decision !== "alert" ? "ask" : "alert";
+  const severity = isModelSeverity(item.severity) ? item.severity : rule?.severity ?? (decision === "ask" ? "medium" : "low");
+  const detail = typeof item.detail === "string" && item.detail.trim().length > 0
+    ? item.detail.trim()
+    : `Model-backed runtime policy rule ${item.ruleId} matched.`;
+
+  return finding("model-policy-rule", severity, detail, MODEL_INSPECTOR_ID, decision);
+}
+
+function parseModelPolicyResponse(response: unknown, rules: readonly RuntimePolicyModelRule[]): RuntimePolicyFinding[] | undefined {
+  if (!response || typeof response !== "object" || Array.isArray(response)) return undefined;
+  const findings = (response as ModelPolicyResponse).findings;
+  if (!Array.isArray(findings)) return undefined;
+
+  const rulesById = new Map(rules.map((rule) => [rule.id, rule]));
+  const parsed: RuntimePolicyFinding[] = [];
+  for (const item of findings) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return undefined;
+    const modelFinding = modelFindingFromResponse(item as ModelPolicyResponseFinding, rulesById);
+    if (!modelFinding && (item as ModelPolicyResponseFinding).decision !== "allow") return undefined;
+    if (modelFinding) parsed.push(modelFinding);
+  }
+  return parsed;
+}
+
+async function inspectModelBackedPolicy(options: RuntimePolicyInspectOptions): Promise<RuntimePolicyFinding[]> {
+  const config = modelConfig(options);
+  if (config.enabled !== true) return [];
+
+  const rules = modelRulesForSurface(config, options.surface);
+  if (rules.length === 0) return [];
+  if (!options.modelInspectorBackend) {
+    return [modelFailureFinding("model-inspector-unavailable", "Model-backed runtime policy is enabled, but no inference backend was provided.")];
+  }
+
+  try {
+    const result = await inference<ModelPolicyResponse>(runtimePolicyModelPrompt(options, rules), {
+      backend: options.modelInspectorBackend,
+      json: true,
+      level: config.level ?? "fast",
+      timeoutMs: config.timeoutMs ?? 3_000,
+      homeDir: options.homeDir,
+      somaHome: options.somaHome,
+    });
+    const findings = parseModelPolicyResponse(result.json, rules);
+    return findings ?? [modelFailureFinding("model-inspector-malformed-response", "Model-backed runtime policy returned malformed findings.")];
+  } catch (err: unknown) {
+    const detail = err instanceof Error ? err.message : String(err);
+    if (/time(?:d)?\s*out|timeout/iu.test(detail)) {
+      return [modelFailureFinding("model-inspector-timeout", `Model-backed runtime policy timed out: ${detail}`)];
+    }
+    if (/json|parse/iu.test(detail)) {
+      return [modelFailureFinding("model-inspector-parse-error", `Model-backed runtime policy returned unparsable output: ${detail}`)];
+    }
+    return [modelFailureFinding("model-inspector-error", `Model-backed runtime policy failed: ${detail}`)];
+  }
+}
+
 function decisionForFindings(findings: RuntimePolicyFinding[]): RuntimePolicyDecision {
   if (findings.some((item) => item.decision === "deny")) return "deny";
   // Critical command findings deny by severity; prompt-integrity findings deny
@@ -525,6 +654,12 @@ function inspectFindings(options: RuntimePolicyInspectOptions, somaHome: string)
   if (options.surface === "config_change") return inspectConfigChange(options);
 
   return [];
+}
+
+async function inspectAllFindings(options: RuntimePolicyInspectOptions, somaHome: string): Promise<RuntimePolicyFinding[]> {
+  const deterministicFindings = inspectFindings(options, somaHome);
+  if (decisionForFindings(deterministicFindings) === "deny") return deterministicFindings;
+  return [...deterministicFindings, ...await inspectModelBackedPolicy(options)];
 }
 
 function changedConfigKeys(change: RuntimePolicyConfigChange | undefined): string[] {
@@ -630,7 +765,7 @@ async function auditRuntimePolicy(result: RuntimePolicyInspectResult, options: R
 export async function inspectRuntimePolicy(options: RuntimePolicyInspectOptions): Promise<RuntimePolicyInspectResult> {
   const somaHome = createPaths(options).root();
   const surface = options.surface;
-  const findings = inspectFindings(options, somaHome);
+  const findings = await inspectAllFindings(options, somaHome);
   const decision = decisionForFindings(findings);
   const result: RuntimePolicyInspectResult = {
     somaHome,

@@ -124,6 +124,8 @@ export type {
   RuntimePolicyInspectAudit,
   RuntimePolicyInspectOptions,
   RuntimePolicyInspectResult,
+  RuntimePolicyModelInspectorConfig,
+  RuntimePolicyModelRule,
   RuntimePolicyPermissionAction,
   RuntimePolicyPermissionConfig,
   RuntimePolicyPermissionRequest,

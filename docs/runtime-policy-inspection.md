@@ -39,6 +39,11 @@ without storing raw config snapshots or secret values by default.
 It covers explicit trusted roots, approval-cache semantics, sensitive-path
 overrides, and ask-unavailable degradation.
 
+Opt-in model-backed inspection is implemented in
+[runtime-model-backed-inspectors.md](./runtime-model-backed-inspectors.md). It
+evaluates Soma-owned runtime policy rules through an injected inference backend
+only after deterministic policy does not deny.
+
 Runtime inspection uses the same audit split as inbound-content security:
 
 - `memory/STATE/events.jsonl` receives append-only metadata events with kind
@@ -85,6 +90,18 @@ Permission-request inspection currently detects:
 The substrate inventory, PAI SmartApprover comparison, and non-goals are in
 [runtime-permission-request-policy.md](./runtime-permission-request-policy.md).
 
+Model-backed inspection currently covers:
+
+- explicit opt-in through `runtimePolicy.model.enabled`
+- principal-authored runtime policy rules in typed Soma config
+- injected `InferenceBackend` execution, not substrate-specific shell-out
+- deterministic deny precedence
+- fail-explicit alert findings for unavailable, timeout, parse, malformed, and
+  inference-error cases
+
+The rule format, failure semantics, and PAI `RulesInspector` comparison are in
+[runtime-model-backed-inspectors.md](./runtime-model-backed-inspectors.md).
+
 ## CLI
 
 ```bash
@@ -128,6 +145,7 @@ the DD-7 inbound-content scanner.
 | --- | --- | --- |
 | `SecurityPipeline.hook.ts` | portable runtime policy | Reimplemented as deterministic `tool_call` inspection plus existing path guard reuse. |
 | `PromptGuard.hook.ts` | portable runtime policy | Reimplemented as deterministic `prompt` inspection. |
+| `RulesInspector.ts` | opt-in model-backed runtime policy | Reimplemented as typed Soma runtime policy rules with injected inference, explicit failure alerts, and no model-only deny decisions. |
 | `SmartApprover.hook.ts` | portable permission-request policy | Reimplemented as conservative `permission_request` inspection without PAI trusted-prefix defaults or mandatory read auto-approval. |
 | `ConfigAudit.hook.ts` | portable config-change policy | Reimplemented as metadata-only `config_change` inspection with sanitized key-path findings and runtime policy events/traces. |
 | `TaskGovernance.hook.ts` | deferred governance-event model | Tracked by #255; terminology must avoid making Claude/PAI task primitives canonical. |
