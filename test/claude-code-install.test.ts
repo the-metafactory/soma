@@ -352,7 +352,7 @@ async function waitForRunFile(homeDir: string, slug: string): Promise<boolean> {
   for (let attempt = 0; attempt < 80; attempt += 1) {
     const exists = await stat(runPath).then(() => true, () => false);
     if (exists) return true;
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await Bun.sleep(50);
   }
   return false;
 }

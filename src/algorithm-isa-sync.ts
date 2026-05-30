@@ -103,18 +103,54 @@ interface IsaRunIndex {
   bySlug: Record<string, string>;
 }
 
-async function readIndex(somaHome: string): Promise<IsaRunIndex> {
+function debugSyncFromIsa(message: string, error?: unknown): void {
   try {
-    const raw = await readFile(indexPath(somaHome), "utf8");
+    const detail = formatDebugError(error);
+    const line = `[soma sync-from-isa] ${message}${detail ? `: ${detail}` : ""}`;
+    process.stderr.write(`${line.slice(0, 300)}\n`);
+  } catch {
+    // Debug output must never compromise hook failure isolation.
+  }
+}
+
+function formatDebugError(error: unknown): string {
+  if (error === undefined) return "";
+  if (error instanceof Error) {
+    const errorWithCode: Error & { code?: unknown } = error;
+    const code = typeof errorWithCode.code === "string" ? ` ${errorWithCode.code}` : "";
+    return `${error.name}${code}: ${error.message}`.slice(0, 180);
+  }
+  if (typeof error === "string") return error.slice(0, 180);
+  if (typeof error === "number" || typeof error === "boolean" || typeof error === "bigint" || typeof error === "symbol") {
+    return String(error).slice(0, 180);
+  }
+  return "non-error thrown";
+}
+
+function isEnoent(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "ENOENT";
+}
+
+async function readIndex(somaHome: string): Promise<IsaRunIndex> {
+  let raw: string;
+  try {
+    raw = await readFile(indexPath(somaHome), "utf8");
+  } catch (error) {
+    if (!isEnoent(error)) debugSyncFromIsa("could not read isa-run-index.json; starting fresh", error);
+    return { bySlug: {} };
+  }
+
+  try {
     const parsed: unknown = JSON.parse(raw);
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && "bySlug" in parsed) {
-      const bySlug = (parsed).bySlug;
+      const bySlug = parsed.bySlug;
       if (bySlug && typeof bySlug === "object" && !Array.isArray(bySlug)) {
         return { bySlug: bySlug as Record<string, string> };
       }
     }
-  } catch {
-    // Missing or malformed index — start fresh.
+    debugSyncFromIsa("ignored malformed isa-run-index.json; expected bySlug object");
+  } catch (error) {
+    debugSyncFromIsa("ignored malformed isa-run-index.json", error);
   }
   return { bySlug: {} };
 }
