@@ -108,7 +108,8 @@ function debugSyncFromIsa(message: string, error?: unknown): void {
     const detail = formatDebugError(error);
     const line = `[soma sync-from-isa] ${message}${detail ? `: ${detail}` : ""}`;
     process.stderr.write(`${line.slice(0, 300)}\n`);
-  } catch {
+  } catch (_err) {
+    void _err;
     // Debug output must never compromise hook failure isolation.
   }
 }
