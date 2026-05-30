@@ -507,9 +507,10 @@ export function evaluatePathGuard(options: SomaPathGuardOptions): SomaPathGuardR
   const matchedDescriptions: string[] = [];
 
   for (const target of options.targetPaths) {
-    const match = findProtectedPath(target, protectedPaths, options.action, realScopeCache, protectedRootCache);
+    const resolvedTarget = resolvePath(target, options.cwd);
+    const match = findProtectedPath(resolvedTarget, protectedPaths, options.action, realScopeCache, protectedRootCache);
     if (match) {
-      matchedPaths.push(target);
+      matchedPaths.push(resolvedTarget);
       matchedDescriptions.push(match.description ? `${match.path} (${match.description})` : match.path);
     }
   }
