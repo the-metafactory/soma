@@ -9,6 +9,7 @@ export default tseslint.config(
       "dist/**",
       "coverage/**",
       ".worktrees/**",
+      ".tmp-tests/**",
       ".claude/**",
       ".codex/**",
       ".pi/**",
