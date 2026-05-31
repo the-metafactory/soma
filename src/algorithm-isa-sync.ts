@@ -254,12 +254,40 @@ function advanceRunToPhase(run: AlgorithmRun, target: AlgorithmPhase, timestamp:
   return next;
 }
 
-/** Mark run criteria passed for every ISA criterion that is `passed`/`dropped`. Idempotent. */
-function reconcileCriteria(run: AlgorithmRun, isaCriteria: readonly IdealStateCriterion[], timestamp: string): AlgorithmRun {
+function isClosedCriterion(
+  criterion: IdealStateCriterion,
+): criterion is IdealStateCriterion & { status: "passed" | "dropped" } {
+  return criterion.status === "passed" || criterion.status === "dropped";
+}
+
+function progressCompletedCount(progress: string, total: number): number | null {
+  const match = /^(\d+)\/(\d+)$/.exec(progress.trim());
+  if (!match) return null;
+  const completed = Number.parseInt(match[1], 10);
+  const denominator = Number.parseInt(match[2], 10);
+  if (!Number.isSafeInteger(completed) || !Number.isSafeInteger(denominator)) return null;
+  if (denominator !== total || completed < 0 || completed > total) return null;
+  return completed;
+}
+
+function frontmatterCompletionCount(isa: IdealStateArtifact, isaCriteria: readonly IdealStateCriterion[]): number {
+  const checked = isaCriteria.filter(isClosedCriterion).length;
+  const progress = progressCompletedCount(isa.frontmatter.progress, isaCriteria.length) ?? 0;
+  const phaseCompleted = phaseIndex(isa.frontmatter.phase) >= phaseIndex("learn") ? isaCriteria.length : 0;
+  return Math.max(checked, progress, phaseCompleted);
+}
+
+/** Mark run criteria passed for every completed ISA signal. Idempotent. */
+function reconcileCriteria(
+  run: AlgorithmRun,
+  isa: IdealStateArtifact,
+  isaCriteria: readonly IdealStateCriterion[],
+  timestamp: string,
+): AlgorithmRun {
   let next = run;
   const runCriteriaById = new Map(getCriteria(next.isa).map((c) => [c.id, c]));
   for (const isaCriterion of isaCriteria) {
-    if (isaCriterion.status !== "passed" && isaCriterion.status !== "dropped") continue;
+    if (!isClosedCriterion(isaCriterion)) continue;
     const existing = runCriteriaById.get(isaCriterion.id);
     if (existing === undefined) continue;
     if (existing.status === isaCriterion.status) continue; // already reconciled — idempotent
@@ -267,6 +295,21 @@ function reconcileCriteria(run: AlgorithmRun, isaCriteria: readonly IdealStateCr
     const evidence = verification && verification.length > 0 ? verification : `synced from ISA: ${isaCriterion.text}`;
     next = verifyAlgorithmCriterion(next, isaCriterion.id, isaCriterion.status, evidence, timestamp);
   }
+
+  const targetCompleted = frontmatterCompletionCount(isa, isaCriteria);
+  let runCriteria = getCriteria(next.isa);
+  let completed = runCriteria.filter(isClosedCriterion).length;
+  for (const isaCriterion of isaCriteria) {
+    if (completed >= targetCompleted) break;
+    const existing = runCriteria.find((criterion) => criterion.id === isaCriterion.id);
+    if (existing === undefined || isClosedCriterion(existing)) continue;
+    const goal = getGoal(isa);
+    const evidence = goal ? `synced from ISA progress: ${goal}` : `synced from ISA progress: ${isaCriterion.text}`;
+    next = verifyAlgorithmCriterion(next, isaCriterion.id, "passed", evidence, timestamp);
+    runCriteria = getCriteria(next.isa);
+    completed = runCriteria.filter(isClosedCriterion).length;
+  }
+
   return next;
 }
 
@@ -365,16 +408,17 @@ async function syncAlgorithmRunFromIsaInner(
   // 1. Reconcile checked criteria FIRST. The LEARN gate refuses entry until
   //    every criterion is passed/dropped, so criteria state must be current
   //    before we attempt to advance the phase.
-  run = reconcileCriteria(run, isaCriteria, timestamp);
+  run = reconcileCriteria(run, isa, isaCriteria, timestamp);
+  const reconciledCriteria = getCriteria(run.isa);
 
   // 2. Advance forward to (a reachable cap of) the ISA's declared phase. Never backward.
-  const targetPhase = reachableTargetPhase(isa.frontmatter.phase, isaCriteria);
+  const targetPhase = reachableTargetPhase(isa.frontmatter.phase, reconciledCriteria);
   if (phaseIndex(getRunPhase(run)) < phaseIndex(targetPhase)) {
     run = advanceRunToPhase(run, targetPhase, timestamp);
   }
 
   // 3. If at learn (or all criteria closed), record a learn entry. Idempotent.
-  const allClosed = isaCriteria.every((c) => c.status === "passed" || c.status === "dropped");
+  const allClosed = getCriteria(run.isa).every(isClosedCriterion);
   const atLearn = getRunPhase(run) === "learn" || getRunPhase(run) === "complete";
   if ((atLearn || allClosed) && run.learning.length === 0) {
     run = recordAlgorithmLearning(run, deriveLearningText(isa), timestamp);
