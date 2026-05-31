@@ -12,8 +12,8 @@ when two machines edit the same durable artifact.
 
 ## Goals
 
-- Let a principal carry one Soma home across laptop, VM, and future daemon
-  substrates.
+- Let a principal carry one Soma home across laptop, VM, and future
+  daemon-backed use.
 - Preserve the existing filesystem-native home contract: profile, Telos,
   memory, skills, policy, Algorithm runs, and ISAs remain plain files.
 - Reuse Git history and the snapshot/rollback safety net before applying remote
@@ -199,4 +199,3 @@ attempting full durable-memory auto-merge:
 - Tests cover secret refusal, raw/security default refusal, event-log union,
   work-state keyed conflict reporting, snapshot-before-pull, and no projection
   refresh side effects.
-
