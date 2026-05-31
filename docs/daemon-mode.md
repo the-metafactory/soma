@@ -1,8 +1,8 @@
 # Daemon Mode
 
 Issue #149 asks for `soma daemon`: a long-lived Soma process that can subscribe
-to Myelin subjects, keep assistant presence alive without an active substrate
-session, and route work before a substrate session is spawned.
+to Myelin subjects, keep assistant availability alive without an active
+substrate session, and route work before a substrate session is spawned.
 
 Daemon mode does not make Soma the bus, collaboration surface, or process
 supervisor. Soma owns the portable personal assistant core and the routing
@@ -18,7 +18,7 @@ owns transport and envelope semantics, and Spawn owns isolated execution.
   Myelin envelopes.
 - Route centrally before spawning or addressing substrate sessions, using the
   same progressive skill registry and policy checks as other runtime modes.
-- Publish presence, health, route decisions, work-state updates, and result
+- Publish readiness, health, route decisions, work-state updates, and result
   events with clear provenance.
 - Start with a dry-run and health surface before subscribing to live subjects.
 
@@ -53,7 +53,7 @@ configuration or packages.
 
 | Logical subject class | Direction | Daemon behavior |
 | --- | --- | --- |
-| Presence/health | publish | Announce daemon identity, version, enabled scopes, and readiness. |
+| Readiness/health | publish | Announce daemon identity, version, enabled scopes, and readiness. |
 | Task or route request | subscribe | Validate envelope provenance and decide whether Soma can route or claim it. |
 | Skill-route request | subscribe/reply | Return selected skills, source paths, and context budget without loading unrelated bodies. |
 | Work-state event | publish | Mirror accepted task state into Soma `memory/STATE/` and publish a bus-visible update. |
@@ -69,7 +69,7 @@ envelopes fail closed and produce a refusal event instead of partial work.
    configuration.
 2. Load the Soma kernel: identity summary, active work/ISA, policy, skill
    registry, and team overlays that are enabled for daemon use.
-3. Publish presence and health.
+3. Publish readiness and health.
 4. Receive a Myelin envelope.
 5. Verify envelope provenance, principal/team scope, requested capability, and
    policy.
@@ -88,7 +88,7 @@ write directly into private compartments.
 The first code slice should expose a non-subscribing surface:
 
 - `soma daemon --dry-run` validates Soma home, enabled daemon scopes, and
-  Cortex/Myelin configuration presence without connecting to the bus.
+  Cortex/Myelin configuration availability without connecting to the bus.
 - `soma daemon --health` prints daemon readiness as JSON for supervisors.
 - The CLI should keep the existing no-argument placeholder until live subscribe
   semantics are implemented.
