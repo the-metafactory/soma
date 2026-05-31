@@ -22,7 +22,9 @@ async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> 
 test("soma adopt claude (no flags) → dry-run plan", async () => {
   await withTempHome(async (homeDir) => {
     const output = await runSomaCli(["adopt", "claude", "--home-dir", homeDir]);
-    expect(output).toContain("Soma install plan");
+    expect(output).toContain("PLAN (no changes written)");
+    expect(output).toContain("pass --apply to apply");
+    expect(output).toContain("No changes were written.");
     expect(output).toContain("substrate: claude-code");
     expect(output).toContain("rules/soma/");
     // No writes happened.

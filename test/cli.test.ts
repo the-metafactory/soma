@@ -1561,6 +1561,19 @@ test("cli applies codex install only with explicit apply flag", async () => {
   });
 });
 
+test("cli install dry-run output is explicit for all substrates", async () => {
+  await withTempHome(async (homeDir) => {
+    for (const substrate of ["codex", "pi-dev", "claude-code", "cursor"] as const) {
+      const output = await runSomaCli(["install", substrate, "--home-dir", homeDir]);
+
+      expect(output).toContain("PLAN (no changes written)");
+      expect(output).toContain("pass --apply to apply");
+      expect(output).toContain("No changes were written.");
+      expect(output).toContain(`substrate: ${substrate}`);
+    }
+  });
+});
+
 test("cli dry-runs and applies pi.dev install", async () => {
   await withTempHome(async (homeDir) => {
     const dryRun = await runSomaCli(["install", "pi-dev", "--home-dir", homeDir]);
