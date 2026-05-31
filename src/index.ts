@@ -54,6 +54,12 @@ export type {
   SomaProfile,
   SomaRunResult,
   SomaSkill,
+  SomaSnapshotEntry,
+  SomaSnapshotListOptions,
+  SomaSnapshotOptions,
+  SomaSnapshotResult,
+  SomaSnapshotRollbackOptions,
+  SomaSnapshotRollbackResult,
   SomaTask,
   SubstrateId,
   Telos,
@@ -393,6 +399,7 @@ export {
 } from "./lifecycle";
 export { captureSomaFeedback, classifySomaFeedback, maybeSomaFeedbackPrompt } from "./feedback";
 export { appendSomaMemoryEvent, searchSomaMemory, somaMemoryEventsPath } from "./memory";
+export { createSomaSnapshot, listSomaSnapshots, rollbackSomaSnapshot } from "./snapshots";
 export { querySomaTelemetryEvents, summarizeSomaTelemetry } from "./observability";
 export {
   listSomaWorkRegistryEntries,

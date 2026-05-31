@@ -393,6 +393,46 @@ export interface SomaPaths {
   resolve(...segments: string[]): string;
 }
 
+export interface SomaSnapshotOptions {
+  homeDir?: string;
+  somaHome?: string;
+  name?: string;
+  trigger?: string;
+}
+
+export interface SomaSnapshotResult {
+  somaHome: string;
+  id: string;
+  name: string;
+  trigger: string;
+  createdAt: string;
+}
+
+export interface SomaSnapshotListOptions {
+  homeDir?: string;
+  somaHome?: string;
+  limit?: number;
+}
+
+export interface SomaSnapshotEntry {
+  id: string;
+  createdAt: string;
+  name: string;
+  subject: string;
+}
+
+export interface SomaSnapshotRollbackOptions {
+  homeDir?: string;
+  somaHome?: string;
+  snapshot: string;
+}
+
+export interface SomaSnapshotRollbackResult {
+  somaHome: string;
+  id: string;
+  name: string;
+}
+
 export interface SomaProfile {
   assistant: AssistantIdentity;
   principal: PrincipalIdentity;

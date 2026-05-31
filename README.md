@@ -170,8 +170,16 @@ The sync plans or applies these phases in order:
 - a readable manifest for audit and reruns
 
 The sync is idempotent. Dry-run first, inspect what would be written, then
-apply. Afterward the Soma home is the source of truth and each coding agent
-gets a projection from it — a companion layer over PAI, not a replacement.
+apply. Afterward the Soma home is the source of truth and each installed
+substrate gets a projection from it — a companion layer over PAI, not a replacement.
+Apply-mode migrations create a Git-backed Soma snapshot first, so you can
+inspect or roll back the Soma home:
+
+```bash
+soma history
+soma snapshot --name before-big-change
+soma rollback <snapshot-id>
+```
 
 See [docs/integration-with-pai.md](docs/integration-with-pai.md) for the complete
 walkthrough, flags, verification steps, and troubleshooting.
