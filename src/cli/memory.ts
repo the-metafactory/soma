@@ -26,7 +26,7 @@ export type ParsedMemoryArgs = ParsedMemorySearchArgs | ParsedMemoryPromoteArgs;
 export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<ParsedMemoryArgs["action"], string> } = {
   usage: "Usage: soma memory <search|promote> ...",
   subcommands: {
-    search: "Usage: soma memory search --query <text> [--limit <n>] [--home-dir <dir>] [--soma-home <dir>]",
+    search: "Usage: soma memory search [query] [--query <text>] [--limit <n>] [--home-dir <dir>] [--soma-home <dir>]",
     promote: "Usage: soma memory promote --from-run <run-id> --store <learning|knowledge|relationship|work> --title <text> [--lesson <text>] [--applies-when <text>]",
   },
 };
@@ -55,6 +55,7 @@ export function parseMemoryArgs(args: string[]): ParsedMemoryArgs {
 
 function parseMemorySearchArgs(args: string[]): SomaMemorySearchOptions {
   const options: Partial<SomaMemorySearchOptions> = {};
+  let positionalQuery: string | undefined;
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -80,12 +81,20 @@ function parseMemorySearchArgs(args: string[]): SomaMemorySearchOptions {
         index += 1;
         break;
       default:
-        throw new Error(`Unknown option: ${arg}`);
+        if (arg.startsWith("-")) {
+          throw new Error(`Unknown option: ${arg}`);
+        }
+        if (positionalQuery !== undefined) {
+          throw new Error(`soma memory search accepts only one positional query; unexpected argument: ${arg}`);
+        }
+        positionalQuery = arg;
     }
   }
 
+  options.query ??= positionalQuery;
+
   if (!options.query) {
-    throw new Error("soma memory search is missing required option: --query.");
+    throw new Error("soma memory search needs a query; pass it as the first argument or --query <text>.");
   }
 
   return options as SomaMemorySearchOptions;

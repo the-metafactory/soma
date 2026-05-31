@@ -1051,6 +1051,55 @@ test("cli searches Soma memory", async () => {
   });
 });
 
+test("cli memory search accepts a positional query", async () => {
+  await withTempHome(async (homeDir) => {
+    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir]);
+    await mkdir(join(homeDir, ".soma/memory/LEARNING/consulting"), { recursive: true });
+    await writeFile(
+      join(homeDir, ".soma/memory/LEARNING/consulting/agency.md"),
+      "Measure consulting success by transferred autonomy, not dependency.\n",
+      "utf8",
+    );
+
+    const output = await runSomaCli([
+      "memory",
+      "search",
+      "--home-dir",
+      homeDir,
+      "transferred autonomy consulting",
+    ]);
+
+    expect(output).toContain("Soma memory search");
+    expect(output).toContain("agency.md:1");
+    expect(output).toContain("transferred autonomy");
+  });
+});
+
+test("cli memory search prefers --query over a positional query", async () => {
+  await withTempHome(async (homeDir) => {
+    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir]);
+    await mkdir(join(homeDir, ".soma/memory/LEARNING/consulting"), { recursive: true });
+    await writeFile(
+      join(homeDir, ".soma/memory/LEARNING/consulting/agency.md"),
+      "Measure consulting success by transferred autonomy, not dependency.\n",
+      "utf8",
+    );
+
+    const output = await runSomaCli([
+      "memory",
+      "search",
+      "--home-dir",
+      homeDir,
+      "no-match",
+      "--query",
+      "transferred autonomy consulting",
+    ]);
+
+    expect(output).toContain("query: transferred autonomy consulting");
+    expect(output).toContain("agency.md:1");
+  });
+});
+
 test("cli captures feedback candidates", async () => {
   await withTempHome(async (homeDir) => {
     await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir]);
