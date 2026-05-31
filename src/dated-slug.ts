@@ -1,5 +1,6 @@
 const DATE_PREFIX_PATTERN = /^\d{4}-\d{2}-\d{2}-/;
 
+// Separate from PAI pack kebab slugs: user-facing run slugs preserve dots and underscores.
 export function slugifyBase(value: string): string {
   const slug = value
     .trim()

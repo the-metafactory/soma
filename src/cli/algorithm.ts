@@ -437,7 +437,7 @@ export function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
     validateAlgorithmRunInput(run);
     const idBase = run.intent ?? run.goal ?? run.prompt;
     if (idBase === undefined) {
-      throw new Error("soma algorithm new is missing required option(s): --intent.");
+      throw new Error("soma algorithm new requires at least one of --intent, --goal, or --prompt.");
     }
     run.id = options.id ?? datePrefixSlug(idBase);
     run.substrate = options.substrate;
