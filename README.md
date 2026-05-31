@@ -414,6 +414,11 @@ read-only team overlays. A team overlay supplements one principal's Soma home;
 it does not make the home multi-principal or share private Identity, Telos, or
 Relationship state. See [docs/team-overlays.md](docs/team-overlays.md).
 
+Daemon mode is designed as a long-lived Soma process that consumes Myelin-owned
+contracts through Cortex, routes centrally, and preserves the same policy and
+writeback boundaries as substrate sessions. See
+[docs/daemon-mode.md](docs/daemon-mode.md).
+
 ---
 
 ## Documentation
@@ -428,6 +433,7 @@ Relationship state. See [docs/team-overlays.md](docs/team-overlays.md).
 - [docs/mcp-server.md](docs/mcp-server.md), optional read-mostly MCP tool surface
 - [docs/home-replication.md](docs/home-replication.md), cross-machine Soma home replication
 - [docs/team-overlays.md](docs/team-overlays.md), read-only team overlays and shared-state boundaries
+- [docs/daemon-mode.md](docs/daemon-mode.md), daemon mode ownership and Myelin contract boundaries
 - [docs/writeback-and-policy.md](docs/writeback-and-policy.md), projection, writeback, conflict, and policy semantics
 - [docs/portability-proof.md](docs/portability-proof.md), the first portability proof and evidence contract
 
