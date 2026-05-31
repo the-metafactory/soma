@@ -200,7 +200,7 @@ function reachableTargetPhase(target: AlgorithmPhase, criteria: readonly IdealSt
  * Algorithm requires, then advance one phase. Synthetic artifacts are tagged so
  * they are recognizable as sync-generated.
  */
-function prepareAndAdvance(run: AlgorithmRun, target: AlgorithmPhase, timestamp: string): AlgorithmRun {
+function prepareAndAdvance(run: AlgorithmRun, target: AlgorithmPhase, timestamp: string, substrate: SubstrateId): AlgorithmRun {
   let next = run;
   switch (target) {
     case "plan":
@@ -239,16 +239,16 @@ function prepareAndAdvance(run: AlgorithmRun, target: AlgorithmPhase, timestamp:
     default:
       break;
   }
-  return advanceAlgorithmRun(next, timestamp);
+  return advanceAlgorithmRun(next, timestamp, { substrate });
 }
 
-function advanceRunToPhase(run: AlgorithmRun, target: AlgorithmPhase, timestamp: string): AlgorithmRun {
+function advanceRunToPhase(run: AlgorithmRun, target: AlgorithmPhase, timestamp: string, substrate: SubstrateId): AlgorithmRun {
   let next = run;
   let guard = 0;
   while (phaseIndex(getRunPhase(next)) < phaseIndex(target) && guard < PHASE_ORDER.length) {
     const upcoming = nextAlgorithmPhase(getRunPhase(next));
     if (upcoming === undefined) return next;
-    next = prepareAndAdvance(next, upcoming, timestamp);
+    next = prepareAndAdvance(next, upcoming, timestamp, substrate);
     guard += 1;
   }
   return next;
@@ -283,6 +283,7 @@ function reconcileCriteria(
   isa: IdealStateArtifact,
   isaCriteria: readonly IdealStateCriterion[],
   timestamp: string,
+  substrate: SubstrateId,
 ): AlgorithmRun {
   let next = run;
   const runCriteriaById = new Map(getCriteria(next.isa).map((c) => [c.id, c]));
@@ -293,7 +294,7 @@ function reconcileCriteria(
     if (existing.status === isaCriterion.status) continue; // already reconciled — idempotent
     const verification = isaCriterion.verification?.trim();
     const evidence = verification && verification.length > 0 ? verification : `synced from ISA: ${isaCriterion.text}`;
-    next = verifyAlgorithmCriterion(next, isaCriterion.id, isaCriterion.status, evidence, timestamp);
+    next = verifyAlgorithmCriterion(next, isaCriterion.id, isaCriterion.status, evidence, timestamp, { substrate });
   }
 
   const targetCompleted = frontmatterCompletionCount(isa, isaCriteria);
@@ -307,7 +308,7 @@ function reconcileCriteria(
     if (existing === undefined || isClosedCriterion(existing)) continue;
     const goal = getGoal(isa);
     const evidence = goal ? `synced from ISA progress: ${goal}` : `synced from ISA progress: ${isaCriterion.text}`;
-    next = verifyAlgorithmCriterion(next, isaCriterion.id, "passed", evidence, timestamp);
+    next = verifyAlgorithmCriterion(next, isaCriterion.id, "passed", evidence, timestamp, { substrate });
     runCriteria = getCriteria(next.isa);
     completed = runCriteria.filter(isClosedCriterion).length;
   }
@@ -410,20 +411,20 @@ async function syncAlgorithmRunFromIsaInner(
   // 1. Reconcile checked criteria FIRST. The LEARN gate refuses entry until
   //    every criterion is passed/dropped, so criteria state must be current
   //    before we attempt to advance the phase.
-  run = reconcileCriteria(run, isa, isaCriteria, timestamp);
+  run = reconcileCriteria(run, isa, isaCriteria, timestamp, options.substrate);
   const reconciledCriteria = getCriteria(run.isa);
 
   // 2. Advance forward to (a reachable cap of) the ISA's declared phase. Never backward.
   const targetPhase = reachableTargetPhase(isa.frontmatter.phase, reconciledCriteria);
   if (phaseIndex(getRunPhase(run)) < phaseIndex(targetPhase)) {
-    run = advanceRunToPhase(run, targetPhase, timestamp);
+    run = advanceRunToPhase(run, targetPhase, timestamp, options.substrate);
   }
 
   // 3. If at learn (or all criteria closed), record a learn entry. Idempotent.
   const allClosed = getCriteria(run.isa).every(isClosedCriterion);
   const atLearn = getRunPhase(run) === "learn" || getRunPhase(run) === "complete";
   if ((atLearn || allClosed) && run.learning.length === 0) {
-    run = recordAlgorithmLearning(run, deriveLearningText(isa), timestamp);
+    run = recordAlgorithmLearning(run, deriveLearningText(isa), timestamp, { substrate: options.substrate });
   }
 
   const after = snapshot(run);

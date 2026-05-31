@@ -541,6 +541,67 @@ test("cli drives Algorithm runs through gated mutations", async () => {
   });
 });
 
+test("cli records substrate provenance and surfaces touched-by summary", async () => {
+  await withTempHome(async (homeDir) => {
+    await runSomaCli([
+      "algorithm",
+      "new",
+      "--home-dir",
+      homeDir,
+      "--id",
+      "provenance-cli-run",
+      "--substrate",
+      "claude-code",
+      "--prompt",
+      "Record provenance",
+      "--intent",
+      "Record provenance.",
+      "--current-state",
+      "No hops recorded.",
+      "--goal",
+      "Substrate hops are queryable.",
+      "--criterion",
+      "C1:Codex verifies work.",
+    ]);
+    await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "provenance-cli-run", "--substrate", "codex"]);
+    await runSomaCli([
+      "algorithm",
+      "verify",
+      "--home-dir",
+      homeDir,
+      "--id",
+      "provenance-cli-run",
+      "--substrate",
+      "codex",
+      "--criterion-id",
+      "C1",
+      "--status",
+      "passed",
+      "--evidence",
+      "Codex verified the criterion.",
+    ]);
+    await runSomaCli([
+      "algorithm",
+      "learn",
+      "--home-dir",
+      homeDir,
+      "--id",
+      "provenance-cli-run",
+      "--substrate",
+      "pi-dev",
+      "--text",
+      "Pi.dev captured the lesson.",
+    ]);
+
+    const output = await runSomaCli(["algorithm", "show", "--home-dir", homeDir, "--id", "provenance-cli-run"]);
+    expect(output).toContain("touched by: claude-code, codex, pi-dev");
+
+    const raw = await readFile(join(homeDir, ".soma/memory/WORK/algorithm-runs/provenance-cli-run.json"), "utf8");
+    expect(raw).toContain('"operation": "criterion.verify"');
+    expect(raw).toContain('"substrate": "pi-dev"');
+  });
+});
+
 test("cli batches routine Algorithm run mutations", async () => {
   await withTempHome(async (homeDir) => {
     await runSomaCli([

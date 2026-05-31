@@ -119,7 +119,7 @@ export function loadAlgorithmRun(raw: unknown): AlgorithmRun {
   return ensureAlgorithmRunDefaults(migrateRunV1toV2(candidate as LegacyAlgorithmRun));
 }
 
-type AlgorithmRunWithDefaults = Omit<AlgorithmRun, "loop"> & Partial<Pick<AlgorithmRun, "loop">>;
+type AlgorithmRunWithDefaults = Omit<AlgorithmRun, "loop" | "provenance"> & Partial<Pick<AlgorithmRun, "loop" | "provenance">>;
 
 function ensureAlgorithmRunDefaults(run: AlgorithmRunWithDefaults): AlgorithmRun {
   return {
@@ -127,6 +127,7 @@ function ensureAlgorithmRunDefaults(run: AlgorithmRunWithDefaults): AlgorithmRun
     loop: run.loop ?? { ...DEFAULT_ALGORITHM_LOOP_STATE, iterations: [] },
     capabilityDefinitions: run.capabilityDefinitions ?? [],
     capabilitySelections: run.capabilitySelections ?? [],
+    provenance: run.provenance ?? [],
   };
 }
 
@@ -179,6 +180,7 @@ function migrateRunV1toV2(legacy: LegacyAlgorithmRun): AlgorithmRun {
     changelog: legacy.changelog ?? [],
     verification: legacy.verification ?? [],
     learning: legacy.learning ?? [],
+    provenance: legacy.provenance ?? [],
   };
 }
 

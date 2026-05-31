@@ -10,6 +10,7 @@ import {
   classifySomaFeedback,
   createAlgorithmRun,
   promoteAlgorithmRunMemory,
+  readAlgorithmRunById,
   searchSomaMemory,
   searchSomaResults,
   somaMemoryEventsPath,
@@ -536,6 +537,7 @@ test("promotes an Algorithm run into durable Soma memory", async () => {
     });
     const content = await readFile(result.path, "utf8");
     const events = parseEvents(await readFile(somaMemoryEventsPath(somaHome), "utf8"));
+    const { run } = await readAlgorithmRunById("consulting-lesson", { homeDir });
 
     expect(result.path).toEndWith("memory/KNOWLEDGE/PROMOTED/consulting-autonomy-metric-consulting-lesson.md");
     expect(content).toContain("Measure autonomy transfer, not dependency.");
@@ -544,6 +546,12 @@ test("promotes an Algorithm run into durable Soma memory", async () => {
       substrate: "codex",
       kind: "memory.promotion",
       summary: "Promoted Algorithm run consulting-lesson to knowledge: Consulting autonomy metric",
+    });
+    expect(run.provenance.at(-1)).toMatchObject({
+      timestamp: "2026-05-14T12:30:00.000Z",
+      operation: "memory.promote",
+      substrate: "codex",
+      detail: "knowledge",
     });
   });
 });

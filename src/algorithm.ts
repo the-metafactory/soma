@@ -24,6 +24,8 @@ import {
 } from "./isa-accessors";
 import { getRunPhase } from "./algorithm-lifecycle";
 import { DEFAULT_ALGORITHM_LOOP_STATE } from "./algorithm-execution-modes";
+import { appendAlgorithmProvenance } from "./algorithm-provenance";
+import type { AlgorithmProvenanceInput } from "./algorithm-provenance";
 
 const PHASES: AlgorithmPhase[] = ["observe", "think", "plan", "build", "execute", "verify", "learn", "complete"];
 
@@ -97,7 +99,7 @@ export function createAlgorithmRun(input: AlgorithmRunInput): AlgorithmRun {
   const classificationReason = input.classificationReason ?? classification.reason;
   const slug = input.id ?? "algorithm-run";
 
-  return {
+  const run: AlgorithmRun = {
     schemaVersion: 2,
     id: input.id ?? createRunId(timestamp),
     createdAt: timestamp,
@@ -129,7 +131,16 @@ export function createAlgorithmRun(input: AlgorithmRunInput): AlgorithmRun {
     changelog: [],
     verification: [],
     learning: [],
+    provenance: [],
   };
+  return input.substrate
+    ? appendAlgorithmProvenance(run, {
+        timestamp,
+        operation: "run.created",
+        substrate: input.substrate,
+        phase: "observe",
+      })
+    : run;
 }
 
 export function nextAlgorithmPhase(phase: AlgorithmPhase): AlgorithmPhase | undefined {
@@ -205,14 +216,25 @@ export function recordAlgorithmDecision(run: AlgorithmRun, text: string, timesta
   };
 }
 
-export function recordAlgorithmLearning(run: AlgorithmRun, text: string, timestamp?: string): AlgorithmRun {
+export function recordAlgorithmLearning(
+  run: AlgorithmRun,
+  text: string,
+  timestamp?: string,
+  provenance?: Pick<AlgorithmProvenanceInput, "substrate">,
+): AlgorithmRun {
   const entry = logEntry(getRunPhase(run), text, timestamp);
 
-  return {
+  const next = {
     ...run,
     updatedAt: entry.timestamp,
     learning: [...run.learning, entry],
   };
+  return appendAlgorithmProvenance(next, {
+    timestamp: entry.timestamp,
+    phase: entry.phase,
+    operation: "learning.record",
+    substrate: provenance?.substrate,
+  });
 }
 
 export function verifyAlgorithmCriterion(
@@ -221,6 +243,7 @@ export function verifyAlgorithmCriterion(
   status: "passed" | "failed" | "dropped",
   evidence: string,
   timestamp?: string,
+  provenance?: Pick<AlgorithmProvenanceInput, "substrate">,
 ): AlgorithmRun {
   assertNonEmpty(evidence, "verification evidence");
 
@@ -241,12 +264,19 @@ export function verifyAlgorithmCriterion(
     },
   };
 
-  return {
+  const next = {
     ...run,
     updatedAt: entry.timestamp,
     isa: isaWithRecompute,
     verification: [...run.verification, entry],
   };
+  return appendAlgorithmProvenance(next, {
+    timestamp: entry.timestamp,
+    phase: entry.phase,
+    operation: "criterion.verify",
+    substrate: provenance?.substrate,
+    detail: criterionId,
+  });
 }
 
 function assertGate(run: AlgorithmRun, target: AlgorithmPhase): void {
@@ -299,7 +329,11 @@ function assertGate(run: AlgorithmRun, target: AlgorithmPhase): void {
   }
 }
 
-export function advanceAlgorithmRun(run: AlgorithmRun, timestamp = new Date().toISOString()): AlgorithmRun {
+export function advanceAlgorithmRun(
+  run: AlgorithmRun,
+  timestamp = new Date().toISOString(),
+  provenance?: Pick<AlgorithmProvenanceInput, "substrate">,
+): AlgorithmRun {
   const current = getRunPhase(run);
   if (current === "abandoned") {
     throw new Error("Algorithm run was abandoned and cannot advance.");
@@ -313,7 +347,7 @@ export function advanceAlgorithmRun(run: AlgorithmRun, timestamp = new Date().to
 
   assertGate(run, target);
 
-  return {
+  const next = {
     ...run,
     updatedAt: timestamp,
     isa: {
@@ -325,6 +359,12 @@ export function advanceAlgorithmRun(run: AlgorithmRun, timestamp = new Date().to
       },
     },
   };
+  return appendAlgorithmProvenance(next, {
+    timestamp,
+    phase: target,
+    operation: "phase.advance",
+    substrate: provenance?.substrate,
+  });
 }
 
 export function updateAlgorithmPlanStep(
@@ -361,6 +401,7 @@ export function applyAlgorithmBatch(
   run: AlgorithmRun,
   operations: AlgorithmBatchOperation[],
   timestamp = new Date().toISOString(),
+  provenance?: Pick<AlgorithmProvenanceInput, "substrate">,
 ): AlgorithmRun {
   if (operations.length === 0) {
     throw new Error("Algorithm batch requires at least one operation.");
@@ -373,11 +414,11 @@ export function applyAlgorithmBatch(
       case "change":
         return recordAlgorithmChange(current, operation.text, timestamp);
       case "learn":
-        return recordAlgorithmLearning(current, operation.text, timestamp);
+        return recordAlgorithmLearning(current, operation.text, timestamp, provenance);
       case "step":
         return updateAlgorithmPlanStep(current, operation.stepId, operation.status, operation.evidence, timestamp);
       case "verify":
-        return verifyAlgorithmCriterion(current, operation.criterionId, operation.status, operation.evidence, timestamp);
+        return verifyAlgorithmCriterion(current, operation.criterionId, operation.status, operation.evidence, timestamp, provenance);
       case "capability":
         return selectAlgorithmCapability(current, {
           name: operation.capability,
@@ -387,7 +428,7 @@ export function applyAlgorithmBatch(
       case "capability-invocation":
         return recordAlgorithmCapabilityInvocation(current, {
           name: operation.capability,
-          substrate: operation.substrate,
+          substrate: operation.substrate ?? provenance?.substrate,
           evidence: operation.evidence,
         }, timestamp);
       case "capability-removal":
@@ -396,7 +437,7 @@ export function applyAlgorithmBatch(
           reason: operation.reason,
         }, timestamp);
       case "advance":
-        return advanceAlgorithmRun(current, timestamp);
+        return advanceAlgorithmRun(current, timestamp, provenance);
       default:
         operation satisfies never;
         return current;

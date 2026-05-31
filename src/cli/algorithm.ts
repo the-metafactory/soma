@@ -20,6 +20,7 @@ import {
 } from "../index";
 import { registerSomaHomeAlgorithmCapabilities } from "../algorithm-capabilities";
 import { syncAlgorithmRunFromIsa, formatSyncResult } from "../algorithm-isa-sync";
+import { algorithmTouchedBy } from "../algorithm-provenance";
 import { datePrefixSlug } from "../dated-slug";
 import { getCriteria, getGoal } from "../isa-accessors";
 import { getRunPhase } from "../algorithm-lifecycle";
@@ -59,9 +60,9 @@ export type AlgorithmCliAction = (typeof ALGORITHM_ACTIONS)[number];
 export const ALGORITHM_COMMAND_HELP: { usage: string; subcommands: Record<AlgorithmCliAction, string> } = {
   usage: `Usage: soma algorithm <${ALGORITHM_ACTIONS.join("|")}> ...`,
   subcommands: {
-    new: "Usage: soma algorithm new --prompt <text> --intent <text> --current-state <text> --goal <text> --criterion <id:text> [--effort <E1|E2|E3|E4|E5>] [--home-dir <dir>] [--soma-home <dir>]",
+    new: "Usage: soma algorithm new --prompt <text> --intent <text> --current-state <text> --goal <text> --criterion <id:text> [--effort <E1|E2|E3|E4|E5>] [--substrate <id>] [--home-dir <dir>] [--soma-home <dir>]",
     classify: "Usage: soma algorithm classify --prompt <text> [--json]",
-    batch: "Usage: soma algorithm batch --id <run-id> --op <kind:...> [--op <kind:...>]",
+    batch: "Usage: soma algorithm batch --id <run-id> --op <kind:...> [--op <kind:...>] [--substrate <id>]",
     list: "Usage: soma algorithm list [--home-dir <dir>] [--soma-home <dir>]",
     show: "Usage: soma algorithm show --id <run-id> [--home-dir <dir>] [--soma-home <dir>]",
     capabilities: "Usage: soma algorithm capabilities --id <run-id> --capability <name> [--phase <phase>] [--reason <text>] [--home-dir <dir>] [--soma-home <dir>]",
@@ -71,9 +72,9 @@ export const ALGORITHM_COMMAND_HELP: { usage: string; subcommands: Record<Algori
     decision: "Usage: soma algorithm decision --id <run-id> --text <text> [--home-dir <dir>] [--soma-home <dir>]",
     change: "Usage: soma algorithm change --id <run-id> --text <text> [--home-dir <dir>] [--soma-home <dir>]",
     step: "Usage: soma algorithm step --id <run-id> --step-id <id> --status <open|done|blocked> [--evidence <text>]",
-    verify: "Usage: soma algorithm verify --id <run-id> --criterion-id <id> --status <passed|failed|dropped> --evidence <text>",
-    learn: "Usage: soma algorithm learn --id <run-id> --text <text> [--home-dir <dir>] [--soma-home <dir>]",
-    advance: "Usage: soma algorithm advance --id <run-id> [--home-dir <dir>] [--soma-home <dir>]",
+    verify: "Usage: soma algorithm verify --id <run-id> --criterion-id <id> --status <passed|failed|dropped> --evidence <text> [--substrate <id>]",
+    learn: "Usage: soma algorithm learn --id <run-id> --text <text> [--substrate <id>] [--home-dir <dir>] [--soma-home <dir>]",
+    advance: "Usage: soma algorithm advance --id <run-id> [--substrate <id>] [--home-dir <dir>] [--soma-home <dir>]",
     "sync-from-isa":
       "Usage: soma algorithm sync-from-isa --isa <path> --substrate <id> [--soma-home <dir>] [--home-dir <dir>] [--promote-on-complete]",
   },
@@ -490,6 +491,7 @@ function formatAlgorithmClassificationJson(prompt: string): string {
 }
 
 function formatAlgorithmRun(run: AlgorithmRun, path: string): string {
+  const touchedBy = algorithmTouchedBy(run);
   return [
     "Soma Algorithm run",
     `id: ${run.id}`,
@@ -500,6 +502,7 @@ function formatAlgorithmRun(run: AlgorithmRun, path: string): string {
     `classificationReason: ${run.classificationReason}`,
     `path: ${path}`,
     `goal: ${getGoal(run.isa) ?? ""}`,
+    `touched by: ${touchedBy.length > 0 ? touchedBy.join(", ") : "none"}`,
     "",
     "Criteria:",
     ...getCriteria(run.isa).map((criterion) => `- [${criterion.status}] ${criterion.id}: ${criterion.text}${criterion.verification ? ` | ${criterion.verification}` : ""}`),
@@ -700,18 +703,18 @@ export async function runAlgorithmCli(parsed: ParsedAlgorithmArgs): Promise<stri
     const criterionStatus = options.criterionStatus;
     const evidence = options.evidence;
     return updateAndReportAlgorithmRun(options, (run) =>
-      verifyAlgorithmCriterion(run, criterionId, criterionStatus, evidence),
+      verifyAlgorithmCriterion(run, criterionId, criterionStatus, evidence, undefined, { substrate: options.substrate }),
     );
   }
 
   if (parsed.action === "learn") {
     const text = requireText(options);
-    return updateAndReportAlgorithmRun(options, (run) => recordAlgorithmLearning(run, text));
+    return updateAndReportAlgorithmRun(options, (run) => recordAlgorithmLearning(run, text, undefined, { substrate: options.substrate }));
   }
 
   if (parsed.action === "batch") {
     const operations = options.batchOperations ?? [];
-    return updateAndReportAlgorithmRun(options, (run) => applyAlgorithmBatch(run, operations), {
+    return updateAndReportAlgorithmRun(options, (run) => applyAlgorithmBatch(run, operations, undefined, { substrate: options.substrate }), {
       registerCapabilities: true,
     });
   }
@@ -729,7 +732,7 @@ export async function runAlgorithmCli(parsed: ParsedAlgorithmArgs): Promise<stri
     return formatSyncResult(result);
   }
 
-  return updateAndReportAlgorithmRun(options, (run) => advanceAlgorithmRun(run), {
+  return updateAndReportAlgorithmRun(options, (run) => advanceAlgorithmRun(run, undefined, { substrate: options.substrate }), {
     registerCapabilities: true,
   });
 }

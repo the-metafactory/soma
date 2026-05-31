@@ -193,6 +193,22 @@ export interface AlgorithmLogEntry {
   text: string;
 }
 
+export type AlgorithmProvenanceOperation =
+  | "run.created"
+  | "phase.advance"
+  | "criterion.verify"
+  | "capability.invoke"
+  | "learning.record"
+  | "memory.promote";
+
+export interface AlgorithmProvenanceEntry {
+  timestamp: string;
+  phase: AlgorithmPhase;
+  operation: AlgorithmProvenanceOperation;
+  substrate: SubstrateId;
+  detail?: string;
+}
+
 export type AlgorithmCapabilityKind = "skill" | "inline" | "agent" | "command" | "adapter";
 
 export type AlgorithmCapabilityContract = "skill" | "inline" | "agent" | "command" | "adapter";
@@ -259,6 +275,7 @@ export interface AlgorithmRun {
   changelog: AlgorithmLogEntry[];
   verification: AlgorithmLogEntry[];
   learning: AlgorithmLogEntry[];
+  provenance: AlgorithmProvenanceEntry[];
 }
 
 export interface AlgorithmRunSummary {

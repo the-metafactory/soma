@@ -86,6 +86,10 @@ test("creates a soma run from an ISA, keyed by slug, mapping goal + criteria", a
 
     const { run } = await readAlgorithmRunById(result.runId!, { somaHome });
     expect(run.substrate).toBe("claude-code");
+    expect(run.provenance.map((entry) => [entry.operation, entry.substrate])).toEqual([
+      ["run.created", "claude-code"],
+      ["phase.advance", "claude-code"],
+    ]);
     const criteria = getCriteria(run.isa);
     expect(criteria.map((c) => c.id)).toEqual(["ISC-1", "ISC-2"]);
     // Advanced forward to match ISA phase `think`.
