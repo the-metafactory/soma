@@ -347,6 +347,7 @@ test("non-Claude home projections rewrite Claude-only paths in portable skill pa
                 `Persist work at ${claudeHome}/PAI/MEMORY/WORK/{slug}/ISA.md.`,
                 `Bootstrap reads \`${relativeClaudeMemory}/decisions.md\` and \`${relativeClaudeMemory}/session-log.md\`.`,
                 `Dot-relative bootstrap reads \`${dotRelativeClaudeMemory}/handoff.md\`.`,
+                `Bare roots: \`${claudeHome}/memory\`, \`${relativeClaudeMemory}\`, and \`${dotRelativeClaudeMemory}\`.`,
                 `Search with \`rg ${claudeHome}/PAI/MEMORY/KNOWLEDGE/\`.`,
               ].join("\n"),
             },
@@ -379,6 +380,7 @@ test("non-Claude home projections rewrite Claude-only paths in portable skill pa
   expect(projected).toContain(`${somaHome}/memory/decisions.md`);
   expect(projected).toContain(`${somaHome}/memory/handoff.md`);
   expect(projected).toContain(`${somaHome}/memory/KNOWLEDGE/`);
+  expect(projected).toContain(`Bare roots: \`${somaHome}/memory\`, \`${somaHome}/memory\`, and \`${somaHome}/memory\`.`);
   expect(piTool).toContain("ISASync.hook.ts");
 });
 

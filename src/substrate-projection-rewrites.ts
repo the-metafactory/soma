@@ -4,6 +4,8 @@ import type { SubstrateId } from "./types";
 const CLAUDE_HOME = "~/" + ".claude";
 const SOMA_HOME = "~/" + ".soma";
 const RELATIVE_CLAUDE_HOME = "." + "claude";
+const MEMORY_ROOT_PREFIXES = [CLAUDE_HOME, `./${RELATIVE_CLAUDE_HOME}`, RELATIVE_CLAUDE_HOME] as const;
+const MEMORY_ROOT_SUFFIXES = ["PAI/MEMORY", "memory", "memories"] as const;
 const CLAUDE_ONLY_LINE = /\b(?:ISASync\.hook\.ts|ISA[- ]Tool(?![A-Za-z]))/i;
 
 function replaceAllLiteral(content: string, from: string, to: string): string {
@@ -15,18 +17,11 @@ function rewriteKnownMemoryRoots(content: string): string {
   // Run these first because the pack normalizer intentionally maps
   // unknown Claude memory roots to an UNMAPPED placeholder. Projection
   // consumers need legacy memory bootstrap refs to land on Soma memory.
-  for (const root of [
-    `${CLAUDE_HOME}/PAI/MEMORY/`,
-    `${CLAUDE_HOME}/memory/`,
-    `${CLAUDE_HOME}/memories/`,
-    `./${RELATIVE_CLAUDE_HOME}/PAI/MEMORY/`,
-    `./${RELATIVE_CLAUDE_HOME}/memory/`,
-    `./${RELATIVE_CLAUDE_HOME}/memories/`,
-    `${RELATIVE_CLAUDE_HOME}/PAI/MEMORY/`,
-    `${RELATIVE_CLAUDE_HOME}/memory/`,
-    `${RELATIVE_CLAUDE_HOME}/memories/`,
-  ]) {
-    next = replaceAllLiteral(next, root, `${SOMA_HOME}/memory/`);
+  for (const prefix of MEMORY_ROOT_PREFIXES) {
+    for (const suffix of MEMORY_ROOT_SUFFIXES) {
+      next = replaceAllLiteral(next, `${prefix}/${suffix}/`, `${SOMA_HOME}/memory/`);
+      next = replaceAllLiteral(next, `${prefix}/${suffix}`, `${SOMA_HOME}/memory`);
+    }
   }
   return next;
 }
