@@ -19,12 +19,12 @@ function rewriteKnownMemoryRoots(content: string): string {
     `${CLAUDE_HOME}/PAI/MEMORY/`,
     `${CLAUDE_HOME}/memory/`,
     `${CLAUDE_HOME}/memories/`,
-    `${RELATIVE_CLAUDE_HOME}/PAI/MEMORY/`,
-    `${RELATIVE_CLAUDE_HOME}/memory/`,
-    `${RELATIVE_CLAUDE_HOME}/memories/`,
     `./${RELATIVE_CLAUDE_HOME}/PAI/MEMORY/`,
     `./${RELATIVE_CLAUDE_HOME}/memory/`,
     `./${RELATIVE_CLAUDE_HOME}/memories/`,
+    `${RELATIVE_CLAUDE_HOME}/PAI/MEMORY/`,
+    `${RELATIVE_CLAUDE_HOME}/memory/`,
+    `${RELATIVE_CLAUDE_HOME}/memories/`,
   ]) {
     next = replaceAllLiteral(next, root, `${SOMA_HOME}/memory/`);
   }

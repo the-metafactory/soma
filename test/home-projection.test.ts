@@ -315,6 +315,7 @@ test("non-Claude home projections rewrite Claude-only paths in portable skill pa
   const claudeHome = "~/" + ".claude";
   const somaHome = "~/" + ".soma";
   const relativeClaudeMemory = "." + "claude/memory";
+  const dotRelativeClaudeMemory = "./" + relativeClaudeMemory;
   const input = {
     ...portableProjectionInput,
     profile: {
@@ -345,6 +346,7 @@ test("non-Claude home projections rewrite Claude-only paths in portable skill pa
                 "",
                 `Persist work at ${claudeHome}/PAI/MEMORY/WORK/{slug}/ISA.md.`,
                 `Bootstrap reads \`${relativeClaudeMemory}/decisions.md\` and \`${relativeClaudeMemory}/session-log.md\`.`,
+                `Dot-relative bootstrap reads \`${dotRelativeClaudeMemory}/handoff.md\`.`,
                 `Search with \`rg ${claudeHome}/PAI/MEMORY/KNOWLEDGE/\`.`,
               ].join("\n"),
             },
@@ -364,11 +366,13 @@ test("non-Claude home projections rewrite Claude-only paths in portable skill pa
 
   expect(projected).not.toContain(claudeHome);
   expect(projected).not.toContain(relativeClaudeMemory);
+  expect(projected).not.toContain("./~/");
   expect(projected).not.toContain("ISASync.hook.ts");
   expect(projected).not.toContain("ISA Tool");
   expect(projected).toContain(`${somaHome}/skills/ISA/Examples/canonical-isa.md`);
   expect(projected).toContain(`${somaHome}/memory/WORK/{slug}/ISA.md`);
   expect(projected).toContain(`${somaHome}/memory/decisions.md`);
+  expect(projected).toContain(`${somaHome}/memory/handoff.md`);
   expect(projected).toContain(`${somaHome}/memory/KNOWLEDGE/`);
 });
 
