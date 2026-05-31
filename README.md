@@ -404,6 +404,11 @@ substrate's native shape.
 Daemon mode and deeper Cortex/Myelin integration come after the file format,
 writeback gates, and adapter behavior are stable.
 
+Cross-machine use is designed as Soma home replication: a policy-gated,
+snapshot-backed exchange of eligible `~/.soma/` state between machines. It does
+not change projection or writeback semantics. See
+[docs/home-replication.md](docs/home-replication.md).
+
 ---
 
 ## Documentation
@@ -416,6 +421,7 @@ writeback gates, and adapter behavior are stable.
 - [docs/pai-pack-importer.md](docs/pai-pack-importer.md), PAI pack import rules
 - [docs/progressive-skill-loading.md](docs/progressive-skill-loading.md), skill registry and just-in-time loading
 - [docs/mcp-server.md](docs/mcp-server.md), optional read-mostly MCP tool surface
+- [docs/home-replication.md](docs/home-replication.md), cross-machine Soma home replication
 - [docs/writeback-and-policy.md](docs/writeback-and-policy.md), projection, writeback, conflict, and policy semantics
 - [docs/portability-proof.md](docs/portability-proof.md), the first portability proof and evidence contract
 

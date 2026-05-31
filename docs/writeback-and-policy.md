@@ -152,6 +152,12 @@ Until store-specific merge rules exist:
 - No silent promotion from event log to durable stores.
 - No bidirectional projection sync.
 
+Home replication must preserve these conflict rules across machines. It may
+merge append-only `memory/STATE/events.jsonl` entries and session-keyed work
+state, but durable memory, profile, Telos, skill, policy, and ISA body
+conflicts remain explicit conflicts until store-specific merge rules exist. See
+[home-replication.md](./home-replication.md).
+
 If two substrates report conflicting facts, both facts remain events. A later
 consolidator or human review decides what becomes durable memory.
 

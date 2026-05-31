@@ -101,6 +101,11 @@ MEMORY/
 The initial version should avoid requiring a vector database. Search can start
 with filenames, frontmatter, ripgrep, and small deterministic indexes.
 
+Cross-machine Soma state uses **Home replication**, not projection refresh or
+substrate writeback. The design is Git-backed first, policy-gated per scope,
+and only auto-merges stores with deterministic merge semantics. See
+[docs/home-replication.md](./home-replication.md).
+
 ### Policy
 
 Policy covers security, privacy, permission, and verification. Policies should
