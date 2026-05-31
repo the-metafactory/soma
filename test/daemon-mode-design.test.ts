@@ -12,7 +12,8 @@ const decisions = readFileSync("design/design-decisions.md", "utf8");
 test("daemon design keeps Myelin protocol ownership outside Soma", () => {
   expect(daemonDoc).toMatch(/Myelin\s+owns transport and envelope semantics/);
   expect(daemonDoc).toMatch(/exact subject names,\s+wire versions, credentials, and retry policy must come from Myelin\/Cortex/);
-  expect(boundaries).toContain("Myelin-owned subject names");
+  expect(boundaries).toContain("not a new bus contract");
+  expect(boundaries).toContain("daemon-mode.md");
   expect(decisions).toMatch(/daemon mode consumes Myelin contracts without owning\s+the bus/);
 });
 
