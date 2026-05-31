@@ -699,10 +699,11 @@ organizational process.
 **Status:** Decided (2026-05-31)
 
 **Context:** Issue #149 asks for `soma daemon`: a long-lived process that
-subscribes to Myelin subjects, keeps assistant presence alive without an active
-substrate session, and routes work before spawning substrate sessions. Existing
-Soma docs define daemon as a runtime mode, while `docs/boundaries.md` says
-Cortex/Myelin own daemon, bus, and envelope mechanics.
+subscribes to Myelin subjects, keeps assistant availability alive without an
+active substrate session, and routes work before spawning substrate sessions.
+Existing Soma docs define daemon as a runtime mode, while
+`docs/boundaries.md` says Cortex/Myelin own daemon, bus, and envelope
+mechanics.
 
 Three candidates surfaced:
 - **(a) Make Soma own Myelin subjects and envelope schemas.** Fast to implement
