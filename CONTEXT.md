@@ -577,6 +577,31 @@ This makes Soma a closed loop, not a one-way pipe.
 
 ---
 
+## home replication
+
+The cross-machine exchange of eligible Soma home state between two local Soma
+homes through an explicit remote transport.
+
+Home replication is not [[project|projection]] and not [[writeback]]. Projection
+makes Soma present inside a substrate. Writeback accepts a substrate-originated
+mutation into Soma. Home replication exchanges already-Soma-owned files between
+machines after scope checks, Policy checks, snapshots, and merge/conflict
+rules.
+
+The first transport is Git-backed, but Git is transport and audit history only.
+Soma core owns path eligibility, privacy gates, append-only event merge,
+session-keyed work-state merge, and durable-file conflict reporting.
+
+**Not synonyms:** Do not call the core model `sync`, `bidirectional sync`, or
+`live sync`. Use `replicate` / `home replication`.
+
+**Why:** Issue #146 needs the same assistant to travel between machines without
+turning a remote repository into the source of truth or weakening writeback
+gates. A separate term keeps cross-machine exchange distinct from both
+substrate projection and substrate writeback.
+
+---
+
 ## work registry
 
 The canonical Soma state that records active and historical work across substrates.

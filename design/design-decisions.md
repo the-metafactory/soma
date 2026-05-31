@@ -577,3 +577,63 @@ without returning private excerpts.
   until the confirmation protocol is implemented.
 - Home and workspace projections remain required. MCP is an on-demand
   optimization, not the only way to inhabit Soma.
+
+### DD-11: Cross-machine state uses Soma home replication
+
+**Status:** Decided (2026-05-31)
+
+**Context:** Issue #146 asks for cross-machine access to memory, identity,
+Telos, skills, ISA state, and conflict resolution when a principal works from
+multiple machines. The obvious word is "sync", but Soma already reserves
+precise vocabulary for projection and writeback and rejects fuzzy bidirectional
+sync semantics in `CONTEXT.md`. The implementation needs a transport model
+without weakening DD-1's canonical home, DD-5/DD-6's shared work state, or the
+writeback conflict policy.
+
+Three candidates surfaced:
+- **(a) Treat a remote Git repository as the source of truth.** Every machine
+  pulls and pushes the whole Soma home.
+- **(b) Add a backend-neutral home replication contract.** Use Git first as the
+  transport, while Soma core owns scope eligibility, policy checks, snapshots,
+  deterministic merge rules, and conflict reports.
+- **(c) Defer cross-machine state until daemon mode.** Let a future
+  Cortex/Myelin daemon own shared state and avoid file replication now.
+
+**Decision:** **(b)** — cross-machine state uses **Soma home replication**.
+Each machine keeps a local authoritative Soma home. A remote is an exchange
+surface and audit history, not the canonical source of truth and not a live
+overlay. The first backend should be Git-backed because Soma homes and
+snapshots are already filesystem-native, but backend transport does not own
+merge or privacy semantics.
+
+Replication is scope-based. Identity, Telos, skills, policy, ISA, append-only
+state events, and session-keyed work state are eligible by default, subject to
+path policy and secret guards. Learning and knowledge are opt-in until
+promotion/citation merge rules exist. Relationship is private by default, and
+raw and security scopes are off by default.
+
+Only stores with deterministic merge rules are auto-merged:
+`memory/STATE/events.jsonl` merges by event id, and DD-5/DD-6 work state may
+merge by session id, run id, or pointer filename. Durable profile, Telos,
+skill, policy, ISA body, knowledge, learning, relationship, and work artifacts
+surface conflicts instead of using last-writer-wins. Every pull or exchange
+operation snapshots before applying remote state.
+
+**Rejected:**
+- (a) makes a transport authority over privacy and merge semantics, and would
+  leak private or generated material unless every operation reimplemented Soma
+  Policy.
+- (c) preserves conceptual purity but leaves "one assistant, many substrates"
+  machine-local until a daemon exists. Soma's filesystem-native design should
+  support a safe no-daemon path.
+
+**Implications:**
+- The canonical design is documented in `docs/home-replication.md`.
+- Future CLI work should use `soma replicate ...` rather than `soma sync ...`.
+- The Git backend owns remote transport only. Soma core owns path eligibility,
+  snapshots, event/work-state merge, conflict reporting, and refusal messages.
+- Home replication must not automatically refresh substrate projections.
+- Hosted backends such as S3 or Turso may follow later, but must implement the
+  same privacy, snapshot, and conflict contract.
+
+**Discussion:** issue #146 design pass, 2026-05-31.
