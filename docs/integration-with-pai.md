@@ -270,7 +270,13 @@ ls ~/.soma/memory/                 # 19 categories (17 + 2 PAI-bound)
 ls ~/.soma/PAI/                    # DOCUMENTATION, TEMPLATES, ALGORITHM
 ls ~/.soma/skills/                 # imported PAI packs as Soma skills
 soma migrate pai --status          # manifest + per-pack outcome table
+soma history                       # Git-backed Soma snapshots
 ```
+
+`soma migrate pai --apply` creates a pre-apply snapshot before writing
+to the Soma home. You can also create one manually with
+`soma snapshot --name before-big-change` and restore it later with
+`soma rollback <snapshot-id>`.
 
 ### Substrate check
 

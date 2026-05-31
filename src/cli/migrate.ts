@@ -16,6 +16,7 @@ import {
   REASON_PREFIX_SLASH_COMMAND,
 } from "../claude-skills-migrator";
 import { createProgressEmitter } from "../claude-skills-progress";
+import { createSomaSnapshot } from "../snapshots";
 import type {
   ClaudeSkillOutcome,
   ClaudeSkillsMigrationManifest,
@@ -962,6 +963,12 @@ export async function runMigrateCli(parsed: ParsedMigrateArgs): Promise<string> 
         await planClaudeSkillsMigration(claudeOptions),
       );
     }
+    await createSomaSnapshot({
+      homeDir: claudeOptions.homeDir,
+      somaHome: claudeOptions.somaHome,
+      name: "before-migrate-claude-skills",
+      trigger: "migrate-claude-skills",
+    });
     const csResult = await migrateClaudeSkills(claudeOptions);
     const formatted = formatClaudeSkillsMigrationResult(csResult);
     // #118 — apply mode: surface a non-zero exit code when any skill
@@ -1009,6 +1016,12 @@ export async function runMigrateCli(parsed: ParsedMigrateArgs): Promise<string> 
     }
     return formatted;
   }
+  await createSomaSnapshot({
+    homeDir: parsed.options.homeDir,
+    somaHome: parsed.options.somaHome,
+    name: "before-migrate-pai",
+    trigger: "migrate-pai",
+  });
   const result = await migratePai(parsed.options);
   const formatted = formatPaiMigrationResult(result, parsed.verbose);
   // #97 — AC-4: exit non-zero only when a pack outcome is

@@ -31,6 +31,14 @@ import {
   type ParsedMigrateArgs,
 } from "./cli/migrate";
 import {
+  SNAPSHOT_COMMAND_HELP,
+  parseHistoryArgs,
+  parseRollbackArgs,
+  parseSnapshotArgs,
+  runSnapshotCli,
+  type ParsedSnapshotCommandArgs,
+} from "./cli/snapshots";
+import {
   IMPORT_COMMAND_HELP,
   parseImportArgs,
   runImportCli,
@@ -133,6 +141,7 @@ type ParsedArgs =
   | ParsedPolicyArgs
   | ParsedWritebackArgs
   | ParsedIsaArgs
+  | ParsedSnapshotCommandArgs
   | ParsedToolArgs;
 
 const TOP_LEVEL_COMMANDS = [
@@ -142,6 +151,7 @@ const TOP_LEVEL_COMMANDS = [
   "doctor",
   "export",
   "feedback",
+  "history",
   "import",
   "inference",
   "install",
@@ -157,8 +167,10 @@ const TOP_LEVEL_COMMANDS = [
   "relationship",
   "reproject",
   "result",
+  "rollback",
   "session",
   "stats",
+  "snapshot",
   "telemetry",
   "uninstall",
   "upgrade",
@@ -187,6 +199,7 @@ const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string,
   doctor: ONBOARDING_COMMAND_HELP.doctor,
   import: IMPORT_COMMAND_HELP,
   migrate: MIGRATE_COMMAND_HELP,
+  ...SNAPSHOT_COMMAND_HELP,
   adopt: ONBOARDING_COMMAND_HELP.adopt,
   isa: {
     // Single source of truth lives in `./cli-isa.ts` (Sage round-1 dedup).
@@ -298,6 +311,18 @@ function parseArgs(args: string[]): ParsedArgs {
 
   if (args[0] === "migrate") {
     return parseMigrateArgs(args);
+  }
+
+  if (args[0] === "snapshot") {
+    return parseSnapshotArgs(args);
+  }
+
+  if (args[0] === "history") {
+    return parseHistoryArgs(args);
+  }
+
+  if (args[0] === "rollback") {
+    return parseRollbackArgs(args);
   }
 
   if (args[0] === "adopt") {
@@ -474,6 +499,10 @@ export async function runSomaCli(args: string[]): Promise<string> {
 
   if (parsed.command === "migrate") {
     return runMigrateCli(parsed);
+  }
+
+  if (parsed.command === "snapshot" || parsed.command === "history" || parsed.command === "rollback") {
+    return runSnapshotCli(parsed);
   }
 
   if (isSubstrateLifecycleArgs(parsed)) {
