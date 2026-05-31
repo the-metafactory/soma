@@ -20,6 +20,7 @@ import {
 } from "../index";
 import { registerSomaHomeAlgorithmCapabilities } from "../algorithm-capabilities";
 import { syncAlgorithmRunFromIsa, formatSyncResult } from "../algorithm-isa-sync";
+import { datePrefixSlug } from "../dated-slug";
 import { getCriteria, getGoal } from "../isa-accessors";
 import { getRunPhase } from "../algorithm-lifecycle";
 import { readOption } from "./parse-utils";
@@ -434,7 +435,11 @@ export function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
 
   if (action === "new") {
     validateAlgorithmRunInput(run);
-    run.id = options.id;
+    const idBase = run.intent ?? run.goal ?? run.prompt;
+    if (idBase === undefined) {
+      throw new Error("soma algorithm new requires at least one of --intent, --goal, or --prompt.");
+    }
+    run.id = options.id ?? datePrefixSlug(idBase);
     run.substrate = options.substrate;
     options.run = run as AlgorithmRunInput;
   }

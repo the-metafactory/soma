@@ -99,6 +99,7 @@ test("soma isa use --dry-run does not mutate active.json", async () => {
 
 test("AC-7: soma isa scaffold requires slug/effort/goal", async () => {
   await withSomaHome(async (homeDir) => {
+    const today = new Date().toISOString().slice(0, 10);
     expect((await runIsaCli(["scaffold", "--home-dir", homeDir])).exitCode).toBe(1);
     expect(
       (await runIsaCli(["scaffold", "--slug", "x", "--home-dir", homeDir])).exitCode,
@@ -108,7 +109,44 @@ test("AC-7: soma isa scaffold requires slug/effort/goal", async () => {
     ).toBe(1);
     const ok = await runIsaCli(["scaffold", "--slug", "x", "--effort", "E1", "--goal", "G", "--home-dir", homeDir]);
     expect(ok.exitCode).toBe(0);
-    expect(ok.text).toContain("Scaffolded x (E1)");
+    expect(ok.text).toContain(`Scaffolded ${today}-x (E1)`);
+  });
+});
+
+test("soma isa scaffold uses date-prefixed slugs and does not double-prefix", async () => {
+  await withSomaHome(async (homeDir) => {
+    const today = new Date().toISOString().slice(0, 10);
+    const derived = await runIsaCli([
+      "scaffold",
+      "--slug",
+      "roesti-soc-tabletop",
+      "--effort",
+      "E1",
+      "--goal",
+      "Run the tabletop",
+      "--home-dir",
+      homeDir,
+    ]);
+    expect(derived.exitCode).toBe(0);
+    expect(derived.text).toContain(`Scaffolded ${today}-roesti-soc-tabletop`);
+    await expect(readFile(join(homeDir, ".soma", "isa", `${today}-roesti-soc-tabletop.md`), "utf8")).resolves.toContain(
+      "Run the tabletop",
+    );
+
+    const alreadyDated = await runIsaCli([
+      "scaffold",
+      "--slug",
+      "2026-05-30-roesti-soc-tabletop",
+      "--effort",
+      "E1",
+      "--goal",
+      "Run the tabletop again",
+      "--home-dir",
+      homeDir,
+    ]);
+    expect(alreadyDated.exitCode).toBe(0);
+    expect(alreadyDated.text).toContain("Scaffolded 2026-05-30-roesti-soc-tabletop");
+    expect(alreadyDated.text).not.toContain(`${today}-2026-05-30-roesti-soc-tabletop`);
   });
 });
 
