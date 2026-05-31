@@ -17,6 +17,7 @@ import {
   setActiveIsa,
   uninstallSomaForClaudeCode,
 } from "../src/index";
+import { unpatchClaudeCodeModeClassifierSettings } from "../src/adapters/claude-code/hooks";
 import { portableProjectionInput } from "./fixtures";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
@@ -47,6 +48,21 @@ function countSomaHookCommands(settings: { hooks?: Record<string, unknown[]> }):
   ).length;
 }
 
+function countHookCommandsContaining(settings: { hooks?: Record<string, unknown[]> }, text: string): number {
+  return Object.values(settings.hooks ?? {}).flatMap((groups) =>
+    groups.flatMap((group) => {
+      if (!group || typeof group !== "object" || !("hooks" in group) || !Array.isArray(group.hooks)) return [];
+      return group.hooks.filter((hook) =>
+        hook &&
+        typeof hook === "object" &&
+        "command" in hook &&
+        typeof hook.command === "string" &&
+        hook.command.includes(text),
+      );
+    }),
+  ).length;
+}
+
 function runClaudeHook(homeDir: string, event: string, input: Record<string, unknown>): void {
   const hook = join(homeDir, ".claude/hooks/soma/soma-claude-code-hook.mjs");
   const result = spawnSync(process.execPath, [hook, event], {
@@ -56,6 +72,26 @@ function runClaudeHook(homeDir: string, event: string, input: Record<string, unk
     encoding: "utf8",
   });
   expect(result.status).toBe(0);
+}
+
+interface ClaudePromptHookOutput {
+  continue?: boolean;
+  hookSpecificOutput?: {
+    hookEventName?: string;
+    additionalContext?: string;
+  };
+}
+
+function runClaudeModeClassifierHook(homeDir: string, input: Record<string, unknown>): ClaudePromptHookOutput {
+  const hook = join(homeDir, ".claude/hooks/soma/soma-mode-classifier.mjs");
+  const result = spawnSync(process.execPath, [hook], {
+    cwd: process.cwd(),
+    env: { ...process.env, HOME: homeDir },
+    input: JSON.stringify(input),
+    encoding: "utf8",
+  });
+  expect(result.status).toBe(0);
+  return JSON.parse(result.stdout) as ClaudePromptHookOutput;
 }
 
 async function waitForEvents(homeDir: string, predicate: (events: ClaudeHookEvent[]) => boolean): Promise<ClaudeHookEvent[]> {
@@ -120,6 +156,15 @@ test("AC-2: planSomaForClaudeCodeInstall lists every file written", () => {
   ]);
 });
 
+test("issue #274: mode classifier hook files are opt-in in the Claude Code install plan", () => {
+  const defaultPlan = planSomaForClaudeCodeInstall({ homeDir: "/tmp/test-home" });
+  expect(defaultPlan.substrateFiles).not.toContain("/tmp/test-home/.claude/hooks/soma/soma-mode-classifier.mjs");
+
+  const plan = planSomaForClaudeCodeInstall({ homeDir: "/tmp/test-home", modeClassifier: true });
+  expect(plan.substrateFiles).toContain("/tmp/test-home/.claude/hooks/soma/soma-mode-classifier.mjs");
+  expect(plan.substrateFiles).toContain("/tmp/test-home/.claude/hooks/soma/soma-mode-classifier.config.json");
+});
+
 test("AC-3: planSomaForClaudeCodeInstall does not write files (plan.apply === false)", async () => {
   await withTempHome(async (homeDir) => {
     planSomaForClaudeCodeInstall({ homeDir });
@@ -175,6 +220,144 @@ test("issue #236: claude-code install wires Soma-owned hooks without overwriting
     expect(JSON.stringify(settings)).toContain(config.bunPath);
     expect(Object.keys(settings.hooks).sort()).toEqual(["PostToolUse", "SessionEnd", "SessionStart", "SubagentStart", "SubagentStop"]);
     expect(countSomaHookCommands(settings)).toBe(5);
+    expect(JSON.stringify(settings)).not.toContain("soma-mode-classifier");
+  });
+});
+
+test("issue #274: Claude Code mode classifier install disables PAI classifier and restores it on uninstall", async () => {
+  await withTempHome(async (homeDir) => {
+    await mkdir(join(homeDir, ".claude"), { recursive: true });
+    const paiModeClassifierCommand = "bun ~/PAI/TOOLS/ModeClassifier.hook.ts";
+    await writeFile(
+      join(homeDir, ".claude/settings.json"),
+      JSON.stringify({
+        hooks: {
+          UserPromptSubmit: [
+            {
+              description: "PAI ModeClassifier",
+              hooks: [{ type: "command", command: paiModeClassifierCommand }],
+            },
+            {
+              description: "user prompt hook",
+              hooks: [{ type: "command", command: "echo user-prompt" }],
+            },
+          ],
+        },
+      }, null, 2),
+      "utf8",
+    );
+
+    await installSomaForClaudeCode({ homeDir, modeClassifier: true });
+    await installSomaForClaudeCode({ homeDir, modeClassifier: true });
+
+    const hookInfo = await stat(join(homeDir, ".claude/hooks/soma/soma-mode-classifier.mjs"));
+    expect((hookInfo.mode & 0o100) !== 0).toBe(true);
+    const settings = await readJson<{ hooks: Record<string, unknown[]>; somaDisabledHooks?: Record<string, unknown[]> }>(join(homeDir, ".claude/settings.json"));
+    expect(countHookCommandsContaining(settings, "soma-mode-classifier.mjs")).toBe(1);
+    expect(JSON.stringify(settings.hooks)).toContain("echo user-prompt");
+    expect(JSON.stringify(settings.hooks)).not.toContain("ModeClassifier.hook.ts");
+    expect(JSON.stringify(settings.somaDisabledHooks)).toContain("ModeClassifier.hook.ts");
+
+    const output = runClaudeModeClassifierHook(homeDir, { prompt: "Implement a multi-file migration for the adapter" });
+    expect(output.continue).toBe(true);
+    expect(output.hookSpecificOutput?.hookEventName).toBe("UserPromptSubmit");
+    expect(output.hookSpecificOutput?.additionalContext).toContain("Soma MODE: ALGORITHM E3");
+    expect(output.hookSpecificOutput?.additionalContext).toContain("Do not downshift");
+
+    const removed = await uninstallSomaForClaudeCode({ homeDir });
+    expect(removed.removed).toContain(join(homeDir, ".claude/hooks/soma/soma-mode-classifier.mjs"));
+    expect(removed.removed).toContain(join(homeDir, ".claude/hooks/soma/soma-mode-classifier.config.json"));
+    await expect(stat(join(homeDir, ".claude/hooks/soma/soma-mode-classifier.mjs"))).rejects.toThrow();
+    const after = await readJson<{ hooks: Record<string, unknown[]>; somaDisabledHooks?: unknown }>(join(homeDir, ".claude/settings.json"));
+    expect(JSON.stringify(after.hooks)).toContain("ModeClassifier.hook.ts");
+    expect(JSON.stringify(after.hooks)).toContain("echo user-prompt");
+    expect(JSON.stringify(after.hooks)).not.toContain("soma-mode-classifier");
+    expect(after.somaDisabledHooks).toBeUndefined();
+  });
+});
+
+test("issue #274: mode classifier uninstall ignores empty disabled PAI hook groups", async () => {
+  await withTempHome(async (homeDir) => {
+    const substrateHome = join(homeDir, ".claude");
+    await mkdir(substrateHome, { recursive: true });
+    const settingsPath = join(substrateHome, "settings.json");
+    await writeFile(
+      settingsPath,
+      JSON.stringify({ somaDisabledHooks: { paiModeClassifier: [{ description: "empty", hooks: [] }] } }, null, 2),
+      "utf8",
+    );
+
+    const before = await readFile(settingsPath, "utf8");
+    const changed = await unpatchClaudeCodeModeClassifierSettings(substrateHome, process.execPath);
+    const after = await readJson<{ somaDisabledHooks?: unknown }>(settingsPath);
+
+    expect(changed).toEqual([settingsPath]);
+    expect(await readFile(settingsPath, "utf8")).not.toBe(before);
+    expect(after.somaDisabledHooks).toBeUndefined();
+  });
+});
+
+test("issue #274: mode classifier uninstall restores only missing PAI hook commands", async () => {
+  await withTempHome(async (homeDir) => {
+    const substrateHome = join(homeDir, ".claude");
+    await mkdir(substrateHome, { recursive: true });
+    const existingCommand = "bun ~/PAI/TOOLS/ModeClassifier.hook.ts";
+    const missingCommand = "node ~/PAI/TOOLS/ModeClassifier.hook.mjs";
+    const settingsPath = join(substrateHome, "settings.json");
+    await writeFile(
+      settingsPath,
+      JSON.stringify({
+        hooks: {
+          UserPromptSubmit: [{ description: "already restored", hooks: [{ type: "command", command: existingCommand }] }],
+        },
+        somaDisabledHooks: {
+          paiModeClassifier: [{ description: "PAI ModeClassifier", hooks: [{ type: "command", command: existingCommand }, { type: "command", command: missingCommand }] }],
+        },
+      }, null, 2),
+      "utf8",
+    );
+
+    await unpatchClaudeCodeModeClassifierSettings(substrateHome, process.execPath);
+
+    const after = await readJson<{ hooks: Record<string, unknown[]>; somaDisabledHooks?: unknown }>(settingsPath);
+    expect(countHookCommandsContaining(after, "ModeClassifier.hook.ts")).toBe(1);
+    expect(countHookCommandsContaining(after, "ModeClassifier.hook.mjs")).toBe(1);
+    expect(after.somaDisabledHooks).toBeUndefined();
+  });
+});
+
+test("issue #274: mode classifier install disables quoted PAI mjs classifier commands", async () => {
+  await withTempHome(async (homeDir) => {
+    await mkdir(join(homeDir, ".claude"), { recursive: true });
+    const paiModeClassifierCommand = 'bun "/workspace/PAI/TOOLS/ModeClassifier.hook.mjs"';
+    await writeFile(
+      join(homeDir, ".claude/settings.json"),
+      JSON.stringify({
+        hooks: {
+          UserPromptSubmit: [{ description: "PAI ModeClassifier", hooks: [{ type: "command", command: paiModeClassifierCommand }] }],
+        },
+      }, null, 2),
+      "utf8",
+    );
+
+    await installSomaForClaudeCode({ homeDir, modeClassifier: true });
+
+    const settings = await readJson<{ hooks: Record<string, unknown[]>; somaDisabledHooks?: Record<string, unknown[]> }>(join(homeDir, ".claude/settings.json"));
+    expect(JSON.stringify(settings.hooks)).not.toContain("ModeClassifier.hook.mjs");
+    expect(JSON.stringify(settings.somaDisabledHooks)).toContain("ModeClassifier.hook.mjs");
+  });
+});
+
+test("issue #274: mode classifier hook fails open when config is missing", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForClaudeCode({ homeDir, modeClassifier: true });
+    await rm(join(homeDir, ".claude/hooks/soma/soma-mode-classifier.config.json"));
+
+    const output = runClaudeModeClassifierHook(homeDir, { prompt: "hello" });
+
+    expect(output.continue).toBe(true);
+    expect(output.hookSpecificOutput?.hookEventName).toBe("UserPromptSubmit");
+    expect(output.hookSpecificOutput?.additionalContext).toContain("Soma mode classifier unavailable");
   });
 });
 

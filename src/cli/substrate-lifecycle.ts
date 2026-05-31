@@ -19,6 +19,7 @@ import {
   type UninstallClaudeCodeResult,
   type UninstallCursorResult,
 } from "../index";
+import type { ClaudeCodeInstallOptions } from "../adapters/claude-code/install-options";
 import type {
   ProjectionInput,
   SomaInstallOptions,
@@ -30,13 +31,14 @@ import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";
 
 export type InstallSubstrate = Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor">;
+type InstallCliOptions = SomaInstallOptions & Partial<Pick<ClaudeCodeInstallOptions, "modeClassifier">>;
 
 export interface ParsedInstallArgs {
   command: "install";
   substrate: InstallSubstrate;
   apply: boolean;
   workspace: boolean;
-  options: SomaInstallOptions;
+  options: InstallCliOptions;
 }
 
 export interface ParsedUninstallArgs {
@@ -82,7 +84,7 @@ export type ParsedSubstrateLifecycleArgs =
 export const INSTALL_SUBSTRATES = ["codex", "pi-dev", "claude-code", "cursor"] as const satisfies readonly InstallSubstrate[];
 
 const substrateList = INSTALL_SUBSTRATES.join("|");
-const installOptions = "[--dry-run] [--apply] [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
+const installOptions = "[--dry-run] [--apply] [--workspace] [--mode-classifier] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
 const uninstallOptions = "[--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
 
 function lifecycleUsage(command: string, target: string, options: string): string {
@@ -179,12 +181,12 @@ function resolveJoin(...parts: string[]): string {
   return parts.join("/").replace(/\/+/g, "/");
 }
 
-function parseSubstrateLifecycleOptions(
+function parseSubstrateLifecycleOptions<TOptions extends SomaInstallOptions = SomaInstallOptions>(
   substrate: InstallSubstrate,
   rest: string[],
-  extra: (arg: string, index: number) => boolean,
-): { workspace: boolean; options: SomaInstallOptions } {
-  const options: SomaInstallOptions = {};
+  extra: (arg: string, index: number, options: TOptions) => boolean,
+): { workspace: boolean; options: TOptions } {
+  const options = {} as TOptions;
   let workspace = false;
   let substrateHomeExplicit = false;
 
@@ -210,7 +212,7 @@ function parseSubstrateLifecycleOptions(
         continue;
     }
 
-    if (extra(arg, index)) continue;
+    if (extra(arg, index, options)) continue;
 
     throw new Error(`Unknown option: ${arg}`);
   }
@@ -230,7 +232,7 @@ export function parseInstallArgs(args: string[]): ParsedInstallArgs {
   }
 
   let apply = false;
-  const { workspace, options } = parseSubstrateLifecycleOptions(substrate, rest, (arg) => {
+  const { workspace, options } = parseSubstrateLifecycleOptions<InstallCliOptions>(substrate, rest, (arg, _index, parsedOptions) => {
     switch (arg) {
       case "--dry-run":
         apply = false;
@@ -238,9 +240,15 @@ export function parseInstallArgs(args: string[]): ParsedInstallArgs {
       case "--apply":
         apply = true;
         return true;
+      case "--mode-classifier":
+        parsedOptions.modeClassifier = true;
+        return true;
     }
     return false;
   });
+  if (options.modeClassifier === true && substrate !== "claude-code") {
+    throw new Error("--mode-classifier is only supported for claude-code installs.");
+  }
 
   return { command, substrate, apply, workspace, options };
 }

@@ -7,6 +7,7 @@ import {
   installCursorHomeProjection,
   installPiDevHomeProjection,
 } from "./home-projection";
+import type { ClaudeCodeInstallOptions } from "./adapters/claude-code/install-options";
 import { buildSomaStartupContext, runSomaLifecycleAlgorithmUpdated } from "./lifecycle";
 import { SOMA_MEMORY_CATEGORIES } from "./memory-readmes";
 import { defaultSomaRepoPath } from "./repo-path";
@@ -23,6 +24,8 @@ import {
 } from "./install-spec";
 import { defaultSubstrateHome, installSpecFor } from "./install-spec-registry";
 import type { ProjectionInput, SomaInstallOptions, SomaInstallPlan, SomaInstallResult } from "./types";
+
+export type { ClaudeCodeInstallOptions } from "./adapters/claude-code/install-options";
 
 const SOMA_BOOTSTRAP_FILES = [
   "profile/assistant.md",
@@ -66,8 +69,16 @@ export function planSomaInstall(
   substrate: InstallSubstrate,
   options: SomaInstallOptions = {},
 ): SomaInstallPlan {
+  return planSomaInstallBase(substrate, options);
+}
+
+function planSomaInstallBase(
+  substrate: InstallSubstrate,
+  options: SomaInstallOptions = {},
+): SomaInstallPlan {
   const spec = installSpecFor(substrate);
   const homes = resolveInstallHomes(substrate, options);
+  const optionalSubstrateFiles = spec.optionalHomeFiles?.(options) ?? [];
 
   return {
     substrate,
@@ -76,7 +87,7 @@ export function planSomaInstall(
     substrateHome: homes.substrateHome,
     somaDirectories: SOMA_BOOTSTRAP_DIRECTORIES.map((path) => `${homes.somaHome}/${path}`),
     somaFiles: SOMA_BOOTSTRAP_FILES.map((path) => `${homes.somaHome}/${path}`),
-    substrateFiles: spec.homeFiles.map((path) => `${homes.substrateHome}/${path}`),
+    substrateFiles: [...spec.homeFiles, ...optionalSubstrateFiles].map((path) => `${homes.substrateHome}/${path}`),
   };
 }
 
@@ -88,8 +99,8 @@ export function planSomaForPiDevInstall(options: SomaInstallOptions = {}): SomaI
   return planSomaInstall("pi-dev", options);
 }
 
-export function planSomaForClaudeCodeInstall(options: SomaInstallOptions = {}): SomaInstallPlan {
-  return planSomaInstall("claude-code", options);
+export function planSomaForClaudeCodeInstall(options: ClaudeCodeInstallOptions = {}): SomaInstallPlan {
+  return planSomaInstallBase("claude-code", options);
 }
 
 export function planSomaForCursorInstall(options: SomaInstallOptions = {}): SomaInstallPlan {
@@ -151,6 +162,7 @@ async function installSomaForSubstrate(
     somaHome: somaHome.somaHome,
     somaRepoPath: projectionOptions.somaRepoPath,
     substrateHome: substrateHome.rootDir,
+    options,
   });
   const lifecycleSpec = spec.lifecycleProjection;
   const lifecycleFiles = lifecycleSpec
@@ -174,7 +186,7 @@ async function installSomaForSubstrate(
 
 async function runPostProjectionSteps(
   spec: SubstrateInstallSpec,
-  context: { homeDir?: string; somaHome: string; somaRepoPath: string; substrateHome: string },
+  context: { homeDir?: string; somaHome: string; somaRepoPath: string; substrateHome: string; options?: unknown },
 ): Promise<string[]> {
   const files: string[] = [];
   for (const step of spec.postProjection ?? []) {
@@ -242,7 +254,7 @@ export async function installSomaForPiDev(options: SomaInstallOptions = {}): Pro
  * `~/.claude/settings.json` idempotently. CLAUDE.md composition remains
  * intentionally out of scope.
  */
-export async function installSomaForClaudeCode(options: SomaInstallOptions = {}): Promise<SomaInstallResult> {
+export async function installSomaForClaudeCode(options: ClaudeCodeInstallOptions = {}): Promise<SomaInstallResult> {
   return installSomaForSubstrate("claude-code", options);
 }
 

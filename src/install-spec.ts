@@ -13,6 +13,7 @@ export interface InstallPostProjectionContext {
   somaHome: string;
   somaRepoPath: string;
   substrateHome: string;
+  options?: unknown;
 }
 
 export interface InstallPostProjectionStep {
@@ -60,6 +61,7 @@ export interface SubstrateInstallSpec<S extends InstallSubstrate = InstallSubstr
   substrate: S;
   defaultHome: string;
   homeFiles: readonly string[];
+  optionalHomeFiles?(options: unknown): readonly string[];
   isaSkillProjection: IsaSkillProjectionSpec;
   validator?: InstallValidator;
   lifecycleProjection?: LifecycleProjectionSpec;
