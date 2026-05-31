@@ -38,6 +38,11 @@ function stripClaudeOnlyInstructionLines(content: string): string {
     .join("\n");
 }
 
+function isMarkdownInstructionFile(path: string): boolean {
+  const lower = path.toLowerCase();
+  return lower === "skill.md" || lower.endsWith(".md");
+}
+
 export function rewriteSubstrateProjectionContent(input: {
   substrate: SubstrateId;
   path: string;
@@ -46,6 +51,8 @@ export function rewriteSubstrateProjectionContent(input: {
   if (input.substrate === "claude-code") return input.content;
 
   const withoutKnownMemoryRoots = rewriteKnownMemoryRoots(input.content);
-  const withoutClaudeOnlyLines = stripClaudeOnlyInstructionLines(withoutKnownMemoryRoots);
+  const withoutClaudeOnlyLines = isMarkdownInstructionFile(input.path)
+    ? stripClaudeOnlyInstructionLines(withoutKnownMemoryRoots)
+    : withoutKnownMemoryRoots;
   return normalizeSkillContent(input.path, withoutClaudeOnlyLines).content;
 }

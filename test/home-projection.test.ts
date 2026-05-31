@@ -350,6 +350,10 @@ test("non-Claude home projections rewrite Claude-only paths in portable skill pa
                 `Search with \`rg ${claudeHome}/PAI/MEMORY/KNOWLEDGE/\`.`,
               ].join("\n"),
             },
+            {
+              path: "Tools/hook-name.ts",
+              content: 'export const hookName = "ISASync.hook.ts";\n',
+            },
           ],
         },
       ],
@@ -362,6 +366,7 @@ test("non-Claude home projections rewrite Claude-only paths in portable skill pa
   const codexWorkflow = codex.bundle.files.find((file) => file.path === "skills/the-algorithm/Workflows/RunAlgorithm.md")?.content ?? "";
   const piSkill = piDev.bundle.files.find((file) => file.path === "agent/skills/the-algorithm/SKILL.md")?.content ?? "";
   const piWorkflow = piDev.bundle.files.find((file) => file.path === "agent/skills/the-algorithm/Workflows/RunAlgorithm.md")?.content ?? "";
+  const piTool = piDev.bundle.files.find((file) => file.path === "agent/skills/the-algorithm/Tools/hook-name.ts")?.content ?? "";
   const projected = [codexWorkflow, piSkill, piWorkflow].join("\n");
 
   expect(projected).not.toContain(claudeHome);
@@ -374,6 +379,7 @@ test("non-Claude home projections rewrite Claude-only paths in portable skill pa
   expect(projected).toContain(`${somaHome}/memory/decisions.md`);
   expect(projected).toContain(`${somaHome}/memory/handoff.md`);
   expect(projected).toContain(`${somaHome}/memory/KNOWLEDGE/`);
+  expect(piTool).toContain("ISASync.hook.ts");
 });
 
 
