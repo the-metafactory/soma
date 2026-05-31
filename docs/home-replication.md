@@ -55,8 +55,8 @@ Each machine has a local Soma home and an optional replica identity:
 
 The local home is authoritative while a machine is running. The remote is an
 exchange surface and audit history, not a daemon and not the global source of
-truth. Replication happens only when a user or substrate invokes a replication
-operation.
+truth. Replication happens only when a principal or substrate invokes a
+replication operation.
 
 The first backend should be Git-backed because Soma homes are already
 filesystem-native and snapshots already initialize safe Git repositories. A
@@ -115,13 +115,14 @@ soma replicate push
 soma replicate exchange
 ```
 
-`pull`, `push`, and `exchange` must create a Soma snapshot before applying
-remote state. `exchange` is shorthand for pull then push with the same safety
-checks. `status` must show the configured remote, replica id, enabled scopes,
+`pull` and `exchange` must create a Soma snapshot before applying remote state.
+`push` must create a Soma snapshot before staging and publishing eligible local
+state. `exchange` is shorthand for pull then push with the same safety checks.
+`status` must show the configured remote, replica id, enabled scopes,
 uncommitted local changes, pending remote changes, refused paths, and conflicts.
 
 No operation should refresh substrate projections automatically. After a
-replication operation changes the home, the user or substrate still runs
+replication operation changes the home, the principal or substrate still runs
 `soma reproject <substrate>` or `soma install <substrate> --apply` when a
 projection refresh is needed.
 
