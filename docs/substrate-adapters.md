@@ -129,6 +129,11 @@ Current home install behavior:
   `SessionStart`, `SessionEnd`, `PostToolUse`, `SubagentStart`, and
   `SubagentStop`. Re-running install is idempotent and preserves existing
   user, project, PAI, and non-Soma hook entries.
+- `soma install claude-code --mode-classifier --apply` additionally installs
+  an opt-in `UserPromptSubmit` mode-classifier hook. The hook calls
+  `soma algorithm classify --json`, injects a concise MODE context block, and
+  temporarily disables any detected PAI `ModeClassifier.hook.*` entry. Uninstall
+  removes Soma's classifier hook and restores the disabled PAI entry.
 - Lifecycle hooks call Soma lifecycle APIs with `--substrate claude-code`.
   Tool and subagent hooks emit metadata-only events through the Soma writeback
   gate; they do not mirror full raw transcripts or prompt text.

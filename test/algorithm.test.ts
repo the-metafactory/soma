@@ -126,11 +126,19 @@ test("classifies prompts into Algorithm mode and effort tiers", () => {
     mode: "minimal",
     source: "auto",
   });
+  expect(classifyAlgorithmPrompt("ok thanks")).toMatchObject({
+    mode: "minimal",
+    source: "auto",
+  });
   expect(classifyAlgorithmPrompt("great, that works nicely")).toMatchObject({
     mode: "minimal",
     source: "auto",
   });
   expect(classifyAlgorithmPrompt("what's next?")).toMatchObject({
+    mode: "native",
+    source: "auto",
+  });
+  expect(classifyAlgorithmPrompt("what time is it")).toMatchObject({
     mode: "native",
     source: "auto",
   });
