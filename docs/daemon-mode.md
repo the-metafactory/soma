@@ -46,7 +46,7 @@ not a new ecosystem coordinator.
 
 ## Myelin Contract Shape
 
-Soma should integrate through a narrow adapter that consumes Myelin-owned
+Soma should integrate through a narrow contract consumer for Myelin-owned
 contracts. The design uses logical subject classes here; exact subject names,
 wire versions, credentials, and retry policy must come from Myelin/Cortex
 configuration or packages.
