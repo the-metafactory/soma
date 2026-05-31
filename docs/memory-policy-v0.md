@@ -51,10 +51,12 @@ The initial portable operations are:
 - append learning notes through explicit tools or patches
 
 The first implemented recall surface is `soma memory search --query <text>`.
-It searches profile/import files plus WORK, KNOWLEDGE, LEARNING, WISDOM,
-RELATIONSHIP, and selected STATE files, then returns cited path/line/snippet
-matches. This is not semantic memory yet; it is the portable file-backed
-retrieval floor that substrates can call before answering.
+It also accepts one positional query, for example
+`soma memory search "client sovereignty agency"`. If both forms are supplied,
+`--query` wins. Search reads profile/import files plus WORK, KNOWLEDGE,
+LEARNING, WISDOM, RELATIONSHIP, and selected STATE files, then returns cited
+path/line/snippet matches. This is not semantic memory yet; it is the portable
+file-backed retrieval floor that substrates can call before answering.
 
 The first implemented result-capture surface is
 `soma result capture --substrate <substrate> --source <source> --summary <text>`.

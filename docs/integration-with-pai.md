@@ -320,7 +320,9 @@ ls ~/.soma/memory/WORK/algorithm-runs/  # the run is here, not under ~/.claude/
   the inverse does not happen.
 - **The Algorithm and ISA are now Soma's.** Phase markers, ISC
   verification, and learning routing land in `~/.soma/`. Project ISAs
-  created with `soma isa scaffold` live in the same place.
+  created with `soma isa scaffold` live in the same place. Newly scaffolded
+  ISA slugs are date-prefixed unless the requested slug already starts with a
+  date; use the slug printed by the scaffold command.
 
 ## Failure modes
 

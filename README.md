@@ -136,6 +136,12 @@ soma algorithm verify --id <run-id> --criterion-id C1 --status passed --evidence
 soma algorithm advance --id <run-id>
 ```
 
+Generated run ids are date-prefixed when you omit `--id`, and `soma algorithm
+show --id <run-id>` reports which substrates have touched the run. Phase
+advances, criterion verification, capability invocation, and learning
+promotion all append substrate provenance when the caller supplies
+`--substrate`.
+
 That run, your identity, telos, and anything learned now travel with you to the
 next host. Switch to Claude Code or Cursor (`soma install claude-code --apply`)
 and the same assistant shows up.
@@ -299,10 +305,14 @@ session. It carries criteria and verification evidence across substrates.
 
 ```bash
 soma isa scaffold --slug launch-plan --effort E2 --goal "Ship the launch plan with evidence"
-soma isa use launch-plan
+soma isa use <yyyy-mm-dd-launch-plan>
 soma isa active
-soma isa check launch-plan
+soma isa check <yyyy-mm-dd-launch-plan>
 ```
+
+`soma isa scaffold` date-prefixes newly scaffolded slugs unless the slug is
+already date-prefixed. Use the slug printed by the scaffold command for
+`use`, `active`, and `check`.
 
 For parallel feature work, Soma can reconcile feature ISAs back into a master
 ISA by stable criterion IDs. See [docs/isa-reconcile.md](docs/isa-reconcile.md).
@@ -328,9 +338,13 @@ explicit learning paths:
 
 ```bash
 soma memory search --query "client sovereignty agency"
+soma memory search "client sovereignty agency"
 soma memory promote --from-run <run-id> --store learning --title "Reusable lesson"
 soma feedback capture --text "you missed the arc-manifest check"
 ```
+
+`soma memory search` accepts either `--query <text>` or a single positional
+query. When both are present, `--query` wins.
 
 Promotion is deliberate: a verified run can become durable learning. Feedback
 capture is weaker by design: it records candidate corrections, preferences, or
@@ -372,9 +386,14 @@ Then project Soma into at least one substrate:
 ```bash
 bun run soma install codex --apply
 bun run soma install claude-code --apply
+bun run soma install claude-code --mode-classifier --apply
 bun run soma install pi-dev --apply
 bun run soma install cursor --apply
 ```
+
+`--mode-classifier` is an opt-in Claude Code hook. It installs Soma's
+`UserPromptSubmit` classifier, emits a compact MODE context block, and disables
+the PAI mode classifier entry while Soma owns that hook.
 
 ---
 

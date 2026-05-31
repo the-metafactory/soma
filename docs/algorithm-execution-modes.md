@@ -30,6 +30,19 @@ greedy load balancing by criterion count.
 Soma core only provides the partitioning algorithm. Worker spawning, process
 isolation, and result consolidation remain substrate or orchestration concerns.
 
+## Run Identity And Provenance
+
+New Algorithm runs created without an explicit `--id` use date-prefixed ids.
+This keeps repeated same-day tasks sortable and avoids collisions when several
+substrates start similar work. Existing explicit run ids are preserved.
+
+Algorithm mutations can also record per-hop substrate provenance. CLI paths
+such as phase advance, criterion verification, capability invocation, and
+learning promotion accept a substrate when the caller knows it. The run keeps
+that provenance as structured metadata, and `soma algorithm show --id <run-id>`
+surfaces a compact `touched by:` summary for handoff across Codex, Claude Code,
+Pi.dev, Cursor, Cortex, or daemon-driven work.
+
 ## Ideate And Optimize Parameters
 
 Soma defines portable parameter schemas and presets:
