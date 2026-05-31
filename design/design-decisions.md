@@ -637,3 +637,59 @@ operation snapshots before applying remote state.
   same privacy, snapshot, and conflict contract.
 
 **Discussion:** issue #146 design pass, 2026-05-31.
+
+### DD-12: Shared team state uses read-only team overlays
+
+**Status:** Decided (2026-05-31)
+
+**Context:** Issue #152 asks for shared skill registries, team memory overlays,
+team ISAs, and a permission model for organizations. Soma is intentionally a
+personal assistant core: Identity, Telos, Relationship, Policy, and Memory are
+rooted in one principal. A direct multi-principal home would weaken the trust
+model and make it unclear which principal owns profile facts, private memory,
+policy approvals, and writeback decisions. The design also intersects with Arc
+and Compass: Arc owns distribution, and Compass owns SOPs and governance.
+
+Three candidates surfaced:
+- **(a) Make `~/.soma/` multi-principal.** Add several principals to one shared
+  home and let permissions decide which parts each principal can see.
+- **(b) Use read-only team overlays.** Keep each personal Soma home
+  single-principal, then mount shared team skills, team knowledge/work, team
+  ISAs, and team policy restrictions as explicit overlays with provenance.
+- **(c) Defer team support to Cortex/Myelin.** Keep Soma purely personal and
+  let collaboration surfaces handle all team state.
+
+**Decision:** **(b)** — shared team state uses read-only **team overlays**. A
+personal Soma home remains single-principal. Team material supplements that
+home after Policy checks the team, source, scopes, and provenance. Identity,
+Telos, Relationship, raw transcripts, and security traces are never mounted
+from a team overlay.
+
+Team overlays start read-only. They may expose team skills, team
+`memory/KNOWLEDGE`, team `memory/WORK`, team ISAs, and team policy restrictions.
+Team policy can add restrictions or metadata requirements, but it must not relax
+personal policy. Search and projection must cite team/source/version
+provenance, and personal and team memory result groups remain separate.
+
+Arc remains the distribution source of truth for team skill packs and
+Arc-installable team overlay bundles. Compass remains the source of truth for
+SOPs and governance; Soma can reference Compass ids but does not redefine
+organizational process.
+
+**Rejected:**
+- (a) makes privacy and authority ambiguous. A shared home would invite
+  accidental sharing of personal Identity, Telos, Relationship, raw
+  transcripts, and security traces.
+- (c) is clean but too narrow: teams can safely share read-only skills,
+  knowledge, work artifacts, and ISAs before a daemon or bus is required.
+
+**Implications:**
+- The canonical design is documented in `docs/team-overlays.md`.
+- Future CLI work should use `soma team ...` for overlay management.
+- The first implementation slice should add read-only overlay install/list,
+  team-provenanced memory search, team skill registry entries, and explicit
+  team ISA selection.
+- Collaborative team writes are deferred until team-specific merge rules,
+  approval, provenance, and conflict reports exist.
+
+**Discussion:** issue #152 design pass, 2026-05-31.

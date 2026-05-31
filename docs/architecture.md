@@ -85,6 +85,11 @@ MCP-capable substrates may use the optional
 memory, ISA, Algorithm, and identity context. The server remains a core/library
 access surface; adapters only configure substrate-native MCP clients.
 
+Team-shared skills use **team overlays** rather than multi-principal Soma
+homes. A team overlay can supplement skill routing with team-provenanced skill
+registries, while the personal Soma home remains owned by one principal. See
+[docs/team-overlays.md](./team-overlays.md).
+
 ### Memory
 
 Memory is structured as files first:
@@ -105,6 +110,11 @@ Cross-machine Soma state uses **Home replication**, not projection refresh or
 substrate writeback. The design is Git-backed first, policy-gated per scope,
 and only auto-merges stores with deterministic merge semantics. See
 [docs/home-replication.md](./home-replication.md).
+
+Team `KNOWLEDGE`, `WORK`, and ISA material can be read through a team overlay,
+but it stays namespaced and cited separately from personal memory. Team
+overlays are read-only in the first slice and must not expose personal Identity,
+Telos, Relationship, raw transcript, or security-trace compartments.
 
 ### Policy
 

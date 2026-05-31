@@ -361,6 +361,27 @@ Pairs with [[assistant]]: principal ↔ assistant = the human and the named bein
 
 ---
 
+## team overlay
+
+A policy-scoped shared Soma layer that supplements one principal's local Soma
+home with team skills, team knowledge, team work artifacts, team ISAs, and
+team policy restrictions.
+
+Team overlays do not make a Soma home multi-principal. The personal Soma home
+still has exactly one [[principal]]. Team overlay material is mounted beside
+that home, read with explicit team provenance, and projected only when Policy
+allows the team and scope.
+
+**Not synonyms:** Do not call this `multi-principal home`, `shared home`, or
+`team identity`. The canonical term is `team overlay`.
+
+**Why:** Issue #152 needs shared team capability without violating the
+principal-owned privacy model. An overlay lets team material supplement
+personal Soma while keeping Identity, Telos, Relationship, raw transcripts, and
+security traces private.
+
+---
+
 ## adapter
 
 The actor that performs a [[project|projection]]. One adapter per [[substrate]]: Codex adapter, Pi.dev adapter, Claude Code adapter, Cortex adapter.
