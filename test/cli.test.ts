@@ -460,6 +460,34 @@ test("cli emits Algorithm classification as JSON", async () => {
   expect(classification.effort).toBe("E3");
 });
 
+test("cli algorithm new derives a date-prefixed slug when --id is omitted", async () => {
+  await withTempHome(async (homeDir) => {
+    const today = new Date().toISOString().slice(0, 10);
+    const expectedId = `${today}-drive-work-through-gates`;
+    const output = await runSomaCli([
+      "algorithm",
+      "new",
+      "--home-dir",
+      homeDir,
+      "--prompt",
+      "Use the harness",
+      "--intent",
+      "Drive work through gates.",
+      "--current-state",
+      "Only create exists.",
+      "--goal",
+      "Run reaches learn phase.",
+      "--criterion",
+      "C1:Mutation commands work.",
+    ]);
+
+    expect(output).toContain(`id: ${expectedId}`);
+    await expect(readFile(join(homeDir, `.soma/memory/WORK/algorithm-runs/${expectedId}.json`), "utf8")).resolves.toContain(
+      `"id": "${expectedId}"`,
+    );
+  });
+});
+
 test("cli drives Algorithm runs through gated mutations", async () => {
   await withTempHome(async (homeDir) => {
     await runSomaCli([

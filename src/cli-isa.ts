@@ -13,6 +13,7 @@ import {
   type IsaListEntry,
 } from "./isa";
 import { installIsaSkill } from "./isa-skill-installer";
+import { datePrefixSlug } from "./dated-slug";
 
 /**
  * `soma isa <action>` CLI surface (#36). Thin shell over the library
@@ -233,7 +234,7 @@ async function runUse(args: string[]): Promise<IsaCliResult> {
 
 async function runScaffold(args: string[]): Promise<IsaCliResult> {
   const parsed = parseFlags(args);
-  const slug = typeof parsed.flags.slug === "string" ? parsed.flags.slug : null;
+  const slug = typeof parsed.flags.slug === "string" ? datePrefixSlug(parsed.flags.slug) : null;
   const effort = typeof parsed.flags.effort === "string" ? parsed.flags.effort.toUpperCase() as EffortTier : null;
   const goal = typeof parsed.flags.goal === "string" ? parsed.flags.goal : null;
   if (slug === null) return { exitCode: 1, text: "soma isa scaffold requires --slug.\n" };
