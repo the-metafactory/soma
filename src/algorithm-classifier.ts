@@ -9,6 +9,8 @@ const MINIMAL_PROMPTS = new Set([
   "no",
   "thanks",
   "thank you",
+  "ok thanks",
+  "okay thanks",
   "works",
   "worked",
   "working",
@@ -31,6 +33,7 @@ const MINIMAL_PROMPTS = new Set([
 const NATIVE_PATTERNS = [
   /\b(what'?s next|next step|status|is that installed|does that work|what changed|what did you change)\b/i,
   /^(what|who|when|where) (is|are|was|were)\b/i,
+  /^what (time|date|day)\b/i,
   /^how (does|do|did|is|are)\b/i,
   /\b(run|execute)\b.+\b(tests?|command|script|lint|typecheck|date|pwd|ls)\b/i,
   /\b(read|show|summarize|inspect|check)\b.+\b(file|output|log|diff|status)\b/i,

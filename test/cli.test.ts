@@ -1696,6 +1696,20 @@ test("cli install supports claude-code substrate (dry-run)", async () => {
   });
 });
 
+test("cli install claude-code supports opt-in mode classifier dry-run", async () => {
+  await withTempHome(async (homeDir) => {
+    const output = await runSomaCli(["install", "claude-code", "--mode-classifier", "--home-dir", homeDir]);
+
+    expect(output).toContain(join(homeDir, ".claude/hooks/soma/soma-mode-classifier.mjs"));
+    expect(output).toContain(join(homeDir, ".claude/hooks/soma/soma-mode-classifier.config.json"));
+    await expect(stat(join(homeDir, ".claude"))).rejects.toThrow();
+  });
+});
+
+test("cli rejects mode classifier flag for non-Claude Code installs", async () => {
+  await expect(runSomaCli(["install", "codex", "--mode-classifier"])).rejects.toThrow("--mode-classifier is only supported");
+});
+
 test("cli dry-runs and applies cursor install", async () => {
   await withTempHome(async (homeDir) => {
     const dryRun = await runSomaCli(["install", "cursor", "--home-dir", homeDir]);
