@@ -10,6 +10,7 @@ import { activeIsaBundleFile } from "../../adapter-active-isa";
 import { somaPolicyPrivateMarkers } from "../../policy";
 import { somaMemoryPrivateRoots, somaProjectionPrivateRoots } from "../../projection-private-roots";
 import { defaultInboundContentSecurityConfig } from "../../inbound-security";
+import { rewriteSubstrateProjectionContent } from "../../substrate-projection-rewrites";
 
 /**
  * Compute the runtime config the soma-lifecycle.mjs hook reads at
@@ -445,7 +446,11 @@ export function projectCodexHome(input: ProjectionInput, somaHome: string, homeD
   const portableSkillFiles = input.profile.skills.flatMap((skill) =>
     (skill.files ?? []).map((file) => ({
       path: `skills/${skill.name}/${file.path}`,
-      content: file.content,
+      content: rewriteSubstrateProjectionContent({
+        substrate: "codex",
+        path: file.path,
+        content: file.content,
+      }),
     })),
   );
 

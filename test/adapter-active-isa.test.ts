@@ -105,6 +105,23 @@ test("AC-3: installSomaForPiDev projects ISA skill source into Pi-safe ~/.pi/age
   });
 });
 
+test("AC-3: non-Claude ISA skill projections rewrite Claude-specific source paths", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    await installSomaForPiDev({ homeDir });
+
+    const claudeHome = "~/" + ".claude";
+    const somaHome = "~/" + ".soma";
+    const codexScaffold = await readFile(join(homeDir, ".codex/skills/ISA/Workflows/Scaffold.md"), "utf8");
+    const piScaffold = await readFile(join(homeDir, ".pi/agent/skills/isa/Workflows/Scaffold.md"), "utf8");
+    const projected = `${codexScaffold}\n${piScaffold}`;
+
+    expect(projected).not.toContain(claudeHome);
+    expect(projected).toContain(`${somaHome}/memory/WORK/{slug}/ISA.md`);
+    expect(projected).toContain(`${somaHome}/skills/ISA/Examples/canonical-isa.md`);
+  });
+});
+
 test("AC-3: installSomaForPiDev removes legacy uppercase ISA projection", async () => {
   await withTempHome(async (homeDir) => {
     await mkdir(join(homeDir, ".pi/agent/skills/ISA"), { recursive: true });
