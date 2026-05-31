@@ -472,8 +472,10 @@ function formatExportResult(result: { files: { path: string; content: string }[]
 }
 
 export function formatPlan(plan: SomaInstallPlan): string {
+  const title = plan.apply ? "Soma install plan" : "Soma install PLAN (no changes written) - pass --apply to apply";
+  const footer = plan.apply ? [] : ["", "No changes were written. Re-run with --apply to apply this plan."];
   return [
-    "Soma install plan",
+    title,
     `substrate: ${plan.substrate}`,
     `mode: ${plan.apply ? "apply" : "dry-run"}`,
     `somaHome: ${plan.somaHome}`,
@@ -487,6 +489,7 @@ export function formatPlan(plan: SomaInstallPlan): string {
     "",
     "Substrate files:",
     ...plan.substrateFiles.map((path) => `- ${path}`),
+    ...footer,
   ].join("\n");
 }
 
