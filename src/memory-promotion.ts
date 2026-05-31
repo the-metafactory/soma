@@ -1,7 +1,8 @@
 import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { readAlgorithmRunById } from "./algorithm-store";
+import { readAlgorithmRunById, writeAlgorithmRun } from "./algorithm-store";
+import { appendAlgorithmProvenance } from "./algorithm-provenance";
 import { appendSomaMemoryEvent } from "./memory";
 import { getCriteria, getGoal } from "./isa-accessors";
 import { getRunPhase } from "./algorithm-lifecycle";
@@ -153,6 +154,15 @@ export async function promoteAlgorithmRunMemory(options: SomaMemoryPromotionOpti
     await unlink(path).catch(() => undefined);
     throw new Error(`Soma memory promotion event append failed; removed promotion note: ${path}`, { cause: error });
   });
+  await writeAlgorithmRun(
+    appendAlgorithmProvenance(run, {
+      timestamp,
+      operation: "memory.promote",
+      substrate: options.substrate,
+      detail: options.store,
+    }),
+    { somaHome },
+  );
 
   return {
     somaHome,

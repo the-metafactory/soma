@@ -14,6 +14,7 @@ import type {
   SubstrateId,
 } from "./types";
 import { getRunPhase } from "./algorithm-lifecycle";
+import { appendAlgorithmProvenance } from "./algorithm-provenance";
 
 const CORE_PHASES: AlgorithmPhase[] = ["observe", "think", "plan", "build", "execute", "verify", "learn"];
 const CAPABILITY_INVOKE_KINDS = ["skill", "inline", "agent", "command", "adapter"] as const;
@@ -657,7 +658,7 @@ export function recordAlgorithmCapabilityInvocation(
     evidence,
   };
 
-  return {
+  const next = {
     ...run,
     updatedAt: timestamp,
     capabilities: dedupeCapabilities(run.capabilities, name),
@@ -665,12 +666,19 @@ export function recordAlgorithmCapabilityInvocation(
       index === selectionIndex
         ? {
             ...selection,
-            status: "invoked",
+            status: "invoked" as const,
             invocation,
           }
         : selection,
     ),
   };
+  return appendAlgorithmProvenance(next, {
+    timestamp,
+    phase: getRunPhase(run),
+    operation: "capability.invoke",
+    substrate: invocation.substrate,
+    detail: name,
+  });
 }
 
 export function removeAlgorithmCapabilitySelection(

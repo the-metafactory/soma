@@ -10,6 +10,7 @@ import {
   getCriteria,
   getRunPhase,
   recordAlgorithmCapabilityInvocation,
+  recordAlgorithmLearning,
   registerAlgorithmCapabilityDefinition,
   applyAlgorithmBatch,
   removeAlgorithmCapabilitySelection,
@@ -865,6 +866,60 @@ test("applies Algorithm batch operations with one timestamp", () => {
   expect(run.updatedAt).toBe("2026-05-21T10:02:00.000Z");
   expect(run.capabilitySelections?.[0]?.selectedAt).toBe("2026-05-21T10:02:00.000Z");
   expect(run.capabilitySelections?.[0]?.invocation?.timestamp).toBe("2026-05-21T10:02:00.000Z");
+});
+
+test("records per-hop substrate provenance for Algorithm mutations", () => {
+  let run = createAlgorithmRun({
+    id: "provenance-run",
+    substrate: "claude-code",
+    prompt: "Track cross-substrate provenance.",
+    intent: "Track cross-substrate provenance.",
+    currentState: "Run is new.",
+    goal: "Run records substrate hops.",
+    criteria: [{ id: "C1", text: "Criterion is verified." }],
+    timestamp: "2026-05-14T10:00:00.000Z",
+  });
+
+  run = advanceAlgorithmRun(run, "2026-05-14T10:01:00.000Z", { substrate: "codex" });
+  run = verifyAlgorithmCriterion(
+    run,
+    "C1",
+    "passed",
+    "Codex verified the criterion.",
+    "2026-05-14T10:02:00.000Z",
+    { substrate: "codex" },
+  );
+  run = recordAlgorithmLearning(run, "Pi.dev captured the lesson.", "2026-05-14T10:03:00.000Z", {
+    substrate: "pi-dev",
+  });
+
+  expect(run.provenance).toEqual([
+    {
+      timestamp: "2026-05-14T10:00:00.000Z",
+      phase: "observe",
+      operation: "run.created",
+      substrate: "claude-code",
+    },
+    {
+      timestamp: "2026-05-14T10:01:00.000Z",
+      phase: "think",
+      operation: "phase.advance",
+      substrate: "codex",
+    },
+    {
+      timestamp: "2026-05-14T10:02:00.000Z",
+      phase: "think",
+      operation: "criterion.verify",
+      substrate: "codex",
+      detail: "C1",
+    },
+    {
+      timestamp: "2026-05-14T10:03:00.000Z",
+      phase: "think",
+      operation: "learning.record",
+      substrate: "pi-dev",
+    },
+  ]);
 });
 
 test("abandoned runs cannot advance", async () => {
