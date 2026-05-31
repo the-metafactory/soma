@@ -311,6 +311,79 @@ test("pi.dev home projection rejects normalized portable skill id collisions", (
   ).toThrow("Pi.dev skill id collision");
 });
 
+test("non-Claude home projections rewrite Claude-only paths in portable skill payloads", () => {
+  const claudeHome = "~/" + ".claude";
+  const somaHome = "~/" + ".soma";
+  const relativeClaudeMemory = "." + "claude/memory";
+  const dotRelativeClaudeMemory = "./" + relativeClaudeMemory;
+  const input = {
+    ...portableProjectionInput,
+    profile: {
+      ...portableProjectionInput.profile,
+      skills: [
+        {
+          name: "the-algorithm",
+          path: "skills/the-algorithm",
+          description: "Imported Algorithm skill with Claude-specific references.",
+          triggers: ["algorithm"],
+          files: [
+            {
+              path: "SKILL.md",
+              content: [
+                "---",
+                "name: the-algorithm",
+                "---",
+                "",
+                `Read ${claudeHome}/skills/ISA/Examples/canonical-isa.md.`,
+                "Claude hook: ISASync.hook.ts",
+                "Use the ISA Tool before continuing.",
+              ].join("\n"),
+            },
+            {
+              path: "Workflows/RunAlgorithm.md",
+              content: [
+                "# Run Algorithm",
+                "",
+                `Persist work at ${claudeHome}/PAI/MEMORY/WORK/{slug}/ISA.md.`,
+                `Bootstrap reads \`${relativeClaudeMemory}/decisions.md\` and \`${relativeClaudeMemory}/session-log.md\`.`,
+                `Dot-relative bootstrap reads \`${dotRelativeClaudeMemory}/handoff.md\`.`,
+                `Bare roots: \`${claudeHome}/memory\`, \`${relativeClaudeMemory}\`, and \`${dotRelativeClaudeMemory}\`.`,
+                `Search with \`rg ${claudeHome}/PAI/MEMORY/KNOWLEDGE/\`.`,
+              ].join("\n"),
+            },
+            {
+              path: "Tools/hook-name.ts",
+              content: 'export const hookName = "ISASync.hook.ts";\n',
+            },
+          ],
+        },
+      ],
+    },
+  };
+
+  const codex = buildCodexHomeProjection(input, { homeDir: "/tmp/soma-test-home" });
+  const piDev = buildPiDevHomeProjection(input, { homeDir: "/tmp/soma-test-home" });
+
+  const codexWorkflow = codex.bundle.files.find((file) => file.path === "skills/the-algorithm/Workflows/RunAlgorithm.md")?.content ?? "";
+  const piSkill = piDev.bundle.files.find((file) => file.path === "agent/skills/the-algorithm/SKILL.md")?.content ?? "";
+  const piWorkflow = piDev.bundle.files.find((file) => file.path === "agent/skills/the-algorithm/Workflows/RunAlgorithm.md")?.content ?? "";
+  const piTool = piDev.bundle.files.find((file) => file.path === "agent/skills/the-algorithm/Tools/hook-name.ts")?.content ?? "";
+  const projected = [codexWorkflow, piSkill, piWorkflow].join("\n");
+
+  expect(projected).not.toContain(claudeHome);
+  expect(projected).not.toContain(relativeClaudeMemory);
+  expect(projected).not.toContain("./~/");
+  expect(projected).not.toContain("ISASync.hook.ts");
+  expect(projected).not.toContain("ISA Tool");
+  expect(projected).toContain(`${somaHome}/skills/ISA/Examples/canonical-isa.md`);
+  expect(projected).toContain(`${somaHome}/memory/WORK/{slug}/ISA.md`);
+  expect(projected).toContain(`${somaHome}/memory/decisions.md`);
+  expect(projected).toContain(`${somaHome}/memory/handoff.md`);
+  expect(projected).toContain(`${somaHome}/memory/KNOWLEDGE/`);
+  expect(projected).toContain(`Bare roots: \`${somaHome}/memory\`, \`${somaHome}/memory\`, and \`${somaHome}/memory\`.`);
+  expect(piTool).toContain("ISASync.hook.ts");
+});
+
 
 test("installs codex home projection into a substrate home", async () => {
   await withTempHome(async (homeDir) => {

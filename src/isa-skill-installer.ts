@@ -4,15 +4,18 @@ import { homedir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { defaultSomaRepoPath } from "./repo-path";
 import { SKILL_MD, rewriteSkillNameFrontmatter } from "./skill-frontmatter";
+import { rewriteSubstrateProjectionContent } from "./substrate-projection-rewrites";
 import type {
   IsaSkillInstallOptions,
   IsaSkillInstallResult,
   SomaSkillBaseline,
   SomaSkillBaselines,
+  SubstrateId,
 } from "./types";
 
 interface InternalIsaSkillInstallOptions extends IsaSkillInstallOptions {
   skillNameOverride?: string;
+  projectionSubstrate?: SubstrateId;
 }
 
 const SKILL_NAME = "ISA";
@@ -88,10 +91,11 @@ async function hashSkillFiles(
   root: string,
   relativePaths: string[],
   skillNameOverride?: string,
+  projectionSubstrate?: SubstrateId,
 ): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
   for (const rel of relativePaths) {
-    out[rel] = sha256(transformSkillFileContent(rel, await readFile(join(root, rel), "utf8"), skillNameOverride));
+    out[rel] = sha256(transformSkillFileContent(rel, await readFile(join(root, rel), "utf8"), skillNameOverride, projectionSubstrate));
   }
   return out;
 }
@@ -174,14 +178,28 @@ async function readSkillFrontmatter(skillMdPath: string): Promise<SkillFrontmatt
   return parseSkillFrontmatter(await readFile(skillMdPath, "utf8"));
 }
 
-async function copySkillFile(source: string, destination: string, relPath: string, skillNameOverride?: string): Promise<void> {
+async function copySkillFile(
+  source: string,
+  destination: string,
+  relPath: string,
+  skillNameOverride?: string,
+  projectionSubstrate?: SubstrateId,
+): Promise<void> {
   await mkdir(dirname(destination), { recursive: true });
-  const content = transformSkillFileContent(relPath, await readFile(source, "utf8"), skillNameOverride);
+  const content = transformSkillFileContent(relPath, await readFile(source, "utf8"), skillNameOverride, projectionSubstrate);
   await writeFile(destination, content, "utf8");
 }
 
-function transformSkillFileContent(relPath: string, content: string, skillNameOverride?: string): string {
-  return rewriteSkillNameFrontmatter(relPath, content, skillNameOverride);
+function transformSkillFileContent(
+  relPath: string,
+  content: string,
+  skillNameOverride?: string,
+  projectionSubstrate?: SubstrateId,
+): string {
+  const rewritten = projectionSubstrate
+    ? rewriteSubstrateProjectionContent({ substrate: projectionSubstrate, path: relPath, content })
+    : content;
+  return rewriteSkillNameFrontmatter(relPath, rewritten, skillNameOverride);
 }
 
 interface DetectedDrift {
@@ -274,7 +292,7 @@ async function installIsaSkillInternal(options: InternalIsaSkillInstallOptions =
     throw new Error(`ISA skill source ${SKILL_MD} missing version or pack-id frontmatter.`);
   }
   const sourceFiles = await listSkillFiles(sourceDir);
-  const sourceHashes = await hashSkillFiles(sourceDir, sourceFiles, options.skillNameOverride);
+  const sourceHashes = await hashSkillFiles(sourceDir, sourceFiles, options.skillNameOverride, options.projectionSubstrate);
 
   const runtimeFrontmatter = await readSkillFrontmatter(join(runtimeDir, SKILL_MD));
   const baselinesRead = await readBaselines(somaHome);
@@ -299,6 +317,7 @@ async function installIsaSkillInternal(options: InternalIsaSkillInstallOptions =
       userAdditions,
       skillKey,
       skillNameOverride: options.skillNameOverride,
+      projectionSubstrate: options.projectionSubstrate,
     });
   }
 
@@ -318,6 +337,7 @@ async function installIsaSkillInternal(options: InternalIsaSkillInstallOptions =
       userAdditions,
       skillKey,
       skillNameOverride: options.skillNameOverride,
+      projectionSubstrate: options.projectionSubstrate,
     });
   }
 
@@ -348,6 +368,7 @@ async function installIsaSkillInternal(options: InternalIsaSkillInstallOptions =
     actionOverride: "upgraded",
     skillKey,
     skillNameOverride: options.skillNameOverride,
+    projectionSubstrate: options.projectionSubstrate,
   });
 }
 
@@ -365,6 +386,7 @@ interface ReconcileSameVersionContext {
   userAdditions: string[];
   skillKey: string;
   skillNameOverride?: string;
+  projectionSubstrate?: SubstrateId;
 }
 
 async function reconcileSameVersion(ctx: ReconcileSameVersionContext): Promise<IsaSkillInstallResult> {
@@ -383,7 +405,7 @@ async function reconcileSameVersion(ctx: ReconcileSameVersionContext): Promise<I
   const written: string[] = [];
   for (const rel of missingFiles) {
     const dest = join(ctx.runtimeDir, rel);
-    await copySkillFile(join(ctx.sourceDir, rel), dest, rel, ctx.skillNameOverride);
+    await copySkillFile(join(ctx.sourceDir, rel), dest, rel, ctx.skillNameOverride, ctx.projectionSubstrate);
     written.push(dest);
   }
   // Handle the pre-baselines runtime case: existing runtime installed before
@@ -461,13 +483,14 @@ interface FreshInstallContext {
   actionOverride?: "fresh" | "upgraded";
   skillKey: string;
   skillNameOverride?: string;
+  projectionSubstrate?: SubstrateId;
 }
 
 async function freshInstall(ctx: FreshInstallContext): Promise<IsaSkillInstallResult> {
   const written: string[] = [];
   for (const rel of ctx.sourceFiles) {
     const dest = join(ctx.runtimeDir, rel);
-    await copySkillFile(join(ctx.sourceDir, rel), dest, rel, ctx.skillNameOverride);
+    await copySkillFile(join(ctx.sourceDir, rel), dest, rel, ctx.skillNameOverride, ctx.projectionSubstrate);
     written.push(dest);
   }
 

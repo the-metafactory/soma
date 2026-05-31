@@ -2,7 +2,7 @@
 name: ISA
 description: "Owns the Ideal State Artifact: the commitment-time scaffold for articulating done, deriving ISC criteria, planning features, recording decisions, and verifying work. Use for ideal state, ISA/ISC criteria, project specs, scaffolding, completeness checks, reconciliation, or seeding an ISA from a repo."
 effort: medium
-version: 1.0.3
+version: 1.0.4
 pack-id: pai-isa-v1.0.0
 ---
 

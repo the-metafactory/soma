@@ -1,6 +1,7 @@
 import { readdir, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import { rewriteSkillNameFrontmatter } from "../../skill-frontmatter";
+import { rewriteSubstrateProjectionContent } from "../../substrate-projection-rewrites";
 import type { Projection, SomaSkill } from "../../types";
 
 export const PI_DEV_ISA_SKILL_ID = "isa";
@@ -15,7 +16,11 @@ export function piDevSkillId(name: string): string {
 }
 
 export function renderPiDevSkillFileContent(skillName: string, filePath: string, content: string): string {
-  return rewriteSkillNameFrontmatter(filePath, content, piDevSkillId(skillName));
+  return rewriteSkillNameFrontmatter(
+    filePath,
+    rewriteSubstrateProjectionContent({ substrate: "pi-dev", path: filePath, content }),
+    piDevSkillId(skillName),
+  );
 }
 
 export function buildPiDevPortableSkillFiles(skills: SomaSkill[]): Projection["files"] {

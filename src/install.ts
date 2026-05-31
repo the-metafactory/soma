@@ -137,6 +137,7 @@ async function installSomaForSubstrate(
     somaRepoPath,
     skillDestinationDir: spec.isaSkillProjection.destinationDir(substrateRoot),
     skillNameOverride: spec.isaSkillProjection.skillNameOverride,
+    projectionSubstrate: substrate,
   });
   // Populate the projection input with the active ISA so each
   // substrate writes its `active-isa.md` file (#37 AC-1/AC-2).
