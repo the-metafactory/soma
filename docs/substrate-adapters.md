@@ -166,7 +166,9 @@ emits the deterministic file bundle without writing files.
 projection and a Soma-owned `.cursorrules` marker file. A pre-existing
 workspace `.cursorrules` that does not start with the Soma marker is preserved.
 Cursor execution and MCP runtime wiring are deferred; the adapter exposes
-context projection first.
+context projection first. The portable MCP server contract is specified in
+[mcp-server.md](./mcp-server.md); Cursor adapter work should configure that
+server rather than defining a Cursor-only tool vocabulary.
 
 ## Cortex / Myelin
 
@@ -225,10 +227,15 @@ extensions; Signal remains the telemetry-system owner.
 
 Adapters own their substrate-native install facts: default home, projected file
 paths, substrate-specific skill destinations, lifecycle projection paths,
-validators, cleanup hooks, private projection roots, and uninstall targets. The
-installer owns orchestration: bootstrapping Soma home, loading active ISA,
-running lifecycle updates, writing projections, and applying the install,
-reproject, upgrade, and uninstall verbs.
+validators, cleanup hooks, private projection roots, MCP client configuration,
+and uninstall targets. The installer owns orchestration: bootstrapping Soma
+home, loading active ISA, running lifecycle updates, writing projections, and
+applying the install, reproject, upgrade, and uninstall verbs.
+
+The optional MCP server is a shared library/daemon surface, not an adapter.
+Adapters may install or advertise substrate-native MCP client configuration, but
+the tool inventory, schema budget, confirmation model, and read/write semantics
+belong to Soma core. See [mcp-server.md](./mcp-server.md).
 
 The first portability proof is documented in
 [portability-proof.md](./portability-proof.md). Memory and policy v0 are

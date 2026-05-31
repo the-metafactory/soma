@@ -80,6 +80,11 @@ The progressive loading contract is specified in
 project a compact skill registry by default and load skill bodies only after a
 task route selects them.
 
+MCP-capable substrates may use the optional
+[MCP server](./mcp-server.md) as the on-demand loading surface for skills,
+memory, ISA, Algorithm, and identity context. The server remains a core/library
+access surface; adapters only configure substrate-native MCP clients.
+
 ### Memory
 
 Memory is structured as files first:
@@ -144,6 +149,10 @@ Overlays the home projection if both exist.
 
 A substrate CLI loads Soma as code and exposes tools. No projection on disk.
 The substrate owns the process.
+
+The optional MCP server is a library/daemon-compatible tool surface. It can
+serve read-only context to MCP-capable substrates without replacing home and
+workspace projections.
 
 ### daemon
 
