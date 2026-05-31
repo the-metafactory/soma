@@ -40,9 +40,8 @@ Factory systems without absorbing their responsibilities. Glossary lives in
   personal home, and they must not contain personal Identity, Telos,
   Relationship, raw transcript, or security-trace compartments.
 - Daemon mode is a Soma runtime mode, not a new bus contract. Soma may route and
-  publish assistant work as a Cortex agent, but Myelin-owned subject names,
-  envelope schemas, credentials, acknowledgements, and retries stay outside
-  Soma. See [daemon-mode.md](./daemon-mode.md).
+  publish assistant work as a Cortex agent, while detailed Myelin ownership
+  terms stay canonical in [daemon-mode.md](./daemon-mode.md).
 
 ## Naming Rules
 
