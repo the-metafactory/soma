@@ -1,7 +1,7 @@
 import { mkdtemp, mkdir, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { syncAlgorithmRunFromIsa } from "../src/algorithm-isa-sync";
 import { readAlgorithmRunById } from "../src/algorithm-store";
 import { getCriteria } from "../src/isa-accessors";
@@ -111,6 +111,41 @@ test("resumes the existing run on a second sync of the same slug (no duplicate r
     const second = await syncAlgorithmRunFromIsa({ isaPath, substrate: "claude-code", somaHome });
     expect(second.created).toBe(false);
     expect(second.runId).toBe(first.runId);
+  });
+});
+
+test("corrupt run index starts fresh and emits bounded debug output", async () => {
+  await withSomaHome(async (somaHome, dir) => {
+    const isaPath = await writeIsaFile(
+      dir,
+      "demo-corrupt-index",
+      isaMarkdown({
+        slug: "demo-corrupt-index",
+        phase: "think",
+        goal: "Recover from corrupt index",
+        criteria: [{ id: "ISC-1", text: "c1" }],
+      }),
+    );
+    const stateDir = join(somaHome, "memory", "STATE");
+    await mkdir(stateDir, { recursive: true });
+    await writeFile(join(stateDir, "isa-run-index.json"), "{not json", "utf8");
+
+    let stderr = "";
+    const stderrSpy = spyOn(process.stderr, "write").mockImplementation((chunk: string | Uint8Array) => {
+      stderr += typeof chunk === "string" ? chunk : chunk.toString();
+      return true;
+    });
+    try {
+      const result = await syncAlgorithmRunFromIsa({ isaPath, substrate: "claude-code", somaHome });
+      expect(result.created).toBe(true);
+      expect(result.slug).toBe("demo-corrupt-index");
+    } finally {
+      stderrSpy.mockRestore();
+    }
+
+    expect(stderr).toContain("sync-from-isa");
+    expect(stderr).toContain("ignored malformed isa-run-index.json");
+    expect(stderr.length).toBeLessThan(512);
   });
 });
 
