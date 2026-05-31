@@ -409,6 +409,11 @@ snapshot-backed exchange of eligible `~/.soma/` state between machines. It does
 not change projection or writeback semantics. See
 [docs/home-replication.md](docs/home-replication.md).
 
+Team-shared skills, knowledge, work artifacts, and ISAs are designed as
+read-only team overlays. A team overlay supplements one principal's Soma home;
+it does not make the home multi-principal or share private Identity, Telos, or
+Relationship state. See [docs/team-overlays.md](docs/team-overlays.md).
+
 ---
 
 ## Documentation
@@ -422,6 +427,7 @@ not change projection or writeback semantics. See
 - [docs/progressive-skill-loading.md](docs/progressive-skill-loading.md), skill registry and just-in-time loading
 - [docs/mcp-server.md](docs/mcp-server.md), optional read-mostly MCP tool surface
 - [docs/home-replication.md](docs/home-replication.md), cross-machine Soma home replication
+- [docs/team-overlays.md](docs/team-overlays.md), read-only team overlays and shared-state boundaries
 - [docs/writeback-and-policy.md](docs/writeback-and-policy.md), projection, writeback, conflict, and policy semantics
 - [docs/portability-proof.md](docs/portability-proof.md), the first portability proof and evidence contract
 
