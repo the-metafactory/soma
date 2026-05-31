@@ -513,3 +513,67 @@ runtime policy decisions.
   exposes a reliable gate.
 
 **Discussion:** issue #255 design pass, 2026-05-29.
+
+### DD-10: MCP is an optional read-mostly Soma access surface
+
+**Status:** Decided (2026-05-31)
+
+**Context:** Issue #153 asks whether Soma should expose memory, skills, ISA,
+Algorithm, and identity through an MCP server. MCP-capable substrates can call
+tools directly, but MCP tool schemas carry always-on token cost and mutating
+tools can bypass the deliberate writeback gates if the boundary is unclear.
+
+Three candidates surfaced:
+- **(a) Treat MCP as a replacement adapter.** Build substrate behavior around
+  MCP and reduce filesystem projection work.
+- **(b) Treat MCP as an optional shared library/daemon surface.** Keep home and
+  workspace projections eager or indexed as appropriate, while MCP provides
+  on-demand read-only access and later confirmed writes.
+- **(c) Defer MCP entirely.** Keep only per-substrate hooks, rules, and
+  extension APIs until a substrate requires MCP.
+
+**Decision:** **(b)** — MCP is an optional read-mostly access surface over Soma
+core. It is not a substrate adapter replacement. Adapters may configure
+substrate-native MCP clients, but the MCP server owns one portable tool
+inventory and calls Soma core APIs for memory, skills, ISA, Algorithm, identity,
+policy, and writeback.
+
+The first implementation slice should expose read-only tools only:
+`soma_memory_search`, `soma_memory_read`, `soma_skill_registry`,
+`soma_skill_route`, `soma_skill_load`, `soma_isa_active`, `soma_isa_check`,
+`soma_algorithm_classify`, and `soma_identity_context`.
+
+Mutating tools are reserved behind a confirmation model:
+`soma_memory_promote`, `soma_isa_scaffold`, `soma_algorithm_new`, and
+`soma_algorithm_advance`. A mutating call must first return a deterministic
+preview, affected paths, policy checks, and a short-lived confirmation token.
+The token must be single-use and bound to the requesting principal, MCP client
+session, substrate, affected paths, policy result, and mutation fingerprint.
+The write only happens when a second call submits the token and matching
+mutation fingerprint from the same bound client session.
+
+MCP schemas must be budgeted. The default manifest should stay small, registry
+calls must not return full skill or memory bodies, and large responses must
+require selector or pagination arguments.
+
+Read tools must validate the requesting principal, MCP client session,
+substrate, and allowed memory/identity/ISA/skill/Algorithm scope before
+returning data. Unauthorized, out-of-scope, or malformed reads fail closed
+without returning private excerpts.
+
+**Rejected:**
+- (a) makes MCP support a prerequisite for Soma eager availability and would
+  collapse adapter responsibilities into a protocol server.
+- (c) misses the main benefit of MCP: a shared on-demand loading surface for
+  substrates that already know how to call tools.
+
+**Implications:**
+- The canonical design is documented in `docs/mcp-server.md`.
+- Cursor, Claude Code, Codex plugins, Pi.dev, and daemon substrates should
+  reuse the same MCP tool names instead of inventing per-substrate vocabularies.
+- Read-only tools must not write raw prompts, transcripts, full tool inputs, or
+  command output by default.
+- Deferred write tools should return structured `requires_confirmation` results
+  until the confirmation protocol is implemented.
+- Home and workspace projections remain required. MCP is an on-demand
+  optimization, not the only way to inhabit Soma.

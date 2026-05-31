@@ -308,6 +308,9 @@ Adapters decide how the skill is projected into each substrate.
 Soma supports progressive skill loading: project a compact registry by default,
 then load the selected skill body only when a task route needs it. See
 [docs/progressive-skill-loading.md](docs/progressive-skill-loading.md).
+MCP-capable substrates can use the optional
+[docs/mcp-server.md](docs/mcp-server.md) surface for the same on-demand loading
+without replacing the eager projection.
 
 ### Learning patterns
 
@@ -404,6 +407,7 @@ writeback gates, and adapter behavior are stable.
 - [docs/integration-with-pai.md](docs/integration-with-pai.md), PAI integration walkthrough
 - [docs/pai-pack-importer.md](docs/pai-pack-importer.md), PAI pack import rules
 - [docs/progressive-skill-loading.md](docs/progressive-skill-loading.md), skill registry and just-in-time loading
+- [docs/mcp-server.md](docs/mcp-server.md), optional read-mostly MCP tool surface
 - [docs/writeback-and-policy.md](docs/writeback-and-policy.md), projection, writeback, conflict, and policy semantics
 - [docs/portability-proof.md](docs/portability-proof.md), the first portability proof and evidence contract
 
