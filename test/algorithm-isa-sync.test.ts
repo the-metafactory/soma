@@ -28,6 +28,7 @@ async function writeIsaFile(dir: string, slug: string, markdown: string): Promis
 function isaMarkdown(input: {
   slug: string;
   phase: string;
+  progress?: string;
   effort?: string;
   goal: string;
   criteria: { id: string; text: string; done?: boolean }[];
@@ -44,7 +45,7 @@ task: ${input.goal}
 slug: ${input.slug}
 effort: ${input.effort ?? "E2"}
 phase: ${input.phase}
-progress: 0/${input.criteria.length}
+progress: ${input.progress ?? `0/${input.criteria.length}`}
 mode: ALGORITHM
 started: 2026-05-29
 updated: 2026-05-29
@@ -196,6 +197,63 @@ test("reconciles checked ISA criteria [x] into passed run criteria", async () =>
     const criteria = getCriteria(run.isa);
     expect(criteria.find((c) => c.id === "ISC-1")?.status).toBe("passed");
     expect(criteria.find((c) => c.id === "ISC-2")?.status).toBe("open");
+  });
+});
+
+test("reconciles frontmatter progress when ISA checkboxes remain unticked", async () => {
+  await withSomaHome(async (somaHome, dir) => {
+    const isaPath = await writeIsaFile(
+      dir,
+      "demo-frontmatter-progress",
+      isaMarkdown({
+        slug: "demo-frontmatter-progress",
+        phase: "learn",
+        progress: "3/3",
+        goal: "Honor frontmatter completion",
+        criteria: [
+          { id: "ISC-1", text: "first", done: false },
+          { id: "ISC-2", text: "second", done: false },
+          { id: "ISC-3", text: "third", done: false },
+        ],
+      }),
+    );
+
+    const result = await syncAlgorithmRunFromIsa({ isaPath, substrate: "claude-code", somaHome });
+    expect(result.criteriaPassed).toBe(3);
+    expect(result.criteriaTotal).toBe(3);
+    expect(result.phase).toBe("learn");
+
+    const { run } = await readAlgorithmRunById(result.runId!, { somaHome });
+    expect(getCriteria(run.isa).map((c) => c.status)).toEqual(["passed", "passed", "passed"]);
+    expect(run.verification.map((entry) => entry.text)).toContain(
+      "ISC-1: passed. synced from ISA progress: Honor frontmatter completion",
+    );
+  });
+});
+
+test("frontmatter progress never reopens checked ISA criteria", async () => {
+  await withSomaHome(async (somaHome, dir) => {
+    const isaPath = await writeIsaFile(
+      dir,
+      "demo-frontmatter-lower",
+      isaMarkdown({
+        slug: "demo-frontmatter-lower",
+        phase: "verify",
+        progress: "1/3",
+        goal: "Prefer stronger checkbox signal",
+        criteria: [
+          { id: "ISC-1", text: "first", done: true },
+          { id: "ISC-2", text: "second", done: true },
+          { id: "ISC-3", text: "third", done: false },
+        ],
+      }),
+    );
+
+    const result = await syncAlgorithmRunFromIsa({ isaPath, substrate: "claude-code", somaHome });
+    expect(result.criteriaPassed).toBe(2);
+
+    const { run } = await readAlgorithmRunById(result.runId!, { somaHome });
+    expect(getCriteria(run.isa).map((c) => c.status)).toEqual(["passed", "passed", "open"]);
   });
 });
 
