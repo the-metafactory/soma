@@ -174,6 +174,11 @@ workspace projections.
 Soma runs as a long-lived process, subscribes to Myelin subjects, owns state,
 and publishes envelopes. No substrate involved.
 
+Daemon mode consumes Cortex/Myelin contracts rather than defining bus semantics
+inside Soma. It should start with dry-run and health surfaces, then add live
+subscription only after Myelin subject and envelope contracts are imported from
+their owning packages. See [docs/daemon-mode.md](./daemon-mode.md).
+
 ### export
 
 Generate projection bytes (stdout or a tarball) without writing anywhere or

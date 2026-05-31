@@ -188,6 +188,10 @@ The daemon shape should follow the existing standalone Cortex agent pattern:
 - NATS credentials issued by Cortex
 - capabilities registered on startup
 
+Daemon ownership and Myelin contract boundaries are documented in
+[daemon-mode.md](./daemon-mode.md). The adapter may consume Myelin-owned
+contracts, but it must not make Soma the owner of bus protocol details.
+
 When a Cortex/Myelin agent drives a Soma Algorithm run, capability names must
 come from Soma's registry or the run's adapter-provided capability definitions.
 Agents can register startup capabilities on the run with

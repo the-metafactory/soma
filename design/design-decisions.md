@@ -693,3 +693,53 @@ organizational process.
   approval, provenance, and conflict reports exist.
 
 **Discussion:** issue #152 design pass, 2026-05-31.
+
+### DD-13: Daemon mode consumes Myelin contracts without owning the bus
+
+**Status:** Decided (2026-05-31)
+
+**Context:** Issue #149 asks for `soma daemon`: a long-lived process that
+subscribes to Myelin subjects, keeps assistant availability alive without an
+active substrate session, and routes work before spawning substrate sessions.
+Existing Soma docs define daemon as a runtime mode, while
+`docs/boundaries.md` says Cortex/Myelin own daemon, bus, and envelope
+mechanics.
+
+Three candidates surfaced:
+- **(a) Make Soma own Myelin subjects and envelope schemas.** Fast to implement
+  locally, but it duplicates Myelin protocol authority inside Soma.
+- **(b) Treat daemon as a Soma runtime mode that consumes imported
+  Cortex/Myelin contracts.** Soma owns assistant state, policy, route decisions,
+  and writeback. Myelin owns subject names, envelope semantics, credentials,
+  acknowledgements, and retries.
+- **(c) Defer daemon mode until Cortex provides an entire runner.** Avoids
+  premature protocol guesses, but leaves no local health or dry-run surface for
+  Soma readiness.
+
+**Decision:** **(b)** — daemon mode consumes Myelin contracts without owning
+the bus. Soma may run as a standalone Cortex agent and route work using Soma
+identity, memory, ISA, policy, and skill registry state. It must import or be
+configured with Myelin-owned subject/envelope contracts before subscribing to
+live bus traffic.
+
+The first implementation slice should add `soma daemon --dry-run` and
+`soma daemon --health` only. Live subscription, work claiming, substrate
+spawning, and result publication come after the owning Myelin/Cortex contracts
+are available.
+
+**Rejected:**
+- (a) violates the source-of-truth boundary and risks incompatible protocol
+  drift.
+- (c) is too passive; Soma can safely validate readiness and expose health
+  before live bus integration.
+
+**Implications:**
+- The canonical design is documented in `docs/daemon-mode.md`.
+- `soma daemon` with no flags can remain the reserved placeholder until live
+  subscribe semantics exist.
+- Daemon routing must preserve personal policy, team overlay privacy, and the
+  normal writeback gate.
+- Tests for the first implementation should use mock Myelin contracts, not a
+  live bus.
+
+**Discussion:** issue #149 design pass, 2026-05-31.

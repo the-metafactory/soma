@@ -238,6 +238,10 @@ substrate session. The daemon can send a Myelin envelope containing the selected
 skill manifests and source paths, then let the substrate adapter materialize the
 right context shape.
 
+The ownership and safety contract for this runtime lives in
+[daemon-mode.md](./daemon-mode.md). Soma owns route decisions and selected
+context provenance; Myelin owns the wire protocol and envelope semantics.
+
 ## Context Budget Rules
 
 - Every projection should report estimated token cost for kernel, registry, and
