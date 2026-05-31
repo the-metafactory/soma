@@ -299,6 +299,8 @@ function reconcileCriteria(
   const targetCompleted = frontmatterCompletionCount(isa, isaCriteria);
   let runCriteria = getCriteria(next.isa);
   let completed = runCriteria.filter(isClosedCriterion).length;
+  // Frontmatter progress is count-only; when it is partial, document order is
+  // the only deterministic way to choose which unchecked criteria to catch up.
   for (const isaCriterion of isaCriteria) {
     if (completed >= targetCompleted) break;
     const existing = runCriteria.find((criterion) => criterion.id === isaCriterion.id);
