@@ -34,8 +34,9 @@ import {
   selectAlgorithmCapability,
 } from "./algorithm-capabilities";
 import { readAlgorithmRunById, writeAlgorithmRun } from "./algorithm-store";
+import { datePrefixSlug } from "./dated-slug";
 import { getRunPhase } from "./algorithm-lifecycle";
-import { parseIsa } from "./isa-parse";
+import { parseIsa, serializeIsa } from "./isa-parse";
 import { getCriteria, getDecisions, getGoal } from "./isa-accessors";
 import { promoteAlgorithmRunMemory } from "./memory-promotion";
 import type {
@@ -340,6 +341,27 @@ function buildRunFromIsa(isa: IdealStateArtifact, slug: string, substrate: Subst
   });
 }
 
+async function normalizeIsaSlugInPlace(
+  isa: IdealStateArtifact,
+  slug: string,
+  path: string,
+): Promise<IdealStateArtifact> {
+  if (isa.slug === slug) return isa;
+  const normalized: IdealStateArtifact = {
+    ...isa,
+    slug,
+    frontmatter: {
+      ...isa.frontmatter,
+      custom: {
+        ...(isa.frontmatter.custom ?? {}),
+        slug,
+      },
+    },
+  };
+  await writeFile(path, serializeIsa(normalized), "utf8");
+  return normalized;
+}
+
 async function loadOrCreateRun(
   somaHome: string,
   slug: string,
@@ -396,14 +418,15 @@ async function syncAlgorithmRunFromIsaInner(
   }
 
   const isa = parseIsa(markdown, options.isaPath);
-  const slug = isa.slug;
+  const slug = datePrefixSlug(isa.slug, timestamp);
   const isaCriteria = getCriteria(isa);
   // A real ISA has a frontmatter slug AND criteria. Reject non-ISA markdown.
-  if (!isValidSlug(slug) || isaCriteria.length === 0 || getGoal(isa) === null) {
+  if (!isValidSlug(isa.slug) || isaCriteria.length === 0 || getGoal(isa) === null) {
     return noopResult();
   }
 
-  const { run: baseRun, created } = await loadOrCreateRun(somaHome, slug, isa, options.substrate, timestamp);
+  const normalizedIsa = await normalizeIsaSlugInPlace(isa, slug, options.isaPath);
+  const { run: baseRun, created } = await loadOrCreateRun(somaHome, slug, normalizedIsa, options.substrate, timestamp);
 
   let run = baseRun;
   const before = snapshot(run);

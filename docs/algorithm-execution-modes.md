@@ -34,7 +34,9 @@ isolation, and result consolidation remain substrate or orchestration concerns.
 
 New Algorithm runs created without an explicit `--id` use date-prefixed ids.
 This keeps repeated same-day tasks sortable and avoids collisions when several
-substrates start similar work. Existing explicit run ids are preserved.
+substrates start similar work. Existing explicit run ids are preserved. ISA
+files written back from substrate OBSERVE hooks are normalized through the
+same date-prefixing helper so bare ISA slugs do not bypass run identity rules.
 
 Algorithm mutations can also record per-hop substrate provenance. CLI paths
 such as phase advance, criterion verification, capability invocation, and
