@@ -106,6 +106,19 @@ describe("renderSomaAlgorithmExtension", () => {
     expect(source).toContain('checkpointRun(pi, run, "session_before_compact")');
   });
 
+  test("#290: terminal events refresh shared Algorithm provenance through lifecycle", () => {
+    const source = renderSomaAlgorithmExtension();
+
+    expect(source).toContain('function runSomaLifecycle(event: "algorithm-observed"): void');
+    expect(source).toContain('execFile("bun"');
+    expect(source).toContain("SOMA_CLI_ENTRYPOINT");
+    expect(source).toContain('"algorithm-observed"');
+    expect(source).toContain('"--substrate", "pi-dev"');
+    expect(source).toContain('runSomaLifecycle("algorithm-observed");');
+    expect(source).not.toContain("SOMA_REPO");
+    expect(source).not.toContain("soma-repo.txt");
+  });
+
   test("ingest path caps per-phase body to keep memory bounded (Sage R2 perf)", () => {
     const source = renderSomaAlgorithmExtension();
 
