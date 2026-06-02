@@ -1,5 +1,6 @@
 import {
   applyAlgorithmBatch,
+  advanceAlgorithmRunUntil,
   advanceAlgorithmRun,
   algorithmPhaseOrder,
   classifyAlgorithmPrompt,
@@ -52,6 +53,7 @@ export const ALGORITHM_ACTIONS = [
   "learn",
   "batch",
   "advance",
+  "resume",
   "sync-from-isa",
 ] as const;
 
@@ -75,6 +77,7 @@ export const ALGORITHM_COMMAND_HELP: { usage: string; subcommands: Record<Algori
     verify: "Usage: soma algorithm verify --id <run-id> --criterion-id <id> --status <passed|failed|dropped> --evidence <text> [--substrate <id>]",
     learn: "Usage: soma algorithm learn --id <run-id> --text <text> [--substrate <id>] [--home-dir <dir>] [--soma-home <dir>]",
     advance: "Usage: soma algorithm advance --id <run-id> [--substrate <id>] [--home-dir <dir>] [--soma-home <dir>]",
+    resume: "Usage: soma algorithm resume --id <run-id> --until-phase <phase> [--substrate <id>] [--home-dir <dir>] [--soma-home <dir>]",
     "sync-from-isa":
       "Usage: soma algorithm sync-from-isa --isa <path> --substrate <id> [--soma-home <dir>] [--home-dir <dir>] [--promote-on-complete]",
   },
@@ -103,6 +106,7 @@ interface AlgorithmCliOptions {
   criterionStatus?: "passed" | "failed" | "dropped";
   evidence?: string;
   substrate?: SubstrateId;
+  untilPhase?: AlgorithmPhase;
   batchOperations?: AlgorithmBatchOperation[];
   json?: boolean;
   isaPath?: string;
@@ -288,13 +292,13 @@ function parseBatchOperationsJson(value: string): AlgorithmBatchOperation[] {
   });
 }
 
-function parseAlgorithmPhase(value: string): AlgorithmPhase {
+function parseAlgorithmPhase(value: string, optionName = "--phase"): AlgorithmPhase {
   const phases = algorithmPhaseOrder();
   if (phases.includes(value as AlgorithmPhase)) {
     return value as AlgorithmPhase;
   }
 
-  throw new Error(`--phase must be one of ${phases.join(", ")}.`);
+  throw new Error(`${optionName} must be one of ${phases.join(", ")}.`);
 }
 
 export function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
@@ -371,6 +375,10 @@ export function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
         break;
       case "--phase":
         options.capabilityPhase = parseAlgorithmPhase(readOption(rest, index, arg));
+        index += 1;
+        break;
+      case "--until-phase":
+        options.untilPhase = parseAlgorithmPhase(readOption(rest, index, arg), arg);
         index += 1;
         break;
       case "--reason":
@@ -730,6 +738,15 @@ export async function runAlgorithmCli(parsed: ParsedAlgorithmArgs): Promise<stri
       promoteOnComplete: options.promoteOnComplete === true,
     });
     return formatSyncResult(result);
+  }
+
+  if (parsed.action === "resume") {
+    if (!options.untilPhase) throw new Error("--until-phase is required.");
+    const untilPhase = options.untilPhase;
+    return updateAndReportAlgorithmRun(options, (run) =>
+      advanceAlgorithmRunUntil(run, untilPhase, undefined, { substrate: options.substrate }),
+      { registerCapabilities: true },
+    );
   }
 
   return updateAndReportAlgorithmRun(options, (run) => advanceAlgorithmRun(run, undefined, { substrate: options.substrate }), {

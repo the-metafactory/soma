@@ -367,6 +367,33 @@ export function advanceAlgorithmRun(
   });
 }
 
+export function advanceAlgorithmRunUntil(
+  run: AlgorithmRun,
+  untilPhase: AlgorithmPhase,
+  timestamp = new Date().toISOString(),
+  provenance?: Pick<AlgorithmProvenanceInput, "substrate">,
+): AlgorithmRun {
+  const targetIndex = PHASES.indexOf(untilPhase);
+  if (targetIndex === -1 || untilPhase === "abandoned") {
+    throw new Error(`Algorithm handoff boundary must be one of ${PHASES.join(", ")}.`);
+  }
+
+  const currentIndex = PHASES.indexOf(getRunPhase(run));
+  if (currentIndex === -1) {
+    throw new Error("Algorithm run was abandoned and cannot advance.");
+  }
+  if (currentIndex > targetIndex) {
+    throw new Error(`Algorithm run is already past handoff boundary ${untilPhase}.`);
+  }
+
+  let next = run;
+  while (PHASES.indexOf(getRunPhase(next)) < targetIndex) {
+    next = advanceAlgorithmRun(next, timestamp, provenance);
+  }
+
+  return next;
+}
+
 export function updateAlgorithmPlanStep(
   run: AlgorithmRun,
   stepId: string,

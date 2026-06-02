@@ -5,6 +5,7 @@ import { expect, test } from "bun:test";
 import {
   addAlgorithmCapabilities,
   advanceAlgorithmRun,
+  advanceAlgorithmRunUntil,
   classifyAlgorithmPrompt,
   createAlgorithmRun,
   getCriteria,
@@ -228,6 +229,34 @@ test("enforces Algorithm phase gates", () => {
   );
   run = advanceAlgorithmRun(run, "2026-05-14T10:13:00.000Z");
   expect(getRunPhase(run)).toBe("complete");
+});
+
+test("advances Algorithm runs only to the requested handoff boundary", () => {
+  let run = createAlgorithmRun({
+    id: "handoff-run",
+    timestamp: "2026-06-02T10:00:00.000Z",
+    prompt: "Relay the run",
+    intent: "Advance only to the handoff boundary.",
+    currentState: "Run is at observe.",
+    goal: "Run pauses for the next substrate.",
+    criteria: [{ id: "C1", text: "Boundary is honored." }],
+  });
+
+  run = advanceAlgorithmRun(run, "2026-06-02T10:01:00.000Z");
+  run = selectAlgorithmCapability(run, { name: "sequential-analysis", phase: "think", reason: "Need a relay plan." });
+  run = recordAlgorithmCapabilityInvocation(run, {
+    name: "sequential-analysis",
+    substrate: "codex",
+    evidence: "Used sequential analysis to decide the handoff boundary.",
+  });
+
+  run = advanceAlgorithmRunUntil(run, "plan", "2026-06-02T10:02:00.000Z", { substrate: "codex" });
+  expect(getRunPhase(run)).toBe("plan");
+
+  run = setAlgorithmPlan(run, [{ id: "P1", criteriaIds: ["C1"], text: "Hand off after BUILD.", status: "open" }]);
+  run = advanceAlgorithmRunUntil(run, "build", "2026-06-02T10:03:00.000Z", { substrate: "codex" });
+  expect(getRunPhase(run)).toBe("build");
+  expect(() => advanceAlgorithmRunUntil(run, "plan", "2026-06-02T10:04:00.000Z")).toThrow("already past handoff boundary plan");
 });
 
 test("records structured Algorithm capability selections and invocations", () => {

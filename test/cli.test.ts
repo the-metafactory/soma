@@ -541,6 +541,85 @@ test("cli drives Algorithm runs through gated mutations", async () => {
   });
 });
 
+test("cli resume stops at an explicit handoff phase boundary", async () => {
+  await withTempHome(async (homeDir) => {
+    await runSomaCli([
+      "algorithm",
+      "new",
+      "--home-dir",
+      homeDir,
+      "--id",
+      "handoff-cli-run",
+      "--prompt",
+      "Relay this run",
+      "--intent",
+      "Resume only to the next substrate boundary.",
+      "--current-state",
+      "Run is at observe.",
+      "--goal",
+      "Run pauses before downstream phases.",
+      "--criterion",
+      "C1:Handoff boundary is honored.",
+    ]);
+
+    await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "handoff-cli-run"]);
+    await runSomaCli(["algorithm", "capabilities", "--home-dir", homeDir, "--id", "handoff-cli-run", "--capability", "sequential-analysis"]);
+
+    const planBoundary = await runSomaCli([
+      "algorithm",
+      "resume",
+      "--home-dir",
+      homeDir,
+      "--id",
+      "handoff-cli-run",
+      "--until-phase",
+      "plan",
+      "--substrate",
+      "codex",
+    ]);
+    expect(planBoundary).toContain("phase: plan");
+
+    await runSomaCli([
+      "algorithm",
+      "plan",
+      "--home-dir",
+      homeDir,
+      "--id",
+      "handoff-cli-run",
+      "--step",
+      "P1:C1:Leave execute and verify for another substrate.",
+    ]);
+
+    const buildBoundary = await runSomaCli([
+      "algorithm",
+      "resume",
+      "--home-dir",
+      homeDir,
+      "--id",
+      "handoff-cli-run",
+      "--until-phase",
+      "build",
+      "--substrate",
+      "codex",
+    ]);
+    expect(buildBoundary).toContain("phase: build");
+    expect(buildBoundary).not.toContain("phase: complete");
+
+    await expect(
+      runSomaCli([
+        "algorithm",
+        "resume",
+        "--home-dir",
+        homeDir,
+        "--id",
+        "handoff-cli-run",
+        "--until-phase",
+        "plan",
+      ]),
+    ).rejects.toThrow("already past handoff boundary plan");
+  });
+});
+
 test("cli records substrate provenance and surfaces touched-by summary", async () => {
   await withTempHome(async (homeDir) => {
     await runSomaCli([
