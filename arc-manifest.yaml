@@ -1,6 +1,6 @@
 schema: arc/v1
 name: soma
-version: 0.8.1
+version: 0.8.2
 type: tool
 tier: community
 description: Substrate-portable Personal AI Assistant core for identity, memory, ISA, skills, learning, and adapters.
@@ -20,6 +20,10 @@ runtime:
     - cortex
 
 provides:
+  cli:
+    - name: soma
+      command: bun src/cli.ts
+      description: Soma CLI for initialization, projection, diagnosis, memory, and Algorithm runs.
   skill:
     - name: Soma
       path: skill/
@@ -48,3 +52,5 @@ bundle:
   exclude:
     - .worktrees
     - .pi
+    - .tmp-tests
+    - .specflow

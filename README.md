@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.8.1-2A3F6A?labelColor=0E1726" />
+  <img alt="Version" src="https://img.shields.io/badge/version-0.8.2-2A3F6A?labelColor=0E1726" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-2A3F6A?labelColor=0E1726" />
   <img alt="Runs in" src="https://img.shields.io/badge/runs%20in-Codex%20%C2%B7%20Pi.dev%20%C2%B7%20Claude%20Code%20%C2%B7%20Cursor-2A3F6A?labelColor=0E1726" />
 </p>
@@ -373,6 +373,12 @@ Install with Arc:
 
 ```bash
 arc install @metafactory/soma
+```
+
+Arc installs the `soma` CLI on PATH. Verify the shim before continuing:
+
+```bash
+soma --version
 ```
 
 If `arc upgrade soma` resolves the new version but refuses to replace an older

@@ -18,7 +18,7 @@ To pin a specific release:
 
 ```bash
 arc remove soma
-arc install @metafactory/soma@0.8.1
+arc install @metafactory/soma@0.8.2
 ```
 
 This removes Arc's package registration and symlinks before installing the

@@ -18,6 +18,17 @@ test("arc manifest version matches package.json", () => {
   expect(version).toBe(pkg.version);
 });
 
+test("arc manifest exposes the soma CLI shim", () => {
+  const manifest = readFileSync(join(import.meta.dirname, "..", "arc-manifest.yaml"), "utf8");
+  expect(manifest).toContain("  cli:\n    - name: soma\n      command: bun src/cli.ts");
+});
+
+test("arc bundle excludes local runtime directories", () => {
+  const manifest = readFileSync(join(import.meta.dirname, "..", "arc-manifest.yaml"), "utf8");
+  expect(manifest).toContain("    - .tmp-tests");
+  expect(manifest).toContain("    - .specflow");
+});
+
 test("adapter contract is structurally usable", async () => {
   const adapter: SomaAdapter = {
     name: "custom",
