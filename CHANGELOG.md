@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-06-02
+
+### Chore
+- Bump release metadata to 0.8.1 for the Sigstore-capable Arc publish path.
+- Refresh the Arc pinned-install troubleshooting example to the current
+  release.
+
 ## [0.8.0] - 2026-06-02
 
 ### Cross-substrate Algorithm
@@ -303,7 +310,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See git history. 0.1.x predates this changelog and was iterated rapidly during the initial ISA + adapter bootstrap. The 0.2.0 entry above marks the first stable surface.
 
-[Unreleased]: https://github.com/the-metafactory/soma/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/the-metafactory/soma/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/the-metafactory/soma/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/the-metafactory/soma/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/the-metafactory/soma/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/the-metafactory/soma/compare/v0.6.4...v0.7.0
