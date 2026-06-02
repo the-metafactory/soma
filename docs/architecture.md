@@ -58,7 +58,9 @@ but Soma decides whether the process is allowed to advance.
 The harness is driven through explicit mutations rather than substrate-specific
 conversation tricks. The portable command surface covers `new`, `list`, `show`,
 `classify`, `capabilities`, `invoke`, `remove-capability`, `plan`, `decision`,
-`change`, `step`, `verify`, `learn`, and `advance`. `classify` is Soma's
+`change`, `step`, `verify`, `learn`, `advance`, and `resume`. `resume` accepts
+an explicit `--until-phase` handoff boundary so a relay substrate can stop
+before consuming downstream phases. `classify` is Soma's
 UserPromptSubmit mode classifier: it chooses MINIMAL, NATIVE, or ALGORITHM and
 maps Algorithm prompts to E1-E5 before a run is created. This adapts the useful
 part of PAI's Algorithm tool while leaving Claude-only PRD parsing, prompt

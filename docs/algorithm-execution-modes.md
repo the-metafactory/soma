@@ -45,6 +45,11 @@ that provenance as structured metadata, and `soma algorithm show --id <run-id>`
 surfaces a compact `touched by:` summary for handoff across Codex, Claude Code,
 Pi.dev, Cursor, Cortex, or daemon-driven work.
 
+Cross-substrate relays should use `soma algorithm resume --until-phase <phase>`
+when a hop owns only part of the run. `resume` repeatedly applies the normal
+phase gates, stops exactly at the requested phase, and leaves later phases for
+the next substrate.
+
 ## Ideate And Optimize Parameters
 
 Soma defines portable parameter schemas and presets:

@@ -164,6 +164,7 @@ export {
   addAlgorithmCapabilities,
   applyAlgorithmBatch,
   advanceAlgorithmRun,
+  advanceAlgorithmRunUntil,
   algorithmPhaseOrder,
   createAlgorithmRun,
   nextAlgorithmPhase,
