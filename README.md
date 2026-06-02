@@ -102,8 +102,18 @@ host substrate and the surrounding Meta Factory stack. See
 The fastest way to understand Soma is to project it into one substrate and run
 a single gated task. This walk-through uses Codex; any supported host works.
 
+### Prerequisite: install Arc
+
+Soma is distributed as an Arc package. If you do not have `arc` yet, install
+the Arc CLI first:
+
+https://meta-factory.ai/download
+
+If your Arc setup requires authentication, run `arc login` before installing
+Soma.
+
 ```bash
-# 1. Install (Arc, or from source — see Install below)
+# 1. Install Soma (Arc, or from source - see Install below)
 arc install @metafactory/soma
 
 # 2. Create your Soma home (identity, telos, memory, skills, policy)
@@ -356,6 +366,10 @@ one requires explicit opt-in.
 ## Install
 
 Install with Arc:
+
+1. Install the Arc CLI from https://meta-factory.ai/download.
+2. Run `arc login` if your Arc setup requires authentication.
+3. Install Soma:
 
 ```bash
 arc install @metafactory/soma
