@@ -1,6 +1,6 @@
 schema: arc/v1
 name: soma
-version: 0.7.1
+version: 0.8.0
 type: tool
 tier: community
 description: Substrate-portable Personal AI Assistant core for identity, memory, ISA, skills, learning, and adapters.
