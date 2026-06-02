@@ -77,10 +77,15 @@ test("creates a soma run from an ISA, keyed by slug, mapping goal + criteria", a
       }),
     );
 
-    const result = await syncAlgorithmRunFromIsa({ isaPath, substrate: "claude-code", somaHome });
+    const result = await syncAlgorithmRunFromIsa({
+      isaPath,
+      substrate: "claude-code",
+      somaHome,
+      timestamp: "2026-06-02T10:00:00.000Z",
+    });
 
     expect(result.created).toBe(true);
-    expect(result.slug).toBe("demo-create");
+    expect(result.slug).toBe("2026-06-02-demo-create");
     expect(result.runId).toBeTruthy();
     expect(result.criteriaTotal).toBe(2);
 
@@ -94,6 +99,96 @@ test("creates a soma run from an ISA, keyed by slug, mapping goal + criteria", a
     expect(criteria.map((c) => c.id)).toEqual(["ISC-1", "ISC-2"]);
     // Advanced forward to match ISA phase `think`.
     expect(getRunPhase(run)).toBe("think");
+  });
+});
+
+test("normalizes bare OBSERVE ISA slugs through dated Algorithm run ids", async () => {
+  await withSomaHome(async (somaHome, dir) => {
+    const isaPath = await writeIsaFile(
+      dir,
+      "switch-phish-to-learn",
+      isaMarkdown({
+        slug: "switch-phish-to-learn",
+        phase: "observe",
+        goal: "Learn from the phishing switch",
+        criteria: [{ id: "ISC-1", text: "the run id is date-prefixed" }],
+      }),
+    );
+
+    const result = await syncAlgorithmRunFromIsa({
+      isaPath,
+      substrate: "claude-code",
+      somaHome,
+      timestamp: "2026-06-02T11:30:00.000Z",
+    });
+
+    expect(result.created).toBe(true);
+    expect(result.slug).toBe("2026-06-02-switch-phish-to-learn");
+    expect(result.runId).toBe("2026-06-02-switch-phish-to-learn");
+
+    const { run } = await readAlgorithmRunById(result.runId!, { somaHome });
+    expect(run.id).toBe("2026-06-02-switch-phish-to-learn");
+    expect(run.isa.slug).toBe("2026-06-02-switch-phish-to-learn");
+
+    const rewritten = await readFile(isaPath, "utf8");
+    expect(rewritten).toContain("slug: 2026-06-02-switch-phish-to-learn");
+  });
+});
+
+test("resumes a normalized bare ISA when edited on a later date", async () => {
+  await withSomaHome(async (somaHome, dir) => {
+    const isaPath = await writeIsaFile(
+      dir,
+      "long-lived-bare",
+      isaMarkdown({
+        slug: "long-lived-bare",
+        phase: "observe",
+        goal: "Keep one run across edits",
+        criteria: [{ id: "ISC-1", text: "the run remains stable" }],
+      }),
+    );
+
+    const first = await syncAlgorithmRunFromIsa({
+      isaPath,
+      substrate: "claude-code",
+      somaHome,
+      timestamp: "2026-06-02T11:30:00.000Z",
+    });
+    const second = await syncAlgorithmRunFromIsa({
+      isaPath,
+      substrate: "claude-code",
+      somaHome,
+      timestamp: "2026-06-03T11:30:00.000Z",
+    });
+
+    expect(first.created).toBe(true);
+    expect(second.created).toBe(false);
+    expect(second.runId).toBe("2026-06-02-long-lived-bare");
+  });
+});
+
+test("keeps already dated OBSERVE ISA slugs stable on sync", async () => {
+  await withSomaHome(async (somaHome, dir) => {
+    const isaPath = await writeIsaFile(
+      dir,
+      "2026-06-02-already-dated",
+      isaMarkdown({
+        slug: "2026-06-02-already-dated",
+        phase: "observe",
+        goal: "Do not double-prefix",
+        criteria: [{ id: "ISC-1", text: "the run id is stable" }],
+      }),
+    );
+
+    const result = await syncAlgorithmRunFromIsa({
+      isaPath,
+      substrate: "claude-code",
+      somaHome,
+      timestamp: "2026-06-03T11:30:00.000Z",
+    });
+
+    expect(result.created).toBe(true);
+    expect(result.runId).toBe("2026-06-02-already-dated");
   });
 });
 
@@ -141,9 +236,14 @@ test("corrupt run index starts fresh and emits bounded debug output", async () =
       return true;
     });
     try {
-      const result = await syncAlgorithmRunFromIsa({ isaPath, substrate: "claude-code", somaHome });
+      const result = await syncAlgorithmRunFromIsa({
+        isaPath,
+        substrate: "claude-code",
+        somaHome,
+        timestamp: "2026-06-02T10:00:00.000Z",
+      });
       expect(result.created).toBe(true);
-      expect(result.slug).toBe("demo-corrupt-index");
+      expect(result.slug).toBe("2026-06-02-demo-corrupt-index");
     } finally {
       stderrSpy.mockRestore();
     }
