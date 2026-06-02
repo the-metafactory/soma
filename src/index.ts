@@ -391,6 +391,7 @@ export { importAlgorithm, planAlgorithmImport } from "./algorithm-importer";
 export {
   buildSomaStartupContext,
   captureCompletedAlgorithmLearnings,
+  runSomaLifecycleAlgorithmObserved,
   runSomaLifecycleAlgorithmUpdated,
   runSomaLifecycleIsaUpdated,
   runSomaLifecycleSessionEnd,

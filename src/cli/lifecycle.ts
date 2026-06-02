@@ -1,4 +1,5 @@
 import {
+  runSomaLifecycleAlgorithmObserved,
   runSomaLifecycleAlgorithmUpdated,
   runSomaLifecycleSessionEnd,
   runSomaLifecycleSessionStart,
@@ -9,18 +10,19 @@ import { parseSubstrate } from "./substrate";
 
 export interface ParsedLifecycleArgs {
   command: "lifecycle";
-  event: "session-start" | "algorithm-updated" | "session-end";
+  event: "session-start" | "algorithm-updated" | "algorithm-observed" | "session-end";
   options: SomaLifecycleOptions;
 }
 
 const LIFECYCLE_USAGE =
-  "Usage: soma lifecycle <session-start|algorithm-updated|session-end> [--home-dir <dir>] [--soma-home <dir>] [--substrate <id>] [--session-id <id>] [--cwd <dir>] [--git-branch <branch>]";
+  "Usage: soma lifecycle <session-start|algorithm-updated|algorithm-observed|session-end> [--home-dir <dir>] [--soma-home <dir>] [--substrate <id>] [--session-id <id>] [--cwd <dir>] [--git-branch <branch>]";
 
 export const LIFECYCLE_COMMAND_HELP: { usage: string; subcommands: Record<ParsedLifecycleArgs["event"], string> } = {
   usage: LIFECYCLE_USAGE,
   subcommands: {
     "session-start": LIFECYCLE_USAGE,
     "algorithm-updated": LIFECYCLE_USAGE,
+    "algorithm-observed": LIFECYCLE_USAGE,
     "session-end": LIFECYCLE_USAGE,
   },
 };
@@ -28,7 +30,7 @@ export const LIFECYCLE_COMMAND_HELP: { usage: string; subcommands: Record<Parsed
 export function parseLifecycleArgs(args: string[]): ParsedLifecycleArgs {
   const [command, event, ...rest] = args;
 
-  if (command !== "lifecycle" || (event !== "session-start" && event !== "algorithm-updated" && event !== "session-end")) {
+  if (command !== "lifecycle" || (event !== "session-start" && event !== "algorithm-updated" && event !== "algorithm-observed" && event !== "session-end")) {
     throw new Error(LIFECYCLE_COMMAND_HELP.usage);
   }
 
@@ -81,6 +83,10 @@ export async function runLifecycleCli(parsed: ParsedLifecycleArgs): Promise<stri
 
   if (parsed.event === "algorithm-updated") {
     return formatLifecycleResult(await runSomaLifecycleAlgorithmUpdated(parsed.options));
+  }
+
+  if (parsed.event === "algorithm-observed") {
+    return formatLifecycleResult(await runSomaLifecycleAlgorithmObserved(parsed.options));
   }
 
   return formatLifecycleResult(await runSomaLifecycleSessionEnd(parsed.options));

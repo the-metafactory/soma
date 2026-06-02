@@ -195,6 +195,7 @@ export interface AlgorithmLogEntry {
 
 export type AlgorithmProvenanceOperation =
   | "run.created"
+  | "run.observed"
   | "phase.advance"
   | "criterion.verify"
   | "capability.invoke"
@@ -2071,7 +2072,7 @@ export interface SomaPolicyBatchCheckResult {
   results: SomaPolicyCheckResult[];
 }
 
-export type SomaLifecycleEventName = "session_start" | "algorithm_updated" | "session_end" | "isa_updated";
+export type SomaLifecycleEventName = "session_start" | "algorithm_updated" | "algorithm_observed" | "session_end" | "isa_updated";
 
 /**
  * Payload for `runSomaLifecycleIsaUpdated` (#38). Each entry's `text` is

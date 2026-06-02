@@ -213,12 +213,13 @@ PAI's Claude implementation gets much of its value from hooks. Soma ports that
 idea as a substrate-neutral lifecycle harness instead of copying Claude hook
 files.
 
-The V0 lifecycle surface has three events:
+The V0 lifecycle surface has four events:
 
 | Event | Purpose |
 |-------|---------|
 | `session_start` | Build startup context from identity, active Algorithm runs, learning, and relationship notes. |
 | `algorithm_updated` | Write the canonical Algorithm work index under `memory/STATE/`. |
+| `algorithm_observed` | Record explicit substrate observation provenance on the active Algorithm run, then refresh the canonical work index. |
 | `session_end` | Refresh the work index and capture completed Algorithm runs into `memory/LEARNING/`. |
 
 Substrates can call these events through the CLI or library. Cortex can later

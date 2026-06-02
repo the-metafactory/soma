@@ -10,9 +10,11 @@ import {
   buildSomaStartupContext,
   captureCompletedAlgorithmLearnings,
   createAlgorithmRun,
+  readAlgorithmRunById,
   recordAlgorithmCapabilityInvocation,
   recordAlgorithmChange,
   recordAlgorithmLearning,
+  runSomaLifecycleAlgorithmObserved,
   runSomaLifecycleAlgorithmUpdated,
   runSomaLifecycleSessionEnd,
   runSomaLifecycleSessionStart,
@@ -125,6 +127,46 @@ test("lifecycle algorithm-updated writes a canonical work index", async () => {
     await expect(readFile(indexPath, "utf8")).resolves.toContain('"id": "indexed-run"');
     await expect(readFile(activePath, "utf8")).resolves.toContain('"id": "indexed-run"');
     await expect(readFile(activePath, "utf8")).resolves.toContain('"phase": "observe"');
+  });
+});
+
+test("lifecycle algorithm-observed records explicit substrate observation on the active run", async () => {
+  await withTempHome(async (homeDir) => {
+    await bootstrapSomaHome({ homeDir });
+    await writeAlgorithmRun(
+      createAlgorithmRun({
+        id: "pi-observed-run",
+        substrate: "claude-code",
+        prompt: "Observe pi.dev",
+        intent: "Let pi.dev leave durable provenance.",
+        currentState: "Pi.dev reads work but does not touch the run.",
+        goal: "Pi.dev observation is visible in shared run provenance.",
+        criteria: [{ id: "C1", text: "Run provenance includes pi.dev." }],
+        timestamp: "2026-06-02T08:00:00.000Z",
+      }),
+      { homeDir },
+    );
+
+    const result = await runSomaLifecycleAlgorithmObserved({
+      homeDir,
+      substrate: "pi-dev",
+      timestamp: "2026-06-02T08:30:00.000Z",
+    });
+    const runPath = join(homeDir, ".soma/memory/WORK/algorithm-runs/pi-observed-run.json");
+    const { run } = await readAlgorithmRunById("pi-observed-run", { homeDir });
+    const events = await readFile(join(homeDir, ".soma/memory/STATE/events.jsonl"), "utf8");
+
+    expect(result.files).toContain(runPath);
+    expect(run.updatedAt).toBe("2026-06-02T08:30:00.000Z");
+    expect(run.provenance.at(-1)).toMatchObject({
+      operation: "run.observed",
+      substrate: "pi-dev",
+      phase: "observe",
+      detail: "Lifecycle algorithm-observed observed the active shared run.",
+    });
+    expect(events).toContain("lifecycle.algorithm_observed");
+    expect(events).toContain("pi-dev");
+    expect(events).toContain("pi-observed-run.json");
   });
 });
 

@@ -3,7 +3,8 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { listAlgorithmRunSummaries, listAlgorithmRuns } from "./algorithm-store";
+import { listAlgorithmRunSummaries, listAlgorithmRuns, readAlgorithmRunById, writeAlgorithmRun } from "./algorithm-store";
+import { appendAlgorithmProvenance } from "./algorithm-provenance";
 import { appendSomaMemoryEvent } from "./memory";
 import { loadSomaProfile } from "./soma-home";
 import { normalizeSomaWorkRegistryArtifacts, upsertSomaCurrentWorkPointer } from "./work-registry";
@@ -561,6 +562,48 @@ export async function runSomaLifecycleAlgorithmUpdated(options: SomaLifecycleOpt
     somaHome,
     timestamp,
     files: [index.path, index.activePath, join(somaHome, "memory/STATE/events.jsonl")],
+  };
+}
+
+async function recordAlgorithmObservation(options: SomaLifecycleOptions & { somaHome: string; timestamp: string; runId: string }): Promise<string | undefined> {
+  const observedBy = substrate(options);
+  if (observedBy === "custom") return undefined;
+
+  const { run } = await readAlgorithmRunById(options.runId, { somaHome: options.somaHome });
+
+  const observed = appendAlgorithmProvenance(run, {
+    operation: "run.observed",
+    substrate: observedBy,
+    phase: getRunPhase(run),
+    timestamp: options.timestamp,
+    detail: "Lifecycle algorithm-observed observed the active shared run.",
+  });
+
+  return (await writeAlgorithmRun({ ...observed, updatedAt: options.timestamp }, { somaHome: options.somaHome })).path;
+}
+
+export async function runSomaLifecycleAlgorithmObserved(options: SomaLifecycleOptions = {}): Promise<SomaLifecycleResult> {
+  const somaHome = resolveSomaHome(options);
+  const timestamp = options.timestamp ?? new Date().toISOString();
+  const active = (await listAlgorithmRunSummaries({ somaHome })).find((run) => run.phase !== "complete");
+  const observedRunPath = active
+    ? await recordAlgorithmObservation({ ...options, somaHome, timestamp, runId: active.id })
+    : undefined;
+  const index = await writeAlgorithmWorkIndex({ ...options, somaHome, timestamp });
+  const artifactPaths = [index.path, index.activePath, ...(observedRunPath ? [observedRunPath] : [])];
+  await appendSomaMemoryEvent(somaHome, {
+    substrate: substrate(options),
+    kind: "lifecycle.algorithm_observed",
+    summary: observedRunPath === undefined ? "No active Algorithm run observed." : "Active Algorithm run observed by substrate.",
+    timestamp,
+    artifactPaths,
+  });
+
+  return {
+    event: "algorithm_observed",
+    somaHome,
+    timestamp,
+    files: [...artifactPaths, join(somaHome, "memory/STATE/events.jsonl")],
   };
 }
 
