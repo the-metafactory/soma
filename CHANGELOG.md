@@ -7,12 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.8.2] - 2026-06-03
+## [0.8.3] - 2026-06-03
 
 ### Fixed
 - Publish the `soma` CLI as an Arc `provides.cli` PATH shim so
   `arc install @metafactory/soma` supports the README quickstart commands.
   ([#302])
+
+### Chore
+- Move the source release to 0.8.3 because the Arc registry already contained
+  immutable version 0.8.2 before this fix could be published.
 
 ## [0.8.1] - 2026-06-02
 
