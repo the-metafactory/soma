@@ -541,13 +541,14 @@ async function waitForRunFile(homeDir: string, slug: string): Promise<boolean> {
   return false;
 }
 
-test("hook bridge: editing an ISA file via writeback-tool mirrors it into a soma Algorithm run", async () => {
+test("hook bridge: editing a shared Soma ISA file via writeback-tool mirrors it into a soma Algorithm run", async () => {
   await withTempHome(async (homeDir) => {
     await installSomaForClaudeCode({ homeDir });
 
     const slug = "hook-bridge-demo";
-    const isaPath = join(homeDir, "PAI/MEMORY/WORK", slug, "ISA.md");
-    await mkdir(join(homeDir, "PAI/MEMORY/WORK", slug), { recursive: true });
+    const isaDir = join(homeDir, ".soma/memory/WORK", slug);
+    const isaPath = join(isaDir, "ISA.md");
+    await mkdir(isaDir, { recursive: true });
     await writeFile(
       isaPath,
       [
@@ -578,7 +579,7 @@ test("hook bridge: editing an ISA file via writeback-tool mirrors it into a soma
     runClaudeHook(homeDir, "writeback-tool", {
       session_id: "claude-session-hook-bridge",
       hook_event_name: "PostToolUse",
-      cwd: join(homeDir, "PAI/MEMORY/WORK", slug),
+      cwd: isaDir,
       tool_name: "Write",
       tool_input: { file_path: isaPath, content: "..." },
     });

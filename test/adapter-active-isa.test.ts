@@ -111,14 +111,13 @@ test("AC-3: non-Claude ISA skill projections rewrite Claude-specific source path
     await installSomaForPiDev({ homeDir });
 
     const claudeHome = "~/" + ".claude";
-    const somaHome = "~/" + ".soma";
     const codexScaffold = await readFile(join(homeDir, ".codex/skills/ISA/Workflows/Scaffold.md"), "utf8");
     const piScaffold = await readFile(join(homeDir, ".pi/agent/skills/isa/Workflows/Scaffold.md"), "utf8");
     const projected = `${codexScaffold}\n${piScaffold}`;
 
     expect(projected).not.toContain(claudeHome);
-    expect(projected).toContain(`${somaHome}/memory/WORK/{slug}/ISA.md`);
-    expect(projected).toContain(`${somaHome}/skills/ISA/Examples/canonical-isa.md`);
+    expect(projected).toContain("<soma-home>/memory/WORK/{slug}/ISA.md");
+    expect(projected).toContain("<soma-home>/memory/WORK/{slug}/_ephemeral/<feature>.md");
   });
 });
 
@@ -141,6 +140,16 @@ test("AC-3: installSomaForClaudeCode projects ISA skill source into ~/.claude/sk
     await installSomaForClaudeCode({ homeDir });
     const skillMd = await readFile(join(homeDir, ".claude/skills/ISA/SKILL.md"), "utf8");
     expect(skillMd).toContain("name: ISA");
+  });
+});
+
+test("AC-3: installSomaForClaudeCode projects shared Soma ISA work-home instructions", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForClaudeCode({ homeDir });
+    const scaffold = await readFile(join(homeDir, ".claude/skills/ISA/Workflows/Scaffold.md"), "utf8");
+    expect(scaffold).toContain("<soma-home>/memory/WORK/{slug}/ISA.md");
+    expect(scaffold).toContain("<soma-home>/memory/WORK/{slug}/_ephemeral/<feature>.md");
+    expect(scaffold).not.toContain("PAI/MEMORY/WORK");
   });
 });
 
