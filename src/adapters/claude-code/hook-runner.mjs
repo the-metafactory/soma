@@ -117,13 +117,14 @@ function writebackQueuePath() {
   return join(hookDir(), "soma-claude-code-writeback-queue.jsonl");
 }
 
-// Match PAI ISA files: a basename of `ISA.md` under a `MEMORY/WORK/<slug>/`
-// directory, OR a project-root `ISA.md`. Anything else is ignored so the
-// sync bridge only fires on real ISA edits.
+// Match shared Soma ISA files, legacy PAI ISA files during migration, OR a
+// project-root `ISA.md`. Anything else is ignored so the sync bridge only fires
+// on real ISA edits.
 function isIsaPath(path) {
   if (typeof path !== "string" || path.length === 0) return false;
   const normalized = path.replaceAll("\\", "/");
   if (!normalized.endsWith("/ISA.md") && normalized !== "ISA.md") return false;
+  if (/\/\.soma\/memory\/WORK\/[^/]+\/ISA\.md$/.test(normalized)) return true;
   if (/\/MEMORY\/WORK\/[^/]+\/ISA\.md$/.test(normalized)) return true;
   // Otherwise any `ISA.md` basename (project-root OR nested, e.g. src/ISA.md).
   // Broader than the MEMORY/WORK case by design: false positives are harmless
