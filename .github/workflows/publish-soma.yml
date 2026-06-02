@@ -1,0 +1,71 @@
+name: Publish Soma
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  publish:
+    name: Publish Soma
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install Arc
+        run: |
+          ARC_ROOT="${RUNNER_TEMP}/arc"
+          git clone --depth 1 https://github.com/the-metafactory/arc.git "${ARC_ROOT}"
+          (
+            cd "${ARC_ROOT}"
+            bun install --frozen-lockfile
+          )
+
+          mkdir -p "${RUNNER_TEMP}/bin"
+          cat > "${RUNNER_TEMP}/bin/arc" <<SH
+          #!/usr/bin/env bash
+          exec bun "${ARC_ROOT}/src/cli.ts" "\$@"
+          SH
+          chmod +x "${RUNNER_TEMP}/bin/arc"
+          echo "${RUNNER_TEMP}/bin" >> "${GITHUB_PATH}"
+
+      - name: Configure Arc source
+        env:
+          METAFACTORY_TOKEN: ${{ secrets.METAFACTORY_TOKEN }}
+        run: |
+          if [ -z "${METAFACTORY_TOKEN}" ]; then
+            echo "::error::METAFACTORY_TOKEN secret is not set"
+            exit 1
+          fi
+
+          mkdir -p ~/.config/metafactory
+          cat > ~/.config/metafactory/sources.yaml <<YAML
+          sources:
+            - name: prod
+              url: https://meta-factory.ai
+              tier: official
+              enabled: true
+              type: metafactory
+              token: "${METAFACTORY_TOKEN}"
+          YAML
+
+      - name: Bundle
+        id: bundle
+        run: |
+          VERSION="$(bun -e "console.log(require('./package.json').version)")"
+          TARBALL="soma-${VERSION}.tar.gz"
+          arc bundle --output "${TARBALL}"
+          echo "tarball=${TARBALL}" >> "${GITHUB_OUTPUT}"
+
+      - name: Publish
+        run: arc publish -t "${{ steps.bundle.outputs.tarball }}" --scope metafactory -s prod
