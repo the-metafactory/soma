@@ -14,15 +14,17 @@ Generate a fresh ISA from a prompt at a specified effort tier. The output is a p
 |-------|----------|-------------|
 | prompt | yes | The user's request — verbatim or distilled |
 | tier | yes | E1 / E2 / E3 / E4 / E5 |
-| project | no | If task targets a known project from PROJECTS.md, the project ISA path is used; otherwise a task ISA at `MEMORY/WORK/{slug}/ISA.md` |
+| project | no | If task targets a known project from PROJECTS.md, the project ISA path is used; otherwise a task ISA at `<soma-home>/memory/WORK/{slug}/ISA.md` |
 | ephemeral_feature | no | If set, scaffold a feature-file excerpt instead of a full ISA |
 
 ## Output
 
 A markdown file at one of:
 - `<project-root>/ISA.md` — when `project` is supplied (existing project ISA is read-extended, not overwritten)
-- `~/.claude/PAI/MEMORY/WORK/{slug}/ISA.md` — when no project (slug = `YYYYMMDD-HHMMSS_kebab-task-description`)
-- `~/.claude/PAI/MEMORY/WORK/{slug}/_ephemeral/<feature>.md` — when `ephemeral_feature` is set
+- `<soma-home>/memory/WORK/{slug}/ISA.md` — when no project (slug = `YYYYMMDD-HHMMSS_kebab-task-description`)
+- `<soma-home>/memory/WORK/{slug}/_ephemeral/<feature>.md` — when `ephemeral_feature` is set
+
+`<soma-home>` is the configured shared Soma home. Claude Code must write and sync task ISAs there instead of creating a parallel Claude-local work copy.
 
 ## Procedure
 
@@ -118,7 +120,7 @@ When `ephemeral_feature` is set:
    - `## Test Strategy` entries matching those ISCs
    - `## Decisions` filtered to entries mentioning this feature's ISC IDs (optional)
    - Empty `## Verification` section ready to populate
-4. Write to `MEMORY/WORK/{slug}/_ephemeral/<feature>.md`.
+4. Write to `<soma-home>/memory/WORK/{slug}/_ephemeral/<feature>.md`.
 5. Add a header comment: `<!-- EPHEMERAL FEATURE FILE — derived from <master-isa-path>. Reconcile via Skill("ISA", "reconcile <this-path> → <master-path>"). Do not hand-edit master from this file. -->`
 
 ## Failure modes
