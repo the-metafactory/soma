@@ -18,6 +18,7 @@ import {
   uninstallSomaForClaudeCode,
 } from "../src/index";
 import { unpatchClaudeCodeModeClassifierSettings } from "../src/adapters/claude-code/hooks";
+import { datePrefixSlug } from "../src/dated-slug";
 import { portableProjectionInput } from "./fixtures";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
@@ -573,6 +574,7 @@ test("hook bridge: editing an ISA file via writeback-tool mirrors it into a soma
       "utf8",
     );
 
+    const expectedSlug = datePrefixSlug(slug);
     runClaudeHook(homeDir, "writeback-tool", {
       session_id: "claude-session-hook-bridge",
       hook_event_name: "PostToolUse",
@@ -581,11 +583,11 @@ test("hook bridge: editing an ISA file via writeback-tool mirrors it into a soma
       tool_input: { file_path: isaPath, content: "..." },
     });
 
-    expect(await waitForRunFile(homeDir, slug)).toBe(true);
+    expect(await waitForRunFile(homeDir, expectedSlug)).toBe(true);
     const run = await readJson<{ id: string; substrate: string }>(
-      join(homeDir, ".soma/memory/WORK/algorithm-runs", `${slug}.json`),
+      join(homeDir, ".soma/memory/WORK/algorithm-runs", `${expectedSlug}.json`),
     );
-    expect(run.id).toBe(slug);
+    expect(run.id).toBe(expectedSlug);
     expect(run.substrate).toBe("claude-code");
   });
 });
