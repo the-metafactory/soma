@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test } from "bun:test";
+import { expect, setSystemTime, test } from "bun:test";
 import { addOpinion, parseRelationshipNotes, reflectRelationship, type RelationshipNotification } from "../src";
 import { runSomaCli } from "../src/cli";
 import { adjustOpinionConfidence, type EvidenceType } from "../src/tools/learning";
@@ -112,13 +112,19 @@ test("relationship reflection scans recent notes and ratings in milestones-only 
       "utf8",
     );
 
-    const output = await runSomaCli([
-      "relationship",
-      "reflect",
-      "--milestones-only",
-      "--home-dir",
-      homeDir,
-    ]);
+    setSystemTime(new Date("2026-05-28T12:00:00Z"));
+    let output: string;
+    try {
+      output = await runSomaCli([
+        "relationship",
+        "reflect",
+        "--milestones-only",
+        "--home-dir",
+        homeDir,
+      ]);
+    } finally {
+      setSystemTime();
+    }
     expect(output).toContain("opinion updates: 0");
     expect(output).toContain("milestones: 2");
 

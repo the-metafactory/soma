@@ -1,7 +1,7 @@
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test } from "bun:test";
+import { expect, setSystemTime, test } from "bun:test";
 import {
   classifyDomains,
   listFrames,
@@ -300,7 +300,13 @@ test("wisdom health reports growing stable and stale frames without writing prin
       now: new Date("2026-03-01T12:00:00Z"),
     });
 
-    const output = await runSomaCli(["wisdom", "health", "--home-dir", homeDir]);
+    setSystemTime(new Date("2026-05-28T12:00:00Z"));
+    let output: string;
+    try {
+      output = await runSomaCli(["wisdom", "health", "--home-dir", homeDir]);
+    } finally {
+      setSystemTime();
+    }
     expect(output).toContain("wisdom health: 0 cross-frame principle(s), 3 frame(s)");
     expect(output).toContain(".soma/memory/WISDOM/META/frame-health.md");
     expect(output).not.toContain(".claude");
