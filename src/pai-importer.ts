@@ -91,12 +91,12 @@ function firstMatch(content: string, patterns: RegExp[], fallback = ""): string 
 }
 
 function renderPrincipalProfile(source: string, sourcePath: string): string {
-  const name = firstMatch(source, [/- \*\*Name:\*\*\s*(.+)/, /^Name:\s*(.+)$/m], "principal");
-  const pronunciation = firstMatch(source, [/- \*\*Pronunciation:\*\*\s*(.+)/]);
-  const location = firstMatch(source, [/- \*\*Location:\*\*\s*(.+)/]);
-  const timezone = firstMatch(source, [/- \*\*Timezone:\*\*\s*(.+)/]);
-  const role = firstMatch(source, [/- \*\*Role:\*\*\s*(.+)/]);
-  const focus = firstMatch(source, [/- \*\*Focus:\*\*\s*(.+)/]);
+  const name = firstMatch(source, [/(?:- )?\*\*Name:\*\*\s*([^|\n]+)/, /^Name:\s*(.+)$/m], "principal");
+  const pronunciation = firstMatch(source, [/(?:- )?\*\*Pronunciation:\*\*\s*([^|\n]+)/]);
+  const location = firstMatch(source, [/(?:- )?\*\*Location:\*\*\s*([^|\n]+)/]);
+  const timezone = firstMatch(source, [/(?:- )?\*\*Timezone:\*\*\s*([^|\n]+)/]);
+  const role = firstMatch(source, [/(?:- )?\*\*Role:\*\*\s*([^|\n]+)/]);
+  const focus = firstMatch(source, [/(?:- )?\*\*Focus:\*\*\s*([^|\n]+)/]);
 
   return [
     "# Principal",
@@ -123,13 +123,14 @@ function renderPrincipalProfile(source: string, sourcePath: string): string {
 }
 
 function renderAssistantProfile(source: string, sourcePath: string): string {
-  const fullName = firstMatch(source, [/- \*\*Full Name:\*\*\s*(.+)/], "Ivy - Personal AI Assistant");
-  const name = firstMatch(source, [/- \*\*Name:\*\*\s*(.+)/], "Ivy");
-  const displayName = firstMatch(source, [/- \*\*Display Name:\*\*\s*(.+)/], name);
-  const color = firstMatch(source, [/- \*\*Color:\*\*\s*(.+)/]);
-  const voiceId = firstMatch(source, [/- \*\*Voice ID:\*\*\s*(.+)/]);
-  const role = firstMatch(source, [/- \*\*Role:\*\*\s*(.+)/]);
-  const environment = firstMatch(source, [/- \*\*Operating Environment:\*\*\s*(.+)/]);
+  // Captures stop at `|` or newline; firstMatch() trims the captured value before defaulting.
+  const fullName = firstMatch(source, [/(?:- )?\*\*Full Name:\*\*\s*([^|\n]+)/], "Ivy - Personal AI Assistant");
+  const name = firstMatch(source, [/(?:- )?\*\*Name:\*\*\s*([^|\n]+)/], "Ivy");
+  const displayName = firstMatch(source, [/(?:- )?\*\*Display Name:\*\*\s*([^|\n]+)/], name);
+  const color = firstMatch(source, [/(?:- )?\*\*Color:\*\*\s*([^|\n]+)/]);
+  const voiceId = firstMatch(source, [/(?:- )?\*\*Voice ID:\*\*\s*([^|\n]+)/]);
+  const role = firstMatch(source, [/(?:- )?\*\*Role:\*\*\s*([^|\n]+)/]);
+  const environment = firstMatch(source, [/(?:- )?\*\*Operating Environment:\*\*\s*([^|\n]+)/]);
 
   return [
     "# Assistant",
