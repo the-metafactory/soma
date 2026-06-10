@@ -123,6 +123,7 @@ function renderPrincipalProfile(source: string, sourcePath: string): string {
 }
 
 function renderAssistantProfile(source: string, sourcePath: string): string {
+  // Captures stop at `|` or newline; firstMatch() trims the captured value before defaulting.
   const fullName = firstMatch(source, [/(?:- )?\*\*Full Name:\*\*\s*([^|\n]+)/], "Ivy - Personal AI Assistant");
   const name = firstMatch(source, [/(?:- )?\*\*Name:\*\*\s*([^|\n]+)/], "Ivy");
   const displayName = firstMatch(source, [/(?:- )?\*\*Display Name:\*\*\s*([^|\n]+)/], name);

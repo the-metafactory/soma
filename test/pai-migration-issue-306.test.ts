@@ -158,3 +158,33 @@ test("#306 principal profile fields also stop at pipes when present", async () =
     expect(principal).not.toContain("Rob Chuvala | **Pronunciation:**");
   });
 });
+
+test("#306 `**Display:**` short-form does NOT silently land in the Display Name slot", async () => {
+  // Guards against a future regex relaxation that lets `**Display:**`
+  // satisfy the `**Display Name:**` capture. The two labels are
+  // intentionally different in PAI 5.0; if a real install uses the
+  // short form, that's a field-name mismatch deserving its own pass,
+  // not a silent absorption by a neighbouring regex.
+  await withTempHome(async (homeDir) => {
+    const daWithShortForm = [
+      "# DA Identity",
+      "",
+      "- **Name:** Margin | **Full Name:** Margin | **Display:** Margin",
+      "- **Role:** Close-reader instance on Lares",
+    ].join("\n");
+
+    await writePaiSkeleton(homeDir, daWithShortForm);
+    await importPaiIdentity({ homeDir });
+
+    const assistant = await readFile(join(homeDir, ".soma/profile/assistant.md"), "utf8");
+
+    // `**Display:**` (short form) must not satisfy the `**Display Name:**`
+    // capture. The Display Name slot should fall back to `Name`.
+    expect(assistant).toContain("Name: Margin");
+    expect(assistant).toContain("Display name: Margin");
+
+    // The short-form label itself must not leak into any captured value.
+    expect(assistant).not.toContain("Margin | **Display:**");
+    expect(assistant).not.toContain("**Display:** Margin");
+  });
+});
