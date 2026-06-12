@@ -738,7 +738,7 @@ function formatClaudeSkillsMigrationPlan(plan: ClaudeSkillsMigrationPlan): strin
       `from: ${plan.from}`,
       `somaHome: ${plan.somaHome}`,
       "",
-      "Refused: --from is not a flat skills tree (no <Name>/SKILL.md direct children).",
+      `Refused: ${plan.flatTreeRefusalReason ?? "--from is not a flat skills tree (no <Name>/SKILL.md direct children)."}`,
       "Point --from at an installed `.claude/skills/` tree (e.g. ~/.claude/skills or ~/work/PAI/Releases/v5.0.0/.claude/skills).",
       "",
     ].join("\n");

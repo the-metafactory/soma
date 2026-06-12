@@ -39,16 +39,20 @@ test("planSomaInit orders PAI migrant commands as dry-run copy-paste steps", asy
     expect(plan.detected.claudeSkillsDir).toBe(join(homeDir, ".claude/skills"));
     expect(plan.detected.coreUserDir).toBe(join(homeDir, ".config/pai/CORE_USER"));
     expect(plan.soma.starterProfile).toBe(false);
+    expect(plan.detected.claudeSkillsStatus).toBe("importable");
     expect(plan.steps.map((step) => step.id)).toEqual([
+      "bootstrap-soma-home",
       "migrate-claude-skills",
       "migrate-pai",
       "install-codex",
     ]);
-    expect(plan.steps.map((step) => step.command)).toEqual([
+    expect(plan.steps.map((step) => (step.kind === "command" ? step.command : step.action))).toEqual([
+      `create Soma home skeleton at ${join(homeDir, ".soma")} (identity, telos, memory, skills, policy)`,
       `soma migrate claude-skills --from ${join(homeDir, ".claude/skills")} --dry-run --home-dir ${homeDir} --soma-home ${join(homeDir, ".soma")}`,
       `soma migrate pai --pai-install ${join(homeDir, ".claude")} --dry-run --home-dir ${homeDir} --soma-home ${join(homeDir, ".soma")}`,
       `soma install codex --dry-run --home-dir ${homeDir} --soma-home ${join(homeDir, ".soma")}`,
     ]);
+    expect(plan.steps.map((step) => step.kind)).toEqual(["builtin", "command", "command", "command"]);
   });
 });
 
@@ -62,25 +66,135 @@ test("planSomaInit shell-quotes paths in copy-paste commands", async () => {
       somaHome: join(homeDir, "soma home"),
     });
 
-    expect(plan.steps[0]?.command).toContain(`--from '${join(homeDir, ".claude/skills")}'`);
-    expect(plan.steps[0]?.command).toContain(`--home-dir '${homeDir}'`);
-    expect(plan.steps[0]?.command).toContain(`--soma-home '${join(homeDir, "soma home")}'`);
+    const stepText = (index: number): string => {
+      const step = plan.steps[index];
+      if (!step) return "";
+      return step.kind === "command" ? step.command : step.action;
+    };
+    expect(stepText(0)).toContain(`'${join(homeDir, "soma home")}'`);
+    expect(stepText(1)).toContain(`--from '${join(homeDir, ".claude/skills")}'`);
+    expect(stepText(1)).toContain(`--home-dir '${homeDir}'`);
+    expect(stepText(1)).toContain(`--soma-home '${join(homeDir, "soma home")}'`);
   });
 });
 
-test("soma init --yes applies detected migration phases", async () => {
+test("soma init --apply applies detected migration phases", async () => {
   await withTempHome(async (homeDir) => {
     await writeMinimalPaiInstall(homeDir);
 
-    const output = await runSomaCli(["init", "--yes", "--home-dir", homeDir]);
+    const output = await runSomaCli(["init", "--apply", "--home-dir", homeDir]);
 
     expect(output).toContain("soma init — applied");
+    expect(output).toContain("bootstrap-soma-home: applied");
     expect(output).toContain("migrate-claude-skills: applied");
     expect(output).toContain("migrate-pai: applied");
     expect(output).toContain("install-codex: applied");
     await expect(stat(join(homeDir, ".soma/imports/claude-skills/.manifest.json"))).resolves.toBeTruthy();
     await expect(stat(join(homeDir, ".soma/profile/imports/claude/MIGRATION.md"))).resolves.toBeTruthy();
     await expect(stat(join(homeDir, ".codex/rules/soma.rules"))).resolves.toBeTruthy();
+  });
+});
+
+test("soma init --yes still works as a deprecated alias for --apply", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeMinimalPaiInstall(homeDir);
+
+    const output = await runSomaCli(["init", "--yes", "--home-dir", homeDir]);
+
+    expect(output).toContain("soma init — applied");
+    expect(output).toContain("install-codex: applied");
+  });
+});
+
+test("soma init on a fresh machine (no Claude install) bootstraps the Soma home", async () => {
+  await withTempHome(async (homeDir) => {
+    const plan = await planSomaInit({ homeDir });
+    expect(plan.detected.paiInstall).toBeNull();
+    expect(plan.detected.claudeSkillsDir).toBeNull();
+    expect(plan.steps.map((step) => step.id)).toEqual([
+      "bootstrap-soma-home",
+      "install-codex",
+    ]);
+
+    const output = await runSomaCli(["init", "--apply", "--home-dir", homeDir]);
+    expect(output).toContain("bootstrap-soma-home: applied");
+    expect(output).not.toContain("migrate-claude-skills");
+    const principal = await readFile(join(homeDir, ".soma/profile/principal.md"), "utf8");
+    expect(principal).toContain("status: starter-profile");
+    await expect(stat(join(homeDir, ".soma/profile/telos.md"))).resolves.toBeTruthy();
+    await expect(stat(join(homeDir, ".soma/memory"))).resolves.toBeTruthy();
+  });
+});
+
+test("soma init skips Claude skills migration when the skills dir is empty", async () => {
+  await withTempHome(async (homeDir) => {
+    // A fresh Claude Code install ships an EMPTY ~/.claude/skills — init
+    // must not plan a migrate step that would refuse (user feedback,
+    // 2026-06-12).
+    await mkdir(join(homeDir, ".claude/skills"), { recursive: true });
+
+    const plan = await planSomaInit({ homeDir });
+    expect(plan.detected.claudeSkillsDir).toBe(join(homeDir, ".claude/skills"));
+    expect(plan.detected.claudeSkillsStatus).toBe("empty");
+    expect(plan.steps.map((step) => step.id)).toEqual([
+      "bootstrap-soma-home",
+      "install-codex",
+    ]);
+
+    const output = await runSomaCli(["init", "--apply", "--home-dir", homeDir]);
+    expect(output).toContain("soma init — applied");
+    expect(output).not.toContain("migrate-claude-skills");
+    await expect(stat(join(homeDir, ".soma/profile/principal.md"))).resolves.toBeTruthy();
+  });
+});
+
+test("re-running soma init --apply never overwrites existing Soma home files", async () => {
+  await withTempHome(async (homeDir) => {
+    // Proves the doc claim in docs/soma-home-layout.md ("existing files are
+    // never overwritten") at the init level (sage cycle 3 on #309).
+    await runSomaCli(["init", "--apply", "--home-dir", homeDir]);
+
+    const principalPath = join(homeDir, ".soma/profile/principal.md");
+    const telosPath = join(homeDir, ".soma/profile/telos.md");
+    const customPrincipal = "# Principal\n\nName: Jens-Christian\n\n## Profile\n\n- status: customized\n";
+    const customTelos = "# Telos\n\nMission: My own mission.\n";
+    await writeFile(principalPath, customPrincipal, "utf8");
+    await writeFile(telosPath, customTelos, "utf8");
+
+    await runSomaCli(["init", "--apply", "--home-dir", homeDir]);
+
+    expect(await readFile(principalPath, "utf8")).toBe(customPrincipal);
+    expect(await readFile(telosPath, "utf8")).toBe(customTelos);
+  });
+});
+
+test("soma init labels a non-flat skills tree as not importable, never empty", async () => {
+  await withTempHome(async (homeDir) => {
+    // Children present, but no <Name>/SKILL.md — e.g. a Packs/-style tree.
+    // sage review on #309: this must NOT be reported as "empty".
+    await mkdir(join(homeDir, ".claude/skills/SomePack/nested"), { recursive: true });
+
+    const plan = await planSomaInit({ homeDir });
+    expect(plan.detected.claudeSkillsStatus).toBe("not-importable");
+    expect(plan.steps.map((step) => step.id)).toEqual([
+      "bootstrap-soma-home",
+      "install-codex",
+    ]);
+
+    const output = await runSomaCli(["init", "--home-dir", homeDir]);
+    expect(output).toContain("not an importable flat skills tree");
+    expect(output).not.toContain("empty — nothing to import");
+    expect(output).not.toContain("No existing installation to import");
+  });
+});
+
+test("soma doctor does not suggest skills migration for an empty Claude skills dir", async () => {
+  await withTempHome(async (homeDir) => {
+    await mkdir(join(homeDir, ".claude/skills"), { recursive: true });
+    await runSomaCli(["init", "--apply", "--home-dir", homeDir]);
+
+    const diagnosis = await diagnoseSomaDoctor({ homeDir });
+    expect(diagnosis.findings.map((finding) => finding.id)).not.toContain("claude-skills-not-migrated");
   });
 });
 
@@ -146,7 +260,7 @@ test("soma init surfaces broken Soma skills paths", async () => {
   });
 });
 
-test("soma init --yes fails when Claude skills migration has refused errors", async () => {
+test("soma init --apply fails when Claude skills migration has refused errors", async () => {
   await withTempHome(async (homeDir) => {
     await writeMinimalPaiInstall(homeDir);
     await mkdir(join(homeDir, ".claude/skills/EmbeddedGit/.git"), { recursive: true });
@@ -157,7 +271,7 @@ test("soma init --yes fails when Claude skills migration has refused errors", as
     );
     await writeFile(join(homeDir, ".claude/skills/EmbeddedGit/.git/config"), "[core]\n", "utf8");
 
-    await expect(runSomaCli(["init", "--yes", "--home-dir", homeDir])).rejects.toThrow(
+    await expect(runSomaCli(["init", "--apply", "--home-dir", homeDir])).rejects.toThrow(
       "soma init migrate-claude-skills failed",
     );
   });
@@ -167,7 +281,7 @@ test("soma doctor reports ok after init applies the detected plan", async () => 
   await withTempHome(async (homeDir) => {
     await writeMinimalPaiInstall(homeDir);
 
-    await runSomaCli(["init", "--yes", "--home-dir", homeDir]);
+    await runSomaCli(["init", "--apply", "--home-dir", homeDir]);
     const output = await runSomaCli(["doctor", "--home-dir", homeDir]);
 
     expect(output).toContain("soma doctor — ok");

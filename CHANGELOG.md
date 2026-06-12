@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Fresh-machine onboarding story: `soma init` now creates the Soma home
+  skeleton itself (`bootstrap-soma-home` is the first plan step), so a machine
+  with no Claude Code / PAI installation gets identity, telos, memory, skills,
+  and policy files even when a later step fails or is skipped. The dry-run
+  plan explains that init imports from detected sources and notes when it
+  starts from the starter profile.
+- `docs/soma-home-layout.md`: what `soma init` creates on disk, where the
+  Soma-native Algorithm and ISA implementations live
+  (`~/.soma/memory/WORK/algorithm-runs/`, `~/.soma/isa/`), and which init
+  steps run when. Linked from the README quickstart and Documentation index.
+
+### Changed
+- `soma init --apply` is the canonical execute flag, aligning init with
+  `install`/`adopt`/`migrate`/`import`. `--yes` remains accepted for one
+  release as a deprecated alias with a stderr warning.
+
+### Fixed
+- A fresh Claude Code install ships an empty `~/.claude/skills/`; `soma init`
+  no longer plans a `migrate-claude-skills` step for it (and `soma doctor` no
+  longer suggests one), instead reporting "empty — nothing to import".
+  Direct `soma migrate claude-skills` runs now distinguish a missing or empty
+  `--from` tree from a genuinely non-flat layout instead of misreporting
+  "not a flat skills tree".
+
 ## [0.8.3] - 2026-06-03
 
 ### Fixed

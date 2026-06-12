@@ -3,7 +3,8 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { DOCTOR_UNSUPPORTED_DRIFT_MESSAGE, diagnoseProjectionDrift } from "./adapters/doctor";
 import { installSomaForClaudeCode, installSomaForCodex, installSomaForCursor, installSomaForPiDev } from "./install";
-import { migrateClaudeSkills } from "./claude-skills-migrator";
+import { migrateClaudeSkills, probeClaudeSkillsSource } from "./claude-skills-migrator";
+import { bootstrapSomaHome } from "./soma-home";
 import { migratePai } from "./pai-migration";
 import { isEnoent, pathExists, pathMtimeMs } from "./fs-utils";
 import type {
@@ -91,12 +92,14 @@ async function detectOnboarding(options: SomaOnboardingOptions): Promise<Omit<So
     paiPresent,
     paiUserPresent,
     claudeSkillsPresent,
+    claudeSkillsStatus,
     coreUserPresent,
     somaExists,
   ] = await Promise.all([
     pathExists(join(paiInstall, "PAI")),
     pathExists(paiUserDir),
     pathExists(claudeSkillsDir),
+    probeClaudeSkillsSource(claudeSkillsDir),
     pathExists(coreUserDir),
     pathExists(somaHome),
   ]);
@@ -116,6 +119,7 @@ async function detectOnboarding(options: SomaOnboardingOptions): Promise<Omit<So
       paiInstall: paiPresent ? paiInstall : null,
       paiUserDir: paiUserPresent ? paiUserDir : null,
       claudeSkillsDir: claudeSkillsPresent ? claudeSkillsDir : null,
+      claudeSkillsStatus,
       coreUserDir: coreUserPresent ? coreUserDir : null,
     },
     soma: {
@@ -133,9 +137,21 @@ export async function planSomaInit(options: SomaOnboardingOptions & { apply?: bo
   const modeFlag = apply ? "--apply" : "--dry-run";
   const steps: SomaInitStep[] = [];
 
-  if (detected.detected.claudeSkillsDir) {
+  // The Soma home skeleton is created by init itself (not deferred to
+  // `soma install`), so a failed or skipped later step never strands the
+  // principal without identity/telos/memory/skills/policy files.
+  // Idempotent: existing files are preserved (`wx` writes).
+  steps.push({
+    id: "bootstrap-soma-home",
+    kind: "builtin",
+    action: `create Soma home skeleton at ${shellQuote(detected.somaHome)} (identity, telos, memory, skills, policy)`,
+    description: "Performed by soma init itself; idempotent, existing files preserved.",
+  });
+
+  if (detected.detected.claudeSkillsDir && detected.detected.claudeSkillsStatus === "importable") {
     steps.push({
       id: "migrate-claude-skills",
+      kind: "command",
       command: `soma migrate claude-skills --from ${shellQuote(detected.detected.claudeSkillsDir)} ${modeFlag} ${sharedPathFlags(detected)}`,
       description: "Import portable Claude skills into the Soma skills tree.",
     });
@@ -144,6 +160,7 @@ export async function planSomaInit(options: SomaOnboardingOptions & { apply?: bo
   if (detected.detected.paiInstall) {
     steps.push({
       id: "migrate-pai",
+      kind: "command",
       command: `soma migrate pai --pai-install ${shellQuote(detected.detected.paiInstall)} ${modeFlag} ${sharedPathFlags(detected)}`,
       description: "Import PAI identity, Algorithm, memory, docs, and pack surfaces that are present.",
     });
@@ -151,8 +168,9 @@ export async function planSomaInit(options: SomaOnboardingOptions & { apply?: bo
 
   steps.push({
     id: installStepId(detected.substrate),
+    kind: "command",
     command: `${installCommand(detected.substrate, apply)} ${sharedPathFlags(detected)}`,
-    description: "Project the Soma home into the selected host substrate.",
+    description: "Project the Soma home into the selected substrate.",
   });
 
   return {
@@ -179,7 +197,10 @@ export async function applySomaInit(options: SomaOnboardingOptions = {}): Promis
   const plan = await planSomaInit({ ...options, apply: true });
   const steps: SomaInitApplyResult["steps"] = [];
   for (const step of plan.steps) {
-    if (step.id === "migrate-claude-skills" && plan.detected.claudeSkillsDir) {
+    if (step.id === "bootstrap-soma-home") {
+      const result = await bootstrapSomaHome({ somaHome: plan.somaHome });
+      steps.push({ id: step.id, status: "applied", detail: `Soma home at ${result.somaHome}` });
+    } else if (step.id === "migrate-claude-skills" && plan.detected.claudeSkillsDir) {
       const result = await migrateClaudeSkills({
         from: plan.detected.claudeSkillsDir,
         homeDir: plan.homeDir,
@@ -246,7 +267,7 @@ export async function diagnoseSomaDoctor(options: SomaOnboardingOptions = {}): P
     });
   }
 
-  if (detected.detected.claudeSkillsDir && !(await pathExists(join(detected.somaHome, "imports/claude-skills/.manifest.json")))) {
+  if (detected.detected.claudeSkillsDir && detected.detected.claudeSkillsStatus === "importable" && !(await pathExists(join(detected.somaHome, "imports/claude-skills/.manifest.json")))) {
     findings.push({
       id: "claude-skills-not-migrated",
       severity: "warning",
