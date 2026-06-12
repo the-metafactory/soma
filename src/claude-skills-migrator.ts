@@ -72,6 +72,7 @@ import type {
   ClaudeSkillsMigrationPlan,
   ClaudeSkillsMigrationResult,
   ClaudeSkillsSmokeSubstrate,
+  ClaudeSkillsSourceStatus,
   DescriptionStatus,
   RewriteDescriptionsAgent,
   RewriteDispatchOverride,
@@ -763,6 +764,21 @@ async function readSourceSkill(
 }
 
 /**
+ * Structured refusal from `listFlatSkillNames` so callers classify by
+ * reason instead of matching message text (sage cycle 4 on #309: message
+ * coupling lets copy edits silently change onboarding classification).
+ */
+class FlatSkillsSourceError extends Error {
+  constructor(
+    message: string,
+    readonly reason: "symlinked-root" | "not-a-directory",
+  ) {
+    super(message);
+    this.name = "FlatSkillsSourceError";
+  }
+}
+
+/**
  * Refuse the apply path if the source isn't a flat skills tree. A flat
  * tree has at least one `<Name>/SKILL.md` direct child. Anything else
  * (Packs/ layout, empty dir, file-at-root) is rejected loud so the
@@ -774,10 +790,10 @@ async function listFlatSkillNames(fromDir: string): Promise<string[]> {
   }
   const fromStat = await lstat(fromDir);
   if (fromStat.isSymbolicLink()) {
-    throw new Error("soma migrate claude-skills refused symlinked --from root.");
+    throw new FlatSkillsSourceError("soma migrate claude-skills refused symlinked --from root.", "symlinked-root");
   }
   if (!fromStat.isDirectory()) {
-    throw new Error(`soma migrate claude-skills: --from is not a directory: ${fromDir}`);
+    throw new FlatSkillsSourceError(`soma migrate claude-skills: --from is not a directory: ${fromDir}`, "not-a-directory");
   }
   const entries = await readdir(fromDir, { withFileTypes: true });
   const names: string[] = [];
@@ -811,6 +827,74 @@ async function listFlatSkillNames(fromDir: string): Promise<string[]> {
   }
   names.sort();
   return names;
+}
+
+/**
+ * Single internal classifier for a Claude skills source tree (sage cycle 3
+ * on #309: one set of structural rules, mapped to either an onboarding
+ * status or a refusal message — never duplicated).
+ *
+ * - `importable`: at least one `<Name>/SKILL.md` direct child
+ * - `empty`: directory exists with no visible entries (fresh Claude Code)
+ * - `missing`: directory does not exist
+ * - `not-flat`: structurally wrong — non-flat layout, symlinked root,
+ *   file-at-path (sage review on #309: must NOT read as "empty")
+ * - `unreadable`: the source could not be read at all (sage cycle 2: an
+ *   access failure must NOT read as a structural verdict)
+ */
+type FlatSkillsSourceClass = "importable" | "empty" | "missing" | "not-flat" | "unreadable";
+
+async function classifyFlatSkillsSource(fromDir: string): Promise<FlatSkillsSourceClass> {
+  try {
+    if (!(await pathExists(fromDir))) {
+      return "missing";
+    }
+    const names = await listFlatSkillNames(fromDir);
+    if (names.length > 0) {
+      return "importable";
+    }
+    const entries = await readdir(fromDir, { withFileTypes: true });
+    const visible = entries.filter((entry) => !entry.name.startsWith("."));
+    return visible.length === 0 ? "empty" : "not-flat";
+  } catch (error) {
+    // Only the migrator's explicit structured refusals (symlinked root,
+    // file-at-path) are structural verdicts; generic fs failures
+    // (ENOTDIR from a racing change, EACCES, …) are `unreadable`.
+    if (error instanceof FlatSkillsSourceError) {
+      return "not-flat";
+    }
+    return "unreadable";
+  }
+}
+
+/**
+ * Onboarding-facing probe. Never throws — `soma init` uses this to decide
+ * whether to plan a `migrate-claude-skills` step and how to label the
+ * source; a direct `soma migrate claude-skills` run still surfaces the
+ * full error.
+ */
+export async function probeClaudeSkillsSource(fromDir: string): Promise<ClaudeSkillsSourceStatus> {
+  const sourceClass = await classifyFlatSkillsSource(fromDir);
+  return sourceClass === "not-flat" ? "not-importable" : sourceClass;
+}
+
+/**
+ * Accurate refusal reason for a source tree that produced zero flat skill
+ * names. A fresh Claude Code install ships an EMPTY `~/.claude/skills/` —
+ * calling that "not a flat skills tree" misdiagnoses the situation
+ * (user feedback, 2026-06-12).
+ */
+async function describeFlatTreeRefusal(fromDir: string): Promise<string> {
+  switch (await classifyFlatSkillsSource(fromDir)) {
+    case "missing":
+      return `--from ${fromDir} does not exist.`;
+    case "empty":
+      return `--from ${fromDir} is empty — no skills to import.`;
+    case "unreadable":
+      return `--from ${fromDir} could not be read (not a directory, or permission denied).`;
+    default:
+      return `--from ${fromDir} is not a flat skills tree (no <Name>/SKILL.md direct children).`;
+  }
 }
 
 async function readExistingManifest(
@@ -1106,6 +1190,7 @@ export async function planClaudeSkillsMigration(
     from,
     somaHome,
     isFlatSkillsTree,
+    flatTreeRefusalReason: isFlatSkillsTree ? undefined : await describeFlatTreeRefusal(from),
     outcomes,
     includeClaudeSpecific,
     smokeSubstrates,
@@ -1811,9 +1896,6 @@ export async function migrateClaudeSkills(
   let applyWriteMs = 0;
   let smokeVerifyMs = 0;
 
-  // Ensure imports/claude-skills/ exists so manifest + report writes
-  // succeed even on a fully empty Soma home.
-  await mkdir(join(somaHome, "imports/claude-skills"), { recursive: true });
   const manifestPath = join(somaHome, MANIFEST_RELATIVE);
   const reportPath = join(somaHome, REPORT_RELATIVE);
 
@@ -1839,9 +1921,16 @@ export async function migrateClaudeSkills(
 
   if (!isFlatSkillsTree) {
     throw new Error(
-      `soma migrate claude-skills: --from ${from} is not a flat skills tree (no <Name>/SKILL.md direct children).`,
+      `soma migrate claude-skills: ${await describeFlatTreeRefusal(from)}`,
     );
   }
+
+  // Ensure imports/claude-skills/ exists so manifest + report writes
+  // succeed even on a fully empty Soma home. Deliberately AFTER the
+  // flat-tree gate: a refused run must not leave a stray imports dir
+  // behind (that stray dir was all a fresh-install user found in
+  // ~/.soma after the pre-fix failure — user feedback, 2026-06-12).
+  await mkdir(join(somaHome, "imports/claude-skills"), { recursive: true });
 
   // Holly R1 nit — thread the buildPlanCore reads into the apply path
   // so we don't re-read every skill from disk a second time. Plan phase

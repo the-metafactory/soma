@@ -6,7 +6,7 @@ phase: verify
 progress: 30/30
 mode: design
 started: 2026-05-14
-updated: 2026-05-14
+updated: 2026-06-12
 ---
 
 ## Problem
@@ -188,6 +188,14 @@ Pi.dev, Claude Code, and Cortex/Myelin.
   implemented, and policy enforcement remains substrate-specific.
 - 2026-05-14: Added CLI dry-run as the default operational path for Codex
   install; live writes require `--apply`.
+- 2026-06-12: First-external-user feedback (Vincent Zontini) drove the
+  fresh-machine onboarding story: `soma init` now bootstraps the Soma home as
+  its own first step instead of deferring it to `soma install`, skips the
+  Claude-skills migration when `~/.claude/skills` is empty, and reports
+  missing/empty/non-flat `--from` trees with distinct messages.
+- 2026-06-12: Standardized `--apply` as the execute flag on `soma init`
+  (matching install/adopt/migrate/import); `--yes` kept one release as a
+  deprecated alias with a stderr warning.
 
 ## Changelog
 
