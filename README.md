@@ -131,6 +131,15 @@ soma export codex --out ./soma-codex-preview
 soma doctor --substrate codex
 ```
 
+**What to expect from step 2:** `soma init --apply` prints `soma init — applied`
+followed by one line per step. `bootstrap-soma-home` always runs first;
+`migrate-claude-skills` and `migrate-pai` appear only when an existing
+installation was detected (an empty `~/.claude/skills` is reported as
+"empty — nothing to import" and skipped). Afterwards `~/.soma` contains
+`profile/`, `skills/`, `memory/`, `isa/`, and `policy/` — see
+[docs/soma-home-layout.md](docs/soma-home-layout.md) for the full layout and
+which init steps run when.
+
 Open `./soma-codex-preview` and you will see the same assistant context rendered
 in Codex's native shape: AGENTS instructions, rules, skills, and memory
 summaries. Nothing is hidden in a binary — it is all readable files.

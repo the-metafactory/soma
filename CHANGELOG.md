@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.6] - 2026-06-12
+
 ### Added
 - Fresh-machine onboarding story: `soma init` now creates the Soma home
   skeleton itself (`bootstrap-soma-home` is the first plan step), so a machine
@@ -346,7 +348,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 See git history. 0.1.x predates this changelog and was iterated rapidly during the initial ISA + adapter bootstrap. The 0.2.0 entry above marks the first stable surface.
 
-[Unreleased]: https://github.com/the-metafactory/soma/compare/v0.8.1...HEAD
+[Unreleased]: https://github.com/the-metafactory/soma/compare/v0.8.6...HEAD
+[0.8.6]: https://github.com/the-metafactory/soma/compare/v0.8.5...v0.8.6
 [0.8.1]: https://github.com/the-metafactory/soma/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/the-metafactory/soma/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/the-metafactory/soma/compare/v0.7.0...v0.7.1
