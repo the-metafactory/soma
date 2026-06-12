@@ -39,19 +39,20 @@ test("planSomaInit orders PAI migrant commands as dry-run copy-paste steps", asy
     expect(plan.detected.claudeSkillsDir).toBe(join(homeDir, ".claude/skills"));
     expect(plan.detected.coreUserDir).toBe(join(homeDir, ".config/pai/CORE_USER"));
     expect(plan.soma.starterProfile).toBe(false);
-    expect(plan.detected.claudeSkillsImportable).toBe(true);
+    expect(plan.detected.claudeSkillsStatus).toBe("importable");
     expect(plan.steps.map((step) => step.id)).toEqual([
       "bootstrap-soma-home",
       "migrate-claude-skills",
       "migrate-pai",
       "install-codex",
     ]);
-    expect(plan.steps.map((step) => step.command)).toEqual([
+    expect(plan.steps.map((step) => (step.kind === "command" ? step.command : step.action))).toEqual([
       `create Soma home skeleton at ${join(homeDir, ".soma")} (identity, telos, memory, skills, policy)`,
       `soma migrate claude-skills --from ${join(homeDir, ".claude/skills")} --dry-run --home-dir ${homeDir} --soma-home ${join(homeDir, ".soma")}`,
       `soma migrate pai --pai-install ${join(homeDir, ".claude")} --dry-run --home-dir ${homeDir} --soma-home ${join(homeDir, ".soma")}`,
       `soma install codex --dry-run --home-dir ${homeDir} --soma-home ${join(homeDir, ".soma")}`,
     ]);
+    expect(plan.steps.map((step) => step.kind)).toEqual(["builtin", "command", "command", "command"]);
   });
 });
 
@@ -65,10 +66,15 @@ test("planSomaInit shell-quotes paths in copy-paste commands", async () => {
       somaHome: join(homeDir, "soma home"),
     });
 
-    expect(plan.steps[0]?.command).toContain(`'${join(homeDir, "soma home")}'`);
-    expect(plan.steps[1]?.command).toContain(`--from '${join(homeDir, ".claude/skills")}'`);
-    expect(plan.steps[1]?.command).toContain(`--home-dir '${homeDir}'`);
-    expect(plan.steps[1]?.command).toContain(`--soma-home '${join(homeDir, "soma home")}'`);
+    const stepText = (index: number): string => {
+      const step = plan.steps[index];
+      if (!step) return "";
+      return step.kind === "command" ? step.command : step.action;
+    };
+    expect(stepText(0)).toContain(`'${join(homeDir, "soma home")}'`);
+    expect(stepText(1)).toContain(`--from '${join(homeDir, ".claude/skills")}'`);
+    expect(stepText(1)).toContain(`--home-dir '${homeDir}'`);
+    expect(stepText(1)).toContain(`--soma-home '${join(homeDir, "soma home")}'`);
   });
 });
 
@@ -129,7 +135,7 @@ test("soma init skips Claude skills migration when the skills dir is empty", asy
 
     const plan = await planSomaInit({ homeDir });
     expect(plan.detected.claudeSkillsDir).toBe(join(homeDir, ".claude/skills"));
-    expect(plan.detected.claudeSkillsImportable).toBe(false);
+    expect(plan.detected.claudeSkillsStatus).toBe("empty");
     expect(plan.steps.map((step) => step.id)).toEqual([
       "bootstrap-soma-home",
       "install-codex",
@@ -139,6 +145,26 @@ test("soma init skips Claude skills migration when the skills dir is empty", asy
     expect(output).toContain("soma init — applied");
     expect(output).not.toContain("migrate-claude-skills");
     await expect(stat(join(homeDir, ".soma/profile/principal.md"))).resolves.toBeTruthy();
+  });
+});
+
+test("soma init labels a non-flat skills tree as not importable, never empty", async () => {
+  await withTempHome(async (homeDir) => {
+    // Children present, but no <Name>/SKILL.md — e.g. a Packs/-style tree.
+    // sage review on #309: this must NOT be reported as "empty".
+    await mkdir(join(homeDir, ".claude/skills/SomePack/nested"), { recursive: true });
+
+    const plan = await planSomaInit({ homeDir });
+    expect(plan.detected.claudeSkillsStatus).toBe("not-importable");
+    expect(plan.steps.map((step) => step.id)).toEqual([
+      "bootstrap-soma-home",
+      "install-codex",
+    ]);
+
+    const output = await runSomaCli(["init", "--home-dir", homeDir]);
+    expect(output).toContain("not an importable flat skills tree");
+    expect(output).not.toContain("empty — nothing to import");
+    expect(output).not.toContain("No existing installation to import");
   });
 });
 

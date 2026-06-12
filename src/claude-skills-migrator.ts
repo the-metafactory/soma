@@ -814,17 +814,34 @@ async function listFlatSkillNames(fromDir: string): Promise<string[]> {
 }
 
 /**
- * Onboarding-facing probe: does `fromDir` contain at least one importable
- * `<Name>/SKILL.md` direct child? Swallows ALL errors (symlinked root,
- * file-at-path, unreadable dir) and reports `false` — `soma init` uses this
- * to decide whether to plan a `migrate-claude-skills` step at all; a direct
+ * Onboarding-facing probe classifying a Claude skills source dir. Never
+ * throws — `soma init` uses this to decide whether to plan a
+ * `migrate-claude-skills` step and how to label the source; a direct
  * `soma migrate claude-skills` run still surfaces the full error.
+ *
+ * - `importable`: at least one `<Name>/SKILL.md` direct child
+ * - `empty`: directory exists with no visible entries (fresh Claude Code)
+ * - `missing`: directory does not exist
+ * - `not-importable`: anything else — non-flat layout, symlinked root,
+ *   file-at-path, unreadable dir (sage review on #309: this must NOT be
+ *   reported as "empty")
  */
-export async function hasImportableClaudeSkills(fromDir: string): Promise<boolean> {
+export type ClaudeSkillsSourceStatus = "importable" | "empty" | "missing" | "not-importable";
+
+export async function probeClaudeSkillsSource(fromDir: string): Promise<ClaudeSkillsSourceStatus> {
   try {
-    return (await listFlatSkillNames(fromDir)).length > 0;
+    if (!(await pathExists(fromDir))) {
+      return "missing";
+    }
+    const names = await listFlatSkillNames(fromDir);
+    if (names.length > 0) {
+      return "importable";
+    }
+    const entries = await readdir(fromDir, { withFileTypes: true });
+    const visible = entries.filter((entry) => !entry.name.startsWith("."));
+    return visible.length === 0 ? "empty" : "not-importable";
   } catch {
-    return false;
+    return "not-importable";
   }
 }
 

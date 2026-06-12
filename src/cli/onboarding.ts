@@ -188,15 +188,24 @@ export async function runOnboardingCli(parsed: ParsedOnboardingArgs): Promise<st
 }
 
 function formatClaudeSkillsDetection(plan: SomaInitPlan): string {
-  if (!plan.detected.claudeSkillsDir) return "not found";
-  if (!plan.detected.claudeSkillsImportable) {
-    return `${plan.detected.claudeSkillsDir} (empty — nothing to import)`;
+  const dir = plan.detected.claudeSkillsDir;
+  if (!dir) return "not found";
+  switch (plan.detected.claudeSkillsStatus) {
+    case "importable":
+      return dir;
+    case "empty":
+      return `${dir} (empty — nothing to import)`;
+    default:
+      // sage review on #309: a non-flat/unreadable tree must not be
+      // labeled "empty" — point at the command that explains why.
+      return `${dir} (found, but not an importable flat skills tree — run \`soma migrate claude-skills --from ${dir}\` for details)`;
   }
-  return plan.detected.claudeSkillsDir;
 }
 
 function formatSomaInitPlan(plan: SomaInitPlan): string {
-  const freshMachine = !plan.detected.paiInstall && !plan.detected.claudeSkillsImportable;
+  const claudeSkillsStatus = plan.detected.claudeSkillsStatus;
+  const freshMachine =
+    !plan.detected.paiInstall && (claudeSkillsStatus === "missing" || claudeSkillsStatus === "empty");
   return [
     `soma init — ${plan.mode === "apply" ? "apply plan" : "plan (dry-run; pass --apply to execute)"}`,
     "",
@@ -223,7 +232,7 @@ function formatSomaInitPlan(plan: SomaInitPlan): string {
     `  - Algorithm skill: ${plan.soma.algorithmSkillPresent ? "present" : "missing"}`,
     "",
     "Steps:",
-    ...plan.steps.map((step, index) => `${index + 1}. ${step.command}`),
+    ...plan.steps.map((step, index) => `${index + 1}. ${step.kind === "command" ? step.command : step.action}`),
     "",
   ].join("\n");
 }

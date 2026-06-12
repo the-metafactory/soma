@@ -1553,15 +1553,17 @@ export interface SomaOnboardingOptions {
   substrate?: Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor">;
 }
 
-export interface SomaInitStep {
-  id: SomaInitStepId;
-  // Copy-paste shell command for steps that map to a standalone CLI
-  // invocation (migrate-*, install-*). Built-in steps performed by
-  // `soma init` itself (bootstrap-soma-home) carry a descriptive action
-  // string instead — do not assume every command is shell-executable.
-  command: string;
-  description: string;
-}
+// Classification of a detected Claude skills source dir (sage review on
+// #309): `not-importable` (non-flat layout, unreadable, file-at-path) must
+// never be conflated with `empty` in user-facing output.
+export type ClaudeSkillsSourceStatus = "importable" | "empty" | "missing" | "not-importable";
+
+// Discriminated: `command` steps are copy-paste shell commands that map to
+// a standalone CLI invocation (migrate-*, install-*); `builtin` steps are
+// performed by `soma init` itself and carry a human-readable action.
+export type SomaInitStep =
+  | { id: SomaInitStepId; kind: "command"; command: string; description: string }
+  | { id: SomaInitStepId; kind: "builtin"; action: string; description: string };
 
 export interface SomaInitPlan {
   mode: "dry-run" | "apply";
@@ -1572,10 +1574,10 @@ export interface SomaInitPlan {
     paiInstall: string | null;
     paiUserDir: string | null;
     claudeSkillsDir: string | null;
-    // True only when `claudeSkillsDir` contains at least one importable
-    // `<Name>/SKILL.md` child. A fresh Claude Code install ships an empty
-    // skills dir — init must not plan a migrate step that would refuse.
-    claudeSkillsImportable: boolean;
+    // Classification of the skills source. A fresh Claude Code install
+    // ships an `empty` skills dir — init must not plan a migrate step that
+    // would refuse, and must not label a `not-importable` tree as empty.
+    claudeSkillsStatus: ClaudeSkillsSourceStatus;
     coreUserDir: string | null;
   };
   soma: {
