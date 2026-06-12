@@ -1379,6 +1379,10 @@ export interface ClaudeSkillsMigrationPlan {
   // (i.e. at least one `<Name>/SKILL.md` direct child). When false,
   // `outcomes` is empty and the formatter renders a hard refusal.
   isFlatSkillsTree: boolean;
+  // Present only when `isFlatSkillsTree` is false: the accurate reason
+  // (missing dir / empty dir / non-flat layout) so the formatter does
+  // not misdiagnose a fresh, empty `~/.claude/skills/` as "not flat".
+  flatTreeRefusalReason?: string;
   // One outcome per source `<Name>/SKILL.md`. Always ordered by
   // `sourceName` so the report and CLI rendering are deterministic.
   outcomes: ClaudeSkillOutcome[];
@@ -1526,6 +1530,7 @@ export interface ClaudeSkillsMigrationManifest {
 }
 
 export type SomaInitStepId =
+  | "bootstrap-soma-home"
   | "migrate-claude-skills"
   | "migrate-pai"
   | "install-codex"
@@ -1563,6 +1568,10 @@ export interface SomaInitPlan {
     paiInstall: string | null;
     paiUserDir: string | null;
     claudeSkillsDir: string | null;
+    // True only when `claudeSkillsDir` contains at least one importable
+    // `<Name>/SKILL.md` child. A fresh Claude Code install ships an empty
+    // skills dir — init must not plan a migrate step that would refuse.
+    claudeSkillsImportable: boolean;
     coreUserDir: string | null;
   };
   soma: {

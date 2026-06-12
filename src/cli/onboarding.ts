@@ -14,6 +14,7 @@ import {
   parseOnboardingSubstrate,
 } from "./substrate-lifecycle";
 import { readOption } from "./parse-utils";
+import { warnDeprecatedYesFlag } from "./deprecated-flags";
 
 export interface ParsedInitArgs {
   command: "init";
@@ -38,7 +39,7 @@ export type ParsedOnboardingArgs = ParsedInitArgs | ParsedDoctorArgs | ParsedAdo
 const ADOPT_CLAUDE_USAGE =
   "Usage: soma adopt claude [--dry-run] [--apply] [--uninstall] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
 const INIT_USAGE =
-  "Usage: soma init [--dry-run] [--yes] [--home-dir <dir>] [--soma-home <dir>] [--substrate <codex|pi-dev|claude-code|cursor>]";
+  "Usage: soma init [--dry-run] [--apply] [--home-dir <dir>] [--soma-home <dir>] [--substrate <codex|pi-dev|claude-code|cursor>]";
 const DOCTOR_USAGE =
   "Usage: soma doctor [--home-dir <dir>] [--soma-home <dir>] [--substrate <codex|claude-code>]";
 
@@ -60,7 +61,11 @@ export function parseInitArgs(args: string[]): ParsedInitArgs {
   let apply = false;
   const optionArgs: string[] = [];
   for (const arg of rest) {
-    if (arg === "--yes") {
+    if (arg === "--apply") {
+      apply = true;
+    } else if (arg === "--yes") {
+      // Deprecated alias — `--apply` aligns init with install/adopt/migrate.
+      warnDeprecatedYesFlag();
       apply = true;
     } else if (arg === "--dry-run") {
       apply = false;
@@ -182,18 +187,34 @@ export async function runOnboardingCli(parsed: ParsedOnboardingArgs): Promise<st
   return formatInstallResult(await installSomaForClaudeCode(parsed.options));
 }
 
+function formatClaudeSkillsDetection(plan: SomaInitPlan): string {
+  if (!plan.detected.claudeSkillsDir) return "not found";
+  if (!plan.detected.claudeSkillsImportable) {
+    return `${plan.detected.claudeSkillsDir} (empty — nothing to import)`;
+  }
+  return plan.detected.claudeSkillsDir;
+}
+
 function formatSomaInitPlan(plan: SomaInitPlan): string {
+  const freshMachine = !plan.detected.paiInstall && !plan.detected.claudeSkillsImportable;
   return [
-    `soma init — ${plan.mode === "apply" ? "apply plan" : "plan (dry-run; pass --yes to execute)"}`,
+    `soma init — ${plan.mode === "apply" ? "apply plan" : "plan (dry-run; pass --apply to execute)"}`,
+    "",
+    "Creates the Soma home (identity, telos, memory, skills, policy) and",
+    "imports context from an existing Claude Code / PAI installation when one",
+    "is detected.",
     "",
     `Home:       ${plan.homeDir}`,
     `Soma home:  ${plan.somaHome}`,
     `Substrate:  ${plan.substrate}`,
     "",
-    "Detected:",
+    "Detected import sources:",
     `  - PAI install:    ${plan.detected.paiInstall ?? "not found"}`,
-    `  - Claude skills:  ${plan.detected.claudeSkillsDir ?? "not found"}`,
+    `  - Claude skills:  ${formatClaudeSkillsDetection(plan)}`,
     `  - CORE_USER:      ${plan.detected.coreUserDir ?? "not found"}`,
+    ...(freshMachine
+      ? ["", "No existing installation to import — starting from the Soma starter profile."]
+      : []),
     "",
     "Soma state:",
     `  - exists:          ${plan.soma.exists ? "yes" : "no"}`,

@@ -229,6 +229,22 @@ test("planClaudeSkillsMigration on non-flat tree → isFlatSkillsTree=false", as
     });
     expect(plan.isFlatSkillsTree).toBe(false);
     expect(plan.outcomes).toEqual([]);
+    // Empty dir gets the accurate "empty" reason, not "not flat".
+    expect(plan.flatTreeRefusalReason).toContain("is empty — no skills to import");
+  });
+});
+
+test("planClaudeSkillsMigration distinguishes non-flat layout from empty dir", async () => {
+  await withTempHome(async (home) => {
+    // Children present, but none has a <Name>/SKILL.md — a Packs/-style tree.
+    const fromDir = join(home, "Packs");
+    await mkdir(join(fromDir, "SomePack/nested"), { recursive: true });
+    const plan = await planClaudeSkillsMigration({
+      from: fromDir,
+      homeDir: home,
+    });
+    expect(plan.isFlatSkillsTree).toBe(false);
+    expect(plan.flatTreeRefusalReason).toContain("not a flat skills tree");
   });
 });
 
@@ -515,10 +531,20 @@ test("migrateClaudeSkills handles mixed tree: per-skill routing is independent",
   });
 });
 
-test("migrateClaudeSkills refuses non-flat tree on apply", async () => {
+test("migrateClaudeSkills refuses empty tree on apply with accurate reason", async () => {
   await withTempHome(async (home) => {
     const fromDir = join(home, "empty");
     await mkdir(fromDir, { recursive: true });
+    await expect(
+      migrateClaudeSkills({ from: fromDir, somaHome: join(home, "soma") }),
+    ).rejects.toThrow(/is empty — no skills to import/);
+  });
+});
+
+test("migrateClaudeSkills refuses non-flat tree on apply", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = join(home, "packs");
+    await mkdir(join(fromDir, "SomePack/nested"), { recursive: true });
     await expect(
       migrateClaudeSkills({ from: fromDir, somaHome: join(home, "soma") }),
     ).rejects.toThrow(/not a flat skills tree/);

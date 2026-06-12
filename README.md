@@ -116,8 +116,12 @@ Soma.
 # 1. Install Soma (Arc, or from source - see Install below)
 arc install @metafactory/soma
 
-# 2. Create your Soma home (identity, telos, memory, skills, policy)
-soma init --yes
+# 2. Create your Soma home (identity, telos, memory, skills, policy).
+#    If an existing Claude Code / PAI installation is found, init also
+#    imports its skills and identity. On a fresh machine (no Claude at
+#    all) it starts from the starter profile — run `soma init` without
+#    --apply first to see the dry-run plan.
+soma init --apply
 
 # 3. Project that core into Codex
 soma install codex --apply
@@ -151,6 +155,13 @@ show --id <run-id>` reports which substrates have touched the run. Phase
 advances, criterion verification, capability invocation, and learning
 promotion all append substrate provenance when the caller supplies
 `--substrate`.
+
+The Algorithm and ISA are implemented by Soma itself — `soma algorithm` and
+`soma isa` work on any substrate, with run state in
+`~/.soma/memory/WORK/algorithm-runs/` and ISAs in `~/.soma/isa/`. See
+[The Algorithm](#the-algorithm) and [ISA](#isa) below, and
+[docs/soma-home-layout.md](docs/soma-home-layout.md) for the full on-disk
+layout `soma init` creates.
 
 That run, your identity, telos, and anything learned now travel with you to the
 next host. Switch to Claude Code or Cursor (`soma install claude-code --apply`)
@@ -463,6 +474,7 @@ writeback boundaries as substrate sessions. See
 ## Documentation
 
 - [CONTEXT.md](CONTEXT.md), the shared Soma vocabulary used by docs, CLI, and ISA
+- [docs/soma-home-layout.md](docs/soma-home-layout.md), what `soma init` creates and where Algorithm/ISA state lives
 - [docs/architecture.md](docs/architecture.md), the core/adapters/runtime model
 - [docs/boundaries.md](docs/boundaries.md), exactly what Soma owns and does not own
 - [docs/substrate-adapters.md](docs/substrate-adapters.md), adapter behavior by host

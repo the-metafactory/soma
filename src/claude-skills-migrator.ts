@@ -813,6 +813,39 @@ async function listFlatSkillNames(fromDir: string): Promise<string[]> {
   return names;
 }
 
+/**
+ * Onboarding-facing probe: does `fromDir` contain at least one importable
+ * `<Name>/SKILL.md` direct child? Swallows structural errors (symlinked
+ * root, file-at-path) and reports `false` — `soma init` uses this to decide
+ * whether to plan a `migrate-claude-skills` step at all; a direct
+ * `soma migrate claude-skills` run still surfaces the full error.
+ */
+export async function hasImportableClaudeSkills(fromDir: string): Promise<boolean> {
+  try {
+    return (await listFlatSkillNames(fromDir)).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Accurate refusal reason for a source tree that produced zero flat skill
+ * names. A fresh Claude Code install ships an EMPTY `~/.claude/skills/` —
+ * calling that "not a flat skills tree" misdiagnoses the situation
+ * (user feedback, 2026-06-12). Distinguish missing / empty / non-flat.
+ */
+async function describeFlatTreeRefusal(fromDir: string): Promise<string> {
+  if (!(await pathExists(fromDir))) {
+    return `--from ${fromDir} does not exist.`;
+  }
+  const entries = await readdir(fromDir, { withFileTypes: true });
+  const visible = entries.filter((entry) => !entry.name.startsWith("."));
+  if (visible.length === 0) {
+    return `--from ${fromDir} is empty — no skills to import.`;
+  }
+  return `--from ${fromDir} is not a flat skills tree (no <Name>/SKILL.md direct children).`;
+}
+
 async function readExistingManifest(
   somaHome: string,
 ): Promise<ClaudeSkillsMigrationManifest | null> {
@@ -1106,6 +1139,7 @@ export async function planClaudeSkillsMigration(
     from,
     somaHome,
     isFlatSkillsTree,
+    flatTreeRefusalReason: isFlatSkillsTree ? undefined : await describeFlatTreeRefusal(from),
     outcomes,
     includeClaudeSpecific,
     smokeSubstrates,
@@ -1839,7 +1873,7 @@ export async function migrateClaudeSkills(
 
   if (!isFlatSkillsTree) {
     throw new Error(
-      `soma migrate claude-skills: --from ${from} is not a flat skills tree (no <Name>/SKILL.md direct children).`,
+      `soma migrate claude-skills: ${await describeFlatTreeRefusal(from)}`,
     );
   }
 
