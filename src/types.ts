@@ -1555,6 +1555,10 @@ export interface SomaOnboardingOptions {
 
 export interface SomaInitStep {
   id: SomaInitStepId;
+  // Copy-paste shell command for steps that map to a standalone CLI
+  // invocation (migrate-*, install-*). Built-in steps performed by
+  // `soma init` itself (bootstrap-soma-home) carry a descriptive action
+  // string instead — do not assume every command is shell-executable.
   command: string;
   description: string;
 }

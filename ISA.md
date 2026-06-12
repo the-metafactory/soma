@@ -1,12 +1,12 @@
 ---
-task: "Extract portable Personal AI Assistant core"
-effort: E3
+task: Extract portable Personal AI Assistant core
+slug: soma
+effort: e3
 phase: verify
 progress: 30/30
+mode: design
 started: 2026-05-14
-updated: 2026-05-14
-verified: true
-slug: 2026-06-12-soma
+updated: 2026-06-12
 ---
 
 ## Problem

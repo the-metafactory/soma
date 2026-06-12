@@ -815,9 +815,9 @@ async function listFlatSkillNames(fromDir: string): Promise<string[]> {
 
 /**
  * Onboarding-facing probe: does `fromDir` contain at least one importable
- * `<Name>/SKILL.md` direct child? Swallows structural errors (symlinked
- * root, file-at-path) and reports `false` — `soma init` uses this to decide
- * whether to plan a `migrate-claude-skills` step at all; a direct
+ * `<Name>/SKILL.md` direct child? Swallows ALL errors (symlinked root,
+ * file-at-path, unreadable dir) and reports `false` — `soma init` uses this
+ * to decide whether to plan a `migrate-claude-skills` step at all; a direct
  * `soma migrate claude-skills` run still surfaces the full error.
  */
 export async function hasImportableClaudeSkills(fromDir: string): Promise<boolean> {
