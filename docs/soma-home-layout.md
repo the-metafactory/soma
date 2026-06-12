@@ -2,8 +2,10 @@
 
 `soma init --apply` creates `~/.soma/` (override with `--soma-home`). This
 directory is the portable source of truth for your assistant. Substrate homes
-(`~/.codex`, `~/.claude`, …) are generated projections of it; everything in
-`~/.soma` is plain, readable files you can edit directly.
+(`~/.codex`, `~/.claude`, …) are generated projections of it. Everything in
+`~/.soma` is plain, readable files; profile, skills, memory, ISAs, and policy
+are yours to edit directly, while `projections/` holds generated caches that
+re-projection rewrites.
 
 ## Layout
 
@@ -45,7 +47,7 @@ substrate being installed:
   `memory/WORK/algorithm-runs/`; ISAs are markdown files under `isa/`, with
   the active ISA recorded in `memory/STATE/active.json`.
 - **Projection:** substrate adapters surface the active ISA and Algorithm
-  context into each substrate (for Claude Code: `~/.claude/rules/soma/`).
+  state into each substrate (for Claude Code: `~/.claude/rules/soma/`).
 
 ## How the home gets populated
 

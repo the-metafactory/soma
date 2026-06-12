@@ -764,6 +764,21 @@ async function readSourceSkill(
 }
 
 /**
+ * Structured refusal from `listFlatSkillNames` so callers classify by
+ * reason instead of matching message text (sage cycle 4 on #309: message
+ * coupling lets copy edits silently change onboarding classification).
+ */
+class FlatSkillsSourceError extends Error {
+  constructor(
+    message: string,
+    readonly reason: "symlinked-root" | "not-a-directory",
+  ) {
+    super(message);
+    this.name = "FlatSkillsSourceError";
+  }
+}
+
+/**
  * Refuse the apply path if the source isn't a flat skills tree. A flat
  * tree has at least one `<Name>/SKILL.md` direct child. Anything else
  * (Packs/ layout, empty dir, file-at-root) is rejected loud so the
@@ -775,10 +790,10 @@ async function listFlatSkillNames(fromDir: string): Promise<string[]> {
   }
   const fromStat = await lstat(fromDir);
   if (fromStat.isSymbolicLink()) {
-    throw new Error("soma migrate claude-skills refused symlinked --from root.");
+    throw new FlatSkillsSourceError("soma migrate claude-skills refused symlinked --from root.", "symlinked-root");
   }
   if (!fromStat.isDirectory()) {
-    throw new Error(`soma migrate claude-skills: --from is not a directory: ${fromDir}`);
+    throw new FlatSkillsSourceError(`soma migrate claude-skills: --from is not a directory: ${fromDir}`, "not-a-directory");
   }
   const entries = await readdir(fromDir, { withFileTypes: true });
   const names: string[] = [];
@@ -842,10 +857,10 @@ async function classifyFlatSkillsSource(fromDir: string): Promise<FlatSkillsSour
     const visible = entries.filter((entry) => !entry.name.startsWith("."));
     return visible.length === 0 ? "empty" : "not-flat";
   } catch (error) {
-    // listFlatSkillNames throws structured refusals for symlinked-root and
-    // file-at-path sources — those are structural verdicts, not read
-    // failures. Anything else (EACCES and friends) is `unreadable`.
-    if (error instanceof Error && /symlinked --from root|not a directory/.test(error.message)) {
+    // Only the migrator's explicit structured refusals (symlinked root,
+    // file-at-path) are structural verdicts; generic fs failures
+    // (ENOTDIR from a racing change, EACCES, …) are `unreadable`.
+    if (error instanceof FlatSkillsSourceError) {
       return "not-flat";
     }
     return "unreadable";

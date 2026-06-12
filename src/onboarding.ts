@@ -170,7 +170,7 @@ export async function planSomaInit(options: SomaOnboardingOptions & { apply?: bo
     id: installStepId(detected.substrate),
     kind: "command",
     command: `${installCommand(detected.substrate, apply)} ${sharedPathFlags(detected)}`,
-    description: "Project the Soma home into the selected host substrate.",
+    description: "Project the Soma home into the selected substrate.",
   });
 
   return {
