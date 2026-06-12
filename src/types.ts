@@ -1554,9 +1554,10 @@ export interface SomaOnboardingOptions {
 }
 
 // Classification of a detected Claude skills source dir (sage review on
-// #309): `not-importable` (non-flat layout, unreadable, file-at-path) must
-// never be conflated with `empty` in user-facing output.
-export type ClaudeSkillsSourceStatus = "importable" | "empty" | "missing" | "not-importable";
+// #309): `not-importable` (non-flat layout, file-at-path) and `unreadable`
+// (probe could not read the source at all) must never be conflated with
+// `empty` in user-facing output.
+export type ClaudeSkillsSourceStatus = "importable" | "empty" | "missing" | "not-importable" | "unreadable";
 
 // Discriminated: `command` steps are copy-paste shell commands that map to
 // a standalone CLI invocation (migrate-*, install-*); `builtin` steps are

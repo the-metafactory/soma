@@ -35,7 +35,7 @@ while the starter profile is still in place.
 ## Where the Algorithm and ISA live
 
 Soma ships its own, substrate-neutral implementation of the Algorithm work
-harness and Ideal State Artifacts — they do not depend on PAI or any host
+harness and Ideal State Artifacts — they do not depend on PAI or any
 substrate being installed:
 
 - **Implementation:** the `soma algorithm ...` and `soma isa ...` CLI commands
@@ -45,7 +45,7 @@ substrate being installed:
   `memory/WORK/algorithm-runs/`; ISAs are markdown files under `isa/`, with
   the active ISA recorded in `memory/STATE/active.json`.
 - **Projection:** substrate adapters surface the active ISA and Algorithm
-  context into each host (for Claude Code: `~/.claude/rules/soma/`).
+  context into each substrate (for Claude Code: `~/.claude/rules/soma/`).
 
 ## How the home gets populated
 

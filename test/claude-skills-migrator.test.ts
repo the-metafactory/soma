@@ -28,6 +28,7 @@ import {
   classifySkillPortability,
   migrateClaudeSkills,
   planClaudeSkillsMigration,
+  probeClaudeSkillsSource,
   readClaudeSkillsMigrationStatus,
 } from "../src/claude-skills-migrator";
 import type { ClaudeSkillsMigrationManifest } from "../src/types";
@@ -231,6 +232,30 @@ test("planClaudeSkillsMigration on non-flat tree → isFlatSkillsTree=false", as
     expect(plan.outcomes).toEqual([]);
     // Empty dir gets the accurate "empty" reason, not "not flat".
     expect(plan.flatTreeRefusalReason).toContain("is empty — no skills to import");
+  });
+});
+
+test("probeClaudeSkillsSource classifies missing, empty, non-flat, file-at-path", async () => {
+  await withTempHome(async (home) => {
+    expect(await probeClaudeSkillsSource(join(home, "nope"))).toBe("missing");
+
+    const emptyDir = join(home, "empty");
+    await mkdir(emptyDir, { recursive: true });
+    expect(await probeClaudeSkillsSource(emptyDir)).toBe("empty");
+
+    const packsDir = join(home, "packs");
+    await mkdir(join(packsDir, "SomePack/nested"), { recursive: true });
+    expect(await probeClaudeSkillsSource(packsDir)).toBe("not-importable");
+
+    const filePath = join(home, "file.txt");
+    await writeFile(filePath, "not a dir\n", "utf8");
+    // Structural verdict, not a read failure (sage cycle 2 on #309).
+    expect(await probeClaudeSkillsSource(filePath)).toBe("not-importable");
+
+    const flatDir = join(home, "flat");
+    await mkdir(join(flatDir, "Portable"), { recursive: true });
+    await writeFile(join(flatDir, "Portable/SKILL.md"), "---\nname: Portable\ndescription: ok\n---\n# P\n", "utf8");
+    expect(await probeClaudeSkillsSource(flatDir)).toBe("importable");
   });
 });
 

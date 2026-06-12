@@ -72,6 +72,7 @@ import type {
   ClaudeSkillsMigrationPlan,
   ClaudeSkillsMigrationResult,
   ClaudeSkillsSmokeSubstrate,
+  ClaudeSkillsSourceStatus,
   DescriptionStatus,
   RewriteDescriptionsAgent,
   RewriteDispatchOverride,
@@ -822,12 +823,11 @@ async function listFlatSkillNames(fromDir: string): Promise<string[]> {
  * - `importable`: at least one `<Name>/SKILL.md` direct child
  * - `empty`: directory exists with no visible entries (fresh Claude Code)
  * - `missing`: directory does not exist
- * - `not-importable`: anything else — non-flat layout, symlinked root,
- *   file-at-path, unreadable dir (sage review on #309: this must NOT be
- *   reported as "empty")
+ * - `not-importable`: structurally wrong — non-flat layout, symlinked
+ *   root, file-at-path (sage review on #309: must NOT read as "empty")
+ * - `unreadable`: the probe could not read the source at all (sage cycle 2:
+ *   an access failure must NOT read as a structural verdict)
  */
-export type ClaudeSkillsSourceStatus = "importable" | "empty" | "missing" | "not-importable";
-
 export async function probeClaudeSkillsSource(fromDir: string): Promise<ClaudeSkillsSourceStatus> {
   try {
     if (!(await pathExists(fromDir))) {
@@ -840,8 +840,14 @@ export async function probeClaudeSkillsSource(fromDir: string): Promise<ClaudeSk
     const entries = await readdir(fromDir, { withFileTypes: true });
     const visible = entries.filter((entry) => !entry.name.startsWith("."));
     return visible.length === 0 ? "empty" : "not-importable";
-  } catch {
-    return "not-importable";
+  } catch (error) {
+    // listFlatSkillNames throws structured refusals for symlinked-root and
+    // file-at-path sources — those are structural verdicts, not read
+    // failures. Anything else (EACCES and friends) is `unreadable`.
+    if (error instanceof Error && /symlinked --from root|not a directory/.test(error.message)) {
+      return "not-importable";
+    }
+    return "unreadable";
   }
 }
 
@@ -855,7 +861,14 @@ async function describeFlatTreeRefusal(fromDir: string): Promise<string> {
   if (!(await pathExists(fromDir))) {
     return `--from ${fromDir} does not exist.`;
   }
-  const entries = await readdir(fromDir, { withFileTypes: true });
+  // Guarded so a file-at-path or permission failure surfaces the intended
+  // refusal message instead of a raw fs error (sage cycle 2 on #309).
+  let entries;
+  try {
+    entries = await readdir(fromDir, { withFileTypes: true });
+  } catch {
+    return `--from ${fromDir} could not be read (not a directory, or permission denied).`;
+  }
   const visible = entries.filter((entry) => !entry.name.startsWith("."));
   if (visible.length === 0) {
     return `--from ${fromDir} is empty — no skills to import.`;

@@ -195,9 +195,12 @@ function formatClaudeSkillsDetection(plan: SomaInitPlan): string {
       return dir;
     case "empty":
       return `${dir} (empty — nothing to import)`;
+    case "unreadable":
+      // sage cycle 2 on #309: a read failure is not a structural verdict.
+      return `${dir} (could not be read — check permissions, then run \`soma migrate claude-skills --from ${dir}\` for details)`;
     default:
-      // sage review on #309: a non-flat/unreadable tree must not be
-      // labeled "empty" — point at the command that explains why.
+      // sage review on #309: a non-flat tree must not be labeled
+      // "empty" — point at the command that explains why.
       return `${dir} (found, but not an importable flat skills tree — run \`soma migrate claude-skills --from ${dir}\` for details)`;
   }
 }
