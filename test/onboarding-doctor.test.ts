@@ -148,6 +148,26 @@ test("soma init skips Claude skills migration when the skills dir is empty", asy
   });
 });
 
+test("re-running soma init --apply never overwrites existing Soma home files", async () => {
+  await withTempHome(async (homeDir) => {
+    // Proves the doc claim in docs/soma-home-layout.md ("existing files are
+    // never overwritten") at the init level (sage cycle 3 on #309).
+    await runSomaCli(["init", "--apply", "--home-dir", homeDir]);
+
+    const principalPath = join(homeDir, ".soma/profile/principal.md");
+    const telosPath = join(homeDir, ".soma/profile/telos.md");
+    const customPrincipal = "# Principal\n\nName: Jens-Christian\n\n## Profile\n\n- status: customized\n";
+    const customTelos = "# Telos\n\nMission: My own mission.\n";
+    await writeFile(principalPath, customPrincipal, "utf8");
+    await writeFile(telosPath, customTelos, "utf8");
+
+    await runSomaCli(["init", "--apply", "--home-dir", homeDir]);
+
+    expect(await readFile(principalPath, "utf8")).toBe(customPrincipal);
+    expect(await readFile(telosPath, "utf8")).toBe(customTelos);
+  });
+});
+
 test("soma init labels a non-flat skills tree as not importable, never empty", async () => {
   await withTempHome(async (homeDir) => {
     // Children present, but no <Name>/SKILL.md — e.g. a Packs/-style tree.

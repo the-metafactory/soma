@@ -15,7 +15,7 @@ directory is the portable source of truth for your assistant. Substrate homes
 │   ├── telos.md            # mission, goals, principles, commitments
 │   └── imports/            # provenance of migrated PAI/Claude identity
 ├── skills/                 # portable skill folders (<name>/SKILL.md)
-├── memory/                 # PAI v5 memory taxonomy (WORK, KNOWLEDGE, LEARNING, …)
+├── memory/                 # Soma memory taxonomy (WORK, KNOWLEDGE, LEARNING, …)
 │   ├── WORK/
 │   │   └── algorithm-runs/ # Algorithm run state, one <run-id>.json per run
 │   └── STATE/

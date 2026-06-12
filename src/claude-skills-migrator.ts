@@ -815,20 +815,21 @@ async function listFlatSkillNames(fromDir: string): Promise<string[]> {
 }
 
 /**
- * Onboarding-facing probe classifying a Claude skills source dir. Never
- * throws — `soma init` uses this to decide whether to plan a
- * `migrate-claude-skills` step and how to label the source; a direct
- * `soma migrate claude-skills` run still surfaces the full error.
+ * Single internal classifier for a Claude skills source tree (sage cycle 3
+ * on #309: one set of structural rules, mapped to either an onboarding
+ * status or a refusal message — never duplicated).
  *
  * - `importable`: at least one `<Name>/SKILL.md` direct child
  * - `empty`: directory exists with no visible entries (fresh Claude Code)
  * - `missing`: directory does not exist
- * - `not-importable`: structurally wrong — non-flat layout, symlinked
- *   root, file-at-path (sage review on #309: must NOT read as "empty")
- * - `unreadable`: the probe could not read the source at all (sage cycle 2:
- *   an access failure must NOT read as a structural verdict)
+ * - `not-flat`: structurally wrong — non-flat layout, symlinked root,
+ *   file-at-path (sage review on #309: must NOT read as "empty")
+ * - `unreadable`: the source could not be read at all (sage cycle 2: an
+ *   access failure must NOT read as a structural verdict)
  */
-export async function probeClaudeSkillsSource(fromDir: string): Promise<ClaudeSkillsSourceStatus> {
+type FlatSkillsSourceClass = "importable" | "empty" | "missing" | "not-flat" | "unreadable";
+
+async function classifyFlatSkillsSource(fromDir: string): Promise<FlatSkillsSourceClass> {
   try {
     if (!(await pathExists(fromDir))) {
       return "missing";
@@ -839,41 +840,46 @@ export async function probeClaudeSkillsSource(fromDir: string): Promise<ClaudeSk
     }
     const entries = await readdir(fromDir, { withFileTypes: true });
     const visible = entries.filter((entry) => !entry.name.startsWith("."));
-    return visible.length === 0 ? "empty" : "not-importable";
+    return visible.length === 0 ? "empty" : "not-flat";
   } catch (error) {
     // listFlatSkillNames throws structured refusals for symlinked-root and
     // file-at-path sources — those are structural verdicts, not read
     // failures. Anything else (EACCES and friends) is `unreadable`.
     if (error instanceof Error && /symlinked --from root|not a directory/.test(error.message)) {
-      return "not-importable";
+      return "not-flat";
     }
     return "unreadable";
   }
 }
 
 /**
+ * Onboarding-facing probe. Never throws — `soma init` uses this to decide
+ * whether to plan a `migrate-claude-skills` step and how to label the
+ * source; a direct `soma migrate claude-skills` run still surfaces the
+ * full error.
+ */
+export async function probeClaudeSkillsSource(fromDir: string): Promise<ClaudeSkillsSourceStatus> {
+  const sourceClass = await classifyFlatSkillsSource(fromDir);
+  return sourceClass === "not-flat" ? "not-importable" : sourceClass;
+}
+
+/**
  * Accurate refusal reason for a source tree that produced zero flat skill
  * names. A fresh Claude Code install ships an EMPTY `~/.claude/skills/` —
  * calling that "not a flat skills tree" misdiagnoses the situation
- * (user feedback, 2026-06-12). Distinguish missing / empty / non-flat.
+ * (user feedback, 2026-06-12).
  */
 async function describeFlatTreeRefusal(fromDir: string): Promise<string> {
-  if (!(await pathExists(fromDir))) {
-    return `--from ${fromDir} does not exist.`;
+  switch (await classifyFlatSkillsSource(fromDir)) {
+    case "missing":
+      return `--from ${fromDir} does not exist.`;
+    case "empty":
+      return `--from ${fromDir} is empty — no skills to import.`;
+    case "unreadable":
+      return `--from ${fromDir} could not be read (not a directory, or permission denied).`;
+    default:
+      return `--from ${fromDir} is not a flat skills tree (no <Name>/SKILL.md direct children).`;
   }
-  // Guarded so a file-at-path or permission failure surfaces the intended
-  // refusal message instead of a raw fs error (sage cycle 2 on #309).
-  let entries;
-  try {
-    entries = await readdir(fromDir, { withFileTypes: true });
-  } catch {
-    return `--from ${fromDir} could not be read (not a directory, or permission denied).`;
-  }
-  const visible = entries.filter((entry) => !entry.name.startsWith("."));
-  if (visible.length === 0) {
-    return `--from ${fromDir} is empty — no skills to import.`;
-  }
-  return `--from ${fromDir} is not a flat skills tree (no <Name>/SKILL.md direct children).`;
 }
 
 async function readExistingManifest(
