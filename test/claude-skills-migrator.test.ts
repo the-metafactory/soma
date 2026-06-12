@@ -538,6 +538,9 @@ test("migrateClaudeSkills refuses empty tree on apply with accurate reason", asy
     await expect(
       migrateClaudeSkills({ from: fromDir, somaHome: join(home, "soma") }),
     ).rejects.toThrow(/is empty — no skills to import/);
+    // A refused run must not leave a stray imports dir behind — that
+    // stray dir was all a fresh-install user found in ~/.soma.
+    await expect(readdir(join(home, "soma"))).rejects.toThrow();
   });
 });
 

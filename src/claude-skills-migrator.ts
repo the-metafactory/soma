@@ -1845,9 +1845,6 @@ export async function migrateClaudeSkills(
   let applyWriteMs = 0;
   let smokeVerifyMs = 0;
 
-  // Ensure imports/claude-skills/ exists so manifest + report writes
-  // succeed even on a fully empty Soma home.
-  await mkdir(join(somaHome, "imports/claude-skills"), { recursive: true });
   const manifestPath = join(somaHome, MANIFEST_RELATIVE);
   const reportPath = join(somaHome, REPORT_RELATIVE);
 
@@ -1876,6 +1873,13 @@ export async function migrateClaudeSkills(
       `soma migrate claude-skills: ${await describeFlatTreeRefusal(from)}`,
     );
   }
+
+  // Ensure imports/claude-skills/ exists so manifest + report writes
+  // succeed even on a fully empty Soma home. Deliberately AFTER the
+  // flat-tree gate: a refused run must not leave a stray imports dir
+  // behind (that stray dir was all a fresh-install user found in
+  // ~/.soma after the pre-fix failure — user feedback, 2026-06-12).
+  await mkdir(join(somaHome, "imports/claude-skills"), { recursive: true });
 
   // Holly R1 nit — thread the buildPlanCore reads into the apply path
   // so we don't re-read every skill from disk a second time. Plan phase
