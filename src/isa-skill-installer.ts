@@ -92,15 +92,10 @@ async function listSkillFiles(root: string): Promise<string[]> {
   return out.sort();
 }
 
-async function hashSkillFiles(
-  root: string,
-  relativePaths: string[],
-  skillNameOverride?: string,
-  projectionSubstrate?: SubstrateId,
-): Promise<Record<string, string>> {
+function hashEntries(entries: readonly { rel: string; content: string }[]): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const rel of relativePaths) {
-    out[rel] = sha256(transformSkillFileContent(rel, await readFile(join(root, rel), "utf8"), skillNameOverride, projectionSubstrate));
+  for (const { rel, content } of entries) {
+    out[rel] = sha256(content);
   }
   return out;
 }
@@ -183,15 +178,8 @@ async function readSkillFrontmatter(skillMdPath: string): Promise<SkillFrontmatt
   return parseSkillFrontmatter(await readFile(skillMdPath, "utf8"));
 }
 
-async function copySkillFile(
-  source: string,
-  destination: string,
-  relPath: string,
-  skillNameOverride?: string,
-  projectionSubstrate?: SubstrateId,
-): Promise<void> {
+async function writeSkillFile(destination: string, content: string): Promise<void> {
   await mkdir(dirname(destination), { recursive: true });
-  const content = transformSkillFileContent(relPath, await readFile(source, "utf8"), skillNameOverride, projectionSubstrate);
   await writeFile(destination, content, "utf8");
 }
 
@@ -205,6 +193,34 @@ function transformSkillFileContent(
     ? rewriteSubstrateProjectionContent({ substrate: projectionSubstrate, path: relPath, content })
     : content;
   return rewriteSkillNameFrontmatter(relPath, rewritten, skillNameOverride);
+}
+
+/**
+ * The single source of truth for ISA skill file CONTENT. Lists the source
+ * files (sorted) and applies the substrate transform to each, returning
+ * {rel, content} entries. Every ISA projection derives its bytes from here —
+ * the on-disk install writes (freshInstall / reconcileSameVersion), the
+ * baseline hashes, and the in-memory export bundle (projectIsaSkillBundleFiles)
+ * — so install and export cannot drift. Add any content transform HERE, never
+ * in a single caller, or the byte-identity invariant breaks silently.
+ */
+async function computeSourceFileEntries(
+  sourceDir: string,
+  skillNameOverride?: string,
+  projectionSubstrate?: SubstrateId,
+): Promise<{ rel: string; content: string }[]> {
+  const sourceFiles = await listSkillFiles(sourceDir);
+  const entries: { rel: string; content: string }[] = [];
+  for (const rel of sourceFiles) {
+    const content = transformSkillFileContent(
+      rel,
+      await readFile(join(sourceDir, rel), "utf8"),
+      skillNameOverride,
+      projectionSubstrate,
+    );
+    entries.push({ rel, content });
+  }
+  return entries;
 }
 
 interface DetectedDrift {
@@ -264,6 +280,48 @@ export function installIsaSkillProjection(options: InternalIsaSkillInstallOption
   return installIsaSkillInternal(options);
 }
 
+export interface IsaSkillBundleProjectionOptions {
+  somaRepoPath?: string;
+  skillNameOverride?: string;
+  projectionSubstrate?: SubstrateId;
+  /**
+   * Bundle-relative directory the ISA files live under (e.g. `skills/ISA`
+   * or `.cursor/rules/soma/skills/ISA`). Backslashes are normalized to `/`.
+   */
+  destinationPrefix: string;
+}
+
+/**
+ * Pure in-memory projection of the ISA skill for a substrate bundle.
+ *
+ * Returns the same file CONTENT `installIsaSkillProjection` writes under
+ * `<substrateHome>/<destinationPrefix>`, but as {path, content}[] with
+ * bundle-relative (forward-slash) paths and NO disk writes, baseline
+ * tracking, or drift logic. `soma export` uses this so an exported bundle's
+ * file set matches an installed home: the ISA skill has a
+ * dedicated managed projection and is therefore excluded from the generic
+ * portable-skill loop, so without this the bundle's `skills.md` lists the
+ * ISA skill while its files are absent.
+ *
+ * Mirrors a FRESH install — every source file is emitted verbatim (the
+ * drift/upgrade states only apply to a pre-existing on-disk runtime, which a
+ * freshly exported bundle never has). Returns [] when the configured
+ * somaRepoPath ships no skill (same no-op contract as the installer's
+ * "no-source" branch).
+ */
+export async function projectIsaSkillBundleFiles(
+  options: IsaSkillBundleProjectionOptions,
+): Promise<{ path: string; content: string }[]> {
+  const sourceDir = isaSkillSourceDir(resolveSomaRepoPath(options));
+  if (!(await exists(sourceDir))) return [];
+  const prefix = options.destinationPrefix.replace(/\\/g, "/").replace(/\/+$/, "");
+  const entries = await computeSourceFileEntries(sourceDir, options.skillNameOverride, options.projectionSubstrate);
+  return entries.map(({ rel, content }) => {
+    const relPosix = rel.replace(/\\/g, "/");
+    return { path: prefix ? `${prefix}/${relPosix}` : relPosix, content };
+  });
+}
+
 async function installIsaSkillInternal(options: InternalIsaSkillInstallOptions = {}): Promise<IsaSkillInstallResult> {
   const somaHome = resolveSomaHome(options);
   const somaRepoPath = resolveSomaRepoPath(options);
@@ -296,8 +354,10 @@ async function installIsaSkillInternal(options: InternalIsaSkillInstallOptions =
   if (sourceFrontmatter === null) {
     throw new Error(`ISA skill source ${SKILL_MD} missing version or pack-id frontmatter.`);
   }
-  const sourceFiles = await listSkillFiles(sourceDir);
-  const sourceHashes = await hashSkillFiles(sourceDir, sourceFiles, options.skillNameOverride, options.projectionSubstrate);
+  const sourceEntries = await computeSourceFileEntries(sourceDir, options.skillNameOverride, options.projectionSubstrate);
+  const sourceFiles = sourceEntries.map((entry) => entry.rel);
+  const contentByRel = new Map(sourceEntries.map((entry) => [entry.rel, entry.content] as const));
+  const sourceHashes = hashEntries(sourceEntries);
 
   const runtimeFrontmatter = await readSkillFrontmatter(join(runtimeDir, SKILL_MD));
   const baselinesRead = await readBaselines(somaHome);
@@ -311,9 +371,9 @@ async function installIsaSkillInternal(options: InternalIsaSkillInstallOptions =
   if (runtimeFrontmatter === null || options.force === true) {
     return freshInstall({
       somaHome,
-      sourceDir,
       runtimeDir,
       sourceFiles,
+      contentByRel,
       sourceHashes,
       sourceVersion: sourceFrontmatter.version,
       runtimeVersionBefore: runtimeFrontmatter?.version ?? null,
@@ -321,8 +381,6 @@ async function installIsaSkillInternal(options: InternalIsaSkillInstallOptions =
       markerPath,
       userAdditions,
       skillKey,
-      skillNameOverride: options.skillNameOverride,
-      projectionSubstrate: options.projectionSubstrate,
     });
   }
 
@@ -330,9 +388,9 @@ async function installIsaSkillInternal(options: InternalIsaSkillInstallOptions =
   if (comparison <= 0) {
     return reconcileSameVersion({
       somaHome,
-      sourceDir,
       runtimeDir,
       sourceFiles,
+      contentByRel,
       sourceHashes,
       runtimeFiles,
       sourceVersion: sourceFrontmatter.version,
@@ -341,8 +399,6 @@ async function installIsaSkillInternal(options: InternalIsaSkillInstallOptions =
       baseline: baselineForDest,
       userAdditions,
       skillKey,
-      skillNameOverride: options.skillNameOverride,
-      projectionSubstrate: options.projectionSubstrate,
     });
   }
 
@@ -361,9 +417,9 @@ async function installIsaSkillInternal(options: InternalIsaSkillInstallOptions =
 
   return freshInstall({
     somaHome,
-    sourceDir,
     runtimeDir,
     sourceFiles,
+    contentByRel,
     sourceHashes,
     sourceVersion: sourceFrontmatter.version,
     runtimeVersionBefore: runtimeFrontmatter.version,
@@ -372,16 +428,14 @@ async function installIsaSkillInternal(options: InternalIsaSkillInstallOptions =
     userAdditions,
     actionOverride: "upgraded",
     skillKey,
-    skillNameOverride: options.skillNameOverride,
-    projectionSubstrate: options.projectionSubstrate,
   });
 }
 
 interface ReconcileSameVersionContext {
   somaHome: string;
-  sourceDir: string;
   runtimeDir: string;
   sourceFiles: string[];
+  contentByRel: Map<string, string>;
   sourceHashes: Record<string, string>;
   runtimeFiles: string[];
   sourceVersion: string;
@@ -390,8 +444,6 @@ interface ReconcileSameVersionContext {
   baseline: SomaSkillBaseline | undefined;
   userAdditions: string[];
   skillKey: string;
-  skillNameOverride?: string;
-  projectionSubstrate?: SubstrateId;
 }
 
 async function reconcileSameVersion(ctx: ReconcileSameVersionContext): Promise<IsaSkillInstallResult> {
@@ -410,7 +462,8 @@ async function reconcileSameVersion(ctx: ReconcileSameVersionContext): Promise<I
   const written: string[] = [];
   for (const rel of missingFiles) {
     const dest = join(ctx.runtimeDir, rel);
-    await copySkillFile(join(ctx.sourceDir, rel), dest, rel, ctx.skillNameOverride, ctx.projectionSubstrate);
+    // rel comes from sourceFiles, so it is always a contentByRel key.
+    await writeSkillFile(dest, ctx.contentByRel.get(rel)!);
     written.push(dest);
   }
   // Handle the pre-baselines runtime case: existing runtime installed before
@@ -476,9 +529,9 @@ async function writeUpgradeMarker(ctx: UpgradeMarkerContext): Promise<IsaSkillIn
 
 interface FreshInstallContext {
   somaHome: string;
-  sourceDir: string;
   runtimeDir: string;
   sourceFiles: string[];
+  contentByRel: Map<string, string>;
   sourceHashes: Record<string, string>;
   sourceVersion: string;
   runtimeVersionBefore: string | null;
@@ -487,15 +540,14 @@ interface FreshInstallContext {
   userAdditions: string[];
   actionOverride?: "fresh" | "upgraded";
   skillKey: string;
-  skillNameOverride?: string;
-  projectionSubstrate?: SubstrateId;
 }
 
 async function freshInstall(ctx: FreshInstallContext): Promise<IsaSkillInstallResult> {
   const written: string[] = [];
   for (const rel of ctx.sourceFiles) {
     const dest = join(ctx.runtimeDir, rel);
-    await copySkillFile(join(ctx.sourceDir, rel), dest, rel, ctx.skillNameOverride, ctx.projectionSubstrate);
+    // rel comes from sourceFiles, so it is always a contentByRel key.
+    await writeSkillFile(dest, ctx.contentByRel.get(rel)!);
     written.push(dest);
   }
 
