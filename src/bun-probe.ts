@@ -122,7 +122,7 @@ export function chooseBunExecutable(inputs: {
       "soma#73/#316: unable to resolve a durable Bun executable for the hook config.",
       "",
       ephemeralCandidate
-        ? `The only Bun found (${ephemeralCandidate}) is an ephemeral extraction that will not survive a reboot.`
+        ? `A candidate Bun (${ephemeralCandidate}) is an ephemeral extraction that will not survive a reboot.`
         : "Bun could not be located on PATH.",
       "Install Bun (https://bun.sh) so `which bun` resolves, or set SOMA_BUN_PATH to an absolute, persistent bun path.",
     ].join("\n"),
