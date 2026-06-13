@@ -363,6 +363,28 @@ test("install preserves existing soma profile edits before projecting to codex",
   });
 });
 
+test("first install already converges: skills.md lists ISA and the file set matches a re-install", async () => {
+  await withTempHome(async (homeDir) => {
+    const skillsPath = join(homeDir, ".codex/memories/soma/skills.md");
+
+    // The canonical ISA skill is written to <somaHome>/skills/ISA during
+    // this same install. The projection must already reflect it on the very
+    // first run — not render "No Soma skills were declared." and only
+    // converge on the second install (the context was previously snapshotted
+    // before the ISA baseline existed).
+    const first = await installSomaForCodex({ homeDir });
+    const afterFirst = await readFile(skillsPath, "utf8");
+    expect(afterFirst).toContain("## ISA");
+    expect(afterFirst).not.toContain("No Soma skills were declared.");
+
+    // Already converged: a second install reports the same file set and
+    // produces byte-identical skills.md. install #1 == install #2.
+    const second = await installSomaForCodex({ homeDir });
+    expect(first.substrateHome.files).toHaveLength(second.substrateHome.files.length);
+    expect(await readFile(skillsPath, "utf8")).toBe(afterFirst);
+  });
+});
+
 test("installed codex hook denies private Soma source writes to public destinations", async () => {
   await withTempHome(async (homeDir) => {
     await installSomaForCodex({ homeDir });

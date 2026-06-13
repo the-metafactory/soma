@@ -1,5 +1,19 @@
-import type { ProjectionInput } from "../../types";
+import type { ProjectionInput, SomaSkill } from "../../types";
 import { getCriteria, getGoal } from "../../isa-accessors";
+import { ISA_SKILL_NAME } from "../../isa-skill-installer";
+
+/**
+ * The portable skills a home projection should emit files for. `skills.md`
+ * (renderSkills) still lists every skill, but the ISA skill is excluded here:
+ * it has a dedicated, managed per-substrate projection (installIsaSkillProjection
+ * — baseline tracking, drift detection, skillNameOverride), so re-emitting its
+ * files through the generic portable-skill loop would double-write the same
+ * bytes that installer owns. Without this, a first install (which reloads the
+ * Soma home after writing the ISA baseline) would project ISA twice.
+ */
+export function projectableSkillFiles(skills: SomaSkill[]): SomaSkill[] {
+  return skills.filter((skill) => skill.name !== ISA_SKILL_NAME);
+}
 
 export function formatList(items: string[]): string {
   return items.length === 0 ? "- None declared" : items.map((item) => `- ${item}`).join("\n");
