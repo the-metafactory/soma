@@ -415,7 +415,15 @@ test("installs codex home projection into a substrate home", async () => {
     // `node …` command would fail on a bun-only machine. Aligns with the
     // soma#73 `#!/usr/bin/env bun` shebang the hook script already ships.
     expect(hooks).not.toContain("node ~/.codex/hooks/soma-lifecycle.mjs");
-    expect(hooks).toContain("bun ~/.codex/hooks/soma-lifecycle.mjs session-start");
+    for (const event of [
+      "session-start",
+      "prompt-submit",
+      "pre-tool-use",
+      "algorithm-updated",
+      "session-end",
+    ]) {
+      expect(hooks).toContain(`bun ~/.codex/hooks/soma-lifecycle.mjs ${event}`);
+    }
     // soma#73: hookScript ships verbatim with bun shebang; runtime config in JSON.
     expect(hookScript).toContain("#!/usr/bin/env bun");
     expect(hookScript).toContain("runCodexHook");
