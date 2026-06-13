@@ -81,12 +81,14 @@ export function isEphemeralBunPath(execPath: string): boolean {
 /**
  * Pure resolution core (testable without touching the real env/PATH).
  * Order:
- *   1. `SOMA_BUN_PATH` override
- *   2. `which bun` (PATH)
- *   3. `process.execPath` when running under Bun — but only when it is a
- *      durable path. An ephemeral `/tmp/bun-node-<hash>/bun` is rejected
- *      (soma#316): embedding it would break the hook after a reboot, so
- *      we fail loudly with remediation instead.
+ *   1. `SOMA_BUN_PATH` override (explicit; honored verbatim)
+ *   2. `which bun` (PATH) — rejected if ephemeral
+ *   3. `process.execPath` when running under Bun — rejected if ephemeral
+ *
+ * Both auto-detected candidates (2 and 3) are screened: an ephemeral
+ * `/tmp/bun-node-<hash>/bun` is rejected (soma#316) because embedding it
+ * would break the hook after a reboot, so we fail loudly with
+ * remediation instead.
  *
  * Throws when none resolve.
  */
@@ -96,18 +98,31 @@ export function chooseBunExecutable(inputs: {
   runningUnderBun: boolean;
   execPath: string;
 }): string {
+  // SOMA_BUN_PATH is an explicit, deliberate override — honored verbatim.
   if (inputs.somaBunPath) return inputs.somaBunPath;
-  if (inputs.fromPath !== null) return inputs.fromPath;
+  // Both auto-detected sources (PATH, then the under-Bun execPath
+  // fallback) are screened for ephemerality (soma#316): `which bun` can
+  // itself resolve to a temp extraction, so the screen cannot be limited
+  // to execPath.
+  if (inputs.fromPath !== null && !isEphemeralBunPath(inputs.fromPath)) {
+    return inputs.fromPath;
+  }
   if (inputs.runningUnderBun && inputs.execPath && !isEphemeralBunPath(inputs.execPath)) {
     return inputs.execPath;
   }
-  const ephemeral = Boolean(inputs.execPath) && isEphemeralBunPath(inputs.execPath);
+  let ephemeralCandidate: string | undefined;
+  for (const candidate of [inputs.fromPath, inputs.execPath]) {
+    if (candidate && isEphemeralBunPath(candidate)) {
+      ephemeralCandidate = candidate;
+      break;
+    }
+  }
   throw new Error(
     [
       "soma#73/#316: unable to resolve a durable Bun executable for the hook config.",
       "",
-      ephemeral
-        ? `The only Bun found (${inputs.execPath}) is an ephemeral extraction that will not survive a reboot.`
+      ephemeralCandidate
+        ? `The only Bun found (${ephemeralCandidate}) is an ephemeral extraction that will not survive a reboot.`
         : "Bun could not be located on PATH.",
       "Install Bun (https://bun.sh) so `which bun` resolves, or set SOMA_BUN_PATH to an absolute, persistent bun path.",
     ].join("\n"),

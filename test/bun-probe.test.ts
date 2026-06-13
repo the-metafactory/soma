@@ -56,6 +56,26 @@ describe("chooseBunExecutable (soma#316)", () => {
     ).toBe("/home/u/.bun/bin/bun");
   });
 
+  test("rejects an ephemeral PATH result (which bun can resolve to /tmp)", () => {
+    expect(() =>
+      chooseBunExecutable({
+        fromPath: "/tmp/bun-node-x/bun",
+        runningUnderBun: false,
+        execPath: "",
+      }),
+    ).toThrow(/ephemeral|reboot|SOMA_BUN_PATH/);
+  });
+
+  test("skips an ephemeral PATH result but accepts a durable execPath", () => {
+    expect(
+      chooseBunExecutable({
+        fromPath: "/tmp/bun-node-x/bun",
+        runningUnderBun: true,
+        execPath: "/home/u/.bun/bin/bun",
+      }),
+    ).toBe("/home/u/.bun/bin/bun");
+  });
+
   test("rejects an ephemeral execPath instead of embedding it (the bug)", () => {
     expect(() =>
       chooseBunExecutable({
