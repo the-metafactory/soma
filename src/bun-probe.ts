@@ -60,13 +60,11 @@ export function requireBunInPath(): void {
  * survive a reboot, so it must never be embedded in a persistent hook
  * command (soma#316).
  *
- * When Bun runs a single script (`bun run …`) or as a standalone
- * compiled executable, it extracts its runtime to a temp directory
- * named like `/tmp/bun-node-<hash>/bun`. The reporter's
- * `soma install claude-code --apply` embedded exactly such a path into
- * `settings.json`; it works until the temp dir is cleaned and then the
- * hook silently breaks. Either a `bun-node-*` path segment or any
- * location under the OS temp dir is treated as ephemeral.
+ * In the soma#316 report, `soma install claude-code --apply` embedded
+ * `/tmp/bun-node-<hash>/bun` into `settings.json` — a temp extraction of
+ * Bun's runtime that works until the temp dir is cleaned, after which the
+ * hook silently breaks. We classify as ephemeral anything with a
+ * `bun-node-*` path segment or located under the OS temp dir.
  */
 export function isEphemeralBunPath(execPath: string): boolean {
   if (!execPath) return false;
