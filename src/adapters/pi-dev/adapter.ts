@@ -3,7 +3,7 @@ import { renderFeedbackHookHelper } from "../shared/feedback-helper";
 import { renderPathGuardExtension } from "./path-guard";
 import { renderSomaAlgorithmExtension } from "./extensions/soma-algorithm";
 import { buildPiDevPortableSkillFiles } from "./skill-projection";
-import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "../shared";
+import { projectableSkillFiles, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "../shared";
 import { activeIsaBundleFile } from "../../adapter-active-isa";
 import { SOMA_VERSION } from "../../version";
 
@@ -468,7 +468,7 @@ export function projectPiDev(input: ProjectionInput): Projection {
 
 export function projectPiDevHome(input: ProjectionInput, somaHome: string): Projection {
   const instructions = renderInstructions(input);
-  const portableSkillFiles = buildPiDevPortableSkillFiles(input.profile.skills);
+  const portableSkillFiles = buildPiDevPortableSkillFiles(projectableSkillFiles(input.profile.skills));
 
   return {
     substrate: "pi-dev",

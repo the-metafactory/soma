@@ -18,7 +18,12 @@ interface InternalIsaSkillInstallOptions extends IsaSkillInstallOptions {
   projectionSubstrate?: SubstrateId;
 }
 
-const SKILL_NAME = "ISA";
+// The canonical ISA skill directory name under <somaHome>/skills. Exported so
+// home-projection adapters can recognize the ISA skill and delegate its file
+// projection to this dedicated installer instead of double-emitting it through
+// the generic portable-skill loop.
+export const ISA_SKILL_NAME = "ISA";
+const SKILL_NAME = ISA_SKILL_NAME;
 const SOURCE_SUBPATH = `src/skills/${SKILL_NAME}`;
 const RUNTIME_SUBPATH = `skills/${SKILL_NAME}`;
 const BASELINES_SUBPATH = "memory/STATE/skill-baselines.json";
