@@ -410,6 +410,12 @@ test("installs codex home projection into a substrate home", async () => {
     expect(hooks).toContain("SessionStart");
     expect(hooks).toContain("UserPromptSubmit");
     expect(hooks).toContain("PreToolUse");
+    // soma#317: hook commands must run under bun (Soma's declared runtime),
+    // not node — the README does not list node as a prerequisite, so a
+    // `node …` command would fail on a bun-only machine. Aligns with the
+    // soma#73 `#!/usr/bin/env bun` shebang the hook script already ships.
+    expect(hooks).not.toContain("node ~/.codex/hooks/soma-lifecycle.mjs");
+    expect(hooks).toContain("bun ~/.codex/hooks/soma-lifecycle.mjs session-start");
     // soma#73: hookScript ships verbatim with bun shebang; runtime config in JSON.
     expect(hookScript).toContain("#!/usr/bin/env bun");
     expect(hookScript).toContain("runCodexHook");

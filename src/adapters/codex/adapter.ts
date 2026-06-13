@@ -295,7 +295,7 @@ function renderCodexHooksJson(): string {
             hooks: [
               {
                 type: "command",
-                command: "node ~/.codex/hooks/soma-lifecycle.mjs session-start",
+                command: "bun ~/.codex/hooks/soma-lifecycle.mjs session-start",
                 timeout: 30,
                 statusMessage: "Loading Soma lifecycle context",
               },
@@ -307,7 +307,7 @@ function renderCodexHooksJson(): string {
             hooks: [
               {
                 type: "command",
-                command: "node ~/.codex/hooks/soma-lifecycle.mjs prompt-submit",
+                command: "bun ~/.codex/hooks/soma-lifecycle.mjs prompt-submit",
                 timeout: 30,
                 statusMessage: "Classifying Soma Algorithm mode",
               },
@@ -320,7 +320,7 @@ function renderCodexHooksJson(): string {
             hooks: [
               {
                 type: "command",
-                command: "node ~/.codex/hooks/soma-lifecycle.mjs pre-tool-use",
+                command: "bun ~/.codex/hooks/soma-lifecycle.mjs pre-tool-use",
                 timeout: 30,
                 statusMessage: "Checking Soma private context policy",
               },
@@ -333,7 +333,7 @@ function renderCodexHooksJson(): string {
             hooks: [
               {
                 type: "command",
-                command: "node ~/.codex/hooks/soma-lifecycle.mjs algorithm-updated",
+                command: "bun ~/.codex/hooks/soma-lifecycle.mjs algorithm-updated",
                 timeout: 30,
                 statusMessage: "Refreshing Soma work index",
               },
@@ -345,7 +345,7 @@ function renderCodexHooksJson(): string {
             hooks: [
               {
                 type: "command",
-                command: "node ~/.codex/hooks/soma-lifecycle.mjs session-end",
+                command: "bun ~/.codex/hooks/soma-lifecycle.mjs session-end",
                 timeout: 30,
                 statusMessage: "Capturing Soma lifecycle learning",
               },
