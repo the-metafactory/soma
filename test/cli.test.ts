@@ -1998,6 +1998,28 @@ test("cli export --out writes projection files into the out dir", async () => {
   });
 });
 
+test("cli export --out resolves a relative path against ARC_INVOCATION_CWD (soma#315)", async () => {
+  await withTempHome(async (homeDir) => {
+    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir]);
+
+    // The arc shim `cd`s into the repo before exec, overwriting both
+    // process.cwd() and $PWD. It exports the caller's directory as
+    // ARC_INVOCATION_CWD so a relative --out resolves against the user's
+    // shell dir, not the repo root.
+    const previous = process.env.ARC_INVOCATION_CWD;
+    process.env.ARC_INVOCATION_CWD = homeDir;
+    try {
+      const output = await runSomaCli(["export", "codex", "--out", "exported-rel", "--home-dir", homeDir]);
+      const expectedOut = join(homeDir, "exported-rel");
+      expect(output).toContain(`out: ${expectedOut}`);
+      await expect(stat(join(expectedOut, "rules/soma.rules"))).resolves.toBeDefined();
+    } finally {
+      if (previous === undefined) delete process.env.ARC_INVOCATION_CWD;
+      else process.env.ARC_INVOCATION_CWD = previous;
+    }
+  });
+});
+
 test("cli export --out rejects symlink escape from within out dir", async () => {
   await withTempHome(async (homeDir) => {
     await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir]);
