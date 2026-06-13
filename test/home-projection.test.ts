@@ -228,6 +228,9 @@ test("pi.dev home projection normalizes portable skill paths and frontmatter nam
         ...portableProjectionInput.profile,
         skills: [
           {
+            // The canonical ISA skill has a dedicated, managed projection
+            // (installIsaSkillProjection); the generic portable-skill loop
+            // delegates it and must NOT also emit its files here.
             name: "ISA",
             path: "skills/ISA",
             description: "Ideal State Artifact.",
@@ -236,6 +239,20 @@ test("pi.dev home projection normalizes portable skill paths and frontmatter nam
               {
                 path: "SKILL.md",
                 content: "---\nname: ISA\n---\n\n# ISA\n",
+              },
+            ],
+          },
+          {
+            // A non-dedicated uppercase skill exercises the general
+            // name/path normalization (FAQ -> faq) through the portable loop.
+            name: "FAQ",
+            path: "skills/FAQ",
+            description: "Frequently asked questions.",
+            triggers: ["faq"],
+            files: [
+              {
+                path: "SKILL.md",
+                content: "---\nname: FAQ\n---\n\n# FAQ\n",
               },
             ],
           },
@@ -269,15 +286,18 @@ test("pi.dev home projection normalizes portable skill paths and frontmatter nam
     { homeDir: "/tmp/soma-test-home" },
   );
 
-  const isa = projection.bundle.files.find((file) => file.path === "agent/skills/isa/SKILL.md");
+  const faq = projection.bundle.files.find((file) => file.path === "agent/skills/faq/SKILL.md");
   const ledger = projection.bundle.files.find((file) => file.path === "agent/skills/ledger-update/SKILL.md");
   const bodyExample = projection.bundle.files.find((file) => file.path === "agent/skills/body-example/SKILL.md");
 
-  expect(isa?.content).toContain("name: isa");
-  expect(isa?.content).not.toContain("name: ISA");
+  expect(faq?.content).toContain("name: faq");
+  expect(faq?.content).not.toContain("name: FAQ");
   expect(ledger?.content).toContain("name: ledger-update");
   expect(bodyExample?.content).toContain("name: Body Example");
   expect(bodyExample?.content).not.toContain("name: body-example");
+  // The dedicated ISA skill is delegated to installIsaSkillProjection and is
+  // not double-emitted through the portable-skill loop (neither cased form).
+  expect(projection.bundle.files.map((file) => file.path)).not.toContain("agent/skills/isa/SKILL.md");
   expect(projection.bundle.files.map((file) => file.path)).not.toContain("agent/skills/ISA/SKILL.md");
 });
 

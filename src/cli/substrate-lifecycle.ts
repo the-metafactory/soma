@@ -1,3 +1,5 @@
+import { homedir } from "node:os";
+import { join as pathJoin, relative as pathRelative, resolve as pathResolve } from "node:path";
 import { cursorWorkspaceSubstrateHome } from "../adapters/cursor";
 import {
   buildClaudeCodeHomeProjection,
@@ -20,6 +22,8 @@ import {
   type UninstallCursorResult,
 } from "../index";
 import type { ClaudeCodeInstallOptions } from "../adapters/claude-code/install-options";
+import { projectIsaSkillBundleFiles } from "../isa-skill-installer";
+import { installSpecFor } from "../install-spec-registry";
 import type {
   ProjectionInput,
   SomaInstallOptions,
@@ -410,7 +414,35 @@ async function buildExportProjection(
     substrateHome: options.substrateHome,
   };
   const files = projectionFilesFor(substrate, projectionInput, projectionOptions);
-  return files.map((f) => ({ path: f.path, content: f.content }));
+  // The ISA skill has a dedicated managed projection at install
+  // time (installIsaSkillProjection) and is therefore excluded from the
+  // generic portable-skill loop the projection builders run. Export runs
+  // only that loop, so without this the bundle's skills.md lists the ISA
+  // skill while its files are absent — an incomplete projection that does
+  // not match an installed home. Append the same ISA files install writes,
+  // as in-memory bundle entries, so `soma export` is a complete, installable
+  // set.
+  const isaFiles = await buildExportIsaProjection(substrate, options);
+  return [...files, ...isaFiles].map((f) => ({ path: f.path, content: f.content }));
+}
+
+async function buildExportIsaProjection(
+  substrate: InstallSubstrate,
+  options: SomaInstallOptions,
+): Promise<{ path: string; content: string }[]> {
+  const spec = installSpecFor(substrate);
+  // Resolve the substrate root the same way install does, then derive the
+  // ISA destination relative to it so the bundle path matches an installed
+  // home (e.g. codex → `skills/ISA`, cursor → `.cursor/rules/soma/skills/ISA`).
+  const resolvedHomeDir = pathResolve(options.homeDir ?? homedir());
+  const substrateRoot = pathResolve(options.substrateHome ?? pathJoin(resolvedHomeDir, spec.defaultHome));
+  const destinationPrefix = pathRelative(substrateRoot, spec.isaSkillProjection.destinationDir(substrateRoot));
+  return projectIsaSkillBundleFiles({
+    somaRepoPath: options.somaRepoPath,
+    skillNameOverride: spec.isaSkillProjection.skillNameOverride,
+    projectionSubstrate: substrate,
+    destinationPrefix,
+  });
 }
 
 function projectionFilesFor(

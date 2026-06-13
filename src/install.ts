@@ -11,7 +11,7 @@ import type { ClaudeCodeInstallOptions } from "./adapters/claude-code/install-op
 import { buildSomaStartupContext, runSomaLifecycleAlgorithmUpdated } from "./lifecycle";
 import { SOMA_MEMORY_CATEGORIES } from "./memory-readmes";
 import { defaultSomaRepoPath } from "./repo-path";
-import { bootstrapSomaHome } from "./soma-home";
+import { bootstrapSomaHome, loadSomaHome } from "./soma-home";
 import { installIsaSkillProjection } from "./isa-skill-installer";
 import { loadActiveIsaForBundle } from "./adapter-active-isa";
 import { isEnoent } from "./fs-errors";
@@ -128,6 +128,14 @@ async function installSomaForSubstrate(
     somaHome: somaHome.somaHome,
     somaRepoPath,
   });
+  // bootstrapSomaHome captured its context snapshot BEFORE the ISA skill
+  // baseline above existed, so its skill list is empty on a first install.
+  // Re-read the Soma home now that <somaHome>/skills/ISA is on disk: without
+  // this, the first install projects a skills.md that reads "No Soma skills
+  // were declared." and only the second install converges. Reloading makes
+  // the very first projection already list the ISA skill — install #1 is
+  // correct and byte-identical to every re-run.
+  const projectionContext = await loadSomaHome(somaHome.somaHome);
   const projectionOptions = {
     homeDir: options.homeDir,
     somaHome: options.somaHome,
@@ -153,7 +161,7 @@ async function installSomaForSubstrate(
   // Populate the projection input with the active ISA so each
   // substrate writes its `active-isa.md` file (#37 AC-1/AC-2).
   const contextWithActiveIsa: ProjectionInput = {
-    ...somaHome.context,
+    ...projectionContext,
     activeIsa: (await loadActiveIsaForBundle({ somaHome: somaHome.somaHome })) ?? undefined,
   };
   const substrateHome = await installHomeProjectionFor(substrate, contextWithActiveIsa, projectionOptions);
