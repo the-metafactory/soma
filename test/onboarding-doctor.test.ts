@@ -171,9 +171,20 @@ test("soma init skips a non-flat Claude skills dir yet still populates the home 
     expect(output).not.toContain("migrate-claude-skills");
     expect(output).not.toContain("not a flat skills tree");
     // Home is fully populated — not the empty dir the reporter observed.
-    await expect(stat(join(homeDir, ".soma/profile/principal.md"))).resolves.toBeTruthy();
-    await expect(stat(join(homeDir, ".soma/profile/telos.md"))).resolves.toBeTruthy();
-    await expect(stat(join(homeDir, ".soma/memory/WORK"))).resolves.toBeTruthy();
+    // Assert across every top-level area the bootstrap creates.
+    for (const relative of [
+      "profile/assistant.md",
+      "profile/principal.md",
+      "profile/telos.md",
+      "memory/WORK",
+      "memory/KNOWLEDGE",
+      "skills/README.md",
+      "policy/README.md",
+      "isa/INDEX.md",
+      "projections/README.md",
+    ]) {
+      await expect(stat(join(homeDir, ".soma", relative))).resolves.toBeTruthy();
+    }
   });
 });
 
