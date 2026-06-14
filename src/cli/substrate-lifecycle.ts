@@ -459,7 +459,15 @@ function defaultSomaHomePath(homeDir?: string): string {
 }
 
 function resolveAbsolute(path: string): string {
-  return path.startsWith("/") ? path : resolveJoin(process.cwd(), path);
+  if (path.startsWith("/")) return path;
+  // soma#315: when soma is launched through an arc-generated shim, the
+  // shim `cd`s into the repo before exec, so process.cwd() is the repo
+  // root — not the directory the user ran `soma export` from. The shim
+  // exports the caller's directory as ARC_INVOCATION_CWD; resolve a
+  // relative --out against it, falling back to process.cwd() for direct
+  // (non-shim) invocations.
+  const base = process.env.ARC_INVOCATION_CWD ?? process.cwd();
+  return resolveJoin(base, path);
 }
 
 async function writeProjectionExportFile(

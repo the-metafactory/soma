@@ -148,6 +148,46 @@ test("soma init skips Claude skills migration when the skills dir is empty", asy
   });
 });
 
+test("soma init skips a non-flat Claude skills dir yet still populates the home (#318)", async () => {
+  await withTempHome(async (homeDir) => {
+    // soma#318 (reported on 0.8.5): a ~/.claude/skills that is NOT a flat
+    // <Name>/SKILL.md tree must not trigger a migrate step (which refused
+    // with "not a flat skills tree"), and init must still fully populate
+    // the Soma home. The reporter saw an empty home plus a confusing
+    // import warning; fixed by #309. This locks the non-empty/non-flat
+    // variant the empty-dir test above does not cover.
+    await mkdir(join(homeDir, ".claude/skills"), { recursive: true });
+    await writeFile(join(homeDir, ".claude/skills/loose.md"), "not a <Name>/SKILL.md tree\n", "utf8");
+
+    const plan = await planSomaInit({ homeDir });
+    expect(plan.detected.claudeSkillsStatus).toBe("not-importable");
+    expect(plan.steps.map((step) => step.id)).toEqual([
+      "bootstrap-soma-home",
+      "install-codex",
+    ]);
+
+    const output = await runSomaCli(["init", "--apply", "--home-dir", homeDir]);
+    expect(output).toContain("soma init — applied");
+    expect(output).not.toContain("migrate-claude-skills");
+    expect(output).not.toContain("not a flat skills tree");
+    // Home is fully populated — not the empty dir the reporter observed.
+    // Assert across every top-level area the bootstrap creates.
+    for (const relative of [
+      "profile/assistant.md",
+      "profile/principal.md",
+      "profile/telos.md",
+      "memory/WORK",
+      "memory/KNOWLEDGE",
+      "skills/README.md",
+      "policy/README.md",
+      "isa/INDEX.md",
+      "projections/README.md",
+    ]) {
+      await expect(stat(join(homeDir, ".soma", relative))).resolves.toBeTruthy();
+    }
+  });
+});
+
 test("re-running soma init --apply never overwrites existing Soma home files", async () => {
   await withTempHome(async (homeDir) => {
     // Proves the doc claim in docs/soma-home-layout.md ("existing files are
