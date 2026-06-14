@@ -5,7 +5,7 @@ import { defaultSomaRepoPath } from "../../repo-path";
 import { resolveBunExecutable } from "../../bun-probe";
 import { readCodexHookAsset, renderCodexPolicyHook, renderCodexPolicyTargets } from "./hooks/assets";
 import { renderFeedbackHookModule } from "../shared/feedback-helper";
-import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "../shared";
+import { projectableSkills, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "../shared";
 import { activeIsaBundleFile } from "../../adapter-active-isa";
 import { somaPolicyPrivateMarkers } from "../../policy";
 import { somaMemoryPrivateRoots, somaProjectionPrivateRoots } from "../../projection-private-roots";
@@ -443,7 +443,7 @@ export function projectCodex(input: ProjectionInput): Projection {
 
 export function projectCodexHome(input: ProjectionInput, somaHome: string, homeDir?: string, somaRepoPath = defaultSomaRepoPath()): Projection {
   const instructions = renderHomeRules(input, somaHome);
-  const portableSkillFiles = input.profile.skills.flatMap((skill) =>
+  const portableSkillFiles = projectableSkills(input.profile.skills).flatMap((skill) =>
     (skill.files ?? []).map((file) => ({
       path: `skills/${skill.name}/${file.path}`,
       content: rewriteSubstrateProjectionContent({

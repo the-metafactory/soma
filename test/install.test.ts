@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { installSomaForCodex, installSomaForPiDev, planSomaForCodexInstall, planSomaForPiDevInstall, somaWorkRegistryPaths } from "../src/index";
@@ -360,6 +360,39 @@ test("install preserves existing soma profile edits before projecting to codex",
 
     expect(second.somaHome.context.profile.principal.name).toBe("jc");
     expect(projectedProfile).toContain("Name: jc");
+  });
+});
+
+test("first install already converges: skills.md lists ISA and the file set matches a re-install", async () => {
+  await withTempHome(async (homeDir) => {
+    const skillsPath = join(homeDir, ".codex/memories/soma/skills.md");
+
+    // The canonical ISA skill is written to <somaHome>/skills/ISA during
+    // this same install. The projection must already reflect it on the very
+    // first run — not render "No Soma skills were declared." and only
+    // converge on the second install (the context was previously snapshotted
+    // before the ISA baseline existed).
+    const first = await installSomaForCodex({ homeDir });
+    const afterFirst = await readFile(skillsPath, "utf8");
+    expect(afterFirst).toContain("## ISA");
+    expect(afterFirst).not.toContain("No Soma skills were declared.");
+
+    // Snapshot every projected file's bytes after the first install.
+    const resolveFile = (root: string, rel: string) => (isAbsolute(rel) ? rel : join(root, rel));
+    const readAll = async (root: string, files: string[]) =>
+      Object.fromEntries(
+        await Promise.all(
+          files.map(async (f) => [f, await readFile(resolveFile(root, f), "utf8")] as const),
+        ),
+      );
+    const firstBytes = await readAll(first.substrateHome.rootDir, first.substrateHome.files);
+
+    // Already converged: a second install reproduces the EXACT same file set
+    // — identical paths AND byte-identical content for every file, not just
+    // an equal count or a single skills.md spot-check. install #1 == install #2.
+    const second = await installSomaForCodex({ homeDir });
+    expect([...second.substrateHome.files].sort()).toEqual([...first.substrateHome.files].sort());
+    expect(await readAll(second.substrateHome.rootDir, second.substrateHome.files)).toEqual(firstBytes);
   });
 });
 
