@@ -11,7 +11,7 @@ import { ISA_SKILL_NAME } from "../../isa-skill-installer";
  * bytes that installer owns. Without this, a first install (which reloads the
  * Soma home after writing the ISA baseline) would project ISA twice.
  */
-export function projectableSkillFiles(skills: SomaSkill[]): SomaSkill[] {
+export function projectableSkills(skills: SomaSkill[]): SomaSkill[] {
   return skills.filter((skill) => skill.name !== ISA_SKILL_NAME);
 }
 
