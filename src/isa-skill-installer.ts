@@ -183,6 +183,26 @@ async function writeSkillFile(destination: string, content: string): Promise<voi
   await writeFile(destination, content, "utf8");
 }
 
+/**
+ * Write a skill file whose `rel` is known to come from the skill's own
+ * source listing, so `contentByRel` must contain it. Returns the written
+ * destination path. Throws if the (invariant-impossible) lookup misses,
+ * documenting the contract without a non-null assertion.
+ */
+async function writeKnownSkillFile(
+  runtimeDir: string,
+  rel: string,
+  contentByRel: Map<string, string>,
+): Promise<string> {
+  const dest = join(runtimeDir, rel);
+  const content = contentByRel.get(rel);
+  if (content === undefined) {
+    throw new Error(`isa-skill-installer: no content for skill file ${rel}`);
+  }
+  await writeSkillFile(dest, content);
+  return dest;
+}
+
 function transformSkillFileContent(
   relPath: string,
   content: string,
@@ -461,14 +481,7 @@ async function reconcileSameVersion(ctx: ReconcileSameVersionContext): Promise<I
   }
   const written: string[] = [];
   for (const rel of missingFiles) {
-    const dest = join(ctx.runtimeDir, rel);
-    // rel comes from sourceFiles, so it is always a contentByRel key.
-    const content = ctx.contentByRel.get(rel);
-    if (content === undefined) {
-      throw new Error(`isa-skill-installer: no content for skill file ${rel}`);
-    }
-    await writeSkillFile(dest, content);
-    written.push(dest);
+    written.push(await writeKnownSkillFile(ctx.runtimeDir, rel, ctx.contentByRel));
   }
   // Handle the pre-baselines runtime case: existing runtime installed before
   // the baseline feature shipped has no baseline entry. Seed one from the
@@ -549,14 +562,7 @@ interface FreshInstallContext {
 async function freshInstall(ctx: FreshInstallContext): Promise<IsaSkillInstallResult> {
   const written: string[] = [];
   for (const rel of ctx.sourceFiles) {
-    const dest = join(ctx.runtimeDir, rel);
-    // rel comes from sourceFiles, so it is always a contentByRel key.
-    const content = ctx.contentByRel.get(rel);
-    if (content === undefined) {
-      throw new Error(`isa-skill-installer: no content for skill file ${rel}`);
-    }
-    await writeSkillFile(dest, content);
-    written.push(dest);
+    written.push(await writeKnownSkillFile(ctx.runtimeDir, rel, ctx.contentByRel));
   }
 
   const baselines = { ...ctx.baselines };

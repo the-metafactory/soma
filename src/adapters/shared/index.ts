@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import type { ProjectionInput, SomaSkill } from "../../types";
 import { getCriteria, getGoal } from "../../isa-accessors";
 import { ISA_SKILL_NAME } from "../../isa-skill-installer";
@@ -10,9 +11,16 @@ import { ISA_SKILL_NAME } from "../../isa-skill-installer";
  * files through the generic portable-skill loop would double-write the same
  * bytes that installer owns. Without this, a first install (which reloads the
  * Soma home after writing the ISA baseline) would project ISA twice.
+ *
+ * The managed ISA skill is identified by BOTH its frontmatter name and its
+ * canonical directory basename (`skills/ISA/`). Matching on name alone would
+ * let a locally renamed SKILL.md frontmatter slip back into the generic loop
+ * and double-write the dedicated projection.
  */
 export function projectableSkills(skills: SomaSkill[]): SomaSkill[] {
-  return skills.filter((skill) => skill.name !== ISA_SKILL_NAME);
+  return skills.filter(
+    (skill) => skill.name !== ISA_SKILL_NAME && basename(skill.path) !== ISA_SKILL_NAME,
+  );
 }
 
 export function formatList(items: string[]): string {
