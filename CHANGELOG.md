@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.7] - 2026-06-15
+
+This release also carries the 0.8.6 changes below, which were version-bumped
+but never tagged or published (registry latest was still 0.8.5).
+
+### Fixed
+- `soma export --out <relative>` now writes to the directory the command was
+  invoked from instead of the repo root. The arc launcher shim `cd`s into the
+  repo before exec, overwriting `process.cwd()`/`$PWD`; the shim now exports
+  the caller directory as `ARC_INVOCATION_CWD` (arc#239) and `--out` resolves
+  against it, falling back to `process.cwd()` when unset (#315).
+- `soma export codex` now emits the ISA skill, completing the exported bundle
+  so an export matches a fresh install byte-for-byte (#313).
+- Hook installation no longer embeds an ephemeral `/tmp/bun-node-*/bun` path
+  into the substrate hook config. Such a path is Bun's temporary
+  self-extraction and breaks after a reboot; both the PATH-resolved and
+  `process.execPath` candidates are now screened, and resolution fails loudly
+  with remediation when only an ephemeral Bun is found (#316).
+- Codex hooks now run under `bun` rather than `node`, which is not a declared
+  Soma prerequisite — aligning `hooks.json` with the `#!/usr/bin/env bun`
+  shebang the hook script already ships (#317).
+
+### Added
+- Regression coverage locking first-install ISA-skill convergence and that
+  `soma init` fully populates the Soma home while skipping a non-flat
+  `~/.claude/skills` tree (#318).
+
 ## [0.8.6] - 2026-06-12
 
 ### Added
