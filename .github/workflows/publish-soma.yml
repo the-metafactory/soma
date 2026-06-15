@@ -59,6 +59,19 @@ jobs:
               token: "${METAFACTORY_TOKEN}"
           YAML
 
+          # Pre-flight: confirm a non-empty token actually landed in the prod
+          # source before bundling/publishing. Prints presence only — never
+          # the token value. `arc publish` reports a bare "Not authenticated"
+          # when source.token is falsy, which is opaque; fail here with a
+          # clear message instead.
+          if grep -qE '^[[:space:]]+token: "..+"' ~/.config/metafactory/sources.yaml; then
+            echo "auth pre-flight: prod token present in sources.yaml"
+          else
+            echo "::error::METAFACTORY_TOKEN did not land as a non-empty prod token in sources.yaml"
+            sed -E 's/(token:).*/\1 <redacted>/' ~/.config/metafactory/sources.yaml
+            exit 1
+          fi
+
       - name: Bundle
         id: bundle
         run: |
