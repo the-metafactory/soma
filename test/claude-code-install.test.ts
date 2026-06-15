@@ -463,8 +463,17 @@ test("issue #236: uninstall removes settings entries using the installed Bun pat
     const config = await readJson<{ bunPath: string }>(configPath);
     const oldBunPath = "/tmp/soma-test-old-bun";
     await writeFile(configPath, `${JSON.stringify({ ...config, bunPath: oldBunPath }, null, 2)}\n`, "utf8");
-    const settings = await readFile(settingsPath, "utf8");
-    await writeFile(settingsPath, settings.replaceAll(config.bunPath, oldBunPath), "utf8");
+    // Rewrite the frozen bun path inside settings.json as decoded JSON
+    // string values, not raw file text: a raw replaceAll silently no-ops
+    // when the resolved path is a native Windows path (C:\...), whose
+    // backslashes are JSON-escaped on disk.
+    const settings = await readJson<unknown>(settingsPath);
+    const rewritten = JSON.stringify(
+      settings,
+      (_key, value) => (typeof value === "string" ? value.replaceAll(config.bunPath, oldBunPath) : value),
+      2,
+    );
+    await writeFile(settingsPath, `${rewritten}\n`, "utf8");
 
     await uninstallSomaForClaudeCode({ homeDir });
 
