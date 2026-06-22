@@ -298,6 +298,7 @@ export interface AlgorithmRunSummary {
   passedCriteria: number;
   failedCriteria: number;
   droppedCriteria: number;
+  deferredProbeCriteria: number;
   progress: string;
 }
 
@@ -341,6 +342,7 @@ export type AlgorithmBatchOperation =
       criterionId: string;
       status: "passed" | "failed" | "dropped" | "deferred-probe";
       evidence: string;
+      evidenceKind?: "specified" | "probed" | "tested";
     }
   | {
       kind: "capability";

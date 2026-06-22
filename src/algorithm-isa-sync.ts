@@ -185,12 +185,20 @@ function phaseIndex(phase: AlgorithmPhase): number {
  * still open — even if the ISA claims `learn`/`complete`.
  */
 function reachableTargetPhase(target: AlgorithmPhase, criteria: readonly IdealStateCriterion[]): AlgorithmPhase {
-  const allClosed = criteria.length > 0 && criteria.every((c) => c.status === "passed" || c.status === "dropped");
+  const allClosed =
+    criteria.length > 0 &&
+    criteria.every((c) => c.status === "passed" || c.status === "dropped" || c.status === "deferred-probe");
+  // Mirror the LEARN integrity gate: a `passed` criterion verified by
+  // specification only (e.g. a pass fabricated from a frontmatter progress
+  // counter) cannot clear LEARN, so sync must cap such a run at VERIFY rather
+  // than attempt an advance the gate will reject.
+  const hasHollowPass = criteria.some((c) => c.status === "passed" && c.evidenceKind === "specified");
+  const learnReachable = allClosed && !hasHollowPass;
   // `complete` is never a sync target — we stop at `learn`. `complete` requires
   // a learning entry + invoked capabilities, which the LEARN handling provides;
   // but leaving the run at `learn` keeps it resumable rather than terminal.
   const capped = target === "complete" ? "learn" : target;
-  if (!allClosed && phaseIndex(capped) > phaseIndex("verify")) {
+  if (!learnReachable && phaseIndex(capped) > phaseIndex("verify")) {
     return "verify";
   }
   return capped;
@@ -257,8 +265,10 @@ function advanceRunToPhase(run: AlgorithmRun, target: AlgorithmPhase, timestamp:
 
 function isClosedCriterion(
   criterion: IdealStateCriterion,
-): criterion is IdealStateCriterion & { status: "passed" | "dropped" } {
-  return criterion.status === "passed" || criterion.status === "dropped";
+): criterion is IdealStateCriterion & { status: "passed" | "dropped" | "deferred-probe" } {
+  return (
+    criterion.status === "passed" || criterion.status === "dropped" || criterion.status === "deferred-probe"
+  );
 }
 
 function progressCompletedCount(progress: string, total: number): number | null {
@@ -295,7 +305,19 @@ function reconcileCriteria(
     if (existing.status === isaCriterion.status) continue; // already reconciled — idempotent
     const verification = isaCriterion.verification?.trim();
     const evidence = verification && verification.length > 0 ? verification : `synced from ISA: ${isaCriterion.text}`;
-    next = verifyAlgorithmCriterion(next, isaCriterion.id, isaCriterion.status, evidence, timestamp, { substrate });
+    // Preserve the markdown-declared evidence kind (`Evidence (probed): ...`).
+    // A bare `Evidence:` carries no kind and stays grandfathered — consistent with
+    // the library boundary — until the ISA-authoring prompt (P1) emits kinds. The
+    // egregious bypass (fabricating passes off a progress counter) is closed below.
+    next = verifyAlgorithmCriterion(
+      next,
+      isaCriterion.id,
+      isaCriterion.status,
+      evidence,
+      timestamp,
+      { substrate },
+      isaCriterion.evidenceKind,
+    );
   }
 
   const targetCompleted = frontmatterCompletionCount(isa, isaCriteria);
@@ -309,7 +331,9 @@ function reconcileCriteria(
     if (existing === undefined || isClosedCriterion(existing)) continue;
     const goal = getGoal(isa);
     const evidence = goal ? `synced from ISA progress: ${goal}` : `synced from ISA progress: ${isaCriterion.text}`;
-    next = verifyAlgorithmCriterion(next, isaCriterion.id, "passed", evidence, timestamp, { substrate });
+    // A pass fabricated to match a frontmatter progress counter is specification
+    // grade only — it must not clear the LEARN integrity gate as if probed.
+    next = verifyAlgorithmCriterion(next, isaCriterion.id, "passed", evidence, timestamp, { substrate }, "specified");
     runCriteria = getCriteria(next.isa);
     completed = runCriteria.filter(isClosedCriterion).length;
   }

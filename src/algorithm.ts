@@ -465,7 +465,15 @@ export function applyAlgorithmBatch(
       case "step":
         return updateAlgorithmPlanStep(current, operation.stepId, operation.status, operation.evidence, timestamp);
       case "verify":
-        return verifyAlgorithmCriterion(current, operation.criterionId, operation.status, operation.evidence, timestamp, provenance);
+        return verifyAlgorithmCriterion(
+          current,
+          operation.criterionId,
+          operation.status,
+          operation.evidence,
+          timestamp,
+          provenance,
+          operation.evidenceKind ?? (operation.status === "passed" ? "specified" : undefined),
+        );
       case "capability":
         return selectAlgorithmCapability(current, {
           name: operation.capability,

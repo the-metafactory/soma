@@ -229,6 +229,7 @@ export function summarizeAlgorithmRun(run: AlgorithmRun, path: string): Algorith
     passedCriteria: counts.passed,
     failedCriteria: counts.failed,
     droppedCriteria: counts.dropped,
+    deferredProbeCriteria: counts["deferred-probe"],
     progress: `${completed}/${total}`,
   };
 }
