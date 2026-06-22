@@ -4,7 +4,7 @@ import {
   uninstallSomaForClaudeCode,
   type UninstallClaudeCodeOptions,
 } from "../index";
-import { DOCTOR_UNSUPPORTED_SUBSTRATE_MESSAGE } from "../adapters/doctor";
+import { DOCTOR_SUPPORTED_SUBSTRATES, DOCTOR_UNSUPPORTED_SUBSTRATE_MESSAGE, isDoctorSubstrate } from "../adapters/doctor";
 import { applySomaInit, diagnoseSomaDoctor, planSomaInit } from "../onboarding";
 import type { SomaDoctorDiagnosis, SomaInitPlan, SomaInstallOptions, SomaOnboardingOptions } from "../types";
 import {
@@ -39,9 +39,9 @@ export type ParsedOnboardingArgs = ParsedInitArgs | ParsedDoctorArgs | ParsedAdo
 const ADOPT_CLAUDE_USAGE =
   "Usage: soma adopt claude [--dry-run] [--apply] [--uninstall] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
 const INIT_USAGE =
-  "Usage: soma init [--dry-run] [--apply] [--home-dir <dir>] [--soma-home <dir>] [--substrate <codex|pi-dev|claude-code|cursor>]";
+  "Usage: soma init [--dry-run] [--apply] [--home-dir <dir>] [--soma-home <dir>] [--substrate <codex|pi-dev|claude-code|cursor|grok>]";
 const DOCTOR_USAGE =
-  "Usage: soma doctor [--home-dir <dir>] [--soma-home <dir>] [--substrate <codex|claude-code>]";
+  `Usage: soma doctor [--home-dir <dir>] [--soma-home <dir>] [--substrate <${DOCTOR_SUPPORTED_SUBSTRATES.join("|")}>]`;
 
 export const ONBOARDING_COMMAND_HELP: Record<ParsedOnboardingArgs["command"], { usage: string; subcommands?: Record<string, string> }> = {
   init: {
@@ -79,7 +79,7 @@ export function parseInitArgs(args: string[]): ParsedInitArgs {
 export function parseDoctorArgs(args: string[]): ParsedDoctorArgs {
   const [, ...rest] = args;
   const options = parseOnboardingOptions(rest);
-  if (options.substrate && options.substrate !== "codex" && options.substrate !== "claude-code") {
+  if (options.substrate && !isDoctorSubstrate(options.substrate)) {
     throw new Error(DOCTOR_UNSUPPORTED_SUBSTRATE_MESSAGE);
   }
   return { command: "doctor", options };
@@ -257,6 +257,11 @@ function formatSomaDoctorDiagnosis(diagnosis: SomaDoctorDiagnosis): string {
       `Home:      ${diagnosis.homeDir}`,
       `Soma home: ${diagnosis.somaHome}`,
       "No onboarding drift detected.",
+      // Informational findings don't constitute drift but are still worth
+      // surfacing (e.g. discovery checks skipped because grok is absent).
+      ...(diagnosis.findings.length > 0
+        ? ["", "Notes:", ...diagnosis.findings.map((finding) => `- ${finding.id}: ${finding.message}\n  action: ${finding.action}`)]
+        : []),
       "",
     ].join("\n");
   }

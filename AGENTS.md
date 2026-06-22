@@ -16,6 +16,18 @@ learning, and adapter contracts.
 - Use Bun for scripts and tests.
 - Verify changes with `bun test` and `bun run typecheck`.
 
+## Substrate Adapters
+
+Shipped adapters, each projecting the same Soma core into substrate-native
+primitives (see `docs/substrate-adapters.md`):
+
+- **codex** — `~/.codex/` rules + lifecycle hook
+- **claude-code** — `CLAUDE.md`, `~/.claude/` rules, hooks, skills
+- **cursor** — `.cursorrules` + `.cursor/rules/soma/`
+- **pi-dev** — `~/.pi/agent/` core extension + skills
+- **grok** — `~/.grok/` auto-loaded skills + `AGENTS.md` pointer, native
+  subagent surfaces, and fail-closed `PreToolUse` hooks (Windows-verified)
+
 ## Codex Bootstrap
 
 Codex currently consumes Soma through this repo-level `AGENTS.md`. That makes

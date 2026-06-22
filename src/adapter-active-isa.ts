@@ -74,6 +74,8 @@ export function activeIsaProjectionPath(substrate: SubstrateId): string {
       return "rules/soma/ACTIVE_ISA.md";
     case "cursor":
       return ".cursor/rules/soma/ACTIVE_ISA.md";
+    case "grok":
+      return "skills/soma/active-isa.md";
     case "cortex":
     case "custom":
       throw new Error(`activeIsaProjectionPath: unsupported substrate '${substrate}'`);

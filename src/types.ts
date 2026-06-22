@@ -1,6 +1,6 @@
 import type { InferenceBackend, InferenceLevel } from "./tools/inference/types";
 
-export type SubstrateId = "codex" | "pi-dev" | "claude-code" | "cursor" | "cortex" | "custom";
+export type SubstrateId = "codex" | "pi-dev" | "claude-code" | "cursor" | "grok" | "cortex" | "custom";
 
 export interface AssistantIdentity {
   name: string;
@@ -797,7 +797,7 @@ export interface SomaSkillManifest {
   workflows: string[];
   tools: string[];
   triggers: string[];
-  substrates: ("claude-code" | "codex" | "pi-dev" | "cursor" | "cortex" | "custom")[];
+  substrates: ("claude-code" | "codex" | "pi-dev" | "cursor" | "grok" | "cortex" | "custom")[];
   algorithmCapability?: SomaSkillAlgorithmCapabilityManifest;
 }
 
@@ -1075,7 +1075,7 @@ export interface PaiMemoryMigrationManifest {
 // for `soma migrate claude-skills`, so projecting an imported skill
 // back to Claude Code would only ever round-trip; the real verify
 // value is on the NON-source substrates (Codex + Pi.dev).
-export type ClaudeSkillsSmokeSubstrate = "codex" | "pi-dev";
+export type ClaudeSkillsSmokeSubstrate = "codex" | "pi-dev" | "grok";
 
 // #115 Phase 2 — per-skill, per-substrate static-shape verification
 // verdict. The verifier never EXECUTES the substrate; it only checks
@@ -1137,7 +1137,7 @@ export interface ClaudeSkillsMigrationOptions {
   // #115 Phase 2 — substrate(s) to run per-skill static-shape
   // verification against after import. Ordered, de-duplicated. The
   // CLI accepts `--smoke <substrate>` repeated and `--smoke all`
-  // (which the parser expands to `["codex", "pi-dev"]`). Absent /
+  // (which the parser expands to `["codex", "pi-dev", "grok"]`). Absent /
   // empty → Phase-1 behavior (no verify, no substrate columns in
   // the report).
   smokeSubstrates?: ClaudeSkillsSmokeSubstrate[];
@@ -1536,7 +1536,8 @@ export type SomaInitStepId =
   | "install-codex"
   | "install-pi-dev"
   | "install-claude-code"
-  | "install-cursor";
+  | "install-cursor"
+  | "install-grok";
 
 export type SomaDoctorFindingId =
   | "starter-profile"
@@ -1545,12 +1546,17 @@ export type SomaDoctorFindingId =
   | "codex-projection-stale"
   | "claude-code-projection-stale"
   | "claude-code-hook-missing"
-  | "claude-code-settings-missing";
+  | "claude-code-settings-missing"
+  | "grok-projection-stale"
+  | "grok-hook-missing"
+  | "grok-hook-files-incomplete"
+  | "grok-hook-interpreter-missing"
+  | "grok-inspect-unavailable";
 
 export interface SomaOnboardingOptions {
   homeDir?: string;
   somaHome?: string;
-  substrate?: Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor">;
+  substrate?: Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor" | "grok">;
 }
 
 // Classification of a detected Claude skills source dir (sage review on
@@ -1570,7 +1576,7 @@ export interface SomaInitPlan {
   mode: "dry-run" | "apply";
   homeDir: string;
   somaHome: string;
-  substrate: Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor">;
+  substrate: Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor" | "grok">;
   detected: {
     paiInstall: string | null;
     paiUserDir: string | null;
@@ -1604,7 +1610,22 @@ export interface SomaInitApplyResult {
 export interface SomaDoctorFinding {
   id: SomaDoctorFindingId;
   severity: "info" | "warning";
+  /** Human-readable explanation of the drift; carries the narrative guidance. */
   message: string;
+  /**
+   * The remediation step the onboarding/doctor surfaces print verbatim.
+   * Command-first: use an executable CLI command (e.g. `soma reproject grok`,
+   * `soma install claude-code --apply`) wherever a single command remediates
+   * the finding, so an agent or user can run it directly. Only when no single
+   * command applies — e.g. `starter-profile` with no PAI source, where the
+   * user must hand-author profile files — use a concise imperative
+   * instruction instead. Either way the narrative explanation belongs in
+   * `message`, not here. (The grok doctor's
+   * `grok-inspect-unavailable` action was prose where re-running the check is
+   * the right command; it now uses the command and the prose moved to
+   * `message`. Documented so future findings keep the command-first
+   * convention.)
+   */
   action: string;
 }
 

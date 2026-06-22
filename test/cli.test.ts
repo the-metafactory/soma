@@ -100,11 +100,11 @@ test("cli shows no-argument usage as normal help", async () => {
   const output = await runSomaCli([]);
 
   expect(output).toContain("Usage:");
-  expect(output).toContain("soma install <codex|pi-dev|claude-code|cursor>");
-  expect(output).toContain("soma uninstall <codex|pi-dev|claude-code|cursor>");
-  expect(output).toContain("soma reproject <codex|pi-dev|claude-code|cursor>");
-  expect(output).toContain("soma upgrade <codex|pi-dev|claude-code|cursor>");
-  expect(output).toContain("soma export <codex|pi-dev|claude-code|cursor>");
+  expect(output).toContain("soma install <codex|pi-dev|claude-code|cursor|grok>");
+  expect(output).toContain("soma uninstall <codex|pi-dev|claude-code|cursor|grok>");
+  expect(output).toContain("soma reproject <codex|pi-dev|claude-code|cursor|grok>");
+  expect(output).toContain("soma upgrade <codex|pi-dev|claude-code|cursor|grok>");
+  expect(output).toContain("soma export <codex|pi-dev|claude-code|cursor|grok>");
   expect(output).toContain("soma daemon");
 
   const result = spawnSync(process.execPath, ["run", "soma"], {
@@ -136,7 +136,7 @@ test("cli supports explicit main help as normal help", async () => {
   const output = await runSomaCli(["--help"]);
 
   expect(output).toContain("Usage:");
-  expect(output).toContain("soma install <codex|pi-dev|claude-code|cursor>");
+  expect(output).toContain("soma install <codex|pi-dev|claude-code|cursor|grok>");
 
   const result = spawnSync(process.execPath, ["run", "soma", "--help"], {
     cwd: join(import.meta.dir, ".."),
@@ -1732,7 +1732,7 @@ test("cli applies codex install only with explicit apply flag", async () => {
 
 test("cli install dry-run output is explicit for all substrates", async () => {
   await withTempHome(async (homeDir) => {
-    for (const substrate of ["codex", "pi-dev", "claude-code", "cursor"] as const) {
+    for (const substrate of ["codex", "pi-dev", "claude-code", "cursor", "grok"] as const) {
       const output = await runSomaCli(["install", substrate, "--home-dir", homeDir]);
 
       expect(output).toContain("PLAN (no changes written)");
@@ -1930,8 +1930,17 @@ test("cli uninstall cursor preserves user-owned .cursor/rules/soma directory", a
 });
 
 test("cli uninstall codex/pi-dev is a reserved stub", async () => {
-  await expect(runSomaCli(["uninstall", "codex"])).rejects.toThrow("not yet implemented");
-  await expect(runSomaCli(["uninstall", "pi-dev"])).rejects.toThrow("not yet implemented");
+  // Grok landed a real uninstaller in U6; only codex and pi-dev remain
+  // reserved. The reserved message carries the adapter-owned reason so it
+  // cannot go stale as substrates land real uninstallers.
+  // ALWAYS pass --home-dir here: a bare `soma uninstall <substrate>`
+  // targets the developer's real home, and the moment a substrate's
+  // uninstall flips from reserved to implemented this test would
+  // otherwise really uninstall it (this bit grok during U6).
+  await withTempHome(async (homeDir) => {
+    await expect(runSomaCli(["uninstall", "codex", "--home-dir", homeDir])).rejects.toThrow("not yet implemented");
+    await expect(runSomaCli(["uninstall", "pi-dev", "--home-dir", homeDir])).rejects.toThrow("not yet implemented");
+  });
 });
 
 test("cli reproject codex routes through the install applier", async () => {
@@ -1993,7 +2002,7 @@ async function walkRelativeFiles(root: string): Promise<string[]> {
 // from the generic portable-skill loop, so a naive export omits its files
 // while skills.md still lists it. The exported bundle's ISA set must match the
 // installed home byte-for-byte. Run per-substrate because the destination
-// prefix differs (codex/claude-code `skills/ISA`, cursor
+// prefix differs (codex/claude-code/grok `skills/ISA`, cursor
 // `.cursor/rules/soma/skills/ISA`, pi-dev a custom dir + lowercase `isa` skill
 // name), so each prefix must be exercised or it could silently diverge. Prefix
 // + installed dir are derived from the install spec, exactly as

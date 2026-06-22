@@ -5,7 +5,7 @@ import { defaultSomaRepoPath } from "../../repo-path";
 import { resolveBunExecutable } from "../../bun-probe";
 import { readCodexHookAsset, renderCodexPolicyHook, renderCodexPolicyTargets } from "./hooks/assets";
 import { renderFeedbackHookModule } from "../shared/feedback-helper";
-import { projectableSkills, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "../shared";
+import { projectableSkills, renderAlgorithmRenderingContract, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills, renderSubstrateInstructions } from "../shared";
 import { activeIsaBundleFile } from "../../adapter-active-isa";
 import { somaPolicyPrivateMarkers } from "../../policy";
 import { somaMemoryPrivateRoots, somaProjectionPrivateRoots } from "../../projection-private-roots";
@@ -59,21 +59,7 @@ function renderCodexPolicy(): string {
 }
 
 function renderInstructions(input: ProjectionInput): string {
-  return [
-    "# Soma Codex Context",
-    "",
-    "You are running inside Codex with Soma-projected assistant context.",
-    "Treat Soma as the source of truth for personal assistant identity, telos, memory layout, skills, policy, and active ISA context.",
-    "Treat Codex as the execution substrate. Keep substrate-specific behavior behind adapter boundaries.",
-    "",
-    renderAssistantCore(input),
-    "",
-    "## Operating Rules",
-    "- Use the active ISA as the verification contract when present.",
-    "- Read memory from the declared file layout before inventing persistent facts.",
-    "- Keep personal context out of public templates unless explicitly requested.",
-    "- Report verification performed and any substrate limitation encountered.",
-  ].join("\n");
+  return renderSubstrateInstructions({ substrate: "Codex", runtimeLabel: "Codex" }, input);
 }
 
 function renderHomeRules(input: ProjectionInput, somaHome: string): string {
@@ -135,95 +121,6 @@ function renderHomeSkill(input: ProjectionInput, somaHome: string): string {
     "## Current Projection",
     "",
     renderAssistantCore(input),
-  ].join("\n");
-}
-
-function renderAlgorithmRenderingContract(): string {
-  return [
-    "---",
-    "name: the-algorithm",
-    'description: "Use when work should run through Soma Algorithm mode with seven-phase rendering, ISA criteria, verification, and learning capture."',
-    "metadata:",
-    "  short-description: Soma Algorithm rendering contract for Codex",
-    "---",
-    "",
-    "# The Algorithm",
-    "",
-    "Use this skill whenever Soma classifies the prompt as ALGORITHM or the user explicitly asks for the Algorithm, ISA, ideal state, criteria, or verification-first work.",
-    "",
-    "## Execution Harness",
-    "",
-    "Start with `Workflows/RunAlgorithm.md`. That workflow is the executable Algorithm contract.",
-    "",
-    "When the Soma CLI is available, create or update a harness run with `bun run soma algorithm ...` before doing substantial work. The harness is mutable run state; the rendering contract below is only the Codex-visible phase display.",
-    "",
-    "Use `algorithm advance` as the deterministic phase gate. If it rejects a transition, fill the missing capabilities, plan steps, build changes, verification, or learning evidence before trying again.",
-    "",
-    "Capability selections are binding. Use registered capability names only; after selecting one, record invocation evidence with `algorithm invoke` or remove it with `algorithm remove-capability` before completion.",
-    "",
-    "## Codex Rendering Contract",
-    "",
-    "When entering ALGORITHM mode, emit these banners as you progress through each phase. Stream each phase header BEFORE producing the phase content.",
-    "",
-    "Use the phase names, emoji headers, Unicode bars, and phase numbering exactly:",
-    "",
-    "```text",
-    "♻︎ Entering the PAI ALGORITHM… (Soma) ═════════════",
-    "🗒️ TASK: <task summary>",
-    "🎯 INTENT: <intent>",
-    "",
-    "━━━ 👁️ OBSERVE ━━━ 1/7",
-    "━━━ 🧠 THINK ━━━ 2/7",
-    "━━━ 📋 PLAN ━━━ 3/7",
-    "━━━ 🛠️ BUILD ━━━ 4/7",
-    "━━━ ⚡ EXECUTE ━━━ 5/7",
-    "━━━ ✅ VERIFY ━━━ 6/7",
-    "━━━ 📚 LEARN ━━━ 7/7",
-    "━━━ 📃 SUMMARY ━━━ 7/7",
-    "```",
-    "",
-    "## Phase Rules",
-    "",
-    "- OBSERVE: restate task, current state, ideal state, effort, criteria.",
-    "- THINK: name assumptions, tradeoffs, and selected registered capabilities.",
-    "- PLAN: list concrete steps mapped to criteria.",
-    "- BUILD: describe artifacts being changed or created.",
-    "- EXECUTE: run the work and keep status moving.",
-    "- VERIFY: report each criterion and evidence.",
-    "- LEARN: capture reusable decisions or lessons.",
-    "- SUMMARY: close with outcome, verification, and any residual risk.",
-    "",
-    "## Canonical Example",
-    "",
-    "```text",
-    "♻︎ Entering the PAI ALGORITHM… (Soma) ═════════════",
-    "🗒️ TASK: Fix the Codex adapter projection",
-    "🎯 INTENT: Make the change verifiable and substrate-portable",
-    "",
-    "━━━ 👁️ OBSERVE ━━━ 1/7",
-    "Current state, goal, and criteria are identified.",
-    "",
-    "━━━ 🧠 THINK ━━━ 2/7",
-    "The adapter boundary and filesystem projection constraints are considered.",
-    "",
-    "━━━ 📋 PLAN ━━━ 3/7",
-    "P1 maps to C1, P2 maps to C2, verification follows implementation.",
-    "",
-    "━━━ 🛠️ BUILD ━━━ 4/7",
-    "Files are edited in the smallest safe scope.",
-    "",
-    "━━━ ⚡ EXECUTE ━━━ 5/7",
-    "Commands and checks are run.",
-    "",
-    "━━━ ✅ VERIFY ━━━ 6/7",
-    "C1: passed — test output or source evidence.",
-    "",
-    "━━━ 📚 LEARN ━━━ 7/7",
-    "The durable lesson is recorded when useful.",
-    "",
-    "━━━ 📃 SUMMARY ━━━ 7/7",
-    "The task is complete, with verification evidence.",
-    "```",
   ].join("\n");
 }
 
@@ -530,7 +427,7 @@ export function projectCodexHome(input: ProjectionInput, somaHome: string, homeD
       ...portableSkillFiles,
       {
         path: "skills/the-algorithm/SKILL.md",
-        content: renderAlgorithmRenderingContract(),
+        content: renderAlgorithmRenderingContract("Codex"),
       },
       // Active-ISA projection (#37). OMITTED when no active ISA — AC-2.
       ...activeIsaBundleFile("codex", input.activeIsa),

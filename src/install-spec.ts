@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import type { SubstrateId } from "./types";
 
-export type InstallSubstrate = Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor">;
+export type InstallSubstrate = Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor" | "grok">;
 
 export interface LifecycleProjectionSpec {
   startupContextPath: string;
@@ -35,6 +35,8 @@ export type InstallValidator = (substrateRoot: string) => Promise<void>;
 
 export interface UninstallContext {
   homeDir?: string;
+  /** Explicit soma home override; adapters fall back to `<homeDir>/.soma` when absent. */
+  somaHome?: string;
   substrateHome: string;
 }
 

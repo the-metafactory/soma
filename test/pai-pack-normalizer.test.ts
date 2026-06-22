@@ -253,6 +253,22 @@ test("generateSomaSkillManifest extracts triggers from USE WHEN clause", () => {
   expect(manifest.source).toEqual({ kind: "pai-pack", packName: "Demo" });
 });
 
+test("generateSomaSkillManifest lists every substrate with portable-skill projection, including grok", () => {
+  const manifest = generateSomaSkillManifest({
+    skillName: "demo",
+    description: "Demo skill.",
+    packName: "Demo",
+    entrypoint: "SKILL.md",
+    references: [],
+    workflowFiles: [],
+  });
+  // Pinned: algorithm-capabilities filters pack-imported skills per
+  // substrate via this list, so a substrate missing here is silently
+  // excluded from `soma algorithm --substrate <id>` capability
+  // registration even though its skill files project to disk.
+  expect(manifest.substrates).toEqual(["claude-code", "codex", "grok", "pi-dev"]);
+});
+
 test("normalizeSkillDescription compacts descriptions for portable metadata limit", () => {
   const longDescription = makeLongDescription();
   const result = normalizeSkillDescription(longDescription, {

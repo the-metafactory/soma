@@ -434,7 +434,7 @@ test("soma doctor --substrate claude-code flags a settings.json that omits the S
 test("soma doctor rejects unsupported substrates", async () => {
   await withTempHome(async (homeDir) => {
     await expect(runSomaCli(["doctor", "--substrate", "pi-dev", "--home-dir", homeDir])).rejects.toThrow(
-      "soma doctor currently supports --substrate codex and claude-code only.",
+      "soma doctor currently supports --substrate codex, claude-code and grok only.",
     );
   });
 });

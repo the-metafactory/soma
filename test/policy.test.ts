@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { bootstrapSomaHome, checkSomaPolicy, evaluateSomaPolicy, somaMemoryEventsPath } from "../src/index";
+import { somaPolicyPrivateMarkers } from "../src/policy";
 import { hasSomaPolicyPrivateMarker as hasSomaPolicyPrivateMarkerTs, renderPolicyMarkerMjs } from "../src/policy-marker";
 import { hasSomaPolicyPrivateMarker as hasSomaPolicyPrivateMarkerJs } from "../src/adapters/codex/hooks/policy-marker.mjs";
 
@@ -33,6 +34,22 @@ test("keeps TypeScript and hook marker matchers in parity", () => {
 test("keeps hook marker asset generated from TypeScript source", async () => {
   const asset = await readFile(join(import.meta.dir, "../src/adapters/codex/hooks/policy-marker.mjs"), "utf8");
   expect(asset).toBe(renderPolicyMarkerMjs());
+});
+
+test("renders portable tilde markers POSIX-shaped on every platform", async () => {
+  await withTempHome(async (homeDir) => {
+    // `relative()` returns backslash separators on Windows; a marker like
+    // `~/.soma\memory` would never match the `~/.soma/memory/...` form
+    // content actually carries, silently disabling portable-marker
+    // detection on Windows installs.
+    const markers = somaPolicyPrivateMarkers(join(homeDir, ".soma"), homeDir);
+    const tildeMarkers = markers.filter((marker) => marker.startsWith("~"));
+    expect(tildeMarkers.length).toBeGreaterThan(0);
+    for (const marker of tildeMarkers) {
+      expect(marker).not.toContain("\\");
+    }
+    expect(tildeMarkers).toContain("~/.soma/memory");
+  });
 });
 
 test("allows public writes without private Soma markers", async () => {

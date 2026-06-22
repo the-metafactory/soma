@@ -8,12 +8,14 @@ import {
   buildClaudeCodeHomeProjection,
   buildCodexHomeProjection,
   buildCursorHomeProjection,
+  buildGrokHomeProjection,
   buildPiDevHomeProjection,
   loadActiveIsaForBundle,
   loadSomaHome,
   projectClaudeCode,
   projectCodex,
   projectCursor,
+  projectGrok,
   projectPiDev,
   recordIsaDecision,
   scaffoldIsa,
@@ -92,6 +94,7 @@ function buildShippingHomeBundles(input: ProjectionInput, homeDir: string): Proj
     buildPiDevHomeProjection(input, { homeDir }).bundle,
     buildClaudeCodeHomeProjection(input, { homeDir }).bundle,
     buildCursorHomeProjection(input, { homeDir }).bundle,
+    buildGrokHomeProjection(input, { homeDir }).bundle,
   ];
 }
 
@@ -101,6 +104,7 @@ test("portability CI: project projections preserve the same semantic content", (
     projectPiDev(portableProjectionInput),
     projectClaudeCode(portableProjectionInput),
     projectCursor(portableProjectionInput),
+    projectGrok(portableProjectionInput),
   ];
 
   for (const bundle of bundles) {

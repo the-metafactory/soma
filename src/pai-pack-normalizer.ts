@@ -556,7 +556,10 @@ export function generateSomaSkillManifest(input: GenerateSomaSkillManifestInput)
     workflows: [...input.workflowFiles].sort(),
     tools: [],
     triggers: extractTriggersFromDescription(input.description),
-    substrates: ["claude-code", "codex", "pi-dev"],
+    // Substrates with real portable-skill projection. Algorithm
+    // capability registration filters on this list per substrate;
+    // skill-file projection does not.
+    substrates: ["claude-code", "codex", "grok", "pi-dev"],
   };
 }
 

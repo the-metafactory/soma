@@ -416,7 +416,7 @@ test("soma migrate claude-skills --apply --smoke codex --smoke pi-dev surfaces b
   });
 });
 
-test("soma migrate claude-skills --smoke all expands to codex + pi-dev", async () => {
+test("soma migrate claude-skills --smoke all expands to codex + pi-dev + grok", async () => {
   await withTempHome(async (home) => {
     const fromDir = await writeFixture(home);
     const somaHome = join(home, "soma");
@@ -431,9 +431,30 @@ test("soma migrate claude-skills --smoke all expands to codex + pi-dev", async (
       "--smoke",
       "all",
     ]);
-    expect(output).toContain("smoke-substrates: codex, pi-dev");
+    expect(output).toContain("smoke-substrates: codex, pi-dev, grok");
     expect(output).toContain("Smoke codex:");
     expect(output).toContain("Smoke pi-dev:");
+    expect(output).toContain("Smoke grok:");
+  });
+});
+
+test("soma migrate claude-skills --apply --smoke grok surfaces totals", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = await writeFixture(home);
+    const somaHome = join(home, "soma");
+    const output = await runSomaCli([
+      "migrate",
+      "claude-skills",
+      "--from",
+      fromDir,
+      "--soma-home",
+      somaHome,
+      "--apply",
+      "--smoke",
+      "grok",
+    ]);
+    expect(output).toContain("smoke-substrates: grok");
+    expect(output).toContain("Smoke grok:");
   });
 });
 

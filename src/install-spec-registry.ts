@@ -1,6 +1,7 @@
 import { codexInstallSpec } from "./adapters/codex/install";
 import { claudeCodeInstallSpec } from "./adapters/claude-code/install";
 import { cursorInstallSpec } from "./adapters/cursor/install";
+import { grokInstallSpec } from "./adapters/grok/install";
 import { piDevInstallSpec } from "./adapters/pi-dev/install";
 import type { InstallSubstrate, SubstrateInstallSpec } from "./install-spec";
 
@@ -11,6 +12,7 @@ const INSTALL_SPECS = {
   "pi-dev": piDevInstallSpec,
   "claude-code": claudeCodeInstallSpec,
   cursor: cursorInstallSpec,
+  grok: grokInstallSpec,
 } satisfies InstallSpecRegistry;
 
 export function installSpecFor<S extends InstallSubstrate>(substrate: S): InstallSpecRegistry[S] {

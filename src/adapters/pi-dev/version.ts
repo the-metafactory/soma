@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { isBelowVersionFloor, parseVersion } from "../shared/version-floor";
 
 export const MINIMUM_PI_DEV_VERSION = "0.10.0";
 
@@ -38,23 +39,5 @@ function invalidPiDevVersionError(packagePath: string): Error {
 }
 
 export function isUnsupportedPiDevVersion(version: string): boolean {
-  if (version.trim().includes("-")) return true;
-  return compareVersions(version, MINIMUM_PI_DEV_VERSION) < 0;
-}
-
-function compareVersions(left: string, right: string): number {
-  const leftParts = parseVersion(left);
-  const rightParts = parseVersion(right);
-  if (!leftParts || !rightParts) return -1;
-  for (let index = 0; index < 3; index += 1) {
-    const diff = leftParts[index] - rightParts[index];
-    if (diff !== 0) return diff;
-  }
-  return 0;
-}
-
-function parseVersion(version: string): [number, number, number] | undefined {
-  const match = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(version.trim());
-  if (!match) return undefined;
-  return [Number(match[1]), Number(match[2]), Number(match[3])];
+  return isBelowVersionFloor(version, MINIMUM_PI_DEV_VERSION);
 }

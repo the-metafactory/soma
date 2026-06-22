@@ -10,6 +10,7 @@ import {
   projectCodexHome,
   projectCursor,
   projectCursorHome,
+  projectGrokHome,
   projectPiDevHome,
   installClaudeCodeHomeProjection,
   installCodexHomeProjection,
@@ -17,6 +18,7 @@ import {
   installSomaForClaudeCode,
   installSomaForCodex,
   installSomaForCursor,
+  installSomaForGrok,
   installSomaForPiDev,
   loadActiveIsaForBundle,
   renderActiveIsaFile,
@@ -39,23 +41,27 @@ test("activeIsaProjectionPath: per-substrate paths match the #37 spec", () => {
   expect(activeIsaProjectionPath("pi-dev")).toBe("agent/soma/active-isa.md");
   expect(activeIsaProjectionPath("claude-code")).toBe("rules/soma/ACTIVE_ISA.md");
   expect(activeIsaProjectionPath("cursor")).toBe(".cursor/rules/soma/ACTIVE_ISA.md");
+  expect(activeIsaProjectionPath("grok")).toBe("skills/soma/active-isa.md");
   expect(() => activeIsaProjectionPath("custom")).toThrow();
   expect(() => activeIsaProjectionPath("cortex")).toThrow();
 });
 
-test("AC-1: codex/pi-dev/claude/cursor home builders all include active-isa when set", () => {
+test("AC-1: codex/pi-dev/claude/cursor/grok home builders all include active-isa when set", () => {
   const codex = projectCodexHome(portableProjectionInput, "/tmp/soma");
   const piDev = projectPiDevHome(portableProjectionInput, "/tmp/soma");
   const claude = projectClaudeCodeHome(portableProjectionInput);
   const cursor = projectCursorHome(portableProjectionInput);
+  const grok = projectGrokHome(portableProjectionInput, "/tmp/soma");
   const codexPaths = codex.files.map((f) => f.path);
   const piPaths = piDev.files.map((f) => f.path);
   const claudePaths = claude.files.map((f) => f.path);
   const cursorPaths = cursor.files.map((f) => f.path);
+  const grokPaths = grok.files.map((f) => f.path);
   expect(codexPaths).toContain("memories/soma/active-isa.md");
   expect(piPaths).toContain("agent/soma/active-isa.md");
   expect(claudePaths).toContain("rules/soma/ACTIVE_ISA.md");
   expect(cursorPaths).toContain(".cursor/rules/soma/ACTIVE_ISA.md");
+  expect(grokPaths).toContain("skills/soma/active-isa.md");
 });
 
 test("AC-1: project bundles for claude-code and cursor include active-isa when set", () => {
@@ -73,6 +79,7 @@ test("AC-2: omits active-isa when no active ISA — no empty file, no stale cont
   const claudeProject = projectClaudeCode(inputWithoutIsa);
   const cursor = projectCursorHome(inputWithoutIsa);
   const cursorProject = projectCursor(inputWithoutIsa);
+  const grok = projectGrokHome(inputWithoutIsa, "/tmp/soma");
   expect(codex.files.map((f) => f.path)).not.toContain("memories/soma/active-isa.md");
   expect(piDev.files.map((f) => f.path)).not.toContain("agent/soma/active-isa.md");
   // Per #29 the claude home bundle now always contains the rules/soma/*
@@ -83,6 +90,7 @@ test("AC-2: omits active-isa when no active ISA — no empty file, no stale cont
   expect(claudeProject.files.map((f) => f.path)).not.toContain(".claude/soma/active-isa.md");
   expect(cursor.files.map((f) => f.path)).not.toContain(".cursor/rules/soma/ACTIVE_ISA.md");
   expect(cursorProject.files.map((f) => f.path)).not.toContain(".cursor/rules/soma/ACTIVE_ISA.md");
+  expect(grok.files.map((f) => f.path)).not.toContain("skills/soma/active-isa.md");
 });
 
 test("AC-3: installSomaForCodex projects ISA skill source into ~/.codex/skills/ISA/", async () => {
@@ -176,21 +184,24 @@ test("AC-4: byte-portable active-ISA across all four substrate installs", async 
     await setActiveIsa("portability", { homeDir });
     const ctx = await loadActiveIsaForBundle({ homeDir });
     expect(ctx).not.toBeNull();
-    // Run all four substrate installers against the same soma home.
+    // Run all five substrate installers against the same soma home.
     await installSomaForCodex({ homeDir });
     await installSomaForPiDev({ homeDir });
     await installSomaForClaudeCode({ homeDir });
     await installSomaForCursor({ homeDir });
+    await installSomaForGrok({ homeDir });
 
     const codexFile = await readFile(join(homeDir, ".codex/memories/soma/active-isa.md"), "utf8");
     const piFile = await readFile(join(homeDir, ".pi/agent/soma/active-isa.md"), "utf8");
     const claudeFile = await readFile(join(homeDir, ".claude/rules/soma/ACTIVE_ISA.md"), "utf8");
     const cursorFile = await readFile(join(homeDir, ".cursor/rules/soma/ACTIVE_ISA.md"), "utf8");
+    const grokFile = await readFile(join(homeDir, ".grok/skills/soma/active-isa.md"), "utf8");
 
     // BYTE equality — the renderer-of-record is serializeIsa.
     expect(codexFile).toBe(piFile);
     expect(piFile).toBe(claudeFile);
     expect(claudeFile).toBe(cursorFile);
+    expect(cursorFile).toBe(grokFile);
     expect(codexFile).toBe(renderActiveIsaFile(ctx!));
   });
 });
@@ -204,13 +215,16 @@ test("AC-4: portability holds when the active ISA is updated", async () => {
     await installSomaForPiDev({ homeDir });
     await installSomaForClaudeCode({ homeDir });
     await installSomaForCursor({ homeDir });
+    await installSomaForGrok({ homeDir });
     const a = await readFile(join(homeDir, ".codex/memories/soma/active-isa.md"), "utf8");
     const b = await readFile(join(homeDir, ".pi/agent/soma/active-isa.md"), "utf8");
     const c = await readFile(join(homeDir, ".claude/rules/soma/ACTIVE_ISA.md"), "utf8");
     const d = await readFile(join(homeDir, ".cursor/rules/soma/ACTIVE_ISA.md"), "utf8");
+    const e = await readFile(join(homeDir, ".grok/skills/soma/active-isa.md"), "utf8");
     expect(a).toBe(b);
     expect(b).toBe(c);
     expect(c).toBe(d);
+    expect(d).toBe(e);
   });
 });
 

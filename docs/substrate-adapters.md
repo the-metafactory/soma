@@ -170,6 +170,67 @@ context projection first. The portable MCP server contract is specified in
 [mcp-server.md](./mcp-server.md); Cursor adapter work should configure that
 server rather than defining a Cursor-only tool vocabulary.
 
+## Grok
+
+Grok is xAI's coding-agent CLI. Its config home is `~/.grok/`. The adapter is a
+first-class home projection: `soma install grok --apply` makes Soma available at
+every Grok startup, and `soma install grok --workspace --apply` overlays the
+current project's auto-discovered `.grok/rules/`.
+
+Context delivery routes only through binary-verified auto-load surfaces.
+A live `grok inspect --json` probe confirmed that `~/.grok/AGENTS.md`
+and `~/.grok/skills/<name>/SKILL.md` auto-load, while home `~/.grok/rules/` and
+`~/AGENTS.md` do not. The adapter therefore delivers context as:
+
+- `skills/soma/SKILL.md` — the auto-loaded entry skill carrying the portable
+  assistant core, with `context.md`, `memory-layout.md`, `skills.md`,
+  `policy.md`, `startup-context.md`, and (when an ISA is active)
+  `active-isa.md` colocated beside it.
+- `skills/the-algorithm/SKILL.md` — the shared seven-phase Algorithm rendering
+  contract plus a Grok-native verification-gates section (see below).
+- `AGENTS.md` — a marked pointer block (appended idempotently, foreign content
+  preserved) that points Grok at `skills/soma/SKILL.md` and the Soma home.
+- `config.toml` — a marked block for Soma-owned config patches.
+
+Native subagent surfaces project Soma onto Grok's own primitives, read by
+`spawn_subagent`: `personas/soma.toml` (a Soma voice/instruction block),
+`roles/soma-algorithm.toml` (an Algorithm capability preset), and
+`agents/soma-explore.md` (a Soma-aware exploration subagent). The schema is
+limited to fields observed in `~/.grok/bundled/`; the unconfirmed agent
+`skills:` key is never emitted.
+
+Hooks live in `~/.grok/hooks/*.json`. Grok's hook platform is fail-open — a tool
+runs if its hook errors — so the lifecycle/security hook denies on every error
+in the chain. A `PreToolUse` hook's stdout-deny IS honored (the deny gate
+proved fail-closed denial of a shell command), but passive lifecycle hooks'
+stdout is ignored, so `SessionStart`/`SessionEnd` only run side effects. Those
+lifecycle hooks fire per-session, not per-leader, which is why per-session
+refresh lives there. On Windows the hook runner is bare-exec'd against the
+resolved Bun runtime with absolute paths and explicit `"utf8"` on every read and
+write — NTFS ignores `chmod`, Windows ignores shebangs, and cp1252 default
+decoding would otherwise corrupt non-ASCII bytes.
+
+`installSomaForGrok` refuses runtimes below `0.2.38`, read from
+`~/.grok/version.json` with no live `grok` exec; a missing manifest is
+treated as an unversioned dev runtime and does not block. The adapter's
+empirical tool-name matchers (`Shell`, `Read`, `Write`, `StrReplace`, `Grep`,
+`Glob`) were re-probed byte-identical on `0.2.39`.
+
+Algorithm rendering is honestly scoped to what Grok offers: text banners plus
+the native todo list. There is no Pi-style widget API, so the Algorithm skill
+instructs the in-substrate agent to mirror plan steps and active-ISA criteria
+into `todo_write`, and to run verification-heavy work headless with
+`--todo-gate` (a turn cannot end with open todos) and `--check` (Grok's
+self-verification loop). The active ISA's open criteria seed the todo list.
+Grok also has no sandbox on Windows (`--sandbox` is Landlock/Seatbelt-only) and
+no statusline surface; isolation guidance uses git worktrees.
+
+`soma uninstall grok` removes only marker-guarded Soma artifacts: the
+`skills/soma/` and `skills/the-algorithm/` projections, the persona/role/agent
+subagent files, the hook assets, the recorded portable-skill files, and the
+Soma blocks in `AGENTS.md`/`config.toml`. A user-authored file that merely
+shares a Soma name or directory is preserved.
+
 ## Cortex / Myelin
 
 Cortex is the Meta Factory collaboration surface. Myelin is the protocol stack.
