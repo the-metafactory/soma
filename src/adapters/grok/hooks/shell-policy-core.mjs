@@ -836,17 +836,28 @@ export function createShellPolicyExtractor(descriptor) {
     // that prefix's absolute root — anchored at the soma-home parent — so the
     // deny is enforceable: the `.soma` root is config.somaHome, a private
     // scope root `policy check` always honors regardless of policyMarkers.
+    //
+    // soma#327: an interposed `./` or `~/` between the non-path prefix and the
+    // marker (`@./.soma/…`, `@~/.soma/…`) put a path-CONTINUE char (`/`)
+    // immediately before `.soma`, so a plain `(?:^|boundary)\.soma/` missed it
+    // — the same fail-open class, one glue-char wider. The optional relative
+    // anchor `(?:\./|~/)?` after the boundary catches those forms. It stays
+    // boundary-gated, so a benign `my.somatic` and a nested `proj/.soma`
+    // (a project-local soma, not the home root) still do NOT match.
     const home = somaHomeParent(config);
     if (home) {
       const fold = process.platform === "win32";
       const folded = fold ? text.toLowerCase() : text;
       // A boundary char is anything that cannot continue a path token.
       const boundary = "[^A-Za-z0-9._/~-]";
+      // Optional home-relative anchor glued between the boundary and the
+      // marker: `./` (cwd-relative) or `~/` (home-relative).
+      const relAnchor = "(?:\\./|~/)?";
       for (const entry of privatePathPrefixes) {
         const prefix = fold ? entry.path.toLowerCase() : entry.path;
         const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        const prefixed = new RegExp(`(?:^|${boundary})${escaped}/`);
-        const bare = entry.bare ? new RegExp(`(?:^|${boundary})${escaped}(?:$|${boundary})`) : undefined;
+        const prefixed = new RegExp(`(?:^|${boundary})${relAnchor}${escaped}/`);
+        const bare = entry.bare ? new RegExp(`(?:^|${boundary})${relAnchor}${escaped}(?:$|${boundary})`) : undefined;
         if (prefixed.test(folded) || (bare && bare.test(folded))) {
           return resolve(home, entry.path);
         }
