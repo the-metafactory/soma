@@ -48,7 +48,9 @@ An Algorithm run moves in one direction only:
 OBSERVE -> THINK -> PLAN -> BUILD -> EXECUTE -> VERIFY -> LEARN -> COMPLETE
 ```
 
-Each transition has a gate. For example, PLAN requires selected capabilities,
+Each transition has a gate. For example, THINK requires at least one recorded
+current-state probe (an observation whose evidence kind is `probed` or `tested`,
+not a `specified` spec-restatement), PLAN requires selected capabilities,
 BUILD requires a criterion-mapped plan, VERIFY requires every plan step to be
 done or blocked, LEARN requires every criterion to be passed, dropped, or
 deferred-probe and refuses a `passed` criterion whose evidence kind is
@@ -59,8 +61,8 @@ but Soma decides whether the process is allowed to advance.
 
 The harness is driven through explicit mutations rather than substrate-specific
 conversation tricks. The portable command surface covers `new`, `list`, `show`,
-`classify`, `capabilities`, `invoke`, `remove-capability`, `plan`, `decision`,
-`change`, `step`, `verify`, `learn`, `advance`, and `resume`. `resume` accepts
+`classify`, `capabilities`, `invoke`, `remove-capability`, `plan`, `observe`,
+`decision`, `change`, `step`, `verify`, `learn`, `advance`, and `resume`. `resume` accepts
 an explicit `--until-phase` handoff boundary so a relay substrate can stop
 before consuming downstream phases. `classify` is Soma's
 UserPromptSubmit mode classifier: it chooses MINIMAL, NATIVE, or ALGORITHM and
