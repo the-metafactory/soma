@@ -217,9 +217,10 @@ function parseBatchOperation(value: string): AlgorithmBatchOperation {
 
   if (kind === "observe") {
     // `observe:<claim>:<kind>:<evidence>` — the claim must not contain ':'.
-    // Evidence is REQUIRED and never derived from the claim: a current-state
-    // probe must carry real evidence, never a restatement of the assumption it
-    // checks (that would be exactly the hollow pass this floor rejects).
+    // Evidence is REQUIRED and not auto-derived from the claim. (Like every
+    // evidence surface, the content is caller-asserted: nothing here can confirm
+    // the evidence is more than a restatement — the gate makes the claim explicit
+    // and auditable, it does not verify it.)
     const parts = payload.split(":");
     const claim = parts[0].trim();
     const evidence = parts.slice(2).join(":").trim();
