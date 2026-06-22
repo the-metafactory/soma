@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.8] - 2026-06-22
+
+### Added
+- Grok (xAI `grok-cli`, home `~/.grok/`) as the fifth Soma substrate, with the
+  full lifecycle the other adapters have (`install`/`doctor`/`reproject`/
+  `upgrade`/`uninstall`): home projection of auto-loaded skills plus an
+  `AGENTS.md` pointer, a fail-closed `PreToolUse` policy hook on Grok's
+  otherwise fail-open hook platform, per-session lifecycle hooks, a
+  version-floor validator (`0.2.38`), and a marker-guarded uninstall. The
+  adapter rests on empirically probed grok-cli runtime facts, captured as DD-14
+  (#326).
+
+### Fixed
+- Bun-path resolution validates the binary before freezing it into substrate
+  hook commands, and resolves it win32-correctly: on Windows the resolver
+  probes `where` (never `which`), normalizes the MSYS/Git Bash `/c/...` dialect
+  to a native path, and rejects any candidate — including a `SOMA_BUN_PATH`
+  override — that is not on disk and spawnable. A frozen unspawnable path would
+  silently disable the policy gate on a fail-open hook platform (#324, #323).
+- The Grok hook's fail-closed backstop no longer allows a private-marker
+  reference glued behind a non-path prefix (`@.soma/…`, `@./.soma/…`,
+  `@~/.soma/…`, `@$HOME/.soma/…`, `@%USERPROFILE%/.soma/…`,
+  `@${env:USERPROFILE}/.soma/…`). The whole home-anchor class is closed by
+  degluing the leading prefix and re-running the shared path resolver, plus a
+  full-text scan for markers embedded in opaque tokens; benign forms
+  (`my.soma`, nested `proj/.soma`) are not over-blocked (#328, #327).
+
 ## [0.8.7] - 2026-06-15
 
 This release also carries the 0.8.6 changes below, which were version-bumped
