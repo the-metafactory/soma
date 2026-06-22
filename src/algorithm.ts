@@ -19,8 +19,7 @@ import {
   buildIsaArtifact,
   defaultEvidenceKind,
   getCriteria,
-  isClosedCriterion,
-  isHollowPass,
+  learnGateViolations,
   progressFromCriteria,
   updateCriterionWithResult,
   verifiedFromCriteria,
@@ -314,16 +313,15 @@ function assertGate(run: AlgorithmRun, target: AlgorithmPhase): void {
       }
       break;
     case "learn": {
-      const criteria = getCriteria(run.isa);
-      const unresolved = criteria.filter((criterion) => !isClosedCriterion(criterion));
+      const { unresolved, hollow } = learnGateViolations(getCriteria(run.isa));
       if (unresolved.length > 0) {
         throw new Error(
           `Algorithm cannot enter LEARN until every criterion is passed, dropped, or deferred-probe. Unresolved: ${unresolved.map((c) => c.id).join(", ")}.`,
         );
       }
-      // Integrity gate: a 'passed' criterion verified by specification only is not
-      // real verification. Probe it (probed/tested) or mark it deferred-probe.
-      const hollow = criteria.filter(isHollowPass);
+      // Integrity gate: a 'passed' criterion verified by specification only is a
+      // self-attested claim, not a real probe. Probe it (probed/tested) or mark it
+      // deferred-probe.
       if (hollow.length > 0) {
         throw new Error(
           `Algorithm cannot enter LEARN: criteria verified by specification only — probe them (probed/tested) or mark deferred-probe: ${hollow.map((c) => c.id).join(", ")}.`,

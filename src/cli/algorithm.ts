@@ -34,6 +34,7 @@ import type {
   AlgorithmPlanStep,
   AlgorithmRun,
   AlgorithmRunInput,
+  EvidenceKind,
   SubstrateId,
 } from "../types";
 
@@ -105,7 +106,7 @@ interface AlgorithmCliOptions {
   criterionId?: string;
   criterionStatus?: "passed" | "failed" | "dropped" | "deferred-probe";
   evidence?: string;
-  evidenceKind?: "specified" | "probed" | "tested";
+  evidenceKind?: EvidenceKind;
   substrate?: SubstrateId;
   untilPhase?: AlgorithmPhase;
   batchOperations?: AlgorithmBatchOperation[];
@@ -173,7 +174,7 @@ function parseCriterionStatus(value: string): "passed" | "failed" | "dropped" | 
   throw new Error("--status must be one of passed, failed, dropped, or deferred-probe.");
 }
 
-function parseEvidenceKind(value: string): "specified" | "probed" | "tested" {
+function parseEvidenceKind(value: string): EvidenceKind {
   if (value === "specified" || value === "probed" || value === "tested") {
     return value;
   }

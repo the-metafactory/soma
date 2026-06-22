@@ -37,7 +37,7 @@ import { readAlgorithmRunById, writeAlgorithmRun } from "./algorithm-store";
 import { datePrefixSlug } from "./dated-slug";
 import { getRunPhase } from "./algorithm-lifecycle";
 import { parseIsa, serializeIsa } from "./isa-parse";
-import { getCriteria, getDecisions, getGoal, isClosedCriterion, isHollowPass } from "./isa-accessors";
+import { getCriteria, getDecisions, getGoal, isClosedCriterion, learnGateViolations } from "./isa-accessors";
 import { promoteAlgorithmRunMemory } from "./memory-promotion";
 import type {
   AlgorithmPhase,
@@ -185,12 +185,12 @@ function phaseIndex(phase: AlgorithmPhase): number {
  * still open — even if the ISA claims `learn`/`complete`.
  */
 function reachableTargetPhase(target: AlgorithmPhase, criteria: readonly IdealStateCriterion[]): AlgorithmPhase {
-  const allClosed = criteria.length > 0 && criteria.every(isClosedCriterion);
-  // Mirror the LEARN integrity gate (shared predicates keep the two in lockstep):
+  // Mirror the LEARN integrity gate via the shared rule so the two cannot drift:
   // a `passed` criterion verified by specification only (e.g. a pass fabricated
-  // from a frontmatter progress counter) cannot clear LEARN, so sync must cap such
-  // a run at VERIFY rather than attempt an advance the gate will reject.
-  const learnReachable = allClosed && !criteria.some(isHollowPass);
+  // from a frontmatter progress counter) cannot clear LEARN, so sync caps such a
+  // run at VERIFY rather than attempt an advance the gate will reject.
+  const { unresolved, hollow } = learnGateViolations(criteria);
+  const learnReachable = criteria.length > 0 && unresolved.length === 0 && hollow.length === 0;
   // `complete` is never a sync target — we stop at `learn`. `complete` requires
   // a learning entry + invoked capabilities, which the LEARN handling provides;
   // but leaving the run at `learn` keeps it resumable rather than terminal.
@@ -295,9 +295,12 @@ function reconcileCriteria(
     const verification = isaCriterion.verification?.trim();
     const evidence = verification && verification.length > 0 ? verification : `synced from ISA: ${isaCriterion.text}`;
     // Preserve the markdown-declared evidence kind (`Evidence (probed): ...`).
-    // A bare `Evidence:` carries no kind and stays grandfathered — consistent with
-    // the library boundary — until the ISA-authoring prompt (P1) emits kinds. The
-    // egregious bypass (fabricating passes off a progress counter) is closed below.
+    // That kind is CALLER-ASSERTED, like every surface: an ISA author can write
+    // `Evidence (probed):` with no real probe and clear the gate. The gate does not
+    // close that — it makes a hollow pass an explicit, auditable, declared claim
+    // instead of the silent default. A bare `Evidence:` carries no kind and stays
+    // grandfathered. Only the synthetic progress-counter pass below is forced to
+    // `specified`, because nothing about it is even a claim of observation.
     next = verifyAlgorithmCriterion(
       next,
       isaCriterion.id,

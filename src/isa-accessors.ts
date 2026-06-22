@@ -3,6 +3,8 @@ import type {
   AlgorithmLogEntry,
   AlgorithmMode,
   AlgorithmPhase,
+  CriterionStatus,
+  EvidenceKind,
   IdealStateArtifact,
   IdealStateCriterion,
   IsaSection,
@@ -129,6 +131,21 @@ export function isHollowPass(criterion: IdealStateCriterion): boolean {
 }
 
 /**
+ * The criteria that block entry to LEARN, split by reason. Single source of truth
+ * for the gate rule — both the assertGate guard and sync's reachability check call
+ * this so the two cannot drift when a future evidence rule is added.
+ */
+export function learnGateViolations(criteria: readonly IdealStateCriterion[]): {
+  unresolved: IdealStateCriterion[];
+  hollow: IdealStateCriterion[];
+} {
+  return {
+    unresolved: criteria.filter((criterion) => !isClosedCriterion(criterion)),
+    hollow: criteria.filter(isHollowPass),
+  };
+}
+
+/**
  * The evidence kind to record for a verification. A `passed` with no explicit
  * kind defaults to the weak, self-attested `specified` so it cannot silently
  * clear the LEARN gate; non-passed statuses carry no evidence kind.
@@ -139,9 +156,9 @@ export function isHollowPass(criterion: IdealStateCriterion): boolean {
  * deferred-probe"; it makes a hollow pass explicit and auditable, not impossible.
  */
 export function defaultEvidenceKind(
-  kind: IdealStateCriterion["evidenceKind"],
-  status: IdealStateCriterion["status"],
-): IdealStateCriterion["evidenceKind"] {
+  kind: EvidenceKind | undefined,
+  status: CriterionStatus,
+): EvidenceKind | undefined {
   return kind ?? (status === "passed" ? "specified" : undefined);
 }
 
