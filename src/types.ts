@@ -28,10 +28,13 @@ export interface IdealStateCriterion {
   status: "open" | "passed" | "failed" | "dropped" | "deferred-probe";
   verification?: string;
   /**
-   * How the verification evidence was obtained.
-   * - `specified`: design/spec claim only ("the doc says X") — weak, blocks completion.
-   * - `probed`: behaviour observed at runtime (curl, grep of running state).
-   * - `tested`: covered by an automated test.
+   * What the verifier CLAIMS about how the evidence was obtained. This is a
+   * caller-asserted label, not a machine-verified fact — Soma records the claim
+   * and gates on it, but does not confirm a `probed`/`tested` label corresponds
+   * to a real probe or test.
+   * - `specified`: a design/spec claim only ("the doc says X") — weak; blocks the LEARN gate.
+   * - `probed`: caller asserts behaviour was observed at runtime (curl, grep of running state).
+   * - `tested`: caller asserts coverage by an automated test.
    * Undefined on legacy/pre-feature criteria (grandfathered by the LEARN gate).
    */
   evidenceKind?: "specified" | "probed" | "tested";

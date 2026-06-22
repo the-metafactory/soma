@@ -23,7 +23,7 @@ import { registerSomaHomeAlgorithmCapabilities } from "../algorithm-capabilities
 import { syncAlgorithmRunFromIsa, formatSyncResult } from "../algorithm-isa-sync";
 import { algorithmTouchedBy } from "../algorithm-provenance";
 import { datePrefixSlug } from "../dated-slug";
-import { getCriteria, getGoal } from "../isa-accessors";
+import { defaultEvidenceKind, getCriteria, getGoal } from "../isa-accessors";
 import { getRunPhase } from "../algorithm-lifecycle";
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
@@ -723,10 +723,14 @@ export async function runAlgorithmCli(parsed: ParsedAlgorithmArgs): Promise<stri
     const criterionId = options.criterionId;
     const criterionStatus = options.criterionStatus;
     const evidence = options.evidence;
-    // At the user surface, a 'passed' with no explicit kind defaults to the weak
-    // 'specified' — the completion gate then forces an honest probe or deferred-probe.
-    const evidenceKind =
-      options.evidenceKind ?? (criterionStatus === "passed" ? "specified" : undefined);
+    if (options.evidenceKind !== undefined && criterionStatus !== "passed") {
+      throw new Error("--evidence-kind only applies to --status passed.");
+    }
+    // A 'passed' with no explicit kind defaults to the weak 'specified', which the
+    // LEARN gate refuses. The kind is caller-asserted: the gate forces an explicit
+    // probed/tested claim (or deferred-probe), making a hollow pass auditable — it
+    // does not verify the probe actually happened.
+    const evidenceKind = defaultEvidenceKind(options.evidenceKind, criterionStatus);
     return updateAndReportAlgorithmRun(options, (run) =>
       verifyAlgorithmCriterion(run, criterionId, criterionStatus, evidence, undefined, { substrate: options.substrate }, evidenceKind),
     );

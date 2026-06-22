@@ -60,8 +60,15 @@ test("evidence kind round-trips through ISA markdown serialization", () => {
 test("a passed criterion verified only as 'specified' blocks advance to LEARN", () => {
   let run = toVerify();
   run = verifyAlgorithmCriterion(run, "C1", "passed", "the design says it returns 200", "2026-06-22T10:10:00.000Z", undefined, "specified");
-  expect(() => advanceAlgorithmRun(run, "2026-06-22T10:11:00.000Z")).toThrow(/C1/);
-  expect(() => advanceAlgorithmRun(run, "2026-06-22T10:11:00.000Z")).toThrow(/probe|specified|deferred/i);
+  let thrown: unknown;
+  try {
+    advanceAlgorithmRun(run, "2026-06-22T10:11:00.000Z");
+  } catch (error) {
+    thrown = error;
+  }
+  expect(thrown).toBeInstanceOf(Error);
+  expect((thrown as Error).message).toMatch(/C1/);
+  expect((thrown as Error).message).toMatch(/probe|specified|deferred/i);
 });
 
 test("a probed pass advances to LEARN", () => {

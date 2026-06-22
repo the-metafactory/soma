@@ -111,6 +111,40 @@ export function updateCriterionWithResult(
   return { isa: setCriteria(isa, updated), criteria: updated };
 }
 
+/** A criterion that no longer needs work: verified, dropped, or honestly deferred. */
+export function isClosedCriterion(
+  criterion: IdealStateCriterion,
+): criterion is IdealStateCriterion & { status: "passed" | "dropped" | "deferred-probe" } {
+  return (
+    criterion.status === "passed" || criterion.status === "dropped" || criterion.status === "deferred-probe"
+  );
+}
+
+/**
+ * A `passed` criterion whose evidence is a specification/design claim only.
+ * It is self-attested, not a real probe, so it must not clear the LEARN gate.
+ */
+export function isHollowPass(criterion: IdealStateCriterion): boolean {
+  return criterion.status === "passed" && criterion.evidenceKind === "specified";
+}
+
+/**
+ * The evidence kind to record for a verification. A `passed` with no explicit
+ * kind defaults to the weak, self-attested `specified` so it cannot silently
+ * clear the LEARN gate; non-passed statuses carry no evidence kind.
+ *
+ * NOTE: the kind is caller-asserted. Soma records the claim — it does NOT verify
+ * that a `probed`/`tested` label corresponds to a real probe or test. The gate
+ * raises the bar from "any text passes" to "declare a probe/test or accept
+ * deferred-probe"; it makes a hollow pass explicit and auditable, not impossible.
+ */
+export function defaultEvidenceKind(
+  kind: IdealStateCriterion["evidenceKind"],
+  status: IdealStateCriterion["status"],
+): IdealStateCriterion["evidenceKind"] {
+  return kind ?? (status === "passed" ? "specified" : undefined);
+}
+
 export function updateCriterion(
   isa: IdealStateArtifact,
   criterionId: string,

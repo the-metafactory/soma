@@ -37,7 +37,7 @@ import { readAlgorithmRunById, writeAlgorithmRun } from "./algorithm-store";
 import { datePrefixSlug } from "./dated-slug";
 import { getRunPhase } from "./algorithm-lifecycle";
 import { parseIsa, serializeIsa } from "./isa-parse";
-import { getCriteria, getDecisions, getGoal } from "./isa-accessors";
+import { getCriteria, getDecisions, getGoal, isClosedCriterion, isHollowPass } from "./isa-accessors";
 import { promoteAlgorithmRunMemory } from "./memory-promotion";
 import type {
   AlgorithmPhase,
@@ -185,15 +185,12 @@ function phaseIndex(phase: AlgorithmPhase): number {
  * still open — even if the ISA claims `learn`/`complete`.
  */
 function reachableTargetPhase(target: AlgorithmPhase, criteria: readonly IdealStateCriterion[]): AlgorithmPhase {
-  const allClosed =
-    criteria.length > 0 &&
-    criteria.every((c) => c.status === "passed" || c.status === "dropped" || c.status === "deferred-probe");
-  // Mirror the LEARN integrity gate: a `passed` criterion verified by
-  // specification only (e.g. a pass fabricated from a frontmatter progress
-  // counter) cannot clear LEARN, so sync must cap such a run at VERIFY rather
-  // than attempt an advance the gate will reject.
-  const hasHollowPass = criteria.some((c) => c.status === "passed" && c.evidenceKind === "specified");
-  const learnReachable = allClosed && !hasHollowPass;
+  const allClosed = criteria.length > 0 && criteria.every(isClosedCriterion);
+  // Mirror the LEARN integrity gate (shared predicates keep the two in lockstep):
+  // a `passed` criterion verified by specification only (e.g. a pass fabricated
+  // from a frontmatter progress counter) cannot clear LEARN, so sync must cap such
+  // a run at VERIFY rather than attempt an advance the gate will reject.
+  const learnReachable = allClosed && !criteria.some(isHollowPass);
   // `complete` is never a sync target — we stop at `learn`. `complete` requires
   // a learning entry + invoked capabilities, which the LEARN handling provides;
   // but leaving the run at `learn` keeps it resumable rather than terminal.
@@ -261,14 +258,6 @@ function advanceRunToPhase(run: AlgorithmRun, target: AlgorithmPhase, timestamp:
     guard += 1;
   }
   return next;
-}
-
-function isClosedCriterion(
-  criterion: IdealStateCriterion,
-): criterion is IdealStateCriterion & { status: "passed" | "dropped" | "deferred-probe" } {
-  return (
-    criterion.status === "passed" || criterion.status === "dropped" || criterion.status === "deferred-probe"
-  );
 }
 
 function progressCompletedCount(progress: string, total: number): number | null {
