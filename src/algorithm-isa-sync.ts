@@ -214,9 +214,12 @@ function prepareAndAdvance(run: AlgorithmRun, target: AlgorithmPhase, timestamp:
   switch (target) {
     case "think":
       // Satisfy the OBSERVE current-state floor. An ISA being synced already
-      // declares it advanced past OBSERVE, so we reconstruct that declared probe
-      // — tagged as sync-generated, like the synthetic changelog/plan below.
-      // Caller-asserted, same honesty boundary as every evidence surface.
+      // declares it advanced past OBSERVE, so we reconstruct that declared probe,
+      // like the synthetic changelog/plan below. NOTE: AlgorithmObservation has no
+      // structured "synthetic" flag — the sync origin lives only in the claim/
+      // evidence prose, and hasCurrentStateProbe counts this reconstruction as a
+      // real probe. That is the same caller-asserted boundary as every evidence
+      // surface: sync reconstructs *declared* state, it does not re-probe reality.
       if (!hasCurrentStateProbe(next.observations)) {
         next = recordAlgorithmObservation(
           next,

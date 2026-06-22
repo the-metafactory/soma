@@ -216,16 +216,16 @@ function parseBatchOperation(value: string): AlgorithmBatchOperation {
   }
 
   if (kind === "observe") {
-    // `observe:<claim>` (kind defaults to probed, evidence echoes claim) or
-    // `observe:<claim>:<kind>:<evidence>` for full control.
+    // `observe:<claim>:<kind>:<evidence>` — the claim must not contain ':'.
+    // Evidence is REQUIRED and never derived from the claim: a current-state
+    // probe must carry real evidence, never a restatement of the assumption it
+    // checks (that would be exactly the hollow pass this floor rejects).
     const parts = payload.split(":");
     const claim = parts[0].trim();
-    if (!claim) throw new Error("--op observe requires observe:<claim>[:<kind>:<evidence>].");
-    if (parts.length === 1) {
-      return { kind, claim, evidence: claim, evidenceKind: "probed" };
-    }
     const evidence = parts.slice(2).join(":").trim();
-    if (!evidence) throw new Error("--op observe with a kind requires observe:<claim>:<kind>:<evidence>.");
+    if (parts.length < 3 || !claim || !evidence) {
+      throw new Error("--op observe requires observe:<claim>:<kind>:<evidence> (the claim must not contain ':').");
+    }
     return { kind, claim, evidence, evidenceKind: parseEvidenceKind(parts[1].trim()) };
   }
 
