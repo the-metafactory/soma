@@ -249,6 +249,24 @@ function matchesRelativePathPrefix(token, entry) {
   return candidate.startsWith(`${prefix}/`) || candidate.startsWith(`./${prefix}/`);
 }
 
+// soma#327: a private reference glued behind a non-path prefix
+// (`@.soma/…`, `@./.soma/…`, `@~/.soma/…`, `@$HOME/.soma/…`,
+// `@%USERPROFILE%/.soma/…`, `@${env:USERPROFILE}/.soma/…`) defeats both the
+// per-token relative match (the token starts with the glue char, not the
+// anchor) and `resolveShellPath`'s `^`-anchored home normalizers, so it
+// resolved under no root and ALLOWED. Strip a single LEADING run of non-path
+// "glue" chars (`@`, `"`, `'`, `(`, `=`, …) and re-run the SAME resolvers on
+// the remainder — closing every home-anchor spelling through
+// normalizeShellPathToken instead of re-encoding each one here (which is how
+// #326→#327 leaked a spelling at a time). The kept set includes every char
+// that can BEGIN a path/home anchor (`$ % ~ . / \ -` and alnum), so a bare
+// `my.soma` is never turned into `.soma` — no over-block.
+function degluePrivateToken(token) {
+  if (!token) return null;
+  const stripped = token.replace(/^[^A-Za-z0-9$%~./\\-]+/, "");
+  return stripped !== token && stripped.length > 0 ? stripped : null;
+}
+
 function absoluteProtectedRoots(config) {
   return Array.from(new Set(config.policyMarkers.filter((marker) => isAbsolute(marker)).map((marker) => resolve(marker))));
 }
@@ -802,51 +820,83 @@ export function createShellPolicyExtractor(descriptor) {
   // per-form fixes remain so the common cases produce a precise
   // source/destination; this only catches what they don't.
   function matchedPrivateMarkerSource(config, segment, cwd) {
-    // Prefer a token that RESOLVES to a path actually under a private root —
-    // that yields a precise, enforceable source. A token can satisfy
-    // hasPrivatePathReference via an embedded marker SUBSTRING (a marker glued
-    // inside an opaque `iex"..."` / `$(...)` / `@`-prefixed token) yet resolve
-    // to a path that is NOT under any root. Returning that path made the backstop
-    // emit a target whose sourcePath fails the private-root test, so `policy
-    // check` ALLOWED — a toothless deny. Require the resolved token to be under
-    // a root here; if none is, fall through to the marker-root branch, whose
-    // source IS a real private root, so the deny is enforceable.
+    // Each token is expanded with a DEGLUED variant (soma#327): the leading
+    // glue run (`@`, quote, `(`, `=`, …) stripped, so a private reference
+    // glued behind a non-path prefix re-enters the SAME resolvers below. A
+    // token can also satisfy hasPrivatePathReference via an embedded marker
+    // SUBSTRING (a marker glued inside an opaque `iex"..."` / `$(...)` token)
+    // yet resolve to a path that is NOT under any root; emitting that path
+    // made the backstop produce a sourcePath that fails the private-root test,
+    // so `policy check` ALLOWED — a toothless deny. Every branch here requires
+    // a source that IS a real private root (an absolute marker, or the
+    // somaHome private root), so the deny is always enforceable.
+    const candidates = [];
+    for (const token of segment) {
+      candidates.push(token);
+      const deglued = degluePrivateToken(token);
+      if (deglued !== null) candidates.push(deglued);
+    }
+
+    // 1. A candidate that RESOLVES under an absolute protected (marker) root —
+    //    the most precise, enforceable source.
     const roots = absoluteProtectedRoots(config);
-    const resolvableToken = segment.find(
+    const resolvableToken = candidates.find(
       (token) => hasPrivatePathReference(config, token, cwd) && roots.some((root) => isUnderRoot(resolveShellPath(config, token, cwd), root)),
     );
     if (resolvableToken) return resolveShellPath(config, resolvableToken, cwd);
-    // No token resolves under a root, but the raw (separator-normalized) text
-    // still carries an absolute private marker — use the marker root as the
-    // source so the deny is enforceable.
+
+    // 1b. A candidate that resolves under the somaHome PRIVATE root. This is
+    //     the home-anchor leg: `~/.soma`, `$HOME/.soma`, `%USERPROFILE%/.soma`,
+    //     `${env:USERPROFILE}/.soma`, and their `@`-glued forms all collapse
+    //     through normalizeShellPathToken to a path under somaHome — a private
+    //     scope root `policy check` honors regardless of policyMarkers (so this
+    //     fires even with an empty marker set). The root is the enforceable
+    //     source. soma#327: this replaces the prior spelling-specific regex,
+    //     closing every home-anchor spelling with one resolver-backed check.
+    const privateRoot = config.somaHome ? resolve(config.somaHome) : null;
+    if (privateRoot) {
+      const homeAnchored = candidates.find((token) => isUnderRoot(resolveShellPath(config, token, cwd), privateRoot));
+      if (homeAnchored) return privateRoot;
+    }
+
+    // 2. No candidate resolves under a root, but the raw (separator-normalized)
+    //    text still carries an absolute private marker as a substring.
     const text = normalizeSeparators(segment.join(" "));
     const marker = config.policyMarkers.find(
       (candidate) => isAbsolute(candidate) && text.includes(normalizeSeparators(candidate).replace(/\/+$/, "")),
     );
     if (marker) return resolve(marker);
-    // A RELATIVE private prefix glued behind a non-path prefix
-    // (`Frobnicate-Item @.soma/memory/x`) defeats the per-token relative
-    // match — the token starts `@.soma/`, not `.soma/`, so
-    // matchesRelativePathPrefix misses it — AND it carries no absolute
-    // marker, so both scans above miss it: a fail-OPEN of the same class the
-    // absolute branch closes. Scan the segment text for any descriptor
-    // relative privatePathPrefix at a token/path boundary (case-folded on
-    // win32, mirroring matchesRelativePathPrefix; the boundary keeps a glued
-    // `@`/quote/`(` matching while a benign `my.somatic` does not) and emit
-    // that prefix's absolute root — anchored at the soma-home parent — so the
-    // deny is enforceable: the `.soma` root is config.somaHome, a private
-    // scope root `policy check` always honors regardless of policyMarkers.
+
+    // 3. A descriptor RELATIVE private prefix in the segment TEXT, at a
+    //    token/path boundary. The full-text scan (not just per-token) is what
+    //    catches a marker glued INSIDE an opaque alnum-led token that does not
+    //    deglue — e.g. `iex"@.soma/x"`, where the `@` is a boundary in the
+    //    joined text but the token starts `iex` so step 1/1b's per-token deglue
+    //    leaves it intact. The optional `(?:\./|~/)?` anchor also covers the
+    //    `@./.soma/`, `@~/.soma/` standalone forms. Boundary-gated and
+    //    case-folded on win32 (mirroring matchesRelativePathPrefix), so a
+    //    benign `my.somatic` and a nested `proj/.soma` (project-local, not the
+    //    home root) do NOT match. Emits the prefix's somaHome-anchored root —
+    //    a private scope root `policy check` honors regardless of policyMarkers.
+    //
+    // Note: an env-var home spelling embedded inside an opaque alnum-led token
+    // (`iex"@$HOME/.soma/x"`) is reachable by neither the per-token deglue nor
+    // this text scan (env-var spellings are built from boundary chars); that
+    // residual is out of scope here and is not a valid file-reading form.
     const home = somaHomeParent(config);
     if (home) {
       const fold = process.platform === "win32";
       const folded = fold ? text.toLowerCase() : text;
       // A boundary char is anything that cannot continue a path token.
       const boundary = "[^A-Za-z0-9._/~-]";
+      // Optional home-relative anchor glued between the boundary and the
+      // marker: `./` (cwd-relative) or `~/` (home-relative).
+      const relAnchor = "(?:\\./|~/)?";
       for (const entry of privatePathPrefixes) {
         const prefix = fold ? entry.path.toLowerCase() : entry.path;
         const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        const prefixed = new RegExp(`(?:^|${boundary})${escaped}/`);
-        const bare = entry.bare ? new RegExp(`(?:^|${boundary})${escaped}(?:$|${boundary})`) : undefined;
+        const prefixed = new RegExp(`(?:^|${boundary})${relAnchor}${escaped}/`);
+        const bare = entry.bare ? new RegExp(`(?:^|${boundary})${relAnchor}${escaped}(?:$|${boundary})`) : undefined;
         if (prefixed.test(folded) || (bare && bare.test(folded))) {
           return resolve(home, entry.path);
         }

@@ -668,6 +668,31 @@ test("installed grok pre-tool-use hook fails closed on a RELATIVE private marker
   });
 });
 
+test("soma#327: installed grok pre-tool-use hook fails closed on every home-anchor glued form", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForGrok({ homeDir });
+    const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
+    // End-to-end through `policy check`: every home-anchor spelling glued
+    // behind a non-path prefix slipped the backstop before the structural
+    // deglue fix. All now deny.
+    for (const command of [
+      "Frobnicate-Item @.soma/memory/x",
+      "Frobnicate-Item @./.soma/memory/x",
+      "Frobnicate-Item @~/.soma/memory/x",
+      "Frobnicate-Item @$HOME/.soma/memory/x",
+      "Frobnicate-Item @%USERPROFILE%/.soma/memory/x",
+      "Frobnicate-Item @${env:USERPROFILE}/.soma/memory/x",
+    ]) {
+      const result = runGrokPreToolUse(hook, homeDir, "Shell", {
+        command,
+        description: "private marker glued behind a non-path prefix (home-anchor spelling)",
+      });
+      expect(result.output.decision).toBe("deny");
+      expect(result.status).toBe(2);
+    }
+  });
+});
+
 // Two more egress-bypass forms: normalization/tokenization gaps in the same
 // Copy-Item-to-public class that colon-glued/backslash/redirect hardening
 // closed earlier. They land failing-test-first; the grok-policy-targets.mjs fixes make them deny.
@@ -1012,6 +1037,51 @@ test("relative private prefix glued behind a non-path prefix still fails closed 
     const backslash = extractor(config, { command: "Frobnicate-Item @.soma\\memory\\x", cwd });
     expect(backslash).toHaveLength(1);
     expect(backslash[0].sourcePath).toBe(join(base, ".soma"));
+  }
+});
+
+test("soma#327: private reference glued behind a non-path prefix fails closed for EVERY home-anchor spelling (backstop)", () => {
+  // The class the per-spelling regex closed one form at a time (#326 `@.soma/`,
+  // then `@./`/`@~/`): a private reference glued behind a non-path prefix.
+  // The structural fix deglues the leading junk and re-runs the SAME resolvers,
+  // so every home-anchor spelling normalizeShellPathToken understands —
+  // `./`, `~/`, `$HOME`, `${HOME}`, `%USERPROFILE%`, `${env:USERPROFILE}` —
+  // collapses to the private root. Empty policyMarkers prove this rides the
+  // private-root / relative leg, not an absolute marker.
+  const extractor = createShellPolicyExtractor(GROK_SHELL_POLICY_DESCRIPTOR);
+  const base = join(tmpdir(), "soma-core-unit-327");
+  const config = { somaHome: join(base, ".soma"), policyMarkers: [], privateRoots: [] };
+  const cwd = join(base, "work");
+  const root = join(base, ".soma");
+
+  for (const command of [
+    "Frobnicate-Item @.soma/memory/x", // bare marker glued behind `@`
+    "Frobnicate-Item @./.soma/memory/x", // cwd-relative anchor
+    "Frobnicate-Item @~/.soma/memory/x", // home-relative anchor
+    "Frobnicate-Item @$HOME/.soma/memory/x", // env home, bare $
+    "Frobnicate-Item @${HOME}/.soma/memory/x", // env home, braced
+    "Frobnicate-Item @%USERPROFILE%/.soma/memory/x", // Windows %VAR% home
+    "Frobnicate-Item @${env:USERPROFILE}/.soma/memory/x", // pwsh ${env:} home
+    "Frobnicate-Item (.soma/memory/x", // paren glue
+    "Frobnicate-Item =.soma/memory/x", // assignment glue
+    'iex"@.soma/memory/x"', // marker embedded in an opaque alnum-led token (full-text scan, not deglue)
+  ]) {
+    const targets = extractor(config, { command, cwd });
+    expect(targets).toHaveLength(1);
+    // Emits the private ROOT, which `policy check` honors — a toothless
+    // cwd-relative source would resolve under no root and ALLOW.
+    expect(targets[0].sourcePath).toBe(root);
+  }
+
+  // Over-block guards: the deglue strips ONLY a leading non-path glue run and
+  // never turns a bare-alnum token into the marker, so these stay ALLOW.
+  for (const command of [
+    "Build-Thing proj/.soma/x out", // nested project-local .soma, not the home root
+    "Frobnicate-Item my.soma/x", // alnum-led: no leading glue to strip
+    "Frobnicate-Item my.somatic-notes.txt", // .soma substring, not a path segment
+    "Frobnicate-Item a/b/.soma/x out", // deeper nested
+  ]) {
+    expect(extractor(config, { command, cwd })).toHaveLength(0);
   }
 });
 
