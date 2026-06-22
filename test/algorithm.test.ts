@@ -12,6 +12,7 @@ import {
   getRunPhase,
   recordAlgorithmCapabilityInvocation,
   recordAlgorithmLearning,
+  recordAlgorithmObservation,
   registerAlgorithmCapabilityDefinition,
   applyAlgorithmBatch,
   removeAlgorithmCapabilitySelection,
@@ -183,6 +184,13 @@ test("enforces Algorithm phase gates", () => {
     criteria: [{ id: "C1", text: "Phase gates reject incomplete work." }],
   });
 
+  // OBSERVE floor: advance to THINK is blocked until a current-state probe is recorded.
+  expect(() => advanceAlgorithmRun(run)).toThrow("current-state probe");
+  run = recordAlgorithmObservation(
+    run,
+    { claim: "criterion C1 exists", evidence: "read run.isa", evidenceKind: "probed" },
+    "2026-05-14T10:00:30.000Z",
+  );
   run = advanceAlgorithmRun(run, "2026-05-14T10:01:00.000Z");
   expect(getRunPhase(run)).toBe("think");
 
@@ -242,6 +250,11 @@ test("advances Algorithm runs only to the requested handoff boundary", () => {
     criteria: [{ id: "C1", text: "Boundary is honored." }],
   });
 
+  run = recordAlgorithmObservation(
+    run,
+    { claim: "criterion C1 exists", evidence: "read run.isa", evidenceKind: "probed" },
+    "2026-06-02T10:00:30.000Z",
+  );
   run = advanceAlgorithmRun(run, "2026-06-02T10:01:00.000Z");
   run = selectAlgorithmCapability(run, { name: "sequential-analysis", phase: "think", reason: "Need a relay plan." });
   run = recordAlgorithmCapabilityInvocation(run, {
@@ -889,6 +902,11 @@ test("applies Algorithm batch operations with one timestamp", () => {
     goal: "Batch mutation timestamps are consistent.",
     criteria: [{ id: "C1", text: "Capability selection and invocation share a timestamp." }],
   });
+  run = recordAlgorithmObservation(
+    run,
+    { claim: "criterion C1 exists", evidence: "read run.isa", evidenceKind: "probed" },
+    "2026-05-21T10:00:30.000Z",
+  );
   run = advanceAlgorithmRun(run, "2026-05-21T10:01:00.000Z");
 
   run = applyAlgorithmBatch(
@@ -917,6 +935,12 @@ test("records per-hop substrate provenance for Algorithm mutations", () => {
     timestamp: "2026-05-14T10:00:00.000Z",
   });
 
+  run = recordAlgorithmObservation(
+    run,
+    { claim: "criterion C1 exists", evidence: "read run.isa", evidenceKind: "probed" },
+    "2026-05-14T10:00:30.000Z",
+    { substrate: "claude-code" },
+  );
   run = advanceAlgorithmRun(run, "2026-05-14T10:01:00.000Z", { substrate: "codex" });
   run = verifyAlgorithmCriterion(
     run,
@@ -936,6 +960,13 @@ test("records per-hop substrate provenance for Algorithm mutations", () => {
       phase: "observe",
       operation: "run.created",
       substrate: "claude-code",
+    },
+    {
+      timestamp: "2026-05-14T10:00:30.000Z",
+      phase: "observe",
+      operation: "observation.record",
+      substrate: "claude-code",
+      detail: "criterion C1 exists",
     },
     {
       timestamp: "2026-05-14T10:01:00.000Z",

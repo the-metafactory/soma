@@ -93,6 +93,9 @@ test("creates a soma run from an ISA, keyed by slug, mapping goal + criteria", a
     expect(run.substrate).toBe("claude-code");
     expect(run.provenance.map((entry) => [entry.operation, entry.substrate])).toEqual([
       ["run.created", "claude-code"],
+      // sync satisfies the OBSERVE current-state floor by reconstructing the probe
+      // declared by the ISA's advanced phase.
+      ["observation.record", "claude-code"],
       ["phase.advance", "claude-code"],
     ]);
     const criteria = getCriteria(run.isa);

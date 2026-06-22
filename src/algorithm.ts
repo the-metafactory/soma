@@ -1,10 +1,12 @@
 import type {
   AlgorithmLogEntry,
   AlgorithmBatchOperation,
+  AlgorithmObservation,
   AlgorithmPhase,
   AlgorithmPlanStep,
   AlgorithmRun,
   AlgorithmRunInput,
+  EvidenceKind,
   IdealStateArtifact,
   IdealStateCriterion,
 } from "./types";
@@ -41,6 +43,17 @@ export function learnGateViolations(criteria: readonly IdealStateCriterion[]): {
     unresolved: criteria.filter((criterion) => !isClosedCriterion(criterion)),
     hollow: criteria.filter(isHollowPass),
   };
+}
+
+/**
+ * The OBSERVE→THINK floor: a current-state probe is an observation the caller
+ * asserts was obtained by `probed` or `tested` evidence — not `specified`. A
+ * `specified` observation only restates a spec, so it never clears the floor.
+ * Single source of truth for the OBSERVE gate; both the assertGate guard and
+ * sync's prepareAndAdvance consult it so the two cannot drift.
+ */
+export function hasCurrentStateProbe(observations: readonly AlgorithmObservation[]): boolean {
+  return observations.some((observation) => observation.evidenceKind === "probed" || observation.evidenceKind === "tested");
 }
 import { getRunPhase } from "./algorithm-lifecycle";
 import { DEFAULT_ALGORITHM_LOOP_STATE } from "./algorithm-execution-modes";
@@ -148,6 +161,7 @@ export function createAlgorithmRun(input: AlgorithmRunInput): AlgorithmRun {
     capabilitySelections: [],
     planSteps: [],
     decisions: [logEntry("observe", `Intent: ${input.intent}`, timestamp)],
+    observations: [],
     changelog: [],
     verification: [],
     learning: [],
@@ -236,6 +250,37 @@ export function recordAlgorithmDecision(run: AlgorithmRun, text: string, timesta
   };
 }
 
+export function recordAlgorithmObservation(
+  run: AlgorithmRun,
+  observation: { claim: string; evidence: string; evidenceKind: EvidenceKind },
+  timestamp?: string,
+  provenance?: Pick<AlgorithmProvenanceInput, "substrate">,
+): AlgorithmRun {
+  assertNonEmpty(observation.claim, "observation claim");
+  assertNonEmpty(observation.evidence, "observation evidence");
+
+  const stamp = timestamp ?? new Date().toISOString();
+  const entry: AlgorithmObservation = {
+    timestamp: stamp,
+    claim: observation.claim,
+    evidence: observation.evidence,
+    evidenceKind: observation.evidenceKind,
+  };
+
+  const next = {
+    ...run,
+    updatedAt: stamp,
+    observations: [...run.observations, entry],
+  };
+  return appendAlgorithmProvenance(next, {
+    timestamp: stamp,
+    phase: getRunPhase(run),
+    operation: "observation.record",
+    substrate: provenance?.substrate,
+    detail: observation.claim,
+  });
+}
+
 export function recordAlgorithmLearning(
   run: AlgorithmRun,
   text: string,
@@ -307,6 +352,16 @@ function assertGate(run: AlgorithmRun, target: AlgorithmPhase): void {
       const criteria = getCriteria(run.isa);
       if (criteria.length === 0) {
         throw new Error("Algorithm cannot enter THINK without criteria.");
+      }
+      // OBSERVE current-state floor: 63% of real runs stalled at OBSERVE or
+      // advanced on unverified assumptions. Require ≥1 current-state probe
+      // (probed/tested), not a 'specified' spec-restatement. Caller-asserted —
+      // necessary, not sufficient: it makes skipping the floor explicit, it does
+      // not confirm the probe happened.
+      if (!hasCurrentStateProbe(run.observations)) {
+        throw new Error(
+          "Algorithm cannot enter THINK without a current-state probe. Record an observation with probed/tested evidence (soma algorithm observe).",
+        );
       }
       break;
     }
@@ -470,6 +525,13 @@ export function applyAlgorithmBatch(
     switch (operation.kind) {
       case "decision":
         return recordAlgorithmDecision(current, operation.text, timestamp);
+      case "observe":
+        return recordAlgorithmObservation(
+          current,
+          { claim: operation.claim, evidence: operation.evidence, evidenceKind: operation.evidenceKind },
+          timestamp,
+          provenance,
+        );
       case "change":
         return recordAlgorithmChange(current, operation.text, timestamp);
       case "learn":
