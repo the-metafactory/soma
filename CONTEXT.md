@@ -52,7 +52,7 @@ soma install claude-code --apply
 
 The durable, portable assistant body. The thing that gets [[project|projected]] into a [[substrate]].
 
-When you want to speak about "the whole assistant" — its identity, telos, ISA, skills, memory, policy, and learning together — the noun is **Soma**, not `identity`, not `assistant`, not `context`.
+When you want to speak about "the whole assistant" — its identity, purpose, verification, skills, memory, policy, and learning together — the noun is **Soma**, not `identity`, not `assistant`, not `context`.
 
 Examples of correct usage:
 - "Soma projects into substrates."
@@ -93,11 +93,11 @@ One of the seven named subdivisions of [[Soma]]. Each compartment holds a cohere
 The seven compartments:
 
 1. **Identity** — principal profile, assistant profile, voice, personality
-2. **Telos** — goals, principles, commitments, strategies, desired state
-3. **ISA** — ideal-state artifacts (the articulation and verification of work)
+2. **Purpose** — mission, goals, principles, commitments (the source of [[intent]])
+3. **Verification** — the articulation and verification of done; holds [[VSA]]s and [[checkpoint]]s
 4. **Skills** — portable capability folders
 5. **Memory** — work, knowledge, learning, relationship, state stores
-6. **Policy** — security, privacy, permission, verification rules
+6. **Policy** — security, privacy, permission, evidence and audit rules
 7. **Learning** — captured learnings, signals, performance feedback
 
 **Not synonyms:** Do not use `layer`, `store`, `domain`, `component`, `module`, `section`, `part` as glossary terms for these. `compartment` is the only word.
@@ -377,7 +377,7 @@ allows the team and scope.
 
 **Why:** Issue #152 needs shared team capability without violating the
 principal-owned privacy model. An overlay lets team material supplement
-personal Soma while keeping Identity, Telos, Relationship, raw transcripts, and
+personal Soma while keeping Identity, Purpose, Relationship, raw transcripts, and
 security traces private.
 
 ---
@@ -467,7 +467,7 @@ Five verbs for five distinct lifecycle events. No overlap.
 | **uninstall** | Principal (CLI) | Adapter removes its projection from the substrate. |
 
 The lifecycle reads:
-> Principal **installs** Soma into Codex → [[adapter]] **projects** → projection exists on disk. Principal edits Telos → Soma **reprojects** → updated projection on disk. Codex session restarts → substrate **loads** the projection → Soma has fresh presence. New Soma version released → principal runs `soma upgrade codex` → adapter **upgrades** and reprojects. Principal runs `soma uninstall codex` → adapter removes the projection.
+> Principal **installs** Soma into Codex → [[adapter]] **projects** → projection exists on disk. Principal edits Purpose → Soma **reprojects** → updated projection on disk. Codex session restarts → substrate **loads** the projection → Soma has fresh presence. New Soma version released → principal runs `soma upgrade codex` → adapter **upgrades** and reprojects. Principal runs `soma uninstall codex` → adapter removes the projection.
 
 **Not synonyms — killed from glossary:**
 - `sync`, `rebuild`, `refresh`, `regenerate` → `reproject`
@@ -585,7 +585,7 @@ The reverse direction: [[substrate]] → [[Soma]]. Symmetric to [[project|projec
 
 ### The closed loop
 
-> Soma **projects** into the substrate (one-way). The adapter performs the projection. The substrate **loads** the projection into [[context]]. The [[assistant]] gains [[presence]]. During the session, the assistant captures learnings and updates ISA; the adapter **writes back** through the **writeback gate** into Soma. On the next session, Soma reprojects with the new state. Substrate-side state Soma doesn't author is **mirrored** into `MEMORY/STATE/`.
+> Soma **projects** into the substrate (one-way). The adapter performs the projection. The substrate **loads** the projection into [[context]]. The [[assistant]] gains [[presence]]. During the session, the assistant captures learnings and updates its [[VSA]]s; the adapter **writes back** through the **writeback gate** into Soma. On the next session, Soma reprojects with the new state. Substrate-side state Soma doesn't author is **mirrored** into `MEMORY/STATE/`.
 
 This makes Soma a closed loop, not a one-way pipe.
 
@@ -673,14 +673,14 @@ Three adjectives describing how a piece of a [[project|projection]] enters the L
 
 | Tier | Adjective | Behaviour | Typical use |
 | --- | --- | --- | --- |
-| 1 | **eager** | Loaded into context at every session start. | Identity profile, active Telos, current ISA. Cheap, small, identity-defining. |
+| 1 | **eager** | Loaded into context at every session start. | Identity profile, active Purpose, current VSA. Cheap, small, identity-defining. |
 | 2 | **indexed** | A compact **registry** is eager; **bodies** load on demand when invoked. | Skills compartment by default. |
 | 3 | **on-demand** | Nothing loads until the assistant explicitly retrieves it (search, read, query). | Memory archives, past learnings. |
 
 ### Structural nouns
 
 - **registry** — the eager index entry that names what is available without loading the body. (Used in `docs/progressive-skill-loading.md` already.)
-- **body** — the full content of an indexed item, fetched on demand. Examples: "skill body", "ISA body".
+- **body** — the full content of an indexed item, fetched on demand. Examples: "skill body", "VSA body".
 - **resident** — informal: a piece of the projection currently in the LLM context for this session. Used for runtime talk only; not a tier name.
 
 ### Sentence shape
@@ -727,3 +727,81 @@ Three adjectives that classify a piece of Soma or [[project|projection]] data. E
 - "private context surface" → "private projection".
 
 **Why:** Five overlapping adjectives (`private`, `protected`, `principal-only`, `durable`, `generated`) had drifted across three doc files. Each was doing slightly different work but readers couldn't tell which. Locking three orthogonal adjectives (visibility / destructibility / authoritativeness) makes every policy statement falsifiable.
+
+---
+
+## checkpoint
+
+The unit of evidence-gated verification. A **checkpoint** is { criterion, required evidence, typed verdict, completion gate } — [[portable, substrate-neutral, substrate-native|portable]] across substrates, append-only audited, [[Lifecycle verbs: install, reproject, upgrade, load, uninstall|snapshot]]-reversible.
+
+A checkpoint applies on two axes: **done-ness** ("is this task complete?") and [[intent]] ("is this work aligned with where the principal is headed?"). Same machinery, two questions.
+
+The checkpoint is the deterministic spine of Soma's working method: inference may *propose* (a memory reorganization, an alignment judgment, whether to engage), but a checkpoint *disposes* — every proposal is typed, gated, audited, and reversible.
+
+**Not synonyms:**
+- `gate` — already overloaded ([[writeback, write back, writeback gate, mirror|writeback gate]], [[acquisition gate]], [[context-entry gate]], completion gate). A checkpoint *contains* a completion gate; it is not "a gate".
+- `snapshot` — whole-home Git state (`soma snapshot`/`rollback`). A checkpoint is one verified criterion; a snapshot is the entire Soma home at a point in time. Never interchange them.
+- `criterion` — one part of a checkpoint, not the whole.
+- `ISA` / `ISC` — the PAI constructs the checkpoint was extracted from. The [[Verification (compartment, formerly ISA)|Verification]] compartment still *holds* checkpoints (bundled into [[VSA]]s); the Algorithm/effort-tier/euphoric-surprise apparatus is one optional workflow pack over checkpoints, never the canonical primitive name.
+- `assertion` — a claim with no evidence is not a checkpoint.
+
+**Why:** PAI's ISA buried "evidence-gated completion" under five constructs (ISA, ISC, Algorithm phases, effort tiers, euphoric surprise). Extracting it as one primitive — and pointing it at a second axis ([[intent]]) — lets one Soma-native bone underlie what were two Miessler compartments (now [[Verification (compartment, formerly ISA)|Verification]] and [[Purpose (compartment, formerly Telos)|Purpose]]). The code already proves the shape: `IdealStateCriterion { text, status, verification }` is a checkpoint. See ADR on the de-Miessler renames.
+
+---
+
+## intent
+
+The [[principal]]'s checkable directional anchor for a scope of work — what "pointed the right way" means *here*. A [[checkpoint]] on the intent axis scores work against it for alignment or drift.
+
+Intent is *informed by* [[Purpose]] content (mission, goals, principles, commitments) but is none of them individually: it is the directional reading of that content that a checkpoint can actually score. It lives as a domain term, not a struct field.
+
+**Not synonyms:**
+- `mission` — the durable "why," one per principal, too abstract to score a single task against. Intent is scoped and checkable.
+- `goal` — a discrete target (done / not-done), checked on the *done-ness* axis. Intent is *direction*, not a checklist item.
+- `commitment` — an accepted obligation; it feeds intent, it is not intent.
+- `heading` — **banned** as the term for this concept. "Heading" already means a markdown section title across Soma docs; the homonym was rejected. Use `intent`.
+
+**Why:** Keeps the forward-looking alignment value that self-organizing memory systems (e.g. letta) lack, without importing PAI's `telos` schema. Pairs with [[checkpoint]] as the second axis. The directional bone survives; the LifeOS apparatus does not ("PAI, not LifeOS").
+
+---
+
+## Purpose (compartment, formerly Telos)
+
+The [[compartment]] holding the [[principal]]'s forward-looking direction content: mission, goals, principles, commitments. It is the source of [[intent]].
+
+`Purpose` is the English meaning of *telos* (Greek: end, purpose) — the de-branded replacement for the PAI term. The compartment is unchanged in shape and role; only the name moved off Miessler's vocabulary.
+
+**Not synonyms:**
+- `telos` / `Telos` — **killed.** PAI/Miessler term carrying a nine-category LifeOS schema (mission, beliefs, narratives, strategies, problems, challenges, measures). Banned in Soma docs and code. `Purpose` is the only word.
+- `aim`, `direction`, `goals` — `aim` was the runner-up; `direction`/`goals` are too narrow (one field) for the whole compartment.
+- `intent` — the *output* a checkpoint scores against, not the compartment that sources it. Distinct: Purpose (compartment) → intent (the scoped anchor) → checkpoint (scores it).
+
+**Why:** "Telos" was the most Miessler-branded word in the seven-compartment set, and JC's stance is "Personal AI Infrastructure, not a LifeOS." `Purpose` keeps the exact meaning (it *is* the translation of telos) while removing the inherited brand and its schema. Seven compartments stay seven; this is a rename, not a merge. See ADR on the de-Miessler renames.
+
+---
+
+## Verification (compartment, formerly ISA)
+
+The [[compartment]] that articulates what "done" means and verifies work against it — the **done-ness** home (its sibling axis, [[intent]], lives in [[Purpose (compartment, formerly Telos)|Purpose]]). It holds [[VSA]]s and the [[checkpoint]]s inside them, plus the optional Algorithm-run apparatus.
+
+**Not synonyms:**
+- `ISA` (as a compartment name) — **killed.** PAI/Miessler term. `Verification` is the only word for this compartment.
+- `verification` (lowercase, the [[Policy]] sense) — Policy's "evidence and audit rules" govern *security* verification; the Verification *compartment* governs verification of *work/done-ness*. Capitalized `Verification` always means the compartment.
+- `Method`, `Completion`, `Work` — considered. `Method` (zero-collision runner-up) was broader than the verification core; `Completion` overloads the checkpoint's completion gate; `Work` collides with [[work registry]] / Memory work stores.
+
+**Why:** `ISA` was the second Miessler compartment name (after Telos→Purpose). `Verification` names the compartment's actual job — done-ness, established with evidence — and pairs cleanly: Purpose sources intent, Verification houses done-ness, both scored by checkpoints. Renaming the box is cosmetic now that [[checkpoint]] is the extracted primitive. See ADR on the de-Miessler renames.
+
+---
+
+## VSA (Verification State Artifact)
+
+The artifact that defines "done" for a project, task, or work session and carries its [[checkpoint]]s and verdicts across substrates. Lives in the [[Verification (compartment, formerly ISA)|Verification]] compartment.
+
+The de-branded replacement for PAI's **ISA** (Ideal State Artifact): **I**deal → **V**erification, keeping **S**tate **A**rtifact. The swap is one-for-one — every former ISA is a VSA — so the migration is mechanical.
+
+**Not synonyms:**
+- `ISA` (Ideal State Artifact) — **killed.** The PAI name. `VSA` is the only word.
+- `checkpoint` — the unit *inside* a VSA, not the VSA itself. A VSA bundles checkpoints.
+- `spec`, `definition of done` — informal glosses; `VSA` is the canonical artifact noun.
+
+**Why:** completes the de-Miessler pass of the seven-compartment set (Identity · [[Purpose (compartment, formerly Telos)|Purpose]] · [[Verification (compartment, formerly ISA)|Verification]] · Skills · Memory · Policy · Learning). The `VSA` cadence keeps the CLI familiar (`soma isa` → `soma vsa`) and signals deliberate lineage rather than a clean break. See ADR on the de-Miessler renames.
