@@ -50,9 +50,11 @@ OBSERVE -> THINK -> PLAN -> BUILD -> EXECUTE -> VERIFY -> LEARN -> COMPLETE
 
 Each transition has a gate. For example, PLAN requires selected capabilities,
 BUILD requires a criterion-mapped plan, VERIFY requires every plan step to be
-done or blocked, LEARN requires every criterion to be passed or dropped, and
-COMPLETE rejects structured capability selections that were not invoked or
-removed. This is the part that adds determinism: the LLM can propose content,
+done or blocked, LEARN requires every criterion to be passed, dropped, or
+deferred-probe and refuses a `passed` criterion whose evidence kind is
+explicitly `specified` (it must claim probed/tested, or be marked deferred-probe;
+legacy criteria with no recorded evidence kind are grandfathered), and COMPLETE
+rejects structured capability selections that were not invoked or removed. This is the part that adds determinism: the LLM can propose content,
 but Soma decides whether the process is allowed to advance.
 
 The harness is driven through explicit mutations rather than substrate-specific

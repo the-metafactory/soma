@@ -17,11 +17,31 @@ import {
 import { classifyAlgorithmPrompt } from "./algorithm-classifier";
 import {
   buildIsaArtifact,
+  defaultEvidenceKind,
   getCriteria,
+  isClosedCriterion,
+  isHollowPass,
   progressFromCriteria,
   updateCriterionWithResult,
   verifiedFromCriteria,
 } from "./isa-accessors";
+
+/**
+ * The criteria that block entry to LEARN, split by reason. Single source of truth
+ * for the Algorithm's LEARN-gate policy — both the assertGate guard and sync's
+ * reachability check call this so the two cannot drift when a future evidence rule
+ * is added. Composes the pure isa-accessor predicates; gate policy lives here in
+ * the Algorithm module, not in the structural accessor layer.
+ */
+export function learnGateViolations(criteria: readonly IdealStateCriterion[]): {
+  unresolved: IdealStateCriterion[];
+  hollow: IdealStateCriterion[];
+} {
+  return {
+    unresolved: criteria.filter((criterion) => !isClosedCriterion(criterion)),
+    hollow: criteria.filter(isHollowPass),
+  };
+}
 import { getRunPhase } from "./algorithm-lifecycle";
 import { DEFAULT_ALGORITHM_LOOP_STATE } from "./algorithm-execution-modes";
 import { appendAlgorithmProvenance } from "./algorithm-provenance";
@@ -240,10 +260,11 @@ export function recordAlgorithmLearning(
 export function verifyAlgorithmCriterion(
   run: AlgorithmRun,
   criterionId: string,
-  status: "passed" | "failed" | "dropped",
+  status: "passed" | "failed" | "dropped" | "deferred-probe",
   evidence: string,
   timestamp?: string,
   provenance?: Pick<AlgorithmProvenanceInput, "substrate">,
+  evidenceKind?: IdealStateCriterion["evidenceKind"],
 ): AlgorithmRun {
   assertNonEmpty(evidence, "verification evidence");
 
@@ -252,6 +273,7 @@ export function verifyAlgorithmCriterion(
     criterionId,
     status,
     evidence,
+    evidenceKind,
   );
   const entry = logEntry(getRunPhase(run), `${criterionId}: ${status}. ${evidence}`, timestamp);
   const isaWithRecompute: IdealStateArtifact = {
@@ -309,9 +331,19 @@ function assertGate(run: AlgorithmRun, target: AlgorithmPhase): void {
       }
       break;
     case "learn": {
-      const criteria = getCriteria(run.isa);
-      if (!criteria.every((criterion) => criterion.status === "passed" || criterion.status === "dropped")) {
-        throw new Error("Algorithm cannot enter LEARN until every criterion is passed or dropped.");
+      const { unresolved, hollow } = learnGateViolations(getCriteria(run.isa));
+      if (unresolved.length > 0) {
+        throw new Error(
+          `Algorithm cannot enter LEARN until every criterion is passed, dropped, or deferred-probe. Unresolved: ${unresolved.map((c) => c.id).join(", ")}.`,
+        );
+      }
+      // Integrity gate: a 'passed' criterion verified by specification only is a
+      // self-attested claim, not a real probe. Probe it (probed/tested) or mark it
+      // deferred-probe.
+      if (hollow.length > 0) {
+        throw new Error(
+          `Algorithm cannot enter LEARN: criteria verified by specification only — probe them (probed/tested) or mark deferred-probe: ${hollow.map((c) => c.id).join(", ")}.`,
+        );
       }
       break;
     }
@@ -445,7 +477,15 @@ export function applyAlgorithmBatch(
       case "step":
         return updateAlgorithmPlanStep(current, operation.stepId, operation.status, operation.evidence, timestamp);
       case "verify":
-        return verifyAlgorithmCriterion(current, operation.criterionId, operation.status, operation.evidence, timestamp, provenance);
+        return verifyAlgorithmCriterion(
+          current,
+          operation.criterionId,
+          operation.status,
+          operation.evidence,
+          timestamp,
+          provenance,
+          defaultEvidenceKind(operation.evidenceKind, operation.status),
+        );
       case "capability":
         return selectAlgorithmCapability(current, {
           name: operation.capability,

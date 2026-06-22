@@ -22,11 +22,26 @@ export interface Telos {
   commitments: string[];
 }
 
+/**
+ * What the verifier CLAIMS about how the evidence was obtained. A caller-asserted
+ * label, NOT a machine-verified fact — Soma records the claim and gates on it, but
+ * does not confirm a `probed`/`tested` label corresponds to a real probe or test
+ * on any surface (CLI, ISA markdown, or library).
+ * - `specified`: a design/spec claim only ("the doc says X") — weak; blocks the LEARN gate.
+ * - `probed`: caller asserts behaviour was observed at runtime (curl, grep of running state).
+ * - `tested`: caller asserts coverage by an automated test.
+ */
+export type EvidenceKind = "specified" | "probed" | "tested";
+
+export type CriterionStatus = "open" | "passed" | "failed" | "dropped" | "deferred-probe";
+
 export interface IdealStateCriterion {
   id: string;
   text: string;
-  status: "open" | "passed" | "failed" | "dropped";
+  status: CriterionStatus;
   verification?: string;
+  /** See {@link EvidenceKind}. Undefined on legacy/pre-feature criteria (grandfathered by the LEARN gate). */
+  evidenceKind?: EvidenceKind;
 }
 
 export type AlgorithmPhase = "observe" | "think" | "plan" | "build" | "execute" | "verify" | "learn" | "complete" | "abandoned";
@@ -290,6 +305,7 @@ export interface AlgorithmRunSummary {
   passedCriteria: number;
   failedCriteria: number;
   droppedCriteria: number;
+  deferredProbeCriteria: number;
   progress: string;
 }
 
@@ -331,8 +347,9 @@ export type AlgorithmBatchOperation =
   | {
       kind: "verify";
       criterionId: string;
-      status: "passed" | "failed" | "dropped";
+      status: "passed" | "failed" | "dropped" | "deferred-probe";
       evidence: string;
+      evidenceKind?: EvidenceKind;
     }
   | {
       kind: "capability";
