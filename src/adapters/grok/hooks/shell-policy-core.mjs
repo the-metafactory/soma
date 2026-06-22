@@ -867,16 +867,38 @@ export function createShellPolicyExtractor(descriptor) {
     );
     if (marker) return resolve(marker);
 
-    // 3. A candidate matches a descriptor RELATIVE private prefix (`.soma/…`,
-    //    `./.soma/…`, bare `.soma`, and their deglued `@`-prefixed forms). No
-    //    resolution under a root is needed — the prefix's somaHome-anchored
-    //    root is the enforceable source. A bare-alnum `my.soma` never deglues,
-    //    and matchesRelativePathPrefix is boundary-exact, so no over-block.
+    // 3. A descriptor RELATIVE private prefix in the segment TEXT, at a
+    //    token/path boundary. The full-text scan (not just per-token) is what
+    //    catches a marker glued INSIDE an opaque alnum-led token that does not
+    //    deglue — e.g. `iex"@.soma/x"`, where the `@` is a boundary in the
+    //    joined text but the token starts `iex` so step 1/1b's per-token deglue
+    //    leaves it intact. The optional `(?:\./|~/)?` anchor also covers the
+    //    `@./.soma/`, `@~/.soma/` standalone forms. Boundary-gated and
+    //    case-folded on win32 (mirroring matchesRelativePathPrefix), so a
+    //    benign `my.somatic` and a nested `proj/.soma` (project-local, not the
+    //    home root) do NOT match. Emits the prefix's somaHome-anchored root —
+    //    a private scope root `policy check` honors regardless of policyMarkers.
+    //
+    // Note: an env-var home spelling embedded inside an opaque alnum-led token
+    // (`iex"@$HOME/.soma/x"`) is reachable by neither the per-token deglue nor
+    // this text scan (env-var spellings are built from boundary chars); that
+    // residual is out of scope here and is not a valid file-reading form.
     const home = somaHomeParent(config);
     if (home) {
-      for (const token of candidates) {
-        for (const entry of privatePathPrefixes) {
-          if (matchesRelativePathPrefix(token, entry)) return resolve(home, entry.path);
+      const fold = process.platform === "win32";
+      const folded = fold ? text.toLowerCase() : text;
+      // A boundary char is anything that cannot continue a path token.
+      const boundary = "[^A-Za-z0-9._/~-]";
+      // Optional home-relative anchor glued between the boundary and the
+      // marker: `./` (cwd-relative) or `~/` (home-relative).
+      const relAnchor = "(?:\\./|~/)?";
+      for (const entry of privatePathPrefixes) {
+        const prefix = fold ? entry.path.toLowerCase() : entry.path;
+        const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const prefixed = new RegExp(`(?:^|${boundary})${relAnchor}${escaped}/`);
+        const bare = entry.bare ? new RegExp(`(?:^|${boundary})${relAnchor}${escaped}(?:$|${boundary})`) : undefined;
+        if (prefixed.test(folded) || (bare && bare.test(folded))) {
+          return resolve(home, entry.path);
         }
       }
     }

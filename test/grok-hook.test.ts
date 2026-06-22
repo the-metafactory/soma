@@ -1064,6 +1064,7 @@ test("soma#327: private reference glued behind a non-path prefix fails closed fo
     "Frobnicate-Item @${env:USERPROFILE}/.soma/memory/x", // pwsh ${env:} home
     "Frobnicate-Item (.soma/memory/x", // paren glue
     "Frobnicate-Item =.soma/memory/x", // assignment glue
+    'iex"@.soma/memory/x"', // marker embedded in an opaque alnum-led token (full-text scan, not deglue)
   ]) {
     const targets = extractor(config, { command, cwd });
     expect(targets).toHaveLength(1);
