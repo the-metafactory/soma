@@ -292,7 +292,12 @@ function reconcileCriteria(
     if (!isClosedCriterion(isaCriterion)) continue;
     const existing = runCriteriaById.get(isaCriterion.id);
     if (existing === undefined) continue;
-    if (existing.status === isaCriterion.status) continue; // already reconciled — idempotent
+    // Idempotent only when BOTH status and the declared evidence kind already
+    // match — otherwise an author upgrading `Evidence:` to `Evidence (specified):`
+    // (to flag an already-passed criterion hollow) would never sync the kind.
+    if (existing.status === isaCriterion.status && existing.evidenceKind === isaCriterion.evidenceKind) {
+      continue;
+    }
     const verification = isaCriterion.verification?.trim();
     const evidence = verification && verification.length > 0 ? verification : `synced from ISA: ${isaCriterion.text}`;
     // Preserve the markdown-declared evidence kind (`Evidence (probed): ...`).
