@@ -3,6 +3,8 @@ import type {
   AlgorithmLogEntry,
   AlgorithmMode,
   AlgorithmPhase,
+  CriterionStatus,
+  EvidenceKind,
   IdealStateArtifact,
   IdealStateCriterion,
   IsaSection,
@@ -92,6 +94,7 @@ export function updateCriterionWithResult(
   criterionId: string,
   status: IdealStateCriterion["status"],
   verification?: string,
+  evidenceKind?: IdealStateCriterion["evidenceKind"],
 ): UpdateCriterionResult {
   const criteria = getCriteria(isa);
   if (!criteria.some((criterion) => criterion.id === criterionId)) {
@@ -99,10 +102,49 @@ export function updateCriterionWithResult(
   }
   const updated = criteria.map((criterion) =>
     criterion.id === criterionId
-      ? { ...criterion, status, verification: verification ?? criterion.verification }
+      ? {
+          ...criterion,
+          status,
+          verification: verification ?? criterion.verification,
+          evidenceKind: evidenceKind ?? criterion.evidenceKind,
+        }
       : criterion,
   );
   return { isa: setCriteria(isa, updated), criteria: updated };
+}
+
+/** A criterion that no longer needs work: verified, dropped, or honestly deferred. */
+export function isClosedCriterion(
+  criterion: IdealStateCriterion,
+): criterion is IdealStateCriterion & { status: "passed" | "dropped" | "deferred-probe" } {
+  return (
+    criterion.status === "passed" || criterion.status === "dropped" || criterion.status === "deferred-probe"
+  );
+}
+
+/**
+ * A `passed` criterion whose evidence is a specification/design claim only.
+ * It is self-attested, not a real probe, so it must not clear the LEARN gate.
+ */
+export function isHollowPass(criterion: IdealStateCriterion): boolean {
+  return criterion.status === "passed" && criterion.evidenceKind === "specified";
+}
+
+/**
+ * The evidence kind to record for a verification. A `passed` with no explicit
+ * kind defaults to the weak, self-attested `specified` so it cannot silently
+ * clear the LEARN gate; non-passed statuses carry no evidence kind.
+ *
+ * NOTE: the kind is caller-asserted. Soma records the claim — it does NOT verify
+ * that a `probed`/`tested` label corresponds to a real probe or test. The gate
+ * raises the bar from "any text passes" to "declare a probe/test or accept
+ * deferred-probe"; it makes a hollow pass explicit and auditable, not impossible.
+ */
+export function defaultEvidenceKind(
+  kind: EvidenceKind | undefined,
+  status: CriterionStatus,
+): EvidenceKind | undefined {
+  return kind ?? (status === "passed" ? "specified" : undefined);
 }
 
 export function updateCriterion(
@@ -154,8 +196,8 @@ function canonicalInsertIndex(sections: readonly IsaSection[], name: string): nu
   return sections.length;
 }
 
-const CRITERION_LINE = /^- \[([ x\-_!])\]\s+([^:]+):\s*(.+)$/;
-const EVIDENCE_LINE = /^\s{2,}Evidence:\s*(.+)$/;
+const CRITERION_LINE = /^- \[([ x\-_!~])\]\s+([^:]+):\s*(.+)$/;
+const EVIDENCE_LINE = /^\s{2,}Evidence(?:\s*\((specified|probed|tested)\))?:\s*(.+)$/;
 
 export function parseCriteriaMarkdown(content: string): IdealStateCriterion[] {
   const out: IdealStateCriterion[] = [];
@@ -164,7 +206,11 @@ export function parseCriteriaMarkdown(content: string): IdealStateCriterion[] {
     const evidenceMatch = EVIDENCE_LINE.exec(rawLine);
     const last = out.at(-1);
     if (evidenceMatch !== null && last !== undefined) {
-      last.verification = evidenceMatch[1].trim();
+      const kind = evidenceMatch[1];
+      last.verification = evidenceMatch[2].trim();
+      if (kind === "specified" || kind === "probed" || kind === "tested") {
+        last.evidenceKind = kind;
+      }
       continue;
     }
     const criterion = parseCriterionLine(line.trim());
@@ -192,6 +238,8 @@ function criterionStatusFromMark(mark: string): IdealStateCriterion["status"] {
       return "dropped";
     case "!":
       return "failed";
+    case "~":
+      return "deferred-probe";
     default:
       return "open";
   }
@@ -205,6 +253,8 @@ function criterionStatusMark(status: IdealStateCriterion["status"]): string {
       return "-";
     case "failed":
       return "!";
+    case "deferred-probe":
+      return "~";
     default:
       return " ";
   }
@@ -228,7 +278,8 @@ export function renderCriteriaMarkdown(criteria: readonly IdealStateCriterion[])
         return head;
       }
       assertSingleLine("verification", criterion.id, criterion.verification);
-      return `${head}\n  Evidence: ${criterion.verification}`;
+      const kindTag = criterion.evidenceKind ? ` (${criterion.evidenceKind})` : "";
+      return `${head}\n  Evidence${kindTag}: ${criterion.verification}`;
     })
     .join("\n");
 }

@@ -325,10 +325,14 @@ test("reconciles frontmatter progress when ISA checkboxes remain unticked", asyn
     const result = await syncAlgorithmRunFromIsa({ isaPath, substrate: "claude-code", somaHome });
     expect(result.criteriaPassed).toBe(3);
     expect(result.criteriaTotal).toBe(3);
-    expect(result.phase).toBe("learn");
+    // Passes fabricated from a frontmatter progress counter are specification-grade
+    // only, so the LEARN integrity gate caps the run at VERIFY despite the ISA
+    // frontmatter claiming `learn`. Reconciliation still marks the criteria passed.
+    expect(result.phase).toBe("verify");
 
     const { run } = await readAlgorithmRunById(result.runId!, { somaHome });
     expect(getCriteria(run.isa).map((c) => c.status)).toEqual(["passed", "passed", "passed"]);
+    expect(getCriteria(run.isa).every((c) => c.evidenceKind === "specified")).toBe(true);
     expect(run.verification.map((entry) => entry.text)).toContain(
       "ISC-1: passed. synced from ISA progress: Honor frontmatter completion",
     );

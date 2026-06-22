@@ -23,6 +23,7 @@ import { randomUUID } from "node:crypto";
 import {
   advanceAlgorithmRun,
   createAlgorithmRun,
+  learnGateViolations,
   nextAlgorithmPhase,
   recordAlgorithmChange,
   recordAlgorithmLearning,
@@ -37,7 +38,7 @@ import { readAlgorithmRunById, writeAlgorithmRun } from "./algorithm-store";
 import { datePrefixSlug } from "./dated-slug";
 import { getRunPhase } from "./algorithm-lifecycle";
 import { parseIsa, serializeIsa } from "./isa-parse";
-import { getCriteria, getDecisions, getGoal } from "./isa-accessors";
+import { getCriteria, getDecisions, getGoal, isClosedCriterion } from "./isa-accessors";
 import { promoteAlgorithmRunMemory } from "./memory-promotion";
 import type {
   AlgorithmPhase,
@@ -185,12 +186,17 @@ function phaseIndex(phase: AlgorithmPhase): number {
  * still open — even if the ISA claims `learn`/`complete`.
  */
 function reachableTargetPhase(target: AlgorithmPhase, criteria: readonly IdealStateCriterion[]): AlgorithmPhase {
-  const allClosed = criteria.length > 0 && criteria.every((c) => c.status === "passed" || c.status === "dropped");
+  // Mirror the LEARN integrity gate via the shared rule so the two cannot drift:
+  // a `passed` criterion verified by specification only (e.g. a pass fabricated
+  // from a frontmatter progress counter) cannot clear LEARN, so sync caps such a
+  // run at VERIFY rather than attempt an advance the gate will reject.
+  const { unresolved, hollow } = learnGateViolations(criteria);
+  const learnReachable = criteria.length > 0 && unresolved.length === 0 && hollow.length === 0;
   // `complete` is never a sync target — we stop at `learn`. `complete` requires
   // a learning entry + invoked capabilities, which the LEARN handling provides;
   // but leaving the run at `learn` keeps it resumable rather than terminal.
   const capped = target === "complete" ? "learn" : target;
-  if (!allClosed && phaseIndex(capped) > phaseIndex("verify")) {
+  if (!learnReachable && phaseIndex(capped) > phaseIndex("verify")) {
     return "verify";
   }
   return capped;
@@ -255,12 +261,6 @@ function advanceRunToPhase(run: AlgorithmRun, target: AlgorithmPhase, timestamp:
   return next;
 }
 
-function isClosedCriterion(
-  criterion: IdealStateCriterion,
-): criterion is IdealStateCriterion & { status: "passed" | "dropped" } {
-  return criterion.status === "passed" || criterion.status === "dropped";
-}
-
 function progressCompletedCount(progress: string, total: number): number | null {
   const match = /^(\d+)\/(\d+)$/.exec(progress.trim());
   if (!match) return null;
@@ -292,10 +292,30 @@ function reconcileCriteria(
     if (!isClosedCriterion(isaCriterion)) continue;
     const existing = runCriteriaById.get(isaCriterion.id);
     if (existing === undefined) continue;
-    if (existing.status === isaCriterion.status) continue; // already reconciled — idempotent
+    // Idempotent only when BOTH status and the declared evidence kind already
+    // match — otherwise an author upgrading `Evidence:` to `Evidence (specified):`
+    // (to flag an already-passed criterion hollow) would never sync the kind.
+    if (existing.status === isaCriterion.status && existing.evidenceKind === isaCriterion.evidenceKind) {
+      continue;
+    }
     const verification = isaCriterion.verification?.trim();
     const evidence = verification && verification.length > 0 ? verification : `synced from ISA: ${isaCriterion.text}`;
-    next = verifyAlgorithmCriterion(next, isaCriterion.id, isaCriterion.status, evidence, timestamp, { substrate });
+    // Preserve the markdown-declared evidence kind (`Evidence (probed): ...`).
+    // That kind is CALLER-ASSERTED, like every surface: an ISA author can write
+    // `Evidence (probed):` with no real probe and clear the gate. The gate does not
+    // close that — it makes a hollow pass an explicit, auditable, declared claim
+    // instead of the silent default. A bare `Evidence:` carries no kind and stays
+    // grandfathered. Only the synthetic progress-counter pass below is forced to
+    // `specified`, because nothing about it is even a claim of observation.
+    next = verifyAlgorithmCriterion(
+      next,
+      isaCriterion.id,
+      isaCriterion.status,
+      evidence,
+      timestamp,
+      { substrate },
+      isaCriterion.evidenceKind,
+    );
   }
 
   const targetCompleted = frontmatterCompletionCount(isa, isaCriteria);
@@ -309,7 +329,9 @@ function reconcileCriteria(
     if (existing === undefined || isClosedCriterion(existing)) continue;
     const goal = getGoal(isa);
     const evidence = goal ? `synced from ISA progress: ${goal}` : `synced from ISA progress: ${isaCriterion.text}`;
-    next = verifyAlgorithmCriterion(next, isaCriterion.id, "passed", evidence, timestamp, { substrate });
+    // A pass fabricated to match a frontmatter progress counter is specification
+    // grade only — it must not clear the LEARN integrity gate as if probed.
+    next = verifyAlgorithmCriterion(next, isaCriterion.id, "passed", evidence, timestamp, { substrate }, "specified");
     runCriteria = getCriteria(next.isa);
     completed = runCriteria.filter(isClosedCriterion).length;
   }

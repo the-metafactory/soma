@@ -534,6 +534,8 @@ test("cli drives Algorithm runs through gated mutations", async () => {
       "passed",
       "--evidence",
       "CLI commands advanced through gates.",
+      "--evidence-kind",
+      "probed",
     ]);
     const output = await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "cli-run"]);
 
