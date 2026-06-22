@@ -46,6 +46,8 @@ async function observeFloor(homeDir: string, id: string, ...extra: string[]): Pr
     "criterion C1 exists",
     "--evidence",
     "probed reality",
+    "--evidence-kind",
+    "probed",
     ...extra,
   ]);
 }
@@ -702,6 +704,42 @@ test("cli records substrate provenance and surfaces touched-by summary", async (
     const raw = await readFile(join(homeDir, ".soma/memory/WORK/algorithm-runs/provenance-cli-run.json"), "utf8");
     expect(raw).toContain('"operation": "criterion.verify"');
     expect(raw).toContain('"substrate": "pi-dev"');
+  });
+});
+
+test("cli observe defaults to 'specified' — clearing the floor needs an explicit probed/tested", async () => {
+  await withTempHome(async (homeDir) => {
+    await runSomaCli([
+      "algorithm",
+      "new",
+      "--home-dir",
+      homeDir,
+      "--id",
+      "observe-default-run",
+      "--prompt",
+      "Default evidence kind",
+      "--intent",
+      "Check the observe default fails safe.",
+      "--current-state",
+      "Nothing asserted.",
+      "--goal",
+      "Default does not clear the floor.",
+      "--criterion",
+      "C1:Default is specified.",
+    ]);
+
+    // No --evidence-kind: records 'specified', which does NOT clear the floor.
+    await runSomaCli(["algorithm", "observe", "--home-dir", homeDir, "--id", "observe-default-run", "--claim", "C1 exists", "--evidence", "read the ISA"]);
+    await expect(runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "observe-default-run"])).rejects.toThrow("current-state probe");
+
+    const raw = await readFile(join(homeDir, ".soma/memory/WORK/algorithm-runs/observe-default-run.json"), "utf8");
+    expect(raw).toContain('"evidenceKind": "specified"');
+
+    // An explicit probed observation clears it.
+    await runSomaCli(["algorithm", "observe", "--home-dir", homeDir, "--id", "observe-default-run", "--claim", "C1 exists", "--evidence", "grepped the ISA", "--evidence-kind", "probed"]);
+    await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "observe-default-run"]);
+    const advanced = await readFile(join(homeDir, ".soma/memory/WORK/algorithm-runs/observe-default-run.json"), "utf8");
+    expect(advanced).toContain('"phase": "think"');
   });
 });
 
