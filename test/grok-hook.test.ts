@@ -668,17 +668,24 @@ test("installed grok pre-tool-use hook fails closed on a RELATIVE private marker
   });
 });
 
-test("soma#327: installed grok pre-tool-use hook fails closed on @./.soma/ and @~/.soma/ glued forms", async () => {
+test("soma#327: installed grok pre-tool-use hook fails closed on every home-anchor glued form", async () => {
   await withTempHome(async (homeDir) => {
     await installSomaForGrok({ homeDir });
     const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
-    // The end-to-end sibling of the #327 unit test: an interposed `./`/`~/`
-    // anchor between the non-path prefix and the marker slipped the backstop
-    // before the fix. Both now deny through `policy check`.
-    for (const command of ["Frobnicate-Item @./.soma/memory/x", "Frobnicate-Item @~/.soma/memory/x"]) {
+    // End-to-end through `policy check`: every home-anchor spelling glued
+    // behind a non-path prefix slipped the backstop before the structural
+    // deglue fix. All now deny.
+    for (const command of [
+      "Frobnicate-Item @.soma/memory/x",
+      "Frobnicate-Item @./.soma/memory/x",
+      "Frobnicate-Item @~/.soma/memory/x",
+      "Frobnicate-Item @$HOME/.soma/memory/x",
+      "Frobnicate-Item @%USERPROFILE%/.soma/memory/x",
+      "Frobnicate-Item @${env:USERPROFILE}/.soma/memory/x",
+    ]) {
       const result = runGrokPreToolUse(hook, homeDir, "Shell", {
         command,
-        description: "relative marker glued behind a non-path prefix with ./ or ~/ anchor",
+        description: "private marker glued behind a non-path prefix (home-anchor spelling)",
       });
       expect(result.output.decision).toBe("deny");
       expect(result.status).toBe(2);
@@ -1033,12 +1040,14 @@ test("relative private prefix glued behind a non-path prefix still fails closed 
   }
 });
 
-test("soma#327: relative marker glued behind a non-path prefix WITH an interposed ./ or ~/ still fails closed (backstop)", () => {
-  // The residual the absolute-and-bare-`@.soma/` fix (#326) left open: an
-  // interposed `./` or `~/` (`@./.soma/…`, `@~/.soma/…`) puts a path-CONTINUE
-  // char (`/`) immediately before `.soma`, so the plain boundary scan missed
-  // it — the same fail-open class, one glue-char wider. The optional relative
-  // anchor catches both forms while staying boundary-gated.
+test("soma#327: private reference glued behind a non-path prefix fails closed for EVERY home-anchor spelling (backstop)", () => {
+  // The class the per-spelling regex closed one form at a time (#326 `@.soma/`,
+  // then `@./`/`@~/`): a private reference glued behind a non-path prefix.
+  // The structural fix deglues the leading junk and re-runs the SAME resolvers,
+  // so every home-anchor spelling normalizeShellPathToken understands —
+  // `./`, `~/`, `$HOME`, `${HOME}`, `%USERPROFILE%`, `${env:USERPROFILE}` —
+  // collapses to the private root. Empty policyMarkers prove this rides the
+  // private-root / relative leg, not an absolute marker.
   const extractor = createShellPolicyExtractor(GROK_SHELL_POLICY_DESCRIPTOR);
   const base = join(tmpdir(), "soma-core-unit-327");
   const config = { somaHome: join(base, ".soma"), policyMarkers: [], privateRoots: [] };
@@ -1046,20 +1055,33 @@ test("soma#327: relative marker glued behind a non-path prefix WITH an interpose
   const root = join(base, ".soma");
 
   for (const command of [
-    "Frobnicate-Item @./.soma/memory/x", // cwd-relative anchor glued behind `@`
-    "Frobnicate-Item @~/.soma/memory/x", // home-relative anchor glued behind `@`
+    "Frobnicate-Item @.soma/memory/x", // bare marker glued behind `@`
+    "Frobnicate-Item @./.soma/memory/x", // cwd-relative anchor
+    "Frobnicate-Item @~/.soma/memory/x", // home-relative anchor
+    "Frobnicate-Item @$HOME/.soma/memory/x", // env home, bare $
+    "Frobnicate-Item @${HOME}/.soma/memory/x", // env home, braced
+    "Frobnicate-Item @%USERPROFILE%/.soma/memory/x", // Windows %VAR% home
+    "Frobnicate-Item @${env:USERPROFILE}/.soma/memory/x", // pwsh ${env:} home
+    "Frobnicate-Item (.soma/memory/x", // paren glue
+    "Frobnicate-Item =.soma/memory/x", // assignment glue
   ]) {
     const targets = extractor(config, { command, cwd });
     expect(targets).toHaveLength(1);
-    // Rides the RELATIVE leg (empty policyMarkers) and emits the private ROOT,
-    // which `policy check` honors — a toothless cwd-relative source would ALLOW.
+    // Emits the private ROOT, which `policy check` honors — a toothless
+    // cwd-relative source would resolve under no root and ALLOW.
     expect(targets[0].sourcePath).toBe(root);
   }
 
-  // A NESTED `proj/.soma` is a project-local soma, not the home root: the `/`
-  // before `.soma` is a continue char with no boundary-gated `./`|`~/` anchor,
-  // so it must NOT over-block.
-  expect(extractor(config, { command: "Build-Thing proj/.soma/x out", cwd })).toHaveLength(0);
+  // Over-block guards: the deglue strips ONLY a leading non-path glue run and
+  // never turns a bare-alnum token into the marker, so these stay ALLOW.
+  for (const command of [
+    "Build-Thing proj/.soma/x out", // nested project-local .soma, not the home root
+    "Frobnicate-Item my.soma/x", // alnum-led: no leading glue to strip
+    "Frobnicate-Item my.somatic-notes.txt", // .soma substring, not a path segment
+    "Frobnicate-Item a/b/.soma/x out", // deeper nested
+  ]) {
+    expect(extractor(config, { command, cwd })).toHaveLength(0);
+  }
 });
 
 test("grok descriptor preserves the asymmetric bare-token semantics", () => {
