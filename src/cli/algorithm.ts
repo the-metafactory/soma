@@ -74,7 +74,7 @@ export const ALGORITHM_COMMAND_HELP: { usage: string; subcommands: Record<Algori
     decision: "Usage: soma algorithm decision --id <run-id> --text <text> [--home-dir <dir>] [--soma-home <dir>]",
     change: "Usage: soma algorithm change --id <run-id> --text <text> [--home-dir <dir>] [--soma-home <dir>]",
     step: "Usage: soma algorithm step --id <run-id> --step-id <id> --status <open|done|blocked> [--evidence <text>]",
-    verify: "Usage: soma algorithm verify --id <run-id> --criterion-id <id> --status <passed|failed|dropped> --evidence <text> [--substrate <id>]",
+    verify: "Usage: soma algorithm verify --id <run-id> --criterion-id <id> --status <passed|failed|dropped|deferred-probe> --evidence <text> [--evidence-kind <specified|probed|tested>] [--substrate <id>]",
     learn: "Usage: soma algorithm learn --id <run-id> --text <text> [--substrate <id>] [--home-dir <dir>] [--soma-home <dir>]",
     advance: "Usage: soma algorithm advance --id <run-id> [--substrate <id>] [--home-dir <dir>] [--soma-home <dir>]",
     resume: "Usage: soma algorithm resume --id <run-id> --until-phase <phase> [--substrate <id>] [--home-dir <dir>] [--soma-home <dir>]",
@@ -103,8 +103,9 @@ interface AlgorithmCliOptions {
   stepId?: string;
   stepStatus?: AlgorithmPlanStep["status"];
   criterionId?: string;
-  criterionStatus?: "passed" | "failed" | "dropped";
+  criterionStatus?: "passed" | "failed" | "dropped" | "deferred-probe";
   evidence?: string;
+  evidenceKind?: "specified" | "probed" | "tested";
   substrate?: SubstrateId;
   untilPhase?: AlgorithmPhase;
   batchOperations?: AlgorithmBatchOperation[];
@@ -164,12 +165,20 @@ function parseStepStatus(value: string): AlgorithmPlanStep["status"] {
   throw new Error("--status must be one of open, done, or blocked.");
 }
 
-function parseCriterionStatus(value: string): "passed" | "failed" | "dropped" {
-  if (value === "passed" || value === "failed" || value === "dropped") {
+function parseCriterionStatus(value: string): "passed" | "failed" | "dropped" | "deferred-probe" {
+  if (value === "passed" || value === "failed" || value === "dropped" || value === "deferred-probe") {
     return value;
   }
 
-  throw new Error("--status must be one of passed, failed, or dropped.");
+  throw new Error("--status must be one of passed, failed, dropped, or deferred-probe.");
+}
+
+function parseEvidenceKind(value: string): "specified" | "probed" | "tested" {
+  if (value === "specified" || value === "probed" || value === "tested") {
+    return value;
+  }
+
+  throw new Error("--evidence-kind must be one of specified, probed, or tested.");
 }
 
 function parsePlanStep(value: string): AlgorithmPlanStep {
@@ -417,6 +426,10 @@ export function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
         break;
       case "--evidence":
         options.evidence = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--evidence-kind":
+        options.evidenceKind = parseEvidenceKind(readOption(rest, index, arg));
         index += 1;
         break;
       case "--op":
@@ -710,8 +723,12 @@ export async function runAlgorithmCli(parsed: ParsedAlgorithmArgs): Promise<stri
     const criterionId = options.criterionId;
     const criterionStatus = options.criterionStatus;
     const evidence = options.evidence;
+    // At the user surface, a 'passed' with no explicit kind defaults to the weak
+    // 'specified' — the completion gate then forces an honest probe or deferred-probe.
+    const evidenceKind =
+      options.evidenceKind ?? (criterionStatus === "passed" ? "specified" : undefined);
     return updateAndReportAlgorithmRun(options, (run) =>
-      verifyAlgorithmCriterion(run, criterionId, criterionStatus, evidence, undefined, { substrate: options.substrate }),
+      verifyAlgorithmCriterion(run, criterionId, criterionStatus, evidence, undefined, { substrate: options.substrate }, evidenceKind),
     );
   }
 

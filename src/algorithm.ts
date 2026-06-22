@@ -240,10 +240,11 @@ export function recordAlgorithmLearning(
 export function verifyAlgorithmCriterion(
   run: AlgorithmRun,
   criterionId: string,
-  status: "passed" | "failed" | "dropped",
+  status: "passed" | "failed" | "dropped" | "deferred-probe",
   evidence: string,
   timestamp?: string,
   provenance?: Pick<AlgorithmProvenanceInput, "substrate">,
+  evidenceKind?: IdealStateCriterion["evidenceKind"],
 ): AlgorithmRun {
   assertNonEmpty(evidence, "verification evidence");
 
@@ -252,6 +253,7 @@ export function verifyAlgorithmCriterion(
     criterionId,
     status,
     evidence,
+    evidenceKind,
   );
   const entry = logEntry(getRunPhase(run), `${criterionId}: ${status}. ${evidence}`, timestamp);
   const isaWithRecompute: IdealStateArtifact = {
@@ -310,8 +312,26 @@ function assertGate(run: AlgorithmRun, target: AlgorithmPhase): void {
       break;
     case "learn": {
       const criteria = getCriteria(run.isa);
-      if (!criteria.every((criterion) => criterion.status === "passed" || criterion.status === "dropped")) {
-        throw new Error("Algorithm cannot enter LEARN until every criterion is passed or dropped.");
+      const unresolved = criteria.filter(
+        (criterion) =>
+          criterion.status !== "passed" &&
+          criterion.status !== "dropped" &&
+          criterion.status !== "deferred-probe",
+      );
+      if (unresolved.length > 0) {
+        throw new Error(
+          `Algorithm cannot enter LEARN until every criterion is passed, dropped, or deferred-probe. Unresolved: ${unresolved.map((c) => c.id).join(", ")}.`,
+        );
+      }
+      // Integrity gate: a 'passed' criterion verified by specification only is not
+      // real verification. Probe it (probed/tested) or mark it deferred-probe.
+      const hollow = criteria.filter(
+        (criterion) => criterion.status === "passed" && criterion.evidenceKind === "specified",
+      );
+      if (hollow.length > 0) {
+        throw new Error(
+          `Algorithm cannot enter LEARN: criteria verified by specification only — probe them (probed/tested) or mark deferred-probe: ${hollow.map((c) => c.id).join(", ")}.`,
+        );
       }
       break;
     }

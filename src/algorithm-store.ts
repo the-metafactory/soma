@@ -207,6 +207,7 @@ export function summarizeAlgorithmRun(run: AlgorithmRun, path: string): Algorith
     passed: 0,
     failed: 0,
     dropped: 0,
+    "deferred-probe": 0,
   };
 
   const criteria = getCriteria(run.isa);

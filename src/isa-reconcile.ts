@@ -293,10 +293,12 @@ function statusRank(status: IdealStateCriterion["status"]): number {
       return 0;
     case "failed":
       return 1;
-    case "passed":
+    case "deferred-probe":
       return 2;
-    case "dropped":
+    case "passed":
       return 3;
+    case "dropped":
+      return 4;
   }
 }
 

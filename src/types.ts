@@ -25,8 +25,16 @@ export interface Telos {
 export interface IdealStateCriterion {
   id: string;
   text: string;
-  status: "open" | "passed" | "failed" | "dropped";
+  status: "open" | "passed" | "failed" | "dropped" | "deferred-probe";
   verification?: string;
+  /**
+   * How the verification evidence was obtained.
+   * - `specified`: design/spec claim only ("the doc says X") — weak, blocks completion.
+   * - `probed`: behaviour observed at runtime (curl, grep of running state).
+   * - `tested`: covered by an automated test.
+   * Undefined on legacy/pre-feature criteria (grandfathered by the LEARN gate).
+   */
+  evidenceKind?: "specified" | "probed" | "tested";
 }
 
 export type AlgorithmPhase = "observe" | "think" | "plan" | "build" | "execute" | "verify" | "learn" | "complete" | "abandoned";
@@ -331,7 +339,7 @@ export type AlgorithmBatchOperation =
   | {
       kind: "verify";
       criterionId: string;
-      status: "passed" | "failed" | "dropped";
+      status: "passed" | "failed" | "dropped" | "deferred-probe";
       evidence: string;
     }
   | {

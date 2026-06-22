@@ -92,6 +92,7 @@ export function updateCriterionWithResult(
   criterionId: string,
   status: IdealStateCriterion["status"],
   verification?: string,
+  evidenceKind?: IdealStateCriterion["evidenceKind"],
 ): UpdateCriterionResult {
   const criteria = getCriteria(isa);
   if (!criteria.some((criterion) => criterion.id === criterionId)) {
@@ -99,7 +100,12 @@ export function updateCriterionWithResult(
   }
   const updated = criteria.map((criterion) =>
     criterion.id === criterionId
-      ? { ...criterion, status, verification: verification ?? criterion.verification }
+      ? {
+          ...criterion,
+          status,
+          verification: verification ?? criterion.verification,
+          evidenceKind: evidenceKind ?? criterion.evidenceKind,
+        }
       : criterion,
   );
   return { isa: setCriteria(isa, updated), criteria: updated };
@@ -154,8 +160,8 @@ function canonicalInsertIndex(sections: readonly IsaSection[], name: string): nu
   return sections.length;
 }
 
-const CRITERION_LINE = /^- \[([ x\-_!])\]\s+([^:]+):\s*(.+)$/;
-const EVIDENCE_LINE = /^\s{2,}Evidence:\s*(.+)$/;
+const CRITERION_LINE = /^- \[([ x\-_!~])\]\s+([^:]+):\s*(.+)$/;
+const EVIDENCE_LINE = /^\s{2,}Evidence(?:\s*\((specified|probed|tested)\))?:\s*(.+)$/;
 
 export function parseCriteriaMarkdown(content: string): IdealStateCriterion[] {
   const out: IdealStateCriterion[] = [];
@@ -164,7 +170,11 @@ export function parseCriteriaMarkdown(content: string): IdealStateCriterion[] {
     const evidenceMatch = EVIDENCE_LINE.exec(rawLine);
     const last = out.at(-1);
     if (evidenceMatch !== null && last !== undefined) {
-      last.verification = evidenceMatch[1].trim();
+      const kind = evidenceMatch[1];
+      last.verification = evidenceMatch[2].trim();
+      if (kind === "specified" || kind === "probed" || kind === "tested") {
+        last.evidenceKind = kind;
+      }
       continue;
     }
     const criterion = parseCriterionLine(line.trim());
@@ -192,6 +202,8 @@ function criterionStatusFromMark(mark: string): IdealStateCriterion["status"] {
       return "dropped";
     case "!":
       return "failed";
+    case "~":
+      return "deferred-probe";
     default:
       return "open";
   }
@@ -205,6 +217,8 @@ function criterionStatusMark(status: IdealStateCriterion["status"]): string {
       return "-";
     case "failed":
       return "!";
+    case "deferred-probe":
+      return "~";
     default:
       return " ";
   }
@@ -228,7 +242,8 @@ export function renderCriteriaMarkdown(criteria: readonly IdealStateCriterion[])
         return head;
       }
       assertSingleLine("verification", criterion.id, criterion.verification);
-      return `${head}\n  Evidence: ${criterion.verification}`;
+      const kindTag = criterion.evidenceKind ? ` (${criterion.evidenceKind})` : "";
+      return `${head}\n  Evidence${kindTag}: ${criterion.verification}`;
     })
     .join("\n");
 }
