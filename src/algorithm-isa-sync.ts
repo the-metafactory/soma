@@ -23,6 +23,7 @@ import { randomUUID } from "node:crypto";
 import {
   advanceAlgorithmRun,
   createAlgorithmRun,
+  learnGateViolations,
   nextAlgorithmPhase,
   recordAlgorithmChange,
   recordAlgorithmLearning,
@@ -37,7 +38,7 @@ import { readAlgorithmRunById, writeAlgorithmRun } from "./algorithm-store";
 import { datePrefixSlug } from "./dated-slug";
 import { getRunPhase } from "./algorithm-lifecycle";
 import { parseIsa, serializeIsa } from "./isa-parse";
-import { getCriteria, getDecisions, getGoal, isClosedCriterion, learnGateViolations } from "./isa-accessors";
+import { getCriteria, getDecisions, getGoal, isClosedCriterion } from "./isa-accessors";
 import { promoteAlgorithmRunMemory } from "./memory-promotion";
 import type {
   AlgorithmPhase,
