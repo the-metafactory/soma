@@ -114,8 +114,22 @@ function projectPiDevSkillForVerify(skill: SomaSkill): ProjectedFile[] {
 }
 
 /**
- * Locate the substrate-equivalent "SKILL.md" in a projection. Both
- * substrates currently project SKILL.md at the leaf of the skill's
+ * Grok per-skill projection mirror. `projectGrokHome` projects
+ * portable skills with the same flat `skills/<rawName>/<relPath>`
+ * layout codex uses (the grok adapter deliberately takes the
+ * codex-style default-rewrite branch), so the mirror is identical
+ * to the codex one.
+ */
+function projectGrokSkillForVerify(skill: SomaSkill): ProjectedFile[] {
+  return (skill.files ?? []).map((file) => ({
+    path: `skills/${skill.name}/${file.path}`,
+    content: file.content,
+  }));
+}
+
+/**
+ * Locate the substrate-equivalent "SKILL.md" in a projection. All
+ * target substrates project SKILL.md at the leaf of the skill's
  * own directory. We accept any path whose basename is `SKILL.md`.
  */
 function findSkillMd(files: readonly ProjectedFile[]): ProjectedFile | undefined {
@@ -218,7 +232,9 @@ export function verifySubstrateProjection(
   try {
     projected = substrate === "codex"
       ? projectCodexSkillForVerify(skill)
-      : projectPiDevSkillForVerify(skill);
+      : substrate === "grok"
+        ? projectGrokSkillForVerify(skill)
+        : projectPiDevSkillForVerify(skill);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     issues.push({
@@ -264,9 +280,11 @@ export function verifySubstrateProjection(
   for (const file of skill.files ?? []) {
     if (!/^Tools\/.*\.ts$/i.test(file.path)) continue;
     const projectedTool = projectedToolByRelPath.get(file.path);
-    const expected = substrate === "codex"
-      ? `skills/${skill.name}/${file.path}`
-      : `agent/skills/<skill-id>/${file.path}`;
+    // Codex and grok share the flat `skills/<name>/` layout; pi-dev
+    // nests under `agent/skills/<slug>/`.
+    const expected = substrate === "pi-dev"
+      ? `agent/skills/<skill-id>/${file.path}`
+      : `skills/${skill.name}/${file.path}`;
     if (!projectedTool) {
       issues.push({
         kind: "unresolved-tool-path",

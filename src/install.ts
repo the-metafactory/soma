@@ -5,6 +5,7 @@ import {
   installClaudeCodeHomeProjection,
   installCodexHomeProjection,
   installCursorHomeProjection,
+  installGrokHomeProjection,
   installPiDevHomeProjection,
 } from "./home-projection";
 import type { ClaudeCodeInstallOptions } from "./adapters/claude-code/install-options";
@@ -22,7 +23,7 @@ import {
   type SubstrateInstallSpec,
   type UninstallContext,
 } from "./install-spec";
-import { defaultSubstrateHome, installSpecFor } from "./install-spec-registry";
+import { allInstallSpecs, defaultSubstrateHome, installSpecFor } from "./install-spec-registry";
 import type { ProjectionInput, SomaInstallOptions, SomaInstallPlan, SomaInstallResult } from "./types";
 
 export type { ClaudeCodeInstallOptions } from "./adapters/claude-code/install-options";
@@ -40,13 +41,12 @@ const SOMA_BOOTSTRAP_FILES = [
 // + README content live in `memory-readmes.ts` so install planner, soma-home
 // bootstrap, and tests share one source of truth. 17 substrate-neutral +
 // 2 PAI-bound = 19 categories.
+// Projection directories derive from the install-spec registry so a newly
+// registered substrate can never be missing from the install plan.
 const SOMA_BOOTSTRAP_DIRECTORIES = [
   ...SOMA_MEMORY_CATEGORIES.map((category) => `memory/${category}`),
-  "projections/codex",
-  "projections/pi-dev",
-  "projections/claude-code",
-  "projections/cursor",
-] as const;
+  ...allInstallSpecs().map((spec) => `projections/${spec.substrate}`),
+];
 
 function resolveInstallHomes(substrate: InstallSubstrate, options: SomaInstallOptions): { somaHome: string; substrateHome: string } {
   const homeDir = options.homeDir;
@@ -105,6 +105,10 @@ export function planSomaForClaudeCodeInstall(options: ClaudeCodeInstallOptions =
 
 export function planSomaForCursorInstall(options: SomaInstallOptions = {}): SomaInstallPlan {
   return planSomaInstall("cursor", options);
+}
+
+export function planSomaForGrokInstall(options: SomaInstallOptions = {}): SomaInstallPlan {
+  return planSomaInstall("grok", options);
 }
 
 async function installSomaForSubstrate(
@@ -217,6 +221,8 @@ async function installHomeProjectionFor(
       return installClaudeCodeHomeProjection(context, options);
     case "cursor":
       return installCursorHomeProjection(context, options);
+    case "grok":
+      return installGrokHomeProjection(context, options);
   }
 }
 
@@ -271,6 +277,21 @@ export async function installSomaForCursor(options: SomaInstallOptions = {}): Pr
 }
 
 /**
+ * Install Soma's projection into a Grok home (`~/.grok`).
+ *
+ * Precondition (Windows): the bun path and the grok home must be expressible
+ * as a whitespace-free path, because Grok spawns the hook bare-exec as a
+ * space-joined argv (a space would split it into bogus tokens and fail open).
+ * Spaced paths (`C:\Program Files\…\bun.exe`, a profile with a space)
+ * are accepted when the volume can supply an 8.3 short name (auto-resolved);
+ * if 8.3 generation is disabled, install fails loudly rather than emit a
+ * silently-broken hook command. `soma export grok` shares this constraint.
+ */
+export async function installSomaForGrok(options: SomaInstallOptions = {}): Promise<SomaInstallResult> {
+  return installSomaForSubstrate("grok", options);
+}
+
+/**
  * Uninstall Soma's projection from a Claude Code home (#29). Removes
  * `<substrateHome>/rules/soma/` and `<substrateHome>/skills/ISA/`
  * entirely. Returns the list of paths actually removed (empty when
@@ -300,8 +321,20 @@ export interface UninstallCursorResult {
   removed: string[];
 }
 
-type ImplementedUninstallSubstrate = "claude-code" | "cursor";
-interface ImplementedUninstallOptions { homeDir?: string; substrateHome?: string }
+export interface UninstallGrokOptions {
+  homeDir?: string;
+  somaHome?: string;
+  substrateHome?: string;
+}
+
+export interface UninstallGrokResult {
+  substrate: "grok";
+  substrateHome: string;
+  removed: string[];
+}
+
+type ImplementedUninstallSubstrate = "claude-code" | "cursor" | "grok";
+interface ImplementedUninstallOptions { homeDir?: string; somaHome?: string; substrateHome?: string }
 interface ImplementedUninstallResult<S extends ImplementedUninstallSubstrate> {
   substrate: S;
   substrateHome: string;
@@ -349,7 +382,9 @@ async function uninstallSomaForSubstrate<S extends ImplementedUninstallSubstrate
   const resolvedHomeDir = resolve(options.homeDir ?? homedir());
   const substrateHome = resolve(options.substrateHome ?? join(resolvedHomeDir, defaultSubstrateHome(substrate)));
   const spec = installSpecFor(substrate).uninstall;
-  const removed = spec.kind === "implemented" ? await runImplementedUninstall(spec, { homeDir: options.homeDir, substrateHome }) : [];
+  const removed = spec.kind === "implemented"
+    ? await runImplementedUninstall(spec, { homeDir: options.homeDir, somaHome: options.somaHome, substrateHome })
+    : [];
   return { substrate, substrateHome, removed };
 }
 
@@ -363,4 +398,10 @@ export async function uninstallSomaForCursor(
   options: UninstallCursorOptions = {},
 ): Promise<UninstallCursorResult> {
   return uninstallSomaForSubstrate("cursor", options);
+}
+
+export async function uninstallSomaForGrok(
+  options: UninstallGrokOptions = {},
+): Promise<UninstallGrokResult> {
+  return uninstallSomaForSubstrate("grok", options);
 }

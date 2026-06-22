@@ -1,4 +1,5 @@
-import type { ProjectionInput } from "../src/index";
+import { expect } from "bun:test";
+import type { Projection, ProjectionInput } from "../src/index";
 import { SECTION_NAME_MAP, renderCriteriaMarkdown } from "../src/isa-accessors";
 
 export const portableProjectionInput: ProjectionInput = {
@@ -67,3 +68,18 @@ export const portableProjectionInput: ProjectionInput = {
     ],
   },
 };
+
+/**
+ * The portable-semantics contract every substrate bundle must satisfy:
+ * markers that flow from the shared renderers fed portableProjectionInput.
+ * Shared by substrate-adapters.test.ts and the per-adapter suites.
+ */
+export function expectPortableSemantics(bundle: Projection) {
+  expect(bundle.instructions).toContain("Soma");
+  expect(bundle.instructions).toContain("Keep personal assistant context portable across substrates.");
+  expect(bundle.instructions).toContain("Substrate adapters translate; they do not own core concepts");
+  expect(bundle.instructions).toContain("ISC-PORTABLE-1");
+  expect(bundle.files.some((file) => file.content.includes("MEMORY/LEARNING"))).toBe(true);
+  expect(bundle.files.some((file) => file.content.includes("Ledger Update"))).toBe(true);
+  expect(bundle.files.some((file) => file.content.includes("Policy Projection"))).toBe(true);
+}

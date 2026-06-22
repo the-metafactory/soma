@@ -42,7 +42,7 @@ export const MIGRATE_PAI_USAGE =
 // from the usage line below for non-Phase-2 callers — they keep the
 // Phase-1 surface intact.
 export const MIGRATE_CLAUDE_SKILLS_USAGE =
-  "Usage: soma migrate claude-skills --from <skills-dir> [--dry-run] [--apply] [--status] [--home-dir <dir>] [--soma-home <dir>] [--include-claude-specific] [--smoke <codex|pi-dev|all>] [--rewrite-descriptions <claude|codex|pi|none|auto>] [--quiet] [--verbose]";
+  "Usage: soma migrate claude-skills --from <skills-dir> [--dry-run] [--apply] [--status] [--home-dir <dir>] [--soma-home <dir>] [--include-claude-specific] [--smoke <codex|pi-dev|grok|all>] [--rewrite-descriptions <claude|codex|pi|none|auto>] [--quiet] [--verbose]";
 
 export const MIGRATE_COMMAND_HELP: { usage: string; subcommands: Record<"pai" | "claude-skills", string> } = {
   usage: `${MIGRATE_PAI_USAGE}\n       ${MIGRATE_CLAUDE_SKILLS_USAGE.slice("Usage: ".length)}`,
@@ -313,20 +313,21 @@ function parseMigrateClaudeSkillsArgs(args: string[]): ParsedMigrateClaudeSkills
 }
 
 // #115 Phase 2 — expand `--smoke <value>`. `all` resolves to every
-// non-source substrate (codex + pi-dev — claude-code is the source
-// substrate of `migrate claude-skills` and intentionally excluded
-// because re-projecting an imported skill back to its source would
-// only ever round-trip). Unknown values throw with the canonical
+// non-source substrate (codex + pi-dev + grok — claude-code is the
+// source substrate of `migrate claude-skills` and intentionally
+// excluded because re-projecting an imported skill back to its source
+// would only ever round-trip). Unknown values throw with the canonical
 // allowed set so the principal sees what's accepted.
 const VALID_SMOKE_VALUES: readonly (ClaudeSkillsSmokeSubstrate | "all")[] = [
   "codex",
   "pi-dev",
+  "grok",
   "all",
 ];
 
 function expandSmokeSubstrateArg(value: string): ClaudeSkillsSmokeSubstrate[] {
-  if (value === "all") return ["codex", "pi-dev"];
-  if (value === "codex" || value === "pi-dev") return [value];
+  if (value === "all") return ["codex", "pi-dev", "grok"];
+  if (value === "codex" || value === "pi-dev" || value === "grok") return [value];
   throw new Error(
     `Unknown --smoke substrate: ${JSON.stringify(value)}. Allowed: ${VALID_SMOKE_VALUES.join(", ")}.`,
   );

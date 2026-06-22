@@ -100,6 +100,57 @@ test("--smoke pi-dev: portable skill verified", async () => {
   });
 });
 
+test("--smoke grok: portable skill verified", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = join(home, "skills");
+    await writeSkillsFixture(fromDir, [
+      { name: "Portable", skillMd: PORTABLE_SKILL_MD },
+    ]);
+    const somaHome = join(home, "soma");
+    const result = await migrateClaudeSkills({
+      from: fromDir,
+      somaHome,
+      smokeSubstrates: ["grok"],
+    });
+    expect(result.smokeSubstrates).toEqual(["grok"]);
+    const portable = result.outcomes.find((o) => o.kebabName === "portable");
+    expect(portable?.substrates?.grok?.status).toBe("verified");
+    expect(result.substrateVerifySummary?.grok?.verified).toBe(1);
+    expect(result.substrateVerifySummary?.grok?.failed).toBe(0);
+  });
+});
+
+test("--smoke grok flags Claude-only primitives like the other substrates", async () => {
+  await withTempHome(async (home) => {
+    const fromDir = join(home, "skills");
+    await writeSkillsFixture(fromDir, [
+      {
+        name: "Hooky",
+        skillMd: [
+          "---",
+          "name: Hooky",
+          "description: Carries a Claude hook binding.",
+          "---",
+          "",
+          "# Hooky",
+          "",
+          "Stop: run the cleanup hook.",
+        ].join("\n"),
+      },
+    ]);
+    const somaHome = join(home, "soma");
+    const result = await migrateClaudeSkills({
+      from: fromDir,
+      somaHome,
+      smokeSubstrates: ["grok"],
+      includeClaudeSpecific: true,
+    });
+    const hooky = result.outcomes.find((o) => o.kebabName === "hooky");
+    expect(hooky?.substrates?.grok?.status).toBe("failed");
+    expect(hooky?.substrates?.grok?.issues.some((issue) => issue.kind === "substrate-only-primitive")).toBe(true);
+  });
+});
+
 test("--smoke codex --smoke pi-dev: both substrates populated", async () => {
   await withTempHome(async (home) => {
     const fromDir = join(home, "skills");

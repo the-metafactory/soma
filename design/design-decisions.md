@@ -743,3 +743,65 @@ are available.
   live bus.
 
 **Discussion:** issue #149 design pass, 2026-05-31.
+
+---
+
+### DD-14: The Grok adapter rests on empirically probed runtime facts, not Grok docs
+
+**Status:** Decided (2026-06-10)
+
+**Context:** The Grok adapter (`src/adapters/grok/`) targets xAI's grok-cli, whose
+hook platform, context auto-load surfaces, and tool vocabulary are under-
+documented and fail-open. Building the adapter on assumptions would have left a
+security posture (hook deny) and a context-delivery layer (skills auto-load)
+resting on guesses. Grok also shipped `0.2.38 -> 0.2.39` mid-implementation,
+raising the question of whether probed facts survive a point release. The probe
+results were institutional knowledge, not in the durable rule-record.
+
+**Decision:** The adapter is built on, and only on, live-probed runtime facts,
+recorded here so future readers do not re-derive them:
+
+- **Context auto-load.** `grok inspect --json` confirmed that
+  `~/.grok/AGENTS.md` and `~/.grok/skills/<name>/SKILL.md` auto-load, while home
+  `~/.grok/rules/` and `~/AGENTS.md` do not. All home context routes through the
+  skills surface plus an `AGENTS.md` pointer block; project-scoped
+  `.grok/rules/` is walked and used only as a workspace overlay.
+- **Fail-closed deny.** A `PreToolUse` hook that writes a deny to stdout and
+  exits 0 blocks the tool call. The hook platform is otherwise fail-open (a tool
+  runs if its hook errors), so the lifecycle/security chain denies on every
+  error rather than trusting a single gate.
+- **Passive-hook stdout is ignored (2026-06-10-004).** Only `PreToolUse` reads
+  stdout for allow/deny. `SessionStart`/`SessionEnd` and other passive hooks run
+  side effects only; their stdout is discarded. Lifecycle injection cannot rely
+  on passive stdout.
+- **Per-session lifecycle cardinality.** `SessionStart`/`SessionEnd` fire
+  per session, not per leader, so per-session refresh lives in those hooks
+  rather than in first-turn `UserPromptSubmit` detection.
+- **Windows hook execution.** Hooks are bare-exec'd against the resolved
+  Bun runtime with absolute paths and explicit `"utf8"` on every read/write.
+  NTFS ignores `chmod`, Windows ignores shebangs, and cp1252 default decoding
+  would corrupt non-ASCII bytes — none of which Grok's docs flag.
+- **Version stability (2026-06-10-003/004).** The empirical tool-name matchers
+  (`Shell`, `Read`, `Write`, `StrReplace`, `Grep`, `Glob`) and the passive-stdout
+  and auto-load behaviors were re-probed byte-identical on `0.2.39`. The install
+  validator reads `~/.grok/version.json` (floor `0.2.38`) with no live `grok`
+  exec.
+
+**Rejected:**
+- *Trusting Grok documentation / declarative `[permission]` deny as the primary
+  security surface.* The fail-open platform makes a single declarative gate
+  advisory; stdout-deny plus deny-on-every-error is the only posture the probe
+  proved holds.
+- *Delivering context through `~/.grok/rules/` or `~/AGENTS.md`.* The probe
+  showed neither auto-loads from home; relying on them would silently project
+  nothing.
+
+**Implications:**
+- Adapter behavior is documented in `docs/substrate-adapters.md` (Grok section).
+- No test launches a live `grok`; hook tests spawn via `node` with `HOME`/
+  `USERPROFILE` pinned, so CI stays deterministic.
+- A future Grok release that changes tool names, hook stdout semantics, or
+  auto-load surfaces must be re-probed before the adapter is trusted on it; the
+  version floor is the tripwire.
+
+**Discussion:** 0.2.39 re-probes, 2026-06-10.

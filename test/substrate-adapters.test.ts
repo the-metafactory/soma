@@ -3,23 +3,13 @@ import {
   projectClaudeCode,
   projectCodex,
   projectCursor,
+  projectGrok,
   projectPiDev,
   claudeCodeAdapter,
   cursorAdapter,
   piDevAdapter,
-  type Projection,
 } from "../src/index";
-import { portableProjectionInput } from "./fixtures";
-
-function expectPortableSemantics(bundle: Projection) {
-  expect(bundle.instructions).toContain("Soma");
-  expect(bundle.instructions).toContain("Keep personal assistant context portable across substrates.");
-  expect(bundle.instructions).toContain("Substrate adapters translate; they do not own core concepts");
-  expect(bundle.instructions).toContain("ISC-PORTABLE-1");
-  expect(bundle.files.some((file) => file.content.includes("MEMORY/LEARNING"))).toBe(true);
-  expect(bundle.files.some((file) => file.content.includes("Ledger Update"))).toBe(true);
-  expect(bundle.files.some((file) => file.content.includes("Policy Projection"))).toBe(true);
-}
+import { expectPortableSemantics, portableProjectionInput } from "./fixtures";
 
 test("pi.dev adapter builds an extension-shaped context bundle", () => {
   const bundle = projectPiDev(portableProjectionInput);
@@ -68,12 +58,13 @@ test("cursor adapter builds a Cursor rules-shaped context bundle", () => {
   expectPortableSemantics(bundle);
 });
 
-test("codex, pi.dev, claude code, and cursor preserve portable semantics from one input", () => {
+test("codex, pi.dev, claude code, cursor, and grok preserve portable semantics from one input", () => {
   const bundles = [
     projectCodex(portableProjectionInput),
     projectPiDev(portableProjectionInput),
     projectClaudeCode(portableProjectionInput),
     projectCursor(portableProjectionInput),
+    projectGrok(portableProjectionInput),
   ];
 
   for (const bundle of bundles) {

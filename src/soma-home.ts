@@ -1,5 +1,6 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, relative, sep } from "node:path";
+import { allInstallSpecs } from "./install-spec-registry";
 import { SOMA_MEMORY_CATEGORIES, SOMA_MEMORY_CATEGORY_READMES } from "./memory-readmes";
 import { createPaths } from "./paths";
 import type { ProjectionInput, SomaHomeBootstrapOptions, SomaHomeBootstrapResult, SomaSkill } from "./types";
@@ -287,8 +288,11 @@ export async function bootstrapSomaHome(options: SomaHomeBootstrapOptions = {}):
     }
   }
 
-  for (const projection of ["codex", "pi-dev", "claude-code"]) {
-    await mkdir(join(somaHome, "projections", projection), { recursive: true });
+  // Derive from the install-spec registry so bootstrap creates a projection
+  // directory for every registered substrate — the same source the install
+  // planner's SOMA_BOOTSTRAP_DIRECTORIES uses, so plan and apply cannot drift.
+  for (const spec of allInstallSpecs()) {
+    await mkdir(join(somaHome, "projections", spec.substrate), { recursive: true });
   }
 
   // ISA storage layout (#32). Library CRUD (#34) owns reads/writes;

@@ -3,7 +3,9 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { dirname } from "node:path";
 import { CURSOR_RULES_BLOCK_BEGIN, CURSOR_RULES_BLOCK_END, CURSOR_RULES_PATH } from "./adapters/cursor";
-import { projectClaudeCodeHome, projectCodexHome, projectCursorHome, projectPiDevHome } from "./adapters";
+import { projectClaudeCodeHome, projectCodexHome, projectCursorHome, projectGrokHome, projectPiDevHome } from "./adapters";
+import { isGrokPortableSkillProjectionPath } from "./adapters/grok/install";
+import { reconcileGrokPortableSkillProjection, writeGrokInstallManifest } from "./adapters/grok/install-manifest";
 import { writeProjection } from "./projection";
 import { defaultSomaRepoPath } from "./repo-path";
 import { defaultSubstrateHome } from "./install-spec-registry";
@@ -13,7 +15,7 @@ export function resolveHomeProjectionPaths(
   substrate: SubstrateId,
   options: SomaHomeProjectionOptions = {},
 ): Omit<SomaHomeProjection, "bundle"> {
-  if (substrate !== "codex" && substrate !== "pi-dev" && substrate !== "claude-code" && substrate !== "cursor") {
+  if (substrate !== "codex" && substrate !== "pi-dev" && substrate !== "claude-code" && substrate !== "cursor" && substrate !== "grok") {
     throw new Error(`Home projection is not implemented for substrate: ${substrate}`);
   }
 
@@ -28,7 +30,7 @@ export function resolveHomeProjectionPaths(
 }
 
 function buildHomeProjectionFor(
-  substrate: Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor">,
+  substrate: Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor" | "grok">,
   options: SomaHomeProjectionOptions,
   project: (paths: Omit<SomaHomeProjection, "bundle">) => Projection,
 ): SomaHomeProjection {
@@ -89,6 +91,45 @@ export async function installClaudeCodeHomeProjection(
 
 export function buildCursorHomeProjection(input: ProjectionInput, options: SomaHomeProjectionOptions = {}): SomaHomeProjection {
   return buildHomeProjectionFor("cursor", options, () => projectCursorHome(input));
+}
+
+export function buildGrokHomeProjection(input: ProjectionInput, options: SomaHomeProjectionOptions = {}): SomaHomeProjection {
+  const homeDir = resolve(options.homeDir ?? homedir());
+  const somaRepoPath = resolve(options.somaRepoPath ?? defaultSomaRepoPath());
+
+  // The hook surface embeds install-time absolutes, so the
+  // resolved substrate home — including a substrateHome override — and
+  // the trusted repo path flow into the projection.
+  return buildHomeProjectionFor("grok", options, (paths) =>
+    projectGrokHome(input, paths.somaHome, { homeDir, somaRepoPath, grokHome: paths.substrateHome }),
+  );
+}
+
+export async function installGrokHomeProjection(
+  input: ProjectionInput,
+  options: SomaHomeProjectionOptions = {},
+): Promise<WrittenProjection> {
+  const projection = buildGrokHomeProjection(input, options);
+  const portableFiles = projection.bundle.files.filter((file) => isGrokPortableSkillProjectionPath(file.path));
+  const written = await writeProjection(projection.bundle, projection.substrateHome);
+  // U6 follow-up: the manifest records the dynamically-named
+  // portable-skill files (path + content hash) on the Soma side so
+  // uninstall can round-trip them. Before refreshing it, reconcile:
+  // files the previous install recorded that this projection no longer
+  // contains (skill removed/renamed in the profile) are removed with the
+  // same user-edit-preserving guards uninstall uses — otherwise they
+  // stay orphaned in ~/.grok. Reproject/upgrade reuse this installer.
+  await reconcileGrokPortableSkillProjection({
+    somaHome: projection.somaHome,
+    substrateHome: projection.substrateHome,
+    currentPaths: portableFiles.map((file) => file.path),
+  });
+  await writeGrokInstallManifest({
+    somaHome: projection.somaHome,
+    substrateHome: projection.substrateHome,
+    files: portableFiles,
+  });
+  return written;
 }
 
 export async function installCursorHomeProjection(

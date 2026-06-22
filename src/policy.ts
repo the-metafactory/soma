@@ -1,6 +1,6 @@
 import { access, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { evaluatePathGuard, SOMA_DEFAULT_PROTECTED_PATHS, SOMA_HOME_ALLOWED_MODIFY_SUBPATHS } from "./policy-path-guard";
 import { hasSomaPolicyPrivateMarker } from "./policy-marker";
 import { isInsidePath } from "./path-utils";
@@ -75,7 +75,11 @@ function markerFor(path: string, homeDir?: string): string {
     return path;
   }
 
-  const rel = relative(home, resolvedPath);
+  // Portable tilde markers are POSIX-shaped by definition: `relative()`
+  // returns backslash separators on Windows, and a `~/.soma\memory`
+  // marker would never match the `~/.soma/memory/...` form content
+  // actually carries.
+  const rel = relative(home, resolvedPath).split(sep).join("/");
   return rel === "" ? "~" : `~/${rel}`;
 }
 

@@ -85,6 +85,11 @@ const SUBSTRATE_SECURITY_CONFIG_KEYS = {
   "claude-code": ["hooks", "permissions", "mcpServers", "env"],
   "pi-dev": ["extensions", "toolGuard", "policyCheck", "runtimePolicy"],
   cursor: ["rules", "mcpServers", "tools"],
+  // Grok config surfaces that are security-relevant to inspect: the
+  // user-level hooks tree plus the `~/.grok/config.toml` tables Grok
+  // actually honors. U9 (policy enforcement) refines these against the
+  // live config schema; this is data, not an enforcement claim.
+  grok: ["hooks", "mcp_servers", "permission", "plugins"],
   cortex: ["dispatcher", "artifactIngress", "taskRouting", "capabilities"],
   custom: [],
 } as const;

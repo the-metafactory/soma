@@ -96,7 +96,7 @@ const REPORT_RELATIVE = "imports/claude-skills/.portability-report.md";
 // responsible for resolving the `all` keyword to the substrate list
 // at parse time; this helper only de-dupes + sorts so the order in
 // the report / manifest is byte-stable.
-const ALL_SMOKE_SUBSTRATES: readonly ClaudeSkillsSmokeSubstrate[] = ["codex", "pi-dev"];
+const ALL_SMOKE_SUBSTRATES: readonly ClaudeSkillsSmokeSubstrate[] = ["codex", "pi-dev", "grok"];
 function normalizeSmokeSubstrates(
   raw: readonly ClaudeSkillsSmokeSubstrate[] | undefined,
 ): ClaudeSkillsSmokeSubstrate[] {

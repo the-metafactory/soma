@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { isAbsolute, join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import { installSomaForCodex, installSomaForPiDev, planSomaForCodexInstall, planSomaForPiDevInstall, somaWorkRegistryPaths } from "../src/index";
+import { bootstrapSomaHome, installSomaForCodex, installSomaForPiDev, planSomaForCodexInstall, planSomaForPiDevInstall, somaWorkRegistryPaths } from "../src/index";
 import { codexInstallSpec } from "../src/adapters/codex/install";
 import { renderStartupContextSummary } from "../src/adapters/codex/hooks/codex-hook-entry.mjs";
 import {
@@ -187,8 +187,21 @@ test("codex install spec owns lifecycle and private root facts", () => {
   expect(somaMemoryPrivateRoots({ homeDir, substrate: "codex" })).toEqual([join(homeDir, ".codex/memories")]);
 });
 
+test("bootstrap creates a projections directory for every registered install substrate", async () => {
+  // Plan/apply parity: the install plan's SOMA_BOOTSTRAP_DIRECTORIES and
+  // bootstrapSomaHome both derive projection dirs from the install-spec
+  // registry. This locks the apply side — a registered substrate whose
+  // projections/<substrate> dir is missing after bootstrap is a regression.
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    for (const spec of allInstallSpecs()) {
+      await expect(stat(join(somaHome, "projections", spec.substrate))).resolves.toBeDefined();
+    }
+  });
+});
+
 test("install spec registry has adapter-owned facts for every install substrate", () => {
-  const substrates = ["codex", "pi-dev", "claude-code", "cursor"] as const;
+  const substrates = ["codex", "pi-dev", "claude-code", "cursor", "grok"] as const;
 
   expect(allInstallSpecs().map((spec) => spec.substrate).sort()).toEqual([...substrates].sort());
 
@@ -202,6 +215,8 @@ test("install spec registry has adapter-owned facts for every install substrate"
   }
 
   expect(installSpecFor("pi-dev").validator).toBeDefined();
+  // U6 flipped grok to a real marker-guarded uninstall round-trip.
+  expect(installSpecFor("grok").uninstall.kind).toBe("implemented");
   expect(installSpecFor("pi-dev").lifecycleProjection).toEqual({
     startupContextPath: "agent/soma/startup-context.md",
     somaRepoPathPath: "agent/soma/soma-repo.txt",
@@ -226,7 +241,9 @@ test("projection private roots aggregate adapter specs", () => {
     join(homeDir, ".codex/skills/soma"),
     join(homeDir, ".pi/agent/soma"),
     join(homeDir, ".pi/agent/skills/soma"),
+    join(homeDir, ".grok/skills/soma"),
   ]);
+  expect(somaProjectionPrivateRoots({ homeDir, substrate: "grok" })).toEqual([join(homeDir, ".grok/skills/soma")]);
 });
 
 test("pi.dev install dry-run lists every substrate file apply reports", async () => {
