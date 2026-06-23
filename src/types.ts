@@ -229,8 +229,9 @@ export interface AlgorithmObservation {
 /**
  * The Soma gates a run did or did not satisfy — the generative spine of the
  * meta-reflection layer (#333): a gate recurrently unmet across runs is the
- * empirical case for a runner/prompt fix (how P2 / #331 was found). Each flag
- * maps to a real enforced gate:
+ * empirical case for a runner/prompt fix — the signal P2 / #331 proves (P2 was
+ * found by a manual 188-run dig; this layer re-surfaces that signal automatically).
+ * Each flag maps to a real enforced gate:
  * - `currentStateFloor`: a probed/tested observation was on record (#331).
  * - `learnGateClean`: no unresolved or hollow-`specified` criteria blocked LEARN (#330).
  * - `completeness`: every criterion reached a terminal state (passed/dropped/deferred-probe).

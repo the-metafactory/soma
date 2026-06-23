@@ -5,8 +5,10 @@
  * Design (steered with JC): **gates rank, prose enriches.** Each category maps,
  * where possible, to a real enforced Soma gate. The deterministic `gatesFired`
  * flags drive the ranking — a gate recurrently unmet across runs is the
- * empirical case for a runner/prompt fix (this is exactly how P2 / #331 was
- * found). The free-text `smarterRun` q-signals are keyword-bucketed into the
+ * empirical case for a runner/prompt fix. P2 / #331 is the proof of the SIGNAL:
+ * it was found by a manual 188-run dig (this digest did not exist yet), and this
+ * digest re-surfaces that same recurring signal automatically over the corpus.
+ * The free-text `smarterRun` q-signals are keyword-bucketed into the
  * same categories to ENRICH each entry with human-readable evidence, but they do
  * not by themselves outrank a real gate-miss.
  *
