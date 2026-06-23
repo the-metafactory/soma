@@ -3,16 +3,21 @@ import {
   advanceAlgorithmRunUntil,
   advanceAlgorithmRun,
   algorithmPhaseOrder,
+  buildReflectionDigest,
   classifyAlgorithmPrompt,
   createAlgorithmRun,
+  listAlgorithmRuns,
   listAlgorithmRunSummaries,
+  parsePaiReflections,
   readAlgorithmRunById,
   recordAlgorithmCapabilityInvocation,
   recordAlgorithmChange,
   recordAlgorithmDecision,
+  recordAlgorithmMetaReflection,
   recordAlgorithmObservation,
   recordAlgorithmLearning,
   removeAlgorithmCapabilitySelection,
+  renderReflectionDigest,
   runSomaLifecycleAlgorithmUpdated,
   setAlgorithmPlan,
   selectAlgorithmCapability,
@@ -20,6 +25,8 @@ import {
   verifyAlgorithmCriterion,
   writeAlgorithmRun,
 } from "../index";
+import type { ReflectionForDigest } from "../index";
+import { readFile } from "node:fs/promises";
 import { registerSomaHomeAlgorithmCapabilities } from "../algorithm-capabilities";
 import { syncAlgorithmRunFromIsa, formatSyncResult } from "../algorithm-isa-sync";
 import { algorithmTouchedBy } from "../algorithm-provenance";
@@ -54,6 +61,8 @@ export const ALGORITHM_ACTIONS = [
   "step",
   "verify",
   "learn",
+  "reflect",
+  "reflections",
   "batch",
   "advance",
   "resume",
@@ -81,6 +90,10 @@ export const ALGORITHM_COMMAND_HELP: { usage: string; subcommands: Record<Algori
     step: "Usage: soma algorithm step --id <run-id> --step-id <id> --status <open|done|blocked> [--evidence <text>]",
     verify: "Usage: soma algorithm verify --id <run-id> --criterion-id <id> --status <passed|failed|dropped|deferred-probe> --evidence <text> [--evidence-kind <specified|probed|tested>] [--substrate <id>]",
     learn: "Usage: soma algorithm learn --id <run-id> --text <text> [--substrate <id>] [--home-dir <dir>] [--soma-home <dir>]",
+    reflect:
+      "Usage: soma algorithm reflect --id <run-id> [--missed-early-step <text>] [--missed-verify-or-parallel <text>] [--highest-value-move <text>] [--satisfaction <0-10>] [--within-budget|--over-budget] [--substrate <id>] (at least one smarterRun signal required; gate-flags are computed from the run)",
+    reflections:
+      "Usage: soma algorithm reflections [--id <run-id>] [--digest] [--pai-source <jsonl-path>] [--home-dir <dir>] [--soma-home <dir>] (--id lists one run's reflections; --digest ranks the cross-run improvement backlog, optionally folding in a PAI reflections jsonl)",
     advance: "Usage: soma algorithm advance --id <run-id> [--substrate <id>] [--home-dir <dir>] [--soma-home <dir>]",
     resume: "Usage: soma algorithm resume --id <run-id> --until-phase <phase> [--substrate <id>] [--home-dir <dir>] [--soma-home <dir>]",
     "sync-from-isa":
@@ -118,6 +131,13 @@ interface AlgorithmCliOptions {
   json?: boolean;
   isaPath?: string;
   promoteOnComplete?: boolean;
+  missedEarlyStep?: string;
+  missedVerifyOrParallel?: string;
+  highestValueMove?: string;
+  satisfaction?: number;
+  withinBudget?: boolean;
+  digest?: boolean;
+  paiSource?: string;
 }
 
 function isAlgorithmAction(value: string | undefined): value is AlgorithmCliAction {
@@ -185,6 +205,14 @@ function parseEvidenceKind(value: string): EvidenceKind {
   }
 
   throw new Error("--evidence-kind must be one of specified, probed, or tested.");
+}
+
+function parseSatisfaction(value: string): number {
+  const n = Number.parseInt(value, 10);
+  if (!Number.isInteger(n) || n < 0 || n > 10) {
+    throw new Error("--satisfaction must be an integer between 0 and 10.");
+  }
+  return n;
 }
 
 function parsePlanStep(value: string): AlgorithmPlanStep {
@@ -474,6 +502,35 @@ export function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
         break;
       case "--promote-on-complete":
         options.promoteOnComplete = true;
+        break;
+      case "--missed-early-step":
+        options.missedEarlyStep = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--missed-verify-or-parallel":
+        options.missedVerifyOrParallel = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--highest-value-move":
+        options.highestValueMove = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--satisfaction":
+        options.satisfaction = parseSatisfaction(readOption(rest, index, arg));
+        index += 1;
+        break;
+      case "--within-budget":
+        options.withinBudget = true;
+        break;
+      case "--over-budget":
+        options.withinBudget = false;
+        break;
+      case "--digest":
+        options.digest = true;
+        break;
+      case "--pai-source":
+        options.paiSource = readOption(rest, index, arg);
+        index += 1;
         break;
       default:
         throw new Error(`Unknown option: ${arg}`);
@@ -780,6 +837,54 @@ export async function runAlgorithmCli(parsed: ParsedAlgorithmArgs): Promise<stri
   if (parsed.action === "learn") {
     const text = requireText(options);
     return updateAndReportAlgorithmRun(options, (run) => recordAlgorithmLearning(run, text, undefined, { substrate: options.substrate }));
+  }
+
+  if (parsed.action === "reflect") {
+    // recordAlgorithmMetaReflection compacts the smarterRun and validates ≥1 signal.
+    const smarterRun = {
+      missedEarlyStep: options.missedEarlyStep,
+      missedVerifyOrParallel: options.missedVerifyOrParallel,
+      highestValueMove: options.highestValueMove,
+    };
+    return updateAndReportAlgorithmRun(options, (run) =>
+      recordAlgorithmMetaReflection(
+        run,
+        { smarterRun, satisfaction: options.satisfaction, withinBudget: options.withinBudget },
+        undefined,
+        { substrate: options.substrate },
+      ),
+    );
+  }
+
+  if (parsed.action === "reflections") {
+    if (options.id !== undefined && options.digest === true) {
+      throw new Error("reflections takes either --id (list one run) or --digest (rank across runs), not both.");
+    }
+    // Single-run listing: `--id` without `--digest`.
+    if (options.id !== undefined) {
+      const { run } = await readAlgorithmRunById(options.id, { homeDir: options.homeDir, somaHome: options.somaHome });
+      if (run.metaReflection.length === 0) return `No meta-reflections for ${run.id}.`;
+      return [
+        `Meta-reflections for ${run.id}:`,
+        ...run.metaReflection.map((r) => {
+          const gates = `floor=${r.gatesFired.currentStateFloor} learn=${r.gatesFired.learnGateClean} complete=${r.gatesFired.completeness}`;
+          const signals = [r.smarterRun.missedEarlyStep, r.smarterRun.missedVerifyOrParallel, r.smarterRun.highestValueMove]
+            .filter((s): s is string => s !== undefined)
+            .join("; ");
+          return `- [${r.phase}] gates: ${gates} — ${signals}`;
+        }),
+      ].join("\n");
+    }
+    // Cross-run digest (default, or explicit `--digest`).
+    const runs = await listAlgorithmRuns({ homeDir: options.homeDir, somaHome: options.somaHome });
+    const collected: ReflectionForDigest[] = runs.flatMap(({ run }) =>
+      run.metaReflection.map((reflection) => ({ runId: run.id, reflection })),
+    );
+    if (options.paiSource !== undefined) {
+      const content = await readFile(options.paiSource, "utf8");
+      collected.push(...parsePaiReflections(content));
+    }
+    return renderReflectionDigest(buildReflectionDigest(collected));
   }
 
   if (parsed.action === "batch") {

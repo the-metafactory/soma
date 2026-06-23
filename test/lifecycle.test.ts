@@ -14,6 +14,7 @@ import {
   recordAlgorithmCapabilityInvocation,
   recordAlgorithmChange,
   recordAlgorithmLearning,
+  recordAlgorithmMetaReflection,
   recordAlgorithmObservation,
   runSomaLifecycleAlgorithmObserved,
   runSomaLifecycleAlgorithmUpdated,
@@ -64,6 +65,11 @@ function completeRun() {
   run = verifyAlgorithmCriterion(run, "C1", "passed", "Learning file was written.", "2026-05-14T10:10:00.000Z");
   run = advanceAlgorithmRun(run, "2026-05-14T10:11:00.000Z");
   run = recordAlgorithmLearning(run, "Lifecycle should capture completed runs once.", "2026-05-14T10:12:00.000Z");
+  run = recordAlgorithmMetaReflection(
+    run,
+    { smarterRun: { highestValueMove: "Mirroring the reflection into the learning file was the key move." }, satisfaction: 8 },
+    "2026-05-14T10:12:15.000Z",
+  );
   run = recordAlgorithmCapabilityInvocation(
     run,
     {
@@ -192,7 +198,12 @@ test("session-end captures completed Algorithm learning once", async () => {
 
     expect(first).toEqual([join(homeDir, ".soma/memory/LEARNING/ALGORITHM/complete-run.md")]);
     expect(second).toEqual([]);
-    await expect(readFile(first[0] ?? "", "utf8")).resolves.toContain("Lifecycle should capture completed runs once.");
+    const content = await readFile(first[0] ?? "", "utf8");
+    expect(content).toContain("Lifecycle should capture completed runs once.");
+    // The meta-reflection is mirrored into the learning file (#333).
+    expect(content).toContain("## Meta-Reflection");
+    expect(content).toContain("highest-value-move: Mirroring the reflection into the learning file");
+    expect(content).toContain("currentStateFloor=true");
   });
 });
 

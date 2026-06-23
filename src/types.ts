@@ -226,6 +226,56 @@ export interface AlgorithmObservation {
   evidenceKind: EvidenceKind;
 }
 
+/**
+ * The Soma gates a run did or did not satisfy — the generative spine of the
+ * meta-reflection layer (#333): a gate recurrently unmet across runs is the
+ * empirical case for a runner/prompt fix — the signal P2 / #331 proves (P2 was
+ * found by a manual 188-run dig; this layer re-surfaces that signal automatically).
+ * Each flag maps to a real enforced gate:
+ * - `currentStateFloor`: a probed/tested observation was on record (#331).
+ * - `learnGateClean`: no unresolved or hollow-`specified` criteria blocked LEARN (#330).
+ * - `completeness`: every criterion reached a terminal state (passed/dropped/deferred-probe).
+ *
+ * Provenance of the flags: a LIVE reflection computes them from run state via
+ * {@link computeGatesFired}, using the same predicates the gates enforce — a
+ * point-in-time SNAPSHOT (a later mutation can move the run, so it is not a
+ * standing equivalence with the gate's verdict at every later moment). An
+ * IMPORTED historical record (e.g. the PAI corpus) instead carries a documented,
+ * lossy best-effort mapping — caller-asserted history, not re-derived facts.
+ */
+export interface AlgorithmGatesFired {
+  currentStateFloor: boolean;
+  learnGateClean: boolean;
+  completeness: boolean;
+}
+
+/**
+ * A per-run meta-reflection — "how the Algorithm itself should have behaved",
+ * the layer PAI captured (`reflection_q1/q2/q3` + `doctrine_fired`) and Soma
+ * never ported until #333. Two halves by design, mirroring the deterministic
+ * spine / model-proposed split the direction doc settled on:
+ * - `gatesFired` is computed from the run (deterministic, auditable).
+ * - `smarterRun` is the MODEL's proposal ("a smarter run would have…"); free
+ *   text, never machine-verified. The digest counts gate-misses to RANK and
+ *   buckets these q-signals to ENRICH.
+ */
+export interface AlgorithmMetaReflection {
+  timestamp: string;
+  phase: AlgorithmPhase;
+  gatesFired: AlgorithmGatesFired;
+  smarterRun: {
+    /** q1 — an earlier step the run missed (e.g. "probe field existence before asking"). */
+    missedEarlyStep?: string;
+    /** q2 — verification/parallelization the run should have done (the P2 signal class). */
+    missedVerifyOrParallel?: string;
+    /** q3 — the highest-value move, what actually worked. */
+    highestValueMove?: string;
+  };
+  /** Self-predicted satisfaction 0–10 (caller-asserted). */
+  satisfaction?: number;
+  withinBudget?: boolean;
+}
+
 export type AlgorithmProvenanceOperation =
   | "run.created"
   | "run.observed"
@@ -234,6 +284,7 @@ export type AlgorithmProvenanceOperation =
   | "criterion.verify"
   | "capability.invoke"
   | "learning.record"
+  | "reflection.record"
   | "memory.promote";
 
 export interface AlgorithmProvenanceEntry {
@@ -312,6 +363,8 @@ export interface AlgorithmRun {
   changelog: AlgorithmLogEntry[];
   verification: AlgorithmLogEntry[];
   learning: AlgorithmLogEntry[];
+  /** Per-run meta-reflections ("how the Algorithm should have behaved"). See {@link AlgorithmMetaReflection}. */
+  metaReflection: AlgorithmMetaReflection[];
   provenance: AlgorithmProvenanceEntry[];
 }
 
