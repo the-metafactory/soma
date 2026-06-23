@@ -93,9 +93,16 @@ export function parsePaiReflections(jsonl: string): ReflectionForDigest[] {
     if (Object.keys(smarterRun).length === 0) continue;
 
     const satisfaction = num(record.satisfaction_prediction);
+    // PAI reflections are END-OF-RUN artifacts — they only fired with final
+    // criteria counts (+ satisfaction/budget) attached. A record carrying those
+    // completion signals genuinely reached its terminal gates, so reconstructing
+    // it at `learn` reflects real terminal state, not a fabricated reach. A record
+    // WITHOUT completion evidence can't be placed on the gate axis, so it falls
+    // back to `observe` (reaches no gate, contributes no gate-miss).
+    const phase: AlgorithmMetaReflection["phase"] = num(record.criteria_count) !== undefined ? "learn" : "observe";
     const reflection: AlgorithmMetaReflection = {
       timestamp: str(record.timestamp) ?? "",
-      phase: "learn",
+      phase,
       gatesFired: gatesFromPai(record),
       smarterRun,
       ...(satisfaction !== undefined ? { satisfaction } : {}),
