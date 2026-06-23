@@ -208,9 +208,28 @@ export interface AlgorithmLogEntry {
   text: string;
 }
 
+/**
+ * A current-state probe recorded during OBSERVE. The OBSERVE→THINK gate requires
+ * at least one observation whose {@link EvidenceKind} is `probed` or `tested` —
+ * a `specified` observation ("the doc says the route exists") does NOT clear the
+ * floor, because the floor's whole point is confirming reality, not restating a
+ * spec. Like every evidence surface, `evidenceKind` is CALLER-ASSERTED: the gate
+ * forces an explicit probed/tested claim and makes a hollow observation auditable;
+ * it does not verify the probe actually happened.
+ */
+export interface AlgorithmObservation {
+  timestamp: string;
+  /** The current-state assumption being checked (e.g. "route /health exists"). */
+  claim: string;
+  /** What the probe found (e.g. "confirmed via grep of src/server.ts:42"). */
+  evidence: string;
+  evidenceKind: EvidenceKind;
+}
+
 export type AlgorithmProvenanceOperation =
   | "run.created"
   | "run.observed"
+  | "observation.record"
   | "phase.advance"
   | "criterion.verify"
   | "capability.invoke"
@@ -288,6 +307,8 @@ export interface AlgorithmRun {
   capabilitySelections?: AlgorithmCapabilitySelection[];
   planSteps: AlgorithmPlanStep[];
   decisions: AlgorithmLogEntry[];
+  /** Current-state probes recorded during OBSERVE. See {@link AlgorithmObservation}. */
+  observations: AlgorithmObservation[];
   changelog: AlgorithmLogEntry[];
   verification: AlgorithmLogEntry[];
   learning: AlgorithmLogEntry[];
@@ -337,6 +358,12 @@ export type AlgorithmBatchOperation =
   | {
       kind: "decision" | "change" | "learn";
       text: string;
+    }
+  | {
+      kind: "observe";
+      claim: string;
+      evidence: string;
+      evidenceKind: EvidenceKind;
     }
   | {
       kind: "step";

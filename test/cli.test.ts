@@ -32,6 +32,26 @@ async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> 
   }
 }
 
+// Clear the OBSERVE current-state floor so a run can advance observe → think.
+// One place to update if the floor's CLI surface changes.
+async function observeFloor(homeDir: string, id: string, ...extra: string[]): Promise<void> {
+  await runSomaCli([
+    "algorithm",
+    "observe",
+    "--home-dir",
+    homeDir,
+    "--id",
+    id,
+    "--claim",
+    "criterion C1 exists",
+    "--evidence",
+    "probed reality",
+    "--evidence-kind",
+    "probed",
+    ...extra,
+  ]);
+}
+
 async function writeAlgorithmCapabilityFixture(homeDir: string): Promise<void> {
   await mkdir(join(homeDir, ".soma/skills/the-algorithm/references"), { recursive: true });
   await mkdir(join(homeDir, ".soma/skills/first-principles"), { recursive: true });
@@ -512,6 +532,7 @@ test("cli drives Algorithm runs through gated mutations", async () => {
 
     await expect(readFile(join(homeDir, ".soma/memory/STATE/algorithm-work-index.json"), "utf8")).resolves.toContain("cli-run");
 
+    await observeFloor(homeDir, "cli-run");
     await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "cli-run"]);
     await runSomaCli(["algorithm", "capabilities", "--home-dir", homeDir, "--id", "cli-run", "--capability", "sequential-analysis"]);
     await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "cli-run"]);
@@ -565,6 +586,7 @@ test("cli resume stops at an explicit handoff phase boundary", async () => {
       "C1:Handoff boundary is honored.",
     ]);
 
+    await observeFloor(homeDir, "handoff-cli-run");
     await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "handoff-cli-run"]);
     await runSomaCli(["algorithm", "capabilities", "--home-dir", homeDir, "--id", "handoff-cli-run", "--capability", "sequential-analysis"]);
 
@@ -645,6 +667,7 @@ test("cli records substrate provenance and surfaces touched-by summary", async (
       "--criterion",
       "C1:Codex verifies work.",
     ]);
+    await observeFloor(homeDir, "provenance-cli-run", "--substrate", "codex");
     await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "provenance-cli-run", "--substrate", "codex"]);
     await runSomaCli([
       "algorithm",
@@ -684,6 +707,90 @@ test("cli records substrate provenance and surfaces touched-by summary", async (
   });
 });
 
+test("cli observe defaults to 'specified' — clearing the floor needs an explicit probed/tested", async () => {
+  await withTempHome(async (homeDir) => {
+    await runSomaCli([
+      "algorithm",
+      "new",
+      "--home-dir",
+      homeDir,
+      "--id",
+      "observe-default-run",
+      "--prompt",
+      "Default evidence kind",
+      "--intent",
+      "Check the observe default fails safe.",
+      "--current-state",
+      "Nothing asserted.",
+      "--goal",
+      "Default does not clear the floor.",
+      "--criterion",
+      "C1:Default is specified.",
+    ]);
+
+    // No --evidence-kind: records 'specified', which does NOT clear the floor.
+    await runSomaCli(["algorithm", "observe", "--home-dir", homeDir, "--id", "observe-default-run", "--claim", "C1 exists", "--evidence", "read the ISA"]);
+    await expect(runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "observe-default-run"])).rejects.toThrow("current-state probe");
+
+    const raw = await readFile(join(homeDir, ".soma/memory/WORK/algorithm-runs/observe-default-run.json"), "utf8");
+    expect(raw).toContain('"evidenceKind": "specified"');
+
+    // An explicit probed observation clears it.
+    await runSomaCli(["algorithm", "observe", "--home-dir", homeDir, "--id", "observe-default-run", "--claim", "C1 exists", "--evidence", "grepped the ISA", "--evidence-kind", "probed"]);
+    await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "observe-default-run"]);
+    const advanced = await readFile(join(homeDir, ".soma/memory/WORK/algorithm-runs/observe-default-run.json"), "utf8");
+    expect(advanced).toContain('"phase": "think"');
+  });
+});
+
+test("cli batch observe requires the full claim:kind:evidence form (no fabricated evidence)", async () => {
+  await withTempHome(async (homeDir) => {
+    await runSomaCli([
+      "algorithm",
+      "new",
+      "--home-dir",
+      homeDir,
+      "--id",
+      "batch-observe-run",
+      "--prompt",
+      "Probe before think",
+      "--intent",
+      "Record a real current-state probe.",
+      "--current-state",
+      "Nothing probed yet.",
+      "--goal",
+      "Floor requires a real probe.",
+      "--criterion",
+      "C1:Floor is enforced via batch.",
+    ]);
+
+    // The convenience single-arg form is rejected: a probe must carry real
+    // evidence, not a restatement of the claim.
+    await expect(
+      runSomaCli(["algorithm", "batch", "--home-dir", homeDir, "--id", "batch-observe-run", "--op", "observe:C1 exists"]),
+    ).rejects.toThrow("observe:<claim>:<kind>:<evidence>");
+
+    // The full form records the probe and clears the floor.
+    await runSomaCli([
+      "algorithm",
+      "batch",
+      "--home-dir",
+      homeDir,
+      "--id",
+      "batch-observe-run",
+      "--op",
+      "observe:C1 exists:probed:grep src/algorithm.ts:42",
+      "--op",
+      "advance",
+    ]);
+
+    const raw = await readFile(join(homeDir, ".soma/memory/WORK/algorithm-runs/batch-observe-run.json"), "utf8");
+    expect(raw).toContain('"phase": "think"');
+    expect(raw).toContain('"evidence": "grep src/algorithm.ts:42"');
+    expect(raw).toContain('"evidenceKind": "probed"');
+  });
+});
+
 test("cli batches routine Algorithm run mutations", async () => {
   await withTempHome(async (homeDir) => {
     await runSomaCli([
@@ -704,6 +811,7 @@ test("cli batches routine Algorithm run mutations", async () => {
       "--criterion",
       "C1:Batch command works.",
     ]);
+    await observeFloor(homeDir, "batch-run");
     await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "batch-run"]);
     await runSomaCli(["algorithm", "capabilities", "--home-dir", homeDir, "--id", "batch-run", "--capability", "sequential-analysis"]);
     await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "batch-run"]);
@@ -753,6 +861,7 @@ test("cli batch capability invocation defaults substrate when omitted", async ()
       "--criterion",
       "C1:Batch invocation works.",
     ]);
+    await observeFloor(homeDir, "batch-capability-run");
     await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "batch-capability-run"]);
 
     const output = await runSomaCli([
@@ -793,6 +902,7 @@ test("cli rejects one shared reason for multiple Algorithm capabilities", async 
       "--criterion",
       "C1:Ambiguous reason is rejected.",
     ]);
+    await observeFloor(homeDir, "multi-capability-reason-run");
     await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "multi-capability-reason-run"]);
 
     await expect(
@@ -834,6 +944,7 @@ test("cli batch capability invocation preserves evidence that starts with substr
       "--criterion",
       "C1:Evidence prefix survives.",
     ]);
+    await observeFloor(homeDir, "batch-evidence-prefix-run");
     await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "batch-evidence-prefix-run"]);
 
     const output = await runSomaCli([
@@ -892,6 +1003,7 @@ test("cli batch capability invocation accepts explicit substrate prefix", async 
       "--criterion",
       "C1:Explicit substrate persists.",
     ]);
+    await observeFloor(homeDir, "batch-explicit-substrate-run");
     await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "batch-explicit-substrate-run"]);
 
     const output = await runSomaCli([
@@ -931,6 +1043,7 @@ test("cli batch refreshes Soma home Algorithm capability registration", async ()
       "--criterion",
       "C1:Batch refreshes capability definitions.",
     ]);
+    await observeFloor(homeDir, "batch-refresh-capability-run");
     await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "batch-refresh-capability-run"]);
     await writeAlgorithmCapabilityFixture(homeDir);
 
@@ -971,6 +1084,7 @@ test("cli advance refreshes Soma home Algorithm capability registration", async 
     ]);
     await writeAlgorithmCapabilityFixture(homeDir);
 
+    await observeFloor(homeDir, "advance-refresh-capability-run");
     await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "advance-refresh-capability-run"]);
 
     await expect(readFile(join(homeDir, ".soma/memory/WORK/algorithm-runs/advance-refresh-capability-run.json"), "utf8")).resolves.toContain(
@@ -1000,6 +1114,7 @@ test("cli selects migrated PAI skill capabilities from Soma home", async () => {
       "--criterion",
       "C1:FirstPrinciples selection works.",
     ]);
+    await observeFloor(homeDir, "migrated-skill-capability-run");
     await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "migrated-skill-capability-run"]);
 
     const selected = await runSomaCli([
@@ -1106,6 +1221,7 @@ test("cli selects, invokes, and removes Algorithm capabilities", async () => {
       "--criterion",
       "C1:Capability state persists.",
     ]);
+    await observeFloor(homeDir, "capability-run");
     await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "capability-run"]);
     let output = await runSomaCli([
       "algorithm",

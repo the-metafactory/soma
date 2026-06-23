@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **OBSERVE current-state floor** for the Algorithm. Advancing `observe → think`
+  now requires at least one recorded current-state *probe* — a typed
+  `AlgorithmObservation { claim, evidence, evidenceKind }` whose `evidenceKind`
+  is `probed` or `tested`. A `specified` observation only restates a spec and
+  does NOT clear the floor. Empirically motivated: 63% of 188 real runs stalled
+  at OBSERVE or advanced on unverified assumptions and reworked later (#331).
+  New surfaces: `soma algorithm observe --claim … --evidence … [--evidence-kind]`
+  and the batch op `observe:<claim>[:<kind>:<evidence>]`. Like every evidence
+  surface the kind is caller-asserted — the gate makes skipping the floor
+  explicit and auditable; it does not confirm the probe actually happened.
+  Sync from an already-advanced ISA reconstructs the declared probe so historical
+  imports still round-trip. Back-compat: runs without `observations` default to
+  `[]` on load.
+
 ## [0.8.8] - 2026-06-22
 
 ### Added

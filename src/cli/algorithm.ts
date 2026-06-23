@@ -10,6 +10,7 @@ import {
   recordAlgorithmCapabilityInvocation,
   recordAlgorithmChange,
   recordAlgorithmDecision,
+  recordAlgorithmObservation,
   recordAlgorithmLearning,
   removeAlgorithmCapabilitySelection,
   runSomaLifecycleAlgorithmUpdated,
@@ -47,6 +48,7 @@ export const ALGORITHM_ACTIONS = [
   "invoke",
   "remove-capability",
   "plan",
+  "observe",
   "decision",
   "change",
   "step",
@@ -72,6 +74,8 @@ export const ALGORITHM_COMMAND_HELP: { usage: string; subcommands: Record<Algori
     invoke: "Usage: soma algorithm invoke --id <run-id> --capability <name> --evidence <text> [--substrate <id>] [--home-dir <dir>] [--soma-home <dir>]",
     "remove-capability": "Usage: soma algorithm remove-capability --id <run-id> --capability <name> --reason <text> [--home-dir <dir>] [--soma-home <dir>]",
     plan: "Usage: soma algorithm plan --id <run-id> --step <id:criteria:text> [--home-dir <dir>] [--soma-home <dir>]",
+    observe:
+      "Usage: soma algorithm observe --id <run-id> --claim <text> --evidence <text> [--evidence-kind <probed|tested|specified>] [--substrate <id>] [--home-dir <dir>] [--soma-home <dir>] (kind defaults to specified; assert probed/tested to clear the OBSERVE floor)",
     decision: "Usage: soma algorithm decision --id <run-id> --text <text> [--home-dir <dir>] [--soma-home <dir>]",
     change: "Usage: soma algorithm change --id <run-id> --text <text> [--home-dir <dir>] [--soma-home <dir>]",
     step: "Usage: soma algorithm step --id <run-id> --step-id <id> --status <open|done|blocked> [--evidence <text>]",
@@ -101,6 +105,7 @@ interface AlgorithmCliOptions {
   capabilityReason?: string;
   planSteps?: AlgorithmPlanStep[];
   text?: string;
+  claim?: string;
   stepId?: string;
   stepStatus?: AlgorithmPlanStep["status"];
   criterionId?: string;
@@ -210,6 +215,21 @@ function parseBatchOperation(value: string): AlgorithmBatchOperation {
     return { kind, text: payload };
   }
 
+  if (kind === "observe") {
+    // `observe:<claim>:<kind>:<evidence>` — the claim must not contain ':'.
+    // Evidence is REQUIRED and not auto-derived from the claim. (Like every
+    // evidence surface, the content is caller-asserted: nothing here can confirm
+    // the evidence is more than a restatement — the gate makes the claim explicit
+    // and auditable, it does not verify it.)
+    const parts = payload.split(":");
+    const claim = parts[0].trim();
+    const evidence = parts.slice(2).join(":").trim();
+    if (parts.length < 3 || !claim || !evidence) {
+      throw new Error("--op observe requires observe:<claim>:<kind>:<evidence> (the claim must not contain ':').");
+    }
+    return { kind, claim, evidence, evidenceKind: parseEvidenceKind(parts[1].trim()) };
+  }
+
   if (kind === "capability") {
     if (!payload) throw new Error("--op capability requires a capability name.");
     return { kind, capability: payload };
@@ -261,7 +281,7 @@ function parseBatchOperation(value: string): AlgorithmBatchOperation {
     };
   }
 
-  throw new Error("--op must start with decision, change, learn, capability, capability-invocation, capability-removal, step, verify, or advance.");
+  throw new Error("--op must start with observe, decision, change, learn, capability, capability-invocation, capability-removal, step, verify, or advance.");
 }
 
 function parseCapabilityInvocationOperation(payload: string): AlgorithmBatchOperation {
@@ -405,6 +425,10 @@ export function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
         break;
       case "--text":
         options.text = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--claim":
+        options.claim = readOption(rest, index, arg);
         index += 1;
         break;
       case "--step-id":
@@ -698,6 +722,22 @@ export async function runAlgorithmCli(parsed: ParsedAlgorithmArgs): Promise<stri
 
   if (parsed.action === "plan") {
     return updateAndReportAlgorithmRun(options, (run) => setAlgorithmPlan(run, options.planSteps ?? []));
+  }
+
+  if (parsed.action === "observe") {
+    if (!options.claim || !options.evidence) {
+      throw new Error("--claim and --evidence are required.");
+    }
+    const claim = options.claim;
+    const evidence = options.evidence;
+    // Default to the weak 'specified', mirroring the verify gate (#330): clearing
+    // the OBSERVE→THINK floor requires the caller to EXPLICITLY assert
+    // `--evidence-kind probed` (or tested). Defaulting to a floor-clearing value
+    // would fail open for a gate whose whole point is rejecting unverified claims.
+    const evidenceKind = options.evidenceKind ?? "specified";
+    return updateAndReportAlgorithmRun(options, (run) =>
+      recordAlgorithmObservation(run, { claim, evidence, evidenceKind }, undefined, { substrate: options.substrate }),
+    );
   }
 
   if (parsed.action === "decision") {
