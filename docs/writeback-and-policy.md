@@ -154,7 +154,7 @@ Until store-specific merge rules exist:
 
 Home replication must preserve these conflict rules across machines. It may
 merge append-only `memory/STATE/events.jsonl` entries and session-keyed work
-state, but durable memory, profile, Telos, skill, policy, and ISA body
+state, but durable memory, profile, Purpose, skill, policy, and ISA body
 conflicts remain explicit conflicts until store-specific merge rules exist. See
 [home-replication.md](./home-replication.md).
 

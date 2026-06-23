@@ -54,7 +54,7 @@ Soma's substrate-neutral home should be:
   profile/
     assistant.md
     principal.md
-    telos.md
+    purpose.md
   memory/
     WORK/
     KNOWLEDGE/

@@ -174,7 +174,7 @@ soma install claude-code --apply
 This writes:
 
 - `~/.claude/rules/soma/README.md` + `CONTEXT.md` + `PROFILE.md` +
-  `TELOS.md` + `MEMORY_LAYOUT.md` + `SKILLS.md` + `POLICY.md` +
+  `PURPOSE.md` + `MEMORY_LAYOUT.md` + `SKILLS.md` + `POLICY.md` +
   `ACTIVE_ISA.md` — the canonical home projection. Claude Code
   auto-discovers `.claude/rules/` at session start and loads Soma
   context from these files (per architectural pivot in soma#64; the
@@ -216,7 +216,7 @@ This writes:
 - `~/.codex/AGENTS.md` — imports the Soma startup context and the
   Algorithm skill.
 - `~/.codex/rules/soma.rules` — Codex-native rule files projecting
-  Soma identity, telos, active ISA, policy.
+  Soma identity, purpose, active ISA, policy.
 - `~/.codex/hooks/` — soma-lifecycle, policy, feedback-capture hooks.
 - `~/.codex/skills/{soma,the-algorithm}/SKILL.md` — local skill
   projection.
@@ -265,7 +265,7 @@ Confirm Soma is the live source for each installed substrate.
 ### Storage check
 
 ```bash
-ls ~/.soma/profile/                # principal.md, telos.md, identity
+ls ~/.soma/profile/                # principal.md, purpose.md, identity
 ls ~/.soma/memory/                 # 19 categories (17 + 2 PAI-bound)
 ls ~/.soma/PAI/                    # DOCUMENTATION, TEMPLATES, ALGORITHM
 ls ~/.soma/skills/                 # imported PAI packs as Soma skills

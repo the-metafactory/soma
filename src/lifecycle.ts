@@ -207,7 +207,7 @@ export async function buildSomaStartupContext(options: SomaLifecycleOptions = {}
   const context = renderStartupContext({
     assistantName: profile.assistant.displayName ?? profile.assistant.name,
     principalName: profile.principal.preferredName ?? profile.principal.name,
-    mission: profile.telos.mission,
+    mission: profile.purpose.mission,
     activeRuns,
     recentLearnings,
     relationshipNotes,

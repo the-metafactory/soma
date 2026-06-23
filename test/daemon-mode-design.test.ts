@@ -27,7 +27,7 @@ test("daemon design defines a dry-run and health first slice before live subscri
 test("daemon design preserves policy, writeback, and private compartments", () => {
   expect(daemonDoc).toContain("Every inbound envelope is policy-checked");
   expect(daemonDoc).toContain("same writeback gate used by substrate sessions");
-  expect(daemonDoc).toContain("must not expose Identity, Telos, Relationship, raw transcripts, or");
+  expect(daemonDoc).toContain("must not expose Identity, Purpose, Relationship, raw transcripts, or");
 });
 
 test("daemon design is linked from architecture and routing docs", () => {

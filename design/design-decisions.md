@@ -583,7 +583,7 @@ without returning private excerpts.
 **Status:** Decided (2026-05-31)
 
 **Context:** Issue #146 asks for cross-machine access to memory, identity,
-Telos, skills, ISA state, and conflict resolution when a principal works from
+Purpose, skills, ISA state, and conflict resolution when a principal works from
 multiple machines. The obvious word is "sync", but Soma already reserves
 precise vocabulary for projection and writeback and rejects fuzzy bidirectional
 sync semantics in `CONTEXT.md`. The implementation needs a transport model
@@ -606,7 +606,7 @@ overlay. The first backend should be Git-backed because Soma homes and
 snapshots are already filesystem-native, but backend transport does not own
 merge or privacy semantics.
 
-Replication is scope-based. Identity, Telos, skills, policy, ISA, append-only
+Replication is scope-based. Identity, Purpose, skills, policy, ISA, append-only
 state events, and session-keyed work state are eligible by default, subject to
 path policy and secret guards. Learning and knowledge are opt-in until
 promotion/citation merge rules exist. Relationship is private by default, and
@@ -614,7 +614,7 @@ raw and security scopes are off by default.
 
 Only stores with deterministic merge rules are auto-merged:
 `memory/STATE/events.jsonl` merges by event id, and DD-5/DD-6 work state may
-merge by session id, run id, or pointer filename. Durable profile, Telos,
+merge by session id, run id, or pointer filename. Durable profile, Purpose,
 skill, policy, ISA body, knowledge, learning, relationship, and work artifacts
 surface conflicts instead of using last-writer-wins. Every pull or exchange
 operation snapshots before applying remote state.
@@ -644,7 +644,7 @@ operation snapshots before applying remote state.
 
 **Context:** Issue #152 asks for shared skill registries, team memory overlays,
 team ISAs, and a permission model for organizations. Soma is intentionally a
-personal assistant core: Identity, Telos, Relationship, Policy, and Memory are
+personal assistant core: Identity, Purpose, Relationship, Policy, and Memory are
 rooted in one principal. A direct multi-principal home would weaken the trust
 model and make it unclear which principal owns profile facts, private memory,
 policy approvals, and writeback decisions. The design also intersects with Arc
@@ -662,7 +662,7 @@ Three candidates surfaced:
 **Decision:** **(b)** — shared team state uses read-only **team overlays**. A
 personal Soma home remains single-principal. Team material supplements that
 home after Policy checks the team, source, scopes, and provenance. Identity,
-Telos, Relationship, raw transcripts, and security traces are never mounted
+Purpose, Relationship, raw transcripts, and security traces are never mounted
 from a team overlay.
 
 Team overlays start read-only. They may expose team skills, team
@@ -678,7 +678,7 @@ organizational process.
 
 **Rejected:**
 - (a) makes privacy and authority ambiguous. A shared home would invite
-  accidental sharing of personal Identity, Telos, Relationship, raw
+  accidental sharing of personal Identity, Purpose, Relationship, raw
   transcripts, and security traces.
 - (c) is clean but too narrow: teams can safely share read-only skills,
   knowledge, work artifacts, and ISAs before a daemon or bus is required.

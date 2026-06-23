@@ -10,7 +10,7 @@ Factory systems without absorbing their responsibilities. Glossary lives in
 | --- | --- | --- |
 | Personal assistant identity | Soma | Owns portable identity schema and projection. |
 | Principal profile | Soma | Owns personal profile shape and its projection (scrubbed so private data does not leak between substrates). |
-| Telos | Soma | Owns personal goals, principles, commitments, and prioritization. |
+| Purpose | Soma | Owns personal goals, principles, commitments, and prioritization. |
 | Project ISA | Project repository | Reads and summarizes local `ISA.md`; does not centralize every project task. |
 | Personal/task ISA | Soma memory | Owns personal assistant tasks that do not belong to one project repo. |
 | Skills as portable capability folders | Soma | Owns portable skill metadata and discovery contract. |
@@ -37,7 +37,7 @@ Factory systems without absorbing their responsibilities. Glossary lives in
   (see [writeback-and-policy.md](./writeback-and-policy.md)). Substrate-side
   state Soma does not author is **mirrored** into `MEMORY/STATE/`.
 - Team overlays supplement personal Soma state. They must not become a shared
-  personal home, and they must not contain personal Identity, Telos,
+  personal home, and they must not contain personal Identity, Purpose,
   Relationship, raw transcript, or security-trace compartments.
 - Daemon mode is a Soma runtime mode, not a new bus contract. Soma may route and
   publish assistant work as a Cortex agent, while detailed Myelin ownership

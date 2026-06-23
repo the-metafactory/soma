@@ -33,7 +33,7 @@ This document uses the canonical glossary in
   instruction**, **Cortex agent**. "the skill's Claude Code projection" is the
   preferred phrasing for the projected output.
 - **compartment** — a top-level section of the soma home (`Skills`, `Memory`,
-  `Identity`, `Telos`, `Policy`, `Learning`). Skills live in the Skills
+  `Identity`, `Purpose`, `Policy`, `Learning`). Skills live in the Skills
   compartment.
 - **host** appears in this doc only in arc's own terminology — its `HostAdapter`
   abstraction and the `--host soma` install flag. That is arc's word, not a
@@ -110,7 +110,7 @@ This document specifies the unified contract.
 
 The terminology this design uses, deliberately precise:
 
-- **soma home** — `~/.soma/`. The principal's portable data: identity, telos,
+- **soma home** — `~/.soma/`. The principal's portable data: identity, purpose,
   memory, skills, policy, learning, state.
 - **substrate** — an execution environment soma adapts to. Today: Claude Code,
   Codex, Pi.dev, Cortex/Myelin daemon.

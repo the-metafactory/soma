@@ -18,7 +18,7 @@ export const portableProjectionInput: ProjectionInput = {
         timezone: "Europe/Zurich",
       },
     },
-    telos: {
+    purpose: {
       mission: "Keep personal assistant context portable across substrates.",
       goals: ["Prove context generation across substrates"],
       principles: ["Substrate adapters translate; they do not own core concepts"],

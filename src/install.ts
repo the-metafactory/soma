@@ -31,7 +31,7 @@ export type { ClaudeCodeInstallOptions } from "./adapters/claude-code/install-op
 const SOMA_BOOTSTRAP_FILES = [
   "profile/assistant.md",
   "profile/principal.md",
-  "profile/telos.md",
+  "profile/purpose.md",
   "policy/README.md",
   "skills/README.md",
   "projections/README.md",

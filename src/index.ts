@@ -65,6 +65,8 @@ export type {
   SomaSnapshotRollbackResult,
   SomaTask,
   SubstrateId,
+  Purpose,
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- re-exported for back-compat (soma#329)
   Telos,
   SomaHomeProjection,
   SomaHomeProjectionOptions,
