@@ -12,6 +12,7 @@ import {
 } from "../src/memory-readmes";
 import { somaMemoryPrivateRoots, somaProjectionPrivateRoots } from "../src/projection-private-roots";
 import { allInstallSpecs, installSpecFor } from "../src/install-spec-registry";
+import { expectReprojectPrunesStaleTelos } from "./fixtures";
 
 // #88 — Canonical PAI v5.0.0 memory taxonomy (DD-2). 17 substrate-neutral +
 // 2 PAI-bound = 19. Tests consume the production-exported lists from
@@ -200,17 +201,12 @@ test("bootstrap creates a projections directory for every registered install sub
   });
 });
 
-test("soma#329: cursor install removes a stale .cursor/rules/soma/TELOS.md", async () => {
+test("soma#329: cursor reproject removes a stale .cursor/rules/soma/TELOS.md", async () => {
   await withTempHome(async (homeDir) => {
-    const rulesDir = join(homeDir, ".cursor/rules/soma");
-    await mkdir(rulesDir, { recursive: true });
-    const stale = join(rulesDir, "TELOS.md");
-    await writeFile(stale, "# Soma Purpose Projection\n\nold frozen content\n", "utf8");
-
-    await installSomaForCursor({ homeDir });
-
-    await expect(readFile(join(rulesDir, "PURPOSE.md"), "utf8")).resolves.toContain("# Soma Purpose Projection");
-    await expect(stat(stale)).rejects.toThrow();
+    await expectReprojectPrunesStaleTelos(
+      join(homeDir, ".cursor/rules/soma"),
+      () => installSomaForCursor({ homeDir }),
+    );
   });
 });
 

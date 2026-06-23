@@ -1,6 +1,27 @@
 import { expect } from "bun:test";
+import { readFile, stat, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { Projection, ProjectionInput } from "../src/index";
 import { SECTION_NAME_MAP, renderCriteriaMarkdown } from "../src/isa-accessors";
+
+/**
+ * soma#329: prove a renamed projection's stale file is pruned on REPROJECT/
+ * UPGRADE, not just first install. `soma reproject`/`upgrade` re-run the same
+ * `installSomaFor*` function, so the sequence is: install (real projection) →
+ * a legacy `TELOS.md` appears (as if left by a pre-rename version) → install
+ * again (= reproject) must delete it while writing the new `PURPOSE.md`.
+ */
+export async function expectReprojectPrunesStaleTelos(
+  substrateRulesDir: string,
+  install: () => Promise<unknown>,
+): Promise<void> {
+  await install();
+  const stale = join(substrateRulesDir, "TELOS.md");
+  await writeFile(stale, "# Soma Purpose Projection\n\nold frozen content\n", "utf8");
+  await install();
+  await expect(readFile(join(substrateRulesDir, "PURPOSE.md"), "utf8")).resolves.toContain("# Soma Purpose Projection");
+  await expect(stat(stale)).rejects.toThrow();
+}
 
 export const portableProjectionInput: ProjectionInput = {
   profile: {

@@ -19,7 +19,7 @@ import {
 } from "../src/index";
 import { unpatchClaudeCodeModeClassifierSettings } from "../src/adapters/claude-code/hooks";
 import { datePrefixSlug } from "../src/dated-slug";
-import { portableProjectionInput } from "./fixtures";
+import { expectReprojectPrunesStaleTelos, portableProjectionInput } from "./fixtures";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-29-"));
@@ -174,18 +174,12 @@ test("AC-3: planSomaForClaudeCodeInstall does not write files (plan.apply === fa
   });
 });
 
-test("soma#329: install removes a stale rules/soma/TELOS.md left by a pre-rename home", async () => {
+test("soma#329: reproject removes a stale rules/soma/TELOS.md left by a pre-rename install", async () => {
   await withTempHome(async (homeDir) => {
-    const rulesDir = join(homeDir, ".claude/rules/soma");
-    await mkdir(rulesDir, { recursive: true });
-    const stale = join(rulesDir, "TELOS.md");
-    await writeFile(stale, "# Soma Purpose Projection\n\nold frozen content\n", "utf8");
-
-    await installSomaForClaudeCode({ homeDir });
-
-    // The renamed projection is present and the stale auto-loaded copy is gone.
-    await expect(readFile(join(rulesDir, "PURPOSE.md"), "utf8")).resolves.toContain("# Soma Purpose Projection");
-    await expect(stat(stale)).rejects.toThrow();
+    await expectReprojectPrunesStaleTelos(
+      join(homeDir, ".claude/rules/soma"),
+      () => installSomaForClaudeCode({ homeDir }),
+    );
   });
 });
 
