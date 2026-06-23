@@ -12,6 +12,13 @@
  * same categories to ENRICH each entry with human-readable evidence, but they do
  * not by themselves outrank a real gate-miss.
  *
+ * SCOPE of "deterministic": the gate-miss spine is deterministic over the set of
+ * recorded meta-reflections — it is NOT a census of all runs. A meta-reflection
+ * requires at least one `smarterRun` signal by construction (the recorder rejects
+ * an empty one; the importer skips a prose-less record), so a run whose gate was
+ * missed but which produced no reflection contributes nothing. The digest ranks
+ * the signal the agent chose to record, not every gate event that ever occurred.
+ *
  * Pure module — no IO. The CLI collects reflections (live runs + imported PAI
  * corpus) and renders the result.
  */
