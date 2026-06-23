@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { expect, test } from "bun:test";
 import {
   computeGatesFired,
@@ -103,56 +105,32 @@ test("digest ranks gate-misses first, enriches with prose buckets", () => {
   expect(completenessIdx).toBeLessThan(parallelIdx);
 });
 
-test("digest over the imported PAI corpus surfaces the P2 (current-state) signal on top", () => {
-  // The real historical shape: 3 of 4 records missed live_probe (= current-state floor).
-  const jsonl = [
-    JSON.stringify({
-      prd_id: "course-sales",
-      doctrine_fired: { live_probe: false, completeness_gate_met: true },
-      criteria_count: 34,
-      criteria_passed: 22,
-      criteria_failed: 0,
-      reflection_q2: "A smarter algorithm would have verified all current-state assumptions before interview round 4",
-      satisfaction_prediction: 7,
-      within_budget: true,
-    }),
-    JSON.stringify({
-      prd_id: "apaas-ideate",
-      doctrine_fired: { live_probe: false, completeness_gate_met: true },
-      criteria_count: 15,
-      criteria_passed: 15,
-      criteria_failed: 0,
-      reflection_q1: "Should have checked Myelin n_by field existence before asking about it",
-    }),
-    JSON.stringify({
-      prd_id: "vision",
-      doctrine_fired: { live_probe: true, completeness_gate_met: true },
-      criteria_count: 18,
-      criteria_passed: 18,
-      criteria_failed: 0,
-      reflection_q3: "SystemsThinking open-loop insight was highest value",
-    }),
-    JSON.stringify({
-      prd_id: "grove",
-      doctrine_fired: { live_probe: false, completeness_gate_met: true },
-      criteria_count: 8,
-      criteria_passed: 8,
-      criteria_failed: 0,
-      reflection_q2: "Verify preview page traffic to test zero-traffic assumption",
-    }),
-    "", // trailing blank line tolerated
-    "{not json", // malformed line skipped
-  ].join("\n");
-
-  const imported = parsePaiReflections(jsonl);
+test("digest over a sample of the historical PAI corpus surfaces the P2 (current-state) signal on top", async () => {
+  // Reads a committed fixture vendored from the historical PAI reflections jsonl
+  // (4 records mirroring the real shape: 3 of 4 missed live_probe = current-state
+  // floor). The full live corpus lives at ~/.soma and is not version-controlled.
+  const fixture = join(import.meta.dir, "fixtures", "pai-algorithm-reflections-sample.jsonl");
+  const imported = parsePaiReflections(await readFile(fixture, "utf8"));
   expect(imported).toHaveLength(4);
-  expect(imported[0].runId).toBe("course-sales");
+  expect(imported[0].runId).toBe("20260505-course-sales-strategy");
   expect(imported[0].reflection.gatesFired.currentStateFloor).toBe(false);
 
   const digest = buildReflectionDigest(imported);
   expect(digest[0].category).toBe("current-state");
   expect(digest[0].gateMissCount).toBe(3); // three runs missed live_probe
   expect(renderReflectionDigest(digest)).toContain("Current-state verification");
+});
+
+test("parsePaiReflections tolerates blank and malformed lines", () => {
+  const jsonl = [
+    JSON.stringify({ prd_id: "ok", reflection_q1: "check field existence before asking", doctrine_fired: { live_probe: false } }),
+    "",
+    "{not json",
+    JSON.stringify({ prd_id: "no-signals", doctrine_fired: { live_probe: true } }), // dropped: no q-signal
+  ].join("\n");
+  const imported = parsePaiReflections(jsonl);
+  expect(imported).toHaveLength(1);
+  expect(imported[0].runId).toBe("ok");
 });
 
 test("renderReflectionDigest handles the empty corpus", () => {

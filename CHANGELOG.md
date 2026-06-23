@@ -19,9 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--digest` ranks the cross-run improvement backlog — **gate-miss counts rank,
   q-signal keyword buckets enrich** — optionally folding in a historical PAI
   reflections jsonl via `--pai-source`. Reflections mirror into the run's
-  `LEARNING/ALGORITHM/<run>.md`. Demonstrated on the real PAI corpus: the
-  current-state-verification cluster ranks first, surfacing P2 (#331) — the proof
-  that recurring meta-reflections generate runner/prompt fixes.
+  `LEARNING/ALGORITHM/<run>.md`. Run over a sample of the historical PAI corpus the
+  current-state-verification cluster ranks first, re-surfacing P2 (#331) — evidence
+  that recurring meta-reflections surface the runner/prompt fixes worth making
+  (the digest ranks the backlog; a human or agent still writes the fix). Note:
+  imported PAI records carry a documented best-effort gate-flag mapping, distinct
+  from the live `computeGatesFired` computation.
 - **OBSERVE current-state floor** for the Algorithm. Advancing `observe → think`
   now requires at least one recorded current-state *probe* — a typed
   `AlgorithmObservation { claim, evidence, evidenceKind }` whose `evidenceKind`

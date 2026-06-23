@@ -19,6 +19,7 @@ import {
   selectAlgorithmCapability,
 } from "./algorithm-capabilities";
 import { classifyAlgorithmPrompt } from "./algorithm-classifier";
+import { compactSmarterRun } from "./algorithm-reflection-digest";
 import {
   buildIsaArtifact,
   defaultEvidenceKind,
@@ -315,8 +316,8 @@ export function recordAlgorithmMetaReflection(
   timestamp?: string,
   provenance?: Pick<AlgorithmProvenanceInput, "substrate">,
 ): AlgorithmRun {
-  const { missedEarlyStep, missedVerifyOrParallel, highestValueMove } = reflection.smarterRun;
-  if (![missedEarlyStep, missedVerifyOrParallel, highestValueMove].some((s) => s !== undefined && s.trim().length > 0)) {
+  const smarterRun = compactSmarterRun(reflection.smarterRun);
+  if (Object.keys(smarterRun).length === 0) {
     throw new Error("Algorithm meta-reflection requires at least one smarterRun signal (missedEarlyStep, missedVerifyOrParallel, or highestValueMove).");
   }
   if (reflection.satisfaction !== undefined && (reflection.satisfaction < 0 || reflection.satisfaction > 10)) {
@@ -329,11 +330,7 @@ export function recordAlgorithmMetaReflection(
     timestamp: stamp,
     phase,
     gatesFired: computeGatesFired(run),
-    smarterRun: {
-      ...(missedEarlyStep?.trim() ? { missedEarlyStep: missedEarlyStep.trim() } : {}),
-      ...(missedVerifyOrParallel?.trim() ? { missedVerifyOrParallel: missedVerifyOrParallel.trim() } : {}),
-      ...(highestValueMove?.trim() ? { highestValueMove: highestValueMove.trim() } : {}),
-    },
+    smarterRun,
     ...(reflection.satisfaction !== undefined ? { satisfaction: reflection.satisfaction } : {}),
     ...(reflection.withinBudget !== undefined ? { withinBudget: reflection.withinBudget } : {}),
   };

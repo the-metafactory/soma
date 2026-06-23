@@ -840,10 +840,11 @@ export async function runAlgorithmCli(parsed: ParsedAlgorithmArgs): Promise<stri
   }
 
   if (parsed.action === "reflect") {
+    // recordAlgorithmMetaReflection compacts the smarterRun and validates ≥1 signal.
     const smarterRun = {
-      ...(options.missedEarlyStep !== undefined ? { missedEarlyStep: options.missedEarlyStep } : {}),
-      ...(options.missedVerifyOrParallel !== undefined ? { missedVerifyOrParallel: options.missedVerifyOrParallel } : {}),
-      ...(options.highestValueMove !== undefined ? { highestValueMove: options.highestValueMove } : {}),
+      missedEarlyStep: options.missedEarlyStep,
+      missedVerifyOrParallel: options.missedVerifyOrParallel,
+      highestValueMove: options.highestValueMove,
     };
     return updateAndReportAlgorithmRun(options, (run) =>
       recordAlgorithmMetaReflection(
@@ -856,8 +857,11 @@ export async function runAlgorithmCli(parsed: ParsedAlgorithmArgs): Promise<stri
   }
 
   if (parsed.action === "reflections") {
+    if (options.id !== undefined && options.digest === true) {
+      throw new Error("reflections takes either --id (list one run) or --digest (rank across runs), not both.");
+    }
     // Single-run listing: `--id` without `--digest`.
-    if (options.id !== undefined && options.digest !== true) {
+    if (options.id !== undefined) {
       const { run } = await readAlgorithmRunById(options.id, { homeDir: options.homeDir, somaHome: options.somaHome });
       if (run.metaReflection.length === 0) return `No meta-reflections for ${run.id}.`;
       return [

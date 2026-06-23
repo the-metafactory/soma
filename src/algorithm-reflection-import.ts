@@ -10,7 +10,7 @@
  * skipped, not fatal — the corpus is a historical artifact, not a contract.
  */
 import type { AlgorithmGatesFired, AlgorithmMetaReflection } from "./types";
-import type { ReflectionForDigest } from "./algorithm-reflection-digest";
+import { compactSmarterRun, type ReflectionForDigest } from "./algorithm-reflection-digest";
 
 interface PaiReflectionRecord {
   timestamp?: unknown;
@@ -39,10 +39,13 @@ function bool(value: unknown): boolean {
 }
 
 /**
- * Map a PAI record's gate signals onto Soma's gates. The mapping is documented
- * and lossy — PAI predates #330, so `learnGateClean` borrows PAI's nearest
- * "gate clean" signal (`completeness_gate_met`) rather than inventing evidence
- * data that never existed.
+ * Map a PAI record's gate signals onto Soma's gates. IMPORTANT: unlike a live
+ * reflection — whose `gatesFired` is computed by `computeGatesFired` from real run
+ * state — an imported record's flags are a documented, LOSSY best-effort mapping
+ * from PAI's `doctrine_fired`. PAI predates #330/#331 and has no Soma run to probe,
+ * so this is a historical reconstruction, not the same-predicate computation. The
+ * digest reads both uniformly; the distinction is that imported flags are
+ * caller-asserted history, not re-derived facts.
  */
 function gatesFromPai(record: PaiReflectionRecord): AlgorithmGatesFired {
   const doctrine = (record.doctrine_fired && typeof record.doctrine_fired === "object" ? record.doctrine_fired : {}) as {
@@ -72,11 +75,11 @@ export function parsePaiReflections(jsonl: string): ReflectionForDigest[] {
       continue; // skip malformed line
     }
     const runId = str(record.prd_id) ?? `pai-reflection-${out.length}`;
-    const smarterRun: AlgorithmMetaReflection["smarterRun"] = {
-      ...(str(record.reflection_q1) ? { missedEarlyStep: str(record.reflection_q1) } : {}),
-      ...(str(record.reflection_q2) ? { missedVerifyOrParallel: str(record.reflection_q2) } : {}),
-      ...(str(record.reflection_q3) ? { highestValueMove: str(record.reflection_q3) } : {}),
-    };
+    const smarterRun = compactSmarterRun({
+      missedEarlyStep: str(record.reflection_q1),
+      missedVerifyOrParallel: str(record.reflection_q2),
+      highestValueMove: str(record.reflection_q3),
+    });
     // A record with no q-signals carries no improvement signal — skip.
     if (Object.keys(smarterRun).length === 0) continue;
 

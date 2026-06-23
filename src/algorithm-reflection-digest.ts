@@ -32,6 +32,12 @@ interface CategoryDefinition {
 
 // Order matters: a signal is bucketed into the FIRST category whose keywords
 // match, so the gate-backed categories are listed before the gateless ones.
+//
+// The keyword lists are seeded from observed reflection phrasings and WILL be
+// incomplete — but they only steer the ENRICHMENT (which examples land in which
+// bucket), never the ranking. The ranking is driven by the deterministic
+// gate-miss counts, so an unbucketed signal degrades to "other" without
+// corrupting the backlog order. Grow the keywords as new phrasings appear.
 const CATEGORIES: CategoryDefinition[] = [
   {
     key: "current-state",
@@ -77,6 +83,27 @@ export interface ReflectionDigestEntry {
 export interface ReflectionForDigest {
   runId: string;
   reflection: AlgorithmMetaReflection;
+}
+
+/**
+ * Trim and drop empty signals to build a compact `smarterRun`. Single source of
+ * truth for that shape — shared by the recorder, the CLI, and the PAI importer so
+ * the three cannot drift.
+ */
+export function compactSmarterRun(input: {
+  missedEarlyStep?: string;
+  missedVerifyOrParallel?: string;
+  highestValueMove?: string;
+}): AlgorithmMetaReflection["smarterRun"] {
+  const trim = (s?: string): string | undefined => (s !== undefined && s.trim().length > 0 ? s.trim() : undefined);
+  const missedEarlyStep = trim(input.missedEarlyStep);
+  const missedVerifyOrParallel = trim(input.missedVerifyOrParallel);
+  const highestValueMove = trim(input.highestValueMove);
+  return {
+    ...(missedEarlyStep ? { missedEarlyStep } : {}),
+    ...(missedVerifyOrParallel ? { missedVerifyOrParallel } : {}),
+    ...(highestValueMove ? { highestValueMove } : {}),
+  };
 }
 
 const EXAMPLE_LIMIT = 3;
