@@ -34,10 +34,11 @@ interface CategoryDefinition {
 // match, so the gate-backed categories are listed before the gateless ones.
 //
 // The keyword lists are seeded from observed reflection phrasings and WILL be
-// incomplete — but they only steer the ENRICHMENT (which examples land in which
-// bucket), never the ranking. The ranking is driven by the deterministic
-// gate-miss counts, so an unbucketed signal degrades to "other" without
-// corrupting the backlog order. Grow the keywords as new phrasings appear.
+// incomplete. Gate-miss count is the PRIMARY sort key, so a gateless prose bucket
+// can never outrank a real gate-miss; signal count is only a TIE-BREAKER between
+// categories with equal gate-miss counts. So overfit/incomplete keywords can
+// reorder gate-tied peers, but cannot lift a category above one with more
+// gate-misses. Grow the keywords as new phrasings appear.
 const CATEGORIES: CategoryDefinition[] = [
   {
     key: "current-state",

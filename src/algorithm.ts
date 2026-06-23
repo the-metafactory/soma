@@ -286,9 +286,12 @@ export function recordAlgorithmObservation(
 }
 
 /**
- * Compute the deterministic gate-flags for a run — the auditable spine of a
- * meta-reflection. Reuses the same predicates the live gates enforce so the
- * reflection can never disagree with what the gates would say.
+ * Compute the gate-flags for a run — the auditable spine of a meta-reflection.
+ * Reuses the same predicates the live gates enforce, so it agrees with the gate's
+ * verdict FOR THE RUN AS PASSED. The reflection then stores this as a snapshot at
+ * reflect time; a later criterion/observation mutation can move the run, so a
+ * stored snapshot is a point-in-time fact, not a standing equivalence with the
+ * gate's verdict at every later moment.
  */
 export function computeGatesFired(run: AlgorithmRun): AlgorithmGatesFired {
   const criteria = getCriteria(run.isa);

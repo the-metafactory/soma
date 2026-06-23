@@ -227,14 +227,20 @@ export interface AlgorithmObservation {
 }
 
 /**
- * The Soma gates a run did or did not satisfy, computed DETERMINISTICALLY from
- * run state at reflection time (not caller-asserted). This is the generative
- * spine of the meta-reflection layer (#333): a gate that is recurrently unmet
- * across runs is the empirical case for a runner/prompt fix — exactly how P2
- * (#331 OBSERVE floor) was found. Each flag maps to a real enforced gate:
+ * The Soma gates a run did or did not satisfy — the generative spine of the
+ * meta-reflection layer (#333): a gate recurrently unmet across runs is the
+ * empirical case for a runner/prompt fix (how P2 / #331 was found). Each flag
+ * maps to a real enforced gate:
  * - `currentStateFloor`: a probed/tested observation was on record (#331).
  * - `learnGateClean`: no unresolved or hollow-`specified` criteria blocked LEARN (#330).
  * - `completeness`: every criterion reached a terminal state (passed/dropped/deferred-probe).
+ *
+ * Provenance of the flags: a LIVE reflection computes them from run state via
+ * {@link computeGatesFired}, using the same predicates the gates enforce — a
+ * point-in-time SNAPSHOT (a later mutation can move the run, so it is not a
+ * standing equivalence with the gate's verdict at every later moment). An
+ * IMPORTED historical record (e.g. the PAI corpus) instead carries a documented,
+ * lossy best-effort mapping — caller-asserted history, not re-derived facts.
  */
 export interface AlgorithmGatesFired {
   currentStateFloor: boolean;
