@@ -19,7 +19,7 @@ The first workflow is a ledger update:
 
 ## Pass Conditions
 
-- The same profile, purpose, skill list, memory layout, and ISA are used unchanged.
+- The same profile, purpose, skill list, memory layout, and VSA are used unchanged.
 - Substrate adapters may change only projection shape, file names, and
   host-specific invocation.
 - The workflow has a shared verification criterion that does not depend on chat
@@ -49,7 +49,7 @@ The CI suite verifies:
   same semantic Soma content from one `ProjectionInput`.
 - Portable skills pass the existing static smoke verifier for the CI-supported
   smoke targets, Codex and Pi.dev.
-- Active ISA state survives a project -> writeback -> reproject round trip
+- Active VSA state survives a project -> writeback -> reproject round trip
   across all shipping home projections.
 
 This is intentionally not a live behavioral equivalence test. Running the same

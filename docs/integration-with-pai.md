@@ -175,11 +175,11 @@ This writes:
 
 - `~/.claude/rules/soma/README.md` + `CONTEXT.md` + `PROFILE.md` +
   `PURPOSE.md` + `MEMORY_LAYOUT.md` + `SKILLS.md` + `POLICY.md` +
-  `ACTIVE_ISA.md` — the canonical home projection. Claude Code
+  `ACTIVE_VSA.md` — the canonical home projection. Claude Code
   auto-discovers `.claude/rules/` at session start and loads Soma
   context from these files (per architectural pivot in soma#64; the
   pre-pivot `~/.claude/CLAUDE.md` `@`-import path was unreliable).
-- `~/.claude/skills/ISA/` — bundled ISA skill (Soma's verification
+- `~/.claude/skills/VSA/` — bundled VSA skill (Soma's verification
   harness).
 
 Hooks are deliberately not in the home install. They are an optional
@@ -216,7 +216,7 @@ This writes:
 - `~/.codex/AGENTS.md` — imports the Soma startup context and the
   Algorithm skill.
 - `~/.codex/rules/soma.rules` — Codex-native rule files projecting
-  Soma identity, purpose, active ISA, policy.
+  Soma identity, purpose, active VSA, policy.
 - `~/.codex/hooks/` — soma-lifecycle, policy, feedback-capture hooks.
 - `~/.codex/skills/{soma,the-algorithm}/SKILL.md` — local skill
   projection.
@@ -281,7 +281,7 @@ to the Soma home. You can also create one manually with
 ### Substrate check
 
 Start a session in each installed substrate. The principal identity,
-active ISA, and recent learning should appear unchanged across all
+active VSA, and recent learning should appear unchanged across all
 three.
 
 - **Claude Code** — `~/.claude/rules/soma/CONTEXT.md` and
@@ -318,10 +318,10 @@ ls ~/.soma/memory/WORK/algorithm-runs/  # the run is here, not under ~/.claude/
   to run. If you write into `~/.claude/PAI/MEMORY/` after migration,
   the next `migrate pai --apply` translates the new content forward;
   the inverse does not happen.
-- **The Algorithm and ISA are now Soma's.** Phase markers, ISC
-  verification, and learning routing land in `~/.soma/`. Project ISAs
-  created with `soma isa scaffold` live in the same place. Newly scaffolded
-  ISA slugs are date-prefixed unless the requested slug already starts with a
+- **The Algorithm and VSA are now Soma's.** Phase markers, ISC
+  verification, and learning routing land in `~/.soma/`. Project VSAs
+  created with `soma vsa scaffold` live in the same place. Newly scaffolded
+  VSA slugs are date-prefixed unless the requested slug already starts with a
   date; use the slug printed by the scaffold command.
 
 ## Failure modes

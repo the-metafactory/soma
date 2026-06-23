@@ -10,7 +10,7 @@ Codex is a coding-agent substrate. The Codex projection should carry:
 
 - system/developer instruction fragments
 - Soma identity and purpose
-- active ISA summary
+- active VSA summary
 - relevant skills as local instructions
 - memory readback
 - verification policy
@@ -48,7 +48,7 @@ Pi.dev is model-agnostic and supports extensions and skills. The adapter should
 follow the reduced PAI-on-Pi pattern:
 
 - one core extension
-- registered tools for ISA, memory, learning, and notifications
+- registered tools for VSA, memory, learning, and notifications
 - skill directories with `SKILL.md`
 - settings and model provider config
 
@@ -120,8 +120,8 @@ into that shape without making Claude Code the source of truth.
 Current home install behavior:
 
 - `soma install claude-code --apply` writes context under
-  `<claude-home>/rules/soma/` and the ISA skill under
-  `<claude-home>/skills/ISA/`.
+  `<claude-home>/rules/soma/` and the VSA skill under
+  `<claude-home>/skills/VSA/`.
 - It installs a Soma-owned hook runner at
   `<claude-home>/hooks/soma/soma-claude-code-hook.mjs` with colocated runtime
   config.
@@ -138,7 +138,7 @@ Current home install behavior:
   Tool and subagent hooks emit metadata-only events through the Soma writeback
   gate; they do not mirror full raw transcripts or prompt text.
 - `soma uninstall claude-code` removes only the generated `rules/soma/`
-  projection, `skills/ISA/`, the Soma-owned hook runner/config, and matching
+  projection, `skills/VSA/`, the Soma-owned hook runner/config, and matching
   Soma hook entries in `settings.json`.
 
 Context projection, PAI Native Mode memory, and Soma shared memory remain
@@ -153,8 +153,8 @@ tools. The first Cursor adapter is intentionally filesystem-first:
 
 - `.cursorrules` points Cursor at the generated Soma rule directory
 - `.cursor/rules/soma/` carries context, profile, purpose, memory layout, skills,
-  policy, MCP notes, and the active ISA when present
-- `.cursor/rules/soma/skills/ISA/` carries the portable ISA skill source
+  policy, MCP notes, and the active VSA when present
+- `.cursor/rules/soma/skills/VSA/` carries the portable VSA skill source
 
 Initial implementation: `projectCursor` and `projectCursorHome` generate the
 same portable Soma context in Cursor's native rules shape. `soma install cursor
@@ -184,8 +184,8 @@ and `~/.grok/skills/<name>/SKILL.md` auto-load, while home `~/.grok/rules/` and
 
 - `skills/soma/SKILL.md` — the auto-loaded entry skill carrying the portable
   assistant core, with `context.md`, `memory-layout.md`, `skills.md`,
-  `policy.md`, `startup-context.md`, and (when an ISA is active)
-  `active-isa.md` colocated beside it.
+  `policy.md`, `startup-context.md`, and (when an VSA is active)
+  `active-vsa.md` colocated beside it.
 - `skills/the-algorithm/SKILL.md` — the shared seven-phase Algorithm rendering
   contract plus a Grok-native verification-gates section (see below).
 - `AGENTS.md` — a marked pointer block (appended idempotently, foreign content
@@ -218,10 +218,10 @@ empirical tool-name matchers (`Shell`, `Read`, `Write`, `StrReplace`, `Grep`,
 
 Algorithm rendering is honestly scoped to what Grok offers: text banners plus
 the native todo list. There is no Pi-style widget API, so the Algorithm skill
-instructs the in-substrate agent to mirror plan steps and active-ISA criteria
+instructs the in-substrate agent to mirror plan steps and active-VSA criteria
 into `todo_write`, and to run verification-heavy work headless with
 `--todo-gate` (a turn cannot end with open todos) and `--check` (Grok's
-self-verification loop). The active ISA's open criteria seed the todo list.
+self-verification loop). The active VSA's open criteria seed the todo list.
 Grok also has no sandbox on Windows (`--sandbox` is Landlock/Seatbelt-only) and
 no statusline surface; isolation guidance uses git worktrees.
 
@@ -264,7 +264,7 @@ structured selections remain unresolved.
 
 ## Adapter Contract
 
-Adapters should be thin. They do not own identity, memory, ISA, skill schemas, or
+Adapters should be thin. They do not own identity, memory, VSA, skill schemas, or
 policy semantics. They only project those contracts into a substrate's native
 mechanisms, and write back substrate-side events through the writeback gate.
 
@@ -294,7 +294,7 @@ Adapters own their substrate-native install facts: default home, projected file
 paths, substrate-specific skill destinations, lifecycle projection paths,
 validators, cleanup hooks, private projection roots, MCP client configuration,
 and uninstall targets. The installer owns orchestration: bootstrapping Soma
-home, loading active ISA, running lifecycle updates, writing projections, and
+home, loading active VSA, running lifecycle updates, writing projections, and
 applying the install, reproject, upgrade, and uninstall verbs.
 
 The optional MCP server is a shared library/daemon surface, not an adapter.

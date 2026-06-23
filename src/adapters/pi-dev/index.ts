@@ -11,7 +11,7 @@ export {
   type PhaseMarker,
 } from "./extensions/phase-parser";
 export {
-  isaCriteriaWidgetKey,
+  vsaCriteriaWidgetKey,
   phaseWidgetKey,
   renderPhaseOverviewLines,
   renderPhaseStatusText,
@@ -19,10 +19,10 @@ export {
   SOMA_STATUS_KEY,
 } from "./extensions/widget-renderers";
 export {
-  renderIsaChecklistLines,
-  type IsaChecklistCriterion,
-  type IsaChecklistOptions,
-} from "./extensions/isa-checklist";
+  renderVsaChecklistLines,
+  type VsaChecklistCriterion,
+  type VsaChecklistOptions,
+} from "./extensions/vsa-checklist";
 export {
   renderSomaAlgorithmExtension,
   type RenderSomaAlgorithmExtensionOptions,

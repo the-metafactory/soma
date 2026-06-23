@@ -16,7 +16,7 @@ Soma supports two projection placements relevant to default availability:
 1. **home** mode: the projection is installed into the substrate's user-level
    configuration directory. This makes the assistant available by default.
 2. **workspace** mode: the projection is installed into a project directory.
-   This adds project-specific ISA, skills, and policy overlays.
+   This adds project-specific VSA, skills, and policy overlays.
 
 The home projection is the primary install target. The workspace projection is
 a secondary overlay that takes precedence inside that workspace.
@@ -116,7 +116,7 @@ Current Soma projection target:
 <claude-home>/
   settings.json
   rules/soma/
-  skills/ISA/
+  skills/VSA/
   hooks/soma/soma-claude-code-hook.mjs
   hooks/soma/soma-claude-code-hook.config.json
 ```

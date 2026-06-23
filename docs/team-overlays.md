@@ -1,6 +1,6 @@
 # Team Overlays
 
-Issue #152 asks for shared skills, team memory, team ISAs, and a permission
+Issue #152 asks for shared skills, team memory, team VSAs, and a permission
 model without leaking personal Identity, Purpose, or Relationship state. The
 implementation term is **team overlay**: a policy-scoped shared Soma layer that
 supplements one principal's local Soma home.
@@ -15,7 +15,7 @@ provenance when it is used.
 - Let several principals use a team-curated set of Soma skills.
 - Let personal Soma memory read shared team `KNOWLEDGE` and `WORK` without
   copying private personal stores into the team layer.
-- Let project or team ISAs be visible beside personal/task ISAs.
+- Let project or team VSAs be visible beside personal/task VSAs.
 - Keep shared state explicitly namespaced by team, source, and permission.
 - Preserve Arc as the package/distribution system and Compass as the SOP and
   governance authority.
@@ -71,7 +71,7 @@ personal files.
 | Skills | allowed | Team skills are shared capability folders distributed by Arc or an approved source. |
 | `memory/KNOWLEDGE` | read-only | Shared facts require provenance and stay team-cited. |
 | `memory/WORK` | read-only | Shared project/work artifacts are visible but not silently promoted into personal work. |
-| ISA | read-only | Team ISAs supplement personal/task ISAs and keep team provenance. |
+| VSA | read-only | Team VSAs supplement personal/task VSAs and keep team provenance. |
 | Policy | read-only | Team policy may add stricter rules; it must not relax personal policy. |
 | Identity | denied | Personal principal and assistant identity are never sourced from a team overlay. |
 | Purpose | denied | Personal goals and commitments are never shared by default. |
@@ -89,8 +89,8 @@ Team overlays supplement personal Soma; they do not override it.
    one side.
 4. Personal memory search results and team memory search results are separate
    cited result groups.
-5. A team ISA is selected explicitly by team and slug. It does not replace the
-   active personal ISA unless the principal chooses that team ISA for the
+5. A team VSA is selected explicitly by team and slug. It does not replace the
+   active personal VSA unless the principal chooses that team VSA for the
    current workspace or task.
 
 This avoids hidden last-writer-wins behavior and makes team provenance visible
@@ -148,7 +148,7 @@ The first code slice should implement read-only team overlays:
   provenance, but keeps personal and team result groups separate.
 - Skill registry can include team skills with team prefixes or aliases, but
   refuses unaliased name collisions.
-- Active ISA commands can show or select a team ISA explicitly by team and slug.
+- Active VSA commands can show or select a team VSA explicitly by team and slug.
 - Projection code includes only enabled read-only team artifacts and never
   projects personal-private compartments from a team overlay.
 

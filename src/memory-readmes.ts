@@ -42,9 +42,9 @@ export const SOMA_MEMORY_CATEGORY_READMES: readonly SomaMemoryCategoryReadme[] =
     "WORK",
     `# WORK
 
-\`WORK/\` holds one subdirectory per Algorithm run, named with a slug of the form \`YYYYMMDD-HHMMSS_kebab-task-summary\`. Inside each slug live the artifacts that session produced: the canonical \`ISA.md\` (Ideal State Artifact), any \`PRD.md\`, intermediate notes, generated outputs, and tool-specific event files such as \`forge-events.jsonl\` or \`forge-final.txt\`.
+\`WORK/\` holds one subdirectory per Algorithm run, named with a slug of the form \`YYYYMMDD-HHMMSS_kebab-task-summary\`. Inside each slug live the artifacts that session produced: the canonical \`VSA.md\` (Ideal State Artifact), any \`PRD.md\`, intermediate notes, generated outputs, and tool-specific event files such as \`forge-events.jsonl\` or \`forge-final.txt\`.
 
-This is the operating record of every non-trivial task. ISA-aware hooks write the ISA here, agent helpers stream their JSONL events here, and follow-up sessions resume by reading the slug directory of the prior run.
+This is the operating record of every non-trivial task. VSA-aware hooks write the VSA here, agent helpers stream their JSONL events here, and follow-up sessions resume by reading the slug directory of the prior run.
 
 Empty in fresh installs. Populated automatically the first time you trigger Algorithm mode or any subagent that scopes its output by slug. Old slugs are safe to archive but should not be deleted while their work is still being referenced.
 `,
@@ -86,7 +86,7 @@ Empty in fresh installs. Begins accumulating once the relationship-memory hook f
     "STATE",
     `# STATE
 
-\`STATE/\` holds the live operational state of the assistant across sessions — the append-only event log (\`events.jsonl\`), active Algorithm runs (\`active-algorithm-run.json\`), active ISA pointer (\`active.json\`), and similar single-source-of-truth records that hooks and tools read and update during normal use.
+\`STATE/\` holds the live operational state of the assistant across sessions — the append-only event log (\`events.jsonl\`), active Algorithm runs (\`active-algorithm-run.json\`), active VSA pointer (\`active.json\`), and similar single-source-of-truth records that hooks and tools read and update during normal use.
 
 Where \`WORK/\` is per-run artifacts, \`STATE/\` is global runtime state. Files here are intentionally small and structured: one JSONL per event stream, one JSON per active pointer. Substrates append events; promotion and harvest workflows read them.
 
@@ -176,7 +176,7 @@ Empty in fresh installs. Populates the first time a wisdom-extraction workflow r
 
 \`VERIFICATION/\` stores evidence captured during the VERIFY phase of the Algorithm — screenshots, command outputs, test results, curl traces, and any other artifact that proves work was actually completed rather than merely claimed. Verification-focused skills and hooks write here with references back to the originating slug.
 
-This directory exists because "should work" is the system's least-trusted phrase. Verifiable evidence sits here so claims of completion can be audited after the fact. Soma's ISA verification model relies on this layer for durable artifact retention beyond the per-run \`WORK/\` slug.
+This directory exists because "should work" is the system's least-trusted phrase. Verifiable evidence sits here so claims of completion can be audited after the fact. Soma's VSA verification model relies on this layer for durable artifact retention beyond the per-run \`WORK/\` slug.
 
 Empty in fresh installs. Populates whenever a workflow captures verification artifacts. Treat these files as evidence — preserve their original form and timestamps.
 `,

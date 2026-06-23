@@ -1,10 +1,10 @@
 import { join } from "node:path";
-import { applyIsaUpdate, getActiveIsa, isaPath } from "./isa";
+import { applyVsaUpdate, getActiveVsa, vsaPath } from "./vsa";
 import { appendSomaMemoryEvent, appendSomaMemoryEvents, somaMemoryEventsPath } from "./memory";
 import { checkSomaPolicy } from "./policy-audit";
-import type { IsaUpdatePayload, SomaMemoryEventInput, SubstrateId } from "./types";
+import type { VsaUpdatePayload, SomaMemoryEventInput, SubstrateId } from "./types";
 
-export type SomaWritebackMergeSemantics = "append-only" | "isa-log-append";
+export type SomaWritebackMergeSemantics = "append-only" | "vsa-log-append";
 
 export interface SomaWritebackBaseOptions {
   somaHome: string;
@@ -26,16 +26,16 @@ export interface SomaDurableMemoryWritebackOperation {
   relativePath: string;
 }
 
-export interface SomaIsaLogWritebackOperation {
-  kind: "isa-log";
+export interface SomaVsaLogWritebackOperation {
+  kind: "vsa-log";
   slug?: string;
-  entries: IsaUpdatePayload;
+  entries: VsaUpdatePayload;
 }
 
 export type SomaWritebackOperation =
   | SomaMemoryEventWritebackOperation
   | SomaDurableMemoryWritebackOperation
-  | SomaIsaLogWritebackOperation;
+  | SomaVsaLogWritebackOperation;
 
 export interface SomaWritebackOptions extends SomaWritebackBaseOptions {
   operation: SomaWritebackOperation;
@@ -85,22 +85,22 @@ export async function applySomaWriteback(options: SomaWritebackOptions): Promise
         events: [options.operation.event],
       });
     }
-    case "isa-log": {
-      const active = await getActiveIsa({ somaHome: options.somaHome });
+    case "vsa-log": {
+      const active = await getActiveVsa({ somaHome: options.somaHome });
       const activeSlug = active?.activeSlug ?? null;
       if (!activeSlug) {
-        throw new Error("ISA writeback requires an active ISA.");
+        throw new Error("VSA writeback requires an active VSA.");
       }
       const slug = options.operation.slug ?? activeSlug;
       if (options.operation.slug && options.operation.slug !== activeSlug) {
         await appendSomaMemoryEvent(options.somaHome, {
           substrate,
           kind: "writeback.isa_log.refused_scope",
-          summary: `ISA writeback slug '${options.operation.slug}' does not match active ISA '${activeSlug}'.`,
+          summary: `VSA writeback slug '${options.operation.slug}' does not match active VSA '${activeSlug}'.`,
           timestamp: options.timestamp,
           metadata: { payloadSlug: options.operation.slug, activeSlug },
         });
-        throw new Error(`ISA writeback slug '${options.operation.slug}' does not match active ISA '${activeSlug}'.`);
+        throw new Error(`VSA writeback slug '${options.operation.slug}' does not match active VSA '${activeSlug}'.`);
       }
 
       const entries = [
@@ -109,23 +109,23 @@ export async function applySomaWriteback(options: SomaWritebackOptions): Promise
         ...(options.operation.entries.verificationEntries ?? []).map((entry) => ({ section: "verification" as const, ...entry })),
       ];
       if (entries.length === 0) {
-        throw new Error("ISA writeback requires at least one log entry.");
+        throw new Error("VSA writeback requires at least one log entry.");
       }
 
-      const targetPath = isaPath(options.somaHome, slug);
+      const targetPath = vsaPath(options.somaHome, slug);
       await assertWritebackAllowed({
         somaHome: options.somaHome,
         substrate,
         destinationPath: targetPath,
         timestamp: options.timestamp,
-        deniedMessage: "Writeback gate denied ISA write",
+        deniedMessage: "Writeback gate denied VSA write",
       });
 
-      const write = await applyIsaUpdate(slug, entries, { somaHome: options.somaHome, timestamp: options.timestamp, substrate });
+      const write = await applyVsaUpdate(slug, entries, { somaHome: options.somaHome, timestamp: options.timestamp, substrate });
       await appendSomaMemoryEvent(options.somaHome, {
         substrate,
         kind: "writeback.isa_log",
-        summary: `Merged ${entries.length} ISA log entr(ies) into ${slug}.`,
+        summary: `Merged ${entries.length} VSA log entr(ies) into ${slug}.`,
         timestamp: options.timestamp,
         artifactPaths: write.path ? [write.path] : [],
         metadata: { slug, entries: options.operation.entries },
@@ -133,7 +133,7 @@ export async function applySomaWriteback(options: SomaWritebackOptions): Promise
 
       return {
         decision: "applied",
-        merge: "isa-log-append",
+        merge: "vsa-log-append",
         writes: Array.from(new Set([...(write.path ? [write.path] : []), somaMemoryEventsPath(options.somaHome)])),
       };
     }

@@ -8,10 +8,10 @@ import type {
   AlgorithmPhase,
   AlgorithmRun,
   AlgorithmRunSummary,
-  IdealStateArtifact,
+  VerificationStateArtifact,
   IdealStateCriterion,
 } from "./types";
-import { buildIsaArtifact, getCriteria, getGoal } from "./isa-accessors";
+import { buildVsaArtifact, getCriteria, getGoal } from "./vsa-accessors";
 import { getRunPhase } from "./algorithm-lifecycle";
 import { DEFAULT_ALGORITHM_LOOP_STATE } from "./algorithm-execution-modes";
 
@@ -72,7 +72,7 @@ export async function readAlgorithmRun(path: string): Promise<AlgorithmRun> {
   return loadAlgorithmRun(raw);
 }
 
-interface LegacyIsa {
+interface LegacyVsa {
   slug: string;
   phase: AlgorithmPhase;
   goal: string;
@@ -98,14 +98,14 @@ type LegacyAlgorithmRun = Omit<
   classificationReason: string;
   currentState: string;
   phase?: AlgorithmPhase;
-  isa: LegacyIsa;
+  isa: LegacyVsa;
   loop?: AlgorithmRun["loop"];
   schemaVersion?: 1 | 2;
 };
 
 /**
  * Compat shim — accepts both pre-#41 (schemaVersion 1, embedded `{ goal, criteria }`)
- * and post-#41 (schemaVersion 2, unified `IdealStateArtifact`) on-disk shapes.
+ * and post-#41 (schemaVersion 2, unified `VerificationStateArtifact`) on-disk shapes.
  * Always returns the unified schema-2 shape.
  */
 export function loadAlgorithmRun(raw: unknown): AlgorithmRun {
@@ -149,7 +149,7 @@ function migrateRunV1toV2(legacy: LegacyAlgorithmRun): AlgorithmRun {
   const criteria = Array.isArray(legacy.isa.criteria) ? legacy.isa.criteria : [];
   const goal = typeof legacy.isa.goal === "string" ? legacy.isa.goal : "";
   const intent = legacy.intent ?? legacy.id;
-  const built = buildIsaArtifact({
+  const built = buildVsaArtifact({
     slug: legacy.isa.slug,
     task: intent,
     goal,
@@ -159,7 +159,7 @@ function migrateRunV1toV2(legacy: LegacyAlgorithmRun): AlgorithmRun {
     phase: legacyPhase,
     timestamp: legacy.createdAt,
   });
-  const isa: IdealStateArtifact = {
+  const isa: VerificationStateArtifact = {
     ...built,
     frontmatter: { ...built.frontmatter, updated: legacy.updatedAt },
   };

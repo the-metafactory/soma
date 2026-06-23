@@ -134,6 +134,6 @@ sandboxes, or daemon controls exist.
 
 ## Verification V0
 
-Every task-facing ISA should include verification criteria. Adapters can add
-substrate-native verification commands, but they must not replace the ISA as
+Every task-facing VSA should include verification criteria. Adapters can add
+substrate-native verification commands, but they must not replace the VSA as
 the source of truth for done.

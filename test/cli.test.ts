@@ -169,6 +169,16 @@ test("cli supports explicit main help as normal help", async () => {
   expect(result.stderr).not.toContain("error: script");
 });
 
+test("soma#329: `soma vsa` is canonical and `soma isa` is a working deprecated alias", async () => {
+  // Both reach the same VSA CLI handler (usage banner is identical).
+  const vsaUsage = await runSomaCli(["vsa"]);
+  const isaUsage = await runSomaCli(["isa"]);
+  expect(vsaUsage).toContain("vsa");
+  expect(isaUsage).toBe(vsaUsage);
+  // Help routes through the same surface for both spellings.
+  await expect(runSomaCli(["vsa", "--help"])).resolves.toBe(await runSomaCli(["isa", "--help"]));
+});
+
 test("cli supports command-group help as normal help", async () => {
   await expect(runSomaCli(["algorithm", "--help"])).resolves.toContain("Usage: soma algorithm");
   await expect(runSomaCli(["--help", "algorithm"])).resolves.toContain("Usage: soma algorithm");
@@ -787,14 +797,14 @@ test("cli observe defaults to 'specified' — clearing the floor needs an explic
     ]);
 
     // No --evidence-kind: records 'specified', which does NOT clear the floor.
-    await runSomaCli(["algorithm", "observe", "--home-dir", homeDir, "--id", "observe-default-run", "--claim", "C1 exists", "--evidence", "read the ISA"]);
+    await runSomaCli(["algorithm", "observe", "--home-dir", homeDir, "--id", "observe-default-run", "--claim", "C1 exists", "--evidence", "read the VSA"]);
     await expect(runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "observe-default-run"])).rejects.toThrow("current-state probe");
 
     const raw = await readFile(join(homeDir, ".soma/memory/WORK/algorithm-runs/observe-default-run.json"), "utf8");
     expect(raw).toContain('"evidenceKind": "specified"');
 
     // An explicit probed observation clears it.
-    await runSomaCli(["algorithm", "observe", "--home-dir", homeDir, "--id", "observe-default-run", "--claim", "C1 exists", "--evidence", "grepped the ISA", "--evidence-kind", "probed"]);
+    await runSomaCli(["algorithm", "observe", "--home-dir", homeDir, "--id", "observe-default-run", "--claim", "C1 exists", "--evidence", "grepped the VSA", "--evidence-kind", "probed"]);
     await runSomaCli(["algorithm", "advance", "--home-dir", homeDir, "--id", "observe-default-run"]);
     const advanced = await readFile(join(homeDir, ".soma/memory/WORK/algorithm-runs/observe-default-run.json"), "utf8");
     expect(advanced).toContain('"phase": "think"');
@@ -1981,7 +1991,7 @@ test("cli dry-runs and applies cursor install", async () => {
     expect(output).toContain("substrate: cursor");
     await expect(readFile(join(homeDir, ".cursorrules"), "utf8")).resolves.toContain("Soma Cursor Projection");
     await expect(readFile(join(homeDir, ".cursor/rules/soma/CONTEXT.md"), "utf8")).resolves.toContain("Soma Cursor Context");
-    await expect(readFile(join(homeDir, ".cursor/rules/soma/skills/ISA/SKILL.md"), "utf8")).resolves.toContain("name: ISA");
+    await expect(readFile(join(homeDir, ".cursor/rules/soma/skills/VSA/SKILL.md"), "utf8")).resolves.toContain("name: VSA");
   });
 });
 
@@ -2173,47 +2183,47 @@ async function walkRelativeFiles(root: string): Promise<string[]> {
   return out.sort();
 }
 
-// `soma export` must produce a COMPLETE bundle for EVERY substrate. The ISA
+// `soma export` must produce a COMPLETE bundle for EVERY substrate. The VSA
 // skill has a dedicated managed projection at install time and is excluded
 // from the generic portable-skill loop, so a naive export omits its files
-// while skills.md still lists it. The exported bundle's ISA set must match the
+// while skills.md still lists it. The exported bundle's VSA set must match the
 // installed home byte-for-byte. Run per-substrate because the destination
-// prefix differs (codex/claude-code/grok `skills/ISA`, cursor
-// `.cursor/rules/soma/skills/ISA`, pi-dev a custom dir + lowercase `isa` skill
+// prefix differs (codex/claude-code/grok `skills/VSA`, cursor
+// `.cursor/rules/soma/skills/VSA`, pi-dev a custom dir + lowercase `isa` skill
 // name), so each prefix must be exercised or it could silently diverge. Prefix
 // + installed dir are derived from the install spec, exactly as
-// buildExportIsaProjection does, so the test can't drift from the production
+// buildExportVsaProjection does, so the test can't drift from the production
 // prefix logic.
 for (const substrate of INSTALL_SUBSTRATES) {
-  test(`cli export ${substrate} bundle includes the ISA skill files, matching an installed home`, async () => {
+  test(`cli export ${substrate} bundle includes the VSA skill files, matching an installed home`, async () => {
     await withTempHome(async (homeDir) => {
       const spec = installSpecFor(substrate);
       const substrateRoot = join(homeDir, spec.defaultHome);
-      const installedIsaDir = spec.isaSkillProjection.destinationDir(substrateRoot);
-      const prefix = relative(substrateRoot, installedIsaDir).replace(/\\/g, "/");
+      const installedVsaDir = spec.vsaSkillProjection.destinationDir(substrateRoot);
+      const prefix = relative(substrateRoot, installedVsaDir).replace(/\\/g, "/");
 
       await runSomaCli(["install", substrate, "--apply", "--home-dir", homeDir]);
 
-      // Installed-home ISA file set (the source of truth for completeness).
-      const installedIsaFiles = await walkRelativeFiles(installedIsaDir);
-      expect(installedIsaFiles).toContain("SKILL.md");
+      // Installed-home VSA file set (the source of truth for completeness).
+      const installedVsaFiles = await walkRelativeFiles(installedVsaDir);
+      expect(installedVsaFiles).toContain("SKILL.md");
 
       const output = await runSomaCli(["export", substrate, "--home-dir", homeDir]);
       const bundle = JSON.parse(output) as { path: string; content: string }[];
 
-      const bundleIsa = bundle
+      const bundleVsa = bundle
         .filter((f) => f.path.startsWith(`${prefix}/`))
         .map((f) => ({ rel: f.path.slice(prefix.length + 1), content: f.content }))
         // Default code-unit order to match walkRelativeFiles / listSkillFiles.
         .sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
 
       // Same file set as the installed home...
-      expect(bundleIsa.map((f) => f.rel)).toEqual(installedIsaFiles);
-      expect(bundleIsa.length).toBeGreaterThan(0);
+      expect(bundleVsa.map((f) => f.rel)).toEqual(installedVsaFiles);
+      expect(bundleVsa.length).toBeGreaterThan(0);
 
       // ...with byte-identical content.
-      for (const { rel, content } of bundleIsa) {
-        const onDisk = await readFile(join(installedIsaDir, rel), "utf8");
+      for (const { rel, content } of bundleVsa) {
+        const onDisk = await readFile(join(installedVsaDir, rel), "utf8");
         expect(content).toBe(onDisk);
       }
     });

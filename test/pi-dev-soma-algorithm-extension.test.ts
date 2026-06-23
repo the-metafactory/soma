@@ -22,7 +22,7 @@ describe("renderSomaAlgorithmExtension", () => {
     // generated extension uses a local `on(event, handler)` helper
     // (Sage R9 maintainability) to deduplicate the ExtensionAPI cast.
     expect(source).toContain('on("message_update"');
-    // ISA criteria widget updates on isa_update tool results.
+    // VSA criteria widget updates on isa_update tool results.
     expect(source).toContain('on("tool_result"');
     expect(source).toContain('"isa_update"');
     // Footer status — the canonical "soma" slot.
@@ -34,7 +34,7 @@ describe("renderSomaAlgorithmExtension", () => {
 
     expect(source).toMatch(/from "file:\/\/.*phase-parser\.ts"/u);
     expect(source).toMatch(/from "file:\/\/.*widget-renderers\.ts"/u);
-    expect(source).toMatch(/from "file:\/\/.*isa-checklist\.ts"/u);
+    expect(source).toMatch(/from "file:\/\/.*vsa-checklist\.ts"/u);
     expect(source).toMatch(/from "file:\/\/.*\/src\/policy-audit\.ts"/u);
     expect(source).toMatch(/from "file:\/\/.*\/src\/adapters\/pi-dev\/extensions\/policy-targets\.ts"/u);
     expect(source).toMatch(/from "file:\/\/.*\/src\/adapters\/pi-dev\/algorithm-run-snapshot\.ts"/u);
@@ -45,7 +45,7 @@ describe("renderSomaAlgorithmExtension", () => {
 
     expect(source).toContain('from "file:///tmp/override/phase-parser.ts"');
     expect(source).toContain('from "file:///tmp/override/widget-renderers.ts"');
-    expect(source).toContain('from "file:///tmp/override/isa-checklist.ts"');
+    expect(source).toContain('from "file:///tmp/override/vsa-checklist.ts"');
     expect(source).toContain('from "file:///tmp/override/policy-audit.ts"');
     expect(source).toContain('from "file:///tmp/override/policy-targets.ts"');
     expect(source).toContain('from "file:///tmp/override/algorithm-run-snapshot.ts"');
@@ -216,10 +216,10 @@ describe("renderSomaAlgorithmExtension", () => {
   test("tool_result handler validates the untyped boundary (Sage R3 security)", () => {
     const source = renderSomaAlgorithmExtension();
 
-    // sanitizeIsaCriteria coerces unknown payloads to a typed array,
+    // sanitizeVsaCriteria coerces unknown payloads to a typed array,
     // dropping malformed entries silently. Crash-proofs the checklist
     // renderer against adversarial or malformed isa_update results.
-    expect(source).toContain("function sanitizeIsaCriteria(result: unknown)");
+    expect(source).toContain("function sanitizeVsaCriteria(result: unknown)");
     expect(source).toContain("Array.isArray(raw)");
     expect(source).toContain('typeof e.id !== "string"');
     expect(source).toContain('typeof e.title !== "string"');
@@ -250,12 +250,12 @@ describe("renderSomaAlgorithmExtension", () => {
     expect(source).toContain("raw.length < run.lastSnapshotLength");
   });
 
-  test("sanitizeIsaCriteria bounds payload size + per-field length (Sage R4 security)", () => {
+  test("sanitizeVsaCriteria bounds payload size + per-field length (Sage R4 security)", () => {
     const source = renderSomaAlgorithmExtension();
 
-    expect(source).toContain("ISA_CRITERIA_MAX_COUNT");
-    expect(source).toContain("ISA_CRITERIA_FIELD_MAX_LENGTH");
-    expect(source).toContain("if (out.length >= ISA_CRITERIA_MAX_COUNT) break");
+    expect(source).toContain("VSA_CRITERIA_MAX_COUNT");
+    expect(source).toContain("VSA_CRITERIA_FIELD_MAX_LENGTH");
+    expect(source).toContain("if (out.length >= VSA_CRITERIA_MAX_COUNT) break");
     expect(source).toContain("clip(e.id)");
     expect(source).toContain("clip(e.title)");
     expect(source).toContain("clip(e.status)");

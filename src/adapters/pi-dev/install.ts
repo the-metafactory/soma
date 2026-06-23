@@ -3,9 +3,9 @@ import { join, resolve } from "node:path";
 import type { SubstrateInstallSpec } from "../../install-spec";
 import type { SubstrateId } from "../../types";
 import {
-  PI_DEV_ISA_SKILL_ID,
-  piDevIsaSkillDestinationDir,
-  removeLegacyPiDevIsaSkillProjection,
+  PI_DEV_VSA_SKILL_ID,
+  piDevVsaSkillDestinationDir,
+  removeLegacyPiDevVsaSkillProjection,
 } from "./skill-projection";
 import { validatePiDevInstallRuntime } from "./version";
 
@@ -40,10 +40,10 @@ export const piDevInstallSpec: SubstrateInstallSpec<"pi-dev"> = {
   substrate: "pi-dev",
   defaultHome: PI_DEV_DEFAULT_HOME,
   homeFiles: PI_DEV_HOME_FILES,
-  isaSkillProjection: {
-    destinationDir: piDevIsaSkillDestinationDir,
-    skillNameOverride: PI_DEV_ISA_SKILL_ID,
-    prepare: removeLegacyPiDevIsaSkillProjection,
+  vsaSkillProjection: {
+    destinationDir: piDevVsaSkillDestinationDir,
+    skillNameOverride: PI_DEV_VSA_SKILL_ID,
+    prepare: removeLegacyPiDevVsaSkillProjection,
   },
   validator: validatePiDevInstallRuntime,
   lifecycleProjection: {

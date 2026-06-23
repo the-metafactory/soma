@@ -621,7 +621,7 @@ These are domain-specific behaviours that consume the core primitives. They migr
 |  | failure capture | `soma-skill-failure-capture` | Post-mortem capture, lessons routing into memory. |
 |  | session harvesting | `soma-skill-session-harvest` | Extract durable knowledge from session transcripts. |
 |  | metrics | `soma-skill-metrics` | Operational metrics on assistant performance + learning signals. |
-|  | progress | `soma-skill-progress` | Progress reporting / status synthesis across active ISAs. |
+|  | progress | `soma-skill-progress` | Progress reporting / status synthesis across active VSAs. |
 | [soma#131](https://github.com/the-metafactory/soma/issues/131) — Phase 3 (Wisdom Frames, 3 tools) | domain classifier, frame updater, cross-frame synthesizer | `soma-skill-wisdom-frames` | Single skill repo — the three tools genuinely co-evolve (shared frame schema). The architecture decision soma#131 calls out (knowledge taxonomy ownership) becomes a DD inside soma core: "where do frame schemas live, who can extend them." |
 | [soma#132](https://github.com/the-metafactory/soma/issues/132) — Phase 4 | `RelationshipReflect.ts` (opinion updates, milestone detection, notification) | `soma-skill-relationship-reflect` | Single skill. Notification dispatch goes through soma core's notification primitive (or a separate `soma-skill-notify` if more skills need notification). |
 

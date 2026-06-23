@@ -132,7 +132,7 @@ semantics are deterministic:
 
 - `memory-event` writes append one event to `memory/STATE/events.jsonl`.
 - `isa-log` appends Decisions, Changelog, and Verification entries to the
-  active ISA, or to an explicit slug only when that slug matches the active ISA.
+  active VSA, or to an explicit slug only when that slug matches the active VSA.
 
 Every supported operation first runs Soma policy against the target path. Direct
 durable writes to stores such as `KNOWLEDGE`, `LEARNING`, `RELATIONSHIP`,
@@ -154,7 +154,7 @@ Until store-specific merge rules exist:
 
 Home replication must preserve these conflict rules across machines. It may
 merge append-only `memory/STATE/events.jsonl` entries and session-keyed work
-state, but durable memory, profile, Purpose, skill, policy, and ISA body
+state, but durable memory, profile, Purpose, skill, policy, and VSA body
 conflicts remain explicit conflicts until store-specific merge rules exist. See
 [home-replication.md](./home-replication.md).
 
@@ -168,9 +168,9 @@ Each memory store needs its own merge semantics before direct writes are allowed
 | Store | Likely merge strategy |
 | --- | --- |
 | `STATE` | Easy: append-only events, latest cache can be regenerated |
-| `ISA` | Supported for log sections only: append Decisions, Changelog, Verification through `applySomaWriteback` |
+| `VSA` | Supported for log sections only: append Decisions, Changelog, Verification through `applySomaWriteback` |
 | `LEARNING` | Medium: append candidate, consolidate into lessons explicitly |
-| `WORK` | Hard: task/ISA scoped updates with criteria-level history |
+| `WORK` | Hard: task/VSA scoped updates with criteria-level history |
 | `RELATIONSHIP` | Hard: conservative append plus review due privacy/sensitivity |
 | `KNOWLEDGE` | Hardest: citation/provenance required before durable promotion |
 

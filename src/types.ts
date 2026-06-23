@@ -29,7 +29,7 @@ export type Telos = Purpose;
  * What the verifier CLAIMS about how the evidence was obtained. A caller-asserted
  * label, NOT a machine-verified fact — Soma records the claim and gates on it, but
  * does not confirm a `probed`/`tested` label corresponds to a real probe or test
- * on any surface (CLI, ISA markdown, or library).
+ * on any surface (CLI, VSA markdown, or library).
  * - `specified`: a design/spec claim only ("the doc says X") — weak; blocks the LEARN gate.
  * - `probed`: caller asserts behaviour was observed at runtime (curl, grep of running state).
  * - `tested`: caller asserts coverage by an automated test.
@@ -163,9 +163,9 @@ export interface DerivedFrontmatter {
   updated: string;
 }
 
-export interface IsaFrontmatter extends AuthoredFrontmatter, DerivedFrontmatter {}
+export interface VsaFrontmatter extends AuthoredFrontmatter, DerivedFrontmatter {}
 
-export interface IsaSection {
+export interface VsaSection {
   name: string;
   content: string;
 }
@@ -176,17 +176,17 @@ export interface IsaSection {
  * The name is historical (predates the section-based model).
  *
  * Identity: `slug`. Source of truth when file-backed: `~/.soma/isa/<slug>.md`.
- * In-memory ephemeral ISAs (Algorithm runs that never touch disk) leave
+ * In-memory ephemeral VSAs (Algorithm runs that never touch disk) leave
  * `sourcePath` undefined.
  *
  * Storage model is section-agnostic at the type level — derived accessors
  * (getGoal, getCriteria, etc.) and the SECTION_NAME_MAP are what give the
  * twelve-section schema its meaning.
  */
-export interface IdealStateArtifact {
+export interface VerificationStateArtifact {
   slug: string;
-  frontmatter: IsaFrontmatter;
-  sections: readonly IsaSection[];
+  frontmatter: VsaFrontmatter;
+  sections: readonly VsaSection[];
   sourcePath?: string;
 }
 
@@ -353,7 +353,7 @@ export interface AlgorithmRun {
   mode: AlgorithmMode;
   classificationReason: string;
   currentState: string;
-  isa: IdealStateArtifact;
+  isa: VerificationStateArtifact;
   loop: AlgorithmLoopState;
   antiCriteria: IdealStateCriterion[];
   capabilities: string[];
@@ -544,7 +544,7 @@ export interface SomaProfile {
 
 export interface ProjectionInput {
   profile: SomaProfile;
-  activeIsa?: IdealStateArtifact;
+  activeVsa?: VerificationStateArtifact;
   prompt?: string;
 }
 
@@ -619,18 +619,18 @@ export interface SomaInstallPlan {
 }
 
 /**
- * Schema for `~/.soma/memory/STATE/active.json` — canonical active-ISA
+ * Schema for `~/.soma/memory/STATE/active.json` — canonical active-VSA
  * state file shipped by #32. Layer 3 (#34) library CRUD is the sole
  * owner of reads/writes; `bootstrapSomaHome()` only declares the schema
  * and creates the containing directory.
  *
- * - `activeSlug` — slug of the currently-active ISA, or `null` when none.
+ * - `activeSlug` — slug of the currently-active VSA, or `null` when none.
  * - `runId`      — `AlgorithmRun.id` currently operating on the active
- *                  ISA; cleared by `completeAlgorithmRun` /
+ *                  VSA; cleared by `completeAlgorithmRun` /
  *                  `abandonAlgorithmRun` (per #41 reconciliation v3).
  * - `updatedAt`  — ISO 8601 timestamp of the last mutation.
  */
-export interface SomaActiveIsaState {
+export interface SomaActiveVsaState {
   activeSlug: string | null;
   runId: string | null;
   updatedAt: string;
@@ -644,30 +644,30 @@ export interface SomaSkillBaseline {
 
 export type SomaSkillBaselines = Record<string, SomaSkillBaseline>;
 
-export interface IsaSkillInstallOptions {
+export interface VsaSkillInstallOptions {
   homeDir?: string;
   somaHome?: string;
   somaRepoPath?: string;
   force?: boolean;
   /**
    * Absolute destination directory for the installed skill (#37). When
-   * omitted the installer writes to `<somaHome>/skills/ISA` (preserves
+   * omitted the installer writes to `<somaHome>/skills/VSA` (preserves
    * pre-#37 behavior). When set — used by substrate adapters that want
    * to install the same versioned skill under their own root, e.g.
-   * `~/.codex/skills/ISA`. The baseline + drift detection logic is
+   * `~/.codex/skills/VSA`. The baseline + drift detection logic is
    * shared regardless of destination.
    */
   skillDestinationDir?: string;
 }
 
-export type IsaSkillInstallAction = "fresh" | "upgraded" | "unchanged" | "preserved-local-edits" | "no-source";
+export type VsaSkillInstallAction = "fresh" | "upgraded" | "unchanged" | "preserved-local-edits" | "no-source";
 
-export interface IsaSkillInstallResult {
+export interface VsaSkillInstallResult {
   somaHome: string;
   skillDir: string;
   sourceVersion: string;
   runtimeVersion: string | null;
-  action: IsaSkillInstallAction;
+  action: VsaSkillInstallAction;
   filesWritten: string[];
   filesPreservedUserAdditions: string[];
   upgradeMarker?: string;
@@ -2153,7 +2153,7 @@ export interface SomaProtectedPath {
    * surrounding root is otherwise modify-guarded. Has no effect on `delete`;
    * destructive operations against any descendant of `path` remain blocked.
    *
-   * Used to declare known memory/ISA destinations under a private root so that
+   * Used to declare known memory/VSA destinations under a private root so that
    * legitimate Soma writes (e.g. `~/.soma/isa/*.md`, `~/.soma/memory/...`)
    * pass while overwrites of the private root itself (`~/.soma/profile/...`)
    * stay denied.
@@ -2212,12 +2212,12 @@ export interface SomaPolicyBatchCheckResult {
 export type SomaLifecycleEventName = "session_start" | "algorithm_updated" | "algorithm_observed" | "session_end" | "isa_updated";
 
 /**
- * Payload for `runSomaLifecycleIsaUpdated` (#38). Each entry's `text` is
- * persisted to the active ISA's matching section via the library's
- * `record*` helpers. `phase` defaults to the ISA's current phase;
+ * Payload for `runSomaLifecycleVsaUpdated` (#38). Each entry's `text` is
+ * persisted to the active VSA's matching section via the library's
+ * `record*` helpers. `phase` defaults to the VSA's current phase;
  * `timestamp` defaults to the hook invocation timestamp.
  */
-export interface IsaUpdatePayload {
+export interface VsaUpdatePayload {
   slug?: string;
   decisions?: { text: string; phase?: AlgorithmPhase; timestamp?: string }[];
   changelogEntries?: { text: string; phase?: AlgorithmPhase; timestamp?: string }[];
@@ -2258,7 +2258,7 @@ export interface SomaLifecycleResult {
   timestamp: string;
   files: string[];
   context?: string;
-  activeIsa?: { slug: string; phase: AlgorithmPhase } | null;
+  activeVsa?: { slug: string; phase: AlgorithmPhase } | null;
   writes?: string[];
 }
 

@@ -9,7 +9,7 @@ import type {
   AlgorithmRun,
   AlgorithmRunInput,
   EvidenceKind,
-  IdealStateArtifact,
+  VerificationStateArtifact,
   IdealStateCriterion,
 } from "./types";
 import {
@@ -21,7 +21,7 @@ import {
 import { classifyAlgorithmPrompt } from "./algorithm-classifier";
 import { compactSmarterRun } from "./algorithm-reflection-digest";
 import {
-  buildIsaArtifact,
+  buildVsaArtifact,
   defaultEvidenceKind,
   getCriteria,
   isClosedCriterion,
@@ -29,13 +29,13 @@ import {
   progressFromCriteria,
   updateCriterionWithResult,
   verifiedFromCriteria,
-} from "./isa-accessors";
+} from "./vsa-accessors";
 
 /**
  * The criteria that block entry to LEARN, split by reason. Single source of truth
  * for the Algorithm's LEARN-gate policy — both the assertGate guard and sync's
  * reachability check call this so the two cannot drift when a future evidence rule
- * is added. Composes the pure isa-accessor predicates; gate policy lives here in
+ * is added. Composes the pure vsa-accessor predicates; gate policy lives here in
  * the Algorithm module, not in the structural accessor layer.
  */
 export function learnGateViolations(criteria: readonly IdealStateCriterion[]): {
@@ -149,7 +149,7 @@ export function createAlgorithmRun(input: AlgorithmRunInput): AlgorithmRun {
     classificationReason,
     currentState: input.currentState,
     loop: { ...DEFAULT_ALGORITHM_LOOP_STATE, iterations: [] },
-    isa: buildIsaArtifact({
+    isa: buildVsaArtifact({
       slug,
       task: input.intent,
       goal: input.goal,
@@ -383,7 +383,7 @@ export function verifyAlgorithmCriterion(
 ): AlgorithmRun {
   assertNonEmpty(evidence, "verification evidence");
 
-  const { isa: isaWithSection, criteria: updatedCriteria } = updateCriterionWithResult(
+  const { isa: vsaWithSection, criteria: updatedCriteria } = updateCriterionWithResult(
     run.isa,
     criterionId,
     status,
@@ -391,10 +391,10 @@ export function verifyAlgorithmCriterion(
     evidenceKind,
   );
   const entry = logEntry(getRunPhase(run), `${criterionId}: ${status}. ${evidence}`, timestamp);
-  const isaWithRecompute: IdealStateArtifact = {
-    ...isaWithSection,
+  const vsaWithRecompute: VerificationStateArtifact = {
+    ...vsaWithSection,
     frontmatter: {
-      ...isaWithSection.frontmatter,
+      ...vsaWithSection.frontmatter,
       progress: progressFromCriteria(updatedCriteria),
       verified: verifiedFromCriteria(updatedCriteria),
       updated: entry.timestamp,
@@ -404,7 +404,7 @@ export function verifyAlgorithmCriterion(
   const next = {
     ...run,
     updatedAt: entry.timestamp,
-    isa: isaWithRecompute,
+    isa: vsaWithRecompute,
     verification: [...run.verification, entry],
   };
   return appendAlgorithmProvenance(next, {
