@@ -9,7 +9,7 @@ projects the same Soma into different substrate-native primitives. See
 Codex is a coding-agent substrate. The Codex projection should carry:
 
 - system/developer instruction fragments
-- Soma identity and telos
+- Soma identity and purpose
 - active ISA summary
 - relevant skills as local instructions
 - memory readback
@@ -152,7 +152,7 @@ Cursor reads project-level rule files and can use MCP servers for additional
 tools. The first Cursor adapter is intentionally filesystem-first:
 
 - `.cursorrules` points Cursor at the generated Soma rule directory
-- `.cursor/rules/soma/` carries context, profile, telos, memory layout, skills,
+- `.cursor/rules/soma/` carries context, profile, purpose, memory layout, skills,
   policy, MCP notes, and the active ISA when present
 - `.cursor/rules/soma/skills/ISA/` carries the portable ISA skill source
 

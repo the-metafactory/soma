@@ -35,7 +35,7 @@ owns transport and envelope semantics, and Spawn owns isolated execution.
 
 | Area | Owner | Soma daemon role |
 | --- | --- | --- |
-| Assistant identity, Telos, ISA, memory, policy, and skill registry | Soma | Read and update through the normal Soma home contracts. |
+| Assistant identity, Purpose, ISA, memory, policy, and skill registry | Soma | Read and update through the normal Soma home contracts. |
 | Myelin subject names, envelope schemas, ack/retry semantics, credentials | Myelin | Consume imported contracts; never invent incompatible wire semantics. |
 | Collaboration routing, work queues, task assignment | Cortex | Let Cortex address or discover the Soma Cortex agent. |
 | Isolated execution lifecycle | Spawn | Request execution when a task needs an isolated runtime. |
@@ -105,7 +105,7 @@ owning packages.
 
 - The daemon never relaxes personal policy; team overlay policy can only add
   restrictions.
-- The daemon must not expose Identity, Telos, Relationship, raw transcripts, or
+- The daemon must not expose Identity, Purpose, Relationship, raw transcripts, or
   security traces through team or bus-facing surfaces.
 - The daemon records provenance for every accepted envelope and every selected
   skill or ISA.

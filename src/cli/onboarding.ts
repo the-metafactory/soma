@@ -212,7 +212,7 @@ function formatSomaInitPlan(plan: SomaInitPlan): string {
   return [
     `soma init — ${plan.mode === "apply" ? "apply plan" : "plan (dry-run; pass --apply to execute)"}`,
     "",
-    "Creates the Soma home (identity, telos, memory, skills, policy) and",
+    "Creates the Soma home (identity, purpose, memory, skills, policy) and",
     "imports context from an existing Claude Code / PAI installation when one",
     "is detected.",
     "",

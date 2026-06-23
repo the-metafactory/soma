@@ -22,13 +22,32 @@ test("bootstraps a soma home with starter profile and memory layout", async () =
     expect(result.somaHome).toBe(somaHome);
     expect(result.context.profile.assistant.name).toBe("soma");
     expect(result.context.profile.principal.preferredName).toBe("Principal");
-    expect(result.context.profile.telos.goals).toContain("Establish Soma as the durable personal assistant home.");
+    expect(result.context.profile.purpose.goals).toContain("Establish Soma as the durable personal assistant home.");
     expect(result.context.profile.memory.learning).toBe(join(somaHome, "memory/LEARNING"));
 
     await expect(readFile(join(somaHome, "profile/assistant.md"), "utf8")).resolves.toContain("# Assistant");
     const workMemory = await stat(join(somaHome, "memory/WORK"));
     expect(workMemory.isDirectory()).toBe(true);
     await expect(readFile(join(somaHome, "policy/README.md"), "utf8")).resolves.toContain("Soma Policy");
+  });
+});
+
+test("soma#329: loads a pre-rename home that still has profile/telos.md", async () => {
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+
+    // Simulate a home created before the Telos→Purpose rename: drop the new
+    // purpose.md and leave a legacy telos.md in its place.
+    await rm(join(somaHome, "profile/purpose.md"), { force: true });
+    await writeFile(
+      join(somaHome, "profile/telos.md"),
+      "# Telos\n\nMission: Legacy mission from a pre-rename home.\n\n## Goals\n\n- Keep loading after the rename.\n",
+      "utf8",
+    );
+
+    const profile = await loadSomaProfile(somaHome);
+    expect(profile.purpose.mission).toBe("Legacy mission from a pre-rename home.");
+    expect(profile.purpose.goals).toContain("Keep loading after the rename.");
   });
 });
 

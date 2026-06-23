@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { isAbsolute, join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import { bootstrapSomaHome, installSomaForCodex, installSomaForPiDev, planSomaForCodexInstall, planSomaForPiDevInstall, somaWorkRegistryPaths } from "../src/index";
+import { bootstrapSomaHome, installSomaForCodex, installSomaForCursor, installSomaForPiDev, planSomaForCodexInstall, planSomaForPiDevInstall, somaWorkRegistryPaths } from "../src/index";
 import { codexInstallSpec } from "../src/adapters/codex/install";
 import { renderStartupContextSummary } from "../src/adapters/codex/hooks/codex-hook-entry.mjs";
 import {
@@ -12,6 +12,7 @@ import {
 } from "../src/memory-readmes";
 import { somaMemoryPrivateRoots, somaProjectionPrivateRoots } from "../src/projection-private-roots";
 import { allInstallSpecs, installSpecFor } from "../src/install-spec-registry";
+import { expectReprojectPrunesStaleTelos } from "./fixtures";
 
 // #88 — Canonical PAI v5.0.0 memory taxonomy (DD-2). 17 substrate-neutral +
 // 2 PAI-bound = 19. Tests consume the production-exported lists from
@@ -108,7 +109,7 @@ test("installs soma source home and codex home projection", async () => {
     expect(result.substrateHome.rootDir).toBe(join(homeDir, ".codex"));
     expect(result.substrateHome.files).toHaveLength(21);
 
-    const telos = await readFile(join(homeDir, ".soma/profile/telos.md"), "utf8");
+    const telos = await readFile(join(homeDir, ".soma/profile/purpose.md"), "utf8");
     const rules = await readFile(join(homeDir, ".codex/rules/soma.rules"), "utf8");
     const config = await readFile(join(homeDir, ".codex/config.toml"), "utf8");
     const hooks = await readFile(join(homeDir, ".codex/hooks.json"), "utf8");
@@ -197,6 +198,15 @@ test("bootstrap creates a projections directory for every registered install sub
     for (const spec of allInstallSpecs()) {
       await expect(stat(join(somaHome, "projections", spec.substrate))).resolves.toBeDefined();
     }
+  });
+});
+
+test("soma#329: cursor reproject removes a stale .cursor/rules/soma/TELOS.md", async () => {
+  await withTempHome(async (homeDir) => {
+    await expectReprojectPrunesStaleTelos(
+      join(homeDir, ".cursor/rules/soma"),
+      () => installSomaForCursor({ homeDir }),
+    );
   });
 });
 

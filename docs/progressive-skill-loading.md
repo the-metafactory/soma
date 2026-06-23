@@ -24,7 +24,7 @@ small kernel -> skill registry -> route -> selected manifest -> selected body
 
 ## Goals
 
-- Keep identity, telos, active work state, memory routing, and policy available
+- Keep identity, purpose, active work state, memory routing, and policy available
   by default.
 - Keep all portable skills discoverable without loading every skill body.
 - Select candidate skills from compact metadata before expanding full skill
@@ -67,7 +67,7 @@ Skill loader
 The kernel is the maximum context that should be loaded by default:
 
 - assistant and principal identity
-- telos summary
+- purpose summary
 - active Algorithm run or active ISA summary
 - memory search instructions
 - policy and verification rules

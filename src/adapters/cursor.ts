@@ -9,7 +9,7 @@ export const CURSOR_RULES_BLOCK_END = "<!-- SOMA_CURSOR_END -->";
 export const CURSOR_RULES_README_PATH = ".cursor/rules/soma/README.md";
 export const CURSOR_CONTEXT_PATH = ".cursor/rules/soma/CONTEXT.md";
 export const CURSOR_PROFILE_PATH = ".cursor/rules/soma/PROFILE.md";
-export const CURSOR_TELOS_PATH = ".cursor/rules/soma/TELOS.md";
+export const CURSOR_PURPOSE_PATH = ".cursor/rules/soma/PURPOSE.md";
 export const CURSOR_MEMORY_LAYOUT_PATH = ".cursor/rules/soma/MEMORY_LAYOUT.md";
 export const CURSOR_SKILLS_PATH = ".cursor/rules/soma/SKILLS.md";
 export const CURSOR_POLICY_PATH = ".cursor/rules/soma/POLICY.md";
@@ -20,7 +20,7 @@ export const CURSOR_HOME_FILE_PATHS = [
   CURSOR_RULES_README_PATH,
   CURSOR_CONTEXT_PATH,
   CURSOR_PROFILE_PATH,
-  CURSOR_TELOS_PATH,
+  CURSOR_PURPOSE_PATH,
   CURSOR_MEMORY_LAYOUT_PATH,
   CURSOR_SKILLS_PATH,
   CURSOR_POLICY_PATH,
@@ -71,9 +71,9 @@ function renderCursorRulesReadme(): string {
     "",
     "## Files",
     "",
-    "- `CONTEXT.md` — assistant identity, principal, telos, and operating rules",
+    "- `CONTEXT.md` — assistant identity, principal, purpose, and operating rules",
     "- `PROFILE.md` — assistant and principal profile detail",
-    "- `TELOS.md` — mission, goals, principles, and commitments",
+    "- `PURPOSE.md` — mission, goals, principles, and commitments",
     "- `MEMORY_LAYOUT.md` — pointers into the Soma memory tree",
     "- `SKILLS.md` — discovered Soma skills",
     "- `POLICY.md` — substrate policy projection",
@@ -88,10 +88,10 @@ function renderCursorProfile(input: ProjectionInput): string {
   return ["# Soma Profile Projection", "", renderAssistantCore(input)].join("\n");
 }
 
-function renderCursorTelos(input: ProjectionInput): string {
-  const t = input.profile.telos;
+function renderCursorPurpose(input: ProjectionInput): string {
+  const t = input.profile.purpose;
   return [
-    "# Soma Telos Projection",
+    "# Soma Purpose Projection",
     "",
     t.mission ? `## Mission\n\n${t.mission}` : "## Mission\n\nNone declared.",
     "",
@@ -159,8 +159,8 @@ export function projectCursor(input: ProjectionInput): Projection {
         content: renderCursorProfile(input),
       },
       {
-        path: CURSOR_TELOS_PATH,
-        content: renderCursorTelos(input),
+        path: CURSOR_PURPOSE_PATH,
+        content: renderCursorPurpose(input),
       },
       {
         path: CURSOR_MEMORY_LAYOUT_PATH,

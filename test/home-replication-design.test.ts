@@ -19,7 +19,7 @@ test("home replication design keeps Soma home authoritative", () => {
 });
 
 test("home replication has explicit privacy and scope gates", () => {
-  for (const scope of ["identity", "telos", "skills", "policy", "isa", "state-events", "relationship", "raw", "security"]) {
+  for (const scope of ["identity", "purpose", "skills", "policy", "isa", "state-events", "relationship", "raw", "security"]) {
     expect(designDoc).toContain(`\`${scope}\``);
   }
   expect(designDoc).toContain("snapshot safety ignores");

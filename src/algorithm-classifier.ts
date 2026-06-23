@@ -42,7 +42,7 @@ const NATIVE_PATTERNS = [
 
 const ALGORITHM_PATTERNS = [
   /\b(build|create|make|implement|design|refactor|migrate|integrate|port|bootstrap|architect|evolve)\b/i,
-  /\b(identify|analyze|reason|implications?|surprising|telos[- ]aligned|strategy|outcome)\b/i,
+  /\b(identify|analyze|reason|implications?|surprising|(?:telos|purpose)[- ]aligned|strategy|outcome)\b/i,
   /\b(system|doctrine|policy|hook|lifecycle|adapter|projection|daemon|framework|architecture)\b/i,
   /\b(multiple|multi[- ]file|cross[- ]cutting|end[- ]to[- ]end|portable|substrate)\b/i,
   /\b(algorithm|isa|ideal state|criteria|verification|harness|pai|soma)\b/i,
@@ -70,7 +70,7 @@ function classifyAlgorithmTier(prompt: string): AlgorithmEffortTier {
     return "E3";
   }
 
-  if (/\b(thorough|quality|structured|workflow|harness|criteria|verify|tests?|clear reasoning|implications?|telos[- ]aligned|surprising|strategy)\b/.test(text)) {
+  if (/\b(thorough|quality|structured|workflow|harness|criteria|verify|tests?|clear reasoning|implications?|(?:telos|purpose)[- ]aligned|surprising|strategy)\b/.test(text)) {
     return "E2";
   }
 

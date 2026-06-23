@@ -19,6 +19,10 @@ export const claudeCodeInstallSpec: SubstrateInstallSpec<"claude-code"> = {
     SOMA_CLAUDE_HOOK_CONFIG_RELATIVE_PATH,
     "settings.json",
   ],
+  // soma#329: the Purpose projection was renamed from TELOS.md → PURPOSE.md.
+  // Claude Code auto-loads rules/soma/, so an upgrade must delete the stale
+  // copy or it would keep loading frozen old content every session.
+  obsoleteHomeFiles: ["rules/soma/TELOS.md"],
   optionalHomeFiles: (options) => isClaudeCodeInstallOptions(options) && options.modeClassifier === true
     ? [SOMA_CLAUDE_MODE_CLASSIFIER_RELATIVE_PATH, SOMA_CLAUDE_MODE_CLASSIFIER_CONFIG_RELATIVE_PATH]
     : [],

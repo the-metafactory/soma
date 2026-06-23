@@ -14,7 +14,7 @@ re-projection rewrites.
 ├── profile/
 │   ├── assistant.md        # assistant identity (name, traits)
 │   ├── principal.md        # who the assistant works for
-│   ├── telos.md            # mission, goals, principles, commitments
+│   ├── purpose.md            # mission, goals, principles, commitments
 │   └── imports/            # provenance of migrated PAI/Claude identity
 ├── skills/                 # portable skill folders (<name>/SKILL.md)
 ├── memory/                 # Soma memory taxonomy (WORK, KNOWLEDGE, LEARNING, …)
@@ -61,7 +61,7 @@ without `--apply`):
    install ships an empty skills directory; the plan reports it as
    "empty — nothing to import" and skips the step.
 3. `migrate-pai` — only when a PAI installation (`~/.claude/PAI`) is detected.
-   Imports identity, Telos, Algorithm context, memory, and docs.
+   Imports identity, Purpose, Algorithm context, memory, and docs.
 4. `install-<substrate>` — projects the Soma home into the selected substrate
    (default `codex`; choose with `--substrate`).
 
