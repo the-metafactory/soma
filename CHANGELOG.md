@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Algorithm meta-reflection layer** (#333) — the "how the Algorithm itself
+  should have behaved" layer PAI captured (`reflection_q1/q2/q3` + `doctrine_fired`)
+  and Soma never ported. A typed `AlgorithmMetaReflection` on the run carries two
+  halves by design: **deterministic `gatesFired`** (computed from run state via the
+  same predicates the live gates enforce — `currentStateFloor` #331, `learnGateClean`
+  #330, `completeness`) and the **model-proposed `smarterRun`** q-signals. Record
+  with `soma algorithm reflect`; the gate-flags are computed, the q-signals are the
+  caller's. `soma algorithm reflections --id <run>` lists a run's reflections;
+  `--digest` ranks the cross-run improvement backlog — **gate-miss counts rank,
+  q-signal keyword buckets enrich** — optionally folding in a historical PAI
+  reflections jsonl via `--pai-source`. Reflections mirror into the run's
+  `LEARNING/ALGORITHM/<run>.md`. Demonstrated on the real PAI corpus: the
+  current-state-verification cluster ranks first, surfacing P2 (#331) — the proof
+  that recurring meta-reflections generate runner/prompt fixes.
 - **OBSERVE current-state floor** for the Algorithm. Advancing `observe → think`
   now requires at least one recorded current-state *probe* — a typed
   `AlgorithmObservation { claim, evidence, evidenceKind }` whose `evidenceKind`

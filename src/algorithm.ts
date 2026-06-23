@@ -1,6 +1,8 @@
 import type {
+  AlgorithmGatesFired,
   AlgorithmLogEntry,
   AlgorithmBatchOperation,
+  AlgorithmMetaReflection,
   AlgorithmObservation,
   AlgorithmPhase,
   AlgorithmPlanStep,
@@ -165,6 +167,7 @@ export function createAlgorithmRun(input: AlgorithmRunInput): AlgorithmRun {
     changelog: [],
     verification: [],
     learning: [],
+    metaReflection: [],
     provenance: [],
   };
   return input.substrate
@@ -278,6 +281,73 @@ export function recordAlgorithmObservation(
     operation: "observation.record",
     substrate: provenance?.substrate,
     detail: observation.claim,
+  });
+}
+
+/**
+ * Compute the deterministic gate-flags for a run — the auditable spine of a
+ * meta-reflection. Reuses the same predicates the live gates enforce so the
+ * reflection can never disagree with what the gates would say.
+ */
+export function computeGatesFired(run: AlgorithmRun): AlgorithmGatesFired {
+  const criteria = getCriteria(run.isa);
+  const { unresolved, hollow } = learnGateViolations(criteria);
+  return {
+    currentStateFloor: hasCurrentStateProbe(run.observations),
+    learnGateClean: criteria.length > 0 && unresolved.length === 0 && hollow.length === 0,
+    completeness: criteria.length > 0 && criteria.every(isClosedCriterion),
+  };
+}
+
+/**
+ * Record a per-run meta-reflection (#333). `gatesFired` is computed from the run
+ * (deterministic); `smarterRun`/`satisfaction`/`withinBudget` are the caller's
+ * (model's) proposal. At least one `smarterRun` signal must be present — an empty
+ * reflection carries no improvement signal.
+ */
+export function recordAlgorithmMetaReflection(
+  run: AlgorithmRun,
+  reflection: {
+    smarterRun: AlgorithmMetaReflection["smarterRun"];
+    satisfaction?: number;
+    withinBudget?: boolean;
+  },
+  timestamp?: string,
+  provenance?: Pick<AlgorithmProvenanceInput, "substrate">,
+): AlgorithmRun {
+  const { missedEarlyStep, missedVerifyOrParallel, highestValueMove } = reflection.smarterRun;
+  if (![missedEarlyStep, missedVerifyOrParallel, highestValueMove].some((s) => s !== undefined && s.trim().length > 0)) {
+    throw new Error("Algorithm meta-reflection requires at least one smarterRun signal (missedEarlyStep, missedVerifyOrParallel, or highestValueMove).");
+  }
+  if (reflection.satisfaction !== undefined && (reflection.satisfaction < 0 || reflection.satisfaction > 10)) {
+    throw new Error("Algorithm meta-reflection satisfaction must be between 0 and 10.");
+  }
+
+  const stamp = timestamp ?? new Date().toISOString();
+  const phase = getRunPhase(run);
+  const entry: AlgorithmMetaReflection = {
+    timestamp: stamp,
+    phase,
+    gatesFired: computeGatesFired(run),
+    smarterRun: {
+      ...(missedEarlyStep?.trim() ? { missedEarlyStep: missedEarlyStep.trim() } : {}),
+      ...(missedVerifyOrParallel?.trim() ? { missedVerifyOrParallel: missedVerifyOrParallel.trim() } : {}),
+      ...(highestValueMove?.trim() ? { highestValueMove: highestValueMove.trim() } : {}),
+    },
+    ...(reflection.satisfaction !== undefined ? { satisfaction: reflection.satisfaction } : {}),
+    ...(reflection.withinBudget !== undefined ? { withinBudget: reflection.withinBudget } : {}),
+  };
+
+  const next = {
+    ...run,
+    updatedAt: stamp,
+    metaReflection: [...run.metaReflection, entry],
+  };
+  return appendAlgorithmProvenance(next, {
+    timestamp: stamp,
+    phase,
+    operation: "reflection.record",
+    substrate: provenance?.substrate,
   });
 }
 

@@ -509,6 +509,64 @@ test("cli algorithm new derives a date-prefixed slug when --id is omitted", asyn
   });
 });
 
+test("cli reflect records a meta-reflection and reflections lists + digests it", async () => {
+  await withTempHome(async (homeDir) => {
+    await runSomaCli([
+      "algorithm", "new", "--home-dir", homeDir, "--id", "reflect-cli-run",
+      "--prompt", "Reflect on a run", "--intent", "Capture a meta-reflection.",
+      "--current-state", "No reflection.", "--goal", "Reflection recorded.",
+      "--criterion", "C1:Reflection lands.",
+    ]);
+    await observeFloor(homeDir, "reflect-cli-run");
+
+    await runSomaCli([
+      "algorithm", "reflect", "--home-dir", homeDir, "--id", "reflect-cli-run",
+      "--missed-verify-or-parallel", "should have verified current-state assumptions before proceeding",
+      "--satisfaction", "6", "--within-budget",
+    ]);
+
+    const raw = await readFile(join(homeDir, ".soma/memory/WORK/algorithm-runs/reflect-cli-run.json"), "utf8");
+    expect(raw).toContain('"operation": "reflection.record"');
+    expect(raw).toContain('"currentStateFloor": true');
+
+    const listed = await runSomaCli(["algorithm", "reflections", "--home-dir", homeDir, "--id", "reflect-cli-run"]);
+    expect(listed).toContain("Meta-reflections for reflect-cli-run");
+    expect(listed).toContain("verified current-state");
+
+    const digest = await runSomaCli(["algorithm", "reflections", "--home-dir", homeDir, "--digest"]);
+    expect(digest).toContain("meta-reflection digest");
+  });
+});
+
+test("cli reflections --digest folds in a PAI reflections jsonl and surfaces current-state on top", async () => {
+  await withTempHome(async (homeDir) => {
+    const paiPath = join(homeDir, "pai-reflections.jsonl");
+    await writeFile(
+      paiPath,
+      [
+        JSON.stringify({ prd_id: "a", doctrine_fired: { live_probe: false, completeness_gate_met: true }, criteria_count: 5, criteria_passed: 5, criteria_failed: 0, reflection_q2: "verify current-state assumptions before proceeding" }),
+        JSON.stringify({ prd_id: "b", doctrine_fired: { live_probe: false, completeness_gate_met: true }, criteria_count: 5, criteria_passed: 5, criteria_failed: 0, reflection_q1: "check field existence before asking" }),
+      ].join("\n"),
+      "utf8",
+    );
+    const digest = await runSomaCli(["algorithm", "reflections", "--home-dir", homeDir, "--digest", "--pai-source", paiPath]);
+    expect(digest).toContain("Current-state verification");
+    expect(digest).toContain("gate-miss ×2");
+  });
+});
+
+test("cli reflect rejects an empty reflection", async () => {
+  await withTempHome(async (homeDir) => {
+    await runSomaCli([
+      "algorithm", "new", "--home-dir", homeDir, "--id", "empty-reflect-run",
+      "--prompt", "x", "--intent", "x", "--current-state", "x", "--goal", "x", "--criterion", "C1:x",
+    ]);
+    await expect(
+      runSomaCli(["algorithm", "reflect", "--home-dir", homeDir, "--id", "empty-reflect-run"]),
+    ).rejects.toThrow("at least one smarterRun signal");
+  });
+});
+
 test("cli drives Algorithm runs through gated mutations", async () => {
   await withTempHome(async (homeDir) => {
     await runSomaCli([

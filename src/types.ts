@@ -226,6 +226,49 @@ export interface AlgorithmObservation {
   evidenceKind: EvidenceKind;
 }
 
+/**
+ * The Soma gates a run did or did not satisfy, computed DETERMINISTICALLY from
+ * run state at reflection time (not caller-asserted). This is the generative
+ * spine of the meta-reflection layer (#333): a gate that is recurrently unmet
+ * across runs is the empirical case for a runner/prompt fix — exactly how P2
+ * (#331 OBSERVE floor) was found. Each flag maps to a real enforced gate:
+ * - `currentStateFloor`: a probed/tested observation was on record (#331).
+ * - `learnGateClean`: no unresolved or hollow-`specified` criteria blocked LEARN (#330).
+ * - `completeness`: every criterion reached a terminal state (passed/dropped/deferred-probe).
+ */
+export interface AlgorithmGatesFired {
+  currentStateFloor: boolean;
+  learnGateClean: boolean;
+  completeness: boolean;
+}
+
+/**
+ * A per-run meta-reflection — "how the Algorithm itself should have behaved",
+ * the layer PAI captured (`reflection_q1/q2/q3` + `doctrine_fired`) and Soma
+ * never ported until #333. Two halves by design, mirroring the deterministic
+ * spine / model-proposed split the direction doc settled on:
+ * - `gatesFired` is computed from the run (deterministic, auditable).
+ * - `smarterRun` is the MODEL's proposal ("a smarter run would have…"); free
+ *   text, never machine-verified. The digest counts gate-misses to RANK and
+ *   buckets these q-signals to ENRICH.
+ */
+export interface AlgorithmMetaReflection {
+  timestamp: string;
+  phase: AlgorithmPhase;
+  gatesFired: AlgorithmGatesFired;
+  smarterRun: {
+    /** q1 — an earlier step the run missed (e.g. "probe field existence before asking"). */
+    missedEarlyStep?: string;
+    /** q2 — verification/parallelization the run should have done (the P2 signal class). */
+    missedVerifyOrParallel?: string;
+    /** q3 — the highest-value move, what actually worked. */
+    highestValueMove?: string;
+  };
+  /** Self-predicted satisfaction 0–10 (caller-asserted). */
+  satisfaction?: number;
+  withinBudget?: boolean;
+}
+
 export type AlgorithmProvenanceOperation =
   | "run.created"
   | "run.observed"
@@ -234,6 +277,7 @@ export type AlgorithmProvenanceOperation =
   | "criterion.verify"
   | "capability.invoke"
   | "learning.record"
+  | "reflection.record"
   | "memory.promote";
 
 export interface AlgorithmProvenanceEntry {
@@ -312,6 +356,8 @@ export interface AlgorithmRun {
   changelog: AlgorithmLogEntry[];
   verification: AlgorithmLogEntry[];
   learning: AlgorithmLogEntry[];
+  /** Per-run meta-reflections ("how the Algorithm should have behaved"). See {@link AlgorithmMetaReflection}. */
+  metaReflection: AlgorithmMetaReflection[];
   provenance: AlgorithmProvenanceEntry[];
 }
 

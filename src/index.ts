@@ -12,7 +12,9 @@ export type {
   AlgorithmImportPlan,
   AlgorithmImportResult,
   AlgorithmCriteriaPartition,
+  AlgorithmGatesFired,
   AlgorithmLogEntry,
+  AlgorithmMetaReflection,
   AlgorithmObservation,
   AlgorithmLoopExecutionContext,
   AlgorithmLoopExecutor,
@@ -167,6 +169,7 @@ export {
   advanceAlgorithmRun,
   advanceAlgorithmRunUntil,
   algorithmPhaseOrder,
+  computeGatesFired,
   createAlgorithmRun,
   hasCurrentStateProbe,
   learnGateViolations,
@@ -174,6 +177,7 @@ export {
   recordAlgorithmChange,
   recordAlgorithmDecision,
   recordAlgorithmLearning,
+  recordAlgorithmMetaReflection,
   recordAlgorithmObservation,
   setAlgorithmPlan,
   updateAlgorithmPlanStep,
@@ -247,6 +251,14 @@ export {
   type AlgorithmStoreOptions,
   type WrittenAlgorithmRun,
 } from "./algorithm-store";
+export {
+  buildReflectionDigest,
+  renderReflectionDigest,
+  type ReflectionDigestEntry,
+  type ReflectionForDigest,
+  type ReflectionCategoryKey,
+} from "./algorithm-reflection-digest";
+export { parsePaiReflections } from "./algorithm-reflection-import";
 export {
   projectClaudeCode,
   projectClaudeCodeHome,
