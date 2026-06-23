@@ -62,7 +62,10 @@ but Soma decides whether the process is allowed to advance.
 The harness is driven through explicit mutations rather than substrate-specific
 conversation tricks. The portable command surface covers `new`, `list`, `show`,
 `classify`, `capabilities`, `invoke`, `remove-capability`, `plan`, `observe`,
-`decision`, `change`, `step`, `verify`, `learn`, `advance`, and `resume`. `resume` accepts
+`decision`, `change`, `step`, `verify`, `learn`, `reflect`, `reflections`,
+`advance`, and `resume`. `reflect` records a per-run meta-reflection (deterministic
+gate-flags + the model's "a smarter run would have…" signals); `reflections --digest`
+ranks the cross-run improvement backlog. `resume` accepts
 an explicit `--until-phase` handoff boundary so a relay substrate can stop
 before consuming downstream phases. `classify` is Soma's
 UserPromptSubmit mode classifier: it chooses MINIMAL, NATIVE, or ALGORITHM and

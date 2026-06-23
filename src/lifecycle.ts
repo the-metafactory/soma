@@ -260,7 +260,22 @@ function completedLearningContent(run: AlgorithmRun, timestamp: string): string 
     "",
     "## Learning",
     ...(run.learning.length > 0 ? run.learning.map((entry) => `- ${entry.timestamp} ${entry.text}`) : ["No learning entries recorded."]),
+    "",
+    "## Meta-Reflection",
+    ...(run.metaReflection.length > 0 ? run.metaReflection.flatMap(renderMetaReflectionLines) : ["No meta-reflection recorded."]),
   ].join("\n");
+}
+
+function renderMetaReflectionLines(reflection: AlgorithmRun["metaReflection"][number]): string[] {
+  const { currentStateFloor, learnGateClean, completeness } = reflection.gatesFired;
+  const lines = [
+    `- ${reflection.timestamp} [${reflection.phase}] gates: currentStateFloor=${currentStateFloor}, learnGateClean=${learnGateClean}, completeness=${completeness}`,
+  ];
+  const { missedEarlyStep, missedVerifyOrParallel, highestValueMove } = reflection.smarterRun;
+  if (missedEarlyStep) lines.push(`  - missed-early-step: ${missedEarlyStep}`);
+  if (missedVerifyOrParallel) lines.push(`  - missed-verify-or-parallel: ${missedVerifyOrParallel}`);
+  if (highestValueMove) lines.push(`  - highest-value-move: ${highestValueMove}`);
+  return lines;
 }
 
 export async function captureCompletedAlgorithmLearnings(options: SomaLifecycleOptions = {}): Promise<string[]> {
