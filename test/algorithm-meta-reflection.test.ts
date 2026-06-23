@@ -133,6 +133,33 @@ test("parsePaiReflections tolerates blank and malformed lines", () => {
   expect(imported[0].runId).toBe("ok");
 });
 
+test("digest counts a gate-miss only once the run reached the gate's phase (not 'not yet there')", () => {
+  const early: ReflectionForDigest = {
+    runId: "early",
+    reflection: {
+      timestamp: "t",
+      phase: "observe", // before the THINK floor and the LEARN gate
+      gatesFired: { currentStateFloor: false, learnGateClean: false, completeness: false },
+      smarterRun: { highestValueMove: "noted something generic" },
+    },
+  };
+  const late: ReflectionForDigest = {
+    runId: "late",
+    reflection: {
+      timestamp: "t",
+      phase: "learn", // reached every gate
+      gatesFired: { currentStateFloor: false, learnGateClean: false, completeness: false },
+      smarterRun: { highestValueMove: "noted something generic" },
+    },
+  };
+  // The early run's all-false flags are "not reached", not misses → 0 gate-misses.
+  expect(buildReflectionDigest([early]).every((e) => e.gateMissCount === 0)).toBe(true);
+  // The late run reached all three gates and missed them → each gate category counts 1.
+  const lateDigest = buildReflectionDigest([late]);
+  expect(lateDigest.find((e) => e.category === "current-state")?.gateMissCount).toBe(1);
+  expect(lateDigest.find((e) => e.category === "completeness")?.gateMissCount).toBe(1);
+});
+
 test("renderReflectionDigest handles the empty corpus", () => {
   expect(renderReflectionDigest(buildReflectionDigest([]))).toBe("No meta-reflections found.");
 });

@@ -13,7 +13,21 @@
  * Pure module — no IO. The CLI collects reflections (live runs + imported PAI
  * corpus) and renders the result.
  */
-import type { AlgorithmGatesFired, AlgorithmMetaReflection } from "./types";
+import type { AlgorithmGatesFired, AlgorithmMetaReflection, AlgorithmPhase } from "./types";
+
+// A gate-flag is only a MISS if the run reached the phase where that gate is
+// enforced — otherwise a `false` flag just means "not there yet", not "failed".
+// Without this, an early-phase reflection (everything still `false`) would flood
+// the backlog with phantom misses. Each gate maps to the phase it guards entry to.
+const GATE_ENFORCED_AT: Record<keyof AlgorithmGatesFired, AlgorithmPhase> = {
+  currentStateFloor: "think", // OBSERVE→THINK floor (#331)
+  learnGateClean: "learn", // →LEARN evidence gate (#330)
+  completeness: "learn", // →LEARN: every criterion resolved
+};
+const PHASE_ORDER: AlgorithmPhase[] = ["observe", "think", "plan", "build", "execute", "verify", "learn", "complete", "abandoned"];
+function gateReached(reflectionPhase: AlgorithmPhase, gate: keyof AlgorithmGatesFired): boolean {
+  return PHASE_ORDER.indexOf(reflectionPhase) >= PHASE_ORDER.indexOf(GATE_ENFORCED_AT[gate]);
+}
 
 export type ReflectionCategoryKey =
   | "current-state"
@@ -71,7 +85,7 @@ export interface ReflectionDigestEntry {
   category: ReflectionCategoryKey;
   label: string;
   gate?: keyof AlgorithmGatesFired;
-  /** Reflections whose mapped gate was unmet (`false`). The deterministic ranking spine. 0 for gateless categories. */
+  /** Reflections that REACHED this gate's enforcement phase but did not satisfy it. The deterministic ranking spine. 0 for gateless categories. */
   gateMissCount: number;
   /** Free-text q-signals bucketed into this category. Enrichment. */
   signalCount: number;
@@ -139,9 +153,10 @@ export function buildReflectionDigest(reflections: readonly ReflectionForDigest[
   };
 
   for (const { runId, reflection } of reflections) {
-    // Deterministic spine: a false gate is a miss attributed to its category.
+    // Deterministic spine: a gate counts as missed only if the run REACHED the
+    // gate's enforcement phase and still did not satisfy it (false ≠ not-reached).
     for (const category of CATEGORIES) {
-      if (category.gate && !reflection.gatesFired[category.gate]) {
+      if (category.gate && gateReached(reflection.phase, category.gate) && !reflection.gatesFired[category.gate]) {
         const e = ensure(category.key);
         e.gateMissRuns.add(runId);
         e.runs.add(runId);
