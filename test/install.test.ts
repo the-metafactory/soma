@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { isAbsolute, join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import { bootstrapSomaHome, installSomaForCodex, installSomaForPiDev, planSomaForCodexInstall, planSomaForPiDevInstall, somaWorkRegistryPaths } from "../src/index";
+import { bootstrapSomaHome, installSomaForCodex, installSomaForCursor, installSomaForPiDev, planSomaForCodexInstall, planSomaForPiDevInstall, somaWorkRegistryPaths } from "../src/index";
 import { codexInstallSpec } from "../src/adapters/codex/install";
 import { renderStartupContextSummary } from "../src/adapters/codex/hooks/codex-hook-entry.mjs";
 import {
@@ -197,6 +197,20 @@ test("bootstrap creates a projections directory for every registered install sub
     for (const spec of allInstallSpecs()) {
       await expect(stat(join(somaHome, "projections", spec.substrate))).resolves.toBeDefined();
     }
+  });
+});
+
+test("soma#329: cursor install removes a stale .cursor/rules/soma/TELOS.md", async () => {
+  await withTempHome(async (homeDir) => {
+    const rulesDir = join(homeDir, ".cursor/rules/soma");
+    await mkdir(rulesDir, { recursive: true });
+    const stale = join(rulesDir, "TELOS.md");
+    await writeFile(stale, "# Soma Purpose Projection\n\nold frozen content\n", "utf8");
+
+    await installSomaForCursor({ homeDir });
+
+    await expect(readFile(join(rulesDir, "PURPOSE.md"), "utf8")).resolves.toContain("# Soma Purpose Projection");
+    await expect(stat(stale)).rejects.toThrow();
   });
 });
 
