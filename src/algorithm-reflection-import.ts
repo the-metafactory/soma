@@ -34,10 +34,6 @@ function num(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-function bool(value: unknown): boolean {
-  return value === true;
-}
-
 /**
  * Map a PAI record's gate signals onto Soma's gates. IMPORTANT: unlike a live
  * reflection — whose `gatesFired` is computed by `computeGatesFired` from real run
@@ -65,7 +61,12 @@ function gatesFromPai(record: PaiReflectionRecord): AlgorithmGatesFired {
   const passed = num(record.criteria_passed);
   const failed = num(record.criteria_failed);
   return {
-    currentStateFloor: bool(doctrine.live_probe),
+    // Only an EXPLICIT `live_probe: false` is a current-state miss. An ABSENT
+    // field is unknown, not a miss — scoring absence as a miss would manufacture
+    // misses (and could fabricate the headline P2 result) from records that never
+    // carried the signal. Absent/true → not-a-miss (the conservative default,
+    // matching the learnGateClean decision above).
+    currentStateFloor: doctrine.live_probe !== false,
     learnGateClean: true,
     completeness: count !== undefined && count > 0 && passed === count && (failed ?? 0) === 0,
   };

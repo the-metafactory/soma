@@ -172,6 +172,22 @@ test("digest counts a gate-miss only once the run reached the gate's phase (not 
   expect(buildReflectionDigest([abandoned]).every((e) => e.gateMissCount === 0)).toBe(true);
 });
 
+test("an absent PAI live_probe is NOT scored as a current-state miss (only explicit false is)", () => {
+  const jsonl = [
+    // No live_probe field at all — unknown, must not manufacture a miss.
+    JSON.stringify({ prd_id: "absent", criteria_count: 5, criteria_passed: 5, criteria_failed: 0, reflection_q1: "noted a thing" }),
+    // Explicit false — a genuine current-state miss.
+    JSON.stringify({ prd_id: "explicit", criteria_count: 5, criteria_passed: 5, criteria_failed: 0, reflection_q2: "verify current-state assumptions", doctrine_fired: { live_probe: false } }),
+  ].join("\n");
+  const imported = parsePaiReflections(jsonl);
+  expect(imported.find((r) => r.runId === "absent")?.reflection.gatesFired.currentStateFloor).toBe(true); // not a miss
+  expect(imported.find((r) => r.runId === "explicit")?.reflection.gatesFired.currentStateFloor).toBe(false); // a miss
+
+  const digest = buildReflectionDigest(imported);
+  // Exactly one genuine current-state miss — the absent record did not inflate it.
+  expect(digest.find((e) => e.category === "current-state")?.gateMissCount).toBe(1);
+});
+
 test("renderReflectionDigest handles the empty corpus", () => {
   expect(renderReflectionDigest(buildReflectionDigest([]))).toBe("No meta-reflections found.");
 });
