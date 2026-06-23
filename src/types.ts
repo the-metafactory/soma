@@ -15,12 +15,15 @@ export interface PrincipalIdentity {
   profile?: Record<string, unknown>;
 }
 
-export interface Telos {
+export interface Purpose {
   mission?: string;
   goals: string[];
   principles: string[];
   commitments: string[];
 }
+
+/** @deprecated Renamed to {@link Purpose} (soma#329, ADR 0001). Kept for back-compat. */
+export type Telos = Purpose;
 
 /**
  * What the verifier CLAIMS about how the evidence was obtained. A caller-asserted
@@ -534,7 +537,7 @@ export interface SomaSnapshotRollbackResult {
 export interface SomaProfile {
   assistant: AssistantIdentity;
   principal: PrincipalIdentity;
-  telos: Telos;
+  purpose: Purpose;
   memory: SomaMemoryLayout;
   skills: SomaSkill[];
 }

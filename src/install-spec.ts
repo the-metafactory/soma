@@ -63,6 +63,13 @@ export interface SubstrateInstallSpec<S extends InstallSubstrate = InstallSubstr
   substrate: S;
   defaultHome: string;
   homeFiles: readonly string[];
+  /**
+   * Files this substrate used to manage but no longer writes (e.g. a renamed
+   * projection). Removed under the substrate home on every install/reproject/
+   * upgrade so a stale, auto-loaded copy can't survive a rename. Paths are
+   * relative to the substrate home, same as `homeFiles`.
+   */
+  obsoleteHomeFiles?: readonly string[];
   optionalHomeFiles?(options: unknown): readonly string[];
   isaSkillProjection: IsaSkillProjectionSpec;
   validator?: InstallValidator;

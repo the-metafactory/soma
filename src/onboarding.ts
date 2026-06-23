@@ -139,12 +139,12 @@ export async function planSomaInit(options: SomaOnboardingOptions & { apply?: bo
 
   // The Soma home skeleton is created by init itself (not deferred to
   // `soma install`), so a failed or skipped later step never strands the
-  // principal without identity/telos/memory/skills/policy files.
+  // principal without identity/purpose/memory/skills/policy files.
   // Idempotent: existing files are preserved (`wx` writes).
   steps.push({
     id: "bootstrap-soma-home",
     kind: "builtin",
-    action: `create Soma home skeleton at ${shellQuote(detected.somaHome)} (identity, telos, memory, skills, policy)`,
+    action: `create Soma home skeleton at ${shellQuote(detected.somaHome)} (identity, purpose, memory, skills, policy)`,
     description: "Performed by soma init itself; idempotent, existing files preserved.",
   });
 
@@ -245,6 +245,8 @@ async function maxProfileMtime(somaHome: string): Promise<number | null> {
   const mtimes = await Promise.all([
     pathMtimeMs(join(somaHome, "profile/assistant.md")),
     pathMtimeMs(join(somaHome, "profile/principal.md")),
+    // soma#329: prefer purpose.md; fall back to legacy telos.md for pre-rename homes.
+    pathMtimeMs(join(somaHome, "profile/purpose.md")),
     pathMtimeMs(join(somaHome, "profile/telos.md")),
   ]);
   const present = mtimes.filter((value): value is number => value !== null);

@@ -3,7 +3,7 @@
 Soma separates the public code repo from private installed context.
 
 - `~/work/mf/soma` should stay generic and releasable.
-- `~/.soma` is private by design: identity, telos, imported PAI context, memory,
+- `~/.soma` is private by design: identity, purpose, imported PAI context, memory,
   and work state live there.
 - substrate projections such as `~/.codex/memories/soma/` and
   `~/.pi/agent/soma/` are also private projections.
@@ -81,7 +81,7 @@ The default protected paths declare these allowed modify subpaths:
 Writes to a protected root that fall outside its `allowedSubpaths` remain
 denied. `~/.soma/profile/identity.md` and `~/.soma/secret.md` are blocked for
 modify even though `~/.soma/isa/draft.md` is allowed. This keeps private roots
-(profile, identity, telos) safe while letting the assistant manage its own
+(profile, identity, purpose) safe while letting the assistant manage its own
 memory and ISA artifacts. See issue #79 (Pi.dev) and #48 (Codex) for the
 matching substrate-hook refinements.
 

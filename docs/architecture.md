@@ -9,7 +9,7 @@ The core is filesystem-native and substrate-neutral.
 ```text
 SomaCore
   Identity
-  Telos
+  Purpose
   ISA
   Skills
   Memory
@@ -24,9 +24,9 @@ profile facts, communication preferences, personality metadata, and optional
 voice metadata. Identity is projected into the substrate but is not owned by
 the substrate.
 
-### Telos
+### Purpose
 
-Telos stores goals, principles, commitments, strategies, and desired state. It
+Purpose stores goals, principles, commitments, strategies, and desired state. It
 is the steering source for assistant recommendations and prioritization.
 
 ### ISA
@@ -123,7 +123,7 @@ and only auto-merges stores with deterministic merge semantics. See
 Team `KNOWLEDGE`, `WORK`, and ISA material can be read through a team overlay,
 but it stays namespaced and cited separately from personal memory. Team
 overlays are read-only in the first slice and must not expose personal Identity,
-Telos, Relationship, raw transcript, or security-trace compartments.
+Purpose, Relationship, raw transcript, or security-trace compartments.
 
 ### Policy
 

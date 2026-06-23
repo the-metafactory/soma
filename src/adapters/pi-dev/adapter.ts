@@ -65,7 +65,7 @@ function renderPaiImportIndex(somaHome: string): string {
   return [
     "# Soma PAI Import Index",
     "",
-    "The projected profile is intentionally concise. Detailed migrated PAI source snapshots remain in Soma and should be read when the task depends on personal identity, assistant voice, telos, values, goals, strategies, or decision context.",
+    "The projected profile is intentionally concise. Detailed migrated PAI source snapshots remain in Soma and should be read when the task depends on personal identity, assistant voice, purpose, values, goals, strategies, or decision context.",
     "",
     "## Source Root",
     "",
@@ -387,7 +387,7 @@ function renderHomeSkill(input: ProjectionInput, somaHome: string): string {
   return [
     "---",
     "name: soma",
-    "description: Use when work depends on Soma portable personal assistant context, Ivy assistant identity, Jens-Christian principal identity, telos, PAI imports, memory layout, or cross-substrate continuity.",
+    "description: Use when work depends on Soma portable personal assistant context, Ivy assistant identity, Jens-Christian principal identity, purpose, PAI imports, memory layout, or cross-substrate continuity.",
     "metadata:",
     "  short-description: Portable personal assistant context",
     "---",
@@ -404,7 +404,7 @@ function renderHomeSkill(input: ProjectionInput, somaHome: string): string {
     "- Use the `soma_context` tool with `action: memory_search` before making durable claims that may depend on prior knowledge, learning, relationship, work, or imported PAI context.",
     "- Use the `soma_memory_promote` tool when verified Algorithm work should become durable recall.",
     "- Use the `soma_context` tool with `action: pai_imports` to find detailed migrated PAI source files.",
-    "- Use the `soma_context` tool with `action: source_file` for detailed identity, voice, telos, values, goals, strategies, and decision-context source files under Soma.",
+    "- Use the `soma_context` tool with `action: source_file` for detailed identity, voice, purpose, values, goals, strategies, and decision-context source files under Soma.",
     "- Do not assume a global `soma` binary exists; the SomaExtension calls the repo CLI via `~/.pi/agent/soma/soma-repo.txt`.",
     "- Treat Pi.dev as the execution substrate, not the source of truth.",
     "",

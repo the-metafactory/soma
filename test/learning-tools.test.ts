@@ -639,7 +639,7 @@ test("session harvester omits unsafe current-work artifact and learning-source p
       },
       learningSources: {
         events: "../outside-events.jsonl",
-        ratings: "memory/../profile/telos.md",
+        ratings: "memory/../profile/purpose.md",
         feedback: "memory/LEARNING/SIGNALS/feedback.jsonl",
         results: ["/tmp/outside-result.json", "memory/WORK/safe-result.json"],
         rawTranscript: "memory/WORK/raw-source/transcript.jsonl",

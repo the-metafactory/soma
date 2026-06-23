@@ -16,11 +16,11 @@ test("team overlay design keeps the personal Soma home single-principal", () => 
 });
 
 test("team overlay design denies personal-private compartments", () => {
-  for (const denied of ["Identity", "Telos", "Relationship", "Raw/security"]) {
+  for (const denied of ["Identity", "Purpose", "Relationship", "Raw/security"]) {
     expect(designDoc).toContain(denied);
   }
   expect(designDoc).toContain("Personal relationship memory is private");
-  expect(decisions).toMatch(/Identity,\s+Telos, Relationship, raw transcripts, and security traces are never mounted\s+from a team overlay/);
+  expect(decisions).toMatch(/Identity,\s+Purpose, Relationship, raw transcripts, and security traces are never mounted\s+from a team overlay/);
 });
 
 test("team overlay design starts read-only and keeps provenance", () => {

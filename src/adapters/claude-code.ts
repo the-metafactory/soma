@@ -100,9 +100,9 @@ function renderClaudeRulesReadme(): string {
     "",
     "## What lives here",
     "",
-    "- `CONTEXT.md` — assistant identity, principal, telos, operating rules",
+    "- `CONTEXT.md` — assistant identity, principal, purpose, operating rules",
     "- `PROFILE.md` — assistant + principal profile detail",
-    "- `TELOS.md` — mission, goals, principles, commitments",
+    "- `PURPOSE.md` — mission, goals, principles, commitments",
     "- `MEMORY_LAYOUT.md` — pointers into the soma memory tree",
     "- `SKILLS.md` — discovered Soma skills",
     "- `POLICY.md` — substrate policy projection",
@@ -132,10 +132,10 @@ function renderClaudeProfile(input: ProjectionInput): string {
   return ["# Soma Profile Projection", "", renderAssistantCore(input)].join("\n");
 }
 
-function renderClaudeTelos(input: ProjectionInput): string {
-  const t = input.profile.telos;
+function renderClaudePurpose(input: ProjectionInput): string {
+  const t = input.profile.purpose;
   return [
-    "# Soma Telos Projection",
+    "# Soma Purpose Projection",
     "",
     t.mission ? `## Mission\n\n${t.mission}` : "## Mission\n\nNone declared.",
     "",
@@ -175,7 +175,7 @@ export const CLAUDE_CODE_RULES_FILES = [
   "rules/soma/README.md",
   "rules/soma/CONTEXT.md",
   "rules/soma/PROFILE.md",
-  "rules/soma/TELOS.md",
+  "rules/soma/PURPOSE.md",
   "rules/soma/MEMORY_LAYOUT.md",
   "rules/soma/SKILLS.md",
   "rules/soma/POLICY.md",
@@ -189,7 +189,7 @@ const CLAUDE_RULES_CONTENT_BUILDERS: Record<
   "rules/soma/README.md": () => renderClaudeRulesReadme(),
   "rules/soma/CONTEXT.md": (input) => renderClaudeRulesContext(input),
   "rules/soma/PROFILE.md": (input) => renderClaudeProfile(input),
-  "rules/soma/TELOS.md": (input) => renderClaudeTelos(input),
+  "rules/soma/PURPOSE.md": (input) => renderClaudePurpose(input),
   "rules/soma/MEMORY_LAYOUT.md": (input) => renderMemoryLayout(input),
   "rules/soma/SKILLS.md": (input) => renderSkills(input),
   "rules/soma/POLICY.md": () => renderClaudePolicy(),

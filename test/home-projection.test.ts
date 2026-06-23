@@ -201,7 +201,7 @@ test("builds cursor home projection bundle for default availability", () => {
     ".cursor/rules/soma/README.md",
     ".cursor/rules/soma/CONTEXT.md",
     ".cursor/rules/soma/PROFILE.md",
-    ".cursor/rules/soma/TELOS.md",
+    ".cursor/rules/soma/PURPOSE.md",
     ".cursor/rules/soma/MEMORY_LAYOUT.md",
     ".cursor/rules/soma/SKILLS.md",
     ".cursor/rules/soma/POLICY.md",

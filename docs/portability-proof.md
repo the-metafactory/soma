@@ -19,7 +19,7 @@ The first workflow is a ledger update:
 
 ## Pass Conditions
 
-- The same profile, telos, skill list, memory layout, and ISA are used unchanged.
+- The same profile, purpose, skill list, memory layout, and ISA are used unchanged.
 - Substrate adapters may change only projection shape, file names, and
   host-specific invocation.
 - The workflow has a shared verification criterion that does not depend on chat

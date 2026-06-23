@@ -1,7 +1,7 @@
 # Team Overlays
 
 Issue #152 asks for shared skills, team memory, team ISAs, and a permission
-model without leaking personal Identity, Telos, or Relationship state. The
+model without leaking personal Identity, Purpose, or Relationship state. The
 implementation term is **team overlay**: a policy-scoped shared Soma layer that
 supplements one principal's local Soma home.
 
@@ -25,7 +25,7 @@ provenance when it is used.
 ## Non-Goals
 
 - A team overlay is not a second principal inside the personal Soma home.
-- A team overlay does not share `profile/`, personal Telos, Relationship,
+- A team overlay does not share `profile/`, personal Purpose, Relationship,
   private notes, raw transcripts, security traces, or local policy secrets.
 - A team overlay does not replace Arc packages, Compass SOPs, or Cortex/Myelin
   collaboration.
@@ -74,7 +74,7 @@ personal files.
 | ISA | read-only | Team ISAs supplement personal/task ISAs and keep team provenance. |
 | Policy | read-only | Team policy may add stricter rules; it must not relax personal policy. |
 | Identity | denied | Personal principal and assistant identity are never sourced from a team overlay. |
-| Telos | denied | Personal goals and commitments are never shared by default. |
+| Purpose | denied | Personal goals and commitments are never shared by default. |
 | Relationship | denied | Personal relationship memory is private and never mounted from a team overlay. |
 | Raw/security | denied | Raw transcripts and security traces are not team-overlay material in the first slice. |
 

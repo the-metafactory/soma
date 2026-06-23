@@ -42,9 +42,9 @@ function renderPrincipalProfile(): string {
   ].join("\n");
 }
 
-function renderTelosProfile(): string {
+function renderPurposeProfile(): string {
   return [
-    "# Telos",
+    "# Purpose",
     "",
     "Mission: Keep personal assistant context portable across substrates.",
     "",
@@ -180,11 +180,31 @@ async function loadSomaSkills(somaHome: string): Promise<SomaSkill[]> {
   return skills.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+// soma#329: read the renamed `purpose.md`, falling back to a pre-rename
+// `telos.md` so existing homes load without a forced migration. The markdown
+// parser is heading-driven (`## Goals`/`## Principles`/`## Commitments`), so a
+// legacy `# Telos` body parses identically.
+async function readPurposeProfile(paths: ReturnType<typeof createPaths>): Promise<string> {
+  try {
+    return await readFile(paths.resolve("profile", "purpose.md"), "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw error;
+    }
+  }
+  // purpose.md absent — fall back to the legacy telos.md. We deliberately do NOT
+  // swallow this read's ENOENT: a home missing BOTH files should still throw
+  // loudly, preserving the pre-rename behaviour (no silent fail-open to defaults).
+  return readFile(paths.resolve("profile", "telos.md"), "utf8");
+}
+
 export async function loadSomaProfile(somaHome: string): Promise<Omit<ProjectionInput["profile"], "skills">> {
   const paths = createPaths(somaHome);
   const assistant = await readFile(paths.resolve("profile", "assistant.md"), "utf8");
   const principal = await readFile(paths.resolve("profile", "principal.md"), "utf8");
-  const telos = await readFile(paths.resolve("profile", "telos.md"), "utf8");
+  // soma#329: the compartment is now `purpose`. Read the new `purpose.md`, but
+  // fall back to a legacy `telos.md` so homes created before the rename still load.
+  const purpose = await readPurposeProfile(paths);
 
   return {
     assistant: {
@@ -197,11 +217,11 @@ export async function loadSomaProfile(somaHome: string): Promise<Omit<Projection
       preferredName: valueAfterPrefix(principal, "Preferred name:", "Principal"),
       profile: recordFromBullets(sectionBullets(principal, "Profile")),
     },
-    telos: {
-      mission: valueAfterPrefix(telos, "Mission:", "Keep personal assistant context portable across substrates."),
-      goals: sectionBullets(telos, "Goals"),
-      principles: sectionBullets(telos, "Principles"),
-      commitments: sectionBullets(telos, "Commitments"),
+    purpose: {
+      mission: valueAfterPrefix(purpose, "Mission:", "Keep personal assistant context portable across substrates."),
+      goals: sectionBullets(purpose, "Goals"),
+      principles: sectionBullets(purpose, "Principles"),
+      commitments: sectionBullets(purpose, "Commitments"),
     },
     memory: {
       root: paths.memory(),
@@ -239,8 +259,8 @@ export async function bootstrapSomaHome(options: SomaHomeBootstrapOptions = {}):
       content: renderPrincipalProfile(),
     },
     {
-      path: "profile/telos.md",
-      content: renderTelosProfile(),
+      path: "profile/purpose.md",
+      content: renderPurposeProfile(),
     },
     {
       path: "policy/README.md",

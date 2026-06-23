@@ -19,7 +19,7 @@ import {
 } from "../src/index";
 import { unpatchClaudeCodeModeClassifierSettings } from "../src/adapters/claude-code/hooks";
 import { datePrefixSlug } from "../src/dated-slug";
-import { portableProjectionInput } from "./fixtures";
+import { expectReprojectPrunesStaleTelos, portableProjectionInput } from "./fixtures";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-29-"));
@@ -128,7 +128,7 @@ test("AC-1: projectClaudeCodeHome writes everything under rules/soma/", () => {
     "rules/soma/README.md",
     "rules/soma/CONTEXT.md",
     "rules/soma/PROFILE.md",
-    "rules/soma/TELOS.md",
+    "rules/soma/PURPOSE.md",
     "rules/soma/MEMORY_LAYOUT.md",
     "rules/soma/SKILLS.md",
     "rules/soma/POLICY.md",
@@ -146,7 +146,7 @@ test("AC-2: planSomaForClaudeCodeInstall lists every file written", () => {
     "/tmp/test-home/.claude/rules/soma/README.md",
     "/tmp/test-home/.claude/rules/soma/CONTEXT.md",
     "/tmp/test-home/.claude/rules/soma/PROFILE.md",
-    "/tmp/test-home/.claude/rules/soma/TELOS.md",
+    "/tmp/test-home/.claude/rules/soma/PURPOSE.md",
     "/tmp/test-home/.claude/rules/soma/MEMORY_LAYOUT.md",
     "/tmp/test-home/.claude/rules/soma/SKILLS.md",
     "/tmp/test-home/.claude/rules/soma/POLICY.md",
@@ -171,6 +171,15 @@ test("AC-3: planSomaForClaudeCodeInstall does not write files (plan.apply === fa
     planSomaForClaudeCodeInstall({ homeDir });
     // Nothing exists at the target path after planning.
     await expect(stat(join(homeDir, ".claude/rules/soma"))).rejects.toThrow();
+  });
+});
+
+test("soma#329: reproject removes a stale rules/soma/TELOS.md left by a pre-rename install", async () => {
+  await withTempHome(async (homeDir) => {
+    await expectReprojectPrunesStaleTelos(
+      join(homeDir, ".claude/rules/soma"),
+      () => installSomaForClaudeCode({ homeDir }),
+    );
   });
 });
 

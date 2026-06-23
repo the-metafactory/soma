@@ -49,6 +49,8 @@ export const cursorInstallSpec: SubstrateInstallSpec<"cursor"> = {
   substrate: "cursor",
   defaultHome: ".",
   homeFiles: CURSOR_HOME_FILE_PATHS,
+  // soma#329: Purpose projection renamed TELOS.md → PURPOSE.md; drop the stale copy.
+  obsoleteHomeFiles: [".cursor/rules/soma/TELOS.md"],
   isaSkillProjection: {
     destinationDir: isaSkillUnder(".cursor/rules/soma"),
   },

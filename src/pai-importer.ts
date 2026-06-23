@@ -31,7 +31,9 @@ const SOURCE_SPECS: readonly PaiSourceSpec[] = [
 const PROFILE_TARGETS = {
   principal: "profile/principal.md",
   assistant: "profile/assistant.md",
-  telos: "profile/telos.md",
+  // soma#329: Soma's own Purpose compartment file (the source PAI/USER/TELOS/*
+  // read paths below keep PAI's name; this is the Soma write target).
+  purpose: "profile/purpose.md",
 } as const;
 
 function resolveHomes(options: PaiImportOptions = {}): { claudeHome: string; somaHome: string } {
@@ -73,7 +75,7 @@ function selectedImportTargetPaths(selectedSources: PaiSelectedSource[]): string
   return [
     PROFILE_TARGETS.principal,
     PROFILE_TARGETS.assistant,
-    PROFILE_TARGETS.telos,
+    PROFILE_TARGETS.purpose,
     ...selectedSources.filter((source) => source.required || source.present).map((source) => importTargetFor(source.path)),
   ];
 }
@@ -218,14 +220,14 @@ function renderBulletSection(title: string, items: string[]): string[] {
   ];
 }
 
-function renderTelosProfile(sources: Record<string, string>): string {
+function renderPurposeProfile(sources: Record<string, string>): string {
   const mission = firstSourceLine(sources, "mission", "Imported from Claude PAI TELOS mission.");
   const goals = sourceLines(sources, "goals");
   const principles = sourceLines(sources, "beliefs");
   const commitments = sourceLines(sources, "strategies");
 
   return [
-    "# Telos",
+    "# Purpose",
     "",
     `Mission: ${mission}`,
     "",
@@ -296,8 +298,8 @@ export async function importPaiIdentity(options: PaiImportOptions = {}): Promise
   files.set(PROFILE_TARGETS.principal, renderPrincipalProfile(principal.content, principal.path));
   files.set(PROFILE_TARGETS.assistant, renderAssistantProfile(assistant.content, assistant.path));
   files.set(
-    PROFILE_TARGETS.telos,
-    renderTelosProfile(
+    PROFILE_TARGETS.purpose,
+    renderPurposeProfile(
       Object.fromEntries(
         (["mission", "goals", "strategies", "beliefs"] as const)
           .map((role) => sources.get(role))

@@ -187,7 +187,7 @@ either or both.
 ### 1. The ideas: algorithm, memory, learning
 
 Daniel Miessler's deep-context approach — the Algorithm harness, structured
-memory, the learning loop, identity, and Telos — is the durable base. Sync it
+memory, the learning loop, identity, and Purpose — is the durable base. Sync it
 from a PAI git repository into your Soma home:
 
 ```bash
@@ -198,7 +198,7 @@ soma migrate pai --pai-repo <path-to-pai> --apply
 The sync plans or applies these phases in order:
 
 - principal and assistant identity
-- Telos and profile material
+- Purpose and profile material
 - Algorithm doctrine and harness material
 - translated memory
 - PAI documentation and templates
@@ -470,7 +470,7 @@ not change projection or writeback semantics. See
 
 Team-shared skills, knowledge, work artifacts, and ISAs are designed as
 read-only team overlays. A team overlay supplements one principal's Soma home;
-it does not make the home multi-principal or share private Identity, Telos, or
+it does not make the home multi-principal or share private Identity, Purpose, or
 Relationship state. See [docs/team-overlays.md](docs/team-overlays.md).
 
 Daemon mode is designed as a long-lived Soma process that consumes Myelin-owned

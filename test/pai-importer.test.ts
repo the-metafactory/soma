@@ -102,7 +102,7 @@ test("imports PAI v4 identity filename variants", async () => {
     const result = await importPaiIdentity({ homeDir });
     const principal = await readFile(join(homeDir, ".soma/profile/principal.md"), "utf8");
     const assistant = await readFile(join(homeDir, ".soma/profile/assistant.md"), "utf8");
-    const telos = await readFile(join(homeDir, ".soma/profile/telos.md"), "utf8");
+    const telos = await readFile(join(homeDir, ".soma/profile/purpose.md"), "utf8");
 
     expect(result.files).toContain(join(homeDir, ".soma/profile/imports/claude/BASICINFO.md"));
     expect(result.files).toContain(join(homeDir, ".soma/profile/imports/claude/DAIDENTITY.md"));
@@ -144,10 +144,10 @@ test("imports PAI principal, Ivy identity, and telos into Soma", async () => {
     expect(context.profile.principal.preferredName).toBe("Jens-Christian");
     expect(context.profile.assistant.name).toBe("Ivy");
     expect(context.profile.assistant.traits?.voice_id).toBe("voice-123");
-    expect(context.profile.telos.mission).toBe("Build useful test systems without leaking publisher context.");
-    expect(context.profile.telos.goals).toContain("Keep imported goals fixture-local.");
-    expect(context.profile.telos.principles).toContain("Tests should describe the imported fixture.");
-    expect(context.profile.telos.commitments).toContain("Verify projections after import.");
+    expect(context.profile.purpose.mission).toBe("Build useful test systems without leaking publisher context.");
+    expect(context.profile.purpose.goals).toContain("Keep imported goals fixture-local.");
+    expect(context.profile.purpose.principles).toContain("Tests should describe the imported fixture.");
+    expect(context.profile.purpose.commitments).toContain("Verify projections after import.");
     expect(principal).toContain("source: Claude PAI principal identity");
     expect(assistantSource).toContain("Ivy - Personal AI Assistant");
   });
@@ -160,8 +160,8 @@ test("PAI import and Claude Code projection do not contain publisher starter tel
     await runSomaCli(["import", "pai", "--apply", "--home-dir", homeDir]);
     await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir]);
 
-    const telos = await readFile(join(homeDir, ".soma/profile/telos.md"), "utf8");
-    const projectedTelos = await readFile(join(homeDir, ".claude/rules/soma/TELOS.md"), "utf8");
+    const telos = await readFile(join(homeDir, ".soma/profile/purpose.md"), "utf8");
+    const projectedTelos = await readFile(join(homeDir, ".claude/rules/soma/PURPOSE.md"), "utf8");
     const projectedContext = await readFile(join(homeDir, ".claude/rules/soma/CONTEXT.md"), "utf8");
 
     for (const content of [telos, projectedTelos, projectedContext]) {

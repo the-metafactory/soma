@@ -47,7 +47,7 @@ test("planSomaInit orders PAI migrant commands as dry-run copy-paste steps", asy
       "install-codex",
     ]);
     expect(plan.steps.map((step) => (step.kind === "command" ? step.command : step.action))).toEqual([
-      `create Soma home skeleton at ${join(homeDir, ".soma")} (identity, telos, memory, skills, policy)`,
+      `create Soma home skeleton at ${join(homeDir, ".soma")} (identity, purpose, memory, skills, policy)`,
       `soma migrate claude-skills --from ${join(homeDir, ".claude/skills")} --dry-run --home-dir ${homeDir} --soma-home ${join(homeDir, ".soma")}`,
       `soma migrate pai --pai-install ${join(homeDir, ".claude")} --dry-run --home-dir ${homeDir} --soma-home ${join(homeDir, ".soma")}`,
       `soma install codex --dry-run --home-dir ${homeDir} --soma-home ${join(homeDir, ".soma")}`,
@@ -121,7 +121,7 @@ test("soma init on a fresh machine (no Claude install) bootstraps the Soma home"
     expect(output).not.toContain("migrate-claude-skills");
     const principal = await readFile(join(homeDir, ".soma/profile/principal.md"), "utf8");
     expect(principal).toContain("status: starter-profile");
-    await expect(stat(join(homeDir, ".soma/profile/telos.md"))).resolves.toBeTruthy();
+    await expect(stat(join(homeDir, ".soma/profile/purpose.md"))).resolves.toBeTruthy();
     await expect(stat(join(homeDir, ".soma/memory"))).resolves.toBeTruthy();
   });
 });
@@ -175,7 +175,7 @@ test("soma init skips a non-flat Claude skills dir yet still populates the home 
     for (const relative of [
       "profile/assistant.md",
       "profile/principal.md",
-      "profile/telos.md",
+      "profile/purpose.md",
       "memory/WORK",
       "memory/KNOWLEDGE",
       "skills/README.md",
@@ -195,9 +195,9 @@ test("re-running soma init --apply never overwrites existing Soma home files", a
     await runSomaCli(["init", "--apply", "--home-dir", homeDir]);
 
     const principalPath = join(homeDir, ".soma/profile/principal.md");
-    const telosPath = join(homeDir, ".soma/profile/telos.md");
+    const telosPath = join(homeDir, ".soma/profile/purpose.md");
     const customPrincipal = "# Principal\n\nName: Jens-Christian\n\n## Profile\n\n- status: customized\n";
-    const customTelos = "# Telos\n\nMission: My own mission.\n";
+    const customTelos = "# Purpose\n\nMission: My own mission.\n";
     await writeFile(principalPath, customPrincipal, "utf8");
     await writeFile(telosPath, customTelos, "utf8");
 
