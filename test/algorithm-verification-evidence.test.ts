@@ -5,6 +5,7 @@ import {
   createAlgorithmRun,
   getCriteria,
   getRunPhase,
+  recordAlgorithmObservation,
   setAlgorithmPlan,
   updateAlgorithmPlanStep,
   verifyAlgorithmCriterion,
@@ -21,6 +22,11 @@ function toVerify(): ReturnType<typeof createAlgorithmRun> {
     goal: "Behavioral criteria require a probe.",
     criteria: [{ id: "C1", text: "Endpoint returns 200 under test." }],
   });
+  run = recordAlgorithmObservation(
+    run,
+    { claim: "endpoint exists", evidence: "probed the running server", evidenceKind: "probed" },
+    "2026-06-22T10:00:30.000Z",
+  ); // OBSERVE current-state floor
   run = advanceAlgorithmRun(run, "2026-06-22T10:01:00.000Z"); // observe -> think
   run = addAlgorithmCapabilities(run, ["sequential-analysis"], "2026-06-22T10:02:00.000Z");
   run = advanceAlgorithmRun(run, "2026-06-22T10:03:00.000Z"); // think -> plan

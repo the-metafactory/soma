@@ -23,10 +23,12 @@ import { randomUUID } from "node:crypto";
 import {
   advanceAlgorithmRun,
   createAlgorithmRun,
+  hasCurrentStateProbe,
   learnGateViolations,
   nextAlgorithmPhase,
   recordAlgorithmChange,
   recordAlgorithmLearning,
+  recordAlgorithmObservation,
   setAlgorithmPlan,
   verifyAlgorithmCriterion,
 } from "./algorithm";
@@ -210,6 +212,23 @@ function reachableTargetPhase(target: AlgorithmPhase, criteria: readonly IdealSt
 function prepareAndAdvance(run: AlgorithmRun, target: AlgorithmPhase, timestamp: string, substrate: SubstrateId): AlgorithmRun {
   let next = run;
   switch (target) {
+    case "think":
+      // Satisfy the OBSERVE current-state floor. An ISA being synced already
+      // declares it advanced past OBSERVE, so we reconstruct that declared probe,
+      // like the synthetic changelog/plan below. NOTE: AlgorithmObservation has no
+      // structured "synthetic" flag — the sync origin lives only in the claim/
+      // evidence prose, and hasCurrentStateProbe counts this reconstruction as a
+      // real probe. That is the same caller-asserted boundary as every evidence
+      // surface: sync reconstructs *declared* state, it does not re-probe reality.
+      if (!hasCurrentStateProbe(next.observations)) {
+        next = recordAlgorithmObservation(
+          next,
+          { claim: "synced from ISA observe phase", evidence: "reconstructed from ISA declared phase", evidenceKind: "probed" },
+          timestamp,
+          { substrate },
+        );
+      }
+      break;
     case "plan":
       if (next.capabilities.length === 0) {
         // sequential-analysis is valid in think/plan; current phase is `think`.

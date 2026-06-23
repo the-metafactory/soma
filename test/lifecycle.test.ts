@@ -14,6 +14,7 @@ import {
   recordAlgorithmCapabilityInvocation,
   recordAlgorithmChange,
   recordAlgorithmLearning,
+  recordAlgorithmObservation,
   runSomaLifecycleAlgorithmObserved,
   runSomaLifecycleAlgorithmUpdated,
   runSomaLifecycleSessionEnd,
@@ -46,6 +47,11 @@ function completeRun() {
     criteria: [{ id: "C1", text: "Completed work writes learning." }],
   });
 
+  run = recordAlgorithmObservation(
+    run,
+    { claim: "criterion C1 exists", evidence: "read run.isa", evidenceKind: "probed" },
+    "2026-05-14T10:00:30.000Z",
+  );
   run = advanceAlgorithmRun(run, "2026-05-14T10:01:00.000Z");
   run = addAlgorithmCapabilities(run, ["sequential-analysis"], "2026-05-14T10:02:00.000Z");
   run = advanceAlgorithmRun(run, "2026-05-14T10:03:00.000Z");
