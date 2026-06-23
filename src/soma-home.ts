@@ -185,16 +185,17 @@ async function loadSomaSkills(somaHome: string): Promise<SomaSkill[]> {
 // parser is heading-driven (`## Goals`/`## Principles`/`## Commitments`), so a
 // legacy `# Telos` body parses identically.
 async function readPurposeProfile(paths: ReturnType<typeof createPaths>): Promise<string> {
-  for (const candidate of ["purpose.md", "telos.md"]) {
-    try {
-      return await readFile(paths.resolve("profile", candidate), "utf8");
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-        throw error;
-      }
+  try {
+    return await readFile(paths.resolve("profile", "purpose.md"), "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw error;
     }
   }
-  return "";
+  // purpose.md absent — fall back to the legacy telos.md. We deliberately do NOT
+  // swallow this read's ENOENT: a home missing BOTH files should still throw
+  // loudly, preserving the pre-rename behaviour (no silent fail-open to defaults).
+  return readFile(paths.resolve("profile", "telos.md"), "utf8");
 }
 
 export async function loadSomaProfile(somaHome: string): Promise<Omit<ProjectionInput["profile"], "skills">> {

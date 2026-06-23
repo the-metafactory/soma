@@ -174,6 +174,21 @@ test("AC-3: planSomaForClaudeCodeInstall does not write files (plan.apply === fa
   });
 });
 
+test("soma#329: install removes a stale rules/soma/TELOS.md left by a pre-rename home", async () => {
+  await withTempHome(async (homeDir) => {
+    const rulesDir = join(homeDir, ".claude/rules/soma");
+    await mkdir(rulesDir, { recursive: true });
+    const stale = join(rulesDir, "TELOS.md");
+    await writeFile(stale, "# Soma Purpose Projection\n\nold frozen content\n", "utf8");
+
+    await installSomaForClaudeCode({ homeDir });
+
+    // The renamed projection is present and the stale auto-loaded copy is gone.
+    await expect(readFile(join(rulesDir, "PURPOSE.md"), "utf8")).resolves.toContain("# Soma Purpose Projection");
+    await expect(stat(stale)).rejects.toThrow();
+  });
+});
+
 test("AC-4: installSomaForClaudeCode is idempotent (second install bytes-identical)", async () => {
   await withTempHome(async (homeDir) => {
     await installSomaForClaudeCode({ homeDir });

@@ -169,6 +169,7 @@ async function installSomaForSubstrate(
     activeIsa: (await loadActiveIsaForBundle({ somaHome: somaHome.somaHome })) ?? undefined,
   };
   const substrateHome = await installHomeProjectionFor(substrate, contextWithActiveIsa, projectionOptions);
+  await removeObsoleteHomeFiles(spec, substrateHome.rootDir);
   const postProjectionFiles = await runPostProjectionSteps(spec, {
     homeDir: options.homeDir,
     somaHome: somaHome.somaHome,
@@ -194,6 +195,16 @@ async function installSomaForSubstrate(
       files: [...substrateHome.files, ...postProjectionFiles, ...lifecycleFiles],
     },
   };
+}
+
+// soma#329: prune files this substrate used to manage but no longer writes
+// (e.g. a renamed projection like TELOS.md → PURPOSE.md). Without this, a
+// substrate that auto-loads its rules dir would keep loading the stale,
+// frozen copy alongside the new one on every upgrade.
+async function removeObsoleteHomeFiles(spec: SubstrateInstallSpec, substrateRoot: string): Promise<void> {
+  for (const relativePath of spec.obsoleteHomeFiles ?? []) {
+    await rm(resolve(substrateRoot, relativePath), { force: true });
+  }
 }
 
 async function runPostProjectionSteps(
