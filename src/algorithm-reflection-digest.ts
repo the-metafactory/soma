@@ -24,9 +24,15 @@ const GATE_ENFORCED_AT: Record<keyof AlgorithmGatesFired, AlgorithmPhase> = {
   learnGateClean: "learn", // →LEARN evidence gate (#330)
   completeness: "learn", // →LEARN: every criterion resolved
 };
-const PHASE_ORDER: AlgorithmPhase[] = ["observe", "think", "plan", "build", "execute", "verify", "learn", "complete", "abandoned"];
+// The linear progress axis only — `abandoned` is deliberately ABSENT. It is a
+// terminal status orthogonal to progress (a run can abandon at any phase), so it
+// must not read as "past everything". An abandoned-phase reflection therefore
+// resolves to index -1 below and counts no gate as reached — we cannot claim an
+// abandoned run reached a gate it may have abandoned before.
+const PHASE_ORDER: AlgorithmPhase[] = ["observe", "think", "plan", "build", "execute", "verify", "learn", "complete"];
 function gateReached(reflectionPhase: AlgorithmPhase, gate: keyof AlgorithmGatesFired): boolean {
-  return PHASE_ORDER.indexOf(reflectionPhase) >= PHASE_ORDER.indexOf(GATE_ENFORCED_AT[gate]);
+  const phaseIndex = PHASE_ORDER.indexOf(reflectionPhase);
+  return phaseIndex >= 0 && phaseIndex >= PHASE_ORDER.indexOf(GATE_ENFORCED_AT[gate]);
 }
 
 export type ReflectionCategoryKey =

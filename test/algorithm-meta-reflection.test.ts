@@ -158,6 +158,18 @@ test("digest counts a gate-miss only once the run reached the gate's phase (not 
   const lateDigest = buildReflectionDigest([late]);
   expect(lateDigest.find((e) => e.category === "current-state")?.gateMissCount).toBe(1);
   expect(lateDigest.find((e) => e.category === "completeness")?.gateMissCount).toBe(1);
+
+  // An abandoned run is terminal-orthogonal, not "past everything" → no gate-misses.
+  const abandoned: ReflectionForDigest = {
+    runId: "abandoned",
+    reflection: {
+      timestamp: "t",
+      phase: "abandoned",
+      gatesFired: { currentStateFloor: false, learnGateClean: false, completeness: false },
+      smarterRun: { highestValueMove: "noted something generic" },
+    },
+  };
+  expect(buildReflectionDigest([abandoned]).every((e) => e.gateMissCount === 0)).toBe(true);
 });
 
 test("renderReflectionDigest handles the empty corpus", () => {
