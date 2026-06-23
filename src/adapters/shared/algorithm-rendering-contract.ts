@@ -11,6 +11,15 @@
  * portable Soma skill, the static contract intentionally overwrites
  * that skill's SKILL.md while the rest of the portable skill
  * (Workflows/, references/) ships through unchanged.
+ *
+ * OBSERVE current-state-floor coverage (#331): only codex/grok render their
+ * the-algorithm prose from THIS contract, so only they get the floor stated
+ * proactively here. Claude and pi-dev take the-algorithm prose from the imported
+ * portable skill (`~/.soma/skills/the-algorithm/`, reserved-protected on import),
+ * which this repo does not generate. The gate itself is substrate-agnostic — the
+ * `algorithm advance` error ("…without a current-state probe. Record an
+ * observation with probed/tested evidence (soma algorithm observe)") is the
+ * universal runtime guidance every substrate receives.
  */
 export function renderAlgorithmRenderingContract(substrateLabel: string): string {
   return [
