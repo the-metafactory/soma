@@ -46,18 +46,27 @@ function bool(value: unknown): boolean {
  * so this is a historical reconstruction, not the same-predicate computation. The
  * digest reads both uniformly; the distinction is that imported flags are
  * caller-asserted history, not re-derived facts.
+ *
+ * Mapping decisions, kept honest rather than convenient:
+ * - `currentStateFloor` ← PAI's `live_probe` (a genuine current-state-probe signal).
+ * - `completeness` ← PAI's criteria counts (all passed, none failed) — independent
+ *   of PAI's own `completeness_gate_met`, which we do NOT trust as a count.
+ * - `learnGateClean` ← **`true`, always.** #330's evidence-kind gate did not exist
+ *   in PAI; nothing in a PAI record speaks to it. We therefore decline to attribute
+ *   a #330 miss to history that never measured one (filling it from PAI's unrelated
+ *   `completeness_gate_met` would conflate two different gates and inflate the
+ *   verification bucket). Imported records simply never count as a learn-gate miss.
  */
 function gatesFromPai(record: PaiReflectionRecord): AlgorithmGatesFired {
   const doctrine = (record.doctrine_fired && typeof record.doctrine_fired === "object" ? record.doctrine_fired : {}) as {
     live_probe?: unknown;
-    completeness_gate_met?: unknown;
   };
   const count = num(record.criteria_count);
   const passed = num(record.criteria_passed);
   const failed = num(record.criteria_failed);
   return {
     currentStateFloor: bool(doctrine.live_probe),
-    learnGateClean: bool(doctrine.completeness_gate_met),
+    learnGateClean: true,
     completeness: count !== undefined && count > 0 && passed === count && (failed ?? 0) === 0,
   };
 }
