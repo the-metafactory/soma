@@ -55,6 +55,11 @@ test("grok home projection renders the verified discovery surface (entry skill +
   expect(algorithmSkill).toContain("name: the-algorithm");
   expect(algorithmSkill).toContain("## Grok Rendering Contract");
   expect(algorithmSkill).toContain("OBSERVE");
+  // OBSERVE current-state floor (#331): the agent-facing prompt must state the
+  // probe-before-THINK requirement and the recording command.
+  expect(algorithmSkill).toContain("current-state floor");
+  expect(algorithmSkill).toContain("algorithm observe");
+  expect(algorithmSkill).toContain("--evidence-kind probed");
 });
 
 // map the Algorithm/ISA onto Grok's native verification gates —

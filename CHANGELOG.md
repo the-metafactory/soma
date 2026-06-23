@@ -15,12 +15,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   does NOT clear the floor. Empirically motivated: 63% of 188 real runs stalled
   at OBSERVE or advanced on unverified assumptions and reworked later (#331).
   New surfaces: `soma algorithm observe --claim … --evidence … [--evidence-kind]`
-  and the batch op `observe:<claim>[:<kind>:<evidence>]`. Like every evidence
-  surface the kind is caller-asserted — the gate makes skipping the floor
+  (kind defaults to the fail-safe `specified`; assert `probed`/`tested` to clear
+  the floor) and the batch op `observe:<claim>:<kind>:<evidence>`. Like every
+  evidence surface the kind is caller-asserted — the gate makes skipping the floor
   explicit and auditable; it does not confirm the probe actually happened.
   Sync from an already-advanced ISA reconstructs the declared probe so historical
   imports still round-trip. Back-compat: runs without `observations` default to
   `[]` on load.
+- The agent-facing **`the-algorithm` rendering contract** (projected to codex/grok)
+  now states the OBSERVE current-state floor: OBSERVE phase rules instruct the
+  agent to probe every current-state assumption and record it with
+  `algorithm observe … --evidence-kind probed` before the gate will leave OBSERVE.
 
 ## [0.8.8] - 2026-06-22
 
