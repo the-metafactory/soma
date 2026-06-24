@@ -9,7 +9,7 @@ import type {
   AlgorithmRun,
   AlgorithmRunSummary,
   VerificationStateArtifact,
-  IdealStateCriterion,
+  Checkpoint,
 } from "./types";
 import { buildVsaArtifact, getCriteria, getGoal } from "./vsa-accessors";
 import { getRunPhase } from "./algorithm-lifecycle";
@@ -76,7 +76,7 @@ interface LegacyVsa {
   slug: string;
   phase: AlgorithmPhase;
   goal: string;
-  criteria: IdealStateCriterion[];
+  criteria: Checkpoint[];
 }
 
 // LegacyAlgorithmRun = pre-#41 on-disk shape. Derived from AlgorithmRun so

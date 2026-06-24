@@ -36,6 +36,8 @@ export type {
   AuthoredFrontmatter,
   DerivedFrontmatter,
   VerificationStateArtifact,
+  Checkpoint,
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- intentional back-compat re-export of the deprecated alias (soma#329)
   IdealStateCriterion,
   IdeateParameters,
   IdeatePresetName,

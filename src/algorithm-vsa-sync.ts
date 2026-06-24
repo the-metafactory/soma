@@ -46,7 +46,7 @@ import type {
   AlgorithmPhase,
   AlgorithmRun,
   VerificationStateArtifact,
-  IdealStateCriterion,
+  Checkpoint,
   SubstrateId,
 } from "./types";
 
@@ -187,7 +187,7 @@ function phaseIndex(phase: AlgorithmPhase): number {
  * is passed/dropped, so we never try to advance past VERIFY when criteria are
  * still open — even if the VSA claims `learn`/`complete`.
  */
-function reachableTargetPhase(target: AlgorithmPhase, criteria: readonly IdealStateCriterion[]): AlgorithmPhase {
+function reachableTargetPhase(target: AlgorithmPhase, criteria: readonly Checkpoint[]): AlgorithmPhase {
   // Mirror the LEARN integrity gate via the shared rule so the two cannot drift:
   // a `passed` criterion verified by specification only (e.g. a pass fabricated
   // from a frontmatter progress counter) cannot clear LEARN, so sync caps such a
@@ -290,7 +290,7 @@ function progressCompletedCount(progress: string, total: number): number | null 
   return completed;
 }
 
-function frontmatterCompletionCount(isa: VerificationStateArtifact, vsaCriteria: readonly IdealStateCriterion[]): number {
+function frontmatterCompletionCount(isa: VerificationStateArtifact, vsaCriteria: readonly Checkpoint[]): number {
   const checked = vsaCriteria.filter(isClosedCriterion).length;
   const progress = progressCompletedCount(isa.frontmatter.progress, vsaCriteria.length) ?? 0;
   const phaseCompleted = phaseIndex(isa.frontmatter.phase) >= phaseIndex("learn") ? vsaCriteria.length : 0;
@@ -301,7 +301,7 @@ function frontmatterCompletionCount(isa: VerificationStateArtifact, vsaCriteria:
 function reconcileCriteria(
   run: AlgorithmRun,
   isa: VerificationStateArtifact,
-  vsaCriteria: readonly IdealStateCriterion[],
+  vsaCriteria: readonly Checkpoint[],
   timestamp: string,
   substrate: SubstrateId,
 ): AlgorithmRun {
