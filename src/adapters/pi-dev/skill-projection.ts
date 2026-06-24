@@ -1,4 +1,4 @@
-import { readdir, rm } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import { rewriteSkillNameFrontmatter } from "../../skill-frontmatter";
 import { rewriteSubstrateProjectionContent } from "../../substrate-projection-rewrites";
@@ -58,18 +58,10 @@ export function piDevVsaSkillDestinationDir(substrateHome: string): string {
 
 export async function removeLegacyPiDevVsaSkillProjection(substrateHome: string): Promise<void> {
   const skillsDir = resolve(substrateHome, "agent/skills");
-  let entries;
-  try {
-    entries = await readdir(skillsDir, { withFileTypes: true });
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-    throw error;
-  }
-  // LEGACY_PI_DEV_VSA_SKILL_DIRS never includes the canonical PI_DEV_VSA_SKILL_ID
-  // by construction, so each prior name is safe to prune before reprojecting it.
+  // force-rm is idempotent (no error when absent); LEGACY_PI_DEV_VSA_SKILL_DIRS
+  // never includes the canonical PI_DEV_VSA_SKILL_ID, so each prior name is safe
+  // to prune before reprojecting "vsa".
   for (const legacy of LEGACY_PI_DEV_VSA_SKILL_DIRS) {
-    if (entries.some((entry) => entry.isDirectory() && entry.name === legacy)) {
-      await rm(resolve(skillsDir, legacy), { recursive: true, force: true });
-    }
+    await rm(resolve(skillsDir, legacy), { recursive: true, force: true });
   }
 }

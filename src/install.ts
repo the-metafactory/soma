@@ -229,12 +229,9 @@ async function reconcileOwnedSubtrees(
   // Resolve against substrateRoot (not cwd) so a relative projected path can't
   // silently fall outside an owned subtree and empty its desired set.
   const projectedAbs = new Set(projectedFiles.map((file) => resolve(substrateRoot, file)));
-  // Subtrees managed by another (edit-preserving) installer must be excluded from
-  // reconcile: the VSA skill destination, plus any spec-declared exclusions.
-  const protectedDirs = [
-    resolve(spec.vsaSkillProjection.destinationDir(substrateRoot)),
-    ...(spec.ownedSubtreeExclusions ?? []).map((rel) => resolve(substrateRoot, rel)),
-  ];
+  // The VSA skill is installed by its own edit-preserving installer; where its
+  // destination nests under an owned subtree (cursor), exclude it from reconcile.
+  const protectedDirs = [resolve(spec.vsaSkillProjection.destinationDir(substrateRoot))];
   for (const subtree of spec.ownedSubtrees ?? []) {
     const root = resolve(substrateRoot, subtree);
     const desiredRel = [...projectedAbs]

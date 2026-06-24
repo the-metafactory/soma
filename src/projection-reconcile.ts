@@ -1,4 +1,4 @@
-import { mkdir, readdir, rename, rm, stat } from "node:fs/promises";
+import { mkdir, readdir, rename, rm, rmdir, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { isEnoent } from "./fs-errors";
 
@@ -56,15 +56,20 @@ async function removeEmptyDirs(root: string, protectedAbs: readonly string[] = [
   }
   // A dir that contains (is an ancestor of) an excluded path must survive too.
   if (protectedAbs.some((p) => isUnderOrEqual(p, root))) return;
+  // rmdir (not recursive rm) so a dir that became non-empty after the recursion
+  // errors with ENOTEMPTY instead of cascading a delete (TOCTOU-safe).
   try {
-    if ((await readdir(root)).length === 0) await rm(root, { force: true, recursive: true });
+    await rmdir(root);
   } catch (error) {
-    if (!isEnoent(error)) throw error; // a vanished dir is fine; surface the rest
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== "ENOENT" && code !== "ENOTEMPTY") throw error;
   }
 }
 
 export interface ReconcileResult {
+  /** Relative paths removed (their on-disk/old name). */
   removed: string[];
+  /** Relative paths case-normalized (their new canonical name). */
   renamed: string[];
 }
 
@@ -74,6 +79,9 @@ export function isUnderOrEqual(path: string, base: string): boolean {
   return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
+// (The `.soma-case.*.tmp` hop name can only collide with a leftover from a crashed
+// prior run — never a user file, since owned subtrees are Soma-exclusive — and the
+// rename simply overwrites it.)
 // Case-insensitive FS: `abs` and `canonicalAbs` are the same file (already holding
 // the projected content); fix only the casing. Crash-safe — if the final rename
 // throws, the original name is restored so the file is never stranded at the temp.

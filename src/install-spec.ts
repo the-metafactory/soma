@@ -80,13 +80,6 @@ export interface SubstrateInstallSpec<S extends InstallSubstrate = InstallSubstr
    * are relative to the substrate home, same as `homeFiles`.
    */
   ownedSubtrees?: readonly string[];
-  /**
-   * Paths under an owned subtree that reconcile must NOT prune because another
-   * (edit-preserving) installer manages them — e.g. a skill dir nested under an
-   * owned subtree. The VSA skill destination is excluded automatically; list any
-   * additional nested edit-preserving installers here. Relative to substrate home.
-   */
-  ownedSubtreeExclusions?: readonly string[];
   optionalHomeFiles?(options: unknown): readonly string[];
   vsaSkillProjection: VsaSkillProjectionSpec;
   validator?: InstallValidator;
