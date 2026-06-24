@@ -164,3 +164,60 @@ test("derived accessors are pure functions (no memoization side effects)", () =>
   expect(first).toEqual(second);
   expect(first).not.toBe(second); // each call returns a fresh array
 });
+
+// soma#329 slice 4: `## Criteria` → `## Checkpoints` (dual-read legacy, emit new).
+function legacyCriteriaVsa(): VerificationStateArtifact {
+  return {
+    slug: "legacy",
+    frontmatter: {
+      task: "legacy task",
+      effort: "E2",
+      mode: "algorithm",
+      phase: "observe",
+      progress: "0/1",
+      verified: false,
+      updated: "2026-05-16T10:00:00.000Z",
+    },
+    // pre-rename heading authored on disk
+    sections: [{ name: "Criteria", content: renderCriteriaMarkdown([{ id: "ISC-1", text: "Legacy", status: "open" }]) }],
+  };
+}
+
+test("slice4: getCriteria dual-reads a legacy `Criteria` section", () => {
+  const criteria = getCriteria(legacyCriteriaVsa());
+  expect(criteria.map((c) => c.id)).toEqual(["ISC-1"]);
+});
+
+test("slice4: getSection(Checkpoints) resolves a legacy `Criteria` section", () => {
+  expect(getSection(legacyCriteriaVsa(), SECTION_NAME_MAP.criteria)?.name).toBe("Criteria");
+});
+
+test("slice4: setCriteria-style write upgrades a legacy `Criteria` section in place (no duplicate)", () => {
+  const upgraded = setSection(legacyCriteriaVsa(), SECTION_NAME_MAP.criteria, renderCriteriaMarkdown([{ id: "ISC-1", text: "Legacy", status: "passed" }]));
+  const names = upgraded.sections.map((s) => s.name);
+  expect(names).toContain("Checkpoints");
+  expect(names).not.toContain("Criteria"); // renamed in place, not duplicated
+  expect(names.filter((n) => n === "Checkpoints")).toHaveLength(1);
+});
+
+test("slice4: appendCriterion on a fresh VSA emits the canonical `Checkpoints` heading", () => {
+  const isa: VerificationStateArtifact = { ...buildVsa(), sections: [{ name: SECTION_NAME_MAP.goal, content: "g" }] };
+  const withCriterion = appendCriterion(isa, { id: "C1", text: "New", status: "open" });
+  expect(withCriterion.sections.some((s) => s.name === "Checkpoints")).toBe(true);
+  expect(withCriterion.sections.some((s) => s.name === "Criteria")).toBe(false);
+});
+
+test("slice4: setSection collapses a VSA carrying both Checkpoints and legacy Criteria", () => {
+  const isa: VerificationStateArtifact = {
+    ...buildVsa(),
+    sections: [
+      { name: SECTION_NAME_MAP.goal, content: "g" },
+      { name: "Checkpoints", content: renderCriteriaMarkdown([{ id: "C1", text: "canon", status: "open" }]) },
+      { name: "Criteria", content: renderCriteriaMarkdown([{ id: "OLD", text: "legacy", status: "open" }]) },
+    ],
+  };
+  const updated = setSection(isa, SECTION_NAME_MAP.criteria, renderCriteriaMarkdown([{ id: "C1", text: "canon", status: "passed" }]));
+  const names = updated.sections.map((s) => s.name);
+  expect(names.filter((n) => n === "Checkpoints")).toHaveLength(1);
+  expect(names).not.toContain("Criteria"); // stale legacy duplicate dropped, not orphaned
+});
