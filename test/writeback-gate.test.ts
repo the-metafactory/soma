@@ -3,7 +3,7 @@ import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { parseWritebackArgs, runWritebackCli } from "../src/cli/writeback";
-import { applySomaWriteback, bootstrapSomaHome, readIsa, scaffoldIsa, setActiveIsa } from "../src/index";
+import { applySomaWriteback, bootstrapSomaHome, readVsa, scaffoldVsa, setActiveVsa } from "../src/index";
 
 async function tempHome(): Promise<string> {
   return mkdtemp(join(tmpdir(), "soma-writeback-"));
@@ -55,21 +55,21 @@ describe("applySomaWriteback", () => {
     ).rejects.toThrow("Unsupported writeback store KNOWLEDGE");
   });
 
-  test("#147: merges ISA log entries through active-ISA append semantics", async () => {
+  test("#147: merges VSA log entries through active-VSA append semantics", async () => {
     const homeDir = await tempHome();
     const somaHome = join(homeDir, ".soma");
     await bootstrapSomaHome({ homeDir });
-    await scaffoldIsa({ homeDir, slug: "demo", goal: "G", effort: "E4", timestamp: "2026-05-21T09:00:00.000Z" });
-    await setActiveIsa("demo", { homeDir });
+    await scaffoldVsa({ homeDir, slug: "demo", goal: "G", effort: "E4", timestamp: "2026-05-21T09:00:00.000Z" });
+    await setActiveVsa("demo", { homeDir });
 
     const result = await applySomaWriteback({
       somaHome,
       substrate: "codex",
       timestamp: "2026-05-21T10:00:00.000Z",
       operation: {
-        kind: "isa-log",
+        kind: "vsa-log",
         entries: {
-          decisions: [{ text: "Use append-only ISA writeback" }],
+          decisions: [{ text: "Use append-only VSA writeback" }],
           changelogEntries: [{ text: "Added writeback merge gate" }],
           verificationEntries: [{ text: "Gate test passed" }],
         },
@@ -77,52 +77,52 @@ describe("applySomaWriteback", () => {
     });
 
     expect(result.decision).toBe("applied");
-    expect(result.merge).toBe("isa-log-append");
+    expect(result.merge).toBe("vsa-log-append");
     expect(result.writes.some((path) => path.endsWith("isa/demo.md"))).toBe(true);
     expect(result.writes.some((path) => path.endsWith("memory/STATE/events.jsonl"))).toBe(true);
 
-    const isa = await readIsa("demo", { homeDir });
-    expect(isa.sections.find((s) => s.name === "Decisions")?.content).toContain("Use append-only ISA writeback");
+    const isa = await readVsa("demo", { homeDir });
+    expect(isa.sections.find((s) => s.name === "Decisions")?.content).toContain("Use append-only VSA writeback");
     expect(isa.sections.find((s) => s.name === "Changelog")?.content).toContain("Added writeback merge gate");
     expect(isa.sections.find((s) => s.name === "Verification")?.content).toContain("Gate test passed");
   });
 
-  test("#147: refuses ISA writeback to a non-active slug", async () => {
+  test("#147: refuses VSA writeback to a non-active slug", async () => {
     const homeDir = await tempHome();
     await bootstrapSomaHome({ homeDir });
-    await scaffoldIsa({ homeDir, slug: "active", goal: "G", effort: "E1" });
-    await scaffoldIsa({ homeDir, slug: "other", goal: "G", effort: "E1" });
-    await setActiveIsa("active", { homeDir });
+    await scaffoldVsa({ homeDir, slug: "active", goal: "G", effort: "E1" });
+    await scaffoldVsa({ homeDir, slug: "other", goal: "G", effort: "E1" });
+    await setActiveVsa("active", { homeDir });
 
     await expect(
       applySomaWriteback({
         somaHome: join(homeDir, ".soma"),
         substrate: "codex",
         operation: {
-          kind: "isa-log",
+          kind: "vsa-log",
           slug: "other",
           entries: { decisions: [{ text: "Wrong target" }] },
         },
       }),
-    ).rejects.toThrow("does not match active ISA");
+    ).rejects.toThrow("does not match active VSA");
   });
 
-  test("#147: refuses explicit ISA writeback when no active ISA is set", async () => {
+  test("#147: refuses explicit VSA writeback when no active VSA is set", async () => {
     const homeDir = await tempHome();
     await bootstrapSomaHome({ homeDir });
-    await scaffoldIsa({ homeDir, slug: "demo", goal: "G", effort: "E1" });
+    await scaffoldVsa({ homeDir, slug: "demo", goal: "G", effort: "E1" });
 
     await expect(
       applySomaWriteback({
         somaHome: join(homeDir, ".soma"),
         substrate: "codex",
         operation: {
-          kind: "isa-log",
+          kind: "vsa-log",
           slug: "demo",
           entries: { decisions: [{ text: "No active target" }] },
         },
       }),
-    ).rejects.toThrow("requires an active ISA");
+    ).rejects.toThrow("requires an active VSA");
   });
 });
 

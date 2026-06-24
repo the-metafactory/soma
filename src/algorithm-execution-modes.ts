@@ -11,7 +11,7 @@ import type {
   OptimizeParameters,
   OptimizePresetName,
 } from "./types";
-import { getCriteria } from "./isa-accessors";
+import { getCriteria } from "./vsa-accessors";
 
 export const DEFAULT_ALGORITHM_LOOP_STATE: AlgorithmLoopState = {
   status: "paused",

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-  isaCriteriaWidgetKey,
+  vsaCriteriaWidgetKey,
   phaseWidgetKey,
   renderPhaseOverviewLines,
   renderPhaseStatusText,
@@ -19,7 +19,7 @@ describe("widget keys", () => {
   });
 
   test("auxiliary keys are runId-scoped", () => {
-    expect(isaCriteriaWidgetKey("run-abc")).toBe("soma-run-abc-isa-criteria");
+    expect(vsaCriteriaWidgetKey("run-abc")).toBe("soma-run-abc-vsa-criteria");
   });
 
   test("SOMA_STATUS_KEY is the fixed footer slot", () => {
@@ -61,8 +61,8 @@ describe("renderPhaseStatusText", () => {
   });
 
   test("appends suffix with pipe separator when present", () => {
-    expect(renderPhaseStatusText({ marker: marker("verify", 6), suffix: "ISA 3/7" })).toBe(
-      "Phase 6/7 — VERIFY | ISA 3/7",
+    expect(renderPhaseStatusText({ marker: marker("verify", 6), suffix: "VSA 3/7" })).toBe(
+      "Phase 6/7 — VERIFY | VSA 3/7",
     );
   });
 });

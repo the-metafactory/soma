@@ -27,7 +27,7 @@ import {
   type UninstallGrokResult,
 } from "../index";
 import type { ClaudeCodeInstallOptions } from "../adapters/claude-code/install-options";
-import { projectIsaSkillBundleFiles } from "../isa-skill-installer";
+import { projectVsaSkillBundleFiles } from "../vsa-skill-installer";
 import { defaultSubstrateHome, installSpecFor } from "../install-spec-registry";
 import type {
   ProjectionInput,
@@ -433,32 +433,32 @@ async function buildExportProjection(
     substrateHome: options.substrateHome,
   };
   const files = projectionFilesFor(substrate, projectionInput, projectionOptions);
-  // The ISA skill has a dedicated managed projection at install
-  // time (installIsaSkillProjection) and is therefore excluded from the
+  // The VSA skill has a dedicated managed projection at install
+  // time (installVsaSkillProjection) and is therefore excluded from the
   // generic portable-skill loop the projection builders run. Export runs
-  // only that loop, so without this the bundle's skills.md lists the ISA
+  // only that loop, so without this the bundle's skills.md lists the VSA
   // skill while its files are absent — an incomplete projection that does
-  // not match an installed home. Append the same ISA files install writes,
+  // not match an installed home. Append the same VSA files install writes,
   // as in-memory bundle entries, so `soma export` is a complete, installable
   // set.
-  const isaFiles = await buildExportIsaProjection(substrate, options);
-  return [...files, ...isaFiles].map((f) => ({ path: f.path, content: f.content }));
+  const vsaFiles = await buildExportVsaProjection(substrate, options);
+  return [...files, ...vsaFiles].map((f) => ({ path: f.path, content: f.content }));
 }
 
-async function buildExportIsaProjection(
+async function buildExportVsaProjection(
   substrate: InstallSubstrate,
   options: SomaInstallOptions,
 ): Promise<{ path: string; content: string }[]> {
   const spec = installSpecFor(substrate);
   // Resolve the substrate root the same way install does, then derive the
-  // ISA destination relative to it so the bundle path matches an installed
-  // home (e.g. codex → `skills/ISA`, cursor → `.cursor/rules/soma/skills/ISA`).
+  // VSA destination relative to it so the bundle path matches an installed
+  // home (e.g. codex → `skills/VSA`, cursor → `.cursor/rules/soma/skills/VSA`).
   const resolvedHomeDir = pathResolve(options.homeDir ?? homedir());
   const substrateRoot = pathResolve(options.substrateHome ?? pathJoin(resolvedHomeDir, spec.defaultHome));
-  const destinationPrefix = pathRelative(substrateRoot, spec.isaSkillProjection.destinationDir(substrateRoot));
-  return projectIsaSkillBundleFiles({
+  const destinationPrefix = pathRelative(substrateRoot, spec.vsaSkillProjection.destinationDir(substrateRoot));
+  return projectVsaSkillBundleFiles({
     somaRepoPath: options.somaRepoPath,
-    skillNameOverride: spec.isaSkillProjection.skillNameOverride,
+    skillNameOverride: spec.vsaSkillProjection.skillNameOverride,
     projectionSubstrate: substrate,
     destinationPrefix,
   });

@@ -220,7 +220,7 @@ test("install spec registry has adapter-owned facts for every install substrate"
     expect(spec.substrate).toBe(substrate);
     expect(spec.defaultHome.length).toBeGreaterThan(0);
     expect(spec.homeFiles.length).toBeGreaterThan(0);
-    expect(spec.isaSkillProjection.destinationDir("/tmp/substrate-home")).toContain("/tmp/substrate-home");
+    expect(spec.vsaSkillProjection.destinationDir("/tmp/substrate-home")).toContain("/tmp/substrate-home");
     expect(spec.uninstall.kind).toMatch(/implemented|reserved/);
   }
 
@@ -231,10 +231,10 @@ test("install spec registry has adapter-owned facts for every install substrate"
     startupContextPath: "agent/soma/startup-context.md",
     somaRepoPathPath: "agent/soma/soma-repo.txt",
   });
-  expect(installSpecFor("pi-dev").isaSkillProjection.skillNameOverride).toBe("isa");
+  expect(installSpecFor("pi-dev").vsaSkillProjection.skillNameOverride).toBe("isa");
   expect(installSpecFor("claude-code").uninstall).toMatchObject({
     kind: "implemented",
-    remove: ["rules/soma", "skills/ISA"],
+    remove: ["rules/soma", "skills/VSA"],
   });
   expect(installSpecFor("claude-code").postProjection?.map((step) => step.name)).toEqual(["claude-code-soma-hooks"]);
   expect(installSpecFor("cursor").uninstall.kind).toBe("implemented");
@@ -390,18 +390,18 @@ test("install preserves existing soma profile edits before projecting to codex",
   });
 });
 
-test("first install already converges: skills.md lists ISA and the file set matches a re-install", async () => {
+test("first install already converges: skills.md lists VSA and the file set matches a re-install", async () => {
   await withTempHome(async (homeDir) => {
     const skillsPath = join(homeDir, ".codex/memories/soma/skills.md");
 
-    // The canonical ISA skill is written to <somaHome>/skills/ISA during
+    // The canonical VSA skill is written to <somaHome>/skills/VSA during
     // this same install. The projection must already reflect it on the very
     // first run — not render "No Soma skills were declared." and only
     // converge on the second install (the context was previously snapshotted
-    // before the ISA baseline existed).
+    // before the VSA baseline existed).
     const first = await installSomaForCodex({ homeDir });
     const afterFirst = await readFile(skillsPath, "utf8");
-    expect(afterFirst).toContain("## ISA");
+    expect(afterFirst).toContain("## VSA");
     expect(afterFirst).not.toContain("No Soma skills were declared.");
 
     // Snapshot every projected file's bytes after the first install.

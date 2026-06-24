@@ -6,7 +6,7 @@ const SOMA_HOME = "~/" + ".soma";
 const RELATIVE_CLAUDE_HOME = "." + "claude";
 const MEMORY_ROOT_PREFIXES = [CLAUDE_HOME, `./${RELATIVE_CLAUDE_HOME}`, RELATIVE_CLAUDE_HOME] as const;
 const MEMORY_ROOT_SUFFIXES = ["PAI/MEMORY", "memory", "memories"] as const;
-const CLAUDE_ONLY_LINE = /\b(?:ISASync\.hook\.ts|ISA[- ]Tool(?![A-Za-z]))/i;
+const CLAUDE_ONLY_LINE = /\b(?:VSASync\.hook\.ts|VSA[- ]Tool(?![A-Za-z]))/i;
 
 function replaceAllLiteral(content: string, from: string, to: string): string {
   return content.split(from).join(to);

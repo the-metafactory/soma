@@ -110,13 +110,13 @@ test("scenario 3 — plan mixed substrate-specific WITH includeSubstrateSpecific
 
 test("scenario 4 — plan mixed reserved-collision without overwriteReserved: refused-reserved, others plan, no throw", async () => {
   await withMigrationHome(async ({ homeDir, packsDir }) => {
-    await writePackFixture(packsDir, "ISA", { skillName: "ISA" });
+    await writePackFixture(packsDir, "VSA", { skillName: "VSA" });
     await writePackFixture(packsDir, "Clean");
     const plan = await planPaiMigration({ homeDir, paiPacksDir: packsDir });
     expect(plan.packOutcomes.length).toBe(2);
-    const isaOutcome = plan.packOutcomes.find((o) => /isa/i.test(o.skillName ?? ""));
+    const vsaOutcome = plan.packOutcomes.find((o) => /vsa/i.test(o.skillName ?? ""));
     const cleanOutcome = plan.packOutcomes.find((o) => /clean/i.test(o.skillName ?? ""));
-    expect(isaOutcome?.outcome).toBe("refused-reserved");
+    expect(vsaOutcome?.outcome).toBe("refused-reserved");
     expect(cleanOutcome?.outcome).toBe("imported");
     expect(plan.packs.length).toBe(1);
     expect(plan.packs[0].skillName).toBe("clean");
@@ -150,7 +150,7 @@ test("scenario 6 (AC-5) — plan output includes per-pack outcome table; CLI pla
   await withMigrationHome(async ({ homeDir, packsDir }) => {
     const sub = await writePackFixture(packsDir, "SubA");
     await plantSubstrateSpecificFile(sub);
-    await writePackFixture(packsDir, "ISA", { skillName: "ISA" });
+    await writePackFixture(packsDir, "VSA", { skillName: "VSA" });
     await writePackFixture(packsDir, "Healthy");
     const out = await runSomaCli([
       "migrate",

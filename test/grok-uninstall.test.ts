@@ -47,7 +47,7 @@ test("grok uninstall round-trips a real install", async () => {
     for (const expected of [
       "skills/soma",
       "skills/the-algorithm",
-      "skills/ISA",
+      "skills/VSA",
       "AGENTS.md",
       "config.toml",
       "hooks/soma-lifecycle.json",
@@ -66,7 +66,7 @@ test("grok uninstall round-trips a real install", async () => {
     for (const path of [
       "skills/soma",
       "skills/the-algorithm",
-      "skills/ISA",
+      "skills/VSA",
       "hooks/soma-lifecycle.json",
       "hooks/soma-lifecycle.mjs",
       "hooks/shell-policy-core.mjs",
@@ -120,7 +120,7 @@ test("grok uninstall leaves a user directory that merely shares a Soma name", as
   await withTempDir("soma-grok-uninstall-shared-name-", async (homeDir) => {
     const grokHome = join(homeDir, ".grok");
     // User-authored dirs named like Soma's, with no Soma markers.
-    for (const name of ["soma", "the-algorithm", "ISA"]) {
+    for (const name of ["soma", "the-algorithm", "VSA"]) {
       await mkdir(join(grokHome, "skills", name), { recursive: true });
       await writeFile(join(grokHome, "skills", name, "SKILL.md"), `---\nname: ${name}\n---\n\nHand-written.\n`, "utf8");
     }
@@ -139,7 +139,7 @@ test("grok uninstall leaves a user directory that merely shares a Soma name", as
     const result = await uninstallSomaForGrok({ homeDir });
 
     expect(result.removed).toEqual([]);
-    for (const name of ["soma", "the-algorithm", "ISA"]) {
+    for (const name of ["soma", "the-algorithm", "VSA"]) {
       expect(await readFile(join(grokHome, "skills", name, "SKILL.md"), "utf8")).toContain("Hand-written.");
     }
     expect(await readFile(join(grokHome, "hooks", "soma-lifecycle.json"), "utf8")).toContain('"Stop"');

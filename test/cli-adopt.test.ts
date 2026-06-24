@@ -32,14 +32,14 @@ test("soma adopt claude (no flags) → dry-run plan", async () => {
   });
 });
 
-test("soma adopt claude --apply writes rules/soma/ skeleton + ISA skill", async () => {
+test("soma adopt claude --apply writes rules/soma/ skeleton + VSA skill", async () => {
   await withTempHome(async (homeDir) => {
     const output = await runSomaCli(["adopt", "claude", "--apply", "--home-dir", homeDir]);
     expect(output).toContain("Soma install applied");
     expect(output).toContain("substrate: claude-code");
     await stat(join(homeDir, ".claude/rules/soma/README.md"));
     await stat(join(homeDir, ".claude/rules/soma/CONTEXT.md"));
-    await stat(join(homeDir, ".claude/skills/ISA/SKILL.md"));
+    await stat(join(homeDir, ".claude/skills/VSA/SKILL.md"));
   });
 });
 
@@ -53,13 +53,13 @@ test("soma adopt claude --apply is idempotent (rerun byte-stable)", async () => 
   });
 });
 
-test("soma adopt claude --uninstall removes rules/soma + skills/ISA", async () => {
+test("soma adopt claude --uninstall removes rules/soma + skills/VSA", async () => {
   await withTempHome(async (homeDir) => {
     await runSomaCli(["adopt", "claude", "--apply", "--home-dir", homeDir]);
     const output = await runSomaCli(["adopt", "claude", "--uninstall", "--home-dir", homeDir]);
     expect(output).toContain("Removed:");
     await expect(stat(join(homeDir, ".claude/rules/soma"))).rejects.toThrow();
-    await expect(stat(join(homeDir, ".claude/skills/ISA"))).rejects.toThrow();
+    await expect(stat(join(homeDir, ".claude/skills/VSA"))).rejects.toThrow();
   });
 });
 

@@ -30,7 +30,7 @@ test("work registry helper writes PAI-aligned shared state without transcripts",
       progress: "1/1",
       timestamp: "2026-05-26T10:00:00.000Z",
       artifacts: {
-        isa: "memory/WORK/ship-work-registry/ISA.md",
+        isa: "memory/WORK/ship-work-registry/VSA.md",
       },
     });
 
@@ -52,7 +52,7 @@ test("work registry helper writes PAI-aligned shared state without transcripts",
       phase: "complete",
       progress: "1/1",
       artifacts: {
-        isa: "memory/WORK/ship-work-registry/ISA.md",
+        isa: "memory/WORK/ship-work-registry/VSA.md",
       },
     });
     expect(names).toEqual({ "session-1": "ship work registry" });

@@ -1,6 +1,6 @@
 import type { SomaAdapter, Projection, ProjectionInput, SomaTask } from "../types";
 import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "./shared";
-import { activeIsaBundleFile } from "../adapter-active-isa";
+import { activeVsaBundleFile } from "../adapter-active-vsa";
 
 function renderInstructions(input: ProjectionInput): string {
   return [
@@ -12,7 +12,7 @@ function renderInstructions(input: ProjectionInput): string {
     renderAssistantCore(input),
     "",
     "## Operating Rules",
-    "- Use the active ISA as the verification contract.",
+    "- Use the active VSA as the verification contract.",
     "- Treat Claude Code hooks and skills as enhancements, not core storage requirements.",
     "- Keep Soma skills portable unless a capability is explicitly Claude-only.",
     "- Record any Claude-only behavior as an adapter limitation.",
@@ -79,12 +79,12 @@ export function projectClaudeCode(input: ProjectionInput): Projection {
           "Verification reporting when hooks are absent",
         ]),
       },
-      // Active-ISA projection (#37). OMITTED when no active ISA — AC-2.
-      // Note: project bundle uses `.claude/soma/active-isa.md` (workspace
-      // overlay path), not `PAI/ACTIVE_ISA.md` (the home path used by
-      // projectClaudeCodeHome + activeIsaProjectionPath).
-      ...(input.activeIsa
-        ? [{ path: ".claude/soma/active-isa.md", content: activeIsaBundleFile("claude-code", input.activeIsa)[0].content }]
+      // Active-VSA projection (#37). OMITTED when no active VSA — AC-2.
+      // Note: project bundle uses `.claude/soma/active-vsa.md` (workspace
+      // overlay path), not `PAI/ACTIVE_VSA.md` (the home path used by
+      // projectClaudeCodeHome + activeVsaProjectionPath).
+      ...(input.activeVsa
+        ? [{ path: ".claude/soma/active-vsa.md", content: activeVsaBundleFile("claude-code", input.activeVsa)[0].content }]
         : []),
     ],
   };
@@ -106,7 +106,7 @@ function renderClaudeRulesReadme(): string {
     "- `MEMORY_LAYOUT.md` — pointers into the soma memory tree",
     "- `SKILLS.md` — discovered Soma skills",
     "- `POLICY.md` — substrate policy projection",
-    "- `ACTIVE_ISA.md` — current active ISA (omitted when none set)",
+    "- `ACTIVE_VSA.md` — current active VSA (omitted when none set)",
     "",
     "## Lifecycle",
     "",
@@ -160,7 +160,7 @@ function renderClaudePolicy(): string {
     [
       "Prompt-level behavior constraints",
       "Verification reporting when hooks are absent",
-      "Treat the active ISA as the verification contract",
+      "Treat the active VSA as the verification contract",
     ],
   );
 }
@@ -179,11 +179,11 @@ export const CLAUDE_CODE_RULES_FILES = [
   "rules/soma/MEMORY_LAYOUT.md",
   "rules/soma/SKILLS.md",
   "rules/soma/POLICY.md",
-  "rules/soma/ACTIVE_ISA.md",
+  "rules/soma/ACTIVE_VSA.md",
 ] as const;
 
 const CLAUDE_RULES_CONTENT_BUILDERS: Record<
-  Exclude<(typeof CLAUDE_CODE_RULES_FILES)[number], "rules/soma/ACTIVE_ISA.md">,
+  Exclude<(typeof CLAUDE_CODE_RULES_FILES)[number], "rules/soma/ACTIVE_VSA.md">,
   (input: ProjectionInput) => string
 > = {
   "rules/soma/README.md": () => renderClaudeRulesReadme(),
@@ -219,8 +219,8 @@ export function projectClaudeCodeHome(input: ProjectionInput): Projection {
     instructions: renderInstructions(input),
     files: [
       ...skeleton,
-      // Active ISA — omitted when no active ISA set (preserves #37 AC-2).
-      ...activeIsaBundleFile("claude-code", input.activeIsa),
+      // Active VSA — omitted when no active VSA set (preserves #37 AC-2).
+      ...activeVsaBundleFile("claude-code", input.activeVsa),
     ],
   };
 }

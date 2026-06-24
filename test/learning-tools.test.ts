@@ -373,7 +373,7 @@ test("session harvester defaults to canonical work registry state", async () => 
               started: "2026-05-26T10:00:00.000Z",
               updatedAt: "2026-05-26T10:00:00.000Z",
               artifacts: {
-                isa: "memory/WORK/align-shared-work-state/ISA.md",
+                isa: "memory/WORK/align-shared-work-state/VSA.md",
               },
             },
           },
@@ -421,7 +421,7 @@ test("session harvester prefers current-work snapshots and cites pointer provena
       progress: "2/3",
       timestamp: "2026-05-26T10:00:00.000Z",
       artifacts: {
-        isa: "memory/WORK/current-pointer/ISA.md",
+        isa: "memory/WORK/current-pointer/VSA.md",
         verification: "memory/WORK/current-pointer/verification.md",
       },
       learningSources: {
@@ -464,7 +464,7 @@ test("session harvester prefers current-work snapshots and cites pointer provena
     ]);
     expect(learnings[0]?.content).toContain("Current pointer work");
     expect(learnings[0]?.content).toContain(`Pointer: ${pointerArtifact}`);
-    expect(learnings[0]?.content).toContain("isa: memory/WORK/current-pointer/ISA.md");
+    expect(learnings[0]?.content).toContain("isa: memory/WORK/current-pointer/VSA.md");
     expect(learnings[0]?.content).toContain("Event ids: evt-current-pointer");
     expect(learnings[0]?.content).not.toContain("ignore previous instructions");
     expect(learnings[0]?.content).not.toContain("Old work should not be selected");

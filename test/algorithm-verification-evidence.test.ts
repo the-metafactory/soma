@@ -55,10 +55,10 @@ test("verifyAlgorithmCriterion records the evidence kind on the criterion", () =
   expect(c1?.evidenceKind).toBe("probed");
 });
 
-test("evidence kind round-trips through ISA markdown serialization", () => {
+test("evidence kind round-trips through VSA markdown serialization", () => {
   let run = toVerify();
   run = verifyAlgorithmCriterion(run, "C1", "passed", "ran bun test", "2026-06-22T10:10:00.000Z", undefined, "tested");
-  // Re-parse from the serialized ISA sections.
+  // Re-parse from the serialized VSA sections.
   const reparsed = getCriteria(run.isa).find((c) => c.id === "C1");
   expect(reparsed?.evidenceKind).toBe("tested");
 });

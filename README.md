@@ -345,7 +345,7 @@ already date-prefixed. Use the slug printed by the scaffold command for
 `use`, `active`, and `check`.
 
 For parallel feature work, Soma can reconcile feature VSAs back into a master
-VSA by stable criterion IDs. See [docs/isa-reconcile.md](docs/isa-reconcile.md).
+VSA by stable criterion IDs. See [docs/vsa-reconcile.md](docs/vsa-reconcile.md).
 
 ### Skills
 

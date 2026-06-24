@@ -107,16 +107,16 @@ test("scenario 4 — mixed reserved-collision without overwriteReserved: refused
   await withTempHome(async (homeDir) => {
     await writeIdentityFixture(homeDir);
     const packsDir = join(homeDir, "Packs");
-    await writePackFixture(packsDir, "ISA", { skillName: "ISA" });
+    await writePackFixture(packsDir, "VSA", { skillName: "VSA" });
     await writePackFixture(packsDir, "Clean");
     const result = await migratePai({ homeDir, paiPacksDir: packsDir });
     expect(result.packOutcomes.length).toBe(2);
-    const isaOutcome = result.packOutcomes.find((o) => /isa/i.test(o.skillName ?? ""));
+    const vsaOutcome = result.packOutcomes.find((o) => /vsa/i.test(o.skillName ?? ""));
     const cleanOutcome = result.packOutcomes.find((o) => /clean/i.test(o.skillName ?? ""));
-    expect(isaOutcome?.outcome).toBe("refused-reserved");
+    expect(vsaOutcome?.outcome).toBe("refused-reserved");
     expect(cleanOutcome?.outcome).toBe("imported");
     await stat(join(homeDir, ".soma/skills/clean/SKILL.md"));
-    await expect(stat(join(homeDir, ".soma/skills/isa"))).rejects.toThrow();
+    await expect(stat(join(homeDir, ".soma/skills/vsa"))).rejects.toThrow();
   });
 });
 
@@ -138,13 +138,13 @@ test("scenario 5 — single pack genuine failure (malformed): refused-other reco
 
 test("AC-4 — CLI exit non-zero only when a pack outcome is refused-other; zero on policy-respected refusals", async () => {
   // #109 — unrecognized files no longer refuse the pack (partial-import).
-  // The reserved-name refusal is still tested via the ISA pack below.
+  // The reserved-name refusal is still tested via the VSA pack below.
   await withTempHome(async (homeDir) => {
     await writeIdentityFixture(homeDir);
     const packsDir = join(homeDir, "Packs");
     const sub = await writePackFixture(packsDir, "SubA");
     await plantSubstrateSpecificFile(sub);
-    await writePackFixture(packsDir, "ISA", { skillName: "ISA" });
+    await writePackFixture(packsDir, "VSA", { skillName: "VSA" });
     await writePackFixture(packsDir, "Healthy");
     // The CLI returns its formatted string on success — no throw.
     const out = await runSomaCli([
@@ -156,7 +156,7 @@ test("AC-4 — CLI exit non-zero only when a pack outcome is refused-other; zero
       "--pai-packs-dir",
       packsDir,
     ]);
-    // ISA pack still surfaces as refused-reserved; SubA + Healthy import.
+    // VSA pack still surfaces as refused-reserved; SubA + Healthy import.
     expect(out).toContain("refused-reserved");
     expect(out).toContain("imported");
   });

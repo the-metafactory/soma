@@ -81,7 +81,7 @@ test("builds codex home projection bundle for default availability", () => {
     "memories/soma/skills.md",
     "memories/soma/policy.md",
     "skills/the-algorithm/SKILL.md",
-    "memories/soma/active-isa.md",
+    "memories/soma/active-vsa.md",
   ]);
   expect(projection.bundle.instructions).toContain("Soma default availability");
   expect(projection.bundle.instructions).toContain("/tmp/soma-test-home/.soma");
@@ -175,7 +175,7 @@ test("builds pi.dev home projection bundle for default availability", () => {
     // #43 — Algorithm phase renderer extension.
     "agent/extensions/soma-algorithm.ts",
     "agent/skills/soma/SKILL.md",
-    "agent/soma/active-isa.md",
+    "agent/soma/active-vsa.md",
   ]);
   expect(projection.bundle.files.find((file) => file.path === "agent/extensions/soma.ts")?.content).toContain("before_agent_start");
   expect(projection.bundle.files.find((file) => file.path === "agent/extensions/soma.ts")?.content).toContain("session_start");
@@ -206,7 +206,7 @@ test("builds cursor home projection bundle for default availability", () => {
     ".cursor/rules/soma/SKILLS.md",
     ".cursor/rules/soma/POLICY.md",
     ".cursor/rules/soma/MCP.md",
-    ".cursor/rules/soma/ACTIVE_ISA.md",
+    ".cursor/rules/soma/ACTIVE_VSA.md",
   ]);
   expect(projection.bundle.files.find((file) => file.path === ".cursorrules")?.content).toContain(".cursor/rules/soma/CONTEXT.md");
   expect(projection.bundle.files.find((file) => file.path === ".cursor/rules/soma/MCP.md")?.content).toContain("MCP");
@@ -228,17 +228,17 @@ test("pi.dev home projection normalizes portable skill paths and frontmatter nam
         ...portableProjectionInput.profile,
         skills: [
           {
-            // The canonical ISA skill has a dedicated, managed projection
-            // (installIsaSkillProjection); the generic portable-skill loop
+            // The canonical VSA skill has a dedicated, managed projection
+            // (installVsaSkillProjection); the generic portable-skill loop
             // delegates it and must NOT also emit its files here.
-            name: "ISA",
-            path: "skills/ISA",
+            name: "VSA",
+            path: "skills/VSA",
             description: "Ideal State Artifact.",
             triggers: ["isa"],
             files: [
               {
                 path: "SKILL.md",
-                content: "---\nname: ISA\n---\n\n# ISA\n",
+                content: "---\nname: VSA\n---\n\n# VSA\n",
               },
             ],
           },
@@ -295,10 +295,10 @@ test("pi.dev home projection normalizes portable skill paths and frontmatter nam
   expect(ledger?.content).toContain("name: ledger-update");
   expect(bodyExample?.content).toContain("name: Body Example");
   expect(bodyExample?.content).not.toContain("name: body-example");
-  // The dedicated ISA skill is delegated to installIsaSkillProjection and is
+  // The dedicated VSA skill is delegated to installVsaSkillProjection and is
   // not double-emitted through the portable-skill loop (neither cased form).
   expect(projection.bundle.files.map((file) => file.path)).not.toContain("agent/skills/isa/SKILL.md");
-  expect(projection.bundle.files.map((file) => file.path)).not.toContain("agent/skills/ISA/SKILL.md");
+  expect(projection.bundle.files.map((file) => file.path)).not.toContain("agent/skills/VSA/SKILL.md");
 });
 
 test("pi.dev home projection rejects normalized portable skill id collisions", () => {
@@ -354,9 +354,9 @@ test("non-Claude home projections rewrite Claude-only paths in portable skill pa
                 "name: the-algorithm",
                 "---",
                 "",
-                `Read ${claudeHome}/skills/ISA/Examples/canonical-isa.md.`,
-                "Claude hook: ISASync.hook.ts",
-                "Use the ISA Tool before continuing.",
+                `Read ${claudeHome}/skills/VSA/Examples/canonical-isa.md.`,
+                "Claude hook: VSASync.hook.ts",
+                "Use the VSA Tool before continuing.",
               ].join("\n"),
             },
             {
@@ -364,7 +364,7 @@ test("non-Claude home projections rewrite Claude-only paths in portable skill pa
               content: [
                 "# Run Algorithm",
                 "",
-                `Persist work at ${claudeHome}/PAI/MEMORY/WORK/{slug}/ISA.md.`,
+                `Persist work at ${claudeHome}/PAI/MEMORY/WORK/{slug}/VSA.md.`,
                 `Bootstrap reads \`${relativeClaudeMemory}/decisions.md\` and \`${relativeClaudeMemory}/session-log.md\`.`,
                 `Dot-relative bootstrap reads \`${dotRelativeClaudeMemory}/handoff.md\`.`,
                 `Bare roots: \`${claudeHome}/memory\`, \`${relativeClaudeMemory}\`, and \`${dotRelativeClaudeMemory}\`.`,
@@ -373,7 +373,7 @@ test("non-Claude home projections rewrite Claude-only paths in portable skill pa
             },
             {
               path: "Tools/hook-name.ts",
-              content: 'export const hookName = "ISASync.hook.ts";\n',
+              content: 'export const hookName = "VSASync.hook.ts";\n',
             },
           ],
         },
@@ -393,15 +393,15 @@ test("non-Claude home projections rewrite Claude-only paths in portable skill pa
   expect(projected).not.toContain(claudeHome);
   expect(projected).not.toContain(relativeClaudeMemory);
   expect(projected).not.toContain("./~/");
-  expect(projected).not.toContain("ISASync.hook.ts");
-  expect(projected).not.toContain("ISA Tool");
-  expect(projected).toContain(`${somaHome}/skills/ISA/Examples/canonical-isa.md`);
-  expect(projected).toContain(`${somaHome}/memory/WORK/{slug}/ISA.md`);
+  expect(projected).not.toContain("VSASync.hook.ts");
+  expect(projected).not.toContain("VSA Tool");
+  expect(projected).toContain(`${somaHome}/skills/VSA/Examples/canonical-isa.md`);
+  expect(projected).toContain(`${somaHome}/memory/WORK/{slug}/VSA.md`);
   expect(projected).toContain(`${somaHome}/memory/decisions.md`);
   expect(projected).toContain(`${somaHome}/memory/handoff.md`);
   expect(projected).toContain(`${somaHome}/memory/KNOWLEDGE/`);
   expect(projected).toContain(`Bare roots: \`${somaHome}/memory\`, \`${somaHome}/memory\`, and \`${somaHome}/memory\`.`);
-  expect(piTool).toContain("ISASync.hook.ts");
+  expect(piTool).toContain("VSASync.hook.ts");
 });
 
 

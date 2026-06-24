@@ -1,6 +1,6 @@
 /**
  * #29 Claude Code adapter — full install + projection (per soma#64 pivot).
- * Minimal-correct scope: rules/soma/ skeleton + ISA skill projection +
+ * Minimal-correct scope: rules/soma/ skeleton + VSA skill projection +
  * lifecycle/writeback hooks + uninstaller.
  */
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -13,8 +13,8 @@ import {
   projectClaudeCodeHome,
   installSomaForClaudeCode,
   planSomaForClaudeCodeInstall,
-  scaffoldIsa,
-  setActiveIsa,
+  scaffoldVsa,
+  setActiveVsa,
   uninstallSomaForClaudeCode,
 } from "../src/index";
 import { unpatchClaudeCodeModeClassifierSettings } from "../src/adapters/claude-code/hooks";
@@ -132,7 +132,7 @@ test("AC-1: projectClaudeCodeHome writes everything under rules/soma/", () => {
     "rules/soma/MEMORY_LAYOUT.md",
     "rules/soma/SKILLS.md",
     "rules/soma/POLICY.md",
-    "rules/soma/ACTIVE_ISA.md",
+    "rules/soma/ACTIVE_VSA.md",
   ];
   expect(bundle.files.map((f) => f.path)).toEqual(expected);
 });
@@ -150,7 +150,7 @@ test("AC-2: planSomaForClaudeCodeInstall lists every file written", () => {
     "/tmp/test-home/.claude/rules/soma/MEMORY_LAYOUT.md",
     "/tmp/test-home/.claude/rules/soma/SKILLS.md",
     "/tmp/test-home/.claude/rules/soma/POLICY.md",
-    "/tmp/test-home/.claude/rules/soma/ACTIVE_ISA.md",
+    "/tmp/test-home/.claude/rules/soma/ACTIVE_VSA.md",
     "/tmp/test-home/.claude/hooks/soma/soma-claude-code-hook.mjs",
     "/tmp/test-home/.claude/hooks/soma/soma-claude-code-hook.config.json",
     "/tmp/test-home/.claude/settings.json",
@@ -444,11 +444,11 @@ test("AC-10: uninstallSomaForClaudeCode removes only Soma-owned projection and h
     const result = await uninstallSomaForClaudeCode({ homeDir });
 
     expect(result.removed).toContain(join(homeDir, ".claude/rules/soma"));
-    expect(result.removed).toContain(join(homeDir, ".claude/skills/ISA"));
+    expect(result.removed).toContain(join(homeDir, ".claude/skills/VSA"));
     expect(result.removed).toContain(join(homeDir, ".claude/hooks/soma/soma-claude-code-hook.mjs"));
     expect(result.removed).toContain(join(homeDir, ".claude/hooks/soma/soma-claude-code-hook.config.json"));
     await expect(stat(join(homeDir, ".claude/rules/soma"))).rejects.toThrow();
-    await expect(stat(join(homeDir, ".claude/skills/ISA"))).rejects.toThrow();
+    await expect(stat(join(homeDir, ".claude/skills/VSA"))).rejects.toThrow();
     await expect(stat(join(homeDir, ".claude/hooks/soma/soma-claude-code-hook.mjs"))).rejects.toThrow();
     // User-owned siblings survive.
     expect(await readFile(join(homeDir, ".claude/rules/user-rule/note.md"), "utf8")).toBe("user note");
@@ -518,25 +518,25 @@ test("uninstallSomaForClaudeCode is idempotent (second run = no-op, removed=[])"
   });
 });
 
-test("AC-11: active ISA refreshed on install when one is set", async () => {
+test("AC-11: active VSA refreshed on install when one is set", async () => {
   await withTempHome(async (homeDir) => {
     await bootstrapSomaHome({ homeDir });
-    await scaffoldIsa({ homeDir, slug: "demo", goal: "G", effort: "E1" });
-    await setActiveIsa("demo", { homeDir });
+    await scaffoldVsa({ homeDir, slug: "demo", goal: "G", effort: "E1" });
+    await setActiveVsa("demo", { homeDir });
     await installSomaForClaudeCode({ homeDir });
-    const isaContent = await readFile(join(homeDir, ".claude/rules/soma/ACTIVE_ISA.md"), "utf8");
-    // serializeIsa drops the slug (filename is the slug) but keeps task + Goal.
-    expect(isaContent).toContain("task: G");
-    expect(isaContent).toContain("## Goal");
+    const vsaContent = await readFile(join(homeDir, ".claude/rules/soma/ACTIVE_VSA.md"), "utf8");
+    // serializeVsa drops the slug (filename is the slug) but keeps task + Goal.
+    expect(vsaContent).toContain("task: G");
+    expect(vsaContent).toContain("## Goal");
   });
 });
 
-test("active-ISA file is omitted from skeleton when no active ISA set", async () => {
+test("active-VSA file is omitted from skeleton when no active VSA set", async () => {
   await withTempHome(async (homeDir) => {
     await bootstrapSomaHome({ homeDir });
-    // No setActiveIsa called → installer must skip the ACTIVE_ISA file.
+    // No setActiveVsa called → installer must skip the ACTIVE_VSA file.
     await installSomaForClaudeCode({ homeDir });
-    await expect(stat(join(homeDir, ".claude/rules/soma/ACTIVE_ISA.md"))).rejects.toThrow();
+    await expect(stat(join(homeDir, ".claude/rules/soma/ACTIVE_VSA.md"))).rejects.toThrow();
   });
 });
 
@@ -559,16 +559,16 @@ async function waitForRunFile(homeDir: string, slug: string): Promise<boolean> {
   return false;
 }
 
-test("hook bridge: editing a shared Soma ISA file via writeback-tool mirrors it into a soma Algorithm run", async () => {
+test("hook bridge: editing a shared Soma VSA file via writeback-tool mirrors it into a soma Algorithm run", async () => {
   await withTempHome(async (homeDir) => {
     await installSomaForClaudeCode({ homeDir });
 
     const slug = "hook-bridge-demo";
-    const isaDir = join(homeDir, ".soma/memory/WORK", slug);
-    const isaPath = join(isaDir, "ISA.md");
-    await mkdir(isaDir, { recursive: true });
+    const vsaDir = join(homeDir, ".soma/memory/WORK", slug);
+    const vsaPath = join(vsaDir, "VSA.md");
+    await mkdir(vsaDir, { recursive: true });
     await writeFile(
-      isaPath,
+      vsaPath,
       [
         "---",
         "task: Hook bridge demo",
@@ -583,7 +583,7 @@ test("hook bridge: editing a shared Soma ISA file via writeback-tool mirrors it 
         "",
         "## Goal",
         "",
-        "Mirror this ISA into a soma run.",
+        "Mirror this VSA into a soma run.",
         "",
         "## Criteria",
         "",
@@ -597,9 +597,9 @@ test("hook bridge: editing a shared Soma ISA file via writeback-tool mirrors it 
     runClaudeHook(homeDir, "writeback-tool", {
       session_id: "claude-session-hook-bridge",
       hook_event_name: "PostToolUse",
-      cwd: isaDir,
+      cwd: vsaDir,
       tool_name: "Write",
-      tool_input: { file_path: isaPath, content: "..." },
+      tool_input: { file_path: vsaPath, content: "..." },
     });
 
     expect(await waitForRunFile(homeDir, expectedSlug)).toBe(true);
@@ -611,7 +611,7 @@ test("hook bridge: editing a shared Soma ISA file via writeback-tool mirrors it 
   });
 });
 
-test("hook bridge: a non-ISA file edit does not create any soma Algorithm run", async () => {
+test("hook bridge: a non-VSA file edit does not create any soma Algorithm run", async () => {
   await withTempHome(async (homeDir) => {
     await installSomaForClaudeCode({ homeDir });
 
@@ -620,7 +620,7 @@ test("hook bridge: a non-ISA file edit does not create any soma Algorithm run", 
       hook_event_name: "PostToolUse",
       cwd: join(homeDir, "workspace"),
       tool_name: "Write",
-      tool_input: { file_path: join(homeDir, "workspace/notes.md"), content: "not an ISA" },
+      tool_input: { file_path: join(homeDir, "workspace/notes.md"), content: "not an VSA" },
     });
 
     // Give the detached path a beat; then assert the runs dir has nothing.

@@ -445,7 +445,7 @@ function handlePromptSubmit(config, input) {
   emitAndExit(algorithmPromptHookOutput(parseClassification(result.stdout)));
 }
 
-// PreCompact persists the active Algorithm/ISA state through
+// PreCompact persists the active Algorithm/VSA state through
 // the algorithm-observed lifecycle shell-out — work index, active-run
 // pointer, and observation provenance land in ~/.soma before the
 // context window is cut. The startup context itself is already durable

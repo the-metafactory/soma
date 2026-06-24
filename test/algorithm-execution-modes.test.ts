@@ -56,7 +56,7 @@ test("#133 loadAlgorithmRun backfills loop state for existing schema-2 runs", ()
     effortSource: "auto",
     mode: "algorithm",
     classificationReason: "Modern",
-    currentState: "ISA is unified",
+    currentState: "VSA is unified",
     isa: {
       slug: "modern-run-without-loop",
       frontmatter: {
@@ -249,7 +249,7 @@ test("#133 partitions criteria by ISC domain and load-balances when worker count
   expect(Math.abs(balanced[0].criteria.length - balanced[1].criteria.length)).toBeLessThanOrEqual(1);
 });
 
-test("#133 partitions run criteria through the ISA accessor", () => {
+test("#133 partitions run criteria through the VSA accessor", () => {
   const run = createAlgorithmRun({
     id: "partition-run",
     timestamp: "2026-05-19T12:00:00.000Z",
