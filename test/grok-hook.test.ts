@@ -1239,6 +1239,53 @@ test("grok pre-tool-use fails closed when the soma repo is unusable", async () =
   });
 });
 
+test("grok pre-tool-use denies when trustedSomaRepo is a non-soma dir (no global-soma fallback)", async () => {
+  // The exploit the fix closes: before, `bun run soma` from a dir without a
+  // local soma resolved a GLOBAL soma on PATH and returned allow. A dir that
+  // looks like a project (has package.json) but has no soma entrypoint must
+  // still deny — the hook runs <repo>/src/cli.ts explicitly, with no PATH fallback.
+  await withTempHome(async (homeDir) => {
+    const { chmod } = await import("node:fs/promises");
+    await installSomaForGrok({ homeDir });
+    const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
+    const configPath = join(homeDir, ".grok/hooks/soma-lifecycle.config.json");
+    const config = JSON.parse(await readFile(configPath, "utf8"));
+    const nonSomaRepo = join(homeDir, "not-soma");
+    await mkdir(nonSomaRepo, { recursive: true });
+    await writeFile(join(nonSomaRepo, "package.json"), JSON.stringify({ name: "not-soma" }), "utf8");
+    await writeFile(configPath, JSON.stringify({ ...config, trustedSomaRepo: nonSomaRepo }, null, 2), "utf8");
+
+    // Plant a GLOBAL `soma` on PATH that returns allow — the exact bypass. The
+    // old code (`bun run soma` from a repo with no local soma) resolved this and
+    // returned allow; the fix resolves the repo's own scripts.soma entrypoint
+    // (absent here) with no PATH fallback, so it must still deny. Without this
+    // planted binary the test would
+    // also pass against the vulnerable code, proving nothing (Sage HonestOracle).
+    const fakeBin = join(homeDir, "fakebin");
+    await mkdir(fakeBin, { recursive: true });
+    const fakeSoma = join(fakeBin, "soma");
+    await writeFile(fakeSoma, "#!/usr/bin/env bash\necho '{\"decision\":\"allow\"}'\n", "utf8");
+    await chmod(fakeSoma, 0o755);
+
+    const result = runGrokHook(
+      hook,
+      "pre-tool-use",
+      homeDir,
+      {
+        hookEventName: "pre_tool_use",
+        sessionId: "session-policy",
+        toolName: "Write",
+        toolInput: { path: join(homeDir, "notes/ok.md"), contents: "hello" },
+        cwd: homeDir,
+      },
+      { PATH: `${fakeBin}:${process.env.PATH ?? ""}` },
+    );
+
+    expect(result.output.decision).toBe("deny");
+    expect(result.status).toBe(2);
+  });
+});
+
 test("installed grok pre-tool-use hook allows benign writes with the documented allow shape", async () => {
   await withTempHome(async (homeDir) => {
     await installSomaForGrok({ homeDir });
