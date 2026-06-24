@@ -170,6 +170,34 @@ context projection first. The portable MCP server contract is specified in
 [mcp-server.md](./mcp-server.md); Cursor adapter work should configure that
 server rather than defining a Cursor-only tool vocabulary.
 
+## GitHub Copilot CLI
+
+GitHub Copilot CLI is a local coding-agent substrate with a user-level
+configuration home under `~/.copilot/`. The proposed adapter is a home
+projection first: it should install compact instructions, Soma context files,
+portable skills, custom agent profiles, lifecycle hooks, and optional MCP
+configuration into Copilot CLI's native shape while keeping `~/.soma` as the
+source of truth.
+
+The design is specified in [copilot-cli-adapter.md](./copilot-cli-adapter.md).
+It is not implemented yet. Copilot cloud agent support is intentionally scoped
+as a later, public-safe workspace/repository projection because cloud sessions
+cannot assume access to the principal's local Soma home.
+
+## OpenCode
+
+OpenCode is a local coding-agent substrate with native global and project
+configuration under `~/.config/opencode/`, `opencode.json`, `AGENTS.md`, and
+`.opencode/`. It already supports many Soma projection primitives directly:
+global/project rules, native `SKILL.md` discovery, primary agents, subagents,
+plugins, custom tools, MCP servers, and explicit allow/ask/deny permissions.
+
+The proposed projection is documented in
+[opencode-projection.md](./opencode-projection.md). It is not implemented yet.
+The first slice should be a local home projection. GitHub/GitLab runner support
+is deferred as a public-safe workspace projection because CI runners cannot
+assume access to the principal's local Soma home.
+
 ## Grok
 
 Grok is xAI's coding-agent CLI. Its config home is `~/.grok/`. The adapter is a
