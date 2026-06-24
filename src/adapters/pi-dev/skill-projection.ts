@@ -6,10 +6,11 @@ import type { Projection, SomaSkill } from "../../types";
 
 export const PI_DEV_VSA_SKILL_ID = "vsa";
 
-// Prior names the Soma VSA skill was projected under in pi-dev before settling on
-// the canonical lowercase "vsa": legacy capital "VSA", and the pre-rename "ISA"/
-// "isa". All were Soma-projected, so they are pruned before reprojecting "vsa".
-const LEGACY_PI_DEV_VSA_SKILL_DIRS = ["VSA", "ISA", "isa"] as const;
+// Prior names the Soma VSA skill was projected under in pi-dev before the canonical
+// lowercase "vsa": "isa" (the former PI_DEV_VSA_SKILL_ID) and a legacy capital "VSA"
+// (older code). Both were Soma-projected; pruned before reprojecting "vsa". (pi-dev
+// lowercases all skill ids, so it never produced a capital "ISA".)
+const LEGACY_PI_DEV_VSA_SKILL_DIRS = ["VSA", "isa"] as const;
 
 export function piDevSkillId(name: string): string {
   const id = name

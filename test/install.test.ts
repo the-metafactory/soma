@@ -326,6 +326,7 @@ for (const c of [
   { name: "cursor", install: installSomaForCursor, owned: ".cursor/rules/soma" },
   { name: "pi-dev", install: installSomaForPiDev, owned: ".pi/agent/soma" },
   { name: "claude-code", install: installSomaForClaudeCode, owned: ".claude/rules/soma" },
+  { name: "claude-code hooks", install: installSomaForClaudeCode, owned: ".claude/hooks/soma" },
 ] as const) {
   test(`reproject prunes a stale file in ${c.name}'s owned subtree (${c.owned})`, async () => {
     await withTempHome(async (homeDir) => {

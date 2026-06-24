@@ -1,5 +1,5 @@
 import { mkdir, readdir, rename, rm, stat } from "node:fs/promises";
-import { basename, dirname, join, relative } from "node:path";
+import { basename, dirname, isAbsolute, join, relative } from "node:path";
 
 async function listFilesRecursive(root: string): Promise<string[]> {
   const out: string[] = [];
@@ -39,7 +39,10 @@ async function sameFile(a: string, b: string): Promise<boolean> {
   return sa.ino === sb.ino && sa.dev === sb.dev;
 }
 
-async function removeEmptyDirs(root: string): Promise<void> {
+async function removeEmptyDirs(root: string, protectedAbs: readonly string[] = []): Promise<void> {
+  // Never descend into or prune an excluded (edit-preserving) subtree, even if
+  // it is transiently empty.
+  if (protectedAbs.some((p) => isUnderOrEqual(root, p))) return;
   let entries;
   try {
     entries = await readdir(root, { withFileTypes: true });
@@ -47,8 +50,10 @@ async function removeEmptyDirs(root: string): Promise<void> {
     return;
   }
   for (const entry of entries) {
-    if (entry.isDirectory()) await removeEmptyDirs(join(root, entry.name));
+    if (entry.isDirectory()) await removeEmptyDirs(join(root, entry.name), protectedAbs);
   }
+  // A dir that contains (is an ancestor of) an excluded path must survive too.
+  if (protectedAbs.some((p) => isUnderOrEqual(p, root))) return;
   try {
     if ((await readdir(root)).length === 0) await rm(root, { force: true, recursive: true });
   } catch {
@@ -61,9 +66,25 @@ export interface ReconcileResult {
   renamed: string[];
 }
 
-/** True when `path` equals `base` or is nested under it (path-segment aware). */
+/** True when `path` equals `base` or is nested under it. Separator-agnostic. */
 export function isUnderOrEqual(path: string, base: string): boolean {
-  return path === base || path.startsWith(`${base}/`);
+  const rel = relative(base, path);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+// Case-insensitive FS: `abs` and `canonicalAbs` are the same file (already holding
+// the projected content); fix only the casing. Crash-safe — if the final rename
+// throws, the original name is restored so the file is never stranded at the temp.
+async function caseNormalizeRename(abs: string, canonicalAbs: string): Promise<void> {
+  const tmp = join(dirname(canonicalAbs), `.soma-case.${basename(canonicalAbs)}.tmp`);
+  await rename(abs, tmp);
+  try {
+    await mkdir(dirname(canonicalAbs), { recursive: true });
+    await rename(tmp, canonicalAbs);
+  } catch (error) {
+    await rename(tmp, abs).catch(() => undefined);
+    throw error;
+  }
 }
 
 /**
@@ -118,19 +139,7 @@ export async function reconcileOwnedDir(
     if (canonical !== undefined) {
       const canonicalAbs = join(root, canonical);
       if (await sameFile(abs, canonicalAbs)) {
-        // Case-insensitive FS: `abs` and the canonical path are the same file,
-        // already holding the freshly-projected content — just fix the casing.
-        // Crash-safe: if the second rename fails, restore the original name so the
-        // file is never stranded at the hidden temp path.
-        const tmp = join(dirname(canonicalAbs), `.soma-case.${basename(canonicalAbs)}.tmp`);
-        await rename(abs, tmp);
-        try {
-          await mkdir(dirname(canonicalAbs), { recursive: true });
-          await rename(tmp, canonicalAbs);
-        } catch (error) {
-          await rename(tmp, abs).catch(() => undefined);
-          throw error;
-        }
+        await caseNormalizeRename(abs, canonicalAbs);
         result.renamed.push(canonical);
       } else {
         // Case-sensitive FS: a distinct stale wrong-case file → remove it.
@@ -144,6 +153,6 @@ export async function reconcileOwnedDir(
     result.removed.push(rel);
   }
 
-  await removeEmptyDirs(root);
+  await removeEmptyDirs(root, excluded.map((prefix) => join(root, prefix)));
   return result;
 }
