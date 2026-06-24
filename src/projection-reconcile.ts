@@ -40,10 +40,10 @@ async function sameFile(a: string, b: string): Promise<boolean> {
   return sa.ino === sb.ino && sa.dev === sb.dev;
 }
 
-async function removeEmptyDirs(root: string, protectedAbs: readonly string[] = []): Promise<void> {
+async function removeEmptyDirs(root: string, excludedAbs: readonly string[] = []): Promise<void> {
   // Never descend into or prune an excluded (edit-preserving) subtree, even if
   // it is transiently empty.
-  if (protectedAbs.some((p) => isUnderOrEqual(root, p))) return;
+  if (excludedAbs.some((p) => isUnderOrEqual(root, p))) return;
   let entries;
   try {
     entries = await readdir(root, { withFileTypes: true });
@@ -52,10 +52,10 @@ async function removeEmptyDirs(root: string, protectedAbs: readonly string[] = [
     throw error;
   }
   for (const entry of entries) {
-    if (entry.isDirectory()) await removeEmptyDirs(join(root, entry.name), protectedAbs);
+    if (entry.isDirectory()) await removeEmptyDirs(join(root, entry.name), excludedAbs);
   }
   // A dir that contains (is an ancestor of) an excluded path must survive too.
-  if (protectedAbs.some((p) => isUnderOrEqual(p, root))) return;
+  if (excludedAbs.some((p) => isUnderOrEqual(p, root))) return;
   // rmdir (not recursive rm) so a dir that became non-empty after the recursion
   // errors with ENOTEMPTY instead of cascading a delete (TOCTOU-safe).
   try {
