@@ -2211,7 +2211,9 @@ export interface SomaPolicyBatchCheckResult {
   results: SomaPolicyCheckResult[];
 }
 
-export type SomaLifecycleEventName = "session_start" | "algorithm_updated" | "algorithm_observed" | "session_end" | "isa_updated";
+// soma#329 slice 3: VSA writeback now emits `vsa_updated`. `isa_updated` is kept
+// as a legacy member so historical events.jsonl records still typecheck on read.
+export type SomaLifecycleEventName = "session_start" | "algorithm_updated" | "algorithm_observed" | "session_end" | "vsa_updated" | "isa_updated";
 
 /**
  * Payload for `runSomaLifecycleVsaUpdated` (#38). Each entry's `text` is

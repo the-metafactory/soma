@@ -44,7 +44,7 @@ test("AC-1: session-start surfaces activeVsa when slug is set, null when not", a
   });
 });
 
-test("AC-2: isa_updated appends decisions/changelog/verification to active VSA", async () => {
+test("AC-2: vsa_updated appends decisions/changelog/verification to active VSA", async () => {
   await withSomaHome(async (homeDir) => {
     await scaffoldVsa({ homeDir, slug: "demo", goal: "G", effort: "E4", timestamp: "2026-05-17T00:00:00.000Z" });
     await setActiveVsa("demo", { homeDir });
@@ -57,7 +57,7 @@ test("AC-2: isa_updated appends decisions/changelog/verification to active VSA",
       },
       { homeDir, timestamp: "2026-05-17T01:00:00.000Z" },
     );
-    expect(result.event).toBe("isa_updated");
+    expect(result.event).toBe("vsa_updated");
     // Round-1 fix: batched into single write per payload, not one per entry.
     expect((result.writes ?? []).length).toBe(1);
 
@@ -68,7 +68,7 @@ test("AC-2: isa_updated appends decisions/changelog/verification to active VSA",
   });
 });
 
-test("AC-3: isa_updated appends — never modifies existing lines (ID-stability lite)", async () => {
+test("AC-3: vsa_updated appends — never modifies existing lines (ID-stability lite)", async () => {
   await withSomaHome(async (homeDir) => {
     await scaffoldVsa({ homeDir, slug: "demo", goal: "G", effort: "E4" });
     await setActiveVsa("demo", { homeDir });
@@ -125,7 +125,7 @@ test("AC-2 round-1: malformed entry in payload rejects entire write (atomic)", a
   });
 });
 
-test("writeback: each isa_updated emits exactly one events.jsonl record with full payload", async () => {
+test("writeback: each vsa_updated emits exactly one events.jsonl record with full payload", async () => {
   await withSomaHome(async (homeDir) => {
     await scaffoldVsa({ homeDir, slug: "demo", goal: "G", effort: "E4" });
     await setActiveVsa("demo", { homeDir });
@@ -137,7 +137,7 @@ test("writeback: each isa_updated emits exactly one events.jsonl record with ful
       { homeDir },
     );
     const events = await readEvents(homeDir);
-    const updates = events.filter((e) => e.kind === "lifecycle.isa_updated");
+    const updates = events.filter((e) => e.kind === "lifecycle.vsa_updated");
     expect(updates).toHaveLength(1);
     const md = updates[0]?.metadata as { decisions: { text: string }[]; changelogEntries: { text: string }[] };
     expect(md.decisions.map((d) => d.text)).toEqual(["A", "B"]);
@@ -151,19 +151,19 @@ test("AC-5: all three hooks are no-ops when no active VSA is set", async () => {
     expect(start.activeVsa).toBeNull();
 
     const updated = await runSomaLifecycleVsaUpdated({ decisions: [{ text: "x" }] }, { homeDir });
-    expect(updated.event).toBe("isa_updated");
+    expect(updated.event).toBe("vsa_updated");
     expect((updated.writes ?? []).length).toBe(0);
 
     const end = await runSomaLifecycleSessionEnd({ homeDir });
     expect(end.event).toBe("session_end");
 
     const events = await readEvents(homeDir);
-    expect(events.some((e) => e.kind === "lifecycle.isa_updated.no_active")).toBe(true);
+    expect(events.some((e) => e.kind === "lifecycle.vsa_updated.no_active")).toBe(true);
     expect(events.some((e) => e.kind === "lifecycle.tier-gate-unmet")).toBe(false);
   });
 });
 
-test("AC-6: integration — scaffold → use → isa_updated → on-disk Decisions changed", async () => {
+test("AC-6: integration — scaffold → use → vsa_updated → on-disk Decisions changed", async () => {
   await withSomaHome(async (homeDir) => {
     await scaffoldVsa({ homeDir, slug: "demo", goal: "Ship it", effort: "E4" });
     await setActiveVsa("demo", { homeDir });
@@ -225,7 +225,7 @@ test("payload.slug allowed when no active slug is set", async () => {
   });
 });
 
-test("failed isa_updated emits .failed event, not success", async () => {
+test("failed vsa_updated emits .failed event, not success", async () => {
   await withSomaHome(async (homeDir) => {
     // Set active to a slug whose file doesn't exist — applyVsaUpdate readVsa will ENOENT
     await scaffoldVsa({ homeDir, slug: "ghost", goal: "G", effort: "E1" });
@@ -238,8 +238,8 @@ test("failed isa_updated emits .failed event, not success", async () => {
     ).rejects.toThrow();
 
     const events = await readEvents(homeDir);
-    expect(events.some((e) => e.kind === "lifecycle.isa_updated.failed")).toBe(true);
-    expect(events.some((e) => e.kind === "lifecycle.isa_updated")).toBe(false);
+    expect(events.some((e) => e.kind === "lifecycle.vsa_updated.failed")).toBe(true);
+    expect(events.some((e) => e.kind === "lifecycle.vsa_updated")).toBe(false);
   });
 });
 
