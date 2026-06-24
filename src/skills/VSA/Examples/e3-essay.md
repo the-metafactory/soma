@@ -50,7 +50,7 @@ A 1500-word essay that a first-time founder reads in eight minutes, recognizes t
 
 Ship a 1400–1600-word essay in three sections that opens with a concrete first-time-founder situation the reader recognizes within 30 seconds, develops a single thesis ("most productivity advice was built for a different game"), and closes with a calibration tool the reader can apply within 24 hours — a one-question filter for which advice to keep and which to drop.
 
-## Criteria
+## Checkpoints
 
 ### Word count and structure
 
@@ -194,7 +194,7 @@ Ship a 1400–1600-word essay in three sections that opens with a concrete first
 - 2026-03-21 09:00: refined: ISC-12 added (≤ 5 first-person plural) after a draft read like a "we should all" sermon. The essay is observation, not exhortation.
 
 <!--
-E3 art VSA. Required sections: Problem, Vision, Out of Scope, Constraints, Goal, Criteria, Features, Test Strategy.
+E3 art VSA. Required sections: Problem, Vision, Out of Scope, Constraints, Goal, Checkpoints, Features, Test Strategy.
 Optional Principles included because the essay is experiential and the principles do real work in the writing pass.
 ISC count of 34 exceeds the E3 floor of 32. Three Antecedent ISCs (ISC-13, 14, 15) carry the experiential-goal contract: they name the preconditions that reliably produce the target reader experience. Without them, ISC-29 and ISC-30 (post-publish reception) would be unfalsifiable hopes rather than testable claims. Anti-criteria (ISC-18, 19, 20, 21) cover scope, regression, voice, and a future-essay-drift trap. The Decisions section shows two ❌ DEAD ENDs and three refinements — typical density for a first draft of an essay that knows its shape but is still finding its load-bearing moments.
 -->

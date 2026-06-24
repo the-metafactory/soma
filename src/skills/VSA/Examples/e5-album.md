@@ -54,7 +54,7 @@ A 12-track instrumental album titled `Mariner Frequencies` — roughly 48 minute
 
 Produce, mix, master, and release a 12-track instrumental album titled `Mariner Frequencies` between 2025-11-01 and 2026-05-15, totaling 42–54 minutes, mixed by the artist and mastered by a paid third-party engineer to streaming-spec LUFS, distributed via Bandcamp and DistroKid, with at least one track that the artist would still defend as a representative work five years later.
 
-## Criteria
+## Checkpoints
 
 ### Composition (Phase 1: Nov–Dec 2025)
 

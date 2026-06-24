@@ -30,7 +30,7 @@ sources_consulted:
   - tsconfig.json
   - last 30 git commits
   - existing PRD.md / SPEC.md / acceptance.yaml (if found)
-sections_drafted: [Problem, Vision, Out of Scope, Constraints, Goal, Criteria, Test Strategy, Features]
+sections_drafted: [Problem, Vision, Out of Scope, Constraints, Goal, Checkpoints, Test Strategy, Features]
 sections_skipped: [Principles, Decisions, Changelog, Verification]   # left for user to author
 isc_count: 18
 review_required: true
@@ -86,7 +86,7 @@ Inferred from package.json, tsconfig, deploy configs:
 
 If the project has a clear deliverable (a CLI, a website, an app), state it as 1–3 sentences. Otherwise, lift the README headline.
 
-### Step 9 — Draft Criteria from existing test files / acceptance criteria
+### Step 9 — Draft Checkpoints from existing test files / acceptance criteria
 
 If the repo has `*.test.ts` files, walk them; each test name is a candidate ISC source. Convert to atomic ISCs preserving the granularity rule. Apply Splitting Test.
 
@@ -106,7 +106,7 @@ For each top-level subdirectory of `src/` or main project directory, propose a F
 
 ### Step 12 — Skip Principles, Decisions, Changelog, Verification
 
-These are author-driven. Leave them out (Bitter Pill — empty sections never appear). Add a final TODO note in Decisions: "Seed-generated draft. Run `Skill('VSA', 'interview me on <path>')` to fill Principles, refine Vision and Goal, audit Criteria."
+These are author-driven. Leave them out (Bitter Pill — empty sections never appear). Add a final TODO note in Decisions: "Seed-generated draft. Run `Skill('VSA', 'interview me on <path>')` to fill Principles, refine Vision and Goal, audit Checkpoints."
 
 ### Step 13 — Write the file
 

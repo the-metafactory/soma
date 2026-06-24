@@ -75,7 +75,7 @@ Read the VSA at `isa_path`. Find the target section (`## Decisions` | `## Change
 |------|-----------------|--------------|
 | Decision | text + timestamp | text is empty |
 | Changelog | conjectured + refuted_by + learned + criterion_now + date | any of the four C/R/L pieces is missing |
-| Verification | isc_id + probe_type + evidence | isc_id doesn't exist in `## Criteria`, or evidence is empty |
+| Verification | isc_id + probe_type + evidence | isc_id doesn't exist in `## Checkpoints`, or evidence is empty |
 
 **Refuse mode:** If validation fails, do not write. Surface the missing piece. The whole point of Append is to keep these sections clean — silently writing partial entries defeats it.
 
@@ -89,7 +89,7 @@ Edit the VSA: append the entry to the end of the target section, preserving prio
 
 ### Step 6 — Update progress (Verification only)
 
-When appending a Verification entry that corresponds to a previously-`[ ]` ISC, also flip that ISC to `[x]` in `## Criteria` and recompute `progress: M/N` in frontmatter.
+When appending a Verification entry that corresponds to a previously-`[ ]` ISC, also flip that ISC to `[x]` in `## Checkpoints` and recompute `progress: M/N` in frontmatter.
 
 ### Step 7 — Return the appended block
 
@@ -113,4 +113,4 @@ The Reconcile workflow (merging an ephemeral feature file back to master) calls 
 
 - **Concurrent edits:** Append reads the VSA, decides where to insert, then writes. If the file is edited mid-flight, the second write may insert at a stale offset. Treat Append as best-effort under contention; structural edits to VSAs should be serialized.
 - **Section header missing:** Append creates the section if absent, in canonical position. If the canonical position is ambiguous (file is malformed), abort and surface the structural problem.
-- **ISC ID mismatch on Verification:** the ISC must exist. Refuse to write Verification for an ID that isn't in `## Criteria` — this is the same ID-stability contract Reconcile relies on.
+- **ISC ID mismatch on Verification:** the ISC must exist. Refuse to write Verification for an ID that isn't in `## Checkpoints` — this is the same ID-stability contract Reconcile relies on.

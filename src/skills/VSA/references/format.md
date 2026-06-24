@@ -17,12 +17,16 @@ decides which are required. Sections never appear empty. Order is fixed.
 | 4 | `## Principles` | Substrate-independent truths the work must respect | OBSERVE |
 | 5 | `## Constraints` | Immovable mandates that bound the solution space | OBSERVE |
 | 6 | `## Goal` | Verifiable done in 1-3 sentences | OBSERVE |
-| 7 | `## Criteria` | Atomic ISCs, including derived `Anti:` ISCs | OBSERVE to EXECUTE |
+| 7 | `## Checkpoints` | Atomic ISCs, including derived `Anti:` ISCs | OBSERVE to EXECUTE |
 | 8 | `## Test Strategy` | Per-ISC verification approach | OBSERVE / PLAN |
 | 9 | `## Features` | Work breakdown tied to ISC IDs | PLAN |
 | 10 | `## Decisions` | Timestamped decisions and dead ends | any phase |
 | 11 | `## Changelog` | Conjecture / refuted-by / learned / criterion-now trail | LEARN |
 | 12 | `## Verification` | Evidence that each ISC passed | VERIFY |
+
+> Section 7 was renamed `## Criteria` → `## Checkpoints` (soma#329). Pre-rename VSAs
+> that still carry `## Criteria` are read transparently (dual-read); they are
+> rewritten to `## Checkpoints` only when that section is next mutated. No migration.
 
 ## Guardrail Taxonomy
 
@@ -31,7 +35,7 @@ decides which are required. Sections never appear empty. Order is fixed.
 | Principles | The thinking | Aspirational and generalizable | `## Principles` |
 | Constraints | The solution space | Immovable and non-negotiable | `## Constraints` |
 | Out of Scope | The vision | Explicit prose boundary | `## Out of Scope` |
-| Anti-criteria | The test surface | Granular yes/no probe | `## Criteria` with `Anti:` |
+| Anti-criteria | The test surface | Granular yes/no probe | `## Checkpoints` with `Anti:` |
 
 Principles, Constraints, and Out of Scope are author-stated. Anti-criteria are
 derived from those guardrails so they become probe-able.
@@ -40,9 +44,9 @@ derived from those guardrails so they become probe-able.
 
 | Tier | Required sections |
 | --- | --- |
-| E1 | Goal, Criteria |
-| E2 | Problem, Goal, Criteria, Test Strategy |
-| E3 | Problem, Vision, Out of Scope, Constraints, Goal, Criteria, Features, Test Strategy |
+| E1 | Goal, Checkpoints |
+| E2 | Problem, Goal, Checkpoints, Test Strategy |
+| E3 | Problem, Vision, Out of Scope, Constraints, Goal, Checkpoints, Features, Test Strategy |
 | E4 | All twelve sections |
 | E5 | All twelve sections plus an active Interview workflow run before BUILD |
 

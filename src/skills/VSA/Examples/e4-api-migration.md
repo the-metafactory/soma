@@ -54,7 +54,7 @@ A partner integration team opens our docs, sees a single GraphQL playground next
 
 Ship the GraphQL endpoint at `api.apibridge.example.org/graphql` with full coverage of the 14 REST endpoints' read and write surface area, parity-tested under load, with a published 6-month deprecation runway for REST that emits RFC 8594 sunset headers, exposes per-partner deprecation telemetry on an internal dashboard, and lands the cutover without any external integration breaking before its partner-confirmed migration date.
 
-## Criteria
+## Checkpoints
 
 - [x] ISC-1: `schema/api.graphql` exists, validates against `graphql-schema-linter`, and covers all 14 REST endpoint shapes.
 - [x] ISC-2: GraphQL endpoint responds with `200` and a valid introspection result for `query { __schema { queryType { name } } }`.

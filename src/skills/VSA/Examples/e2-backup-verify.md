@@ -20,7 +20,7 @@ The `rsync-verify` CLI copies a source directory to a backup destination and rep
 
 Add a `--verify` flag that, after the rsync copy step completes, walks both source and destination, computes SHA-256 per file, compares hashes, and either exits 0 with a pass summary or exits 2 with a per-file mismatch report. The verification step must not double the run-time of a clean backup more than 1.5×.
 
-## Criteria
+## Checkpoints
 
 ### Verification correctness
 
@@ -96,6 +96,6 @@ Add a `--verify` flag that, after the rsync copy step completes, walks both sour
 ```
 
 <!--
-E2 medium VSA. Required sections: Problem, Goal, Criteria, Test Strategy.
+E2 medium VSA. Required sections: Problem, Goal, Checkpoints, Test Strategy.
 Vision, Out of Scope, Principles, Constraints, Features, Decisions, Changelog, Verification omitted — the work surface is single-domain (one CLI, one feature) and the tier completeness gate doesn't require them. ISC count of 18 meets the E2 floor of 16. Four anti-criteria (ISC-15, 16, 17, 18) cover scope, regression, privacy, and a future-compat lock — typical E2 anti-criteria density.
 -->

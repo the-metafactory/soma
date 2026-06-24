@@ -36,7 +36,7 @@ A single bun TypeScript CLI: `bun arxiv.ts <id1> <id2> ... > papers.jsonl`. One 
 
 Ship a single-file `arxiv.ts` CLI that takes paper IDs as arguments, queries the arxiv Atom API, parses the response, and writes one JSONL row per paper to stdout with fields: `id`, `title`, `authors`, `abstract`, `categories`, `submitted`, `updated`.
 
-## Criteria
+## Checkpoints
 
 - [x] ISC-1: `arxiv.ts` is a single file at the project root.
 - [x] ISC-2: Zero entries in `package.json` `dependencies` (probe: `jq '.dependencies | length' package.json` returns 0).
