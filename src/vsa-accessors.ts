@@ -100,15 +100,28 @@ export function getVerification(isa: VerificationStateArtifact): AlgorithmLogEnt
 }
 
 export function setSection(isa: VerificationStateArtifact, name: string, content: string): VerificationStateArtifact {
-  // Locate via dual-read so a legacy-aliased section (e.g. `Criteria`) is found
-  // and replaced in place — renamed to the canonical `name` — rather than
-  // leaving a stale legacy section alongside a new canonical one.
-  const existingIndex = findSectionIndex(isa.sections, name);
+  // Dual-read so a legacy-aliased section (e.g. `Criteria`) is found, replaced in
+  // place, and renamed to the canonical `name`. If the VSA somehow carries BOTH
+  // the canonical and a legacy-aliased section (hand-edited / partial state),
+  // collapse them: replace the first match, drop the rest — never leave a stale
+  // duplicate behind.
+  const aliases = SECTION_LEGACY_ALIASES[name] ?? [];
+  const matchesTarget = (sectionName: string): boolean => sectionName === name || aliases.includes(sectionName);
   const next: VsaSection = { name, content };
 
-  if (existingIndex >= 0) {
-    const sections = isa.sections.slice();
-    sections[existingIndex] = next;
+  if (isa.sections.some((section) => matchesTarget(section.name))) {
+    let replaced = false;
+    const sections: VsaSection[] = [];
+    for (const section of isa.sections) {
+      if (matchesTarget(section.name)) {
+        if (!replaced) {
+          sections.push(next);
+          replaced = true;
+        }
+        continue; // drop any further canonical/legacy duplicate
+      }
+      sections.push(section);
+    }
     return { ...isa, sections };
   }
 

@@ -206,3 +206,18 @@ test("slice4: appendCriterion on a fresh VSA emits the canonical `Checkpoints` h
   expect(withCriterion.sections.some((s) => s.name === "Checkpoints")).toBe(true);
   expect(withCriterion.sections.some((s) => s.name === "Criteria")).toBe(false);
 });
+
+test("slice4: setSection collapses a VSA carrying both Checkpoints and legacy Criteria", () => {
+  const isa: VerificationStateArtifact = {
+    ...buildVsa(),
+    sections: [
+      { name: SECTION_NAME_MAP.goal, content: "g" },
+      { name: "Checkpoints", content: renderCriteriaMarkdown([{ id: "C1", text: "canon", status: "open" }]) },
+      { name: "Criteria", content: renderCriteriaMarkdown([{ id: "OLD", text: "legacy", status: "open" }]) },
+    ],
+  };
+  const updated = setSection(isa, SECTION_NAME_MAP.criteria, renderCriteriaMarkdown([{ id: "C1", text: "canon", status: "passed" }]));
+  const names = updated.sections.map((s) => s.name);
+  expect(names.filter((n) => n === "Checkpoints")).toHaveLength(1);
+  expect(names).not.toContain("Criteria"); // stale legacy duplicate dropped, not orphaned
+});

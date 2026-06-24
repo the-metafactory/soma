@@ -8,7 +8,7 @@ import { appendAlgorithmProvenance } from "./algorithm-provenance";
 import { appendSomaMemoryEvent } from "./memory";
 import { loadSomaProfile } from "./soma-home";
 import { normalizeSomaWorkRegistryArtifacts, upsertSomaCurrentWorkPointer } from "./work-registry";
-import { getCriteria, getGoal } from "./vsa-accessors";
+import { SECTION_NAME_MAP, getCriteria, getGoal } from "./vsa-accessors";
 import { getRunPhase } from "./algorithm-lifecycle";
 import {
   applyVsaUpdate,
@@ -252,7 +252,7 @@ function completedLearningContent(run: AlgorithmRun, timestamp: string): string 
     `Goal: ${getGoal(run.vsa) ?? ""}`,
     `Effort: ${run.effort}`,
     "",
-    "## Checkpoints",
+    `## ${SECTION_NAME_MAP.criteria}`,
     ...getCriteria(run.vsa).map((criterion) => `- [${criterion.status === "passed" ? "x" : " "}] ${criterion.id}: ${criterion.text}`),
     "",
     "## Verification",
