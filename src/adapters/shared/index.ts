@@ -1,27 +1,27 @@
 import { basename } from "node:path";
 import type { ProjectionInput, SomaSkill } from "../../types";
-import { getCriteria, getGoal } from "../../isa-accessors";
-import { ISA_SKILL_NAME } from "../../isa-skill-installer";
+import { getCriteria, getGoal } from "../../vsa-accessors";
+import { VSA_SKILL_NAME } from "../../vsa-skill-installer";
 
 export { renderAlgorithmRenderingContract } from "./algorithm-rendering-contract";
 
 /**
  * The portable skills a home projection should emit files for. `skills.md`
- * (renderSkills) still lists every skill, but the ISA skill is excluded here:
- * it has a dedicated, managed per-substrate projection (installIsaSkillProjection
+ * (renderSkills) still lists every skill, but the VSA skill is excluded here:
+ * it has a dedicated, managed per-substrate projection (installVsaSkillProjection
  * — baseline tracking, drift detection, skillNameOverride), so re-emitting its
  * files through the generic portable-skill loop would double-write the same
  * bytes that installer owns. Without this, a first install (which reloads the
- * Soma home after writing the ISA baseline) would project ISA twice.
+ * Soma home after writing the VSA baseline) would project VSA twice.
  *
- * The managed ISA skill is identified by BOTH its frontmatter name and its
- * canonical directory basename (`skills/ISA/`). Matching on name alone would
+ * The managed VSA skill is identified by BOTH its frontmatter name and its
+ * canonical directory basename (`skills/VSA/`). Matching on name alone would
  * let a locally renamed SKILL.md frontmatter slip back into the generic loop
  * and double-write the dedicated projection.
  */
 export function projectableSkills(skills: SomaSkill[]): SomaSkill[] {
   return skills.filter(
-    (skill) => skill.name !== ISA_SKILL_NAME && basename(skill.path) !== ISA_SKILL_NAME,
+    (skill) => skill.name !== VSA_SKILL_NAME && basename(skill.path) !== VSA_SKILL_NAME,
   );
 }
 
@@ -39,12 +39,12 @@ export function formatRecord(record: Record<string, unknown> | undefined): strin
     .join("\n");
 }
 
-export function renderActiveIsa(input: ProjectionInput): string {
-  if (!input.activeIsa) {
-    return "No active ISA was provided.";
+export function renderActiveVsa(input: ProjectionInput): string {
+  if (!input.activeVsa) {
+    return "No active VSA was provided.";
   }
 
-  const criteria = getCriteria(input.activeIsa)
+  const criteria = getCriteria(input.activeVsa)
     .map((criterion) => {
       const verification = criterion.verification ? ` Verification: ${criterion.verification}` : "";
       return `- [${criterion.status}] ${criterion.id}: ${criterion.text}${verification}`;
@@ -52,9 +52,9 @@ export function renderActiveIsa(input: ProjectionInput): string {
     .join("\n");
 
   return [
-    `Slug: ${input.activeIsa.slug}`,
-    `Phase: ${input.activeIsa.frontmatter.phase}`,
-    `Goal: ${getGoal(input.activeIsa) ?? ""}`,
+    `Slug: ${input.activeVsa.slug}`,
+    `Phase: ${input.activeVsa.frontmatter.phase}`,
+    `Goal: ${getGoal(input.activeVsa) ?? ""}`,
     "",
     "Criteria:",
     criteria || "- None declared",
@@ -91,8 +91,8 @@ export function renderAssistantCore(input: ProjectionInput): string {
     "Commitments:",
     formatList(profile.purpose.commitments),
     "",
-    "## Active ISA",
-    renderActiveIsa(input),
+    "## Active VSA",
+    renderActiveVsa(input),
   ]
     .filter((line): line is string => line !== undefined)
     .join("\n");
@@ -152,13 +152,13 @@ export function renderSubstrateInstructions(
     `# Soma ${options.substrate} Context`,
     "",
     `You are running inside ${options.runtimeLabel} with Soma-projected assistant context.`,
-    "Treat Soma as the source of truth for personal assistant identity, purpose, memory layout, skills, policy, and active ISA context.",
+    "Treat Soma as the source of truth for personal assistant identity, purpose, memory layout, skills, policy, and active VSA context.",
     `Treat ${options.substrate} as the execution substrate. Keep substrate-specific behavior behind adapter boundaries.`,
     "",
     renderAssistantCore(input),
     "",
     "## Operating Rules",
-    "- Use the active ISA as the verification contract when present.",
+    "- Use the active VSA as the verification contract when present.",
     "- Read memory from the declared file layout before inventing persistent facts.",
     "- Keep personal context out of public templates unless explicitly requested.",
     "- Report verification performed and any substrate limitation encountered.",

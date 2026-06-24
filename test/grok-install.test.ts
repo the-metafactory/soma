@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { bootstrapSomaHome, installSomaForGrok, planSomaForGrokInstall, projectGrokHome, activeIsaProjectionPath } from "../src/index";
+import { bootstrapSomaHome, installSomaForGrok, planSomaForGrokInstall, projectGrokHome, activeVsaProjectionPath } from "../src/index";
 import { smokeTestInstalledGrokHookCommand } from "../src/adapters/grok/hook-smoke";
 import { GROK_INSTALL_MANIFEST_SCHEMA, grokInstallManifestPath } from "../src/adapters/grok/install-manifest";
 import { allInstallSpecs, installSpecFor } from "../src/install-spec-registry";
@@ -45,9 +45,9 @@ test("grok is a registered install substrate with adapter-owned facts", () => {
   expect(spec.substrate).toBe("grok");
   expect(spec.defaultHome).toBe(".grok");
   expect(spec.homeFiles.length).toBeGreaterThan(0);
-  // ISA skill lands at <substrateHome>/skills/ISA (codex-shaped, no double nesting).
-  expect(spec.isaSkillProjection.destinationDir("/tmp/grok-home")).toContain("skills");
-  expect(spec.isaSkillProjection.destinationDir("/tmp/grok-home")).toContain("ISA");
+  // VSA skill lands at <substrateHome>/skills/VSA (codex-shaped, no double nesting).
+  expect(spec.vsaSkillProjection.destinationDir("/tmp/grok-home")).toContain("skills");
+  expect(spec.vsaSkillProjection.destinationDir("/tmp/grok-home")).toContain("VSA");
   // Verifies real marker-guarded uninstall round-trip.
   expect(spec.uninstall.kind).toBe("implemented");
 });
@@ -75,8 +75,8 @@ test("workspace grok install targets a .grok home, not the .codex fallback", () 
   expect(parsed.options.substrateHome).not.toContain(".codex");
 });
 
-test("activeIsaProjectionPath resolves grok without throwing", () => {
-  expect(activeIsaProjectionPath("grok")).toBe("skills/soma/active-isa.md");
+test("activeVsaProjectionPath resolves grok without throwing", () => {
+  expect(activeVsaProjectionPath("grok")).toBe("skills/soma/active-vsa.md");
 });
 
 test("planSomaForGrokInstall produces a dry-run plan rooted at the grok home", () => {
@@ -92,13 +92,13 @@ test("planSomaForGrokInstall produces a dry-run plan rooted at the grok home", (
 test("GROK_HOME_FILES equals the static projection set plus the lifecycle and patch targets", () => {
   // Locks the sync contract between the install plan and
   // projectGrokHome: a static file added on either side without the
-  // other fails here. Dynamic entries (active-isa, portable skills)
+  // other fails here. Dynamic entries (active-vsa, portable skills)
   // are excluded from the plan by design; the lifecycle files are
   // written by the shared lifecycle-projection step and the patch
   // targets by the post-projection steps.
   const staticInput = {
     ...portableProjectionInput,
-    activeIsa: undefined,
+    activeVsa: undefined,
     profile: { ...portableProjectionInput.profile, skills: [] },
   };
   const staticPaths = projectGrokHome(staticInput, "/tmp/soma-home").files.map((file) => file.path);
@@ -279,7 +279,7 @@ test("installSomaForGrok applies the plan exactly, idempotently, and preserves u
     const result = await installSomaForGrok({ homeDir });
 
     // Dry-run == apply: the plan's substrate file set matches what the
-    // installer wrote (fresh soma home -> no active ISA, no portable
+    // installer wrote (fresh soma home -> no active VSA, no portable
     // skills, so the dynamic entries are absent on both sides). The
     // plan renders with forward slashes while the installer resolves
     // native paths, so compare separator-normalized.

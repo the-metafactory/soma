@@ -67,6 +67,9 @@ import type {
 // `overwriteReserved` flips. The pack importer reserves `soma` as
 // well; we leave that as the pack importer's job to refuse.
 const MIGRATE_RESERVED_SKILL_NAMES: ReadonlySet<string> = new Set([
+  "vsa",
+  // soma#329: `isa` kept alongside the new `vsa` so a legacy pack name still
+  // can't clobber the renamed Verification skill.
   "isa",
   "the-algorithm",
   "knowledge",

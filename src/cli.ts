@@ -1,5 +1,5 @@
 import packageJson from "../package.json";
-import { ISA_SUBCOMMAND_HELP, ISA_USAGE_HEADER, runIsaCli } from "./cli-isa";
+import { VSA_SUBCOMMAND_HELP, VSA_USAGE_HEADER, runVsaCli } from "./cli-vsa";
 import {
   ALGORITHM_COMMAND_HELP,
   parseAlgorithmArgs,
@@ -115,9 +115,11 @@ interface ParsedVersionArgs {
   command: "version";
 }
 
-interface ParsedIsaArgs {
-  command: "isa";
+interface ParsedVsaArgs {
+  command: "vsa";
   args: string[];
+  /** True when invoked via the deprecated `soma isa` alias (soma#329). */
+  viaIsaAlias?: boolean;
 }
 
 type ParsedArgs =
@@ -140,7 +142,7 @@ type ParsedArgs =
   | ParsedResultArgs
   | ParsedPolicyArgs
   | ParsedWritebackArgs
-  | ParsedIsaArgs
+  | ParsedVsaArgs
   | ParsedSnapshotCommandArgs
   | ParsedToolArgs;
 
@@ -156,6 +158,7 @@ const TOP_LEVEL_COMMANDS = [
   "inference",
   "install",
   "init",
+  "vsa",
   "isa",
   "learning",
   "lifecycle",
@@ -201,10 +204,15 @@ const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string,
   migrate: MIGRATE_COMMAND_HELP,
   ...SNAPSHOT_COMMAND_HELP,
   adopt: ONBOARDING_COMMAND_HELP.adopt,
+  vsa: {
+    // Single source of truth lives in `./cli-vsa.ts` (Sage round-1 dedup).
+    usage: VSA_USAGE_HEADER,
+    subcommands: VSA_SUBCOMMAND_HELP,
+  },
+  // soma#329: `isa` is the deprecated alias for `vsa`; same help surface.
   isa: {
-    // Single source of truth lives in `./cli-isa.ts` (Sage round-1 dedup).
-    usage: ISA_USAGE_HEADER,
-    subcommands: ISA_SUBCOMMAND_HELP,
+    usage: VSA_USAGE_HEADER,
+    subcommands: VSA_SUBCOMMAND_HELP,
   },
 };
 
@@ -233,8 +241,8 @@ function parseArgs(args: string[]): ParsedArgs {
     return { command: "help", topic };
   }
 
-  if (args[0] === "isa") {
-    return { command: "isa", args: args.slice(1) };
+  if (args[0] === "vsa" || args[0] === "isa") {
+    return { command: "vsa", args: args.slice(1), viaIsaAlias: args[0] === "isa" };
   }
 
   if (args[0] === "lifecycle") {
@@ -455,8 +463,11 @@ export async function runSomaCli(args: string[]): Promise<string> {
     return runAlgorithmCli(parsed);
   }
 
-  if (parsed.command === "isa") {
-    const result = await runIsaCli(parsed.args);
+  if (parsed.command === "vsa") {
+    if (parsed.viaIsaAlias) {
+      process.stderr.write("Warning: `soma isa` is deprecated; use `soma vsa` (soma#329).\n");
+    }
+    const result = await runVsaCli(parsed.args);
     if (result.exitCode !== 0) {
       // Propagate non-zero exit via the same SomaCliError pattern used
       // elsewhere — bubble up to process.exit at the top-level harness.

@@ -117,29 +117,29 @@ function writebackQueuePath() {
   return join(hookDir(), "soma-claude-code-writeback-queue.jsonl");
 }
 
-// Match shared Soma ISA files, legacy PAI ISA files during migration, OR a
-// project-root `ISA.md`. Anything else is ignored so the sync bridge only fires
-// on real ISA edits.
-function isIsaPath(path) {
+// Match shared Soma VSA files, legacy PAI VSA files during migration, OR a
+// project-root `VSA.md`. Anything else is ignored so the sync bridge only fires
+// on real VSA edits.
+function isVsaPath(path) {
   if (typeof path !== "string" || path.length === 0) return false;
   const normalized = path.replaceAll("\\", "/");
-  if (!normalized.endsWith("/ISA.md") && normalized !== "ISA.md") return false;
-  if (/\/\.soma\/memory\/WORK\/[^/]+\/ISA\.md$/.test(normalized)) return true;
-  if (/\/MEMORY\/WORK\/[^/]+\/ISA\.md$/.test(normalized)) return true;
-  // Otherwise any `ISA.md` basename (project-root OR nested, e.g. src/ISA.md).
+  if (!normalized.endsWith("/VSA.md") && normalized !== "VSA.md") return false;
+  if (/\/\.soma\/memory\/WORK\/[^/]+\/VSA\.md$/.test(normalized)) return true;
+  if (/\/MEMORY\/WORK\/[^/]+\/VSA\.md$/.test(normalized)) return true;
+  // Otherwise any `VSA.md` basename (project-root OR nested, e.g. src/VSA.md).
   // Broader than the MEMORY/WORK case by design: false positives are harmless
-  // because sync-from-isa runs parseIsa, which validates slug + criteria and
-  // no-ops on anything that isn't a real ISA.
-  return /(^|\/)ISA\.md$/.test(normalized);
+  // because sync-from-isa runs parseVsa, which validates slug + criteria and
+  // no-ops on anything that isn't a real VSA.
+  return /(^|\/)VSA\.md$/.test(normalized);
 }
 
-// Fire-and-forget mirror of any edited ISA file into a soma Algorithm run.
+// Fire-and-forget mirror of any edited VSA file into a soma Algorithm run.
 // Detached + failure-isolated: must never block or break the telemetry
 // writeback. The sync CLI itself is idempotent and exits 0 on bad input.
-function syncIsaPaths(config, input) {
+function syncVsaPaths(config, input) {
   try {
     for (const path of artifactPaths(input)) {
-      if (!isIsaPath(path)) continue;
+      if (!isVsaPath(path)) continue;
       runSomaDetached(config, [
         "src/cli.ts",
         "algorithm",
@@ -330,10 +330,10 @@ async function writeback(config, input, kind, summary, source) {
   };
   await appendFile(writebackQueuePath(), `${JSON.stringify(event)}\n`, "utf8");
   scheduleWritebackFlush(config);
-  // Hook bridge: on tool-edit writebacks, also mirror any edited ISA file into
+  // Hook bridge: on tool-edit writebacks, also mirror any edited VSA file into
   // a soma Algorithm run so the run is resumable on other substrates. Gated to
   // the PostToolUse source so subagent start/stop events don't trigger it.
-  if (source === "PostToolUse") syncIsaPaths(config, input);
+  if (source === "PostToolUse") syncVsaPaths(config, input);
 }
 
 async function main() {

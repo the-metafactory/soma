@@ -82,7 +82,7 @@ export async function writePaiMemoryFixture(homeDir: string): Promise<void> {
  * enough for `importPaiPack` to accept. The pack's slug is derived
  * from `skillName` (defaults to `packName`), which means callers can
  * collide the slug against the orchestrator's reserved-name set by
- * passing `skillName: "ISA"` etc.
+ * passing `skillName: "VSA"` etc.
  */
 export async function writePaiPackFixture(
   packsDir: string,

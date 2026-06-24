@@ -118,7 +118,7 @@ function stripMarkdownEmphasis(value: string): string {
 
 function stripCapabilityLabel(value: string): string {
   const label = stripMarkdownEmphasis(value).replace(/\s*\([^)]*\)\s*$/, "").trim();
-  return label === "ISA Skill" ? "ISA" : label;
+  return label === "VSA Skill" ? "VSA" : label;
 }
 
 function nonEmptyStrings(value: unknown): string[] {

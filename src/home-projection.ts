@@ -71,7 +71,7 @@ export async function installPiDevHomeProjection(
 
 /**
  * Claude Code home projection (#37 minimal). For now this bundle is
- * just the active-ISA file at `PAI/ACTIVE_ISA.md`; the full home
+ * just the active-VSA file at `PAI/ACTIVE_VSA.md`; the full home
  * install lands in #29 with the `.claude/rules/` pivot.
  */
 export function buildClaudeCodeHomeProjection(

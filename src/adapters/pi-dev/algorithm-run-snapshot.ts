@@ -16,7 +16,7 @@ export interface AlgorithmRunSnapshotState {
   readonly lastSnapshotLength: number;
   readonly seenPhases: readonly AlgorithmRunSnapshotSeenPhase[];
   readonly currentPhase?: string;
-  readonly isaCriteria: readonly unknown[];
+  readonly vsaCriteria: readonly unknown[];
 }
 
 export interface AlgorithmRunSnapshot extends AlgorithmRunSnapshotState {
@@ -34,7 +34,7 @@ export function snapshotAlgorithmRunState(run: AlgorithmRunSnapshotState, reason
     lastSnapshotLength: run.lastSnapshotLength,
     seenPhases: run.seenPhases.map((seen) => ({ marker: seen.marker, body: [...seen.body] })),
     currentPhase: run.currentPhase,
-    isaCriteria: [...run.isaCriteria],
+    vsaCriteria: [...run.vsaCriteria],
     reason,
     timestamp: new Date().toISOString(),
   };
@@ -54,7 +54,7 @@ export function hydrateAlgorithmRunSnapshot(snapshot: unknown): AlgorithmRunSnap
       .filter(isAlgorithmRunSnapshotSeenPhase)
       .map((seen) => ({ marker: seen.marker, body: [...seen.body] })),
     currentPhase: typeof s.currentPhase === "string" ? s.currentPhase : undefined,
-    isaCriteria: Array.isArray(s.isaCriteria) ? s.isaCriteria : [],
+    vsaCriteria: Array.isArray(s.vsaCriteria) ? s.vsaCriteria : [],
   };
 }
 

@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { isEnoent } from "../../fs-errors";
-import { isaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
+import { vsaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
 import type { SubstrateId } from "../../types";
 import {
   GROK_AGENT_MARKER,
@@ -26,7 +26,7 @@ const GROK_DEFAULT_HOME = ".grok";
 /**
  * Static file set emitted by `projectGrokHome`, relative to `~/.grok` —
  * the grok-install sync test asserts this list against the projection.
- * Dynamic entries (the active-ISA file, portable skill files) are NOT
+ * Dynamic entries (the active-VSA file, portable skill files) are NOT
  * listed, mirroring `CODEX_HOME_FILES`.
  */
 export const GROK_STATIC_PROJECTION_FILES = [
@@ -80,14 +80,14 @@ export const GROK_PROJECTED_SKILL_NAMES = GROK_HOME_FILES
  * deletes a directory only when its identifying file carries the marker
  * the Soma renderer writes, so a user directory that merely shares the
  * name survives. Marker sources: `renderGrokHomeSkill` (soma),
- * `renderAlgorithmRenderingContract` (the-algorithm), the versioned ISA
- * skill body (ISA), and `renderGrokRulesReadme` (the workspace rules
+ * `renderAlgorithmRenderingContract` (the-algorithm), the versioned VSA
+ * skill body (VSA), and `renderGrokRulesReadme` (the workspace rules
  * overlay).
  */
 const GROK_SKILL_DIR_MARKERS: Record<string, { file: string; marker: string }> = {
   "soma": { file: "SKILL.md", marker: "This projection is generated from Soma." },
   "the-algorithm": { file: "SKILL.md", marker: "Soma Algorithm rendering contract" },
-  "ISA": { file: "SKILL.md", marker: "Ideal State Artifact" },
+  "VSA": { file: "SKILL.md", marker: "Ideal State Artifact" },
   // The project-scoped rules overlay (written by workspace bundles, never
   // by the home projection) — removed so `soma uninstall grok --workspace`
   // round-trips, harmless at home scope where the dir does not exist.
@@ -164,7 +164,7 @@ async function shouldRemoveGrokTarget(target: string): Promise<boolean> {
  */
 export function isGrokPortableSkillProjectionPath(path: string): boolean {
   const name = /^skills\/([^/]+)\//.exec(path)?.[1];
-  return name !== undefined && name !== "ISA" && !(GROK_PROJECTED_SKILL_NAMES as readonly string[]).includes(name);
+  return name !== undefined && name !== "VSA" && !(GROK_PROJECTED_SKILL_NAMES as readonly string[]).includes(name);
 }
 
 export function grokProjectionPrivateRoots(options: { homeDir?: string; substrate?: SubstrateId } = {}): string[] {
@@ -185,10 +185,10 @@ export const grokInstallSpec: SubstrateInstallSpec<"grok"> = {
   // `~/.grok/version.json`; a missing manifest is an unversioned dev
   // runtime and does not block.
   validator: validateGrokInstallRuntime,
-  isaSkillProjection: {
-    // Lands the versioned ISA skill at `~/.grok/skills/ISA` (same shape
-    // as Codex's `isaSkillUnder()` → `~/.codex/skills/ISA`).
-    destinationDir: isaSkillUnder(),
+  vsaSkillProjection: {
+    // Lands the versioned VSA skill at `~/.grok/skills/VSA` (same shape
+    // as Codex's `vsaSkillUnder()` → `~/.codex/skills/VSA`).
+    destinationDir: vsaSkillUnder(),
   },
   lifecycleProjection: {
     startupContextPath: GROK_STARTUP_CONTEXT_PATH,
@@ -233,7 +233,7 @@ export const grokInstallSpec: SubstrateInstallSpec<"grok"> = {
     kind: "implemented",
     remove: [
       ...GROK_PROJECTED_SKILL_NAMES.map((name) => `skills/${name}`),
-      "skills/ISA",
+      "skills/VSA",
       "rules/soma",
       // Individual hook files derived from the static projection list —
       // the shared hooks/ dir itself stays (it may hold user hooks).

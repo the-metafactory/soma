@@ -7,7 +7,7 @@ import { expect, test } from "bun:test";
 
 const run = promisify(execFile);
 import { deriveSessionName } from "../src/lifecycle";
-import { bootstrapSomaHome, runSomaLifecycleSessionEnd, runSomaLifecycleSessionStart, scaffoldIsa, setActiveIsa } from "../src/index";
+import { bootstrapSomaHome, runSomaLifecycleSessionEnd, runSomaLifecycleSessionStart, scaffoldVsa, setActiveVsa } from "../src/index";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-session-naming-"));
@@ -25,12 +25,12 @@ async function readWork(homeDir: string): Promise<Record<string, { sessionUUID: 
 
 // --- Pure deriveSessionName: priority order ---
 
-test("deriveSessionName prefers the active ISA slug and goal", () => {
+test("deriveSessionName prefers the active VSA slug and goal", () => {
   expect(
     deriveSessionName({
       sessionId: "uuid-1",
-      activeIsaSlug: "kaltura-xss-fuzz",
-      activeIsaGoal: "Fuzz the upload endpoint for stored XSS.",
+      activeVsaSlug: "kaltura-xss-fuzz",
+      activeVsaGoal: "Fuzz the upload endpoint for stored XSS.",
       cwd: "/Users/fischer/work/mf/soma",
       gitBranch: "feature-x",
     }),
@@ -77,7 +77,7 @@ test("deriveSessionName falls back to the legacy uuid name", () => {
   });
 });
 
-// --- Integration: lifecycle plumbs cwd / active ISA into the work registry ---
+// --- Integration: lifecycle plumbs cwd / active VSA into the work registry ---
 
 test("session-start names the registry entry after the cwd basename", async () => {
   await withTempHome(async (homeDir) => {
@@ -100,7 +100,7 @@ test("session-start names the registry entry after the cwd basename", async () =
 test("session-start detects the git branch from cwd when none is supplied", async () => {
   await withTempHome(async (homeDir) => {
     await bootstrapSomaHome({ homeDir });
-    // Real repo on a non-default branch; no gitBranch / ISA passed, so the
+    // Real repo on a non-default branch; no gitBranch / VSA passed, so the
     // lifecycle must shell out via detectGitBranch() to discover it.
     const repo = await mkdtemp(join(tmpdir(), "soma-naming-repo-"));
     try {
@@ -129,11 +129,11 @@ test("session-start detects the git branch from cwd when none is supplied", asyn
   });
 });
 
-test("an active ISA slug wins over cwd, end re-keys the same entry", async () => {
+test("an active VSA slug wins over cwd, end re-keys the same entry", async () => {
   await withTempHome(async (homeDir) => {
     await bootstrapSomaHome({ homeDir });
-    await scaffoldIsa({ homeDir, slug: "switch-netops-ai", goal: "Ship the NetOps assistant.", effort: "E2" });
-    await setActiveIsa("switch-netops-ai", { homeDir });
+    await scaffoldVsa({ homeDir, slug: "switch-netops-ai", goal: "Ship the NetOps assistant.", effort: "E2" });
+    await setActiveVsa("switch-netops-ai", { homeDir });
 
     await runSomaLifecycleSessionStart({
       homeDir,
@@ -151,7 +151,7 @@ test("an active ISA slug wins over cwd, end re-keys the same entry", async () =>
     });
 
     const sessions = await readWork(homeDir);
-    // ISA slug used, not "soma"; exactly one entry for the session.
+    // VSA slug used, not "soma"; exactly one entry for the session.
     expect(sessions["switch-netops-ai"]).toMatchObject({
       sessionUUID: "sess-isa",
       sessionName: "switch-netops-ai",

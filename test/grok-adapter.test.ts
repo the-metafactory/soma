@@ -23,16 +23,16 @@ test("grok adapter builds a workspace overlay under the auto-discovered .grok/ru
   expectPortableSemantics(bundle);
 });
 
-test("grok home projection preserves portable semantics and gates the active ISA", () => {
+test("grok home projection preserves portable semantics and gates the active VSA", () => {
   const home = projectGrokHome(portableProjectionInput, "/tmp/soma-home");
 
   expect(home.substrate).toBe("grok");
   expectPortableSemantics(home);
-  // Fixture carries an active ISA → projected under the skills surface.
-  expect(home.files.map((file) => file.path)).toContain("skills/soma/active-isa.md");
+  // Fixture carries an active VSA → projected under the skills surface.
+  expect(home.files.map((file) => file.path)).toContain("skills/soma/active-vsa.md");
 
-  const homeNoIsa = projectGrokHome({ ...portableProjectionInput, activeIsa: undefined }, "/tmp/soma-home");
-  expect(homeNoIsa.files.map((file) => file.path)).not.toContain("skills/soma/active-isa.md");
+  const homeNoVsa = projectGrokHome({ ...portableProjectionInput, activeVsa: undefined }, "/tmp/soma-home");
+  expect(homeNoVsa.files.map((file) => file.path)).not.toContain("skills/soma/active-vsa.md");
 });
 
 test("grok home projection renders the verified discovery surface (entry skill + algorithm skill)", () => {
@@ -46,7 +46,7 @@ test("grok home projection renders the verified discovery surface (entry skill +
   const entrySkill = home.files.find((file) => file.path === "skills/soma/SKILL.md")?.content ?? "";
   expect(entrySkill).toStartWith("---\nname: soma\n");
   expect(entrySkill).toContain("Source of truth: /tmp/soma-home");
-  expect(entrySkill).toContain("skills/soma/active-isa.md");
+  expect(entrySkill).toContain("skills/soma/active-vsa.md");
   // The skill body carries the portable assistant core for discovery.
   expect(entrySkill).toContain("## Assistant");
   expect(entrySkill).toContain("ISC-PORTABLE-1");
@@ -62,9 +62,9 @@ test("grok home projection renders the verified discovery surface (entry skill +
   expect(algorithmSkill).toContain("--evidence-kind probed");
 });
 
-// map the Algorithm/ISA onto Grok's native verification gates —
+// map the Algorithm/VSA onto Grok's native verification gates —
 // the seven-phase banner contract plus todo_write + --todo-gate + --check,
-// seeded from the active ISA criteria. Grok flags live in the grok adapter
+// seeded from the active VSA criteria. Grok flags live in the grok adapter
 // (DD-4); honest scoping = text + todo list, no Pi widgets.
 
 test("the Grok algorithm skill maps phases onto the native todo + verification gates", () => {
@@ -83,26 +83,26 @@ test("the Grok algorithm skill maps phases onto the native todo + verification g
   expect(skill).toContain("Do not claim Pi-style widgets");
 });
 
-test("the ISA -> todo seed names the active ISA when one is set", () => {
+test("the VSA -> todo seed names the active VSA when one is set", () => {
   const skill =
     projectGrokHome(portableProjectionInput, "/tmp/soma-home").files.find(
       (file) => file.path === "skills/the-algorithm/SKILL.md",
     )?.content ?? "";
 
-  expect(skill).toContain("### ISA -> todo seed");
-  // The active ISA's criteria are the todo/checklist seed.
+  expect(skill).toContain("### VSA -> todo seed");
+  // The active VSA's criteria are the todo/checklist seed.
   expect(skill).toContain("portable-context");
-  expect(skill).toContain("skills/soma/active-isa.md");
+  expect(skill).toContain("skills/soma/active-vsa.md");
 });
 
-test("the ISA -> todo seed falls back to PLAN steps when no active ISA is set", () => {
-  const noIsaInput = { ...portableProjectionInput, activeIsa: undefined };
+test("the VSA -> todo seed falls back to PLAN steps when no active VSA is set", () => {
+  const noVsaInput = { ...portableProjectionInput, activeVsa: undefined };
   const skill =
-    projectGrokHome(noIsaInput, "/tmp/soma-home").files.find(
+    projectGrokHome(noVsaInput, "/tmp/soma-home").files.find(
       (file) => file.path === "skills/the-algorithm/SKILL.md",
     )?.content ?? "";
 
-  expect(skill).toContain("No active ISA is set");
+  expect(skill).toContain("No active VSA is set");
   expect(skill).toContain("seed the todo list from the PLAN steps");
   expect(skill).not.toContain("portable-context");
 });

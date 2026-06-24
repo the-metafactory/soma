@@ -30,7 +30,7 @@ test("a probed observation clears the OBSERVE floor", () => {
   let run = freshRun();
   run = recordAlgorithmObservation(
     run,
-    { claim: "criterion C1 exists in the ISA", evidence: "confirmed by reading run.isa", evidenceKind: "probed" },
+    { claim: "criterion C1 exists in the VSA", evidence: "confirmed by reading run.isa", evidenceKind: "probed" },
     "2026-06-22T10:01:00.000Z",
   );
   run = advanceAlgorithmRun(run, "2026-06-22T10:02:00.000Z");

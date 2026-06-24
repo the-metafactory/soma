@@ -74,8 +74,8 @@ async function writePaiMemoryFixture(
   if (opts.withWork) {
     await mkdir(join(root, "WORK/20260117-103045_test-task"), { recursive: true });
     await writeFile(
-      join(root, "WORK/20260117-103045_test-task/ISA.md"),
-      "# Test task ISA\n",
+      join(root, "WORK/20260117-103045_test-task/VSA.md"),
+      "# Test task VSA\n",
       "utf8",
     );
   }
@@ -137,7 +137,7 @@ test("planPaiMemoryMigration enumerates every file under PAI/MEMORY", async () =
       "LEARNING/REFLECTIONS/2026-01.md",
       "LEARNING/lesson-001.md",
       "SKILLS/CreateSkill/state.json",
-      "WORK/20260117-103045_test-task/ISA.md",
+      "WORK/20260117-103045_test-task/VSA.md",
     ]);
     // Dry-run plan must not populate SHAs (cheap planning).
     expect(plan.files.every((f) => f.sha256 === undefined)).toBe(true);

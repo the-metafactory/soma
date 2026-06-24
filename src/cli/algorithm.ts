@@ -28,10 +28,10 @@ import {
 import type { ReflectionForDigest } from "../index";
 import { readFile } from "node:fs/promises";
 import { registerSomaHomeAlgorithmCapabilities } from "../algorithm-capabilities";
-import { syncAlgorithmRunFromIsa, formatSyncResult } from "../algorithm-isa-sync";
+import { syncAlgorithmRunFromVsa, formatSyncResult } from "../algorithm-vsa-sync";
 import { algorithmTouchedBy } from "../algorithm-provenance";
 import { datePrefixSlug } from "../dated-slug";
-import { defaultEvidenceKind, getCriteria, getGoal } from "../isa-accessors";
+import { defaultEvidenceKind, getCriteria, getGoal } from "../vsa-accessors";
 import { getRunPhase } from "../algorithm-lifecycle";
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
@@ -129,7 +129,7 @@ interface AlgorithmCliOptions {
   untilPhase?: AlgorithmPhase;
   batchOperations?: AlgorithmBatchOperation[];
   json?: boolean;
-  isaPath?: string;
+  vsaPath?: string;
   promoteOnComplete?: boolean;
   missedEarlyStep?: string;
   missedVerifyOrParallel?: string;
@@ -497,7 +497,7 @@ export function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
         options.json = true;
         break;
       case "--isa":
-        options.isaPath = readOption(rest, index, arg);
+        options.vsaPath = readOption(rest, index, arg);
         index += 1;
         break;
       case "--promote-on-complete":
@@ -895,10 +895,10 @@ export async function runAlgorithmCli(parsed: ParsedAlgorithmArgs): Promise<stri
   }
 
   if (parsed.action === "sync-from-isa") {
-    if (!options.isaPath) throw new Error("--isa is required.");
+    if (!options.vsaPath) throw new Error("--isa is required.");
     if (!options.substrate) throw new Error("--substrate is required.");
-    const result = await syncAlgorithmRunFromIsa({
-      isaPath: options.isaPath,
+    const result = await syncAlgorithmRunFromVsa({
+      vsaPath: options.vsaPath,
       substrate: options.substrate,
       homeDir: options.homeDir,
       somaHome: options.somaHome,

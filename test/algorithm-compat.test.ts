@@ -12,7 +12,7 @@ const LEGACY_V1_RUN = {
   effortSource: "auto",
   mode: "algorithm",
   classificationReason: "Pre-#41 fixture",
-  currentState: "ISA was embedded JSON",
+  currentState: "VSA was embedded JSON",
   phase: "verify",
   isa: {
     slug: "legacy-run-1",
@@ -67,7 +67,7 @@ test("loadAlgorithmRun passes through schema 2 runs unchanged", () => {
     effortSource: "auto",
     mode: "algorithm",
     classificationReason: "Modern",
-    currentState: "ISA is unified",
+    currentState: "VSA is unified",
     isa: {
       slug: "modern-run",
       frontmatter: {

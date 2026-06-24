@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { readAlgorithmRunById, writeAlgorithmRun } from "./algorithm-store";
 import { appendAlgorithmProvenance } from "./algorithm-provenance";
 import { appendSomaMemoryEvent } from "./memory";
-import { getCriteria, getGoal } from "./isa-accessors";
+import { getCriteria, getGoal } from "./vsa-accessors";
 import { getRunPhase } from "./algorithm-lifecycle";
 import type { AlgorithmRun, SomaMemoryPromotionOptions, SomaMemoryPromotionResult } from "./types";
 

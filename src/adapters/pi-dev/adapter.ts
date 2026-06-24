@@ -4,7 +4,7 @@ import { renderPathGuardExtension } from "./path-guard";
 import { renderSomaAlgorithmExtension } from "./extensions/soma-algorithm";
 import { buildPiDevPortableSkillFiles } from "./skill-projection";
 import { projectableSkills, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "../shared";
-import { activeIsaBundleFile } from "../../adapter-active-isa";
+import { activeVsaBundleFile } from "../../adapter-active-vsa";
 import { SOMA_VERSION } from "../../version";
 
 function renderInstructions(input: ProjectionInput): string {
@@ -17,7 +17,7 @@ function renderInstructions(input: ProjectionInput): string {
     renderAssistantCore(input),
     "",
     "## Operating Rules",
-    "- Use Soma tools for ISA, memory, learning, and policy operations when available.",
+    "- Use Soma tools for VSA, memory, learning, and policy operations when available.",
     "- Keep model-provider settings outside the Soma core.",
     "- Prefer file-backed memory paths from the bundle over substrate-local hidden state.",
     "- Report extension/tool limitations as adapter limitations.",
@@ -50,8 +50,8 @@ function renderToolContract(): string {
     "",
     "The first Pi.dev adapter projects the tool surface only. Implementations stay outside the portable core until Pi.dev execution is wired.",
     "",
-    "- `isa_create`: create a personal/task ISA in Soma memory.",
-    "- `isa_update`: update an existing ISA criterion, phase, or verification record.",
+    "- `isa_create`: create a personal/task VSA in Soma memory.",
+    "- `isa_update`: update an existing VSA criterion, phase, or verification record.",
     "- `memory_search`: search the declared file-backed memory layout.",
     "- `soma_memory_promote`: promote verified Algorithm work into durable Soma memory.",
     "- `capture_learning`: append a learning note through an explicit write path.",
@@ -527,8 +527,8 @@ export function projectPiDevHome(input: ProjectionInput, somaHome: string): Proj
         content: renderHomeSkill(input, somaHome),
       },
       ...portableSkillFiles,
-      // Active-ISA projection (#37). OMITTED when no active ISA — AC-2.
-      ...activeIsaBundleFile("pi-dev", input.activeIsa),
+      // Active-VSA projection (#37). OMITTED when no active VSA — AC-2.
+      ...activeVsaBundleFile("pi-dev", input.activeVsa),
     ],
   };
 }

@@ -90,7 +90,7 @@ function registerFirstPrinciples(run: ReturnType<typeof createAlgorithmRun>) {
   });
 }
 
-test("creates deterministic Algorithm runs around ISA criteria", () => {
+test("creates deterministic Algorithm runs around VSA criteria", () => {
   const run = createAlgorithmRun({
     id: "ledger-update",
     timestamp: "2026-05-14T10:00:00.000Z",

@@ -31,7 +31,7 @@ export const PI_HOME_ALLOWED_MODIFY_SUBPATHS: readonly string[] = Object.freeze(
 
 export const SOMA_DEFAULT_PROTECTED_PATHS: readonly SomaProtectedPath[] = Object.freeze([
   // ~/.soma is the Soma portable home. Modify-guarded by default to keep the
-  // profile and other private roots safe, but ISA + memory subtrees are the
+  // profile and other private roots safe, but VSA + memory subtrees are the
   // assistant's working surface and must remain writable. Delete remains
   // blocked everywhere under ~/.soma.
   { path: "~/.soma", description: "Soma portable assistant home", allowedSubpaths: [...SOMA_HOME_ALLOWED_MODIFY_SUBPATHS] },

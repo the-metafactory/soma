@@ -276,7 +276,7 @@ export async function bootstrapSomaHome(options: SomaHomeBootstrapOptions = {}):
     },
     {
       path: "isa/INDEX.md",
-      content: "# Soma ISAs\n\nOne ISA per project or task lives in this directory as `<slug>.md`.\nThe active ISA slug is recorded in `memory/STATE/active.json`.\nTemplates seeded by the ISA skill live under `.templates/`.\n",
+      content: "# Soma VSAs\n\nOne VSA per project or task lives in this directory as `<slug>.md`.\nThe active VSA slug is recorded in `memory/STATE/active.json`.\nTemplates seeded by the VSA skill live under `.templates/`.\n",
     },
   ];
   const writtenFiles: string[] = [];
@@ -315,7 +315,7 @@ export async function bootstrapSomaHome(options: SomaHomeBootstrapOptions = {}):
     await mkdir(join(somaHome, "projections", spec.substrate), { recursive: true });
   }
 
-  // ISA storage layout (#32). Library CRUD (#34) owns reads/writes;
+  // VSA storage layout (#32). Library CRUD (#34) owns reads/writes;
   // bootstrap only ensures the canonical directories exist. `.templates/`
   // is left empty here — Layer 2 (#33) populates skill assets; future
   // template seeding lives outside bootstrap to avoid Layer 1 → Layer 2
