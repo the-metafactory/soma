@@ -47,7 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `algorithm observe … --evidence-kind probed` before the gate will leave OBSERVE.
 
 ### Changed
-- **De-Miessler vocabulary rename (#329)** — completed across four slices: Telos →
+- **Vocabulary alignment (#329)** — completed across four slices: Telos →
   Purpose compartment (#339); ISA → VSA across docs, code, CLI (`soma vsa`; `soma isa`
   kept as a deprecated alias), projections, and skill (#341, #342); on-disk
   storage/wire `isa` → `vsa` — the `~/.soma/isa/` dir migrates to `vsa/`

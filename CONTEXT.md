@@ -745,7 +745,7 @@ The checkpoint is the deterministic spine of Soma's working method: inference ma
 - `ISA` / `ISC` — the PAI constructs the checkpoint was extracted from. The [[Verification (compartment, formerly ISA)|Verification]] compartment still *holds* checkpoints (bundled into [[VSA]]s); the Algorithm/effort-tier/euphoric-surprise apparatus is one optional workflow pack over checkpoints, never the canonical primitive name.
 - `assertion` — a claim with no evidence is not a checkpoint.
 
-**Why:** PAI's ISA buried "evidence-gated completion" under five constructs (ISA, ISC, Algorithm phases, effort tiers, euphoric surprise). Extracting it as one primitive — and pointing it at a second axis ([[intent]]) — lets one Soma-native bone underlie what were two Miessler compartments (now [[Verification (compartment, formerly ISA)|Verification]] and [[Purpose (compartment, formerly Telos)|Purpose]]). The code already proves the shape: `IdealStateCriterion { text, status, verification }` is a checkpoint. See ADR on the de-Miessler renames.
+**Why:** PAI's ISA buried "evidence-gated completion" under five constructs (ISA, ISC, Algorithm phases, effort tiers, euphoric surprise). Extracting it as one primitive — and pointing it at a second axis ([[intent]]) — lets one Soma-native bone underlie what were two inherited compartments (now [[Verification (compartment, formerly ISA)|Verification]] and [[Purpose (compartment, formerly Telos)|Purpose]]). The code already proves the shape: `IdealStateCriterion { text, status, verification }` is a checkpoint. See ADR on the working-method vocabulary alignment.
 
 ---
 
@@ -769,14 +769,14 @@ Intent is *informed by* [[Purpose]] content (mission, goals, principles, commitm
 
 The [[compartment]] holding the [[principal]]'s forward-looking direction content: mission, goals, principles, commitments. It is the source of [[intent]].
 
-`Purpose` is the English meaning of *telos* (Greek: end, purpose) — the de-branded replacement for the PAI term. The compartment is unchanged in shape and role; only the name moved off Miessler's vocabulary.
+`Purpose` is the English meaning of *telos* (Greek: end, purpose) — the Soma-native replacement for the PAI term. The compartment is unchanged in shape and role; only the name moved to plain English.
 
 **Not synonyms:**
-- `telos` / `Telos` — **killed.** PAI/Miessler term carrying a nine-category LifeOS schema (mission, beliefs, narratives, strategies, problems, challenges, measures). Banned in Soma docs and code. `Purpose` is the only word.
+- `telos` / `Telos` — **killed.** PAI term carrying a nine-category LifeOS schema (mission, beliefs, narratives, strategies, problems, challenges, measures). Banned in Soma docs and code. `Purpose` is the only word.
 - `aim`, `direction`, `goals` — `aim` was the runner-up; `direction`/`goals` are too narrow (one field) for the whole compartment.
 - `intent` — the *output* a checkpoint scores against, not the compartment that sources it. Distinct: Purpose (compartment) → intent (the scoped anchor) → checkpoint (scores it).
 
-**Why:** "Telos" was the most Miessler-branded word in the seven-compartment set, and JC's stance is "Personal AI Infrastructure, not a LifeOS." `Purpose` keeps the exact meaning (it *is* the translation of telos) while removing the inherited brand and its schema. Seven compartments stay seven; this is a rename, not a merge. See ADR on the de-Miessler renames.
+**Why:** "Telos" was the most PAI-specific word in the seven-compartment set, and JC's stance is "Personal AI Infrastructure, not a LifeOS." `Purpose` keeps the exact meaning (it *is* the translation of telos) while avoiding the inherited LifeOS schema. Seven compartments stay seven; this is a rename, not a merge. See ADR on the working-method vocabulary alignment.
 
 ---
 
@@ -785,11 +785,11 @@ The [[compartment]] holding the [[principal]]'s forward-looking direction conten
 The [[compartment]] that articulates what "done" means and verifies work against it — the **done-ness** home (its sibling axis, [[intent]], lives in [[Purpose (compartment, formerly Telos)|Purpose]]). It holds [[VSA]]s and the [[checkpoint]]s inside them, plus the optional Algorithm-run apparatus.
 
 **Not synonyms:**
-- `ISA` (as a compartment name) — **killed.** PAI/Miessler term. `Verification` is the only word for this compartment.
+- `ISA` (as a compartment name) — **killed.** PAI term. `Verification` is the only word for this compartment.
 - `verification` (lowercase, the [[Policy]] sense) — Policy's "evidence and audit rules" govern *security* verification; the Verification *compartment* governs verification of *work/done-ness*. Capitalized `Verification` always means the compartment.
 - `Method`, `Completion`, `Work` — considered. `Method` (zero-collision runner-up) was broader than the verification core; `Completion` overloads the checkpoint's completion gate; `Work` collides with [[work registry]] / Memory work stores.
 
-**Why:** `ISA` was the second Miessler compartment name (after Telos→Purpose). `Verification` names the compartment's actual job — done-ness, established with evidence — and pairs cleanly: Purpose sources intent, Verification houses done-ness, both scored by checkpoints. Renaming the box is cosmetic now that [[checkpoint]] is the extracted primitive. See ADR on the de-Miessler renames.
+**Why:** `ISA` was the second inherited compartment name (after Telos→Purpose). `Verification` names the compartment's actual job — done-ness, established with evidence — and pairs cleanly: Purpose sources intent, Verification houses done-ness, both scored by checkpoints. Renaming the box is cosmetic now that [[checkpoint]] is the extracted primitive. See ADR on the working-method vocabulary alignment.
 
 ---
 
@@ -797,11 +797,11 @@ The [[compartment]] that articulates what "done" means and verifies work against
 
 The artifact that defines "done" for a project, task, or work session and carries its [[checkpoint]]s and verdicts across substrates. Lives in the [[Verification (compartment, formerly ISA)|Verification]] compartment.
 
-The de-branded replacement for PAI's **ISA** (Ideal State Artifact): **I**deal → **V**erification, keeping **S**tate **A**rtifact. The swap is one-for-one — every former ISA is a VSA — so the migration is mechanical.
+The Soma-native replacement for PAI's **ISA** (Ideal State Artifact): **I**deal → **V**erification, keeping **S**tate **A**rtifact. The swap is one-for-one — every former ISA is a VSA — so the migration is mechanical.
 
 **Not synonyms:**
 - `ISA` (Ideal State Artifact) — **killed.** The PAI name. `VSA` is the only word.
 - `checkpoint` — the unit *inside* a VSA, not the VSA itself. A VSA bundles checkpoints.
 - `spec`, `definition of done` — informal glosses; `VSA` is the canonical artifact noun.
 
-**Why:** completes the de-Miessler pass of the seven-compartment set (Identity · [[Purpose (compartment, formerly Telos)|Purpose]] · [[Verification (compartment, formerly ISA)|Verification]] · Skills · Memory · Policy · Learning). The `VSA` cadence keeps the CLI familiar (`soma isa` → `soma vsa`) and signals deliberate lineage rather than a clean break. See ADR on the de-Miessler renames.
+**Why:** completes the vocabulary alignment pass of the seven-compartment set (Identity · [[Purpose (compartment, formerly Telos)|Purpose]] · [[Verification (compartment, formerly ISA)|Verification]] · Skills · Memory · Policy · Learning). The `VSA` cadence keeps the CLI familiar (`soma isa` → `soma vsa`) and signals deliberate lineage rather than a clean break. See ADR on the working-method vocabulary alignment.

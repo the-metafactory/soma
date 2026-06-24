@@ -1,14 +1,14 @@
 # HANDOVER — Soma Algorithm / Vocabulary work (2026-06-22)
 
 Resume doc for a clean session. Read this first, then `CONTEXT.md` and
-`docs/adr/0001-de-miessler-vocabulary.md`.
+`docs/adr/0001-working-method-vocabulary.md`.
 
 ---
 
 ## TL;DR — what happened, what's next
 
 Two bodies of work this session, both **merged to `main`**:
-1. **De-Miesslered the vocabulary** (#334, commit `1d38545`) — the seven Soma
+1. **Aligned the working-method vocabulary** (#334, commit `1d38545`) — the seven Soma
    compartments are now **Identity · Purpose · Verification · Skills · Memory ·
    Policy · Learning**, with new glossary terms `checkpoint`, `intent`, `Purpose`,
    `Verification`, `VSA`. Glossary in `CONTEXT.md`; rationale in `docs/adr/0001`.
@@ -41,7 +41,7 @@ Soma/PAI usage signal. Canonical doc:
 
 | Item | Commit | Notes |
 | --- | --- | --- |
-| De-Miessler glossary + ADR + strategy/findings docs | `1d38545` (#334) | CONTEXT.md, docs/adr/0001, Plans/* |
+| Working-method vocabulary glossary + ADR + strategy/findings docs | `1d38545` (#334) | CONTEXT.md, docs/adr/0001, Plans/* |
 | Verification evidence-kind + deferred-probe + LEARN gate | `5e10109` (#335) | closes #330; Sage-clean over 6 rounds |
 
 **#330 detail:** `IdealStateCriterion` gained `evidenceKind` (`EvidenceKind` =

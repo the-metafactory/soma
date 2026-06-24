@@ -2,17 +2,17 @@
 status: accepted
 ---
 
-# De-Miessler the working-method vocabulary: `checkpoint`, `intent`, `Purpose`, `Verification`, `VSA`
+# Align the working-method vocabulary: `checkpoint`, `intent`, `Purpose`, `Verification`, `VSA`
 
 ## Context
 
-Soma's working-method vocabulary was inherited wholesale from Daniel Miessler's
-PAI: the **Telos** compartment and the **ISA / ISC / Algorithm / effort-tier /
-euphoric-surprise** apparatus. Two problems. First, the lineage: these are
-Miessler's constructs, and Soma's differentiation argument weakens if its core
-nouns are borrowed. Second, the weight: PAI's Telos is a nine-category LifeOS
-schema (mission, beliefs, narratives, strategies, problems, challenges, measures),
-and JC's explicit stance is *"Personal AI Infrastructure, not a LifeOS."*
+Soma's working-method vocabulary started from PAI: the **Telos** compartment and
+the **ISA / ISC / Algorithm / effort-tier / euphoric-surprise** apparatus. Two
+problems. First, portability and ownership: Soma's core nouns should be native to
+Soma rather than borrowed unchanged. Second, the weight: PAI's Telos is a
+nine-category LifeOS schema (mission, beliefs, narratives, strategies, problems,
+challenges, measures), and JC's explicit stance is *"Personal AI Infrastructure,
+not a LifeOS."*
 
 First-principles on the two constructs showed both reduce to the **same bone**: a
 checkable criterion + required evidence → typed verdict, behind a completion gate.
@@ -57,7 +57,8 @@ primitive name.
   layout, and the `soma isa` CLI while discarding structure (Algorithm runs, phases,
   reconcile partitions) that is not the primitive.
 - **`Purpose` vs. `Aim`.** `Aim` was the runner-up; `Purpose` won as the literal
-  translation of *telos*, preserving meaning while dropping the brand.
+  translation of *telos*, preserving meaning while moving to a plain-English
+  name.
 - **`Verification` vs. `Method`.** `Method` was the zero-collision runner-up but
   broader than the compartment's verification core; `Verification` chosen, with the
   Policy descriptor reworded to clear the lowercase collision.
@@ -66,7 +67,7 @@ primitive name.
   mechanical.
 - **Killing `ISA` now vs. deferring.** Deferring ISA was initially recommended
   (descriptive English, large footprint). JC chose to kill it in the same pass for a
-  fully de-Miesslered set; accepted.
+  fully Soma-native vocabulary set; accepted.
 
 ## Consequences
 

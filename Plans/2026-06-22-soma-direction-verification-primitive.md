@@ -11,7 +11,7 @@
 
 Portability is already built. Soma's evolution is **agentic memory consolidation
 that runs inside a deterministic, auditable, reversible gate** — and that gate is a
-single primitive extracted from the two Miessler constructs (Telos, ISA) Soma
+single primitive extracted from the two inherited constructs (Telos, ISA) Soma
 inherited.
 
 ---
@@ -50,9 +50,9 @@ Verified Letta facts (read from source 2026-06-22):
 
 ---
 
-## First-principles: two Miessler constructs collapse into one bone
+## First-principles: two inherited constructs collapse into one bone
 
-Both Telos and ISA are Daniel Miessler's. Strip each to its irreducible function.
+Both Telos and ISA came from PAI. Strip each to its irreducible function.
 
 **Telos** (Mission/Beliefs/Narratives/Strategies/Problems/Challenges/Measures — a
 life-philosophy schema; the LifeOS weight JC explicitly does not want) reduces to:
@@ -174,7 +174,7 @@ Ready to promote into `CONTEXT.md` as canonical glossary entries:
   *not* `snapshot` (whole-home git state). A checkpoint applies on two axes:
   **done-ness** and **intent**.
 - **`intent`** — the forward-looking checkable statement of intended direction
-  (the one durable bone extracted from Miessler's Telos). Replaces "telos" as Soma's
+  (the one durable bone extracted from Telos). Replaces "telos" as Soma's
   own term. The dream cycle scores consolidated work against the intent.
 
 Retired words: ISA, ISC, "Ideal State Artifact", effort tiers, euphoric surprise as
