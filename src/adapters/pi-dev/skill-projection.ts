@@ -4,7 +4,12 @@ import { rewriteSkillNameFrontmatter } from "../../skill-frontmatter";
 import { rewriteSubstrateProjectionContent } from "../../substrate-projection-rewrites";
 import type { Projection, SomaSkill } from "../../types";
 
-export const PI_DEV_VSA_SKILL_ID = "isa";
+export const PI_DEV_VSA_SKILL_ID = "vsa";
+
+// Prior names the Soma VSA skill was projected under in pi-dev before settling on
+// the canonical lowercase "vsa": legacy capital "VSA", and the pre-rename "ISA"/
+// "isa". All were Soma-projected, so they are pruned before reprojecting "vsa".
+const LEGACY_PI_DEV_VSA_SKILL_DIRS = ["VSA", "ISA", "isa"] as const;
 
 export function piDevSkillId(name: string): string {
   const id = name
@@ -50,10 +55,6 @@ export function piDevVsaSkillDestinationDir(substrateHome: string): string {
   return resolve(substrateHome, "agent/skills", PI_DEV_VSA_SKILL_ID);
 }
 
-function legacyPiDevVsaSkillDestinationDir(substrateHome: string): string {
-  return resolve(substrateHome, "agent/skills/VSA");
-}
-
 export async function removeLegacyPiDevVsaSkillProjection(substrateHome: string): Promise<void> {
   const skillsDir = resolve(substrateHome, "agent/skills");
   let entries;
@@ -63,7 +64,10 @@ export async function removeLegacyPiDevVsaSkillProjection(substrateHome: string)
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
     throw error;
   }
-  if (entries.some((entry) => entry.isDirectory() && entry.name === "VSA")) {
-    await rm(legacyPiDevVsaSkillDestinationDir(substrateHome), { recursive: true, force: true });
+  for (const legacy of LEGACY_PI_DEV_VSA_SKILL_DIRS) {
+    if ((legacy as string) === (PI_DEV_VSA_SKILL_ID as string)) continue;
+    if (entries.some((entry) => entry.isDirectory() && entry.name === legacy)) {
+      await rm(resolve(skillsDir, legacy), { recursive: true, force: true });
+    }
   }
 }

@@ -231,7 +231,7 @@ test("install spec registry has adapter-owned facts for every install substrate"
     startupContextPath: "agent/soma/startup-context.md",
     somaRepoPathPath: "agent/soma/soma-repo.txt",
   });
-  expect(installSpecFor("pi-dev").vsaSkillProjection.skillNameOverride).toBe("isa");
+  expect(installSpecFor("pi-dev").vsaSkillProjection.skillNameOverride).toBe("vsa");
   expect(installSpecFor("claude-code").uninstall).toMatchObject({
     kind: "implemented",
     remove: ["rules/soma", "skills/VSA"],
