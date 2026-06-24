@@ -4,7 +4,7 @@ How the engineering skills should consume soma's domain documentation when explo
 
 ## Hierarchy of authority
 
-1. **`ISA.md`** at repo root — current source of truth for scope, criteria, decisions in flight, and verification (per AGENTS.md).
+1. **`VSA.md`** at repo root — current source of truth for scope, criteria, decisions in flight, and verification (per AGENTS.md).
 2. **`design/design-decisions.md`** — the **metafactory Design Decisions** record. Numbered DD-N. If anything contradicts a DD, the DD wins.
 3. **`CONTEXT.md`** at repo root — domain glossary (does not yet exist; `/grill-with-docs` creates it lazily as terms get resolved).
 4. **`research/*.md`** — evidence base. DDs cite specific research findings.
@@ -41,7 +41,7 @@ DD numbering is **per-repo sequential**. Pick the next free number when adding o
 ```
 ~/work/mf/soma/
 ├── AGENTS.md
-├── ISA.md
+├── VSA.md
 ├── CONTEXT.md                    ← lazily created by /grill-with-docs
 ├── design/
 │   └── design-decisions.md       ← metafactory DD format, numbered DD-N

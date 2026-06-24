@@ -74,7 +74,7 @@ The default protected paths declare these allowed modify subpaths:
 
 | Root         | Allowed modify subpaths                | Rationale                                            |
 | ------------ | -------------------------------------- | ---------------------------------------------------- |
-| `~/.soma`    | `isa/`, `memory/`                      | ISA edits and memory writes are the assistant's job  |
+| `~/.soma`    | `isa/`, `memory/`                      | VSA edits and memory writes are the assistant's job  |
 | `~/.claude`  | `memory/`, `memories/`, `PAI/MEMORY/`  | Claude Code and PAI write working memory under these |
 | `~/.pi`      | `agent/memory/`                        | Pi.dev agent memory                                  |
 
@@ -82,7 +82,7 @@ Writes to a protected root that fall outside its `allowedSubpaths` remain
 denied. `~/.soma/profile/identity.md` and `~/.soma/secret.md` are blocked for
 modify even though `~/.soma/isa/draft.md` is allowed. This keeps private roots
 (profile, identity, purpose) safe while letting the assistant manage its own
-memory and ISA artifacts. See issue #79 (Pi.dev) and #48 (Codex) for the
+memory and VSA artifacts. See issue #79 (Pi.dev) and #48 (Codex) for the
 matching substrate-hook refinements.
 
 ## Pi.dev Projection

@@ -3,7 +3,7 @@
 `soma init --apply` creates `~/.soma/` (override with `--soma-home`). This
 directory is the portable source of truth for your assistant. Substrate homes
 (`~/.codex`, `~/.claude`, …) are generated projections of it. Everything in
-`~/.soma` is plain, readable files; profile, skills, memory, ISAs, and policy
+`~/.soma` is plain, readable files; profile, skills, memory, VSAs, and policy
 are yours to edit directly, while `projections/` holds generated caches that
 re-projection rewrites.
 
@@ -21,9 +21,9 @@ re-projection rewrites.
 │   ├── WORK/
 │   │   └── algorithm-runs/ # Algorithm run state, one <run-id>.json per run
 │   └── STATE/
-│       └── active.json     # active ISA pointer
-├── isa/                    # Ideal State Artifacts, one <slug>.md per project/task
-│   └── .templates/         # ISA scaffolding templates
+│       └── active.json     # active VSA pointer
+├── isa/                    # Verification State Artifacts, one <slug>.md per project/task
+│   └── .templates/         # VSA scaffolding templates
 ├── policy/                 # substrate policy declarations
 ├── imports/                # migration manifests and portability reports
 └── projections/            # cached generated projections (codex, claude-code, …)
@@ -34,19 +34,19 @@ On a fresh machine the profile files start as a **starter profile**
 content, or import an existing installation (see below). `soma doctor` warns
 while the starter profile is still in place.
 
-## Where the Algorithm and ISA live
+## Where the Algorithm and VSA live
 
 Soma ships its own, substrate-neutral implementation of the Algorithm work
-harness and Ideal State Artifacts — they do not depend on PAI or any
+harness and Verification State Artifacts — they do not depend on PAI or any
 substrate being installed:
 
-- **Implementation:** the `soma algorithm ...` and `soma isa ...` CLI commands
+- **Implementation:** the `soma algorithm ...` and `soma vsa ...` CLI commands
   (see [README — The Algorithm](../README.md#the-algorithm) and
-  [README — ISA](../README.md#isa)).
+  [README — VSA](../README.md#isa)).
 - **State on disk:** Algorithm runs persist as JSON under
-  `memory/WORK/algorithm-runs/`; ISAs are markdown files under `isa/`, with
-  the active ISA recorded in `memory/STATE/active.json`.
-- **Projection:** substrate adapters surface the active ISA and Algorithm
+  `memory/WORK/algorithm-runs/`; VSAs are markdown files under `isa/`, with
+  the active VSA recorded in `memory/STATE/active.json`.
+- **Projection:** substrate adapters surface the active VSA and Algorithm
   state into each substrate (for Claude Code: `~/.claude/rules/soma/`).
 
 ## How the home gets populated

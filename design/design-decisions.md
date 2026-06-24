@@ -11,7 +11,7 @@
 
 Each decision is numbered, dated, and linked to the discussion or research that informed it. Decisions are grouped by domain. Status values: **decided**, **superseded**, **open**.
 
-`ISA.md` is the live source of truth for current scope and verification. DDs are the durable rule-record — the *why* behind decisions that future readers would otherwise have to reconstruct.
+`VSA.md` is the live source of truth for current scope and verification. DDs are the durable rule-record — the *why* behind decisions that future readers would otherwise have to reconstruct.
 
 ---
 
@@ -21,7 +21,7 @@ Each decision is numbered, dated, and linked to the discussion or research that 
 
 **Status:** Decided (2026-05-17)
 
-**Context:** Soma's mission is "substrate-portable Personal AI Assistant core" (per `ISA.md`, `CONTEXT.md`). A live migration path from PAI to Soma forced a foundational question: where does personal state *live*?
+**Context:** Soma's mission is "substrate-portable Personal AI Assistant core" (per `VSA.md`, `CONTEXT.md`). A live migration path from PAI to Soma forced a foundational question: where does personal state *live*?
 
 Three candidates surfaced:
 - **(a) Soma is the new canonical home.** PAI's `~/.claude/` becomes a *projection* that Soma writes (via `soma install claude-code`). PAI conventions are translated to Soma's shape during import.
@@ -119,7 +119,7 @@ Three candidates:
 **Status:** Decided (2026-05-22)
 
 **Context:** Soma's install path had substrate-specific facts spread across the
-installer, home projection, active ISA projection paths, private projection
+installer, home projection, active VSA projection paths, private projection
 roots, and adapter modules. Adding or changing a substrate required editing
 multiple unrelated modules, which weakened locality and made install,
 reproject, upgrade, and uninstall behavior harder to compare.
@@ -138,7 +138,7 @@ orchestration.
 Adapters own substrate-native facts: default home, projected file paths,
 substrate-specific skill destinations, lifecycle projection paths, validators,
 cleanup hooks, private projection roots, and uninstall targets. The installer
-owns orchestration: bootstrapping Soma home, loading active ISA, running
+owns orchestration: bootstrapping Soma home, loading active VSA, running
 lifecycle updates, writing projections, and applying the install, reproject,
 upgrade, and uninstall verbs.
 
@@ -219,7 +219,7 @@ separate work, tracked by the observability feature area.
 
 **Context:** PAI v5 uses two live continuation surfaces. Hooks
 deterministically maintain `MEMORY/STATE/work.json` and
-`MEMORY/STATE/session-names.json` at prompt and ISA-sync boundaries, while the
+`MEMORY/STATE/session-names.json` at prompt and VSA-sync boundaries, while the
 Algorithm assistant is responsible for creating
 `MEMORY/STATE/current-work-{sessionId}.json` during execution. Soma inherited
 the file shape in DD-5, but the PAI ownership split is too Claude-specific for
@@ -260,7 +260,7 @@ explicit writeback gates with deterministic merge rules.
   before any Algorithm-specific artifact exists.
 - Adapters should refresh the pointer at bounded semantic boundaries:
   `session_start`, prompt submission or before-agent-start classification,
-  Algorithm/ISA updates, result/feedback/rating capture, pre-compaction, and
+  Algorithm/VSA updates, result/feedback/rating capture, pre-compaction, and
   session end. Routine tool calls should not refresh the pointer unless they
   create or update a known artifact or emit a bounded observability event.
 - The pointer routes learning by naming learning sources such as events,
@@ -518,7 +518,7 @@ runtime policy decisions.
 
 **Status:** Decided (2026-05-31)
 
-**Context:** Issue #153 asks whether Soma should expose memory, skills, ISA,
+**Context:** Issue #153 asks whether Soma should expose memory, skills, VSA,
 Algorithm, and identity through an MCP server. MCP-capable substrates can call
 tools directly, but MCP tool schemas carry always-on token cost and mutating
 tools can bypass the deliberate writeback gates if the boundary is unclear.
@@ -535,7 +535,7 @@ Three candidates surfaced:
 **Decision:** **(b)** — MCP is an optional read-mostly access surface over Soma
 core. It is not a substrate adapter replacement. Adapters may configure
 substrate-native MCP clients, but the MCP server owns one portable tool
-inventory and calls Soma core APIs for memory, skills, ISA, Algorithm, identity,
+inventory and calls Soma core APIs for memory, skills, VSA, Algorithm, identity,
 policy, and writeback.
 
 The first implementation slice should expose read-only tools only:
@@ -557,7 +557,7 @@ calls must not return full skill or memory bodies, and large responses must
 require selector or pagination arguments.
 
 Read tools must validate the requesting principal, MCP client session,
-substrate, and allowed memory/identity/ISA/skill/Algorithm scope before
+substrate, and allowed memory/identity/VSA/skill/Algorithm scope before
 returning data. Unauthorized, out-of-scope, or malformed reads fail closed
 without returning private excerpts.
 
@@ -583,7 +583,7 @@ without returning private excerpts.
 **Status:** Decided (2026-05-31)
 
 **Context:** Issue #146 asks for cross-machine access to memory, identity,
-Purpose, skills, ISA state, and conflict resolution when a principal works from
+Purpose, skills, VSA state, and conflict resolution when a principal works from
 multiple machines. The obvious word is "sync", but Soma already reserves
 precise vocabulary for projection and writeback and rejects fuzzy bidirectional
 sync semantics in `CONTEXT.md`. The implementation needs a transport model
@@ -606,7 +606,7 @@ overlay. The first backend should be Git-backed because Soma homes and
 snapshots are already filesystem-native, but backend transport does not own
 merge or privacy semantics.
 
-Replication is scope-based. Identity, Purpose, skills, policy, ISA, append-only
+Replication is scope-based. Identity, Purpose, skills, policy, VSA, append-only
 state events, and session-keyed work state are eligible by default, subject to
 path policy and secret guards. Learning and knowledge are opt-in until
 promotion/citation merge rules exist. Relationship is private by default, and
@@ -615,7 +615,7 @@ raw and security scopes are off by default.
 Only stores with deterministic merge rules are auto-merged:
 `memory/STATE/events.jsonl` merges by event id, and DD-5/DD-6 work state may
 merge by session id, run id, or pointer filename. Durable profile, Purpose,
-skill, policy, ISA body, knowledge, learning, relationship, and work artifacts
+skill, policy, VSA body, knowledge, learning, relationship, and work artifacts
 surface conflicts instead of using last-writer-wins. Every pull or exchange
 operation snapshots before applying remote state.
 
@@ -643,7 +643,7 @@ operation snapshots before applying remote state.
 **Status:** Decided (2026-05-31)
 
 **Context:** Issue #152 asks for shared skill registries, team memory overlays,
-team ISAs, and a permission model for organizations. Soma is intentionally a
+team VSAs, and a permission model for organizations. Soma is intentionally a
 personal assistant core: Identity, Purpose, Relationship, Policy, and Memory are
 rooted in one principal. A direct multi-principal home would weaken the trust
 model and make it unclear which principal owns profile facts, private memory,
@@ -655,7 +655,7 @@ Three candidates surfaced:
   home and let permissions decide which parts each principal can see.
 - **(b) Use read-only team overlays.** Keep each personal Soma home
   single-principal, then mount shared team skills, team knowledge/work, team
-  ISAs, and team policy restrictions as explicit overlays with provenance.
+  VSAs, and team policy restrictions as explicit overlays with provenance.
 - **(c) Defer team support to Cortex/Myelin.** Keep Soma purely personal and
   let collaboration surfaces handle all team state.
 
@@ -666,7 +666,7 @@ Purpose, Relationship, raw transcripts, and security traces are never mounted
 from a team overlay.
 
 Team overlays start read-only. They may expose team skills, team
-`memory/KNOWLEDGE`, team `memory/WORK`, team ISAs, and team policy restrictions.
+`memory/KNOWLEDGE`, team `memory/WORK`, team VSAs, and team policy restrictions.
 Team policy can add restrictions or metadata requirements, but it must not relax
 personal policy. Search and projection must cite team/source/version
 provenance, and personal and team memory result groups remain separate.
@@ -681,14 +681,14 @@ organizational process.
   accidental sharing of personal Identity, Purpose, Relationship, raw
   transcripts, and security traces.
 - (c) is clean but too narrow: teams can safely share read-only skills,
-  knowledge, work artifacts, and ISAs before a daemon or bus is required.
+  knowledge, work artifacts, and VSAs before a daemon or bus is required.
 
 **Implications:**
 - The canonical design is documented in `docs/team-overlays.md`.
 - Future CLI work should use `soma team ...` for overlay management.
 - The first implementation slice should add read-only overlay install/list,
   team-provenanced memory search, team skill registry entries, and explicit
-  team ISA selection.
+  team VSA selection.
 - Collaborative team writes are deferred until team-specific merge rules,
   approval, provenance, and conflict reports exist.
 
@@ -718,7 +718,7 @@ Three candidates surfaced:
 
 **Decision:** **(b)** — daemon mode consumes Myelin contracts without owning
 the bus. Soma may run as a standalone Cortex agent and route work using Soma
-identity, memory, ISA, policy, and skill registry state. It must import or be
+identity, memory, VSA, policy, and skill registry state. It must import or be
 configured with Myelin-owned subject/envelope contracts before subscribing to
 live bus traffic.
 

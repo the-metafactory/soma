@@ -15,7 +15,7 @@ when two machines edit the same durable artifact.
 - Let a principal carry one Soma home across laptop, VM, and future
   daemon-backed use.
 - Preserve the existing filesystem-native home contract: profile, Purpose,
-  memory, skills, policy, Algorithm runs, and ISAs remain plain files.
+  memory, skills, policy, Algorithm runs, and VSAs remain plain files.
 - Reuse Git history and the snapshot/rollback safety net before applying remote
   changes.
 - Merge append-only state deterministically where Soma already has merge
@@ -34,7 +34,7 @@ when two machines edit the same durable artifact.
 - The first backend does not need S3, Turso, or another hosted service.
 - The first implementation does not automatically reconcile arbitrary Markdown
   conflicts in `KNOWLEDGE`, `RELATIONSHIP`, `LEARNING`, `WORK`, profile, Purpose,
-  skills, policy, or ISA files.
+  skills, policy, or VSA files.
 - Home replication does not copy raw prompts, transcripts, full tool inputs, or
   command output unless a future policy explicitly allows that path.
 
@@ -152,7 +152,7 @@ Conflicting values for the same key must be reported, not silently overwritten.
 
 ### Durable Memory And Profile Files
 
-Files in profile, Purpose, skills, policy, ISA bodies, `KNOWLEDGE`, `LEARNING`,
+Files in profile, Purpose, skills, policy, VSA bodies, `KNOWLEDGE`, `LEARNING`,
 `RELATIONSHIP`, and `WORK` are normal durable artifacts. Until a store has a
 specific merge rule, concurrent edits are conflicts. The first implementation
 should keep both sides reachable through Git history and write a bounded

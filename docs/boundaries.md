@@ -11,8 +11,8 @@ Factory systems without absorbing their responsibilities. Glossary lives in
 | Personal assistant identity | Soma | Owns portable identity schema and projection. |
 | Principal profile | Soma | Owns personal profile shape and its projection (scrubbed so private data does not leak between substrates). |
 | Purpose | Soma | Owns personal goals, principles, commitments, and prioritization. |
-| Project ISA | Project repository | Reads and summarizes local `ISA.md`; does not centralize every project task. |
-| Personal/task ISA | Soma memory | Owns personal assistant tasks that do not belong to one project repo. |
+| Project VSA | Project repository | Reads and summarizes local `VSA.md`; does not centralize every project task. |
+| Personal/task VSA | Soma memory | Owns personal assistant tasks that do not belong to one project repo. |
 | Skills as portable capability folders | Soma | Owns portable skill metadata and discovery contract. |
 | Team skill distribution | Arc | Soma can mount Arc-installed skill packs as team overlays; Arc owns package lifecycle and version resolution. |
 | Team SOPs and governance | Compass | Soma can reference Compass ids in team overlays; Compass remains the governance authority. |

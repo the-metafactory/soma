@@ -68,7 +68,7 @@ The kernel is the maximum context that should be loaded by default:
 
 - assistant and principal identity
 - purpose summary
-- active Algorithm run or active ISA summary
+- active Algorithm run or active VSA summary
 - memory search instructions
 - policy and verification rules
 - skill registry location and loading protocol
@@ -126,7 +126,7 @@ narrow skills should be `never` until a router selects them.
 The router chooses candidate skills before their full bodies are loaded. Inputs:
 
 - current user prompt
-- active Algorithm run or active ISA
+- active Algorithm run or active VSA
 - current workspace overlay
 - substrate id and known context budget
 - available tool surface
