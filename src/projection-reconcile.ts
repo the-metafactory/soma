@@ -71,16 +71,24 @@ export interface ReconcileResult {
  * This makes projection self-cleaning: any renamed/recased/removed source file
  * leaves no orphan, with no per-rename bookkeeping.
  */
-export async function reconcileOwnedDir(root: string, desiredRelPaths: readonly string[]): Promise<ReconcileResult> {
+export async function reconcileOwnedDir(
+  root: string,
+  desiredRelPaths: readonly string[],
+  options: { excludeRelPrefixes?: readonly string[] } = {},
+): Promise<ReconcileResult> {
   const desired = new Set(desiredRelPaths);
   const desiredByLower = new Map<string, string>();
   for (const rel of desiredRelPaths) desiredByLower.set(rel.toLowerCase(), rel);
+  const excluded = options.excludeRelPrefixes ?? [];
 
   const result: ReconcileResult = { removed: [], renamed: [] };
 
   for (const abs of await listFilesRecursive(root)) {
     const rel = relative(root, abs);
     if (desired.has(rel)) continue;
+    // Subtrees managed by another installer (e.g. the edit-preserving VSA skill
+    // projection nested under cursor's rules/soma) are left untouched.
+    if (excluded.some((prefix) => rel === prefix || rel.startsWith(`${prefix}/`))) continue;
 
     const canonical = desiredByLower.get(rel.toLowerCase());
     if (canonical !== undefined) {

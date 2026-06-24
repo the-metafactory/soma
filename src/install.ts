@@ -221,12 +221,17 @@ async function reconcileOwnedSubtrees(
   projectedFiles: readonly string[],
 ): Promise<void> {
   const projectedAbs = new Set(projectedFiles.map((file) => resolve(file)));
+  // The VSA skill is installed by its own edit-preserving installer; if its
+  // destination nests under an owned subtree (cursor), exclude it from reconcile.
+  const skillDestAbs = resolve(spec.vsaSkillProjection.destinationDir(substrateRoot));
   for (const subtree of spec.ownedSubtrees ?? []) {
     const root = resolve(substrateRoot, subtree);
     const desiredRel = [...projectedAbs]
       .filter((abs) => abs === root || abs.startsWith(`${root}/`))
       .map((abs) => relative(root, abs));
-    await reconcileOwnedDir(root, desiredRel);
+    const excludeRelPrefixes =
+      skillDestAbs === root || skillDestAbs.startsWith(`${root}/`) ? [relative(root, skillDestAbs)] : [];
+    await reconcileOwnedDir(root, desiredRel, { excludeRelPrefixes });
   }
 }
 
