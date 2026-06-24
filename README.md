@@ -330,7 +330,7 @@ soma algorithm invoke --id <run-id> --capability sequential-analysis --evidence 
 
 ### VSA
 
-An Ideal State Artifact is the definition of done for a project, task, or work
+An Verification State Artifact is the definition of done for a project, task, or work
 session. It carries criteria and verification evidence across substrates.
 
 ```bash
@@ -345,7 +345,7 @@ already date-prefixed. Use the slug printed by the scaffold command for
 `use`, `active`, and `check`.
 
 For parallel feature work, Soma can reconcile feature VSAs back into a master
-VSA by stable criterion IDs. See [docs/vsa-reconcile.md](docs/vsa-reconcile.md).
+VSA by stable criterion IDs. See [docs/isa-reconcile.md](docs/isa-reconcile.md).
 
 ### Skills
 

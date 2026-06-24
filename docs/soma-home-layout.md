@@ -22,7 +22,7 @@ re-projection rewrites.
 │   │   └── algorithm-runs/ # Algorithm run state, one <run-id>.json per run
 │   └── STATE/
 │       └── active.json     # active VSA pointer
-├── isa/                    # Ideal State Artifacts, one <slug>.md per project/task
+├── isa/                    # Verification State Artifacts, one <slug>.md per project/task
 │   └── .templates/         # VSA scaffolding templates
 ├── policy/                 # substrate policy declarations
 ├── imports/                # migration manifests and portability reports
@@ -37,7 +37,7 @@ while the starter profile is still in place.
 ## Where the Algorithm and VSA live
 
 Soma ships its own, substrate-neutral implementation of the Algorithm work
-harness and Ideal State Artifacts — they do not depend on PAI or any
+harness and Verification State Artifacts — they do not depend on PAI or any
 substrate being installed:
 
 - **Implementation:** the `soma algorithm ...` and `soma vsa ...` CLI commands

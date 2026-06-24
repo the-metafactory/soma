@@ -1,26 +1,26 @@
-# VSA Reconcile
+# ISA Reconcile
 
-`reconcileVsa` merges a derived or ephemeral feature VSA back into the master
-VSA for the same work. The merge is deterministic and keyed by stable ISC IDs.
+`reconcileIsa` merges a derived or ephemeral feature ISA back into the master
+ISA for the same work. The merge is deterministic and keyed by stable ISC IDs.
 It is not a three-way merge and it does not try to infer author intent from
 free-form prose.
 
-The source of truth remains the master VSA under
-`<soma-home>/isa/<slug>.md`. Feature VSAs are derived views. They may
+The source of truth remains the master ISA under
+`<soma-home>/isa/<slug>.md`. Feature ISAs are derived views. They may
 contribute criterion status, criterion evidence, Decisions, Changelog,
 Verification entries, and new non-conflicting sections. They do not replace the
 master document wholesale.
 
 ## Interface
 
-The file-backed function lives in `src/vsa-reconcile.ts`:
+The file-backed function lives in `src/isa-reconcile.ts`:
 
 ```ts
-reconcileVsa(slug, feature, options)
+reconcileIsa(slug, feature, options)
 ```
 
-- `slug` identifies the master VSA in `<soma-home>/isa/<slug>.md`.
-- `feature` is either a parsed `IdealStateArtifact` or a path to a feature VSA.
+- `slug` identifies the master ISA in `<soma-home>/isa/<slug>.md`.
+- `feature` is either a parsed `IdealStateArtifact` or a path to a feature ISA.
 - `options.onConflict` can force a policy for tests or explicit callers.
 - without an override, the default policy is read from
   `<soma-home>/isa/config.json`:
@@ -40,7 +40,7 @@ Every file-backed reconcile appends an `isa.reconcile` event to
 
 ### Sections
 
-Known VSA sections are matched by canonical section name. Header whitespace is
+Known ISA sections are matched by canonical section name. Header whitespace is
 normalized by the parser, so `## Goal`, `##  Goal`, and `## Goal ` all identify
 the same section.
 

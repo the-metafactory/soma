@@ -184,7 +184,7 @@ and `~/.grok/skills/<name>/SKILL.md` auto-load, while home `~/.grok/rules/` and
 
 - `skills/soma/SKILL.md` — the auto-loaded entry skill carrying the portable
   assistant core, with `context.md`, `memory-layout.md`, `skills.md`,
-  `policy.md`, `startup-context.md`, and (when an VSA is active)
+  `policy.md`, `startup-context.md`, and (when a VSA is active)
   `active-vsa.md` colocated beside it.
 - `skills/the-algorithm/SKILL.md` — the shared seven-phase Algorithm rendering
   contract plus a Grok-native verification-gates section (see below).

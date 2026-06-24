@@ -31,7 +31,7 @@ is the steering source for assistant recommendations and prioritization.
 
 ### VSA
 
-Ideal State Artifacts define work. An VSA is both the articulation of done and
+Verification State Artifacts define work. A VSA is both the articulation of done and
 the verification contract. Project VSAs live with projects. Task VSAs live under
 Soma memory.
 
