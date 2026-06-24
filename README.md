@@ -46,7 +46,7 @@ context around the model:
 - telos: goals, principles, commitments, and desired state
 - memory: what has been learned across sessions
 - skills: reusable procedures and capability folders
-- working method: Algorithm, ISA, verification, and learning loops
+- working method: Algorithm, VSA, verification, and learning loops
 - policy: privacy, permission, and evidence rules
 
 Soma keeps that core in one filesystem-native home and projects it into each
@@ -72,7 +72,7 @@ import source; Soma is independent, MIT-licensed tooling, not a PAI fork.
              |   Soma home    |
              | identity       |
              | telos          |
-             | ISA            |
+             | VSA            |
              | skills         |
              | memory         |
              | policy         |
@@ -165,10 +165,10 @@ advances, criterion verification, capability invocation, and learning
 promotion all append substrate provenance when the caller supplies
 `--substrate`.
 
-The Algorithm and ISA are implemented by Soma itself — `soma algorithm` and
-`soma isa` work on any substrate, with run state in
-`~/.soma/memory/WORK/algorithm-runs/` and ISAs in `~/.soma/isa/`. See
-[The Algorithm](#the-algorithm) and [ISA](#isa) below, and
+The Algorithm and VSA are implemented by Soma itself — `soma algorithm` and
+`soma vsa` work on any substrate, with run state in
+`~/.soma/memory/WORK/algorithm-runs/` and VSAs in `~/.soma/isa/`. See
+[The Algorithm](#the-algorithm) and [VSA](#isa) below, and
 [docs/soma-home-layout.md](docs/soma-home-layout.md) for the full on-disk
 layout `soma init` creates.
 
@@ -275,14 +275,14 @@ Each adapter writes the same assistant context into the host's native shape:
 The shared experience comes from a single source of truth:
 
 - session startup reads the same identity, telos, active work, and learning
-- Algorithm runs and ISA state stay portable
+- Algorithm runs and VSA state stay portable
 - feedback and lifecycle events write back through Soma's memory and policy gates
 - uninstall removes only generated Soma projection files
 
 The home projection is the default assistant context for a substrate: identity,
 telos, memory layout, policy, active work, and shared skills. A workspace
 projection is an extra project-local layer. Use it when a repository needs its
-own ISA, local rules, local skills, or project-specific memory pointers. The
+own VSA, local rules, local skills, or project-specific memory pointers. The
 workspace layer adds that context for sessions started in that repository
 without forking the assistant or replacing the shared Soma home.
 
@@ -328,24 +328,24 @@ soma algorithm capabilities --id <run-id> --capability sequential-analysis --rea
 soma algorithm invoke --id <run-id> --capability sequential-analysis --evidence "Plan sequenced and recorded"
 ```
 
-### ISA
+### VSA
 
 An Ideal State Artifact is the definition of done for a project, task, or work
 session. It carries criteria and verification evidence across substrates.
 
 ```bash
-soma isa scaffold --slug launch-plan --effort E2 --goal "Ship the launch plan with evidence"
-soma isa use <yyyy-mm-dd-launch-plan>
-soma isa active
-soma isa check <yyyy-mm-dd-launch-plan>
+soma vsa scaffold --slug launch-plan --effort E2 --goal "Ship the launch plan with evidence"
+soma vsa use <yyyy-mm-dd-launch-plan>
+soma vsa active
+soma vsa check <yyyy-mm-dd-launch-plan>
 ```
 
-`soma isa scaffold` date-prefixes newly scaffolded slugs unless the slug is
+`soma vsa scaffold` date-prefixes newly scaffolded slugs unless the slug is
 already date-prefixed. Use the slug printed by the scaffold command for
 `use`, `active`, and `check`.
 
-For parallel feature work, Soma can reconcile feature ISAs back into a master
-ISA by stable criterion IDs. See [docs/isa-reconcile.md](docs/isa-reconcile.md).
+For parallel feature work, Soma can reconcile feature VSAs back into a master
+VSA by stable criterion IDs. See [docs/vsa-reconcile.md](docs/vsa-reconcile.md).
 
 ### Skills
 
@@ -457,7 +457,7 @@ public files and destructive root-level paths. See
 Soma is a typed CLI and library with shipping home projections for Codex,
 Claude Code, Pi.dev, and Cursor. The current center of gravity is the portable
 filesystem contract: profile, telos, memory, policy, skills, Algorithm runs,
-and ISAs stay in the Soma home while adapters project that core into each
+and VSAs stay in the Soma home while adapters project that core into each
 substrate's native shape.
 
 Daemon mode and deeper Cortex/Myelin integration come after the file format,
@@ -468,7 +468,7 @@ snapshot-backed exchange of eligible `~/.soma/` state between machines. It does
 not change projection or writeback semantics. See
 [docs/home-replication.md](docs/home-replication.md).
 
-Team-shared skills, knowledge, work artifacts, and ISAs are designed as
+Team-shared skills, knowledge, work artifacts, and VSAs are designed as
 read-only team overlays. A team overlay supplements one principal's Soma home;
 it does not make the home multi-principal or share private Identity, Purpose, or
 Relationship state. See [docs/team-overlays.md](docs/team-overlays.md).
@@ -482,8 +482,8 @@ writeback boundaries as substrate sessions. See
 
 ## Documentation
 
-- [CONTEXT.md](CONTEXT.md), the shared Soma vocabulary used by docs, CLI, and ISA
-- [docs/soma-home-layout.md](docs/soma-home-layout.md), what `soma init` creates and where Algorithm/ISA state lives
+- [CONTEXT.md](CONTEXT.md), the shared Soma vocabulary used by docs, CLI, and VSA
+- [docs/soma-home-layout.md](docs/soma-home-layout.md), what `soma init` creates and where Algorithm/VSA state lives
 - [docs/architecture.md](docs/architecture.md), the core/adapters/runtime model
 - [docs/boundaries.md](docs/boundaries.md), exactly what Soma owns and does not own
 - [docs/substrate-adapters.md](docs/substrate-adapters.md), adapter behavior by host
