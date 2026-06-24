@@ -21,7 +21,7 @@ import type {
   AlgorithmEffortTier,
   AlgorithmPhase,
   VerificationStateArtifact,
-  IdealStateCriterion,
+  Checkpoint,
   SomaActiveVsaState,
   SubstrateId,
 } from "./types";
@@ -53,7 +53,7 @@ export interface ScaffoldVsaInput extends VsaLibraryOptions {
   effort: EffortTier;
   task?: string;
   timestamp?: string;
-  initialCriteria?: IdealStateCriterion[];
+  initialCriteria?: Checkpoint[];
 }
 
 export interface WriteVsaResult {
@@ -226,7 +226,7 @@ export async function scaffoldVsa(input: ScaffoldVsaInput): Promise<{ path: stri
 function buildScaffoldSections(
   effort: EffortTier,
   goal: string,
-  initialCriteria: readonly IdealStateCriterion[],
+  initialCriteria: readonly Checkpoint[],
 ): { name: string; content: string }[] {
   // Required sections per tier are pre-filled with `TODO_PLACEHOLDER` so
   // a freshly-scaffolded VSA passes `checkCompleteness` at its own tier

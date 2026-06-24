@@ -15,13 +15,13 @@ import {
   validateIdeateParameters,
   validateOptimizeParameters,
 } from "../src";
-import type { AlgorithmRun, IdealStateCriterion } from "../src";
+import type { AlgorithmRun, Checkpoint } from "../src";
 import { loadAlgorithmRun } from "../src/algorithm-store";
 
 const algorithmExecutionModesDocs = readFileSync("docs/algorithm-execution-modes.md", "utf8");
 const normalizedAlgorithmExecutionModesDocs = algorithmExecutionModesDocs.replace(/\s+/g, " ");
 
-function criterion(id: string): IdealStateCriterion {
+function criterion(id: string): Checkpoint {
   return { id, text: `${id} criterion`, status: "open" };
 }
 
