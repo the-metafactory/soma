@@ -188,7 +188,7 @@ async function diagnoseGrokHookInterpreters(homeDir: string): Promise<SomaDoctor
   return [{
     id: "grok-hook-interpreter-missing",
     severity: "warning",
-    message: `The interpreter frozen into the registered grok hook commands no longer exists on disk: ${missing.join("; ")}. Grok's hook platform is fail-open — a command that cannot launch is silently allowed, so Soma's policy gate is currently DISABLED. Usually caused by a bun upgrade or relocation after install.`,
+    message: `The interpreter frozen into the registered grok hook commands no longer exists on disk: ${missing.join("; ")}. Grok's hook platform is fail-open — a command that cannot launch is silently allowed, so Soma's policy gate is currently DVSABLED. Usually caused by a bun upgrade or relocation after install.`,
     action: "soma reproject grok",
   }];
 }

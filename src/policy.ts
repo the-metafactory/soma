@@ -171,7 +171,7 @@ function evaluateResolvedSomaPathGuard(options: SomaPolicyCheckOptions & { actio
   // This ensures the somaHome itself is protected, not just user-specified paths.
   //
   // For the Soma home specifically, mirror the SOMA_DEFAULT_PROTECTED_PATHS
-  // policy: allow modify on isa/ and memory/ subtrees so legitimate ISA and
+  // policy: allow modify on isa/ and memory/ subtrees so legitimate VSA and
   // memory writes pass `soma policy check --action modify` even when the
   // operator passes an explicit --soma-home. Delete remains blocked for the
   // whole tree (allowedSubpaths is modify-only).

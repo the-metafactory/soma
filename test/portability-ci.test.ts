@@ -10,16 +10,16 @@ import {
   buildCursorHomeProjection,
   buildGrokHomeProjection,
   buildPiDevHomeProjection,
-  loadActiveIsaForBundle,
+  loadActiveVsaForBundle,
   loadSomaHome,
   projectClaudeCode,
   projectCodex,
   projectCursor,
   projectGrok,
   projectPiDev,
-  recordIsaDecision,
-  scaffoldIsa,
-  setActiveIsa,
+  recordVsaDecision,
+  scaffoldVsa,
+  setActiveVsa,
   type Projection,
 } from "../src/index";
 import type { ClaudeSkillsSmokeSubstrate, ProjectionInput, SomaSkill } from "../src/types";
@@ -63,7 +63,7 @@ function portableSkill(): SomaSkill {
           "",
           "# Ledger Update",
           "",
-          "Read the active ISA, collect verified changes, and append a concise ledger entry.",
+          "Read the active VSA, collect verified changes, and append a concise ledger entry.",
         ].join("\n"),
       },
     ],
@@ -84,7 +84,7 @@ async function loadProjectionInput(homeDir: string): Promise<ProjectionInput> {
   const context = await loadSomaHome(somaHome);
   return {
     ...context,
-    activeIsa: (await loadActiveIsaForBundle({ homeDir })) ?? undefined,
+    activeVsa: (await loadActiveVsaForBundle({ homeDir })) ?? undefined,
   };
 }
 
@@ -128,24 +128,24 @@ test("portability CI: portable skills pass static smoke verification for CI-supp
   }
 });
 
-test("portability CI: project, writeback, and reproject keep active ISA state consistent", async () => {
+test("portability CI: project, writeback, and reproject keep active VSA state consistent", async () => {
   await withTempHome(async (homeDir) => {
     await bootstrapSomaHome({ homeDir });
-    await scaffoldIsa({
+    await scaffoldVsa({
       homeDir,
       slug: "portability-ci",
       goal: "Keep projections consistent across adapters.",
       effort: "E2",
       initialCriteria: [{ id: "ISC-CI-1", text: "Projection round-trip is deterministic.", status: "open" }],
     });
-    await setActiveIsa("portability-ci", { homeDir });
+    await setActiveVsa("portability-ci", { homeDir });
 
     const before = await loadProjectionInput(homeDir);
     for (const bundle of buildShippingHomeBundles(before, homeDir)) {
       expect(projectionText(bundle)).toContain("ISC-CI-1");
     }
 
-    await recordIsaDecision(
+    await recordVsaDecision(
       "portability-ci",
       "2026-05-19T22:40:00.000Z | build | CI portability writeback recorded.",
       { homeDir, timestamp: "2026-05-19T22:40:00.000Z", phase: "build" },

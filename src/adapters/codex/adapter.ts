@@ -6,7 +6,7 @@ import { resolveBunExecutable } from "../../bun-probe";
 import { readCodexHookAsset, renderCodexPolicyHook, renderCodexPolicyTargets } from "./hooks/assets";
 import { renderFeedbackHookModule } from "../shared/feedback-helper";
 import { projectableSkills, renderAlgorithmRenderingContract, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills, renderSubstrateInstructions } from "../shared";
-import { activeIsaBundleFile } from "../../adapter-active-isa";
+import { activeVsaBundleFile } from "../../adapter-active-vsa";
 import { somaPolicyPrivateMarkers } from "../../policy";
 import { somaMemoryPrivateRoots, somaProjectionPrivateRoots } from "../../projection-private-roots";
 import { defaultInboundContentSecurityConfig } from "../../inbound-security";
@@ -66,7 +66,7 @@ function renderHomeRules(input: ProjectionInput, somaHome: string): string {
   const contextLines = [
     "# Soma default availability",
     "",
-    "Use Soma as the portable personal assistant context when the task involves identity, purpose, ISA, skills, memory, policy, or assistant continuity.",
+    "Use Soma as the portable personal assistant context when the task involves identity, purpose, VSA, skills, memory, policy, or assistant continuity.",
     `Soma source of truth: ${somaHome}`,
     "This Codex home projection is generated from Soma and should not become the source of truth.",
     "",
@@ -94,14 +94,14 @@ function renderHomeSkill(input: ProjectionInput, somaHome: string): string {
   return [
     "---",
     "name: soma",
-    "description: Use when work depends on portable personal assistant context, Soma identity, purpose, ISA criteria, memory layout, skills, policy, or default assistant behavior across substrates.",
+    "description: Use when work depends on portable personal assistant context, Soma identity, purpose, VSA criteria, memory layout, skills, policy, or default assistant behavior across substrates.",
     "metadata:",
     "  short-description: Portable personal assistant context",
     "---",
     "",
     "# Soma",
     "",
-    "Soma is the portable personal assistant core. It keeps assistant identity, principal context, purpose, memory, skills, policy, and ISA semantics outside any one substrate.",
+    "Soma is the portable personal assistant core. It keeps assistant identity, principal context, purpose, memory, skills, policy, and VSA semantics outside any one substrate.",
     "",
     `Source of truth: ${somaHome}`,
     "",
@@ -429,8 +429,8 @@ export function projectCodexHome(input: ProjectionInput, somaHome: string, homeD
         path: "skills/the-algorithm/SKILL.md",
         content: renderAlgorithmRenderingContract("Codex"),
       },
-      // Active-ISA projection (#37). OMITTED when no active ISA — AC-2.
-      ...activeIsaBundleFile("codex", input.activeIsa),
+      // Active-VSA projection (#37). OMITTED when no active VSA — AC-2.
+      ...activeVsaBundleFile("codex", input.activeVsa),
     ],
   };
 }

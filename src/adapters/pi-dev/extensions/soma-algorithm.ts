@@ -9,7 +9,7 @@
  *     soma-algorithm.ts` by the pi-dev home projection.
  *   - Pi.dev hot-reloads `.ts`, so no build step at install time.
  *   - Pure-logic helpers (`phase-parser`, `widget-renderers`,
- *     `isa-checklist`) are imported via a `file://` URL into the
+ *     `vsa-checklist`) are imported via a `file://` URL into the
  *     compiled Soma repo so the runtime stays in lockstep with the
  *     parser unit tests — no string-bundled duplicate logic to drift.
  *
@@ -33,7 +33,7 @@ export interface RenderSomaAlgorithmExtensionOptions {
    * Override the runtime module specifier used by the extension to
    * import the pure-logic helpers. Defaults to the absolute `file://`
    * URL of the Soma repo's `phase-parser.ts`/`widget-renderers.ts`/
-   * `isa-checklist.ts`. Override is only useful in unit tests.
+   * `vsa-checklist.ts`. Override is only useful in unit tests.
    */
   readonly runtimeModuleDir?: string;
   readonly somaHome?: string;
@@ -57,7 +57,7 @@ export function renderSomaAlgorithmExtension(options: RenderSomaAlgorithmExtensi
   // src/adapters/pi-dev/extensions/.
   const parserModule = JSON.stringify(`${runtimeDir}phase-parser.ts`);
   const widgetsModule = JSON.stringify(`${runtimeDir}widget-renderers.ts`);
-  const checklistModule = JSON.stringify(`${runtimeDir}isa-checklist.ts`);
+  const checklistModule = JSON.stringify(`${runtimeDir}vsa-checklist.ts`);
   const policyModule = JSON.stringify(options.runtimeModuleDir ? `${runtimeDir}policy-audit.ts` : new URL("../../../policy-audit.ts", sourceDir).href);
   const policyTargetsModule = JSON.stringify(options.runtimeModuleDir ? `${runtimeDir}policy-targets.ts` : new URL("policy-targets.ts", sourceDir).href);
   const runSnapshotModule = JSON.stringify(options.runtimeModuleDir ? `${runtimeDir}algorithm-run-snapshot.ts` : new URL("../algorithm-run-snapshot.ts", sourceDir).href);
@@ -69,7 +69,7 @@ export function renderSomaAlgorithmExtension(options: RenderSomaAlgorithmExtensi
 // Renders an active Soma Algorithm run as persistent, per-phase widgets:
 //
 //   ▸ soma-<runId>-phase-1-observe   ...   soma-<runId>-phase-7-summary
-//   ▸ soma-<runId>-isa-criteria
+//   ▸ soma-<runId>-vsa-criteria
 //   ▸ status slot "soma" = "Phase N/7 — NAME"
 //
 // Requires the pi.dev ExtensionAPI surface pinned by Soma's install-time
@@ -97,7 +97,7 @@ import {
   type PhaseMarker,
 } from ${parserModule};
 import {
-  isaCriteriaWidgetKey,
+  vsaCriteriaWidgetKey,
   phaseWidgetKey,
   renderPhaseOverviewLines,
   renderPhaseStatusText,
@@ -105,8 +105,8 @@ import {
   SOMA_STATUS_KEY,
 } from ${widgetsModule};
 import {
-  renderIsaChecklistLines,
-  type IsaChecklistCriterion,
+  renderVsaChecklistLines,
+  type VsaChecklistCriterion,
 } from ${checklistModule};
 
 // Cap retained body lines per phase to keep memory + per-delta widget
@@ -164,7 +164,7 @@ interface RunState {
    */
   activePhase?: SeenPhase;
   currentPhase?: AlgorithmPhaseKey;
-  isaCriteria: IsaChecklistCriterion[];
+  vsaCriteria: VsaChecklistCriterion[];
 }
 
 const runs = new Map<string, RunState>();
@@ -192,7 +192,7 @@ function hydrateRun(snapshot: unknown): RunState | undefined {
     seenPhases: s.seenPhases as SeenPhase[],
     activePhase: undefined,
     currentPhase: s.currentPhase as AlgorithmPhaseKey | undefined,
-    isaCriteria: s.isaCriteria as IsaChecklistCriterion[],
+    vsaCriteria: s.vsaCriteria as VsaChecklistCriterion[],
   };
   run.activePhase = run.currentPhase ? run.seenPhases.find((seen) => seen.marker.phase === run.currentPhase) : run.seenPhases.at(-1);
   return run;
@@ -286,7 +286,7 @@ function ensureRun(runId: string): RunState {
       seenPhases: [],
       activePhase: undefined,
       currentPhase: undefined,
-      isaCriteria: [],
+      vsaCriteria: [],
     };
     runs.set(runId, run);
   }
@@ -327,22 +327,22 @@ function renderStatus(ui: UIShape, run: RunState): void {
   }
 }
 
-function renderIsaWidget(ui: UIShape, run: RunState): void {
-  ui.setWidget?.(isaCriteriaWidgetKey(run.runId), renderIsaChecklistLines(run.isaCriteria));
+function renderVsaWidget(ui: UIShape, run: RunState): void {
+  ui.setWidget?.(vsaCriteriaWidgetKey(run.runId), renderVsaChecklistLines(run.vsaCriteria));
 }
 
 /**
- * Full re-render — used on phase transitions and ISA criteria updates,
+ * Full re-render — used on phase transitions and VSA criteria updates,
  * or as a one-shot full refresh path (e.g. /reload restore in the
  * deferred AC-8). Walks every seen phase plus overview, status, and
- * the ISA widget.
+ * the VSA widget.
  */
 function renderAllPhases(_pi: ExtensionAPI, ctx: unknown, run: RunState): void {
   const ui = (ctx as { ui?: UIShape }).ui;
   if (!ui) return;
   for (const seen of run.seenPhases) renderPhaseWidget(ui, run, seen);
   renderOverview(ui, run);
-  renderIsaWidget(ui, run);
+  renderVsaWidget(ui, run);
   renderStatus(ui, run);
 }
 
@@ -350,7 +350,7 @@ function renderAllPhases(_pi: ExtensionAPI, ctx: unknown, run: RunState): void {
  * Targeted re-render — used on streamed deltas that grew the active
  * phase's body without crossing a marker boundary. Updates only the
  * active phase widget plus footer status (status is cheap and may
- * carry a body-byte counter in the future). Skips overview + ISA
+ * carry a body-byte counter in the future). Skips overview + VSA
  * widget + every other phase widget, avoiding O(phases) per-delta
  * serialization (Sage R3 perf suggestion).
  *
@@ -555,7 +555,7 @@ export default function (pi: ExtensionAPI): void {
   // Targeted re-renders: when a delta only grew the active phase's
   // body (no new marker), re-render only the active phase widget +
   // footer status. Full re-render is reserved for phase transitions
-  // (which need overview + the new phase's widget) and ISA updates
+  // (which need overview + the new phase's widget) and VSA updates
   // (which need the criteria widget). Avoids O(phases) per-delta
   // widget serialization (Sage R3 perf suggestion).
   on("message_update", (event, ctx) => {
@@ -645,7 +645,7 @@ export default function (pi: ExtensionAPI): void {
     return undefined;
   });
 
-  // AC-5: ISA criteria widget updates whenever the soma \`isa_update\`
+  // AC-5: VSA criteria widget updates whenever the soma \`isa_update\`
   // tool returns. Minimal parsing for this PR — full criteria diff
   // landing in the deferred PR alongside e2e wiring.
   on("tool_result", (event, ctx) => {
@@ -658,10 +658,10 @@ export default function (pi: ExtensionAPI): void {
     // criterion fields of the wrong type) would crash the checklist
     // renderer and DoS the extension (Sage R3 security important).
     // Coerce to a typed array, dropping malformed entries silently.
-    const criteria = sanitizeIsaCriteria(result);
+    const criteria = sanitizeVsaCriteria(result);
     if (!criteria) return;
     const run = ensureRun(defaultRunId());
-    run.isaCriteria = criteria;
+    run.vsaCriteria = criteria;
     renderAllPhases(pi, ctx, run);
   });
 }
@@ -670,21 +670,21 @@ export default function (pi: ExtensionAPI): void {
 // before pushing. A malformed/adversarial isa_update result could
 // otherwise flood memory + widget serialization with very large arrays
 // or strings.
-const ISA_CRITERIA_MAX_COUNT = 200;
-const ISA_CRITERIA_FIELD_MAX_LENGTH = 256;
+const VSA_CRITERIA_MAX_COUNT = 200;
+const VSA_CRITERIA_FIELD_MAX_LENGTH = 256;
 
 function clip(s: string): string {
-  if (s.length <= ISA_CRITERIA_FIELD_MAX_LENGTH) return s;
-  return s.slice(0, ISA_CRITERIA_FIELD_MAX_LENGTH - 1) + "…";
+  if (s.length <= VSA_CRITERIA_FIELD_MAX_LENGTH) return s;
+  return s.slice(0, VSA_CRITERIA_FIELD_MAX_LENGTH - 1) + "…";
 }
 
-function sanitizeIsaCriteria(result: unknown): IsaChecklistCriterion[] | undefined {
+function sanitizeVsaCriteria(result: unknown): VsaChecklistCriterion[] | undefined {
   if (!result || typeof result !== "object") return undefined;
   const raw = (result as { criteria?: unknown }).criteria;
   if (!Array.isArray(raw)) return undefined;
-  const out: IsaChecklistCriterion[] = [];
+  const out: VsaChecklistCriterion[] = [];
   for (const entry of raw) {
-    if (out.length >= ISA_CRITERIA_MAX_COUNT) break;
+    if (out.length >= VSA_CRITERIA_MAX_COUNT) break;
     if (!entry || typeof entry !== "object") continue;
     const e = entry as { id?: unknown; title?: unknown; status?: unknown };
     if (typeof e.id !== "string" || typeof e.title !== "string" || typeof e.status !== "string") continue;

@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import type { SomaAdapter, Projection, ProjectionInput, SomaTask } from "../../types";
-import { activeIsaBundleFile } from "../../adapter-active-isa";
+import { activeVsaBundleFile } from "../../adapter-active-vsa";
 import { resolveBunExecutable } from "../../bun-probe";
 import { defaultInboundContentSecurityConfig } from "../../inbound-security";
 import { somaPolicyPrivateMarkers } from "../../policy";
@@ -371,15 +371,15 @@ function renderGrokSomaPersona(): string {
   return [
     `# ${GROK_PERSONA_MARKER} — do not edit by hand; author in the Soma home and rerun \`soma install grok --apply\`.`,
     "",
-    'description = "Soma\'s portable assistant voice: treat Soma as the source of truth for identity, purpose, memory, and ISA verification, and keep the principal\'s private context out of public output."',
+    'description = "Soma\'s portable assistant voice: treat Soma as the source of truth for identity, purpose, memory, and VSA verification, and keep the principal\'s private context out of public output."',
     'instructions = """',
     "You are operating as the Soma assistant. Soma is the portable personal-assistant",
     "core that carries identity, principal context, purpose, memory layout, skills,",
-    "policy, and ISA semantics across substrates.",
+    "policy, and VSA semantics across substrates.",
     "",
     "Operating rules:",
-    "- Treat Soma as the source of truth for assistant identity, purpose, memory layout, skills, policy, and active ISA context. Read `~/.grok/skills/soma/` for the current projection before asserting personal facts.",
-    "- Use the active ISA as the verification contract when one is present.",
+    "- Treat Soma as the source of truth for assistant identity, purpose, memory layout, skills, policy, and active VSA context. Read `~/.grok/skills/soma/` for the current projection before asserting personal facts.",
+    "- Use the active VSA as the verification contract when one is present.",
     "- Read persistent memory from the declared layout (`~/.grok/skills/soma/memory-layout.md`) before inventing durable facts.",
     "- Keep the principal's personal context out of public templates, code, or shared output unless explicitly asked.",
     "- Report the verification you performed and any substrate limitation you hit.",
@@ -395,7 +395,7 @@ function renderGrokAlgorithmRole(): string {
   return [
     `# ${GROK_ROLE_MARKER} — do not edit by hand; author in the Soma home and rerun \`soma install grok --apply\`.`,
     "",
-    'description = "Run work through Soma Algorithm mode: explicit phase discipline and ISA-criteria verification before a task is called done."',
+    'description = "Run work through Soma Algorithm mode: explicit phase discipline and VSA-criteria verification before a task is called done."',
     'default_capability_mode = "all"',
     'reasoning_effort = "high"',
     "",
@@ -408,7 +408,7 @@ function renderGrokSomaExploreAgent(): string {
     "name: soma-explore",
     "description: >",
     "  Soma-aware, read-only exploration agent. Use to investigate a codebase or the",
-    "  Soma home with full awareness of the Soma memory layout, purpose, and active ISA.",
+    "  Soma home with full awareness of the Soma memory layout, purpose, and active VSA.",
     "  Read-only: finds files, searches content, reads known paths; never edits.",
     "prompt_mode: full",
     "permission_mode: plan",
@@ -423,7 +423,7 @@ function renderGrokSomaExploreAgent(): string {
     "- Soma is the portable personal-assistant core. Its projection lives under `~/.grok/skills/soma/`.",
     "- Read `~/.grok/skills/soma/memory-layout.md` for the persistent memory tree before reasoning about durable facts.",
     "- Read `~/.grok/skills/soma/context.md` for assistant identity, principal, and purpose.",
-    "- Read `~/.grok/skills/soma/active-isa.md` for the active ISA verification contract when present.",
+    "- Read `~/.grok/skills/soma/active-vsa.md` for the active VSA verification contract when present.",
     "- Use the `the-algorithm` skill when exploration should run under Soma Algorithm mode.",
     "",
     "=== READ-ONLY MODE ===",
@@ -446,7 +446,7 @@ function renderGrokSomaExploreAgent(): string {
  * list, made enforceable by the verified session flags `--todo-gate` (the
  * runtime turn-end TodoGate — a turn cannot end while any todo is open)
  * and `--check` (appends a headless self-verification loop), with the
- * active ISA's open criteria as the todo seed. The Grok-specific gate
+ * active VSA's open criteria as the todo seed. The Grok-specific gate
  * guidance lives HERE, not in the shared renderer, so no Grok flag or
  * tool name leaks into Codex's projection (DD-4). `todo_write` is the
  * documented native todo tool (user-guide tool table); this is
@@ -454,9 +454,9 @@ function renderGrokSomaExploreAgent(): string {
  * the agent acts on.
  */
 function renderGrokAlgorithmSkill(input: ProjectionInput): string {
-  const isaSeedLine = input.activeIsa
-    ? `An active ISA (\`${input.activeIsa.slug}\`) is set: seed the todo list from its open criteria in \`~/.grok/skills/soma/active-isa.md\` before BUILD — one todo per criterion.`
-    : "No active ISA is set: seed the todo list from the PLAN steps instead — one todo per step.";
+  const vsaSeedLine = input.activeVsa
+    ? `An active VSA (\`${input.activeVsa.slug}\`) is set: seed the todo list from its open criteria in \`~/.grok/skills/soma/active-vsa.md\` before BUILD — one todo per criterion.`
+    : "No active VSA is set: seed the todo list from the PLAN steps instead — one todo per step.";
   return [
     renderAlgorithmRenderingContract("Grok"),
     "",
@@ -465,14 +465,14 @@ function renderGrokAlgorithmSkill(input: ProjectionInput): string {
     "Grok renders the Algorithm as the text banners above plus its native todo list. There is no Soma widget surface on Grok — text and the todo list are the whole rendering. Do not claim Pi-style widgets.",
     "",
     "Map the phases onto Grok's native verification surfaces:",
-    "- PLAN: mirror each plan step and each active-ISA criterion into the native todo list with `todo_write`. Keep the criterion id in the todo text so VERIFY can map evidence back to it.",
+    "- PLAN: mirror each plan step and each active-VSA criterion into the native todo list with `todo_write`. Keep the criterion id in the todo text so VERIFY can map evidence back to it.",
     "- VERIFY: do not mark a todo complete until its criterion has evidence; report each criterion's status as in the Algorithm VERIFY phase.",
     "- For verification-heavy or unattended work, run headless with `--todo-gate` (session turn cannot end while any todo is open) and `--check` (appends Grok's self-verification loop to the prompt). Both are headless/session-scoped flags.",
     "",
-    "### ISA -> todo seed",
+    "### VSA -> todo seed",
     "",
-    isaSeedLine,
-    "Read `~/.grok/skills/soma/active-isa.md` for the current criteria: an open criterion becomes an open todo, a passed criterion a completed one. The active ISA is the checklist seed; `todo_write` + `--todo-gate` make it the turn-end gate.",
+    vsaSeedLine,
+    "Read `~/.grok/skills/soma/active-vsa.md` for the current criteria: an open criterion becomes an open todo, a passed criterion a completed one. The active VSA is the checklist seed; `todo_write` + `--todo-gate` make it the turn-end gate.",
   ].join("\n");
 }
 
@@ -486,14 +486,14 @@ function renderGrokHomeSkill(input: ProjectionInput, somaHome: string): string {
   return [
     "---",
     "name: soma",
-    "description: Use when work depends on portable personal assistant context, Soma identity, purpose, ISA criteria, memory layout, skills, policy, or default assistant behavior across substrates.",
+    "description: Use when work depends on portable personal assistant context, Soma identity, purpose, VSA criteria, memory layout, skills, policy, or default assistant behavior across substrates.",
     "metadata:",
     "  short-description: Portable personal assistant context",
     "---",
     "",
     "# Soma",
     "",
-    "Soma is the portable personal assistant core. It keeps assistant identity, principal context, purpose, memory, skills, policy, and ISA semantics outside any one substrate.",
+    "Soma is the portable personal assistant core. It keeps assistant identity, principal context, purpose, memory, skills, policy, and VSA semantics outside any one substrate.",
     "",
     `Source of truth: ${somaHome}`,
     "",
@@ -503,7 +503,7 @@ function renderGrokHomeSkill(input: ProjectionInput, somaHome: string): string {
     "- Read `~/.grok/skills/soma/memory-layout.md` before using persistent memory.",
     "- Read `~/.grok/skills/soma/skills.md` for the declared Soma skills.",
     "- Read `~/.grok/skills/soma/policy.md` for the substrate policy projection.",
-    "- Read `~/.grok/skills/soma/active-isa.md` for the active ISA verification contract when that file is present.",
+    "- Read `~/.grok/skills/soma/active-vsa.md` for the active VSA verification contract when that file is present.",
     "- Read `~/.grok/skills/soma/startup-context.md` for lifecycle-generated active work and recent learning context when present; the Soma session-start hook refreshes it.",
     "- Use the `the-algorithm` skill when work should run through Soma Algorithm mode.",
     "- Treat project-local `.grok/rules/soma/` context as an overlay on this home projection.",
@@ -634,8 +634,8 @@ export function projectGrokHome(input: ProjectionInput, somaHome: string, option
       // overwrites its SKILL.md while Workflows/references ship through
       // (same ordering contract as projectCodexHome).
       { path: "skills/the-algorithm/SKILL.md", content: renderGrokAlgorithmSkill(input) },
-      // Active-ISA projection (#37). OMITTED when no active ISA — AC-2.
-      ...activeIsaBundleFile("grok", input.activeIsa),
+      // Active-VSA projection (#37). OMITTED when no active VSA — AC-2.
+      ...activeVsaBundleFile("grok", input.activeVsa),
     ],
   };
 }

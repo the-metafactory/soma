@@ -21,14 +21,14 @@ export interface InstallPostProjectionStep {
   run(context: InstallPostProjectionContext): Promise<string[]>;
 }
 
-export interface IsaSkillProjectionSpec {
+export interface VsaSkillProjectionSpec {
   destinationDir(substrateHome: string): string;
   skillNameOverride?: string;
   prepare?(substrateHome: string): Promise<void>;
 }
 
-export function isaSkillUnder(...pathSegments: string[]): (substrateHome: string) => string {
-  return (substrateHome) => resolve(substrateHome, ...pathSegments, "skills/ISA");
+export function vsaSkillUnder(...pathSegments: string[]): (substrateHome: string) => string {
+  return (substrateHome) => resolve(substrateHome, ...pathSegments, "skills/VSA");
 }
 
 export type InstallValidator = (substrateRoot: string) => Promise<void>;
@@ -71,7 +71,7 @@ export interface SubstrateInstallSpec<S extends InstallSubstrate = InstallSubstr
    */
   obsoleteHomeFiles?: readonly string[];
   optionalHomeFiles?(options: unknown): readonly string[];
-  isaSkillProjection: IsaSkillProjectionSpec;
+  vsaSkillProjection: VsaSkillProjectionSpec;
   validator?: InstallValidator;
   lifecycleProjection?: LifecycleProjectionSpec;
   postProjection?: readonly InstallPostProjectionStep[];

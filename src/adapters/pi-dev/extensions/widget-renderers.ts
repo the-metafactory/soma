@@ -47,8 +47,8 @@ export function phaseWidgetKey({ runId, phase, position }: PhaseWidgetKeyInput):
 }
 
 /** Auxiliary widget keys — single per-run instance each. */
-export function isaCriteriaWidgetKey(runId: string): string {
-  return `soma-${runId}-isa-criteria`;
+export function vsaCriteriaWidgetKey(runId: string): string {
+  return `soma-${runId}-vsa-criteria`;
 }
 
 // NOTE: A capabilitiesWidgetKey helper was previously reserved here for
@@ -116,12 +116,12 @@ export function renderPhaseWidgetLines(input: PhaseWidgetContentInput): string[]
 
 export interface PhaseStatusInput {
   readonly marker: PhaseMarker;
-  readonly suffix?: string; // optional appendage like "ISA 3/7"
+  readonly suffix?: string; // optional appendage like "VSA 3/7"
 }
 
 /**
  * Footer status line: `Phase N/7 — EXECUTE` (AC-6). With optional
- * suffix: `Phase 5/7 — EXECUTE | ISA 3/7`.
+ * suffix: `Phase 5/7 — EXECUTE | VSA 3/7`.
  */
 export function renderPhaseStatusText(input: PhaseStatusInput): string {
   const { name } = phaseDisplay(input.marker.phase);

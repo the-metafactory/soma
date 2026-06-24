@@ -13,8 +13,8 @@ import { buildSomaStartupContext, runSomaLifecycleAlgorithmUpdated } from "./lif
 import { SOMA_MEMORY_CATEGORIES } from "./memory-readmes";
 import { defaultSomaRepoPath } from "./repo-path";
 import { bootstrapSomaHome, loadSomaHome } from "./soma-home";
-import { installIsaSkillProjection } from "./isa-skill-installer";
-import { loadActiveIsaForBundle } from "./adapter-active-isa";
+import { installVsaSkillProjection } from "./vsa-skill-installer";
+import { loadActiveVsaForBundle } from "./adapter-active-vsa";
 import { isEnoent } from "./fs-errors";
 import {
   type ImplementedUninstallSpec,
@@ -125,19 +125,19 @@ async function installSomaForSubstrate(
   requireBunInPath();
   const somaHome = await bootstrapSomaHome(options);
   const somaRepoPath = options.somaRepoPath ?? defaultSomaRepoPath();
-  // Install ISA skill into Soma home (canonical baseline) so other
-  // tooling reading <somaHome>/skills/ISA continues to work.
-  await installIsaSkillProjection({
+  // Install VSA skill into Soma home (canonical baseline) so other
+  // tooling reading <somaHome>/skills/VSA continues to work.
+  await installVsaSkillProjection({
     homeDir: options.homeDir,
     somaHome: somaHome.somaHome,
     somaRepoPath,
   });
-  // bootstrapSomaHome captured its context snapshot BEFORE the ISA skill
+  // bootstrapSomaHome captured its context snapshot BEFORE the VSA skill
   // baseline above existed, so its skill list is empty on a first install.
-  // Re-read the Soma home now that <somaHome>/skills/ISA is on disk: without
+  // Re-read the Soma home now that <somaHome>/skills/VSA is on disk: without
   // this, the first install projects a skills.md that reads "No Soma skills
   // were declared." and only the second install converges. Reloading makes
-  // the very first projection already list the ISA skill — install #1 is
+  // the very first projection already list the VSA skill — install #1 is
   // correct and byte-identical to every re-run.
   const projectionContext = await loadSomaHome(somaHome.somaHome);
   const projectionOptions = {
@@ -147,28 +147,28 @@ async function installSomaForSubstrate(
     somaRepoPath,
   };
   // Per-substrate skill projection (#37 AC-3). Each substrate gets the
-  // versioned ISA skill under its native skills dir, with independent
+  // versioned VSA skill under its native skills dir, with independent
   // baseline tracking via `skillDestinationDir`. AC-5: drift detection
-  // inherits installIsaSkill's local-edits-preserved contract.
+  // inherits installVsaSkill's local-edits-preserved contract.
   const resolvedHomeDir = resolve(options.homeDir ?? homedir());
   const substrateRoot = resolve(options.substrateHome ?? join(resolvedHomeDir, spec.defaultHome));
   await spec.validator?.(substrateRoot);
-  await spec.isaSkillProjection.prepare?.(substrateRoot);
-  await installIsaSkillProjection({
+  await spec.vsaSkillProjection.prepare?.(substrateRoot);
+  await installVsaSkillProjection({
     homeDir: options.homeDir,
     somaHome: somaHome.somaHome,
     somaRepoPath,
-    skillDestinationDir: spec.isaSkillProjection.destinationDir(substrateRoot),
-    skillNameOverride: spec.isaSkillProjection.skillNameOverride,
+    skillDestinationDir: spec.vsaSkillProjection.destinationDir(substrateRoot),
+    skillNameOverride: spec.vsaSkillProjection.skillNameOverride,
     projectionSubstrate: substrate,
   });
-  // Populate the projection input with the active ISA so each
-  // substrate writes its `active-isa.md` file (#37 AC-1/AC-2).
-  const contextWithActiveIsa: ProjectionInput = {
+  // Populate the projection input with the active VSA so each
+  // substrate writes its `active-vsa.md` file (#37 AC-1/AC-2).
+  const contextWithActiveVsa: ProjectionInput = {
     ...projectionContext,
-    activeIsa: (await loadActiveIsaForBundle({ somaHome: somaHome.somaHome })) ?? undefined,
+    activeVsa: (await loadActiveVsaForBundle({ somaHome: somaHome.somaHome })) ?? undefined,
   };
-  const substrateHome = await installHomeProjectionFor(substrate, contextWithActiveIsa, projectionOptions);
+  const substrateHome = await installHomeProjectionFor(substrate, contextWithActiveVsa, projectionOptions);
   await removeObsoleteHomeFiles(spec, substrateHome.rootDir);
   const postProjectionFiles = await runPostProjectionSteps(spec, {
     homeDir: options.homeDir,
@@ -272,7 +272,7 @@ export async function installSomaForPiDev(options: SomaInstallOptions = {}): Pro
 
 /**
  * Claude Code substrate installer (#29). Bootstraps Soma home,
- * installs the ISA skill into `~/.claude/skills/ISA/`, and writes the
+ * installs the VSA skill into `~/.claude/skills/VSA/`, and writes the
  * full projection skeleton at `~/.claude/rules/soma/` (auto-discovered
  * by Claude Code, per the soma#64 pivot away from `@`-imports).
  * It also installs Soma-owned lifecycle/writeback hooks and patches
@@ -304,7 +304,7 @@ export async function installSomaForGrok(options: SomaInstallOptions = {}): Prom
 
 /**
  * Uninstall Soma's projection from a Claude Code home (#29). Removes
- * `<substrateHome>/rules/soma/` and `<substrateHome>/skills/ISA/`
+ * `<substrateHome>/rules/soma/` and `<substrateHome>/skills/VSA/`
  * entirely. Returns the list of paths actually removed (empty when
  * Soma was never installed). Never touches files outside those two
  * directories — by construction, those are the only paths the

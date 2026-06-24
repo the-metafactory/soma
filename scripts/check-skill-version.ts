@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
- * CI guard — fails if `src/skills/ISA/` content changed but
- * `src/skills/ISA/SKILL.md` `version:` frontmatter did not.
+ * CI guard — fails if `src/skills/VSA/` content changed but
+ * `src/skills/VSA/SKILL.md` `version:` frontmatter did not.
  *
  * Triggered by: `bun scripts/check-skill-version.ts [--base <ref>]`
  * Default base ref: `origin/main`.
@@ -16,9 +16,9 @@
 import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { parseSkillFrontmatter } from "../src/isa-skill-installer";
+import { parseSkillFrontmatter } from "../src/vsa-skill-installer";
 
-const SKILL_DIR = "src/skills/ISA";
+const SKILL_DIR = "src/skills/VSA";
 const SKILL_MD = `${SKILL_DIR}/SKILL.md`;
 const REF_PATTERN = /^[\w./@-]+$/;
 

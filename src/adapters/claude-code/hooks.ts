@@ -10,7 +10,7 @@ export const SOMA_CLAUDE_HOOK_CONFIG_RELATIVE_PATH = "hooks/soma/soma-claude-cod
 export const SOMA_CLAUDE_MODE_CLASSIFIER_RELATIVE_PATH = "hooks/soma/soma-mode-classifier.mjs";
 export const SOMA_CLAUDE_MODE_CLASSIFIER_CONFIG_RELATIVE_PATH = "hooks/soma/soma-mode-classifier.config.json";
 const SOMA_CLAUDE_SETTINGS_RELATIVE_PATH = "settings.json";
-const SOMA_DISABLED_HOOKS_KEY = "somaDisabledHooks";
+const SOMA_DVSABLED_HOOKS_KEY = "somaDisabledHooks";
 const PAI_MODE_CLASSIFIER_KEY = "paiModeClassifier";
 
 const SOMA_CLAUDE_HOOK_EVENTS = [
@@ -263,22 +263,22 @@ function groupCommands(group: unknown): string[] {
 }
 
 function disabledPaiModeClassifierGroups(settings: JsonObject): unknown[] {
-  if (!isObject(settings[SOMA_DISABLED_HOOKS_KEY])) return [];
-  const stored = settings[SOMA_DISABLED_HOOKS_KEY][PAI_MODE_CLASSIFIER_KEY];
+  if (!isObject(settings[SOMA_DVSABLED_HOOKS_KEY])) return [];
+  const stored = settings[SOMA_DVSABLED_HOOKS_KEY][PAI_MODE_CLASSIFIER_KEY];
   return Array.isArray(stored) ? stored : [];
 }
 
 function setDisabledPaiModeClassifierGroups(settings: JsonObject, groups: unknown[]): void {
-  const disabled = isObject(settings[SOMA_DISABLED_HOOKS_KEY]) ? settings[SOMA_DISABLED_HOOKS_KEY] : {};
+  const disabled = isObject(settings[SOMA_DVSABLED_HOOKS_KEY]) ? settings[SOMA_DVSABLED_HOOKS_KEY] : {};
   if (groups.length === 0) {
     Reflect.deleteProperty(disabled, PAI_MODE_CLASSIFIER_KEY);
   } else {
     disabled[PAI_MODE_CLASSIFIER_KEY] = groups;
   }
   if (Object.keys(disabled).length === 0) {
-    Reflect.deleteProperty(settings, SOMA_DISABLED_HOOKS_KEY);
+    Reflect.deleteProperty(settings, SOMA_DVSABLED_HOOKS_KEY);
   } else {
-    settings[SOMA_DISABLED_HOOKS_KEY] = disabled;
+    settings[SOMA_DVSABLED_HOOKS_KEY] = disabled;
   }
 }
 

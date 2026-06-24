@@ -21,7 +21,7 @@ import {
 } from ${JSON.stringify(runtimeModuleSpecifier)};
 
 const SOMA_HOME = ${JSON.stringify(somaHome)};
-// Allow legitimate Soma ISA + memory writes under the explicit SOMA_HOME
+// Allow legitimate Soma VSA + memory writes under the explicit SOMA_HOME
 // while still blocking overwrites of private roots (e.g. profile/) and any
 // destructive delete (allowedSubpaths is modify-only). The allowed subpaths
 // are sourced from policy-path-guard.ts so all enforcement layers agree on

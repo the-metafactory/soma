@@ -1,7 +1,7 @@
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { isEnoent } from "../../fs-errors";
-import { isaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
+import { vsaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
 import { CURSOR_HOME_FILE_PATHS, CURSOR_RULES_BLOCK_BEGIN, CURSOR_RULES_BLOCK_END, CURSOR_RULES_PATH } from "../cursor";
 
 async function shouldRemoveSomaRulesDir(target: string): Promise<boolean> {
@@ -49,10 +49,11 @@ export const cursorInstallSpec: SubstrateInstallSpec<"cursor"> = {
   substrate: "cursor",
   defaultHome: ".",
   homeFiles: CURSOR_HOME_FILE_PATHS,
-  // soma#329: Purpose projection renamed TELOS.md → PURPOSE.md; drop the stale copy.
-  obsoleteHomeFiles: [".cursor/rules/soma/TELOS.md"],
-  isaSkillProjection: {
-    destinationDir: isaSkillUnder(".cursor/rules/soma"),
+  // soma#329: projections renamed TELOS.md → PURPOSE.md and ACTIVE_ISA.md →
+  // ACTIVE_VSA.md; drop the stale copies on reproject/upgrade.
+  obsoleteHomeFiles: [".cursor/rules/soma/TELOS.md", ".cursor/rules/soma/ACTIVE_ISA.md"],
+  vsaSkillProjection: {
+    destinationDir: vsaSkillUnder(".cursor/rules/soma"),
   },
   uninstall: {
     kind: "implemented",

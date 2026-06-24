@@ -111,8 +111,8 @@ test("AC-1: bootstrap creates ~/.soma/isa/ + .templates/ + INDEX.md + memory/STA
   const { stat } = await import("node:fs/promises");
   await withTempHome(async (homeDir) => {
     const { somaHome } = await bootstrapSomaHome({ homeDir });
-    const isaDir = await stat(join(somaHome, "isa"));
-    expect(isaDir.isDirectory()).toBe(true);
+    const vsaDir = await stat(join(somaHome, "isa"));
+    expect(vsaDir.isDirectory()).toBe(true);
     const templatesDir = await stat(join(somaHome, "isa", ".templates"));
     expect(templatesDir.isDirectory()).toBe(true);
     const stateDir = await stat(join(somaHome, "memory", "STATE"));
@@ -122,7 +122,7 @@ test("AC-1: bootstrap creates ~/.soma/isa/ + .templates/ + INDEX.md + memory/STA
   });
 });
 
-test("AC-6: bootstrap is idempotent for ISA storage layout", async () => {
+test("AC-6: bootstrap is idempotent for VSA storage layout", async () => {
   const { stat, readFile } = await import("node:fs/promises");
   await withTempHome(async (homeDir) => {
     const first = await bootstrapSomaHome({ homeDir });
@@ -141,9 +141,9 @@ test("AC-6: bootstrap is idempotent for ISA storage layout", async () => {
   });
 });
 
-test("AC-3: SomaActiveIsaState type exported with correct shape", () => {
+test("AC-3: SomaActiveVsaState type exported with correct shape", () => {
   // Type-only export — verify usable shape via type-checked literal.
-  const sample: import("../src/index").SomaActiveIsaState = {
+  const sample: import("../src/index").SomaActiveVsaState = {
     activeSlug: null,
     runId: null,
     updatedAt: "2026-05-17T00:00:00.000Z",
@@ -153,11 +153,11 @@ test("AC-3: SomaActiveIsaState type exported with correct shape", () => {
   expect(sample.updatedAt).toContain("2026");
 });
 
-test("AC-5: ProjectionInput.activeIsa unchanged shape after bootstrap", async () => {
+test("AC-5: ProjectionInput.activeVsa unchanged shape after bootstrap", async () => {
   await withTempHome(async (homeDir) => {
     const { context } = await bootstrapSomaHome({ homeDir });
-    // No activeIsa expected on fresh bootstrap — bootstrap doesn't seed one
-    expect(context.activeIsa).toBeUndefined();
+    // No activeVsa expected on fresh bootstrap — bootstrap doesn't seed one
+    expect(context.activeVsa).toBeUndefined();
     // Bootstrap returns the same shape callers always saw
     expect(context.profile).toBeDefined();
   });

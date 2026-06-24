@@ -329,7 +329,7 @@ test("installed grok pre-compact hook persists active Algorithm state before the
     expect(result.status).toBe(0);
     expect(result.output.continue).toBe(true);
     expect(result.output.systemMessage).toContain("pre-compact");
-    // PreCompact persists the active Algorithm/ISA state via the
+    // PreCompact persists the active Algorithm/VSA state via the
     // algorithm-observed lifecycle shell-out (work index + active-run
     // pointer + observation provenance) so the durable record survives
     // the context cut.

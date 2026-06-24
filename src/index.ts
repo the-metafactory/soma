@@ -35,18 +35,18 @@ export type {
   AssistantIdentity,
   AuthoredFrontmatter,
   DerivedFrontmatter,
-  IdealStateArtifact,
+  VerificationStateArtifact,
   IdealStateCriterion,
   IdeateParameters,
   IdeatePresetName,
-  IsaUpdatePayload,
-  IsaFrontmatter,
-  IsaSection,
-  IsaSkillInstallAction,
-  IsaSkillInstallOptions,
-  IsaSkillInstallResult,
+  VsaUpdatePayload,
+  VsaFrontmatter,
+  VsaSection,
+  VsaSkillInstallAction,
+  VsaSkillInstallOptions,
+  VsaSkillInstallResult,
   PrincipalIdentity,
-  SomaActiveIsaState,
+  SomaActiveVsaState,
   SomaSkillBaseline,
   SomaSkillBaselines,
   SomaAdapter,
@@ -212,16 +212,16 @@ export {
   validateIdeateParameters,
   validateOptimizeParameters,
 } from "./algorithm-execution-modes";
-// Public ISA API — cohesive surface: semantic accessors + mutators + parse/serialize.
+// Public VSA API — cohesive surface: semantic accessors + mutators + parse/serialize.
 // Renderer details (SECTION_NAME_MAP, TWELVE_SECTIONS, renderCriteriaMarkdown,
 // renderLogEntries, parseCriteriaMarkdown, progressFromCriteria,
-// verifiedFromCriteria, buildIsaArtifact) stay internal — import from
-// `./isa-accessors` directly if you need them from within the package.
+// verifiedFromCriteria, buildVsaArtifact) stay internal — import from
+// `./vsa-accessors` directly if you need them from within the package.
 export {
   appendCriterion,
-  appendIsaChangelog,
-  appendIsaDecision,
-  appendIsaVerification,
+  appendVsaChangelog,
+  appendVsaDecision,
+  appendVsaVerification,
   getChangelog,
   getCriteria,
   getDecisions,
@@ -232,8 +232,8 @@ export {
   recomputeVerified,
   setSection,
   updateCriterion,
-} from "./isa-accessors";
-export { parseIsa, serializeIsa } from "./isa-parse";
+} from "./vsa-accessors";
+export { parseVsa, serializeVsa } from "./vsa-parse";
 export {
   abandonAlgorithmRun,
   completeAlgorithmRun,
@@ -404,25 +404,25 @@ export {
   type UninstallGrokResult,
 } from "./install";
 export type { ClaudeCodeInstallOptions } from "./adapters/claude-code/install-options";
-// Adapter active-ISA projection helpers (#37).
+// Adapter active-VSA projection helpers (#37).
 export {
-  activeIsaProjectionPath,
-  loadActiveIsaForBundle,
-  renderActiveIsaFile,
-  type LoadActiveIsaOptions,
-} from "./adapter-active-isa";
-// Public ISA-skill installer API — cohesive surface only.
-// Implementation details (isaSkillRuntimeDir, isaSkillSourceDir,
+  activeVsaProjectionPath,
+  loadActiveVsaForBundle,
+  renderActiveVsaFile,
+  type LoadActiveVsaOptions,
+} from "./adapter-active-vsa";
+// Public VSA-skill installer API — cohesive surface only.
+// Implementation details (vsaSkillRuntimeDir, vsaSkillSourceDir,
 // parseSkillFrontmatter, skillBaselinesPath, compareSkillVersions) stay in
-// `./isa-skill-installer` and are imported directly by tests and scripts.
-export { installIsaSkill } from "./isa-skill-installer";
+// `./vsa-skill-installer` and are imported directly by tests and scripts.
+export { installVsaSkill } from "./vsa-skill-installer";
 export { importAlgorithm, planAlgorithmImport } from "./algorithm-importer";
 export {
   buildSomaStartupContext,
   captureCompletedAlgorithmLearnings,
   runSomaLifecycleAlgorithmObserved,
   runSomaLifecycleAlgorithmUpdated,
-  runSomaLifecycleIsaUpdated,
+  runSomaLifecycleVsaUpdated,
   runSomaLifecycleSessionEnd,
   runSomaLifecycleSessionStart,
   writeAlgorithmWorkIndex,
@@ -450,11 +450,11 @@ export {
 export { applySomaWriteback, type SomaWritebackOptions, type SomaWritebackResult } from "./writeback";
 export { promoteAlgorithmRunMemory } from "./memory-promotion";
 export {
-  syncAlgorithmRunFromIsa,
+  syncAlgorithmRunFromVsa,
   formatSyncResult,
-  type SyncAlgorithmRunFromIsaOptions,
-  type SyncAlgorithmRunFromIsaResult,
-} from "./algorithm-isa-sync";
+  type SyncAlgorithmRunFromVsaOptions,
+  type SyncAlgorithmRunFromVsaResult,
+} from "./algorithm-vsa-sync";
 export { captureSomaResult, isSomaResultEventKind, searchSomaResults } from "./result-capture";
 export { importPaiIdentity, planPaiImport } from "./pai-importer";
 export {
@@ -521,53 +521,53 @@ export {
   RUNTIME_POLICY_SURFACES,
 } from "./runtime-policy";
 export { bootstrapSomaHome, loadSomaHome, loadSomaProfile } from "./soma-home";
-// Algorithm ↔ ISA bridge (#39) — advisory, non-blocking.
+// Algorithm ↔ VSA bridge (#39) — advisory, non-blocking.
 export {
-  markIsaVerifiedFromCriteria,
-  recordAlgorithmIsaChange,
-  recordAlgorithmIsaDecision,
-  suggestIsaAtObserve,
-  type AlgorithmIsaOptions,
+  markVsaVerifiedFromCriteria,
+  recordAlgorithmVsaChange,
+  recordAlgorithmVsaDecision,
+  suggestVsaAtObserve,
+  type AlgorithmVsaOptions,
   type HintConfig,
   type PromptShape,
-  type SuggestIsaResult,
-} from "./algorithm-isa-bridge";
-// ISA library API (#34) — cohesive public surface only.
-// Storage-layout helpers (activeStatePath, isaDir, isaPath) stay internal
+  type SuggestVsaResult,
+} from "./algorithm-vsa-bridge";
+// VSA library API (#34) — cohesive public surface only.
+// Storage-layout helpers (activeStatePath, vsaDir, vsaPath) stay internal
 // to `./isa` so on-disk layout can evolve without breaking consumers
 // (Sage round-2 architecture finding). Tests + adapters that need them
 // import from `./isa` directly.
 export {
   checkCompleteness,
-  getActiveIsa,
+  getActiveVsa,
   listAvailableTiers,
-  listIsas,
-  readIsa,
-  applyIsaUpdate,
-  recordIsaChangelog,
-  recordIsaDecision,
-  recordIsaVerification,
-  scaffoldIsa,
-  setActiveIsa,
-  writeIsa,
+  listVsas,
+  readVsa,
+  applyVsaUpdate,
+  recordVsaChangelog,
+  recordVsaDecision,
+  recordVsaVerification,
+  scaffoldVsa,
+  setActiveVsa,
+  writeVsa,
   type EffortTier,
-  type IsaLibraryOptions,
-  type IsaListEntry,
-  type IsaUpdateEntry,
-  type IsaUpdateSection,
-  type ScaffoldIsaInput,
-  type SetActiveIsaResult,
-  type WriteIsaResult,
-} from "./isa";
+  type VsaLibraryOptions,
+  type VsaListEntry,
+  type VsaUpdateEntry,
+  type VsaUpdateSection,
+  type ScaffoldVsaInput,
+  type SetActiveVsaResult,
+  type WriteVsaResult,
+} from "./vsa";
 export {
-  reconcileIsa,
-  reconcileIsaArtifacts,
-  type IsaConflictPolicy,
-  type IsaReconcileConflict,
-  type IsaReconcileReport,
-  type IsaReconcileResult,
-  type ReconcileIsaOptions,
-} from "./isa-reconcile";
-export { type CompletenessGap, type CompletenessReport } from "./isa-schema";
+  reconcileVsa,
+  reconcileVsaArtifacts,
+  type VsaConflictPolicy,
+  type VsaReconcileConflict,
+  type VsaReconcileReport,
+  type VsaReconcileResult,
+  type ReconcileVsaOptions,
+} from "./vsa-reconcile";
+export { type CompletenessGap, type CompletenessReport } from "./vsa-schema";
 
 export { SOMA_VERSION } from "./version";

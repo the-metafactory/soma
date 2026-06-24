@@ -136,12 +136,12 @@ test("migratePai records reserved-skill packs as refused-reserved (no throw) wit
     await writeIdentityFixture(homeDir);
     const packsDir = join(homeDir, "Packs");
     // Pack whose normalized skill name slugifies to a reserved name.
-    await writePackFixture(packsDir, "ISA", { skillName: "ISA" });
+    await writePackFixture(packsDir, "VSA", { skillName: "VSA" });
     const result = await migratePai({ homeDir, paiPacksDir: packsDir });
     expect(result.packs).toEqual([]);
     expect(result.packOutcomes.length).toBe(1);
     expect(result.packOutcomes[0].outcome).toBe("refused-reserved");
-    expect(result.packOutcomes[0].skillName).toBe("isa");
+    expect(result.packOutcomes[0].skillName).toBe("vsa");
   });
 });
 
@@ -149,18 +149,18 @@ test("migratePai skips reserved skill name when --overwriteReserved is set, impo
   await withTempHome(async (homeDir) => {
     await writeIdentityFixture(homeDir);
     const packsDir = join(homeDir, "Packs");
-    await writePackFixture(packsDir, "ISA", { skillName: "ISA" });
+    await writePackFixture(packsDir, "VSA", { skillName: "VSA" });
     await writePackFixture(packsDir, "Alpha", { skillName: "Alpha" });
     const result = await migratePai({
       homeDir,
       paiPacksDir: packsDir,
       overwriteReserved: true,
     });
-    // ISA must be imported (the flag explicitly permits clobbering
+    // VSA must be imported (the flag explicitly permits clobbering
     // reserved names — Sage may push back; we record the resolution
     // here so the contract is unambiguous).
     const names = result.packs.map((p) => p.skillName).sort();
-    expect(names).toEqual(["alpha", "isa"]);
+    expect(names).toEqual(["alpha", "vsa"]);
   });
 });
 

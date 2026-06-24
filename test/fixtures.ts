@@ -2,7 +2,7 @@ import { expect } from "bun:test";
 import { readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Projection, ProjectionInput } from "../src/index";
-import { SECTION_NAME_MAP, renderCriteriaMarkdown } from "../src/isa-accessors";
+import { SECTION_NAME_MAP, renderCriteriaMarkdown } from "../src/vsa-accessors";
 
 /**
  * soma#329: prove a renamed projection's stale file is pruned on REPROJECT/
@@ -62,7 +62,7 @@ export const portableProjectionInput: ProjectionInput = {
       },
     ],
   },
-  activeIsa: {
+  activeVsa: {
     slug: "portable-context",
     frontmatter: {
       task: "Build substrate context projections from one Soma input.",
@@ -80,7 +80,7 @@ export const portableProjectionInput: ProjectionInput = {
         content: renderCriteriaMarkdown([
           {
             id: "ISC-PORTABLE-1",
-            text: "Adapters receive assistant identity, telos, memory, skills, and ISA.",
+            text: "Adapters receive assistant identity, telos, memory, skills, and VSA.",
             status: "open",
             verification: "bun test",
           },

@@ -8,21 +8,21 @@ import { appendAlgorithmProvenance } from "./algorithm-provenance";
 import { appendSomaMemoryEvent } from "./memory";
 import { loadSomaProfile } from "./soma-home";
 import { normalizeSomaWorkRegistryArtifacts, upsertSomaCurrentWorkPointer } from "./work-registry";
-import { getCriteria, getGoal } from "./isa-accessors";
+import { getCriteria, getGoal } from "./vsa-accessors";
 import { getRunPhase } from "./algorithm-lifecycle";
 import {
-  applyIsaUpdate,
+  applyVsaUpdate,
   checkCompleteness,
-  getActiveIsa,
-  readIsa,
-  type IsaUpdateEntry,
-} from "./isa";
+  getActiveVsa,
+  readVsa,
+  type VsaUpdateEntry,
+} from "./vsa";
 import type {
   AlgorithmRun,
   AlgorithmRunSummary,
   AlgorithmWorkIndex,
-  IdealStateArtifact,
-  IsaUpdatePayload,
+  VerificationStateArtifact,
+  VsaUpdatePayload,
   SomaLifecycleOptions,
   SomaLifecycleResult,
   SomaStartupContext,
@@ -42,8 +42,8 @@ function substrate(options: SomaLifecycleOptions): SubstrateId {
 
 export interface DeriveSessionNameInput {
   sessionId: string;
-  activeIsaSlug?: string;
-  activeIsaGoal?: string;
+  activeVsaSlug?: string;
+  activeVsaGoal?: string;
   cwd?: string;
   gitBranch?: string;
 }
@@ -62,26 +62,26 @@ function lastPathSegment(value: string): string {
 }
 
 /**
- * Choose a human-meaningful session name, preferring (1) the active ISA slug
+ * Choose a human-meaningful session name, preferring (1) the active VSA slug
  * so sessions align with the goal-derived `memory/WORK/{slug}` names, then
  * (2) the working directory basename plus a non-default git branch, and
- * finally (3) the legacy `session <uuid>` fallback. Pure: git/ISA lookups
+ * finally (3) the legacy `session <uuid>` fallback. Pure: git/VSA lookups
  * happen in the caller and are passed in.
  *
  * Names are not unique keys: concurrent sessions sharing a long-lived
- * project ISA (or the same cwd) derive the same slug. `upsertSomaWorkRegistry`
+ * project VSA (or the same cwd) derive the same slug. `upsertSomaWorkRegistry`
  * resolves the collision — the first session keeps the clean slug and later
  * ones get a `-<sessionId>` suffix via `uniqueSessionSlug` — so the name
  * groups by project/repo while each session keeps its own entry (keyed by
  * `sessionUUID`).
  */
 export function deriveSessionName(input: DeriveSessionNameInput): DerivedSessionName {
-  const isaSlug = input.activeIsaSlug?.trim();
-  if (isaSlug !== undefined && isaSlug.length > 0) {
-    const goal = input.activeIsaGoal?.trim();
+  const vsaSlug = input.activeVsaSlug?.trim();
+  if (vsaSlug !== undefined && vsaSlug.length > 0) {
+    const goal = input.activeVsaGoal?.trim();
     return {
-      slug: isaSlug,
-      sessionName: isaSlug,
+      slug: vsaSlug,
+      sessionName: vsaSlug,
       ...(goal !== undefined && goal.length > 0 ? { task: goal } : {}),
     };
   }
@@ -118,14 +118,14 @@ async function detectGitBranch(cwd: string | undefined): Promise<string | undefi
 
 async function resolveSessionName(
   options: SomaLifecycleOptions,
-  active: { slug: string; isa: IdealStateArtifact } | null,
+  active: { slug: string; isa: VerificationStateArtifact } | null,
 ): Promise<DerivedSessionName> {
   const sessionId = options.sessionId ?? "";
   const gitBranch = active === null ? options.gitBranch ?? (await detectGitBranch(options.cwd)) : undefined;
   return deriveSessionName({
     sessionId,
-    activeIsaSlug: active?.slug,
-    activeIsaGoal: active === null ? undefined : getGoal(active.isa) ?? undefined,
+    activeVsaSlug: active?.slug,
+    activeVsaGoal: active === null ? undefined : getGoal(active.isa) ?? undefined,
     cwd: options.cwd,
     gitBranch,
   });
@@ -307,15 +307,15 @@ export async function captureCompletedAlgorithmLearnings(options: SomaLifecycleO
   return written;
 }
 
-async function loadActiveIsaForLifecycle(somaHome: string): Promise<{ slug: string; isa: IdealStateArtifact } | null> {
-  const state = await getActiveIsa({ somaHome });
+async function loadActiveVsaForLifecycle(somaHome: string): Promise<{ slug: string; isa: VerificationStateArtifact } | null> {
+  const state = await getActiveVsa({ somaHome });
   if (state?.activeSlug == null) return null;
   try {
-    const isa = await readIsa(state.activeSlug, { somaHome });
+    const isa = await readVsa(state.activeSlug, { somaHome });
     return { slug: state.activeSlug, isa };
   } catch {
-    // Active state points at a missing/unreadable ISA — treat as no
-    // active ISA. Caller's events.jsonl will pick up an isa.missing
+    // Active state points at a missing/unreadable VSA — treat as no
+    // active VSA. Caller's events.jsonl will pick up an isa.missing
     // warning if we choose to emit one; for now lifecycle stays silent
     // and non-blocking per #38 spec ("never halt").
     return null;
@@ -324,8 +324,8 @@ async function loadActiveIsaForLifecycle(somaHome: string): Promise<{ slug: stri
 
 export async function runSomaLifecycleSessionStart(options: SomaLifecycleOptions = {}): Promise<SomaLifecycleResult> {
   const startup = await buildSomaStartupContext(options);
-  const active = await loadActiveIsaForLifecycle(startup.somaHome);
-  const activeNote = active === null ? "" : ` | active ISA: ${active.slug} (${active.isa.frontmatter.phase})`;
+  const active = await loadActiveVsaForLifecycle(startup.somaHome);
+  const activeNote = active === null ? "" : ` | active VSA: ${active.slug} (${active.isa.frontmatter.phase})`;
   const eventsPath = join(startup.somaHome, "memory/STATE/events.jsonl");
   let registryFiles: string[] = [];
   if (startup.sessionId !== undefined) {
@@ -374,7 +374,7 @@ export async function runSomaLifecycleSessionStart(options: SomaLifecycleOptions
     metadata: {
       sessionId: startup.sessionId,
       activeRuns: startup.activeRuns.map((run) => run.id),
-      activeIsaSlug: active?.slug ?? null,
+      activeVsaSlug: active?.slug ?? null,
     },
   });
 
@@ -384,39 +384,39 @@ export async function runSomaLifecycleSessionStart(options: SomaLifecycleOptions
     timestamp: startup.timestamp,
     files: Array.from(new Set([...registryFiles, eventsPath])),
     context: startup.context,
-    activeIsa: active === null ? null : { slug: active.slug, phase: active.isa.frontmatter.phase },
+    activeVsa: active === null ? null : { slug: active.slug, phase: active.isa.frontmatter.phase },
   };
 }
 
 /**
  * Append decisions / changelog / verification entries to the active
- * ISA (or the explicit slug in the payload).
+ * VSA (or the explicit slug in the payload).
  *
  * Sage round-1 architecture fix: writeback gate is satisfied first by
  * emitting the full payload as a `lifecycle.isa_updated` event in
- * `~/.soma/memory/STATE/events.jsonl` — every ISA mutation has a
- * corresponding append-only audit record. The authoritative ISA write
- * then goes through the trusted Soma-side `applyIsaUpdate` writer,
+ * `~/.soma/memory/STATE/events.jsonl` — every VSA mutation has a
+ * corresponding append-only audit record. The authoritative VSA write
+ * then goes through the trusted Soma-side `applyVsaUpdate` writer,
  * which does a single read + validate-all + single write so a
  * malformed later entry cannot leave partial state on disk.
  *
- * No-op when no active ISA is set AND no slug in payload — Layer 7
- * never halts session work for a missing ISA (per #38 spec).
+ * No-op when no active VSA is set AND no slug in payload — Layer 7
+ * never halts session work for a missing VSA (per #38 spec).
  */
-export async function runSomaLifecycleIsaUpdated(
-  payload: IsaUpdatePayload,
+export async function runSomaLifecycleVsaUpdated(
+  payload: VsaUpdatePayload,
   options: SomaLifecycleOptions = {},
 ): Promise<SomaLifecycleResult> {
   const somaHome = resolveSomaHome(options);
   const timestamp = options.timestamp ?? new Date().toISOString();
-  const activeState = await getActiveIsa({ somaHome });
+  const activeState = await getActiveVsa({ somaHome });
   const activeSlug = activeState?.activeSlug ?? null;
   const slug = payload.slug ?? activeSlug;
   if (slug === null) {
     await appendSomaMemoryEvent(somaHome, {
       substrate: substrate(options),
       kind: "lifecycle.isa_updated.no_active",
-      summary: "isa_updated event received but no active ISA set; no writes made.",
+      summary: "isa_updated event received but no active VSA set; no writes made.",
       timestamp,
     });
     return {
@@ -432,7 +432,7 @@ export async function runSomaLifecycleIsaUpdated(
   // it matches the currently-active slug OR when there is no active
   // slug (caller is electing a target with no contention). Mismatches
   // are refused so a model-controlled lifecycle payload cannot quietly
-  // mutate a non-active ISA.
+  // mutate a non-active VSA.
   if (payload.slug !== undefined && activeSlug !== null && payload.slug !== activeSlug) {
     await appendSomaMemoryEvent(somaHome, {
       substrate: substrate(options),
@@ -442,18 +442,18 @@ export async function runSomaLifecycleIsaUpdated(
       metadata: { payloadSlug: payload.slug, activeSlug },
     });
     throw new Error(
-      `runSomaLifecycleIsaUpdated: payload.slug '${payload.slug}' does not match active slug '${activeSlug}'. Use 'setActiveIsa' to switch active first.`,
+      `runSomaLifecycleVsaUpdated: payload.slug '${payload.slug}' does not match active slug '${activeSlug}'. Use 'setActiveVsa' to switch active first.`,
     );
   }
 
-  const entries = buildIsaUpdateEntries(payload);
+  const entries = buildVsaUpdateEntries(payload);
 
   // Validate the full payload BEFORE emitting the writeback event or
-  // touching the ISA. Sage round 1: partial mutation must not occur on
+  // touching the VSA. Sage round 1: partial mutation must not occur on
   // a malformed later entry.
   for (const entry of entries) {
     if (entry.text.trim().length === 0) {
-      throw new Error(`runSomaLifecycleIsaUpdated refused empty text in ${entry.section} entry.`);
+      throw new Error(`runSomaLifecycleVsaUpdated refused empty text in ${entry.section} entry.`);
     }
   }
 
@@ -461,9 +461,9 @@ export async function runSomaLifecycleIsaUpdated(
   // events.jsonl never claims a write that didn't happen (Sage round-3
   // CodeQuality).
   if (entries.length === 0) {
-    await emitIsaUpdateEvent(somaHome, options, {
+    await emitVsaUpdateEvent(somaHome, options, {
       kind: "lifecycle.isa_updated.noop",
-      summary: `isa_updated invoked for ISA ${slug} with no entries; no write.`,
+      summary: `isa_updated invoked for VSA ${slug} with no entries; no write.`,
       timestamp,
       slug,
       payload,
@@ -478,18 +478,18 @@ export async function runSomaLifecycleIsaUpdated(
   }
 
   // Sage round-2 CodeQuality: perform the authoritative write FIRST,
-  // then emit the success event. If applyIsaUpdate throws (e.g.
+  // then emit the success event. If applyVsaUpdate throws (e.g.
   // missing slug, filesystem error) we emit a failure event instead so
   // events.jsonl never contains a success record for a mutation that
   // did not happen.
   let writeResult: { path: string; changed: boolean };
   try {
-    writeResult = await applyIsaUpdate(slug, entries, { somaHome, timestamp });
+    writeResult = await applyVsaUpdate(slug, entries, { somaHome, timestamp });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
-    await emitIsaUpdateEvent(somaHome, options, {
+    await emitVsaUpdateEvent(somaHome, options, {
       kind: "lifecycle.isa_updated.failed",
-      summary: `isa_updated write failed for ISA ${slug}: ${message}`,
+      summary: `isa_updated write failed for VSA ${slug}: ${message}`,
       timestamp,
       slug,
       payload,
@@ -498,9 +498,9 @@ export async function runSomaLifecycleIsaUpdated(
     throw error;
   }
 
-  await emitIsaUpdateEvent(somaHome, options, {
+  await emitVsaUpdateEvent(somaHome, options, {
     kind: "lifecycle.isa_updated",
-    summary: `Appended ${entries.length} entr(ies) to ISA ${slug}.`,
+    summary: `Appended ${entries.length} entr(ies) to VSA ${slug}.`,
     timestamp,
     slug,
     payload,
@@ -517,7 +517,7 @@ export async function runSomaLifecycleIsaUpdated(
   };
 }
 
-function buildIsaUpdateEntries(payload: IsaUpdatePayload): IsaUpdateEntry[] {
+function buildVsaUpdateEntries(payload: VsaUpdatePayload): VsaUpdateEntry[] {
   return [
     ...(payload.decisions ?? []).map((e) => ({ section: "decisions" as const, ...e })),
     ...(payload.changelogEntries ?? []).map((e) => ({ section: "changelog" as const, ...e })),
@@ -525,7 +525,7 @@ function buildIsaUpdateEntries(payload: IsaUpdatePayload): IsaUpdateEntry[] {
   ];
 }
 
-function isaUpdateMetadata(slug: string, payload: IsaUpdatePayload, extra?: Record<string, unknown>): Record<string, unknown> {
+function vsaUpdateMetadata(slug: string, payload: VsaUpdatePayload, extra?: Record<string, unknown>): Record<string, unknown> {
   return {
     slug,
     decisions: payload.decisions ?? [],
@@ -535,27 +535,27 @@ function isaUpdateMetadata(slug: string, payload: IsaUpdatePayload, extra?: Reco
   };
 }
 
-interface EmitIsaUpdateEventOptions {
+interface EmitVsaUpdateEventOptions {
   kind: "lifecycle.isa_updated" | "lifecycle.isa_updated.failed" | "lifecycle.isa_updated.noop";
   summary: string;
   timestamp: string;
   slug: string;
-  payload: IsaUpdatePayload;
+  payload: VsaUpdatePayload;
   artifactPaths?: string[];
   extra?: Record<string, unknown>;
 }
 
-async function emitIsaUpdateEvent(
+async function emitVsaUpdateEvent(
   somaHome: string,
   options: SomaLifecycleOptions,
-  ev: EmitIsaUpdateEventOptions,
+  ev: EmitVsaUpdateEventOptions,
 ): Promise<void> {
   await appendSomaMemoryEvent(somaHome, {
     substrate: substrate(options),
     kind: ev.kind,
     summary: ev.summary,
     timestamp: ev.timestamp,
-    metadata: isaUpdateMetadata(ev.slug, ev.payload, ev.extra),
+    metadata: vsaUpdateMetadata(ev.slug, ev.payload, ev.extra),
     artifactPaths: ev.artifactPaths,
   });
 }
@@ -625,7 +625,7 @@ export async function runSomaLifecycleAlgorithmObserved(options: SomaLifecycleOp
 async function writeSessionEndWorkRegistry(input: {
   somaHome: string;
   options: SomaLifecycleOptions;
-  active: { slug: string; isa: IdealStateArtifact } | null;
+  active: { slug: string; isa: VerificationStateArtifact } | null;
   timestamp: string;
   algorithmWorkIndexPath: string;
   activeAlgorithmRunPath: string;
@@ -711,7 +711,7 @@ export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions =
   const timestamp = options.timestamp ?? new Date().toISOString();
   const index = await writeAlgorithmWorkIndex({ ...options, somaHome, timestamp });
   const learningFiles = await captureCompletedAlgorithmLearnings({ ...options, somaHome, timestamp });
-  const activeForName = await loadActiveIsaForLifecycle(somaHome);
+  const activeForName = await loadActiveVsaForLifecycle(somaHome);
   const registryFiles = await writeSessionEndWorkRegistry({
     somaHome,
     options,
@@ -722,9 +722,9 @@ export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions =
     learningFiles,
   });
 
-  // #38 AC-4: If an active ISA is set, run checkCompleteness and emit a
+  // #38 AC-4: If an active VSA is set, run checkCompleteness and emit a
   // warning event when tier gate is unmet. NEVER blocks session end.
-  const active = await getActiveIsa({ somaHome });
+  const active = await getActiveVsa({ somaHome });
   let tierGateNote = "";
   if (active?.activeSlug != null) {
     try {
@@ -733,7 +733,7 @@ export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions =
         await appendSomaMemoryEvent(somaHome, {
           substrate: substrate(options),
           kind: "lifecycle.tier-gate-unmet",
-          summary: `Tier gate unmet for active ISA ${active.activeSlug} at ${report.tier}: ${report.gaps.length} gap(s).`,
+          summary: `Tier gate unmet for active VSA ${active.activeSlug} at ${report.tier}: ${report.gaps.length} gap(s).`,
           timestamp,
           metadata: {
             slug: active.activeSlug,
@@ -744,7 +744,7 @@ export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions =
         tierGateNote = ` | tier-gate-unmet: ${active.activeSlug} (${report.gaps.length} gap(s))`;
       }
     } catch {
-      // checkCompleteness can fail if the ISA file was removed; ignore
+      // checkCompleteness can fail if the VSA file was removed; ignore
       // — session end stays non-blocking.
     }
   }
