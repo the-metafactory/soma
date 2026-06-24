@@ -220,16 +220,26 @@ async function reconcileOwnedSubtrees(
   substrateRoot: string,
   projectedFiles: readonly string[],
 ): Promise<void> {
-  const projectedAbs = new Set(projectedFiles.map((file) => resolve(file)));
-  // The VSA skill is installed by its own edit-preserving installer; if its
-  // destination nests under an owned subtree (cursor), exclude it from reconcile.
-  const skillDestAbs = resolve(spec.vsaSkillProjection.destinationDir(substrateRoot));
+  // Resolve against substrateRoot (not cwd) so a relative projected path can't
+  // silently fall outside an owned subtree and empty its desired set.
+  const projectedAbs = new Set(projectedFiles.map((file) => resolve(substrateRoot, file)));
+  // Subtrees managed by another (edit-preserving) installer must be excluded from
+  // reconcile: the VSA skill destination, plus any spec-declared exclusions.
+  const protectedDirs = [
+    resolve(spec.vsaSkillProjection.destinationDir(substrateRoot)),
+    ...(spec.ownedSubtreeExclusions ?? []).map((rel) => resolve(substrateRoot, rel)),
+  ];
   for (const subtree of spec.ownedSubtrees ?? []) {
     const root = resolve(substrateRoot, subtree);
     const desiredRel = [...projectedAbs]
       .filter((abs) => isUnderOrEqual(abs, root))
       .map((abs) => relative(root, abs));
-    const excludeRelPrefixes = isUnderOrEqual(skillDestAbs, root) ? [relative(root, skillDestAbs)] : [];
+    // Safety: an empty desired set means projection produced nothing for this
+    // owned subtree (a projection bug) — skip rather than prune the whole subtree.
+    if (desiredRel.length === 0) continue;
+    const excludeRelPrefixes = protectedDirs
+      .filter((dir) => isUnderOrEqual(dir, root))
+      .map((dir) => relative(root, dir));
     await reconcileOwnedDir(root, desiredRel, { excludeRelPrefixes });
   }
 }

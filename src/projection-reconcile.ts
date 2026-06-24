@@ -24,13 +24,18 @@ async function listFilesRecursive(root: string): Promise<string[]> {
   return out;
 }
 
-async function sameFile(a: string, b: string): Promise<boolean> {
+async function statOrEnoent(path: string): Promise<Awaited<ReturnType<typeof stat>> | undefined> {
   try {
-    const [sa, sb] = await Promise.all([stat(a), stat(b)]);
-    return sa.ino === sb.ino && sa.dev === sb.dev;
-  } catch {
-    return false;
+    return await stat(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error; // never let a transient stat error route a file to deletion
   }
+}
+
+async function sameFile(a: string, b: string): Promise<boolean> {
+  const [sa, sb] = await Promise.all([statOrEnoent(a), statOrEnoent(b)]);
+  return sa !== undefined && sb !== undefined && sa.ino === sb.ino && sa.dev === sb.dev;
 }
 
 async function removeEmptyDirs(root: string): Promise<void> {
@@ -75,6 +80,13 @@ export function isUnderOrEqual(path: string, base: string): boolean {
  *
  * This makes projection self-cleaning: any renamed/recased/removed source file
  * leaves no orphan, with no per-rename bookkeeping.
+ *
+ * SAFETY / fail-open caveat: this DELETES. It is sound only for fully
+ * Soma-generated, exclusively-owned dirs (no user files), because a file under
+ * `root` that isn't in `desiredRelPaths` is treated as stale and removed with no
+ * backup. A projection bug that drops a file from the desired set would silently
+ * delete it — recoverable only via `soma snapshot`. Callers must pass the COMPLETE
+ * projected set, never list a shared dir, and guard against an empty desired set.
  */
 export async function reconcileOwnedDir(
   root: string,
