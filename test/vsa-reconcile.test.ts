@@ -14,7 +14,7 @@ import {
   writeVsa,
 } from "../src/index";
 import { SECTION_NAME_MAP, getDecisions, getGoal, renderCriteriaMarkdown, renderLogEntries, setSection } from "../src/vsa-accessors";
-import type { AlgorithmLogEntry, VerificationStateArtifact, IdealStateCriterion } from "../src/types";
+import type { AlgorithmLogEntry, VerificationStateArtifact, Checkpoint } from "../src/types";
 
 async function withSomaHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-vsa-reconcile-"));
@@ -26,7 +26,7 @@ async function withSomaHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> 
   }
 }
 
-function buildVsa(slug: string, criteria: IdealStateCriterion[], sections: Record<string, string> = {}): VerificationStateArtifact {
+function buildVsa(slug: string, criteria: Checkpoint[], sections: Record<string, string> = {}): VerificationStateArtifact {
   const timestamp = "2026-05-17T00:00:00.000Z";
   const isa = parseVsa(
     [
@@ -54,7 +54,7 @@ function decisions(...entries: AlgorithmLogEntry[]): string {
   return renderLogEntries(entries);
 }
 
-function criterion(id: string, status: IdealStateCriterion["status"], text = `${id} works`, verification?: string): IdealStateCriterion {
+function criterion(id: string, status: Checkpoint["status"], text = `${id} works`, verification?: string): Checkpoint {
   return { id, text, status, verification };
 }
 

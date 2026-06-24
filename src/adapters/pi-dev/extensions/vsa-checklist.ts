@@ -12,7 +12,7 @@
  *   dropped  → [-]   (deliberately removed)
  *   pending  → [ ]   (everything else: unverified, in-progress, etc.)
  *
- * Status strings mirror `IdealStateCriterion.status` in `src/types.ts`.
+ * Status strings mirror `Checkpoint.status` in `src/types.ts`.
  * This module deliberately accepts any string status and falls through
  * to "pending" for unrecognized values rather than crashing the widget.
  *

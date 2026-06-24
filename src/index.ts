@@ -36,6 +36,7 @@ export type {
   AuthoredFrontmatter,
   DerivedFrontmatter,
   VerificationStateArtifact,
+  Checkpoint,
   IdealStateCriterion,
   IdeateParameters,
   IdeatePresetName,

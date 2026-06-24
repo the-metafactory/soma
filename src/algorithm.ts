@@ -10,7 +10,7 @@ import type {
   AlgorithmRunInput,
   EvidenceKind,
   VerificationStateArtifact,
-  IdealStateCriterion,
+  Checkpoint,
 } from "./types";
 import {
   assertAlgorithmCapabilitiesSatisfied,
@@ -38,9 +38,9 @@ import {
  * is added. Composes the pure vsa-accessor predicates; gate policy lives here in
  * the Algorithm module, not in the structural accessor layer.
  */
-export function learnGateViolations(criteria: readonly IdealStateCriterion[]): {
-  unresolved: IdealStateCriterion[];
-  hollow: IdealStateCriterion[];
+export function learnGateViolations(criteria: readonly Checkpoint[]): {
+  unresolved: Checkpoint[];
+  hollow: Checkpoint[];
 } {
   return {
     unresolved: criteria.filter((criterion) => !isClosedCriterion(criterion)),
@@ -92,7 +92,7 @@ function uniqueIds(criteria: { id: string }[], field: string): void {
   }
 }
 
-function criterionFromInput(input: { id: string; text: string; verification?: string }): IdealStateCriterion {
+function criterionFromInput(input: { id: string; text: string; verification?: string }): Checkpoint {
   assertNonEmpty(input.text, `criterion ${input.id} text`);
 
   return {
@@ -379,7 +379,7 @@ export function verifyAlgorithmCriterion(
   evidence: string,
   timestamp?: string,
   provenance?: Pick<AlgorithmProvenanceInput, "substrate">,
-  evidenceKind?: IdealStateCriterion["evidenceKind"],
+  evidenceKind?: Checkpoint["evidenceKind"],
 ): AlgorithmRun {
   assertNonEmpty(evidence, "verification evidence");
 

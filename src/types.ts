@@ -38,7 +38,12 @@ export type EvidenceKind = "specified" | "probed" | "tested";
 
 export type CriterionStatus = "open" | "passed" | "failed" | "dropped" | "deferred-probe";
 
-export interface IdealStateCriterion {
+/**
+ * The unit of evidence-gated verification: { criterion, required evidence, typed
+ * verdict, completion gate }. See CONTEXT.md and ADR 0001 — this code shape *is*
+ * the extracted `checkpoint` primitive (#329).
+ */
+export interface Checkpoint {
   id: string;
   text: string;
   status: CriterionStatus;
@@ -46,6 +51,12 @@ export interface IdealStateCriterion {
   /** See {@link EvidenceKind}. Undefined on legacy/pre-feature criteria (grandfathered by the LEARN gate). */
   evidenceKind?: EvidenceKind;
 }
+
+/**
+ * @deprecated soma#329: renamed to {@link Checkpoint}. Retained as a back-compat
+ * alias for the PAI-era name; prefer `Checkpoint` in new code.
+ */
+export type IdealStateCriterion = Checkpoint;
 
 export type AlgorithmPhase = "observe" | "think" | "plan" | "build" | "execute" | "verify" | "learn" | "complete" | "abandoned";
 
@@ -75,7 +86,7 @@ export interface AlgorithmLoopState {
 export interface AlgorithmCriteriaPartition {
   id: string;
   domain: string;
-  criteria: IdealStateCriterion[];
+  criteria: Checkpoint[];
 }
 
 export interface IdeateParameters {
@@ -355,7 +366,7 @@ export interface AlgorithmRun {
   currentState: string;
   isa: VerificationStateArtifact;
   loop: AlgorithmLoopState;
-  antiCriteria: IdealStateCriterion[];
+  antiCriteria: Checkpoint[];
   capabilities: string[];
   capabilityDefinitions?: AlgorithmCapabilityDefinition[];
   capabilitySelections?: AlgorithmCapabilitySelection[];

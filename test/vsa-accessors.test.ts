@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { VerificationStateArtifact, IdealStateCriterion } from "../src/index";
+import type { VerificationStateArtifact, Checkpoint } from "../src/index";
 import {
   SECTION_NAME_MAP,
   appendCriterion,
@@ -145,7 +145,7 @@ test("renderCriteriaMarkdown rejects newlines in id, text, and verification", ()
 test("criterion text containing pipe-and-evidence-like content survives round-trip", () => {
   // Regression: previous inline `| Evidence: ...` delimiter could swallow
   // ordinary criterion text containing those characters as verification.
-  const original: IdealStateCriterion[] = [
+  const original: Checkpoint[] = [
     { id: "C1", text: "mention | Evidence: literally", status: "open" },
     { id: "C2", text: "regular criterion", status: "passed", verification: "actual evidence" },
   ];

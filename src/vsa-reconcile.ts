@@ -13,7 +13,7 @@ import {
 import { readVsa, resolveSomaHome, writeVsa, type VsaLibraryOptions } from "./vsa";
 import { appendSomaMemoryEvent } from "./memory";
 import { parseVsa } from "./vsa-parse";
-import type { AlgorithmLogEntry, VerificationStateArtifact, IdealStateCriterion, VsaSection, SubstrateId } from "./types";
+import type { AlgorithmLogEntry, VerificationStateArtifact, Checkpoint, VsaSection, SubstrateId } from "./types";
 
 export type VsaConflictPolicy = "error" | "prefer-master" | "prefer-feature";
 
@@ -172,7 +172,7 @@ function assertUniqueCriterionLines(isa: VerificationStateArtifact, policy: VsaC
   }
 }
 
-function parseCriterionLines(section: VsaSection): IdealStateCriterion[] {
+function parseCriterionLines(section: VsaSection): Checkpoint[] {
   const synthetic: VerificationStateArtifact = {
     slug: "section",
     frontmatter: {
@@ -214,15 +214,15 @@ function mergeCriteria(
     if (JSON.stringify(merged) !== JSON.stringify(current)) report.mergedCriteria.push(featureCriterion.id);
   }
 
-  return setSection(master, SECTION_NAME_MAP.criteria, renderCriteriaMarkdown(order.map((id) => byId.get(id)).filter((criterion): criterion is IdealStateCriterion => !!criterion)));
+  return setSection(master, SECTION_NAME_MAP.criteria, renderCriteriaMarkdown(order.map((id) => byId.get(id)).filter((criterion): criterion is Checkpoint => !!criterion)));
 }
 
 function mergeCriterion(
-  master: IdealStateCriterion,
-  feature: IdealStateCriterion,
+  master: Checkpoint,
+  feature: Checkpoint,
   policy: VsaConflictPolicy,
   report: VsaReconcileReport,
-): IdealStateCriterion {
+): Checkpoint {
   if (master.status === "dropped" && feature.status !== "dropped") {
     addConflict(report, policy, {
       kind: "criterion-tombstone",
@@ -259,11 +259,11 @@ function mergeCriterion(
 }
 
 function mergeStatus(
-  master: IdealStateCriterion,
-  feature: IdealStateCriterion,
+  master: Checkpoint,
+  feature: Checkpoint,
   policy: VsaConflictPolicy,
   report: VsaReconcileReport,
-): IdealStateCriterion["status"] {
+): Checkpoint["status"] {
   if (master.status === feature.status) return master.status;
   if (master.status === "dropped") return "dropped";
   if (feature.status === "dropped") {
@@ -287,7 +287,7 @@ function mergeStatus(
   return feature.status;
 }
 
-function statusRank(status: IdealStateCriterion["status"]): number {
+function statusRank(status: Checkpoint["status"]): number {
   switch (status) {
     case "open":
       return 0;

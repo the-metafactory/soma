@@ -5,7 +5,7 @@ import type {
   AlgorithmNotificationEvent,
   AlgorithmPhase,
   AlgorithmRun,
-  IdealStateCriterion,
+  Checkpoint,
   IdeateParameters,
   IdeatePresetName,
   OptimizeParameters,
@@ -185,11 +185,11 @@ function domainFromCriterionId(id: string): string {
 }
 
 export function partitionCriteriaByDomain(
-  criteria: readonly IdealStateCriterion[],
+  criteria: readonly Checkpoint[],
   maxPartitions?: number,
 ): AlgorithmCriteriaPartition[] {
   if (maxPartitions !== undefined) assertPositiveInteger(maxPartitions, "maxPartitions");
-  const grouped = new Map<string, IdealStateCriterion[]>();
+  const grouped = new Map<string, Checkpoint[]>();
   for (const criterion of criteria) {
     const domain = domainFromCriterionId(criterion.id);
     const group = grouped.get(domain);
