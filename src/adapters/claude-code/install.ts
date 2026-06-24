@@ -19,11 +19,8 @@ export const claudeCodeInstallSpec: SubstrateInstallSpec<"claude-code"> = {
     SOMA_CLAUDE_HOOK_CONFIG_RELATIVE_PATH,
     "settings.json",
   ],
-  // Soma-exclusive subtrees — reconciled to the projected set each install so any
-  // renamed/recased/removed projection self-cleans (no per-rename bookkeeping).
-  // This subsumes the former obsoleteHomeFiles for TELOS.md/ACTIVE_ISA.md (both
-  // live under rules/soma); obsoleteHomeFiles is reserved for stale files in
-  // SHARED, non-owned dirs only.
+  // Owned (Soma-exclusive) dirs — see ownedSubtrees JSDoc. Subsumes the former
+  // obsoleteHomeFiles for TELOS.md/ACTIVE_ISA.md, which live under rules/soma.
   ownedSubtrees: ["rules/soma", "hooks/soma"],
   optionalHomeFiles: (options) => isClaudeCodeInstallOptions(options) && options.modeClassifier === true
     ? [SOMA_CLAUDE_MODE_CLASSIFIER_RELATIVE_PATH, SOMA_CLAUDE_MODE_CLASSIFIER_CONFIG_RELATIVE_PATH]

@@ -35,7 +35,8 @@ async function statOrEnoent(path: string): Promise<Awaited<ReturnType<typeof sta
 
 async function sameFile(a: string, b: string): Promise<boolean> {
   const [sa, sb] = await Promise.all([statOrEnoent(a), statOrEnoent(b)]);
-  return sa !== undefined && sb !== undefined && sa.ino === sb.ino && sa.dev === sb.dev;
+  if (sa === undefined || sb === undefined) return false;
+  return sa.ino === sb.ino && sa.dev === sb.dev;
 }
 
 async function removeEmptyDirs(root: string): Promise<void> {
@@ -78,6 +79,12 @@ export function isUnderOrEqual(path: string, base: string): boolean {
  * - otherwise → stale, remove.
  * Newly-empty directories are then pruned.
  *
+ * Scope/preconditions: case-normalization applies to FILE basenames, not to
+ * intermediate DIRECTORY segments (a recased parent dir keeps its on-disk case on
+ * a case-insensitive FS). `desiredRelPaths` must contain no two paths differing
+ * only by case (last-write-wins on the lookup would otherwise pick an arbitrary
+ * canonical target).
+ *
  * This makes projection self-cleaning: any renamed/recased/removed source file
  * leaves no orphan, with no per-rename bookkeeping.
  *
@@ -113,10 +120,17 @@ export async function reconcileOwnedDir(
       if (await sameFile(abs, canonicalAbs)) {
         // Case-insensitive FS: `abs` and the canonical path are the same file,
         // already holding the freshly-projected content — just fix the casing.
+        // Crash-safe: if the second rename fails, restore the original name so the
+        // file is never stranded at the hidden temp path.
         const tmp = join(dirname(canonicalAbs), `.soma-case.${basename(canonicalAbs)}.tmp`);
         await rename(abs, tmp);
-        await mkdir(dirname(canonicalAbs), { recursive: true });
-        await rename(tmp, canonicalAbs);
+        try {
+          await mkdir(dirname(canonicalAbs), { recursive: true });
+          await rename(tmp, canonicalAbs);
+        } catch (error) {
+          await rename(tmp, abs).catch(() => undefined);
+          throw error;
+        }
         result.renamed.push(canonical);
       } else {
         // Case-sensitive FS: a distinct stale wrong-case file → remove it.

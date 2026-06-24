@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { isAbsolute, join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import { bootstrapSomaHome, installSomaForCodex, installSomaForCursor, installSomaForPiDev, planSomaForCodexInstall, planSomaForPiDevInstall, somaWorkRegistryPaths } from "../src/index";
+import { bootstrapSomaHome, installSomaForClaudeCode, installSomaForCodex, installSomaForCursor, installSomaForPiDev, planSomaForCodexInstall, planSomaForPiDevInstall, somaWorkRegistryPaths } from "../src/index";
 import { codexInstallSpec } from "../src/adapters/codex/install";
 import { renderStartupContextSummary } from "../src/adapters/codex/hooks/codex-hook-entry.mjs";
 import {
@@ -318,6 +318,25 @@ test("reproject reconciles an owned subtree: a stale file is pruned, shared dirs
     expect(await readFile(sharedSentinel, "utf8")).toBe("user hook\n"); // shared dir untouched
   });
 });
+
+// Every adapter's owned-subtree reconcile wiring is exercised (a wrong subtree
+// path in any spec would otherwise pass the suite yet leave orphans).
+for (const c of [
+  { name: "codex", install: installSomaForCodex, owned: ".codex/memories/soma" },
+  { name: "cursor", install: installSomaForCursor, owned: ".cursor/rules/soma" },
+  { name: "pi-dev", install: installSomaForPiDev, owned: ".pi/agent/soma" },
+  { name: "claude-code", install: installSomaForClaudeCode, owned: ".claude/rules/soma" },
+] as const) {
+  test(`reproject prunes a stale file in ${c.name}'s owned subtree (${c.owned})`, async () => {
+    await withTempHome(async (homeDir) => {
+      await c.install({ homeDir });
+      const stale = join(homeDir, c.owned, "STALE-RECONCILE.md");
+      await writeFile(stale, "frozen old projection\n", "utf8");
+      await c.install({ homeDir });
+      await expect(stat(stale)).rejects.toThrow();
+    });
+  });
+}
 
 test("install preserves single-quoted codex writable roots", async () => {
   await withTempHome(async (homeDir) => {

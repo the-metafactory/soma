@@ -49,9 +49,8 @@ export const cursorInstallSpec: SubstrateInstallSpec<"cursor"> = {
   substrate: "cursor",
   defaultHome: ".",
   homeFiles: CURSOR_HOME_FILE_PATHS,
-  // Soma-exclusive subtree — reconciled to the projected set each install, which
-  // subsumes the former obsoleteHomeFiles for TELOS.md/ACTIVE_ISA.md (both under
-  // .cursor/rules/soma). obsoleteHomeFiles is reserved for shared, non-owned dirs.
+  // Owned (Soma-exclusive) dir — see ownedSubtrees JSDoc. Subsumes the former
+  // obsoleteHomeFiles for TELOS.md/ACTIVE_ISA.md under .cursor/rules/soma.
   ownedSubtrees: [".cursor/rules/soma"],
   vsaSkillProjection: {
     destinationDir: vsaSkillUnder(".cursor/rules/soma"),

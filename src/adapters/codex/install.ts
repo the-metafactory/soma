@@ -64,8 +64,7 @@ export const codexInstallSpec: SubstrateInstallSpec<"codex"> = {
   substrate: "codex",
   defaultHome: CODEX_DEFAULT_HOME,
   homeFiles: CODEX_HOME_FILES,
-  // Soma-exclusive subtree — reconciled to the projected set each install. Only
-  // memories/soma is fully owned; codex hooks/ and skills/ are shared.
+  // Owned (Soma-exclusive) dir — see ownedSubtrees JSDoc. (hooks/ + skills/ are shared.)
   ownedSubtrees: ["memories/soma"],
   vsaSkillProjection: {
     destinationDir: vsaSkillUnder(),
