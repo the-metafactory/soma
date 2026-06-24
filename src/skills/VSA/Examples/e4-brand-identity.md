@@ -57,7 +57,7 @@ The founder's mom — who has never used the product and doesn't know what it do
 
 Deliver a complete Cardinal brand identity v1 — logo (3 lockups), type system (1 family, 2 weights, 6 sizes), color palette (2 hues + 5-step neutral), voice and tone guide (1 page with 6 worked rewrites), and the first 5 marketing surfaces (homepage hero, App Store screenshot set, welcome email, partner one-pager, launch tweet) — all designed against constraints that survive the smallest-size and 1-bit tests, packaged as a Figma file and a public GitHub repo, ready to ship together on the founder-confirmed launch date of April 26, 2026.
 
-## Criteria
+## Checkpoints
 
 - [x] ISC-1: Wordmark and standalone mark exist as separate Figma components with shared baseline.
 - [x] ISC-2: Three logo lockups in the kit: horizontal wordmark, stacked wordmark + mark, mark-only.

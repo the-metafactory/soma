@@ -81,7 +81,7 @@ If `dry_run: true`, emit the YAML output and stop.
 
 If `dry_run: false`, apply all staged changes via Edit/Write tools. Order:
 1. Edit master VSA frontmatter.
-2. Edit master `## Criteria` ISC checkmarks.
+2. Edit master `## Checkpoints` (or legacy `## Criteria`, whichever the file has) ISC checkmarks.
 3. Edit master `## Verification` (append).
 4. Edit master `## Decisions` (append).
 5. Edit master `## Changelog` (append).

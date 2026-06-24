@@ -20,7 +20,7 @@ The production deploy credential (a long-lived API token stored in CI as `DEPLOY
 
 Rotate `DEPLOY_API_TOKEN` end-to-end: provision a new token with the same scope, update the CI secret, run a verification deploy on a non-production branch, then revoke the old token. The next production deploy after this rotation must succeed, and the old token must be inactive within four hours of the new one going live.
 
-## Criteria
+## Checkpoints
 
 ### Pre-rotation
 
@@ -97,6 +97,6 @@ Rotate `DEPLOY_API_TOKEN` end-to-end: provision a new token with the same scope,
 ```
 
 <!--
-E2 ops VSA. Required sections: Problem, Goal, Criteria, Test Strategy.
+E2 ops VSA. Required sections: Problem, Goal, Checkpoints, Test Strategy.
 Demonstrates the VSA primitive applied to an ops/runbook task — the same shape as a code task. ISC count of 16 hits the E2 floor exactly. Anti-criteria (ISC-14, 15, 16) cover privacy, scope, and rollback safety — typical ops-task regression-prevention concerns. Note ISC-16 explicitly preserves a safety window — a real-world lesson learned from prior bungled rotations.
 -->

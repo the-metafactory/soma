@@ -44,7 +44,7 @@ Walk sections in priority order. For each section, ask zero or more questions on
 | **Principles** | "What truths must this work respect regardless of implementation choices?" / "What would you say to a future maintainer about how to think?" |
 | **Constraints** | "What are the architectural mandates that bound the solution space?" / "What do you not want anyone to ever try?" |
 | **Goal** | "In one or two sentences, what is the verifiable done state?" |
-| **Criteria** | "Walk me through the test that would prove ISC-N." / "Is this ISC actually one binary probe, or could it be split?" |
+| **Checkpoints** | "Walk me through the test that would prove ISC-N." / "Is this ISC actually one binary probe, or could it be split?" |
 | **Test Strategy** | "How would you actually verify ISC-N? What command, tool, or probe?" |
 | **Features** | "What feature units would you split this into?" / "What can run in parallel? What blocks the critical path?" |
 

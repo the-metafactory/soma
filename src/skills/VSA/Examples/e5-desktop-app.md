@@ -53,7 +53,7 @@ A native desktop application (macOS-first, Linux next, Windows last) that the ho
 
 Ship a Tauri-based desktop application — code-named WattWatch and distributed via signed installers from `wattwatch.example.org` — that aggregates Shelly, Emporia Vue, Sense, and Tesla Powerwall sensor data into a unified local SQLite store, presents a real-time whole-house energy view with per-device attribution and a six-month historical archive, and operates fully offline by default with optional end-to-end-encrypted cloud sync.
 
-## Criteria
+## Checkpoints
 
 ### Build & Distribution
 
