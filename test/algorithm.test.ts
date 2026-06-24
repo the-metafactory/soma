@@ -105,8 +105,8 @@ test("creates deterministic Algorithm runs around VSA criteria", () => {
   expect(run.effort).toBe("E1");
   expect(run.effortSource).toBe("auto");
   expect(run.classificationReason).toContain("E1");
-  expect(run.isa.frontmatter.phase).toBe("observe");
-  expect(getCriteria(run.isa)[0]?.status).toBe("open");
+  expect(run.vsa.frontmatter.phase).toBe("observe");
+  expect(getCriteria(run.vsa)[0]?.status).toBe("open");
   expect(run.decisions[0]?.text).toContain("Bring ledger state current");
 });
 
@@ -188,7 +188,7 @@ test("enforces Algorithm phase gates", () => {
   expect(() => advanceAlgorithmRun(run)).toThrow("current-state probe");
   run = recordAlgorithmObservation(
     run,
-    { claim: "criterion C1 exists", evidence: "read run.isa", evidenceKind: "probed" },
+    { claim: "criterion C1 exists", evidence: "read run.vsa", evidenceKind: "probed" },
     "2026-05-14T10:00:30.000Z",
   );
   run = advanceAlgorithmRun(run, "2026-05-14T10:01:00.000Z");
@@ -252,7 +252,7 @@ test("advances Algorithm runs only to the requested handoff boundary", () => {
 
   run = recordAlgorithmObservation(
     run,
-    { claim: "criterion C1 exists", evidence: "read run.isa", evidenceKind: "probed" },
+    { claim: "criterion C1 exists", evidence: "read run.vsa", evidenceKind: "probed" },
     "2026-06-02T10:00:30.000Z",
   );
   run = advanceAlgorithmRun(run, "2026-06-02T10:01:00.000Z");
@@ -904,7 +904,7 @@ test("applies Algorithm batch operations with one timestamp", () => {
   });
   run = recordAlgorithmObservation(
     run,
-    { claim: "criterion C1 exists", evidence: "read run.isa", evidenceKind: "probed" },
+    { claim: "criterion C1 exists", evidence: "read run.vsa", evidenceKind: "probed" },
     "2026-05-21T10:00:30.000Z",
   );
   run = advanceAlgorithmRun(run, "2026-05-21T10:01:00.000Z");
@@ -937,7 +937,7 @@ test("records per-hop substrate provenance for Algorithm mutations", () => {
 
   run = recordAlgorithmObservation(
     run,
-    { claim: "criterion C1 exists", evidence: "read run.isa", evidenceKind: "probed" },
+    { claim: "criterion C1 exists", evidence: "read run.vsa", evidenceKind: "probed" },
     "2026-05-14T10:00:30.000Z",
     { substrate: "claude-code" },
   );

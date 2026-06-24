@@ -10,7 +10,7 @@ import {
   renderLogEntries,
   setSection,
 } from "./vsa-accessors";
-import { readVsa, resolveSomaHome, writeVsa, type VsaLibraryOptions } from "./vsa";
+import { readVsa, resolveSomaHome, vsaDir, writeVsa, type VsaLibraryOptions } from "./vsa";
 import { appendSomaMemoryEvent } from "./memory";
 import { parseVsa } from "./vsa-parse";
 import type { AlgorithmLogEntry, VerificationStateArtifact, IdealStateCriterion, VsaSection, SubstrateId } from "./types";
@@ -494,5 +494,5 @@ async function emitReconcileEvent(
 }
 
 function defaultVsaReconcileConfigPath(somaHome: string): string {
-  return join(somaHome, "isa", "config.json");
+  return join(vsaDir(somaHome), "config.json");
 }

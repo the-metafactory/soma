@@ -84,7 +84,7 @@ async function routeAlgorithmVsaEntry(
     try {
       await appendSomaMemoryEvent(somaHome, {
         substrate: substrate(options),
-        kind: "algorithm.isa_route.no-active-vsa",
+        kind: "algorithm.vsa_route.no-active-vsa",
         summary: `Algorithm ${callerLabel} not recorded: no active VSA set.`,
         timestamp: options.timestamp ?? new Date().toISOString(),
         metadata: { callerLabel, text: entry.text },
@@ -196,7 +196,7 @@ export async function suggestVsaAtObserve(
   try {
     await appendSomaMemoryEvent(somaHome, {
       substrate: substrate(options),
-      kind: "algorithm.isa_hint.suggested",
+      kind: "algorithm.vsa_hint.suggested",
       summary: HINT_TEXT,
       timestamp: options.timestamp ?? new Date().toISOString(),
       metadata: { effort: shape.effort, multiStep: shape.multiStep },

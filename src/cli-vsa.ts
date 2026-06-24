@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import {
   checkCompleteness,
   getActiveVsa,
+  vsaDir,
   vsaPath,
   listAvailableTiers,
   listVsas,
@@ -287,7 +288,7 @@ async function runArchive(args: string[]): Promise<VsaCliResult> {
   const { slug, parsed } = result;
   const somaHome = resolveSomaHome(parsed.options);
   const source = vsaPath(somaHome, slug);
-  const archived = join(somaHome, "isa", ".archived", `${slug}.md`);
+  const archived = join(vsaDir(somaHome), ".archived", `${slug}.md`);
   const exists = await stat(source).then(() => true, () => false);
   if (!exists) return { exitCode: 1, text: `VSA not found: '${slug}'\n` };
   // If archiving the currently-active VSA, also clear active state so

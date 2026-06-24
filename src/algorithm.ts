@@ -136,7 +136,7 @@ export function createAlgorithmRun(input: AlgorithmRunInput): AlgorithmRun {
   const slug = input.id ?? "algorithm-run";
 
   const run: AlgorithmRun = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     id: input.id ?? createRunId(timestamp),
     createdAt: timestamp,
     updatedAt: timestamp,
@@ -149,7 +149,7 @@ export function createAlgorithmRun(input: AlgorithmRunInput): AlgorithmRun {
     classificationReason,
     currentState: input.currentState,
     loop: { ...DEFAULT_ALGORITHM_LOOP_STATE, iterations: [] },
-    isa: buildVsaArtifact({
+    vsa: buildVsaArtifact({
       slug,
       task: input.intent,
       goal: input.goal,
@@ -209,7 +209,7 @@ export function setAlgorithmPlan(run: AlgorithmRun, planSteps: AlgorithmPlanStep
 
   uniqueIds(planSteps, "plan step");
 
-  const criteria = getCriteria(run.isa);
+  const criteria = getCriteria(run.vsa);
 
   for (const step of planSteps) {
     assertNonEmpty(step.text, `plan step ${step.id} text`);
@@ -294,7 +294,7 @@ export function recordAlgorithmObservation(
  * gate's verdict at every later moment.
  */
 export function computeGatesFired(run: AlgorithmRun): AlgorithmGatesFired {
-  const criteria = getCriteria(run.isa);
+  const criteria = getCriteria(run.vsa);
   const { unresolved, hollow } = learnGateViolations(criteria);
   return {
     currentStateFloor: hasCurrentStateProbe(run.observations),
@@ -384,7 +384,7 @@ export function verifyAlgorithmCriterion(
   assertNonEmpty(evidence, "verification evidence");
 
   const { isa: vsaWithSection, criteria: updatedCriteria } = updateCriterionWithResult(
-    run.isa,
+    run.vsa,
     criterionId,
     status,
     evidence,
@@ -404,7 +404,7 @@ export function verifyAlgorithmCriterion(
   const next = {
     ...run,
     updatedAt: entry.timestamp,
-    isa: vsaWithRecompute,
+    vsa: vsaWithRecompute,
     verification: [...run.verification, entry],
   };
   return appendAlgorithmProvenance(next, {
@@ -419,7 +419,7 @@ export function verifyAlgorithmCriterion(
 function assertGate(run: AlgorithmRun, target: AlgorithmPhase): void {
   switch (target) {
     case "think": {
-      const criteria = getCriteria(run.isa);
+      const criteria = getCriteria(run.vsa);
       if (criteria.length === 0) {
         throw new Error("Algorithm cannot enter THINK without criteria.");
       }
@@ -456,7 +456,7 @@ function assertGate(run: AlgorithmRun, target: AlgorithmPhase): void {
       }
       break;
     case "learn": {
-      const { unresolved, hollow } = learnGateViolations(getCriteria(run.isa));
+      const { unresolved, hollow } = learnGateViolations(getCriteria(run.vsa));
       if (unresolved.length > 0) {
         throw new Error(
           `Algorithm cannot enter LEARN until every criterion is passed, dropped, or deferred-probe. Unresolved: ${unresolved.map((c) => c.id).join(", ")}.`,
@@ -507,10 +507,10 @@ export function advanceAlgorithmRun(
   const next = {
     ...run,
     updatedAt: timestamp,
-    isa: {
-      ...run.isa,
+    vsa: {
+      ...run.vsa,
       frontmatter: {
-        ...run.isa.frontmatter,
+        ...run.vsa.frontmatter,
         phase: target,
         updated: timestamp,
       },

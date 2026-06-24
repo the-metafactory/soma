@@ -129,7 +129,7 @@ test("soma vsa scaffold uses date-prefixed slugs and does not double-prefix", as
     ]);
     expect(derived.exitCode).toBe(0);
     expect(derived.text).toContain(`Scaffolded ${today}-roesti-soc-tabletop`);
-    await expect(readFile(join(homeDir, ".soma", "isa", `${today}-roesti-soc-tabletop.md`), "utf8")).resolves.toContain(
+    await expect(readFile(join(homeDir, ".soma", "vsa", `${today}-roesti-soc-tabletop.md`), "utf8")).resolves.toContain(
       "Run the tabletop",
     );
 
@@ -171,7 +171,7 @@ test("AC-8: soma vsa check exits 0 when complete, 1 with gap report when not", a
     // Write an incomplete E4 VSA by hand (no scaffold) to test the gap path
     await scaffoldVsa({ homeDir, slug: "bad", goal: "G", effort: "E4" });
     // Strip required sections
-    const vsaPath = join(homeDir, ".soma", "isa", "bad.md");
+    const vsaPath = join(homeDir, ".soma", "vsa", "bad.md");
     const raw = await readFile(vsaPath, "utf8");
     const trimmed = raw.replace(/## Vision[\s\S]*?(?=##)/, "");
     const { writeFile: wf } = await import("node:fs/promises");
@@ -207,7 +207,7 @@ test("soma vsa archive moves the VSA to .archived/", async () => {
     const result = await runVsaCli(["archive", "old", "--home-dir", homeDir]);
     expect(result.exitCode).toBe(0);
     expect(result.text).toContain(".archived/old.md");
-    const archived = await readFile(join(homeDir, ".soma", "isa", ".archived", "old.md"), "utf8");
+    const archived = await readFile(join(homeDir, ".soma", "vsa", ".archived", "old.md"), "utf8");
     expect(archived).toContain("## Goal");
   });
 });

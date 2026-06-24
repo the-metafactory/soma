@@ -145,12 +145,15 @@ function loadCurrentWorkPointer(value: unknown): SomaCurrentWorkPointer | null {
   const { status } = fields;
   if (status !== "active" && status !== "idle" && status !== "complete" && status !== "failed") return null;
 
+  // soma#329 slice 3: dual-read the legacy `isa` pointer; persist as `vsa`.
+  const vsaPointer = value.vsa ?? value.isa;
+
   return {
     schema: "soma-current-work-v1",
     ...fields,
     status,
     artifacts: stringRecord(value.artifacts),
-    ...(typeof value.isa === "string" ? { isa: value.isa } : {}),
+    ...(typeof vsaPointer === "string" ? { vsa: vsaPointer } : {}),
     ...(typeof value.completedAt === "string" ? { completedAt: value.completedAt } : {}),
     ...(value.learningSources !== undefined ? { learningSources: learningSources(value.learningSources) } : {}),
   };

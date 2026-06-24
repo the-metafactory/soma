@@ -416,7 +416,7 @@ test("cli creates persisted Algorithm runs", async () => {
 
     expect(path?.startsWith(join(homeDir, ".soma/memory/WORK/algorithm-runs"))).toBe(true);
     const persisted = await readFile(path ?? "", "utf8");
-    expect(persisted).toContain('"schemaVersion": 2');
+    expect(persisted).toContain('"schemaVersion": 3');
     expect(persisted).toContain('"content": "Harness exists."');
   });
 });
