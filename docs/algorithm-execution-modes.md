@@ -1,7 +1,7 @@
 # Algorithm Execution Modes
 
 Issue #133 is a gap-fill, not a full Algorithm port. Soma already owns the
-core Algorithm run schema, phase gates, criteria state, audit logs, and ISA
+core Algorithm run schema, phase gates, criteria state, audit logs, and VSA
 bridge. The missing PAI capabilities are modeled here as substrate-neutral
 contracts so Codex, Pi.dev, Claude Code, Cortex, or a daemon can execute them
 without moving process spawning into Soma core.
@@ -34,9 +34,9 @@ isolation, and result consolidation remain substrate or orchestration concerns.
 
 New Algorithm runs created without an explicit `--id` use date-prefixed ids.
 This keeps repeated same-day tasks sortable and avoids collisions when several
-substrates start similar work. Existing explicit run ids are preserved. ISA
+substrates start similar work. Existing explicit run ids are preserved. VSA
 files written back from substrate OBSERVE hooks are normalized through the
-same date-prefixing helper so bare ISA slugs do not bypass run identity rules.
+same date-prefixing helper so bare VSA slugs do not bypass run identity rules.
 
 Algorithm mutations can also record per-hop substrate provenance. CLI paths
 such as phase advance, criterion verification, capability invocation, and

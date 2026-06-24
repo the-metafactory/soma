@@ -11,7 +11,7 @@ owns transport and envelope semantics, and Spawn owns isolated execution.
 
 ## Goals
 
-- Keep Soma identity, memory, ISA, policy, and skill routing available without
+- Keep Soma identity, memory, VSA, policy, and skill routing available without
   requiring Codex, Claude Code, Pi.dev, Cursor, or another substrate session to
   already be active.
 - Let Cortex/Myelin address a standalone Soma Cortex agent through approved
@@ -35,7 +35,7 @@ owns transport and envelope semantics, and Spawn owns isolated execution.
 
 | Area | Owner | Soma daemon role |
 | --- | --- | --- |
-| Assistant identity, Purpose, ISA, memory, policy, and skill registry | Soma | Read and update through the normal Soma home contracts. |
+| Assistant identity, Purpose, VSA, memory, policy, and skill registry | Soma | Read and update through the normal Soma home contracts. |
 | Myelin subject names, envelope schemas, ack/retry semantics, credentials | Myelin | Consume imported contracts; never invent incompatible wire semantics. |
 | Collaboration routing, work queues, task assignment | Cortex | Let Cortex address or discover the Soma Cortex agent. |
 | Isolated execution lifecycle | Spawn | Request execution when a task needs an isolated runtime. |
@@ -60,14 +60,14 @@ configuration or packages.
 | Result or refusal | publish | Report routed result metadata, refusal reason, or handoff target. |
 
 Every inbound envelope is policy-checked before it can affect memory, skills,
-ISA state, Algorithm runs, or substrate spawning. Unauthorized or malformed
+VSA state, Algorithm runs, or substrate spawning. Unauthorized or malformed
 envelopes fail closed and produce a refusal event instead of partial work.
 
 ## Routing Flow
 
 1. Start `soma daemon` with a principal-selected Soma home and Cortex/Myelin
    configuration.
-2. Load the Soma kernel: identity summary, active work/ISA, policy, skill
+2. Load the Soma kernel: identity summary, active work/VSA, policy, skill
    registry, and team overlays that are enabled for daemon use.
 3. Publish readiness and health.
 4. Receive a Myelin envelope.
@@ -108,6 +108,6 @@ owning packages.
 - The daemon must not expose Identity, Purpose, Relationship, raw transcripts, or
   security traces through team or bus-facing surfaces.
 - The daemon records provenance for every accepted envelope and every selected
-  skill or ISA.
+  skill or VSA.
 - A bus envelope cannot become an unreviewed writeback operation.
 - Live subscription must be opt-in and visible in health output.

@@ -10,7 +10,7 @@ writeback channel.
 
 ## Goals
 
-- Let MCP-capable substrates discover Soma memory, skills, ISA, Algorithm, and
+- Let MCP-capable substrates discover Soma memory, skills, VSA, Algorithm, and
   identity context on demand.
 - Keep eager startup context small by making large registries and skill bodies
   indexed with on-demand bodies.
@@ -43,9 +43,9 @@ pagination or selector arguments for large outputs.
 | Skills | `soma_skill_registry` | read | List available skills with names, summaries, token estimates, and entrypoints. |
 | Skills | `soma_skill_route` | read | Route a task description to likely skills without loading every skill body. |
 | Skills | `soma_skill_load` | read | Load one selected skill entrypoint or referenced file. |
-| ISA | `soma_isa_active` | read | Return the active ISA summary and criterion IDs. |
-| ISA | `soma_isa_check` | read | Check proposed evidence against active ISA criteria without mutating state. |
-| ISA | `soma_isa_scaffold` | deferred write | Create a new ISA draft after explicit confirmation. |
+| VSA | `soma_isa_active` | read | Return the active VSA summary and criterion IDs. |
+| VSA | `soma_isa_check` | read | Check proposed evidence against active VSA criteria without mutating state. |
+| VSA | `soma_isa_scaffold` | deferred write | Create a new VSA draft after explicit confirmation. |
 | Algorithm | `soma_algorithm_classify` | read | Classify a prompt as MINIMAL, NATIVE, or ALGORITHM and map Algorithm depth. |
 | Algorithm | `soma_algorithm_new` | deferred write | Create a new Algorithm run. |
 | Algorithm | `soma_algorithm_advance` | deferred write | Advance an existing Algorithm run through phase gates. |
@@ -75,7 +75,7 @@ small registry, route, then load only the selected body.
 
 Every read tool must validate the requesting principal, MCP client session,
 substrate, and allowed scope before returning data. Scope includes the requested
-memory path or ID, identity context, active ISA, skill entrypoint, Algorithm
+memory path or ID, identity context, active VSA, skill entrypoint, Algorithm
 classification input, and any substrate-specific visibility limit.
 
 Path-based reads must resolve through Soma core path validation and must not
@@ -108,7 +108,7 @@ by default.
 ## Adapter Boundary
 
 The MCP server is a library/daemon surface. It owns the protocol transport and
-tool schemas, but it calls Soma core for identity, memory, skill routing, ISA,
+tool schemas, but it calls Soma core for identity, memory, skill routing, VSA,
 Algorithm, policy, and writeback.
 
 Adapters own substrate-native install facts:
@@ -130,5 +130,5 @@ from the Tool Inventory table, matching the default manifest in the Schema
 Budget section.
 
 It should include fixture-backed tests for schema shape, bounded responses,
-path validation, missing active ISA, missing skill, no raw prompt persistence,
+path validation, missing active VSA, missing skill, no raw prompt persistence,
 and no writes from read-only tools.

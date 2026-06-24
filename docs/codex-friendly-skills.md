@@ -49,11 +49,11 @@ The first #172 audit found two checked-in Soma skill entrypoints:
 | Entrypoint | Pre-refactor size | Role | Action |
 | --- | ---: | --- | --- |
 | `skill/SKILL.md` | 22 lines | Soma kernel skill | Already compact. |
-| `src/skills/ISA/SKILL.md` | 241 lines | Bundled ISA skill projected into substrates | Refactored into a compact entrypoint plus references. |
+| `src/skills/VSA/SKILL.md` | 241 lines | Bundled VSA skill projected into substrates | Refactored into a compact entrypoint plus references. |
 
-The ISA skill was the highest-impact representative target because it is bundled
+The VSA skill was the highest-impact representative target because it is bundled
 with Soma, projected into installed homes, and likely to be invoked inside Codex
-when working through Algorithm/ISA flows.
+when working through Algorithm/VSA flows.
 
 ## Authoring Rule
 

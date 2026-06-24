@@ -10,7 +10,7 @@ The core is filesystem-native and substrate-neutral.
 SomaCore
   Identity
   Purpose
-  ISA
+  VSA
   Skills
   Memory
   Policy
@@ -29,15 +29,15 @@ the substrate.
 Purpose stores goals, principles, commitments, strategies, and desired state. It
 is the steering source for assistant recommendations and prioritization.
 
-### ISA
+### VSA
 
-Ideal State Artifacts define work. An ISA is both the articulation of done and
-the verification contract. Project ISAs live with projects. Task ISAs live under
+Verification State Artifacts define work. A VSA is both the articulation of done and
+the verification contract. Project VSAs live with projects. Task VSAs live under
 Soma memory.
 
 ### Algorithm Harness
 
-The Algorithm harness is the deterministic execution layer around ISA. PAI used
+The Algorithm harness is the deterministic execution layer around VSA. PAI used
 TheAlgorithm mostly as doctrine projected into Claude; Soma keeps that doctrine
 as a portable skill, but also exposes typed run state and phase gates that a
 substrate or daemon can call directly.
@@ -91,7 +91,7 @@ task route selects them.
 
 MCP-capable substrates may use the optional
 [MCP server](./mcp-server.md) as the on-demand loading surface for skills,
-memory, ISA, Algorithm, and identity context. The server remains a core/library
+memory, VSA, Algorithm, and identity context. The server remains a core/library
 access surface; adapters only configure substrate-native MCP clients.
 
 Team-shared skills use **team overlays** rather than multi-principal Soma
@@ -120,7 +120,7 @@ substrate writeback. The design is Git-backed first, policy-gated per scope,
 and only auto-merges stores with deterministic merge semantics. See
 [docs/home-replication.md](./home-replication.md).
 
-Team `KNOWLEDGE`, `WORK`, and ISA material can be read through a team overlay,
+Team `KNOWLEDGE`, `WORK`, and VSA material can be read through a team overlay,
 but it stays namespaced and cited separately from personal memory. Team
 overlays are read-only in the first slice and must not expose personal Identity,
 Purpose, Relationship, raw transcript, or security-trace compartments.
