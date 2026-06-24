@@ -71,9 +71,9 @@ updated: <ISO-8601>
 
 | Tier | Required Sections |
 |------|-------------------|
-| E1 | Goal, Criteria |
-| E2 | Problem, Goal, Criteria, Test Strategy |
-| E3 | Problem, Vision, Out of Scope, Constraints, Goal, Criteria, Features, Test Strategy |
+| E1 | Goal, Checkpoints |
+| E2 | Problem, Goal, Checkpoints, Test Strategy |
+| E3 | Problem, Vision, Out of Scope, Constraints, Goal, Checkpoints, Features, Test Strategy |
 | E4 | All twelve sections |
 | E5 | All twelve sections + run Interview workflow before BUILD |
 
@@ -116,7 +116,7 @@ When `ephemeral_feature` is set:
 3. Extract:
    - `## Vision` and `## Goal` from master (read-only context)
    - `## Constraints` filtered to those relevant to this feature
-   - `## Criteria` ISCs whose IDs appear in the feature's `satisfies:` list, with stable IDs preserved
+   - `## Checkpoints` ISCs whose IDs appear in the feature's `satisfies:` list, with stable IDs preserved
    - `## Test Strategy` entries matching those ISCs
    - `## Decisions` filtered to entries mentioning this feature's ISC IDs (optional)
    - Empty `## Verification` section ready to populate

@@ -61,7 +61,7 @@ A unified patient portal at `portal.beaconhealth.example.org` serving all 50 hos
 
 Deliver a multi-region active-active patient portal at `portal.beaconhealth.example.org` that replaces the legacy 2014 forked codebase before the 2027-06-30 vendor end-of-life, unifies records across all 50 hospitals (Epic, MEDITECH, Cerner) into a single longitudinal view, supports patient/clinician/admin/auditor roles with HIPAA-conformant audit logging at 6-year retention, exposes appointment scheduling and secure messaging across all regions, provides authoritative read-only chart access plus e-prescription handoff to Surescripts, and stays inside the data-residency, BAA, encryption, and session-management constraints across both standard operations and regional failover.
 
-## Criteria
+## Checkpoints
 
 ### Identity and Authentication
 

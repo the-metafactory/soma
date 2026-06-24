@@ -29,7 +29,7 @@ required_sections:
   Principles: thin       # ≤ 1 sentence
   Constraints: present
   Goal: present
-  Criteria: present
+  Checkpoints: present
   Test Strategy: present
   Features: present
   Decisions: present
@@ -74,9 +74,9 @@ Load `isa_path`. Parse frontmatter and section headers.
 
 | Tier | Required Sections |
 |------|-------------------|
-| E1 | Goal, Criteria |
-| E2 | Problem, Goal, Criteria, Test Strategy |
-| E3 | Problem, Vision, Out of Scope, Constraints, Goal, Criteria, Features, Test Strategy |
+| E1 | Goal, Checkpoints |
+| E2 | Problem, Goal, Checkpoints, Test Strategy |
+| E3 | Problem, Vision, Out of Scope, Constraints, Goal, Checkpoints, Features, Test Strategy |
 | E4 | All twelve sections |
 | E5 | All twelve sections + Interview workflow ran before BUILD |
 
@@ -95,7 +95,7 @@ For each required section:
 
 ### Step 5 — Audit ISC quality
 
-Walk every ISC in `## Criteria`:
+Walk every ISC in `## Checkpoints`:
 
 - **Granularity** — every ISC names a single binary tool probe (or has one inferable from its phrasing). Compound "and/with" criteria fail.
 - **Tier floor** — at E2+, total ISC count meets the floor (E2 ≥16, E3 ≥32, E4 ≥128, E5 ≥256). Soft fail if under.
@@ -116,7 +116,7 @@ When invoked from VERIFY-phase doctrine, hard gaps block the `phase: complete` t
 | Gap | Severity at E1 | E2 | E3 | E4 | E5 |
 |-----|----------------|----|----|----|----|
 | Goal missing | hard | hard | hard | hard | hard |
-| Criteria missing | hard | hard | hard | hard | hard |
+| Checkpoints missing | hard | hard | hard | hard | hard |
 | Problem missing | — | hard | hard | hard | hard |
 | Test Strategy missing | — | hard | hard | hard | hard |
 | Vision missing | — | — | hard | hard | hard |

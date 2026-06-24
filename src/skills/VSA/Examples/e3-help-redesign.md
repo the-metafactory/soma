@@ -50,7 +50,7 @@ A `duck --help` that a first-time user can read top-to-bottom in 30 seconds and 
 
 Ship a redesigned `duck --help` template (≤ 100 lines, 80-col safe) that opens with a one-sentence project summary, shows the two most-common usages as concrete examples, lists the flag reference grouped by category (not declaration order), and ends with a "see also" footer pointing at man + docs URL — all reference content preserved, all flags still grep-able, first-time-user help-to-first-command time drops from 95s median to ≤ 30s median.
 
-## Criteria
+## Checkpoints
 
 ### Length and layout
 
@@ -217,7 +217,7 @@ Ship a redesigned `duck --help` template (≤ 100 lines, 80-col safe) that opens
 - 2026-04-15 16:00: refined: ISC-16 added a 30-day post-ship probe (ISC-30) — without it, the redesign passes its launch test but could regress in 90 days as new flags are added without category discipline.
 
 <!--
-E3 design VSA. Required sections: Problem, Vision, Out of Scope, Constraints, Goal, Criteria, Features, Test Strategy.
+E3 design VSA. Required sections: Problem, Vision, Out of Scope, Constraints, Goal, Checkpoints, Features, Test Strategy.
 Optional Principles included — the design has experiential goals (first 30 seconds, recognition, intuition) and principles do real work in the design pass.
 ISC count of 36 exceeds the E3 floor of 32. Three Antecedent ISCs (ISC-18, 19, 20) carry the experiential contract: hard-to-vary one-sentence summary, telemetry-grounded examples, and intuitive categories. Anti-criteria (ISC-24, 25, 26, 27) cover scope, regression, drift, and density. The Decisions section shows two ❌ DEAD ENDs and three refinements — typical for a redesign where every aesthetic temptation needs to be tested against actual users.
 -->

@@ -56,7 +56,7 @@ A small focused marketplace at `beanline.example.com` where a verified roaster l
 
 Ship a Cloudflare-hosted marketplace at `beanline.example.com` where verified roasters can list 5–50kg green-coffee lots and verified buyers can purchase via Stripe escrow with QR-handoff confirmation; the platform takes ≤ 5.1% margin (≤ 8% all-in including Stripe), browse pages render in ≤ 1s p95 on cellular, and the in-house quality lead can approve a new listing in ≤ 10 minutes per lot.
 
-## Criteria
+## Checkpoints
 
 ### Build & Deploy
 
