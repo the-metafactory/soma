@@ -52,8 +52,34 @@ function hookSessionId(input) {
   return typeof candidate === "string" && candidate.length > 0 ? candidate : undefined;
 }
 
+// Resolve soma's entrypoint file from the trusted repo's declared `scripts.soma`
+// (e.g. "bun src/cli.ts" → "<repo>/src/cli.ts"), anchored to trustedSomaRepo.
+// Returns undefined if the repo has no such script — i.e. it isn't a soma
+// checkout. Tracks the declared invocation contract rather than hardcoding a path.
+function resolveSomaEntrypoint(repo) {
+  try {
+    const script = JSON.parse(readFileSync(join(repo, "package.json"), "utf8")).scripts?.soma;
+    if (typeof script !== "string") return undefined;
+    const file = script.split(/\s+/).find((token) => /\.[cm]?[jt]s$/.test(token));
+    return file ? join(repo, file) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// Invoke soma by the trusted repo's OWN entrypoint, NOT `bun run soma`. `bun run
+// soma` resolves the script by walking up from cwd and, failing that, a GLOBAL
+// `soma` on PATH (the repo declares scripts.soma but no bin) — so a missing or
+// wrong trustedSomaRepo would silently run some other soma and could return
+// `allow`. Running the resolved file directly has no PATH fallback: an
+// unresolvable repo yields a synthetic non-zero result, and the caller's
+// `status !== 0` legs fail closed. Ties every policy decision to the trusted repo.
 function runSomaCommand(config, args, env = {}) {
-  return spawnSync(config.bunPath, args, {
+  const entrypoint = resolveSomaEntrypoint(config.trustedSomaRepo);
+  if (entrypoint === undefined) {
+    return { status: 1, stdout: "", stderr: `trusted soma repo unusable: no soma entrypoint under ${config.trustedSomaRepo}` };
+  }
+  return spawnSync(config.bunPath, [entrypoint, ...args], {
     cwd: config.trustedSomaRepo,
     encoding: "utf8",
     timeout: 25000,
@@ -62,7 +88,7 @@ function runSomaCommand(config, args, env = {}) {
 }
 
 function runSomaLifecycle(config, event, sessionId) {
-  const args = ["run", "soma", "lifecycle", event, "--soma-home", config.somaHome, "--substrate", "grok"];
+  const args = ["lifecycle", event, "--soma-home", config.somaHome, "--substrate", "grok"];
   if (sessionId) {
     args.push("--session-id", sessionId);
   }
@@ -71,13 +97,11 @@ function runSomaLifecycle(config, event, sessionId) {
 }
 
 function runSomaClassification(config, prompt) {
-  return runSomaCommand(config, ["run", "soma", "algorithm", "classify", "--prompt", prompt || "", "--json"]);
+  return runSomaCommand(config, ["algorithm", "classify", "--prompt", prompt || "", "--json"]);
 }
 
 function runSomaPolicyCheck(config, targets, action = "write") {
   const args = [
-    "run",
-    "soma",
     "policy",
     "check",
     "--soma-home",
@@ -101,8 +125,6 @@ function runSomaPolicyCheck(config, targets, action = "write") {
 
 function runSomaInboundContentScan(config, target) {
   return runSomaCommand(config, [
-    "run",
-    "soma",
     "policy",
     "scan",
     "--soma-home",
@@ -119,8 +141,6 @@ function runSomaInboundContentScan(config, target) {
 
 function runSomaRuntimePolicyInspect(config, surface, payload) {
   const args = [
-    "run",
-    "soma",
     "policy",
     "inspect",
     "--soma-home",
