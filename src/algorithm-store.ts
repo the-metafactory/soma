@@ -104,17 +104,29 @@ type LegacyAlgorithmRun = Omit<
 };
 
 /**
- * Compat shim — accepts both pre-#41 (schemaVersion 1, embedded `{ goal, criteria }`)
- * and post-#41 (schemaVersion 2, unified `VerificationStateArtifact`) on-disk shapes.
- * Always returns the unified schema-2 shape.
+ * Compat shim — accepts every on-disk shape and always returns the current
+ * unified schema (v3, embedded VSA under `vsa`):
+ *  - v1 (pre-#41): flat, embedded `{ goal, criteria }` under `isa` → migrated.
+ *  - v2 (#41): unified `VerificationStateArtifact` under the `isa` key.
+ *  - v3 (#329 slice 3): unified VSA under the `vsa` key.
+ * v2 and v3 differ only by the embedded key, so we dual-read `vsa ?? isa`,
+ * strip the stale `isa` key, and normalize to `vsa` + schemaVersion 3.
  */
 export function loadAlgorithmRun(raw: unknown): AlgorithmRun {
   if (typeof raw !== "object" || raw === null) {
     throw new Error("AlgorithmRun JSON is not an object.");
   }
-  const candidate = raw as Partial<AlgorithmRun & LegacyAlgorithmRun>;
-  if (candidate.schemaVersion === 2 && isUnifiedShape(candidate.isa)) {
-    return ensureAlgorithmRunDefaults(candidate as AlgorithmRun);
+  // Decouple `schemaVersion` from the cast: AlgorithmRun pins it to the literal
+  // `3` while LegacyAlgorithmRun allows `1 | 2`, and their intersection would be
+  // `never` — which poisons the whole candidate. Widen it to `number` here.
+  const candidate = raw as Partial<Omit<AlgorithmRun, "schemaVersion"> & Omit<LegacyAlgorithmRun, "schemaVersion">> & {
+    schemaVersion?: number;
+  };
+  const embedded = candidate.vsa ?? candidate.isa;
+  if ((candidate.schemaVersion === 2 || candidate.schemaVersion === 3) && isUnifiedShape(embedded)) {
+    const { isa: _legacyIsaKey, ...rest } = candidate;
+    void _legacyIsaKey;
+    return ensureAlgorithmRunDefaults({ ...rest, schemaVersion: 3, vsa: embedded as VerificationStateArtifact } as AlgorithmRun);
   }
   return ensureAlgorithmRunDefaults(migrateRunV1toV2(candidate as LegacyAlgorithmRun));
 }
@@ -134,13 +146,13 @@ function ensureAlgorithmRunDefaults(run: AlgorithmRunWithDefaults): AlgorithmRun
   };
 }
 
-function isUnifiedShape(isa: unknown): boolean {
+function isUnifiedShape(embedded: unknown): boolean {
   return (
-    typeof isa === "object" &&
-    isa !== null &&
-    "frontmatter" in isa &&
-    "sections" in isa &&
-    Array.isArray((isa as { sections: unknown }).sections)
+    typeof embedded === "object" &&
+    embedded !== null &&
+    "frontmatter" in embedded &&
+    "sections" in embedded &&
+    Array.isArray((embedded as { sections: unknown }).sections)
   );
 }
 
@@ -159,20 +171,22 @@ function migrateRunV1toV2(legacy: LegacyAlgorithmRun): AlgorithmRun {
     phase: legacyPhase,
     timestamp: legacy.createdAt,
   });
-  const isa: VerificationStateArtifact = {
+  const vsa: VerificationStateArtifact = {
     ...built,
     frontmatter: { ...built.frontmatter, updated: legacy.updatedAt },
   };
 
   // Spread legacy first, then override divergent fields. New AlgorithmRun
-  // fields with default-safe optionality will propagate automatically.
-  const { phase: _legacyPhaseField, ...legacyFields } = legacy;
+  // fields with default-safe optionality will propagate automatically. Strip
+  // the legacy `isa` embedded key so the v3 result carries only `vsa`.
+  const { phase: _legacyPhaseField, isa: _legacyEmbedded, ...legacyFields } = legacy;
   void _legacyPhaseField;
+  void _legacyEmbedded;
   return {
     ...legacyFields,
-    schemaVersion: 2,
+    schemaVersion: 3,
     intent,
-    isa,
+    vsa,
     loop: legacy.loop ?? { ...DEFAULT_ALGORITHM_LOOP_STATE, iterations: [] },
     antiCriteria: legacy.antiCriteria ?? [],
     capabilities: legacy.capabilities ?? [],
@@ -215,7 +229,7 @@ export function summarizeAlgorithmRun(run: AlgorithmRun, path: string): Algorith
     "deferred-probe": 0,
   };
 
-  const criteria = getCriteria(run.isa);
+  const criteria = getCriteria(run.vsa);
   for (const criterion of criteria) {
     counts[criterion.status] += 1;
   }
@@ -229,7 +243,7 @@ export function summarizeAlgorithmRun(run: AlgorithmRun, path: string): Algorith
     updatedAt: run.updatedAt,
     phase: getRunPhase(run),
     effort: run.effort,
-    goal: getGoal(run.isa) ?? "",
+    goal: getGoal(run.vsa) ?? "",
     openCriteria: counts.open,
     passedCriteria: counts.passed,
     failedCriteria: counts.failed,

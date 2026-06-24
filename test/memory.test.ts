@@ -501,7 +501,7 @@ test("promotes an Algorithm run into durable Soma memory", async () => {
           goal: "Consulting lesson becomes durable memory.",
           criteria: [{ id: "C1", text: "Lesson is promoted." }],
         }),
-        isa: {
+        vsa: {
           slug: "consulting-lesson",
           frontmatter: {
             task: "Capture a reusable consulting insight.",
@@ -595,7 +595,7 @@ test("sanitizes Algorithm run ids in promotion filenames", async () => {
           goal: "Promotion filename is path-safe.",
           criteria: [{ id: "C1", text: "Filename is safe." }],
         }),
-        isa: {
+        vsa: {
           slug: "nested-run-id",
           frontmatter: {
             task: "Keep promotion paths flat.",

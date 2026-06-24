@@ -98,7 +98,7 @@ test("creates a soma run from an VSA, keyed by slug, mapping goal + criteria", a
       ["observation.record", "claude-code"],
       ["phase.advance", "claude-code"],
     ]);
-    const criteria = getCriteria(run.isa);
+    const criteria = getCriteria(run.vsa);
     expect(criteria.map((c) => c.id)).toEqual(["ISC-1", "ISC-2"]);
     // Advanced forward to match VSA phase `think`.
     expect(getRunPhase(run)).toBe("think");
@@ -131,7 +131,7 @@ test("normalizes bare OBSERVE VSA slugs through dated Algorithm run ids", async 
 
     const { run } = await readAlgorithmRunById(result.runId!, { somaHome });
     expect(run.id).toBe("2026-06-02-switch-phish-to-learn");
-    expect(run.isa.slug).toBe("2026-06-02-switch-phish-to-learn");
+    expect(run.vsa.slug).toBe("2026-06-02-switch-phish-to-learn");
 
     const rewritten = await readFile(vsaPath, "utf8");
     expect(rewritten).toContain("slug: 2026-06-02-switch-phish-to-learn");
@@ -301,7 +301,7 @@ test("reconciles checked VSA criteria [x] into passed run criteria", async () =>
     expect(result.criteriaTotal).toBe(2);
 
     const { run } = await readAlgorithmRunById(result.runId!, { somaHome });
-    const criteria = getCriteria(run.isa);
+    const criteria = getCriteria(run.vsa);
     expect(criteria.find((c) => c.id === "ISC-1")?.status).toBe("passed");
     expect(criteria.find((c) => c.id === "ISC-2")?.status).toBe("open");
   });
@@ -334,8 +334,8 @@ test("reconciles frontmatter progress when VSA checkboxes remain unticked", asyn
     expect(result.phase).toBe("verify");
 
     const { run } = await readAlgorithmRunById(result.runId!, { somaHome });
-    expect(getCriteria(run.isa).map((c) => c.status)).toEqual(["passed", "passed", "passed"]);
-    expect(getCriteria(run.isa).every((c) => c.evidenceKind === "specified")).toBe(true);
+    expect(getCriteria(run.vsa).map((c) => c.status)).toEqual(["passed", "passed", "passed"]);
+    expect(getCriteria(run.vsa).every((c) => c.evidenceKind === "specified")).toBe(true);
     expect(run.verification.map((entry) => entry.text)).toContain(
       "ISC-1: passed. synced from VSA progress: Honor frontmatter completion",
     );
@@ -364,7 +364,7 @@ test("frontmatter progress never reopens checked VSA criteria", async () => {
     expect(result.criteriaPassed).toBe(2);
 
     const { run } = await readAlgorithmRunById(result.runId!, { somaHome });
-    expect(getCriteria(run.isa).map((c) => c.status)).toEqual(["passed", "passed", "open"]);
+    expect(getCriteria(run.vsa).map((c) => c.status)).toEqual(["passed", "passed", "open"]);
   });
 });
 

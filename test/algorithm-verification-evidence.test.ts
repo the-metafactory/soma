@@ -50,7 +50,7 @@ function toVerify(): ReturnType<typeof createAlgorithmRun> {
 test("verifyAlgorithmCriterion records the evidence kind on the criterion", () => {
   let run = toVerify();
   run = verifyAlgorithmCriterion(run, "C1", "passed", "curl /health -> 200", "2026-06-22T10:10:00.000Z", undefined, "probed");
-  const c1 = getCriteria(run.isa).find((c) => c.id === "C1");
+  const c1 = getCriteria(run.vsa).find((c) => c.id === "C1");
   expect(c1?.status).toBe("passed");
   expect(c1?.evidenceKind).toBe("probed");
 });
@@ -59,7 +59,7 @@ test("evidence kind round-trips through VSA markdown serialization", () => {
   let run = toVerify();
   run = verifyAlgorithmCriterion(run, "C1", "passed", "ran bun test", "2026-06-22T10:10:00.000Z", undefined, "tested");
   // Re-parse from the serialized VSA sections.
-  const reparsed = getCriteria(run.isa).find((c) => c.id === "C1");
+  const reparsed = getCriteria(run.vsa).find((c) => c.id === "C1");
   expect(reparsed?.evidenceKind).toBe("tested");
 });
 
@@ -87,10 +87,10 @@ test("a probed pass advances to LEARN", () => {
 test("deferred-probe is an honest resolved state accepted by the LEARN gate", () => {
   let run = toVerify();
   run = verifyAlgorithmCriterion(run, "C1", "deferred-probe", "design-only; real probe deferred to follow-up", "2026-06-22T10:10:00.000Z");
-  const c1 = getCriteria(run.isa).find((c) => c.id === "C1");
+  const c1 = getCriteria(run.vsa).find((c) => c.id === "C1");
   expect(c1?.status).toBe("deferred-probe");
   // verified should NOT be true when a criterion is only deferred-probe.
-  expect(run.isa.frontmatter.verified).toBe(false);
+  expect(run.vsa.frontmatter.verified).toBe(false);
   run = advanceAlgorithmRun(run, "2026-06-22T10:11:00.000Z");
   expect(getRunPhase(run)).toBe("learn");
 });

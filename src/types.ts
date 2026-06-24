@@ -175,7 +175,7 @@ export interface VsaSection {
  * Accumulates Decisions, Changelog, and Verification entries over its lifetime.
  * The name is historical (predates the section-based model).
  *
- * Identity: `slug`. Source of truth when file-backed: `~/.soma/isa/<slug>.md`.
+ * Identity: `slug`. Source of truth when file-backed: `~/.soma/vsa/<slug>.md`.
  * In-memory ephemeral VSAs (Algorithm runs that never touch disk) leave
  * `sourcePath` undefined.
  *
@@ -341,7 +341,9 @@ export interface AlgorithmCapabilitySelection {
 }
 
 export interface AlgorithmRun {
-  schemaVersion: 2;
+  // soma#329 slice 3: v3 stores the embedded VSA under the `vsa` key (was `isa`
+  // ≤v2). The on-disk reader (loadAlgorithmRun) dual-reads both keys.
+  schemaVersion: 3;
   id: string;
   createdAt: string;
   updatedAt: string;
@@ -353,7 +355,7 @@ export interface AlgorithmRun {
   mode: AlgorithmMode;
   classificationReason: string;
   currentState: string;
-  isa: VerificationStateArtifact;
+  vsa: VerificationStateArtifact;
   loop: AlgorithmLoopState;
   antiCriteria: IdealStateCriterion[];
   capabilities: string[];
@@ -2154,7 +2156,7 @@ export interface SomaProtectedPath {
    * destructive operations against any descendant of `path` remain blocked.
    *
    * Used to declare known memory/VSA destinations under a private root so that
-   * legitimate Soma writes (e.g. `~/.soma/isa/*.md`, `~/.soma/memory/...`)
+   * legitimate Soma writes (e.g. `~/.soma/vsa/*.md`, `~/.soma/memory/...`)
    * pass while overwrites of the private root itself (`~/.soma/profile/...`)
    * stay denied.
    */

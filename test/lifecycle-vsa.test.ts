@@ -171,7 +171,7 @@ test("AC-6: integration — scaffold → use → isa_updated → on-disk Decisio
       { decisions: [{ text: "Committed to ship today", phase: "execute" }] },
       { homeDir, timestamp: "2026-05-17T12:00:00.000Z" },
     );
-    const onDisk = await readFile(join(homeDir, ".soma", "isa", "demo.md"), "utf8");
+    const onDisk = await readFile(join(homeDir, ".soma", "vsa", "demo.md"), "utf8");
     expect(onDisk).toContain("## Decisions");
     expect(onDisk).toContain("Committed to ship today");
     expect(onDisk).toContain("[execute]");
@@ -231,7 +231,7 @@ test("failed isa_updated emits .failed event, not success", async () => {
     await scaffoldVsa({ homeDir, slug: "ghost", goal: "G", effort: "E1" });
     await setActiveVsa("ghost", { homeDir });
     // Remove the file so readVsa fails
-    await rm(join(homeDir, ".soma", "isa", "ghost.md"));
+    await rm(join(homeDir, ".soma", "vsa", "ghost.md"));
 
     await expect(
       runSomaLifecycleVsaUpdated({ decisions: [{ text: "doomed" }] }, { homeDir }),
@@ -248,7 +248,7 @@ test("session-start tolerates active slug pointing at missing VSA (no crash)", a
     await scaffoldVsa({ homeDir, slug: "ghost", goal: "G", effort: "E1" });
     await setActiveVsa("ghost", { homeDir });
     // Delete the VSA file out from under active state
-    await rm(join(homeDir, ".soma", "isa", "ghost.md"));
+    await rm(join(homeDir, ".soma", "vsa", "ghost.md"));
     const result = await runSomaLifecycleSessionStart({ homeDir });
     expect(result.event).toBe("session_start");
     expect(result.activeVsa).toBeNull();
