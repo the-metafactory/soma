@@ -252,7 +252,7 @@ function completedLearningContent(run: AlgorithmRun, timestamp: string): string 
     `Goal: ${getGoal(run.vsa) ?? ""}`,
     `Effort: ${run.effort}`,
     "",
-    "## Criteria",
+    "## Checkpoints",
     ...getCriteria(run.vsa).map((criterion) => `- [${criterion.status === "passed" ? "x" : " "}] ${criterion.id}: ${criterion.text}`),
     "",
     "## Verification",

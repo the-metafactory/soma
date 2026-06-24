@@ -2,9 +2,11 @@ import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import {
   SECTION_NAME_MAP,
+  canonicalSectionName,
   getChangelog,
   getCriteria,
   getDecisions,
+  getSection,
   getVerification,
   renderCriteriaMarkdown,
   renderLogEntries,
@@ -214,7 +216,14 @@ function mergeCriteria(
     if (JSON.stringify(merged) !== JSON.stringify(current)) report.mergedCriteria.push(featureCriterion.id);
   }
 
-  return setSection(master, SECTION_NAME_MAP.criteria, renderCriteriaMarkdown(order.map((id) => byId.get(id)).filter((criterion): criterion is Checkpoint => !!criterion)));
+  const rendered = renderCriteriaMarkdown(order.map((id) => byId.get(id)).filter((criterion): criterion is Checkpoint => !!criterion));
+  // soma#329 slice 4: skip the write when nothing changed, so a no-op reconcile
+  // of a legacy-headed VSA stays byte-identical (and keeps its `## Criteria`
+  // heading) rather than being rewritten to `## Checkpoints`. A real change
+  // writes via setSection, which upgrades the heading in place.
+  const existing = getSection(master, SECTION_NAME_MAP.criteria);
+  if (existing !== null && existing.content === rendered) return master;
+  return setSection(master, SECTION_NAME_MAP.criteria, rendered);
 }
 
 function mergeCriterion(
@@ -369,7 +378,10 @@ function mergeOtherSections(
   let next = master;
   const masterNames = new Set(master.sections.map((section) => section.name));
   for (const featureSection of feature.sections) {
-    if (featureSection.name === SECTION_NAME_MAP.criteria || LOG_SECTIONS.has(featureSection.name)) continue;
+    // Criteria are merged separately (mergeCriteria); skip the section here under
+    // either its canonical (`Checkpoints`) or legacy (`Criteria`) heading so a
+    // legacy-headed feature VSA isn't misread as an unrelated "other" section.
+    if (canonicalSectionName(featureSection.name) === SECTION_NAME_MAP.criteria || LOG_SECTIONS.has(featureSection.name)) continue;
     const masterSection = next.sections.find((section) => section.name === featureSection.name);
     if (!masterSection) {
       const renamed = findLikelyRenamedSection(next.sections, featureSection);
