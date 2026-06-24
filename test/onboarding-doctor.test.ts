@@ -180,7 +180,7 @@ test("soma init skips a non-flat Claude skills dir yet still populates the home 
       "memory/KNOWLEDGE",
       "skills/README.md",
       "policy/README.md",
-      "isa/INDEX.md",
+      "vsa/INDEX.md",
       "projections/README.md",
     ]) {
       await expect(stat(join(homeDir, ".soma", relative))).resolves.toBeTruthy();

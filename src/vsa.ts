@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -70,7 +71,15 @@ export function resolveSomaHome(options: VsaLibraryOptions = {}): string {
 }
 
 export function vsaDir(somaHome: string): string {
-  return join(somaHome, "isa");
+  const canonical = join(somaHome, "vsa");
+  if (existsSync(canonical)) return canonical;
+  // soma#329 slice 3: homes created before the ISA→VSA rename stored VSAs under
+  // `isa/`. Dual-read the legacy dir when the canonical `vsa/` does not exist
+  // yet; the upgrade migration (migrateVsaStorageDir) renames isa/ → vsa/ so new
+  // writes land canonically. Default to `vsa/` for fresh homes.
+  const legacy = join(somaHome, "isa");
+  if (existsSync(legacy)) return legacy;
+  return canonical;
 }
 
 export function vsaPath(somaHome: string, slug: string): string {

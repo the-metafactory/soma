@@ -78,7 +78,7 @@ describe("applySomaWriteback", () => {
 
     expect(result.decision).toBe("applied");
     expect(result.merge).toBe("vsa-log-append");
-    expect(result.writes.some((path) => path.endsWith("isa/demo.md"))).toBe(true);
+    expect(result.writes.some((path) => path.endsWith("vsa/demo.md"))).toBe(true);
     expect(result.writes.some((path) => path.endsWith("memory/STATE/events.jsonl"))).toBe(true);
 
     const isa = await readVsa("demo", { homeDir });

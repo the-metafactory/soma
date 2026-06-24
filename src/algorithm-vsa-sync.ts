@@ -241,7 +241,7 @@ function prepareAndAdvance(run: AlgorithmRun, target: AlgorithmPhase, timestamp:
       break;
     case "build":
       if (next.planSteps.length === 0) {
-        const criteriaIds = getCriteria(next.isa).map((c) => c.id);
+        const criteriaIds = getCriteria(next.vsa).map((c) => c.id);
         next = setAlgorithmPlan(
           next,
           [{ id: "sync-step", criteriaIds, text: "synced from VSA plan phase", status: "open" }],
@@ -306,7 +306,7 @@ function reconcileCriteria(
   substrate: SubstrateId,
 ): AlgorithmRun {
   let next = run;
-  const runCriteriaById = new Map(getCriteria(next.isa).map((c) => [c.id, c]));
+  const runCriteriaById = new Map(getCriteria(next.vsa).map((c) => [c.id, c]));
   for (const vsaCriterion of vsaCriteria) {
     if (!isClosedCriterion(vsaCriterion)) continue;
     const existing = runCriteriaById.get(vsaCriterion.id);
@@ -338,7 +338,7 @@ function reconcileCriteria(
   }
 
   const targetCompleted = frontmatterCompletionCount(isa, vsaCriteria);
-  let runCriteria = getCriteria(next.isa);
+  let runCriteria = getCriteria(next.vsa);
   let completed = runCriteria.filter(isClosedCriterion).length;
   // Frontmatter progress is count-only; when it is partial, document order is
   // the only deterministic way to choose which unchecked criteria to catch up.
@@ -351,7 +351,7 @@ function reconcileCriteria(
     // A pass fabricated to match a frontmatter progress counter is specification
     // grade only — it must not clear the LEARN integrity gate as if probed.
     next = verifyAlgorithmCriterion(next, vsaCriterion.id, "passed", evidence, timestamp, { substrate }, "specified");
-    runCriteria = getCriteria(next.isa);
+    runCriteria = getCriteria(next.vsa);
     completed = runCriteria.filter(isClosedCriterion).length;
   }
 
@@ -476,7 +476,7 @@ async function syncAlgorithmRunFromVsaInner(
   //    every criterion is passed/dropped, so criteria state must be current
   //    before we attempt to advance the phase.
   run = reconcileCriteria(run, isa, vsaCriteria, timestamp, options.substrate);
-  const reconciledCriteria = getCriteria(run.isa);
+  const reconciledCriteria = getCriteria(run.vsa);
 
   // 2. Advance forward to (a reachable cap of) the VSA's declared phase. Never backward.
   const targetPhase = reachableTargetPhase(isa.frontmatter.phase, reconciledCriteria);
@@ -485,7 +485,7 @@ async function syncAlgorithmRunFromVsaInner(
   }
 
   // 3. If at learn (or all criteria closed), record a learn entry. Idempotent.
-  const allClosed = getCriteria(run.isa).every(isClosedCriterion);
+  const allClosed = getCriteria(run.vsa).every(isClosedCriterion);
   const atLearn = getRunPhase(run) === "learn" || getRunPhase(run) === "complete";
   if ((atLearn || allClosed) && run.learning.length === 0) {
     run = recordAlgorithmLearning(run, deriveLearningText(isa), timestamp, { substrate: options.substrate });
@@ -518,7 +518,7 @@ async function syncAlgorithmRunFromVsaInner(
     }
   }
 
-  const finalCriteria = getCriteria(run.isa);
+  const finalCriteria = getCriteria(run.vsa);
   return {
     noop: !changed && !promoted,
     created,

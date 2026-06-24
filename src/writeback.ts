@@ -95,7 +95,7 @@ export async function applySomaWriteback(options: SomaWritebackOptions): Promise
       if (options.operation.slug && options.operation.slug !== activeSlug) {
         await appendSomaMemoryEvent(options.somaHome, {
           substrate,
-          kind: "writeback.isa_log.refused_scope",
+          kind: "writeback.vsa_log.refused_scope",
           summary: `VSA writeback slug '${options.operation.slug}' does not match active VSA '${activeSlug}'.`,
           timestamp: options.timestamp,
           metadata: { payloadSlug: options.operation.slug, activeSlug },
@@ -124,7 +124,7 @@ export async function applySomaWriteback(options: SomaWritebackOptions): Promise
       const write = await applyVsaUpdate(slug, entries, { somaHome: options.somaHome, timestamp: options.timestamp, substrate });
       await appendSomaMemoryEvent(options.somaHome, {
         substrate,
-        kind: "writeback.isa_log",
+        kind: "writeback.vsa_log",
         summary: `Merged ${entries.length} VSA log entr(ies) into ${slug}.`,
         timestamp: options.timestamp,
         artifactPaths: write.path ? [write.path] : [],

@@ -1,6 +1,7 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, relative, sep } from "node:path";
 import { allInstallSpecs } from "./install-spec-registry";
+import { migrateVsaStorageDir } from "./home-migration";
 import { SOMA_MEMORY_CATEGORIES, SOMA_MEMORY_CATEGORY_READMES } from "./memory-readmes";
 import { createPaths } from "./paths";
 import type { ProjectionInput, SomaHomeBootstrapOptions, SomaHomeBootstrapResult, SomaSkill } from "./types";
@@ -248,6 +249,11 @@ export async function loadSomaHome(somaHome: string): Promise<ProjectionInput> {
 
 export async function bootstrapSomaHome(options: SomaHomeBootstrapOptions = {}): Promise<SomaHomeBootstrapResult> {
   const somaHome = resolveSomaHome(options);
+  // soma#329 slice 3: rename a pre-rename `isa/` storage dir to `vsa/` before
+  // bootstrap recreates the compartment dir below — otherwise the mkdir would
+  // create an empty `vsa/` alongside the legacy `isa/` and strand the existing
+  // VSAs. Runs on every install/reproject/upgrade/init; no-op once migrated.
+  await migrateVsaStorageDir(somaHome);
   const paths = createPaths(somaHome);
   const files = [
     {
@@ -275,7 +281,7 @@ export async function bootstrapSomaHome(options: SomaHomeBootstrapOptions = {}):
       content: "# Soma Projections\n\nGenerated substrate projections can be cached here. Substrate homes remain projections, not source of truth.",
     },
     {
-      path: "isa/INDEX.md",
+      path: "vsa/INDEX.md",
       content: "# Soma VSAs\n\nOne VSA per project or task lives in this directory as `<slug>.md`.\nThe active VSA slug is recorded in `memory/STATE/active.json`.\nTemplates seeded by the VSA skill live under `.templates/`.\n",
     },
   ];
@@ -320,7 +326,7 @@ export async function bootstrapSomaHome(options: SomaHomeBootstrapOptions = {}):
   // is left empty here — Layer 2 (#33) populates skill assets; future
   // template seeding lives outside bootstrap to avoid Layer 1 → Layer 2
   // coupling.
-  await mkdir(join(somaHome, "isa", ".templates"), { recursive: true });
+  await mkdir(join(somaHome, "vsa", ".templates"), { recursive: true });
 
   for (const file of files) {
     const target = join(somaHome, file.path);

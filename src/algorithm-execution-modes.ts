@@ -219,8 +219,8 @@ export function partitionCriteriaByDomain(
   return partitions.filter((partition) => partition.criteria.length > 0);
 }
 
-export function partitionRunCriteriaByDomain(run: Pick<AlgorithmRun, "isa">, maxPartitions?: number): AlgorithmCriteriaPartition[] {
-  return partitionCriteriaByDomain(getCriteria(run.isa), maxPartitions);
+export function partitionRunCriteriaByDomain(run: Pick<AlgorithmRun, "vsa">, maxPartitions?: number): AlgorithmCriteriaPartition[] {
+  return partitionCriteriaByDomain(getCriteria(run.vsa), maxPartitions);
 }
 
 export function algorithmPhaseEnteredEvent(

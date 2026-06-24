@@ -36,7 +36,7 @@ function slugify(value: string): string {
 }
 
 function checkedCriteria(run: AlgorithmRun): string[] {
-  return getCriteria(run.isa).map((criterion) => {
+  return getCriteria(run.vsa).map((criterion) => {
     const mark = criterion.status === "passed" ? "x" : criterion.status === "dropped" ? "-" : " ";
     const verification = criterion.verification ? ` Evidence: ${criterion.verification}` : "";
     return `- [${mark}] ${criterion.id}: ${criterion.text}${verification}`;
@@ -52,11 +52,11 @@ function promotionLesson(run: AlgorithmRun, explicitLesson?: string): string {
   const decision = run.decisions.at(-1)?.text;
   if (decision) return decision;
 
-  return getGoal(run.isa) ?? "";
+  return getGoal(run.vsa) ?? "";
 }
 
 function hasPromotionVerification(run: AlgorithmRun): boolean {
-  return run.verification.length > 0 || getCriteria(run.isa).some((criterion) => criterion.status === "passed");
+  return run.verification.length > 0 || getCriteria(run.vsa).some((criterion) => criterion.status === "passed");
 }
 
 function renderPromotionContent(input: {
@@ -88,7 +88,7 @@ function renderPromotionContent(input: {
     "",
     "## Source Goal",
     "",
-    getGoal(input.run.isa) ?? "",
+    getGoal(input.run.vsa) ?? "",
     "",
     "## Source Criteria",
     "",

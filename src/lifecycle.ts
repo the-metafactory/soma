@@ -249,11 +249,11 @@ function completedLearningContent(run: AlgorithmRun, timestamp: string): string 
     "",
     `Captured: ${timestamp}`,
     `Run: ${run.id}`,
-    `Goal: ${getGoal(run.isa) ?? ""}`,
+    `Goal: ${getGoal(run.vsa) ?? ""}`,
     `Effort: ${run.effort}`,
     "",
     "## Criteria",
-    ...getCriteria(run.isa).map((criterion) => `- [${criterion.status === "passed" ? "x" : " "}] ${criterion.id}: ${criterion.text}`),
+    ...getCriteria(run.vsa).map((criterion) => `- [${criterion.status === "passed" ? "x" : " "}] ${criterion.id}: ${criterion.text}`),
     "",
     "## Verification",
     ...(run.verification.length > 0 ? run.verification.map((entry) => `- ${entry.timestamp} ${entry.text}`) : ["No verification entries recorded."]),
@@ -393,7 +393,7 @@ export async function runSomaLifecycleSessionStart(options: SomaLifecycleOptions
  * VSA (or the explicit slug in the payload).
  *
  * Sage round-1 architecture fix: writeback gate is satisfied first by
- * emitting the full payload as a `lifecycle.isa_updated` event in
+ * emitting the full payload as a `lifecycle.vsa_updated` event in
  * `~/.soma/memory/STATE/events.jsonl` — every VSA mutation has a
  * corresponding append-only audit record. The authoritative VSA write
  * then goes through the trusted Soma-side `applyVsaUpdate` writer,
@@ -415,12 +415,12 @@ export async function runSomaLifecycleVsaUpdated(
   if (slug === null) {
     await appendSomaMemoryEvent(somaHome, {
       substrate: substrate(options),
-      kind: "lifecycle.isa_updated.no_active",
-      summary: "isa_updated event received but no active VSA set; no writes made.",
+      kind: "lifecycle.vsa_updated.no_active",
+      summary: "vsa_updated event received but no active VSA set; no writes made.",
       timestamp,
     });
     return {
-      event: "isa_updated",
+      event: "vsa_updated",
       somaHome,
       timestamp,
       files: [join(somaHome, "memory/STATE/events.jsonl")],
@@ -436,8 +436,8 @@ export async function runSomaLifecycleVsaUpdated(
   if (payload.slug !== undefined && activeSlug !== null && payload.slug !== activeSlug) {
     await appendSomaMemoryEvent(somaHome, {
       substrate: substrate(options),
-      kind: "lifecycle.isa_updated.refused_scope",
-      summary: `isa_updated payload.slug='${payload.slug}' does not match active slug '${activeSlug}'; refused.`,
+      kind: "lifecycle.vsa_updated.refused_scope",
+      summary: `vsa_updated payload.slug='${payload.slug}' does not match active slug '${activeSlug}'; refused.`,
       timestamp,
       metadata: { payloadSlug: payload.slug, activeSlug },
     });
@@ -462,14 +462,14 @@ export async function runSomaLifecycleVsaUpdated(
   // CodeQuality).
   if (entries.length === 0) {
     await emitVsaUpdateEvent(somaHome, options, {
-      kind: "lifecycle.isa_updated.noop",
-      summary: `isa_updated invoked for VSA ${slug} with no entries; no write.`,
+      kind: "lifecycle.vsa_updated.noop",
+      summary: `vsa_updated invoked for VSA ${slug} with no entries; no write.`,
       timestamp,
       slug,
       payload,
     });
     return {
-      event: "isa_updated",
+      event: "vsa_updated",
       somaHome,
       timestamp,
       files: [join(somaHome, "memory/STATE/events.jsonl")],
@@ -488,8 +488,8 @@ export async function runSomaLifecycleVsaUpdated(
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     await emitVsaUpdateEvent(somaHome, options, {
-      kind: "lifecycle.isa_updated.failed",
-      summary: `isa_updated write failed for VSA ${slug}: ${message}`,
+      kind: "lifecycle.vsa_updated.failed",
+      summary: `vsa_updated write failed for VSA ${slug}: ${message}`,
       timestamp,
       slug,
       payload,
@@ -499,7 +499,7 @@ export async function runSomaLifecycleVsaUpdated(
   }
 
   await emitVsaUpdateEvent(somaHome, options, {
-    kind: "lifecycle.isa_updated",
+    kind: "lifecycle.vsa_updated",
     summary: `Appended ${entries.length} entr(ies) to VSA ${slug}.`,
     timestamp,
     slug,
@@ -509,7 +509,7 @@ export async function runSomaLifecycleVsaUpdated(
 
   const writes = writeResult.path ? [writeResult.path] : [];
   return {
-    event: "isa_updated",
+    event: "vsa_updated",
     somaHome,
     timestamp,
     files: Array.from(new Set([...writes, join(somaHome, "memory/STATE/events.jsonl")])),
@@ -536,7 +536,7 @@ function vsaUpdateMetadata(slug: string, payload: VsaUpdatePayload, extra?: Reco
 }
 
 interface EmitVsaUpdateEventOptions {
-  kind: "lifecycle.isa_updated" | "lifecycle.isa_updated.failed" | "lifecycle.isa_updated.noop";
+  kind: "lifecycle.vsa_updated" | "lifecycle.vsa_updated.failed" | "lifecycle.vsa_updated.noop";
   summary: string;
   timestamp: string;
   slug: string;

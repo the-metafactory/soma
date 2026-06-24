@@ -74,7 +74,7 @@ test("AC-2: no-op + no-active-vsa telemetry when active unset", async () => {
     expect(result.recorded).toBe(false);
     expect(result.slug).toBeNull();
     const events = await readEvents(homeDir);
-    expect(events.some((e) => e.kind === "algorithm.isa_route.no-active-vsa")).toBe(true);
+    expect(events.some((e) => e.kind === "algorithm.vsa_route.no-active-vsa")).toBe(true);
   });
 });
 
@@ -111,7 +111,7 @@ test("AC-3: markVsaVerifiedFromCriteria flips for manually-edited VSA where flag
 
     // Stale-flag scenario: manually patch verified=false on disk while
     // criteria are all closed → markVsaVerifiedFromCriteria flips it.
-    const vsaPath = join(homeDir, ".soma", "isa", "demo.md");
+    const vsaPath = join(homeDir, ".soma", "vsa", "demo.md");
     const raw = await readFile(vsaPath, "utf8");
     const stale = raw.replace(/verified: true/, "verified: false");
     const { writeFile } = await import("node:fs/promises");
@@ -128,7 +128,7 @@ test("AC-4: suggestVsaAtObserve emits hint when E3+ multi-step no-active, return
     expect(result.emitted).toBe(true);
     expect(result.hint).toContain("soma vsa scaffold");
     const events = await readEvents(homeDir);
-    expect(events.some((e) => e.kind === "algorithm.isa_hint.suggested")).toBe(true);
+    expect(events.some((e) => e.kind === "algorithm.vsa_hint.suggested")).toBe(true);
   });
 });
 
@@ -248,7 +248,7 @@ test("AC-6: no-active-vsa telemetry events accumulate", async () => {
     await recordAlgorithmVsaChange("b", { homeDir });
     await recordAlgorithmVsaDecision("c", { homeDir });
     const events = await readEvents(homeDir);
-    const tagged = events.filter((e) => e.kind === "algorithm.isa_route.no-active-vsa");
+    const tagged = events.filter((e) => e.kind === "algorithm.vsa_route.no-active-vsa");
     expect(tagged.length).toBe(3);
   });
 });

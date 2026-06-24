@@ -227,8 +227,8 @@ test("file-backed reconcile reads conflict policy from config and appends event 
   await withSomaHome(async (homeDir) => {
     await scaffoldVsa({ homeDir, slug: "cfg", goal: "G", effort: "E1", initialCriteria: [criterion("ISC-1", "open")] });
     const somaHome = join(homeDir, ".soma");
-    await mkdir(join(somaHome, "isa"), { recursive: true });
-    await writeFile(join(somaHome, "isa", "config.json"), '{"defaultConflictPolicy":"prefer-feature"}\n', "utf8");
+    await mkdir(join(somaHome, "vsa"), { recursive: true });
+    await writeFile(join(somaHome, "vsa", "config.json"), '{"defaultConflictPolicy":"prefer-feature"}\n', "utf8");
     const featurePath = join(homeDir, "feature.md");
     await writeFile(featurePath, serializeVsa(buildVsa("cfg", [criterion("ISC-1", "passed", "ISC-1 works", "ok")])), "utf8");
     const result = await reconcileVsa("cfg", featurePath, { homeDir, timestamp: "2026-05-17T10:00:00.000Z" });
