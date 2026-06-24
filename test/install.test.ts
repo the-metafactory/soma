@@ -355,6 +355,20 @@ for (const c of [
   });
 }
 
+test("reinstall does not wipe a user file in pi-dev's canonical vsa skill (case-insensitive FS)", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForPiDev({ homeDir });
+    // A user addition to the edit-preserving vsa skill. On a case-insensitive FS,
+    // the legacy "VSA" prune must NOT remove canonical "vsa" (same inode) on reinstall.
+    const userFile = join(homeDir, ".pi/agent/skills/vsa/USER_NOTES.md");
+    await writeFile(userFile, "my notes\n", "utf8");
+
+    await installSomaForPiDev({ homeDir });
+
+    expect(await readFile(userFile, "utf8")).toBe("my notes\n");
+  });
+});
+
 test("install preserves single-quoted codex writable roots", async () => {
   await withTempHome(async (homeDir) => {
     await mkdir(join(homeDir, ".codex"), { recursive: true });

@@ -1,5 +1,6 @@
-import { rm } from "node:fs/promises";
+import { readdir, rm } from "node:fs/promises";
 import { resolve } from "node:path";
+import { isEnoent } from "../../fs-errors";
 import { rewriteSkillNameFrontmatter } from "../../skill-frontmatter";
 import { rewriteSubstrateProjectionContent } from "../../substrate-projection-rewrites";
 import type { Projection, SomaSkill } from "../../types";
@@ -58,10 +59,23 @@ export function piDevVsaSkillDestinationDir(substrateHome: string): string {
 
 export async function removeLegacyPiDevVsaSkillProjection(substrateHome: string): Promise<void> {
   const skillsDir = resolve(substrateHome, "agent/skills");
-  // force-rm is idempotent (no error when absent); LEGACY_PI_DEV_VSA_SKILL_DIRS
-  // never includes the canonical PI_DEV_VSA_SKILL_ID, so each prior name is safe
-  // to prune before reprojecting "vsa".
-  for (const legacy of LEGACY_PI_DEV_VSA_SKILL_DIRS) {
-    await rm(resolve(skillsDir, legacy), { recursive: true, force: true });
+  let entries;
+  try {
+    entries = await readdir(skillsDir, { withFileTypes: true });
+  } catch (error) {
+    if (isEnoent(error)) return;
+    throw error;
+  }
+  // The exact on-disk-name match is LOAD-BEARING, not a redundant guard: on a
+  // case-insensitive FS a blind rm of path "VSA" resolves to the SAME inode as
+  // canonical "vsa" and would wipe the (possibly user-edited) current skill. By
+  // only removing a dir whose ACTUAL stored name is a legacy name, a canonical
+  // dir stored as "vsa" is never matched (readdir yields "vsa" ≠ "VSA"), while a
+  // genuine legacy dir stored as "VSA"/"isa" (pre-canonical) is migrated away.
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    if ((LEGACY_PI_DEV_VSA_SKILL_DIRS as readonly string[]).includes(entry.name)) {
+      await rm(resolve(skillsDir, entry.name), { recursive: true, force: true });
+    }
   }
 }

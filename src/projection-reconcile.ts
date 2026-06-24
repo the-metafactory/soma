@@ -145,17 +145,13 @@ export async function reconcileOwnedDir(
     // projection nested under cursor's rules/soma) are left untouched.
     if (excluded.some((prefix) => isUnderOrEqual(rel, prefix))) continue;
 
+    // Same file as a desired path under a different case (case-insensitive FS) →
+    // normalize. Everything else — no canonical match, or a distinct wrong-case
+    // file on a case-sensitive FS — is stale and removed.
     const canonical = desiredByLower.get(rel.toLowerCase());
-    if (canonical !== undefined) {
-      const canonicalAbs = join(root, canonical);
-      if (await sameFile(abs, canonicalAbs)) {
-        await caseNormalizeRename(abs, canonicalAbs);
-        result.renamed.push(canonical);
-      } else {
-        // Case-sensitive FS: a distinct stale wrong-case file → remove it.
-        await rm(abs, { force: true });
-        result.removed.push(rel);
-      }
+    if (canonical !== undefined && (await sameFile(abs, join(root, canonical)))) {
+      await caseNormalizeRename(abs, join(root, canonical));
+      result.renamed.push(canonical);
       continue;
     }
 
