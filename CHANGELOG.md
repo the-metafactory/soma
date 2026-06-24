@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-06-24
+
 ### Added
 - **Algorithm meta-reflection layer** (#333) — the "how the Algorithm itself
   should have behaved" layer PAI captured (`reflection_q1/q2/q3` + `doctrine_fired`)
@@ -43,6 +45,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now states the OBSERVE current-state floor: OBSERVE phase rules instruct the
   agent to probe every current-state assumption and record it with
   `algorithm observe … --evidence-kind probed` before the gate will leave OBSERVE.
+
+### Changed
+- **De-Miessler vocabulary rename (#329)** — completed across four slices: Telos →
+  Purpose compartment (#339); ISA → VSA across docs, code, CLI (`soma vsa`; `soma isa`
+  kept as a deprecated alias), projections, and skill (#341, #342); on-disk
+  storage/wire `isa` → `vsa` — the `~/.soma/isa/` dir migrates to `vsa/`
+  (snapshot-first, on upgrade), the AlgorithmRun `isa` field → `vsa`
+  (schemaVersion 2 → 3), `lifecycle.isa_updated` → `vsa_updated` events, and the
+  work.json `isa` pointer → `vsa`, all dual-read for back-compat (#343);
+  `IdealStateCriterion` type → `Checkpoint` with a deprecated alias (#344); and the
+  VSA section heading `## Criteria` → `## Checkpoints`, dual-read legacy + emit-new,
+  no migration (#348, #349). `ISC-N` criterion ids are retained.
+
+### Fixed
+- **Grok pre-tool-use fail-open hole** (#345) — the policy chain ran `bun run soma`
+  from `trustedSomaRepo`, which silently fell back to a global `soma` on `PATH` when
+  the repo was missing/wrong, so a misconfigured repo could return `allow`. It now
+  runs the trusted repo's own declared entrypoint (`<repo>/src/cli.ts` via
+  `scripts.soma`) with no PATH fallback — an unusable repo fails closed (deny). Also
+  fixed a pre-existing order-dependent flaky test in the same area that intermittently
+  failed the pre-push smoke gate.
 
 ## [0.8.8] - 2026-06-22
 
