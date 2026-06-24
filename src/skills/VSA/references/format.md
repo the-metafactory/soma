@@ -24,9 +24,11 @@ decides which are required. Sections never appear empty. Order is fixed.
 | 11 | `## Changelog` | Conjecture / refuted-by / learned / criterion-now trail | LEARN |
 | 12 | `## Verification` | Evidence that each ISC passed | VERIFY |
 
-> Section 7 was renamed `## Criteria` → `## Checkpoints` (soma#329). Pre-rename VSAs
-> that still carry `## Criteria` are read transparently (dual-read); they are
-> rewritten to `## Checkpoints` only when that section is next mutated. No migration.
+> Section 7 was renamed `## Criteria` → `## Checkpoints` (soma#329). The reader
+> dual-reads both headings (slice-4 code, #348), so pre-rename VSAs that still
+> carry `## Criteria` keep loading; that section is rewritten to `## Checkpoints`
+> only when it is next mutated. No migration. Where a workflow names
+> `## Checkpoints`, operate on `## Criteria` instead if that is what the file has.
 
 ## Guardrail Taxonomy
 

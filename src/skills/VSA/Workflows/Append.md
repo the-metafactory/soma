@@ -89,7 +89,7 @@ Edit the VSA: append the entry to the end of the target section, preserving prio
 
 ### Step 6 — Update progress (Verification only)
 
-When appending a Verification entry that corresponds to a previously-`[ ]` ISC, also flip that ISC to `[x]` in `## Checkpoints` and recompute `progress: M/N` in frontmatter.
+When appending a Verification entry that corresponds to a previously-`[ ]` ISC, also flip that ISC to `[x]` in `## Checkpoints` (a pre-rename VSA's section is `## Criteria` — edit whichever heading the file actually has) and recompute `progress: M/N` in frontmatter.
 
 ### Step 7 — Return the appended block
 
