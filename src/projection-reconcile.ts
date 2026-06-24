@@ -55,6 +55,11 @@ export interface ReconcileResult {
   renamed: string[];
 }
 
+/** True when `path` equals `base` or is nested under it (path-segment aware). */
+export function isUnderOrEqual(path: string, base: string): boolean {
+  return path === base || path.startsWith(`${base}/`);
+}
+
 /**
  * Reconcile a soma-OWNED directory so its contents exactly equal `desiredRelPaths`
  * (relative to `root`) — identically on case-sensitive and case-insensitive
@@ -88,7 +93,7 @@ export async function reconcileOwnedDir(
     if (desired.has(rel)) continue;
     // Subtrees managed by another installer (e.g. the edit-preserving VSA skill
     // projection nested under cursor's rules/soma) are left untouched.
-    if (excluded.some((prefix) => rel === prefix || rel.startsWith(`${prefix}/`))) continue;
+    if (excluded.some((prefix) => isUnderOrEqual(rel, prefix))) continue;
 
     const canonical = desiredByLower.get(rel.toLowerCase());
     if (canonical !== undefined) {

@@ -74,13 +74,19 @@ test("no-op when contents already equal the desired set (idempotent)", async () 
 test("normalizes/removes a case-variant so only the canonical name survives", async () => {
   await withTempDir(async (root) => {
     await writeFile(join(root, "Purpose.md"), "content", "utf8");
-    const caseInsensitive = await exists(join(root, "purpose.md")); // true on APFS
-    await reconcileOwnedDir(root, ["purpose.md"]);
+    const caseInsensitive = await exists(join(root, "purpose.md")); // true on APFS/macOS
+    const result = await reconcileOwnedDir(root, ["purpose.md"]);
     const names = await readdir(root);
-    expect(names).not.toContain("Purpose.md");
+    expect(names).not.toContain("Purpose.md"); // wrong-case never survives (both FS)
     if (caseInsensitive) {
+      // Same inode as the canonical path → renamed to canonical case, content kept.
+      expect(result.renamed).toContain("purpose.md");
       expect(names).toContain("purpose.md");
       expect(await readFile(join(root, "purpose.md"), "utf8")).toBe("content");
+    } else {
+      // Distinct stale wrong-case file on a case-sensitive FS → removed.
+      expect(result.removed).toContain("Purpose.md");
+      expect(names).not.toContain("purpose.md");
     }
   });
 });

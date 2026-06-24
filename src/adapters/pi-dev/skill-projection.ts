@@ -64,8 +64,9 @@ export async function removeLegacyPiDevVsaSkillProjection(substrateHome: string)
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
     throw error;
   }
+  // LEGACY_PI_DEV_VSA_SKILL_DIRS never includes the canonical PI_DEV_VSA_SKILL_ID
+  // by construction, so each prior name is safe to prune before reprojecting it.
   for (const legacy of LEGACY_PI_DEV_VSA_SKILL_DIRS) {
-    if ((legacy as string) === (PI_DEV_VSA_SKILL_ID as string)) continue;
     if (entries.some((entry) => entry.isDirectory() && entry.name === legacy)) {
       await rm(resolve(skillsDir, legacy), { recursive: true, force: true });
     }

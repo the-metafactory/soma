@@ -15,7 +15,7 @@ import { defaultSomaRepoPath } from "./repo-path";
 import { bootstrapSomaHome, loadSomaHome } from "./soma-home";
 import { installVsaSkillProjection } from "./vsa-skill-installer";
 import { loadActiveVsaForBundle } from "./adapter-active-vsa";
-import { reconcileOwnedDir } from "./projection-reconcile";
+import { isUnderOrEqual, reconcileOwnedDir } from "./projection-reconcile";
 import { isEnoent } from "./fs-errors";
 import {
   type ImplementedUninstallSpec,
@@ -227,10 +227,9 @@ async function reconcileOwnedSubtrees(
   for (const subtree of spec.ownedSubtrees ?? []) {
     const root = resolve(substrateRoot, subtree);
     const desiredRel = [...projectedAbs]
-      .filter((abs) => abs === root || abs.startsWith(`${root}/`))
+      .filter((abs) => isUnderOrEqual(abs, root))
       .map((abs) => relative(root, abs));
-    const excludeRelPrefixes =
-      skillDestAbs === root || skillDestAbs.startsWith(`${root}/`) ? [relative(root, skillDestAbs)] : [];
+    const excludeRelPrefixes = isUnderOrEqual(skillDestAbs, root) ? [relative(root, skillDestAbs)] : [];
     await reconcileOwnedDir(root, desiredRel, { excludeRelPrefixes });
   }
 }
