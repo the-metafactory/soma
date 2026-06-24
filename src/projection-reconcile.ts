@@ -1,4 +1,4 @@
-import { mkdir, readdir, rename, rm, rmdir, stat } from "node:fs/promises";
+import { readdir, rename, rm, rmdir, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { isEnoent } from "./fs-errors";
 
@@ -86,10 +86,11 @@ export function isUnderOrEqual(path: string, base: string): boolean {
 // the projected content); fix only the casing. Crash-safe — if the final rename
 // throws, the original name is restored so the file is never stranded at the temp.
 async function caseNormalizeRename(abs: string, canonicalAbs: string): Promise<void> {
+  // Same dir as `abs` (only the basename case differs), so the parent already
+  // exists — no mkdir needed.
   const tmp = join(dirname(canonicalAbs), `.soma-case.${basename(canonicalAbs)}.tmp`);
   await rename(abs, tmp);
   try {
-    await mkdir(dirname(canonicalAbs), { recursive: true });
     await rename(tmp, canonicalAbs);
   } catch (error) {
     await rename(tmp, abs).catch(() => undefined);

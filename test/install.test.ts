@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { bootstrapSomaHome, installSomaForClaudeCode, installSomaForCodex, installSomaForCursor, installSomaForPiDev, planSomaForCodexInstall, planSomaForPiDevInstall, somaWorkRegistryPaths } from "../src/index";
 import { codexInstallSpec } from "../src/adapters/codex/install";
+import { removeLegacyPiDevVsaSkillProjection } from "../src/adapters/pi-dev/skill-projection";
 import { renderStartupContextSummary } from "../src/adapters/codex/hooks/codex-hook-entry.mjs";
 import {
   SOMA_MEMORY_CATEGORIES,
@@ -355,17 +356,21 @@ for (const c of [
   });
 }
 
-test("reinstall does not wipe a user file in pi-dev's canonical vsa skill (case-insensitive FS)", async () => {
+test("removeLegacyPiDevVsaSkillProjection removes legacy names but never the canonical vsa dir", async () => {
+  // Non-vacuous on BOTH filesystems: the canonical "vsa" dir is never matched by
+  // the legacy list (readdir yields "vsa"), while a legacy "isa" dir is removed —
+  // exercising the load-bearing exact-name guard regardless of FS case-folding.
   await withTempHome(async (homeDir) => {
-    await installSomaForPiDev({ homeDir });
-    // A user addition to the edit-preserving vsa skill. On a case-insensitive FS,
-    // the legacy "VSA" prune must NOT remove canonical "vsa" (same inode) on reinstall.
-    const userFile = join(homeDir, ".pi/agent/skills/vsa/USER_NOTES.md");
-    await writeFile(userFile, "my notes\n", "utf8");
+    const skills = join(homeDir, ".pi/agent/skills");
+    await mkdir(join(skills, "vsa"), { recursive: true });
+    await writeFile(join(skills, "vsa/SKILL.md"), "canonical\n", "utf8");
+    await mkdir(join(skills, "isa"), { recursive: true });
+    await writeFile(join(skills, "isa/SKILL.md"), "legacy\n", "utf8");
 
-    await installSomaForPiDev({ homeDir });
+    await removeLegacyPiDevVsaSkillProjection(join(homeDir, ".pi"));
 
-    expect(await readFile(userFile, "utf8")).toBe("my notes\n");
+    expect(await readFile(join(skills, "vsa/SKILL.md"), "utf8")).toBe("canonical\n"); // canonical preserved
+    await expect(stat(join(skills, "isa"))).rejects.toThrow(); // legacy removed
   });
 });
 

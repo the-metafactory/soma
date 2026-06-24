@@ -231,7 +231,8 @@ async function reconcileOwnedSubtrees(
   const projectedAbs = new Set(projectedFiles.map((file) => resolve(substrateRoot, file)));
   // The VSA skill is installed by its own edit-preserving installer; where its
   // destination nests under an owned subtree (cursor), exclude it from reconcile.
-  const protectedDirs = [resolve(spec.vsaSkillProjection.destinationDir(substrateRoot))];
+  // (Named "excluded", not "protected", to avoid the locked protected-root term.)
+  const excludedDirs = [resolve(spec.vsaSkillProjection.destinationDir(substrateRoot))];
   for (const subtree of spec.ownedSubtrees ?? []) {
     const root = resolve(substrateRoot, subtree);
     const desiredRel = [...projectedAbs]
@@ -240,7 +241,7 @@ async function reconcileOwnedSubtrees(
     // Safety: an empty desired set means projection produced nothing for this
     // owned subtree (a projection bug) — skip rather than prune the whole subtree.
     if (desiredRel.length === 0) continue;
-    const excludeRelPrefixes = protectedDirs
+    const excludeRelPrefixes = excludedDirs
       .filter((dir) => isUnderOrEqual(dir, root))
       .map((dir) => relative(root, dir))
       // An "" prefix (protected dir == root) would exclude every file and prune
