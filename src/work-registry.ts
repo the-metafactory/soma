@@ -160,7 +160,7 @@ function buildRegistryEntry(
   existing?: SomaWorkRegistryEntry,
 ): SomaWorkRegistryEntry {
   const artifacts = options.artifacts ?? existing?.artifacts ?? {};
-  const vsaPointer = artifacts.vsa ?? artifacts.isa;
+  const vsaPointer = artifacts.vsa || artifacts.isa;
   return {
     ...(vsaPointer ? { vsa: vsaPointer } : {}),
     task: boundedMetadataLine(options.task ?? existing?.task ?? sessionName, sessionName),
