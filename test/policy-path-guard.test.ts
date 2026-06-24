@@ -455,7 +455,21 @@ test("honors guardModify: false", () => {
 
 // ── Allowed Subpaths (legitimate memory/VSA writes) ──
 
-test("allows modify on ~/.soma/isa subtree by default", () => {
+test("allows modify on ~/.soma/vsa subtree by default", () => {
+  const somaHome = join(process.env.HOME ?? "/tmp", ".soma");
+  const result = evaluatePathGuard({
+    targetPaths: [join(somaHome, "vsa", "personal", "draft.md")],
+    cwd: "/tmp",
+    action: "modify",
+  });
+
+  expect(result.blocked).toBe(false);
+  expect(result.matchedPaths).toEqual([]);
+});
+
+// soma#329 slice 3: pre-rename homes still store VSAs under `isa/` until the
+// upgrade migration renames it. The legacy subtree stays modify-allowed.
+test("allows modify on ~/.soma/isa subtree (legacy, pre-vsa-rename homes)", () => {
   const somaHome = join(process.env.HOME ?? "/tmp", ".soma");
   const result = evaluatePathGuard({
     targetPaths: [join(somaHome, "isa", "personal", "draft.md")],

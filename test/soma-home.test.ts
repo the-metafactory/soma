@@ -107,17 +107,17 @@ test("bootstrap does not overwrite existing profile files", async () => {
   });
 });
 
-test("AC-1: bootstrap creates ~/.soma/isa/ + .templates/ + INDEX.md + memory/STATE/", async () => {
+test("AC-1: bootstrap creates ~/.soma/vsa/ + .templates/ + INDEX.md + memory/STATE/", async () => {
   const { stat } = await import("node:fs/promises");
   await withTempHome(async (homeDir) => {
     const { somaHome } = await bootstrapSomaHome({ homeDir });
-    const vsaDir = await stat(join(somaHome, "isa"));
+    const vsaDir = await stat(join(somaHome, "vsa"));
     expect(vsaDir.isDirectory()).toBe(true);
-    const templatesDir = await stat(join(somaHome, "isa", ".templates"));
+    const templatesDir = await stat(join(somaHome, "vsa", ".templates"));
     expect(templatesDir.isDirectory()).toBe(true);
     const stateDir = await stat(join(somaHome, "memory", "STATE"));
     expect(stateDir.isDirectory()).toBe(true);
-    const indexFile = await stat(join(somaHome, "isa", "INDEX.md"));
+    const indexFile = await stat(join(somaHome, "vsa", "INDEX.md"));
     expect(indexFile.isFile()).toBe(true);
   });
 });
@@ -126,18 +126,18 @@ test("AC-6: bootstrap is idempotent for VSA storage layout", async () => {
   const { stat, readFile } = await import("node:fs/promises");
   await withTempHome(async (homeDir) => {
     const first = await bootstrapSomaHome({ homeDir });
-    const firstIndex = await readFile(join(first.somaHome, "isa", "INDEX.md"), "utf8");
+    const firstIndex = await readFile(join(first.somaHome, "vsa", "INDEX.md"), "utf8");
 
     // User edits INDEX.md — second bootstrap must not overwrite
-    await writeFile(join(first.somaHome, "isa", "INDEX.md"), "# Custom Index\n\nMy entries.\n", "utf8");
+    await writeFile(join(first.somaHome, "vsa", "INDEX.md"), "# Custom Index\n\nMy entries.\n", "utf8");
 
     const second = await bootstrapSomaHome({ homeDir });
-    const secondIndex = await readFile(join(second.somaHome, "isa", "INDEX.md"), "utf8");
+    const secondIndex = await readFile(join(second.somaHome, "vsa", "INDEX.md"), "utf8");
 
     expect(secondIndex).toBe("# Custom Index\n\nMy entries.\n");
     expect(firstIndex).not.toBe(secondIndex);
     // Directories still present
-    expect((await stat(join(second.somaHome, "isa", ".templates"))).isDirectory()).toBe(true);
+    expect((await stat(join(second.somaHome, "vsa", ".templates"))).isDirectory()).toBe(true);
   });
 });
 

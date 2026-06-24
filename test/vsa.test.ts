@@ -82,7 +82,7 @@ test("readVsa returns parsed VerificationStateArtifact with sourcePath", async (
     const isa = await readVsa("demo", { homeDir });
     expect(isa.slug).toBe("demo");
     expect(getGoal(isa)).toBe("Test goal");
-    expect(isa.sourcePath).toContain("/isa/demo.md");
+    expect(isa.sourcePath).toContain("/vsa/demo.md");
   });
 });
 
@@ -120,7 +120,7 @@ test("AC-6: writeVsa serializes to semantic-equivalent content on round-trip", a
         { id: "C2", text: "Second", status: "open" },
       ],
     });
-    const original = await readFile(join(homeDir, ".soma", "isa", "rtrip.md"), "utf8");
+    const original = await readFile(join(homeDir, ".soma", "vsa", "rtrip.md"), "utf8");
     const reparsed = parseVsa(original);
     const reserialized = serializeVsa(reparsed);
     // Same identity: raw input WeakMap hit
@@ -137,7 +137,7 @@ test("listVsas surfaces per-file read errors with slug/path context", async () =
     await scaffoldVsa({ homeDir, slug: "good", goal: "G", effort: "E1" });
     // Plant an unreadable .md file by removing read permission.
     const { writeFile: wf, chmod: ch } = await import("node:fs/promises");
-    const unreadable = join(homeDir, ".soma", "isa", "unreadable.md");
+    const unreadable = join(homeDir, ".soma", "vsa", "unreadable.md");
     await wf(unreadable, "---\ntask: x\neffort: E1\nphase: observe\n---\n\n## Goal\n\nx\n", "utf8");
     await ch(unreadable, 0o000);
     try {
@@ -150,24 +150,24 @@ test("listVsas surfaces per-file read errors with slug/path context", async () =
 });
 
 test("listVsas surfaces real filesystem errors (not silent empty list)", async () => {
-  // Replace the isa dir with a regular file → readdir throws ENOTDIR. Must
+  // Replace the vsa dir with a regular file → readdir throws ENOTDIR. Must
   // propagate, not silently return [].
   const homeDir = await mkdtemp(join(tmpdir(), "soma-vsa-list-err-"));
   try {
     await bootstrapSomaHome({ homeDir });
     const { rm: rmf, writeFile: wf } = await import("node:fs/promises");
-    await rmf(join(homeDir, ".soma", "isa"), { recursive: true, force: true });
-    await wf(join(homeDir, ".soma", "isa"), "not a directory", "utf8");
+    await rmf(join(homeDir, ".soma", "vsa"), { recursive: true, force: true });
+    await wf(join(homeDir, ".soma", "vsa"), "not a directory", "utf8");
     await expect(listVsas({ homeDir })).rejects.toThrow();
   } finally {
     await rm(homeDir, { recursive: true, force: true });
   }
 });
 
-test("listVsas returns [] for missing isa dir (ENOENT only)", async () => {
+test("listVsas returns [] for missing vsa dir (ENOENT only)", async () => {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-vsa-noenoent-"));
   try {
-    // Don't bootstrap — isa dir doesn't exist at all
+    // Don't bootstrap — vsa dir doesn't exist at all
     const entries = await listVsas({ homeDir });
     expect(entries).toEqual([]);
   } finally {

@@ -15,7 +15,10 @@ import type { SomaProtectedPath } from "./types";
  * renderer share a single source of truth. Delete remains blocked everywhere
  * under the Soma home (allowedSubpaths is modify-only). See #79.
  */
-export const SOMA_HOME_ALLOWED_MODIFY_SUBPATHS: readonly string[] = Object.freeze(["isa", "memory"]);
+// soma#329 slice 3: the VSA storage dir moved `isa/` → `vsa/`. Both are allowed
+// so a pre-rename home (still on `isa/`, dual-read until the upgrade migration
+// renames it) and a migrated home both keep their Verification subtree writable.
+export const SOMA_HOME_ALLOWED_MODIFY_SUBPATHS: readonly string[] = Object.freeze(["vsa", "isa", "memory"]);
 
 /**
  * Subpaths under `~/.claude` where `modify` is permitted (working memory and
