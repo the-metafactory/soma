@@ -25,7 +25,7 @@ export const SECTION_NAME_MAP = {
   principles: "Principles",
   constraints: "Constraints",
   goal: "Goal",
-  criteria: "Criteria",
+  criteria: "Checkpoints",
   testStrategy: "Test Strategy",
   features: "Features",
   decisions: "Decisions",
@@ -35,8 +35,43 @@ export const SECTION_NAME_MAP = {
 
 export const TWELVE_SECTIONS = Object.values(SECTION_NAME_MAP);
 
+/**
+ * soma#329 slice 4: legacy section headings a VSA may carry on disk, mapped to
+ * their current canonical name. Reads accept either; writes emit the canonical
+ * name. No migration — an untouched legacy VSA keeps its old heading; a mutated
+ * one is upgraded in place by {@link setSection}.
+ */
+const SECTION_LEGACY_ALIASES: Record<string, readonly string[]> = {
+  [SECTION_NAME_MAP.criteria]: ["Criteria"],
+};
+
+/** Inverse of {@link SECTION_LEGACY_ALIASES}: legacy heading → its canonical name. */
+const SECTION_CANONICAL_BY_ALIAS: Record<string, string> = Object.fromEntries(
+  Object.entries(SECTION_LEGACY_ALIASES).flatMap(([canonical, aliases]) => aliases.map((alias) => [alias, canonical])),
+);
+
+/**
+ * Map a (possibly legacy) section heading to its canonical name, so callers that
+ * compare section names treat `Criteria` and `Checkpoints` as the same section.
+ */
+export function canonicalSectionName(name: string): string {
+  return SECTION_CANONICAL_BY_ALIAS[name] ?? name;
+}
+
+/** Index of the section matching `name` exactly, else a declared legacy alias of `name`. */
+function findSectionIndex(sections: readonly VsaSection[], name: string): number {
+  const exact = sections.findIndex((section) => section.name === name);
+  if (exact >= 0) return exact;
+  for (const alias of SECTION_LEGACY_ALIASES[name] ?? []) {
+    const aliasIndex = sections.findIndex((section) => section.name === alias);
+    if (aliasIndex >= 0) return aliasIndex;
+  }
+  return -1;
+}
+
 export function getSection(isa: VerificationStateArtifact, name: string): VsaSection | null {
-  return isa.sections.find((section) => section.name === name) ?? null;
+  const index = findSectionIndex(isa.sections, name);
+  return index >= 0 ? isa.sections[index] : null;
 }
 
 export function getGoal(isa: VerificationStateArtifact): string | null {
@@ -65,12 +100,28 @@ export function getVerification(isa: VerificationStateArtifact): AlgorithmLogEnt
 }
 
 export function setSection(isa: VerificationStateArtifact, name: string, content: string): VerificationStateArtifact {
-  const existingIndex = isa.sections.findIndex((section) => section.name === name);
+  // Dual-read so a legacy-aliased section (e.g. `Criteria`) is found, replaced in
+  // place, and renamed to the canonical `name`. If the VSA somehow carries BOTH
+  // the canonical and a legacy-aliased section (hand-edited / partial state),
+  // collapse them: replace the first match, drop the rest — never leave a stale
+  // duplicate behind.
+  const aliases = SECTION_LEGACY_ALIASES[name] ?? [];
+  const matchesTarget = (sectionName: string): boolean => sectionName === name || aliases.includes(sectionName);
   const next: VsaSection = { name, content };
 
-  if (existingIndex >= 0) {
-    const sections = isa.sections.slice();
-    sections[existingIndex] = next;
+  if (isa.sections.some((section) => matchesTarget(section.name))) {
+    let replaced = false;
+    const sections: VsaSection[] = [];
+    for (const section of isa.sections) {
+      if (matchesTarget(section.name)) {
+        if (!replaced) {
+          sections.push(next);
+          replaced = true;
+        }
+        continue; // drop any further canonical/legacy duplicate
+      }
+      sections.push(section);
+    }
     return { ...isa, sections };
   }
 
