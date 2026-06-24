@@ -1,5 +1,6 @@
 import { mkdir, readdir, rename, rm, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
+import { isEnoent } from "./fs-errors";
 
 async function listFilesRecursive(root: string): Promise<string[]> {
   const out: string[] = [];
@@ -8,7 +9,7 @@ async function listFilesRecursive(root: string): Promise<string[]> {
     try {
       entries = await readdir(dir, { withFileTypes: true });
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      if (isEnoent(error)) return;
       throw error;
     }
     for (const entry of entries) {
@@ -28,7 +29,7 @@ async function statOrEnoent(path: string): Promise<Awaited<ReturnType<typeof sta
   try {
     return await stat(path);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    if (isEnoent(error)) return undefined;
     throw error; // never let a transient stat error route a file to deletion
   }
 }
@@ -46,8 +47,9 @@ async function removeEmptyDirs(root: string, protectedAbs: readonly string[] = [
   let entries;
   try {
     entries = await readdir(root, { withFileTypes: true });
-  } catch {
-    return;
+  } catch (error) {
+    if (isEnoent(error)) return;
+    throw error;
   }
   for (const entry of entries) {
     if (entry.isDirectory()) await removeEmptyDirs(join(root, entry.name), protectedAbs);
@@ -56,8 +58,8 @@ async function removeEmptyDirs(root: string, protectedAbs: readonly string[] = [
   if (protectedAbs.some((p) => isUnderOrEqual(p, root))) return;
   try {
     if ((await readdir(root)).length === 0) await rm(root, { force: true, recursive: true });
-  } catch {
-    // best-effort cleanup
+  } catch (error) {
+    if (!isEnoent(error)) throw error; // a vanished dir is fine; surface the rest
   }
 }
 

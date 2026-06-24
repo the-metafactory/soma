@@ -215,6 +215,12 @@ async function removeObsoleteHomeFiles(spec: SubstrateInstallSpec, substrateRoot
 // renamed/recased/removed projection leaves no orphan — identically on
 // case-sensitive and case-insensitive filesystems. Runs after ALL projection
 // (home + post + lifecycle) so the desired set is complete.
+//
+// These owned subtrees can be Soma private/protected roots (e.g. memories/soma,
+// agent/soma). That is intentional: this runs as part of Soma's OWN authorized
+// projection — the same trust level that just WROTE every file here and that the
+// pre-existing obsoleteHomeFiles step already deletes under. policy-path-guard
+// governs agent-issued destructive Bash commands, not Soma's own install fs ops.
 async function reconcileOwnedSubtrees(
   spec: SubstrateInstallSpec,
   substrateRoot: string,
@@ -239,7 +245,10 @@ async function reconcileOwnedSubtrees(
     if (desiredRel.length === 0) continue;
     const excludeRelPrefixes = protectedDirs
       .filter((dir) => isUnderOrEqual(dir, root))
-      .map((dir) => relative(root, dir));
+      .map((dir) => relative(root, dir))
+      // An "" prefix (protected dir == root) would exclude every file and prune
+      // nothing — drop it so reconcile never silently no-ops the whole subtree.
+      .filter((prefix) => prefix !== "");
     await reconcileOwnedDir(root, desiredRel, { excludeRelPrefixes });
   }
 }

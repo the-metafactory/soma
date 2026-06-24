@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { isAbsolute, join } from "node:path";
 import { tmpdir } from "node:os";
@@ -320,21 +320,37 @@ test("reproject reconciles an owned subtree: a stale file is pruned, shared dirs
 });
 
 // Every adapter's owned-subtree reconcile wiring is exercised (a wrong subtree
-// path in any spec would otherwise pass the suite yet leave orphans).
+// path in any spec would otherwise pass the suite yet leave orphans). codex is
+// covered by the richer standalone test above; these cover the other wirings and
+// assert BOTH a stale file is pruned AND a real projected file survives intact (so
+// an over-pruning regression that wiped the subtree can't pass).
 for (const c of [
-  { name: "codex", install: installSomaForCodex, owned: ".codex/memories/soma" },
   { name: "cursor", install: installSomaForCursor, owned: ".cursor/rules/soma" },
   { name: "pi-dev", install: installSomaForPiDev, owned: ".pi/agent/soma" },
   { name: "claude-code", install: installSomaForClaudeCode, owned: ".claude/rules/soma" },
   { name: "claude-code hooks", install: installSomaForClaudeCode, owned: ".claude/hooks/soma" },
 ] as const) {
-  test(`reproject prunes a stale file in ${c.name}'s owned subtree (${c.owned})`, async () => {
+  test(`reproject prunes a stale file but preserves projections in ${c.name}'s owned subtree (${c.owned})`, async () => {
     await withTempHome(async (homeDir) => {
       await c.install({ homeDir });
-      const stale = join(homeDir, c.owned, "STALE-RECONCILE.md");
+      const ownedDir = join(homeDir, c.owned);
+      const projected = (await readdir(ownedDir, { recursive: true })).filter((e) => !e.startsWith(".soma-case."));
+      let survivor: string | undefined;
+      for (const rel of projected) {
+        if ((await stat(join(ownedDir, rel))).isFile()) {
+          survivor = rel;
+          break;
+        }
+      }
+      if (survivor === undefined) throw new Error(`no projected file found under ${c.owned}`);
+      const survivorContent = await readFile(join(ownedDir, survivor), "utf8");
+      const stale = join(ownedDir, "STALE-RECONCILE.md");
       await writeFile(stale, "frozen old projection\n", "utf8");
+
       await c.install({ homeDir });
-      await expect(stat(stale)).rejects.toThrow();
+
+      await expect(stat(stale)).rejects.toThrow(); // stale pruned
+      expect(await readFile(join(ownedDir, survivor), "utf8")).toBe(survivorContent); // projection survives intact
     });
   });
 }
