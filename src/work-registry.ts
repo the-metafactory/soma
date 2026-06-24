@@ -5,7 +5,9 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { createPaths, type SomaPathsOptions } from "./paths";
 
 export interface SomaWorkRegistryEntry {
-  isa?: string;
+  // soma#329 slice 3: pointer to the session's active VSA. On read we dual-read a
+  // legacy `isa` key (pre-rename work.json); on write we always emit `vsa`.
+  vsa?: string;
   task: string;
   sessionName: string;
   sessionUUID: string;
@@ -158,8 +160,9 @@ function buildRegistryEntry(
   existing?: SomaWorkRegistryEntry,
 ): SomaWorkRegistryEntry {
   const artifacts = options.artifacts ?? existing?.artifacts ?? {};
+  const vsaPointer = artifacts.vsa ?? artifacts.isa;
   return {
-    ...(artifacts.isa ? { isa: artifacts.isa } : {}),
+    ...(vsaPointer ? { vsa: vsaPointer } : {}),
     task: boundedMetadataLine(options.task ?? existing?.task ?? sessionName, sessionName),
     sessionName,
     sessionUUID: options.sessionId,
@@ -250,13 +253,14 @@ function validateRegistryEntry(path: string, slug: string, entry: Record<string,
     }
   }
 
-  const isa = entry.isa;
-  if (isa !== undefined && typeof isa !== "string") {
-    throw malformedJsonError("work registry", path, `session entry ${slug}.isa must be a string`);
+  // soma#329 slice 3: dual-read the legacy `isa` key, validate, persist as `vsa`.
+  const vsa = entry.vsa ?? entry.isa;
+  if (vsa !== undefined && typeof vsa !== "string") {
+    throw malformedJsonError("work registry", path, `session entry ${slug}.vsa must be a string`);
   }
 
   return {
-    ...(isa !== undefined ? { isa } : {}),
+    ...(vsa !== undefined ? { vsa } : {}),
     task: requireStringField(entry, path, slug, "task"),
     sessionName: requireStringField(entry, path, slug, "sessionName"),
     sessionUUID: requireStringField(entry, path, slug, "sessionUUID"),

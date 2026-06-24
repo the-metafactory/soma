@@ -4,6 +4,7 @@ import { basename, join } from "node:path";
 import { expect, test } from "bun:test";
 import {
   listSomaWorkRegistryEntries,
+  readSomaWorkRegistry,
   somaWorkRegistryPaths,
   upsertSomaWorkRegistryEntry,
 } from "../src";
@@ -65,6 +66,55 @@ test("work registry helper writes PAI-aligned shared state without transcripts",
     await expect(listSomaWorkRegistryEntries({ homeDir })).resolves.toEqual([
       expect.objectContaining({ sessionUUID: "session-1", sessionName: "ship work registry" }),
     ]);
+  });
+});
+
+test("work registry dual-reads a legacy top-level `isa` pointer as `vsa` (#329 slice 3)", async () => {
+  await withTempHome(async (homeDir) => {
+    const workPath = join(homeDir, ".soma/memory/STATE/work.json");
+    await mkdir(join(homeDir, ".soma/memory/STATE"), { recursive: true });
+    // A pre-rename work.json: the active-VSA pointer lived under a top-level `isa`.
+    await writeFile(
+      workPath,
+      JSON.stringify({
+        sessions: {
+          "legacy-entry": {
+            isa: "memory/WORK/legacy-entry/VSA.md",
+            task: "Legacy entry",
+            sessionName: "legacy entry",
+            sessionUUID: "legacy-session",
+            substrate: "codex",
+            phase: "verify",
+            progress: "1/1",
+            started: "2026-06-01T10:00:00.000Z",
+            updatedAt: "2026-06-01T10:00:00.000Z",
+            artifacts: {},
+          },
+        },
+      }),
+      "utf8",
+    );
+
+    const registry = await readSomaWorkRegistry({ homeDir });
+    const entry = registry.sessions["legacy-entry"];
+    expect(entry?.vsa).toBe("memory/WORK/legacy-entry/VSA.md");
+    // The legacy `isa` key is not re-surfaced on the normalized entry.
+    expect((entry as unknown as { isa?: unknown }).isa).toBeUndefined();
+  });
+});
+
+test("work registry hoists artifacts VSA pointer to a top-level `vsa` field (#329 slice 3)", async () => {
+  await withTempHome(async (homeDir) => {
+    await upsertSomaWorkRegistryEntry({
+      homeDir,
+      sessionId: "s-hoist",
+      sessionName: "hoist",
+      substrate: "codex",
+      artifacts: { isa: "memory/WORK/hoist/VSA.md" },
+    });
+    const registry = await readSomaWorkRegistry({ homeDir });
+    const entry = Object.values(registry.sessions)[0];
+    expect(entry?.vsa).toBe("memory/WORK/hoist/VSA.md");
   });
 });
 
