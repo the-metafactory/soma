@@ -23,6 +23,9 @@ export const claudeCodeInstallSpec: SubstrateInstallSpec<"claude-code"> = {
   // ACTIVE_VSA.md. Claude Code auto-loads rules/soma/, so an upgrade must delete
   // the stale copies or it would keep loading frozen old content every session.
   obsoleteHomeFiles: ["rules/soma/TELOS.md", "rules/soma/ACTIVE_ISA.md"],
+  // Soma-exclusive subtrees — reconciled to the projected set each install so any
+  // renamed/recased/removed projection self-cleans (no per-rename bookkeeping).
+  ownedSubtrees: ["rules/soma", "hooks/soma"],
   optionalHomeFiles: (options) => isClaudeCodeInstallOptions(options) && options.modeClassifier === true
     ? [SOMA_CLAUDE_MODE_CLASSIFIER_RELATIVE_PATH, SOMA_CLAUDE_MODE_CLASSIFIER_CONFIG_RELATIVE_PATH]
     : [],

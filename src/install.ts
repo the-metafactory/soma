@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { mkdir, rm, stat, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import {
   installClaudeCodeHomeProjection,
   installCodexHomeProjection,
@@ -15,6 +15,7 @@ import { defaultSomaRepoPath } from "./repo-path";
 import { bootstrapSomaHome, loadSomaHome } from "./soma-home";
 import { installVsaSkillProjection } from "./vsa-skill-installer";
 import { loadActiveVsaForBundle } from "./adapter-active-vsa";
+import { reconcileOwnedDir } from "./projection-reconcile";
 import { isEnoent } from "./fs-errors";
 import {
   type ImplementedUninstallSpec,
@@ -187,12 +188,15 @@ async function installSomaForSubstrate(
       })
     : [];
 
+  const allProjectedFiles = [...substrateHome.files, ...postProjectionFiles, ...lifecycleFiles];
+  await reconcileOwnedSubtrees(spec, substrateHome.rootDir, allProjectedFiles);
+
   return {
     substrate,
     somaHome,
     substrateHome: {
       ...substrateHome,
-      files: [...substrateHome.files, ...postProjectionFiles, ...lifecycleFiles],
+      files: allProjectedFiles,
     },
   };
 }
@@ -203,7 +207,26 @@ async function installSomaForSubstrate(
 // frozen copy alongside the new one on every upgrade.
 async function removeObsoleteHomeFiles(spec: SubstrateInstallSpec, substrateRoot: string): Promise<void> {
   for (const relativePath of spec.obsoleteHomeFiles ?? []) {
-    await rm(resolve(substrateRoot, relativePath), { force: true });
+    await rm(resolve(substrateRoot, relativePath), { recursive: true, force: true });
+  }
+}
+
+// Reconcile each Soma-owned subtree to exactly the projected file set, so a
+// renamed/recased/removed projection leaves no orphan — identically on
+// case-sensitive and case-insensitive filesystems. Runs after ALL projection
+// (home + post + lifecycle) so the desired set is complete.
+async function reconcileOwnedSubtrees(
+  spec: SubstrateInstallSpec,
+  substrateRoot: string,
+  projectedFiles: readonly string[],
+): Promise<void> {
+  const projectedAbs = new Set(projectedFiles.map((file) => resolve(file)));
+  for (const subtree of spec.ownedSubtrees ?? []) {
+    const root = resolve(substrateRoot, subtree);
+    const desiredRel = [...projectedAbs]
+      .filter((abs) => abs === root || abs.startsWith(`${root}/`))
+      .map((abs) => relative(root, abs));
+    await reconcileOwnedDir(root, desiredRel);
   }
 }
 

@@ -299,6 +299,23 @@ test("install preserves existing codex writable roots", async () => {
   });
 });
 
+test("reproject reconciles an owned subtree: a stale file is pruned, shared dirs untouched", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const ownedStale = join(homeDir, ".codex/memories/soma/STALE-RENAMED.md");
+    await writeFile(ownedStale, "frozen old projection\n", "utf8");
+    // A file in a SHARED dir (codex hooks/ is not soma-owned) must survive.
+    const sharedSentinel = join(homeDir, ".codex/hooks/user-custom.mjs");
+    await writeFile(sharedSentinel, "user hook\n", "utf8");
+
+    await installSomaForCodex({ homeDir });
+
+    await expect(stat(ownedStale)).rejects.toThrow(); // pruned by owned-subtree reconcile
+    expect(await readFile(join(homeDir, ".codex/memories/soma/startup-context.md"), "utf8")).toContain("");
+    expect(await readFile(sharedSentinel, "utf8")).toBe("user hook\n"); // shared dir untouched
+  });
+});
+
 test("install preserves single-quoted codex writable roots", async () => {
   await withTempHome(async (homeDir) => {
     await mkdir(join(homeDir, ".codex"), { recursive: true });
