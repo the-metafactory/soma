@@ -15,20 +15,16 @@ async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> 
   }
 }
 
+function makeSkillMd({ name, description }: { name: string; description: string }): string {
+  return ["---", `name: ${name}`, `description: "${description}"`, "effort: medium", "---", "", `# ${name}`, "", "Body.", ""].join("\n");
+}
+
 // A SKILL.md identical in shape to the renamed-away Soma ISA skill: frontmatter
 // `name: ISA` AND a description beginning with the shared identity sentence.
-const SOMA_ISA_SKILL_MD = [
-  "---",
-  "name: ISA",
-  'description: "Owns the Ideal State Artifact: the commitment-time scaffold for articulating done."',
-  "effort: medium",
-  "---",
-  "",
-  "# ISA",
-  "",
-  "Body.",
-  "",
-].join("\n");
+const SOMA_ISA_SKILL_MD = makeSkillMd({
+  name: "ISA",
+  description: "Owns the Ideal State Artifact: the commitment-time scaffold for articulating done.",
+});
 
 async function plantSkill(skillsDir: string, name: string, skillMd: string): Promise<string> {
   const dir = join(skillsDir, name);
@@ -52,7 +48,7 @@ test("pruneLegacyVsaSkill removes a soma ISA dir (name + identity marker) and re
 test("pruneLegacyVsaSkill PRESERVES a user ISA dir whose SKILL.md lacks the identity marker", async () => {
   await withTempHome(async (homeDir) => {
     const skills = join(homeDir, "skills");
-    const userMd = ["---", "name: ISA", 'description: "International Standard Atmosphere reference tables."', "---", "", "# ISA", ""].join("\n");
+    const userMd = makeSkillMd({ name: "ISA", description: "International Standard Atmosphere reference tables." });
     const isaDir = await plantSkill(skills, "ISA", userMd);
 
     const removed = await pruneLegacyVsaSkill(skills);
@@ -66,7 +62,7 @@ test("pruneLegacyVsaSkill PRESERVES an ISA dir whose frontmatter name differs ev
   await withTempHome(async (homeDir) => {
     const skills = join(homeDir, "skills");
     // Identity marker present, but `name` is not ISA — both signals required.
-    const md = ["---", "name: MyArtifacts", 'description: "Owns the Ideal State Artifact: do not delete me."', "---", "", "# X", ""].join("\n");
+    const md = makeSkillMd({ name: "MyArtifacts", description: "Owns the Ideal State Artifact: do not delete me." });
     const isaDir = await plantSkill(skills, "ISA", md);
 
     const removed = await pruneLegacyVsaSkill(skills);
@@ -81,6 +77,9 @@ test("pruneLegacyVsaSkill PRESERVES a lowercase 'isa' dir — the load-bearing c
   // "ISA" would resolve to the same inode as a user dir stored as "isa". The exact
   // on-disk-name match (entry.name === "ISA") prevents that: a dir whose stored
   // name is "isa" is never matched, EVEN with soma's exact provenance content.
+  // NOTE: the dangerous collision only EXISTS on a case-insensitive host (where
+  // this test bites); on case-sensitive CI "isa" and "ISA" are distinct dirs so
+  // the same assertion holds trivially — preservation is correct on both regardless.
   await withTempHome(async (homeDir) => {
     const skills = join(homeDir, "skills");
     const isaDir = await plantSkill(skills, "isa", SOMA_ISA_SKILL_MD);

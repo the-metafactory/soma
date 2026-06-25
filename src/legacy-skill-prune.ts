@@ -26,8 +26,12 @@ function frontmatterField(content: string, key: string): string | undefined {
   const frontmatter = FRONTMATTER.exec(content);
   if (!frontmatter) return undefined;
   const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = new RegExp(`^${escapedKey}:\\s*(.+?)\\s*$`, "m").exec(frontmatter[1]);
-  return match?.[1]?.trim().replace(/^["']|["']$/g, "");
+  const raw = new RegExp(`^${escapedKey}:\\s*(.+?)\\s*$`, "m").exec(frontmatter[1])?.[1]?.trim();
+  if (raw === undefined) return undefined;
+  // Strip a BALANCED surrounding quote pair only (not one leading + one trailing
+  // independently, which would normalize a malformed `'ISA"` to `ISA`).
+  const quoted = /^"(.*)"$/.exec(raw) ?? /^'(.*)'$/.exec(raw);
+  return quoted ? quoted[1] : raw;
 }
 
 // True only when BOTH provenance signals match the Soma renamed-away VSA
@@ -44,10 +48,14 @@ function isSomaRenamedVsaSkill(skillMd: string): boolean {
  * IFF the two-signal provenance gate passes (frontmatter `name: ISA` AND its
  * description contains "Owns the Ideal State Artifact").
  *
- * Safe by design — `skills/` also holds the principal's own skills (dozens of
- * them). A user dir named "ISA" whose SKILL.md lacks the marker (or has a
- * different `name`) is preserved untouched. isEnoent-safe: a missing ISA dir, a
- * missing SKILL.md, or a missing skills dir is a no-op.
+ * Conservative — `skills/` also holds the principal's own skills (dozens of them).
+ * A user dir named "ISA" whose SKILL.md lacks the marker (or has a different
+ * `name`) is preserved untouched. NOTE: the gate keys on Soma's OWN published ISA
+ * identity, so a verbatim user FORK of the old ISA skill (frontmatter kept) is
+ * indistinguishable from the orphan and would also be removed — acceptable, since
+ * it IS the renamed-away Soma skill (its successor is VSA). The gate proves "a dir
+ * lacking the identity is safe", not "this is provably not user-authored".
+ * isEnoent-safe: a missing ISA dir, SKILL.md, or skills dir is a no-op.
  *
  * @param skillsDir absolute path to the shared `skills/` directory.
  * @returns true when the soma ISA dir was removed, false otherwise.

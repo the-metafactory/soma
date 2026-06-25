@@ -70,7 +70,8 @@ export const codexInstallSpec: SubstrateInstallSpec<"codex"> = {
   vsaSkillProjection: {
     destinationDir: vsaSkillUnder(),
     // soma#329: before reprojecting VSA, prune a sibling renamed-away "ISA" skill
-    // from <home>/skills (provenance-gated — never a user skill).
+    // from <home>/skills (provenance-gated to Soma's published ISA identity — a
+    // user skill lacking that identity is preserved; see pruneLegacyVsaSkill doc).
     prepare: vsaSiblingPrunePrepare(),
   },
   lifecycleProjection: {

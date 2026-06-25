@@ -127,10 +127,12 @@ async function installSomaForSubstrate(
   // doesn't prove anything about the hook's later spawn environment.
   requireBunInPath();
   const somaHome = await bootstrapSomaHome(options);
-  // soma#329: prune the renamed-away "ISA" skill from the SOURCE home BEFORE the
-  // VSA baseline is (re)written and BEFORE loadSomaHome enumerates skills below.
-  // `loadSomaSkills` projects EVERY dir under <somaHome>/skills, so a stale ISA
-  // here would re-propagate to every substrate on each install. Provenance-gated
+  // soma#329 MIGRATION SHIM (removable once all homes are reprojected past the
+  // ISA→VSA rename): prune the renamed-away "ISA" skill from the SOURCE home
+  // BEFORE the VSA baseline is (re)written and BEFORE loadSomaHome enumerates
+  // skills below. `loadSomaSkills` projects EVERY dir under <somaHome>/skills, so a
+  // stale ISA here would re-propagate to every substrate on each install. Cheap +
+  // idempotent (a no-op readdir+gate once ISA is gone). Provenance-gated
   // (frontmatter name: ISA + identity marker) — a user "ISA" skill is preserved.
   await pruneLegacyVsaSkill(createPaths(somaHome.somaHome).skills());
   const somaRepoPath = options.somaRepoPath ?? defaultSomaRepoPath();
