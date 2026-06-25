@@ -72,7 +72,7 @@ When naming thinking capabilities, use names verbatim from `references/capabilit
 
 - Codex: use repository edits, tests, and final verification reports as the execution surface.
 - Pi.dev: use the Soma system-prompt context and `soma_context` tool for identity/PAI detail; use Pi tools for work.
-- Claude Code: defer live home integration until no active agents depend on `~/.claude`.
+- Claude Code: defer live home integration until no active Claude Code agents depend on `~/.claude`.
 - Cortex/Myelin: later, the VSA becomes bus-visible work state.
 
 ## Completion Gate
