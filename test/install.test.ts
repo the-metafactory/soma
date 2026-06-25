@@ -1,10 +1,11 @@
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { isAbsolute, join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import { bootstrapSomaHome, installSomaForCodex, installSomaForCursor, installSomaForPiDev, planSomaForCodexInstall, planSomaForPiDevInstall, somaWorkRegistryPaths } from "../src/index";
+import { bootstrapSomaHome, installSomaForClaudeCode, installSomaForCodex, installSomaForCursor, installSomaForPiDev, planSomaForCodexInstall, planSomaForPiDevInstall, somaWorkRegistryPaths } from "../src/index";
 import { codexInstallSpec } from "../src/adapters/codex/install";
+import { removeLegacyPiDevVsaSkillProjection } from "../src/adapters/pi-dev/skill-projection";
 import { renderStartupContextSummary } from "../src/adapters/codex/hooks/codex-hook-entry.mjs";
 import {
   SOMA_MEMORY_CATEGORIES,
@@ -231,7 +232,7 @@ test("install spec registry has adapter-owned facts for every install substrate"
     startupContextPath: "agent/soma/startup-context.md",
     somaRepoPathPath: "agent/soma/soma-repo.txt",
   });
-  expect(installSpecFor("pi-dev").vsaSkillProjection.skillNameOverride).toBe("isa");
+  expect(installSpecFor("pi-dev").vsaSkillProjection.skillNameOverride).toBe("vsa");
   expect(installSpecFor("claude-code").uninstall).toMatchObject({
     kind: "implemented",
     remove: ["rules/soma", "skills/VSA"],
@@ -296,6 +297,80 @@ test("install preserves existing codex writable roots", async () => {
     expect(config).toContain('sandbox_mode = "workspace-write"');
     expect(config).toContain(`writable_roots = ["/tmp/existing", "${join(homeDir, ".soma")}"]`);
     expect(config).toContain("hooks = true");
+  });
+});
+
+test("reproject reconciles an owned subtree: a stale file is pruned, shared dirs untouched", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const startupPath = join(homeDir, ".codex/memories/soma/startup-context.md");
+    const projectedBefore = await readFile(startupPath, "utf8"); // a genuine projected file
+    expect(projectedBefore.trim().length).toBeGreaterThan(0);
+    const ownedStale = join(homeDir, ".codex/memories/soma/STALE-RENAMED.md");
+    await writeFile(ownedStale, "frozen old projection\n", "utf8");
+    // A file in a SHARED dir (codex hooks/ is not soma-owned) must survive.
+    const sharedSentinel = join(homeDir, ".codex/hooks/user-custom.mjs");
+    await writeFile(sharedSentinel, "user hook\n", "utf8");
+
+    await installSomaForCodex({ homeDir });
+
+    await expect(stat(ownedStale)).rejects.toThrow(); // pruned by owned-subtree reconcile
+    expect(await readFile(startupPath, "utf8")).toBe(projectedBefore); // desired file survives intact
+    expect(await readFile(sharedSentinel, "utf8")).toBe("user hook\n"); // shared dir untouched
+  });
+});
+
+// Every adapter's owned-subtree reconcile wiring is exercised (a wrong subtree
+// path in any spec would otherwise pass the suite yet leave orphans). codex is
+// covered by the richer standalone test above; these cover the other wirings and
+// assert BOTH a stale file is pruned AND a real projected file survives intact (so
+// an over-pruning regression that wiped the subtree can't pass).
+for (const c of [
+  { name: "cursor", install: installSomaForCursor, owned: ".cursor/rules/soma" },
+  { name: "pi-dev", install: installSomaForPiDev, owned: ".pi/agent/soma" },
+  { name: "claude-code", install: installSomaForClaudeCode, owned: ".claude/rules/soma" },
+  { name: "claude-code hooks", install: installSomaForClaudeCode, owned: ".claude/hooks/soma" },
+] as const) {
+  test(`reproject prunes a stale file but preserves projections in ${c.name}'s owned subtree (${c.owned})`, async () => {
+    await withTempHome(async (homeDir) => {
+      await c.install({ homeDir });
+      const ownedDir = join(homeDir, c.owned);
+      const projected = (await readdir(ownedDir, { recursive: true })).filter((e) => !e.startsWith(".soma-case."));
+      let survivor: string | undefined;
+      for (const rel of projected) {
+        if ((await stat(join(ownedDir, rel))).isFile()) {
+          survivor = rel;
+          break;
+        }
+      }
+      if (survivor === undefined) throw new Error(`no projected file found under ${c.owned}`);
+      const survivorContent = await readFile(join(ownedDir, survivor), "utf8");
+      const stale = join(ownedDir, "STALE-RECONCILE.md");
+      await writeFile(stale, "frozen old projection\n", "utf8");
+
+      await c.install({ homeDir });
+
+      await expect(stat(stale)).rejects.toThrow(); // stale pruned
+      expect(await readFile(join(ownedDir, survivor), "utf8")).toBe(survivorContent); // projection survives intact
+    });
+  });
+}
+
+test("removeLegacyPiDevVsaSkillProjection removes legacy names but never the canonical vsa dir", async () => {
+  // Non-vacuous on BOTH filesystems: the canonical "vsa" dir is never matched by
+  // the legacy list (readdir yields "vsa"), while a legacy "isa" dir is removed —
+  // exercising the load-bearing exact-name guard regardless of FS case-folding.
+  await withTempHome(async (homeDir) => {
+    const skills = join(homeDir, ".pi/agent/skills");
+    await mkdir(join(skills, "vsa"), { recursive: true });
+    await writeFile(join(skills, "vsa/SKILL.md"), "canonical\n", "utf8");
+    await mkdir(join(skills, "isa"), { recursive: true });
+    await writeFile(join(skills, "isa/SKILL.md"), "legacy\n", "utf8");
+
+    await removeLegacyPiDevVsaSkillProjection(join(homeDir, ".pi"));
+
+    expect(await readFile(join(skills, "vsa/SKILL.md"), "utf8")).toBe("canonical\n"); // canonical preserved
+    await expect(stat(join(skills, "isa"))).rejects.toThrow(); // legacy removed
   });
 });
 

@@ -70,6 +70,16 @@ export interface SubstrateInstallSpec<S extends InstallSubstrate = InstallSubstr
    * relative to the substrate home, same as `homeFiles`.
    */
   obsoleteHomeFiles?: readonly string[];
+  /**
+   * Directories under the substrate home that Soma OWNS exclusively (every file
+   * inside is a Soma projection). After projecting, each owned subtree is
+   * reconciled to exactly the projected file set — any file Soma no longer emits
+   * is removed and case is normalized — so a renamed/recased/removed projection
+   * leaves no orphan, identically on case-sensitive and case-insensitive
+   * filesystems. Do NOT list shared dirs (those holding non-Soma files). Paths
+   * are relative to the substrate home, same as `homeFiles`.
+   */
+  ownedSubtrees?: readonly string[];
   optionalHomeFiles?(options: unknown): readonly string[];
   vsaSkillProjection: VsaSkillProjectionSpec;
   validator?: InstallValidator;

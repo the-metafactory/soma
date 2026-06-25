@@ -64,6 +64,8 @@ export const codexInstallSpec: SubstrateInstallSpec<"codex"> = {
   substrate: "codex",
   defaultHome: CODEX_DEFAULT_HOME,
   homeFiles: CODEX_HOME_FILES,
+  // Owned (Soma-exclusive) dir — see ownedSubtrees JSDoc. (hooks/ + skills/ are shared.)
+  ownedSubtrees: ["memories/soma"],
   vsaSkillProjection: {
     destinationDir: vsaSkillUnder(),
   },

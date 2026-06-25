@@ -40,6 +40,8 @@ export const piDevInstallSpec: SubstrateInstallSpec<"pi-dev"> = {
   substrate: "pi-dev",
   defaultHome: PI_DEV_DEFAULT_HOME,
   homeFiles: PI_DEV_HOME_FILES,
+  // Owned (Soma-exclusive) dir — see ownedSubtrees JSDoc. (agent/extensions + agent/skills shared.)
+  ownedSubtrees: ["agent/soma"],
   vsaSkillProjection: {
     destinationDir: piDevVsaSkillDestinationDir,
     skillNameOverride: PI_DEV_VSA_SKILL_ID,

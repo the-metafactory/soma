@@ -1,10 +1,17 @@
 import { readdir, rm } from "node:fs/promises";
 import { resolve } from "node:path";
+import { isEnoent } from "../../fs-errors";
 import { rewriteSkillNameFrontmatter } from "../../skill-frontmatter";
 import { rewriteSubstrateProjectionContent } from "../../substrate-projection-rewrites";
 import type { Projection, SomaSkill } from "../../types";
 
-export const PI_DEV_VSA_SKILL_ID = "isa";
+export const PI_DEV_VSA_SKILL_ID = "vsa";
+
+// Prior names the Soma VSA skill was projected under in pi-dev before the canonical
+// lowercase "vsa": "isa" (the former PI_DEV_VSA_SKILL_ID) and a legacy capital "VSA"
+// (older code). Both were Soma-projected; pruned before reprojecting "vsa". (pi-dev
+// lowercases all skill ids, so it never produced a capital "ISA".)
+const LEGACY_PI_DEV_VSA_SKILL_DIRS = ["VSA", "isa"] as const;
 
 export function piDevSkillId(name: string): string {
   const id = name
@@ -50,20 +57,25 @@ export function piDevVsaSkillDestinationDir(substrateHome: string): string {
   return resolve(substrateHome, "agent/skills", PI_DEV_VSA_SKILL_ID);
 }
 
-function legacyPiDevVsaSkillDestinationDir(substrateHome: string): string {
-  return resolve(substrateHome, "agent/skills/VSA");
-}
-
 export async function removeLegacyPiDevVsaSkillProjection(substrateHome: string): Promise<void> {
   const skillsDir = resolve(substrateHome, "agent/skills");
   let entries;
   try {
     entries = await readdir(skillsDir, { withFileTypes: true });
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    if (isEnoent(error)) return;
     throw error;
   }
-  if (entries.some((entry) => entry.isDirectory() && entry.name === "VSA")) {
-    await rm(legacyPiDevVsaSkillDestinationDir(substrateHome), { recursive: true, force: true });
+  // The exact on-disk-name match is LOAD-BEARING, not a redundant guard: on a
+  // case-insensitive FS a blind rm of path "VSA" resolves to the SAME inode as
+  // canonical "vsa" and would wipe the (possibly user-edited) current skill. By
+  // only removing a dir whose ACTUAL stored name is a legacy name, a canonical
+  // dir stored as "vsa" is never matched (readdir yields "vsa" ≠ "VSA"), while a
+  // genuine legacy dir stored as "VSA"/"isa" (pre-canonical) is migrated away.
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    if ((LEGACY_PI_DEV_VSA_SKILL_DIRS as readonly string[]).includes(entry.name)) {
+      await rm(resolve(skillsDir, entry.name), { recursive: true, force: true });
+    }
   }
 }

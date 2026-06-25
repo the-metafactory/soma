@@ -102,13 +102,13 @@ test("AC-3: installSomaForCodex projects VSA skill source into ~/.codex/skills/V
   });
 });
 
-test("AC-3: installSomaForPiDev projects VSA skill source into Pi-safe ~/.pi/agent/skills/isa/", async () => {
+test("AC-3: installSomaForPiDev projects VSA skill source into Pi-safe ~/.pi/agent/skills/vsa/", async () => {
   await withTempHome(async (homeDir) => {
     await installSomaForPiDev({ homeDir });
-    const skillMd = await readFile(join(homeDir, ".pi/agent/skills/isa/SKILL.md"), "utf8");
+    const skillMd = await readFile(join(homeDir, ".pi/agent/skills/vsa/SKILL.md"), "utf8");
     const skillDirs = await readdir(join(homeDir, ".pi/agent/skills"));
-    expect(skillMd).toContain("name: isa");
-    expect(skillDirs).toContain("isa");
+    expect(skillMd).toContain("name: vsa");
+    expect(skillDirs).toContain("vsa");
     expect(skillDirs).not.toContain("VSA");
   });
 });
@@ -120,7 +120,7 @@ test("AC-3: non-Claude VSA skill projections rewrite Claude-specific source path
 
     const claudeHome = "~/" + ".claude";
     const codexScaffold = await readFile(join(homeDir, ".codex/skills/VSA/Workflows/Scaffold.md"), "utf8");
-    const piScaffold = await readFile(join(homeDir, ".pi/agent/skills/isa/Workflows/Scaffold.md"), "utf8");
+    const piScaffold = await readFile(join(homeDir, ".pi/agent/skills/vsa/Workflows/Scaffold.md"), "utf8");
     const projected = `${codexScaffold}\n${piScaffold}`;
 
     expect(projected).not.toContain(claudeHome);
@@ -138,8 +138,8 @@ test("AC-3: installSomaForPiDev removes legacy uppercase VSA projection", async 
 
     const skillDirs = await readdir(join(homeDir, ".pi/agent/skills"));
     expect(skillDirs).not.toContain("VSA");
-    expect(skillDirs).toContain("isa");
-    await expect(readFile(join(homeDir, ".pi/agent/skills/isa/SKILL.md"), "utf8")).resolves.toContain("name: isa");
+    expect(skillDirs).toContain("vsa");
+    await expect(readFile(join(homeDir, ".pi/agent/skills/vsa/SKILL.md"), "utf8")).resolves.toContain("name: vsa");
   });
 });
 

@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { mkdir, rm, stat, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import {
   installClaudeCodeHomeProjection,
   installCodexHomeProjection,
@@ -15,6 +15,7 @@ import { defaultSomaRepoPath } from "./repo-path";
 import { bootstrapSomaHome, loadSomaHome } from "./soma-home";
 import { installVsaSkillProjection } from "./vsa-skill-installer";
 import { loadActiveVsaForBundle } from "./adapter-active-vsa";
+import { isUnderOrEqual, reconcileOwnedDir } from "./projection-reconcile";
 import { isEnoent } from "./fs-errors";
 import {
   type ImplementedUninstallSpec,
@@ -187,12 +188,15 @@ async function installSomaForSubstrate(
       })
     : [];
 
+  const allProjectedFiles = [...substrateHome.files, ...postProjectionFiles, ...lifecycleFiles];
+  await reconcileOwnedSubtrees(spec, substrateHome.rootDir, allProjectedFiles);
+
   return {
     substrate,
     somaHome,
     substrateHome: {
       ...substrateHome,
-      files: [...substrateHome.files, ...postProjectionFiles, ...lifecycleFiles],
+      files: allProjectedFiles,
     },
   };
 }
@@ -203,7 +207,47 @@ async function installSomaForSubstrate(
 // frozen copy alongside the new one on every upgrade.
 async function removeObsoleteHomeFiles(spec: SubstrateInstallSpec, substrateRoot: string): Promise<void> {
   for (const relativePath of spec.obsoleteHomeFiles ?? []) {
-    await rm(resolve(substrateRoot, relativePath), { force: true });
+    await rm(resolve(substrateRoot, relativePath), { recursive: true, force: true });
+  }
+}
+
+// Reconcile each Soma-owned subtree to exactly the projected file set, so a
+// renamed/recased/removed projection leaves no orphan — identically on
+// case-sensitive and case-insensitive filesystems. Runs after ALL projection
+// (home + post + lifecycle) so the desired set is complete.
+//
+// These owned subtrees can be Soma private/protected roots (e.g. memories/soma,
+// agent/soma). That is intentional: this runs as part of Soma's OWN authorized
+// projection — the same trust level that just WROTE every file here and that the
+// pre-existing obsoleteHomeFiles step already deletes under. policy-path-guard
+// governs agent-issued destructive Bash commands, not Soma's own install fs ops.
+async function reconcileOwnedSubtrees(
+  spec: SubstrateInstallSpec,
+  substrateRoot: string,
+  projectedFiles: readonly string[],
+): Promise<void> {
+  // Resolve against substrateRoot (not cwd) so a relative projected path can't
+  // silently fall outside an owned subtree and empty its desired set.
+  const projectedAbs = new Set(projectedFiles.map((file) => resolve(substrateRoot, file)));
+  // The VSA skill is installed by its own edit-preserving installer; where its
+  // destination nests under an owned subtree (cursor), exclude it from reconcile.
+  // (Named "excluded", not "protected", to avoid the locked protected-root term.)
+  const excludedDirs = [resolve(spec.vsaSkillProjection.destinationDir(substrateRoot))];
+  for (const subtree of spec.ownedSubtrees ?? []) {
+    const root = resolve(substrateRoot, subtree);
+    const desiredRel = [...projectedAbs]
+      .filter((abs) => isUnderOrEqual(abs, root))
+      .map((abs) => relative(root, abs));
+    // Safety: an empty desired set means projection produced nothing for this
+    // owned subtree (a projection bug) — skip rather than prune the whole subtree.
+    if (desiredRel.length === 0) continue;
+    const excludeRelPrefixes = excludedDirs
+      .filter((dir) => isUnderOrEqual(dir, root))
+      .map((dir) => relative(root, dir))
+      // An "" prefix (protected dir == root) would exclude every file and prune
+      // nothing — drop it so reconcile never silently no-ops the whole subtree.
+      .filter((prefix) => prefix !== "");
+    await reconcileOwnedDir(root, desiredRel, { excludeRelPrefixes });
   }
 }
 
