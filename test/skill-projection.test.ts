@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { lstat, mkdir, mkdtemp, readFile, readlink, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { planProjectSkill, projectSkill, unprojectSkill } from "../src/skill-projection";
+import { planProjectSkill, planUnprojectSkill, projectSkill, unprojectSkill } from "../src/skill-projection";
 import { bootstrapSomaHome } from "../src/index";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
@@ -151,6 +151,35 @@ describe("unprojectSkill", () => {
 
       const catalog = await readFile(join(homeDir, ".claude", "rules", "soma", "SKILLS.md"), "utf8");
       expect(catalog).not.toContain("## MyTool");
+    });
+  });
+
+  test("resolves a registry symlink path to its skill name (stat follows the link)", async () => {
+    await withTempHome(async (homeDir) => {
+      const skillDir = await writeSourceSkill(homeDir, "MyTool");
+      await projectSkill({ skillDir, substrates: ["claude-code"], homeDir });
+      const registryLink = join(homeDir, ".soma", "skills", "MyTool");
+
+      // Unproject by the registry SYMLINK path — must resolve to "MyTool",
+      // not fall through to a slash-bearing name.
+      const result = await unprojectSkill({ skill: registryLink, substrates: ["claude-code"], homeDir });
+      expect(result.skill).toBe("MyTool");
+      await expect(lstat(join(homeDir, ".claude", "skills", "MyTool"))).rejects.toThrow();
+    });
+  });
+
+  test("planUnprojectSkill lists removals without touching the filesystem", async () => {
+    await withTempHome(async (homeDir) => {
+      const skillDir = await writeSourceSkill(homeDir, "MyTool");
+      await projectSkill({ skillDir, substrates: ["claude-code"], homeDir });
+
+      const plan = await planUnprojectSkill({ skill: "MyTool", substrates: ["claude-code"], homeDir });
+      expect(plan.skill).toBe("MyTool");
+      expect(plan.links.some((l) => l.scope === "registry")).toBe(true);
+
+      // Still present — plan wrote nothing.
+      expect((await lstat(join(homeDir, ".claude", "skills", "MyTool"))).isSymbolicLink()).toBe(true);
+      expect((await lstat(join(homeDir, ".soma", "skills", "MyTool"))).isSymbolicLink()).toBe(true);
     });
   });
 

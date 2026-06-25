@@ -1,4 +1,4 @@
-import { lstat, mkdir, readFile, readlink, rm, symlink } from "node:fs/promises";
+import { lstat, mkdir, readFile, readlink, rm, stat, symlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { renderSkills } from "./adapters/shared";
@@ -224,11 +224,26 @@ export async function projectSkill(options: ProjectSkillOptions): Promise<SkillP
     links.push({ scope: "substrate", substrate, path: dest, target: skillDir, status });
   }
 
-  // 3. Refresh the catalog per substrate — reload so the registry scan now
-  //    includes the new skill, then rewrite only the SKILLS.md file.
+  // 3. Refresh the catalog per substrate — reload so the registry scan reflects
+  //    the new skill, then rewrite only the SKILLS.md file.
+  const catalogFiles = await refreshSkillCatalogs(somaHome, options.substrates, options);
+
+  return { skill: name, skillDir, links, catalogFiles };
+}
+
+/**
+ * Reload the soma home (so the registry scan reflects the current skill set) and
+ * rewrite each substrate's SKILLS.md catalog in place. Shared by project and
+ * unproject — a catalog-format change has a single site to track.
+ */
+async function refreshSkillCatalogs(
+  somaHome: string,
+  substrates: InstallSubstrate[],
+  options: { homeDir?: string; substrateHome?: string },
+): Promise<{ substrate: InstallSubstrate; path: string }[]> {
   const input = await loadSomaHome(somaHome);
   const catalogFiles: { substrate: InstallSubstrate; path: string }[] = [];
-  for (const substrate of options.substrates) {
+  for (const substrate of substrates) {
     const substrateHome = resolveSubstrateHome(substrate, options);
     const projectionOptions: SomaHomeProjectionOptions = { homeDir: options.homeDir, somaHome, substrateHome };
     const catalog = findCatalogFile(substrate, input, projectionOptions);
@@ -242,8 +257,7 @@ export async function projectSkill(options: ProjectSkillOptions): Promise<SkillP
     const written = await writeProjection({ substrate, instructions: "", files: [catalog] }, substrateHome);
     catalogFiles.push({ substrate, path: written.files[0] ?? join(substrateHome, catalog.path) });
   }
-
-  return { skill: name, skillDir, links, catalogFiles };
+  return catalogFiles;
 }
 
 export async function planProjectSkill(options: ProjectSkillOptions): Promise<SkillProjectionPlan> {
@@ -270,22 +284,22 @@ export async function planProjectSkill(options: ProjectSkillOptions): Promise<Sk
   return { skill: name, skillDir, links, catalogRefresh: [...options.substrates] };
 }
 
-export async function unprojectSkill(options: UnprojectSkillOptions): Promise<SkillProjectionResult> {
-  assertSingleSubstrateForHome(options);
-  const somaHome = resolveSomaHome(options);
-
-  // Resolve the skill name. Only probe the filesystem when the arg looks
-  // path-like — otherwise a bare name like "MyTool" run from a dir that happens
-  // to contain a "MyTool/" subdir would be misread as that local dir.
-  let name = options.skill;
+/**
+ * Resolve an unproject arg to a skill name. Only probe the filesystem when the
+ * arg looks path-like — otherwise a bare name like "MyTool" run from a dir that
+ * happens to contain a "MyTool/" subdir would be misread as that local dir. Uses
+ * `stat` (not `lstat`) so a registry symlink-to-dir resolves to a skill name
+ * rather than falling through to a slash-bearing path.
+ */
+async function resolveSkillArg(arg: string): Promise<{ name: string; skillDir: string }> {
+  let name = arg;
   let skillDir = "";
-  const looksLikePath =
-    options.skill.includes("/") || options.skill.includes("\\") || options.skill.startsWith(".") || isAbsolute(options.skill);
+  const looksLikePath = arg.includes("/") || arg.includes("\\") || arg.startsWith(".") || isAbsolute(arg);
   if (looksLikePath) {
-    const candidate = resolve(options.skill);
+    const candidate = resolve(arg);
     try {
-      const stat = await lstat(candidate);
-      if (stat.isDirectory()) {
+      const st = await stat(candidate);
+      if (st.isDirectory()) {
         name = await readSkillName(candidate);
         skillDir = candidate;
       }
@@ -294,6 +308,28 @@ export async function unprojectSkill(options: UnprojectSkillOptions): Promise<Sk
     }
   }
   assertSafeSkillName(name);
+  return { name, skillDir };
+}
+
+export async function planUnprojectSkill(options: UnprojectSkillOptions): Promise<SkillProjectionPlan> {
+  assertSingleSubstrateForHome(options);
+  const somaHome = resolveSomaHome(options);
+  const { name, skillDir } = await resolveSkillArg(options.skill);
+
+  const links: SkillProjectionPlan["links"] = [];
+  for (const substrate of options.substrates) {
+    const substrateHome = resolveSubstrateHome(substrate, options);
+    links.push({ scope: "substrate", substrate, path: join(substrateSkillsRoot(substrate, substrateHome), name), target: "" });
+  }
+  links.push({ scope: "registry", path: join(registrySkillsDir(somaHome), name), target: "" });
+
+  return { skill: name, skillDir, links, catalogRefresh: [...options.substrates] };
+}
+
+export async function unprojectSkill(options: UnprojectSkillOptions): Promise<SkillProjectionResult> {
+  assertSingleSubstrateForHome(options);
+  const somaHome = resolveSomaHome(options);
+  const { name, skillDir } = await resolveSkillArg(options.skill);
 
   const force = options.force ?? false;
   const links: SkillLink[] = [];
@@ -311,8 +347,8 @@ export async function unprojectSkill(options: UnprojectSkillOptions): Promise<Sk
   const registryDest = join(registrySkillsDir(somaHome), name);
   let registryRemoved = false;
   try {
-    const stat = await lstat(registryDest);
-    if (stat.isSymbolicLink()) {
+    const entry = await lstat(registryDest);
+    if (entry.isSymbolicLink()) {
       await rm(registryDest, { force: true });
       registryRemoved = true;
       links.push({ scope: "registry", path: registryDest, status: "removed" });
@@ -324,22 +360,7 @@ export async function unprojectSkill(options: UnprojectSkillOptions): Promise<Sk
   }
 
   // 3. Refresh the catalog — drops the skill only if the registry no longer has it.
-  const input = await loadSomaHome(somaHome);
-  const catalogFiles: { substrate: InstallSubstrate; path: string }[] = [];
-  for (const substrate of options.substrates) {
-    const substrateHome = resolveSubstrateHome(substrate, options);
-    const projectionOptions: SomaHomeProjectionOptions = { homeDir: options.homeDir, somaHome, substrateHome };
-    const catalog = findCatalogFile(substrate, input, projectionOptions);
-    if (!catalog) {
-      // Every adapter emits a file byte-equal to renderSkills(input), so a miss
-      // means the projection format drifted — surface it rather than silently
-      // skipping the catalog refresh.
-      process.stderr.write(`Warning: no SKILLS catalog file found for substrate ${substrate}; catalog not refreshed.\n`);
-      continue;
-    }
-    const written = await writeProjection({ substrate, instructions: "", files: [catalog] }, substrateHome);
-    catalogFiles.push({ substrate, path: written.files[0] ?? join(substrateHome, catalog.path) });
-  }
+  const catalogFiles = await refreshSkillCatalogs(somaHome, options.substrates, options);
 
   return { skill: name, skillDir, links, catalogFiles, registryRemoved };
 }

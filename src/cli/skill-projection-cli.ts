@@ -1,8 +1,10 @@
 import {
   planProjectSkill,
+  planUnprojectSkill,
   projectSkill,
   unprojectSkill,
   type ProjectSkillOptions,
+  type SkillProjectionPlan,
   type SkillProjectionResult,
   type UnprojectSkillOptions,
 } from "../skill-projection";
@@ -21,6 +23,7 @@ export interface ParsedUnprojectSkillArgs {
   command: "unproject-skill";
   skill: string;
   substrates: InstallSubstrate[];
+  apply: boolean;
   options: { homeDir?: string; somaHome?: string; substrateHome?: string; force?: boolean };
 }
 
@@ -109,12 +112,12 @@ export function parseProjectSkillArgs(args: string[]): ParsedProjectSkillArgs {
 }
 
 export function parseUnprojectSkillArgs(args: string[]): ParsedUnprojectSkillArgs {
-  const { positional, substrates, options } = parseSkillArgs(
+  const { positional, substrates, apply, options } = parseSkillArgs(
     "unproject-skill",
     UNPROJECT_SKILL_COMMAND_HELP.usage,
     args,
   );
-  return { command: "unproject-skill", skill: positional, substrates, options };
+  return { command: "unproject-skill", skill: positional, substrates, apply, options };
 }
 
 export async function runProjectSkillCli(parsed: ParsedProjectSkillArgs): Promise<string> {
@@ -125,23 +128,8 @@ export async function runProjectSkillCli(parsed: ParsedProjectSkillArgs): Promis
   };
 
   if (!parsed.apply) {
-    const plan = await planProjectSkill(options);
-    return [
-      "Soma project-skill PLAN (no changes written) - pass --apply to apply",
-      `skill: ${plan.skill}`,
-      `source: ${plan.skillDir}`,
-      "",
-      "Links:",
-      ...plan.links.map((link) =>
-        `- ${link.scope === "registry" ? "registry" : link.substrate} → ${link.path}`,
-      ),
-      "",
-      `Catalog refresh: ${plan.catalogRefresh.join(", ")}`,
-      "",
-      "No changes were written. Re-run with --apply to apply this plan.",
-    ].join("\n");
+    return formatPlan("project-skill", await planProjectSkill(options), "→");
   }
-
   return formatProjectionResult("Soma project-skill applied", await projectSkill(options));
 }
 
@@ -151,7 +139,25 @@ export async function runUnprojectSkillCli(parsed: ParsedUnprojectSkillArgs): Pr
     substrates: parsed.substrates,
     ...parsed.options,
   };
+
+  if (!parsed.apply) {
+    return formatPlan("unproject-skill", await planUnprojectSkill(options), "✗");
+  }
   return formatProjectionResult("Soma unproject-skill applied", await unprojectSkill(options));
+}
+
+function formatPlan(verb: string, plan: SkillProjectionPlan, marker: string): string {
+  return [
+    `Soma ${verb} PLAN (no changes written) - pass --apply to apply`,
+    `skill: ${plan.skill}`,
+    "",
+    "Links:",
+    ...plan.links.map((link) => `- ${link.scope === "registry" ? "registry" : link.substrate} ${marker} ${link.path}`),
+    "",
+    `Catalog refresh: ${plan.catalogRefresh.join(", ")}`,
+    "",
+    "No changes were written. Re-run with --apply to apply this plan.",
+  ].join("\n");
 }
 
 function formatProjectionResult(title: string, result: SkillProjectionResult): string {
