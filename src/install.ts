@@ -13,6 +13,8 @@ import { buildSomaStartupContext, runSomaLifecycleAlgorithmUpdated } from "./lif
 import { SOMA_MEMORY_CATEGORIES } from "./memory-readmes";
 import { defaultSomaRepoPath } from "./repo-path";
 import { bootstrapSomaHome, loadSomaHome } from "./soma-home";
+import { createPaths } from "./paths";
+import { pruneLegacyVsaSkill } from "./legacy-skill-prune";
 import { installVsaSkillProjection } from "./vsa-skill-installer";
 import { loadActiveVsaForBundle } from "./adapter-active-vsa";
 import { isUnderOrEqual, reconcileOwnedDir } from "./projection-reconcile";
@@ -125,6 +127,14 @@ async function installSomaForSubstrate(
   // doesn't prove anything about the hook's later spawn environment.
   requireBunInPath();
   const somaHome = await bootstrapSomaHome(options);
+  // soma#329 MIGRATION SHIM (removable once all homes are reprojected past the
+  // ISA→VSA rename): prune the renamed-away "ISA" skill from the SOURCE home
+  // BEFORE the VSA baseline is (re)written and BEFORE loadSomaHome enumerates
+  // skills below. `loadSomaSkills` projects EVERY dir under <somaHome>/skills, so a
+  // stale ISA here would re-propagate to every substrate on each install. Cheap +
+  // idempotent (a no-op readdir+gate once ISA is gone). Provenance-gated
+  // (frontmatter name: ISA + identity marker) — a user "ISA" skill is preserved.
+  await pruneLegacyVsaSkill(createPaths(somaHome.somaHome).skills());
   const somaRepoPath = options.somaRepoPath ?? defaultSomaRepoPath();
   // Install VSA skill into Soma home (canonical baseline) so other
   // tooling reading <somaHome>/skills/VSA continues to work.

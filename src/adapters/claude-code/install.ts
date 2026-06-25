@@ -1,4 +1,5 @@
 import { vsaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
+import { vsaSiblingPrunePrepare } from "../../legacy-skill-prune";
 import { CLAUDE_CODE_RULES_FILES } from "../claude-code";
 import {
   SOMA_CLAUDE_HOOK_CONFIG_RELATIVE_PATH,
@@ -27,6 +28,10 @@ export const claudeCodeInstallSpec: SubstrateInstallSpec<"claude-code"> = {
     : [],
   vsaSkillProjection: {
     destinationDir: vsaSkillUnder(),
+    // soma#329: before reprojecting VSA, prune a sibling renamed-away "ISA" skill
+    // from <home>/skills (provenance-gated to Soma's published ISA identity — a
+    // user skill lacking that identity is preserved; see pruneLegacyVsaSkill doc).
+    prepare: vsaSiblingPrunePrepare(),
   },
   postProjection: [
     {
