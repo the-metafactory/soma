@@ -14,13 +14,18 @@ grew per skill.
 
 **Correction (soma#354 slice 3):** VSA was initially assumed to be the same
 pattern, but it is not. The VSA skill already ships as plain `.md` under
-`src/skills/VSA/`; `src/vsa-skill-installer.ts` (20.5 KB) is not a renderer but a
-*drift-protected projector* — it reads those files and adds baseline hashing,
-edit-preserving upgrade markers, per-substrate name override (pi-dev `vsa`), and
-content rewrites. That machinery is load-bearing, not bloat, and the slice-1
-symlink primitive cannot replace it. So this ADR's original "retire
-`vsa-skill-installer.ts`" framing was wrong: only the-algorithm's string-literal
-renderers are retired; the VSA installer stays.
+`src/skills/VSA/` (`SOURCE_SUBPATH = src/skills/VSA`, `vsa-skill-installer.ts:27`),
+read by `computeSourceFileEntries()` (`:227`). The 20.5 KB is not a renderer but a
+*drift-protected projector*: per-file SHA baseline hashing keyed per destination
+(`baselineKey` `:37`), fail-closed drift detection against user edits
+(`detectDrift` `:251`), edit-preserving `.upgrade-available` markers
+(`writeUpgradeMarker` `:522`), per-substrate name override (pi-dev `vsa`, via
+`SubstrateInstallSpec.vsaSkillProjection.skillNameOverride`), and substrate content
+rewrites (`rewriteSubstrateProjectionContent`, imported `:7`). The slice-1 symlink
+primitive does none of that — it cannot replace this installer without losing
+user-edit protection. So this ADR's original "retire `vsa-skill-installer.ts`"
+framing was wrong: only the-algorithm's string-literal renderers are retired; the
+VSA installer stays.
 
 Two further problems compound it:
 

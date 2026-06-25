@@ -18,7 +18,7 @@ Prefer the Soma Algorithm harness over freeform execution when it is available. 
 - Read `references/capabilities.md` before selecting thinking or delegation capabilities.
 - Read `references/mode-detection.md` when effort tier, fast-path, ideate, optimize, or research mode is ambiguous.
 - Read `references/parameter-schema.md` for ideate and optimize parameter handling.
-- Treat Claude-specific hooks, voice curls, and agents as source history, not portable requirements.
+- Treat Claude-specific hooks, voice curls, and Claude Code sub-agents as source history, not portable requirements.
 
 ## Triggers
 
