@@ -76,6 +76,22 @@ test("pruneLegacyVsaSkill PRESERVES an ISA dir whose frontmatter name differs ev
   });
 });
 
+test("pruneLegacyVsaSkill PRESERVES a lowercase 'isa' dir — the load-bearing case-insensitive guard", async () => {
+  // On a case-insensitive FS (macOS/APFS, the author's host) a blind rm of path
+  // "ISA" would resolve to the same inode as a user dir stored as "isa". The exact
+  // on-disk-name match (entry.name === "ISA") prevents that: a dir whose stored
+  // name is "isa" is never matched, EVEN with soma's exact provenance content.
+  await withTempHome(async (homeDir) => {
+    const skills = join(homeDir, "skills");
+    const isaDir = await plantSkill(skills, "isa", SOMA_ISA_SKILL_MD);
+
+    const removed = await pruneLegacyVsaSkill(skills);
+
+    expect(removed).toBe(false);
+    expect(await readFile(join(isaDir, "SKILL.md"), "utf8")).toBe(SOMA_ISA_SKILL_MD); // intact
+  });
+});
+
 test("pruneLegacyVsaSkill is a no-op when the ISA dir is absent", async () => {
   await withTempHome(async (homeDir) => {
     const skills = join(homeDir, "skills");

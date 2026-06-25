@@ -18,10 +18,15 @@ const SOMA_VSA_SKILL_IDENTITY_MARKER = "Owns the Ideal State Artifact" as const;
 
 const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---(?=\r?\n|$)/;
 
+// NOTE: matches a single-line scalar value only. Soma's ISA/VSA `name` and
+// `description` are always single-line; a folded/multi-line YAML value would not
+// be captured here — which fails SAFE (the provenance gate would not match, so the
+// dir is preserved rather than wrongly deleted).
 function frontmatterField(content: string, key: string): string | undefined {
   const frontmatter = FRONTMATTER.exec(content);
   if (!frontmatter) return undefined;
-  const match = new RegExp(`^${key}:\\s*(.+?)\\s*$`, "m").exec(frontmatter[1]);
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = new RegExp(`^${escapedKey}:\\s*(.+?)\\s*$`, "m").exec(frontmatter[1]);
   return match?.[1]?.trim().replace(/^["']|["']$/g, "");
 }
 
@@ -74,4 +79,15 @@ export async function pruneLegacyVsaSkill(skillsDir: string): Promise<boolean> {
 
   await rm(resolve(skillsDir, legacyDir.name), { recursive: true, force: true });
   return true;
+}
+
+/**
+ * A `vsaSkillProjection.prepare` hook that prunes a sibling renamed-away ISA skill
+ * from a substrate's shared skills dir before the canonical VSA skill installs.
+ * Shared by every substrate whose VSA skill lives at `<substrateHome>/<skillsSubpath>/VSA`.
+ */
+export function vsaSiblingPrunePrepare(skillsSubpath = "skills"): (substrateHome: string) => Promise<void> {
+  return async (substrateHome: string) => {
+    await pruneLegacyVsaSkill(resolve(substrateHome, skillsSubpath));
+  };
 }
