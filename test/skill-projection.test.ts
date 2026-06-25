@@ -204,4 +204,25 @@ describe("unprojectSkill", () => {
       expect((await lstat(registryDir)).isDirectory()).toBe(true);
     });
   });
+
+  test("force removes an authored registry dir (and the plan reflects it)", async () => {
+    await withTempHome(async (homeDir) => {
+      const registryDir = join(homeDir, ".soma", "skills", "Authored");
+      await mkdir(registryDir, { recursive: true });
+      await writeFile(join(registryDir, "SKILL.md"), `---\nname: Authored\n---\n`, "utf8");
+      await projectSkill({ skillDir: registryDir, substrates: ["claude-code"], homeDir });
+
+      // Without force the plan must NOT list the registry as a removal.
+      const planNoForce = await planUnprojectSkill({ skill: "Authored", substrates: ["claude-code"], homeDir });
+      expect(planNoForce.links.some((l) => l.scope === "registry")).toBe(false);
+
+      // With force the plan lists it, and apply removes it.
+      const planForce = await planUnprojectSkill({ skill: "Authored", substrates: ["claude-code"], homeDir, force: true });
+      expect(planForce.links.some((l) => l.scope === "registry")).toBe(true);
+
+      const result = await unprojectSkill({ skill: "Authored", substrates: ["claude-code"], homeDir, force: true });
+      expect(result.registryRemoved).toBe(true);
+      await expect(lstat(registryDir)).rejects.toThrow();
+    });
+  });
 });

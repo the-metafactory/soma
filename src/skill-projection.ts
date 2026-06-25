@@ -20,9 +20,10 @@ import type { ProjectionInput, SomaHomeProjection, SomaHomeProjectionOptions } f
  *
  * Materialises an invocable skill directory into one or more substrate skill
  * loaders (e.g. `~/.claude/skills/<Name>`) and refreshes the Soma skill catalog
- * (`rules/soma/SKILLS.md`) so the skill is both loadable AND listed. The unit
- * `soma install --skills`, and arc, both delegate to this — soma stays the
- * single projection truth (ADR 0002).
+ * (`rules/soma/SKILLS.md`) so the skill is both loadable AND listed. This is the
+ * primitive `soma install --skills` and arc will delegate to in later #354 /
+ * arc#251 slices, so soma can be the single projection truth (ADR 0002); this
+ * slice ships the primitive only and does not yet wire those callers.
  *
  * Skills are linked, not copied: `~/.soma/skills/<Name>` (the registry the
  * catalog scans) and each substrate loader point at the source dir, so edits to
@@ -71,7 +72,7 @@ export interface UnprojectSkillOptions {
   force?: boolean;
 }
 
-export type SkillLinkStatus = "linked" | "unchanged" | "replaced" | "removed" | "absent";
+export type SkillLinkStatus = "linked" | "unchanged" | "replaced" | "removed" | "absent" | "preserved";
 
 export interface SkillLink {
   scope: "registry" | "substrate";
@@ -111,6 +112,26 @@ function registrySkillsDir(somaHome: string): string {
 /** Per-substrate invocable skill loader root (parent of the VSA skill dir). */
 function substrateSkillsRoot(substrate: InstallSubstrate, substrateHome: string): string {
   return dirname(installSpecFor(substrate).vsaSkillProjection.destinationDir(substrateHome));
+}
+
+/**
+ * The filesystem slots a skill occupies: the soma registry entry and one loader
+ * entry per substrate. Single source of these paths so plan and apply can never
+ * drift on how a loader root or registry slot is computed.
+ */
+function skillSlots(
+  name: string,
+  somaHome: string,
+  substrates: InstallSubstrate[],
+  options: { homeDir?: string; substrateHome?: string },
+): { registry: string; substrates: { substrate: InstallSubstrate; path: string }[] } {
+  return {
+    registry: join(registrySkillsDir(somaHome), name),
+    substrates: substrates.map((substrate) => ({
+      substrate,
+      path: join(substrateSkillsRoot(substrate, resolveSubstrateHome(substrate, options)), name),
+    })),
+  };
 }
 
 function resolveSubstrateHome(
@@ -204,24 +225,22 @@ export async function projectSkill(options: ProjectSkillOptions): Promise<SkillP
   const name = await readSkillName(skillDir);
   const somaHome = resolveSomaHome(options);
 
+  const force = options.force ?? false;
+  const slots = skillSlots(name, somaHome, options.substrates, options);
   const links: SkillLink[] = [];
 
   // 1. Registry symlink in the soma home — the scan source the catalog reads.
   //    Skipped when the source already lives under the registry (authored in place).
-  const registryDir = registrySkillsDir(somaHome);
-  const registryDest = join(registryDir, name);
-  const sourceAlreadyInRegistry = dirname(skillDir) === resolve(registryDir);
+  const sourceAlreadyInRegistry = dirname(skillDir) === resolve(registrySkillsDir(somaHome));
   if (!sourceAlreadyInRegistry) {
-    const status = await ensureSymlink(registryDest, skillDir, options.force ?? false);
-    links.push({ scope: "registry", path: registryDest, target: skillDir, status });
+    const status = await ensureSymlink(slots.registry, skillDir, force);
+    links.push({ scope: "registry", path: slots.registry, target: skillDir, status });
   }
 
   // 2. Loader symlink in each substrate.
-  for (const substrate of options.substrates) {
-    const substrateHome = resolveSubstrateHome(substrate, options);
-    const dest = join(substrateSkillsRoot(substrate, substrateHome), name);
-    const status = await ensureSymlink(dest, skillDir, options.force ?? false);
-    links.push({ scope: "substrate", substrate, path: dest, target: skillDir, status });
+  for (const { substrate, path } of slots.substrates) {
+    const status = await ensureSymlink(path, skillDir, force);
+    links.push({ scope: "substrate", substrate, path, target: skillDir, status });
   }
 
   // 3. Refresh the catalog per substrate — reload so the registry scan reflects
@@ -266,19 +285,13 @@ export async function planProjectSkill(options: ProjectSkillOptions): Promise<Sk
   const name = await readSkillName(skillDir);
   const somaHome = resolveSomaHome(options);
 
+  const slots = skillSlots(name, somaHome, options.substrates, options);
   const links: SkillProjectionPlan["links"] = [];
-  const registryDir = registrySkillsDir(somaHome);
-  if (dirname(skillDir) !== resolve(registryDir)) {
-    links.push({ scope: "registry", path: join(registryDir, name), target: skillDir });
+  if (dirname(skillDir) !== resolve(registrySkillsDir(somaHome))) {
+    links.push({ scope: "registry", path: slots.registry, target: skillDir });
   }
-  for (const substrate of options.substrates) {
-    const substrateHome = resolveSubstrateHome(substrate, options);
-    links.push({
-      scope: "substrate",
-      substrate,
-      path: join(substrateSkillsRoot(substrate, substrateHome), name),
-      target: skillDir,
-    });
+  for (const { substrate, path } of slots.substrates) {
+    links.push({ scope: "substrate", substrate, path, target: skillDir });
   }
 
   return { skill: name, skillDir, links, catalogRefresh: [...options.substrates] };
@@ -315,15 +328,31 @@ export async function planUnprojectSkill(options: UnprojectSkillOptions): Promis
   assertSingleSubstrateForHome(options);
   const somaHome = resolveSomaHome(options);
   const { name, skillDir } = await resolveSkillArg(options.skill);
+  const force = options.force ?? false;
+  const slots = skillSlots(name, somaHome, options.substrates, options);
 
   const links: SkillProjectionPlan["links"] = [];
-  for (const substrate of options.substrates) {
-    const substrateHome = resolveSubstrateHome(substrate, options);
-    links.push({ scope: "substrate", substrate, path: join(substrateSkillsRoot(substrate, substrateHome), name), target: "" });
+  for (const { substrate, path } of slots.substrates) {
+    links.push({ scope: "substrate", substrate, path, target: "" });
   }
-  links.push({ scope: "registry", path: join(registrySkillsDir(somaHome), name), target: "" });
+  // List the registry only when it would actually be removed — a symlink Soma
+  // owns, or (with --force) a real dir. An authored real dir left intact must
+  // not appear as a removal.
+  if (await registryWouldBeRemoved(slots.registry, force)) {
+    links.push({ scope: "registry", path: slots.registry, target: "" });
+  }
 
   return { skill: name, skillDir, links, catalogRefresh: [...options.substrates] };
+}
+
+/** True when unproject would remove the registry entry: a symlink, or a real dir under --force. */
+async function registryWouldBeRemoved(registryDest: string, force: boolean): Promise<boolean> {
+  try {
+    const entry = await lstat(registryDest);
+    return entry.isSymbolicLink() || force;
+  } catch {
+    return false;
+  }
 }
 
 export async function unprojectSkill(options: UnprojectSkillOptions): Promise<SkillProjectionResult> {
@@ -332,31 +361,29 @@ export async function unprojectSkill(options: UnprojectSkillOptions): Promise<Sk
   const { name, skillDir } = await resolveSkillArg(options.skill);
 
   const force = options.force ?? false;
+  const slots = skillSlots(name, somaHome, options.substrates, options);
   const links: SkillLink[] = [];
 
   // 1. Remove each substrate loader link.
-  for (const substrate of options.substrates) {
-    const substrateHome = resolveSubstrateHome(substrate, options);
-    const dest = join(substrateSkillsRoot(substrate, substrateHome), name);
-    const status = await removeLink(dest, force);
-    links.push({ scope: "substrate", substrate, path: dest, status });
+  for (const { substrate, path } of slots.substrates) {
+    const status = await removeLink(path, force);
+    links.push({ scope: "substrate", substrate, path, status });
   }
 
-  // 2. Remove the registry symlink — only if it IS a symlink Soma created.
-  //    An authored real dir (source of truth) is left intact.
-  const registryDest = join(registrySkillsDir(somaHome), name);
+  // 2. Remove the registry entry — a symlink Soma created always; a real
+  //    authored dir (source of truth) only under --force, else preserved.
   let registryRemoved = false;
   try {
-    const entry = await lstat(registryDest);
-    if (entry.isSymbolicLink()) {
-      await rm(registryDest, { force: true });
+    const entry = await lstat(slots.registry);
+    if (entry.isSymbolicLink() || force) {
+      await rm(slots.registry, { recursive: true, force: true });
       registryRemoved = true;
-      links.push({ scope: "registry", path: registryDest, status: "removed" });
+      links.push({ scope: "registry", path: slots.registry, status: "removed" });
     } else {
-      links.push({ scope: "registry", path: registryDest, status: "absent" });
+      links.push({ scope: "registry", path: slots.registry, status: "preserved" });
     }
   } catch {
-    links.push({ scope: "registry", path: registryDest, status: "absent" });
+    links.push({ scope: "registry", path: slots.registry, status: "absent" });
   }
 
   // 3. Refresh the catalog — drops the skill only if the registry no longer has it.
