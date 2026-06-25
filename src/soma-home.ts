@@ -158,7 +158,12 @@ async function loadSomaSkills(somaHome: string): Promise<SomaSkill[]> {
   const skills: SomaSkill[] = [];
 
   for (const entry of entries) {
-    if (!entry.isDirectory()) {
+    // A skill may be a real dir OR a symlink to one (soma#354: `project-skill`
+    // registers skills by symlink). `readdir(withFileTypes)` reports a
+    // symlink-to-dir as isSymbolicLink, not isDirectory, so both are admitted;
+    // the SKILL.md read below is the real gate — a symlinked file fails it and
+    // is skipped.
+    if (!entry.isDirectory() && !entry.isSymbolicLink()) {
       continue;
     }
 

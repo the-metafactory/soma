@@ -25,6 +25,16 @@ import {
   type ParsedUpgradeArgs,
 } from "./cli/substrate-lifecycle";
 import {
+  PROJECT_SKILL_COMMAND_HELP,
+  UNPROJECT_SKILL_COMMAND_HELP,
+  parseProjectSkillArgs,
+  parseUnprojectSkillArgs,
+  runProjectSkillCli,
+  runUnprojectSkillCli,
+  type ParsedProjectSkillArgs,
+  type ParsedUnprojectSkillArgs,
+} from "./cli/skill-projection-cli";
+import {
   MIGRATE_COMMAND_HELP,
   parseMigrateArgs,
   runMigrateCli,
@@ -131,6 +141,8 @@ type ParsedArgs =
   | ParsedUpgradeArgs
   | ParsedExportArgs
   | ParsedDaemonArgs
+  | ParsedProjectSkillArgs
+  | ParsedUnprojectSkillArgs
   | ParsedOnboardingArgs
   | ParsedImportArgs
   | ParsedMigrateArgs
@@ -167,8 +179,10 @@ const TOP_LEVEL_COMMANDS = [
   "migrate",
   "opinion",
   "policy",
+  "project-skill",
   "relationship",
   "reproject",
+  "unproject-skill",
   "result",
   "rollback",
   "session",
@@ -195,6 +209,8 @@ const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string,
   install: SUBSTRATE_LIFECYCLE_COMMAND_HELP.install,
   uninstall: SUBSTRATE_LIFECYCLE_COMMAND_HELP.uninstall,
   reproject: SUBSTRATE_LIFECYCLE_COMMAND_HELP.reproject,
+  "project-skill": PROJECT_SKILL_COMMAND_HELP,
+  "unproject-skill": UNPROJECT_SKILL_COMMAND_HELP,
   upgrade: SUBSTRATE_LIFECYCLE_COMMAND_HELP.upgrade,
   export: SUBSTRATE_LIFECYCLE_COMMAND_HELP.export,
   daemon: SUBSTRATE_LIFECYCLE_COMMAND_HELP.daemon,
@@ -291,6 +307,14 @@ function parseArgs(args: string[]): ParsedArgs {
 
   if (args[0] === "reproject") {
     return parseReprojectArgs(args);
+  }
+
+  if (args[0] === "project-skill") {
+    return parseProjectSkillArgs(args);
+  }
+
+  if (args[0] === "unproject-skill") {
+    return parseUnprojectSkillArgs(args);
   }
 
   if (args[0] === "upgrade") {
@@ -514,6 +538,14 @@ export async function runSomaCli(args: string[]): Promise<string> {
 
   if (parsed.command === "snapshot" || parsed.command === "history" || parsed.command === "rollback") {
     return runSnapshotCli(parsed);
+  }
+
+  if (parsed.command === "project-skill") {
+    return runProjectSkillCli(parsed);
+  }
+
+  if (parsed.command === "unproject-skill") {
+    return runUnprojectSkillCli(parsed);
   }
 
   if (isSubstrateLifecycleArgs(parsed)) {
