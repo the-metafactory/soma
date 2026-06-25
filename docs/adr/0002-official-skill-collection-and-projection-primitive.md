@@ -6,13 +6,26 @@ status: proposed
 
 ## Context
 
-Soma's primitive-operating skills — the ones that author and run Soma's own
-compartments (Purpose, VSA, the Algorithm, and a future Memory skill) — are today
-each a bespoke TypeScript *importer* that emits the skill's markdown as string
-literals: `the-algorithm` via `renderSkill()` in `src/algorithm-importer.ts:37`
-(`files.set("skills/the-algorithm/SKILL.md", renderSkill())` at line 246), and VSA
-via a dedicated `src/vsa-skill-installer.ts` (20.5 KB). Every new official skill
-costs another 15–20 KB code-gen renderer. That is the bloat path.
+Soma's primitive-operating skills (Purpose, VSA, the Algorithm, and a future
+Memory skill) reach their substrates through inconsistent paths. **the-algorithm**
+emitted its SKILL.md + workflow as TypeScript string literals — `renderSkill()` /
+`renderRunWorkflow()` in `src/algorithm-importer.ts` — genuine code-gen bloat that
+grew per skill.
+
+**Correction (soma#354 slice 3):** VSA was initially assumed to be the same
+pattern, but it is not. The VSA skill already ships as plain `.md` under
+`src/skills/VSA/` (`SOURCE_SUBPATH = src/skills/VSA`, `vsa-skill-installer.ts:27`),
+read by `computeSourceFileEntries()` (`:227`). The 20.5 KB is not a renderer but a
+*drift-protected projector*: per-file SHA baseline hashing keyed per destination
+(`baselineKey` `:37`), fail-closed drift detection against user edits
+(`detectDrift` `:251`), edit-preserving `.upgrade-available` markers
+(`writeUpgradeMarker` `:522`), per-substrate name override (pi-dev `vsa`, via
+`SubstrateInstallSpec.vsaSkillProjection.skillNameOverride`), and substrate content
+rewrites (`rewriteSubstrateProjectionContent`, imported `:7`). The slice-1 symlink
+primitive does none of that — it cannot replace this installer without losing
+user-edit protection. So this ADR's original "retire `vsa-skill-installer.ts`"
+framing was wrong: only the-algorithm's string-literal renderers are retired; the
+VSA installer stays.
 
 Two further problems compound it:
 
@@ -47,8 +60,11 @@ Three tiers, named, with one projection truth shared across them.
   never drift from the format in another release train. They are **opt-in**:
   `soma install <substrate> --skills purpose,memory` projects only the chosen
   skills. The Purpose skill (plain `.md`, symlink-projected) is the prototype of
-  this pattern; the `vsa-skill-installer.ts` / `algorithm-importer.ts` code-gen
-  renderers are the legacy pattern to retire.
+  this pattern; the legacy pattern to retire is **string-literal code-gen** —
+  `algorithm-importer.ts`'s `renderSkill()` / `renderRunWorkflow()` (done in
+  slice 3, content moved to `src/skills/the-algorithm/`). The VSA installer is
+  *not* in scope to retire — it is a drift-protected projector over already-plain
+  `.md`, not a renderer (see Context correction).
 - **Third-party** — general/optional skills, distributed as external packs (arc).
   Soma does not own them; it projects and catalogs them on request.
 
@@ -85,11 +101,13 @@ all installed); the contract above is substrate-list-parameterised either way.
   duplicates `src/adapters/*` and forks the projection truth the moment soma's
   adapters change. **Soma-owned with arc delegating** chosen: one implementation,
   many callers.
-- **Skill authoring: code-gen renderers vs. plain `.md`.** The current
-  `renderSkill()`/`vsa-skill-installer.ts` string-literal renderers were rejected
-  as the go-forward pattern: 15–20 KB of TS per skill, awkward to edit, no reason
-  for skills (static prose) to be computed. **Plain `.md` in `skills/`** chosen;
-  the legacy renderers are migrated to files and retired.
+- **Skill authoring: code-gen renderers vs. plain `.md`.** the-algorithm's
+  `renderSkill()` / `renderRunWorkflow()` string-literal renderers were rejected
+  as the go-forward pattern: TS string literals for static prose, awkward to edit,
+  no reason to compute. **Plain `.md` in `skills/`** chosen; the renderers were
+  migrated to `src/skills/the-algorithm/` and removed (slice 3). (VSA was *not* a
+  renderer — it already ships plain `.md`; its installer is drift machinery and
+  stays — see Context.)
 - **Catalog-only projection (status quo) vs. invocable-dir projection.**
   Catalog-only was rejected: a listed-but-not-loadable skill is not usable
   (exactly the Purpose failure). Projection must materialise an invocable
@@ -99,9 +117,10 @@ all installed); the contract above is substrate-list-parameterised either way.
 
 - A new `soma project-skill` / `unproject-skill` primitive (CLI + lib), reused by
   `install`, by `--skills` selective install, and by arc.
-- `vsa-skill-installer.ts` and `algorithm-importer.ts`'s `renderSkill()` path are
-  replaced by plain `.md` skills under `skills/` + the generic projector. Net code
-  removed, not added.
+- `algorithm-importer.ts`'s `renderSkill()` / `renderRunWorkflow()` are removed;
+  the content lives in `src/skills/the-algorithm/{SKILL.md,Workflows/RunAlgorithm.md}`
+  and the importer reads it from disk (slice 3). `vsa-skill-installer.ts` is
+  retained — it is drift-protected projection, not a renderer.
 - `soma install` gains a `--skills <list>` selector; official skills become
   opt-in. Default install stays minimal.
 - arc gains a post-install / post-uninstall hook that calls the soma primitive;
