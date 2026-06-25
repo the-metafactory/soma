@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-06-25
+
+### Fixed
+- **Case-clean projection (#351, #352)** — install/reproject now leaves ONE clean
+  state, identically on case-sensitive and case-insensitive filesystems, with no
+  rename/recase orphans (the cross-filesystem divergence class). Two parts:
+  - *Self-reconciling generated subtrees* (#351): Soma-owned subtrees
+    (`rules/soma`, `memories/soma`, `hooks/soma`, `agent/soma`) reconcile to exactly
+    the projected file set every install — renamed/recased/removed projections
+    self-clean (case-normalized via a crash-safe temp-hop, or removed), with no
+    per-rename bookkeeping and never deleting the subtree root. `removeObsoleteHomeFiles`
+    is now recursive. pi-dev projects the VSA skill as canonical `vsa` (was a stale
+    pre-#329 `isa`, which had left frozen `## Criteria` content).
+  - *Renamed-away skill orphan prune* (#352): the pre-#329 `ISA` skill dir left
+    beside the canonical `VSA` is removed from the source home (`~/.soma/skills/ISA`,
+    the propagation root) and the codex/claude-code `skills/` roots, behind a
+    two-signal provenance gate (frontmatter `name: ISA` + the VSA-skill identity
+    sentence) so a user skill named `ISA` is never touched. cursor + pi-dev are
+    covered by the part-1 reconcile / legacy prune.
+
 ## [0.9.0] - 2026-06-24
 
 ### Added
