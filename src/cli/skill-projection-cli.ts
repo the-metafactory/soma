@@ -14,18 +14,18 @@ export interface ParsedProjectSkillArgs {
   skillDir: string;
   substrates: InstallSubstrate[];
   apply: boolean;
-  options: { homeDir?: string; somaHome?: string; substrateHome?: string };
+  options: { homeDir?: string; somaHome?: string; substrateHome?: string; force?: boolean };
 }
 
 export interface ParsedUnprojectSkillArgs {
   command: "unproject-skill";
   skill: string;
   substrates: InstallSubstrate[];
-  options: { homeDir?: string; somaHome?: string; substrateHome?: string };
+  options: { homeDir?: string; somaHome?: string; substrateHome?: string; force?: boolean };
 }
 
 const SUBSTRATE_LIST = INSTALL_SUBSTRATES.join("|");
-const SKILL_OPTIONS = "[--substrate <id[,id…]>] [--dry-run] [--apply] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
+const SKILL_OPTIONS = "[--substrate <id[,id…]>] [--dry-run] [--apply] [--force] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
 
 export const PROJECT_SKILL_COMMAND_HELP = {
   usage: `Usage: soma project-skill <skill-dir> ${SKILL_OPTIONS}  (--substrate defaults to claude-code; ${SUBSTRATE_LIST})`,
@@ -50,7 +50,7 @@ interface SkillCommonParse {
   positional: string;
   substrates: InstallSubstrate[];
   apply: boolean;
-  options: { homeDir?: string; somaHome?: string; substrateHome?: string };
+  options: { homeDir?: string; somaHome?: string; substrateHome?: string; force?: boolean };
 }
 
 function parseSkillArgs(verb: string, usage: string, args: string[]): SkillCommonParse {
@@ -59,7 +59,7 @@ function parseSkillArgs(verb: string, usage: string, args: string[]): SkillCommo
     throw new Error(usage);
   }
 
-  const options: { homeDir?: string; somaHome?: string; substrateHome?: string } = {};
+  const options: { homeDir?: string; somaHome?: string; substrateHome?: string; force?: boolean } = {};
   let substrates: InstallSubstrate[] = ["claude-code"];
   let apply = false;
 
@@ -81,6 +81,9 @@ function parseSkillArgs(verb: string, usage: string, args: string[]): SkillCommo
       case "--substrate-home":
         options.substrateHome = readOption(rest, index, arg);
         index += 1;
+        continue;
+      case "--force":
+        options.force = true;
         continue;
       case "--apply":
         apply = true;

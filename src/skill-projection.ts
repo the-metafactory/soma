@@ -1,6 +1,6 @@
 import { lstat, mkdir, readFile, readlink, rm, symlink } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { renderSkills } from "./adapters/shared";
 import {
   buildClaudeCodeHomeProjection,
@@ -51,6 +51,13 @@ export interface ProjectSkillOptions {
   somaHome?: string;
   /** Only valid with a single substrate. */
   substrateHome?: string;
+  /**
+   * Replace a real (non-symlink) directory occupying the skill's slot. Off by
+   * default: a symlink Soma owns is always replaced, but a real dir we did not
+   * create (a hand-authored skill, or a same-named user skill) is left intact
+   * unless this is set — guarding against silent data loss on name collision.
+   */
+  force?: boolean;
 }
 
 export interface UnprojectSkillOptions {
@@ -60,6 +67,8 @@ export interface UnprojectSkillOptions {
   homeDir?: string;
   somaHome?: string;
   substrateHome?: string;
+  /** Remove a real (non-symlink) directory at the slot; off by default. */
+  force?: boolean;
 }
 
 export type SkillLinkStatus = "linked" | "unchanged" | "replaced" | "removed" | "absent";
@@ -140,7 +149,11 @@ function assertSingleSubstrateForHome(options: { substrates: InstallSubstrate[];
   }
 }
 
-async function ensureSymlink(linkPath: string, targetPath: string): Promise<"linked" | "unchanged" | "replaced"> {
+async function ensureSymlink(
+  linkPath: string,
+  targetPath: string,
+  force: boolean,
+): Promise<"linked" | "unchanged" | "replaced"> {
   const target = resolve(targetPath);
   await mkdir(dirname(linkPath), { recursive: true });
 
@@ -151,11 +164,19 @@ async function ensureSymlink(linkPath: string, targetPath: string): Promise<"lin
     if (stat.isSymbolicLink()) {
       const current = await readlink(linkPath);
       if (resolve(dirname(linkPath), current) === target) return "unchanged";
+      // A symlink in the slot is Soma-owned (or a prior link) — replace freely.
+    } else if (!force) {
+      // A real dir/file we did not create: a hand-authored skill, or a same-named
+      // user skill. Refuse to delete it silently — that is the data-loss path.
+      throw new SkillProjectionError(
+        `Refusing to replace non-symlink path at ${linkPath} (not a Soma-created symlink). ` +
+          `Pass force to overwrite it.`,
+      );
     }
-    // Our skill name, our slot: a stale symlink or a hand-made copy is replaced.
-    // Reconciliation is scoped to this single path — unrelated skills untouched.
+    // Scoped to this single named path — unrelated skills are never touched.
     await rm(linkPath, { recursive: true, force: true });
   } catch (error) {
+    if (error instanceof SkillProjectionError) throw error;
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
 
@@ -191,7 +212,7 @@ export async function projectSkill(options: ProjectSkillOptions): Promise<SkillP
   const registryDest = join(registryDir, name);
   const sourceAlreadyInRegistry = dirname(skillDir) === resolve(registryDir);
   if (!sourceAlreadyInRegistry) {
-    const status = await ensureSymlink(registryDest, skillDir);
+    const status = await ensureSymlink(registryDest, skillDir, options.force ?? false);
     links.push({ scope: "registry", path: registryDest, target: skillDir, status });
   }
 
@@ -199,7 +220,7 @@ export async function projectSkill(options: ProjectSkillOptions): Promise<SkillP
   for (const substrate of options.substrates) {
     const substrateHome = resolveSubstrateHome(substrate, options);
     const dest = join(substrateSkillsRoot(substrate, substrateHome), name);
-    const status = await ensureSymlink(dest, skillDir);
+    const status = await ensureSymlink(dest, skillDir, options.force ?? false);
     links.push({ scope: "substrate", substrate, path: dest, target: skillDir, status });
   }
 
@@ -211,7 +232,13 @@ export async function projectSkill(options: ProjectSkillOptions): Promise<SkillP
     const substrateHome = resolveSubstrateHome(substrate, options);
     const projectionOptions: SomaHomeProjectionOptions = { homeDir: options.homeDir, somaHome, substrateHome };
     const catalog = findCatalogFile(substrate, input, projectionOptions);
-    if (!catalog) continue;
+    if (!catalog) {
+      // Every adapter emits a file byte-equal to renderSkills(input), so a miss
+      // means the projection format drifted — surface it rather than silently
+      // skipping the catalog refresh.
+      process.stderr.write(`Warning: no SKILLS catalog file found for substrate ${substrate}; catalog not refreshed.\n`);
+      continue;
+    }
     const written = await writeProjection({ substrate, instructions: "", files: [catalog] }, substrateHome);
     catalogFiles.push({ substrate, path: written.files[0] ?? join(substrateHome, catalog.path) });
   }
@@ -247,28 +274,35 @@ export async function unprojectSkill(options: UnprojectSkillOptions): Promise<Sk
   assertSingleSubstrateForHome(options);
   const somaHome = resolveSomaHome(options);
 
-  // Resolve the skill name: from a source dir if the arg is one, else verbatim.
+  // Resolve the skill name. Only probe the filesystem when the arg looks
+  // path-like — otherwise a bare name like "MyTool" run from a dir that happens
+  // to contain a "MyTool/" subdir would be misread as that local dir.
   let name = options.skill;
   let skillDir = "";
-  const candidate = resolve(options.skill);
-  try {
-    const stat = await lstat(candidate);
-    if (stat.isDirectory()) {
-      name = await readSkillName(candidate);
-      skillDir = candidate;
+  const looksLikePath =
+    options.skill.includes("/") || options.skill.includes("\\") || options.skill.startsWith(".") || isAbsolute(options.skill);
+  if (looksLikePath) {
+    const candidate = resolve(options.skill);
+    try {
+      const stat = await lstat(candidate);
+      if (stat.isDirectory()) {
+        name = await readSkillName(candidate);
+        skillDir = candidate;
+      }
+    } catch {
+      // Path-like but absent — fall back to treating it as a bare name.
     }
-  } catch {
-    // Not a path — treat as a bare skill name.
   }
   assertSafeSkillName(name);
 
+  const force = options.force ?? false;
   const links: SkillLink[] = [];
 
   // 1. Remove each substrate loader link.
   for (const substrate of options.substrates) {
     const substrateHome = resolveSubstrateHome(substrate, options);
     const dest = join(substrateSkillsRoot(substrate, substrateHome), name);
-    const status = await removeLink(dest);
+    const status = await removeLink(dest, force);
     links.push({ scope: "substrate", substrate, path: dest, status });
   }
 
@@ -296,7 +330,13 @@ export async function unprojectSkill(options: UnprojectSkillOptions): Promise<Sk
     const substrateHome = resolveSubstrateHome(substrate, options);
     const projectionOptions: SomaHomeProjectionOptions = { homeDir: options.homeDir, somaHome, substrateHome };
     const catalog = findCatalogFile(substrate, input, projectionOptions);
-    if (!catalog) continue;
+    if (!catalog) {
+      // Every adapter emits a file byte-equal to renderSkills(input), so a miss
+      // means the projection format drifted — surface it rather than silently
+      // skipping the catalog refresh.
+      process.stderr.write(`Warning: no SKILLS catalog file found for substrate ${substrate}; catalog not refreshed.\n`);
+      continue;
+    }
     const written = await writeProjection({ substrate, instructions: "", files: [catalog] }, substrateHome);
     catalogFiles.push({ substrate, path: written.files[0] ?? join(substrateHome, catalog.path) });
   }
@@ -304,11 +344,18 @@ export async function unprojectSkill(options: UnprojectSkillOptions): Promise<Sk
   return { skill: name, skillDir, links, catalogFiles, registryRemoved };
 }
 
-async function removeLink(linkPath: string): Promise<"removed" | "absent"> {
+async function removeLink(linkPath: string, force: boolean): Promise<"removed" | "absent"> {
+  let stat;
   try {
-    await lstat(linkPath);
+    stat = await lstat(linkPath);
   } catch {
     return "absent";
+  }
+  if (!stat.isSymbolicLink() && !force) {
+    // A real dir we did not create (not our symlink) — don't recurse-delete it.
+    throw new SkillProjectionError(
+      `Refusing to remove non-symlink path at ${linkPath} (not a Soma-created symlink). Pass force to override.`,
+    );
   }
   await rm(linkPath, { recursive: true, force: true });
   return "removed";

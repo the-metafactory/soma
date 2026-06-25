@@ -71,15 +71,29 @@ describe("projectSkill", () => {
     });
   });
 
-  test("replaces a pre-existing hand-made copy at the skill's name", async () => {
+  test("refuses to clobber a real (non-symlink) dir in the loader slot without force", async () => {
     await withTempHome(async (homeDir) => {
       const skillDir = await writeSourceSkill(homeDir, "MyTool");
-      // Simulate a hand-made copy (real dir) already sitting in the loader slot.
+      // A user's own real skill dir already sits in the loader slot.
+      const loaderSlot = join(homeDir, ".claude", "skills", "MyTool");
+      await mkdir(loaderSlot, { recursive: true });
+      await writeFile(join(loaderSlot, "SKILL.md"), "user skill\n", "utf8");
+
+      await expect(projectSkill({ skillDir, substrates: ["claude-code"], homeDir })).rejects.toThrow(/non-symlink/);
+      // The user's dir is untouched.
+      expect((await lstat(loaderSlot)).isDirectory()).toBe(true);
+      expect((await lstat(loaderSlot)).isSymbolicLink()).toBe(false);
+    });
+  });
+
+  test("replaces a real dir with force (migrating a hand-made copy)", async () => {
+    await withTempHome(async (homeDir) => {
+      const skillDir = await writeSourceSkill(homeDir, "MyTool");
       const loaderSlot = join(homeDir, ".claude", "skills", "MyTool");
       await mkdir(loaderSlot, { recursive: true });
       await writeFile(join(loaderSlot, "SKILL.md"), "stale\n", "utf8");
 
-      const result = await projectSkill({ skillDir, substrates: ["claude-code"], homeDir });
+      const result = await projectSkill({ skillDir, substrates: ["claude-code"], homeDir, force: true });
       const loaderLinkStatus = result.links.find((l) => l.scope === "substrate")?.status;
       expect(loaderLinkStatus).toBe("replaced");
       expect((await lstat(loaderSlot)).isSymbolicLink()).toBe(true);
