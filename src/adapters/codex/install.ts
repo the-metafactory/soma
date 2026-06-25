@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { configureCodexInstall } from "./config";
 import { vsaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
+import { pruneLegacyVsaSkill } from "../../legacy-skill-prune";
 import type { SubstrateId } from "../../types";
 
 const CODEX_DEFAULT_HOME = ".codex";
@@ -68,6 +69,10 @@ export const codexInstallSpec: SubstrateInstallSpec<"codex"> = {
   ownedSubtrees: ["memories/soma"],
   vsaSkillProjection: {
     destinationDir: vsaSkillUnder(),
+    // soma#329: before reprojecting VSA, prune a sibling "ISA" skill left over
+    // from the rename. `vsaSkillUnder()` puts VSA at <home>/skills/VSA, so the
+    // shared skills dir is <home>/skills. Provenance-gated — never a user skill.
+    prepare: (substrateHome) => pruneLegacyVsaSkill(resolve(substrateHome, "skills")).then(() => undefined),
   },
   lifecycleProjection: {
     startupContextPath: "memories/soma/startup-context.md",

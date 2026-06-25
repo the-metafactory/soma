@@ -1,4 +1,6 @@
+import { resolve } from "node:path";
 import { vsaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
+import { pruneLegacyVsaSkill } from "../../legacy-skill-prune";
 import { CLAUDE_CODE_RULES_FILES } from "../claude-code";
 import {
   SOMA_CLAUDE_HOOK_CONFIG_RELATIVE_PATH,
@@ -27,6 +29,10 @@ export const claudeCodeInstallSpec: SubstrateInstallSpec<"claude-code"> = {
     : [],
   vsaSkillProjection: {
     destinationDir: vsaSkillUnder(),
+    // soma#329: before reprojecting VSA, prune a sibling "ISA" skill left over
+    // from the rename. `vsaSkillUnder()` puts VSA at <home>/skills/VSA, so the
+    // shared skills dir is <home>/skills. Provenance-gated — never a user skill.
+    prepare: (substrateHome) => pruneLegacyVsaSkill(resolve(substrateHome, "skills")).then(() => undefined),
   },
   postProjection: [
     {
