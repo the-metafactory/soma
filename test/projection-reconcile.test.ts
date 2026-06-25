@@ -66,6 +66,15 @@ test("no-op when contents already equal the desired set (idempotent)", async () 
   });
 });
 
+test("never deletes the owned root itself, even when it ends up empty (both FS)", async () => {
+  await withTempDir(async (root) => {
+    await writeFile(join(root, "stale.md"), "x", "utf8");
+    await reconcileOwnedDir(root, []); // empty desired → every file removed
+    expect(await exists(root)).toBe(true); // the owned-subtree root must survive
+    expect(await readdir(root)).toEqual([]);
+  });
+});
+
 // Case-normalization: a file whose name differs from the canonical desired path
 // only by case. On a case-INSENSITIVE FS (macOS dev/APFS) it is the same file as
 // the just-projected canonical one and must be renamed to canonical case; on a

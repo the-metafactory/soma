@@ -40,7 +40,10 @@ async function sameFile(a: string, b: string): Promise<boolean> {
   return sa.ino === sb.ino && sa.dev === sb.dev;
 }
 
-async function removeEmptyDirs(root: string, excludedAbs: readonly string[] = []): Promise<void> {
+// Prune empty descendant dirs under `root`. `keepSelf` guards the owned-subtree
+// root: reconcile must NEVER delete its own root, even when it legitimately ends
+// up empty (e.g. every file under it was a wrong-case stale that got removed).
+async function removeEmptyDirs(root: string, excludedAbs: readonly string[] = [], keepSelf = false): Promise<void> {
   // Never descend into or prune an excluded (edit-preserving) subtree, even if
   // it is transiently empty.
   if (excludedAbs.some((p) => isUnderOrEqual(root, p))) return;
@@ -54,6 +57,7 @@ async function removeEmptyDirs(root: string, excludedAbs: readonly string[] = []
   for (const entry of entries) {
     if (entry.isDirectory()) await removeEmptyDirs(join(root, entry.name), excludedAbs);
   }
+  if (keepSelf) return;
   // A dir that contains (is an ancestor of) an excluded path must survive too.
   if (excludedAbs.some((p) => isUnderOrEqual(p, root))) return;
   // rmdir (not recursive rm) so a dir that became non-empty after the recursion
@@ -160,6 +164,6 @@ export async function reconcileOwnedDir(
     result.removed.push(rel);
   }
 
-  await removeEmptyDirs(root, excluded.map((prefix) => join(root, prefix)));
+  await removeEmptyDirs(root, excluded.map((prefix) => join(root, prefix)), true);
   return result;
 }
