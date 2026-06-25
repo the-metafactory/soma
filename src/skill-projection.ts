@@ -27,9 +27,12 @@ import type { ProjectionInput, SomaHomeProjection, SomaHomeProjectionOptions } f
  *
  * Skills are linked, not copied: `~/.soma/skills/<Name>` (the registry the
  * catalog scans) and each substrate loader point at the source dir, so edits to
- * the source propagate with no re-sync. Reconciliation is scoped to the skill's
- * own name — a pre-existing copy at that name (e.g. the hand-made VSA/Interview
- * dirs) is replaced; unrelated user skills are never touched.
+ * the source propagate with no re-sync. Reconciliation is scoped to the single
+ * `<name>` slot: a differently-named skill is never touched. At that exact name,
+ * an existing symlink is replaced unconditionally (a link loses no data), while a
+ * real directory — a hand-made copy or a same-named user skill — is preserved
+ * unless `force` is set. So a same-named user *symlink* is replaced; only a
+ * same-named real *directory* is protected without `force`.
  */
 
 const projectionBuilders: Record<
