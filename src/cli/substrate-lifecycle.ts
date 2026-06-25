@@ -29,6 +29,7 @@ import {
 import type { ClaudeCodeInstallOptions } from "../adapters/claude-code/install-options";
 import { projectVsaSkillBundleFiles } from "../vsa-skill-installer";
 import { defaultSubstrateHome, installSpecFor } from "../install-spec-registry";
+import { projectSkill } from "../skill-projection";
 import type {
   ProjectionInput,
   SomaInstallOptions,
@@ -47,6 +48,8 @@ export interface ParsedInstallArgs {
   substrate: InstallSubstrate;
   apply: boolean;
   workspace: boolean;
+  /** Official skill names (under `~/.soma/skills/`) to project on install. */
+  skills: string[];
   options: InstallCliOptions;
 }
 
@@ -93,7 +96,7 @@ export type ParsedSubstrateLifecycleArgs =
 export const INSTALL_SUBSTRATES = ["codex", "pi-dev", "claude-code", "cursor", "grok"] as const satisfies readonly InstallSubstrate[];
 
 const substrateList = INSTALL_SUBSTRATES.join("|");
-const installOptions = "[--dry-run] [--apply] [--workspace] [--mode-classifier] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
+const installOptions = "[--dry-run] [--apply] [--workspace] [--mode-classifier] [--skills <name[,name…]>] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
 // Shared by uninstall, reproject, and upgrade — all workspace-capable verbs.
 const workspaceVerbOptions = "[--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
 const uninstallOptions = workspaceVerbOptions;
@@ -242,11 +245,16 @@ function parseSubstrateLifecycleOptions<TOptions extends SomaInstallOptions = So
 }
 
 export function parseInstallArgs(args: string[]): ParsedInstallArgs {
-  const [command, substrate, ...rest] = args;
+  const [command, substrate, ...rawRest] = args;
 
   if (command !== "install" || !isInstallSubstrate(substrate)) {
     throw new Error(commandUsage("install"));
   }
+
+  // `--skills` carries a value, which the shared lifecycle parser (boolean
+  // extras only) can't consume — pull it out first, then parse the remainder.
+  const { value: skillsCsv, rest } = extractValueFlag(rawRest, "--skills");
+  const skills = skillsCsv === undefined ? [] : parseSkillNames(skillsCsv);
 
   let apply = false;
   const { workspace, options } = parseSubstrateLifecycleOptions<InstallCliOptions>(substrate, rest, (arg, _index, parsedOptions) => {
@@ -267,7 +275,31 @@ export function parseInstallArgs(args: string[]): ParsedInstallArgs {
     throw new Error("--mode-classifier is only supported for claude-code installs.");
   }
 
-  return { command, substrate, apply, workspace, options };
+  return { command, substrate, apply, workspace, skills, options };
+}
+
+/** Pull a `--flag <value>` pair out of an arg list, returning the value and the remaining args. */
+function extractValueFlag(args: string[], flag: string): { value?: string; rest: string[] } {
+  const index = args.indexOf(flag);
+  if (index === -1) return { rest: args };
+  const value = args[index + 1] as string | undefined;
+  if (!value || value.startsWith("--")) {
+    throw new Error(`${flag} requires a value.`);
+  }
+  return { value, rest: [...args.slice(0, index), ...args.slice(index + 2)] };
+}
+
+function parseSkillNames(csv: string): string[] {
+  const names = csv.split(",").map((part) => part.trim()).filter((part) => part.length > 0);
+  if (names.length === 0) throw new Error("--skills requires at least one skill name.");
+  for (const name of names) {
+    // Reject any separator or dot-segment anywhere — the slot is derived as
+    // `~/.soma/skills/<name>`, so a name is a single path segment, never a path.
+    if (name.includes("/") || name.includes("\\") || name.includes("..") || name === ".") {
+      throw new Error(`--skills takes skill names, not paths (got "${name}").`);
+    }
+  }
+  return names;
 }
 
 function parseLifecycleVerbArgs(
@@ -362,10 +394,40 @@ export async function runSubstrateLifecycleCli(parsed: ParsedSubstrateLifecycleA
   }
 
   if (!parsed.apply) {
-    return formatPlan(planInstall(parsed.substrate, parsed.options));
+    const plan = formatPlan(planInstall(parsed.substrate, parsed.options));
+    return parsed.skills.length === 0
+      ? plan
+      : `${plan}\n\nSkills to project (on --apply): ${parsed.skills.join(", ")}`;
   }
 
-  return formatInstallResult(await runInstall(parsed.substrate, parsed.options));
+  const result = formatInstallResult(await runInstall(parsed.substrate, parsed.options));
+  if (parsed.skills.length === 0) return result;
+  // Project the selected official skills now that the substrate home + catalog
+  // exist; reuses the soma#354 slice-1 primitive.
+  const projected = await projectInstallSkills(parsed.substrate, parsed.skills, parsed.options);
+  return `${result}\n\n${projected}`;
+}
+
+async function projectInstallSkills(
+  substrate: InstallSubstrate,
+  skills: string[],
+  options: SomaInstallOptions,
+): Promise<string> {
+  const somaHome = options.somaHome ?? defaultSomaHomePath(options.homeDir);
+  const lines = ["Projected skills:"];
+  for (const name of skills) {
+    const skillDir = resolveJoin(somaHome, "skills", name);
+    const result = await projectSkill({
+      skillDir,
+      substrates: [substrate],
+      homeDir: options.homeDir,
+      somaHome: options.somaHome,
+      substrateHome: options.substrateHome,
+    });
+    const loader = result.links.find((link) => link.scope === "substrate");
+    lines.push(`- ${result.skill}: ${loader?.status ?? "linked"} ${loader?.path ?? skillDir}`);
+  }
+  return lines.join("\n");
 }
 
 function planInstall(substrate: InstallSubstrate, options: SomaInstallOptions): SomaInstallPlan {

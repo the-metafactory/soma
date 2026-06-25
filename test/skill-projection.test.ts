@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { planProjectSkill, planUnprojectSkill, projectSkill, unprojectSkill } from "../src/skill-projection";
 import { bootstrapSomaHome } from "../src/index";
+import { runSomaCli } from "../src/cli";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-skill-projection-"));
@@ -223,6 +224,45 @@ describe("unprojectSkill", () => {
       const result = await unprojectSkill({ skill: "Authored", substrates: ["claude-code"], homeDir, force: true });
       expect(result.registryRemoved).toBe(true);
       await expect(lstat(registryDir)).rejects.toThrow();
+    });
+  });
+});
+
+describe("soma install --skills", () => {
+  async function authorRegistrySkill(homeDir: string, name: string): Promise<void> {
+    const dir = join(homeDir, ".soma", "skills", name);
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "SKILL.md"), `---\nname: ${name}\ndescription: "x"\n---\n# ${name}\n`, "utf8");
+  }
+
+  test("projects selected skills into the substrate loader + catalog on apply", async () => {
+    await withTempHome(async (homeDir) => {
+      await authorRegistrySkill(homeDir, "Widget");
+
+      const out = await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir, "--skills", "Widget"]);
+      expect(out).toContain("Projected skills:");
+
+      expect((await lstat(join(homeDir, ".claude", "skills", "Widget"))).isSymbolicLink()).toBe(true);
+      const catalog = await readFile(join(homeDir, ".claude", "rules", "soma", "SKILLS.md"), "utf8");
+      expect(catalog).toContain("## Widget");
+    });
+  });
+
+  test("dry-run names the skills but writes nothing", async () => {
+    await withTempHome(async (homeDir) => {
+      await authorRegistrySkill(homeDir, "Widget");
+
+      const out = await runSomaCli(["install", "claude-code", "--home-dir", homeDir, "--skills", "Widget"]);
+      expect(out).toContain("Skills to project (on --apply): Widget");
+      await expect(lstat(join(homeDir, ".claude", "skills", "Widget"))).rejects.toThrow();
+    });
+  });
+
+  test("rejects a path-shaped --skills value", async () => {
+    await withTempHome(async (homeDir) => {
+      await expect(
+        runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir, "--skills", "../evil"]),
+      ).rejects.toThrow(/skill names, not paths/);
     });
   });
 });
