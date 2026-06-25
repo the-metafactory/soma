@@ -293,7 +293,9 @@ function parseSkillNames(csv: string): string[] {
   const names = csv.split(",").map((part) => part.trim()).filter((part) => part.length > 0);
   if (names.length === 0) throw new Error("--skills requires at least one skill name.");
   for (const name of names) {
-    if (name.includes("/") || name.includes("\\") || name === "." || name === "..") {
+    // Reject any separator or dot-segment anywhere — the slot is derived as
+    // `~/.soma/skills/<name>`, so a name is a single path segment, never a path.
+    if (name.includes("/") || name.includes("\\") || name.includes("..") || name === ".") {
       throw new Error(`--skills takes skill names, not paths (got "${name}").`);
     }
   }
