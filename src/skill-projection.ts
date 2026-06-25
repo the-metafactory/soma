@@ -185,7 +185,11 @@ async function ensureSymlink(
     if (stat.isSymbolicLink()) {
       const current = await readlink(linkPath);
       if (resolve(dirname(linkPath), current) === target) return "unchanged";
-      // A symlink in the slot is Soma-owned (or a prior link) — replace freely.
+      // Any symlink in the slot is replaced without a provenance check — including
+      // a user-created one pointing elsewhere. This is intentional: project-skill
+      // owns the `<skillsRoot>/<name>` slot, and replacing a link loses no data
+      // (its target dir is untouched). Real directories ARE the data-loss risk and
+      // are guarded below by `force`.
     } else if (!force) {
       // A real dir/file we did not create: a hand-authored skill, or a same-named
       // user skill. Refuse to delete it silently — that is the data-loss path.
