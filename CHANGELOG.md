@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "no upgrade" (restores missing files only, never overwrites), so the rename
   never propagated to `~/.soma/skills/VSA` or the substrate projections (they
   stayed `pai-vsa`). Bumping the version lets the installer re-copy on the next
-  release + reproject. (Cosmetic — `pack-id` is presence-gated, not value-gated.)
+  release + reproject.
 
 ## [0.10.0] - 2026-06-26
 
