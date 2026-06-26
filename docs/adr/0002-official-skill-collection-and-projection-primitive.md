@@ -37,19 +37,22 @@ Two further problems compound it:
    are hand-made copies there; the newly-added `Purpose` skill had to be symlinked by
    hand to become invocable. (Recorded as the skill-projection gap.)
 
-2. **Tier legibility.** `~/.soma/skills/` holds 104 entries — a handful of
-   primitive-operating skills alongside ~100 PAI skills (art, research, scraping…)
-   the principal migrated in and actively uses. These are not noise: Soma's mission
-   is to be the portable home for the principal's assistant context, and those
-   skills *are* that context — they belong in `~/.soma/skills/`. **Correction (see
-   below):** the tier boundary turned out to already be legible without moving
-   anything. Verified against the live home at decision time:
-   `grep -c '^pack-id:' ~/.soma/skills/*/SKILL.md` finds a pack-id on exactly 2 of
-   103 skills — `VSA` and `Purpose`, both official — and the remaining 101 migrated
-   skills carry none, with their origin recorded in `imports/claude-skills/.manifest.json`
-   (+ `imports/pai-*`). So there is a distinction to draw (official vs. imported),
-   but it is metadata that already exists, not a reason to relocate the principal's
-   skills.
+2. **Tier legibility.** `~/.soma/skills/` holds 104 entries — 103 skill
+   directories (a handful of primitive-operating skills alongside ~100 PAI skills:
+   art, research, scraping…) plus a `README`. The principal migrated those PAI
+   skills in and actively uses them. They are not noise: Soma's mission is to be the
+   portable home for the principal's assistant context, and those skills *are* that
+   context — they belong in `~/.soma/skills/`. **Correction (see below):** the tier
+   boundary turned out to already be legible without moving anything. The clean,
+   complete signal is the `pack-id` — verified against the live home at decision
+   time, `grep -c '^pack-id:' ~/.soma/skills/*/SKILL.md` finds one on exactly 2 of
+   the 103 skill directories (`VSA` and `Purpose`, both official); the other 101
+   carry none. (Import provenance is *additionally* tracked under `~/.soma/imports/`
+   — the `claude-skills/.manifest.json` alone records 74, the rest came via
+   `imports/pai-packs` / `imports/pai-migration` — but that is a partial,
+   multi-source record, whereas pack-id presence is the single complete check.) So
+   the official/imported distinction is metadata that already exists, not a reason
+   to relocate the principal's skills.
 
 JC's stance: a *collection* of official Soma skills that extends core without
 bloating it — install what you need — with arc able to install further skills and
@@ -136,9 +139,9 @@ all installed); the contract above is substrate-list-parameterised either way.
   the principal's actively-used skills and `~/.soma/skills/` is their rightful home.
   The original "evict squatters" framing was wrong (the principal pushed back).
   Official skills are distinguished by a `soma-*` `pack-id`; migrated ones lack one
-  and are tracked in `imports/claude-skills/.manifest.json`. Tier is a label, not a
-  directory partition. Official skill pack-ids use the `soma-*` prefix (renamed from
-  the migration-era `pai-*`), since these are now Soma-native, not PAI imports.
+  (the complete signal — see Context). Tier is a label, not a directory partition.
+  Official skill pack-ids use the `soma-*` prefix (renamed from the migration-era
+  `pai-*`), since these are now Soma-native, not PAI imports.
 - Backward compatibility: existing hand-materialised `~/.claude/skills/{VSA,
   Interview}` copies are superseded by projected symlinks; the projector must be
   idempotent and reconcile a prior copy without clobbering unrelated user skills.
