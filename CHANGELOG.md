@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-06-26
+
+### Added
+- **Skill projection primitive (#354 / #355)** — `soma project-skill <dir>` and
+  `soma unproject-skill <dir|name>`: symlink a skill into the soma registry
+  (`~/.soma/skills/`) and each substrate's invocable loader, then refresh only the
+  `SKILLS.md` catalog. Idempotent, multi-substrate, dry-run by default with
+  `--apply`; `--force` replaces a real (non-symlink) directory occupying a slot
+  (otherwise refused, guarding user skills from clobber). One owned projection
+  truth that `install --skills` and (future) arc delegate to. Fixes the latent
+  `loadSomaSkills` bug that silently skipped symlinked skills.
+- **`soma install <substrate> --skills <name[,name…]>` (#357)** — projects the
+  named official skills (under `~/.soma/skills/`) into the substrate on install.
+  Names only, not paths; dry-run names them, apply projects + reports status.
+- **`projectSkills` batch projection (#358 / #360)** — `install --skills` links
+  all selected skills then refreshes the catalog ONCE. `linkSkill` is
+  all-or-nothing: it rolls back its own partial symlinks on failure, so a mid-batch
+  failure leaves the registry holding only fully-linked skills and the one
+  post-batch catalog refresh reflects only those (no partially-linked, non-invocable
+  entry).
+
+### Changed
+- **Adapter owns the skill-loader path (#356)** — `SubstrateInstallSpec` gains
+  `skillsLoaderDir(substrateHome)`; `home-projection` exposes a single
+  `buildSubstrateHomeProjection` dispatcher. `project-skill` no longer derives
+  loader paths from the VSA skill destination or keeps a parallel builder map.
+- **the-algorithm ships as plain `.md` (#359)** — retired the
+  `renderSkill()` / `renderRunWorkflow()` string-literal code-gen in
+  `algorithm-importer.ts`; the content lives in `src/skills/the-algorithm/` and is
+  read from the bundled repo source on import (same model as the VSA skill).
+- **Official skill `pack-id` `pai-*` → `soma-*` (#362)** — `VSA`
+  (`soma-vsa-v1.0.0`) and `Purpose` (`soma-purpose-v1.0.0`), since these are
+  Soma-native, not PAI imports.
+
+### Docs
+- The design and decisions behind this release — the official skill collection,
+  the projection primitive, and the mid-epic course corrections (the VSA skill is
+  not code-gen and stays; the migrated PAI skills are not evicted) — are recorded
+  in `docs/adr/0002-official-skill-collection-and-projection-primitive.md`. See
+  that ADR for the rationale; it is the source of truth, not duplicated here.
+
 ## [0.9.1] - 2026-06-25
 
 ### Fixed
