@@ -3,7 +3,7 @@ name: VSA
 description: "Owns the Ideal State Artifact: the commitment-time scaffold for articulating done, deriving ISC criteria, planning features, recording decisions, and verifying work. Use for ideal state, VSA/ISC criteria, project specs, scaffolding, completeness checks, reconciliation, or seeding an VSA from a repo."
 effort: medium
 version: 1.0.4
-pack-id: pai-vsa-v1.0.0
+pack-id: soma-vsa-v1.0.0
 ---
 
 # VSA

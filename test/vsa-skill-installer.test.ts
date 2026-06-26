@@ -306,7 +306,7 @@ test("ship config: real src/skills/VSA carries version + pack-id frontmatter", a
   const fm = parseSkillFrontmatter(content);
   expect(fm).not.toBeNull();
   expect(fm?.version).toMatch(/^\d+\.\d+\.\d+/);
-  expect(fm?.packId).toMatch(/^pai-vsa/);
+  expect(fm?.packId).toMatch(/^soma-vsa/);
 });
 
 test("ship config: real src/skills/VSA description fits portable metadata limit", async () => {
