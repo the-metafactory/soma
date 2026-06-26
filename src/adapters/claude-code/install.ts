@@ -6,6 +6,8 @@ import {
   SOMA_CLAUDE_HOOK_RELATIVE_PATH,
   SOMA_CLAUDE_MODE_CLASSIFIER_CONFIG_RELATIVE_PATH,
   SOMA_CLAUDE_MODE_CLASSIFIER_RELATIVE_PATH,
+  SOMA_CLAUDE_POLICY_GUARD_CONFIG_RELATIVE_PATH,
+  SOMA_CLAUDE_POLICY_GUARD_RELATIVE_PATH,
   installClaudeCodeSomaHooks,
   removeClaudeCodeSomaHookFiles,
 } from "./hooks";
@@ -23,9 +25,14 @@ export const claudeCodeInstallSpec: SubstrateInstallSpec<"claude-code"> = {
   // Owned (Soma-exclusive) dirs — see ownedSubtrees JSDoc. Subsumes the former
   // obsoleteHomeFiles for TELOS.md/ACTIVE_ISA.md, which live under rules/soma.
   ownedSubtrees: ["rules/soma", "hooks/soma"],
-  optionalHomeFiles: (options) => isClaudeCodeInstallOptions(options) && options.modeClassifier === true
-    ? [SOMA_CLAUDE_MODE_CLASSIFIER_RELATIVE_PATH, SOMA_CLAUDE_MODE_CLASSIFIER_CONFIG_RELATIVE_PATH]
-    : [],
+  optionalHomeFiles: (options) => [
+    ...(isClaudeCodeInstallOptions(options) && options.modeClassifier === true
+      ? [SOMA_CLAUDE_MODE_CLASSIFIER_RELATIVE_PATH, SOMA_CLAUDE_MODE_CLASSIFIER_CONFIG_RELATIVE_PATH]
+      : []),
+    ...(isClaudeCodeInstallOptions(options) && options.policyGuard === true
+      ? [SOMA_CLAUDE_POLICY_GUARD_RELATIVE_PATH, SOMA_CLAUDE_POLICY_GUARD_CONFIG_RELATIVE_PATH]
+      : []),
+  ],
   skillsLoaderDir: skillsLoaderUnder(),
   vsaSkillProjection: {
     destinationDir: vsaSkillUnder(),

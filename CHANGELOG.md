@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Runtime-policy enforcement on Claude Code + pi.dev** — the portable
+  `inspectRuntimePolicy` engine (already enforced on codex/grok) now gates tool
+  calls on two more substrates. Both layers are **fail-closed**: any broken path
+  denies rather than silently allowing an un-inspected action.
+  - **Claude Code (`--policy-guard`)** — a new synchronous `soma-policy-guard.mjs`
+    hook wires `soma policy inspect` into `PreToolUse`
+    (`Bash|Read|Edit|Write|MultiEdit|NotebookEdit`) and `UserPromptSubmit`.
+    Dangerous commands, outbound credential exfiltration, credential-path access,
+    and prompt injection are denied/blocked. Opt-in like `--mode-classifier`;
+    installs/uninstalls + idempotent settings patching mirror that track.
+    Closes the enforcement gap where Claude Code carried only advisory policy.
+  - **pi.dev** — the existing `tool_call` path-guard extension gains a
+    runtime-policy inspection layer ahead of its destructive-path checks, reaching
+    codex/claude-code parity in one extension. ADAPTER LIMITATION: pi.dev exposes
+    no prompt-submit surface, so prompt-injection enforcement there is deferred
+    until pi exposes a prompt event.
+
 ### Fixed
 - **VSA skill version bump `1.0.4` → `1.0.5`** — the 0.10.0 `pack-id`
   `pai-vsa-v1.0.0` → `soma-vsa-v1.0.0` rename (#362) changed
