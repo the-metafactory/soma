@@ -522,6 +522,12 @@ export {
   runtimePolicyTraceRoot,
   RUNTIME_POLICY_SURFACES,
 } from "./runtime-policy";
+export {
+  evaluateToolCallPolicyGuard,
+  type ToolCallPolicyGuardOptions,
+  type ToolCallPolicyGuardResult,
+  type ToolCallPolicyGuardDecision,
+} from "./tool-policy-guard";
 export { bootstrapSomaHome, loadSomaHome, loadSomaProfile } from "./soma-home";
 // Algorithm ↔ VSA bridge (#39) — advisory, non-blocking.
 export {

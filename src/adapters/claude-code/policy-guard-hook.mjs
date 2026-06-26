@@ -81,30 +81,35 @@ function blockPromptSubmit(reason) {
   });
 }
 
+// Prompt surface → runtime-policy inspection (prompt injection, etc.).
+// Tool-call surface → the composite `policy guard` (runtime inspect +
+// write-target private-context check + inbound content scan) so Claude Code
+// reaches full codex three-check parity from one CLI call.
 function runInspect(config, surface, payload) {
-  const args = [
-    "src/cli.ts",
-    "policy",
-    "inspect",
-    "--soma-home",
-    config.somaHome,
-    "--substrate",
-    "claude-code",
-    "--surface",
-    surface,
-    "--record",
-    "deny",
-    "--json",
-  ];
   const env = { ...process.env };
+  let args;
   if (surface === "prompt") {
-    args.push("--prompt-env", "SOMA_RUNTIME_POLICY_PROMPT");
     env.SOMA_RUNTIME_POLICY_PROMPT = payload.prompt || "";
+    args = [
+      "src/cli.ts", "policy", "inspect",
+      "--soma-home", config.somaHome,
+      "--substrate", "claude-code",
+      "--surface", "prompt",
+      "--prompt-env", "SOMA_RUNTIME_POLICY_PROMPT",
+      "--record", "deny", "--json",
+    ];
   } else {
-    args.push("--tool-name", payload.toolName || "");
-    args.push("--tool-input-env", "SOMA_RUNTIME_POLICY_TOOL_INPUT");
     const input = payload.input && typeof payload.input === "object" && !Array.isArray(payload.input) ? payload.input : { raw: String(payload.input ?? "") };
     env.SOMA_RUNTIME_POLICY_TOOL_INPUT = JSON.stringify(input);
+    args = [
+      "src/cli.ts", "policy", "guard",
+      "--soma-home", config.somaHome,
+      "--substrate", "claude-code",
+      "--tool-name", payload.toolName || "",
+      "--tool-input-env", "SOMA_RUNTIME_POLICY_TOOL_INPUT",
+      "--record", "deny", "--json",
+    ];
+    if (payload.cwd) args.push("--cwd", payload.cwd);
   }
   return spawnSync(config.bunPath, args, {
     cwd: config.trustedSomaRepo,
@@ -154,6 +159,7 @@ function main() {
     : runInspect(config, "tool_call", {
         toolName: input.tool_name || input.toolName,
         input: input.tool_input || input.toolInput || {},
+        cwd: typeof input.cwd === "string" && input.cwd.trim().length > 0 ? input.cwd : undefined,
       });
 
   const output = result.stdout || result.stderr || "";

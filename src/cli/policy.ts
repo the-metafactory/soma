@@ -1,4 +1,5 @@
-import { checkSomaPolicy, checkSomaPolicyBatch, inspectRuntimePolicy, promoteInboundContent, RUNTIME_POLICY_SURFACES, scanInboundContent } from "../index";
+import { checkSomaPolicy, checkSomaPolicyBatch, evaluateToolCallPolicyGuard, inspectRuntimePolicy, promoteInboundContent, RUNTIME_POLICY_SURFACES, scanInboundContent } from "../index";
+import type { ToolCallPolicyGuardOptions } from "../tool-policy-guard";
 import type {
   InboundContentScanOptions,
   RuntimePolicyConfigChange,
@@ -41,7 +42,14 @@ export interface ParsedPolicyInspectArgs {
   json: boolean;
 }
 
-export type ParsedPolicyArgs = ParsedPolicyCheckArgs | ParsedPolicyScanArgs | ParsedPolicyPromoteArgs | ParsedPolicyInspectArgs;
+export interface ParsedPolicyGuardArgs {
+  command: "policy";
+  action: "guard";
+  options: ToolCallPolicyGuardOptions;
+  json: boolean;
+}
+
+export type ParsedPolicyArgs = ParsedPolicyCheckArgs | ParsedPolicyScanArgs | ParsedPolicyPromoteArgs | ParsedPolicyInspectArgs | ParsedPolicyGuardArgs;
 
 const POLICY_CHECK_USAGE =
   "Usage: soma policy check --action write --destination <path> [--content <text>|--content-env <name>] [--source <path>] [--substrate <id>] [--record <all|deny|none>] [--json]";
@@ -51,14 +59,17 @@ const POLICY_PROMOTE_USAGE =
   "Usage: soma policy promote --path <path> [--source-uri <uri>] [--substrate <id>] [--record <all|deny|none>] [--json]";
 const POLICY_INSPECT_USAGE =
   "Usage: soma policy inspect --surface <prompt|tool_call|permission_request|config_change|governance_event> [--prompt <text>|--prompt-env <name>] [--tool-name <name> --tool-input-env <name>] [--permission-request-env <name>] [--config-change-env <name>] [--substrate <id>] [--record <all|deny|none>] [--json]";
+const POLICY_GUARD_USAGE =
+  "Usage: soma policy guard --substrate <id> --tool-name <name> --tool-input-env <name> [--cwd <dir>] [--soma-home <dir>] [--home-dir <dir>] [--private-root <dir>]… [--record <all|deny|none>] [--json]";
 
 export const POLICY_COMMAND_HELP: { usage: string; subcommands: Record<ParsedPolicyArgs["action"], string> } = {
-  usage: [POLICY_CHECK_USAGE, POLICY_SCAN_USAGE, POLICY_PROMOTE_USAGE, POLICY_INSPECT_USAGE].join("\n"),
+  usage: [POLICY_CHECK_USAGE, POLICY_SCAN_USAGE, POLICY_PROMOTE_USAGE, POLICY_INSPECT_USAGE, POLICY_GUARD_USAGE].join("\n"),
   subcommands: {
     check: POLICY_CHECK_USAGE,
     scan: POLICY_SCAN_USAGE,
     promote: POLICY_PROMOTE_USAGE,
     inspect: POLICY_INSPECT_USAGE,
+    guard: POLICY_GUARD_USAGE,
   },
 };
 
@@ -72,6 +83,7 @@ export function parsePolicyArgs(args: string[]): ParsedPolicyArgs {
   if (action === "scan") return parsePolicyScanArgs(command, action, rest);
   if (action === "promote") return parsePolicyPromoteArgs(command, action, rest);
   if (action === "inspect") return parsePolicyInspectArgs(command, action, rest);
+  if (action === "guard") return parsePolicyGuardArgs(command, action, rest);
   if (action !== "check") throw new Error(POLICY_COMMAND_HELP.usage);
 
   const options: Partial<SomaPolicyCheckOptions> = {};
@@ -180,7 +192,84 @@ export function parsePolicyArgs(args: string[]): ParsedPolicyArgs {
   };
 }
 
+function parsePolicyGuardArgs(command: "policy", action: "guard", rest: string[]): ParsedPolicyGuardArgs {
+  const options: Partial<ToolCallPolicyGuardOptions> = { privateRoots: [] };
+  let json = false;
+
+  for (let index = 0; index < rest.length; index += 1) {
+    const arg = rest[index];
+    switch (arg) {
+      case "--home-dir":
+        options.homeDir = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--soma-home":
+        options.somaHome = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--substrate":
+        options.substrate = parseSubstrate(readOption(rest, index, arg));
+        index += 1;
+        break;
+      case "--cwd":
+        options.cwd = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--tool-name":
+        options.toolName = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--tool-input-env": {
+        const envName = readOption(rest, index, arg);
+        const envInput = process.env[envName];
+        if (envInput === undefined) throw new Error(`--tool-input-env ${envName} is not set.`);
+        let input: unknown;
+        try {
+          input = JSON.parse(envInput);
+        } catch {
+          throw new Error(`--tool-input-env ${envName} must contain a JSON object.`);
+        }
+        if (!input || typeof input !== "object" || Array.isArray(input)) {
+          throw new Error(`--tool-input-env ${envName} must contain a JSON object.`);
+        }
+        options.toolInput = input as Record<string, unknown>;
+        index += 1;
+        break;
+      }
+      case "--private-root":
+        options.privateRoots = [...(options.privateRoots ?? []), readOption(rest, index, arg)];
+        index += 1;
+        break;
+      case "--record": {
+        const value = readOption(rest, index, arg);
+        if (value !== "all" && value !== "deny" && value !== "none") {
+          throw new Error("--record must be one of all, deny, or none.");
+        }
+        options.record = value;
+        index += 1;
+        break;
+      }
+      case "--json":
+        json = true;
+        break;
+      default:
+        throw new Error(`Unknown option: ${arg}`);
+    }
+  }
+
+  if (!options.substrate) throw new Error("soma policy guard is missing required option: --substrate.");
+  if (!options.toolName) throw new Error("soma policy guard is missing required option: --tool-name.");
+  if (!options.toolInput) throw new Error("soma policy guard requires --tool-input-env.");
+
+  return { command, action, options: options as ToolCallPolicyGuardOptions, json };
+}
+
 export async function runPolicyCli(parsed: ParsedPolicyArgs): Promise<string> {
+  if (parsed.action === "guard") {
+    const result = await evaluateToolCallPolicyGuard(parsed.options);
+    return parsed.json ? `${JSON.stringify(result, null, 2)}\n` : `${result.decision}: ${result.reason}\n`;
+  }
+
   if (parsed.action === "inspect") {
     const result = await inspectRuntimePolicy(parsed.options);
     return parsed.json ? `${JSON.stringify(result, null, 2)}\n` : formatRuntimePolicyInspectResult(result);
