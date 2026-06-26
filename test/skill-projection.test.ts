@@ -252,6 +252,24 @@ describe("projectSkills (batch)", () => {
       expect(catalog).toContain("## Beta");
     });
   });
+
+  test("a mid-batch failure still leaves the catalog consistent with what was linked", async () => {
+    await withTempHome(async (homeDir) => {
+      const okDir = join(homeDir, ".soma", "skills", "Ok");
+      await mkdir(okDir, { recursive: true });
+      await writeFile(join(okDir, "SKILL.md"), `---\nname: Ok\n---\n`, "utf8");
+      const missingDir = join(homeDir, ".soma", "skills", "Missing"); // no SKILL.md
+
+      await expect(
+        projectSkills({ skillDirs: [okDir, missingDir], substrates: ["claude-code"], homeDir }),
+      ).rejects.toThrow();
+
+      // Ok was linked before the failure; the finally-refresh catalogued it.
+      expect((await lstat(join(homeDir, ".claude", "skills", "Ok"))).isSymbolicLink()).toBe(true);
+      const catalog = await readFile(join(homeDir, ".claude", "rules", "soma", "SKILLS.md"), "utf8");
+      expect(catalog).toContain("## Ok");
+    });
+  });
 });
 
 describe("soma install --skills", () => {

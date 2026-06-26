@@ -68,10 +68,14 @@ export interface SkillLink {
   status: SkillLinkStatus;
 }
 
-export interface SkillProjectionResult {
+/** The registry + per-substrate loader symlinks created for one skill (no catalog). */
+export interface LinkedSkillResult {
   skill: string;
   skillDir: string;
   links: SkillLink[];
+}
+
+export interface SkillProjectionResult extends LinkedSkillResult {
   catalogFiles: { substrate: InstallSubstrate; path: string }[];
   /** Set by unprojectSkill: whether a Soma-created registry symlink was removed. */
   registryRemoved?: boolean;
@@ -233,17 +237,23 @@ export async function projectSkills(options: {
   somaHome?: string;
   substrateHome?: string;
   force?: boolean;
-}): Promise<{ skills: { skill: string; skillDir: string; links: SkillLink[] }[]; catalogFiles: { substrate: InstallSubstrate; path: string }[] }> {
+}): Promise<{ skills: LinkedSkillResult[]; catalogFiles: { substrate: InstallSubstrate; path: string }[] }> {
   assertSingleSubstrateForHome(options);
   const somaHome = resolveSomaHome(options);
   const force = options.force ?? false;
 
-  const skills: { skill: string; skillDir: string; links: SkillLink[] }[] = [];
-  for (const dir of options.skillDirs) {
-    skills.push(await linkSkill(resolve(dir), somaHome, options.substrates, force, options));
+  const skills: LinkedSkillResult[] = [];
+  let catalogFiles: { substrate: InstallSubstrate; path: string }[];
+  try {
+    for (const dir of options.skillDirs) {
+      skills.push(await linkSkill(resolve(dir), somaHome, options.substrates, force, options));
+    }
+  } finally {
+    // Refresh once, in a finally: a mid-batch linkSkill failure still leaves the
+    // catalog consistent with whatever was linked (the registry-scan reflects the
+    // symlinks that succeeded), so a partial batch never strands a stale catalog.
+    catalogFiles = await refreshSkillCatalogs(somaHome, options.substrates, options);
   }
-
-  const catalogFiles = await refreshSkillCatalogs(somaHome, options.substrates, options);
   return { skills, catalogFiles };
 }
 
@@ -258,7 +268,7 @@ async function linkSkill(
   substrates: InstallSubstrate[],
   force: boolean,
   options: { homeDir?: string; substrateHome?: string },
-): Promise<{ skill: string; skillDir: string; links: SkillLink[] }> {
+): Promise<LinkedSkillResult> {
   const name = await readSkillName(skillDir);
   const slots = skillSlots(name, somaHome, substrates, options);
   const links: SkillLink[] = [];
