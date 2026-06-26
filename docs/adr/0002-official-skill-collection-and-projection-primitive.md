@@ -45,9 +45,9 @@ Two further problems compound it:
    context — they belong in `~/.soma/skills/`. **Correction (see below):** the tier
    boundary turned out to already be legible without moving anything. The clean,
    complete signal is the `pack-id` — verified against the live home at decision
-   time, `grep -c '^pack-id:' ~/.soma/skills/*/SKILL.md` finds one on exactly 2 of
-   the 103 skill directories (`VSA` and `Purpose`, both official); the other 101
-   carry none. (Import provenance is *additionally* tracked under `~/.soma/imports/`
+   time, `grep -l '^pack-id:' ~/.soma/skills/*/SKILL.md | wc -l` returns 2 — a
+   pack-id on exactly 2 of the 103 skill directories (`VSA` and `Purpose`, both
+   official); the other 101 carry none. (Import provenance is *additionally* tracked under `~/.soma/imports/`
    — the `claude-skills/.manifest.json` alone records 74, the rest came via
    `imports/pai-packs` / `imports/pai-migration` — but that is a partial,
    multi-source record, whereas pack-id presence is the single complete check.) So
