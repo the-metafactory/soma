@@ -1,4 +1,4 @@
-import { vsaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
+import { skillsLoaderUnder, vsaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
 import { vsaSiblingPrunePrepare } from "../../legacy-skill-prune";
 import { CLAUDE_CODE_RULES_FILES } from "../claude-code";
 import {
@@ -26,6 +26,7 @@ export const claudeCodeInstallSpec: SubstrateInstallSpec<"claude-code"> = {
   optionalHomeFiles: (options) => isClaudeCodeInstallOptions(options) && options.modeClassifier === true
     ? [SOMA_CLAUDE_MODE_CLASSIFIER_RELATIVE_PATH, SOMA_CLAUDE_MODE_CLASSIFIER_CONFIG_RELATIVE_PATH]
     : [],
+  skillsLoaderDir: skillsLoaderUnder(),
   vsaSkillProjection: {
     destinationDir: vsaSkillUnder(),
     // soma#329: before reprojecting VSA, prune a sibling renamed-away "ISA" skill

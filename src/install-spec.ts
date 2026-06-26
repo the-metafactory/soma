@@ -31,6 +31,17 @@ export function vsaSkillUnder(...pathSegments: string[]): (substrateHome: string
   return (substrateHome) => resolve(substrateHome, ...pathSegments, "skills/VSA");
 }
 
+/**
+ * Builds a substrate's invocable skill-loader root resolver — the directory a
+ * substrate scans for skill dirs (parent of where any one skill is projected).
+ * soma#356: `project-skill` asks the adapter spec for this rather than deriving
+ * it from the VSA skill destination, keeping the loader-path contract owned by
+ * the adapter.
+ */
+export function skillsLoaderUnder(...pathSegments: string[]): (substrateHome: string) => string {
+  return (substrateHome) => resolve(substrateHome, ...pathSegments, "skills");
+}
+
 export type InstallValidator = (substrateRoot: string) => Promise<void>;
 
 export interface UninstallContext {
@@ -82,6 +93,12 @@ export interface SubstrateInstallSpec<S extends InstallSubstrate = InstallSubstr
   ownedSubtrees?: readonly string[];
   optionalHomeFiles?(options: unknown): readonly string[];
   vsaSkillProjection: VsaSkillProjectionSpec;
+  /**
+   * The substrate's invocable skill-loader root (parent of where individual
+   * skills are projected). Owned by the adapter so `project-skill` (soma#356)
+   * does not derive loader paths from the VSA skill destination.
+   */
+  skillsLoaderDir(substrateHome: string): string;
   validator?: InstallValidator;
   lifecycleProjection?: LifecycleProjectionSpec;
   postProjection?: readonly InstallPostProjectionStep[];

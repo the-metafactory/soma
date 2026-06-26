@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { lstat, mkdir, mkdtemp, readFile, readlink, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { planProjectSkill, planUnprojectSkill, projectSkill, unprojectSkill } from "../src/skill-projection";
+import { planProjectSkill, planUnprojectSkill, projectSkill, projectSkills, unprojectSkill } from "../src/skill-projection";
 import { bootstrapSomaHome } from "../src/index";
 import { runSomaCli } from "../src/cli";
 
@@ -224,6 +224,32 @@ describe("unprojectSkill", () => {
       const result = await unprojectSkill({ skill: "Authored", substrates: ["claude-code"], homeDir, force: true });
       expect(result.registryRemoved).toBe(true);
       await expect(lstat(registryDir)).rejects.toThrow();
+    });
+  });
+});
+
+describe("projectSkills (batch)", () => {
+  test("links all skills into the substrate + catalog with a single refresh", async () => {
+    await withTempHome(async (homeDir) => {
+      for (const name of ["Alpha", "Beta"]) {
+        const dir = join(homeDir, ".soma", "skills", name);
+        await mkdir(dir, { recursive: true });
+        await writeFile(join(dir, "SKILL.md"), `---\nname: ${name}\n---\n`, "utf8");
+      }
+
+      const result = await projectSkills({
+        skillDirs: [join(homeDir, ".soma", "skills", "Alpha"), join(homeDir, ".soma", "skills", "Beta")],
+        substrates: ["claude-code"],
+        homeDir,
+      });
+
+      expect(result.skills.map((s) => s.skill).sort()).toEqual(["Alpha", "Beta"]);
+      expect((await lstat(join(homeDir, ".claude", "skills", "Alpha"))).isSymbolicLink()).toBe(true);
+      expect((await lstat(join(homeDir, ".claude", "skills", "Beta"))).isSymbolicLink()).toBe(true);
+
+      const catalog = await readFile(join(homeDir, ".claude", "rules", "soma", "SKILLS.md"), "utf8");
+      expect(catalog).toContain("## Alpha");
+      expect(catalog).toContain("## Beta");
     });
   });
 });

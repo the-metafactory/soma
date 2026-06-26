@@ -2,18 +2,12 @@ import { lstat, mkdir, readFile, readlink, rm, stat, symlink } from "node:fs/pro
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { renderSkills } from "./adapters/shared";
-import {
-  buildClaudeCodeHomeProjection,
-  buildCodexHomeProjection,
-  buildCursorHomeProjection,
-  buildGrokHomeProjection,
-  buildPiDevHomeProjection,
-} from "./home-projection";
+import { buildSubstrateHomeProjection } from "./home-projection";
 import type { InstallSubstrate } from "./install-spec";
 import { installSpecFor } from "./install-spec-registry";
 import { writeProjection } from "./projection";
 import { loadSomaHome } from "./soma-home";
-import type { ProjectionInput, SomaHomeProjection, SomaHomeProjectionOptions } from "./types";
+import type { ProjectionInput, SomaHomeProjectionOptions } from "./types";
 
 /**
  * soma#354 slice 1 — the projection primitive.
@@ -34,17 +28,6 @@ import type { ProjectionInput, SomaHomeProjection, SomaHomeProjectionOptions } f
  * unless `force` is set. So a same-named user *symlink* is replaced; only a
  * same-named real *directory* is protected without `force`.
  */
-
-const projectionBuilders: Record<
-  InstallSubstrate,
-  (input: ProjectionInput, options: SomaHomeProjectionOptions) => SomaHomeProjection
-> = {
-  codex: buildCodexHomeProjection,
-  "pi-dev": buildPiDevHomeProjection,
-  "claude-code": buildClaudeCodeHomeProjection,
-  cursor: buildCursorHomeProjection,
-  grok: buildGrokHomeProjection,
-};
 
 export interface ProjectSkillOptions {
   /** Path to the source skill directory (must contain a SKILL.md). */
@@ -112,9 +95,9 @@ function registrySkillsDir(somaHome: string): string {
   return join(somaHome, "skills");
 }
 
-/** Per-substrate invocable skill loader root (parent of the VSA skill dir). */
+/** Per-substrate invocable skill loader root — owned by the adapter spec (soma#356). */
 function substrateSkillsRoot(substrate: InstallSubstrate, substrateHome: string): string {
-  return dirname(installSpecFor(substrate).vsaSkillProjection.destinationDir(substrateHome));
+  return installSpecFor(substrate).skillsLoaderDir(substrateHome);
 }
 
 /**
@@ -222,18 +205,62 @@ function findCatalogFile(
   options: SomaHomeProjectionOptions,
 ): { path: string; content: string } | undefined {
   const expected = renderSkills(input);
-  const bundle = projectionBuilders[substrate](input, options).bundle;
+  const bundle = buildSubstrateHomeProjection(substrate, input, options).bundle;
   return bundle.files.find((file) => file.content === expected);
 }
 
 export async function projectSkill(options: ProjectSkillOptions): Promise<SkillProjectionResult> {
   assertSingleSubstrateForHome(options);
-  const skillDir = resolve(options.skillDir);
-  const name = await readSkillName(skillDir);
   const somaHome = resolveSomaHome(options);
+  const linked = await linkSkill(resolve(options.skillDir), somaHome, options.substrates, options.force ?? false, options);
 
+  // Refresh the catalog once — reload so the registry scan reflects the new skill,
+  // then rewrite only the SKILLS.md file.
+  const catalogFiles = await refreshSkillCatalogs(somaHome, options.substrates, options);
+
+  return { ...linked, catalogFiles };
+}
+
+/**
+ * Project multiple skills into the same substrate(s) and refresh the catalog
+ * ONCE (soma#358). Used by `install --skills` so an N-skill install pays the
+ * catalog-rebuild cost a single time instead of per skill.
+ */
+export async function projectSkills(options: {
+  skillDirs: string[];
+  substrates: InstallSubstrate[];
+  homeDir?: string;
+  somaHome?: string;
+  substrateHome?: string;
+  force?: boolean;
+}): Promise<{ skills: { skill: string; skillDir: string; links: SkillLink[] }[]; catalogFiles: { substrate: InstallSubstrate; path: string }[] }> {
+  assertSingleSubstrateForHome(options);
+  const somaHome = resolveSomaHome(options);
   const force = options.force ?? false;
-  const slots = skillSlots(name, somaHome, options.substrates, options);
+
+  const skills: { skill: string; skillDir: string; links: SkillLink[] }[] = [];
+  for (const dir of options.skillDirs) {
+    skills.push(await linkSkill(resolve(dir), somaHome, options.substrates, force, options));
+  }
+
+  const catalogFiles = await refreshSkillCatalogs(somaHome, options.substrates, options);
+  return { skills, catalogFiles };
+}
+
+/**
+ * Create the registry + per-substrate loader symlinks for one skill, WITHOUT
+ * refreshing the catalog. Callers refresh the catalog once after linking one or
+ * many skills (single-skill: projectSkill; batch: projectSkills).
+ */
+async function linkSkill(
+  skillDir: string,
+  somaHome: string,
+  substrates: InstallSubstrate[],
+  force: boolean,
+  options: { homeDir?: string; substrateHome?: string },
+): Promise<{ skill: string; skillDir: string; links: SkillLink[] }> {
+  const name = await readSkillName(skillDir);
+  const slots = skillSlots(name, somaHome, substrates, options);
   const links: SkillLink[] = [];
 
   // 1. Registry symlink in the soma home — the scan source the catalog reads.
@@ -250,11 +277,7 @@ export async function projectSkill(options: ProjectSkillOptions): Promise<SkillP
     links.push({ scope: "substrate", substrate, path, target: skillDir, status });
   }
 
-  // 3. Refresh the catalog per substrate — reload so the registry scan reflects
-  //    the new skill, then rewrite only the SKILLS.md file.
-  const catalogFiles = await refreshSkillCatalogs(somaHome, options.substrates, options);
-
-  return { skill: name, skillDir, links, catalogFiles };
+  return { skill: name, skillDir, links };
 }
 
 /**

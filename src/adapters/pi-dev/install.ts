@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import type { SubstrateInstallSpec } from "../../install-spec";
+import { skillsLoaderUnder, type SubstrateInstallSpec } from "../../install-spec";
 import type { SubstrateId } from "../../types";
 import {
   PI_DEV_VSA_SKILL_ID,
@@ -42,6 +42,7 @@ export const piDevInstallSpec: SubstrateInstallSpec<"pi-dev"> = {
   homeFiles: PI_DEV_HOME_FILES,
   // Owned (Soma-exclusive) dir — see ownedSubtrees JSDoc. (agent/extensions + agent/skills shared.)
   ownedSubtrees: ["agent/soma"],
+  skillsLoaderDir: skillsLoaderUnder("agent"),
   vsaSkillProjection: {
     destinationDir: piDevVsaSkillDestinationDir,
     skillNameOverride: PI_DEV_VSA_SKILL_ID,

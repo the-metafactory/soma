@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { isEnoent } from "../../fs-errors";
-import { vsaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
+import { skillsLoaderUnder, vsaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
 import type { SubstrateId } from "../../types";
 import {
   GROK_AGENT_MARKER,
@@ -185,6 +185,7 @@ export const grokInstallSpec: SubstrateInstallSpec<"grok"> = {
   // `~/.grok/version.json`; a missing manifest is an unversioned dev
   // runtime and does not block.
   validator: validateGrokInstallRuntime,
+  skillsLoaderDir: skillsLoaderUnder(),
   vsaSkillProjection: {
     // Lands the versioned VSA skill at `~/.grok/skills/VSA` (same shape
     // as Codex's `vsaSkillUnder()` → `~/.codex/skills/VSA`).

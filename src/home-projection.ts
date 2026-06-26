@@ -105,6 +105,30 @@ export function buildGrokHomeProjection(input: ProjectionInput, options: SomaHom
   );
 }
 
+/**
+ * Central substrate → home-projection dispatcher. soma#356: a single owner of
+ * the substrate-to-builder mapping so callers (e.g. `project-skill`'s catalog
+ * refresh) do not each maintain a parallel hard-coded map.
+ */
+export function buildSubstrateHomeProjection(
+  substrate: Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor" | "grok">,
+  input: ProjectionInput,
+  options: SomaHomeProjectionOptions = {},
+): SomaHomeProjection {
+  switch (substrate) {
+    case "codex":
+      return buildCodexHomeProjection(input, options);
+    case "pi-dev":
+      return buildPiDevHomeProjection(input, options);
+    case "claude-code":
+      return buildClaudeCodeHomeProjection(input, options);
+    case "cursor":
+      return buildCursorHomeProjection(input, options);
+    case "grok":
+      return buildGrokHomeProjection(input, options);
+  }
+}
+
 export async function installGrokHomeProjection(
   input: ProjectionInput,
   options: SomaHomeProjectionOptions = {},
