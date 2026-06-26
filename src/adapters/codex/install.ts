@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { configureCodexInstall } from "./config";
-import { vsaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
+import { skillsLoaderUnder, vsaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
 import { vsaSiblingPrunePrepare } from "../../legacy-skill-prune";
 import type { SubstrateId } from "../../types";
 
@@ -67,6 +67,7 @@ export const codexInstallSpec: SubstrateInstallSpec<"codex"> = {
   homeFiles: CODEX_HOME_FILES,
   // Owned (Soma-exclusive) dir — see ownedSubtrees JSDoc. (hooks/ + skills/ are shared.)
   ownedSubtrees: ["memories/soma"],
+  skillsLoaderDir: skillsLoaderUnder(),
   vsaSkillProjection: {
     destinationDir: vsaSkillUnder(),
     // soma#329: before reprojecting VSA, prune a sibling renamed-away "ISA" skill

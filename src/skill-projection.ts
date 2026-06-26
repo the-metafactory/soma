@@ -2,18 +2,12 @@ import { lstat, mkdir, readFile, readlink, rm, stat, symlink } from "node:fs/pro
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { renderSkills } from "./adapters/shared";
-import {
-  buildClaudeCodeHomeProjection,
-  buildCodexHomeProjection,
-  buildCursorHomeProjection,
-  buildGrokHomeProjection,
-  buildPiDevHomeProjection,
-} from "./home-projection";
+import { buildSubstrateHomeProjection } from "./home-projection";
 import type { InstallSubstrate } from "./install-spec";
 import { installSpecFor } from "./install-spec-registry";
 import { writeProjection } from "./projection";
 import { loadSomaHome } from "./soma-home";
-import type { ProjectionInput, SomaHomeProjection, SomaHomeProjectionOptions } from "./types";
+import type { ProjectionInput, SomaHomeProjectionOptions } from "./types";
 
 /**
  * soma#354 slice 1 — the projection primitive.
@@ -34,17 +28,6 @@ import type { ProjectionInput, SomaHomeProjection, SomaHomeProjectionOptions } f
  * unless `force` is set. So a same-named user *symlink* is replaced; only a
  * same-named real *directory* is protected without `force`.
  */
-
-const projectionBuilders: Record<
-  InstallSubstrate,
-  (input: ProjectionInput, options: SomaHomeProjectionOptions) => SomaHomeProjection
-> = {
-  codex: buildCodexHomeProjection,
-  "pi-dev": buildPiDevHomeProjection,
-  "claude-code": buildClaudeCodeHomeProjection,
-  cursor: buildCursorHomeProjection,
-  grok: buildGrokHomeProjection,
-};
 
 export interface ProjectSkillOptions {
   /** Path to the source skill directory (must contain a SKILL.md). */
@@ -85,10 +68,14 @@ export interface SkillLink {
   status: SkillLinkStatus;
 }
 
-export interface SkillProjectionResult {
+/** The registry + per-substrate loader symlinks created for one skill (no catalog). */
+export interface LinkedSkillResult {
   skill: string;
   skillDir: string;
   links: SkillLink[];
+}
+
+export interface SkillProjectionResult extends LinkedSkillResult {
   catalogFiles: { substrate: InstallSubstrate; path: string }[];
   /** Set by unprojectSkill: whether a Soma-created registry symlink was removed. */
   registryRemoved?: boolean;
@@ -112,9 +99,9 @@ function registrySkillsDir(somaHome: string): string {
   return join(somaHome, "skills");
 }
 
-/** Per-substrate invocable skill loader root (parent of the VSA skill dir). */
+/** Per-substrate invocable skill loader root — owned by the adapter spec (soma#356). */
 function substrateSkillsRoot(substrate: InstallSubstrate, substrateHome: string): string {
-  return dirname(installSpecFor(substrate).vsaSkillProjection.destinationDir(substrateHome));
+  return installSpecFor(substrate).skillsLoaderDir(substrateHome);
 }
 
 /**
@@ -222,39 +209,101 @@ function findCatalogFile(
   options: SomaHomeProjectionOptions,
 ): { path: string; content: string } | undefined {
   const expected = renderSkills(input);
-  const bundle = projectionBuilders[substrate](input, options).bundle;
+  const bundle = buildSubstrateHomeProjection(substrate, input, options).bundle;
   return bundle.files.find((file) => file.content === expected);
 }
 
 export async function projectSkill(options: ProjectSkillOptions): Promise<SkillProjectionResult> {
   assertSingleSubstrateForHome(options);
-  const skillDir = resolve(options.skillDir);
-  const name = await readSkillName(skillDir);
   const somaHome = resolveSomaHome(options);
+  const linked = await linkSkill(resolve(options.skillDir), somaHome, options.substrates, options.force ?? false, options);
 
-  const force = options.force ?? false;
-  const slots = skillSlots(name, somaHome, options.substrates, options);
-  const links: SkillLink[] = [];
-
-  // 1. Registry symlink in the soma home — the scan source the catalog reads.
-  //    Skipped when the source already lives under the registry (authored in place).
-  const sourceAlreadyInRegistry = dirname(skillDir) === resolve(registrySkillsDir(somaHome));
-  if (!sourceAlreadyInRegistry) {
-    const status = await ensureSymlink(slots.registry, skillDir, force);
-    links.push({ scope: "registry", path: slots.registry, target: skillDir, status });
-  }
-
-  // 2. Loader symlink in each substrate.
-  for (const { substrate, path } of slots.substrates) {
-    const status = await ensureSymlink(path, skillDir, force);
-    links.push({ scope: "substrate", substrate, path, target: skillDir, status });
-  }
-
-  // 3. Refresh the catalog per substrate — reload so the registry scan reflects
-  //    the new skill, then rewrite only the SKILLS.md file.
+  // Refresh the catalog once — reload so the registry scan reflects the new skill,
+  // then rewrite only the SKILLS.md file.
   const catalogFiles = await refreshSkillCatalogs(somaHome, options.substrates, options);
 
-  return { skill: name, skillDir, links, catalogFiles };
+  return { ...linked, catalogFiles };
+}
+
+/**
+ * Project multiple skills into the same substrate(s) and refresh the catalog
+ * ONCE (soma#358). Used by `install --skills` so an N-skill install pays the
+ * catalog-rebuild cost a single time instead of per skill.
+ */
+export async function projectSkills(options: {
+  skillDirs: string[];
+  substrates: InstallSubstrate[];
+  homeDir?: string;
+  somaHome?: string;
+  substrateHome?: string;
+  force?: boolean;
+}): Promise<{ skills: LinkedSkillResult[]; catalogFiles: { substrate: InstallSubstrate; path: string }[] }> {
+  assertSingleSubstrateForHome(options);
+  const somaHome = resolveSomaHome(options);
+  const force = options.force ?? false;
+
+  const skills: LinkedSkillResult[] = [];
+  let catalogFiles: { substrate: InstallSubstrate; path: string }[];
+  try {
+    for (const dir of options.skillDirs) {
+      skills.push(await linkSkill(resolve(dir), somaHome, options.substrates, force, options));
+    }
+  } finally {
+    // Refresh once, in a finally. linkSkill is all-or-nothing (it rolls back its
+    // own partial links on failure), so on a mid-batch failure the registry holds
+    // exactly the fully-linked skills — the refresh therefore catalogs only
+    // invocable skills, never a registry-only entry, and never strands a stale
+    // catalog from the skills that did link.
+    catalogFiles = await refreshSkillCatalogs(somaHome, options.substrates, options);
+  }
+  return { skills, catalogFiles };
+}
+
+/**
+ * Create the registry + per-substrate loader symlinks for one skill, WITHOUT
+ * refreshing the catalog. Callers refresh the catalog once after linking one or
+ * many skills (single-skill: projectSkill; batch: projectSkills).
+ */
+async function linkSkill(
+  skillDir: string,
+  somaHome: string,
+  substrates: InstallSubstrate[],
+  force: boolean,
+  options: { homeDir?: string; substrateHome?: string },
+): Promise<LinkedSkillResult> {
+  const name = await readSkillName(skillDir);
+  const slots = skillSlots(name, somaHome, substrates, options);
+  const links: SkillLink[] = [];
+  // Paths this call created or replaced — rolled back if a later link fails, so a
+  // skill is never left in the registry without all its loader links (which would
+  // catalog a non-invocable skill). Skips "unchanged" links we did not alter.
+  const created: string[] = [];
+
+  try {
+    // 1. Registry symlink in the soma home — the scan source the catalog reads.
+    //    Skipped when the source already lives under the registry (authored in place).
+    const sourceAlreadyInRegistry = dirname(skillDir) === resolve(registrySkillsDir(somaHome));
+    if (!sourceAlreadyInRegistry) {
+      const status = await ensureSymlink(slots.registry, skillDir, force);
+      if (status !== "unchanged") created.push(slots.registry);
+      links.push({ scope: "registry", path: slots.registry, target: skillDir, status });
+    }
+
+    // 2. Loader symlink in each substrate.
+    for (const { substrate, path } of slots.substrates) {
+      const status = await ensureSymlink(path, skillDir, force);
+      if (status !== "unchanged") created.push(path);
+      links.push({ scope: "substrate", substrate, path, target: skillDir, status });
+    }
+  } catch (error) {
+    // Best-effort rollback of this skill's partial links, then rethrow.
+    for (const path of created.reverse()) {
+      await rm(path, { recursive: true, force: true }).catch(() => undefined);
+    }
+    throw error;
+  }
+
+  return { skill: name, skillDir, links };
 }
 
 /**

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { lstat, mkdir, mkdtemp, readFile, readlink, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { planProjectSkill, planUnprojectSkill, projectSkill, unprojectSkill } from "../src/skill-projection";
+import { planProjectSkill, planUnprojectSkill, projectSkill, projectSkills, unprojectSkill } from "../src/skill-projection";
 import { bootstrapSomaHome } from "../src/index";
 import { runSomaCli } from "../src/cli";
 
@@ -224,6 +224,75 @@ describe("unprojectSkill", () => {
       const result = await unprojectSkill({ skill: "Authored", substrates: ["claude-code"], homeDir, force: true });
       expect(result.registryRemoved).toBe(true);
       await expect(lstat(registryDir)).rejects.toThrow();
+    });
+  });
+});
+
+describe("projectSkills (batch)", () => {
+  test("links all skills into the substrate + catalog with a single refresh", async () => {
+    await withTempHome(async (homeDir) => {
+      for (const name of ["Alpha", "Beta"]) {
+        const dir = join(homeDir, ".soma", "skills", name);
+        await mkdir(dir, { recursive: true });
+        await writeFile(join(dir, "SKILL.md"), `---\nname: ${name}\n---\n`, "utf8");
+      }
+
+      const result = await projectSkills({
+        skillDirs: [join(homeDir, ".soma", "skills", "Alpha"), join(homeDir, ".soma", "skills", "Beta")],
+        substrates: ["claude-code"],
+        homeDir,
+      });
+
+      expect(result.skills.map((s) => s.skill).sort()).toEqual(["Alpha", "Beta"]);
+      expect((await lstat(join(homeDir, ".claude", "skills", "Alpha"))).isSymbolicLink()).toBe(true);
+      expect((await lstat(join(homeDir, ".claude", "skills", "Beta"))).isSymbolicLink()).toBe(true);
+
+      const catalog = await readFile(join(homeDir, ".claude", "rules", "soma", "SKILLS.md"), "utf8");
+      expect(catalog).toContain("## Alpha");
+      expect(catalog).toContain("## Beta");
+    });
+  });
+
+  test("a mid-batch failure still leaves the catalog consistent with what was linked", async () => {
+    await withTempHome(async (homeDir) => {
+      const okDir = join(homeDir, ".soma", "skills", "Ok");
+      await mkdir(okDir, { recursive: true });
+      await writeFile(join(okDir, "SKILL.md"), `---\nname: Ok\n---\n`, "utf8");
+      const missingDir = join(homeDir, ".soma", "skills", "Missing"); // no SKILL.md
+
+      await expect(
+        projectSkills({ skillDirs: [okDir, missingDir], substrates: ["claude-code"], homeDir }),
+      ).rejects.toThrow();
+
+      // Ok was linked before the failure; the finally-refresh catalogued it.
+      expect((await lstat(join(homeDir, ".claude", "skills", "Ok"))).isSymbolicLink()).toBe(true);
+      const catalog = await readFile(join(homeDir, ".claude", "rules", "soma", "SKILLS.md"), "utf8");
+      expect(catalog).toContain("## Ok");
+    });
+  });
+
+  test("rolls back the registry link when a loader link fails, so the catalog never lists a non-invocable skill", async () => {
+    await withTempHome(async (homeDir) => {
+      // Source outside the registry, so a registry symlink IS created first.
+      const srcDir = join(homeDir, "src", "Solo");
+      await mkdir(srcDir, { recursive: true });
+      await writeFile(join(srcDir, "SKILL.md"), `---\nname: Solo\n---\n`, "utf8");
+      // A real dir already occupies the loader slot → loader ensureSymlink throws
+      // (no --force), AFTER the registry link succeeded.
+      const loaderSlot = join(homeDir, ".claude", "skills", "Solo");
+      await mkdir(loaderSlot, { recursive: true });
+      await writeFile(join(loaderSlot, "SKILL.md"), "user\n", "utf8");
+
+      await expect(
+        projectSkills({ skillDirs: [srcDir], substrates: ["claude-code"], homeDir }),
+      ).rejects.toThrow(/non-symlink/);
+
+      // Registry link rolled back → Solo is neither registered nor cataloged.
+      await expect(lstat(join(homeDir, ".soma", "skills", "Solo"))).rejects.toThrow();
+      const catalog = await readFile(join(homeDir, ".claude", "rules", "soma", "SKILLS.md"), "utf8");
+      expect(catalog).not.toContain("## Solo");
+      // The user's real loader dir is untouched.
+      expect((await lstat(loaderSlot)).isDirectory()).toBe(true);
     });
   });
 });

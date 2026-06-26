@@ -1,7 +1,7 @@
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { isEnoent } from "../../fs-errors";
-import { vsaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
+import { skillsLoaderUnder, vsaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
 import { CURSOR_HOME_FILE_PATHS, CURSOR_RULES_BLOCK_BEGIN, CURSOR_RULES_BLOCK_END, CURSOR_RULES_PATH } from "../cursor";
 
 async function shouldRemoveSomaRulesDir(target: string): Promise<boolean> {
@@ -52,6 +52,7 @@ export const cursorInstallSpec: SubstrateInstallSpec<"cursor"> = {
   // Owned (Soma-exclusive) dir — see ownedSubtrees JSDoc. Subsumes the former
   // obsoleteHomeFiles for TELOS.md/ACTIVE_ISA.md under .cursor/rules/soma.
   ownedSubtrees: [".cursor/rules/soma"],
+  skillsLoaderDir: skillsLoaderUnder(".cursor/rules/soma"),
   vsaSkillProjection: {
     destinationDir: vsaSkillUnder(".cursor/rules/soma"),
   },

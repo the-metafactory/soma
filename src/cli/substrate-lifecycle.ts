@@ -29,7 +29,7 @@ import {
 import type { ClaudeCodeInstallOptions } from "../adapters/claude-code/install-options";
 import { projectVsaSkillBundleFiles } from "../vsa-skill-installer";
 import { defaultSubstrateHome, installSpecFor } from "../install-spec-registry";
-import { projectSkill } from "../skill-projection";
+import { projectSkills } from "../skill-projection";
 import type {
   ProjectionInput,
   SomaInstallOptions,
@@ -414,20 +414,21 @@ async function projectInstallSkills(
   options: SomaInstallOptions,
 ): Promise<string> {
   const somaHome = options.somaHome ?? defaultSomaHomePath(options.homeDir);
-  const lines = ["Projected skills:"];
-  for (const name of skills) {
-    const skillDir = resolveJoin(somaHome, "skills", name);
-    const result = await projectSkill({
-      skillDir,
-      substrates: [substrate],
-      homeDir: options.homeDir,
-      somaHome: options.somaHome,
-      substrateHome: options.substrateHome,
-    });
-    const loader = result.links.find((link) => link.scope === "substrate");
-    lines.push(`- ${result.skill}: ${loader?.status ?? "linked"} ${loader?.path ?? skillDir}`);
-  }
-  return lines.join("\n");
+  // soma#358: link every selected skill, then refresh the catalog ONCE.
+  const { skills: projected } = await projectSkills({
+    skillDirs: skills.map((name) => resolveJoin(somaHome, "skills", name)),
+    substrates: [substrate],
+    homeDir: options.homeDir,
+    somaHome: options.somaHome,
+    substrateHome: options.substrateHome,
+  });
+  return [
+    "Projected skills:",
+    ...projected.map((result) => {
+      const loader = result.links.find((link) => link.scope === "substrate");
+      return `- ${result.skill}: ${loader?.status ?? "linked"} ${loader?.path ?? result.skillDir}`;
+    }),
+  ].join("\n");
 }
 
 function planInstall(substrate: InstallSubstrate, options: SomaInstallOptions): SomaInstallPlan {
