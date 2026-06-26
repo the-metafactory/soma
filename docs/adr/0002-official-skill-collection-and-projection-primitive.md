@@ -39,10 +39,12 @@ Two further problems compound it:
 
 2. **Tier legibility.** `~/.soma/skills/` holds 104 entries — 103 skill
    directories (a handful of primitive-operating skills alongside ~100 PAI skills:
-   art, research, scraping…) plus a `README`. The principal migrated those PAI
-   skills in and actively uses them. They are not noise: Soma's mission is to be the
-   portable home for the principal's assistant context, and those skills *are* that
-   context — they belong in `~/.soma/skills/`. **Correction (see below):** the tier
+   art, research, scraping…) plus a `README`. **Decision (recorded here):** on
+   reviewing the eviction task (soma#354), the principal declined it — stating those
+   are skills they migrated in and actively use — and Soma's mission is to be the
+   portable home for the principal's assistant context, so those skills belong in
+   `~/.soma/skills/`. This ADR records that stakeholder call; the eviction was never
+   executed. **Correction (see below):** the tier
    boundary turned out to already be legible without moving anything. The clean,
    complete signal is the `pack-id` — verified against the live home at decision
    time, `grep -l '^pack-id:' ~/.soma/skills/*/SKILL.md | wc -l` returns 2 — a
