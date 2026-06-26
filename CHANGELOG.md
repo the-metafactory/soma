@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **VSA skill version bump `1.0.4` → `1.0.5`** — the 0.10.0 `pack-id`
+  `pai-vsa-v1.0.0` → `soma-vsa-v1.0.0` rename (#362) changed
+  `src/skills/VSA/SKILL.md` without bumping its `version:`. The drift-protected
+  installer treats same-version as "no upgrade" (restores missing files only,
+  never overwrites), so the rename never propagated to `~/.soma/skills/VSA` or the
+  substrate projections (they stayed `pai-vsa-v1.0.0`). Bumping the version lets
+  the installer re-copy on the next release + reproject.
+
 ## [0.10.0] - 2026-06-26
 
 ### Added
