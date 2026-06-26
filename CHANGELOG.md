@@ -46,9 +46,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   three-tier model (Core / official Soma skills / third-party via arc) and the
   soma-owned projection primitive. Corrected mid-epic: the VSA skill is *not*
   code-gen (it ships plain `.md` with a drift-protected installer, retained); and
-  the migrated ~100 PAI skills are *not* evicted — they are the principal's
-  actively-used skills and `~/.soma/skills/` is their home (official vs. imported
-  is distinguished by `pack-id` presence, not directory partition).
+  the migrated ~100 PAI skills are *not* evicted (a recorded stakeholder decision —
+  see ADR 0002) — they stay in `~/.soma/skills/` rather than being relocated, with
+  official vs. imported distinguished by `pack-id` presence, not directory partition.
 
 ## [0.9.1] - 2026-06-25
 
