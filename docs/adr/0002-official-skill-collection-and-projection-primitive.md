@@ -37,12 +37,24 @@ Two further problems compound it:
    are hand-made copies there; the newly-added `Purpose` skill had to be symlinked by
    hand to become invocable. (Recorded as the skill-projection gap.)
 
-2. **Tier confusion.** `~/.soma/skills/` holds 104 entries — a handful of
-   primitive-operating skills mixed with ~100 migrated general PAI skills (art,
-   research, scraping…) that have nothing to do with Soma's core. Meanwhile six
-   genuinely third-party skills already install cleanly as external packs via arc
-   (`~/.config/arc/pkg/repos/*`, symlinked into `~/.claude/skills/`). The boundary
-   between "Soma's own skills" and "arbitrary skills" is unmarked.
+2. **Tier legibility.** `~/.soma/skills/` holds 104 entries — 103 skill
+   directories (a handful of primitive-operating skills alongside ~100 PAI skills:
+   art, research, scraping…) plus a `README`. **Decision (recorded here):** on
+   reviewing the eviction task (soma#354), the principal declined it — stating those
+   are skills they migrated in and actively use — and Soma's mission is to be the
+   portable home for the principal's assistant context, so those skills belong in
+   `~/.soma/skills/`. This ADR records that stakeholder call; the eviction was never
+   executed. **Correction (see below):** the tier
+   boundary turned out to already be legible without moving anything. The clean,
+   complete signal is the `pack-id` — verified against the live home at decision
+   time, `grep -l '^pack-id:' ~/.soma/skills/*/SKILL.md | wc -l` returns 2 — a
+   pack-id on exactly 2 of the 103 skill directories (`VSA` and `Purpose`, both
+   official); the other 101 carry none. (Import provenance is *additionally* tracked under `~/.soma/imports/`
+   — the `claude-skills/.manifest.json` alone records 74, the rest came via
+   `imports/pai-packs` / `imports/pai-migration` — but that is a partial,
+   multi-source record, whereas pack-id presence is the single complete check.) So
+   the official/imported distinction is metadata that already exists, not a reason
+   to relocate the principal's skills.
 
 JC's stance: a *collection* of official Soma skills that extends core without
 bloating it — install what you need — with arc able to install further skills and
@@ -125,8 +137,13 @@ all installed); the contract above is substrate-list-parameterised either way.
   opt-in. Default install stays minimal.
 - arc gains a post-install / post-uninstall hook that calls the soma primitive;
   tracked as a separate arc issue (cross-repo contract).
-- The ~100 migrated third-party skills squatting in `~/.soma/skills/` are evicted
-  from core's skill dir (separate cleanup) so the tier boundary is legible.
+- The ~100 migrated PAI skills in `~/.soma/skills/` are **not** evicted — they are
+  the principal's actively-used skills and `~/.soma/skills/` is their rightful home.
+  The original "evict squatters" framing was wrong (the principal pushed back).
+  Official skills are distinguished by a `soma-*` `pack-id`; migrated ones lack one
+  (the complete signal — see Context). Tier is a label, not a directory partition.
+  Official skill pack-ids use the `soma-*` prefix (renamed from the migration-era
+  `pai-*`), since these are now Soma-native, not PAI imports.
 - Backward compatibility: existing hand-materialised `~/.claude/skills/{VSA,
   Interview}` copies are superseded by projected symlinks; the projector must be
   idempotent and reconcile a prior copy without clobbering unrelated user skills.
