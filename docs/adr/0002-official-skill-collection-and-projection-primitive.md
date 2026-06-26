@@ -43,10 +43,13 @@ Two further problems compound it:
    is to be the portable home for the principal's assistant context, and those
    skills *are* that context — they belong in `~/.soma/skills/`. **Correction (see
    below):** the tier boundary turned out to already be legible without moving
-   anything — official skills carry a `pack-id` (`soma-*`), migrated ones do not and
-   are recorded in `imports/claude-skills/.manifest.json` (+ `imports/pai-*`). So
-   there is a distinction to draw (official vs. imported), but it is metadata, not a
-   reason to relocate the principal's skills.
+   anything. Verified against the live home at decision time:
+   `grep -c '^pack-id:' ~/.soma/skills/*/SKILL.md` finds a pack-id on exactly 2 of
+   103 skills — `VSA` and `Purpose`, both official — and the remaining 101 migrated
+   skills carry none, with their origin recorded in `imports/claude-skills/.manifest.json`
+   (+ `imports/pai-*`). So there is a distinction to draw (official vs. imported),
+   but it is metadata that already exists, not a reason to relocate the principal's
+   skills.
 
 JC's stance: a *collection* of official Soma skills that extends core without
 bloating it — install what you need — with arc able to install further skills and
