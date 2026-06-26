@@ -187,8 +187,32 @@ function appendSomaPolicyGuardHookGroups(settings: JsonObject, substrateHome: st
   return preTool || prompt;
 }
 
+// Collect every command in the guard's two events that references the guard
+// hook script, regardless of the bun path it was written with. This makes
+// uninstall robust to a settings entry recorded with a different bun path than
+// the one in the installed config (otherwise the files are removed but a stale
+// command keeps invoking a now-missing hook).
+function installedPolicyGuardCommands(settings: JsonObject, substrateHome: string): Set<string> {
+  const scriptPath = resolve(substrateHome, SOMA_CLAUDE_POLICY_GUARD_RELATIVE_PATH);
+  const found = new Set<string>();
+  if (!isObject(settings.hooks)) return found;
+  for (const event of ["PreToolUse", "UserPromptSubmit"]) {
+    const groups = settings.hooks[event];
+    if (!Array.isArray(groups)) continue;
+    for (const group of groups) {
+      for (const command of groupCommands(group)) {
+        if (command.includes(scriptPath)) found.add(command);
+      }
+    }
+  }
+  return found;
+}
+
 function removeSomaPolicyGuardFromSettings(settings: JsonObject, substrateHome: string, bunPath: string): boolean {
-  const commands = somaPolicyGuardCommands(substrateHome, bunPath);
+  const commands = new Set([
+    ...somaPolicyGuardCommands(substrateHome, bunPath),
+    ...installedPolicyGuardCommands(settings, substrateHome),
+  ]);
   const preTool = removeCommandsFromSettingsEvent(settings, "PreToolUse", commands);
   const prompt = removeCommandsFromSettingsEvent(settings, "UserPromptSubmit", commands);
   return preTool || prompt;

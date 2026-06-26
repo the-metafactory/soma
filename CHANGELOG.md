@@ -13,11 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   calls on two more substrates. Both layers are **fail-closed**: any broken path
   denies rather than silently allowing an un-inspected action.
   - **Claude Code (`--policy-guard`)** — a new synchronous `soma-policy-guard.mjs`
-    hook wires `soma policy inspect` into `PreToolUse`
-    (`Bash|Read|Edit|Write|MultiEdit|NotebookEdit`) and `UserPromptSubmit`.
-    Dangerous commands, outbound credential exfiltration, credential-path access,
-    and prompt injection are denied/blocked. Opt-in like `--mode-classifier`;
-    installs/uninstalls + idempotent settings patching mirror that track.
+    hook runs `soma policy guard` on `PreToolUse`
+    (`Bash|Read|Edit|Write|MultiEdit|NotebookEdit`) and `soma policy inspect
+    --surface prompt` on `UserPromptSubmit`. Dangerous commands, outbound
+    credential exfiltration, credential-path access, and prompt injection are
+    denied/blocked. Opt-in like `--mode-classifier`; installs/uninstalls +
+    idempotent settings patching mirror that track.
     Closes the enforcement gap where Claude Code carried only advisory policy.
   - **pi.dev** — the existing `tool_call` path-guard extension gains a
     runtime-policy inspection layer ahead of its destructive-path checks, reaching

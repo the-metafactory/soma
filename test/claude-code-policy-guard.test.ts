@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "bun:test";
-import { installSomaForClaudeCode, planSomaForClaudeCodeInstall } from "../src/index";
+import { installSomaForClaudeCode, planSomaForClaudeCodeInstall, uninstallSomaForClaudeCode } from "../src/index";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const GUARD_REL = ".claude/hooks/soma/soma-policy-guard.mjs";
@@ -112,6 +112,25 @@ test("policy guard: fails CLOSED (deny) when its config is missing", async () =>
     const out = runGuard(homeDir, { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "ls" } });
     expect(out.status).toBe(0);
     expect(JSON.parse(out.stdout).hookSpecificOutput.permissionDecision).toBe("deny");
+  });
+});
+
+test("policy guard: uninstall removes the settings entry even if its bun path drifted", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForClaudeCode({ homeDir, policyGuard: true });
+    const settingsPath = join(homeDir, ".claude/settings.json");
+
+    // Simulate a settings entry written with a different bun path than the one
+    // recorded in the installed config (Sage #365 finding) by rewriting every
+    // installed bun path to a bogus value in the settings file only.
+    const raw = await readFile(settingsPath, "utf8");
+    await writeFile(settingsPath, raw.replaceAll(process.execPath, "/some/other/bun"), "utf8");
+    expect(countHookCommandsContaining(await readJson(settingsPath), "soma-policy-guard.mjs")).toBe(2);
+
+    await uninstallSomaForClaudeCode({ homeDir });
+
+    const after = await readJson<{ hooks?: Record<string, unknown[]> }>(settingsPath);
+    expect(countHookCommandsContaining(after, "soma-policy-guard.mjs")).toBe(0);
   });
 });
 

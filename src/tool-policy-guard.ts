@@ -31,7 +31,7 @@ import {
 } from "./policy-targets";
 import { defaultInboundContentSecurityConfig, scanInboundContent } from "./inbound-security";
 import { inspectRuntimePolicy } from "./runtime-policy";
-import type { SubstrateId } from "./types";
+import type { RuntimePolicyDecision, SubstrateId } from "./types";
 
 export interface ToolCallPolicyGuardOptions {
   substrate: SubstrateId;
@@ -46,7 +46,10 @@ export interface ToolCallPolicyGuardOptions {
   timestamp?: string;
 }
 
-export type ToolCallPolicyGuardDecision = "allow" | "deny" | "ask";
+// The guard's decision domain is exactly the runtime-policy decision domain
+// (allow | deny | ask | alert). `alert` is advisory: it does not block, but it
+// is surfaced so callers/telemetry never lose the signal. Only deny/ask block.
+export type ToolCallPolicyGuardDecision = RuntimePolicyDecision;
 
 export interface ToolCallPolicyGuardResult {
   decision: ToolCallPolicyGuardDecision;
@@ -142,6 +145,9 @@ export async function evaluateToolCallPolicyGuard(options: ToolCallPolicyGuardOp
   if (runtime.decision === "deny" || runtime.decision === "ask") {
     return { decision: runtime.decision, reason: runtime.reason, stage: "runtime" };
   }
+  // `alert` is advisory (does not block) but must not be silently lost: hold it
+  // and surface it as the final decision if no later stage hard-blocks.
+  const runtimeAlert = runtime.decision === "alert" ? runtime : undefined;
 
   const normalizedToolName = options.toolName.toLowerCase();
   const action = toolActionFor(normalizedToolName);
@@ -190,5 +196,8 @@ export async function evaluateToolCallPolicyGuard(options: ToolCallPolicyGuardOp
     }
   }
 
+  if (runtimeAlert) {
+    return { decision: "alert", reason: runtimeAlert.reason, stage: "runtime" };
+  }
   return { decision: "allow", reason: "No policy guard findings.", stage: "none" };
 }

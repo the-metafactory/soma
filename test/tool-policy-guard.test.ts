@@ -79,6 +79,23 @@ test("allows a benign write that touches nothing private", async () => {
   });
 });
 
+test("surfaces an advisory `alert` (non-blocking) instead of downgrading it to allow", async () => {
+  await withHome(async ({ homeDir, somaHome }) => {
+    const result = await evaluateToolCallPolicyGuard({
+      substrate: "claude-code",
+      somaHome,
+      homeDir,
+      toolName: "Bash",
+      toolInput: { command: 'python3 -c "print(1)"' },
+      record: "none",
+    });
+    // Inline interpreter is advisory: it must not block, but the alert signal
+    // must reach the caller rather than being flattened to "allow".
+    expect(result.decision).toBe("alert");
+    expect(result.stage).toBe("runtime");
+  });
+});
+
 test("allows reading an ordinary file outside any untrusted root", async () => {
   await withHome(async ({ homeDir, somaHome }) => {
     const result = await evaluateToolCallPolicyGuard({
