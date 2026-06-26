@@ -23,8 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Names only, not paths; dry-run names them, apply projects + reports status.
 - **`projectSkills` batch projection (#358 / #360)** — `install --skills` links
   all selected skills then refreshes the catalog ONCE. `linkSkill` is
-  all-or-nothing: it rolls back its own partial symlinks on failure, so the
-  catalog never lists a skill that isn't fully invocable.
+  all-or-nothing: it rolls back its own partial symlinks on failure, so a mid-batch
+  failure leaves the registry holding only fully-linked skills and the one
+  post-batch catalog refresh reflects only those (no partially-linked, non-invocable
+  entry).
 
 ### Changed
 - **Adapter owns the skill-loader path (#356)** — `SubstrateInstallSpec` gains
