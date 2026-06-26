@@ -249,9 +249,11 @@ export async function projectSkills(options: {
       skills.push(await linkSkill(resolve(dir), somaHome, options.substrates, force, options));
     }
   } finally {
-    // Refresh once, in a finally: a mid-batch linkSkill failure still leaves the
-    // catalog consistent with whatever was linked (the registry-scan reflects the
-    // symlinks that succeeded), so a partial batch never strands a stale catalog.
+    // Refresh once, in a finally. linkSkill is all-or-nothing (it rolls back its
+    // own partial links on failure), so on a mid-batch failure the registry holds
+    // exactly the fully-linked skills — the refresh therefore catalogs only
+    // invocable skills, never a registry-only entry, and never strands a stale
+    // catalog from the skills that did link.
     catalogFiles = await refreshSkillCatalogs(somaHome, options.substrates, options);
   }
   return { skills, catalogFiles };
@@ -272,19 +274,33 @@ async function linkSkill(
   const name = await readSkillName(skillDir);
   const slots = skillSlots(name, somaHome, substrates, options);
   const links: SkillLink[] = [];
+  // Paths this call created or replaced — rolled back if a later link fails, so a
+  // skill is never left in the registry without all its loader links (which would
+  // catalog a non-invocable skill). Skips "unchanged" links we did not alter.
+  const created: string[] = [];
 
-  // 1. Registry symlink in the soma home — the scan source the catalog reads.
-  //    Skipped when the source already lives under the registry (authored in place).
-  const sourceAlreadyInRegistry = dirname(skillDir) === resolve(registrySkillsDir(somaHome));
-  if (!sourceAlreadyInRegistry) {
-    const status = await ensureSymlink(slots.registry, skillDir, force);
-    links.push({ scope: "registry", path: slots.registry, target: skillDir, status });
-  }
+  try {
+    // 1. Registry symlink in the soma home — the scan source the catalog reads.
+    //    Skipped when the source already lives under the registry (authored in place).
+    const sourceAlreadyInRegistry = dirname(skillDir) === resolve(registrySkillsDir(somaHome));
+    if (!sourceAlreadyInRegistry) {
+      const status = await ensureSymlink(slots.registry, skillDir, force);
+      if (status !== "unchanged") created.push(slots.registry);
+      links.push({ scope: "registry", path: slots.registry, target: skillDir, status });
+    }
 
-  // 2. Loader symlink in each substrate.
-  for (const { substrate, path } of slots.substrates) {
-    const status = await ensureSymlink(path, skillDir, force);
-    links.push({ scope: "substrate", substrate, path, target: skillDir, status });
+    // 2. Loader symlink in each substrate.
+    for (const { substrate, path } of slots.substrates) {
+      const status = await ensureSymlink(path, skillDir, force);
+      if (status !== "unchanged") created.push(path);
+      links.push({ scope: "substrate", substrate, path, target: skillDir, status });
+    }
+  } catch (error) {
+    // Best-effort rollback of this skill's partial links, then rethrow.
+    for (const path of created.reverse()) {
+      await rm(path, { recursive: true, force: true }).catch(() => undefined);
+    }
+    throw error;
   }
 
   return { skill: name, skillDir, links };

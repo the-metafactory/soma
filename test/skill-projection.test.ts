@@ -270,6 +270,31 @@ describe("projectSkills (batch)", () => {
       expect(catalog).toContain("## Ok");
     });
   });
+
+  test("rolls back the registry link when a loader link fails, so the catalog never lists a non-invocable skill", async () => {
+    await withTempHome(async (homeDir) => {
+      // Source outside the registry, so a registry symlink IS created first.
+      const srcDir = join(homeDir, "src", "Solo");
+      await mkdir(srcDir, { recursive: true });
+      await writeFile(join(srcDir, "SKILL.md"), `---\nname: Solo\n---\n`, "utf8");
+      // A real dir already occupies the loader slot → loader ensureSymlink throws
+      // (no --force), AFTER the registry link succeeded.
+      const loaderSlot = join(homeDir, ".claude", "skills", "Solo");
+      await mkdir(loaderSlot, { recursive: true });
+      await writeFile(join(loaderSlot, "SKILL.md"), "user\n", "utf8");
+
+      await expect(
+        projectSkills({ skillDirs: [srcDir], substrates: ["claude-code"], homeDir }),
+      ).rejects.toThrow(/non-symlink/);
+
+      // Registry link rolled back → Solo is neither registered nor cataloged.
+      await expect(lstat(join(homeDir, ".soma", "skills", "Solo"))).rejects.toThrow();
+      const catalog = await readFile(join(homeDir, ".claude", "rules", "soma", "SKILLS.md"), "utf8");
+      expect(catalog).not.toContain("## Solo");
+      // The user's real loader dir is untouched.
+      expect((await lstat(loaderSlot)).isDirectory()).toBe(true);
+    });
+  });
 });
 
 describe("soma install --skills", () => {
