@@ -42,13 +42,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Soma-native, not PAI imports.
 
 ### Docs
-- **ADR 0002 — official skill collection + projection primitive.** Records the
-  three-tier model (Core / official Soma skills / third-party via arc) and the
-  soma-owned projection primitive. Corrected mid-epic: the VSA skill is *not*
-  code-gen (it ships plain `.md` with a drift-protected installer, retained); and
-  the migrated ~100 PAI skills are *not* evicted (a recorded stakeholder decision —
-  see ADR 0002) — they stay in `~/.soma/skills/` rather than being relocated, with
-  official vs. imported distinguished by `pack-id` presence, not directory partition.
+- The design and decisions behind this release — the official skill collection,
+  the projection primitive, and the mid-epic course corrections (the VSA skill is
+  not code-gen and stays; the migrated PAI skills are not evicted) — are recorded
+  in `docs/adr/0002-official-skill-collection-and-projection-primitive.md`. See
+  that ADR for the rationale; it is the source of truth, not duplicated here.
 
 ## [0.9.1] - 2026-06-25
 
