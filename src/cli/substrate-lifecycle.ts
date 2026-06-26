@@ -41,7 +41,7 @@ import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";
 
 export type InstallSubstrate = Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor" | "grok">;
-type InstallCliOptions = SomaInstallOptions & Partial<Pick<ClaudeCodeInstallOptions, "modeClassifier">>;
+type InstallCliOptions = SomaInstallOptions & Partial<Pick<ClaudeCodeInstallOptions, "modeClassifier" | "policyGuard">>;
 
 export interface ParsedInstallArgs {
   command: "install";
@@ -96,7 +96,7 @@ export type ParsedSubstrateLifecycleArgs =
 export const INSTALL_SUBSTRATES = ["codex", "pi-dev", "claude-code", "cursor", "grok"] as const satisfies readonly InstallSubstrate[];
 
 const substrateList = INSTALL_SUBSTRATES.join("|");
-const installOptions = "[--dry-run] [--apply] [--workspace] [--mode-classifier] [--skills <name[,name…]>] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
+const installOptions = "[--dry-run] [--apply] [--workspace] [--mode-classifier] [--policy-guard] [--skills <name[,name…]>] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
 // Shared by uninstall, reproject, and upgrade — all workspace-capable verbs.
 const workspaceVerbOptions = "[--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
 const uninstallOptions = workspaceVerbOptions;
@@ -268,11 +268,17 @@ export function parseInstallArgs(args: string[]): ParsedInstallArgs {
       case "--mode-classifier":
         parsedOptions.modeClassifier = true;
         return true;
+      case "--policy-guard":
+        parsedOptions.policyGuard = true;
+        return true;
     }
     return false;
   });
   if (options.modeClassifier === true && substrate !== "claude-code") {
     throw new Error("--mode-classifier is only supported for claude-code installs.");
+  }
+  if (options.policyGuard === true && substrate !== "claude-code") {
+    throw new Error("--policy-guard is only supported for claude-code installs.");
   }
 
   return { command, substrate, apply, workspace, skills, options };

@@ -2,6 +2,7 @@ import type { SomaInstallOptions } from "../../types";
 
 export interface ClaudeCodeInstallOptions extends SomaInstallOptions {
   modeClassifier?: boolean;
+  policyGuard?: boolean;
 }
 
 export function isClaudeCodeInstallOptions(options: unknown): options is ClaudeCodeInstallOptions {

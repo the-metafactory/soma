@@ -9,6 +9,12 @@ export const SOMA_CLAUDE_HOOK_RELATIVE_PATH = "hooks/soma/soma-claude-code-hook.
 export const SOMA_CLAUDE_HOOK_CONFIG_RELATIVE_PATH = "hooks/soma/soma-claude-code-hook.config.json";
 export const SOMA_CLAUDE_MODE_CLASSIFIER_RELATIVE_PATH = "hooks/soma/soma-mode-classifier.mjs";
 export const SOMA_CLAUDE_MODE_CLASSIFIER_CONFIG_RELATIVE_PATH = "hooks/soma/soma-mode-classifier.config.json";
+export const SOMA_CLAUDE_POLICY_GUARD_RELATIVE_PATH = "hooks/soma/soma-policy-guard.mjs";
+export const SOMA_CLAUDE_POLICY_GUARD_CONFIG_RELATIVE_PATH = "hooks/soma/soma-policy-guard.config.json";
+// PreToolUse matcher for the fail-closed enforcement guard: every tool whose
+// input can carry a dangerous command, an outbound exfiltration, or a
+// credential-path read/write that the runtime policy must inspect.
+const SOMA_CLAUDE_POLICY_GUARD_MATCHER = "Bash|Read|Edit|Write|MultiEdit|NotebookEdit";
 const SOMA_CLAUDE_SETTINGS_RELATIVE_PATH = "settings.json";
 const SOMA_DVSABLED_HOOKS_KEY = "somaDisabledHooks";
 const PAI_MODE_CLASSIFIER_KEY = "paiModeClassifier";
@@ -135,6 +141,81 @@ function somaModeClassifierEntry(substrateHome: string, bunPath: string): JsonOb
     command: somaModeClassifierCommand(substrateHome, bunPath),
     timeout: 10,
   };
+}
+
+function legacySomaPolicyGuardCommand(substrateHome: string): string {
+  return shellQuote(resolve(substrateHome, SOMA_CLAUDE_POLICY_GUARD_RELATIVE_PATH));
+}
+
+function somaPolicyGuardCommand(substrateHome: string, bunPath: string): string {
+  return `${shellQuote(bunPath)} ${shellQuote(resolve(substrateHome, SOMA_CLAUDE_POLICY_GUARD_RELATIVE_PATH))}`;
+}
+
+function somaPolicyGuardCommands(substrateHome: string, bunPath: string): Set<string> {
+  return new Set([
+    somaPolicyGuardCommand(substrateHome, bunPath),
+    legacySomaPolicyGuardCommand(substrateHome),
+  ]);
+}
+
+function somaPolicyGuardEntry(substrateHome: string, bunPath: string): JsonObject {
+  return {
+    type: "command",
+    command: somaPolicyGuardCommand(substrateHome, bunPath),
+    timeout: 30,
+  };
+}
+
+// The fail-closed enforcement guard wires the same binary into two events:
+// PreToolUse (tool_call surface, matcher-scoped) and UserPromptSubmit (prompt
+// surface). Both share one command set for idempotent append + clean removal.
+function appendSomaPolicyGuardHookGroups(settings: JsonObject, substrateHome: string, bunPath: string): boolean {
+  const knownCommands = somaPolicyGuardCommands(substrateHome, bunPath);
+  const preTool = appendCommandHookGroup(settings, {
+    event: "PreToolUse",
+    description: "Soma: Enforce runtime policy on tool calls (fail-closed)",
+    matcher: SOMA_CLAUDE_POLICY_GUARD_MATCHER,
+    entry: somaPolicyGuardEntry(substrateHome, bunPath),
+    knownCommands,
+  });
+  const prompt = appendCommandHookGroup(settings, {
+    event: "UserPromptSubmit",
+    description: "Soma: Enforce runtime policy on prompts (fail-closed)",
+    entry: somaPolicyGuardEntry(substrateHome, bunPath),
+    knownCommands,
+  });
+  return preTool || prompt;
+}
+
+// Collect every command in the guard's two events that references the guard
+// hook script, regardless of the bun path it was written with. This makes
+// uninstall robust to a settings entry recorded with a different bun path than
+// the one in the installed config (otherwise the files are removed but a stale
+// command keeps invoking a now-missing hook).
+function installedPolicyGuardCommands(settings: JsonObject, substrateHome: string): Set<string> {
+  const scriptPath = resolve(substrateHome, SOMA_CLAUDE_POLICY_GUARD_RELATIVE_PATH);
+  const found = new Set<string>();
+  if (!isObject(settings.hooks)) return found;
+  for (const event of ["PreToolUse", "UserPromptSubmit"]) {
+    const groups = settings.hooks[event];
+    if (!Array.isArray(groups)) continue;
+    for (const group of groups) {
+      for (const command of groupCommands(group)) {
+        if (command.includes(scriptPath)) found.add(command);
+      }
+    }
+  }
+  return found;
+}
+
+function removeSomaPolicyGuardFromSettings(settings: JsonObject, substrateHome: string, bunPath: string): boolean {
+  const commands = new Set([
+    ...somaPolicyGuardCommands(substrateHome, bunPath),
+    ...installedPolicyGuardCommands(settings, substrateHome),
+  ]);
+  const preTool = removeCommandsFromSettingsEvent(settings, "PreToolUse", commands);
+  const prompt = removeCommandsFromSettingsEvent(settings, "UserPromptSubmit", commands);
+  return preTool || prompt;
 }
 
 function appendCommandHookGroup(
@@ -386,6 +467,22 @@ export async function patchClaudeCodeModeClassifierSettings(substrateHome: strin
   return writeJsonIfChanged(settingsPath, settings, before);
 }
 
+export async function patchClaudeCodePolicyGuardSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
+  const settingsPath = resolve(substrateHome, SOMA_CLAUDE_SETTINGS_RELATIVE_PATH);
+  const { before, settings } = await readSettingsWithRaw(settingsPath);
+  const changed = appendSomaPolicyGuardHookGroups(settings, substrateHome, bunPath);
+  if (!changed && before.trim().length > 0) return [];
+  return writeJsonIfChanged(settingsPath, settings, before);
+}
+
+export async function unpatchClaudeCodePolicyGuardSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
+  const settingsPath = resolve(substrateHome, SOMA_CLAUDE_SETTINGS_RELATIVE_PATH);
+  const { before, settings } = await readSettingsWithRaw(settingsPath);
+  if (before.trim().length === 0) return [];
+  if (!removeSomaPolicyGuardFromSettings(settings, substrateHome, bunPath)) return [];
+  return writeJsonIfChanged(settingsPath, settings, before);
+}
+
 export async function unpatchClaudeCodeSomaHookSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
   const settingsPath = resolve(substrateHome, SOMA_CLAUDE_SETTINGS_RELATIVE_PATH);
   const { before, settings } = await readSettingsWithRaw(settingsPath);
@@ -427,7 +524,28 @@ export async function installClaudeCodeSomaHooks(context: {
   const modeClassifierFiles = isClaudeCodeInstallOptions(context.options) && context.options.modeClassifier === true
     ? await installClaudeCodeModeClassifierHook(context, config, bunPath)
     : [];
-  return Array.from(new Set([hookPath, configPath, ...settingsFiles, ...modeClassifierFiles]));
+  const policyGuardFiles = isClaudeCodeInstallOptions(context.options) && context.options.policyGuard === true
+    ? await installClaudeCodePolicyGuardHook(context, config, bunPath)
+    : [];
+  return Array.from(new Set([hookPath, configPath, ...settingsFiles, ...modeClassifierFiles, ...policyGuardFiles]));
+}
+
+async function installClaudeCodePolicyGuardHook(
+  context: { somaHome: string; somaRepoPath: string; substrateHome: string },
+  config: { somaHome: string; trustedSomaRepo: string; bunPath: string },
+  bunPath: string,
+): Promise<string[]> {
+  const hookPath = resolve(context.substrateHome, SOMA_CLAUDE_POLICY_GUARD_RELATIVE_PATH);
+  const configPath = resolve(context.substrateHome, SOMA_CLAUDE_POLICY_GUARD_CONFIG_RELATIVE_PATH);
+
+  await installClaudeCodeHookAsset({
+    hookPath,
+    configPath,
+    source: renderClaudeCodePolicyGuardHook(),
+    config,
+  });
+  const settingsFiles = await patchClaudeCodePolicyGuardSettings(context.substrateHome, bunPath);
+  return [hookPath, configPath, ...settingsFiles];
 }
 
 async function installClaudeCodeModeClassifierHook(
@@ -464,11 +582,14 @@ export async function removeClaudeCodeSomaHookFiles(substrateHome: string): Prom
   const removed: string[] = [];
   const installedBunPath = await readInstalledClaudeCodeHookBunPath(substrateHome);
   const installedModeClassifierBunPath = await readInstalledClaudeCodeModeClassifierBunPath(substrateHome);
+  const installedPolicyGuardBunPath = await readInstalledClaudeCodePolicyGuardBunPath(substrateHome);
   for (const relativePath of [
     SOMA_CLAUDE_HOOK_RELATIVE_PATH,
     SOMA_CLAUDE_HOOK_CONFIG_RELATIVE_PATH,
     SOMA_CLAUDE_MODE_CLASSIFIER_RELATIVE_PATH,
     SOMA_CLAUDE_MODE_CLASSIFIER_CONFIG_RELATIVE_PATH,
+    SOMA_CLAUDE_POLICY_GUARD_RELATIVE_PATH,
+    SOMA_CLAUDE_POLICY_GUARD_CONFIG_RELATIVE_PATH,
   ]) {
     const target = resolve(substrateHome, relativePath);
     const exists = await stat(target).then(
@@ -488,11 +609,16 @@ export async function removeClaudeCodeSomaHookFiles(substrateHome: string): Prom
   }
   removed.push(...(await unpatchClaudeCodeSomaHookSettings(substrateHome, installedBunPath)));
   removed.push(...(await unpatchClaudeCodeModeClassifierSettings(substrateHome, installedModeClassifierBunPath ?? installedBunPath)));
+  removed.push(...(await unpatchClaudeCodePolicyGuardSettings(substrateHome, installedPolicyGuardBunPath ?? installedBunPath)));
   return Array.from(new Set(removed));
 }
 
 async function readInstalledClaudeCodeHookBunPath(substrateHome: string): Promise<string | undefined> {
   return readInstalledClaudeCodeHookConfigBunPath(substrateHome, SOMA_CLAUDE_HOOK_CONFIG_RELATIVE_PATH);
+}
+
+async function readInstalledClaudeCodePolicyGuardBunPath(substrateHome: string): Promise<string | undefined> {
+  return readInstalledClaudeCodeHookConfigBunPath(substrateHome, SOMA_CLAUDE_POLICY_GUARD_CONFIG_RELATIVE_PATH);
 }
 
 async function readInstalledClaudeCodeModeClassifierBunPath(substrateHome: string): Promise<string | undefined> {
@@ -527,4 +653,8 @@ function renderClaudeCodeSomaHook(): string {
 
 function renderClaudeCodeModeClassifierHook(): string {
   return readFileSync(new URL("./mode-classifier-hook.mjs", import.meta.url), "utf8");
+}
+
+function renderClaudeCodePolicyGuardHook(): string {
+  return readFileSync(new URL("./policy-guard-hook.mjs", import.meta.url), "utf8");
 }

@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Runtime-policy enforcement on Claude Code + pi.dev** — the portable
+  `inspectRuntimePolicy` engine (already enforced on codex/grok) now gates tool
+  calls on two more substrates. Both layers are **fail-closed**: any broken path
+  denies rather than silently allowing an un-inspected action.
+  - **Claude Code (`--policy-guard`)** — a new synchronous `soma-policy-guard.mjs`
+    hook runs `soma policy guard` on `PreToolUse`
+    (`Bash|Read|Edit|Write|MultiEdit|NotebookEdit`) and `soma policy inspect
+    --surface prompt` on `UserPromptSubmit`. Dangerous commands, outbound
+    credential exfiltration, credential-path access, and prompt injection are
+    denied/blocked. Opt-in like `--mode-classifier`; installs/uninstalls +
+    idempotent settings patching mirror that track.
+    Closes the enforcement gap where Claude Code carried only advisory policy.
+  - **pi.dev** — the existing `tool_call` path-guard extension gains a
+    runtime-policy inspection layer ahead of its destructive-path checks, reaching
+    codex/claude-code parity in one extension.
+- **Composite `soma policy guard` (full three-check parity)** — a portable
+  `evaluateToolCallPolicyGuard` engine + `soma policy guard` CLI run all three
+  PreToolUse checks in core: runtime inspection → write-target private-context
+  check → inbound content scan, fail-closed at the first block. Claude Code's
+  guard now calls this single command for full codex parity (dangerous commands +
+  outbound exfil + credential-path access + private-marker writes + inbound TOFU
+  scan of reads from untrusted roots), with no 500-line per-substrate target
+  extractor to drift.
+- **pi.dev prompt-injection (defense-in-depth)** — the guard extension adds a
+  `before_agent_start` inspector that flags prompt injection and hardens the
+  system prompt with a refusal directive. pi.dev's prompt surface returns a
+  systemPrompt patch (not a block), so this layer is advisory and fails open; the
+  hard gate stays the `tool_call` layer, which denies any dangerous action a
+  prompt injection would actually drive.
+
 ### Fixed
 - **VSA skill version bump `1.0.4` → `1.0.5`** — the 0.10.0 `pack-id`
   `pai-vsa-v1.0.0` → `soma-vsa-v1.0.0` rename (#362) changed
