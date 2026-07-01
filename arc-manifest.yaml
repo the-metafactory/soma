@@ -17,7 +17,6 @@ runtime:
     - pi-dev
     - claude-code
     - cursor
-    - cortex
 
 provides:
   cli:
@@ -33,7 +32,7 @@ provides:
       trigger: substrate-neutral assistant core
     - name: Soma
       path: skill/
-      trigger: portable assistant core across Codex Pi Claude Cortex
+      trigger: portable assistant core across Codex Pi Claude Cursor
 
 capabilities:
   filesystem:
