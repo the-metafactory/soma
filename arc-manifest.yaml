@@ -17,6 +17,7 @@ runtime:
     - pi-dev
     - claude-code
     - cursor
+    - grok
 
 provides:
   cli:

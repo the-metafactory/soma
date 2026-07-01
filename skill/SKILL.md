@@ -1,6 +1,6 @@
 ---
 name: Soma
-description: Portable Personal AI Assistant core. USE WHEN designing substrate-neutral assistant identity, memory, ISA, skills, learning, or adapters for Codex, Pi.dev, Claude Code, or Cortex.
+description: Portable Personal AI Assistant core. USE WHEN designing substrate-neutral assistant identity, memory, ISA, skills, learning, or adapters for Codex, Pi.dev, Claude Code, Cursor, or Grok.
 ---
 
 # Soma
@@ -13,7 +13,6 @@ Use this skill when work concerns:
 - personal memory layout
 - Ideal State Artifacts
 - substrate adapters
-- Cortex/Myelin assistant integration
 - translating PAI concepts into a substrate-neutral form
 
 ## Workflows
