@@ -33,7 +33,7 @@ provides:
       trigger: substrate-neutral assistant core
     - name: Soma
       path: skill/
-      trigger: portable assistant core across Codex Pi Claude Cursor
+      trigger: portable assistant core across Codex Pi Claude Cursor Grok
 
 capabilities:
   filesystem:
