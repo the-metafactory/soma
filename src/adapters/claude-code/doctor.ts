@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { isEnoent, pathExists, pathMtimeMs } from "../../fs-utils";
 import type { SomaDoctorFinding } from "../../types";
+import { hasProvenanceHeader } from "../shared";
 import {
   SOMA_CLAUDE_HOOK_CONFIG_RELATIVE_PATH,
   SOMA_CLAUDE_HOOK_RELATIVE_PATH,
@@ -37,7 +38,8 @@ export async function diagnoseClaudeCodeProjectionDrift(options: {
   const substrateHome = join(options.homeDir, CLAUDE_CODE_HOME);
   const findings: SomaDoctorFinding[] = [];
 
-  const contextMtime = await pathMtimeMs(join(substrateHome, CLAUDE_CODE_CONTEXT_RELATIVE_PATH));
+  const contextPath = join(substrateHome, CLAUDE_CODE_CONTEXT_RELATIVE_PATH);
+  const contextMtime = await pathMtimeMs(contextPath);
   const stale =
     contextMtime === null ||
     (options.profileMtime !== null && contextMtime < options.profileMtime);
@@ -50,6 +52,21 @@ export async function diagnoseClaudeCodeProjectionDrift(options: {
         : "Claude Code projection is older than the Soma profile files.",
       action: "soma reproject claude-code",
     });
+  } else {
+    // soma#370: a present-but-header-less projection was replaced by hand.
+    // Reprojecting would silently overwrite the edit, so warn instead of
+    // treating it as healthy. (Skipped when stale — reproject fixes both.)
+    const contextRaw = await readFileOrNull(contextPath);
+    if (contextRaw !== null && !hasProvenanceHeader(contextRaw)) {
+      findings.push({
+        id: "claude-code-projection-unmanaged-edit",
+        severity: "warning",
+        message:
+          "Claude Code projection was edited by hand (missing Soma provenance header). " +
+          "Reprojecting will overwrite it — move durable changes into ~/.soma first.",
+        action: "soma install claude-code --apply",
+      });
+    }
   }
 
   const hookPresent =

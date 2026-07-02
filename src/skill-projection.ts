@@ -1,7 +1,7 @@
 import { lstat, mkdir, readFile, readlink, rm, stat, symlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { renderSkills } from "./adapters/shared";
+import { renderSkills, stripProvenance } from "./adapters/shared";
 import { buildSubstrateHomeProjection } from "./home-projection";
 import type { InstallSubstrate } from "./install-spec";
 import { installSpecFor } from "./install-spec-registry";
@@ -202,6 +202,8 @@ async function ensureSymlink(
 /**
  * Find the catalog file (SKILLS.md) within a substrate bundle without hard-coding
  * its per-substrate path: it is the file whose content equals `renderSkills(input)`.
+ * Header-tolerant so it still matches when an adapter wraps the file in a
+ * soma#370 provenance header (claude-code does).
  */
 function findCatalogFile(
   substrate: InstallSubstrate,
@@ -210,7 +212,7 @@ function findCatalogFile(
 ): { path: string; content: string } | undefined {
   const expected = renderSkills(input);
   const bundle = buildSubstrateHomeProjection(substrate, input, options).bundle;
-  return bundle.files.find((file) => file.content === expected);
+  return bundle.files.find((file) => stripProvenance(file.content) === expected);
 }
 
 export async function projectSkill(options: ProjectSkillOptions): Promise<SkillProjectionResult> {

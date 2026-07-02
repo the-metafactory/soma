@@ -2,6 +2,7 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { planSomaInit, diagnoseSomaDoctor } from "../src/onboarding";
+import { provenanceHeader } from "../src/adapters/shared/provenance";
 import { runSomaCli } from "../src/cli";
 import { withTempHome as withSharedTempHome } from "./fixtures/pai-migration-fixtures";
 
@@ -339,7 +340,14 @@ async function writeSomaProfile(homeDir: string): Promise<void> {
 async function writeClaudeCodeProjection(homeDir: string): Promise<void> {
   await mkdir(join(homeDir, ".claude/rules/soma"), { recursive: true });
   await mkdir(join(homeDir, ".claude/hooks/soma"), { recursive: true });
-  await writeFile(join(homeDir, ".claude/rules/soma/CONTEXT.md"), "# Soma Claude Code Context\n", "utf8");
+  // A real managed projection carries the soma#370 provenance header; the
+  // doctor uses its presence to distinguish a generated file from a
+  // hand-replaced one, so the fixture must include it.
+  await writeFile(
+    join(homeDir, ".claude/rules/soma/CONTEXT.md"),
+    `${provenanceHeader("claude-code")}\n\n# Soma Claude Code Context\n`,
+    "utf8",
+  );
   await writeFile(join(homeDir, ".claude/hooks/soma/soma-claude-code-hook.mjs"), "// hook\n", "utf8");
   await writeFile(join(homeDir, ".claude/hooks/soma/soma-claude-code-hook.config.json"), "{}\n", "utf8");
   await writeFile(
@@ -428,6 +436,27 @@ test("soma doctor --substrate claude-code flags a settings.json that omits the S
     // claude-code finding should be the unwired settings.
     const claudeIds = diagnosis.findings.filter((finding) => finding.id.startsWith("claude-code-")).map((finding) => finding.id);
     expect(claudeIds).toEqual(["claude-code-settings-missing"]);
+  });
+});
+
+test("soma#370: soma doctor --substrate claude-code flags a hand-edited projection (missing provenance header)", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeSomaProfile(homeDir);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await writeClaudeCodeProjection(homeDir);
+    // Simulate a hand edit that dropped the provenance header. The file is
+    // present and newer than the profile (not stale), so only the
+    // unmanaged-edit signal should catch it.
+    await writeFile(
+      join(homeDir, ".claude/rules/soma/CONTEXT.md"),
+      "# Soma Claude Code Context\n\nhand edited, no header\n",
+      "utf8",
+    );
+
+    const diagnosis = await diagnoseSomaDoctor({ homeDir, substrate: "claude-code" });
+    const claudeIds = diagnosis.findings.filter((finding) => finding.id.startsWith("claude-code-")).map((finding) => finding.id);
+    expect(claudeIds).toContain("claude-code-projection-unmanaged-edit");
+    expect(claudeIds).not.toContain("claude-code-projection-stale");
   });
 });
 
