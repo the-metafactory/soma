@@ -96,7 +96,7 @@ export type ParsedSubstrateLifecycleArgs =
 export const INSTALL_SUBSTRATES = ["codex", "pi-dev", "claude-code", "cursor", "grok"] as const satisfies readonly InstallSubstrate[];
 
 const substrateList = INSTALL_SUBSTRATES.join("|");
-const installOptions = "[--dry-run] [--apply] [--workspace] [--mode-classifier] [--policy-guard] [--skills <name[,name…]>] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
+const installOptions = "[--dry-run] [--apply] [--workspace] [--no-mode-classifier] [--no-policy-guard] [--skills <name[,name…]>] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
 // Shared by uninstall, reproject, and upgrade — all workspace-capable verbs.
 const workspaceVerbOptions = "[--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
 const uninstallOptions = workspaceVerbOptions;
@@ -265,20 +265,29 @@ export function parseInstallArgs(args: string[]): ParsedInstallArgs {
       case "--apply":
         apply = true;
         return true;
+      // soma#369: mode classifier + policy guard are default-on. The explicit
+      // enable flags remain accepted (back-compat, now no-ops); the opt-out
+      // flags disable them.
       case "--mode-classifier":
         parsedOptions.modeClassifier = true;
+        return true;
+      case "--no-mode-classifier":
+        parsedOptions.modeClassifier = false;
         return true;
       case "--policy-guard":
         parsedOptions.policyGuard = true;
         return true;
+      case "--no-policy-guard":
+        parsedOptions.policyGuard = false;
+        return true;
     }
     return false;
   });
-  if (options.modeClassifier === true && substrate !== "claude-code") {
-    throw new Error("--mode-classifier is only supported for claude-code installs.");
+  if (options.modeClassifier !== undefined && substrate !== "claude-code") {
+    throw new Error("--mode-classifier / --no-mode-classifier is only supported for claude-code installs.");
   }
-  if (options.policyGuard === true && substrate !== "claude-code") {
-    throw new Error("--policy-guard is only supported for claude-code installs.");
+  if (options.policyGuard !== undefined && substrate !== "claude-code") {
+    throw new Error("--policy-guard / --no-policy-guard is only supported for claude-code installs.");
   }
 
   return { command, substrate, apply, workspace, skills, options };

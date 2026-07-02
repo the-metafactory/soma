@@ -1972,8 +1972,9 @@ test("cli install claude-code supports opt-in mode classifier dry-run", async ()
   });
 });
 
-test("cli rejects mode classifier flag for non-Claude Code installs", async () => {
-  await expect(runSomaCli(["install", "codex", "--mode-classifier"])).rejects.toThrow("--mode-classifier is only supported");
+test("cli rejects mode classifier flags for non-Claude Code installs", async () => {
+  await expect(runSomaCli(["install", "codex", "--mode-classifier"])).rejects.toThrow("is only supported for claude-code installs");
+  await expect(runSomaCli(["install", "codex", "--no-mode-classifier"])).rejects.toThrow("is only supported for claude-code installs");
 });
 
 test("cli dry-runs and applies cursor install", async () => {
