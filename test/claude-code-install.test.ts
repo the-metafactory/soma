@@ -154,16 +154,43 @@ test("AC-2: planSomaForClaudeCodeInstall lists every file written", () => {
     "/tmp/test-home/.claude/hooks/soma/soma-claude-code-hook.mjs",
     "/tmp/test-home/.claude/hooks/soma/soma-claude-code-hook.config.json",
     "/tmp/test-home/.claude/settings.json",
+    // soma#369: mode classifier + policy guard are default-on.
+    "/tmp/test-home/.claude/hooks/soma/soma-mode-classifier.mjs",
+    "/tmp/test-home/.claude/hooks/soma/soma-mode-classifier.config.json",
+    "/tmp/test-home/.claude/hooks/soma/soma-policy-guard.mjs",
+    "/tmp/test-home/.claude/hooks/soma/soma-policy-guard.config.json",
   ]);
 });
 
-test("issue #274: mode classifier hook files are opt-in in the Claude Code install plan", () => {
+test("soma#369: mode classifier hook files are default-on in the Claude Code install plan, opt-out excludes them", () => {
   const defaultPlan = planSomaForClaudeCodeInstall({ homeDir: "/tmp/test-home" });
-  expect(defaultPlan.substrateFiles).not.toContain("/tmp/test-home/.claude/hooks/soma/soma-mode-classifier.mjs");
+  expect(defaultPlan.substrateFiles).toContain("/tmp/test-home/.claude/hooks/soma/soma-mode-classifier.mjs");
+  expect(defaultPlan.substrateFiles).toContain("/tmp/test-home/.claude/hooks/soma/soma-mode-classifier.config.json");
 
-  const plan = planSomaForClaudeCodeInstall({ homeDir: "/tmp/test-home", modeClassifier: true });
-  expect(plan.substrateFiles).toContain("/tmp/test-home/.claude/hooks/soma/soma-mode-classifier.mjs");
-  expect(plan.substrateFiles).toContain("/tmp/test-home/.claude/hooks/soma/soma-mode-classifier.config.json");
+  const optedOut = planSomaForClaudeCodeInstall({ homeDir: "/tmp/test-home", modeClassifier: false });
+  expect(optedOut.substrateFiles).not.toContain("/tmp/test-home/.claude/hooks/soma/soma-mode-classifier.mjs");
+});
+
+test("soma#369: a default install writes both the mode classifier and policy guard hooks and wires settings", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForClaudeCode({ homeDir });
+    await stat(join(homeDir, ".claude/hooks/soma/soma-mode-classifier.mjs"));
+    await stat(join(homeDir, ".claude/hooks/soma/soma-policy-guard.mjs"));
+    const settings = await readJson<{ hooks: Record<string, unknown[]> }>(join(homeDir, ".claude/settings.json"));
+    expect(JSON.stringify(settings)).toContain("soma-mode-classifier.mjs");
+    expect(JSON.stringify(settings)).toContain("soma-policy-guard.mjs");
+  });
+});
+
+test("soma#369: --no-mode-classifier / --no-policy-guard opts a default install back out", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForClaudeCode({ homeDir, modeClassifier: false, policyGuard: false });
+    await expect(stat(join(homeDir, ".claude/hooks/soma/soma-mode-classifier.mjs"))).rejects.toThrow();
+    await expect(stat(join(homeDir, ".claude/hooks/soma/soma-policy-guard.mjs"))).rejects.toThrow();
+    const settings = await readJson<{ hooks: Record<string, unknown[]> }>(join(homeDir, ".claude/settings.json"));
+    expect(JSON.stringify(settings)).not.toContain("soma-mode-classifier.mjs");
+    expect(JSON.stringify(settings)).not.toContain("soma-policy-guard.mjs");
+  });
 });
 
 test("AC-3: planSomaForClaudeCodeInstall does not write files (plan.apply === false)", async () => {
@@ -214,8 +241,11 @@ test("issue #236: claude-code install wires Soma-owned hooks without overwriting
       "utf8",
     );
 
-    await installSomaForClaudeCode({ homeDir });
-    await installSomaForClaudeCode({ homeDir });
+    // Opt out of the soma#369 default-on fleet: this test targets the base
+    // lifecycle hook wiring + user-hook preservation. Default-on fleet has its
+    // own coverage below.
+    await installSomaForClaudeCode({ homeDir, modeClassifier: false, policyGuard: false });
+    await installSomaForClaudeCode({ homeDir, modeClassifier: false, policyGuard: false });
 
     const hookInfo = await stat(join(homeDir, ".claude/hooks/soma/soma-claude-code-hook.mjs"));
     expect((hookInfo.mode & 0o100) !== 0).toBe(true);

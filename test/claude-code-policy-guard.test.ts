@@ -51,12 +51,12 @@ function runGuard(homeDir: string, input: object): { status: number | null; stdo
   return { status: result.status, stdout: result.stdout };
 }
 
-test("policy guard: plan + install project the fail-closed guard files only when opted in", async () => {
-  const plan = planSomaForClaudeCodeInstall({ homeDir: "/tmp/test-home", policyGuard: true });
+test("soma#369: policy guard fail-closed files are default-on in the plan, opt-out excludes them", async () => {
+  const plan = planSomaForClaudeCodeInstall({ homeDir: "/tmp/test-home" });
   expect(plan.substrateFiles).toContain("/tmp/test-home/.claude/hooks/soma/soma-policy-guard.mjs");
   expect(plan.substrateFiles).toContain("/tmp/test-home/.claude/hooks/soma/soma-policy-guard.config.json");
 
-  const planOff = planSomaForClaudeCodeInstall({ homeDir: "/tmp/test-home" });
+  const planOff = planSomaForClaudeCodeInstall({ homeDir: "/tmp/test-home", policyGuard: false });
   expect(planOff.substrateFiles).not.toContain("/tmp/test-home/.claude/hooks/soma/soma-policy-guard.mjs");
 });
 
