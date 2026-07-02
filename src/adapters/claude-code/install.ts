@@ -11,6 +11,7 @@ import {
   installClaudeCodeSomaHooks,
   removeClaudeCodeSomaHookFiles,
 } from "./hooks";
+import { CLAUDE_CODE_CLAUDE_MD_RELATIVE_PATH, installClaudeCodeClaudeMd } from "./claude-md";
 import { isClaudeCodeInstallOptions } from "./install-options";
 
 export const claudeCodeInstallSpec: SubstrateInstallSpec<"claude-code"> = {
@@ -32,6 +33,9 @@ export const claudeCodeInstallSpec: SubstrateInstallSpec<"claude-code"> = {
     ...(isClaudeCodeInstallOptions(options) && options.policyGuard === true
       ? [SOMA_CLAUDE_POLICY_GUARD_RELATIVE_PATH, SOMA_CLAUDE_POLICY_GUARD_CONFIG_RELATIVE_PATH]
       : []),
+    ...(isClaudeCodeInstallOptions(options) && options.claudeMd === true
+      ? [CLAUDE_CODE_CLAUDE_MD_RELATIVE_PATH]
+      : []),
   ],
   skillsLoaderDir: skillsLoaderUnder(),
   vsaSkillProjection: {
@@ -45,6 +49,12 @@ export const claudeCodeInstallSpec: SubstrateInstallSpec<"claude-code"> = {
     {
       name: "claude-code-soma-hooks",
       run: installClaudeCodeSomaHooks,
+    },
+    {
+      // soma#368: opt-in (`--claude-md`) generated CLAUDE.md with a preserved
+      // overlay. No-op without the flag, so the default install is unchanged.
+      name: "claude-code-claude-md",
+      run: installClaudeCodeClaudeMd,
     },
   ],
   uninstall: {
