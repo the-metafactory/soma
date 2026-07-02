@@ -4,6 +4,18 @@ import { getCriteria, getGoal } from "../../vsa-accessors";
 import { VSA_SKILL_NAME } from "../../vsa-skill-installer";
 
 export { renderAlgorithmRenderingContract } from "./algorithm-rendering-contract";
+export {
+  OVERLAY_BEGIN,
+  OVERLAY_END,
+  PROVENANCE_MARKER,
+  extractOverlay,
+  hasProvenanceHeader,
+  hasUnmanagedEdit,
+  provenanceHeader,
+  renderOverlay,
+  stripProvenance,
+  withProvenance,
+} from "./provenance";
 
 /**
  * The portable skills a home projection should emit files for. `skills.md`

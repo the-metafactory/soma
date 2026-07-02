@@ -1658,6 +1658,7 @@ export type SomaDoctorFindingId =
   | "pai-not-migrated"
   | "codex-projection-stale"
   | "claude-code-projection-stale"
+  | "claude-code-projection-unmanaged-edit"
   | "claude-code-hook-missing"
   | "claude-code-settings-missing"
   | "grok-projection-stale"
