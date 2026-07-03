@@ -1,5 +1,6 @@
 import {
   promoteAlgorithmRunMemory,
+  recallMemory,
   searchSomaMemory,
   verifyMemoryNote,
   writeMemoryNote,
@@ -10,6 +11,8 @@ import type {
   SomaMemoryPromotionOptions,
   SomaMemoryPromotionResult,
   SomaMemoryPromotionStore,
+  SomaMemoryRecallOptions,
+  SomaMemoryRecallResult,
   SomaMemorySearchOptions,
   SomaMemorySearchResult,
   SomaMemoryVerifyOptions,
@@ -25,6 +28,12 @@ export interface ParsedMemorySearchArgs {
   command: "memory";
   action: "search";
   options: SomaMemorySearchOptions;
+}
+
+export interface ParsedMemoryRecallArgs {
+  command: "memory";
+  action: "recall";
+  options: SomaMemoryRecallOptions;
 }
 
 export interface ParsedMemoryPromoteArgs {
@@ -47,17 +56,22 @@ export interface ParsedMemoryVerifyArgs {
 
 export type ParsedMemoryArgs =
   | ParsedMemorySearchArgs
+  | ParsedMemoryRecallArgs
   | ParsedMemoryPromoteArgs
   | ParsedMemoryWriteArgs
   | ParsedMemoryVerifyArgs;
 
-const MEMORY_ACTIONS = ["search", "promote", "write", "verify"] as const;
+const MEMORY_ACTIONS = ["search", "recall", "promote", "write", "verify"] as const;
 type MemoryAction = (typeof MEMORY_ACTIONS)[number];
 
 export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAction, string> } = {
-  usage: "Usage: soma memory <search|promote|write|verify> ...",
+  usage: "Usage: soma memory <search|recall|promote|write|verify> ...",
   subcommands: {
     search: "Usage: soma memory search [query] [--query <text>] [--limit <n>] [--home-dir <dir>] [--soma-home <dir>]",
+    recall:
+      "Usage: soma memory recall <query> [--query <text>] [--limit <n>] [--home-dir <dir>] [--soma-home <dir>]. " +
+      "Note-aware retrieval over durable notes: term-scored whole-file matches (limit 3) + 1-hop links, " +
+      "superseded notes excluded, each result carrying a verification banner. Read-only.",
     promote: "Usage: soma memory promote --from-run <run-id> --store <learning|knowledge|relationship|work> --title <text> [--lesson <text>] [--applies-when <text>]",
     write:
       "Usage: soma memory write --trigger <principal-correction|import> --body <text> " +
@@ -89,6 +103,8 @@ export function parseMemoryArgs(args: string[]): ParsedMemoryArgs {
   switch (action) {
     case "search":
       return { command, action, options: parseMemorySearchArgs(rest) };
+    case "recall":
+      return { command, action, options: parseMemoryRecallArgs(rest) };
     case "promote":
       return { command, action, options: parseMemoryPromoteArgs(rest) };
     case "write":
@@ -143,6 +159,53 @@ function parseMemorySearchArgs(args: string[]): SomaMemorySearchOptions {
   }
 
   return options as SomaMemorySearchOptions;
+}
+
+function parseMemoryRecallArgs(args: string[]): SomaMemoryRecallOptions {
+  const options: Partial<SomaMemoryRecallOptions> = {};
+  let positionalQuery: string | undefined;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+
+    switch (arg) {
+      case "--home-dir":
+        options.homeDir = readOption(args, index, arg);
+        index += 1;
+        break;
+      case "--soma-home":
+        options.somaHome = readOption(args, index, arg);
+        index += 1;
+        break;
+      case "--query":
+        options.query = readOption(args, index, arg);
+        index += 1;
+        break;
+      case "--limit":
+        options.limit = Number.parseInt(readOption(args, index, arg), 10);
+        if (!Number.isFinite(options.limit) || options.limit < 1) {
+          throw new Error("--limit must be a positive integer.");
+        }
+        index += 1;
+        break;
+      default:
+        if (arg.startsWith("-")) {
+          throw new Error(`Unknown option: ${arg}`);
+        }
+        if (positionalQuery !== undefined) {
+          throw new Error(`soma memory recall accepts only one positional query; unexpected argument: ${arg}`);
+        }
+        positionalQuery = arg;
+    }
+  }
+
+  options.query ??= positionalQuery;
+
+  if (!options.query) {
+    throw new Error("soma memory recall needs a query; pass it as the first argument or --query <text>.");
+  }
+
+  return options as SomaMemoryRecallOptions;
 }
 
 function parseMemoryPromoteArgs(args: string[]): SomaMemoryPromotionOptions {
@@ -417,6 +480,8 @@ export async function runMemoryCli(parsed: ParsedMemoryArgs): Promise<string> {
       return formatMemoryVerifyResult(await verifyMemoryNote(parsed.options));
     case "search":
       return formatMemorySearchResult(await searchSomaMemory(parsed.options));
+    case "recall":
+      return formatMemoryRecallResult(await recallMemory(parsed.options));
   }
 }
 
@@ -456,6 +521,40 @@ function formatMemorySearchResult(result: SomaMemorySearchResult): string {
       ? result.matches.map((match) => `- ${match.path}:${match.line} [score ${match.score}] ${match.snippet}`)
       : ["- none"]),
   ].join("\n");
+}
+
+function formatMemoryRecallResult(result: SomaMemoryRecallResult): string {
+  const lines = [
+    "Soma memory recall",
+    `query: ${result.query}`,
+    `terms: ${result.terms.length > 0 ? result.terms.join(", ") : "(none — needs a 3+char term)"}`,
+    `somaHome: ${result.somaHome}`,
+    "",
+  ];
+
+  if (result.matches.length === 0) {
+    lines.push("No active notes matched.");
+  } else {
+    for (const match of result.matches) {
+      const heading =
+        match.via === "match"
+          ? `━━ ${match.id} [${match.type}] · ${match.score} term${match.score === 1 ? "" : "s"} matched`
+          : `━━ ${match.id} [${match.type}] · via link from ${match.linkedFrom}`;
+      lines.push(heading, match.banner, "", match.note.body, "");
+    }
+  }
+
+  // Surface both blind spots explicitly — recall never hides an unresolved link or
+  // an unreadable corpus file behind a clean-looking result.
+  if (result.unresolvedLinks.length > 0) {
+    lines.push(`Unresolved 1-hop links (missing or superseded): ${result.unresolvedLinks.join(", ")}`);
+  }
+  if (result.unreadable.length > 0) {
+    lines.push(`⚠ ${result.unreadable.length} corpus file(s) unreadable — recall was partial:`);
+    for (const path of result.unreadable) lines.push(`  - ${path}`);
+  }
+
+  return lines.join("\n").trimEnd();
 }
 
 function formatMemoryPromotionResult(result: SomaMemoryPromotionResult): string {

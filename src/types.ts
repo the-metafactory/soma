@@ -2472,3 +2472,54 @@ export interface SomaMemoryVerifyResult {
   note: SomaMemoryNote;
   event: SomaMemoryEvent;
 }
+
+// Memory subsystem M2 (recall). Plan v2 §M2: note-aware retrieval over the
+// durable corpus (semantic + procedural) — term scoring, whole-file retrieval
+// (limit 3), 1-hop link expansion, superseded-exclusion via `valid_until`, and a
+// read-time verification banner whose age derives from an injected `now`. Recall
+// is read-only: it appends no event and mutates nothing (verifying is a separate,
+// authority-gated act). Distinct from the legacy line-grep `searchSomaMemory`,
+// which walks the pre-note memory tree (WORK/KNOWLEDGE/…).
+export interface SomaMemoryRecallOptions {
+  homeDir?: string;
+  somaHome?: string;
+  query: string;
+  /** Cap on primary (term-matched) notes returned; 1-hop link pulls are additional. Default 3. */
+  limit?: number;
+  /** Injected clock for deterministic banner ages. Defaults to now. */
+  now?: Date;
+}
+
+/** One retrieved note with its verification banner (M2). */
+export interface SomaMemoryRecalledNote {
+  id: string;
+  type: SomaMemoryNoteType;
+  path: string;
+  /** Distinct query terms matched in the note; 0 for a note pulled only via a 1-hop link. */
+  score: number;
+  /** `match` = surfaced by term score; `link` = pulled in as 1-hop context from a match. */
+  via: "match" | "link";
+  /** For `via: "link"`, the id of the matched note that linked here; null for matches. */
+  linkedFrom: string | null;
+  /** Whole days since `last_verified`, clamped at 0 for a future date (derived from injected `now`). */
+  ageDays: number;
+  /** True iff `trust === "quarantined"` — the note carries an untrusted-content warning. */
+  quarantined: boolean;
+  /** The one-line verification banner (age · trust · provenance · verify-against). */
+  banner: string;
+  /** Whole-file: the complete parsed note (body included). */
+  note: SomaMemoryNote;
+}
+
+export interface SomaMemoryRecallResult {
+  query: string;
+  somaHome: string;
+  /** The 3+char query terms actually scored (deduped, lowercased). */
+  terms: string[];
+  /** Primary matches first (score desc), then their 1-hop link pulls. */
+  matches: SomaMemoryRecalledNote[];
+  /** 1-hop link ids that resolved to no active note (missing or superseded) — surfaced, not hidden. */
+  unresolvedLinks: string[];
+  /** Corpus files that exist but could not be read/parsed — recall's blind spot, never silent. */
+  unreadable: string[];
+}
