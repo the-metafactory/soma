@@ -46,8 +46,10 @@ const DEFAULT_HALFLIFE_DAYS = 90;
 // always-loaded line only after this many verified resurfacings.
 const RESURFACE_ADMIT = 2;
 
-// Governed weights (design §15). Quarantined is 0 on BOTH the admission filter
-// and the score, so it can never occupy an index line.
+// Governed weights (design §15). What actually keeps a quarantined note off the
+// index is the admission FILTER (isAdmitted rejects it before scoring); its 0
+// trust weight is a secondary backstop, not the guarantee — min-1-per-section can
+// offer a section's lone member regardless of score.
 const TRUST_WEIGHT: Record<SomaMemoryTrust, number> = { principal: 3, assistant: 1, quarantined: 0 };
 const TYPE_WEIGHT: Record<SomaMemoryNoteType, number> = { procedural: 3, semantic: 2, episodic: 1 };
 
@@ -161,8 +163,14 @@ function compareScored(a: ScoredLine, b: ScoredLine): number {
 
 function pointerLine(note: SomaMemoryNote, now: Date): string {
   // "verified Nd ago" is computed HERE, at rebuild time, from the injected now —
-  // never a wall clock at projection time (M4 invariant AC-4).
-  return `- ${note.id} — ${descriptorFor(note)} · ${note.trust}, verified ${ageDays(note.last_verified, now)}d ago`;
+  // never a wall clock at projection time (M4 invariant AC-4). The id is
+  // slug-validated by the parser (no control chars possible in a note that
+  // parsed), but run it through oneLine anyway so EVERY note-authored field on
+  // this always-loaded line stays on the sanitize path — no raw text can break
+  // the one-line pointer invariant or inject into projected memory. trust is an
+  // enum and the age is a number, so both are safe as-is.
+  const id = oneLine(note.id, DESCRIPTOR_MAX);
+  return `- ${id} — ${descriptorFor(note)} · ${note.trust}, verified ${ageDays(note.last_verified, now)}d ago`;
 }
 
 function byteLength(text: string): number {
