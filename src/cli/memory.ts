@@ -103,7 +103,8 @@ export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAct
       "Verifying a principal-trust note requires --principal-authority (assistant-trust notes are an internal SDK path).",
     reindex:
       "Usage: soma memory reindex [--home-dir <dir>] [--soma-home <dir>]. " +
-      "Rebuild memory/INDEX.md deterministically from note frontmatter (earned-inclusion ladder, retention-score budget). Quarantined notes never appear.",
+      "Rebuild memory/INDEX.md from note frontmatter (earned-inclusion ladder, retention-score budget); " +
+      "ages are computed against the current date, so 'verified Nd ago' advances day to day. Quarantined notes never appear.",
   },
 };
 

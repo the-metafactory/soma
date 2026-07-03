@@ -83,19 +83,20 @@ test("quarantined and superseded notes never earn an index line", () => {
   expect(content).not.toContain("closed");
 });
 
-test("admission ladder: principal-marked OR resurfaced≥2 OR <7d grace earns a line; nothing else", () => {
+test("admission ladder: principal-marked OR resurfaced≥2 earns a line; non-principal recency does NOT", () => {
   const notes = [
     note({ id: "principal-fresh", body: "b", trust: "principal", resurface_count: 0, created: "2026-01-01" }), // principal-marked
     note({ id: "resurfaced", body: "b", trust: "assistant", resurface_count: 2, created: "2026-01-01" }), // resurfaced ≥2
-    note({ id: "grace", body: "b", trust: "assistant", resurface_count: 0, created: "2026-07-10" }), // <7d grace
-    note({ id: "not-earned", body: "b", trust: "assistant", resurface_count: 1, created: "2026-01-01" }), // none
+    // a fresh, unverified assistant note gets NO recency grace (MINJA defense, sage M3 r3)
+    note({ id: "fresh-assistant", body: "b", trust: "assistant", resurface_count: 0, created: "2026-07-10" }),
+    note({ id: "under-resurfaced", body: "b", trust: "assistant", resurface_count: 1, created: "2026-01-01" }),
   ];
   const { content, admitted } = renderMemoryIndex(notes, NOW);
-  expect(admitted).toBe(3);
+  expect(admitted).toBe(2);
   expect(content).toContain("principal-fresh");
   expect(content).toContain("resurfaced");
-  expect(content).toContain("grace");
-  expect(content).not.toContain("not-earned");
+  expect(content).not.toContain("fresh-assistant");
+  expect(content).not.toContain("under-resurfaced");
 });
 
 // --- golden file -------------------------------------------------------------
@@ -158,15 +159,15 @@ test("renderMemoryIndex golden output for a fixed tree and now", () => {
 // --- budget ------------------------------------------------------------------
 
 test("line budget sheds the lowest-score notes first", () => {
-  // 205 admitted semantic notes; resurface_count = rank so scores are strictly ordered.
+  // 205 admitted principal notes (principal → always admitted); resurface_count =
+  // rank so retention scores are strictly ordered and the lowest shed first.
   const notes = Array.from({ length: 205 }, (_, i) =>
     note({
       id: `note-${String(i + 1).padStart(3, "0")}`,
       body: `fact ${i + 1}`,
-      trust: "assistant",
-      resurface_count: i + 1, // 1..205 — all ≥2 except note-001; note-001 admitted via nothing? see below
+      trust: "principal",
+      resurface_count: i + 1, // 1..205 → strictly increasing score
       last_verified: "2026-07-10",
-      created: "2026-07-10", // <7d grace so even note-001 (resurface 1) is admitted
     }),
   );
 

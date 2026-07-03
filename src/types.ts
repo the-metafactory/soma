@@ -2527,12 +2527,13 @@ export interface SomaMemoryRecallResult {
 // Memory subsystem M3 (index renderer). Plan v2 §M3: the earned-inclusion INDEX
 // — a tiny, always-loaded pointer list (≤200 pointer lines / ≤25KB total) rebuilt deterministically
 // from note frontmatter, never on the request path. A note earns a line via the
-// admission ladder (resurfaced-verified ≥2×, principal-marked, or <7d grace);
-// quarantined notes score 0 and never appear. When the budget is hit the lowest
-// retention score sheds first, EXCEPT that each non-empty section is offered its
-// single best line ahead of the global fill (min-1-per-section) — so a section's
-// top line can outrank a higher-scoring line from an already-represented section.
-// M4 projects this file → ~/.claude/rules/soma/MEMORY.md.
+// admission ladder (principal-marked, or resurfaced-verified ≥2×; non-principal
+// notes get no pure recency grace — MINJA defense); quarantined notes never appear.
+// When the budget is hit the lowest retention score sheds first, EXCEPT that each
+// non-empty section is offered its single best line ahead of the global fill
+// (min-1-per-section) — so a section's top line can outrank a higher-scoring line
+// from an already-represented section. M4 projects this file through substrate
+// adapters into each substrate's native always-loaded surface.
 export interface SomaMemoryIndexResult {
   somaHome: string;
   /** On-disk path of the rendered index (`memory/INDEX.md`). */

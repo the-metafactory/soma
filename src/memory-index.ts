@@ -13,9 +13,11 @@ import type { SomaMemoryIndexResult, SomaMemoryNote, SomaMemoryNoteType, SomaMem
  * Two orthogonal decisions per note:
  *
  * 1. **Admission (earned inclusion).** A note earns a line only if it is active
- *    (`valid_until === null`), NOT quarantined, and clears the ladder: resurfaced-
- *    and-verified ≥2×, OR principal-marked (trust `principal`), OR still in the
- *    <7-day creation grace window. Quarantined notes never appear (design §15 L3).
+ *    (`valid_until === null`), NOT quarantined, and either is principal-marked
+ *    (trust `principal`) OR has been resurfaced-and-verified ≥2×. Non-principal
+ *    notes get NO pure recency grace — admitting unverified imported/tool-derived
+ *    text into always-loaded memory would be a prompt-injection path. Quarantined
+ *    notes never appear (design §15 L3, tightened per sage M3 r3).
  *
  * 2. **Retention score (eviction order).** `trust_weight × type_weight ×
  *    freshness`, where freshness is recall's decay curve applied to frontmatter:
@@ -24,9 +26,10 @@ import type { SomaMemoryIndexResult, SomaMemoryNote, SomaMemoryNoteType, SomaMem
  *    Plans/2026-07-02-recall-adoption-analysis.md; this amends v1's linear recency
  *    term). When the ≤200-pointer-line / ≤25KB budget is hit the LOWEST score sheds first,
  *    except that each non-empty section is first offered its single best line
- *    (min-1-per-section), subject to the hard ceiling. Quarantined weight is 0, so
- *    even if some future path admitted one it would sink to the bottom — defense in
- *    depth behind the admission filter.
+ *    (min-1-per-section), subject to the hard ceiling. The real quarantined guard is
+ *    the admission FILTER (a quarantined note never reaches scoring); the 0 weight
+ *    is a secondary backstop, not a guarantee-by-sinking (min-1-per-section means a
+ *    lone section member is offered regardless of score).
  *
  * Determinism: every date derives from an injected `now`; ties break on a fixed
  * key (score → trust → last_verified → id), so the same tree + same `now` render
@@ -39,9 +42,9 @@ import type { SomaMemoryIndexResult, SomaMemoryNote, SomaMemoryNoteType, SomaMem
 // >180d → eviction" review rule (two half-lives ≈ a quarter of the original heat).
 const DEFAULT_HALFLIFE_DAYS = 90;
 
-// Admission-ladder thresholds (design §15 L3).
-const RESURFACE_ADMIT = 2; // resurfaced-and-verified ≥2×
-const GRACE_DAYS = 7; // creation recency grace
+// Admission-ladder threshold (design §15 L3): non-principal notes earn an
+// always-loaded line only after this many verified resurfacings.
+const RESURFACE_ADMIT = 2;
 
 // Governed weights (design §15). Quarantined is 0 on BOTH the admission filter
 // and the score, so it can never occupy an index line.
@@ -101,18 +104,21 @@ export function retentionScore(note: SomaMemoryNote, now: Date, halflifeDays = D
 }
 
 /**
- * The earned-inclusion admission ladder. Active + non-quarantined AND (resurfaced
- * ≥2× OR principal-marked OR within the creation grace window). Superseded and
- * quarantined notes never earn a line.
+ * The earned-inclusion admission ladder. Active + non-quarantined, then:
+ * - PRINCIPAL notes (same-turn corrections, trusted by construction) earn a line
+ *   immediately — this subsumes the creation-grace window for them.
+ * - NON-principal notes (assistant/consolidation, whose text can derive from
+ *   imported or tool content) earn an always-loaded line ONLY by verified
+ *   resurfacing (≥2×). A pure recency grace for them is deliberately NOT granted:
+ *   admitting unverified non-principal text into projected memory would be a
+ *   prompt-injection path (sage M3 r3). Verified usage is the trust signal.
+ * Superseded and quarantined notes never earn a line.
  */
-function isAdmitted(note: SomaMemoryNote, now: Date): boolean {
+function isAdmitted(note: SomaMemoryNote): boolean {
   if (note.trust === "quarantined") return false;
   if (note.valid_until !== null) return false;
-  return (
-    note.resurface_count >= RESURFACE_ADMIT ||
-    note.trust === "principal" ||
-    ageDays(note.created, now) < GRACE_DAYS
-  );
+  if (note.trust === "principal") return true;
+  return note.resurface_count >= RESURFACE_ADMIT;
 }
 
 /** Collapse to a single sanitized line and truncate — index descriptors are one line. */
@@ -246,7 +252,7 @@ export function renderMemoryIndex(
   now: Date,
   halflifeDays = DEFAULT_HALFLIFE_DAYS,
 ): RenderedIndex {
-  const admittedNotes = notes.filter((note) => isAdmitted(note, now));
+  const admittedNotes = notes.filter((note) => isAdmitted(note));
   const excluded = notes.length - admittedNotes.length;
 
   const scored: ScoredLine[] = admittedNotes.map((note) => ({
@@ -273,6 +279,10 @@ export function renderMemoryIndex(
   const shed = scored.length - rendered;
 
   // Assemble in fixed section order, only sections that have a selected line.
+  // Byte-budget reasoning covers BOTH branches: the empty branch is a fixed
+  // constant (header + one short placeholder ≪ MAX_INDEX_BYTES), and the rendered
+  // branch is bounded by selectIndexLines (sections ≤ byteCeiling) plus the
+  // pre-reserved footer — so the returned content is ≤ MAX_INDEX_BYTES either way.
   const parts: string[] = [INDEX_HEADER];
   if (rendered === 0) {
     parts.push("", "_No notes have earned an index line yet._");
