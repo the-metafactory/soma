@@ -525,6 +525,22 @@ function sanitizeForTerminal(text: string): string {
     .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/g, ""); // C0/C1 controls except \t (\x09) and \n (\x0a)
 }
 
+/**
+ * Render one recalled note to its output lines (heading + banner + body). Every
+ * note-derived field is sanitized here — the id/linkedFrom are slug-validated by
+ * the parser (they cannot hold control chars in a note that parsed at all), but
+ * sanitizing them anyway keeps every note-derived field on one rendering path, so
+ * no future edit can reintroduce a raw one.
+ */
+function formatRecalledMatch(match: SomaMemoryRecallResult["matches"][number]): string[] {
+  const id = sanitizeForTerminal(match.id);
+  const heading =
+    match.via === "match"
+      ? `━━ ${id} [${match.type}] · ${match.score} term${match.score === 1 ? "" : "s"} matched`
+      : `━━ ${id} [${match.type}] · via link from ${sanitizeForTerminal(match.linkedFrom ?? "")}`;
+  return [heading, sanitizeForTerminal(match.banner), "", sanitizeForTerminal(match.note.body), ""];
+}
+
 function formatMemoryRecallResult(result: SomaMemoryRecallResult): string {
   const lines = [
     "Soma memory recall",
@@ -542,18 +558,7 @@ function formatMemoryRecallResult(result: SomaMemoryRecallResult): string {
   if (result.matches.length === 0) {
     lines.push("No active notes matched.");
   } else {
-    for (const match of result.matches) {
-      // id/linkedFrom are slug-validated by the note parser (they cannot hold
-      // control chars in a note that parsed at all), but sanitize them anyway —
-      // defense in depth keeps every note-derived field on the same rendering
-      // path, so no future edit can reintroduce a raw one.
-      const id = sanitizeForTerminal(match.id);
-      const heading =
-        match.via === "match"
-          ? `━━ ${id} [${match.type}] · ${match.score} term${match.score === 1 ? "" : "s"} matched`
-          : `━━ ${id} [${match.type}] · via link from ${sanitizeForTerminal(match.linkedFrom ?? "")}`;
-      lines.push(heading, sanitizeForTerminal(match.banner), "", sanitizeForTerminal(match.note.body), "");
-    }
+    for (const match of result.matches) lines.push(...formatRecalledMatch(match));
   }
 
   // Surface both blind spots explicitly — recall never hides an unresolved link or
