@@ -2523,3 +2523,27 @@ export interface SomaMemoryRecallResult {
   /** Corpus files that exist but could not be read/parsed — recall's blind spot, never silent. */
   unreadable: string[];
 }
+
+// Memory subsystem M3 (index renderer). Plan v2 §M3: the earned-inclusion INDEX
+// — a tiny, always-loaded pointer list (≤200 lines / ≤25KB) rebuilt deterministically
+// from note frontmatter, never on the request path. A note earns a line via the
+// admission ladder (resurfaced-verified ≥2×, principal-marked, or <7d grace);
+// quarantined notes score 0 and never appear. When the budget is hit, the lowest
+// retention score sheds first. M4 projects this file → ~/.claude/rules/soma/MEMORY.md.
+export interface SomaMemoryIndexResult {
+  somaHome: string;
+  /** On-disk path of the rendered index (`memory/INDEX.md`). */
+  path: string;
+  /** The rendered INDEX.md content (also what M4 projects verbatim). */
+  content: string;
+  /** Notes that earned admission (before the budget was applied). */
+  admitted: number;
+  /** Index lines actually rendered after the budget. */
+  rendered: number;
+  /** admitted − rendered: lines shed to stay within the line/byte budget. */
+  shed: number;
+  /** Notes present but NOT admitted (quarantined, superseded, or not yet earned). */
+  excluded: number;
+  /** Corpus files that exist but could not be read/parsed — surfaced, never silent. */
+  unreadable: string[];
+}
