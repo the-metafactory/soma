@@ -446,6 +446,29 @@ test("a symlink note path is refused rather than followed out of the tree", asyn
   });
 });
 
+test("a symlinked parent directory can't redirect a write out of the tree", async () => {
+  await withTempSoma(async (somaHome) => {
+    // Point memory/semantic at a dir OUTSIDE the memory tree.
+    const outsideDir = join(somaHome, "..", "escape-dir");
+    await mkdir(outsideDir, { recursive: true });
+    await mkdir(join(somaHome, "memory"), { recursive: true });
+    await symlink(outsideDir, join(somaHome, "memory", "semantic"));
+
+    await expect(
+      writeMemoryNote(createOpts(somaHome, { id: "victim", type: "semantic", body: "would escape via parent symlink" })),
+    ).rejects.toThrow(/resolves outside the memory tree/);
+  });
+});
+
+test("CLI rejects the consolidation trigger (SDK-only) and merge --id/--type", () => {
+  expect(() => parseMemoryArgs(["memory", "write", "--trigger", "consolidation", "--body", "x", "--id", "a", "--type", "semantic"])).toThrow(
+    /consolidation is an internal .* SDK path/,
+  );
+  expect(() => parseMemoryArgs(["memory", "write", "--trigger", "principal-correction", "--merge", "t", "--body", "x", "--id", "a"])).toThrow(
+    /--merge takes neither --id nor --type/,
+  );
+});
+
 test("verify CLI rejects a conflicting positional id and --id", () => {
   expect(() => parseMemoryArgs(["memory", "verify", "old", "--id", "new"])).toThrow(/two different ids/);
   // Matching positional + --id is fine.

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { lstat, mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { lstat, mkdir, readdir, readFile, realpath, unlink, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { createPaths } from "./paths";
 import { runBoundedConcurrent } from "./internal-concurrency";
 import { appendSomaMemoryEvent } from "./memory";
@@ -67,8 +67,15 @@ const WRITABLE_TYPE_DIRS: Record<Exclude<SomaMemoryNoteType, "episodic">, string
 type WritableType = Exclude<SomaMemoryNoteType, "episodic">;
 
 // One source of truth for the writable-type enumeration — every helper that
-// walks both durable dirs reuses this instead of re-casting Object.keys.
-const WRITABLE_TYPES = Object.keys(WRITABLE_TYPE_DIRS) as WritableType[];
+// walks both durable dirs reuses this instead of re-casting Object.keys. Exported
+// so the CLI validates `--type` against the same list the writer routes on.
+export const WRITABLE_NOTE_TYPES = Object.keys(WRITABLE_TYPE_DIRS) as WritableType[];
+const WRITABLE_TYPES = WRITABLE_NOTE_TYPES;
+
+/** True iff `value` is a note type the write path accepts (semantic|procedural). */
+export function isWritableNoteType(value: string): value is WritableType {
+  return (WRITABLE_NOTE_TYPES as readonly string[]).includes(value);
+}
 
 // Trust ordering for the mutation gate: content may never be injected into a
 // note of HIGHER trust than the mutation's own trigger carries.
@@ -409,9 +416,27 @@ function resolveProvenance(options: SomaMemoryWriteOptions): string {
 
 // --- shared write helpers -----------------------------------------------------
 
-async function writeNoteFile(path: string, note: SomaMemoryNote, flag: "wx" | "w"): Promise<void> {
+/**
+ * Containment: after the parent dir exists, resolve its realpath (following ANY
+ * symlinked component — not just the final note path) and require it to stay
+ * under the real memory root. This closes the parent-symlink escape: a planted
+ * `memory/semantic` → /elsewhere symlink can no longer redirect a write out of
+ * the tree. lstat on the final path (loadNoteById) guards the leaf; this guards
+ * the directory chain.
+ */
+async function assertWriteContained(somaHome: string, path: string): Promise<void> {
+  const realRoot = await realpath(createPaths(somaHome).memory());
+  const realParent = await realpath(dirname(path));
+  const rel = relative(realRoot, realParent);
+  if (rel !== "" && (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel))) {
+    throw new MemoryNoteError(`Refusing write: ${path} resolves outside the memory tree (a symlinked path component).`, "id");
+  }
+}
+
+async function writeNoteFile(somaHome: string, path: string, note: SomaMemoryNote, flag: "wx" | "w"): Promise<void> {
   const content = serializeMemoryNote(note); // enforces the round-trip law before any byte hits disk
   await mkdir(dirname(path), { recursive: true });
+  await assertWriteContained(somaHome, path);
   try {
     await writeFile(path, content, { encoding: "utf8", flag });
   } catch (error) {
@@ -428,16 +453,19 @@ async function writeNoteFile(path: string, note: SomaMemoryNote, flag: "wx" | "w
  * a normal write always recreates parents (writeNoteFile), so the restore path
  * must too, or an externally-removed directory would defeat the rollback.
  */
-async function restoreBytes(path: string, raw: string): Promise<void> {
+async function restoreBytes(somaHome: string, path: string, raw: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
+  await assertWriteContained(somaHome, path);
   await writeFile(path, raw, "utf8");
 }
 
 /**
  * Load one note by id by probing its two possible paths directly
  * (`semantic/<id>.md`, `procedural/<id>.md`) — O(1) I/O, not an O(corpus) scan.
- * Ids are globally unique across types (enforced at create/supersede), so at
- * most one path resolves; if both somehow exist, semantic wins deterministically.
+ * Create/supersede run a preflight id-uniqueness check across types, so in the
+ * single-process CLI at most one path resolves; if both exist (e.g. a race
+ * between two concurrent writers, which the preflight is not atomic against, or
+ * a hand-placed file), semantic wins deterministically.
  */
 async function loadNoteById(somaHome: string, id: string): Promise<LoadedNote> {
   assertNoteId(id); // a lookup id is also a path segment — never probe an unsafe one
@@ -526,10 +554,12 @@ function buildNewNote(options: SomaMemoryWriteOptions, now: Date): SomaMemoryNot
 async function createNote(somaHome: string, options: SomaMemoryWriteOptions, now: Date): Promise<SomaMemoryWriteResult> {
   const note = buildNewNote(options, now);
 
-  // Cheap path-existence check FIRST — reject an id collision before paying for
-  // the whole-corpus dedup scan. Ids are globally unique across types, so this
-  // also rejects `procedural/foo` when `semantic/foo` exists (`wx` below only
-  // catches a same-path collision).
+  // Cheap path-existence PREFLIGHT — reject an id collision before paying for
+  // the whole-corpus dedup scan, and reject `procedural/foo` when `semantic/foo`
+  // exists so id-based lookups stay unambiguous. This is a preflight, not a lock:
+  // it is best-effort against two concurrent writers racing the same id into
+  // different types (the CLI is single-process; `wx` below still guards the
+  // same-path case atomically).
   if (await noteIdExists(somaHome, note.id)) {
     throw new MemoryNoteError(`Soma memory note id already exists: ${note.id}`, "id");
   }
@@ -552,7 +582,7 @@ async function createNote(somaHome: string, options: SomaMemoryWriteOptions, now
   }
 
   const path = memoryNotePath(somaHome, note.type as WritableType, note.id);
-  await writeNoteFile(path, note, "wx");
+  await writeNoteFile(somaHome, path, note, "wx");
 
   const event = await appendNoteMutationEvent(
     somaHome,
@@ -601,7 +631,7 @@ async function mergeNote(somaHome: string, options: SomaMemoryWriteOptions, now:
     last_verified: today,
     body: `${note.body}\n\n**Update (${today}):** ${options.body.trim()}`,
   };
-  await writeNoteFile(path, merged, "w");
+  await writeNoteFile(somaHome, path, merged, "w");
 
   const event = await appendNoteMutationEvent(
     somaHome,
@@ -614,7 +644,7 @@ async function mergeNote(somaHome: string, options: SomaMemoryWriteOptions, now:
       // Log the escalation so an audit can prove a principal-note mutation was authorized.
       metadata: { id: merged.id, type, trust: merged.trust, trigger: options.trigger, ...authorityMeta(merged.trust) },
     },
-    () => restoreBytes(path, raw), // roll back: restore the pre-merge bytes
+    () => restoreBytes(somaHome, path, raw), // roll back: restore the pre-merge bytes
   );
 
   return { somaHome, mode: "merge", path, note: merged, event };
@@ -650,9 +680,9 @@ async function supersedeNote(somaHome: string, options: SomaMemoryWriteOptions, 
   };
 
   const newPath = memoryNotePath(somaHome, newNote.type as WritableType, newNote.id);
-  await writeNoteFile(newPath, newNote, "wx");
+  await writeNoteFile(somaHome, newPath, newNote, "wx");
   try {
-    await writeNoteFile(old.path, closed, "w");
+    await writeNoteFile(somaHome, old.path, closed, "w");
   } catch (error) {
     await unlink(newPath).catch(() => undefined); // keep the supersede atomic-ish
     throw error;
@@ -682,7 +712,7 @@ async function supersedeNote(somaHome: string, options: SomaMemoryWriteOptions, 
     // most need to restore), then drop the new one. Failures are NOT swallowed:
     // appendMutationEvent surfaces them as an inconsistency error.
     async () => {
-      await restoreBytes(old.path, old.raw);
+      await restoreBytes(somaHome, old.path, old.raw);
       await unlink(newPath);
     },
   );
@@ -735,7 +765,7 @@ export async function verifyMemoryNote(options: SomaMemoryVerifyOptions): Promis
     last_verified: isoDate(now),
     resurface_count: note.resurface_count + 1,
   };
-  await writeNoteFile(path, verified, "w");
+  await writeNoteFile(somaHome, path, verified, "w");
 
   const event = await appendNoteMutationEvent(
     somaHome,
@@ -747,7 +777,7 @@ export async function verifyMemoryNote(options: SomaMemoryVerifyOptions): Promis
       artifactPaths: [path],
       metadata: { id: verified.id, type, resurfaceCount: verified.resurface_count, ...authorityMeta(note.trust) },
     },
-    () => restoreBytes(path, raw), // roll back: restore the pre-verify bytes
+    () => restoreBytes(somaHome, path, raw), // roll back: restore the pre-verify bytes
   );
 
   return { somaHome, path, note: verified, event };

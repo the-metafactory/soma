@@ -4,7 +4,7 @@ import {
   verifyMemoryNote,
   writeMemoryNote,
 } from "../index";
-import { SOMA_MEMORY_WRITE_TRIGGERS } from "../types";
+import { WRITABLE_NOTE_TYPES, isWritableNoteType } from "../memory-write";
 import type {
   SomaMemoryNoteType,
   SomaMemoryPromotionOptions,
@@ -60,14 +60,15 @@ export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAct
     search: "Usage: soma memory search [query] [--query <text>] [--limit <n>] [--home-dir <dir>] [--soma-home <dir>]",
     promote: "Usage: soma memory promote --from-run <run-id> --store <learning|knowledge|relationship|work> --title <text> [--lesson <text>] [--applies-when <text>]",
     write:
-      "Usage: soma memory write --trigger <principal-correction|import|consolidation> --body <text> " +
+      "Usage: soma memory write --trigger <principal-correction|import> --body <text> " +
       "(create: --id <slug> --type <semantic|procedural> [--force]) " +
       "(--merge <id> | --supersede <id>) " +
       "[--principal-authority] [--project <key>] [--source-of-truth <ref>] [--links a,b] " +
       "[--recall-trigger <text>] [--review <text>] " +
       "[--provenance <import|tool:name>] [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]. " +
       "Trust is DERIVED from --trigger; there is no --trust flag. principal-correction requires " +
-      "--principal-authority. The consolidation trigger is an internal (M6) SDK path, not available on the public CLI.",
+      "--principal-authority. (The consolidation trigger, which mints assistant trust, is an internal " +
+      "M6 SDK path and is not accepted on the public CLI.)",
     verify:
       "Usage: soma memory verify <id> [--id <id>] [--principal-authority] [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]. " +
       "Verifying a principal-trust note requires --principal-authority (assistant-trust notes are an internal SDK path).",
@@ -208,15 +209,21 @@ function parseMemoryPromotionStore(value: string): SomaMemoryPromotionStore {
 }
 
 function parseWriteTrigger(value: string): SomaMemoryWriteTrigger {
-  if ((SOMA_MEMORY_WRITE_TRIGGERS as readonly string[]).includes(value)) {
-    return value as SomaMemoryWriteTrigger;
+  // `consolidation` is a valid SDK trigger but not a public-CLI one — it needs
+  // consolidationAuthority, which is SDK-only. Reject it here with a clear parse
+  // error instead of letting it fail later inside the writer.
+  if (value === "consolidation") {
+    throw new Error("--trigger consolidation is an internal (M6) SDK path, not available on the public CLI.");
   }
-  throw new Error(`--trigger must be one of ${SOMA_MEMORY_WRITE_TRIGGERS.join(", ")}.`);
+  if (value === "principal-correction" || value === "import") {
+    return value;
+  }
+  throw new Error(`--trigger must be principal-correction or import (consolidation is SDK-only).`);
 }
 
 function parseWriteType(value: string): SomaMemoryNoteType {
-  if (value !== "semantic" && value !== "procedural") {
-    throw new Error(`--type must be semantic or procedural (episodic writes go through digest/action, M5).`);
+  if (!isWritableNoteType(value)) {
+    throw new Error(`--type must be ${WRITABLE_NOTE_TYPES.join(" or ")} (episodic writes go through digest/action, M5).`);
   }
   return value;
 }
@@ -315,13 +322,18 @@ function parseMemoryWriteArgs(args: string[]): SomaMemoryWriteOptions {
     throw new Error("soma memory write accepts --merge or --supersede, not both.");
   }
   if (!options.trigger) {
-    throw new Error("soma memory write needs --trigger <principal-correction|import|consolidation>.");
+    throw new Error("soma memory write needs --trigger <principal-correction|import>.");
   }
   if (options.body === undefined) {
     throw new Error("soma memory write needs --body <text>.");
   }
 
   if (mergeTarget !== undefined) {
+    // merge edits an existing note in place — it takes neither a new id nor a
+    // type. Reject them rather than silently ignoring (the target is --merge <id>).
+    if (options.id !== undefined || options.type !== undefined) {
+      throw new Error("soma memory write --merge takes neither --id nor --type; the target is --merge <id>.");
+    }
     options.mode = "merge";
     options.targetId = mergeTarget;
   } else if (supersedeTarget !== undefined) {
