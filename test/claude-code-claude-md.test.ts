@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { installSomaForClaudeCode } from "../src/index";
 import { resolveClaudeMdOverlay } from "../src/adapters/claude-code/claude-md";
-import { OVERLAY_BEGIN, OVERLAY_END, hasProvenanceHeader } from "../src/adapters/shared";
+import { OVERLAY_BEGIN, OVERLAY_END, hasProvenanceHeader, withProvenance } from "../src/adapters/shared";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-368-"));
@@ -91,11 +91,22 @@ test("a pre-existing hand-maintained CLAUDE.md is preserved into the overlay (lo
   });
 });
 
-test("resolveClaudeMdOverlay: greenfield null, existing overlay preserved, foreign file wholesale", () => {
+test("resolveClaudeMdOverlay: greenfield null, Soma overlay preserved, foreign file wholesale", () => {
   expect(resolveClaudeMdOverlay(null)).toBeNull();
-  const withOverlay = [OVERLAY_BEGIN, "", "kept", "", OVERLAY_END].join("\n");
-  expect(resolveClaudeMdOverlay(withOverlay)).toBe("kept");
+  // A genuine Soma file (has the provenance header) → its overlay body survives.
+  const somaFile = withProvenance("claude-code", ["# Generated", "", OVERLAY_BEGIN, "", "kept", "", OVERLAY_END].join("\n"));
+  expect(resolveClaudeMdOverlay(somaFile)).toBe("kept");
   const foreign = resolveClaudeMdOverlay("# foreign\n\nbody");
   expect(foreign).toContain("body");
   expect(foreign).toContain("Preserved from the pre-Soma");
+});
+
+test("sage#378: a FOREIGN file that contains overlay markers is still preserved WHOLE (no header → not trusted)", () => {
+  // Pre-Soma file that happens to include the marker strings must not have only
+  // the marker body kept; the whole file is carried into the overlay.
+  const foreignWithMarkers = ["# my rules", "", OVERLAY_BEGIN, "", "inner", "", OVERLAY_END, "", "trailing rules"].join("\n");
+  const resolved = resolveClaudeMdOverlay(foreignWithMarkers);
+  expect(resolved).toContain("# my rules");
+  expect(resolved).toContain("trailing rules");
+  expect(resolved).toContain("Preserved from the pre-Soma");
 });

@@ -58,21 +58,25 @@ async function readOrNull(path: string): Promise<string | null> {
 /**
  * Decide what overlay content to carry into the regenerated file.
  *
- * - An existing overlay block is preserved (idempotency + hand edits inside the
- *   markers survive).
- * - A pre-existing, non-Soma CLAUDE.md has its full text carried into the
+ * - A genuine Soma projection (has the provenance header): its existing overlay
+ *   block is preserved (idempotency + hand edits inside the markers survive).
+ * - A pre-existing, non-Soma CLAUDE.md has its WHOLE text carried into the
  *   overlay on first conversion, so no CONTENT is dropped — it moves under the
- *   marker for later curation. Note: surrounding blank lines are normalized by
- *   the overlay renderer/reader, so this is content-lossless, not byte-exact
- *   (sage#378: the earlier doc overclaimed "wholesale/byte-lossless").
+ *   marker for later curation. The provenance-header gate matters: without it a
+ *   foreign file that merely happens to contain the marker strings would keep
+ *   only the marker body and drop the rest (sage#378). Note: surrounding blank
+ *   lines are normalized by the overlay renderer/reader, so this is
+ *   content-lossless, not byte-exact.
  * - Otherwise (greenfield, or an already-Soma file with no overlay) there is
  *   nothing to carry.
  */
 export function resolveClaudeMdOverlay(existing: string | null): string | null {
   if (existing === null) return null;
-  const existingOverlay = extractOverlay(existing);
-  if (existingOverlay !== null) return existingOverlay;
-  if (!hasProvenanceHeader(existing) && existing.trim().length > 0) {
+  // Only trust an embedded overlay block when the file is genuinely ours.
+  if (hasProvenanceHeader(existing)) {
+    return extractOverlay(existing);
+  }
+  if (existing.trim().length > 0) {
     return [
       "Preserved from the pre-Soma CLAUDE.md on first projection. Curate or move into ~/.soma.",
       "",
