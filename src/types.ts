@@ -2523,10 +2523,14 @@ export interface SomaMemoryActionOptions {
   now?: Date;
   /** kebab slug for the action's id (`YYYYMMDD-<slug>`). */
   slug: string;
-  /** The session this action belongs to (recorded for consolidation scope). */
+  /** The session this action belongs to (recorded in the note body for consolidation scope). */
   sessionId?: string;
-  /** What the agent intended to do. */
-  intent: string;
+  /**
+   * What the agent planned to do. Named `plannedAction` (not `intent`) because
+   * CONTEXT.md reserves `intent` for the principal's checkable directional anchor
+   * sourced from Purpose — a different concept from an agent's logged action.
+   */
+  plannedAction: string;
   /** Approval state at record time. */
   approval: SomaMemoryActionApproval;
   /** What actually happened (may be recorded later; empty = not-yet-known). */

@@ -9,6 +9,7 @@ import {
   writeSessionDigest,
 } from "../index";
 import { WRITABLE_NOTE_TYPES, isWritableNoteType } from "../memory-write";
+import { SOMA_MEMORY_ACTION_APPROVALS } from "../types";
 import type {
   SomaMemoryActionApproval,
   SomaMemoryActionOptions,
@@ -131,9 +132,9 @@ export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAct
       "Usage: soma memory digest --session <id> --body <text> [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]. " +
       "Write the ONE session digest (8–15 non-empty lines). A second digest for the same session no-ops with an event.",
     action:
-      "Usage: soma memory action --slug <slug> --intent <text> --approval <proposed|approved|rejected|auto> " +
+      "Usage: soma memory action --slug <slug> --planned-action <text> --approval <proposed|approved|rejected|auto> " +
       "[--outcome <text>] [--session <id>] [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]. " +
-      "Log one intent→approval→outcome action entry (id YYYYMMDD-<slug>; collision refused).",
+      "Log one planned-action→approval→outcome entry (id YYYYMMDD-<slug>; collision refused).",
   },
 };
 
@@ -226,10 +227,10 @@ function parseMemoryDigestArgs(args: string[]): SomaMemoryDigestOptions {
 }
 
 function parseActionApproval(value: string): SomaMemoryActionApproval {
-  if (value === "proposed" || value === "approved" || value === "rejected" || value === "auto") {
-    return value;
+  if ((SOMA_MEMORY_ACTION_APPROVALS as readonly string[]).includes(value)) {
+    return value as SomaMemoryActionApproval;
   }
-  throw new Error("--approval must be one of proposed, approved, rejected, auto.");
+  throw new Error(`--approval must be one of ${SOMA_MEMORY_ACTION_APPROVALS.join(", ")}.`);
 }
 
 function parseMemoryActionArgs(args: string[]): SomaMemoryActionOptions {
@@ -249,8 +250,8 @@ function parseMemoryActionArgs(args: string[]): SomaMemoryActionOptions {
         options.sessionId = readOption(args, index, arg);
         index += 1;
         break;
-      case "--intent":
-        options.intent = readOption(args, index, arg);
+      case "--planned-action":
+        options.plannedAction = readOption(args, index, arg);
         index += 1;
         break;
       case "--approval":
@@ -267,7 +268,7 @@ function parseMemoryActionArgs(args: string[]): SomaMemoryActionOptions {
   }
   const missing: string[] = [];
   if (!options.slug) missing.push("--slug");
-  if (!options.intent) missing.push("--intent");
+  if (!options.plannedAction) missing.push("--planned-action");
   if (!options.approval) missing.push("--approval");
   if (missing.length > 0) {
     throw new Error(`soma memory action is missing required option(s): ${missing.join(", ")}.`);

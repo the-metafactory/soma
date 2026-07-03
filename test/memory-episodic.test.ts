@@ -75,49 +75,76 @@ test("a second digest for the same session no-ops with an event (exactly-one gat
   });
 });
 
-test("a session id with no slug-able characters is rejected", async () => {
+test("a session id with no slug-able characters still gets a hash-based id", async () => {
   await withTempSoma(async (somaHome) => {
-    await expect(writeSessionDigest({ somaHome, now: NOW, sessionId: "!!!", body: DIGEST_BODY })).rejects.toThrow(
-      /no slug-able/,
-    );
+    const result = await writeSessionDigest({ somaHome, now: NOW, sessionId: "!!!", body: DIGEST_BODY });
+    expect(result.created).toBe(true);
+    expect(result.note.id).toMatch(/^20260704-[0-9a-f]{8}$/); // date + hash only
+  });
+});
+
+test("the same session digested on a LATER date is still recognized as a duplicate", async () => {
+  await withTempSoma(async (somaHome) => {
+    const first = await writeSessionDigest({ somaHome, now: NOW, sessionId: SESSION, body: DIGEST_BODY });
+    expect(first.created).toBe(true);
+    // a different UTC date — the gate must be date-independent
+    const later = new Date("2026-09-15T10:00:00.000Z");
+    const second = await writeSessionDigest({ somaHome, now: later, sessionId: SESSION, body: DIGEST_BODY });
+    expect(second.created).toBe(false);
+    expect(second.path).toBe(first.path);
+  });
+});
+
+test("two distinct session ids that share a truncation prefix get separate digests (hash guard)", async () => {
+  await withTempSoma(async (somaHome) => {
+    // 32+ char prefixes identical; the appended full-id hash keeps them distinct
+    const a = "session-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1";
+    const b = "session-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2";
+    const first = await writeSessionDigest({ somaHome, now: NOW, sessionId: a, body: DIGEST_BODY });
+    const second = await writeSessionDigest({ somaHome, now: NOW, sessionId: b, body: DIGEST_BODY });
+    expect(first.created).toBe(true);
+    expect(second.created).toBe(true); // NOT a false duplicate
+    expect(second.path).not.toBe(first.path);
   });
 });
 
 // --- action ------------------------------------------------------------------
 
-test("writeMemoryAction logs an intent→approval→outcome episodic note under actions/", async () => {
+test("writeMemoryAction logs a plannedAction→approval→outcome note; session goes in the body, not project", async () => {
   await withTempSoma(async (somaHome) => {
     const result = await writeMemoryAction({
       somaHome,
       now: NOW,
       slug: "deploy-reporter",
       sessionId: SESSION,
-      intent: "Deploy the reporter service to production",
+      plannedAction: "Deploy the reporter service to production",
       approval: "approved",
       outcome: "Deployed; smoke test green",
     });
 
     expect(result.note.type).toBe("episodic");
     expect(result.note.id).toBe("20260704-deploy-reporter");
-    expect(result.note.project).toBe(SESSION);
+    // sessionId is recorded in the body, NOT project (project stays for real scope)
+    expect(result.note.project).toBeNull();
     expect(result.path).toContain(join("memory", "episodic", "actions", "2026-07"));
-    expect(result.note.body).toContain("**Intent:** Deploy the reporter service to production");
+    expect(result.note.body).toContain("**Planned action:** Deploy the reporter service to production");
     expect(result.note.body).toContain("**Approval:** approved");
     expect(result.note.body).toContain("**Outcome:** Deployed; smoke test green");
+    expect(result.note.body).toContain(`**Session:** ${SESSION}`);
   });
 });
 
 test("an action with no outcome records a not-yet placeholder", async () => {
   await withTempSoma(async (somaHome) => {
-    const result = await writeMemoryAction({ somaHome, now: NOW, slug: "pending-thing", intent: "do a thing", approval: "proposed" });
+    const result = await writeMemoryAction({ somaHome, now: NOW, slug: "pending-thing", plannedAction: "do a thing", approval: "proposed" });
     expect(result.note.body).toContain("**Outcome:** (not yet recorded)");
   });
 });
 
 test("a duplicate action id is refused (never overwrites)", async () => {
   await withTempSoma(async (somaHome) => {
-    await writeMemoryAction({ somaHome, now: NOW, slug: "dup", intent: "first", approval: "auto" });
-    await expect(writeMemoryAction({ somaHome, now: NOW, slug: "dup", intent: "second", approval: "auto" })).rejects.toThrow(
+    await writeMemoryAction({ somaHome, now: NOW, slug: "dup", plannedAction: "first", approval: "auto" });
+    await expect(writeMemoryAction({ somaHome, now: NOW, slug: "dup", plannedAction: "second", approval: "auto" })).rejects.toThrow(
       /already exists/,
     );
   });
@@ -127,7 +154,7 @@ test("an invalid approval is rejected", async () => {
   await withTempSoma(async (somaHome) => {
     await expect(
       // @ts-expect-error — exercising the runtime guard with a bad approval
-      writeMemoryAction({ somaHome, now: NOW, slug: "x", intent: "y", approval: "maybe" }),
+      writeMemoryAction({ somaHome, now: NOW, slug: "x", plannedAction: "y", approval: "maybe" }),
     ).rejects.toThrow(/approval must be/);
   });
 });
@@ -139,9 +166,9 @@ test("parseMemoryArgs digest requires --session and --body", () => {
   expect(() => parseMemoryArgs(["memory", "digest", "--body", "b"])).toThrow(/--session/);
 });
 
-test("parseMemoryArgs action requires slug/intent/approval and validates approval", () => {
-  expect(() => parseMemoryArgs(["memory", "action", "--slug", "s", "--intent", "i"])).toThrow(/--approval/);
-  expect(() => parseMemoryArgs(["memory", "action", "--slug", "s", "--intent", "i", "--approval", "nope"])).toThrow(
+test("parseMemoryArgs action requires slug/planned-action/approval and validates approval", () => {
+  expect(() => parseMemoryArgs(["memory", "action", "--slug", "s", "--planned-action", "i"])).toThrow(/--approval/);
+  expect(() => parseMemoryArgs(["memory", "action", "--slug", "s", "--planned-action", "i", "--approval", "nope"])).toThrow(
     /--approval must be/,
   );
 });
@@ -163,7 +190,7 @@ test("runMemoryCli action logs an entry", async () => {
   await withTempSoma(async (somaHome) => {
     const out = await runMemoryCli(
       parseMemoryArgs([
-        "memory", "action", "--slug", "ship-it", "--intent", "ship the feature", "--approval", "approved", "--soma-home", somaHome,
+        "memory", "action", "--slug", "ship-it", "--planned-action", "ship the feature", "--approval", "approved", "--soma-home", somaHome,
       ]),
     );
     expect(out).toContain("Soma memory action logged");
