@@ -7,7 +7,10 @@ import type { SomaMemoryNote, SomaMemoryNoteType, SomaMemoryTrust } from "./type
  * frontmatter + markdown body, with a tiny hand-written grammar (no YAML lib —
  * zero new runtime deps). The round-trip law `parse(serialize(n)) === n` holds
  * for any note whose body is already trimmed; both sides normalize the body by
- * trimming, so a parsed note re-serializes byte-stably.
+ * trimming, so a parsed note re-serializes byte-stably. The quote-less grammar
+ * uses bare `null` as the null sentinel, so a nullable string field cannot also
+ * carry the literal string "null" — `serializeMemoryNote` rejects that value up
+ * front, keeping the law total rather than caveated.
  *
  * Frontmatter grammar: `---\n`, then `key: value` lines, then `---\n`. Values
  * are unquoted strings, `null`, integers, or an inline `links` array `[a, b]`
@@ -82,8 +85,25 @@ function formatLinks(links: string[]): string {
 }
 
 /**
+ * Guard a nullable string field against the reserved literal "null", which the
+ * quote-less grammar cannot distinguish from the `null` sentinel. Rejecting it
+ * on serialize makes the round-trip law total.
+ */
+function assertNotReservedNull(value: string | null, field: string): void {
+  assert(
+    value !== "null",
+    `${field} cannot be the reserved literal "null" (collides with the null sentinel)`,
+    field,
+  );
+}
+
+/**
  * Parse a memory-note file (frontmatter + body) into a validated
  * `SomaMemoryNote`. Throws `MemoryNoteError` (with `field`) on any violation.
+ *
+ * Validates the `id` slug *shape* only; the id==filename-stem invariant is the
+ * storage layer's contract (M1 `memoryNotePath`), since a pure content parser
+ * has no filename to compare against.
  */
 export function parseMemoryNote(content: string): SomaMemoryNote {
   assert(content.startsWith("---\n"), "note must start with a frontmatter block (---)");
@@ -148,10 +168,13 @@ export function parseMemoryNote(content: string): SomaMemoryNote {
 /**
  * Serialize a note to its canonical file form. `parse(serialize(n)) === n` for
  * any note whose body is already trimmed (the parser trims, so parsed notes
- * round-trip byte-stably). Validates by round-tripping through the parser's
- * rules is the caller's job; this emits exactly what the grammar accepts.
+ * round-trip byte-stably). Throws `MemoryNoteError` if a nullable string field
+ * holds the reserved literal "null" — the one value the quote-less grammar
+ * cannot round-trip — so the law is total, not caveated.
  */
 export function serializeMemoryNote(note: SomaMemoryNote): string {
+  assertNotReservedNull(note.source_of_truth, "source_of_truth");
+  assertNotReservedNull(note.project, "project");
   const lines = [
     "---",
     `id: ${note.id}`,

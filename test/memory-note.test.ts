@@ -211,6 +211,22 @@ test("links without brackets throws", () => {
   expect(() => parseMemoryNote(bad)).toThrow("links");
 });
 
+test("serialize rejects the reserved literal \"null\" as source_of_truth", () => {
+  const n = { ...minimalNote(), source_of_truth: "null" };
+  expect(() => serializeMemoryNote(n)).toThrow(MemoryNoteError);
+  expect(() => serializeMemoryNote(n)).toThrow("source_of_truth");
+});
+
+test("serialize rejects the reserved literal \"null\" as project", () => {
+  const n = { ...minimalNote(), project: "null" };
+  expect(() => serializeMemoryNote(n)).toThrow("project");
+});
+
+test("a genuine null source_of_truth/project still serializes and round-trips", () => {
+  const n = { ...minimalNote(), source_of_truth: null, project: null };
+  expect(parseMemoryNote(serializeMemoryNote(n))).toEqual(n);
+});
+
 test("multi-entry links round-trip", () => {
   const n = { ...minimalNote(), links: ["a", "b-two", "c3"] };
   expect(parseMemoryNote(serializeMemoryNote(n)).links).toEqual(["a", "b-two", "c3"]);

@@ -2309,7 +2309,7 @@ export type SomaMemoryNoteType = "semantic" | "episodic" | "procedural";
 export type SomaMemoryTrust = "principal" | "agent" | "quarantined";
 
 export interface SomaMemoryNote {
-  id: string;                 // kebab slug, equals filename stem
+  id: string;                 // kebab slug; storage layer (M1) binds it to the filename stem
   type: SomaMemoryNoteType;
   created: string;            // YYYY-MM-DD
   last_verified: string;      // YYYY-MM-DD
