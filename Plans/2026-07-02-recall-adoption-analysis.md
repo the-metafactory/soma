@@ -39,11 +39,11 @@ recall is battle-tested (23 ADRs, 2,185 tests, 5,807 prod sessions) but its retr
 
 1. **Freshness/recency curve** → M3 retention recency term (replaces v1's linear recency).
 2. **Jaccard dedup (0.6 threshold)** → M1 write-path refusal.
-3. **Injection budget mechanics** → M4 projection (hard byte/line caps, drop-lowest-scored).
+3. **Injection budget mechanics** → M3 index renderer (INDEX ≤200-line/≤25KB budget, shed lowest-scored). M4 owns projection idempotency + the kill-switch, not the budget.
 4. **Sub-agent suppression** → M5 digest capture (sub-agent sessions write nothing).
 
 Plus two amendments: file-native JSONL access-event drain as a named v2 escape hatch (not v1); PreCompact accumulator as Claude-Code adapter enhancement (not kernel).
 
 ## Full agent outputs
 
-Workflow run `wf_63240eac-542`; per-agent results in the session transcript journal. Fit corpus + votes archived in this doc's tables above.
+Workflow run `wf_63240eac-542`. Per-agent results are a **local session artifact**, not committed: `~/.claude/projects/<session>/subagents/workflows/wf_63240eac-542/journal.jsonl` (one result line per agent). The judge scores and fit-lens verdicts that drove the verdict are reproduced verbatim in this doc's tables above; the raw transcript is not attachable to the repo, so those tables are the auditable record here.

@@ -50,7 +50,7 @@ Ordering unchanged: M0→M1→M2→M3→M4; M5 needs M0–M1; M6 needs M0–M3+M
 ### M1 — Write + verify CLI with recall-first refusal
 - **Delivers:** `src/memory-write.ts` (~350 LOC): `soma memory write|verify`; create-mode refuses when candidates exist; merge appends `**Update (date):**`; supersede sets `valid_until` + links; verify bumps `last_verified` + `resurface_count`.
 - **Reuses from recall (transplant #1 — highest value):** the **dedup engine idea** from `recall/src/lib/proposals.ts` + `dedup.ts` — sha256 exact-hash + Jaccard ≥ 0.6 near-match — reimplemented over a file corpus (walk `semantic/` + `procedural/`, hash normalized bodies, Jaccard on token sets) to power the refusal gate: error lists candidate ids + "re-run with `--merge`/`--supersede`/`--force`". Idea-port, not code copy (license).
-- **Soma builds:** trust tiers, merge/supersede semantics, refusal UX — recall has none of these.
+- **Soma builds:** trust tiers, merge/supersede semantics, refusal UX — recall has none of these. **Trust is NOT a free caller flag** (superseding v1's `--trust <t>`, which let a caller self-assert `principal` and bypass the poisoning defense): trust is derived from the write *trigger* — principal-authored writes require an explicit human-approval path, tool/import/agent-derived writes default to `quarantined`. `--trust principal` from an agent is refused.
 - **Acceptance:** create against a ≥0.6-similar existing note refuses with candidate ids; `--force` overrides; one event per mutation; verify-bump visible in frontmatter.
 
 ### M2 — Recall command with verification banners

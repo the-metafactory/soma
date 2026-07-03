@@ -207,7 +207,7 @@ Migration: **deferred by prior agreement.** Single note: `src/pai-memory-migrato
 
 ## 13. The death map — where knowledge goes to die
 
-Forensic deep-dive (5 parallel investigators + adversarial reviewer, atime forensics validated against bulk-sweep artifacts). Ranked by value destroyed:
+Forensic deep-dive (5 parallel investigators + adversarial reviewer). The figures below come from a **sampled** investigation (e.g. n=8 recent sessions for the transcript-capture rate); the raw atime/bulk-sweep artifacts are local session outputs, not attached here, so treat the percentages as investigative estimates, not audited totals. Ranked by value destroyed:
 
 1. **Purged transcripts with uncaptured corrections** — `~/.claude/projects/*` rolls off at ~30 days (oldest survivor 2026-05-26). Sampled 8 recent sessions: **~70% of durable, typed corrections never landed in any memory.** Gone forever: the soma-inter "you are here to oversee, don't do the work" role rule; the field-tested natural-prompt preference (whose stored recipe still encodes the *opposite* guidance); the sage-vs-persona classifier decision. Gold-grade signal on a 30-day fuse, zero recoverability. Capture is bimodal: projects with maintained auto-memory (cyphr-secwg26, 60+ files) capture nearly everything; projects without a memory dir capture nothing.
 2. **Ratings/sentiment pipeline** — 8,700+ entries; read back only as a *line count*. Content-analysis died Jan 17 (its one output, "NaN/10", fails its own reader's regex). Purpose-built consumers `OpinionTracker.ts` and `RelationshipReflect.ts` are complete, never-invoked programs. Since May the writer corrupts 50–62% of entries with timeout default rating=5.
