@@ -442,6 +442,13 @@ test("AC-1 / AC-2 smoke: real ~/work/PAI/Packs lands ≥30 skills incl. named is
       homeDir,
       paiRepo: REAL_PAI_REPO,
       paiPacksDir: REAL_PAI_PACKS,
+      // This smoke asserts only AC-1/AC-2 (pack→skill import). Docs import is
+      // orthogonal; skip it so the test does not couple to the real PAI release
+      // tree's docs state — a partial/malformed `Releases/*/.claude/PAI` (no
+      // `DOCUMENTATION/`) is correctly refused by the docs importer, but that
+      // refusal is not this test's concern and would fail the skills smoke on
+      // an unrelated env condition.
+      skipDocs: true,
     });
 
     // AC-1: at least 30 skills land.
