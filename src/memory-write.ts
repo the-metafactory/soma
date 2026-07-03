@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { lstat, mkdir, readdir, readFile, realpath, unlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, open, readdir, readFile, realpath, unlink, writeFile } from "node:fs/promises";
+import { constants as FS } from "node:fs";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { createPaths } from "./paths";
 import { runBoundedConcurrent } from "./internal-concurrency";
@@ -433,16 +434,36 @@ async function assertWriteContained(somaHome: string, path: string): Promise<voi
   }
 }
 
+/**
+ * Overwrite an EXISTING note's bytes with O_NOFOLLOW, closing the leaf-symlink
+ * TOCTOU: after the containment check, an attacker could swap the leaf for a
+ * symlink before the write. `wx` (create) is immune — O_CREAT|O_EXCL refuses a
+ * pre-existing symlink — but an overwrite ("w") would follow one, so open the
+ * leaf with O_NOFOLLOW and let `open` fail (ELOOP) rather than escape.
+ */
+async function overwriteNoFollow(path: string, content: string): Promise<void> {
+  const fh = await open(path, FS.O_WRONLY | FS.O_CREAT | FS.O_TRUNC | FS.O_NOFOLLOW, 0o644);
+  try {
+    await fh.writeFile(content, "utf8");
+  } finally {
+    await fh.close();
+  }
+}
+
 async function writeNoteFile(somaHome: string, path: string, note: SomaMemoryNote, flag: "wx" | "w"): Promise<void> {
   const content = serializeMemoryNote(note); // enforces the round-trip law before any byte hits disk
   await mkdir(dirname(path), { recursive: true });
-  await assertWriteContained(somaHome, path);
+  await assertWriteContained(somaHome, path); // parent-dir symlink guard
   try {
-    await writeFile(path, content, { encoding: "utf8", flag });
+    if (flag === "w") await overwriteNoFollow(path, content); // leaf-symlink guard
+    else await writeFile(path, content, { encoding: "utf8", flag });
   } catch (error) {
     const code = error instanceof Error && "code" in error ? error.code : undefined;
     if (code === "EEXIST") {
       throw new MemoryNoteError(`Soma memory note already exists: ${path}`, "id");
+    }
+    if (code === "ELOOP") {
+      throw new MemoryNoteError(`Refusing write: ${path} is a symlink (O_NOFOLLOW).`, "id");
     }
     throw error;
   }
@@ -451,12 +472,13 @@ async function writeNoteFile(somaHome: string, path: string, note: SomaMemoryNot
 /**
  * Restore raw bytes to `path` on a rollback, recreating the parent dir first —
  * a normal write always recreates parents (writeNoteFile), so the restore path
- * must too, or an externally-removed directory would defeat the rollback.
+ * must too, or an externally-removed directory would defeat the rollback. Uses
+ * the same O_NOFOLLOW overwrite as an edit so a rollback can't be redirected.
  */
 async function restoreBytes(somaHome: string, path: string, raw: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   await assertWriteContained(somaHome, path);
-  await writeFile(path, raw, "utf8");
+  await overwriteNoFollow(path, raw);
 }
 
 /**
@@ -683,9 +705,21 @@ async function supersedeNote(somaHome: string, options: SomaMemoryWriteOptions, 
   await writeNoteFile(somaHome, newPath, newNote, "wx");
   try {
     await writeNoteFile(somaHome, old.path, closed, "w");
-  } catch (error) {
-    await unlink(newPath).catch(() => undefined); // keep the supersede atomic-ish
-    throw error;
+  } catch (closeError) {
+    // Closing the old note failed (possibly after truncating it) and no event
+    // exists yet — fully undo: restore the old note's bytes AND drop the new one.
+    // Do NOT swallow the undo's own failures; surface them as an inconsistency.
+    try {
+      await restoreBytes(somaHome, old.path, old.raw);
+      await unlink(newPath);
+    } catch (undoError) {
+      throw new Error(
+        `Soma memory supersede failed to close ${old.note.id} AND the undo failed — ` +
+          `memory may be inconsistent; reconcile manually.`,
+        { cause: undoError },
+      );
+    }
+    throw closeError;
   }
 
   const event = await appendNoteMutationEvent(
