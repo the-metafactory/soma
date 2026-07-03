@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { access, mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createPaths } from "./paths";
+import { runBoundedConcurrent } from "./internal-concurrency";
 import { appendSomaMemoryEvent } from "./memory";
 import { parseMemoryNote, serializeMemoryNote, MemoryNoteError } from "./memory-note";
 import { SOMA_MEMORY_TRIGGER_TRUST } from "./types";
@@ -33,10 +34,12 @@ import type {
  * - **Invalidate, never delete** — `supersede` sets the old note's `valid_until`
  *   and cross-links; nothing is unlinked. `merge` delta-appends (ACE-style,
  *   never regenerates).
- * - One mutating call → exactly one events journal line: the file write and its
- *   event append are atomic — if the append fails, the file mutation is rolled
- *   back (created files unlinked, edited files restored to prior bytes), so the
- *   journal never under- or over-counts a mutation.
+ * - One mutating call → one events journal line: if the event append fails, the
+ *   file mutation is rolled back (created files unlinked, edited files restored
+ *   to prior bytes), so an append failure never leaves a note without its event.
+ *   This is NOT crash-atomic — a process kill in the window between the file
+ *   write and the append can still orphan a file from its event (a documented
+ *   gap reconciled by the M7 audit; soma has no WAL/2PC primitive).
  *
  * Deterministic: dates come from an injected `now` (UTC), no LLM calls, writes
  * stay within the Soma memory tree under `memory/semantic/` + `memory/procedural/`.
@@ -76,19 +79,34 @@ function assertNoteId(id: string): void {
 }
 
 /**
- * Append the mutation's event; on failure, roll the file mutation back so the
- * "one mutation → one event" invariant holds. `rollback` restores disk to its
- * pre-mutation state (unlink a created file, or rewrite an edited one's prior
- * bytes).
+ * Append the mutation's event; if the append fails, roll the file mutation back
+ * so no file mutation is ever left without its event. `rollback` restores disk
+ * to its pre-mutation state (unlink a created file, or rewrite an edited one's
+ * prior bytes) and MUST throw if it cannot — a swallowed rollback failure would
+ * report "rolled back" while leaving the note in a mutated state.
+ *
+ * NOTE (honest limitation): this guards against an append *rejection*, not a
+ * process crash/kill in the window between the file write and this append. A
+ * hard crash there can still leave a file without an event; the journal is
+ * best-effort append-only and that gap is reconciled by a later audit (M7), not
+ * prevented here. Soma has no write-ahead-log / 2-phase-commit primitive.
  */
 async function appendMutationEvent(
   somaHome: string,
   input: Parameters<typeof appendSomaMemoryEvent>[1],
   rollback: () => Promise<void>,
 ): ReturnType<typeof appendSomaMemoryEvent> {
-  return appendSomaMemoryEvent(somaHome, input).catch(async (error: unknown) => {
-    await rollback().catch(() => undefined);
-    throw new Error(`Soma memory ${input.kind} event append failed; rolled back the file mutation.`, { cause: error });
+  return appendSomaMemoryEvent(somaHome, input).catch(async (appendError: unknown) => {
+    try {
+      await rollback();
+    } catch (rollbackError) {
+      throw new Error(
+        `Soma memory ${input.kind} event append failed AND the rollback failed — ` +
+          `memory may be inconsistent; reconcile manually.`,
+        { cause: rollbackError },
+      );
+    }
+    throw new Error(`Soma memory ${input.kind} event append failed; rolled back the file mutation.`, { cause: appendError });
   });
 }
 
@@ -169,34 +187,40 @@ function assertMayMutatePrincipal(target: SomaMemoryNote, options: SomaMemoryWri
   );
 }
 
+// Bounded read concurrency for the dedup scan — parallel enough to not serialize
+// on every note, capped so a large corpus can't spike FDs on the write path.
+const DEDUP_SCAN_CONCURRENCY = 16;
+
 /**
  * Parse every `.md` note under the durable corpus; skip unreadable/malformed.
  * Returns `ScannedNote` (no `raw`) — the only caller is the dedup scan, which
  * never needs the bytes; `loadNoteById` reads raw itself for its rollback path.
  */
 async function collectDurableNotes(somaHome: string): Promise<ScannedNote[]> {
-  // Read files with per-directory parallelism (matches src/memory.ts's search
-  // walk) — a create against a large corpus must not serialize on every read.
-  const perType = await Promise.all(
-    (Object.keys(WRITABLE_TYPE_DIRS) as WritableType[]).map(async (type) => {
-      const dir = typeDir(somaHome, type);
-      const entries = (await readdir(dir).catch(() => [] as string[])).filter((entry) => entry.endsWith(".md"));
-      const notes = await Promise.all(
-        entries.map(async (entry): Promise<ScannedNote | undefined> => {
-          const path = join(dir, entry);
-          const content = await readFile(path, "utf8").catch(() => undefined);
-          if (content === undefined) return undefined;
-          try {
-            return { path, type, note: parseMemoryNote(content) };
-          } catch {
-            return undefined; // a hand-broken note must not block a legitimate write
-          }
-        }),
-      );
-      return notes.filter((entry): entry is ScannedNote => entry !== undefined);
-    }),
+  // Enumerate all note files across both durable dirs, then read them with a
+  // bounded concurrency window (shared helper) rather than one unbounded
+  // Promise.all over the whole tree.
+  const targets: { path: string; type: WritableType }[] = [];
+  for (const type of Object.keys(WRITABLE_TYPE_DIRS) as WritableType[]) {
+    const dir = typeDir(somaHome, type);
+    const entries = (await readdir(dir).catch(() => [] as string[])).filter((entry) => entry.endsWith(".md"));
+    for (const entry of entries) targets.push({ path: join(dir, entry), type });
+  }
+
+  const scanned = await runBoundedConcurrent(
+    targets,
+    async ({ path, type }): Promise<ScannedNote | undefined> => {
+      const content = await readFile(path, "utf8").catch(() => undefined);
+      if (content === undefined) return undefined;
+      try {
+        return { path, type, note: parseMemoryNote(content) };
+      } catch {
+        return undefined; // a hand-broken note must not block a legitimate write
+      }
+    },
+    DEDUP_SCAN_CONCURRENCY,
   );
-  return perType.flat();
+  return scanned.filter((entry): entry is ScannedNote => entry !== undefined);
 }
 
 /**
@@ -253,8 +277,11 @@ function resolveProvenance(options: SomaMemoryWriteOptions): string {
       return "consolidation";
     case "import": {
       const provenance = options.provenance ?? "import";
-      if (provenance !== "import" && !/^tool:.+/.test(provenance)) {
-        throw new MemoryNoteError(`import provenance must be "import" or "tool:<name>".`, "provenance");
+      // Anchored safe grammar at the trust boundary: a `tool:` name is a bounded
+      // slug, so untrusted import input can't smuggle a newline/extra frontmatter
+      // field (e.g. `tool:x\ntrust: principal`) through this check.
+      if (provenance !== "import" && !/^tool:[a-z0-9][a-z0-9._-]{0,63}$/i.test(provenance)) {
+        throw new MemoryNoteError(`import provenance must be "import" or "tool:<name>" (name: [a-z0-9._-], <=64 chars).`, "provenance");
       }
       return provenance;
     }
@@ -478,10 +505,12 @@ async function supersedeNote(somaHome: string, options: SomaMemoryWriteOptions, 
       artifactPaths: [newPath, old.path],
       metadata: { id: newNote.id, supersededId: closed.id },
     },
-    // roll back BOTH sides: drop the new note AND reopen the closed one.
+    // roll back BOTH sides — reopen the closed note FIRST (the trusted state we
+    // most need to restore), then drop the new one. Failures are NOT swallowed:
+    // appendMutationEvent surfaces them as an inconsistency error.
     async () => {
-      await unlink(newPath).catch(() => undefined);
-      await writeFile(old.path, old.raw, "utf8").catch(() => undefined);
+      await writeFile(old.path, old.raw, "utf8");
+      await unlink(newPath);
     },
   );
 

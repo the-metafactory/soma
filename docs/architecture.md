@@ -115,8 +115,9 @@ MEMORY/
 The initial version should avoid requiring a vector database. Search can start
 with filenames, frontmatter, ripgrep, and small deterministic indexes.
 
-The `MEMORY/*` compartments above are the legacy tier (free-form markdown per
-compartment, searched by `soma memory search`). The **memory-note subsystem**
+The `MEMORY/*` stores above are the legacy tier (free-form markdown per store,
+searched by `soma memory search`) — sub-stores within the single Memory
+compartment, not peer Soma compartments. The **memory-note subsystem**
 (plan v2, milestones M0–M7) is a *separate*, schema-governed durable store that
 lives alongside them under lowercase `memory/`:
 
