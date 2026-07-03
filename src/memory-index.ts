@@ -163,12 +163,13 @@ function compareScored(a: ScoredLine, b: ScoredLine): number {
 
 function pointerLine(note: SomaMemoryNote, now: Date): string {
   // "verified Nd ago" is computed HERE, at rebuild time, from the injected now —
-  // never a wall clock at projection time (M4 invariant AC-4). The id is
-  // slug-validated by the parser (no control chars possible in a note that
-  // parsed), but run it through oneLine anyway so EVERY note-authored field on
-  // this always-loaded line stays on the sanitize path — no raw text can break
-  // the one-line pointer invariant or inject into projected memory. trust is an
-  // enum and the age is a number, so both are safe as-is.
+  // never a wall clock at projection time (M4 invariant AC-4). Both id and
+  // descriptor go through oneLine, which enforces the one-line pointer invariant
+  // and strips control chars — NOT a semantic prompt-injection defense: the
+  // descriptor deliberately projects note-authored hook/body text (that IS the
+  // index). What keeps untrusted text out is the admission ladder upstream
+  // (quarantined excluded, non-principal admitted only after verified resurfacing).
+  // trust is an enum and the age a number, so both are safe as-is.
   const id = oneLine(note.id, DESCRIPTOR_MAX);
   return `- ${id} — ${descriptorFor(note)} · ${note.trust}, verified ${ageDays(note.last_verified, now)}d ago`;
 }
@@ -333,7 +334,7 @@ export function memoryIndexPath(somaHome: string): string {
  * Collect every durable note (semantic + procedural) for indexing, plus the
  * unreadable-file blind spot. Episodic notes join here when M5 lands their dir.
  */
-export async function collectAllNotes(somaHome: string): Promise<{ notes: SomaMemoryNote[]; unreadable: string[] }> {
+async function collectAllNotes(somaHome: string): Promise<{ notes: SomaMemoryNote[]; unreadable: string[] }> {
   const { notes, unreadable } = await collectDurableNotes(somaHome);
   return { notes: notes.map((scanned) => scanned.note), unreadable };
 }
