@@ -13,7 +13,7 @@
 
 **Decisive reasons:**
 
-1. **No LICENSE exists.** `~/work/mf/recall` has no LICENSE file on disk today; recall's ADR 0023 public/MIT flip is still operator-gated. Any code dependency or vendoring is legally unfounded now — porting *ideas* is the only clean move, which is what this plan does.
+1. **No LICENSE exists.** As analyzed at recall commit `c57a196` (2026-07-03), `~/work/mf/recall` has no LICENSE file; recall's ADR 0023 public/MIT flip is still operator-gated. Any code dependency or vendoring is legally unfounded at that revision — porting *ideas* is the only clean move, which is what this plan does. (Pinned to a commit so the claim is auditable and re-checkable if upstream adds a license later.)
 2. **Recall's canon is SQLite, soma's commitment is files.** `session_summaries`, `memories`, `edges`, `proposals` exist only in `~/.recall/recall.db` with no file representation and no rebuild-from-files path. Adopting it breaks soma's stated commitment "Keep memory filesystem-native" (`src/soma-home.ts:63`, projected into `~/.claude/rules/soma/PURPOSE.md`).
 3. **~80% of recall's cognition surface is falsified by its own author.** ADR 0019 flag-disabled the proposal gate ("theatre", flat 0.95 confidence), decay/consolidation ("fired hundreds of times producing nothing"), the knowledge graph, and the InsightDetector. Wholesale adoption imports the corpse alongside the working 20%.
 4. **The proven 20% is small and portable.** Freshness math (`freshness-score.ts`, 102 lines), dedup (`dedup.ts`/`proposals.ts`, ~131 lines), inject budget mechanics, and sub-agent suppression are deterministic, dependency-free ideas that fold into soma's existing milestones in days — most of recall's surviving philosophy (summaries-as-primary-unit, read-path-first, budget-bounded injection) soma had already converged on independently.
@@ -25,7 +25,9 @@
 
 ---
 
-## 2. Fixed contracts (carried from v1, unchanged — judges did not overturn any)
+## 2. Fixed contracts (carried from v1 — judges did not overturn the storage/schema/index contracts)
+
+Note: the *storage, note-schema, and INDEX* contracts below are unchanged from v1. The write-path **trust** governance is the one refinement (see M1): v1's self-assertable `--trust` flag is superseded — trust is derived from the write trigger. The section header scopes to the data contracts, not the trust CLI.
 
 - **Note schema** (v1 §2.2): 12 frontmatter keys — `id, type, created, last_verified, valid_until, provenance, trust, source_of_truth, project, links, resurface_count`, optional `hook:`/`review:`. Hand-written parser, tiny grammar, reject unknown keys, round-trip law `parse(serialize(n)) == n`.
 - **Filesystem-native source of truth**: markdown under `~/.soma/memory/` — `INDEX.md`, `semantic/<id>.md`, `episodic/{sessions,actions}/YYYY-MM/`, `episodic/digests/YYYY-MM.md`, `procedural/<id>.md`, `archive/`, `state/` — git-versioned, no database.
@@ -68,7 +70,7 @@ Ordering unchanged: M0→M1→M2→M3→M4; M5 needs M0–M1; M6 needs M0–M3+M
 - **Acceptance:** quarantined score 0 and never in INDEX; budget enforcement sheds lowest-score lines first with deterministic output; golden-file test for `INDEX.md` given a fixture tree and fixed `now`.
 
 ### M4 — Claude Code projection
-- **Delivers:** projection of `INDEX.md` → `~/.claude/rules/soma/MEMORY.md` wired into `src/adapters/claude-code.ts` (array AND map; `ProjectionInput` gains `profile.memory.indexContent`; ~120 LOC). `MEMORY_LAYOUT.md` untouched.
+- **Delivers:** projection of `INDEX.md` → `~/.claude/rules/soma/MEMORY.md` wired into `src/adapters/claude-code.ts` (array AND map; `ProjectionInput` gains `memory.indexContent` — a sibling surface, NOT under `profile`, since docs/architecture.md makes Identity and Memory peer compartments; ~120 LOC). `MEMORY_LAYOUT.md` untouched.
 - **Reuses from recall (transplant #4a):** the **soft-fail exit-0 contract + kill-switch hierarchy pattern** (recall's `RECALL_DISABLE`/`RECALL_DISABLE_INJECT` tiers) → `SOMA_MEMORY_DISABLE=1` (all memory behavior) and `SOMA_MEMORY_DISABLE_PROJECT=1` (projection only). Pattern copy, zero code.
 - **Soma builds:** idempotency — projected content is verbatim stored content, **no wall clock in projected output** (hard invariant AC-4; "verified Nd ago" is computed at index *rebuild* time, not projection time).
 - **Acceptance:** two consecutive `soma install claude-code` runs with unchanged source write identical bytes; uninstall removes cleanly.

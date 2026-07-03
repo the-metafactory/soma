@@ -37,6 +37,8 @@ recall is battle-tested (23 ADRs, 2,185 tests, 5,807 prod sessions) but its retr
 
 ## What Soma takes (the four transplants)
 
+All source references below are pinned to recall commit `c57a196` (2026-07-03), the revision analyzed; line numbers are as of that commit.
+
 1. **Freshness/recency curve** → M3 retention recency term (replaces v1's linear recency).
 2. **Jaccard dedup (0.6 threshold)** → M1 write-path refusal.
 3. **Injection budget mechanics** → M3 index renderer (INDEX ≤200-line/≤25KB budget, shed lowest-scored). M4 owns projection idempotency + the kill-switch, not the budget.
