@@ -161,23 +161,24 @@ export function memoryNotePath(somaHome: string, type: WritableType, id: string)
 
 // --- dedup engine (transplant #1) --------------------------------------------
 
-/** Normalized body for exact-hash comparison: lowercased, whitespace-collapsed. */
-function normalizeBody(body: string): string {
-  return body.toLowerCase().replace(/\s+/g, " ").trim();
-}
-
-function bodyHash(body: string): string {
-  return createHash("sha256").update(normalizeBody(body)).digest("hex");
+// Hash + token set both start from ONE lowercased pass over the body — the
+// lower-aware variants (`*FromLower`) let the scan loop lowercase each note once
+// and derive both from it, instead of two `.toLowerCase()` passes per note.
+function hashFromLower(lower: string): string {
+  return createHash("sha256").update(lower.replace(/\s+/g, " ").trim()).digest("hex");
 }
 
 /** Token set for Jaccard near-match — 3+ char alnum tokens, same floor as search. */
+function tokensFromLower(lower: string): Set<string> {
+  return new Set(lower.split(/[^a-z0-9À-ɏ]+/i).filter((token) => token.length >= 3));
+}
+
+function bodyHash(body: string): string {
+  return hashFromLower(body.toLowerCase());
+}
+
 function bodyTokens(body: string): Set<string> {
-  return new Set(
-    body
-      .toLowerCase()
-      .split(/[^a-z0-9À-ɏ]+/i)
-      .filter((token) => token.length >= 3),
-  );
+  return tokensFromLower(body.toLowerCase());
 }
 
 function jaccard(a: Set<string>, b: Set<string>): number {
@@ -324,8 +325,9 @@ export async function findDuplicateCandidates(somaHome: string, body: string): P
   const { notes, unreadable } = await collectDurableNotes(somaHome);
   for (const { path, type, note } of notes) {
     if (note.valid_until !== null) continue;
-    const exact = bodyHash(note.body) === hash;
-    const score = exact ? 1 : jaccard(tokens, bodyTokens(note.body));
+    const lower = note.body.toLowerCase(); // one pass, feeds both hash and tokens
+    const exact = hashFromLower(lower) === hash;
+    const score = exact ? 1 : jaccard(tokens, tokensFromLower(lower));
     if (exact || score >= MEMORY_DEDUP_JACCARD_THRESHOLD) {
       candidates.push({ id: note.id, type, path, score, exact });
     }
@@ -411,8 +413,18 @@ async function loadNoteById(somaHome: string, id: string): Promise<LoadedNote> {
   assertNoteId(id); // a lookup id is also a path segment — never probe an unsafe one
   for (const type of WRITABLE_TYPES) {
     const path = memoryNotePath(somaHome, type, id);
-    const raw = await readFile(path, "utf8").catch(() => undefined);
-    if (raw === undefined) continue;
+    let raw: string;
+    try {
+      raw = await readFile(path, "utf8");
+    } catch (error) {
+      // Only a genuinely-absent file (ENOENT) is "not here, try the next type".
+      // Any OTHER read failure must NOT masquerade as absence — that would break
+      // the global-id guarantee (fall through to a same-id note of the other
+      // type, or wrongly report not-found on an existing-but-unreadable note).
+      const code = error instanceof Error && "code" in error ? error.code : undefined;
+      if (code === "ENOENT") continue;
+      throw new MemoryNoteError(`Soma memory note ${id} exists at ${path} but is unreadable: ${String(error)}`, "id");
+    }
     return { path, type, note: parseMemoryNote(raw), raw };
   }
   throw new MemoryNoteError(`Soma memory note not found: ${id}`, "id");
