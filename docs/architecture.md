@@ -101,19 +101,49 @@ registries, while the personal Soma home remains owned by one principal. See
 
 ### Memory
 
-Memory is structured as files first:
+Memory is structured as files first, under a single lowercase `memory/` root
+(one canonical root — the layout never relies on distinguishing `memory` from
+`MEMORY`, which case-insensitive filesystems collapse):
 
 ```text
-MEMORY/
-  WORK/
+memory/
+  WORK/            # legacy free-form stores (searched by `soma memory search`)
   KNOWLEDGE/
   LEARNING/
   RELATIONSHIP/
-  STATE/
+  STATE/           # events.jsonl lives here
+  semantic/<id>.md   # memory-note subsystem (M0–M7): durable facts   (dedup-gated)
+  procedural/<id>.md #   playbooks / how-to                            (dedup-gated)
+  episodic/…         #   session digests + action log (M5)
+  INDEX.md           #   earned-inclusion index (M3)
 ```
 
 The initial version should avoid requiring a vector database. Search can start
 with filenames, frontmatter, ripgrep, and small deterministic indexes.
+
+The uppercase-named legacy stores (`WORK`, `KNOWLEDGE`, …) hold free-form
+markdown; the **memory-note subsystem** (plan v2, milestones M0–M7) is a
+*separate*, schema-governed durable store whose lowercase-named directories
+(`semantic`, `procedural`, `episodic`) sit as siblings under the same `memory/`
+root. Both are sub-stores within the single Memory compartment, not peer Soma
+compartments.
+
+Each note is one file: strict frontmatter (id, type, trust, provenance,
+bi-temporal `valid_until`, `last_verified`, `resurface_count`, links) plus a
+markdown body. `soma memory write|verify` (M1) is the only *governed* write path
+(a convention, not a filesystem-enforced guarantee — nothing stops out-of-band
+edits to the markdown, which is why every recalled note carries a verification
+banner). Through it, trust is derived from the write trigger, writes are
+dedup-gated (recall-first refusal),
+and each mutation appends one event to the **existing** `memory/STATE/events.jsonl`
+stream (the same journal the Observability section reads — note mutations do not
+fork a second event stream). The write/event coupling is best-effort, not
+crash-atomic: an event-append *failure* rolls the file mutation back, but a hard
+process crash in the window between the two can still orphan a file from its
+event (a documented gap reconciled by the M7 audit; soma has no WAL/2PC). This
+taxonomy is intentionally distinct from the `MEMORY/*` stores: those stores hold
+curated free-form material; the note store holds single-fact, governed,
+decay-tracked notes.
 
 Cross-machine Soma state uses **Home replication**, not projection refresh or
 substrate writeback. The design is Git-backed first, policy-gated per scope,

@@ -2335,3 +2335,140 @@ export interface SomaMemoryNote {
   review?: string;            // optional: review directive
   body: string;               // markdown after the closing ---
 }
+
+// Memory subsystem M1 (write + verify). Plan v2 §M1 (do not redesign the
+// governance model): trust is NOT selectable via a `--trust` flag — it is DERIVED
+// from the write trigger, and elevating above `quarantined` needs a deliberate
+// authority signal. Honest scope: the ENFORCED boundary is the CLI surface (no
+// public self-assert path), not the SDK — an in-process caller can still set the
+// `principalAuthority`/`consolidationAuthority` booleans, as soma has no
+// cryptographic capability primitive (CONTEXT.md reserves bare `agent`; use
+// `assistant`/substrate). THREE of
+// design §7's five triggers reach the `write` path (principal-correction, import,
+// consolidation); the other two — session-end and consequential-action — are
+// M5's episodic `digest`/`action`, NOT `write`. M1 owns the durable, dedup-gated
+// types (semantic + procedural).
+
+/**
+ * The governed write trigger (design §7). Trust is a pure function of this value
+ * (see {@link SOMA_MEMORY_TRIGGER_TRUST}); there is no `--trust` flag. Only these
+ * three reach the `write` path in M1:
+ * - `principal-correction` — the principal said "remember"/"no, always X". The
+ *   ONLY path to `principal` trust, and the documented principal-authority gate.
+ * - `import` — migration / external doc. Untrusted source → `quarantined` (MINJA
+ *   defense: tool/web content never lands trusted).
+ * - `consolidation` — the M6 consolidator promoting/merging → `assistant`.
+ * (`session-end` and `consequential-action` are the other two design-§7 triggers;
+ * they belong to M5's episodic path, not `write`.)
+ */
+export const SOMA_MEMORY_WRITE_TRIGGERS = ["principal-correction", "import", "consolidation"] as const;
+export type SomaMemoryWriteTrigger = (typeof SOMA_MEMORY_WRITE_TRIGGERS)[number];
+
+/** Trust derived from trigger — the whole M1 governance model in one table. */
+export const SOMA_MEMORY_TRIGGER_TRUST: Record<SomaMemoryWriteTrigger, SomaMemoryTrust> = {
+  "principal-correction": "principal",
+  import: "quarantined",
+  consolidation: "assistant",
+};
+
+/** Create (dedup-gated), merge (delta-edit target), or supersede (close old + create new). */
+export type SomaMemoryWriteMode = "create" | "merge" | "supersede";
+
+/** A near-duplicate surfaced by the recall-first refusal gate (Jaccard ≥ 0.6 or exact-body hash). */
+export interface SomaMemoryDuplicateCandidate {
+  id: string;
+  type: SomaMemoryNoteType;
+  path: string;
+  /** 1.0 for an exact normalized-body hash match, else the Jaccard token-set score. */
+  score: number;
+  exact: boolean;
+}
+
+export interface SomaMemoryWriteOptions {
+  homeDir?: string;
+  somaHome?: string;
+  substrate?: SubstrateId;
+  /** Injected clock for deterministic `created`/`last_verified`. Defaults to now. */
+  now?: Date;
+
+  mode: SomaMemoryWriteMode;
+  trigger: SomaMemoryWriteTrigger;
+  /**
+   * The deliberate-escalation gate for `principal` trust. `principal-correction`
+   * mints a `principal` note only when this is set — otherwise it is REFUSED, so
+   * an automated/agent invocation can never mint principal trust incidentally
+   * from the trigger alone. This is a sudo-style deliberate + logged escalation,
+   * NOT cryptographic principal authentication (soma has no such primitive — a
+   * recorded limitation). The CLI sets it from an explicit `--principal-authority`
+   * flag; it is intentionally NOT an env var (ambient authority is the footgun
+   * this gate exists to close). Ignored for import/consolidation triggers.
+   */
+  principalAuthority?: boolean;
+  /**
+   * The consolidation counterpart of {@link principalAuthority}: `consolidation`
+   * mints `assistant` trust, so it too requires an explicit signal. Like
+   * `principalAuthority`, this is a sudo-style deliberate flag, NOT a
+   * cryptographically enforced capability — at the SDK layer an in-process caller
+   * (intended: the M6 consolidator) sets it, exactly as they would set
+   * `principalAuthority`; soma has no capability primitive to make it
+   * unforgeable. What IS enforced is the surface: it is intentionally NOT exposed
+   * as a public CLI flag and `--trigger consolidation` is refused on the CLI, so
+   * the public command-line cannot mint assistant trust. Ignored for
+   * principal/import triggers.
+   */
+  consolidationAuthority?: boolean;
+
+  /** create/supersede: the new note's id. merge: unused (target is `--merge <id>`). */
+  id?: string;
+  type?: SomaMemoryNoteType;
+  body: string;
+  project?: string | null;
+  sourceOfTruth?: string | null;
+  links?: string[];
+  hook?: string;
+  review?: string;
+  /**
+   * Only meaningful for `import` (`import` or `tool:<name>`); forced to
+   * `conversation` for principal-correction and `consolidation` otherwise.
+   */
+  provenance?: string;
+
+  /** merge: id of the note to delta-edit. supersede: id of the note to close. */
+  targetId?: string;
+  /** create only: bypass the recall-first refusal gate. */
+  force?: boolean;
+}
+
+export interface SomaMemoryWriteResult {
+  somaHome: string;
+  mode: SomaMemoryWriteMode;
+  path: string;
+  note: SomaMemoryNote;
+  /** supersede only: the id of the note that was closed (valid_until set). Undefined for create/merge. */
+  supersededId?: string;
+  event: SomaMemoryEvent;
+}
+
+export interface SomaMemoryVerifyOptions {
+  homeDir?: string;
+  somaHome?: string;
+  substrate?: SubstrateId;
+  now?: Date;
+  id: string;
+  /**
+   * Verifying mutates a note's decay signals (`last_verified`, `resurface_count`),
+   * so verifying a non-quarantined note needs that tier's authority — otherwise a
+   * tool caller could keep a trusted note artificially fresh in the index.
+   * `principal` notes need this; ignored for quarantined notes.
+   */
+  principalAuthority?: boolean;
+  /** As above, for `assistant`-trust notes. Ignored for principal/quarantined notes. */
+  consolidationAuthority?: boolean;
+}
+
+export interface SomaMemoryVerifyResult {
+  somaHome: string;
+  path: string;
+  note: SomaMemoryNote;
+  event: SomaMemoryEvent;
+}

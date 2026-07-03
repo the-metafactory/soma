@@ -167,7 +167,17 @@ export type {
 } from "./types";
 export { SOMA_RESULT_EVENT_KINDS } from "./types";
 export { SOMA_MEMORY_NOTE_TYPES, SOMA_MEMORY_TRUSTS } from "./types";
+export { SOMA_MEMORY_WRITE_TRIGGERS, SOMA_MEMORY_TRIGGER_TRUST } from "./types";
 export type { SomaMemoryNote, SomaMemoryNoteType, SomaMemoryTrust } from "./types";
+export type {
+  SomaMemoryWriteTrigger,
+  SomaMemoryWriteMode,
+  SomaMemoryWriteOptions,
+  SomaMemoryWriteResult,
+  SomaMemoryVerifyOptions,
+  SomaMemoryVerifyResult,
+  SomaMemoryDuplicateCandidate,
+} from "./types";
 
 export {
   addAlgorithmCapabilities,
@@ -434,6 +444,11 @@ export {
 export { captureSomaFeedback, classifySomaFeedback, maybeSomaFeedbackPrompt } from "./feedback";
 export { appendSomaMemoryEvent, searchSomaMemory, somaMemoryEventsPath } from "./memory";
 export { MemoryNoteError, parseMemoryNote, serializeMemoryNote } from "./memory-note";
+// Public write surface only. Path/dedup helpers (memoryNotePath,
+// findDuplicateCandidates, MEMORY_DEDUP_JACCARD_THRESHOLD) stay module-private so
+// the storage layout and dedup threshold are not frozen as stable API — internal
+// soma modules (M2/M3/M6) and tests import them from "./memory-write" directly.
+export { writeMemoryNote, verifyMemoryNote } from "./memory-write";
 export { createSomaSnapshot, listSomaSnapshots, rollbackSomaSnapshot } from "./snapshots";
 export { querySomaTelemetryEvents, summarizeSomaTelemetry } from "./observability";
 export {

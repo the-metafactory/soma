@@ -1,0 +1,836 @@
+import { createHash } from "node:crypto";
+import { lstat, mkdir, open, readdir, readFile, realpath, unlink, writeFile } from "node:fs/promises";
+import { constants as FS } from "node:fs";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
+import { createPaths } from "./paths";
+import { runBoundedConcurrent } from "./internal-concurrency";
+import { appendSomaMemoryEvent } from "./memory";
+import { parseMemoryNote, serializeMemoryNote, MemoryNoteError } from "./memory-note";
+import { SOMA_MEMORY_TRIGGER_TRUST } from "./types";
+import type {
+  SomaMemoryDuplicateCandidate,
+  SomaMemoryNote,
+  SomaMemoryNoteType,
+  SomaMemoryTrust,
+  SomaMemoryVerifyOptions,
+  SomaMemoryVerifyResult,
+  SomaMemoryWriteOptions,
+  SomaMemoryWriteResult,
+} from "./types";
+
+/**
+ * Memory write + verify (subsystem M1). Plan v2 §M1 (do not redesign the
+ * governance model):
+ *
+ * - **Trust is derived from the trigger**, never a caller flag. Any tier above
+ *   `quarantined` needs that tier's explicit authority signal to be minted (or an
+ *   existing note of that tier to be mutated): `principal-correction` →
+ *   `principal` (needs `principalAuthority`); `consolidation` → `assistant`
+ *   (needs `consolidationAuthority`); `import` → `quarantined`, free (MINJA
+ *   defense). Two honest limits: (1) the signals are sudo-style deliberate
+ *   booleans, NOT cryptographic capabilities — the ENFORCED surface is the CLI
+ *   (no `--*-authority` self-assert path for consolidation; `--trigger
+ *   consolidation` refused), while an in-process SDK caller can set the boolean,
+ *   as soma has no capability primitive. (2) Authorization is CHECKED at the gate
+ *   (`assertTierAuthority`); it is separately RECORDED in the mutation's event on
+ *   success — the audit trail exists only if the mutation reaches event append.
+ * - **Recall-first refusal** — `create` walks the durable corpus (`semantic/` +
+ *   `procedural/`), hashes normalized bodies, and refuses when an active note is
+ *   an exact-body match OR Jaccard ≥ 0.6 (transplant #1 from recall's dedup
+ *   idea; reimplemented over files, not copied). Unreadable/malformed notes
+ *   can't be scanned, so their count is surfaced (in the refusal message and the
+ *   create event) — the gate never fails open silently. `--force` overrides;
+ *   `merge` / `supersede` name a target explicitly and skip the gate.
+ * - **Invalidate, never delete** — `supersede` sets the old note's `valid_until`
+ *   and cross-links; nothing is unlinked. `merge` delta-appends (ACE-style,
+ *   never regenerates).
+ * - One mutating call → one events journal line: if the event append fails, the
+ *   file mutation is rolled back (created files unlinked, edited files restored
+ *   to prior bytes), so an append failure never leaves a note without its event.
+ *   This is NOT crash-atomic — a process kill in the window between the file
+ *   write and the append can still orphan a file from its event (a documented
+ *   gap reconciled by the M7 audit; soma has no WAL/2PC primitive).
+ *
+ * Deterministic: dates come from an injected `now` (UTC), no LLM calls, writes
+ * stay within the Soma memory tree under `memory/semantic/` + `memory/procedural/`.
+ */
+
+// The recall-first refusal fires at/above this Jaccard token-set overlap.
+// Adapted from recall's dedup concept (see Plans/2026-07-02-recall-adoption-analysis.md);
+// Soma owns the constant after port.
+export const MEMORY_DEDUP_JACCARD_THRESHOLD = 0.6;
+
+// The durable, dedup-gated corpus. Episodic notes live elsewhere (M5) and are
+// not written through this path.
+const WRITABLE_TYPE_DIRS: Record<Exclude<SomaMemoryNoteType, "episodic">, string> = {
+  semantic: "semantic",
+  procedural: "procedural",
+};
+
+type WritableType = Exclude<SomaMemoryNoteType, "episodic">;
+
+// One source of truth for the writable-type enumeration — every helper that
+// walks both durable dirs reuses this instead of re-casting Object.keys. Exported
+// so the CLI validates `--type` against the same list the writer routes on.
+export const WRITABLE_NOTE_TYPES = Object.keys(WRITABLE_TYPE_DIRS) as WritableType[];
+const WRITABLE_TYPES = WRITABLE_NOTE_TYPES;
+
+/** True iff `value` is a note type the write path accepts (semantic|procedural). */
+export function isWritableNoteType(value: string): value is WritableType {
+  return (WRITABLE_NOTE_TYPES as readonly string[]).includes(value);
+}
+
+// Trust ordering for the mutation gate: content may never be injected into a
+// note of HIGHER trust than the mutation's own trigger carries.
+const TRUST_RANK: Record<SomaMemoryTrust, number> = { quarantined: 0, assistant: 1, principal: 2 };
+
+function assertNonEmpty(value: string | undefined, field: string): asserts value is string {
+  if (value === undefined || value.trim().length === 0) {
+    throw new MemoryNoteError(`Soma memory write ${field} must not be empty.`, field);
+  }
+}
+
+// Same slug grammar the M0 parser enforces on `id`. Validated HERE at the write
+// boundary — before the id is ever joined into a filesystem path — so a
+// traversal id (`../../evil`) is refused up front rather than incidentally by
+// serialize's round-trip re-parse. Defense in depth: memoryNotePath must never
+// receive an unvalidated id.
+const NOTE_ID_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+function assertNoteId(id: string): void {
+  if (!NOTE_ID_SLUG.test(id) || id.length > 64) {
+    throw new MemoryNoteError(`id "${id}" is not a valid slug (lowercase [a-z0-9-], <=64 chars).`, "id");
+  }
+}
+
+/**
+ * Append the mutation's event; if the append fails, roll the file mutation back
+ * so no file mutation is ever left without its event. `rollback` restores disk
+ * to its pre-mutation state (unlink a created file, or rewrite an edited one's
+ * prior bytes) and MUST throw if it cannot — a swallowed rollback failure would
+ * report "rolled back" while leaving the note in a mutated state.
+ *
+ * NOTE (honest limitation): this guards against an append *rejection*, not a
+ * process crash/kill in the window between the file write and this append. A
+ * hard crash there can still leave a file without an event; the journal is
+ * best-effort append-only and that gap is reconciled by a later audit (M7), not
+ * prevented here. Soma has no write-ahead-log / 2-phase-commit primitive.
+ */
+async function appendMutationEvent(
+  somaHome: string,
+  input: Parameters<typeof appendSomaMemoryEvent>[1],
+  rollback: () => Promise<void>,
+): ReturnType<typeof appendSomaMemoryEvent> {
+  return appendSomaMemoryEvent(somaHome, input).catch(async (appendError: unknown) => {
+    try {
+      await rollback();
+    } catch (rollbackError) {
+      throw new Error(
+        `Soma memory ${input.kind} event append failed AND the rollback failed — ` +
+          `memory may be inconsistent; reconcile manually.`,
+        { cause: rollbackError },
+      );
+    }
+    throw new Error(`Soma memory ${input.kind} event append failed; rolled back the file mutation.`, { cause: appendError });
+  });
+}
+
+/**
+ * Fill the shared event envelope (timestamp + substrate) for a note mutation so
+ * the four mutation paths can't drift on journal shape, then append-with-rollback.
+ */
+async function appendNoteMutationEvent(
+  somaHome: string,
+  now: Date,
+  substrate: SomaMemoryWriteOptions["substrate"],
+  fields: { kind: string; summary: string; artifactPaths: string[]; metadata: Record<string, unknown> },
+  rollback: () => Promise<void>,
+): ReturnType<typeof appendSomaMemoryEvent> {
+  return appendMutationEvent(
+    somaHome,
+    { timestamp: now.toISOString(), substrate: substrate ?? "custom", ...fields },
+    rollback,
+  );
+}
+
+/** YYYY-MM-DD in UTC — matches the note schema's calendar-date grammar. */
+function isoDate(now: Date): string {
+  return now.toISOString().slice(0, 10);
+}
+
+/** Directory holding notes of a writable type. */
+function typeDir(somaHome: string, type: WritableType): string {
+  return createPaths(somaHome).resolve("memory", WRITABLE_TYPE_DIRS[type]);
+}
+
+/**
+ * Canonical on-disk path for a note. The id==filename-stem invariant that the M0
+ * parser documents but cannot enforce (a content parser has no filename) is
+ * bound here.
+ */
+export function memoryNotePath(somaHome: string, type: WritableType, id: string): string {
+  return join(typeDir(somaHome, type), `${id}.md`);
+}
+
+// --- dedup engine (transplant #1) --------------------------------------------
+
+// Hash + token set both start from ONE lowercased pass over the body — the
+// lower-aware variants (`*FromLower`) let the scan loop lowercase each note once
+// and derive both from it, instead of two `.toLowerCase()` passes per note.
+function hashFromLower(lower: string): string {
+  return createHash("sha256").update(lower.replace(/\s+/g, " ").trim()).digest("hex");
+}
+
+/** Token set for Jaccard near-match — 3+ char alnum tokens, same floor as search. */
+function tokensFromLower(lower: string): Set<string> {
+  return new Set(lower.split(/[^a-z0-9À-ɏ]+/i).filter((token) => token.length >= 3));
+}
+
+function bodyHash(body: string): string {
+  return hashFromLower(body.toLowerCase());
+}
+
+function bodyTokens(body: string): Set<string> {
+  return tokensFromLower(body.toLowerCase());
+}
+
+function jaccard(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 && b.size === 0) return 0;
+  let intersection = 0;
+  for (const token of a) {
+    if (b.has(token)) intersection += 1;
+  }
+  const union = a.size + b.size - intersection;
+  return union === 0 ? 0 : intersection / union;
+}
+
+interface ScannedNote {
+  path: string;
+  type: WritableType;
+  note: SomaMemoryNote;
+}
+
+interface LoadedNote extends ScannedNote {
+  /** The exact on-disk bytes — used to restore the file on event-append rollback. */
+  raw: string;
+}
+
+// The authority signals a caller can hold. Both write and verify options carry
+// these fields; the tier gate reads only this narrow shape.
+interface AuthoritySignals {
+  principalAuthority?: boolean;
+  consolidationAuthority?: boolean;
+}
+
+/**
+ * A trust tier above `quarantined` is never conferred by choosing a trigger
+ * alone — it requires that tier's explicit, logged authority signal. `principal`
+ * needs `--principal-authority`; `assistant` (the consolidation tier) needs
+ * `--consolidation-authority`; `quarantined` is free. `context` names the act
+ * (mint / mutate) for the error.
+ */
+function assertTierAuthority(tier: SomaMemoryTrust, auth: AuthoritySignals, context: string): void {
+  if (tier === "principal" && auth.principalAuthority !== true) {
+    throw new MemoryNoteError(`${context} requires --principal-authority (a deliberate, logged escalation).`, "principalAuthority");
+  }
+  if (tier === "assistant" && auth.consolidationAuthority !== true) {
+    throw new MemoryNoteError(
+      `${context} requires consolidation authority — an internal (M6) SDK capability set via ` +
+        `SomaMemoryWriteOptions.consolidationAuthority, NOT a public CLI flag and not selectable ` +
+        `by choosing --trigger consolidation.`,
+      "consolidationAuthority",
+    );
+  }
+}
+
+/** Minting a note: the trigger's derived tier needs that tier's authority. */
+function assertMintAuthority(options: SomaMemoryWriteOptions): void {
+  const tier = SOMA_MEMORY_TRIGGER_TRUST[options.trigger];
+  assertTierAuthority(tier, options, `${options.trigger} mints ${tier} trust and`);
+}
+
+/**
+ * Guard every mutation of an EXISTING note (merge body, supersede-close). Two
+ * rules, both anti-injection:
+ *   1. The mutation's trigger-trust must be ≥ the target's trust — a tool/import
+ *      caller (quarantined) can never inject content into an assistant/principal
+ *      note ("import is always quarantined" would otherwise be a lie for merges).
+ *   2. Mutating a non-quarantined note needs the TARGET tier's authority — the
+ *      same signal that minted it.
+ */
+function assertMayMutate(target: SomaMemoryNote, options: SomaMemoryWriteOptions): void {
+  const incoming = SOMA_MEMORY_TRIGGER_TRUST[options.trigger];
+  if (TRUST_RANK[incoming] < TRUST_RANK[target.trust]) {
+    throw new MemoryNoteError(
+      `Cannot mutate ${target.trust}-trust note ${target.id} with ${incoming}-trust content ` +
+        `(trigger ${options.trigger}) — a mutation may not inject lower-trust content.`,
+      "trigger",
+    );
+  }
+  assertTierAuthority(target.trust, options, `Mutating ${target.trust}-trust note ${target.id}`);
+}
+
+/**
+ * Event metadata recording the authority escalation, so an audit can prove from
+ * the journal alone that a non-quarantined mutation was authorized.
+ */
+function authorityMeta(trust: SomaMemoryTrust): Record<string, unknown> {
+  if (trust === "principal") return { principalAuthority: true };
+  if (trust === "assistant") return { consolidationAuthority: true };
+  return {};
+}
+
+// Bounded read concurrency for the dedup scan — parallel enough to not serialize
+// on every note, capped so a large corpus can't spike FDs on the write path.
+const DEDUP_SCAN_CONCURRENCY = 16;
+
+interface CorpusScan {
+  notes: ScannedNote[];
+  /** Paths that exist but could not be read or parsed — invisible to dedup. */
+  unreadable: string[];
+}
+
+/**
+ * Parse every `.md` note under the durable corpus. Unreadable/malformed files
+ * cannot block a legitimate write, but they are NOT silently dropped: their
+ * paths are returned so the caller can surface that the corpus was only
+ * partially scanned (the dedup gate would otherwise fail open on a corrupt
+ * near-duplicate). Returns `ScannedNote` (no `raw`) — the dedup scan never needs
+ * the bytes; `loadNoteById` reads raw itself for its rollback path.
+ */
+async function collectDurableNotes(somaHome: string): Promise<CorpusScan> {
+  // Enumerate all note files across both durable dirs, then read them with a
+  // bounded concurrency window (shared helper) rather than one unbounded
+  // Promise.all over the whole tree.
+  const targets: { path: string; type: WritableType }[] = [];
+  const unreadableDirs: string[] = [];
+  for (const type of WRITABLE_TYPES) {
+    const dir = typeDir(somaHome, type);
+    let entries: string[];
+    try {
+      entries = await readdir(dir);
+    } catch (error) {
+      // A missing dir is genuinely empty; any OTHER error (e.g. permissions) is
+      // an unscanned blind spot and must be surfaced, not treated as empty.
+      const code = error instanceof Error && "code" in error ? error.code : undefined;
+      if (code !== "ENOENT") unreadableDirs.push(dir);
+      continue;
+    }
+    for (const entry of entries.filter((entry) => entry.endsWith(".md"))) {
+      targets.push({ path: join(dir, entry), type });
+    }
+  }
+
+  const scanned = await runBoundedConcurrent(
+    targets,
+    async ({ path, type }): Promise<ScannedNote | { unreadable: string }> => {
+      const content = await readFile(path, "utf8").catch(() => undefined);
+      if (content === undefined) return { unreadable: path };
+      try {
+        return { path, type, note: parseMemoryNote(content) };
+      } catch {
+        return { unreadable: path };
+      }
+    },
+    DEDUP_SCAN_CONCURRENCY,
+  );
+
+  const notes: ScannedNote[] = [];
+  const unreadable: string[] = [...unreadableDirs]; // dir-level blind spots count too
+  for (const entry of scanned) {
+    if ("unreadable" in entry) unreadable.push(entry.unreadable);
+    else notes.push(entry);
+  }
+  return { notes, unreadable };
+}
+
+export interface DuplicateScanResult {
+  candidates: SomaMemoryDuplicateCandidate[];
+  /** Active-corpus files that could not be scanned — the gate's blind spot. */
+  unreadable: string[];
+}
+
+/**
+ * Candidates that would make `create` a duplicate. Only ACTIVE notes
+ * (`valid_until === null`) count — a superseded note is already closed, so a new
+ * note overlapping it is the intended replacement, not a duplicate. Also returns
+ * the unreadable-file list so callers never treat "no candidates" as "corpus
+ * fully checked" (the gate must not fail open silently).
+ */
+export async function findDuplicateCandidates(somaHome: string, body: string): Promise<DuplicateScanResult> {
+  const hash = bodyHash(body);
+  const tokens = bodyTokens(body);
+  const candidates: SomaMemoryDuplicateCandidate[] = [];
+
+  const { notes, unreadable } = await collectDurableNotes(somaHome);
+  for (const { path, type, note } of notes) {
+    if (note.valid_until !== null) continue;
+    const lower = note.body.toLowerCase(); // one pass, feeds both hash and tokens
+    const exact = hashFromLower(lower) === hash;
+    const score = exact ? 1 : jaccard(tokens, tokensFromLower(lower));
+    if (exact || score >= MEMORY_DEDUP_JACCARD_THRESHOLD) {
+      candidates.push({ id: note.id, type, path, score, exact });
+    }
+  }
+
+  candidates.sort((left, right) => right.score - left.score || left.id.localeCompare(right.id));
+  return { candidates, unreadable };
+}
+
+// --- trust / provenance derivation -------------------------------------------
+
+/**
+ * Resolve provenance from trigger, closing the smuggling hole where tool/web
+ * content rides in under `principal` trust:
+ * - `principal-correction` → forced `conversation` (a correction happens in the
+ *   conversation; a tool-sourced fact is not a principal correction).
+ * - `consolidation` → forced `consolidation`.
+ * - `import` → caller may pass `import` (default) or `tool:<name>`; anything else
+ *   is refused. Either way the derived trust is `quarantined`.
+ */
+function resolveProvenance(options: SomaMemoryWriteOptions): string {
+  switch (options.trigger) {
+    case "principal-correction":
+      if (options.provenance !== undefined && options.provenance !== "conversation") {
+        throw new MemoryNoteError(
+          `principal-correction writes are provenance "conversation"; refusing "${options.provenance}" ` +
+            `(tool/import content cannot ride in under principal trust).`,
+          "provenance",
+        );
+      }
+      return "conversation";
+    case "consolidation":
+      if (options.provenance !== undefined && options.provenance !== "consolidation") {
+        throw new MemoryNoteError(`consolidation writes are provenance "consolidation".`, "provenance");
+      }
+      return "consolidation";
+    case "import": {
+      const provenance = options.provenance ?? "import";
+      // Anchored safe grammar at the trust boundary: a `tool:` name is a bounded
+      // slug, so untrusted import input can't smuggle a newline/extra frontmatter
+      // field (e.g. `tool:x\ntrust: principal`) through this check.
+      if (provenance !== "import" && !/^tool:[a-z0-9][a-z0-9._-]{0,63}$/i.test(provenance)) {
+        throw new MemoryNoteError(`import provenance must be "import" or "tool:<name>" (name: [a-z0-9._-], <=64 chars).`, "provenance");
+      }
+      return provenance;
+    }
+  }
+}
+
+// --- shared write helpers -----------------------------------------------------
+
+/**
+ * Containment: after the parent dir exists, resolve its realpath (following ANY
+ * symlinked component — not just the final note path) and require it to stay
+ * under the real memory root. This closes the parent-symlink escape: a planted
+ * `memory/semantic` → /elsewhere symlink can no longer redirect a write out of
+ * the tree. lstat on the final path (loadNoteById) guards the leaf; this guards
+ * the directory chain.
+ */
+async function assertWriteContained(somaHome: string, path: string): Promise<void> {
+  const realRoot = await realpath(createPaths(somaHome).memory());
+  const realParent = await realpath(dirname(path));
+  const rel = relative(realRoot, realParent);
+  if (rel !== "" && (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel))) {
+    throw new MemoryNoteError(`Refusing write: ${path} resolves outside the memory tree (a symlinked path component).`, "id");
+  }
+}
+
+/**
+ * Overwrite an EXISTING note's bytes with O_NOFOLLOW, closing the leaf-symlink
+ * TOCTOU: after the containment check, an attacker could swap the leaf for a
+ * symlink before the write. `wx` (create) is immune — O_CREAT|O_EXCL refuses a
+ * pre-existing symlink — but an overwrite ("w") would follow one, so open the
+ * leaf with O_NOFOLLOW and let `open` fail (ELOOP) rather than escape.
+ */
+async function overwriteNoFollow(path: string, content: string): Promise<void> {
+  const fh = await open(path, FS.O_WRONLY | FS.O_CREAT | FS.O_TRUNC | FS.O_NOFOLLOW, 0o644);
+  try {
+    await fh.writeFile(content, "utf8");
+  } finally {
+    await fh.close();
+  }
+}
+
+async function writeNoteFile(somaHome: string, path: string, note: SomaMemoryNote, flag: "wx" | "w"): Promise<void> {
+  const content = serializeMemoryNote(note); // enforces the round-trip law before any byte hits disk
+  await mkdir(dirname(path), { recursive: true });
+  await assertWriteContained(somaHome, path); // parent-dir symlink guard
+  try {
+    if (flag === "w") await overwriteNoFollow(path, content); // leaf-symlink guard
+    else await writeFile(path, content, { encoding: "utf8", flag });
+  } catch (error) {
+    const code = error instanceof Error && "code" in error ? error.code : undefined;
+    if (code === "EEXIST") {
+      throw new MemoryNoteError(`Soma memory note already exists: ${path}`, "id");
+    }
+    if (code === "ELOOP") {
+      throw new MemoryNoteError(`Refusing write: ${path} is a symlink (O_NOFOLLOW).`, "id");
+    }
+    throw error;
+  }
+}
+
+/**
+ * Restore raw bytes to `path` on a rollback, recreating the parent dir first —
+ * a normal write always recreates parents (writeNoteFile), so the restore path
+ * must too, or an externally-removed directory would defeat the rollback. Uses
+ * the same O_NOFOLLOW overwrite as an edit so a rollback can't be redirected.
+ */
+async function restoreBytes(somaHome: string, path: string, raw: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  await assertWriteContained(somaHome, path);
+  await overwriteNoFollow(path, raw);
+}
+
+/**
+ * Load one note by id by probing its two possible paths directly
+ * (`semantic/<id>.md`, `procedural/<id>.md`) — O(1) I/O, not an O(corpus) scan.
+ * Create/supersede run a preflight id-uniqueness check across types, so in the
+ * single-process CLI at most one path resolves; if both exist (e.g. a race
+ * between two concurrent writers, which the preflight is not atomic against, or
+ * a hand-placed file), semantic wins deterministically.
+ */
+async function loadNoteById(somaHome: string, id: string): Promise<LoadedNote> {
+  assertNoteId(id); // a lookup id is also a path segment — never probe an unsafe one
+  for (const type of WRITABLE_TYPES) {
+    const path = memoryNotePath(somaHome, type, id);
+    let stats;
+    try {
+      stats = await lstat(path);
+    } catch (error) {
+      // Only a genuinely-absent file (ENOENT) is "not here, try the next type".
+      // Any OTHER stat failure must NOT masquerade as absence — that would break
+      // the global-id guarantee (fall through to a same-id note of the other
+      // type, or wrongly report not-found on an existing-but-unreadable note).
+      const code = error instanceof Error && "code" in error ? error.code : undefined;
+      if (code === "ENOENT") continue;
+      throw new MemoryNoteError(`Soma memory note ${id} exists at ${path} but is unstattable: ${String(error)}`, "id");
+    }
+    // Containment: a note path that is a symlink would let a subsequent "w"
+    // overwrite (merge/verify/supersede-close) escape the memory tree. Refuse it.
+    if (stats.isSymbolicLink()) {
+      throw new MemoryNoteError(`Soma memory note ${id} at ${path} is a symlink; refusing to follow it out of the memory tree.`, "id");
+    }
+    const raw = await readFile(path, "utf8");
+    const note = parseMemoryNote(raw);
+    // Bind the id==filename-stem (and type==dir) invariant the M0 parser
+    // documents but cannot enforce (a content parser has no path). Without this,
+    // `semantic/foo.md` containing `id: bar` would let verify/merge target a
+    // different logical note than the caller named.
+    if (note.id !== id || note.type !== type) {
+      throw new MemoryNoteError(
+        `Soma memory note at ${path} has mismatched frontmatter (id/type "${note.id}"/"${note.type}" ` +
+          `≠ path "${id}"/"${type}"); refusing to mutate a mis-filed note.`,
+        "id",
+      );
+    }
+    return { path, type, note, raw };
+  }
+  throw new MemoryNoteError(`Soma memory note not found: ${id}`, "id");
+}
+
+/**
+ * True iff a note FILE with this id already exists under either durable type.
+ * A pure presence check (`lstat`), NOT a parse — a malformed or symlinked
+ * `semantic/<id>.md` must still block a colliding `procedural/<id>.md`, so id
+ * uniqueness holds even over a hand-corrupted corpus. Only ENOENT counts as
+ * absent; any other stat failure is surfaced (an unreadable path must not be
+ * mistaken for a free id).
+ */
+async function noteIdExists(somaHome: string, id: string): Promise<boolean> {
+  assertNoteId(id);
+  for (const type of WRITABLE_TYPES) {
+    try {
+      await lstat(memoryNotePath(somaHome, type, id));
+      return true;
+    } catch (error) {
+      const code = error instanceof Error && "code" in error ? error.code : undefined;
+      if (code === "ENOENT") continue;
+      throw new MemoryNoteError(`Soma memory id ${id} path is unstattable: ${String(error)}`, "id");
+    }
+  }
+  return false;
+}
+
+// --- create / merge / supersede ----------------------------------------------
+
+function buildNewNote(options: SomaMemoryWriteOptions, now: Date): SomaMemoryNote {
+  assertNonEmpty(options.id, "id");
+  assertNoteId(options.id);
+  if (options.type === undefined || options.type === "episodic") {
+    throw new MemoryNoteError(`type must be "semantic" or "procedural" (episodic writes go through digest/action, M5).`, "type");
+  }
+  assertNonEmpty(options.body, "body");
+
+  // Minting a tier above quarantined needs that tier's authority — no caller can
+  // mint principal/assistant trust by choosing a trigger alone; import defaults safe.
+  assertMintAuthority(options);
+
+  const today = isoDate(now);
+  const note: SomaMemoryNote = {
+    id: options.id,
+    type: options.type,
+    created: today,
+    last_verified: today,
+    valid_until: null,
+    provenance: resolveProvenance(options),
+    trust: SOMA_MEMORY_TRIGGER_TRUST[options.trigger],
+    source_of_truth: options.sourceOfTruth ?? null,
+    project: options.project ?? null,
+    links: options.links ?? [],
+    resurface_count: 0,
+    body: options.body,
+  };
+  if (options.hook !== undefined) note.hook = options.hook;
+  if (options.review !== undefined) note.review = options.review;
+  return note;
+}
+
+async function createNote(somaHome: string, options: SomaMemoryWriteOptions, now: Date): Promise<SomaMemoryWriteResult> {
+  const note = buildNewNote(options, now);
+
+  // Cheap path-existence PREFLIGHT — reject an id collision before paying for
+  // the whole-corpus dedup scan, and reject `procedural/foo` when `semantic/foo`
+  // exists so id-based lookups stay unambiguous. This is a preflight, not a lock:
+  // it is best-effort against two concurrent writers racing the same id into
+  // different types (the CLI is single-process; `wx` below still guards the
+  // same-path case atomically).
+  if (await noteIdExists(somaHome, note.id)) {
+    throw new MemoryNoteError(`Soma memory note id already exists: ${note.id}`, "id");
+  }
+
+  // --force bypasses the gate, so skip the O(corpus) scan entirely — a forced
+  // create should not pay to read/parse every note. When we DO scan (the normal
+  // path), the unreadable count is recorded so the gate never fails open silently.
+  let unreadable: string[] = [];
+  if (!options.force) {
+    const scan = await findDuplicateCandidates(somaHome, note.body);
+    unreadable = scan.unreadable;
+    if (scan.candidates.length > 0) {
+      const list = scan.candidates.map((c) => `${c.id} (${c.exact ? "exact" : c.score.toFixed(2)})`).join(", ");
+      const blindSpot = unreadable.length > 0 ? ` (${unreadable.length} note(s)/dir(s) were unreadable and not checked)` : "";
+      throw new MemoryNoteError(
+        `Recall-first refusal: ${scan.candidates.length} similar note(s) exist — ${list}${blindSpot}. ` +
+          `Re-run with --merge <id>, --supersede <id>, or --force.`,
+      );
+    }
+  }
+
+  const path = memoryNotePath(somaHome, note.type as WritableType, note.id);
+  await writeNoteFile(somaHome, path, note, "wx");
+
+  const event = await appendNoteMutationEvent(
+    somaHome,
+    now,
+    options.substrate,
+    {
+      kind: "memory.write.create",
+      summary: `Created memory note ${note.id} (${note.type}, trust ${note.trust})`,
+      artifactPaths: [path],
+      metadata: {
+        id: note.id,
+        type: note.type,
+        trust: note.trust,
+        trigger: options.trigger,
+        ...authorityMeta(note.trust), // audit the escalation when non-quarantined
+        // Record the dedup gate's blind spot so "dedup-gated" is never a silent
+        // overstatement when part of the corpus was unreadable.
+        ...(unreadable.length > 0 ? { dedupUnreadable: unreadable.length } : {}),
+      },
+    },
+    () => unlink(path), // roll back: remove the freshly created file
+  );
+
+  return { somaHome, mode: "create", path, note, event };
+}
+
+async function mergeNote(somaHome: string, options: SomaMemoryWriteOptions, now: Date): Promise<SomaMemoryWriteResult> {
+  assertNonEmpty(options.targetId, "targetId");
+  assertNonEmpty(options.body, "body");
+  // merge edits an existing note IN PLACE, preserving its provenance — so a
+  // provenance flag would be silently ignored. Refuse it rather than pretend
+  // (this is also what makes "tool/import content is refused" honest for merge:
+  // you cannot attach a tool provenance to a merge at all).
+  if (options.provenance !== undefined) {
+    throw new MemoryNoteError(`--provenance is not valid with --merge; merge preserves the target note's provenance.`, "provenance");
+  }
+  const { path, type, note, raw } = await loadNoteById(somaHome, options.targetId);
+  if (note.valid_until !== null) {
+    throw new MemoryNoteError(`Cannot merge into superseded note ${note.id} (valid_until set).`, "targetId");
+  }
+  assertMayMutate(note, options);
+
+  const today = isoDate(now);
+  const merged: SomaMemoryNote = {
+    ...note,
+    last_verified: today,
+    body: `${note.body}\n\n**Update (${today}):** ${options.body.trim()}`,
+  };
+  await writeNoteFile(somaHome, path, merged, "w");
+
+  const event = await appendNoteMutationEvent(
+    somaHome,
+    now,
+    options.substrate,
+    {
+      kind: "memory.write.merge",
+      summary: `Merged update into memory note ${merged.id} (${type})`,
+      artifactPaths: [path],
+      // Log the escalation so an audit can prove a principal-note mutation was authorized.
+      metadata: { id: merged.id, type, trust: merged.trust, trigger: options.trigger, ...authorityMeta(merged.trust) },
+    },
+    () => restoreBytes(somaHome, path, raw), // roll back: restore the pre-merge bytes
+  );
+
+  return { somaHome, mode: "merge", path, note: merged, event };
+}
+
+async function supersedeNote(somaHome: string, options: SomaMemoryWriteOptions, now: Date): Promise<SomaMemoryWriteResult> {
+  assertNonEmpty(options.targetId, "targetId");
+  const newNote = buildNewNote(options, now);
+  if (newNote.id === options.targetId) {
+    throw new MemoryNoteError(`A note cannot supersede itself (${newNote.id}).`, "id");
+  }
+
+  if (await noteIdExists(somaHome, newNote.id)) {
+    throw new MemoryNoteError(`Soma memory note id already exists: ${newNote.id}`, "id");
+  }
+
+  const old = await loadNoteById(somaHome, options.targetId);
+  if (old.note.valid_until !== null) {
+    throw new MemoryNoteError(`Note ${old.note.id} is already superseded (valid_until set).`, "targetId");
+  }
+  // Closing an existing note is a mutation of it — same trust gate as merge
+  // (can't close a higher-trust note with lower-trust content; principal needs
+  // the escalation). The new replacement note's own trust was already gated in
+  // buildNewNote.
+  assertMayMutate(old.note, options);
+
+  // New note points back at what it replaces; the closed note points forward.
+  if (!newNote.links.includes(old.note.id)) newNote.links = [...newNote.links, old.note.id];
+  const closed: SomaMemoryNote = {
+    ...old.note,
+    valid_until: isoDate(now),
+    links: old.note.links.includes(newNote.id) ? old.note.links : [...old.note.links, newNote.id],
+  };
+
+  const newPath = memoryNotePath(somaHome, newNote.type as WritableType, newNote.id);
+  await writeNoteFile(somaHome, newPath, newNote, "wx");
+  try {
+    await writeNoteFile(somaHome, old.path, closed, "w");
+  } catch (closeError) {
+    // Closing the old note failed (possibly after truncating it) and no event
+    // exists yet — fully undo: restore the old note's bytes AND drop the new one.
+    // Do NOT swallow the undo's own failures; surface them as an inconsistency.
+    try {
+      await restoreBytes(somaHome, old.path, old.raw);
+      await unlink(newPath);
+    } catch (undoError) {
+      // Carry BOTH failures — `cause` is the undo error (the one just caught),
+      // the errors array holds the original close failure; both are needed to
+      // debug the inconsistent state.
+      throw new AggregateError(
+        [closeError],
+        `Soma memory supersede failed to close ${old.note.id} AND the undo failed — ` +
+          `memory may be inconsistent; reconcile manually.`,
+        { cause: undoError },
+      );
+    }
+    throw closeError;
+  }
+
+  const event = await appendNoteMutationEvent(
+    somaHome,
+    now,
+    options.substrate,
+    {
+      kind: "memory.write.supersede",
+      summary: `Note ${newNote.id} supersedes ${closed.id} (closed ${closed.valid_until})`,
+      artifactPaths: [newPath, old.path],
+      // Supersede validates TWO authorities — minting the new note (its tier) and
+      // closing the old one (its tier). Log BOTH so the journal can prove every
+      // required signal was present (e.g. principal replacement of an assistant
+      // note carries both principalAuthority and consolidationAuthority).
+      metadata: {
+        id: newNote.id,
+        supersededId: closed.id,
+        trigger: options.trigger,
+        ...authorityMeta(newNote.trust),
+        ...authorityMeta(closed.trust),
+      },
+    },
+    // roll back BOTH sides — reopen the closed note FIRST (the trusted state we
+    // most need to restore), then drop the new one. Failures are NOT swallowed:
+    // appendMutationEvent surfaces them as an inconsistency error.
+    async () => {
+      await restoreBytes(somaHome, old.path, old.raw);
+      await unlink(newPath);
+    },
+  );
+
+  return { somaHome, mode: "supersede", path: newPath, note: newNote, supersededId: closed.id, event };
+}
+
+export async function writeMemoryNote(options: SomaMemoryWriteOptions): Promise<SomaMemoryWriteResult> {
+  const somaHome = createPaths(options).root();
+  const now = options.now ?? new Date();
+  switch (options.mode) {
+    case "create":
+      return createNote(somaHome, options, now);
+    case "merge":
+      return mergeNote(somaHome, options, now);
+    case "supersede":
+      return supersedeNote(somaHome, options, now);
+  }
+}
+
+// --- verify ------------------------------------------------------------------
+
+/**
+ * Close the reinforcing loop: the caller ASSERTS a resurfaced note still holds,
+ * bumping `last_verified` to today and incrementing `resurface_count`. This
+ * records the assertion only — verify captures no evidence/source/proof, so
+ * `last_verified` is a caller-asserted freshness signal (the same caller-asserted
+ * model as EvidenceKind elsewhere), not a machine-checked correctness proof. It
+ * is the decay signal M3's retention score reads.
+ */
+export async function verifyMemoryNote(options: SomaMemoryVerifyOptions): Promise<SomaMemoryVerifyResult> {
+  assertNonEmpty(options.id, "id");
+  const somaHome = createPaths(options).root();
+  const now = options.now ?? new Date();
+  const { path, type, note, raw } = await loadNoteById(somaHome, options.id);
+
+  // A superseded note is closed — reinforcing its freshness signal is meaningless
+  // (and would resurrect it in retention scoring). Refuse.
+  if (note.valid_until !== null) {
+    throw new MemoryNoteError(`Cannot verify superseded note ${note.id} (valid_until set ${note.valid_until}).`, "id");
+  }
+
+  // Verifying refreshes a note's decay signal — a mutation — so a non-quarantined
+  // note needs its tier's authority (principal→--principal-authority,
+  // assistant→internal consolidator authority).
+  assertTierAuthority(note.trust, options, `Verifying ${note.trust}-trust note ${note.id}`);
+
+  const verified: SomaMemoryNote = {
+    ...note,
+    last_verified: isoDate(now),
+    resurface_count: note.resurface_count + 1,
+  };
+  await writeNoteFile(somaHome, path, verified, "w");
+
+  const event = await appendNoteMutationEvent(
+    somaHome,
+    now,
+    options.substrate,
+    {
+      kind: "memory.verify",
+      summary: `Verified memory note ${verified.id} (${type}); resurface_count ${verified.resurface_count}`,
+      artifactPaths: [path],
+      metadata: { id: verified.id, type, resurfaceCount: verified.resurface_count, ...authorityMeta(note.trust) },
+    },
+    () => restoreBytes(somaHome, path, raw), // roll back: restore the pre-verify bytes
+  );
+
+  return { somaHome, path, note: verified, event };
+}
