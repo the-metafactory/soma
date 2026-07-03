@@ -5,6 +5,21 @@ import { resolveBunExecutable } from "../../bun-probe";
 import { isEnoent } from "../../fs-errors";
 import { isClaudeCodeInstallOptions } from "./install-options";
 
+/**
+ * soma#369: adapter-owned session hooks (mode classifier, policy guard) are
+ * default-on. Enabled unless a caller explicitly passes `<hook>: false`, so an
+ * absent option or non-options value (internal reproject paths) still installs
+ * them. Shared by the hook installer and the install spec's optionalHomeFiles
+ * so the projected file list and what actually gets written stay in lockstep.
+ */
+export function claudeCodeHookEnabled(
+  options: unknown,
+  hook: "modeClassifier" | "policyGuard",
+): boolean {
+  if (!isClaudeCodeInstallOptions(options)) return true;
+  return options[hook] !== false;
+}
+
 export const SOMA_CLAUDE_HOOK_RELATIVE_PATH = "hooks/soma/soma-claude-code-hook.mjs";
 export const SOMA_CLAUDE_HOOK_CONFIG_RELATIVE_PATH = "hooks/soma/soma-claude-code-hook.config.json";
 export const SOMA_CLAUDE_MODE_CLASSIFIER_RELATIVE_PATH = "hooks/soma/soma-mode-classifier.mjs";
@@ -521,10 +536,14 @@ export async function installClaudeCodeSomaHooks(context: {
     config,
   });
   const settingsFiles = await patchClaudeCodeSomaHookSettings(context.substrateHome, bunPath);
-  const modeClassifierFiles = isClaudeCodeInstallOptions(context.options) && context.options.modeClassifier === true
+  // soma#369: the adapter owns the session fleet. Mode classifier and policy
+  // guard are default-on; a caller opts out with `modeClassifier: false` /
+  // `policyGuard: false` (CLI `--no-mode-classifier` / `--no-policy-guard`).
+  // Undefined options (internal reproject paths) keep the default-on behavior.
+  const modeClassifierFiles = claudeCodeHookEnabled(context.options, "modeClassifier")
     ? await installClaudeCodeModeClassifierHook(context, config, bunPath)
     : [];
-  const policyGuardFiles = isClaudeCodeInstallOptions(context.options) && context.options.policyGuard === true
+  const policyGuardFiles = claudeCodeHookEnabled(context.options, "policyGuard")
     ? await installClaudeCodePolicyGuardHook(context, config, bunPath)
     : [];
   return Array.from(new Set([hookPath, configPath, ...settingsFiles, ...modeClassifierFiles, ...policyGuardFiles]));

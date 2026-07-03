@@ -8,10 +8,10 @@ import {
   SOMA_CLAUDE_MODE_CLASSIFIER_RELATIVE_PATH,
   SOMA_CLAUDE_POLICY_GUARD_CONFIG_RELATIVE_PATH,
   SOMA_CLAUDE_POLICY_GUARD_RELATIVE_PATH,
+  claudeCodeHookEnabled,
   installClaudeCodeSomaHooks,
   removeClaudeCodeSomaHookFiles,
 } from "./hooks";
-import { isClaudeCodeInstallOptions } from "./install-options";
 
 export const claudeCodeInstallSpec: SubstrateInstallSpec<"claude-code"> = {
   substrate: "claude-code",
@@ -25,11 +25,14 @@ export const claudeCodeInstallSpec: SubstrateInstallSpec<"claude-code"> = {
   // Owned (Soma-exclusive) dirs — see ownedSubtrees JSDoc. Subsumes the former
   // obsoleteHomeFiles for TELOS.md/ACTIVE_ISA.md, which live under rules/soma.
   ownedSubtrees: ["rules/soma", "hooks/soma"],
+  // soma#369: mode classifier + policy guard are default-on (opt out with
+  // `--no-mode-classifier` / `--no-policy-guard`). claudeCodeHookEnabled is the
+  // single gate shared with installClaudeCodeSomaHooks.
   optionalHomeFiles: (options) => [
-    ...(isClaudeCodeInstallOptions(options) && options.modeClassifier === true
+    ...(claudeCodeHookEnabled(options, "modeClassifier")
       ? [SOMA_CLAUDE_MODE_CLASSIFIER_RELATIVE_PATH, SOMA_CLAUDE_MODE_CLASSIFIER_CONFIG_RELATIVE_PATH]
       : []),
-    ...(isClaudeCodeInstallOptions(options) && options.policyGuard === true
+    ...(claudeCodeHookEnabled(options, "policyGuard")
       ? [SOMA_CLAUDE_POLICY_GUARD_RELATIVE_PATH, SOMA_CLAUDE_POLICY_GUARD_CONFIG_RELATIVE_PATH]
       : []),
   ],
