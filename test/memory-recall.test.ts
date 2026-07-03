@@ -180,6 +180,17 @@ test("recall matches across semantic and procedural dirs", async () => {
   });
 });
 
+test("recallMemory rejects a non-positive or non-integer limit at the API boundary", async () => {
+  await withTempSoma(async (somaHome) => {
+    await seed(somaHome, { id: "note", body: "alpha content" });
+    for (const bad of [0, -1, 2.5, Number.NaN]) {
+      await expect(recallMemory({ somaHome, query: "alpha", now: NOW, limit: bad })).rejects.toThrow(
+        /positive integer/,
+      );
+    }
+  });
+});
+
 // --- CLI surface -------------------------------------------------------------
 
 test("parseMemoryArgs accepts recall with a positional query and --limit", () => {

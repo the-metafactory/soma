@@ -164,6 +164,12 @@ export async function recallMemory(options: SomaMemoryRecallOptions): Promise<So
   const somaHome = createPaths(options).root();
   const now = options.now ?? new Date();
   const limit = options.limit ?? DEFAULT_LIMIT;
+  // Validate at the API boundary, not just in the CLI parser — a direct SDK
+  // caller (`recallMemory({ query, limit: 0 })`, NaN, negative, fractional) must
+  // not silently get an empty or truncated result from `scored.slice(0, limit)`.
+  if (!Number.isInteger(limit) || limit < 1) {
+    throw new Error(`recall limit must be a positive integer (got ${String(options.limit)}).`);
+  }
   const terms = queryTerms(options.query);
 
   const { notes, unreadable } = await collectDurableNotes(somaHome);
@@ -177,6 +183,11 @@ export async function recallMemory(options: SomaMemoryRecallOptions): Promise<So
 
   // Score, keep only notes matching at least one term, and rank deterministically:
   // distinct terms desc → frequency desc → recency (last_verified) desc → id asc.
+  // A full sort of the matched subset is O(m log m); m is bounded small by design
+  // (files-only canon, no derived index until >5K notes — plan v2 §6), and only
+  // the notes matching ≥1 term reach the sort. A bounded top-k selection would
+  // trade this for a hand-rolled heap that must replicate the exact 4-key tiebreak
+  // to stay deterministic — not worth the added surface at this corpus scale.
   const scored = active
     .map((scanned) => ({ scanned, ...scoreNote(scanned.note, terms) }))
     .filter((entry) => entry.matched > 0)
