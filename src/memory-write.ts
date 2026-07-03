@@ -22,16 +22,18 @@ import type {
  * Memory write + verify (subsystem M1). Plan v2 §M1 (do not redesign the
  * governance model):
  *
- * - **Trust is derived from the trigger**, never a caller flag — and any tier
- *   above `quarantined` needs that tier's explicit, logged authority signal, so a
- *   caller cannot mint (or carry) trust by choosing a trigger alone.
- *   `principal-correction` → `principal` (needs `principalAuthority`, the human's
- *   `--principal-authority` escalation); `consolidation` → `assistant` (needs
- *   `consolidationAuthority`, an internal M6 SDK capability — NOT a public CLI
- *   flag); `import` → `quarantined`, free (MINJA defense).
- *   Escalations are sudo-style (deliberate + logged, refused by default) — not
- *   cryptographic auth, which soma has no primitive for. Mutating an existing
- *   note needs the TARGET tier's authority (merge/supersede/verify).
+ * - **Trust is derived from the trigger**, never a caller flag. Any tier above
+ *   `quarantined` needs that tier's explicit authority signal to be minted (or an
+ *   existing note of that tier to be mutated): `principal-correction` →
+ *   `principal` (needs `principalAuthority`); `consolidation` → `assistant`
+ *   (needs `consolidationAuthority`); `import` → `quarantined`, free (MINJA
+ *   defense). Two honest limits: (1) the signals are sudo-style deliberate
+ *   booleans, NOT cryptographic capabilities — the ENFORCED surface is the CLI
+ *   (no `--*-authority` self-assert path for consolidation; `--trigger
+ *   consolidation` refused), while an in-process SDK caller can set the boolean,
+ *   as soma has no capability primitive. (2) Authorization is CHECKED at the gate
+ *   (`assertTierAuthority`); it is separately RECORDED in the mutation's event on
+ *   success — the audit trail exists only if the mutation reaches event append.
  * - **Recall-first refusal** — `create` walks the durable corpus (`semantic/` +
  *   `procedural/`), hashes normalized bodies, and refuses when an active note is
  *   an exact-body match OR Jaccard ≥ 0.6 (transplant #1 from recall's dedup
@@ -725,7 +727,11 @@ async function supersedeNote(somaHome: string, options: SomaMemoryWriteOptions, 
       await restoreBytes(somaHome, old.path, old.raw);
       await unlink(newPath);
     } catch (undoError) {
-      throw new Error(
+      // Carry BOTH failures — `cause` is the undo error (the one just caught),
+      // the errors array holds the original close failure; both are needed to
+      // debug the inconsistent state.
+      throw new AggregateError(
+        [closeError],
         `Soma memory supersede failed to close ${old.note.id} AND the undo failed — ` +
           `memory may be inconsistent; reconcile manually.`,
         { cause: undoError },

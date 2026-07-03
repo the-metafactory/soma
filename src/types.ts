@@ -2337,9 +2337,13 @@ export interface SomaMemoryNote {
 }
 
 // Memory subsystem M1 (write + verify). Plan v2 §M1 (do not redesign the
-// governance model): trust is NOT a self-assertable caller flag — it is DERIVED
-// from the write trigger, so a substrate-side caller cannot smuggle `principal`
-// trust (CONTEXT.md reserves bare `agent`; use `assistant`/substrate). THREE of
+// governance model): trust is NOT selectable via a `--trust` flag — it is DERIVED
+// from the write trigger, and elevating above `quarantined` needs a deliberate
+// authority signal. Honest scope: the ENFORCED boundary is the CLI surface (no
+// public self-assert path), not the SDK — an in-process caller can still set the
+// `principalAuthority`/`consolidationAuthority` booleans, as soma has no
+// cryptographic capability primitive (CONTEXT.md reserves bare `agent`; use
+// `assistant`/substrate). THREE of
 // design §7's five triggers reach the `write` path (principal-correction, import,
 // consolidation); the other two — session-end and consequential-action — are
 // M5's episodic `digest`/`action`, NOT `write`. M1 owns the durable, dedup-gated
