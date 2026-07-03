@@ -29,14 +29,16 @@ function renderClaudeMdBody(input: ProjectionInput, overlayBody: string | null):
     `# ${assistant} — Claude Code`,
     "",
     "Soma is the source of truth for assistant identity, purpose, memory, skills, and policy.",
-    "The projected context Claude Code auto-discovers lives under `.claude/rules/soma/`:",
+    "The projection files Claude Code auto-discovers live under `.claude/rules/soma/`:",
     "",
     "- `rules/soma/CONTEXT.md` — identity, principal, purpose, operating rules",
     "- `rules/soma/PURPOSE.md` — mission, goals, principles, commitments",
     "- `rules/soma/SKILLS.md` — available skills",
     "- `rules/soma/POLICY.md` — substrate policy",
     "",
-    "Refresh this projection with `soma install claude-code --apply`.",
+    // Regenerating CLAUDE.md needs the opt-in flag (writing is gated on it), so
+    // the instruction names it explicitly (sage#378).
+    "Regenerate this file with `soma install claude-code --apply --claude-md`.",
   ].join("\n");
   return withProvenance(
     "claude-code",
@@ -56,12 +58,13 @@ async function readOrNull(path: string): Promise<string | null> {
 /**
  * Decide what overlay content to carry into the regenerated file.
  *
- * - An existing overlay block is preserved verbatim (idempotency + hand edits
- *   inside the markers survive).
- * - A pre-existing, non-Soma CLAUDE.md is preserved WHOLESALE into the overlay
- *   on first conversion — this is the lossless-migration guarantee: converting
- *   a hand-maintained CLAUDE.md never drops its content, it moves under the
- *   marker for later curation.
+ * - An existing overlay block is preserved (idempotency + hand edits inside the
+ *   markers survive).
+ * - A pre-existing, non-Soma CLAUDE.md has its full text carried into the
+ *   overlay on first conversion, so no CONTENT is dropped — it moves under the
+ *   marker for later curation. Note: surrounding blank lines are normalized by
+ *   the overlay renderer/reader, so this is content-lossless, not byte-exact
+ *   (sage#378: the earlier doc overclaimed "wholesale/byte-lossless").
  * - Otherwise (greenfield, or an already-Soma file with no overlay) there is
  *   nothing to carry.
  */
@@ -73,7 +76,7 @@ export function resolveClaudeMdOverlay(existing: string | null): string | null {
     return [
       "Preserved from the pre-Soma CLAUDE.md on first projection. Curate or move into ~/.soma.",
       "",
-      existing.trim(),
+      existing,
     ].join("\n");
   }
   return null;
