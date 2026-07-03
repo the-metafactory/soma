@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
@@ -105,6 +105,19 @@ test("two distinct session ids that share a truncation prefix get separate diges
     expect(first.created).toBe(true);
     expect(second.created).toBe(true); // NOT a false duplicate
     expect(second.path).not.toBe(first.path);
+  });
+});
+
+test("the duplicate scan fails CLOSED on an unreadable sessions path (no silent duplicate)", async () => {
+  await withTempSoma(async (somaHome) => {
+    // Put a FILE where the sessions directory should be → readdir throws ENOTDIR
+    // (not ENOENT). The gate must refuse rather than treat it as "no digest yet".
+    const sessions = join(somaHome, "memory", "episodic", "sessions");
+    await mkdir(join(somaHome, "memory", "episodic"), { recursive: true });
+    await writeFile(sessions, "not a directory", "utf8");
+    await expect(writeSessionDigest({ somaHome, now: NOW, sessionId: SESSION, body: DIGEST_BODY })).rejects.toThrow(
+      /could not scan session digests/,
+    );
   });
 });
 

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, writeFile, unlink, readdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { createPaths } from "./paths";
+import { isEnoent } from "./fs-utils";
 import { appendSomaMemoryEvent } from "./memory";
 import { serializeMemoryNote, parseMemoryNote, MemoryNoteError } from "./memory-note";
 import { SOMA_MEMORY_ACTION_APPROVALS } from "./types";
@@ -34,9 +35,13 @@ import type {
  *   consolidator to mine. Actions are many-per-session, keyed by a caller slug; an
  *   id collision is refused via the same O_EXCL create (never overwrites a record).
  *
- * Episodic notes are `assistant` trust (the agent's own account of a session), so
- * they never enter the always-loaded INDEX by admission (M3) until consolidation
- * promotes a recurring pattern. Each write appends exactly one journal event; if
+ * Episodic notes are written at `assistant` trust (the assistant's own account of
+ * a session). Whether they reach the always-loaded INDEX is decided by M3's
+ * admission ladder, NOT here — under that rule an unresurfaced assistant note is
+ * not admitted, so digests stay out of the projected index until consolidation
+ * promotes a recurring pattern; that enforcement (and its tests) live in
+ * `memory-index.ts`, this module only sets the trust. Each write appends exactly
+ * one journal event; if
  * that append fails, the just-written file is removed — and if THAT removal also
  * fails, the inconsistency is surfaced (never silently swallowed). Not crash-atomic:
  * a hard kill between the file write and the event append can still orphan a file,
@@ -120,18 +125,24 @@ async function findExistingSessionDigestPath(somaHome: string, slug: string): Pr
   let months: string[];
   try {
     months = await readdir(base);
-  } catch {
-    return undefined; // sessions dir absent → no digests yet
+  } catch (error) {
+    if (isEnoent(error)) return undefined; // sessions dir absent → genuinely no digests yet
+    // Any OTHER failure (permissions, ENOTDIR, I/O) must NOT fail open — a scan we
+    // can't complete can't prove "no existing digest", and swallowing it would let
+    // a duplicate slip past the one-per-session gate.
+    throw new Error(`Soma memory: could not scan session digests at ${base} — dedup cannot proceed.`, { cause: error });
   }
   for (const month of months.sort()) {
+    const monthDirPath = join(base, month);
     let entries: string[];
     try {
-      entries = await readdir(join(base, month));
-    } catch {
-      continue;
+      entries = await readdir(monthDirPath);
+    } catch (error) {
+      if (isEnoent(error)) continue; // a month dir vanished mid-scan — nothing there
+      throw new Error(`Soma memory: could not scan session digests in ${monthDirPath} — dedup cannot proceed.`, { cause: error });
     }
     const match = entries.sort().find((entry) => idPattern.test(entry));
-    if (match) return join(base, month, match);
+    if (match) return join(monthDirPath, match);
   }
   return undefined;
 }

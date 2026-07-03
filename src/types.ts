@@ -2486,12 +2486,13 @@ export interface SomaMemoryVerifyResult {
 // first-class action log, stored as `episodic` notes under
 // `memory/episodic/{sessions,actions}/YYYY-MM/YYYYMMDD-<slug>.md`. Deterministic,
 // no LLM. The digest write is gated to EXACTLY ONE per session (a second call for
-// the same session no-ops with an event). Action entries record intent → approval
-// → outcome for the consolidator (M6) to mine. Episodic notes are `assistant`
-// trust (agent-authored account), so they never enter the always-loaded INDEX by
-// admission (M3) unless later promoted.
+// the same session no-ops with an event). Action entries record plannedAction →
+// approval → outcome for the consolidator (M6) to mine. Episodic notes are written
+// at `assistant` trust (the assistant's own account); whether they reach the
+// always-loaded INDEX is decided by M3's admission ladder, where an unresurfaced
+// assistant note is not admitted until consolidation promotes it.
 
-/** Approval state of a logged action (design §: intent → approval → outcome). */
+/** Approval state of a logged action (plannedAction → approval → outcome). */
 export const SOMA_MEMORY_ACTION_APPROVALS = ["proposed", "approved", "rejected", "auto"] as const;
 export type SomaMemoryActionApproval = (typeof SOMA_MEMORY_ACTION_APPROVALS)[number];
 
