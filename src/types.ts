@@ -2349,8 +2349,8 @@ export interface SomaMemoryNote {
  * The governed write trigger (design §7). Trust is a pure function of this value
  * (see {@link SOMA_MEMORY_TRIGGER_TRUST}); there is no `--trust` flag. Only these
  * three reach the `write` path in M1:
- * - `principal-correction` — the human said "remember"/"no, always X". The ONLY
- *   path to `principal` trust, and the documented human-authority gate.
+ * - `principal-correction` — the principal said "remember"/"no, always X". The
+ *   ONLY path to `principal` trust, and the documented principal-authority gate.
  * - `import` — migration / external doc. Untrusted source → `quarantined` (MINJA
  *   defense: tool/web content never lands trusted).
  * - `consolidation` — the M6 consolidator promoting/merging → `assistant`.

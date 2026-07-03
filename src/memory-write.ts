@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { access, mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { createPaths } from "./paths";
 import { runBoundedConcurrent } from "./internal-concurrency";
 import { appendSomaMemoryEvent } from "./memory";
@@ -31,8 +31,10 @@ import type {
  * - **Recall-first refusal** — `create` walks the durable corpus (`semantic/` +
  *   `procedural/`), hashes normalized bodies, and refuses when an active note is
  *   an exact-body match OR Jaccard ≥ 0.6 (transplant #1 from recall's dedup
- *   idea; reimplemented over files, not copied). `--force` overrides; `merge` /
- *   `supersede` name a target explicitly and skip the gate.
+ *   idea; reimplemented over files, not copied). Unreadable/malformed notes
+ *   can't be scanned, so their count is surfaced (in the refusal message and the
+ *   create event) — the gate never fails open silently. `--force` overrides;
+ *   `merge` / `supersede` name a target explicitly and skip the gate.
  * - **Invalidate, never delete** — `supersede` sets the old note's `valid_until`
  *   and cross-links; nothing is unlinked. `merge` delta-appends (ACE-style,
  *   never regenerates).
@@ -223,12 +225,21 @@ function principalAuthorityMeta(trust: SomaMemoryTrust): Record<string, unknown>
 // on every note, capped so a large corpus can't spike FDs on the write path.
 const DEDUP_SCAN_CONCURRENCY = 16;
 
+interface CorpusScan {
+  notes: ScannedNote[];
+  /** Paths that exist but could not be read or parsed — invisible to dedup. */
+  unreadable: string[];
+}
+
 /**
- * Parse every `.md` note under the durable corpus; skip unreadable/malformed.
- * Returns `ScannedNote` (no `raw`) — the only caller is the dedup scan, which
- * never needs the bytes; `loadNoteById` reads raw itself for its rollback path.
+ * Parse every `.md` note under the durable corpus. Unreadable/malformed files
+ * cannot block a legitimate write, but they are NOT silently dropped: their
+ * paths are returned so the caller can surface that the corpus was only
+ * partially scanned (the dedup gate would otherwise fail open on a corrupt
+ * near-duplicate). Returns `ScannedNote` (no `raw`) — the dedup scan never needs
+ * the bytes; `loadNoteById` reads raw itself for its rollback path.
  */
-async function collectDurableNotes(somaHome: string): Promise<ScannedNote[]> {
+async function collectDurableNotes(somaHome: string): Promise<CorpusScan> {
   // Enumerate all note files across both durable dirs, then read them with a
   // bounded concurrency window (shared helper) rather than one unbounded
   // Promise.all over the whole tree.
@@ -241,34 +252,47 @@ async function collectDurableNotes(somaHome: string): Promise<ScannedNote[]> {
 
   const scanned = await runBoundedConcurrent(
     targets,
-    async ({ path, type }): Promise<ScannedNote | undefined> => {
+    async ({ path, type }): Promise<ScannedNote | { unreadable: string }> => {
       const content = await readFile(path, "utf8").catch(() => undefined);
-      if (content === undefined) return undefined;
+      if (content === undefined) return { unreadable: path };
       try {
         return { path, type, note: parseMemoryNote(content) };
       } catch {
-        return undefined; // a hand-broken note must not block a legitimate write
+        return { unreadable: path };
       }
     },
     DEDUP_SCAN_CONCURRENCY,
   );
-  return scanned.filter((entry): entry is ScannedNote => entry !== undefined);
+
+  const notes: ScannedNote[] = [];
+  const unreadable: string[] = [];
+  for (const entry of scanned) {
+    if ("unreadable" in entry) unreadable.push(entry.unreadable);
+    else notes.push(entry);
+  }
+  return { notes, unreadable };
+}
+
+export interface DuplicateScanResult {
+  candidates: SomaMemoryDuplicateCandidate[];
+  /** Active-corpus files that could not be scanned — the gate's blind spot. */
+  unreadable: string[];
 }
 
 /**
  * Candidates that would make `create` a duplicate. Only ACTIVE notes
  * (`valid_until === null`) count — a superseded note is already closed, so a new
- * note overlapping it is the intended replacement, not a duplicate.
+ * note overlapping it is the intended replacement, not a duplicate. Also returns
+ * the unreadable-file list so callers never treat "no candidates" as "corpus
+ * fully checked" (the gate must not fail open silently).
  */
-export async function findDuplicateCandidates(
-  somaHome: string,
-  body: string,
-): Promise<SomaMemoryDuplicateCandidate[]> {
+export async function findDuplicateCandidates(somaHome: string, body: string): Promise<DuplicateScanResult> {
   const hash = bodyHash(body);
   const tokens = bodyTokens(body);
   const candidates: SomaMemoryDuplicateCandidate[] = [];
 
-  for (const { path, type, note } of await collectDurableNotes(somaHome)) {
+  const { notes, unreadable } = await collectDurableNotes(somaHome);
+  for (const { path, type, note } of notes) {
     if (note.valid_until !== null) continue;
     const exact = bodyHash(note.body) === hash;
     const score = exact ? 1 : jaccard(tokens, bodyTokens(note.body));
@@ -277,7 +301,8 @@ export async function findDuplicateCandidates(
     }
   }
 
-  return candidates.sort((left, right) => right.score - left.score || left.id.localeCompare(right.id));
+  candidates.sort((left, right) => right.score - left.score || left.id.localeCompare(right.id));
+  return { candidates, unreadable };
 }
 
 // --- trust / provenance derivation -------------------------------------------
@@ -324,7 +349,7 @@ function resolveProvenance(options: SomaMemoryWriteOptions): string {
 
 async function writeNoteFile(path: string, note: SomaMemoryNote, flag: "wx" | "w"): Promise<void> {
   const content = serializeMemoryNote(note); // enforces the round-trip law before any byte hits disk
-  await mkdir(join(path, ".."), { recursive: true });
+  await mkdir(dirname(path), { recursive: true });
   try {
     await writeFile(path, content, { encoding: "utf8", flag });
   } catch (error) {
@@ -334,6 +359,16 @@ async function writeNoteFile(path: string, note: SomaMemoryNote, flag: "wx" | "w
     }
     throw error;
   }
+}
+
+/**
+ * Restore raw bytes to `path` on a rollback, recreating the parent dir first —
+ * a normal write always recreates parents (writeNoteFile), so the restore path
+ * must too, or an externally-removed directory would defeat the rollback.
+ */
+async function restoreBytes(path: string, raw: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, raw, "utf8");
 }
 
 /**
@@ -383,8 +418,8 @@ function buildNewNote(options: SomaMemoryWriteOptions, now: Date): SomaMemoryNot
 
   // The deliberate-escalation gate: `principal` trust is never the incidental
   // result of a bare trigger flag. Without an explicit authority signal, a
-  // principal-correction write is REFUSED (not downgraded) — an automated/agent
-  // invocation defaults safe.
+  // principal-correction write is REFUSED (not downgraded) — an automated
+  // assistant invocation defaults safe.
   if (options.trigger === "principal-correction" && options.principalAuthority !== true) {
     throw new MemoryNoteError(
       `principal-correction mints principal trust and requires explicit principal authority ` +
@@ -424,15 +459,16 @@ async function createNote(somaHome: string, options: SomaMemoryWriteOptions, now
     throw new MemoryNoteError(`Soma memory note id already exists: ${note.id}`, "id");
   }
 
-  if (!options.force) {
-    const candidates = await findDuplicateCandidates(somaHome, note.body);
-    if (candidates.length > 0) {
-      const list = candidates.map((c) => `${c.id} (${c.exact ? "exact" : c.score.toFixed(2)})`).join(", ");
-      throw new MemoryNoteError(
-        `Recall-first refusal: ${candidates.length} similar note(s) exist — ${list}. ` +
-          `Re-run with --merge <id>, --supersede <id>, or --force.`,
-      );
-    }
+  // Scan unconditionally so the unreadable-file count is on record even under
+  // --force (the gate's blind spot must always be auditable, never silent).
+  const { candidates, unreadable } = await findDuplicateCandidates(somaHome, note.body);
+  if (!options.force && candidates.length > 0) {
+    const list = candidates.map((c) => `${c.id} (${c.exact ? "exact" : c.score.toFixed(2)})`).join(", ");
+    const blindSpot = unreadable.length > 0 ? ` (${unreadable.length} note(s) were unreadable and not checked)` : "";
+    throw new MemoryNoteError(
+      `Recall-first refusal: ${candidates.length} similar note(s) exist — ${list}${blindSpot}. ` +
+        `Re-run with --merge <id>, --supersede <id>, or --force.`,
+    );
   }
 
   const path = memoryNotePath(somaHome, note.type as WritableType, note.id);
@@ -452,6 +488,9 @@ async function createNote(somaHome: string, options: SomaMemoryWriteOptions, now
         trust: note.trust,
         trigger: options.trigger,
         ...principalAuthorityMeta(note.trust), // audit the escalation when principal
+        // Record the dedup gate's blind spot so "dedup-gated" is never a silent
+        // overstatement when part of the corpus was unreadable.
+        ...(unreadable.length > 0 ? { dedupUnreadable: unreadable.length } : {}),
       },
     },
     () => unlink(path), // roll back: remove the freshly created file
@@ -488,7 +527,7 @@ async function mergeNote(somaHome: string, options: SomaMemoryWriteOptions, now:
       // Log the escalation so an audit can prove a principal-note mutation was authorized.
       metadata: { id: merged.id, type, trust: merged.trust, trigger: options.trigger, ...principalAuthorityMeta(merged.trust) },
     },
-    () => writeFile(path, raw, "utf8"), // roll back: restore the pre-merge bytes
+    () => restoreBytes(path, raw), // roll back: restore the pre-merge bytes
   );
 
   return { somaHome, mode: "merge", path, note: merged, event };
@@ -552,7 +591,7 @@ async function supersedeNote(somaHome: string, options: SomaMemoryWriteOptions, 
     // most need to restore), then drop the new one. Failures are NOT swallowed:
     // appendMutationEvent surfaces them as an inconsistency error.
     async () => {
-      await writeFile(old.path, old.raw, "utf8");
+      await restoreBytes(old.path, old.raw);
       await unlink(newPath);
     },
   );
@@ -615,7 +654,7 @@ export async function verifyMemoryNote(options: SomaMemoryVerifyOptions): Promis
       artifactPaths: [path],
       metadata: { id: verified.id, type, resurfaceCount: verified.resurface_count, ...principalAuthorityMeta(note.trust) },
     },
-    () => writeFile(path, raw, "utf8"), // roll back: restore the pre-verify bytes
+    () => restoreBytes(path, raw), // roll back: restore the pre-verify bytes
   );
 
   return { somaHome, path, note: verified, event };

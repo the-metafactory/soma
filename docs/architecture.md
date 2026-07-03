@@ -133,11 +133,15 @@ Each note is one file: strict frontmatter (id, type, trust, provenance,
 bi-temporal `valid_until`, `last_verified`, `resurface_count`, links) plus a
 markdown body. `soma memory write|verify` (M1) is the only write path — trust is
 derived from the write trigger, writes are dedup-gated (recall-first refusal),
-and every mutation appends exactly one event to the **existing**
-`memory/STATE/events.jsonl` stream (the same journal the Observability section
-reads — note mutations do not fork a second event stream). This taxonomy is intentionally
-distinct from the `MEMORY/*` stores: those stores hold curated free-form
-material; the note store holds atomic, governed, decay-tracked notes.
+and each mutation appends one event to the **existing** `memory/STATE/events.jsonl`
+stream (the same journal the Observability section reads — note mutations do not
+fork a second event stream). The write/event coupling is best-effort, not
+crash-atomic: an event-append *failure* rolls the file mutation back, but a hard
+process crash in the window between the two can still orphan a file from its
+event (a documented gap reconciled by the M7 audit; soma has no WAL/2PC). This
+taxonomy is intentionally distinct from the `MEMORY/*` stores: those stores hold
+curated free-form material; the note store holds single-fact, governed,
+decay-tracked notes.
 
 Cross-machine Soma state uses **Home replication**, not projection refresh or
 substrate writeback. The design is Git-backed first, policy-gated per scope,

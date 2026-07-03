@@ -157,7 +157,7 @@ test("recall-first refusal fires on a Jaccard-0.6 near-duplicate and lists candi
       body: "Andreas reads em-dashes as an AI tell; use a colon or a comma instead please.",
     });
 
-    const candidates = await findDuplicateCandidates(somaHome, near.body);
+    const { candidates } = await findDuplicateCandidates(somaHome, near.body);
     expect(candidates.length).toBeGreaterThan(0);
     expect(candidates[0].id).toBe("original");
     expect(candidates[0].score).toBeGreaterThanOrEqual(MEMORY_DEDUP_JACCARD_THRESHOLD);
@@ -165,6 +165,21 @@ test("recall-first refusal fires on a Jaccard-0.6 near-duplicate and lists candi
     await expect(writeMemoryNote(near)).rejects.toThrow(/Recall-first refusal.*original/s);
     // The refused note was never written.
     await expect(readNote(memoryNotePath(somaHome, "semantic", "reworded"))).rejects.toThrow();
+  });
+});
+
+test("the dedup gate surfaces unreadable notes instead of silently skipping them", async () => {
+  await withTempSoma(async (somaHome) => {
+    await mkdir(join(somaHome, "memory", "procedural"), { recursive: true });
+    await writeFile(join(somaHome, "memory", "procedural", "corrupt.md"), "this is not a valid note", "utf8");
+
+    const { unreadable } = await findDuplicateCandidates(somaHome, "some new body abc def");
+    expect(unreadable.length).toBe(1);
+    expect(unreadable[0]).toContain("corrupt.md");
+
+    // The create still succeeds but records the blind spot in its event metadata.
+    const result = await writeMemoryNote(createOpts(somaHome, { id: "fresh", body: "unrelated fresh body ghi jkl" }));
+    expect(result.event.metadata?.dedupUnreadable).toBe(1);
   });
 });
 
@@ -182,7 +197,7 @@ test("--force overrides the recall-first refusal", async () => {
 test("an exact-body duplicate is refused as an exact match", async () => {
   await withTempSoma(async (somaHome) => {
     await writeMemoryNote(createOpts(somaHome, { id: "original" }));
-    const candidates = await findDuplicateCandidates(somaHome, createOpts(somaHome).body);
+    const { candidates } = await findDuplicateCandidates(somaHome, createOpts(somaHome).body);
     expect(candidates[0].exact).toBe(true);
     expect(candidates[0].score).toBe(1);
   });
@@ -194,7 +209,7 @@ test("a superseded note does not trigger the refusal gate (only active notes cou
     await writeMemoryNote(createOpts(somaHome, { mode: "supersede", id: "v2", targetId: "original", body: "reworded body about epsilon zeta" }));
 
     // The original is now closed; a note overlapping IT must not be refused.
-    const candidates = await findDuplicateCandidates(somaHome, createOpts(somaHome).body);
+    const { candidates } = await findDuplicateCandidates(somaHome, createOpts(somaHome).body);
     expect(candidates.find((c) => c.id === "original")).toBeUndefined();
   });
 });
