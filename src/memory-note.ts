@@ -28,6 +28,22 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const NOTE_TYPES: readonly SomaMemoryNoteType[] = ["semantic", "episodic", "procedural"];
 const TRUSTS: readonly SomaMemoryTrust[] = ["principal", "agent", "quarantined"];
 
+// Provenance is a closed set plus the open `tool:<name>` family (plan v2 §2.2,
+// design doc line 105): conversation | consolidation | import | tool:<name>.
+const PROVENANCE_LITERALS = new Set(["conversation", "consolidation", "import"]);
+
+/**
+ * True iff `s` is `YYYY-MM-DD` AND a real calendar date. The shape regex alone
+ * accepts impossible dates like `2026-99-99`; round-tripping through a UTC Date
+ * rejects them (Feb 30, month 13, day 00, …).
+ */
+function isCalendarDate(s: string): boolean {
+  if (!DATE.test(s)) return false;
+  const [y, m, d] = s.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+}
+
 // Required frontmatter keys in canonical serialization order.
 const REQUIRED_KEYS = [
   "id",
@@ -97,13 +113,17 @@ export function parseMemoryNote(content: string): SomaMemoryNote {
   assert(SLUG.test(id) && id.length <= 64, `id "${id}" is not a valid slug (<=64 chars)`, "id");
   assert((NOTE_TYPES as readonly string[]).includes(raw.type), `type "${raw.type}" is not valid`, "type");
   assert((TRUSTS as readonly string[]).includes(raw.trust), `trust "${raw.trust}" is not valid`, "trust");
-  assert(DATE.test(raw.created), `created "${raw.created}" must be YYYY-MM-DD`, "created");
-  assert(DATE.test(raw.last_verified), `last_verified "${raw.last_verified}" must be YYYY-MM-DD`, "last_verified");
-  assert(raw.valid_until === "null" || DATE.test(raw.valid_until), `valid_until must be null or YYYY-MM-DD`, "valid_until");
+  assert(isCalendarDate(raw.created), `created "${raw.created}" must be a valid YYYY-MM-DD date`, "created");
+  assert(isCalendarDate(raw.last_verified), `last_verified "${raw.last_verified}" must be a valid YYYY-MM-DD date`, "last_verified");
+  assert(raw.valid_until === "null" || isCalendarDate(raw.valid_until), `valid_until must be null or a valid YYYY-MM-DD date`, "valid_until");
 
   const resurface = Number(raw.resurface_count);
   assert(/^\d+$/.test(raw.resurface_count) && Number.isInteger(resurface), `resurface_count must be an integer >= 0`, "resurface_count");
-  assert(raw.provenance.length > 0, "provenance must not be empty", "provenance");
+  assert(
+    PROVENANCE_LITERALS.has(raw.provenance) || /^tool:.+/.test(raw.provenance),
+    `provenance "${raw.provenance}" must be conversation, consolidation, import, or tool:<name>`,
+    "provenance",
+  );
   assert(body.length > 0, "body must not be empty", "body");
 
   const note: SomaMemoryNote = {

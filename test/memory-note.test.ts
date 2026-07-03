@@ -138,6 +138,21 @@ test("non-date created throws", () => {
   expect(() => parseMemoryNote(bad)).toThrow("created");
 });
 
+test("shape-valid but impossible calendar date throws (2026-99-99)", () => {
+  const bad = serializedMinimal().replace("created: 2026-07-03", "created: 2026-99-99");
+  expect(() => parseMemoryNote(bad)).toThrow("created");
+});
+
+test("Feb 30 is rejected as an impossible date", () => {
+  const bad = serializedMinimal().replace("last_verified: 2026-07-03", "last_verified: 2026-02-30");
+  expect(() => parseMemoryNote(bad)).toThrow("last_verified");
+});
+
+test("valid_until rejects an impossible date", () => {
+  const bad = serializedMinimal().replace("valid_until: 2026-08-01", "valid_until: 2026-13-01");
+  expect(() => parseMemoryNote(bad)).toThrow("valid_until");
+});
+
 test("valid_until accepts null or a date, rejects garbage", () => {
   const bad = serializedMinimal().replace("valid_until: 2026-08-01", "valid_until: soon");
   expect(() => parseMemoryNote(bad)).toThrow("valid_until");
@@ -156,6 +171,28 @@ test("negative resurface_count throws", () => {
 test("empty provenance throws", () => {
   const bad = serializedMinimal().replace("provenance: tool:consolidate", "provenance:");
   expect(() => parseMemoryNote(bad)).toThrow("provenance");
+});
+
+test("provenance outside the closed set throws", () => {
+  const bad = serializedMinimal().replace("provenance: tool:consolidate", "provenance: hearsay");
+  expect(() => parseMemoryNote(bad)).toThrow("provenance");
+});
+
+test("bare 'tool:' with no name throws", () => {
+  const bad = serializedMinimal().replace("provenance: tool:consolidate", "provenance: tool:");
+  expect(() => parseMemoryNote(bad)).toThrow("provenance");
+});
+
+test("each documented provenance literal is accepted", () => {
+  for (const p of ["conversation", "consolidation", "import"]) {
+    const n = { ...minimalNote(), provenance: p };
+    expect(parseMemoryNote(serializeMemoryNote(n)).provenance).toBe(p);
+  }
+});
+
+test("tool:<name> provenance round-trips", () => {
+  const n = { ...minimalNote(), provenance: "tool:daily-briefing" };
+  expect(parseMemoryNote(serializeMemoryNote(n)).provenance).toBe("tool:daily-briefing");
 });
 
 test("empty body throws", () => {
