@@ -2548,6 +2548,53 @@ export interface SomaMemoryActionResult {
   event: SomaMemoryEvent;
 }
 
+// Memory subsystem M6 (deterministic consolidation). Plan v2 §M6: a no-LLM
+// maintenance pass with a `--dry-run` that PLANS the same ops the real run applies
+// (dry-run output == real-run diff). Ops: prune aged episodic notes into a monthly
+// digest + archive (invalidate-never-delete); mark aged-unverified semantic notes
+// `review: stale` (never auto-archive); LIST contradictions (Jaccard, no auto-merge);
+// GC old `current-work-*.json` state (the ONE true deletion); rebuild INDEX.
+export interface SomaMemoryConsolidateOptions {
+  homeDir?: string;
+  somaHome?: string;
+  substrate?: SubstrateId;
+  /** Injected clock for deterministic age math. Defaults to now. */
+  now?: Date;
+  /** Plan only — print the ops without touching the filesystem. */
+  dryRun?: boolean;
+}
+
+/** One planned file move (episodic prune → archive), preserving relative path. */
+export interface SomaMemoryArchivePlan {
+  from: string;
+  to: string;
+  reason: string;
+}
+
+/** A near-duplicate/contradiction pair surfaced for human review (never auto-merged). */
+export interface SomaMemoryContradiction {
+  a: string;
+  b: string;
+  score: number;
+}
+
+export interface SomaMemoryConsolidateResult {
+  somaHome: string;
+  dryRun: boolean;
+  /** Aged episodic notes moved to `archive/` (or planned to be, on dry-run). */
+  archived: SomaMemoryArchivePlan[];
+  /** Monthly digest files written/appended with pointers to archived notes. */
+  digestsWritten: string[];
+  /** Semantic notes newly marked `review: stale`. */
+  markedStale: string[];
+  /** `current-work-*.json` files GC'd (age > 7d) — the only deletion. */
+  stateGced: string[];
+  /** Contradiction pairs listed for review. */
+  contradictions: SomaMemoryContradiction[];
+  /** INDEX.md path rebuilt (real run) or that would be rebuilt (dry-run). */
+  indexPath: string;
+}
+
 // Memory subsystem M2 (recall). Plan v2 §M2: note-aware retrieval over the
 // durable corpus (semantic + procedural) — term scoring, whole-file retrieval
 // (limit 3), 1-hop link expansion, superseded-exclusion via `valid_until`, and a

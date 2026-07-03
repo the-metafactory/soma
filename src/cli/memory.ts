@@ -1,4 +1,5 @@
 import {
+  consolidateMemory,
   promoteAlgorithmRunMemory,
   rebuildMemoryIndex,
   recallMemory,
@@ -14,6 +15,8 @@ import type {
   SomaMemoryActionApproval,
   SomaMemoryActionOptions,
   SomaMemoryActionResult,
+  SomaMemoryConsolidateOptions,
+  SomaMemoryConsolidateResult,
   SomaMemoryDigestOptions,
   SomaMemoryDigestResult,
   SomaMemoryIndexResult,
@@ -89,6 +92,12 @@ export interface ParsedMemoryActionArgs {
   options: SomaMemoryActionOptions;
 }
 
+export interface ParsedMemoryConsolidateArgs {
+  command: "memory";
+  action: "consolidate";
+  options: SomaMemoryConsolidateOptions;
+}
+
 export type ParsedMemoryArgs =
   | ParsedMemorySearchArgs
   | ParsedMemoryRecallArgs
@@ -97,13 +106,14 @@ export type ParsedMemoryArgs =
   | ParsedMemoryVerifyArgs
   | ParsedMemoryReindexArgs
   | ParsedMemoryDigestArgs
-  | ParsedMemoryActionArgs;
+  | ParsedMemoryActionArgs
+  | ParsedMemoryConsolidateArgs;
 
-const MEMORY_ACTIONS = ["search", "recall", "promote", "write", "verify", "reindex", "digest", "action"] as const;
+const MEMORY_ACTIONS = ["search", "recall", "promote", "write", "verify", "reindex", "digest", "action", "consolidate"] as const;
 type MemoryAction = (typeof MEMORY_ACTIONS)[number];
 
 export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAction, string> } = {
-  usage: "Usage: soma memory <search|recall|promote|write|verify|reindex|digest|action> ...",
+  usage: "Usage: soma memory <search|recall|promote|write|verify|reindex|digest|action|consolidate> ...",
   subcommands: {
     search: "Usage: soma memory search [query] [--query <text>] [--limit <n>] [--home-dir <dir>] [--soma-home <dir>]",
     recall:
@@ -135,6 +145,10 @@ export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAct
       "Usage: soma memory action --slug <slug> --planned-action <text> --approval <proposed|approved|rejected|auto> " +
       "[--outcome <text>] [--session <id>] [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]. " +
       "Log one planned-action→approval→outcome entry (id YYYYMMDD-<slug>; collision refused).",
+    consolidate:
+      "Usage: soma memory consolidate [--dry-run] [--home-dir <dir>] [--soma-home <dir>]. " +
+      "Deterministic maintenance: prune aged episodic → digest+archive, mark aged-unverified semantic review:stale, " +
+      "list contradictions, GC old state, rebuild INDEX. --dry-run prints the plan without touching anything.",
   },
 };
 
@@ -166,7 +180,32 @@ export function parseMemoryArgs(args: string[]): ParsedMemoryArgs {
       return { command, action, options: parseMemoryDigestArgs(rest) };
     case "action":
       return { command, action, options: parseMemoryActionArgs(rest) };
+    case "consolidate":
+      return { command, action, options: parseMemoryConsolidateArgs(rest) };
   }
+}
+
+function parseMemoryConsolidateArgs(args: string[]): SomaMemoryConsolidateOptions {
+  const options: SomaMemoryConsolidateOptions = {};
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    switch (arg) {
+      case "--home-dir":
+        options.homeDir = readOption(args, index, arg);
+        index += 1;
+        break;
+      case "--soma-home":
+        options.somaHome = readOption(args, index, arg);
+        index += 1;
+        break;
+      case "--dry-run":
+        options.dryRun = true;
+        break;
+      default:
+        throw new Error(`Unknown option: ${arg}`);
+    }
+  }
+  return options;
 }
 
 /**
@@ -651,7 +690,26 @@ export async function runMemoryCli(parsed: ParsedMemoryArgs): Promise<string> {
       return formatMemoryDigestResult(await writeSessionDigest(parsed.options));
     case "action":
       return formatMemoryActionResult(await writeMemoryAction(parsed.options));
+    case "consolidate":
+      return formatMemoryConsolidateResult(await consolidateMemory(parsed.options));
   }
+}
+
+function formatMemoryConsolidateResult(result: SomaMemoryConsolidateResult): string {
+  const lines = [
+    result.dryRun ? "Soma memory consolidate (dry-run — nothing changed)" : "Soma memory consolidate",
+    `archived: ${result.archived.length} aged episodic note(s)`,
+    ...result.archived.map((a) => `  - ${a.from} → ${a.to} (${a.reason})`),
+    `digests: ${result.digestsWritten.length} monthly file(s)`,
+    `marked review:stale: ${result.markedStale.length} semantic note(s)`,
+    ...result.markedStale.map((p) => `  - ${p}`),
+    `state GC'd: ${result.stateGced.length} current-work file(s)`,
+    ...result.stateGced.map((p) => `  - ${p}`),
+    `contradictions listed: ${result.contradictions.length} pair(s)`,
+    ...result.contradictions.map((c) => `  - ${c.a} ~ ${c.b} (jaccard ${c.score.toFixed(2)})`),
+    result.dryRun ? `index: would rebuild ${result.indexPath}` : `index: rebuilt ${result.indexPath}`,
+  ];
+  return lines.join("\n");
 }
 
 function formatMemoryDigestResult(result: SomaMemoryDigestResult): string {
