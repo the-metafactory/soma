@@ -7,11 +7,11 @@ import type { SomaMemoryNote, SomaMemoryNoteType, SomaMemoryTrust } from "./type
  * Contract is fixed by the plan v2 §2 (do not redesign): one note = strict
  * frontmatter + markdown body, with a tiny hand-written grammar (no YAML lib —
  * zero new runtime deps). The round-trip law `parse(serialize(n)) === n` holds
- * for any note whose body is already trimmed; both sides normalize the body by
- * trimming, so a parsed note re-serializes byte-stably. The quote-less grammar
- * uses bare `null` as the null sentinel, so a nullable string field cannot also
- * carry the literal string "null" — `serializeMemoryNote` rejects that value up
- * front, keeping the law total rather than caveated.
+ * for any note whose body is already trimmed (both sides trim the body, so a
+ * parsed note re-serializes byte-stably; an untrimmed body is the one lossy
+ * case). `serializeMemoryNote` validates its whole input and throws rather than
+ * emit a file `parse` would reject, so it can never produce an unparseable
+ * note — see its docstring for the exact contract.
  *
  * Frontmatter grammar: `---\n`, then `key: value` lines, then `---\n`. Values
  * are unquoted strings, `null`, integers, or an inline `links` array `[a, b]`
@@ -167,11 +167,18 @@ export function parseMemoryNote(content: string): SomaMemoryNote {
 }
 
 /**
- * Serialize a note to its canonical file form. `parse(serialize(n)) === n` for
- * any note whose body is already trimmed (the parser trims, so parsed notes
- * round-trip byte-stably). Throws `MemoryNoteError` if a nullable string field
- * holds the reserved literal "null" — the one value the quote-less grammar
- * cannot round-trip — so the law is total, not caveated.
+ * Serialize a note to its canonical file form.
+ *
+ * Round-trip law: for any note this function *accepts*, `parse(serialize(n))`
+ * equals `n` — with one normalization: the body is trimmed (`serialize` writes
+ * `body.trim()`), so a note whose body has leading/trailing whitespace loses it
+ * and does not compare equal. Pass an already-trimmed body for exact equality.
+ *
+ * `serialize` validates its whole input and throws `MemoryNoteError` rather than
+ * emit a file that `parse` would reject: the reserved literal "null" in a
+ * nullable string field (which the quote-less grammar cannot round-trip) is
+ * caught up front, and every other field (id slug, dates, provenance, links,
+ * count) is validated by re-parsing the output before it is returned.
  */
 export function serializeMemoryNote(note: SomaMemoryNote): string {
   assertNotReservedNull(note.source_of_truth, "source_of_truth");
@@ -193,5 +200,9 @@ export function serializeMemoryNote(note: SomaMemoryNote): string {
   if (note.hook !== undefined) lines.push(`hook: ${note.hook}`);
   if (note.review !== undefined) lines.push(`review: ${note.review}`);
   lines.push("---", "", note.body.trim(), "");
-  return lines.join("\n");
+  const output = lines.join("\n");
+  // Never emit a note that fails to parse: re-parsing validates the full field
+  // surface (bad slug/date/links/count/provenance all throw here, not later).
+  parseMemoryNote(output);
+  return output;
 }

@@ -227,6 +227,32 @@ test("a genuine null source_of_truth/project still serializes and round-trips", 
   expect(parseMemoryNote(serializeMemoryNote(n))).toEqual(n);
 });
 
+test("serialize rejects a note with an invalid link slug (no poison file)", () => {
+  const n = { ...minimalNote(), links: ["BAD_SLUG"] };
+  expect(() => serializeMemoryNote(n)).toThrow(MemoryNoteError);
+  expect(() => serializeMemoryNote(n)).toThrow("links");
+});
+
+test("serialize rejects a note with an invalid id slug", () => {
+  const n = { ...minimalNote(), id: "Not A Slug" };
+  expect(() => serializeMemoryNote(n)).toThrow("id");
+});
+
+test("serialize rejects a note with an impossible date", () => {
+  const n = { ...minimalNote(), created: "2026-99-99" };
+  expect(() => serializeMemoryNote(n)).toThrow("created");
+});
+
+test("serialize rejects a note with a negative resurface_count", () => {
+  const n = { ...minimalNote(), resurface_count: -1 };
+  expect(() => serializeMemoryNote(n)).toThrow("resurface_count");
+});
+
+test("serialize preserves an already-trimmed body exactly (round-trip law)", () => {
+  const n = { ...minimalNote(), body: "already trimmed" };
+  expect(parseMemoryNote(serializeMemoryNote(n))).toEqual(n);
+});
+
 test("multi-entry links round-trip", () => {
   const n = { ...minimalNote(), links: ["a", "b-two", "c3"] };
   expect(parseMemoryNote(serializeMemoryNote(n)).links).toEqual(["a", "b-two", "c3"]);
