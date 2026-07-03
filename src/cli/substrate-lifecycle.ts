@@ -266,16 +266,19 @@ export function parseInstallArgs(args: string[]): ParsedInstallArgs {
         apply = true;
         return true;
       // soma#369: mode classifier + policy guard are default-on. The explicit
-      // enable flags remain accepted (back-compat, now no-ops); the opt-out
-      // flags disable them.
+      // enable flags are accepted for back-compat but behaviorally inert: they
+      // only set the (already-default) `true` when no value is set yet, so a
+      // `--no-*` flag ALWAYS wins regardless of order and the enable flag can
+      // never flip an opt-out (sage#379). They remain recognized so the
+      // non-claude-code guard below still rejects them.
       case "--mode-classifier":
-        parsedOptions.modeClassifier = true;
+        parsedOptions.modeClassifier ??= true;
         return true;
       case "--no-mode-classifier":
         parsedOptions.modeClassifier = false;
         return true;
       case "--policy-guard":
-        parsedOptions.policyGuard = true;
+        parsedOptions.policyGuard ??= true;
         return true;
       case "--no-policy-guard":
         parsedOptions.policyGuard = false;

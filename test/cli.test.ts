@@ -1977,6 +1977,17 @@ test("cli rejects mode classifier flags for non-Claude Code installs", async () 
   await expect(runSomaCli(["install", "codex", "--no-mode-classifier"])).rejects.toThrow("is only supported for claude-code installs");
 });
 
+test("soma#379: --no-mode-classifier wins over the inert --mode-classifier regardless of order", async () => {
+  await withTempHome(async (homeDir) => {
+    // Enable flag first, then opt-out.
+    const a = await runSomaCli(["install", "claude-code", "--mode-classifier", "--no-mode-classifier", "--home-dir", homeDir]);
+    expect(a).not.toContain("soma-mode-classifier.mjs");
+    // Opt-out first, then the (inert) enable flag must not flip it back on.
+    const b = await runSomaCli(["install", "claude-code", "--no-mode-classifier", "--mode-classifier", "--home-dir", homeDir]);
+    expect(b).not.toContain("soma-mode-classifier.mjs");
+  });
+});
+
 test("cli dry-runs and applies cursor install", async () => {
   await withTempHome(async (homeDir) => {
     const dryRun = await runSomaCli(["install", "cursor", "--home-dir", homeDir]);
