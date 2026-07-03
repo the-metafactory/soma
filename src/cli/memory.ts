@@ -4,10 +4,17 @@ import {
   recallMemory,
   searchSomaMemory,
   verifyMemoryNote,
+  writeAction,
   writeMemoryNote,
+  writeSessionDigest,
 } from "../index";
 import { WRITABLE_NOTE_TYPES, isWritableNoteType } from "../memory-write";
 import type {
+  SomaMemoryActionApproval,
+  SomaMemoryActionOptions,
+  SomaMemoryActionResult,
+  SomaMemoryDigestOptions,
+  SomaMemoryDigestResult,
   SomaMemoryIndexResult,
   SomaMemoryNoteType,
   SomaMemoryPromotionOptions,
@@ -68,19 +75,33 @@ export interface ParsedMemoryReindexArgs {
   options: MemoryReindexOptions;
 }
 
+export interface ParsedMemoryDigestArgs {
+  command: "memory";
+  action: "digest";
+  options: SomaMemoryDigestOptions;
+}
+
+export interface ParsedMemoryActionArgs {
+  command: "memory";
+  action: "action";
+  options: SomaMemoryActionOptions;
+}
+
 export type ParsedMemoryArgs =
   | ParsedMemorySearchArgs
   | ParsedMemoryRecallArgs
   | ParsedMemoryPromoteArgs
   | ParsedMemoryWriteArgs
   | ParsedMemoryVerifyArgs
-  | ParsedMemoryReindexArgs;
+  | ParsedMemoryReindexArgs
+  | ParsedMemoryDigestArgs
+  | ParsedMemoryActionArgs;
 
-const MEMORY_ACTIONS = ["search", "recall", "promote", "write", "verify", "reindex"] as const;
+const MEMORY_ACTIONS = ["search", "recall", "promote", "write", "verify", "reindex", "digest", "action"] as const;
 type MemoryAction = (typeof MEMORY_ACTIONS)[number];
 
 export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAction, string> } = {
-  usage: "Usage: soma memory <search|recall|promote|write|verify|reindex> ...",
+  usage: "Usage: soma memory <search|recall|promote|write|verify|reindex|digest|action> ...",
   subcommands: {
     search: "Usage: soma memory search [query] [--query <text>] [--limit <n>] [--home-dir <dir>] [--soma-home <dir>]",
     recall:
@@ -105,6 +126,13 @@ export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAct
       "Usage: soma memory reindex [--home-dir <dir>] [--soma-home <dir>]. " +
       "Rebuild memory/INDEX.md from note frontmatter (earned-inclusion ladder, retention-score budget); " +
       "ages are computed against the current date, so 'verified Nd ago' advances day to day. Quarantined notes never appear.",
+    digest:
+      "Usage: soma memory digest --session <id> --body <text> [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]. " +
+      "Write the ONE session digest (8–15 non-empty lines). A second digest for the same session no-ops with an event.",
+    action:
+      "Usage: soma memory action --slug <slug> --intent <text> --approval <proposed|approved|rejected|auto> " +
+      "[--outcome <text>] [--session <id>] [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]. " +
+      "Log one intent→approval→outcome action entry (id YYYYMMDD-<slug>; collision refused).",
   },
 };
 
@@ -132,7 +160,107 @@ export function parseMemoryArgs(args: string[]): ParsedMemoryArgs {
       return { command, action, options: parseMemoryVerifyArgs(rest) };
     case "reindex":
       return { command, action, options: parseMemoryReindexArgs(rest) };
+    case "digest":
+      return { command, action, options: parseMemoryDigestArgs(rest) };
+    case "action":
+      return { command, action, options: parseMemoryActionArgs(rest) };
   }
+}
+
+function parseMemoryDigestArgs(args: string[]): SomaMemoryDigestOptions {
+  const options: Partial<SomaMemoryDigestOptions> = {};
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    switch (arg) {
+      case "--home-dir":
+        options.homeDir = readOption(args, index, arg);
+        index += 1;
+        break;
+      case "--soma-home":
+        options.somaHome = readOption(args, index, arg);
+        index += 1;
+        break;
+      case "--substrate":
+        options.substrate = parseSubstrate(readOption(args, index, arg));
+        index += 1;
+        break;
+      case "--session":
+        options.sessionId = readOption(args, index, arg);
+        index += 1;
+        break;
+      case "--body":
+        options.body = readOption(args, index, arg);
+        index += 1;
+        break;
+      default:
+        throw new Error(`Unknown option: ${arg}`);
+    }
+  }
+  const missing: string[] = [];
+  if (!options.sessionId) missing.push("--session");
+  if (options.body === undefined) missing.push("--body");
+  if (missing.length > 0) {
+    throw new Error(`soma memory digest is missing required option(s): ${missing.join(", ")}.`);
+  }
+  return options as SomaMemoryDigestOptions;
+}
+
+function parseActionApproval(value: string): SomaMemoryActionApproval {
+  if (value === "proposed" || value === "approved" || value === "rejected" || value === "auto") {
+    return value;
+  }
+  throw new Error("--approval must be one of proposed, approved, rejected, auto.");
+}
+
+function parseMemoryActionArgs(args: string[]): SomaMemoryActionOptions {
+  const options: Partial<SomaMemoryActionOptions> = {};
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    switch (arg) {
+      case "--home-dir":
+        options.homeDir = readOption(args, index, arg);
+        index += 1;
+        break;
+      case "--soma-home":
+        options.somaHome = readOption(args, index, arg);
+        index += 1;
+        break;
+      case "--substrate":
+        options.substrate = parseSubstrate(readOption(args, index, arg));
+        index += 1;
+        break;
+      case "--slug":
+        options.slug = readOption(args, index, arg);
+        index += 1;
+        break;
+      case "--session":
+        options.sessionId = readOption(args, index, arg);
+        index += 1;
+        break;
+      case "--intent":
+        options.intent = readOption(args, index, arg);
+        index += 1;
+        break;
+      case "--approval":
+        options.approval = parseActionApproval(readOption(args, index, arg));
+        index += 1;
+        break;
+      case "--outcome":
+        options.outcome = readOption(args, index, arg);
+        index += 1;
+        break;
+      default:
+        throw new Error(`Unknown option: ${arg}`);
+    }
+  }
+  const missing: string[] = [];
+  if (!options.slug) missing.push("--slug");
+  if (!options.intent) missing.push("--intent");
+  if (!options.approval) missing.push("--approval");
+  if (missing.length > 0) {
+    throw new Error(`soma memory action is missing required option(s): ${missing.join(", ")}.`);
+  }
+  return options as SomaMemoryActionOptions;
 }
 
 function parseMemoryReindexArgs(args: string[]): MemoryReindexOptions {
@@ -506,7 +634,30 @@ export async function runMemoryCli(parsed: ParsedMemoryArgs): Promise<string> {
       return formatMemoryRecallResult(await recallMemory(parsed.options));
     case "reindex":
       return formatMemoryReindexResult(await rebuildMemoryIndex(parsed.options));
+    case "digest":
+      return formatMemoryDigestResult(await writeSessionDigest(parsed.options));
+    case "action":
+      return formatMemoryActionResult(await writeAction(parsed.options));
   }
+}
+
+function formatMemoryDigestResult(result: SomaMemoryDigestResult): string {
+  return [
+    result.created ? "Soma memory digest written" : "Soma memory digest already exists (no-op)",
+    `id: ${result.note.id}`,
+    `path: ${result.path}`,
+    `event: ${result.event.id}`,
+  ].join("\n");
+}
+
+function formatMemoryActionResult(result: SomaMemoryActionResult): string {
+  return [
+    "Soma memory action logged",
+    `id: ${result.note.id}`,
+    `trust: ${result.note.trust}`,
+    `path: ${result.path}`,
+    `event: ${result.event.id}`,
+  ].join("\n");
 }
 
 function formatMemoryReindexResult(result: SomaMemoryIndexResult): string {

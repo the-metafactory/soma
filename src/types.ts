@@ -2482,6 +2482,64 @@ export interface SomaMemoryVerifyResult {
   event: SomaMemoryEvent;
 }
 
+// Memory subsystem M5 (episodic capture). Plan v2 §M5: session digests + a
+// first-class action log, stored as `episodic` notes under
+// `memory/episodic/{sessions,actions}/YYYY-MM/YYYYMMDD-<slug>.md`. Deterministic,
+// no LLM. The digest write is gated to EXACTLY ONE per session (a second call for
+// the same session no-ops with an event). Action entries record intent → approval
+// → outcome for the consolidator (M6) to mine. Episodic notes are `assistant`
+// trust (agent-authored account), so they never enter the always-loaded INDEX by
+// admission (M3) unless later promoted.
+
+/** Approval state of a logged action (design §: intent → approval → outcome). */
+export const SOMA_MEMORY_ACTION_APPROVALS = ["proposed", "approved", "rejected", "auto"] as const;
+export type SomaMemoryActionApproval = (typeof SOMA_MEMORY_ACTION_APPROVALS)[number];
+
+export interface SomaMemoryDigestOptions {
+  homeDir?: string;
+  somaHome?: string;
+  substrate?: SubstrateId;
+  /** Injected clock for deterministic `created`/id date. Defaults to now. */
+  now?: Date;
+  /** The session this digest summarizes — the one-per-session gate key. */
+  sessionId: string;
+  /** The digest text: 8–15 non-empty lines of what happened / changed / open loops. */
+  body: string;
+}
+
+export interface SomaMemoryDigestResult {
+  somaHome: string;
+  path: string;
+  /** False when a digest already existed for the session (the write no-op'd). */
+  created: boolean;
+  note: SomaMemoryNote;
+  event: SomaMemoryEvent;
+}
+
+export interface SomaMemoryActionOptions {
+  homeDir?: string;
+  somaHome?: string;
+  substrate?: SubstrateId;
+  now?: Date;
+  /** kebab slug for the action's id (`YYYYMMDD-<slug>`). */
+  slug: string;
+  /** The session this action belongs to (recorded for consolidation scope). */
+  sessionId?: string;
+  /** What the agent intended to do. */
+  intent: string;
+  /** Approval state at record time. */
+  approval: SomaMemoryActionApproval;
+  /** What actually happened (may be recorded later; empty = not-yet-known). */
+  outcome?: string;
+}
+
+export interface SomaMemoryActionResult {
+  somaHome: string;
+  path: string;
+  note: SomaMemoryNote;
+  event: SomaMemoryEvent;
+}
+
 // Memory subsystem M2 (recall). Plan v2 §M2: note-aware retrieval over the
 // durable corpus (semantic + procedural) — term scoring, whole-file retrieval
 // (limit 3), 1-hop link expansion, superseded-exclusion via `valid_until`, and a
