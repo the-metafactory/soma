@@ -2,7 +2,7 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { planSomaInit, diagnoseSomaDoctor } from "../src/onboarding";
-import { provenanceHeader } from "../src/adapters/shared/provenance";
+import { withProvenance } from "../src/adapters/shared/provenance";
 import { runSomaCli } from "../src/cli";
 import { withTempHome as withSharedTempHome } from "./fixtures/pai-migration-fixtures";
 
@@ -342,10 +342,11 @@ async function writeClaudeCodeProjection(homeDir: string): Promise<void> {
   await mkdir(join(homeDir, ".claude/hooks/soma"), { recursive: true });
   // A real managed projection carries the soma#370 provenance header; the
   // doctor uses its presence to distinguish a generated file from a
-  // hand-replaced one, so the fixture must include it.
+  // hand-replaced one, so the fixture must include it. Use withProvenance so
+  // the fixture cannot drift from the production wrapping format (sage#377).
   await writeFile(
     join(homeDir, ".claude/rules/soma/CONTEXT.md"),
-    `${provenanceHeader("claude-code")}\n\n# Soma Claude Code Context\n`,
+    withProvenance("claude-code", "# Soma Claude Code Context\n"),
     "utf8",
   );
   await writeFile(join(homeDir, ".claude/hooks/soma/soma-claude-code-hook.mjs"), "// hook\n", "utf8");
@@ -457,6 +458,22 @@ test("soma#370: soma doctor --substrate claude-code flags a hand-edited projecti
     const claudeIds = diagnosis.findings.filter((finding) => finding.id.startsWith("claude-code-")).map((finding) => finding.id);
     expect(claudeIds).toContain("claude-code-projection-unmanaged-edit");
     expect(claudeIds).not.toContain("claude-code-projection-stale");
+  });
+});
+
+test("soma#377: unmanaged-edit check covers non-CONTEXT skeleton files (e.g. SKILLS.md)", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeSomaProfile(homeDir);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await writeClaudeCodeProjection(homeDir); // CONTEXT.md is header-managed
+    // A hand-replaced SKILLS.md with no header must be caught even though
+    // CONTEXT.md is healthy.
+    await writeFile(join(homeDir, ".claude/rules/soma/SKILLS.md"), "# Skills\n\nhand replaced\n", "utf8");
+
+    const diagnosis = await diagnoseSomaDoctor({ homeDir, substrate: "claude-code" });
+    const unmanaged = diagnosis.findings.find((f) => f.id === "claude-code-projection-unmanaged-edit");
+    expect(unmanaged).toBeDefined();
+    expect(unmanaged?.message).toContain("SKILLS.md");
   });
 });
 
