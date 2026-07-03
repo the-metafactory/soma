@@ -214,6 +214,28 @@ test("min-1-per-section guarantees a low-scoring section keeps a line under budg
   expect(content).toContain("## Semantic");
 });
 
+test("byte budget holds with the shed footer included (never exceeds 25KB)", () => {
+  // Long ids + max-length descriptors so ~200 lines would blow past 25KB — the
+  // byte ceiling must bind before the line ceiling, and the appended shed footer
+  // must NOT push the final content over MAX_INDEX_BYTES.
+  const notes = Array.from({ length: 300 }, (_, i) =>
+    note({
+      id: `procedural-note-with-a-deliberately-long-slug-${String(i + 1).padStart(4, "0")}`,
+      type: "procedural",
+      body: "x".repeat(120), // truncated to the 80-char descriptor cap, still a long line
+      trust: "principal",
+      resurface_count: i + 2,
+      last_verified: "2026-07-10",
+    }),
+  );
+
+  const { content, rendered, shed } = renderMemoryIndex(notes, NOW);
+  expect(Buffer.byteLength(content, "utf8")).toBeLessThanOrEqual(25_000);
+  expect(shed).toBeGreaterThan(0); // budget bound → footer present
+  expect(content).toContain("earned a line but were shed");
+  expect(rendered).toBeLessThan(300);
+});
+
 test("empty corpus renders a placeholder, not a bare header", () => {
   const { content, admitted, rendered } = renderMemoryIndex([], NOW);
   expect(admitted).toBe(0);

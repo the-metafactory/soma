@@ -22,9 +22,11 @@ import type { SomaMemoryIndexResult, SomaMemoryNote, SomaMemoryNoteType, SomaMem
  *    `resurface_count × 0.5^(daysSince(last_verified)/halflife)` with a future-
  *    timestamp clamp (adapted from recall's freshness-score concept — see
  *    Plans/2026-07-02-recall-adoption-analysis.md; this amends v1's linear recency
- *    term). When the ≤200-line / ≤25KB budget is hit, the LOWEST score sheds
- *    first. Quarantined weight is 0, so even if some future path admitted one it
- *    would sink to the bottom — defense in depth behind the admission filter.
+ *    term). When the ≤200-line / ≤25KB budget is hit the LOWEST score sheds first,
+ *    except that each non-empty section is first offered its single best line
+ *    (min-1-per-section), subject to the hard ceiling. Quarantined weight is 0, so
+ *    even if some future path admitted one it would sink to the bottom — defense in
+ *    depth behind the admission filter.
  *
  * Determinism: every date derives from an injected `now`; ties break on a fixed
  * key (score → trust → last_verified → id), so the same tree + same `now` render
@@ -128,7 +130,8 @@ interface ScoredLine {
   type: SomaMemoryNoteType;
   score: number;
   note: SomaMemoryNote;
-  text: string; // the fully-rendered `- …` pointer line
+  /** The rendered `- …` pointer line, materialized lazily on admission (never for a shed note). */
+  text?: string;
 }
 
 /** Deterministic ordering: score desc → trust desc → last_verified desc → id asc. */
@@ -151,6 +154,11 @@ function byteLength(text: string): number {
   return Buffer.byteLength(text, "utf8");
 }
 
+/** The footer noting how many earned lines were shed to fit the budget. */
+function shedFooter(count: number): string {
+  return `_${count} more note(s) earned a line but were shed to fit the index budget._`;
+}
+
 export interface RenderedIndex {
   content: string;
   admitted: number;
@@ -161,10 +169,17 @@ export interface RenderedIndex {
 
 /**
  * Render INDEX.md from a note set. Pure + deterministic given `notes` and `now`.
- * Budget enforcement: every non-empty section is guaranteed its single
- * highest-scored line (min-1-per-section), then the remaining line/byte budget is
- * filled in global score order; whatever doesn't fit is shed (lowest score first)
- * and reported in the footer — never silently dropped.
+ *
+ * Budget policy (honest ordering): each non-empty section is OFFERED its top-scored
+ * line first (min-1-per-section), then the remaining line/byte budget is filled in
+ * global retention-score order. So the effective eviction rule is "lowest score
+ * sheds first, EXCEPT a section's single best line is offered ahead of the global
+ * fill" — a score-0 line that is its section's best can outrank a higher-scoring
+ * line from a section that already has one. Both the min-1 offer and the global
+ * fill are still subject to the hard line/byte ceiling: if even the top line does
+ * not fit the byte budget it is shed too (the ceiling always wins). Shed notes are
+ * counted and reported in a footer — never silently dropped. Pointer strings are
+ * materialized lazily, only for admitted lines.
  */
 export function renderMemoryIndex(
   notes: SomaMemoryNote[],
@@ -178,7 +193,6 @@ export function renderMemoryIndex(
     type: note.type,
     score: retentionScore(note, now, halflifeDays),
     note,
-    text: pointerLine(note, now),
   }));
 
   // Section buckets in fixed order, each internally score-sorted.
@@ -188,30 +202,39 @@ export function renderMemoryIndex(
   for (const lines of bySection.values()) lines.sort(compareScored);
 
   const header = "# Soma Memory Index";
-  // Running byte budget starts with the header; each selected line and section
-  // header is charged as it is admitted so the final string is within budget.
-  let usedBytes = byteLength(`${header}\n`);
+  // Reserve room for the shed footer up front so the final content — footer
+  // included — can never exceed MAX_INDEX_BYTES. Reserve the worst case (all
+  // admitted notes shed → largest count) whether or not a footer ends up rendered;
+  // an unused reserve just leaves the index below its ceiling (a ceiling, not a floor).
+  const footerReserve = byteLength(`\n\n${shedFooter(scored.length)}`);
+  const byteCeiling = MAX_INDEX_BYTES - footerReserve;
+
+  // usedBytes over-estimates the assembled bytes (header + a trailing doc newline;
+  // each section charged its full "\n\n## Title\n" prefix, each line its "…\n"), so
+  // header + sections ≤ byteCeiling and footer ≤ footerReserve ⇒ total ≤ MAX.
+  let usedBytes = byteLength(header) + 1;
   let usedLines = 0;
   const selected = new Set<ScoredLine>();
 
-  // Charge a candidate against the line/byte budget; on the first time a section
-  // contributes, also charge its "\n## Title\n" header. Returns false if it won't fit.
   const chargedSectionHeader = new Set<SomaMemoryNoteType>();
   function tryAdmit(line: ScoredLine): boolean {
     if (usedLines >= MAX_INDEX_LINES) return false;
-    let cost = byteLength(`${line.text}\n`);
+    const text = line.text ?? pointerLine(line.note, now); // materialize lazily
+    let cost = byteLength(`${text}\n`);
     if (!chargedSectionHeader.has(line.type)) {
-      cost += byteLength(`\n## ${SECTION_TITLE[line.type]}\n`);
+      cost += byteLength(`\n\n## ${SECTION_TITLE[line.type]}\n`);
     }
-    if (usedBytes + cost > MAX_INDEX_BYTES) return false;
+    if (usedBytes + cost > byteCeiling) return false;
     usedBytes += cost;
     usedLines += 1;
+    line.text = text;
     chargedSectionHeader.add(line.type);
     selected.add(line);
     return true;
   }
 
-  // Pass 1 — min-1-per-section: the top-scored line of each non-empty section.
+  // Pass 1 — min-1-per-section: OFFER the top-scored line of each non-empty section
+  // (subject to the hard ceiling — an oversized top line is still shed).
   for (const type of SECTION_ORDER) {
     const top = bySection.get(type)!.at(0);
     if (top) tryAdmit(top);
@@ -233,11 +256,11 @@ export function renderMemoryIndex(
       const lines = bySection.get(type)!.filter((line) => selected.has(line));
       if (lines.length === 0) continue;
       parts.push("", `## ${SECTION_TITLE[type]}`);
-      for (const line of lines) parts.push(line.text);
+      for (const line of lines) parts.push(line.text!);
     }
   }
   if (shed > 0) {
-    parts.push("", `_${shed} more note(s) earned a line but were shed to fit the index budget._`);
+    parts.push("", shedFooter(shed));
   }
 
   return {
