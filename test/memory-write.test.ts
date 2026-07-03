@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
@@ -196,6 +196,7 @@ test("merge delta-appends an Update block and bumps last_verified without a new 
       now: LATER,
       mode: "merge",
       trigger: "principal-correction",
+      principalAuthority: true,
       targetId: "note",
       body: "Also applies to en-dashes.",
     });
@@ -206,6 +207,56 @@ test("merge delta-appends an Update block and bumps last_verified without a new 
     expect(note.last_verified).toBe("2026-08-01");
     expect(note.created).toBe("2026-07-03"); // created is preserved
     expect(await countEvents(somaHome)).toBe(2); // one create, one merge
+  });
+});
+
+test("merging into a principal-trust note requires the principal-authority escalation", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeMemoryNote(createOpts(somaHome, { id: "principal-note" })); // trust principal
+
+    // A merge that doesn't carry the escalation cannot inject into trusted memory.
+    await expect(
+      writeMemoryNote({ somaHome, mode: "merge", trigger: "import", targetId: "principal-note", body: "sneaky injected text", now: LATER }),
+    ).rejects.toThrow(/Mutating principal-trust note/);
+
+    // With the escalation it goes through.
+    const ok = await writeMemoryNote({
+      somaHome,
+      mode: "merge",
+      trigger: "principal-correction",
+      principalAuthority: true,
+      targetId: "principal-note",
+      body: "legit correction",
+      now: LATER,
+    });
+    expect(ok.note.body).toContain("legit correction");
+  });
+});
+
+test("superseding (closing) a principal-trust note requires the escalation", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeMemoryNote(createOpts(somaHome, { id: "trusted" }));
+    await expect(
+      writeMemoryNote(createOpts(somaHome, {
+        mode: "supersede",
+        id: "replacement",
+        targetId: "trusted",
+        trigger: "import",
+        principalAuthority: false,
+        body: "replacement via import trigger phi chi",
+      })),
+    ).rejects.toThrow(/Mutating principal-trust note/);
+  });
+});
+
+test("a malformed note file still blocks a cross-type id collision (presence, not parse)", async () => {
+  await withTempSoma(async (somaHome) => {
+    // Hand-write a corrupt semantic/dup.md (not parseable).
+    await mkdir(join(somaHome, "memory", "semantic"), { recursive: true });
+    await writeFile(join(somaHome, "memory", "semantic", "dup.md"), "not a valid note", "utf8");
+    await expect(
+      writeMemoryNote(createOpts(somaHome, { id: "dup", type: "procedural", body: "would collide omega", force: true })),
+    ).rejects.toThrow(/id already exists/);
   });
 });
 
@@ -312,7 +363,7 @@ test("merge rolls back to the prior bytes when the event append fails", async ()
     await breakEvents(somaHome);
 
     await expect(
-      writeMemoryNote({ somaHome, mode: "merge", trigger: "principal-correction", targetId: "note", body: "delta", now: LATER }),
+      writeMemoryNote({ somaHome, mode: "merge", trigger: "principal-correction", principalAuthority: true, targetId: "note", body: "delta", now: LATER }),
     ).rejects.toThrow();
 
     // Restored byte-for-byte: no Update block, no last_verified bump.

@@ -126,14 +126,15 @@ memory/
   procedural/<id>.md     # playbooks / how-to   (dedup-gated, verifiable)
   episodic/…             # session digests + action log (M5)
   INDEX.md               # earned-inclusion index (M3)
-  state/events.jsonl     # append-only mutation journal
 ```
 
 Each note is one file: strict frontmatter (id, type, trust, provenance,
 bi-temporal `valid_until`, `last_verified`, `resurface_count`, links) plus a
 markdown body. `soma memory write|verify` (M1) is the only write path — trust is
 derived from the write trigger, writes are dedup-gated (recall-first refusal),
-and every mutation appends exactly one event. This taxonomy is intentionally
+and every mutation appends exactly one event to the **existing**
+`memory/STATE/events.jsonl` stream (the same journal the Observability section
+reads — note mutations do not fork a second event stream). This taxonomy is intentionally
 distinct from the `MEMORY/*` compartments: the compartments hold curated
 free-form material; the note store holds atomic, governed, decay-tracked notes.
 

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createPaths } from "./paths";
 import { appendSomaMemoryEvent } from "./memory";
@@ -142,16 +142,39 @@ function jaccard(a: Set<string>, b: Set<string>): number {
   return union === 0 ? 0 : intersection / union;
 }
 
-interface LoadedNote {
+interface ScannedNote {
   path: string;
   type: WritableType;
   note: SomaMemoryNote;
+}
+
+interface LoadedNote extends ScannedNote {
   /** The exact on-disk bytes — used to restore the file on event-append rollback. */
   raw: string;
 }
 
-/** Parse every `.md` note under the durable corpus; skip unreadable/malformed. */
-async function collectDurableNotes(somaHome: string): Promise<LoadedNote[]> {
+/**
+ * A mutation of an existing `principal`-trust note (merge body, or supersede-close)
+ * carries the same weight as minting principal trust — it must go through the
+ * same deliberate escalation, or a tool/import caller could inject into (or
+ * invalidate) trusted memory while preserving its trust.
+ */
+function assertMayMutatePrincipal(target: SomaMemoryNote, options: SomaMemoryWriteOptions): void {
+  if (target.trust !== "principal") return;
+  if (options.trigger === "principal-correction" && options.principalAuthority === true) return;
+  throw new MemoryNoteError(
+    `Mutating principal-trust note ${target.id} requires --trigger principal-correction and --principal-authority ` +
+      `(the same deliberate escalation that minted it).`,
+    "trigger",
+  );
+}
+
+/**
+ * Parse every `.md` note under the durable corpus; skip unreadable/malformed.
+ * Returns `ScannedNote` (no `raw`) — the only caller is the dedup scan, which
+ * never needs the bytes; `loadNoteById` reads raw itself for its rollback path.
+ */
+async function collectDurableNotes(somaHome: string): Promise<ScannedNote[]> {
   // Read files with per-directory parallelism (matches src/memory.ts's search
   // walk) — a create against a large corpus must not serialize on every read.
   const perType = await Promise.all(
@@ -159,18 +182,18 @@ async function collectDurableNotes(somaHome: string): Promise<LoadedNote[]> {
       const dir = typeDir(somaHome, type);
       const entries = (await readdir(dir).catch(() => [] as string[])).filter((entry) => entry.endsWith(".md"));
       const notes = await Promise.all(
-        entries.map(async (entry): Promise<LoadedNote | undefined> => {
+        entries.map(async (entry): Promise<ScannedNote | undefined> => {
           const path = join(dir, entry);
           const content = await readFile(path, "utf8").catch(() => undefined);
           if (content === undefined) return undefined;
           try {
-            return { path, type, note: parseMemoryNote(content), raw: content };
+            return { path, type, note: parseMemoryNote(content) };
           } catch {
             return undefined; // a hand-broken note must not block a legitimate write
           }
         }),
       );
-      return notes.filter((entry): entry is LoadedNote => entry !== undefined);
+      return notes.filter((entry): entry is ScannedNote => entry !== undefined);
     }),
   );
   return perType.flat();
@@ -271,12 +294,22 @@ async function loadNoteById(somaHome: string, id: string): Promise<LoadedNote> {
   throw new MemoryNoteError(`Soma memory note not found: ${id}`, "id");
 }
 
-/** True iff a note with this id already exists under EITHER durable type. */
+/**
+ * True iff a note FILE with this id already exists under either durable type.
+ * A pure presence check (`access`), NOT a parse — a malformed `semantic/<id>.md`
+ * must still block a colliding `procedural/<id>.md`, so id uniqueness holds even
+ * over a hand-corrupted corpus.
+ */
 async function noteIdExists(somaHome: string, id: string): Promise<boolean> {
-  return loadNoteById(somaHome, id).then(
-    () => true,
-    () => false,
-  );
+  assertNoteId(id);
+  for (const type of Object.keys(WRITABLE_TYPE_DIRS) as WritableType[]) {
+    const exists = await access(memoryNotePath(somaHome, type, id)).then(
+      () => true,
+      () => false,
+    );
+    if (exists) return true;
+  }
+  return false;
 }
 
 // --- create / merge / supersede ----------------------------------------------
@@ -375,6 +408,7 @@ async function mergeNote(somaHome: string, options: SomaMemoryWriteOptions, now:
   if (note.valid_until !== null) {
     throw new MemoryNoteError(`Cannot merge into superseded note ${note.id} (valid_until set).`, "targetId");
   }
+  assertMayMutatePrincipal(note, options); // injecting into a principal note needs the escalation
 
   const today = isoDate(now);
   const merged: SomaMemoryNote = {
@@ -415,6 +449,7 @@ async function supersedeNote(somaHome: string, options: SomaMemoryWriteOptions, 
   if (old.note.valid_until !== null) {
     throw new MemoryNoteError(`Note ${old.note.id} is already superseded (valid_until set).`, "targetId");
   }
+  assertMayMutatePrincipal(old.note, options); // closing a principal note needs the escalation
 
   // New note points back at what it replaces; the closed note points forward.
   if (!newNote.links.includes(old.note.id)) newNote.links = [...newNote.links, old.note.id];
