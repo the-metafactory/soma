@@ -2427,7 +2427,7 @@ export interface SomaMemoryWriteResult {
   mode: SomaMemoryWriteMode;
   path: string;
   note: SomaMemoryNote;
-  /** supersede: the closed note's new path/state; merge: the pre-edit note. */
+  /** supersede only: the id of the note that was closed (valid_until set). Undefined for create/merge. */
   supersededId?: string;
   event: SomaMemoryEvent;
 }

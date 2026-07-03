@@ -122,6 +122,24 @@ async function appendMutationEvent(
   });
 }
 
+/**
+ * Fill the shared event envelope (timestamp + substrate) for a note mutation so
+ * the four mutation paths can't drift on journal shape, then append-with-rollback.
+ */
+async function appendNoteMutationEvent(
+  somaHome: string,
+  now: Date,
+  substrate: SomaMemoryWriteOptions["substrate"],
+  fields: { kind: string; summary: string; artifactPaths: string[]; metadata: Record<string, unknown> },
+  rollback: () => Promise<void>,
+): ReturnType<typeof appendSomaMemoryEvent> {
+  return appendMutationEvent(
+    somaHome,
+    { timestamp: now.toISOString(), substrate: substrate ?? "custom", ...fields },
+    rollback,
+  );
+}
+
 /** YYYY-MM-DD in UTC — matches the note schema's calendar-date grammar. */
 function isoDate(now: Date): string {
   return now.toISOString().slice(0, 10);
@@ -244,10 +262,22 @@ async function collectDurableNotes(somaHome: string): Promise<CorpusScan> {
   // bounded concurrency window (shared helper) rather than one unbounded
   // Promise.all over the whole tree.
   const targets: { path: string; type: WritableType }[] = [];
+  const unreadableDirs: string[] = [];
   for (const type of WRITABLE_TYPES) {
     const dir = typeDir(somaHome, type);
-    const entries = (await readdir(dir).catch(() => [] as string[])).filter((entry) => entry.endsWith(".md"));
-    for (const entry of entries) targets.push({ path: join(dir, entry), type });
+    let entries: string[];
+    try {
+      entries = await readdir(dir);
+    } catch (error) {
+      // A missing dir is genuinely empty; any OTHER error (e.g. permissions) is
+      // an unscanned blind spot and must be surfaced, not treated as empty.
+      const code = error instanceof Error && "code" in error ? error.code : undefined;
+      if (code !== "ENOENT") unreadableDirs.push(dir);
+      continue;
+    }
+    for (const entry of entries.filter((entry) => entry.endsWith(".md"))) {
+      targets.push({ path: join(dir, entry), type });
+    }
   }
 
   const scanned = await runBoundedConcurrent(
@@ -265,7 +295,7 @@ async function collectDurableNotes(somaHome: string): Promise<CorpusScan> {
   );
 
   const notes: ScannedNote[] = [];
-  const unreadable: string[] = [];
+  const unreadable: string[] = [...unreadableDirs]; // dir-level blind spots count too
   for (const entry of scanned) {
     if ("unreadable" in entry) unreadable.push(entry.unreadable);
     else notes.push(entry);
@@ -459,26 +489,31 @@ async function createNote(somaHome: string, options: SomaMemoryWriteOptions, now
     throw new MemoryNoteError(`Soma memory note id already exists: ${note.id}`, "id");
   }
 
-  // Scan unconditionally so the unreadable-file count is on record even under
-  // --force (the gate's blind spot must always be auditable, never silent).
-  const { candidates, unreadable } = await findDuplicateCandidates(somaHome, note.body);
-  if (!options.force && candidates.length > 0) {
-    const list = candidates.map((c) => `${c.id} (${c.exact ? "exact" : c.score.toFixed(2)})`).join(", ");
-    const blindSpot = unreadable.length > 0 ? ` (${unreadable.length} note(s) were unreadable and not checked)` : "";
-    throw new MemoryNoteError(
-      `Recall-first refusal: ${candidates.length} similar note(s) exist — ${list}${blindSpot}. ` +
-        `Re-run with --merge <id>, --supersede <id>, or --force.`,
-    );
+  // --force bypasses the gate, so skip the O(corpus) scan entirely — a forced
+  // create should not pay to read/parse every note. When we DO scan (the normal
+  // path), the unreadable count is recorded so the gate never fails open silently.
+  let unreadable: string[] = [];
+  if (!options.force) {
+    const scan = await findDuplicateCandidates(somaHome, note.body);
+    unreadable = scan.unreadable;
+    if (scan.candidates.length > 0) {
+      const list = scan.candidates.map((c) => `${c.id} (${c.exact ? "exact" : c.score.toFixed(2)})`).join(", ");
+      const blindSpot = unreadable.length > 0 ? ` (${unreadable.length} note(s)/dir(s) were unreadable and not checked)` : "";
+      throw new MemoryNoteError(
+        `Recall-first refusal: ${scan.candidates.length} similar note(s) exist — ${list}${blindSpot}. ` +
+          `Re-run with --merge <id>, --supersede <id>, or --force.`,
+      );
+    }
   }
 
   const path = memoryNotePath(somaHome, note.type as WritableType, note.id);
   await writeNoteFile(path, note, "wx");
 
-  const event = await appendMutationEvent(
+  const event = await appendNoteMutationEvent(
     somaHome,
+    now,
+    options.substrate,
     {
-      timestamp: now.toISOString(),
-      substrate: options.substrate ?? "custom",
       kind: "memory.write.create",
       summary: `Created memory note ${note.id} (${note.type}, trust ${note.trust})`,
       artifactPaths: [path],
@@ -516,11 +551,11 @@ async function mergeNote(somaHome: string, options: SomaMemoryWriteOptions, now:
   };
   await writeNoteFile(path, merged, "w");
 
-  const event = await appendMutationEvent(
+  const event = await appendNoteMutationEvent(
     somaHome,
+    now,
+    options.substrate,
     {
-      timestamp: now.toISOString(),
-      substrate: options.substrate ?? "custom",
       kind: "memory.write.merge",
       summary: `Merged update into memory note ${merged.id} (${type})`,
       artifactPaths: [path],
@@ -571,11 +606,11 @@ async function supersedeNote(somaHome: string, options: SomaMemoryWriteOptions, 
     throw error;
   }
 
-  const event = await appendMutationEvent(
+  const event = await appendNoteMutationEvent(
     somaHome,
+    now,
+    options.substrate,
     {
-      timestamp: now.toISOString(),
-      substrate: options.substrate ?? "custom",
       kind: "memory.write.supersede",
       summary: `Note ${newNote.id} supersedes ${closed.id} (closed ${closed.valid_until})`,
       artifactPaths: [newPath, old.path],
@@ -615,9 +650,12 @@ export async function writeMemoryNote(options: SomaMemoryWriteOptions): Promise<
 // --- verify ------------------------------------------------------------------
 
 /**
- * Close the reinforcing loop: a resurfaced note that proved correct bumps
- * `last_verified` to today and increments `resurface_count`. This is the decay
- * signal M3's retention score reads.
+ * Close the reinforcing loop: the caller ASSERTS a resurfaced note still holds,
+ * bumping `last_verified` to today and incrementing `resurface_count`. This
+ * records the assertion only — verify captures no evidence/source/proof, so
+ * `last_verified` is a caller-asserted freshness signal (the same caller-asserted
+ * model as EvidenceKind elsewhere), not a machine-checked correctness proof. It
+ * is the decay signal M3's retention score reads.
  */
 export async function verifyMemoryNote(options: SomaMemoryVerifyOptions): Promise<SomaMemoryVerifyResult> {
   assertNonEmpty(options.id, "id");
@@ -644,11 +682,11 @@ export async function verifyMemoryNote(options: SomaMemoryVerifyOptions): Promis
   };
   await writeNoteFile(path, verified, "w");
 
-  const event = await appendMutationEvent(
+  const event = await appendNoteMutationEvent(
     somaHome,
+    now,
+    options.substrate,
     {
-      timestamp: now.toISOString(),
-      substrate: options.substrate ?? "custom",
       kind: "memory.verify",
       summary: `Verified memory note ${verified.id} (${type}); resurface_count ${verified.resurface_count}`,
       artifactPaths: [path],

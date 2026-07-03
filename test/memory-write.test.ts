@@ -13,6 +13,7 @@ import {
 } from "../src/index";
 // Path/dedup helpers are module-private (not public index API) — import direct.
 import { MEMORY_DEDUP_JACCARD_THRESHOLD, findDuplicateCandidates, memoryNotePath } from "../src/memory-write";
+import { parseMemoryArgs } from "../src/cli/memory";
 
 const NOW = new Date("2026-07-03T10:00:00.000Z");
 const LATER = new Date("2026-08-01T12:00:00.000Z");
@@ -372,6 +373,13 @@ test("verify on a missing id throws a typed error", async () => {
   await withTempSoma(async (somaHome) => {
     await expect(verifyMemoryNote({ somaHome, id: "ghost" })).rejects.toThrow(MemoryNoteError);
   });
+});
+
+test("verify CLI rejects a conflicting positional id and --id", () => {
+  expect(() => parseMemoryArgs(["memory", "verify", "old", "--id", "new"])).toThrow(/two different ids/);
+  // Matching positional + --id is fine.
+  const parsed = parseMemoryArgs(["memory", "verify", "same", "--id", "same"]);
+  expect(parsed.action).toBe("verify");
 });
 
 test("episodic writes are refused through the write path (they belong to M5)", async () => {

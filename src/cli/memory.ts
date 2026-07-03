@@ -379,6 +379,11 @@ function parseMemoryVerifyArgs(args: string[]): SomaMemoryVerifyOptions {
     }
   }
 
+  // Reject a conflicting positional + --id rather than silently preferring one —
+  // verify is a mutating command, so an ignored id must not slip through.
+  if (options.id !== undefined && positionalId !== undefined && options.id !== positionalId) {
+    throw new Error(`soma memory verify got two different ids ("${positionalId}" and --id "${options.id}"); pass only one.`);
+  }
   options.id ??= positionalId;
   if (!options.id) {
     throw new Error("soma memory verify needs a note id; pass it as the first argument or --id <id>.");
