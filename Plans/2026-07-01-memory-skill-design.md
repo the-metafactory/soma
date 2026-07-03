@@ -103,7 +103,7 @@ created: 2026-04-12
 last_verified: 2026-06-28   # bumped when resurfaced-and-confirmed
 valid_until: null           # set instead of deleting; bi-temporal close
 provenance: conversation    # conversation | consolidation | import | tool:<name>
-trust: principal            # principal | agent | quarantined
+trust: principal            # principal | assistant | quarantined
 source_of_truth: null       # optional pointer to verify against (file, URL, calendar)
 links: [ai-writing-tells, andreas-style-feedback]
 ---
@@ -138,7 +138,7 @@ Triggers (exhaustive — anything else is SKIP):
 1. **Principal says remember** / corrects the agent ("no, always X") → procedural or semantic, trust `principal`.
 2. **Session end** → exactly one episodic digest (8-15 lines: what happened, what changed, open loops). Replaces today's 6,363-file `current-work-*.json` spray.
 3. **Consequential action** (sent, deployed, deleted, paid, published) → one action-log entry at approval time.
-4. **Consolidation** promotes/merges (see §8), trust `agent`.
+4. **Consolidation** promotes/merges (see §8), trust `assistant`.
 5. **Import** (migration, external docs) → trust `quarantined` until human-reviewed. Web/tool content NEVER writes directly (MINJA defense).
 
 Write procedure (skill-enforced, CLI-assisted):
@@ -264,7 +264,7 @@ The rules that make session N+1 strictly better-informed than session N. All com
 ### Retention score (index eviction, deterministic)
 
 `score = trust × recency(last_verified) × type_weight × resurface_count`
-with trust: principal 3 / agent 1 / quarantined 0 — and type_weight: procedural 3 / semantic 2 / episodic 1. When INDEX exceeds budget, lowest scores evict first (file remains; only the always-loaded line is lost). No model call needed.
+with trust: principal 3 / assistant 1 / quarantined 0 — and type_weight: procedural 3 / semantic 2 / episodic 1. When INDEX exceeds budget, lowest scores evict first (file remains; only the always-loaded line is lost). No model call needed.
 
 ### Health metrics (deterministic, replaces sentiment pipeline)
 

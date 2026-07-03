@@ -33,7 +33,7 @@ function minimalNote(): SomaMemoryNote {
     last_verified: "2026-07-03",
     valid_until: "2026-08-01",
     provenance: "tool:consolidate",
-    trust: "agent",
+    trust: "assistant",
     source_of_truth: null,
     project: null,
     links: [],
@@ -129,7 +129,7 @@ test("invalid type throws", () => {
 });
 
 test("invalid trust throws", () => {
-  const bad = serializedMinimal().replace("trust: agent", "trust: root");
+  const bad = serializedMinimal().replace("trust: assistant", "trust: root");
   expect(() => parseMemoryNote(bad)).toThrow("trust");
 });
 
