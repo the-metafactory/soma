@@ -17,6 +17,7 @@ import { createPaths } from "./paths";
 import { pruneLegacyVsaSkill } from "./legacy-skill-prune";
 import { installVsaSkillProjection } from "./vsa-skill-installer";
 import { loadActiveVsaForBundle } from "./adapter-active-vsa";
+import { loadMemoryIndexForProjection } from "./memory-index";
 import { isUnderOrEqual, reconcileOwnedDir } from "./projection-reconcile";
 import { isEnoent } from "./fs-errors";
 import {
@@ -173,11 +174,15 @@ async function installSomaForSubstrate(
     skillNameOverride: spec.vsaSkillProjection.skillNameOverride,
     projectionSubstrate: substrate,
   });
-  // Populate the projection input with the active VSA so each
-  // substrate writes its `active-vsa.md` file (#37 AC-1/AC-2).
+  // Populate the projection input with the active VSA so each substrate writes its
+  // `active-vsa.md` file (#37 AC-1/AC-2), and with the memory index (M4) so
+  // memory-aware substrates project their always-loaded memory file. Both are
+  // soft: absent source → the file is simply omitted.
+  const memoryIndexContent = await loadMemoryIndexForProjection({ somaHome: somaHome.somaHome });
   const contextWithActiveVsa: ProjectionInput = {
     ...projectionContext,
     activeVsa: (await loadActiveVsaForBundle({ somaHome: somaHome.somaHome })) ?? undefined,
+    memory: memoryIndexContent !== undefined ? { indexContent: memoryIndexContent } : undefined,
   };
   const substrateHome = await installHomeProjectionFor(substrate, contextWithActiveVsa, projectionOptions);
   await removeObsoleteHomeFiles(spec, substrateHome.rootDir);
