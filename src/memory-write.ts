@@ -6,6 +6,7 @@ import { createPaths } from "./paths";
 import { runBoundedConcurrent } from "./internal-concurrency";
 import { appendSomaMemoryEvent } from "./memory";
 import { parseMemoryNote, serializeMemoryNote, MemoryNoteError } from "./memory-note";
+import { memoryTermSet } from "./memory-terms";
 import { SOMA_MEMORY_TRIGGER_TRUST } from "./types";
 import type {
   SomaMemoryDuplicateCandidate,
@@ -181,10 +182,10 @@ function hashFromLower(lower: string): string {
   return createHash("sha256").update(lower.replace(/\s+/g, " ").trim()).digest("hex");
 }
 
-/** Token set for Jaccard near-match — 3+ char alnum tokens, same floor as search. */
-function tokensFromLower(lower: string): Set<string> {
-  return new Set(lower.split(/[^a-z0-9À-ɏ]+/i).filter((token) => token.length >= 3));
-}
+/** Token set for Jaccard near-match — the shared memory tokenizer (memory-terms.ts),
+ *  same 3+char floor as recall and search. Takes ALREADY-lowercased input so the
+ *  scan lowercases each note once and feeds both hash and tokens. */
+const tokensFromLower = memoryTermSet;
 
 function bodyHash(body: string): string {
   return hashFromLower(body.toLowerCase());

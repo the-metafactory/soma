@@ -1,6 +1,7 @@
 import { createPaths } from "./paths";
 import { collectDurableNotes } from "./memory-write";
 import type { ScannedNote } from "./memory-write";
+import { memoryTerms } from "./memory-terms";
 import type {
   SomaMemoryNote,
   SomaMemoryRecallOptions,
@@ -39,23 +40,6 @@ import type {
 
 const MS_PER_DAY = 86_400_000;
 const DEFAULT_LIMIT = 3;
-
-/**
- * Split a query into distinct 3+char search terms. Mirrors the legacy search
- * tokenizer (`memory.ts`) and the write-path dedup floor (`memory-write.ts`) so
- * recall, dedup, and search all agree on what counts as a term.
- */
-function queryTerms(query: string): string[] {
-  return Array.from(
-    new Set(
-      query
-        .toLowerCase()
-        .split(/[^a-z0-9À-ɏ]+/i)
-        .map((term) => term.trim())
-        .filter((term) => term.length >= 3),
-    ),
-  );
-}
 
 /**
  * The lowercased text a note is scored against. The id is de-slugged (dashes →
@@ -170,7 +154,7 @@ export async function recallMemory(options: SomaMemoryRecallOptions): Promise<So
   if (!Number.isInteger(limit) || limit < 1) {
     throw new Error(`recall limit must be a positive integer (got ${String(options.limit)}).`);
   }
-  const terms = queryTerms(options.query);
+  const terms = memoryTerms(options.query);
 
   const { notes, unreadable } = await collectDurableNotes(somaHome);
   // Only ACTIVE notes are eligible — as matches and as link targets. A superseded

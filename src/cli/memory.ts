@@ -532,8 +532,10 @@ function formatMemoryRecallResult(result: SomaMemoryRecallResult): string {
     // or quarantined tool/web content — never render any of it to the terminal raw
     // (ANSI/OSC escapes could spoof output or touch clipboard/title state).
     `query: ${sanitizeForTerminal(result.query)}`,
-    `terms: ${result.terms.length > 0 ? result.terms.join(", ") : "(none — needs a 3+char term)"}`,
-    `somaHome: ${result.somaHome}`,
+    `terms: ${result.terms.length > 0 ? result.terms.map(sanitizeForTerminal).join(", ") : "(none — needs a 3+char term)"}`,
+    // somaHome is derived from a caller-supplied --soma-home; a path with ANSI/OSC
+    // bytes must not reach the terminal raw either.
+    `somaHome: ${sanitizeForTerminal(result.somaHome)}`,
     "",
   ];
 
@@ -562,7 +564,7 @@ function formatMemoryRecallResult(result: SomaMemoryRecallResult): string {
   }
   if (result.unreadable.length > 0) {
     lines.push(`⚠ ${result.unreadable.length} corpus file(s) unreadable — recall was partial:`);
-    for (const path of result.unreadable) lines.push(`  - ${path}`);
+    for (const path of result.unreadable) lines.push(`  - ${sanitizeForTerminal(path)}`);
   }
 
   return lines.join("\n").trimEnd();
