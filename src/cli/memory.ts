@@ -4,7 +4,7 @@ import {
   recallMemory,
   searchSomaMemory,
   verifyMemoryNote,
-  writeAction,
+  writeMemoryAction,
   writeMemoryNote,
   writeSessionDigest,
 } from "../index";
@@ -29,6 +29,7 @@ import type {
   SomaMemoryWriteOptions,
   SomaMemoryWriteResult,
   SomaMemoryWriteTrigger,
+  SubstrateId,
 } from "../types";
 
 /** Parsed `soma memory reindex` — home overrides only; rebuild uses the real clock. */
@@ -167,23 +168,42 @@ export function parseMemoryArgs(args: string[]): ParsedMemoryArgs {
   }
 }
 
+/**
+ * Consume a shared episodic/home option (`--home-dir`, `--soma-home`,
+ * `--substrate`) into `options`. Returns true if `arg` was one of them (the value
+ * was read from args[index+1], so the caller advances the index). One place for the
+ * options both `digest` and `action` share, so they can't drift.
+ */
+function consumeSharedMemoryOption(
+  args: string[],
+  index: number,
+  arg: string,
+  options: { homeDir?: string; somaHome?: string; substrate?: SubstrateId },
+): boolean {
+  switch (arg) {
+    case "--home-dir":
+      options.homeDir = readOption(args, index, arg);
+      return true;
+    case "--soma-home":
+      options.somaHome = readOption(args, index, arg);
+      return true;
+    case "--substrate":
+      options.substrate = parseSubstrate(readOption(args, index, arg));
+      return true;
+    default:
+      return false;
+  }
+}
+
 function parseMemoryDigestArgs(args: string[]): SomaMemoryDigestOptions {
   const options: Partial<SomaMemoryDigestOptions> = {};
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
+    if (consumeSharedMemoryOption(args, index, arg, options)) {
+      index += 1;
+      continue;
+    }
     switch (arg) {
-      case "--home-dir":
-        options.homeDir = readOption(args, index, arg);
-        index += 1;
-        break;
-      case "--soma-home":
-        options.somaHome = readOption(args, index, arg);
-        index += 1;
-        break;
-      case "--substrate":
-        options.substrate = parseSubstrate(readOption(args, index, arg));
-        index += 1;
-        break;
       case "--session":
         options.sessionId = readOption(args, index, arg);
         index += 1;
@@ -216,19 +236,11 @@ function parseMemoryActionArgs(args: string[]): SomaMemoryActionOptions {
   const options: Partial<SomaMemoryActionOptions> = {};
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
+    if (consumeSharedMemoryOption(args, index, arg, options)) {
+      index += 1;
+      continue;
+    }
     switch (arg) {
-      case "--home-dir":
-        options.homeDir = readOption(args, index, arg);
-        index += 1;
-        break;
-      case "--soma-home":
-        options.somaHome = readOption(args, index, arg);
-        index += 1;
-        break;
-      case "--substrate":
-        options.substrate = parseSubstrate(readOption(args, index, arg));
-        index += 1;
-        break;
       case "--slug":
         options.slug = readOption(args, index, arg);
         index += 1;
@@ -637,7 +649,7 @@ export async function runMemoryCli(parsed: ParsedMemoryArgs): Promise<string> {
     case "digest":
       return formatMemoryDigestResult(await writeSessionDigest(parsed.options));
     case "action":
-      return formatMemoryActionResult(await writeAction(parsed.options));
+      return formatMemoryActionResult(await writeMemoryAction(parsed.options));
   }
 }
 

@@ -5,7 +5,7 @@ import { expect, test } from "bun:test";
 import {
   parseMemoryNote,
   somaMemoryEventsPath,
-  writeAction,
+  writeMemoryAction,
   writeSessionDigest,
 } from "../src/index";
 import { parseMemoryArgs, runMemoryCli } from "../src/cli/memory";
@@ -85,9 +85,9 @@ test("a session id with no slug-able characters is rejected", async () => {
 
 // --- action ------------------------------------------------------------------
 
-test("writeAction logs an intent→approval→outcome episodic note under actions/", async () => {
+test("writeMemoryAction logs an intent→approval→outcome episodic note under actions/", async () => {
   await withTempSoma(async (somaHome) => {
-    const result = await writeAction({
+    const result = await writeMemoryAction({
       somaHome,
       now: NOW,
       slug: "deploy-reporter",
@@ -109,15 +109,15 @@ test("writeAction logs an intent→approval→outcome episodic note under action
 
 test("an action with no outcome records a not-yet placeholder", async () => {
   await withTempSoma(async (somaHome) => {
-    const result = await writeAction({ somaHome, now: NOW, slug: "pending-thing", intent: "do a thing", approval: "proposed" });
+    const result = await writeMemoryAction({ somaHome, now: NOW, slug: "pending-thing", intent: "do a thing", approval: "proposed" });
     expect(result.note.body).toContain("**Outcome:** (not yet recorded)");
   });
 });
 
 test("a duplicate action id is refused (never overwrites)", async () => {
   await withTempSoma(async (somaHome) => {
-    await writeAction({ somaHome, now: NOW, slug: "dup", intent: "first", approval: "auto" });
-    await expect(writeAction({ somaHome, now: NOW, slug: "dup", intent: "second", approval: "auto" })).rejects.toThrow(
+    await writeMemoryAction({ somaHome, now: NOW, slug: "dup", intent: "first", approval: "auto" });
+    await expect(writeMemoryAction({ somaHome, now: NOW, slug: "dup", intent: "second", approval: "auto" })).rejects.toThrow(
       /already exists/,
     );
   });
@@ -127,7 +127,7 @@ test("an invalid approval is rejected", async () => {
   await withTempSoma(async (somaHome) => {
     await expect(
       // @ts-expect-error — exercising the runtime guard with a bad approval
-      writeAction({ somaHome, now: NOW, slug: "x", intent: "y", approval: "maybe" }),
+      writeMemoryAction({ somaHome, now: NOW, slug: "x", intent: "y", approval: "maybe" }),
     ).rejects.toThrow(/approval must be/);
   });
 });

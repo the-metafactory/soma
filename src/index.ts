@@ -464,7 +464,7 @@ export { recallMemory } from "./memory-recall";
 // storage path are not frozen as stable API — episodic joins at M5); internal soma
 // modules and tests import them from "./memory-index" directly.
 export { rebuildMemoryIndex } from "./memory-index";
-export { writeSessionDigest, writeAction } from "./memory-episodic";
+export { writeSessionDigest, writeMemoryAction } from "./memory-episodic";
 export { createSomaSnapshot, listSomaSnapshots, rollbackSomaSnapshot } from "./snapshots";
 export { querySomaTelemetryEvents, summarizeSomaTelemetry } from "./observability";
 export {

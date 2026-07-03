@@ -1,8 +1,8 @@
-import { mkdir, writeFile, unlink, access } from "node:fs/promises";
-import { dirname } from "node:path";
+import { mkdir, writeFile, unlink, access, readdir, readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { createPaths } from "./paths";
 import { appendSomaMemoryEvent } from "./memory";
-import { serializeMemoryNote, MemoryNoteError } from "./memory-note";
+import { serializeMemoryNote, parseMemoryNote, MemoryNoteError } from "./memory-note";
 import { SOMA_MEMORY_ACTION_APPROVALS } from "./types";
 import type {
   SomaMemoryActionOptions,
@@ -97,6 +97,36 @@ async function pathExists(path: string): Promise<boolean> {
     .catch(() => false);
 }
 
+/**
+ * Find an EXISTING session digest for `slug`, across ALL month directories — the
+ * one-per-session gate must be date-INDEPENDENT (a multi-day session digested on a
+ * later UTC date must still be recognized as a duplicate). A digest id is always
+ * `YYYYMMDD-<slug>`, so a file matching `^\d{8}-<slug>\.md$` in any month dir is the
+ * session's digest. Exact-match on the full id avoids a slug being a false suffix
+ * of a different session's slug. Returns the existing path, or undefined.
+ */
+async function findExistingSessionDigestPath(somaHome: string, slug: string): Promise<string | undefined> {
+  const base = createPaths(somaHome).resolve("memory", "episodic", "sessions");
+  const idPattern = new RegExp(`^\\d{8}-${slug}\\.md$`); // slug is [a-z0-9-] only — no regex metachars
+  let months: string[];
+  try {
+    months = await readdir(base);
+  } catch {
+    return undefined; // sessions dir absent → no digests yet
+  }
+  for (const month of months.sort()) {
+    let entries: string[];
+    try {
+      entries = await readdir(join(base, month));
+    } catch {
+      continue;
+    }
+    const match = entries.sort().find((entry) => idPattern.test(entry));
+    if (match) return join(base, month, match);
+  }
+  return undefined;
+}
+
 /** Build an episodic note (assistant trust, agent-authored account). */
 function buildEpisodicNote(id: string, now: Date, body: string, project: string | null): SomaMemoryNote {
   const today = isoDate(now);
@@ -149,11 +179,11 @@ async function writeEpisodicNoteWithEvent(
 }
 
 /**
- * Write the one session digest (M5). Gated to exactly one per session: if a digest
- * for `sessionId` already exists (same id, `YYYYMMDD-<sessionSlug>`), this no-ops,
+ * Write the one session digest (M5). Gated to exactly one per session, ACROSS
+ * DATES: if a digest for `sessionId` already exists in any month dir, this no-ops,
  * records a `memory.digest.duplicate` event, and returns `created: false` with the
- * existing note re-read from disk NOT re-parsed here (the caller only needs the
- * decision + path). The body must be 8–15 non-empty lines.
+ * EXISTING on-disk note (re-parsed) and its actual path — so the returned `note`
+ * always matches `path`. The body must be 8–15 non-empty lines.
  */
 export async function writeSessionDigest(options: SomaMemoryDigestOptions): Promise<SomaMemoryDigestResult> {
   const somaHome = createPaths(options).root();
@@ -169,24 +199,28 @@ export async function writeSessionDigest(options: SomaMemoryDigestOptions): Prom
     );
   }
 
-  const id = `${idDate(now)}-${sessionSlug(options.sessionId)}`;
+  const slug = sessionSlug(options.sessionId);
+  const id = `${idDate(now)}-${slug}`;
   assertSlug(id, "digest id");
-  const path = episodicPath(somaHome, "sessions", now, id);
-  const note = buildEpisodicNote(id, now, options.body, null);
 
-  // One-per-session gate: an existing digest for this session is NOT overwritten.
-  if (await pathExists(path)) {
+  // One-per-session gate: date-INDEPENDENT. An existing digest for this session
+  // (any month) is NOT overwritten — the returned note/path are the existing ones.
+  const existingPath = await findExistingSessionDigestPath(somaHome, slug);
+  if (existingPath !== undefined) {
+    const existingNote = parseMemoryNote(await readFile(existingPath, "utf8"));
     const event = await appendSomaMemoryEvent(somaHome, {
       timestamp: now.toISOString(),
       substrate: options.substrate ?? "custom",
       kind: "memory.digest.duplicate",
-      summary: `Digest already exists for session ${options.sessionId} (${id}); no-op.`,
-      artifactPaths: [path],
-      metadata: { id, sessionId: options.sessionId },
+      summary: `Digest already exists for session ${options.sessionId} (${existingNote.id}); no-op.`,
+      artifactPaths: [existingPath],
+      metadata: { id: existingNote.id, sessionId: options.sessionId },
     });
-    return { somaHome, path, created: false, note, event };
+    return { somaHome, path: existingPath, created: false, note: existingNote, event };
   }
 
+  const path = episodicPath(somaHome, "sessions", now, id);
+  const note = buildEpisodicNote(id, now, options.body, null);
   const event = await writeEpisodicNoteWithEvent(
     somaHome,
     path,
@@ -207,7 +241,7 @@ export async function writeSessionDigest(options: SomaMemoryDigestOptions): Prom
  * `actions/`. Keyed by a caller slug (`YYYYMMDD-<slug>`); an id collision is
  * refused rather than overwriting an existing action record.
  */
-export async function writeAction(options: SomaMemoryActionOptions): Promise<SomaMemoryActionResult> {
+export async function writeMemoryAction(options: SomaMemoryActionOptions): Promise<SomaMemoryActionResult> {
   const somaHome = createPaths(options).root();
   const now = options.now ?? new Date();
   assertNonEmpty(options.slug, "slug");
