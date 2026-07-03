@@ -9,9 +9,9 @@ import type { SomaMemoryNote, SomaMemoryNoteType, SomaMemoryTrust } from "./type
  * zero new runtime deps). The round-trip law `parse(serialize(n)) === n` holds
  * for any note whose body is already trimmed (both sides trim the body, so a
  * parsed note re-serializes byte-stably; an untrimmed body is the one lossy
- * case). `serializeMemoryNote` validates its whole input and throws rather than
- * emit a file `parse` would reject, so it can never produce an unparseable
- * note — see its docstring for the exact contract.
+ * case). `serializeMemoryNote` throws rather than emit a file that `parse`
+ * would reject *or* that would parse back to a different note (it re-parses and
+ * compares before returning) — see its docstring for the exact contract.
  *
  * Frontmatter grammar: `---\n`, then `key: value` lines, then `---\n`. Values
  * are unquoted strings, `null`, integers, or an inline `links` array `[a, b]`
@@ -85,17 +85,46 @@ function formatLinks(links: string[]): string {
   return `[${links.join(", ")}]`;
 }
 
+// Fields compared verbatim between an input note and its re-parsed form to
+// enforce the round-trip law by construction (body handled separately — it is
+// the one field serialize normalizes, by trimming).
+const ROUND_TRIP_SCALARS = [
+  "id",
+  "type",
+  "created",
+  "last_verified",
+  "valid_until",
+  "provenance",
+  "trust",
+  "source_of_truth",
+  "project",
+  "resurface_count",
+  "hook",
+  "review",
+] as const;
+
 /**
- * Guard a nullable string field against the reserved literal "null", which the
- * quote-less grammar cannot distinguish from the `null` sentinel. Rejecting it
- * on serialize makes the round-trip law total.
+ * Return the first field whose value would not survive `serialize`→`parse`
+ * unchanged, or `null` if the note round-trips exactly (body compared trimmed).
+ *
+ * This is what makes the round-trip law total: any field value that the
+ * quote-less grammar would normalize or reinterpret — a newline forging extra
+ * keys, stray leading/trailing whitespace the parser trims, or the reserved
+ * literal "null" collapsing to the null sentinel — shows up here as a mismatch
+ * between the input and its re-parsed form.
  */
-function assertNotReservedNull(value: string | null, field: string): void {
-  assert(
-    value !== "null",
-    `${field} cannot be the reserved literal "null" (collides with the null sentinel)`,
-    field,
-  );
+function roundTripMismatch(input: SomaMemoryNote, reparsed: SomaMemoryNote): string | null {
+  for (const field of ROUND_TRIP_SCALARS) {
+    if (reparsed[field] !== input[field]) return field;
+  }
+  if (reparsed.body !== input.body.trim()) return "body";
+  if (
+    reparsed.links.length !== input.links.length ||
+    reparsed.links.some((link, i) => link !== input.links[i])
+  ) {
+    return "links";
+  }
+  return null;
 }
 
 /**
@@ -169,24 +198,20 @@ export function parseMemoryNote(content: string): SomaMemoryNote {
 /**
  * Serialize a note to its canonical file form.
  *
- * Round-trip law: for any note this function *accepts*, `parse(serialize(n))`
- * equals `n` — with one normalization: the body is trimmed (`serialize` writes
- * `body.trim()`), so a note whose body has leading/trailing whitespace loses it
- * and does not compare equal. Pass an already-trimmed body for exact equality.
+ * Round-trip law, enforced by construction: for any note this function
+ * *accepts*, `parse(serialize(n))` equals `n` — with one normalization, the
+ * body is trimmed (`serialize` writes `body.trim()`), so pass an already-trimmed
+ * body for exact equality.
  *
- * `serialize` validates its whole input and throws `MemoryNoteError` rather than
- * emit a file that `parse` would reject: the reserved literal "null" in a
- * nullable string field (which the quote-less grammar cannot round-trip) is
- * caught up front, and every other field (id slug, dates, provenance, links,
- * count) is validated by re-parsing the output before it is returned.
+ * `serialize` throws `MemoryNoteError` rather than emit a file that fails to
+ * parse or that parses back to a *different* note. After building the output it
+ * re-parses it (rejecting a bad slug/date/links/count/provenance) and compares
+ * the result field-by-field against the input, so any value the grammar would
+ * normalize or reinterpret — a newline forging extra keys, stray whitespace the
+ * parser trims, or the reserved literal "null" collapsing to the null sentinel —
+ * is caught here, naming the offending field.
  */
 export function serializeMemoryNote(note: SomaMemoryNote): string {
-  // Every field the parser maps `"null" -> null` needs this guard: the emitted
-  // bare `null` reparses cleanly, so the reparse below can't catch a literal
-  // "null" string — only this up-front check keeps the round-trip total.
-  assertNotReservedNull(note.valid_until, "valid_until");
-  assertNotReservedNull(note.source_of_truth, "source_of_truth");
-  assertNotReservedNull(note.project, "project");
   const lines = [
     "---",
     `id: ${note.id}`,
@@ -205,8 +230,16 @@ export function serializeMemoryNote(note: SomaMemoryNote): string {
   if (note.review !== undefined) lines.push(`review: ${note.review}`);
   lines.push("---", "", note.body.trim(), "");
   const output = lines.join("\n");
-  // Never emit a note that fails to parse: re-parsing validates the full field
-  // surface (bad slug/date/links/count/provenance all throw here, not later).
-  parseMemoryNote(output);
+  // Enforce the round-trip law by construction: re-parse (validates every field)
+  // and confirm the note survives unchanged. A mismatch means a value would be
+  // normalized or reinterpreted (newline, whitespace, reserved "null") — refuse
+  // to emit it rather than silently produce a note that won't round-trip.
+  const mismatch = roundTripMismatch(note, parseMemoryNote(output));
+  assert(
+    mismatch === null,
+    `field "${mismatch}" would not survive serialization unchanged ` +
+      `(a newline, stray whitespace, or the reserved literal "null")`,
+    mismatch ?? undefined,
+  );
   return output;
 }

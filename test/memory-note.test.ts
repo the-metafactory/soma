@@ -233,6 +233,22 @@ test("a genuine null valid_until still serializes and round-trips", () => {
   expect(parseMemoryNote(serializeMemoryNote(n))).toEqual(n);
 });
 
+test("serialize rejects a newline in a scalar field (frontmatter injection)", () => {
+  const n = { ...minimalNote(), hook: "a\nreview: forged" };
+  expect(() => serializeMemoryNote(n)).toThrow(MemoryNoteError);
+  expect(() => serializeMemoryNote(n)).toThrow("hook");
+});
+
+test("serialize rejects a newline in source_of_truth", () => {
+  const n = { ...minimalNote(), source_of_truth: "path\nproject: forged" };
+  expect(() => serializeMemoryNote(n)).toThrow(MemoryNoteError);
+});
+
+test("serialize rejects trailing whitespace the parser would trim away", () => {
+  const n = { ...minimalNote(), project: "soma " };
+  expect(() => serializeMemoryNote(n)).toThrow("project");
+});
+
 test("a genuine null source_of_truth/project still serializes and round-trips", () => {
   const n = { ...minimalNote(), source_of_truth: null, project: null };
   expect(parseMemoryNote(serializeMemoryNote(n))).toEqual(n);
