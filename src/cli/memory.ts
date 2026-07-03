@@ -528,8 +528,8 @@ function sanitizeForTerminal(text: string): string {
 function formatMemoryRecallResult(result: SomaMemoryRecallResult): string {
   const lines = [
     "Soma memory recall",
-    // The query is user-supplied and the note body/banner can carry imported or
-    // quarantined tool/web content — never render any of it to the terminal raw
+    // The query is principal-supplied and the note body/banner can carry imported
+    // or quarantined tool/web content — never render any of it to the terminal raw
     // (ANSI/OSC escapes could spoof output or touch clipboard/title state).
     `query: ${sanitizeForTerminal(result.query)}`,
     `terms: ${result.terms.length > 0 ? result.terms.join(", ") : "(none — needs a 3+char term)"}`,
@@ -541,12 +541,15 @@ function formatMemoryRecallResult(result: SomaMemoryRecallResult): string {
     lines.push("No active notes matched.");
   } else {
     for (const match of result.matches) {
+      // id/linkedFrom are slug-validated by the note parser (they cannot hold
+      // control chars in a note that parsed at all), but sanitize them anyway —
+      // defense in depth keeps every note-derived field on the same rendering
+      // path, so no future edit can reintroduce a raw one.
+      const id = sanitizeForTerminal(match.id);
       const heading =
         match.via === "match"
-          ? `━━ ${match.id} [${match.type}] · ${match.score} term${match.score === 1 ? "" : "s"} matched`
-          : `━━ ${match.id} [${match.type}] · via link from ${match.linkedFrom}`;
-      // heading is built from slug id / enum type (safe); banner and body carry
-      // note-authored text and MUST be sanitized before hitting the terminal.
+          ? `━━ ${id} [${match.type}] · ${match.score} term${match.score === 1 ? "" : "s"} matched`
+          : `━━ ${id} [${match.type}] · via link from ${sanitizeForTerminal(match.linkedFrom ?? "")}`;
       lines.push(heading, sanitizeForTerminal(match.banner), "", sanitizeForTerminal(match.note.body), "");
     }
   }
@@ -554,7 +557,8 @@ function formatMemoryRecallResult(result: SomaMemoryRecallResult): string {
   // Surface both blind spots explicitly — recall never hides an unresolved link or
   // an unreadable corpus file behind a clean-looking result.
   if (result.unresolvedLinks.length > 0) {
-    lines.push(`Unresolved 1-hop links (missing or superseded): ${result.unresolvedLinks.join(", ")}`);
+    const rendered = result.unresolvedLinks.map(sanitizeForTerminal).join(", ");
+    lines.push(`Unresolved 1-hop links (missing or superseded): ${rendered}`);
   }
   if (result.unreadable.length > 0) {
     lines.push(`⚠ ${result.unreadable.length} corpus file(s) unreadable — recall was partial:`);

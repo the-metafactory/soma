@@ -7,13 +7,14 @@ import { tmpdir } from "node:os";
 import { expect, setDefaultTimeout, test } from "bun:test";
 
 // Every behavior test here spawns the shipped hook via a synchronous
-// `spawnSync("node", …)` (see runGrokHook). A cold Node start plus hook
-// execution routinely exceeds bun's 5s default per-test timeout when the box
-// is under load (the shared pre-push smoke gate runs the whole suite at once),
-// surfacing as an empty-stdout "JSON Parse error: Unexpected EOF". The shipped
-// grok hook already runs on a 30s timeout for the same cold-start reason
-// (asserted below); give these spawn-bound tests the same headroom. No
-// assertion is relaxed — only the wall-clock ceiling is raised.
+// `spawnSync("node", …)` (see runGrokHook). Observed under load (the shared
+// pre-push smoke gate runs all ~1600 tests at once): 9 of these tests failed at
+// ~5002ms — bun's 5s default per-test timeout — with an empty-stdout
+// "JSON Parse error: Unexpected EOF"; run alone the file passes 50/50, but its
+// per-test wall time reached ~2.6s, close enough to the 5s ceiling that a loaded
+// box tips several over. The shipped grok hook already runs on a 30s timeout for
+// the same cold-start reason (asserted below); give these spawn-bound tests the
+// same headroom. No assertion is relaxed — only the wall-clock ceiling is raised.
 setDefaultTimeout(30_000);
 import { installSomaForGrok, somaWorkRegistryPaths } from "../src/index";
 import { GROK_ALGORITHM_UPDATED_MATCHER, GROK_PRE_TOOL_USE_MATCHER } from "../src/adapters/grok/adapter";

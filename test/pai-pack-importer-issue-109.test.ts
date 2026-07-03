@@ -447,7 +447,8 @@ test("AC-1 / AC-2 smoke: real ~/work/PAI/Packs lands ≥30 skills incl. named is
       // it so the skills smoke does not couple to the real PAI release tree's docs
       // state (a partial `Releases/*/.claude/PAI` without `DOCUMENTATION/` makes
       // migratePai throw) — an env condition orthogonal to the skills under test.
-      // The docs importer's own strictness is covered by its own tests, not here.
+      // The docs importer's release-tree strictness has its own coverage in
+      // test/pai-docs-importer.test.ts (hermetic fixtures), so nothing is lost here.
       skipDocs: true,
     });
 

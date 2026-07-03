@@ -284,7 +284,10 @@ function authorityMeta(trust: SomaMemoryTrust): Record<string, unknown> {
 // on every note, capped so a large corpus can't spike FDs on the write path.
 const DEDUP_SCAN_CONCURRENCY = 16;
 
-export interface CorpusScan {
+// Internal: `collectDurableNotes` exposes it only as an inferred return type;
+// no external caller names it, so it stays module-private (ScannedNote IS
+// imported by memory-recall, so that one is exported).
+interface CorpusScan {
   notes: ScannedNote[];
   /** Paths that exist but could not be read or parsed — invisible to dedup. */
   unreadable: string[];

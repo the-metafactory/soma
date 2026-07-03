@@ -183,11 +183,11 @@ export async function recallMemory(options: SomaMemoryRecallOptions): Promise<So
 
   // Score, keep only notes matching at least one term, and rank deterministically:
   // distinct terms desc → frequency desc → recency (last_verified) desc → id asc.
-  // A full sort of the matched subset is O(m log m); m is bounded small by design
-  // (files-only canon, no derived index until >5K notes — plan v2 §6), and only
-  // the notes matching ≥1 term reach the sort. A bounded top-k selection would
-  // trade this for a hand-rolled heap that must replicate the exact 4-key tiebreak
-  // to stay deterministic — not worth the added surface at this corpus scale.
+  // Only the notes matching ≥1 term reach the sort. A full sort (O(m log m)) is
+  // kept over a bounded top-k heap because the heap would have to replicate this
+  // exact 4-key tiebreak to stay deterministic — added surface for no correctness
+  // gain. If a large corpus makes this sort a measured hot spot, the top-k is the
+  // localized optimization.
   const scored = active
     .map((scanned) => ({ scanned, ...scoreNote(scanned.note, terms) }))
     .filter((entry) => entry.matched > 0)
@@ -211,6 +211,8 @@ export async function recallMemory(options: SomaMemoryRecallOptions): Promise<So
   // already a primary match. Missing or superseded targets surface as unresolved.
   const activeById = new Map(active.map((scanned) => [scanned.note.id, scanned] as const));
   const seenLinks = new Set<string>();
+  // O(1) membership for de-dup; the array preserves link-encounter order for output.
+  const unresolvedSeen = new Set<string>();
   const unresolvedLinks: string[] = [];
   for (const entry of primary) {
     for (const linkId of entry.scanned.note.links) {
@@ -218,7 +220,10 @@ export async function recallMemory(options: SomaMemoryRecallOptions): Promise<So
       const target = activeById.get(linkId);
       if (target === undefined) {
         // Not active (missing OR superseded) — record once, in link-encounter order.
-        if (!unresolvedLinks.includes(linkId)) unresolvedLinks.push(linkId);
+        if (!unresolvedSeen.has(linkId)) {
+          unresolvedSeen.add(linkId);
+          unresolvedLinks.push(linkId);
+        }
         continue;
       }
       seenLinks.add(linkId);
