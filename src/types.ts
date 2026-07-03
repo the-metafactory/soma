@@ -2299,3 +2299,39 @@ export interface SomaAdapter {
   project(input: ProjectionInput): Promise<Projection>;
   run(task: SomaTask): Promise<SomaRunResult>;
 }
+
+// ── Memory subsystem (Track B, M0) ──────────────────────────────────────────
+// File-native memory note schema. Contract fixed in the memory-subsystem plan
+// v2 §2 (do not redesign). One note = one markdown file: strict frontmatter +
+// markdown body. Parser/serializer live in src/memory-note.ts and obey the
+// round-trip law parse(serialize(n)) == n for any note serialize accepts whose
+// body is already trimmed (serialize trims the body — the one lossy
+// normalization; see serializeMemoryNote for the exact contract).
+// Single source of truth for the note enums: the validator arrays in
+// memory-note.ts import these, and the union types derive from them, so the
+// literals live in exactly one place.
+export const SOMA_MEMORY_NOTE_TYPES = ["semantic", "episodic", "procedural"] as const;
+export type SomaMemoryNoteType = (typeof SOMA_MEMORY_NOTE_TYPES)[number];
+// Trust tier = who vouched for a memory. "assistant" (not "agent") per
+// CONTEXT.md, which reserves `agent` for substrate concepts and forbids it as a
+// Soma core noun; the plan's `agent` tier is renamed here at first codification.
+export const SOMA_MEMORY_TRUSTS = ["principal", "assistant", "quarantined"] as const;
+export type SomaMemoryTrust = (typeof SOMA_MEMORY_TRUSTS)[number];
+
+export interface SomaMemoryNote {
+  id: string;                 // kebab slug; storage layer (M1) binds it to the filename stem
+  type: SomaMemoryNoteType;
+  created: string;            // YYYY-MM-DD
+  last_verified: string;      // YYYY-MM-DD
+  valid_until: string | null; // YYYY-MM-DD when superseded/expired, else null
+  provenance: string;         // "conversation" | "consolidation" | "import" | "tool:<name>"
+  trust: SomaMemoryTrust;     // who vouched: principal (human) | assistant (Ivy) | quarantined.
+                              // "assistant" not "agent" — CONTEXT.md reserves `agent` for substrate concepts.
+  source_of_truth: string | null; // path/URL to verify against, or null
+  project: string | null;     // scope key, e.g. "soma", or null
+  links: string[];            // ids of related notes (may be empty)
+  resurface_count: number;    // integer >= 0
+  hook?: string;              // optional: recall-trigger phrase
+  review?: string;            // optional: review directive
+  body: string;               // markdown after the closing ---
+}

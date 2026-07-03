@@ -71,7 +71,7 @@ TypeScript type (add to `src/types.ts`):
 
 ```ts
 export type SomaMemoryNoteType = "semantic" | "episodic" | "procedural";
-export type SomaMemoryTrust = "principal" | "agent" | "quarantined";
+export type SomaMemoryTrust = "principal" | "assistant" | "quarantined";
 
 export interface SomaMemoryNote {
   id: string;
@@ -109,7 +109,7 @@ Line grammar: `- [<id>] <hook, max 120 chars> (<type>, verified <N>d ago)`. Budg
 ### 2.4 Retention score (deterministic, M3)
 
 ```
-trustWeight:  principal=3, agent=1, quarantined=0
+trustWeight:  principal=3, assistant=1, quarantined=0
 typeWeight:   procedural=3, semantic=2, episodic=1
 recency:      max(0.1, 1 - daysSince(last_verified)/365)
 score = trustWeight * typeWeight * recency * (1 + log2(1 + resurface_count))
@@ -218,7 +218,7 @@ export async function logAction(opts: { somaHome?: string; homeDir?: string; sub
   intent: string; approval: "principal" | "policy" | "none"; outcome: "done" | "failed" | "pending"; project?: string }): Promise<{ path: string }>;
 ```
 
-Both write episodic notes per §2.1/§2.2 (`type: episodic`, trust `agent`, provenance `tool:cli`; id auto-generated `YYYYMMDD-<slug-from-summary>`), under `episodic/sessions/YYYY-MM/` and `episodic/actions/YYYY-MM/` respectively (extend `memoryNotePath` with a subkind param, default `sessions`). Digest body template: `**What happened:** … / **Changed:** … / **Open loops:** …`. Events `memory.digest.written` / `memory.action.logged`.
+Both write episodic notes per §2.1/§2.2 (`type: episodic`, trust `assistant`, provenance `tool:cli`; id auto-generated `YYYYMMDD-<slug-from-summary>`), under `episodic/sessions/YYYY-MM/` and `episodic/actions/YYYY-MM/` respectively (extend `memoryNotePath` with a subkind param, default `sessions`). Digest body template: `**What happened:** … / **Changed:** … / **Open loops:** …`. Events `memory.digest.written` / `memory.action.logged`.
 
 CLI: `soma memory digest --summary <text> [--changed <x>]... [--open <x>]... [--project p]` and `soma memory action --intent <text> --approval <a> --outcome <o>`.
 

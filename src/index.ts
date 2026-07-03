@@ -166,6 +166,8 @@ export type {
   WrittenProjection,
 } from "./types";
 export { SOMA_RESULT_EVENT_KINDS } from "./types";
+export { SOMA_MEMORY_NOTE_TYPES, SOMA_MEMORY_TRUSTS } from "./types";
+export type { SomaMemoryNote, SomaMemoryNoteType, SomaMemoryTrust } from "./types";
 
 export {
   addAlgorithmCapabilities,
@@ -431,6 +433,7 @@ export {
 } from "./lifecycle";
 export { captureSomaFeedback, classifySomaFeedback, maybeSomaFeedbackPrompt } from "./feedback";
 export { appendSomaMemoryEvent, searchSomaMemory, somaMemoryEventsPath } from "./memory";
+export { MemoryNoteError, parseMemoryNote, serializeMemoryNote } from "./memory-note";
 export { createSomaSnapshot, listSomaSnapshots, rollbackSomaSnapshot } from "./snapshots";
 export { querySomaTelemetryEvents, summarizeSomaTelemetry } from "./observability";
 export {
