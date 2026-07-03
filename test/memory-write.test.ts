@@ -407,6 +407,17 @@ test("verify on a missing id throws a typed error", async () => {
   });
 });
 
+test("a mis-filed note (frontmatter id != filename) is refused, not silently retargeted", async () => {
+  await withTempSoma(async (somaHome) => {
+    // Write a valid note, then rename its FILE so the path stem no longer matches
+    // its frontmatter id.
+    const created = await writeMemoryNote(createOpts(somaHome, { id: "correct-id", body: "body for misfile test" }));
+    const raw = await readFile(created.path, "utf8");
+    await writeFile(join(somaHome, "memory", "semantic", "wrong-name.md"), raw, "utf8");
+    await expect(verifyMemoryNote({ somaHome, id: "wrong-name", principalAuthority: true, now: LATER })).rejects.toThrow(/mismatched frontmatter/);
+  });
+});
+
 test("verifying a superseded (closed) note is refused", async () => {
   await withTempSoma(async (somaHome) => {
     await writeMemoryNote(createOpts(somaHome, { id: "old" }));

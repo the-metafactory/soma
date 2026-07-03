@@ -511,7 +511,19 @@ async function loadNoteById(somaHome: string, id: string): Promise<LoadedNote> {
       throw new MemoryNoteError(`Soma memory note ${id} at ${path} is a symlink; refusing to follow it out of the memory tree.`, "id");
     }
     const raw = await readFile(path, "utf8");
-    return { path, type, note: parseMemoryNote(raw), raw };
+    const note = parseMemoryNote(raw);
+    // Bind the id==filename-stem (and type==dir) invariant the M0 parser
+    // documents but cannot enforce (a content parser has no path). Without this,
+    // `semantic/foo.md` containing `id: bar` would let verify/merge target a
+    // different logical note than the caller named.
+    if (note.id !== id || note.type !== type) {
+      throw new MemoryNoteError(
+        `Soma memory note at ${path} has mismatched frontmatter (id/type "${note.id}"/"${note.type}" ` +
+          `≠ path "${id}"/"${type}"); refusing to mutate a mis-filed note.`,
+        "id",
+      );
+    }
+    return { path, type, note, raw };
   }
   throw new MemoryNoteError(`Soma memory note not found: ${id}`, "id");
 }

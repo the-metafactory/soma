@@ -2402,11 +2402,15 @@ export interface SomaMemoryWriteOptions {
   principalAuthority?: boolean;
   /**
    * The consolidation counterpart of {@link principalAuthority}: `consolidation`
-   * mints `assistant` trust, so it too requires an explicit signal — the internal
-   * M6 consolidator's capability, not a tier an arbitrary CLI caller can select
-   * by choosing the trigger. Without it, `--trigger consolidation` is refused.
-   * This is an SDK-only option (set programmatically by the M6 consolidator) —
-   * intentionally NOT a public CLI flag. Ignored for principal/import triggers.
+   * mints `assistant` trust, so it too requires an explicit signal. Like
+   * `principalAuthority`, this is a sudo-style deliberate flag, NOT a
+   * cryptographically enforced capability — at the SDK layer an in-process caller
+   * (intended: the M6 consolidator) sets it, exactly as they would set
+   * `principalAuthority`; soma has no capability primitive to make it
+   * unforgeable. What IS enforced is the surface: it is intentionally NOT exposed
+   * as a public CLI flag and `--trigger consolidation` is refused on the CLI, so
+   * the public command-line cannot mint assistant trust. Ignored for
+   * principal/import triggers.
    */
   consolidationAuthority?: boolean;
 
