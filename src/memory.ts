@@ -1,5 +1,6 @@
 import { mkdir, appendFile, readFile, readdir, stat } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
+import { memoryTerms } from "./memory-terms";
 import { createPaths } from "./paths";
 import type {
   SomaMemoryEvent,
@@ -70,17 +71,9 @@ function resolveSomaHome(options: Pick<SomaMemorySearchOptions, "homeDir" | "som
   return createPaths(options).root();
 }
 
-function queryTerms(query: string): string[] {
-  return Array.from(
-    new Set(
-      query
-        .toLowerCase()
-        .split(/[^a-z0-9\u00c0-\u024f]+/i)
-        .map((term) => term.trim())
-        .filter((term) => term.length >= 3),
-    ),
-  );
-}
+// The memory tokenizer lives in one place (memory-terms.ts) so recall, search,
+// and the write-path dedup floor can't drift on what counts as a term.
+const queryTerms = memoryTerms;
 
 async function collectSearchFiles(root: string): Promise<string[]> {
   const files: string[] = [];

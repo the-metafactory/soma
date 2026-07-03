@@ -6,6 +6,7 @@ import { createPaths } from "./paths";
 import { runBoundedConcurrent } from "./internal-concurrency";
 import { appendSomaMemoryEvent } from "./memory";
 import { parseMemoryNote, serializeMemoryNote, MemoryNoteError } from "./memory-note";
+import { memoryTermSet } from "./memory-terms";
 import { SOMA_MEMORY_TRIGGER_TRUST } from "./types";
 import type {
   SomaMemoryDuplicateCandidate,
@@ -67,7 +68,7 @@ const WRITABLE_TYPE_DIRS: Record<Exclude<SomaMemoryNoteType, "episodic">, string
   procedural: "procedural",
 };
 
-type WritableType = Exclude<SomaMemoryNoteType, "episodic">;
+export type WritableType = Exclude<SomaMemoryNoteType, "episodic">;
 
 // One source of truth for the writable-type enumeration — every helper that
 // walks both durable dirs reuses this instead of re-casting Object.keys. Exported
@@ -181,10 +182,10 @@ function hashFromLower(lower: string): string {
   return createHash("sha256").update(lower.replace(/\s+/g, " ").trim()).digest("hex");
 }
 
-/** Token set for Jaccard near-match — 3+ char alnum tokens, same floor as search. */
-function tokensFromLower(lower: string): Set<string> {
-  return new Set(lower.split(/[^a-z0-9À-ɏ]+/i).filter((token) => token.length >= 3));
-}
+/** Token set for Jaccard near-match — the shared memory tokenizer (memory-terms.ts),
+ *  same 3+char floor as recall and search. Takes ALREADY-lowercased input so the
+ *  scan lowercases each note once and feeds both hash and tokens. */
+const tokensFromLower = memoryTermSet;
 
 function bodyHash(body: string): string {
   return hashFromLower(body.toLowerCase());
@@ -204,7 +205,7 @@ function jaccard(a: Set<string>, b: Set<string>): number {
   return union === 0 ? 0 : intersection / union;
 }
 
-interface ScannedNote {
+export interface ScannedNote {
   path: string;
   type: WritableType;
   note: SomaMemoryNote;
@@ -284,6 +285,9 @@ function authorityMeta(trust: SomaMemoryTrust): Record<string, unknown> {
 // on every note, capped so a large corpus can't spike FDs on the write path.
 const DEDUP_SCAN_CONCURRENCY = 16;
 
+// Internal: `collectDurableNotes` exposes it only as an inferred return type;
+// no external caller names it, so it stays module-private (ScannedNote IS
+// imported by memory-recall, so that one is exported).
 interface CorpusScan {
   notes: ScannedNote[];
   /** Paths that exist but could not be read or parsed — invisible to dedup. */
@@ -298,7 +302,7 @@ interface CorpusScan {
  * near-duplicate). Returns `ScannedNote` (no `raw`) — the dedup scan never needs
  * the bytes; `loadNoteById` reads raw itself for its rollback path.
  */
-async function collectDurableNotes(somaHome: string): Promise<CorpusScan> {
+export async function collectDurableNotes(somaHome: string): Promise<CorpusScan> {
   // Enumerate all note files across both durable dirs, then read them with a
   // bounded concurrency window (shared helper) rather than one unbounded
   // Promise.all over the whole tree.

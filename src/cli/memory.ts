@@ -1,5 +1,6 @@
 import {
   promoteAlgorithmRunMemory,
+  recallMemory,
   searchSomaMemory,
   verifyMemoryNote,
   writeMemoryNote,
@@ -10,6 +11,8 @@ import type {
   SomaMemoryPromotionOptions,
   SomaMemoryPromotionResult,
   SomaMemoryPromotionStore,
+  SomaMemoryRecallOptions,
+  SomaMemoryRecallResult,
   SomaMemorySearchOptions,
   SomaMemorySearchResult,
   SomaMemoryVerifyOptions,
@@ -25,6 +28,12 @@ export interface ParsedMemorySearchArgs {
   command: "memory";
   action: "search";
   options: SomaMemorySearchOptions;
+}
+
+export interface ParsedMemoryRecallArgs {
+  command: "memory";
+  action: "recall";
+  options: SomaMemoryRecallOptions;
 }
 
 export interface ParsedMemoryPromoteArgs {
@@ -47,17 +56,22 @@ export interface ParsedMemoryVerifyArgs {
 
 export type ParsedMemoryArgs =
   | ParsedMemorySearchArgs
+  | ParsedMemoryRecallArgs
   | ParsedMemoryPromoteArgs
   | ParsedMemoryWriteArgs
   | ParsedMemoryVerifyArgs;
 
-const MEMORY_ACTIONS = ["search", "promote", "write", "verify"] as const;
+const MEMORY_ACTIONS = ["search", "recall", "promote", "write", "verify"] as const;
 type MemoryAction = (typeof MEMORY_ACTIONS)[number];
 
 export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAction, string> } = {
-  usage: "Usage: soma memory <search|promote|write|verify> ...",
+  usage: "Usage: soma memory <search|recall|promote|write|verify> ...",
   subcommands: {
     search: "Usage: soma memory search [query] [--query <text>] [--limit <n>] [--home-dir <dir>] [--soma-home <dir>]",
+    recall:
+      "Usage: soma memory recall <query> [--query <text>] [--limit <n>] [--home-dir <dir>] [--soma-home <dir>]. " +
+      "Note-aware retrieval over durable notes: term-scored whole-file matches (limit 3) + 1-hop links, " +
+      "superseded notes excluded, each result carrying a verification banner. Read-only.",
     promote: "Usage: soma memory promote --from-run <run-id> --store <learning|knowledge|relationship|work> --title <text> [--lesson <text>] [--applies-when <text>]",
     write:
       "Usage: soma memory write --trigger <principal-correction|import> --body <text> " +
@@ -89,6 +103,8 @@ export function parseMemoryArgs(args: string[]): ParsedMemoryArgs {
   switch (action) {
     case "search":
       return { command, action, options: parseMemorySearchArgs(rest) };
+    case "recall":
+      return { command, action, options: parseMemoryRecallArgs(rest) };
     case "promote":
       return { command, action, options: parseMemoryPromoteArgs(rest) };
     case "write":
@@ -98,8 +114,22 @@ export function parseMemoryArgs(args: string[]): ParsedMemoryArgs {
   }
 }
 
-function parseMemorySearchArgs(args: string[]): SomaMemorySearchOptions {
-  const options: Partial<SomaMemorySearchOptions> = {};
+/**
+ * Parsed shape shared by the two query-style memory commands (`search`, `recall`):
+ * both take a single query (positional or `--query`), an optional positive-integer
+ * `--limit`, and the standard home overrides. One parser so a future flag change
+ * can't drift the two apart (and so the `--limit` integer contract is enforced in
+ * exactly one place).
+ */
+interface QueryCommandArgs {
+  homeDir?: string;
+  somaHome?: string;
+  query: string;
+  limit?: number;
+}
+
+function parseQueryCommandArgs(args: string[], commandLabel: string): QueryCommandArgs {
+  const options: Partial<QueryCommandArgs> = {};
   let positionalQuery: string | undefined;
 
   for (let index = 0; index < args.length; index += 1) {
@@ -118,19 +148,25 @@ function parseMemorySearchArgs(args: string[]): SomaMemorySearchOptions {
         options.query = readOption(args, index, arg);
         index += 1;
         break;
-      case "--limit":
-        options.limit = Number.parseInt(readOption(args, index, arg), 10);
-        if (!Number.isFinite(options.limit) || options.limit < 1) {
+      case "--limit": {
+        // Strict integer: Number.parseInt would silently accept "2.5"→2 and
+        // "1e2"→1, contradicting the positive-integer contract the API also
+        // enforces. Number(...) rejects any non-numeric-integer spelling.
+        const raw = readOption(args, index, arg);
+        const value = Number(raw);
+        if (!Number.isInteger(value) || value < 1) {
           throw new Error("--limit must be a positive integer.");
         }
+        options.limit = value;
         index += 1;
         break;
+      }
       default:
         if (arg.startsWith("-")) {
           throw new Error(`Unknown option: ${arg}`);
         }
         if (positionalQuery !== undefined) {
-          throw new Error(`soma memory search accepts only one positional query; unexpected argument: ${arg}`);
+          throw new Error(`soma memory ${commandLabel} accepts only one positional query; unexpected argument: ${arg}`);
         }
         positionalQuery = arg;
     }
@@ -139,10 +175,18 @@ function parseMemorySearchArgs(args: string[]): SomaMemorySearchOptions {
   options.query ??= positionalQuery;
 
   if (!options.query) {
-    throw new Error("soma memory search needs a query; pass it as the first argument or --query <text>.");
+    throw new Error(`soma memory ${commandLabel} needs a query; pass it as the first argument or --query <text>.`);
   }
 
-  return options as SomaMemorySearchOptions;
+  return options as QueryCommandArgs;
+}
+
+function parseMemorySearchArgs(args: string[]): SomaMemorySearchOptions {
+  return parseQueryCommandArgs(args, "search");
+}
+
+function parseMemoryRecallArgs(args: string[]): SomaMemoryRecallOptions {
+  return parseQueryCommandArgs(args, "recall");
 }
 
 function parseMemoryPromoteArgs(args: string[]): SomaMemoryPromotionOptions {
@@ -417,6 +461,8 @@ export async function runMemoryCli(parsed: ParsedMemoryArgs): Promise<string> {
       return formatMemoryVerifyResult(await verifyMemoryNote(parsed.options));
     case "search":
       return formatMemorySearchResult(await searchSomaMemory(parsed.options));
+    case "recall":
+      return formatMemoryRecallResult(await recallMemory(parsed.options));
   }
 }
 
@@ -456,6 +502,77 @@ function formatMemorySearchResult(result: SomaMemorySearchResult): string {
       ? result.matches.map((match) => `- ${match.path}:${match.line} [score ${match.score}] ${match.snippet}`)
       : ["- none"]),
   ].join("\n");
+}
+
+/**
+ * Strip terminal control sequences from note-authored text before it reaches the
+ * terminal. Memory notes can hold imported / quarantined tool/web content, and a
+ * malicious note body or `source_of_truth` could smuggle ANSI CSI / OSC escapes
+ * that spoof output, rewrite earlier lines, or poke the terminal's title and
+ * clipboard state when the principal runs `soma memory recall`. Removes:
+ *   - ESC-introduced sequences (CSI `ESC [ … final`, OSC `ESC ] … BEL|ST`, and
+ *     any other `ESC <byte>` form), plus the C1 CSI byte 0x9b, and
+ *   - remaining C0/C1 control chars, keeping only tab and newline (the layout
+ *     this formatter itself relies on).
+ * Deliberately conservative: it discards control bytes rather than escaping them,
+ * since recall output is human-facing text, not a round-trippable channel.
+ */
+function sanitizeForTerminal(text: string): string {
+  return text
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "") // OSC … terminated by BEL or ST
+    .replace(/\x1b[@-_][0-?]*[ -/]*[@-~]/g, "")         // CSI and other two-byte ESC sequences
+    .replace(/\x1b./g, "")                                // any stray ESC + following byte
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/g, ""); // C0/C1 controls except \t (\x09) and \n (\x0a)
+}
+
+/**
+ * Render one recalled note to its output lines (heading + banner + body). Every
+ * note-derived field is sanitized here — the id/linkedFrom are slug-validated by
+ * the parser (they cannot hold control chars in a note that parsed at all), but
+ * sanitizing them anyway keeps every note-derived field on one rendering path, so
+ * no future edit can reintroduce a raw one.
+ */
+function formatRecalledMatch(match: SomaMemoryRecallResult["matches"][number]): string[] {
+  const id = sanitizeForTerminal(match.id);
+  const heading =
+    match.via === "match"
+      ? `━━ ${id} [${match.type}] · ${match.score} term${match.score === 1 ? "" : "s"} matched`
+      : `━━ ${id} [${match.type}] · via link from ${sanitizeForTerminal(match.linkedFrom ?? "")}`;
+  return [heading, sanitizeForTerminal(match.banner), "", sanitizeForTerminal(match.note.body), ""];
+}
+
+function formatMemoryRecallResult(result: SomaMemoryRecallResult): string {
+  const lines = [
+    "Soma memory recall",
+    // The query is principal-supplied and the note body/banner can carry imported
+    // or quarantined tool/web content — never render any of it to the terminal raw
+    // (ANSI/OSC escapes could spoof output or touch clipboard/title state).
+    `query: ${sanitizeForTerminal(result.query)}`,
+    `terms: ${result.terms.length > 0 ? result.terms.map(sanitizeForTerminal).join(", ") : "(none — needs a 3+char term)"}`,
+    // somaHome is derived from a caller-supplied --soma-home; a path with ANSI/OSC
+    // bytes must not reach the terminal raw either.
+    `somaHome: ${sanitizeForTerminal(result.somaHome)}`,
+    "",
+  ];
+
+  if (result.matches.length === 0) {
+    lines.push("No active notes matched.");
+  } else {
+    for (const match of result.matches) lines.push(...formatRecalledMatch(match));
+  }
+
+  // Surface both blind spots explicitly — recall never hides an unresolved link or
+  // an unreadable corpus file behind a clean-looking result.
+  if (result.unresolvedLinks.length > 0) {
+    const rendered = result.unresolvedLinks.map(sanitizeForTerminal).join(", ");
+    lines.push(`Unresolved 1-hop links (missing or superseded): ${rendered}`);
+  }
+  if (result.unreadable.length > 0) {
+    lines.push(`⚠ ${result.unreadable.length} corpus file(s) unreadable — recall was partial:`);
+    for (const path of result.unreadable) lines.push(`  - ${sanitizeForTerminal(path)}`);
+  }
+
+  return lines.join("\n").trimEnd();
 }
 
 function formatMemoryPromotionResult(result: SomaMemoryPromotionResult): string {
