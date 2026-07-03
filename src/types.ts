@@ -2299,3 +2299,28 @@ export interface SomaAdapter {
   project(input: ProjectionInput): Promise<Projection>;
   run(task: SomaTask): Promise<SomaRunResult>;
 }
+
+// ── Memory subsystem (Track B, M0) ──────────────────────────────────────────
+// File-native memory note schema. Contract fixed in the memory-subsystem plan
+// v2 §2 (do not redesign). One note = one markdown file: strict frontmatter +
+// markdown body. Parser/serializer live in src/memory-note.ts and obey the
+// round-trip law parse(serialize(n)) == n.
+export type SomaMemoryNoteType = "semantic" | "episodic" | "procedural";
+export type SomaMemoryTrust = "principal" | "agent" | "quarantined";
+
+export interface SomaMemoryNote {
+  id: string;                 // kebab slug, equals filename stem
+  type: SomaMemoryNoteType;
+  created: string;            // YYYY-MM-DD
+  last_verified: string;      // YYYY-MM-DD
+  valid_until: string | null; // YYYY-MM-DD when superseded/expired, else null
+  provenance: string;         // "conversation" | "consolidation" | "import" | "tool:<name>"
+  trust: SomaMemoryTrust;
+  source_of_truth: string | null; // path/URL to verify against, or null
+  project: string | null;     // scope key, e.g. "soma", or null
+  links: string[];            // ids of related notes (may be empty)
+  resurface_count: number;    // integer >= 0
+  hook?: string;              // optional: recall-trigger phrase
+  review?: string;            // optional: review directive
+  body: string;               // markdown after the closing ---
+}
