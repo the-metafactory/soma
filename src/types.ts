@@ -2335,3 +2335,101 @@ export interface SomaMemoryNote {
   review?: string;            // optional: review directive
   body: string;               // markdown after the closing ---
 }
+
+// Memory subsystem M1 (write + verify). Plan v2 §M1 (do not redesign the
+// governance model): trust is NOT a self-assertable caller flag — it is DERIVED
+// from the write trigger, so an agent cannot smuggle `principal` trust. The five
+// write triggers of design §7 map onto write-CLI actions; M1 owns the durable,
+// dedup-gated types (semantic + procedural). Episodic capture (session digest /
+// action log) is M5's `digest`/`action`, not `write`.
+
+/**
+ * The governed write trigger (design §7). Trust is a pure function of this value
+ * (see {@link SOMA_MEMORY_TRIGGER_TRUST}); there is no `--trust` flag. Only these
+ * three reach the `write` path in M1:
+ * - `principal-correction` — the human said "remember"/"no, always X". The ONLY
+ *   path to `principal` trust, and the documented human-authority gate.
+ * - `import` — migration / external doc. Untrusted source → `quarantined` (MINJA
+ *   defense: tool/web content never lands trusted).
+ * - `consolidation` — the M6 consolidator promoting/merging → `assistant`.
+ * (`session-end` and `consequential-action` are the other two design-§7 triggers;
+ * they belong to M5's episodic path, not `write`.)
+ */
+export const SOMA_MEMORY_WRITE_TRIGGERS = ["principal-correction", "import", "consolidation"] as const;
+export type SomaMemoryWriteTrigger = (typeof SOMA_MEMORY_WRITE_TRIGGERS)[number];
+
+/** Trust derived from trigger — the whole M1 governance model in one table. */
+export const SOMA_MEMORY_TRIGGER_TRUST: Record<SomaMemoryWriteTrigger, SomaMemoryTrust> = {
+  "principal-correction": "principal",
+  import: "quarantined",
+  consolidation: "assistant",
+};
+
+/** Create (dedup-gated), merge (delta-edit target), or supersede (close old + create new). */
+export type SomaMemoryWriteMode = "create" | "merge" | "supersede";
+
+/** A near-duplicate surfaced by the recall-first refusal gate (Jaccard ≥ 0.6 or exact-body hash). */
+export interface SomaMemoryDuplicateCandidate {
+  id: string;
+  type: SomaMemoryNoteType;
+  path: string;
+  /** 1.0 for an exact normalized-body hash match, else the Jaccard token-set score. */
+  score: number;
+  exact: boolean;
+}
+
+export interface SomaMemoryWriteOptions {
+  homeDir?: string;
+  somaHome?: string;
+  substrate?: SubstrateId;
+  /** Injected clock for deterministic `created`/`last_verified`. Defaults to now. */
+  now?: Date;
+
+  mode: SomaMemoryWriteMode;
+  trigger: SomaMemoryWriteTrigger;
+
+  /** create/supersede: the new note's id. merge: unused (target is `--merge <id>`). */
+  id?: string;
+  type?: SomaMemoryNoteType;
+  body: string;
+  project?: string | null;
+  sourceOfTruth?: string | null;
+  links?: string[];
+  hook?: string;
+  review?: string;
+  /**
+   * Only meaningful for `import` (`import` or `tool:<name>`); forced to
+   * `conversation` for principal-correction and `consolidation` otherwise.
+   */
+  provenance?: string;
+
+  /** merge: id of the note to delta-edit. supersede: id of the note to close. */
+  targetId?: string;
+  /** create only: bypass the recall-first refusal gate. */
+  force?: boolean;
+}
+
+export interface SomaMemoryWriteResult {
+  somaHome: string;
+  mode: SomaMemoryWriteMode;
+  path: string;
+  note: SomaMemoryNote;
+  /** supersede: the closed note's new path/state; merge: the pre-edit note. */
+  supersededId?: string;
+  event: SomaMemoryEvent;
+}
+
+export interface SomaMemoryVerifyOptions {
+  homeDir?: string;
+  somaHome?: string;
+  substrate?: SubstrateId;
+  now?: Date;
+  id: string;
+}
+
+export interface SomaMemoryVerifyResult {
+  somaHome: string;
+  path: string;
+  note: SomaMemoryNote;
+  event: SomaMemoryEvent;
+}

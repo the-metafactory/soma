@@ -1,0 +1,250 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { expect, test } from "bun:test";
+import {
+  MEMORY_DEDUP_JACCARD_THRESHOLD,
+  MemoryNoteError,
+  findDuplicateCandidates,
+  memoryNotePath,
+  parseMemoryNote,
+  somaMemoryEventsPath,
+  verifyMemoryNote,
+  writeMemoryNote,
+  type SomaMemoryNote,
+  type SomaMemoryWriteOptions,
+} from "../src/index";
+
+const NOW = new Date("2026-07-03T10:00:00.000Z");
+const LATER = new Date("2026-08-01T12:00:00.000Z");
+
+async function withTempSoma<T>(fn: (somaHome: string) => Promise<T>): Promise<T> {
+  const dir = await mkdtemp(join(tmpdir(), "soma-memwrite-"));
+  const somaHome = join(dir, ".soma");
+  try {
+    return await fn(somaHome);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+function createOpts(somaHome: string, overrides: Partial<SomaMemoryWriteOptions> = {}): SomaMemoryWriteOptions {
+  return {
+    somaHome,
+    now: NOW,
+    mode: "create",
+    trigger: "principal-correction",
+    id: "prefers-colon-over-emdash",
+    type: "semantic",
+    body: "Andreas reads em-dashes as an AI tell; use a colon or comma instead.",
+    ...overrides,
+  };
+}
+
+async function readNote(path: string): Promise<SomaMemoryNote> {
+  return parseMemoryNote(await readFile(path, "utf8"));
+}
+
+async function countEvents(somaHome: string): Promise<number> {
+  const content = await readFile(somaMemoryEventsPath(somaHome), "utf8").catch(() => "");
+  return content.trim() === "" ? 0 : content.trim().split("\n").length;
+}
+
+test("create writes a semantic note with principal trust derived from the trigger", async () => {
+  await withTempSoma(async (somaHome) => {
+    const result = await writeMemoryNote(createOpts(somaHome));
+
+    expect(result.mode).toBe("create");
+    expect(result.path).toBe(memoryNotePath(somaHome, "semantic", "prefers-colon-over-emdash"));
+
+    const note = await readNote(result.path);
+    expect(note.id).toBe("prefers-colon-over-emdash");
+    expect(note.type).toBe("semantic");
+    expect(note.trust).toBe("principal");
+    expect(note.provenance).toBe("conversation");
+    expect(note.created).toBe("2026-07-03");
+    expect(note.last_verified).toBe("2026-07-03");
+    expect(note.valid_until).toBeNull();
+    expect(note.resurface_count).toBe(0);
+    expect(await countEvents(somaHome)).toBe(1);
+  });
+});
+
+test("trust is derived from the trigger — no --trust flag can override it", async () => {
+  await withTempSoma(async (somaHome) => {
+    const principal = await writeMemoryNote(createOpts(somaHome, { id: "a" }));
+    const imported = await writeMemoryNote(
+      createOpts(somaHome, { id: "b", trigger: "import", body: "totally different imported fact about zeta", provenance: "tool:scraper" }),
+    );
+    const consolidated = await writeMemoryNote(
+      createOpts(somaHome, { id: "c", trigger: "consolidation", body: "consolidated abstraction over gamma delta epsilon" }),
+    );
+
+    expect(principal.note.trust).toBe("principal");
+    expect(imported.note.trust).toBe("quarantined");
+    expect(imported.note.provenance).toBe("tool:scraper");
+    expect(consolidated.note.trust).toBe("assistant");
+    expect(consolidated.note.provenance).toBe("consolidation");
+  });
+});
+
+test("MINJA defense: tool/import provenance cannot ride in under a principal-correction trigger", async () => {
+  await withTempSoma(async (somaHome) => {
+    await expect(
+      writeMemoryNote(createOpts(somaHome, { provenance: "tool:web-scraper" })),
+    ).rejects.toThrow(/principal-correction writes are provenance "conversation"/);
+  });
+});
+
+test("recall-first refusal fires on a Jaccard-0.6 near-duplicate and lists candidate ids", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeMemoryNote(createOpts(somaHome, { id: "original" }));
+
+    // Same fact, lightly reworded — high token overlap, above the 0.6 threshold.
+    const near = createOpts(somaHome, {
+      id: "reworded",
+      body: "Andreas reads em-dashes as an AI tell; use a colon or a comma instead please.",
+    });
+
+    const candidates = await findDuplicateCandidates(somaHome, near.body);
+    expect(candidates.length).toBeGreaterThan(0);
+    expect(candidates[0].id).toBe("original");
+    expect(candidates[0].score).toBeGreaterThanOrEqual(MEMORY_DEDUP_JACCARD_THRESHOLD);
+
+    await expect(writeMemoryNote(near)).rejects.toThrow(/Recall-first refusal.*original/s);
+    // The refused note was never written.
+    await expect(readNote(memoryNotePath(somaHome, "semantic", "reworded"))).rejects.toThrow();
+  });
+});
+
+test("--force overrides the recall-first refusal", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeMemoryNote(createOpts(somaHome, { id: "original" }));
+    const forced = await writeMemoryNote(
+      createOpts(somaHome, { id: "reworded", body: "Andreas reads em-dashes as an AI tell; use a colon or a comma instead please.", force: true }),
+    );
+    expect(forced.note.id).toBe("reworded");
+    expect(await countEvents(somaHome)).toBe(2);
+  });
+});
+
+test("an exact-body duplicate is refused as an exact match", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeMemoryNote(createOpts(somaHome, { id: "original" }));
+    const candidates = await findDuplicateCandidates(somaHome, createOpts(somaHome).body);
+    expect(candidates[0].exact).toBe(true);
+    expect(candidates[0].score).toBe(1);
+  });
+});
+
+test("a superseded note does not trigger the refusal gate (only active notes count)", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeMemoryNote(createOpts(somaHome, { id: "original" }));
+    await writeMemoryNote(createOpts(somaHome, { mode: "supersede", id: "v2", targetId: "original", body: "reworded body about epsilon zeta" }));
+
+    // The original is now closed; a note overlapping IT must not be refused.
+    const candidates = await findDuplicateCandidates(somaHome, createOpts(somaHome).body);
+    expect(candidates.find((c) => c.id === "original")).toBeUndefined();
+  });
+});
+
+test("merge delta-appends an Update block and bumps last_verified without a new file", async () => {
+  await withTempSoma(async (somaHome) => {
+    const created = await writeMemoryNote(createOpts(somaHome, { id: "note" }));
+    const merged = await writeMemoryNote({
+      somaHome,
+      now: LATER,
+      mode: "merge",
+      trigger: "principal-correction",
+      targetId: "note",
+      body: "Also applies to en-dashes.",
+    });
+
+    expect(merged.path).toBe(created.path);
+    const note = await readNote(merged.path);
+    expect(note.body).toContain("**Update (2026-08-01):** Also applies to en-dashes.");
+    expect(note.last_verified).toBe("2026-08-01");
+    expect(note.created).toBe("2026-07-03"); // created is preserved
+    expect(await countEvents(somaHome)).toBe(2); // one create, one merge
+  });
+});
+
+test("merge into a superseded note is refused", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeMemoryNote(createOpts(somaHome, { id: "old" }));
+    await writeMemoryNote(createOpts(somaHome, { mode: "supersede", id: "new", targetId: "old", body: "different body kappa lambda mu" }));
+
+    await expect(
+      writeMemoryNote({ somaHome, mode: "merge", trigger: "principal-correction", targetId: "old", body: "x", now: NOW }),
+    ).rejects.toThrow(/Cannot merge into superseded note old/);
+  });
+});
+
+test("supersede closes the old note, cross-links, and mints the new one in one event", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeMemoryNote(createOpts(somaHome, { id: "old-recipe" }));
+    const result = await writeMemoryNote(
+      createOpts(somaHome, { mode: "supersede", id: "new-recipe", targetId: "old-recipe", body: "the corrected recipe about pi rho sigma", now: LATER }),
+    );
+
+    expect(result.supersededId).toBe("old-recipe");
+    const closed = await readNote(memoryNotePath(somaHome, "semantic", "old-recipe"));
+    const fresh = await readNote(result.path);
+
+    expect(closed.valid_until).toBe("2026-08-01");
+    expect(closed.links).toContain("new-recipe");
+    expect(fresh.valid_until).toBeNull();
+    expect(fresh.links).toContain("old-recipe");
+    expect(await countEvents(somaHome)).toBe(2); // create + supersede (one mutation → one event)
+  });
+});
+
+test("a note cannot supersede itself", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeMemoryNote(createOpts(somaHome, { id: "self" }));
+    await expect(
+      writeMemoryNote(createOpts(somaHome, { mode: "supersede", id: "self", targetId: "self", body: "x" })),
+    ).rejects.toThrow(/cannot supersede itself/);
+  });
+});
+
+test("verify bumps last_verified and increments resurface_count with one event", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeMemoryNote(createOpts(somaHome, { id: "note" }));
+    const result = await verifyMemoryNote({ somaHome, id: "note", now: LATER });
+
+    expect(result.note.last_verified).toBe("2026-08-01");
+    expect(result.note.resurface_count).toBe(1);
+
+    const persisted = await readNote(result.path);
+    expect(persisted.resurface_count).toBe(1);
+    expect(await countEvents(somaHome)).toBe(2); // create + verify
+
+    const again = await verifyMemoryNote({ somaHome, id: "note", now: LATER });
+    expect(again.note.resurface_count).toBe(2);
+  });
+});
+
+test("verify on a missing id throws a typed error", async () => {
+  await withTempSoma(async (somaHome) => {
+    await expect(verifyMemoryNote({ somaHome, id: "ghost" })).rejects.toThrow(MemoryNoteError);
+  });
+});
+
+test("episodic writes are refused through the write path (they belong to M5)", async () => {
+  await withTempSoma(async (somaHome) => {
+    await expect(
+      // episodic is a valid note type but not a valid *write* target — the runtime guard refuses it.
+      writeMemoryNote(createOpts(somaHome, { type: "episodic" })),
+    ).rejects.toThrow(/must be "semantic" or "procedural"/);
+  });
+});
+
+test("creating a note whose id already exists is refused", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeMemoryNote(createOpts(somaHome, { id: "dup", body: "first body alpha beta" }));
+    await expect(
+      writeMemoryNote(createOpts(somaHome, { id: "dup", body: "unrelated body chi psi omega", force: true })),
+    ).rejects.toThrow(/already exists/);
+  });
+});

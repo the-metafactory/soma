@@ -167,7 +167,17 @@ export type {
 } from "./types";
 export { SOMA_RESULT_EVENT_KINDS } from "./types";
 export { SOMA_MEMORY_NOTE_TYPES, SOMA_MEMORY_TRUSTS } from "./types";
+export { SOMA_MEMORY_WRITE_TRIGGERS, SOMA_MEMORY_TRIGGER_TRUST } from "./types";
 export type { SomaMemoryNote, SomaMemoryNoteType, SomaMemoryTrust } from "./types";
+export type {
+  SomaMemoryWriteTrigger,
+  SomaMemoryWriteMode,
+  SomaMemoryWriteOptions,
+  SomaMemoryWriteResult,
+  SomaMemoryVerifyOptions,
+  SomaMemoryVerifyResult,
+  SomaMemoryDuplicateCandidate,
+} from "./types";
 
 export {
   addAlgorithmCapabilities,
@@ -434,6 +444,13 @@ export {
 export { captureSomaFeedback, classifySomaFeedback, maybeSomaFeedbackPrompt } from "./feedback";
 export { appendSomaMemoryEvent, searchSomaMemory, somaMemoryEventsPath } from "./memory";
 export { MemoryNoteError, parseMemoryNote, serializeMemoryNote } from "./memory-note";
+export {
+  writeMemoryNote,
+  verifyMemoryNote,
+  findDuplicateCandidates,
+  memoryNotePath,
+  MEMORY_DEDUP_JACCARD_THRESHOLD,
+} from "./memory-write";
 export { createSomaSnapshot, listSomaSnapshots, rollbackSomaSnapshot } from "./snapshots";
 export { querySomaTelemetryEvents, summarizeSomaTelemetry } from "./observability";
 export {
