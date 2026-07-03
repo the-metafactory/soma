@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { access, mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { createPaths } from "./paths";
 import { runBoundedConcurrent } from "./internal-concurrency";
@@ -15,19 +15,21 @@ import type {
   SomaMemoryVerifyResult,
   SomaMemoryWriteOptions,
   SomaMemoryWriteResult,
-  SomaMemoryWriteTrigger,
 } from "./types";
 
 /**
  * Memory write + verify (subsystem M1). Plan v2 §M1 (do not redesign the
  * governance model):
  *
- * - **Trust is derived from the trigger**, never a caller flag — a substrate-side
- *   caller cannot self-assert `principal`. `principal-correction` is the sole path
- *   to `principal` trust AND requires an explicit `principalAuthority` escalation
- *   (sudo-style: deliberate + logged, refused by default — not cryptographic
- *   auth, which soma has no primitive for); `import` is always `quarantined`
- *   (MINJA defense); `consolidation` is `assistant`.
+ * - **Trust is derived from the trigger**, never a caller flag — and any tier
+ *   above `quarantined` needs that tier's explicit, logged authority signal, so a
+ *   caller cannot mint (or carry) trust by choosing a trigger alone.
+ *   `principal-correction` → `principal` (needs `principalAuthority`);
+ *   `consolidation` → `assistant` (needs `consolidationAuthority`, the M6
+ *   consolidator's capability); `import` → `quarantined`, free (MINJA defense).
+ *   Escalations are sudo-style (deliberate + logged, refused by default) — not
+ *   cryptographic auth, which soma has no primitive for. Mutating an existing
+ *   note needs the TARGET tier's authority (merge/supersede/verify).
  * - **Recall-first refusal** — `create` walks the durable corpus (`semantic/` +
  *   `procedural/`), hashes normalized bodies, and refuses when an active note is
  *   an exact-body match OR Jaccard ≥ 0.6 (transplant #1 from recall's dedup
@@ -202,42 +204,68 @@ interface LoadedNote extends ScannedNote {
   raw: string;
 }
 
+// The authority signals a caller can hold. Both write and verify options carry
+// these fields; the tier gate reads only this narrow shape.
+interface AuthoritySignals {
+  principalAuthority?: boolean;
+  consolidationAuthority?: boolean;
+}
+
+/**
+ * A trust tier above `quarantined` is never conferred by choosing a trigger
+ * alone — it requires that tier's explicit, logged authority signal. `principal`
+ * needs `--principal-authority`; `assistant` (the consolidation tier) needs
+ * `--consolidation-authority`; `quarantined` is free. `context` names the act
+ * (mint / mutate) for the error.
+ */
+function assertTierAuthority(tier: SomaMemoryTrust, auth: AuthoritySignals, context: string): void {
+  if (tier === "principal" && auth.principalAuthority !== true) {
+    throw new MemoryNoteError(`${context} requires --principal-authority (a deliberate, logged escalation).`, "principalAuthority");
+  }
+  if (tier === "assistant" && auth.consolidationAuthority !== true) {
+    throw new MemoryNoteError(
+      `${context} requires --consolidation-authority (the internal consolidator's capability, ` +
+        `not selectable by choosing --trigger consolidation).`,
+      "consolidationAuthority",
+    );
+  }
+}
+
+/** Minting a note: the trigger's derived tier needs that tier's authority. */
+function assertMintAuthority(options: SomaMemoryWriteOptions): void {
+  const tier = SOMA_MEMORY_TRIGGER_TRUST[options.trigger];
+  assertTierAuthority(tier, options, `${options.trigger} mints ${tier} trust and`);
+}
+
 /**
  * Guard every mutation of an EXISTING note (merge body, supersede-close). Two
  * rules, both anti-injection:
  *   1. The mutation's trigger-trust must be ≥ the target's trust — a tool/import
  *      caller (quarantined) can never inject content into an assistant/principal
- *      note while the note keeps its higher trust ("import is always quarantined"
- *      would otherwise be a lie for merges).
- *   2. Mutating a `principal` note additionally needs the explicit
- *      `principalAuthority` escalation — the same deliberate, logged act that
- *      minted it.
+ *      note ("import is always quarantined" would otherwise be a lie for merges).
+ *   2. Mutating a non-quarantined note needs the TARGET tier's authority — the
+ *      same signal that minted it.
  */
-function assertMayMutate(target: SomaMemoryNote, trigger: SomaMemoryWriteTrigger, principalAuthority: boolean): void {
-  const incoming = SOMA_MEMORY_TRIGGER_TRUST[trigger];
+function assertMayMutate(target: SomaMemoryNote, options: SomaMemoryWriteOptions): void {
+  const incoming = SOMA_MEMORY_TRIGGER_TRUST[options.trigger];
   if (TRUST_RANK[incoming] < TRUST_RANK[target.trust]) {
     throw new MemoryNoteError(
       `Cannot mutate ${target.trust}-trust note ${target.id} with ${incoming}-trust content ` +
-        `(trigger ${trigger}) — a mutation may not inject lower-trust content.`,
+        `(trigger ${options.trigger}) — a mutation may not inject lower-trust content.`,
       "trigger",
     );
   }
-  if (target.trust === "principal" && !principalAuthority) {
-    throw new MemoryNoteError(
-      `Mutating principal-trust note ${target.id} requires --principal-authority ` +
-        `(the same deliberate escalation that minted it).`,
-      "principalAuthority",
-    );
-  }
+  assertTierAuthority(target.trust, options, `Mutating ${target.trust}-trust note ${target.id}`);
 }
 
 /**
- * Event metadata that records the principal-authority escalation, so an audit
- * can prove from the journal alone that a principal-trust mutation was
- * authorized. Emitted whenever the resulting/target note is principal-trust.
+ * Event metadata recording the authority escalation, so an audit can prove from
+ * the journal alone that a non-quarantined mutation was authorized.
  */
-function principalAuthorityMeta(trust: SomaMemoryTrust): Record<string, unknown> {
-  return trust === "principal" ? { principalAuthority: true } : {};
+function authorityMeta(trust: SomaMemoryTrust): Record<string, unknown> {
+  if (trust === "principal") return { principalAuthority: true };
+  if (trust === "assistant") return { consolidationAuthority: true };
+  return {};
 }
 
 // Bounded read concurrency for the dedup scan — parallel enough to not serialize
@@ -413,18 +441,24 @@ async function loadNoteById(somaHome: string, id: string): Promise<LoadedNote> {
   assertNoteId(id); // a lookup id is also a path segment — never probe an unsafe one
   for (const type of WRITABLE_TYPES) {
     const path = memoryNotePath(somaHome, type, id);
-    let raw: string;
+    let stats;
     try {
-      raw = await readFile(path, "utf8");
+      stats = await lstat(path);
     } catch (error) {
       // Only a genuinely-absent file (ENOENT) is "not here, try the next type".
-      // Any OTHER read failure must NOT masquerade as absence — that would break
+      // Any OTHER stat failure must NOT masquerade as absence — that would break
       // the global-id guarantee (fall through to a same-id note of the other
       // type, or wrongly report not-found on an existing-but-unreadable note).
       const code = error instanceof Error && "code" in error ? error.code : undefined;
       if (code === "ENOENT") continue;
-      throw new MemoryNoteError(`Soma memory note ${id} exists at ${path} but is unreadable: ${String(error)}`, "id");
+      throw new MemoryNoteError(`Soma memory note ${id} exists at ${path} but is unstattable: ${String(error)}`, "id");
     }
+    // Containment: a note path that is a symlink would let a subsequent "w"
+    // overwrite (merge/verify/supersede-close) escape the memory tree. Refuse it.
+    if (stats.isSymbolicLink()) {
+      throw new MemoryNoteError(`Soma memory note ${id} at ${path} is a symlink; refusing to follow it out of the memory tree.`, "id");
+    }
+    const raw = await readFile(path, "utf8");
     return { path, type, note: parseMemoryNote(raw), raw };
   }
   throw new MemoryNoteError(`Soma memory note not found: ${id}`, "id");
@@ -458,17 +492,9 @@ function buildNewNote(options: SomaMemoryWriteOptions, now: Date): SomaMemoryNot
   }
   assertNonEmpty(options.body, "body");
 
-  // The deliberate-escalation gate: `principal` trust is never the incidental
-  // result of a bare trigger flag. Without an explicit authority signal, a
-  // principal-correction write is REFUSED (not downgraded) — an automated
-  // assistant invocation defaults safe.
-  if (options.trigger === "principal-correction" && options.principalAuthority !== true) {
-    throw new MemoryNoteError(
-      `principal-correction mints principal trust and requires explicit principal authority ` +
-        `(--principal-authority). This is a deliberate, logged escalation — not automatic from the trigger.`,
-      "trigger",
-    );
-  }
+  // Minting a tier above quarantined needs that tier's authority — no caller can
+  // mint principal/assistant trust by choosing a trigger alone; import defaults safe.
+  assertMintAuthority(options);
 
   const today = isoDate(now);
   const note: SomaMemoryNote = {
@@ -534,7 +560,7 @@ async function createNote(somaHome: string, options: SomaMemoryWriteOptions, now
         type: note.type,
         trust: note.trust,
         trigger: options.trigger,
-        ...principalAuthorityMeta(note.trust), // audit the escalation when principal
+        ...authorityMeta(note.trust), // audit the escalation when non-quarantined
         // Record the dedup gate's blind spot so "dedup-gated" is never a silent
         // overstatement when part of the corpus was unreadable.
         ...(unreadable.length > 0 ? { dedupUnreadable: unreadable.length } : {}),
@@ -549,11 +575,18 @@ async function createNote(somaHome: string, options: SomaMemoryWriteOptions, now
 async function mergeNote(somaHome: string, options: SomaMemoryWriteOptions, now: Date): Promise<SomaMemoryWriteResult> {
   assertNonEmpty(options.targetId, "targetId");
   assertNonEmpty(options.body, "body");
+  // merge edits an existing note IN PLACE, preserving its provenance — so a
+  // provenance flag would be silently ignored. Refuse it rather than pretend
+  // (this is also what makes "tool/import content is refused" honest for merge:
+  // you cannot attach a tool provenance to a merge at all).
+  if (options.provenance !== undefined) {
+    throw new MemoryNoteError(`--provenance is not valid with --merge; merge preserves the target note's provenance.`, "provenance");
+  }
   const { path, type, note, raw } = await loadNoteById(somaHome, options.targetId);
   if (note.valid_until !== null) {
     throw new MemoryNoteError(`Cannot merge into superseded note ${note.id} (valid_until set).`, "targetId");
   }
-  assertMayMutate(note, options.trigger, options.principalAuthority === true);
+  assertMayMutate(note, options);
 
   const today = isoDate(now);
   const merged: SomaMemoryNote = {
@@ -572,7 +605,7 @@ async function mergeNote(somaHome: string, options: SomaMemoryWriteOptions, now:
       summary: `Merged update into memory note ${merged.id} (${type})`,
       artifactPaths: [path],
       // Log the escalation so an audit can prove a principal-note mutation was authorized.
-      metadata: { id: merged.id, type, trust: merged.trust, trigger: options.trigger, ...principalAuthorityMeta(merged.trust) },
+      metadata: { id: merged.id, type, trust: merged.trust, trigger: options.trigger, ...authorityMeta(merged.trust) },
     },
     () => restoreBytes(path, raw), // roll back: restore the pre-merge bytes
   );
@@ -599,7 +632,7 @@ async function supersedeNote(somaHome: string, options: SomaMemoryWriteOptions, 
   // (can't close a higher-trust note with lower-trust content; principal needs
   // the escalation). The new replacement note's own trust was already gated in
   // buildNewNote.
-  assertMayMutate(old.note, options.trigger, options.principalAuthority === true);
+  assertMayMutate(old.note, options);
 
   // New note points back at what it replaces; the closed note points forward.
   if (!newNote.links.includes(old.note.id)) newNote.links = [...newNote.links, old.note.id];
@@ -631,7 +664,7 @@ async function supersedeNote(somaHome: string, options: SomaMemoryWriteOptions, 
         id: newNote.id,
         supersededId: closed.id,
         trigger: options.trigger,
-        ...principalAuthorityMeta(TRUST_RANK[newNote.trust] >= TRUST_RANK[closed.trust] ? newNote.trust : closed.trust),
+        ...authorityMeta(TRUST_RANK[newNote.trust] >= TRUST_RANK[closed.trust] ? newNote.trust : closed.trust),
       },
     },
     // roll back BOTH sides — reopen the closed note FIRST (the trusted state we
@@ -675,17 +708,10 @@ export async function verifyMemoryNote(options: SomaMemoryVerifyOptions): Promis
   const now = options.now ?? new Date();
   const { path, type, note, raw } = await loadNoteById(somaHome, options.id);
 
-  // Verifying a principal note refreshes its decay signal — a principal-note
-  // mutation, so it needs the same escalation. (Verify has no trigger; a
-  // principal note verified WITH authority is treated as a principal-correction
-  // for the trust-rank check.)
-  if (note.trust === "principal" && options.principalAuthority !== true) {
-    throw new MemoryNoteError(
-      `Verifying principal-trust note ${note.id} requires --principal-authority ` +
-        `(refreshing its decay signal is a principal-note mutation).`,
-      "principalAuthority",
-    );
-  }
+  // Verifying refreshes a note's decay signal — a mutation — so a non-quarantined
+  // note needs its tier's authority (principal→--principal-authority,
+  // assistant→--consolidation-authority).
+  assertTierAuthority(note.trust, options, `Verifying ${note.trust}-trust note ${note.id}`);
 
   const verified: SomaMemoryNote = {
     ...note,
@@ -702,7 +728,7 @@ export async function verifyMemoryNote(options: SomaMemoryVerifyOptions): Promis
       kind: "memory.verify",
       summary: `Verified memory note ${verified.id} (${type}); resurface_count ${verified.resurface_count}`,
       artifactPaths: [path],
-      metadata: { id: verified.id, type, resurfaceCount: verified.resurface_count, ...principalAuthorityMeta(note.trust) },
+      metadata: { id: verified.id, type, resurfaceCount: verified.resurface_count, ...authorityMeta(note.trust) },
     },
     () => restoreBytes(path, raw), // roll back: restore the pre-verify bytes
   );

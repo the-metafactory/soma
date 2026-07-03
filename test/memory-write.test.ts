@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
@@ -89,7 +89,7 @@ test("trust is derived from the trigger — no --trust flag can override it", as
       createOpts(somaHome, { id: "b", trigger: "import", body: "totally different imported fact about zeta", provenance: "tool:scraper" }),
     );
     const consolidated = await writeMemoryNote(
-      createOpts(somaHome, { id: "c", trigger: "consolidation", body: "consolidated abstraction over gamma delta epsilon" }),
+      createOpts(somaHome, { id: "c", trigger: "consolidation", consolidationAuthority: true, body: "consolidated abstraction over gamma delta epsilon" }),
     );
 
     expect(principal.note.trust).toBe("principal");
@@ -104,18 +104,26 @@ test("principal-correction without explicit authority is refused (no incidental 
   await withTempSoma(async (somaHome) => {
     await expect(
       writeMemoryNote(createOpts(somaHome, { principalAuthority: false })),
-    ).rejects.toThrow(/requires explicit principal authority/);
+    ).rejects.toThrow(/requires --principal-authority/);
     // The same write WITH authority succeeds and mints principal trust.
     const ok = await writeMemoryNote(createOpts(somaHome, { principalAuthority: true }));
     expect(ok.note.trust).toBe("principal");
   });
 });
 
-test("import and consolidation do not require principal authority", async () => {
+test("import needs no authority; consolidation needs consolidation-authority", async () => {
   await withTempSoma(async (somaHome) => {
+    // import is the only trigger a bare caller can use — it lands quarantined.
     const imported = await writeMemoryNote(createOpts(somaHome, { id: "i", trigger: "import", principalAuthority: false, body: "imported fact alpha beta gamma" }));
-    const consolidated = await writeMemoryNote(createOpts(somaHome, { id: "c", trigger: "consolidation", principalAuthority: false, body: "consolidated fact delta epsilon" }));
     expect(imported.note.trust).toBe("quarantined");
+
+    // consolidation without its authority is refused (can't self-select assistant trust).
+    await expect(
+      writeMemoryNote(createOpts(somaHome, { id: "c", trigger: "consolidation", principalAuthority: false, body: "consolidated fact delta epsilon" })),
+    ).rejects.toThrow(/requires --consolidation-authority/);
+
+    // With the capability it mints assistant trust.
+    const consolidated = await writeMemoryNote(createOpts(somaHome, { id: "c", trigger: "consolidation", consolidationAuthority: true, body: "consolidated fact delta epsilon" }));
     expect(consolidated.note.trust).toBe("assistant");
   });
 });
@@ -268,7 +276,7 @@ test("merging into a principal-trust note requires the principal-authority escal
 test("a lower-trust merge cannot inject into a higher-trust note (import into assistant)", async () => {
   await withTempSoma(async (somaHome) => {
     // assistant-trust note via consolidation trigger.
-    await writeMemoryNote(createOpts(somaHome, { id: "assistant-note", trigger: "consolidation", principalAuthority: false, body: "assistant fact iota kappa" }));
+    await writeMemoryNote(createOpts(somaHome, { id: "assistant-note", trigger: "consolidation", consolidationAuthority: true, body: "assistant fact iota kappa" }));
     await expect(
       writeMemoryNote({ somaHome, mode: "merge", trigger: "import", targetId: "assistant-note", body: "imported injection", now: LATER }),
     ).rejects.toThrow(/Cannot mutate assistant-trust note .* with quarantined-trust content/);
@@ -372,6 +380,37 @@ test("verifying a principal note needs authority; a quarantined note does not", 
 test("verify on a missing id throws a typed error", async () => {
   await withTempSoma(async (somaHome) => {
     await expect(verifyMemoryNote({ somaHome, id: "ghost" })).rejects.toThrow(MemoryNoteError);
+  });
+});
+
+test("verifying an assistant note needs consolidation-authority", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeMemoryNote(createOpts(somaHome, { id: "asst", trigger: "consolidation", consolidationAuthority: true, body: "assistant fact for verify pi rho" }));
+    await expect(verifyMemoryNote({ somaHome, id: "asst", now: LATER })).rejects.toThrow(/requires --consolidation-authority/);
+    const ok = await verifyMemoryNote({ somaHome, id: "asst", consolidationAuthority: true, now: LATER });
+    expect(ok.note.resurface_count).toBe(1);
+  });
+});
+
+test("merge rejects a --provenance flag (merge preserves the target's provenance)", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeMemoryNote(createOpts(somaHome, { id: "note" }));
+    await expect(
+      writeMemoryNote({ somaHome, mode: "merge", trigger: "principal-correction", principalAuthority: true, targetId: "note", body: "x", provenance: "tool:web", now: LATER }),
+    ).rejects.toThrow(/--provenance is not valid with --merge/);
+  });
+});
+
+test("a symlink note path is refused rather than followed out of the tree", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeMemoryNote(createOpts(somaHome, { id: "real", body: "real body sigma tau" }));
+    // Plant a symlink at procedural/evil.md → outside the memory tree.
+    const outside = join(somaHome, "..", "outside-target.md");
+    await writeFile(outside, "---\nnot: a note\n", "utf8");
+    await mkdir(join(somaHome, "memory", "procedural"), { recursive: true });
+    await symlink(outside, join(somaHome, "memory", "procedural", "evil.md"));
+
+    await expect(verifyMemoryNote({ somaHome, id: "evil", now: LATER })).rejects.toThrow(/is a symlink/);
   });
 });
 

@@ -63,13 +63,14 @@ export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAct
       "Usage: soma memory write --trigger <principal-correction|import|consolidation> --body <text> " +
       "(create: --id <slug> --type <semantic|procedural> [--force]) " +
       "(--merge <id> | --supersede <id>) " +
-      "[--principal-authority] [--project <key>] [--source-of-truth <ref>] [--links a,b] [--hook <text>] [--review <text>] " +
+      "[--principal-authority] [--consolidation-authority] [--project <key>] [--source-of-truth <ref>] [--links a,b] " +
+      "[--recall-trigger <text>] [--review <text>] " +
       "[--provenance <import|tool:name>] [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]. " +
-      "Trust is DERIVED from --trigger; there is no --trust flag. principal-correction " +
-      "additionally requires --principal-authority (a deliberate, logged escalation to principal trust).",
+      "Trust is DERIVED from --trigger; there is no --trust flag. principal-correction requires " +
+      "--principal-authority and consolidation requires --consolidation-authority (deliberate, logged escalations).",
     verify:
-      "Usage: soma memory verify <id> [--id <id>] [--principal-authority] [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]. " +
-      "Verifying a principal-trust note requires --principal-authority.",
+      "Usage: soma memory verify <id> [--id <id>] [--principal-authority] [--consolidation-authority] [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]. " +
+      "Verifying a non-quarantined note requires that tier's authority.",
   },
 };
 
@@ -272,7 +273,9 @@ function parseMemoryWriteArgs(args: string[]): SomaMemoryWriteOptions {
           .filter((entry) => entry.length > 0);
         index += 1;
         break;
-      case "--hook":
+      case "--recall-trigger":
+        // Maps to the note's `hook` frontmatter field (M0 schema). The
+        // user-facing flag avoids the reserved `hook` term (CONTEXT.md).
         options.hook = readOption(args, index, arg);
         index += 1;
         break;
@@ -297,6 +300,9 @@ function parseMemoryWriteArgs(args: string[]): SomaMemoryWriteOptions {
         break;
       case "--principal-authority":
         options.principalAuthority = true;
+        break;
+      case "--consolidation-authority":
+        options.consolidationAuthority = true;
         break;
       case "--trust":
         throw new Error(
@@ -367,6 +373,9 @@ function parseMemoryVerifyArgs(args: string[]): SomaMemoryVerifyOptions {
         break;
       case "--principal-authority":
         options.principalAuthority = true;
+        break;
+      case "--consolidation-authority":
+        options.consolidationAuthority = true;
         break;
       default:
         if (arg.startsWith("-")) {

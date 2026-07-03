@@ -2400,6 +2400,14 @@ export interface SomaMemoryWriteOptions {
    * this gate exists to close). Ignored for import/consolidation triggers.
    */
   principalAuthority?: boolean;
+  /**
+   * The consolidation counterpart of {@link principalAuthority}: `consolidation`
+   * mints `assistant` trust, so it too requires an explicit signal — the internal
+   * M6 consolidator's capability, not a tier an arbitrary CLI caller can select
+   * by choosing the trigger. Without it, `--trigger consolidation` is refused.
+   * CLI flag `--consolidation-authority`. Ignored for principal/import triggers.
+   */
+  consolidationAuthority?: boolean;
 
   /** create/supersede: the new note's id. merge: unused (target is `--merge <id>`). */
   id?: string;
@@ -2440,11 +2448,13 @@ export interface SomaMemoryVerifyOptions {
   id: string;
   /**
    * Verifying mutates a note's decay signals (`last_verified`, `resurface_count`),
-   * so verifying a `principal`-trust note needs the same escalation as any other
-   * principal-note mutation — otherwise a tool caller could keep a principal note
-   * artificially fresh in the index. Ignored for non-principal notes.
+   * so verifying a non-quarantined note needs that tier's authority — otherwise a
+   * tool caller could keep a trusted note artificially fresh in the index.
+   * `principal` notes need this; ignored for quarantined notes.
    */
   principalAuthority?: boolean;
+  /** As above, for `assistant`-trust notes. Ignored for principal/quarantined notes. */
+  consolidationAuthority?: boolean;
 }
 
 export interface SomaMemoryVerifyResult {
