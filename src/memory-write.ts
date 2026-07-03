@@ -19,9 +19,9 @@ import type {
  * Memory write + verify (subsystem M1). Plan v2 §M1 (do not redesign the
  * governance model):
  *
- * - **Trust is derived from the trigger**, never a caller flag — an agent cannot
- *   self-assert `principal`. `principal-correction` is the sole path to
- *   `principal` trust and is the documented human-authority gate; `import` is
+ * - **Trust is derived from the trigger**, never a caller flag — a substrate-side
+ *   caller cannot self-assert `principal`. `principal-correction` is the sole path
+ *   to `principal` trust and is the documented human-authority gate; `import` is
  *   always `quarantined` (MINJA defense); `consolidation` is `assistant`.
  * - **Recall-first refusal** — `create` walks the durable corpus (`semantic/` +
  *   `procedural/`), hashes normalized bodies, and refuses when an active note is
@@ -31,7 +31,10 @@ import type {
  * - **Invalidate, never delete** — `supersede` sets the old note's `valid_until`
  *   and cross-links; nothing is unlinked. `merge` delta-appends (ACE-style,
  *   never regenerates).
- * - One mutating call → exactly one events journal line.
+ * - One mutating call → exactly one events journal line: the file write and its
+ *   event append are atomic — if the append fails, the file mutation is rolled
+ *   back (created files unlinked, edited files restored to prior bytes), so the
+ *   journal never under- or over-counts a mutation.
  *
  * Deterministic: dates come from an injected `now` (UTC), no LLM calls, writes
  * stay within the Soma memory tree under `memory/semantic/` + `memory/procedural/`.
@@ -55,6 +58,36 @@ function assertNonEmpty(value: string | undefined, field: string): asserts value
   if (value === undefined || value.trim().length === 0) {
     throw new MemoryNoteError(`Soma memory write ${field} must not be empty.`, field);
   }
+}
+
+// Same slug grammar the M0 parser enforces on `id`. Validated HERE at the write
+// boundary — before the id is ever joined into a filesystem path — so a
+// traversal id (`../../evil`) is refused up front rather than incidentally by
+// serialize's round-trip re-parse. Defense in depth: memoryNotePath must never
+// receive an unvalidated id.
+const NOTE_ID_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+function assertNoteId(id: string): void {
+  if (!NOTE_ID_SLUG.test(id) || id.length > 64) {
+    throw new MemoryNoteError(`id "${id}" is not a valid slug (lowercase [a-z0-9-], <=64 chars).`, "id");
+  }
+}
+
+/**
+ * Append the mutation's event; on failure, roll the file mutation back so the
+ * "one mutation → one event" invariant holds. `rollback` restores disk to its
+ * pre-mutation state (unlink a created file, or rewrite an edited one's prior
+ * bytes).
+ */
+async function appendMutationEvent(
+  somaHome: string,
+  input: Parameters<typeof appendSomaMemoryEvent>[1],
+  rollback: () => Promise<void>,
+): ReturnType<typeof appendSomaMemoryEvent> {
+  return appendSomaMemoryEvent(somaHome, input).catch(async (error: unknown) => {
+    await rollback().catch(() => undefined);
+    throw new Error(`Soma memory ${input.kind} event append failed; rolled back the file mutation.`, { cause: error });
+  });
 }
 
 /** YYYY-MM-DD in UTC — matches the note schema's calendar-date grammar. */
@@ -111,29 +144,34 @@ interface LoadedNote {
   path: string;
   type: WritableType;
   note: SomaMemoryNote;
+  /** The exact on-disk bytes — used to restore the file on event-append rollback. */
+  raw: string;
 }
 
 /** Parse every `.md` note under the durable corpus; skip unreadable/malformed. */
 async function collectDurableNotes(somaHome: string): Promise<LoadedNote[]> {
-  const loaded: LoadedNote[] = [];
-  for (const type of Object.keys(WRITABLE_TYPE_DIRS) as WritableType[]) {
-    const dir = typeDir(somaHome, type);
-    const entries = await readdir(dir).catch(() => [] as string[]);
-    for (const entry of entries) {
-      if (!entry.endsWith(".md")) continue;
-      const path = join(dir, entry);
-      const content = await readFile(path, "utf8").catch(() => undefined);
-      if (content === undefined) continue;
-      let note: SomaMemoryNote;
-      try {
-        note = parseMemoryNote(content);
-      } catch {
-        continue; // a hand-broken note must not block a legitimate write
-      }
-      loaded.push({ path, type, note });
-    }
-  }
-  return loaded;
+  // Read files with per-directory parallelism (matches src/memory.ts's search
+  // walk) — a create against a large corpus must not serialize on every read.
+  const perType = await Promise.all(
+    (Object.keys(WRITABLE_TYPE_DIRS) as WritableType[]).map(async (type) => {
+      const dir = typeDir(somaHome, type);
+      const entries = (await readdir(dir).catch(() => [] as string[])).filter((entry) => entry.endsWith(".md"));
+      const notes = await Promise.all(
+        entries.map(async (entry): Promise<LoadedNote | undefined> => {
+          const path = join(dir, entry);
+          const content = await readFile(path, "utf8").catch(() => undefined);
+          if (content === undefined) return undefined;
+          try {
+            return { path, type, note: parseMemoryNote(content), raw: content };
+          } catch {
+            return undefined; // a hand-broken note must not block a legitimate write
+          }
+        }),
+      );
+      return notes.filter((entry): entry is LoadedNote => entry !== undefined);
+    }),
+  );
+  return perType.flat();
 }
 
 /**
@@ -226,6 +264,7 @@ async function loadNoteById(somaHome: string, id: string): Promise<LoadedNote> {
 
 function buildNewNote(options: SomaMemoryWriteOptions, now: Date): SomaMemoryNote {
   assertNonEmpty(options.id, "id");
+  assertNoteId(options.id);
   if (options.type === undefined || options.type === "episodic") {
     throw new MemoryNoteError(`type must be "semantic" or "procedural" (episodic writes go through digest/action, M5).`, "type");
   }
@@ -268,17 +307,18 @@ async function createNote(somaHome: string, options: SomaMemoryWriteOptions, now
   const path = memoryNotePath(somaHome, note.type as WritableType, note.id);
   await writeNoteFile(path, note, "wx");
 
-  const event = await appendSomaMemoryEvent(somaHome, {
-    timestamp: now.toISOString(),
-    substrate: options.substrate ?? "custom",
-    kind: "memory.write.create",
-    summary: `Created memory note ${note.id} (${note.type}, trust ${note.trust})`,
-    artifactPaths: [path],
-    metadata: { id: note.id, type: note.type, trust: note.trust, trigger: options.trigger },
-  }).catch(async (error: unknown) => {
-    await unlink(path).catch(() => undefined);
-    throw new Error(`Soma memory write event append failed; removed note: ${path}`, { cause: error });
-  });
+  const event = await appendMutationEvent(
+    somaHome,
+    {
+      timestamp: now.toISOString(),
+      substrate: options.substrate ?? "custom",
+      kind: "memory.write.create",
+      summary: `Created memory note ${note.id} (${note.type}, trust ${note.trust})`,
+      artifactPaths: [path],
+      metadata: { id: note.id, type: note.type, trust: note.trust, trigger: options.trigger },
+    },
+    () => unlink(path), // roll back: remove the freshly created file
+  );
 
   return { somaHome, mode: "create", path, note, event };
 }
@@ -286,7 +326,7 @@ async function createNote(somaHome: string, options: SomaMemoryWriteOptions, now
 async function mergeNote(somaHome: string, options: SomaMemoryWriteOptions, now: Date): Promise<SomaMemoryWriteResult> {
   assertNonEmpty(options.targetId, "targetId");
   assertNonEmpty(options.body, "body");
-  const { path, type, note } = await loadNoteById(somaHome, options.targetId);
+  const { path, type, note, raw } = await loadNoteById(somaHome, options.targetId);
   if (note.valid_until !== null) {
     throw new MemoryNoteError(`Cannot merge into superseded note ${note.id} (valid_until set).`, "targetId");
   }
@@ -299,14 +339,18 @@ async function mergeNote(somaHome: string, options: SomaMemoryWriteOptions, now:
   };
   await writeNoteFile(path, merged, "w");
 
-  const event = await appendSomaMemoryEvent(somaHome, {
-    timestamp: now.toISOString(),
-    substrate: options.substrate ?? "custom",
-    kind: "memory.write.merge",
-    summary: `Merged update into memory note ${merged.id} (${type})`,
-    artifactPaths: [path],
-    metadata: { id: merged.id, type },
-  });
+  const event = await appendMutationEvent(
+    somaHome,
+    {
+      timestamp: now.toISOString(),
+      substrate: options.substrate ?? "custom",
+      kind: "memory.write.merge",
+      summary: `Merged update into memory note ${merged.id} (${type})`,
+      artifactPaths: [path],
+      metadata: { id: merged.id, type },
+    },
+    () => writeFile(path, raw, "utf8"), // roll back: restore the pre-merge bytes
+  );
 
   return { somaHome, mode: "merge", path, note: merged, event };
 }
@@ -340,17 +384,22 @@ async function supersedeNote(somaHome: string, options: SomaMemoryWriteOptions, 
     throw error;
   }
 
-  const event = await appendSomaMemoryEvent(somaHome, {
-    timestamp: now.toISOString(),
-    substrate: options.substrate ?? "custom",
-    kind: "memory.write.supersede",
-    summary: `Note ${newNote.id} supersedes ${closed.id} (closed ${closed.valid_until})`,
-    artifactPaths: [newPath, old.path],
-    metadata: { id: newNote.id, supersededId: closed.id },
-  }).catch(async (error: unknown) => {
-    await unlink(newPath).catch(() => undefined);
-    throw new Error(`Soma memory supersede event append failed; rolled back new note: ${newPath}`, { cause: error });
-  });
+  const event = await appendMutationEvent(
+    somaHome,
+    {
+      timestamp: now.toISOString(),
+      substrate: options.substrate ?? "custom",
+      kind: "memory.write.supersede",
+      summary: `Note ${newNote.id} supersedes ${closed.id} (closed ${closed.valid_until})`,
+      artifactPaths: [newPath, old.path],
+      metadata: { id: newNote.id, supersededId: closed.id },
+    },
+    // roll back BOTH sides: drop the new note AND reopen the closed one.
+    async () => {
+      await unlink(newPath).catch(() => undefined);
+      await writeFile(old.path, old.raw, "utf8").catch(() => undefined);
+    },
+  );
 
   return { somaHome, mode: "supersede", path: newPath, note: newNote, supersededId: closed.id, event };
 }
@@ -379,7 +428,7 @@ export async function verifyMemoryNote(options: SomaMemoryVerifyOptions): Promis
   assertNonEmpty(options.id, "id");
   const somaHome = createPaths(options).root();
   const now = options.now ?? new Date();
-  const { path, type, note } = await loadNoteById(somaHome, options.id);
+  const { path, type, note, raw } = await loadNoteById(somaHome, options.id);
 
   const verified: SomaMemoryNote = {
     ...note,
@@ -388,14 +437,18 @@ export async function verifyMemoryNote(options: SomaMemoryVerifyOptions): Promis
   };
   await writeNoteFile(path, verified, "w");
 
-  const event = await appendSomaMemoryEvent(somaHome, {
-    timestamp: now.toISOString(),
-    substrate: options.substrate ?? "custom",
-    kind: "memory.verify",
-    summary: `Verified memory note ${verified.id} (${type}); resurface_count ${verified.resurface_count}`,
-    artifactPaths: [path],
-    metadata: { id: verified.id, type, resurfaceCount: verified.resurface_count },
-  });
+  const event = await appendMutationEvent(
+    somaHome,
+    {
+      timestamp: now.toISOString(),
+      substrate: options.substrate ?? "custom",
+      kind: "memory.verify",
+      summary: `Verified memory note ${verified.id} (${type}); resurface_count ${verified.resurface_count}`,
+      artifactPaths: [path],
+      metadata: { id: verified.id, type, resurfaceCount: verified.resurface_count },
+    },
+    () => writeFile(path, raw, "utf8"), // roll back: restore the pre-verify bytes
+  );
 
   return { somaHome, path, note: verified, event };
 }

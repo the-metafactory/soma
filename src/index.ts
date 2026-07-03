@@ -444,13 +444,11 @@ export {
 export { captureSomaFeedback, classifySomaFeedback, maybeSomaFeedbackPrompt } from "./feedback";
 export { appendSomaMemoryEvent, searchSomaMemory, somaMemoryEventsPath } from "./memory";
 export { MemoryNoteError, parseMemoryNote, serializeMemoryNote } from "./memory-note";
-export {
-  writeMemoryNote,
-  verifyMemoryNote,
-  findDuplicateCandidates,
-  memoryNotePath,
-  MEMORY_DEDUP_JACCARD_THRESHOLD,
-} from "./memory-write";
+// Public write surface only. Path/dedup helpers (memoryNotePath,
+// findDuplicateCandidates, MEMORY_DEDUP_JACCARD_THRESHOLD) stay module-private so
+// the storage layout and dedup threshold are not frozen as stable API — internal
+// soma modules (M2/M3/M6) and tests import them from "./memory-write" directly.
+export { writeMemoryNote, verifyMemoryNote } from "./memory-write";
 export { createSomaSnapshot, listSomaSnapshots, rollbackSomaSnapshot } from "./snapshots";
 export { querySomaTelemetryEvents, summarizeSomaTelemetry } from "./observability";
 export {

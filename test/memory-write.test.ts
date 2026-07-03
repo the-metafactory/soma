@@ -1,12 +1,9 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import {
-  MEMORY_DEDUP_JACCARD_THRESHOLD,
   MemoryNoteError,
-  findDuplicateCandidates,
-  memoryNotePath,
   parseMemoryNote,
   somaMemoryEventsPath,
   verifyMemoryNote,
@@ -14,6 +11,8 @@ import {
   type SomaMemoryNote,
   type SomaMemoryWriteOptions,
 } from "../src/index";
+// Path/dedup helpers are module-private (not public index API) — import direct.
+import { MEMORY_DEDUP_JACCARD_THRESHOLD, findDuplicateCandidates, memoryNotePath } from "../src/memory-write";
 
 const NOW = new Date("2026-07-03T10:00:00.000Z");
 const LATER = new Date("2026-08-01T12:00:00.000Z");
@@ -48,6 +47,17 @@ async function readNote(path: string): Promise<SomaMemoryNote> {
 async function countEvents(somaHome: string): Promise<number> {
   const content = await readFile(somaMemoryEventsPath(somaHome), "utf8").catch(() => "");
   return content.trim() === "" ? 0 : content.trim().split("\n").length;
+}
+
+/**
+ * Force the next event append to fail: replace events.jsonl with a *directory*
+ * so `appendFile` throws EISDIR (works even as root, unlike a chmod trick). Used
+ * to prove the write→event rollback path.
+ */
+async function breakEvents(somaHome: string): Promise<void> {
+  const path = somaMemoryEventsPath(somaHome);
+  await rm(path, { force: true });
+  await mkdir(path, { recursive: true });
 }
 
 test("create writes a semantic note with principal trust derived from the trigger", async () => {
@@ -246,5 +256,64 @@ test("creating a note whose id already exists is refused", async () => {
     await expect(
       writeMemoryNote(createOpts(somaHome, { id: "dup", body: "unrelated body chi psi omega", force: true })),
     ).rejects.toThrow(/already exists/);
+  });
+});
+
+test("a path-traversal id is refused at the write boundary", async () => {
+  await withTempSoma(async (somaHome) => {
+    await expect(writeMemoryNote(createOpts(somaHome, { id: "../../evil" }))).rejects.toThrow(/not a valid slug/);
+    await expect(writeMemoryNote(createOpts(somaHome, { id: "Bad_Id" }))).rejects.toThrow(/not a valid slug/);
+  });
+});
+
+test("create rolls back the new file when the event append fails (one-event invariant)", async () => {
+  await withTempSoma(async (somaHome) => {
+    await breakEvents(somaHome);
+    await expect(writeMemoryNote(createOpts(somaHome, { id: "note" }))).rejects.toThrow();
+    // The file mutation was rolled back — nothing left behind.
+    await expect(readNote(memoryNotePath(somaHome, "semantic", "note"))).rejects.toThrow();
+  });
+});
+
+test("merge rolls back to the prior bytes when the event append fails", async () => {
+  await withTempSoma(async (somaHome) => {
+    const created = await writeMemoryNote(createOpts(somaHome, { id: "note" }));
+    const priorRaw = await readFile(created.path, "utf8");
+    await breakEvents(somaHome);
+
+    await expect(
+      writeMemoryNote({ somaHome, mode: "merge", trigger: "principal-correction", targetId: "note", body: "delta", now: LATER }),
+    ).rejects.toThrow();
+
+    // Restored byte-for-byte: no Update block, no last_verified bump.
+    expect(await readFile(created.path, "utf8")).toBe(priorRaw);
+  });
+});
+
+test("verify rolls back when the event append fails", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeMemoryNote(createOpts(somaHome, { id: "note" }));
+    await breakEvents(somaHome);
+
+    await expect(verifyMemoryNote({ somaHome, id: "note", now: LATER })).rejects.toThrow();
+    const note = await readNote(memoryNotePath(somaHome, "semantic", "note"));
+    expect(note.resurface_count).toBe(0); // the bump was rolled back
+  });
+});
+
+test("supersede rolls back both sides when the event append fails", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeMemoryNote(createOpts(somaHome, { id: "old" }));
+    await breakEvents(somaHome);
+
+    await expect(
+      writeMemoryNote(createOpts(somaHome, { mode: "supersede", id: "new", targetId: "old", body: "replacement body tau upsilon" })),
+    ).rejects.toThrow();
+
+    // Old note reopened (still active), new note never persisted.
+    const old = await readNote(memoryNotePath(somaHome, "semantic", "old"));
+    expect(old.valid_until).toBeNull();
+    expect(old.links).not.toContain("new");
+    await expect(readNote(memoryNotePath(somaHome, "semantic", "new"))).rejects.toThrow();
   });
 });

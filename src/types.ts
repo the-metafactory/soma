@@ -2338,7 +2338,8 @@ export interface SomaMemoryNote {
 
 // Memory subsystem M1 (write + verify). Plan v2 §M1 (do not redesign the
 // governance model): trust is NOT a self-assertable caller flag — it is DERIVED
-// from the write trigger, so an agent cannot smuggle `principal` trust. The five
+// from the write trigger, so a substrate-side caller cannot smuggle `principal`
+// trust (CONTEXT.md reserves bare `agent`; use `assistant`/substrate). The five
 // write triggers of design §7 map onto write-CLI actions; M1 owns the durable,
 // dedup-gated types (semantic + procedural). Episodic capture (session digest /
 // action log) is M5's `digest`/`action`, not `write`.
