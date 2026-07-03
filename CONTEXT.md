@@ -103,13 +103,10 @@ The seven compartments:
 **Not synonyms:** Do not use `layer`, `store`, `domain`, `component`, `module`, `section`, `part` as glossary terms for these. `compartment` is the only word.
 
 Within the **Memory** compartment, the `work/knowledge/learning/relationship/state`
-stores hold curated free-form material. Alongside them lives the **memory-note
-subsystem** (plan v2, milestones M0–M7): a schema-governed durable store of
-atomic notes under `memory/{semantic,procedural,episodic}/`, each with
-bi-temporal frontmatter (trust, provenance, `valid_until`, `last_verified`,
-`resurface_count`). It is a store *within* Memory, not a new compartment; its
-sole write path is `soma memory write|verify` (trust derived from the write
-trigger, dedup-gated, one event per mutation). See `docs/architecture.md`.
+stores hold curated free-form material. The **memory-note subsystem** is a
+further store *within* Memory (not a new compartment): schema-governed, atomic,
+trust- and decay-tracked notes. Mechanics (paths, frontmatter, the
+`soma memory write|verify` surface) live in `docs/architecture.md`.
 
 **Why:** Coheres with the cellular metaphor (a cell body has compartments — nucleus, mitochondria, etc., each doing its own job, not stacked or ordered). Captures the right shape: seven peer subdivisions, each with its own contract, no implied ordering. `layer` implies a stack (wrong); `store` implies storage and breaks for Policy and Learning; `domain` collides with DDD vocabulary already in use across the codebase.
 

@@ -63,14 +63,14 @@ export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAct
       "Usage: soma memory write --trigger <principal-correction|import|consolidation> --body <text> " +
       "(create: --id <slug> --type <semantic|procedural> [--force]) " +
       "(--merge <id> | --supersede <id>) " +
-      "[--principal-authority] [--consolidation-authority] [--project <key>] [--source-of-truth <ref>] [--links a,b] " +
+      "[--principal-authority] [--project <key>] [--source-of-truth <ref>] [--links a,b] " +
       "[--recall-trigger <text>] [--review <text>] " +
       "[--provenance <import|tool:name>] [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]. " +
       "Trust is DERIVED from --trigger; there is no --trust flag. principal-correction requires " +
-      "--principal-authority and consolidation requires --consolidation-authority (deliberate, logged escalations).",
+      "--principal-authority. The consolidation trigger is an internal (M6) SDK path, not available on the public CLI.",
     verify:
-      "Usage: soma memory verify <id> [--id <id>] [--principal-authority] [--consolidation-authority] [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]. " +
-      "Verifying a non-quarantined note requires that tier's authority.",
+      "Usage: soma memory verify <id> [--id <id>] [--principal-authority] [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]. " +
+      "Verifying a principal-trust note requires --principal-authority (assistant-trust notes are an internal SDK path).",
   },
 };
 
@@ -301,9 +301,6 @@ function parseMemoryWriteArgs(args: string[]): SomaMemoryWriteOptions {
       case "--principal-authority":
         options.principalAuthority = true;
         break;
-      case "--consolidation-authority":
-        options.consolidationAuthority = true;
-        break;
       case "--trust":
         throw new Error(
           "soma memory write has no --trust flag: trust is derived from --trigger " +
@@ -373,9 +370,6 @@ function parseMemoryVerifyArgs(args: string[]): SomaMemoryVerifyOptions {
         break;
       case "--principal-authority":
         options.principalAuthority = true;
-        break;
-      case "--consolidation-authority":
-        options.consolidationAuthority = true;
         break;
       default:
         if (arg.startsWith("-")) {

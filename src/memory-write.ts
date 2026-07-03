@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { access, lstat, mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { createPaths } from "./paths";
 import { runBoundedConcurrent } from "./internal-concurrency";
@@ -24,9 +24,10 @@ import type {
  * - **Trust is derived from the trigger**, never a caller flag — and any tier
  *   above `quarantined` needs that tier's explicit, logged authority signal, so a
  *   caller cannot mint (or carry) trust by choosing a trigger alone.
- *   `principal-correction` → `principal` (needs `principalAuthority`);
- *   `consolidation` → `assistant` (needs `consolidationAuthority`, the M6
- *   consolidator's capability); `import` → `quarantined`, free (MINJA defense).
+ *   `principal-correction` → `principal` (needs `principalAuthority`, the human's
+ *   `--principal-authority` escalation); `consolidation` → `assistant` (needs
+ *   `consolidationAuthority`, an internal M6 SDK capability — NOT a public CLI
+ *   flag); `import` → `quarantined`, free (MINJA defense).
  *   Escalations are sudo-style (deliberate + logged, refused by default) — not
  *   cryptographic auth, which soma has no primitive for. Mutating an existing
  *   note needs the TARGET tier's authority (merge/supersede/verify).
@@ -224,8 +225,9 @@ function assertTierAuthority(tier: SomaMemoryTrust, auth: AuthoritySignals, cont
   }
   if (tier === "assistant" && auth.consolidationAuthority !== true) {
     throw new MemoryNoteError(
-      `${context} requires --consolidation-authority (the internal consolidator's capability, ` +
-        `not selectable by choosing --trigger consolidation).`,
+      `${context} requires consolidation authority — an internal (M6) SDK capability set via ` +
+        `SomaMemoryWriteOptions.consolidationAuthority, NOT a public CLI flag and not selectable ` +
+        `by choosing --trigger consolidation.`,
       "consolidationAuthority",
     );
   }
@@ -466,18 +468,23 @@ async function loadNoteById(somaHome: string, id: string): Promise<LoadedNote> {
 
 /**
  * True iff a note FILE with this id already exists under either durable type.
- * A pure presence check (`access`), NOT a parse — a malformed `semantic/<id>.md`
- * must still block a colliding `procedural/<id>.md`, so id uniqueness holds even
- * over a hand-corrupted corpus.
+ * A pure presence check (`lstat`), NOT a parse — a malformed or symlinked
+ * `semantic/<id>.md` must still block a colliding `procedural/<id>.md`, so id
+ * uniqueness holds even over a hand-corrupted corpus. Only ENOENT counts as
+ * absent; any other stat failure is surfaced (an unreadable path must not be
+ * mistaken for a free id).
  */
 async function noteIdExists(somaHome: string, id: string): Promise<boolean> {
   assertNoteId(id);
   for (const type of WRITABLE_TYPES) {
-    const exists = await access(memoryNotePath(somaHome, type, id)).then(
-      () => true,
-      () => false,
-    );
-    if (exists) return true;
+    try {
+      await lstat(memoryNotePath(somaHome, type, id));
+      return true;
+    } catch (error) {
+      const code = error instanceof Error && "code" in error ? error.code : undefined;
+      if (code === "ENOENT") continue;
+      throw new MemoryNoteError(`Soma memory id ${id} path is unstattable: ${String(error)}`, "id");
+    }
   }
   return false;
 }
@@ -708,9 +715,15 @@ export async function verifyMemoryNote(options: SomaMemoryVerifyOptions): Promis
   const now = options.now ?? new Date();
   const { path, type, note, raw } = await loadNoteById(somaHome, options.id);
 
+  // A superseded note is closed — reinforcing its freshness signal is meaningless
+  // (and would resurrect it in retention scoring). Refuse.
+  if (note.valid_until !== null) {
+    throw new MemoryNoteError(`Cannot verify superseded note ${note.id} (valid_until set ${note.valid_until}).`, "id");
+  }
+
   // Verifying refreshes a note's decay signal — a mutation — so a non-quarantined
   // note needs its tier's authority (principal→--principal-authority,
-  // assistant→--consolidation-authority).
+  // assistant→internal consolidator authority).
   assertTierAuthority(note.trust, options, `Verifying ${note.trust}-trust note ${note.id}`);
 
   const verified: SomaMemoryNote = {

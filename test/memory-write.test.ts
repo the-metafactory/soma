@@ -120,7 +120,7 @@ test("import needs no authority; consolidation needs consolidation-authority", a
     // consolidation without its authority is refused (can't self-select assistant trust).
     await expect(
       writeMemoryNote(createOpts(somaHome, { id: "c", trigger: "consolidation", principalAuthority: false, body: "consolidated fact delta epsilon" })),
-    ).rejects.toThrow(/requires --consolidation-authority/);
+    ).rejects.toThrow(/requires consolidation authority/);
 
     // With the capability it mints assistant trust.
     const consolidated = await writeMemoryNote(createOpts(somaHome, { id: "c", trigger: "consolidation", consolidationAuthority: true, body: "consolidated fact delta epsilon" }));
@@ -383,10 +383,18 @@ test("verify on a missing id throws a typed error", async () => {
   });
 });
 
+test("verifying a superseded (closed) note is refused", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeMemoryNote(createOpts(somaHome, { id: "old" }));
+    await writeMemoryNote(createOpts(somaHome, { mode: "supersede", id: "new", targetId: "old", body: "replacement body upsilon phi" }));
+    await expect(verifyMemoryNote({ somaHome, id: "old", principalAuthority: true, now: LATER })).rejects.toThrow(/Cannot verify superseded note/);
+  });
+});
+
 test("verifying an assistant note needs consolidation-authority", async () => {
   await withTempSoma(async (somaHome) => {
     await writeMemoryNote(createOpts(somaHome, { id: "asst", trigger: "consolidation", consolidationAuthority: true, body: "assistant fact for verify pi rho" }));
-    await expect(verifyMemoryNote({ somaHome, id: "asst", now: LATER })).rejects.toThrow(/requires --consolidation-authority/);
+    await expect(verifyMemoryNote({ somaHome, id: "asst", now: LATER })).rejects.toThrow(/requires consolidation authority/);
     const ok = await verifyMemoryNote({ somaHome, id: "asst", consolidationAuthority: true, now: LATER });
     expect(ok.note.resurface_count).toBe(1);
   });
