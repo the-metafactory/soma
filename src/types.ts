@@ -2526,9 +2526,9 @@ export interface SomaMemoryActionOptions {
   /** The session this action belongs to (recorded in the note body for consolidation scope). */
   sessionId?: string;
   /**
-   * What the agent planned to do. Named `plannedAction` (not `intent`) because
+   * What the assistant planned to do. Named `plannedAction` (not `intent`) because
    * CONTEXT.md reserves `intent` for the principal's checkable directional anchor
-   * sourced from Purpose — a different concept from an agent's logged action.
+   * sourced from Purpose — a different concept from the assistant's logged action.
    */
   plannedAction: string;
   /** Approval state at record time. */

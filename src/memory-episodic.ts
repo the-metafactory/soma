@@ -84,8 +84,10 @@ function monthDir(now: Date): string {
 /**
  * A collision-RESISTANT slug for a session. A human-readable prefix (normalized,
  * truncated) is combined with an 8-hex digest of the FULL session id, so two
- * distinct session ids can never map to the same slug (which would make one
- * session's digest no-op against the other's). If the id has no slug-able
+ * distinct session ids are overwhelmingly unlikely to map to the same slug — an
+ * 8-hex (32-bit) digest is collision-resistant, not collision-proof, but it closes
+ * the systematic truncation collisions (distinct ids sharing a 32-char prefix) that
+ * a plain truncated slug would alias into one digest. If the id has no slug-able
  * characters, the hash alone identifies it.
  */
 function sessionSlug(sessionId: string): string {
@@ -194,6 +196,25 @@ async function writeEpisodicNoteWithEvent(input: EpisodicWrite): Promise<SomaMem
   }
 }
 
+/**
+ * Read + parse the existing digest, retrying briefly. The cross-date SCAN path
+ * hits a fully-written file (first attempt succeeds), but the EEXIST path can race
+ * a concurrent winner whose O_EXCL-created file is not yet fully written — a bounded
+ * retry rides out that in-flight window rather than throwing a confusing parse error.
+ */
+async function readNoteWithRetry(path: string, attempts = 5): Promise<SomaMemoryNote> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return parseMemoryNote(await readFile(path, "utf8"));
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 5)); // let the winner finish its write
+    }
+  }
+  throw new Error(`Soma memory: existing digest at ${path} could not be read/parsed after ${attempts} attempts.`, { cause: lastError });
+}
+
 /** Record a duplicate-digest no-op against an existing on-disk digest. */
 async function recordDuplicateDigest(
   somaHome: string,
@@ -202,7 +223,7 @@ async function recordDuplicateDigest(
   substrate: SubstrateId | undefined,
   now: Date,
 ): Promise<SomaMemoryDigestResult> {
-  const existingNote = parseMemoryNote(await readFile(existingPath, "utf8"));
+  const existingNote = await readNoteWithRetry(existingPath);
   const event = await appendSomaMemoryEvent(somaHome, {
     timestamp: now.toISOString(),
     substrate: substrate ?? "custom",
