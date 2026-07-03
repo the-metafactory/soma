@@ -340,6 +340,30 @@ test("supersede closes the old note, cross-links, and mints the new one in one e
   });
 });
 
+test("superseding an assistant note with a principal replacement logs BOTH authorities", async () => {
+  await withTempSoma(async (somaHome) => {
+    // assistant note (needs consolidation authority to mint).
+    await writeMemoryNote(createOpts(somaHome, { id: "asst", trigger: "consolidation", consolidationAuthority: true, body: "assistant fact to be replaced" }));
+    // Replace it with a principal note — closing the assistant needs consolidation
+    // authority, minting the principal needs principal authority: both required.
+    const result = await writeMemoryNote(
+      createOpts(somaHome, {
+        mode: "supersede",
+        id: "principal-repl",
+        targetId: "asst",
+        trigger: "principal-correction",
+        principalAuthority: true,
+        consolidationAuthority: true,
+        body: "the principal correction body chi psi",
+        now: LATER,
+      }),
+    );
+    // The journal proves both escalations were present.
+    expect(result.event.metadata?.principalAuthority).toBe(true);
+    expect(result.event.metadata?.consolidationAuthority).toBe(true);
+  });
+});
+
 test("a note cannot supersede itself", async () => {
   await withTempSoma(async (somaHome) => {
     await writeMemoryNote(createOpts(somaHome, { id: "self" }));

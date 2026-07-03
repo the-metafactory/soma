@@ -666,12 +666,16 @@ async function supersedeNote(somaHome: string, options: SomaMemoryWriteOptions, 
       kind: "memory.write.supersede",
       summary: `Note ${newNote.id} supersedes ${closed.id} (closed ${closed.valid_until})`,
       artifactPaths: [newPath, old.path],
-      // Log the escalation when either the new note or the closed one is principal-trust.
+      // Supersede validates TWO authorities — minting the new note (its tier) and
+      // closing the old one (its tier). Log BOTH so the journal can prove every
+      // required signal was present (e.g. principal replacement of an assistant
+      // note carries both principalAuthority and consolidationAuthority).
       metadata: {
         id: newNote.id,
         supersededId: closed.id,
         trigger: options.trigger,
-        ...authorityMeta(TRUST_RANK[newNote.trust] >= TRUST_RANK[closed.trust] ? newNote.trust : closed.trust),
+        ...authorityMeta(newNote.trust),
+        ...authorityMeta(closed.trust),
       },
     },
     // roll back BOTH sides — reopen the closed note FIRST (the trusted state we

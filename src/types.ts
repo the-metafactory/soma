@@ -2405,7 +2405,8 @@ export interface SomaMemoryWriteOptions {
    * mints `assistant` trust, so it too requires an explicit signal — the internal
    * M6 consolidator's capability, not a tier an arbitrary CLI caller can select
    * by choosing the trigger. Without it, `--trigger consolidation` is refused.
-   * CLI flag `--consolidation-authority`. Ignored for principal/import triggers.
+   * This is an SDK-only option (set programmatically by the M6 consolidator) —
+   * intentionally NOT a public CLI flag. Ignored for principal/import triggers.
    */
   consolidationAuthority?: boolean;
 

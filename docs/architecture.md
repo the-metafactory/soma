@@ -101,33 +101,32 @@ registries, while the personal Soma home remains owned by one principal. See
 
 ### Memory
 
-Memory is structured as files first:
+Memory is structured as files first, under a single lowercase `memory/` root
+(one canonical root — the layout never relies on distinguishing `memory` from
+`MEMORY`, which case-insensitive filesystems collapse):
 
 ```text
-MEMORY/
-  WORK/
+memory/
+  WORK/            # legacy free-form stores (searched by `soma memory search`)
   KNOWLEDGE/
   LEARNING/
   RELATIONSHIP/
-  STATE/
+  STATE/           # events.jsonl lives here
+  semantic/<id>.md   # memory-note subsystem (M0–M7): durable facts   (dedup-gated)
+  procedural/<id>.md #   playbooks / how-to                            (dedup-gated)
+  episodic/…         #   session digests + action log (M5)
+  INDEX.md           #   earned-inclusion index (M3)
 ```
 
 The initial version should avoid requiring a vector database. Search can start
 with filenames, frontmatter, ripgrep, and small deterministic indexes.
 
-The `MEMORY/*` stores above are the legacy tier (free-form markdown per store,
-searched by `soma memory search`) — sub-stores within the single Memory
-compartment, not peer Soma compartments. The **memory-note subsystem**
-(plan v2, milestones M0–M7) is a *separate*, schema-governed durable store that
-lives alongside them under lowercase `memory/`:
-
-```text
-memory/
-  semantic/<id>.md      # durable facts        (dedup-gated, verifiable)
-  procedural/<id>.md     # playbooks / how-to   (dedup-gated, verifiable)
-  episodic/…             # session digests + action log (M5)
-  INDEX.md               # earned-inclusion index (M3)
-```
+The uppercase-named legacy stores (`WORK`, `KNOWLEDGE`, …) hold free-form
+markdown; the **memory-note subsystem** (plan v2, milestones M0–M7) is a
+*separate*, schema-governed durable store whose lowercase-named directories
+(`semantic`, `procedural`, `episodic`) sit as siblings under the same `memory/`
+root. Both are sub-stores within the single Memory compartment, not peer Soma
+compartments.
 
 Each note is one file: strict frontmatter (id, type, trust, provenance,
 bi-temporal `valid_until`, `last_verified`, `resurface_count`, links) plus a
