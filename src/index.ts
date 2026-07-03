@@ -454,7 +454,11 @@ export { MemoryNoteError, parseMemoryNote, serializeMemoryNote } from "./memory-
 // soma modules (M2/M3/M6) and tests import them from "./memory-write" directly.
 export { writeMemoryNote, verifyMemoryNote } from "./memory-write";
 export { recallMemory } from "./memory-recall";
-export { rebuildMemoryIndex, renderMemoryIndex, retentionScore, collectAllNotes, memoryIndexPath } from "./memory-index";
+// Public surface is the CLI-facing rebuild only. renderMemoryIndex / retentionScore
+// / collectAllNotes / memoryIndexPath stay module-private (the scoring model and
+// storage path are not frozen as stable API — episodic joins at M5); internal soma
+// modules and tests import them from "./memory-index" directly.
+export { rebuildMemoryIndex } from "./memory-index";
 export { createSomaSnapshot, listSomaSnapshots, rollbackSomaSnapshot } from "./snapshots";
 export { querySomaTelemetryEvents, summarizeSomaTelemetry } from "./observability";
 export {

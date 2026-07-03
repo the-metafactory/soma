@@ -2525,7 +2525,7 @@ export interface SomaMemoryRecallResult {
 }
 
 // Memory subsystem M3 (index renderer). Plan v2 §M3: the earned-inclusion INDEX
-// — a tiny, always-loaded pointer list (≤200 lines / ≤25KB) rebuilt deterministically
+// — a tiny, always-loaded pointer list (≤200 pointer lines / ≤25KB total) rebuilt deterministically
 // from note frontmatter, never on the request path. A note earns a line via the
 // admission ladder (resurfaced-verified ≥2×, principal-marked, or <7d grace);
 // quarantined notes score 0 and never appear. When the budget is hit the lowest

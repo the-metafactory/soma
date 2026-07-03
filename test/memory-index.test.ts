@@ -2,14 +2,9 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import {
-  rebuildMemoryIndex,
-  renderMemoryIndex,
-  retentionScore,
-  memoryIndexPath,
-  serializeMemoryNote,
-  type SomaMemoryNote,
-} from "../src/index";
+import { rebuildMemoryIndex, serializeMemoryNote, type SomaMemoryNote } from "../src/index";
+// Index internals are module-private (not public index API) — import direct.
+import { renderMemoryIndex, retentionScore, memoryIndexPath } from "../src/memory-index";
 import { memoryNotePath, type WritableType } from "../src/memory-write";
 import { parseMemoryArgs, runMemoryCli } from "../src/cli/memory";
 
