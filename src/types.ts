@@ -2523,3 +2523,27 @@ export interface SomaMemoryRecallResult {
   /** Corpus files that exist but could not be read/parsed — recall's blind spot, never silent. */
   unreadable: string[];
 }
+
+// Memory subsystem M3 (index renderer). The result of rebuilding the tiny,
+// always-loaded INDEX (`memory/INDEX.md`, ≤200 pointer lines / ≤25KB): its path,
+// rendered content, admit/render/shed/excluded counts, and the unreadable blind
+// spot. Admission, scoring, and budget POLICY live with the renderer in
+// `src/memory-index.ts` (the single source of truth). M4 projects the file through
+// substrate adapters into each substrate's native always-loaded surface.
+export interface SomaMemoryIndexResult {
+  somaHome: string;
+  /** On-disk path of the rendered index (`memory/INDEX.md`). */
+  path: string;
+  /** The rendered INDEX.md content (also what M4 projects verbatim). */
+  content: string;
+  /** Notes that earned admission (before the budget was applied). */
+  admitted: number;
+  /** Index lines actually rendered after the budget. */
+  rendered: number;
+  /** admitted − rendered: lines shed to stay within the line/byte budget. */
+  shed: number;
+  /** Notes present but NOT admitted (quarantined, superseded, or not yet earned). */
+  excluded: number;
+  /** Corpus files that exist but could not be read/parsed — surfaced, never silent. */
+  unreadable: string[];
+}

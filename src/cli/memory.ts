@@ -1,5 +1,6 @@
 import {
   promoteAlgorithmRunMemory,
+  rebuildMemoryIndex,
   recallMemory,
   searchSomaMemory,
   verifyMemoryNote,
@@ -7,6 +8,7 @@ import {
 } from "../index";
 import { WRITABLE_NOTE_TYPES, isWritableNoteType } from "../memory-write";
 import type {
+  SomaMemoryIndexResult,
   SomaMemoryNoteType,
   SomaMemoryPromotionOptions,
   SomaMemoryPromotionResult,
@@ -21,6 +23,12 @@ import type {
   SomaMemoryWriteResult,
   SomaMemoryWriteTrigger,
 } from "../types";
+
+/** Parsed `soma memory reindex` — home overrides only; rebuild uses the real clock. */
+interface MemoryReindexOptions {
+  homeDir?: string;
+  somaHome?: string;
+}
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
 
@@ -54,18 +62,25 @@ export interface ParsedMemoryVerifyArgs {
   options: SomaMemoryVerifyOptions;
 }
 
+export interface ParsedMemoryReindexArgs {
+  command: "memory";
+  action: "reindex";
+  options: MemoryReindexOptions;
+}
+
 export type ParsedMemoryArgs =
   | ParsedMemorySearchArgs
   | ParsedMemoryRecallArgs
   | ParsedMemoryPromoteArgs
   | ParsedMemoryWriteArgs
-  | ParsedMemoryVerifyArgs;
+  | ParsedMemoryVerifyArgs
+  | ParsedMemoryReindexArgs;
 
-const MEMORY_ACTIONS = ["search", "recall", "promote", "write", "verify"] as const;
+const MEMORY_ACTIONS = ["search", "recall", "promote", "write", "verify", "reindex"] as const;
 type MemoryAction = (typeof MEMORY_ACTIONS)[number];
 
 export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAction, string> } = {
-  usage: "Usage: soma memory <search|recall|promote|write|verify> ...",
+  usage: "Usage: soma memory <search|recall|promote|write|verify|reindex> ...",
   subcommands: {
     search: "Usage: soma memory search [query] [--query <text>] [--limit <n>] [--home-dir <dir>] [--soma-home <dir>]",
     recall:
@@ -86,6 +101,10 @@ export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAct
     verify:
       "Usage: soma memory verify <id> [--id <id>] [--principal-authority] [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]. " +
       "Verifying a principal-trust note requires --principal-authority (assistant-trust notes are an internal SDK path).",
+    reindex:
+      "Usage: soma memory reindex [--home-dir <dir>] [--soma-home <dir>]. " +
+      "Rebuild memory/INDEX.md from note frontmatter (earned-inclusion ladder, retention-score budget); " +
+      "ages are computed against the current date, so 'verified Nd ago' advances day to day. Quarantined notes never appear.",
   },
 };
 
@@ -111,7 +130,29 @@ export function parseMemoryArgs(args: string[]): ParsedMemoryArgs {
       return { command, action, options: parseMemoryWriteArgs(rest) };
     case "verify":
       return { command, action, options: parseMemoryVerifyArgs(rest) };
+    case "reindex":
+      return { command, action, options: parseMemoryReindexArgs(rest) };
   }
+}
+
+function parseMemoryReindexArgs(args: string[]): MemoryReindexOptions {
+  const options: MemoryReindexOptions = {};
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    switch (arg) {
+      case "--home-dir":
+        options.homeDir = readOption(args, index, arg);
+        index += 1;
+        break;
+      case "--soma-home":
+        options.somaHome = readOption(args, index, arg);
+        index += 1;
+        break;
+      default:
+        throw new Error(`Unknown option: ${arg}`);
+    }
+  }
+  return options;
 }
 
 /**
@@ -463,7 +504,25 @@ export async function runMemoryCli(parsed: ParsedMemoryArgs): Promise<string> {
       return formatMemorySearchResult(await searchSomaMemory(parsed.options));
     case "recall":
       return formatMemoryRecallResult(await recallMemory(parsed.options));
+    case "reindex":
+      return formatMemoryReindexResult(await rebuildMemoryIndex(parsed.options));
   }
+}
+
+function formatMemoryReindexResult(result: SomaMemoryIndexResult): string {
+  const lines = [
+    "Soma memory reindex",
+    `path: ${result.path}`,
+    `rendered: ${result.rendered} line(s)`,
+    `admitted: ${result.admitted} (earned a line)`,
+    `shed: ${result.shed} (over budget)`,
+    `excluded: ${result.excluded} (quarantined / superseded / not yet earned)`,
+  ];
+  if (result.unreadable.length > 0) {
+    lines.push(`⚠ ${result.unreadable.length} corpus file(s) unreadable — index was partial:`);
+    for (const path of result.unreadable) lines.push(`  - ${path}`);
+  }
+  return lines.join("\n");
 }
 
 function formatMemoryWriteResult(result: SomaMemoryWriteResult): string {
