@@ -27,7 +27,7 @@ Systems-thinking framing: the old landscape is the "Fixes That Fail" archetype �
 
 ## 2. What research and the video contribute
 
-External findings (confidence-tagged, full citations in §10):
+External findings (confidence-tagged; sources listed in §16):
 
 1. **Write is the hard part, not retrieval.** Microsoft Memora beat RAG/Mem0/Zep/LangMem on LoCoMo (86.3%) while storing *half* as many entries — merged under stable abstractions instead of fragmenting. [HIGH]
 2. **Tiny index + just-in-time bodies.** Anthropic's own pattern (memory tool, auto-memory, "smallest set of high-signal tokens"): a pointer layer that is always loaded, bodies fetched by tool call. Context rot makes the marketed window unusable as memory residence — even 1M-token models degrade sharply past ~150-400K. [HIGH]
@@ -42,7 +42,7 @@ External findings (confidence-tagged, full citations in §10):
 From the video ("own the memory, rent the intelligence"):
 
 - Memory is the **portable, substrate-independent layer** — exactly Soma's thesis; the prize is "owning the context every future agent will need, so when an agent comes, you can just plug it right in."
-- Memory has shifted from "remember me" to **action platform**: store the *context that would change an answer*, plus what the agent may do with it.
+- Memory has shifted from "remember me" to **action platform**: store the *context that would change an answer*, plus what the assistant may do with it.
 - **Action memory** is a distinct type: a visible, queryable record of what the agent did and why (the ticket/approval primitive) — "an agent that can prove that it did what it did on purpose." Not hidden in chat logs or chain-of-thought.
 - **Break-in loop**: memory quality comes from repeated correction on recurring situations, not bulk ingestion. Human stays the write-approval authority.
 - The video supplies principles but zero mechanics (no schema, scoring, forgetting) — those come from §3–§7 below.

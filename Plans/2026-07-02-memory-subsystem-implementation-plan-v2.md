@@ -33,7 +33,7 @@ Note: the *storage, note-schema, and INDEX* contracts below are unchanged from v
 - **Filesystem-native source of truth**: markdown under `~/.soma/memory/` — `INDEX.md`, `semantic/<id>.md`, `episodic/{sessions,actions}/YYYY-MM/`, `episodic/digests/YYYY-MM.md`, `procedural/<id>.md`, `archive/`, `state/` — git-versioned, no database.
 - **INDEX contract** (v1 §2.3): generated, ≤200 lines AND ≤25KB; line grammar `- [<id>] <hook ≤120ch> (<type>, verified <N>d ago)`; inclusion is *earned* (L3 ladder), never given.
 - **Retention score** (v1 §2.4): `trustWeight × typeWeight × recency × (1 + log2(1 + resurface_count))`; `valid_until ≠ null → 0`; deterministic tiebreaks. **Amended** in M3 to adopt recall's freshness curve for the recency term (§3, M3).
-- **Event kinds** (v1 §2.5): 9 kinds appended via `appendSomaMemoryEvent` to `memory/STATE/events.jsonl`; one event per mutating CLI call.
+- **Event kinds** (v1 §2.5): 9 kinds appended via `appendSomaMemoryEvent` to `state/events.jsonl` (the lowercase `state/` path from the storage layout above, one canonical spelling — not the legacy uppercase `STATE/` tree); one event per mutating CLI call.
 - **Ground rules**: TypeScript/Bun, zero new runtime deps, deterministic only (no LLM calls M0–M7), injected `now?: Date`, never write outside `~/.soma/memory/`, never delete memory files (except state GC), 19 legacy dirs untouched.
 - **Write policy**: exactly 5 triggers, recall-first refusal, merge/supersede/create, invalidate-never-delete.
 
@@ -70,7 +70,7 @@ Ordering unchanged: M0→M1→M2→M3→M4; M5 needs M0–M1; M6 needs M0–M3+M
 - **Acceptance:** quarantined score 0 and never in INDEX; budget enforcement sheds lowest-score lines first with deterministic output; golden-file test for `INDEX.md` given a fixture tree and fixed `now`.
 
 ### M4 — Claude Code projection
-- **Delivers:** projection of `INDEX.md` → `~/.claude/rules/soma/MEMORY.md` wired into `src/adapters/claude-code.ts` (array AND map; `ProjectionInput` gains `memory.indexContent` — a sibling surface, NOT under `profile`, since docs/architecture.md makes Identity and Memory peer compartments; ~120 LOC). `MEMORY_LAYOUT.md` untouched.
+- **Delivers:** projection of `INDEX.md` → `~/.claude/rules/soma/MEMORY.md` wired into `src/adapters/claude-code.ts` (array AND map; `ProjectionInput` gains `memory.indexContent` — a sibling surface, NOT under `profile`, keeping Memory a peer compartment to Identity rather than a sub-field of the profile; ~120 LOC). `MEMORY_LAYOUT.md` untouched.
 - **Reuses from recall (transplant #4a):** the **soft-fail exit-0 contract + kill-switch hierarchy pattern** (recall's `RECALL_DISABLE`/`RECALL_DISABLE_INJECT` tiers) → `SOMA_MEMORY_DISABLE=1` (all memory behavior) and `SOMA_MEMORY_DISABLE_PROJECT=1` (projection only). Pattern copy, zero code.
 - **Soma builds:** idempotency — projected content is verbatim stored content, **no wall clock in projected output** (hard invariant AC-4; "verified Nd ago" is computed at index *rebuild* time, not projection time).
 - **Acceptance:** two consecutive `soma install claude-code` runs with unchanged source write identical bytes; uninstall removes cleanly.
