@@ -210,6 +210,42 @@ test("parseMemoryArgs rejects a non-positive --limit on recall", () => {
   expect(() => parseMemoryArgs(["memory", "recall", "q", "--limit", "0"])).toThrow(/positive integer/);
 });
 
+test("parseMemoryArgs rejects fractional / non-numeric --limit (strict integer)", () => {
+  // Number(...) rejects any spelling that isn't an integer value — the parseInt
+  // bug was silently truncating "2.5"→2. Genuine integer spellings like "1e2"
+  // (=100) resolve to their true value and are accepted; the point is that a
+  // fractional or garbage limit is refused, not narrowed.
+  for (const bad of ["2.5", "3.0abc", "abc"]) {
+    expect(() => parseMemoryArgs(["memory", "recall", "q", "--limit", bad])).toThrow(/positive integer/);
+  }
+  // "1e2" is a valid integer (100) under Number — accepted, not truncated to 1.
+  expect(parseMemoryArgs(["memory", "recall", "q", "--limit", "1e2"])).toEqual({
+    command: "memory",
+    action: "recall",
+    options: { query: "q", limit: 100 },
+  });
+  // and the same contract holds for the sibling `search` command (shared parser)
+  expect(() => parseMemoryArgs(["memory", "search", "q", "--limit", "2.5"])).toThrow(/positive integer/);
+});
+
+test("runMemoryCli strips ANSI/control escapes from note-authored output", async () => {
+  await withTempSoma(async (somaHome) => {
+    // A quarantined note whose body smuggles a CSI color escape and a BEL.
+    await seed(somaHome, {
+      id: "malicious-import",
+      trust: "quarantined",
+      provenance: "tool:web",
+      body: "Alert \x1b[31mRED\x1b[0m gateway \x07 done",
+    });
+    const out = await runMemoryCli(parseMemoryArgs(["memory", "recall", "gateway", "--soma-home", somaHome]));
+    // no raw ESC or BEL survives to the terminal
+    expect(out).not.toContain("\x1b");
+    expect(out).not.toContain("\x07");
+    // the visible text is preserved (escapes removed, letters kept)
+    expect(out).toContain("Alert RED gateway  done");
+  });
+});
+
 test("runMemoryCli renders a recall result with banner and body", async () => {
   await withTempSoma(async (somaHome) => {
     await seed(somaHome, { id: "cli-note", body: "gateway retries thrice", source_of_truth: "runbook.md" });

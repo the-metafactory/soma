@@ -114,8 +114,22 @@ export function parseMemoryArgs(args: string[]): ParsedMemoryArgs {
   }
 }
 
-function parseMemorySearchArgs(args: string[]): SomaMemorySearchOptions {
-  const options: Partial<SomaMemorySearchOptions> = {};
+/**
+ * Parsed shape shared by the two query-style memory commands (`search`, `recall`):
+ * both take a single query (positional or `--query`), an optional positive-integer
+ * `--limit`, and the standard home overrides. One parser so a future flag change
+ * can't drift the two apart (and so the `--limit` integer contract is enforced in
+ * exactly one place).
+ */
+interface QueryCommandArgs {
+  homeDir?: string;
+  somaHome?: string;
+  query: string;
+  limit?: number;
+}
+
+function parseQueryCommandArgs(args: string[], commandLabel: string): QueryCommandArgs {
+  const options: Partial<QueryCommandArgs> = {};
   let positionalQuery: string | undefined;
 
   for (let index = 0; index < args.length; index += 1) {
@@ -134,19 +148,25 @@ function parseMemorySearchArgs(args: string[]): SomaMemorySearchOptions {
         options.query = readOption(args, index, arg);
         index += 1;
         break;
-      case "--limit":
-        options.limit = Number.parseInt(readOption(args, index, arg), 10);
-        if (!Number.isFinite(options.limit) || options.limit < 1) {
+      case "--limit": {
+        // Strict integer: Number.parseInt would silently accept "2.5"→2 and
+        // "1e2"→1, contradicting the positive-integer contract the API also
+        // enforces. Number(...) rejects any non-numeric-integer spelling.
+        const raw = readOption(args, index, arg);
+        const value = Number(raw);
+        if (!Number.isInteger(value) || value < 1) {
           throw new Error("--limit must be a positive integer.");
         }
+        options.limit = value;
         index += 1;
         break;
+      }
       default:
         if (arg.startsWith("-")) {
           throw new Error(`Unknown option: ${arg}`);
         }
         if (positionalQuery !== undefined) {
-          throw new Error(`soma memory search accepts only one positional query; unexpected argument: ${arg}`);
+          throw new Error(`soma memory ${commandLabel} accepts only one positional query; unexpected argument: ${arg}`);
         }
         positionalQuery = arg;
     }
@@ -155,57 +175,18 @@ function parseMemorySearchArgs(args: string[]): SomaMemorySearchOptions {
   options.query ??= positionalQuery;
 
   if (!options.query) {
-    throw new Error("soma memory search needs a query; pass it as the first argument or --query <text>.");
+    throw new Error(`soma memory ${commandLabel} needs a query; pass it as the first argument or --query <text>.`);
   }
 
-  return options as SomaMemorySearchOptions;
+  return options as QueryCommandArgs;
+}
+
+function parseMemorySearchArgs(args: string[]): SomaMemorySearchOptions {
+  return parseQueryCommandArgs(args, "search");
 }
 
 function parseMemoryRecallArgs(args: string[]): SomaMemoryRecallOptions {
-  const options: Partial<SomaMemoryRecallOptions> = {};
-  let positionalQuery: string | undefined;
-
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
-
-    switch (arg) {
-      case "--home-dir":
-        options.homeDir = readOption(args, index, arg);
-        index += 1;
-        break;
-      case "--soma-home":
-        options.somaHome = readOption(args, index, arg);
-        index += 1;
-        break;
-      case "--query":
-        options.query = readOption(args, index, arg);
-        index += 1;
-        break;
-      case "--limit":
-        options.limit = Number.parseInt(readOption(args, index, arg), 10);
-        if (!Number.isFinite(options.limit) || options.limit < 1) {
-          throw new Error("--limit must be a positive integer.");
-        }
-        index += 1;
-        break;
-      default:
-        if (arg.startsWith("-")) {
-          throw new Error(`Unknown option: ${arg}`);
-        }
-        if (positionalQuery !== undefined) {
-          throw new Error(`soma memory recall accepts only one positional query; unexpected argument: ${arg}`);
-        }
-        positionalQuery = arg;
-    }
-  }
-
-  options.query ??= positionalQuery;
-
-  if (!options.query) {
-    throw new Error("soma memory recall needs a query; pass it as the first argument or --query <text>.");
-  }
-
-  return options as SomaMemoryRecallOptions;
+  return parseQueryCommandArgs(args, "recall");
 }
 
 function parseMemoryPromoteArgs(args: string[]): SomaMemoryPromotionOptions {
@@ -523,10 +504,34 @@ function formatMemorySearchResult(result: SomaMemorySearchResult): string {
   ].join("\n");
 }
 
+/**
+ * Strip terminal control sequences from note-authored text before it reaches the
+ * terminal. Memory notes can hold imported / quarantined tool/web content, and a
+ * malicious note body or `source_of_truth` could smuggle ANSI CSI / OSC escapes
+ * that spoof output, rewrite earlier lines, or poke the terminal's title and
+ * clipboard state when the principal runs `soma memory recall`. Removes:
+ *   - ESC-introduced sequences (CSI `ESC [ … final`, OSC `ESC ] … BEL|ST`, and
+ *     any other `ESC <byte>` form), plus the C1 CSI byte 0x9b, and
+ *   - remaining C0/C1 control chars, keeping only tab and newline (the layout
+ *     this formatter itself relies on).
+ * Deliberately conservative: it discards control bytes rather than escaping them,
+ * since recall output is human-facing text, not a round-trippable channel.
+ */
+function sanitizeForTerminal(text: string): string {
+  return text
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "") // OSC … terminated by BEL or ST
+    .replace(/\x1b[@-_][0-?]*[ -/]*[@-~]/g, "")         // CSI and other two-byte ESC sequences
+    .replace(/\x1b./g, "")                                // any stray ESC + following byte
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/g, ""); // C0/C1 controls except \t (\x09) and \n (\x0a)
+}
+
 function formatMemoryRecallResult(result: SomaMemoryRecallResult): string {
   const lines = [
     "Soma memory recall",
-    `query: ${result.query}`,
+    // The query is user-supplied and the note body/banner can carry imported or
+    // quarantined tool/web content — never render any of it to the terminal raw
+    // (ANSI/OSC escapes could spoof output or touch clipboard/title state).
+    `query: ${sanitizeForTerminal(result.query)}`,
     `terms: ${result.terms.length > 0 ? result.terms.join(", ") : "(none — needs a 3+char term)"}`,
     `somaHome: ${result.somaHome}`,
     "",
@@ -540,7 +545,9 @@ function formatMemoryRecallResult(result: SomaMemoryRecallResult): string {
         match.via === "match"
           ? `━━ ${match.id} [${match.type}] · ${match.score} term${match.score === 1 ? "" : "s"} matched`
           : `━━ ${match.id} [${match.type}] · via link from ${match.linkedFrom}`;
-      lines.push(heading, match.banner, "", match.note.body, "");
+      // heading is built from slug id / enum type (safe); banner and body carry
+      // note-authored text and MUST be sanitized before hitting the terminal.
+      lines.push(heading, sanitizeForTerminal(match.banner), "", sanitizeForTerminal(match.note.body), "");
     }
   }
 
