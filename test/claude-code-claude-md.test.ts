@@ -41,6 +41,9 @@ test("--claude-md generates CLAUDE.md with provenance header, pointer, and overl
     expect(content).toContain("rules/soma/CONTEXT.md");
     expect(content).toContain(OVERLAY_BEGIN);
     expect(content).toContain(OVERLAY_END);
+    // sage#378: the regenerate instruction must name the opt-in flag, else it
+    // is a no-op.
+    expect(content).toContain("soma install claude-code --apply --claude-md");
   });
 });
 
