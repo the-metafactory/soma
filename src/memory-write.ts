@@ -21,8 +21,10 @@ import type {
  *
  * - **Trust is derived from the trigger**, never a caller flag — a substrate-side
  *   caller cannot self-assert `principal`. `principal-correction` is the sole path
- *   to `principal` trust and is the documented human-authority gate; `import` is
- *   always `quarantined` (MINJA defense); `consolidation` is `assistant`.
+ *   to `principal` trust AND requires an explicit `principalAuthority` escalation
+ *   (sudo-style: deliberate + logged, refused by default — not cryptographic
+ *   auth, which soma has no primitive for); `import` is always `quarantined`
+ *   (MINJA defense); `consolidation` is `assistant`.
  * - **Recall-first refusal** — `create` walks the durable corpus (`semantic/` +
  *   `procedural/`), hashes normalized bodies, and refuses when an active note is
  *   an exact-body match OR Jaccard ≥ 0.6 (transplant #1 from recall's dedup
@@ -252,12 +254,29 @@ async function writeNoteFile(path: string, note: SomaMemoryNote, flag: "wx" | "w
   }
 }
 
-/** Find an active-or-superseded note by id across the durable corpus. */
+/**
+ * Load one note by id by probing its two possible paths directly
+ * (`semantic/<id>.md`, `procedural/<id>.md`) — O(1) I/O, not an O(corpus) scan.
+ * Ids are globally unique across types (enforced at create/supersede), so at
+ * most one path resolves; if both somehow exist, semantic wins deterministically.
+ */
 async function loadNoteById(somaHome: string, id: string): Promise<LoadedNote> {
-  for (const loaded of await collectDurableNotes(somaHome)) {
-    if (loaded.note.id === id) return loaded;
+  assertNoteId(id); // a lookup id is also a path segment — never probe an unsafe one
+  for (const type of Object.keys(WRITABLE_TYPE_DIRS) as WritableType[]) {
+    const path = memoryNotePath(somaHome, type, id);
+    const raw = await readFile(path, "utf8").catch(() => undefined);
+    if (raw === undefined) continue;
+    return { path, type, note: parseMemoryNote(raw), raw };
   }
   throw new MemoryNoteError(`Soma memory note not found: ${id}`, "id");
+}
+
+/** True iff a note with this id already exists under EITHER durable type. */
+async function noteIdExists(somaHome: string, id: string): Promise<boolean> {
+  return loadNoteById(somaHome, id).then(
+    () => true,
+    () => false,
+  );
 }
 
 // --- create / merge / supersede ----------------------------------------------
@@ -269,6 +288,18 @@ function buildNewNote(options: SomaMemoryWriteOptions, now: Date): SomaMemoryNot
     throw new MemoryNoteError(`type must be "semantic" or "procedural" (episodic writes go through digest/action, M5).`, "type");
   }
   assertNonEmpty(options.body, "body");
+
+  // The deliberate-escalation gate: `principal` trust is never the incidental
+  // result of a bare trigger flag. Without an explicit authority signal, a
+  // principal-correction write is REFUSED (not downgraded) — an automated/agent
+  // invocation defaults safe.
+  if (options.trigger === "principal-correction" && options.principalAuthority !== true) {
+    throw new MemoryNoteError(
+      `principal-correction mints principal trust and requires explicit principal authority ` +
+        `(--principal-authority). This is a deliberate, logged escalation — not automatic from the trigger.`,
+      "trigger",
+    );
+  }
 
   const today = isoDate(now);
   const note: SomaMemoryNote = {
@@ -304,6 +335,13 @@ async function createNote(somaHome: string, options: SomaMemoryWriteOptions, now
     }
   }
 
+  // Ids are globally unique across types — reject `procedural/foo` when
+  // `semantic/foo` exists, so id-based lookups (verify/merge/supersede) are
+  // never ambiguous. (`wx` below only catches a same-path collision.)
+  if (await noteIdExists(somaHome, note.id)) {
+    throw new MemoryNoteError(`Soma memory note id already exists: ${note.id}`, "id");
+  }
+
   const path = memoryNotePath(somaHome, note.type as WritableType, note.id);
   await writeNoteFile(path, note, "wx");
 
@@ -315,7 +353,14 @@ async function createNote(somaHome: string, options: SomaMemoryWriteOptions, now
       kind: "memory.write.create",
       summary: `Created memory note ${note.id} (${note.type}, trust ${note.trust})`,
       artifactPaths: [path],
-      metadata: { id: note.id, type: note.type, trust: note.trust, trigger: options.trigger },
+      metadata: {
+        id: note.id,
+        type: note.type,
+        trust: note.trust,
+        trigger: options.trigger,
+        // Audit the principal-trust escalation when it happened.
+        ...(options.trigger === "principal-correction" ? { principalAuthority: true } : {}),
+      },
     },
     () => unlink(path), // roll back: remove the freshly created file
   );
@@ -360,6 +405,10 @@ async function supersedeNote(somaHome: string, options: SomaMemoryWriteOptions, 
   const newNote = buildNewNote(options, now);
   if (newNote.id === options.targetId) {
     throw new MemoryNoteError(`A note cannot supersede itself (${newNote.id}).`, "id");
+  }
+
+  if (await noteIdExists(somaHome, newNote.id)) {
+    throw new MemoryNoteError(`Soma memory note id already exists: ${newNote.id}`, "id");
   }
 
   const old = await loadNoteById(somaHome, options.targetId);

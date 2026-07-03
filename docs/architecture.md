@@ -115,6 +115,28 @@ MEMORY/
 The initial version should avoid requiring a vector database. Search can start
 with filenames, frontmatter, ripgrep, and small deterministic indexes.
 
+The `MEMORY/*` compartments above are the legacy tier (free-form markdown per
+compartment, searched by `soma memory search`). The **memory-note subsystem**
+(plan v2, milestones M0–M7) is a *separate*, schema-governed durable store that
+lives alongside them under lowercase `memory/`:
+
+```text
+memory/
+  semantic/<id>.md      # durable facts        (dedup-gated, verifiable)
+  procedural/<id>.md     # playbooks / how-to   (dedup-gated, verifiable)
+  episodic/…             # session digests + action log (M5)
+  INDEX.md               # earned-inclusion index (M3)
+  state/events.jsonl     # append-only mutation journal
+```
+
+Each note is one file: strict frontmatter (id, type, trust, provenance,
+bi-temporal `valid_until`, `last_verified`, `resurface_count`, links) plus a
+markdown body. `soma memory write|verify` (M1) is the only write path — trust is
+derived from the write trigger, writes are dedup-gated (recall-first refusal),
+and every mutation appends exactly one event. This taxonomy is intentionally
+distinct from the `MEMORY/*` compartments: the compartments hold curated
+free-form material; the note store holds atomic, governed, decay-tracked notes.
+
 Cross-machine Soma state uses **Home replication**, not projection refresh or
 substrate writeback. The design is Git-backed first, policy-gated per scope,
 and only auto-merges stores with deterministic merge semantics. See

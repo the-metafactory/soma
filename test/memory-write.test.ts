@@ -33,6 +33,7 @@ function createOpts(somaHome: string, overrides: Partial<SomaMemoryWriteOptions>
     now: NOW,
     mode: "create",
     trigger: "principal-correction",
+    principalAuthority: true, // most tests exercise the principal path; the gate itself is tested separately
     id: "prefers-colon-over-emdash",
     type: "semantic",
     body: "Andreas reads em-dashes as an AI tell; use a colon or comma instead.",
@@ -95,6 +96,35 @@ test("trust is derived from the trigger — no --trust flag can override it", as
     expect(imported.note.provenance).toBe("tool:scraper");
     expect(consolidated.note.trust).toBe("assistant");
     expect(consolidated.note.provenance).toBe("consolidation");
+  });
+});
+
+test("principal-correction without explicit authority is refused (no incidental principal trust)", async () => {
+  await withTempSoma(async (somaHome) => {
+    await expect(
+      writeMemoryNote(createOpts(somaHome, { principalAuthority: false })),
+    ).rejects.toThrow(/requires explicit principal authority/);
+    // The same write WITH authority succeeds and mints principal trust.
+    const ok = await writeMemoryNote(createOpts(somaHome, { principalAuthority: true }));
+    expect(ok.note.trust).toBe("principal");
+  });
+});
+
+test("import and consolidation do not require principal authority", async () => {
+  await withTempSoma(async (somaHome) => {
+    const imported = await writeMemoryNote(createOpts(somaHome, { id: "i", trigger: "import", principalAuthority: false, body: "imported fact alpha beta gamma" }));
+    const consolidated = await writeMemoryNote(createOpts(somaHome, { id: "c", trigger: "consolidation", principalAuthority: false, body: "consolidated fact delta epsilon" }));
+    expect(imported.note.trust).toBe("quarantined");
+    expect(consolidated.note.trust).toBe("assistant");
+  });
+});
+
+test("ids are globally unique across types — a cross-type collision is refused", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeMemoryNote(createOpts(somaHome, { id: "shared", type: "semantic", body: "semantic body one two three" }));
+    await expect(
+      writeMemoryNote(createOpts(somaHome, { id: "shared", type: "procedural", body: "procedural body four five six", force: true })),
+    ).rejects.toThrow(/id already exists/);
   });
 });
 

@@ -63,9 +63,10 @@ export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAct
       "Usage: soma memory write --trigger <principal-correction|import|consolidation> --body <text> " +
       "(create: --id <slug> --type <semantic|procedural> [--force]) " +
       "(--merge <id> | --supersede <id>) " +
-      "[--project <key>] [--source-of-truth <ref>] [--links a,b] [--hook <text>] [--review <text>] " +
+      "[--principal-authority] [--project <key>] [--source-of-truth <ref>] [--links a,b] [--hook <text>] [--review <text>] " +
       "[--provenance <import|tool:name>] [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]. " +
-      "Trust is DERIVED from --trigger; there is no --trust flag.",
+      "Trust is DERIVED from --trigger; there is no --trust flag. principal-correction " +
+      "additionally requires --principal-authority (a deliberate, logged escalation to principal trust).",
     verify: "Usage: soma memory verify <id> [--id <id>] [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]",
   },
 };
@@ -291,6 +292,9 @@ function parseMemoryWriteArgs(args: string[]): SomaMemoryWriteOptions {
         break;
       case "--force":
         options.force = true;
+        break;
+      case "--principal-authority":
+        options.principalAuthority = true;
         break;
       case "--trust":
         throw new Error(

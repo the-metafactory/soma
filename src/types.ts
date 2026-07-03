@@ -2339,10 +2339,11 @@ export interface SomaMemoryNote {
 // Memory subsystem M1 (write + verify). Plan v2 §M1 (do not redesign the
 // governance model): trust is NOT a self-assertable caller flag — it is DERIVED
 // from the write trigger, so a substrate-side caller cannot smuggle `principal`
-// trust (CONTEXT.md reserves bare `agent`; use `assistant`/substrate). The five
-// write triggers of design §7 map onto write-CLI actions; M1 owns the durable,
-// dedup-gated types (semantic + procedural). Episodic capture (session digest /
-// action log) is M5's `digest`/`action`, not `write`.
+// trust (CONTEXT.md reserves bare `agent`; use `assistant`/substrate). THREE of
+// design §7's five triggers reach the `write` path (principal-correction, import,
+// consolidation); the other two — session-end and consequential-action — are
+// M5's episodic `digest`/`action`, NOT `write`. M1 owns the durable, dedup-gated
+// types (semantic + procedural).
 
 /**
  * The governed write trigger (design §7). Trust is a pure function of this value
@@ -2388,6 +2389,17 @@ export interface SomaMemoryWriteOptions {
 
   mode: SomaMemoryWriteMode;
   trigger: SomaMemoryWriteTrigger;
+  /**
+   * The deliberate-escalation gate for `principal` trust. `principal-correction`
+   * mints a `principal` note only when this is set — otherwise it is REFUSED, so
+   * an automated/agent invocation can never mint principal trust incidentally
+   * from the trigger alone. This is a sudo-style deliberate + logged escalation,
+   * NOT cryptographic principal authentication (soma has no such primitive — a
+   * recorded limitation). The CLI sets it from an explicit `--principal-authority`
+   * flag; it is intentionally NOT an env var (ambient authority is the footgun
+   * this gate exists to close). Ignored for import/consolidation triggers.
+   */
+  principalAuthority?: boolean;
 
   /** create/supersede: the new note's id. merge: unused (target is `--merge <id>`). */
   id?: string;
