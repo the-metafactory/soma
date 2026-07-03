@@ -2305,8 +2305,13 @@ export interface SomaAdapter {
 // v2 §2 (do not redesign). One note = one markdown file: strict frontmatter +
 // markdown body. Parser/serializer live in src/memory-note.ts and obey the
 // round-trip law parse(serialize(n)) == n.
-export type SomaMemoryNoteType = "semantic" | "episodic" | "procedural";
-export type SomaMemoryTrust = "principal" | "agent" | "quarantined";
+// Single source of truth for the note enums: the validator arrays in
+// memory-note.ts import these, and the union types derive from them, so the
+// literals live in exactly one place.
+export const SOMA_MEMORY_NOTE_TYPES = ["semantic", "episodic", "procedural"] as const;
+export type SomaMemoryNoteType = (typeof SOMA_MEMORY_NOTE_TYPES)[number];
+export const SOMA_MEMORY_TRUSTS = ["principal", "agent", "quarantined"] as const;
+export type SomaMemoryTrust = (typeof SOMA_MEMORY_TRUSTS)[number];
 
 export interface SomaMemoryNote {
   id: string;                 // kebab slug; storage layer (M1) binds it to the filename stem

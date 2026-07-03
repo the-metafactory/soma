@@ -1,3 +1,4 @@
+import { SOMA_MEMORY_NOTE_TYPES, SOMA_MEMORY_TRUSTS } from "./types";
 import type { SomaMemoryNote, SomaMemoryNoteType, SomaMemoryTrust } from "./types";
 
 /**
@@ -28,8 +29,8 @@ export class MemoryNoteError extends Error {
 
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
-const NOTE_TYPES: readonly SomaMemoryNoteType[] = ["semantic", "episodic", "procedural"];
-const TRUSTS: readonly SomaMemoryTrust[] = ["principal", "agent", "quarantined"];
+const NOTE_TYPES: readonly SomaMemoryNoteType[] = SOMA_MEMORY_NOTE_TYPES;
+const TRUSTS: readonly SomaMemoryTrust[] = SOMA_MEMORY_TRUSTS;
 
 // Provenance is a closed set plus the open `tool:<name>` family (plan v2 §2.2,
 // design doc line 105): conversation | consolidation | import | tool:<name>.

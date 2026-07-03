@@ -166,6 +166,7 @@ export type {
   WrittenProjection,
 } from "./types";
 export { SOMA_RESULT_EVENT_KINDS } from "./types";
+export { SOMA_MEMORY_NOTE_TYPES, SOMA_MEMORY_TRUSTS } from "./types";
 export type { SomaMemoryNote, SomaMemoryNoteType, SomaMemoryTrust } from "./types";
 
 export {
