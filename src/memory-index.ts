@@ -271,7 +271,9 @@ export function renderMemoryIndex(
   // included — can never exceed MAX_INDEX_BYTES. Reserve the worst case (all
   // admitted notes shed → largest count) whether or not a footer ends up rendered;
   // an unused reserve just leaves the index below its ceiling (a ceiling, not a floor).
-  const footerReserve = byteLength(`\n\n${shedFooter(scored.length)}`);
+  // Includes the document's trailing newline (content is always `${join}\n`), so a
+  // budget-filling render + footer still can't push one byte past the ceiling.
+  const footerReserve = byteLength(`\n\n${shedFooter(scored.length)}\n`);
   const byteCeiling = MAX_INDEX_BYTES - footerReserve;
 
   const selected = selectIndexLines(scored, bySection, now, byteCeiling);
@@ -285,7 +287,14 @@ export function renderMemoryIndex(
   // pre-reserved footer — so the returned content is ≤ MAX_INDEX_BYTES either way.
   const parts: string[] = [INDEX_HEADER];
   if (rendered === 0) {
-    parts.push("", "_No notes have earned an index line yet._");
+    // Distinguish "nothing earned a line" from "notes earned lines but all were
+    // shed" — the placeholder must not claim the corpus is empty of earned memory.
+    parts.push(
+      "",
+      shed === 0
+        ? "_No notes have earned an index line yet._"
+        : `_${shed} note(s) earned a line but none fit the index budget._`,
+    );
   } else {
     for (const type of SECTION_ORDER) {
       const lines = bySection.get(type)!.filter((line) => selected.has(line));
@@ -293,9 +302,9 @@ export function renderMemoryIndex(
       parts.push("", `## ${SECTION_TITLE[type]}`);
       for (const line of lines) parts.push(line.text!);
     }
-  }
-  if (shed > 0) {
-    parts.push("", shedFooter(shed));
+    // The shed footer belongs to a non-empty render; the rendered===0 branch above
+    // already states the shed situation in its placeholder.
+    if (shed > 0) parts.push("", shedFooter(shed));
   }
 
   return {
