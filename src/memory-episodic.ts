@@ -61,11 +61,17 @@ function assertNonEmpty(value: string | undefined, field: string): asserts value
   }
 }
 
-function assertSlug(slug: string, field: string): void {
-  if (!SLUG.test(slug) || slug.length > 64) {
-    throw new MemoryNoteError(`${field} "${slug}" is not a valid slug (lowercase [a-z0-9-], <=64 chars).`, field);
+function assertSlug(slug: string, field: string, maxLen = 64): void {
+  if (!SLUG.test(slug) || slug.length > maxLen) {
+    throw new MemoryNoteError(`${field} "${slug}" is not a valid slug (lowercase [a-z0-9-], <=${maxLen} chars).`, field);
   }
 }
+
+// The `YYYYMMDD-` date prefix (9 chars) eats into the 64-char id budget, so a
+// caller-supplied action slug is capped so `${date}-${slug}` stays a valid id —
+// caught at the `slug` field (clear error) rather than surfacing later as a
+// confusing `action id` failure.
+const MAX_ID_SLUG = 64 - "YYYYMMDD-".length;
 
 function isEexist(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "EEXIST";
@@ -116,8 +122,9 @@ function episodicPath(somaHome: string, kind: "sessions" | "actions", now: Date,
  * later UTC date must still be recognized). A digest id is always `YYYYMMDD-<slug>`,
  * so a file matching `^\d{8}-<slug>\.md$` in any month dir is the session's digest.
  * Exact-match on the full id avoids a slug being a false suffix of another. The scan
- * cost grows with retained digests but is bounded by M6's 90-day archival; the
- * O_EXCL write below is the atomic gate, this is the cross-date fast-path.
+ * is an unbounded directory walk today; M6 (episodic archival, not yet implemented)
+ * is expected to bound it by pruning old digests. The O_EXCL write below is the
+ * atomic gate — this is only the cross-date fast-path.
  */
 async function findExistingSessionDigestPath(somaHome: string, slug: string): Promise<string | undefined> {
   const base = createPaths(somaHome).resolve("memory", "episodic", "sessions");
@@ -312,7 +319,7 @@ export async function writeMemoryAction(options: SomaMemoryActionOptions): Promi
   const somaHome = createPaths(options).root();
   const now = options.now ?? new Date();
   assertNonEmpty(options.slug, "slug");
-  assertSlug(options.slug, "slug");
+  assertSlug(options.slug, "slug", MAX_ID_SLUG);
   assertNonEmpty(options.plannedAction, "plannedAction");
   if (!(SOMA_MEMORY_ACTION_APPROVALS as readonly string[]).includes(options.approval)) {
     throw new MemoryNoteError(`approval must be one of ${SOMA_MEMORY_ACTION_APPROVALS.join(", ")}.`, "approval");
