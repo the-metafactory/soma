@@ -251,7 +251,9 @@ function selectIndexLines(
 }
 
 /**
- * Render INDEX.md from a note set. Pure + deterministic given `notes` and `now`.
+ * Render INDEX.md from a note set. Pure + deterministic given `notes`, `now`, AND
+ * `halflifeDays` (the half-life shifts scoring and therefore selection, so two
+ * renders with different half-lives are NOT comparable).
  * Orchestrates: admit → score → bucket → budgeted select ({@link selectIndexLines})
  * → assemble markdown. Shed notes are counted and reported in a footer — never
  * silently dropped.
