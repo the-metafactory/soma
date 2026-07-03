@@ -168,7 +168,11 @@ export function parseMemoryNote(content: string): SomaMemoryNote {
   assert(raw.valid_until === "null" || isCalendarDate(raw.valid_until), `valid_until must be null or a valid YYYY-MM-DD date`, "valid_until");
 
   const resurface = Number(raw.resurface_count);
-  assert(/^\d+$/.test(raw.resurface_count) && Number.isInteger(resurface), `resurface_count must be an integer >= 0`, "resurface_count");
+  assert(
+    /^\d+$/.test(raw.resurface_count) && Number.isSafeInteger(resurface),
+    `resurface_count must be a safe integer >= 0`,
+    "resurface_count",
+  );
   assert(
     PROVENANCE_LITERALS.has(raw.provenance) || /^tool:.+/.test(raw.provenance),
     `provenance "${raw.provenance}" must be conversation, consolidation, import, or tool:<name>`,
