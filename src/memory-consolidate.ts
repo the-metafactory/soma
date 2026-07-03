@@ -1,8 +1,9 @@
 import { mkdir, readdir, readFile, rename, stat, unlink, writeFile, appendFile } from "node:fs/promises";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 import { createPaths } from "./paths";
 import { isEnoent } from "./fs-utils";
-import { parseMemoryNote, serializeMemoryNote } from "./memory-note";
+import { appendSomaMemoryEvent } from "./memory";
+import { parseMemoryNote, serializeMemoryNote, MemoryNoteError } from "./memory-note";
 import { collectDurableNotes } from "./memory-write";
 import { memoryTermSet } from "./memory-terms";
 import { rebuildMemoryIndex, memoryIndexPath } from "./memory-index";
@@ -12,26 +13,31 @@ import type {
   SomaMemoryArchivePlan,
   SomaMemoryContradiction,
   SomaMemoryNote,
+  SomaPaths,
 } from "./types";
 
 /**
  * Deterministic consolidation (subsystem M6). A no-LLM maintenance pass. Every op
- * is computed into a PLAN first, so a `--dry-run` prints exactly what the real run
- * will do (dry-run output == real-run diff), and the real run simply applies that
- * plan. Ops, in apply order:
+ * is computed into a PLAN first, so a `--dry-run` reports the SAME set of file
+ * operations (which notes archive, which are marked stale, which state files are
+ * deleted, which pairs contradict) that the real run applies — the dry-run plan
+ * equals the real run's plan. (It does NOT reproduce byte-level digest/INDEX
+ * content; it enumerates the operations, not their diffs.) Ops, in apply order:
  *
  * 1. **Prune aged episodic** — session notes older than 90d and action notes older
  *    than 180d (by `created`) are folded into a monthly digest (`episodic/digests/
- *    YYYY-MM.md`, a deterministic pointer list) and MOVED to `archive/`, preserving
- *    their relative path (invalidate-never-delete; archive-before-prune).
+ *    YYYY-MM.md`, a deterministic pointer list) and MOVED to `archive/`, mirroring
+ *    the source's FULL relative path (invalidate-never-delete; archive-before-prune).
  * 2. **Mark stale** — active semantic notes unverified >180d AND never resurfaced
  *    get frontmatter `review: stale`. NEVER auto-archived — a human reviews.
  * 3. **List contradictions** — active durable notes with Jaccard ≥ 0.6 are surfaced
  *    for review (no auto-merge — the write path already refuses near-duplicates).
  * 4. **GC state** — `current-work-*.json` files older than 7d are DELETED. This is
  *    the ONE true deletion in the whole memory subsystem (state is not memory).
- * 5. **Rebuild INDEX** — reflect the archived/stale changes.
+ * 5. **Rebuild INDEX** to reflect the archived/stale changes.
  *
+ * A real run that mutated anything appends one governed `memory.consolidate` event
+ * to the journal (the consolidation counterpart of M1's one-mutation-one-event).
  * Idempotent: a second run finds the aged notes already archived, the stale notes
  * already marked, the old state already gone → an empty plan, unchanged INDEX.
  */
@@ -44,6 +50,7 @@ const STATE_GC_DAYS = 7;
 const CONTRADICTION_JACCARD = 0.6;
 
 const MS_PER_DAY = 86_400_000;
+const NOTE_ID_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 function dateMs(isoDate: string): number {
   const [y, m, d] = isoDate.split("-").map(Number);
@@ -80,7 +87,7 @@ async function listEpisodicNotes(base: string): Promise<string[]> {
   return files;
 }
 
-/** First non-empty body line, trimmed — the monthly-digest pointer text. */
+/** First non-empty body line, control-stripped + truncated — the digest pointer text. */
 function firstBodyLine(note: SomaMemoryNote): string {
   const line = note.body.split("\n").map((l) => l.trim()).find((l) => l.length > 0) ?? "";
   return line.replace(/[\x00-\x1f\x7f-\x9f]+/g, " ").slice(0, 120);
@@ -94,37 +101,51 @@ function jaccard(a: Set<string>, b: Set<string>): number {
   return union === 0 ? 0 : intersection / union;
 }
 
+/**
+ * Archive target that MIRRORS the source's full relative path under `archive/`
+ * (`memory/episodic/…/x.md` → `archive/memory/episodic/…/x.md`), so the audit trail
+ * truly preserves the original location. `paths.resolve` asserts the result stays
+ * inside the Soma root — combined with the id-slug validation upstream, no crafted
+ * frontmatter can redirect a rename outside the tree.
+ */
+function archiveTargetFor(paths: SomaPaths, sourcePath: string): string {
+  const relSegments = relative(paths.root(), sourcePath).split(sep);
+  return paths.resolve("archive", ...relSegments);
+}
+
 interface EpisodicArchive {
   plan: SomaMemoryArchivePlan;
+  from: string;
+  to: string;
   note: SomaMemoryNote;
-  /** Monthly digest file this note folds into (by its `created` month). */
   digestPath: string;
 }
 
 /** Plan the episodic prune → digest → archive for one kind, oldest first. */
 async function planEpisodicArchive(
-  somaHome: string,
+  paths: SomaPaths,
   kind: "sessions" | "actions",
   ttlDays: number,
   now: Date,
 ): Promise<EpisodicArchive[]> {
-  const paths = createPaths(somaHome);
   const root = paths.root();
   const base = paths.resolve("memory", "episodic", kind);
   const files = await listEpisodicNotes(base);
   const out: EpisodicArchive[] = [];
   for (const path of files) {
     const parsed = await readFile(path, "utf8").then(parseMemoryNote).catch(() => undefined);
-    if (parsed === undefined) continue; // unreadable/unparseable — leave it for the audit
+    if (parsed === undefined) continue; // unreadable/unparseable — leave for the audit
+    if (!NOTE_ID_SLUG.test(parsed.id) || parsed.id.length > 64) {
+      // Defense in depth: an id that isn't a plain slug could form a traversal path.
+      throw new MemoryNoteError(`episodic note ${path} has an unsafe id "${parsed.id}".`, "id");
+    }
     if (ageDays(parsed.created, now) <= ttlDays) continue;
+    const to = archiveTargetFor(paths, path);
     const month = parsed.created.slice(0, 7);
-    const to = paths.resolve("archive", "episodic", kind, month, `${parsed.id}.md`);
     out.push({
-      plan: {
-        from: relative(root, path),
-        to: relative(root, to),
-        reason: `${kind} note older than ${ttlDays}d`,
-      },
+      plan: { from: relative(root, path), to: relative(root, to), reason: `${kind} note older than ${ttlDays}d` },
+      from: path,
+      to,
       note: parsed,
       digestPath: paths.resolve("memory", "episodic", "digests", `${month}.md`),
     });
@@ -133,7 +154,11 @@ async function planEpisodicArchive(
 }
 
 /** Plan the `review: stale` marks for aged-unverified semantic notes. */
-function planStaleMarks(notes: { path: string; note: SomaMemoryNote }[], root: string, now: Date): { path: string; rel: string; note: SomaMemoryNote }[] {
+function planStaleMarks(
+  notes: { path: string; note: SomaMemoryNote }[],
+  root: string,
+  now: Date,
+): { path: string; rel: string; note: SomaMemoryNote }[] {
   const out: { path: string; rel: string; note: SomaMemoryNote }[] = [];
   for (const { path, note } of notes) {
     if (note.type !== "semantic") continue;
@@ -146,13 +171,36 @@ function planStaleMarks(notes: { path: string; note: SomaMemoryNote }[], root: s
   return out;
 }
 
-/** Plan contradiction pairs among ACTIVE durable notes (listing only). */
+/**
+ * Plan contradiction pairs among ACTIVE durable notes (listing only). A token→notes
+ * inverted index prefilters candidates so only pairs that SHARE at least one term
+ * are Jaccard-scored — pairs with zero overlap (score 0) can never clear the
+ * threshold, so skipping them changes nothing but avoids the full O(n²) product.
+ */
 function planContradictions(notes: { note: SomaMemoryNote }[]): SomaMemoryContradiction[] {
   const active = notes.map((n) => n.note).filter((note) => note.valid_until === null);
   const tokens = active.map((note) => memoryTermSet(note.body.toLowerCase()));
+
+  const postings = new Map<string, number[]>();
+  for (let i = 0; i < active.length; i += 1) {
+    for (const token of tokens[i]) {
+      const list = postings.get(token);
+      if (list) list.push(i);
+      else postings.set(token, [i]);
+    }
+  }
+
+  const seen = new Set<string>();
   const pairs: SomaMemoryContradiction[] = [];
   for (let i = 0; i < active.length; i += 1) {
-    for (let j = i + 1; j < active.length; j += 1) {
+    const candidates = new Set<number>();
+    for (const token of tokens[i]) {
+      for (const j of postings.get(token)!) if (j > i) candidates.add(j);
+    }
+    for (const j of candidates) {
+      const key = `${i}:${j}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
       const score = jaccard(tokens[i], tokens[j]);
       if (score >= CONTRADICTION_JACCARD) {
         const [a, b] = [active[i].id, active[j].id].sort();
@@ -165,8 +213,7 @@ function planContradictions(notes: { note: SomaMemoryNote }[]): SomaMemoryContra
 }
 
 /** Plan the state GC: `current-work-*.json` files older than 7d. */
-async function planStateGc(somaHome: string, now: Date): Promise<string[]> {
-  const paths = createPaths(somaHome);
+async function planStateGc(paths: SomaPaths, now: Date): Promise<string[]> {
   const stateDir = paths.state();
   let entries: string[];
   try {
@@ -188,48 +235,8 @@ async function planStateGc(somaHome: string, now: Date): Promise<string[]> {
   return out;
 }
 
-/**
- * Run (or plan, under `dryRun`) the deterministic consolidation pass. See the
- * module docstring for the ops and ordering. Given the same tree + `now`, the plan
- * is identical whether or not it is applied — so a dry-run's reported ops match the
- * real run's diff.
- */
-export async function consolidateMemory(options: SomaMemoryConsolidateOptions = {}): Promise<SomaMemoryConsolidateResult> {
-  const somaHome = createPaths(options).root();
-  const root = createPaths(options).root();
-  const now = options.now ?? new Date();
-  const dryRun = options.dryRun === true;
-
-  // --- plan (pure reads) ---
-  const episodic = [
-    ...(await planEpisodicArchive(somaHome, "sessions", EPISODIC_SESSION_TTL_DAYS, now)),
-    ...(await planEpisodicArchive(somaHome, "actions", EPISODIC_ACTION_TTL_DAYS, now)),
-  ];
-  const durable = await collectDurableNotes(somaHome);
-  const staleMarks = planStaleMarks(durable.notes, root, now);
-  const contradictions = planContradictions(durable.notes);
-  const stateGc = await planStateGc(somaHome, now);
-
-  const archived = episodic.map((e) => e.plan);
-  const digestsWritten = Array.from(new Set(episodic.map((e) => relative(root, e.digestPath)))).sort();
-  const markedStale = staleMarks.map((s) => s.rel).sort();
-  const indexPath = memoryIndexPath(somaHome);
-
-  const result: SomaMemoryConsolidateResult = {
-    somaHome,
-    dryRun,
-    archived,
-    digestsWritten,
-    markedStale,
-    stateGced: stateGc,
-    contradictions,
-    indexPath,
-  };
-  if (dryRun) return result;
-
-  // --- apply (mutations only on the real run) ---
-  // 1. Prune episodic: append the monthly-digest pointer, then move the raw note.
-  //    Group by digest file for deterministic append order.
+/** Apply the episodic prune: append monthly-digest pointers, then MOVE the notes. */
+async function applyEpisodicArchive(episodic: EpisodicArchive[]): Promise<void> {
   const byDigest = new Map<string, EpisodicArchive[]>();
   for (const e of episodic) {
     const list = byDigest.get(e.digestPath) ?? [];
@@ -249,24 +256,76 @@ export async function consolidateMemory(options: SomaMemoryConsolidateOptions = 
     await appendFile(digestPath, `${header}${lines}\n`, "utf8");
   }
   for (const e of episodic) {
-    const from = join(root, e.plan.from);
-    const to = join(root, e.plan.to);
-    await mkdir(dirname(to), { recursive: true });
-    await rename(from, to);
+    await mkdir(dirname(e.to), { recursive: true });
+    await rename(e.from, e.to);
   }
+}
 
-  // 2. Mark stale: rewrite frontmatter with review: stale.
-  for (const { path, note } of staleMarks) {
+/** Apply the `review: stale` marks in place. */
+async function applyStaleMarks(marks: { path: string; note: SomaMemoryNote }[]): Promise<void> {
+  for (const { path, note } of marks) {
     await writeFile(path, serializeMemoryNote({ ...note, review: "stale" }), "utf8");
   }
+}
 
-  // 3. State GC — the one true deletion.
+/** Apply the state GC — the one true deletion. */
+async function applyStateGc(root: string, stateGc: string[]): Promise<void> {
   for (const rel of stateGc) {
     await unlink(join(root, rel)).catch(() => undefined);
   }
+}
 
-  // 4. Rebuild INDEX to reflect archived/stale changes.
+/**
+ * Run (or plan, under `dryRun`) the deterministic consolidation pass. See the
+ * module docstring for the ops and ordering. Given the same tree + `now`, the plan
+ * is identical whether or not it is applied — so a dry-run's reported ops match the
+ * real run's.
+ */
+export async function consolidateMemory(options: SomaMemoryConsolidateOptions = {}): Promise<SomaMemoryConsolidateResult> {
+  const paths = createPaths(options);
+  const somaHome = paths.root();
+  const now = options.now ?? new Date();
+  const dryRun = options.dryRun === true;
+
+  // --- plan (pure reads) ---
+  const episodic = [
+    ...(await planEpisodicArchive(paths, "sessions", EPISODIC_SESSION_TTL_DAYS, now)),
+    ...(await planEpisodicArchive(paths, "actions", EPISODIC_ACTION_TTL_DAYS, now)),
+  ];
+  const durable = await collectDurableNotes(somaHome);
+  const staleMarks = planStaleMarks(durable.notes, somaHome, now);
+  const contradictions = planContradictions(durable.notes);
+  const stateGc = await planStateGc(paths, now);
+
+  const result: SomaMemoryConsolidateResult = {
+    somaHome,
+    dryRun,
+    archived: episodic.map((e) => e.plan),
+    digestsWritten: Array.from(new Set(episodic.map((e) => relative(somaHome, e.digestPath)))).sort(),
+    markedStale: staleMarks.map((s) => s.rel).sort(),
+    stateGced: stateGc,
+    contradictions,
+    indexPath: memoryIndexPath(somaHome),
+  };
+  if (dryRun) return result;
+
+  // --- apply (mutations only on the real run) ---
+  await applyEpisodicArchive(episodic);
+  await applyStaleMarks(staleMarks);
+  await applyStateGc(somaHome, stateGc);
   await rebuildMemoryIndex({ somaHome, now });
+
+  // Governed event for the pass (only when it actually mutated something).
+  if (episodic.length > 0 || staleMarks.length > 0 || stateGc.length > 0) {
+    await appendSomaMemoryEvent(somaHome, {
+      timestamp: now.toISOString(),
+      substrate: options.substrate ?? "custom",
+      kind: "memory.consolidate",
+      summary: `Consolidation: ${episodic.length} archived, ${staleMarks.length} marked stale, ${stateGc.length} state GC'd.`,
+      artifactPaths: [result.indexPath],
+      metadata: { archived: episodic.length, markedStale: staleMarks.length, stateGced: stateGc.length, contradictions: contradictions.length },
+    });
+  }
 
   return result;
 }

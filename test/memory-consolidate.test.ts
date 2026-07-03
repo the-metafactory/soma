@@ -61,10 +61,11 @@ test("aged episodic session (>90d) is archived + folded into a monthly digest; r
     const result = await consolidateMemory({ somaHome, now: NOW });
 
     expect(result.archived).toHaveLength(1);
-    expect(result.archived[0].from).toContain("episodic/sessions/2026-03/20260301-old.md");
-    expect(result.archived[0].to).toContain("archive/episodic/sessions/2026-03/20260301-old.md");
+    expect(result.archived[0].from).toContain("memory/episodic/sessions/2026-03/20260301-old.md");
+    // archive mirrors the FULL source relative path (including memory/)
+    expect(result.archived[0].to).toBe("archive/memory/episodic/sessions/2026-03/20260301-old.md");
     expect(await exists(oldPath)).toBe(false); // moved
-    expect(await exists(join(somaHome, "archive/episodic/sessions/2026-03/20260301-old.md"))).toBe(true);
+    expect(await exists(join(somaHome, "archive/memory/episodic/sessions/2026-03/20260301-old.md"))).toBe(true);
     expect(await exists(recentPath)).toBe(true); // untouched
     const digest = await readFile(join(somaHome, "memory/episodic/digests/2026-03.md"), "utf8");
     expect(digest).toContain("- 20260301-old: old session summary");
