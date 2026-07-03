@@ -2,10 +2,20 @@ import { readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { isEnoent, pathExists, pathMtimeMs } from "../../fs-utils";
 import type { SomaDoctorFinding } from "../../types";
+import { hasProvenanceHeader } from "../shared";
+import { CLAUDE_CODE_RULES_FILES } from "../claude-code";
 import {
   SOMA_CLAUDE_HOOK_CONFIG_RELATIVE_PATH,
   SOMA_CLAUDE_HOOK_RELATIVE_PATH,
 } from "./hooks";
+
+// The provenance-wrapped skeleton files (soma#370). ACTIVE_VSA.md is excluded
+// because the projection deliberately does not wrap it (it is a byte-portable
+// cross-substrate artifact with its own leading frontmatter), so it must not be
+// checked for a header.
+const PROVENANCE_MANAGED_RULES_FILES = CLAUDE_CODE_RULES_FILES.filter(
+  (path) => path !== "rules/soma/ACTIVE_VSA.md",
+);
 
 // The hook file's basename (e.g. `soma-claude-code-hook.mjs`) appears in the
 // command string Soma writes into settings.json, so its presence in the file
@@ -37,7 +47,8 @@ export async function diagnoseClaudeCodeProjectionDrift(options: {
   const substrateHome = join(options.homeDir, CLAUDE_CODE_HOME);
   const findings: SomaDoctorFinding[] = [];
 
-  const contextMtime = await pathMtimeMs(join(substrateHome, CLAUDE_CODE_CONTEXT_RELATIVE_PATH));
+  const contextPath = join(substrateHome, CLAUDE_CODE_CONTEXT_RELATIVE_PATH);
+  const contextMtime = await pathMtimeMs(contextPath);
   const stale =
     contextMtime === null ||
     (options.profileMtime !== null && contextMtime < options.profileMtime);
@@ -50,6 +61,28 @@ export async function diagnoseClaudeCodeProjectionDrift(options: {
         : "Claude Code projection is older than the Soma profile files.",
       action: "soma reproject claude-code",
     });
+  } else {
+    // soma#370: a present-but-header-less managed file is not a live projection
+    // (hand-replaced, or left by an older projection). Reprojecting would
+    // silently overwrite it, so warn. Every provenance-wrapped skeleton file is
+    // checked, not just CONTEXT.md (sage#377). Skipped when stale — reproject
+    // fixes both.
+    const unmanaged: string[] = [];
+    for (const relativePath of PROVENANCE_MANAGED_RULES_FILES) {
+      const raw = await readFileOrNull(join(substrateHome, relativePath));
+      if (raw !== null && !hasProvenanceHeader(raw)) unmanaged.push(relativePath);
+    }
+    if (unmanaged.length > 0) {
+      findings.push({
+        id: "claude-code-projection-unmanaged-edit",
+        severity: "warning",
+        message:
+          `Claude Code projection file(s) missing the Soma provenance header (hand-edited, ` +
+          `or left by an older projection): ${unmanaged.join(", ")}. ` +
+          "Reprojecting will overwrite them — move durable changes into ~/.soma first.",
+        action: "soma reproject claude-code",
+      });
+    }
   }
 
   const hookPresent =

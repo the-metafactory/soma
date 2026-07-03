@@ -1,5 +1,5 @@
 import type { SomaAdapter, Projection, ProjectionInput, SomaTask } from "../types";
-import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "./shared";
+import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills, withProvenance } from "./shared";
 import { activeVsaBundleFile } from "../adapter-active-vsa";
 
 function renderInstructions(input: ProjectionInput): string {
@@ -218,7 +218,13 @@ export function projectClaudeCodeHome(input: ProjectionInput): Projection {
     substrate: "claude-code",
     instructions: renderInstructions(input),
     files: [
-      ...skeleton,
+      // soma#370: each generated rules/soma skeleton file carries a byte-stable
+      // provenance header so `soma doctor` can tell a managed projection from a
+      // hand-replaced one. The header has no timestamp, preserving AC-4
+      // byte-idempotency. The active-vsa file is deliberately excluded: it is a
+      // byte-portable cross-substrate artifact (adapter-active-vsa AC-4) with
+      // its own leading frontmatter, so a claude-only header would break both.
+      ...skeleton.map((file) => ({ ...file, content: withProvenance("claude-code", file.content) })),
       // Active VSA — omitted when no active VSA set (preserves #37 AC-2).
       ...activeVsaBundleFile("claude-code", input.activeVsa),
     ],
