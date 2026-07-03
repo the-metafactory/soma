@@ -2485,8 +2485,11 @@ export interface SomaMemoryVerifyResult {
 // Memory subsystem M5 (episodic capture). Plan v2 §M5: session digests + a
 // first-class action log, stored as `episodic` notes under
 // `memory/episodic/{sessions,actions}/YYYY-MM/YYYYMMDD-<slug>.md`. Deterministic,
-// no LLM. The digest write is gated to EXACTLY ONE per session (a second call for
-// the same session no-ops with an event). Action entries record plannedAction →
+// no LLM. The digest write is gated to one-per-session — atomic (O_EXCL) within a
+// UTC date, and a cross-date scan catches later re-digests — but it is best-effort,
+// NOT an absolute guarantee: with no cross-process lock, a genuine concurrent race
+// across different UTC dates can still produce two digests (reconciled by the M7
+// audit). A second same-session call no-ops with an event. Action entries record plannedAction →
 // approval → outcome for the consolidator (M6) to mine. Episodic notes are written
 // at `assistant` trust (the assistant's own account); whether they reach the
 // always-loaded INDEX is decided by M3's admission ladder, where an unresurfaced

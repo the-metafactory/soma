@@ -147,7 +147,7 @@ async function findExistingSessionDigestPath(somaHome: string, slug: string): Pr
   return undefined;
 }
 
-/** Build an episodic note (assistant trust, agent-authored account). */
+/** Build an episodic note (assistant trust, assistant-authored account). */
 function buildEpisodicNote(id: string, now: Date, body: string): SomaMemoryNote {
   const today = isoDate(now);
   return {
