@@ -15,7 +15,7 @@ import { isClaudeCodeInstallOptions } from "./install-options";
 /**
  * Generated `~/.claude/CLAUDE.md` (soma#368). Opt-in via `--claude-md`.
  *
- * The body is a thin pointer: the real projected context lives in the
+ * The body is a thin pointer: the real projection files live in the
  * auto-discovered `rules/soma/` bundle (soma#64), so CLAUDE.md only needs to
  * announce provenance and route the reader there. Everything a human wants to
  * keep in CLAUDE.md goes in the overlay block, which survives reprojection.
