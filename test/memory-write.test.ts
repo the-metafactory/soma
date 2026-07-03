@@ -225,10 +225,15 @@ test("merging into a principal-trust note requires the principal-authority escal
   await withTempSoma(async (somaHome) => {
     await writeMemoryNote(createOpts(somaHome, { id: "principal-note" })); // trust principal
 
-    // A merge that doesn't carry the escalation cannot inject into trusted memory.
+    // Lower-trust content (import) can't inject at all — the trust-rank gate.
     await expect(
       writeMemoryNote({ somaHome, mode: "merge", trigger: "import", targetId: "principal-note", body: "sneaky injected text", now: LATER }),
-    ).rejects.toThrow(/Mutating principal-trust note/);
+    ).rejects.toThrow(/Cannot mutate principal-trust note/);
+
+    // A principal-correction merge WITHOUT authority is refused by the escalation gate.
+    await expect(
+      writeMemoryNote({ somaHome, mode: "merge", trigger: "principal-correction", targetId: "principal-note", body: "no authority", now: LATER }),
+    ).rejects.toThrow(/requires --principal-authority/);
 
     // With the escalation it goes through.
     const ok = await writeMemoryNote({
@@ -244,6 +249,16 @@ test("merging into a principal-trust note requires the principal-authority escal
   });
 });
 
+test("a lower-trust merge cannot inject into a higher-trust note (import into assistant)", async () => {
+  await withTempSoma(async (somaHome) => {
+    // assistant-trust note via consolidation trigger.
+    await writeMemoryNote(createOpts(somaHome, { id: "assistant-note", trigger: "consolidation", principalAuthority: false, body: "assistant fact iota kappa" }));
+    await expect(
+      writeMemoryNote({ somaHome, mode: "merge", trigger: "import", targetId: "assistant-note", body: "imported injection", now: LATER }),
+    ).rejects.toThrow(/Cannot mutate assistant-trust note .* with quarantined-trust content/);
+  });
+});
+
 test("superseding (closing) a principal-trust note requires the escalation", async () => {
   await withTempSoma(async (somaHome) => {
     await writeMemoryNote(createOpts(somaHome, { id: "trusted" }));
@@ -256,7 +271,7 @@ test("superseding (closing) a principal-trust note requires the escalation", asy
         principalAuthority: false,
         body: "replacement via import trigger phi chi",
       })),
-    ).rejects.toThrow(/Mutating principal-trust note/);
+    ).rejects.toThrow(/Cannot mutate principal-trust note/);
   });
 });
 
@@ -312,8 +327,8 @@ test("a note cannot supersede itself", async () => {
 
 test("verify bumps last_verified and increments resurface_count with one event", async () => {
   await withTempSoma(async (somaHome) => {
-    await writeMemoryNote(createOpts(somaHome, { id: "note" }));
-    const result = await verifyMemoryNote({ somaHome, id: "note", now: LATER });
+    await writeMemoryNote(createOpts(somaHome, { id: "note" })); // principal
+    const result = await verifyMemoryNote({ somaHome, id: "note", principalAuthority: true, now: LATER });
 
     expect(result.note.last_verified).toBe("2026-08-01");
     expect(result.note.resurface_count).toBe(1);
@@ -322,8 +337,19 @@ test("verify bumps last_verified and increments resurface_count with one event",
     expect(persisted.resurface_count).toBe(1);
     expect(await countEvents(somaHome)).toBe(2); // create + verify
 
-    const again = await verifyMemoryNote({ somaHome, id: "note", now: LATER });
+    const again = await verifyMemoryNote({ somaHome, id: "note", principalAuthority: true, now: LATER });
     expect(again.note.resurface_count).toBe(2);
+  });
+});
+
+test("verifying a principal note needs authority; a quarantined note does not", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeMemoryNote(createOpts(somaHome, { id: "trusted" })); // principal
+    await expect(verifyMemoryNote({ somaHome, id: "trusted", now: LATER })).rejects.toThrow(/requires --principal-authority/);
+
+    await writeMemoryNote(createOpts(somaHome, { id: "imported", trigger: "import", principalAuthority: false, body: "imported fact mu nu xi" }));
+    const ok = await verifyMemoryNote({ somaHome, id: "imported", now: LATER }); // no authority needed
+    expect(ok.note.resurface_count).toBe(1);
   });
 });
 
@@ -387,7 +413,7 @@ test("verify rolls back when the event append fails", async () => {
     await writeMemoryNote(createOpts(somaHome, { id: "note" }));
     await breakEvents(somaHome);
 
-    await expect(verifyMemoryNote({ somaHome, id: "note", now: LATER })).rejects.toThrow();
+    await expect(verifyMemoryNote({ somaHome, id: "note", principalAuthority: true, now: LATER })).rejects.toThrow();
     const note = await readNote(memoryNotePath(somaHome, "semantic", "note"));
     expect(note.resurface_count).toBe(0); // the bump was rolled back
   });

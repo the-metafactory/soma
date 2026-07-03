@@ -10,10 +10,12 @@ import type {
   SomaMemoryDuplicateCandidate,
   SomaMemoryNote,
   SomaMemoryNoteType,
+  SomaMemoryTrust,
   SomaMemoryVerifyOptions,
   SomaMemoryVerifyResult,
   SomaMemoryWriteOptions,
   SomaMemoryWriteResult,
+  SomaMemoryWriteTrigger,
 } from "./types";
 
 /**
@@ -58,6 +60,14 @@ const WRITABLE_TYPE_DIRS: Record<Exclude<SomaMemoryNoteType, "episodic">, string
 };
 
 type WritableType = Exclude<SomaMemoryNoteType, "episodic">;
+
+// One source of truth for the writable-type enumeration — every helper that
+// walks both durable dirs reuses this instead of re-casting Object.keys.
+const WRITABLE_TYPES = Object.keys(WRITABLE_TYPE_DIRS) as WritableType[];
+
+// Trust ordering for the mutation gate: content may never be injected into a
+// note of HIGHER trust than the mutation's own trigger carries.
+const TRUST_RANK: Record<SomaMemoryTrust, number> = { quarantined: 0, assistant: 1, principal: 2 };
 
 function assertNonEmpty(value: string | undefined, field: string): asserts value is string {
   if (value === undefined || value.trim().length === 0) {
@@ -172,19 +182,41 @@ interface LoadedNote extends ScannedNote {
 }
 
 /**
- * A mutation of an existing `principal`-trust note (merge body, or supersede-close)
- * carries the same weight as minting principal trust — it must go through the
- * same deliberate escalation, or a tool/import caller could inject into (or
- * invalidate) trusted memory while preserving its trust.
+ * Guard every mutation of an EXISTING note (merge body, supersede-close). Two
+ * rules, both anti-injection:
+ *   1. The mutation's trigger-trust must be ≥ the target's trust — a tool/import
+ *      caller (quarantined) can never inject content into an assistant/principal
+ *      note while the note keeps its higher trust ("import is always quarantined"
+ *      would otherwise be a lie for merges).
+ *   2. Mutating a `principal` note additionally needs the explicit
+ *      `principalAuthority` escalation — the same deliberate, logged act that
+ *      minted it.
  */
-function assertMayMutatePrincipal(target: SomaMemoryNote, options: SomaMemoryWriteOptions): void {
-  if (target.trust !== "principal") return;
-  if (options.trigger === "principal-correction" && options.principalAuthority === true) return;
-  throw new MemoryNoteError(
-    `Mutating principal-trust note ${target.id} requires --trigger principal-correction and --principal-authority ` +
-      `(the same deliberate escalation that minted it).`,
-    "trigger",
-  );
+function assertMayMutate(target: SomaMemoryNote, trigger: SomaMemoryWriteTrigger, principalAuthority: boolean): void {
+  const incoming = SOMA_MEMORY_TRIGGER_TRUST[trigger];
+  if (TRUST_RANK[incoming] < TRUST_RANK[target.trust]) {
+    throw new MemoryNoteError(
+      `Cannot mutate ${target.trust}-trust note ${target.id} with ${incoming}-trust content ` +
+        `(trigger ${trigger}) — a mutation may not inject lower-trust content.`,
+      "trigger",
+    );
+  }
+  if (target.trust === "principal" && !principalAuthority) {
+    throw new MemoryNoteError(
+      `Mutating principal-trust note ${target.id} requires --principal-authority ` +
+        `(the same deliberate escalation that minted it).`,
+      "principalAuthority",
+    );
+  }
+}
+
+/**
+ * Event metadata that records the principal-authority escalation, so an audit
+ * can prove from the journal alone that a principal-trust mutation was
+ * authorized. Emitted whenever the resulting/target note is principal-trust.
+ */
+function principalAuthorityMeta(trust: SomaMemoryTrust): Record<string, unknown> {
+  return trust === "principal" ? { principalAuthority: true } : {};
 }
 
 // Bounded read concurrency for the dedup scan — parallel enough to not serialize
@@ -201,7 +233,7 @@ async function collectDurableNotes(somaHome: string): Promise<ScannedNote[]> {
   // bounded concurrency window (shared helper) rather than one unbounded
   // Promise.all over the whole tree.
   const targets: { path: string; type: WritableType }[] = [];
-  for (const type of Object.keys(WRITABLE_TYPE_DIRS) as WritableType[]) {
+  for (const type of WRITABLE_TYPES) {
     const dir = typeDir(somaHome, type);
     const entries = (await readdir(dir).catch(() => [] as string[])).filter((entry) => entry.endsWith(".md"));
     for (const entry of entries) targets.push({ path: join(dir, entry), type });
@@ -312,7 +344,7 @@ async function writeNoteFile(path: string, note: SomaMemoryNote, flag: "wx" | "w
  */
 async function loadNoteById(somaHome: string, id: string): Promise<LoadedNote> {
   assertNoteId(id); // a lookup id is also a path segment — never probe an unsafe one
-  for (const type of Object.keys(WRITABLE_TYPE_DIRS) as WritableType[]) {
+  for (const type of WRITABLE_TYPES) {
     const path = memoryNotePath(somaHome, type, id);
     const raw = await readFile(path, "utf8").catch(() => undefined);
     if (raw === undefined) continue;
@@ -329,7 +361,7 @@ async function loadNoteById(somaHome: string, id: string): Promise<LoadedNote> {
  */
 async function noteIdExists(somaHome: string, id: string): Promise<boolean> {
   assertNoteId(id);
-  for (const type of Object.keys(WRITABLE_TYPE_DIRS) as WritableType[]) {
+  for (const type of WRITABLE_TYPES) {
     const exists = await access(memoryNotePath(somaHome, type, id)).then(
       () => true,
       () => false,
@@ -384,6 +416,14 @@ function buildNewNote(options: SomaMemoryWriteOptions, now: Date): SomaMemoryNot
 async function createNote(somaHome: string, options: SomaMemoryWriteOptions, now: Date): Promise<SomaMemoryWriteResult> {
   const note = buildNewNote(options, now);
 
+  // Cheap path-existence check FIRST — reject an id collision before paying for
+  // the whole-corpus dedup scan. Ids are globally unique across types, so this
+  // also rejects `procedural/foo` when `semantic/foo` exists (`wx` below only
+  // catches a same-path collision).
+  if (await noteIdExists(somaHome, note.id)) {
+    throw new MemoryNoteError(`Soma memory note id already exists: ${note.id}`, "id");
+  }
+
   if (!options.force) {
     const candidates = await findDuplicateCandidates(somaHome, note.body);
     if (candidates.length > 0) {
@@ -393,13 +433,6 @@ async function createNote(somaHome: string, options: SomaMemoryWriteOptions, now
           `Re-run with --merge <id>, --supersede <id>, or --force.`,
       );
     }
-  }
-
-  // Ids are globally unique across types — reject `procedural/foo` when
-  // `semantic/foo` exists, so id-based lookups (verify/merge/supersede) are
-  // never ambiguous. (`wx` below only catches a same-path collision.)
-  if (await noteIdExists(somaHome, note.id)) {
-    throw new MemoryNoteError(`Soma memory note id already exists: ${note.id}`, "id");
   }
 
   const path = memoryNotePath(somaHome, note.type as WritableType, note.id);
@@ -418,8 +451,7 @@ async function createNote(somaHome: string, options: SomaMemoryWriteOptions, now
         type: note.type,
         trust: note.trust,
         trigger: options.trigger,
-        // Audit the principal-trust escalation when it happened.
-        ...(options.trigger === "principal-correction" ? { principalAuthority: true } : {}),
+        ...principalAuthorityMeta(note.trust), // audit the escalation when principal
       },
     },
     () => unlink(path), // roll back: remove the freshly created file
@@ -435,7 +467,7 @@ async function mergeNote(somaHome: string, options: SomaMemoryWriteOptions, now:
   if (note.valid_until !== null) {
     throw new MemoryNoteError(`Cannot merge into superseded note ${note.id} (valid_until set).`, "targetId");
   }
-  assertMayMutatePrincipal(note, options); // injecting into a principal note needs the escalation
+  assertMayMutate(note, options.trigger, options.principalAuthority === true);
 
   const today = isoDate(now);
   const merged: SomaMemoryNote = {
@@ -453,7 +485,8 @@ async function mergeNote(somaHome: string, options: SomaMemoryWriteOptions, now:
       kind: "memory.write.merge",
       summary: `Merged update into memory note ${merged.id} (${type})`,
       artifactPaths: [path],
-      metadata: { id: merged.id, type },
+      // Log the escalation so an audit can prove a principal-note mutation was authorized.
+      metadata: { id: merged.id, type, trust: merged.trust, trigger: options.trigger, ...principalAuthorityMeta(merged.trust) },
     },
     () => writeFile(path, raw, "utf8"), // roll back: restore the pre-merge bytes
   );
@@ -476,7 +509,11 @@ async function supersedeNote(somaHome: string, options: SomaMemoryWriteOptions, 
   if (old.note.valid_until !== null) {
     throw new MemoryNoteError(`Note ${old.note.id} is already superseded (valid_until set).`, "targetId");
   }
-  assertMayMutatePrincipal(old.note, options); // closing a principal note needs the escalation
+  // Closing an existing note is a mutation of it — same trust gate as merge
+  // (can't close a higher-trust note with lower-trust content; principal needs
+  // the escalation). The new replacement note's own trust was already gated in
+  // buildNewNote.
+  assertMayMutate(old.note, options.trigger, options.principalAuthority === true);
 
   // New note points back at what it replaces; the closed note points forward.
   if (!newNote.links.includes(old.note.id)) newNote.links = [...newNote.links, old.note.id];
@@ -503,7 +540,13 @@ async function supersedeNote(somaHome: string, options: SomaMemoryWriteOptions, 
       kind: "memory.write.supersede",
       summary: `Note ${newNote.id} supersedes ${closed.id} (closed ${closed.valid_until})`,
       artifactPaths: [newPath, old.path],
-      metadata: { id: newNote.id, supersededId: closed.id },
+      // Log the escalation when either the new note or the closed one is principal-trust.
+      metadata: {
+        id: newNote.id,
+        supersededId: closed.id,
+        trigger: options.trigger,
+        ...principalAuthorityMeta(TRUST_RANK[newNote.trust] >= TRUST_RANK[closed.trust] ? newNote.trust : closed.trust),
+      },
     },
     // roll back BOTH sides — reopen the closed note FIRST (the trusted state we
     // most need to restore), then drop the new one. Failures are NOT swallowed:
@@ -543,6 +586,18 @@ export async function verifyMemoryNote(options: SomaMemoryVerifyOptions): Promis
   const now = options.now ?? new Date();
   const { path, type, note, raw } = await loadNoteById(somaHome, options.id);
 
+  // Verifying a principal note refreshes its decay signal — a principal-note
+  // mutation, so it needs the same escalation. (Verify has no trigger; a
+  // principal note verified WITH authority is treated as a principal-correction
+  // for the trust-rank check.)
+  if (note.trust === "principal" && options.principalAuthority !== true) {
+    throw new MemoryNoteError(
+      `Verifying principal-trust note ${note.id} requires --principal-authority ` +
+        `(refreshing its decay signal is a principal-note mutation).`,
+      "principalAuthority",
+    );
+  }
+
   const verified: SomaMemoryNote = {
     ...note,
     last_verified: isoDate(now),
@@ -558,7 +613,7 @@ export async function verifyMemoryNote(options: SomaMemoryVerifyOptions): Promis
       kind: "memory.verify",
       summary: `Verified memory note ${verified.id} (${type}); resurface_count ${verified.resurface_count}`,
       artifactPaths: [path],
-      metadata: { id: verified.id, type, resurfaceCount: verified.resurface_count },
+      metadata: { id: verified.id, type, resurfaceCount: verified.resurface_count, ...principalAuthorityMeta(note.trust) },
     },
     () => writeFile(path, raw, "utf8"), // roll back: restore the pre-verify bytes
   );

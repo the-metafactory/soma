@@ -67,7 +67,9 @@ export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAct
       "[--provenance <import|tool:name>] [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]. " +
       "Trust is DERIVED from --trigger; there is no --trust flag. principal-correction " +
       "additionally requires --principal-authority (a deliberate, logged escalation to principal trust).",
-    verify: "Usage: soma memory verify <id> [--id <id>] [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]",
+    verify:
+      "Usage: soma memory verify <id> [--id <id>] [--principal-authority] [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]. " +
+      "Verifying a principal-trust note requires --principal-authority.",
   },
 };
 
@@ -362,6 +364,9 @@ function parseMemoryVerifyArgs(args: string[]): SomaMemoryVerifyOptions {
       case "--id":
         options.id = readOption(args, index, arg);
         index += 1;
+        break;
+      case "--principal-authority":
+        options.principalAuthority = true;
         break;
       default:
         if (arg.startsWith("-")) {

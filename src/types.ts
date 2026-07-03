@@ -2438,6 +2438,13 @@ export interface SomaMemoryVerifyOptions {
   substrate?: SubstrateId;
   now?: Date;
   id: string;
+  /**
+   * Verifying mutates a note's decay signals (`last_verified`, `resurface_count`),
+   * so verifying a `principal`-trust note needs the same escalation as any other
+   * principal-note mutation — otherwise a tool caller could keep a principal note
+   * artificially fresh in the index. Ignored for non-principal notes.
+   */
+  principalAuthority?: boolean;
 }
 
 export interface SomaMemoryVerifyResult {

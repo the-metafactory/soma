@@ -136,8 +136,8 @@ derived from the write trigger, writes are dedup-gated (recall-first refusal),
 and every mutation appends exactly one event to the **existing**
 `memory/STATE/events.jsonl` stream (the same journal the Observability section
 reads — note mutations do not fork a second event stream). This taxonomy is intentionally
-distinct from the `MEMORY/*` compartments: the compartments hold curated
-free-form material; the note store holds atomic, governed, decay-tracked notes.
+distinct from the `MEMORY/*` stores: those stores hold curated free-form
+material; the note store holds atomic, governed, decay-tracked notes.
 
 Cross-machine Soma state uses **Home replication**, not projection refresh or
 substrate writeback. The design is Git-backed first, policy-gated per scope,
