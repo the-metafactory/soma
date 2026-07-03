@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { createPaths } from "./paths";
+import { isEnoent } from "./fs-utils";
 import { collectDurableNotes } from "./memory-write";
 import type { SomaMemoryIndexResult, SomaMemoryNote, SomaMemoryNoteType, SomaMemoryTrust } from "./types";
 
@@ -342,18 +343,36 @@ function memoryProjectionDisabled(): boolean {
 /**
  * Read the rendered `memory/INDEX.md` for substrate projection (M4). Returns the
  * verbatim stored bytes so the projected memory file has NO wall clock — ages were
- * baked at index rebuild time (AC-4). Soft-fails to `undefined` (never throws) when
- * memory/projection is disabled, the index is absent, or it is empty/whitespace —
- * in which case the substrate simply projects no memory file. The projection reads,
- * it does NOT rebuild: rebuilding here would stamp install-time ages into the output.
+ * baked at index rebuild time (AC-4). The projection reads, it does NOT rebuild:
+ * rebuilding here would stamp install-time ages into the output.
+ *
+ * Returns `undefined` (project no memory file) when memory/projection is disabled,
+ * the index is absent (ENOENT — the normal pre-first-reindex case, silent), or it
+ * is empty/whitespace. Any OTHER read failure (permissions, a directory at the
+ * path, I/O) is ALSO soft-failed to `undefined` — the projection must never block
+ * an install — but it is WARNED to stderr rather than hidden, so a genuine
+ * misconfiguration is not silently mistaken for "no memory".
  */
 export async function loadMemoryIndexForProjection(
   options: { homeDir?: string; somaHome?: string } = {},
 ): Promise<string | undefined> {
   if (memoryProjectionDisabled()) return undefined;
   const somaHome = createPaths(options).root();
-  const content = await readFile(memoryIndexPath(somaHome), "utf8").catch(() => undefined);
-  return content !== undefined && content.trim().length > 0 ? content : undefined;
+  const path = memoryIndexPath(somaHome);
+  let content: string;
+  try {
+    content = await readFile(path, "utf8");
+  } catch (error) {
+    if (!isEnoent(error)) {
+      // Unexpected read failure: degrade (don't block install) but surface it.
+      console.warn(
+        `soma: could not read the memory index at ${path} for projection — skipping the memory file. ` +
+          `${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    return undefined;
+  }
+  return content.trim().length > 0 ? content : undefined;
 }
 
 /**

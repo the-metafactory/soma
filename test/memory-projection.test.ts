@@ -96,6 +96,24 @@ test("loadMemoryIndexForProjection soft-fails to undefined when the index is abs
   });
 });
 
+test("loadMemoryIndexForProjection soft-fails (warns, no throw) on an unexpected read error", async () => {
+  await withTempSoma(async (somaHome) => {
+    // A directory at the index path makes readFile throw EISDIR (not ENOENT).
+    const path = memoryIndexPath(somaHome);
+    await mkdir(path, { recursive: true });
+    const warnings: string[] = [];
+    const original = console.warn;
+    console.warn = (msg: unknown) => warnings.push(String(msg));
+    try {
+      expect(await loadMemoryIndexForProjection({ somaHome })).toBeUndefined();
+    } finally {
+      console.warn = original;
+    }
+    // the failure is surfaced, not hidden
+    expect(warnings.some((w) => w.includes("could not read the memory index"))).toBe(true);
+  });
+});
+
 test("SOMA_MEMORY_DISABLE and SOMA_MEMORY_DISABLE_PROJECT both suppress the projection", async () => {
   await withTempSoma(async (somaHome) => {
     const path = memoryIndexPath(somaHome);
