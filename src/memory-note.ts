@@ -181,6 +181,10 @@ export function parseMemoryNote(content: string): SomaMemoryNote {
  * count) is validated by re-parsing the output before it is returned.
  */
 export function serializeMemoryNote(note: SomaMemoryNote): string {
+  // Every field the parser maps `"null" -> null` needs this guard: the emitted
+  // bare `null` reparses cleanly, so the reparse below can't catch a literal
+  // "null" string — only this up-front check keeps the round-trip total.
+  assertNotReservedNull(note.valid_until, "valid_until");
   assertNotReservedNull(note.source_of_truth, "source_of_truth");
   assertNotReservedNull(note.project, "project");
   const lines = [

@@ -222,6 +222,17 @@ test("serialize rejects the reserved literal \"null\" as project", () => {
   expect(() => serializeMemoryNote(n)).toThrow("project");
 });
 
+test("serialize rejects the reserved literal \"null\" as valid_until", () => {
+  const n = { ...minimalNote(), valid_until: "null" };
+  expect(() => serializeMemoryNote(n)).toThrow(MemoryNoteError);
+  expect(() => serializeMemoryNote(n)).toThrow("valid_until");
+});
+
+test("a genuine null valid_until still serializes and round-trips", () => {
+  const n = { ...minimalNote(), valid_until: null };
+  expect(parseMemoryNote(serializeMemoryNote(n))).toEqual(n);
+});
+
 test("a genuine null source_of_truth/project still serializes and round-trips", () => {
   const n = { ...minimalNote(), source_of_truth: null, project: null };
   expect(parseMemoryNote(serializeMemoryNote(n))).toEqual(n);

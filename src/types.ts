@@ -2304,7 +2304,9 @@ export interface SomaAdapter {
 // File-native memory note schema. Contract fixed in the memory-subsystem plan
 // v2 §2 (do not redesign). One note = one markdown file: strict frontmatter +
 // markdown body. Parser/serializer live in src/memory-note.ts and obey the
-// round-trip law parse(serialize(n)) == n.
+// round-trip law parse(serialize(n)) == n for any note serialize accepts whose
+// body is already trimmed (serialize trims the body — the one lossy
+// normalization; see serializeMemoryNote for the exact contract).
 // Single source of truth for the note enums: the validator arrays in
 // memory-note.ts import these, and the union types derive from them, so the
 // literals live in exactly one place.
