@@ -2325,7 +2325,7 @@ export interface SomaMemoryNote {
   last_verified: string;      // YYYY-MM-DD
   valid_until: string | null; // YYYY-MM-DD when superseded/expired, else null
   provenance: string;         // "conversation" | "consolidation" | "import" | "tool:<name>"
-  trust: SomaMemoryTrust;     // who vouched: principal (human) | assistant (Ivy) | quarantined.
+  trust: SomaMemoryTrust;     // who vouched: principal | assistant | quarantined.
                               // "assistant" not "agent" — CONTEXT.md reserves `agent` for substrate concepts.
   source_of_truth: string | null; // path/URL to verify against, or null
   project: string | null;     // scope key, e.g. "soma", or null

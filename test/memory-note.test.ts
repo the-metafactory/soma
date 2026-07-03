@@ -168,6 +168,11 @@ test("negative resurface_count throws", () => {
   expect(() => parseMemoryNote(bad)).toThrow("resurface_count");
 });
 
+test("resurface_count past MAX_SAFE_INTEGER throws (no silent precision loss)", () => {
+  const bad = serializedMinimal().replace("resurface_count: 3", "resurface_count: 9007199254740993");
+  expect(() => parseMemoryNote(bad)).toThrow("resurface_count");
+});
+
 test("empty provenance throws", () => {
   const bad = serializedMinimal().replace("provenance: tool:consolidate", "provenance:");
   expect(() => parseMemoryNote(bad)).toThrow("provenance");
