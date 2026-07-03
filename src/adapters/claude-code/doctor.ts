@@ -64,7 +64,7 @@ export async function diagnoseClaudeCodeProjectionDrift(options: {
         message:
           "Claude Code projection was edited by hand (missing Soma provenance header). " +
           "Reprojecting will overwrite it — move durable changes into ~/.soma first.",
-        action: "soma install claude-code --apply",
+        action: "soma reproject claude-code",
       });
     }
   }

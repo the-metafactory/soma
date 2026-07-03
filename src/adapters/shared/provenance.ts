@@ -32,14 +32,24 @@ export function provenanceHeader(substrate: SubstrateId): string {
   return (
     `<!-- ${PROVENANCE_MARKER} (soma install ${substrate}). ` +
     "Source of truth: ~/.soma. " +
-    `Do not edit by hand; run \`soma install ${substrate} --apply\` to refresh. ` +
+    `Do not edit by hand; run \`soma reproject ${substrate}\` to regenerate. ` +
     "This file is not authoritative. -->"
   );
 }
 
-/** True when `content` still carries a Soma provenance header. */
+/**
+ * True when `content` still carries a Soma provenance header.
+ *
+ * Anchored to the leading HTML comment rather than a bare substring: a file
+ * whose header was removed but whose body happens to contain the marker text
+ * must NOT read as managed, or the doctor's missing-header drift signal fails
+ * open (sage#377).
+ */
 export function hasProvenanceHeader(content: string): boolean {
-  return content.includes(PROVENANCE_MARKER);
+  const trimmed = content.trimStart();
+  if (!trimmed.startsWith("<!--")) return false;
+  const end = trimmed.indexOf("-->");
+  return end !== -1 && trimmed.slice(0, end).includes(PROVENANCE_MARKER);
 }
 
 /**
@@ -55,7 +65,11 @@ export function stripProvenance(content: string): string {
   if (headerEnd === -1 || !content.slice(0, headerEnd).includes(PROVENANCE_MARKER)) {
     return content;
   }
-  return content.slice(headerEnd + 3).replace(/^\n+/, "");
+  // Remove ONLY the "\n\n" separator that `withProvenance` inserts, so newlines
+  // belonging to the original content survive (sage#377: the old `/^\n+/` ate
+  // them, breaking the round-trip for content starting with a newline).
+  const rest = content.slice(headerEnd + 3);
+  return rest.startsWith("\n\n") ? rest.slice(2) : rest.replace(/^\n/, "");
 }
 
 /**
@@ -94,18 +108,6 @@ export function extractOverlay(existing: string): string | null {
 export function renderOverlay(body: string | null): string {
   const inner = body && body.trim().length > 0
     ? body.trim()
-    : "<!-- Add substrate-local notes here. This region is preserved across `soma install`. -->";
+    : "<!-- Add substrate-local notes here. This region is preserved across `soma reproject`. -->";
   return [OVERLAY_BEGIN, "", inner, "", OVERLAY_END].join("\n");
-}
-
-/**
- * True when `content` has been edited outside its overlay region — i.e. the
- * managed (generated) portion no longer matches what Soma would project.
- * `expectedManaged` is the freshly generated content with the overlay body
- * spliced in; `content` is what is on disk. Comparison is exact after
- * trailing-whitespace normalization, matching how projection files are written
- * (`writeProjectionFile` appends a single trailing newline).
- */
-export function hasUnmanagedEdit(content: string, expectedManaged: string): boolean {
-  return content.trimEnd() !== expectedManaged.trimEnd();
 }

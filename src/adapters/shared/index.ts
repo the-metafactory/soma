@@ -10,7 +10,6 @@ export {
   PROVENANCE_MARKER,
   extractOverlay,
   hasProvenanceHeader,
-  hasUnmanagedEdit,
   provenanceHeader,
   renderOverlay,
   stripProvenance,
