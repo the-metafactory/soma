@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { createPaths } from "./paths";
 import { collectDurableNotes } from "./memory-write";
@@ -330,6 +330,30 @@ export function renderMemoryIndex(
 /** On-disk path of the rendered index. */
 export function memoryIndexPath(somaHome: string): string {
   return createPaths(somaHome).resolve("memory", "INDEX.md");
+}
+
+/** Env kill-switches (M4, adapted from recall's tiered disable pattern — pattern only, no code). */
+function memoryProjectionDisabled(): boolean {
+  // SOMA_MEMORY_DISABLE turns off ALL memory behavior; SOMA_MEMORY_DISABLE_PROJECT
+  // turns off only the substrate projection (recall/reindex still work).
+  return process.env.SOMA_MEMORY_DISABLE === "1" || process.env.SOMA_MEMORY_DISABLE_PROJECT === "1";
+}
+
+/**
+ * Read the rendered `memory/INDEX.md` for substrate projection (M4). Returns the
+ * verbatim stored bytes so the projected memory file has NO wall clock — ages were
+ * baked at index rebuild time (AC-4). Soft-fails to `undefined` (never throws) when
+ * memory/projection is disabled, the index is absent, or it is empty/whitespace —
+ * in which case the substrate simply projects no memory file. The projection reads,
+ * it does NOT rebuild: rebuilding here would stamp install-time ages into the output.
+ */
+export async function loadMemoryIndexForProjection(
+  options: { homeDir?: string; somaHome?: string } = {},
+): Promise<string | undefined> {
+  if (memoryProjectionDisabled()) return undefined;
+  const somaHome = createPaths(options).root();
+  const content = await readFile(memoryIndexPath(somaHome), "utf8").catch(() => undefined);
+  return content !== undefined && content.trim().length > 0 ? content : undefined;
 }
 
 /**

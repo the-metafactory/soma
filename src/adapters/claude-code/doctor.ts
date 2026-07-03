@@ -9,12 +9,13 @@ import {
   SOMA_CLAUDE_HOOK_RELATIVE_PATH,
 } from "./hooks";
 
-// The provenance-wrapped skeleton files (soma#370). ACTIVE_VSA.md is excluded
-// because the projection deliberately does not wrap it (it is a byte-portable
-// cross-substrate artifact with its own leading frontmatter), so it must not be
-// checked for a header.
+// The provenance-wrapped skeleton files (soma#370). ACTIVE_VSA.md and MEMORY.md
+// are excluded because the projection deliberately does not wrap them: ACTIVE_VSA
+// is a byte-portable cross-substrate artifact with its own frontmatter, and
+// MEMORY.md (M4) is the verbatim rendered memory index — a provenance header would
+// diverge both from their stored bytes. Neither is checked for a header.
 const PROVENANCE_MANAGED_RULES_FILES = CLAUDE_CODE_RULES_FILES.filter(
-  (path) => path !== "rules/soma/ACTIVE_VSA.md",
+  (path) => path !== "rules/soma/ACTIVE_VSA.md" && path !== "rules/soma/MEMORY.md",
 );
 
 // The hook file's basename (e.g. `soma-claude-code-hook.mjs`) appears in the

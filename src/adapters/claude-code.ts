@@ -180,10 +180,19 @@ export const CLAUDE_CODE_RULES_FILES = [
   "rules/soma/SKILLS.md",
   "rules/soma/POLICY.md",
   "rules/soma/ACTIVE_VSA.md",
+  // Memory index (M4). Conditional like ACTIVE_VSA — omitted when memory is
+  // disabled or no index exists — so it is declared here (for the planner /
+  // doctor / owned-subtree reconcile) but excluded from the always-on builders
+  // map below and appended by memoryIndexBundleFile.
+  "rules/soma/MEMORY.md",
 ] as const;
 
+// The conditionally-projected rules files (ACTIVE_VSA + MEMORY): both are omitted
+// when their source is absent, so neither has an always-on content builder.
+type ConditionalRulesFile = "rules/soma/ACTIVE_VSA.md" | "rules/soma/MEMORY.md";
+
 const CLAUDE_RULES_CONTENT_BUILDERS: Record<
-  Exclude<(typeof CLAUDE_CODE_RULES_FILES)[number], "rules/soma/ACTIVE_VSA.md">,
+  Exclude<(typeof CLAUDE_CODE_RULES_FILES)[number], ConditionalRulesFile>,
   (input: ProjectionInput) => string
 > = {
   "rules/soma/README.md": () => renderClaudeRulesReadme(),
@@ -194,6 +203,19 @@ const CLAUDE_RULES_CONTENT_BUILDERS: Record<
   "rules/soma/SKILLS.md": (input) => renderSkills(input),
   "rules/soma/POLICY.md": () => renderClaudePolicy(),
 };
+
+/**
+ * The always-loaded memory index file (M4), or `[]` when no memory index is set.
+ * Content is the VERBATIM rendered `memory/INDEX.md` — no provenance header (like
+ * ACTIVE_VSA, it is derived content, and wrapping it would diverge from the stored
+ * bytes) and no wall clock (ages were baked at index rebuild time, AC-4). The file
+ * is `rules/soma/MEMORY.md`; `MEMORY_LAYOUT.md` is a separate, untouched file.
+ */
+export function memoryIndexBundleFile(input: ProjectionInput): { path: string; content: string }[] {
+  const indexContent = input.memory?.indexContent;
+  if (indexContent === undefined || indexContent.trim().length === 0) return [];
+  return [{ path: "rules/soma/MEMORY.md", content: indexContent }];
+}
 
 /**
  * Claude Code home projection (#29). Writes the Soma context under
@@ -227,6 +249,8 @@ export function projectClaudeCodeHome(input: ProjectionInput): Projection {
       ...skeleton.map((file) => ({ ...file, content: withProvenance("claude-code", file.content) })),
       // Active VSA — omitted when no active VSA set (preserves #37 AC-2).
       ...activeVsaBundleFile("claude-code", input.activeVsa),
+      // Memory index (M4) — omitted when memory disabled / no index. Verbatim bytes.
+      ...memoryIndexBundleFile(input),
     ],
   };
 }

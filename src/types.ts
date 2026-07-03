@@ -559,6 +559,15 @@ export interface ProjectionInput {
   profile: SomaProfile;
   activeVsa?: VerificationStateArtifact;
   prompt?: string;
+  /**
+   * Memory subsystem M4 — the projected always-loaded memory index. A SIBLING
+   * surface to `profile`, deliberately NOT under it: Memory is a peer compartment
+   * to Identity/Purpose, not a sub-field of the profile. `indexContent` is the
+   * verbatim rendered `memory/INDEX.md` (no wall clock — ages are baked at index
+   * rebuild time, AC-4). Omitted when memory is disabled or no index exists, in
+   * which case the substrate simply does not project a memory file.
+   */
+  memory?: { indexContent: string };
 }
 
 export interface Projection {
