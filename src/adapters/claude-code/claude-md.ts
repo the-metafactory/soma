@@ -38,7 +38,7 @@ function renderClaudeMdBody(input: ProjectionInput, overlayBody: string | null):
     "",
     // Regenerating CLAUDE.md needs the opt-in flag (writing is gated on it), so
     // the instruction names it explicitly (sage#378).
-    "Regenerate this file with `soma install claude-code --apply --claude-md`.",
+    "Reproject this file with `soma install claude-code --apply --claude-md`.",
   ].join("\n");
   return withProvenance(
     "claude-code",
@@ -64,9 +64,11 @@ async function readOrNull(path: string): Promise<string | null> {
  *   overlay on first conversion, so no CONTENT is dropped — it moves under the
  *   marker for later curation. The provenance-header gate matters: without it a
  *   foreign file that merely happens to contain the marker strings would keep
- *   only the marker body and drop the rest (sage#378). Note: surrounding blank
- *   lines are normalized by the overlay renderer/reader, so this is
- *   content-lossless, not byte-exact.
+ *   only the marker body and drop the rest (sage#378). Not byte-exact: the
+ *   overlay renderer/reader normalizes surrounding blank lines AND the file is
+ *   written with a single trailing newline (`.trimEnd()`), so trailing
+ *   whitespace in the original is not preserved. Meaningful text is never
+ *   dropped; incidental edge whitespace is normalized.
  * - Otherwise (greenfield, or an already-Soma file with no overlay) there is
  *   nothing to carry.
  */
