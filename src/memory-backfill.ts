@@ -214,7 +214,7 @@ async function collectSources(root: string, skipRootFiles: boolean): Promise<Sou
       // default memory root; a custom `--from <dir>` may legitimately hold its
       // markdown right at the top, so those are imported (category "" → semantic).
       if (depth === 0 && skipRootFiles) continue;
-      if (/^readme\.md$/i.test(entry.name)) continue;
+      if (/^readme\.(?:md|markdown)$/i.test(entry.name)) continue;
       if (!MARKDOWN_EXT.test(entry.name)) continue;
       const category = rel.includes("/") ? rel.split("/")[0] : "";
       const stat = await lstat(abs);
