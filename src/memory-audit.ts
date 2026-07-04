@@ -1,6 +1,6 @@
 import { type Dirent, constants as fsConstants } from "node:fs";
 import { lstat, readFile, readdir } from "node:fs/promises";
-import { basename, isAbsolute, join, relative } from "node:path";
+import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { createPaths } from "./paths";
 import { isEnoent } from "./fs-utils";
 import { runBoundedConcurrent } from "./internal-concurrency";
@@ -133,7 +133,13 @@ export async function auditMemory(options: SomaMemoryAuditOptions = {}): Promise
 
   const schema = probeSchema(parsed, allFiles.length, somaHome);
   const index = await probeIndexFreshness(somaHome, durableFiles);
-  const digestFilesList = await listRealMarkdownFilesRec(paths.resolve("memory", "episodic", "digests"));
+  // CANONICAL digests only: a real `<YYYY-MM>.md` DIRECTLY under the digests root. A
+  // nested or oddly-named file (e.g. `digests/nested/2026-07.md`) must not satisfy
+  // month coverage.
+  const digestsDir = paths.resolve("memory", "episodic", "digests");
+  const digestFilesList = (await listRealMarkdownFilesRec(digestsDir)).filter(
+    (p) => dirname(p) === digestsDir && /^\d{4}-\d{2}\.md$/.test(basename(p)),
+  );
   const digestCov = probeDigestCoverage(sessionFiles.length, actionFiles.length, digestFilesList.length);
   const archive = await probeOrphanedArchive(parsed, archiveDir, digestFilesList, somaHome);
   const eventLines = await countEventLines(somaMemoryEventsPath(somaHome));

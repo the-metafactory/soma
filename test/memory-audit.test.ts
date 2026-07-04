@@ -149,6 +149,19 @@ test("an archived note referenced only in the WRONG month's digest is still orph
   });
 });
 
+test("a NON-canonical digest file cannot satisfy archive coverage", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeArchivedEpisodicNote(somaHome, "20260704-real", "2026-07-04", "An archived session.");
+    // A nested, non-canonical file named like the month must NOT count as its digest.
+    const nested = join(somaHome, "memory/episodic/digests/nested");
+    await mkdir(nested, { recursive: true });
+    await writeFile(join(nested, "2026-07.md"), "- 20260704-real: sneaky non-canonical digest\n", "utf8");
+
+    const result = await auditMemory({ somaHome });
+    expect(result.orphanedArchive.some((p) => p.includes("20260704-real.md"))).toBe(true);
+  });
+});
+
 test("a symlinked INDEX.md is refused — it cannot spoof freshness past the gate", async () => {
   await withTempSoma(async (somaHome) => {
     await writeNote(somaHome, "durable", "A durable note.");
