@@ -422,25 +422,46 @@ async function applyStaleMarks(marks: { path: string; rel: string; note: SomaMem
       skipped.push(rel); // swapped away since planning — NOT marked; caller drops it from the result
       continue;
     }
-    const tmp = `${path}.soma-stale-tmp`;
-    await writeFile(tmp, serializeMemoryNote({ ...note, review: "stale" }), { encoding: "utf8", flag: "wx" });
-    await rename(tmp, path); // atomic replace of the real file (not a follow-through write)
+    // Unique temp path (so concurrent/leftover temps don't collide), cleaned up on
+    // any failure so a crash can't strand a `.soma-stale-tmp` that blocks a later run.
+    const tmp = `${path}.soma-stale-tmp-${staleTmpSeq++}`;
+    try {
+      await writeFile(tmp, serializeMemoryNote({ ...note, review: "stale" }), { encoding: "utf8", flag: "wx" });
+      await rename(tmp, path); // atomic replace of the real file (not a follow-through write)
+    } catch (error) {
+      await unlink(tmp).catch(() => undefined); // best-effort cleanup; re-surface the original error
+      throw error;
+    }
   }
   return { skipped };
 }
 
-/** Apply the state GC — the only deletion. Reported `stateGced` must be TRUE. */
-async function applyStateGc(root: string, stateGc: string[]): Promise<void> {
+// Monotonic counter for unique stale-mark temp filenames within a process.
+let staleTmpSeq = 0;
+
+/**
+ * Apply the state GC — the only deletion. Reported `stateGced` must be TRUE. Returns
+ * the paths it actually deleted (a candidate swapped since planning is skipped, so
+ * the caller can correct the result). Re-lstat + re-check age immediately before
+ * unlink so a same-name replacement (now a symlink, a dir, or a fresh file) is NOT
+ * deleted just because an old file sat there at plan time.
+ */
+async function applyStateGc(root: string, stateGc: string[], now: Date): Promise<string[]> {
+  const deleted: string[] = [];
   for (const rel of stateGc) {
+    const full = join(root, rel);
+    const info = await lstat(full).catch(() => undefined);
+    if (info === undefined) continue; // already gone
+    if (info.isSymbolicLink() || !info.isFile()) continue; // swapped to symlink/dir — refuse
+    if ((now.getTime() - info.mtimeMs) / MS_PER_DAY <= STATE_GC_DAYS) continue; // replaced with a fresh file
     try {
-      await unlink(join(root, rel));
+      await unlink(full);
+      deleted.push(rel);
     } catch (error) {
-      // ENOENT = already gone (fine). Any other failure means the file is NOT
-      // deleted — do NOT swallow it, or the pass would report/record a deletion
-      // that did not happen.
-      if (!isEnoent(error)) throw error;
+      if (!isEnoent(error)) throw error; // a real failure is NOT swallowed (no phantom deletion)
     }
   }
+  return deleted;
 }
 
 /**
@@ -499,7 +520,7 @@ export async function consolidateMemory(options: SomaMemoryConsolidateOptions = 
   // --- apply (mutations only on the real run) ---
   const archivedOmissions = await applyEpisodicArchive(paths, episodic);
   const { skipped: staleSkipped } = await applyStaleMarks(staleMarks);
-  await applyStateGc(somaHome, stateGc);
+  const gcDeleted = await applyStateGc(somaHome, stateGc, now);
   // A stale mark skipped by a TOCTOU swap was NOT applied — drop it from the result
   // so `markedStale` reflects what actually happened, and surface the swapped path.
   if (staleSkipped.length > 0) {
@@ -507,15 +528,18 @@ export async function consolidateMemory(options: SomaMemoryConsolidateOptions = 
     result.markedStale = result.markedStale.filter((p) => !skippedSet.has(p));
     unreadable.push(...staleSkipped);
   }
+  // Likewise, `stateGced` reflects the files ACTUALLY deleted (a swapped candidate is
+  // refused), not the plan.
+  result.stateGced = gcDeleted;
   // Merge in any unreadable archived note found during digest regeneration, then
   // ASSIGN the result field explicitly (no hidden aliasing of the plan-phase array).
   if (archivedOmissions.length > 0 || staleSkipped.length > 0) {
     result.unreadable = Array.from(new Set([...unreadable, ...archivedOmissions])).sort();
   }
-  // Recompute `mutated` from what ACTUALLY happened (result.markedStale is now the
-  // post-skip set), so a run whose only planned stale marks were all TOCTOU-skipped
-  // does NOT rebuild the INDEX or append an event as if it changed something.
-  result.mutated = episodic.length > 0 || result.markedStale.length > 0 || stateGc.length > 0;
+  // Recompute `mutated` from what ACTUALLY happened (post-skip markedStale + actual
+  // deletions), so a run whose planned mutations were all TOCTOU-skipped does NOT
+  // rebuild the INDEX or append an event as if it changed something.
+  result.mutated = episodic.length > 0 || result.markedStale.length > 0 || result.stateGced.length > 0;
 
   // Only rebuild the INDEX when something actually changed — a no-op maintenance
   // run must not do corpus-scale work for an unchanged corpus.
@@ -531,12 +555,12 @@ export async function consolidateMemory(options: SomaMemoryConsolidateOptions = 
       timestamp: now.toISOString(),
       substrate: options.substrate ?? "custom",
       kind: "memory.consolidate",
-      summary: `Consolidation: ${episodic.length} archived, ${result.markedStale.length} marked stale, ${stateGc.length} state GC'd.`,
+      summary: `Consolidation: ${episodic.length} archived, ${result.markedStale.length} marked stale, ${result.stateGced.length} state GC'd.`,
       artifactPaths: [result.indexPath],
       metadata: {
         archived: episodic.length,
         markedStale: result.markedStale.length, // actual, after any TOCTOU skips
-        stateGced: stateGc.length,
+        stateGced: result.stateGced.length, // actual deletions, not the plan
         similarPairs: similarPairs.length,
         unreadableCount: result.unreadable.length,
         unreadablePaths: result.unreadable, // the actual files (incl. archived omissions), so the journal identifies them

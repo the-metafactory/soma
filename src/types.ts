@@ -2603,7 +2603,12 @@ export interface SomaMemoryConsolidateResult {
   stateGced: string[];
   /** High-lexical-similarity note pairs listed for review (candidate duplicates/contradictions). */
   similarPairs: SomaMemorySimilarPair[];
-  /** Note files that exist but could not be read/parsed — surfaced, never silently skipped. */
+  /**
+   * Note files surfaced for the audit and NOT acted on — either an I/O/parse failure
+   * (couldn't be read/parsed) OR a safety refusal (unsafe id, malformed calendar date,
+   * or a mis-placed episodic note whose directory month ≠ its created month). Never
+   * silently skipped; the two classes are not distinguished in this field.
+   */
   unreadable: string[];
   /**
    * True iff the pass has (or, on dry-run, would have) any file mutation — i.e. any
