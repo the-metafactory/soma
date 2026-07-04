@@ -29,11 +29,11 @@ test("codex adapter builds a portable context bundle", () => {
 });
 
 test("codex home projects the durable memory INDEX as a static file when present", () => {
-  const withIndex = {
+  const inputWithIndex = {
     ...portableProjectionInput,
     memory: { indexContent: "# Soma Memory Index\n\n## Procedural\n- restart-gateway — how · principal, verified 2d ago\n" },
   };
-  const bundle = projectCodexHome(withIndex, "/tmp/soma-home");
+  const bundle = projectCodexHome(inputWithIndex, "/tmp/soma-home");
   const indexFile = bundle.files.find((file) => file.path === CODEX_MEMORY_INDEX);
   expect(indexFile?.content).toContain("# Soma Memory Index");
   expect(indexFile?.content).toContain("restart-gateway");

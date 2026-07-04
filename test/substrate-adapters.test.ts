@@ -34,6 +34,10 @@ test("pi.dev home extension wires note-aware recall, live INDEX, and a digest wr
   expect(extension).toContain('"memory_index"');
   expect(extension).toContain("memoryRecallArgs");
   expect(extension).toContain("memory/INDEX.md");
+  // memory_index distinguishes not-built (ENOENT) from a genuine read error,
+  // rather than collapsing every blank read into a rebuild hint.
+  expect(extension).toContain("ENOENT");
+  expect(extension).toContain("Error reading Soma memory INDEX.md");
   // Digest capture is agent-invoked (Pi has no SessionEnd digest hook).
   expect(extension).toContain("soma memory digest");
   // Back-compat: legacy line-grep search is not removed.

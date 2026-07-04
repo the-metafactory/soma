@@ -129,7 +129,7 @@ function renderHomeSkill(input: ProjectionInput, somaHome: string): string {
     "- Read `~/.codex/memories/soma/profile.md` for the current projected assistant profile.",
     "- Read `~/.codex/memories/soma/pai-imports.md` when the task needs detailed migrated PAI identity, voice, relationship, purpose, or decision-context material.",
     "- Read `~/.codex/memories/soma/startup-context.md` for lifecycle-generated active work and recent learning context when present.",
-    "- When present, read `~/.codex/memories/soma/memory-index.md` for the durable memory INDEX (Tier-0 orientation). It is projected only when durable notes exist, is regenerated on each `soma install`, and may be absent (no index yet) or stale between installs.",
+    "- When present, read `~/.codex/memories/soma/memory-index.md` for the durable memory INDEX (Tier-0 orientation). It is a snapshot written whenever the Codex bundle is projected (e.g. `soma install`) from the index at that moment, and only when durable notes exist — so it may be absent (no index yet) or lag the live store between projections.",
     "- Read `~/.codex/memories/soma/lifecycle.md` for lifecycle refresh commands.",
     "- Use `cd $(cat ~/.codex/memories/soma/soma-repo.txt) && bun run soma memory recall --query \"...\"` before making durable claims that may depend on prior knowledge, learning, relationship, work, or imported PAI context. This is note-aware retrieval; `soma memory search` remains as a legacy line-grep fallback.",
     "- Use `cd $(cat ~/.codex/memories/soma/soma-repo.txt) && bun run soma memory promote --from-run <id> --store learning --title \"...\" --substrate codex` when verified Algorithm work should become durable recall.",
