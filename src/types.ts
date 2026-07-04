@@ -2549,9 +2549,12 @@ export interface SomaMemoryActionResult {
 }
 
 // Memory subsystem M6 (deterministic consolidation). Plan v2 §M6: a no-LLM
-// maintenance pass with a `--dry-run` that PLANS the same ops the real run applies
-// (dry-run output == real-run diff). Ops: prune aged episodic notes into a monthly
-// digest + archive (invalidate-never-delete); mark aged-unverified semantic notes
+// maintenance pass with a `--dry-run` that PLANS the same set of file OPERATIONS
+// the real run applies (which notes archive, which are marked stale, which state
+// files are deleted, which pairs contradict) — the dry-run plan equals the real
+// run's plan. It enumerates the operations, NOT a byte-level diff of digest/INDEX
+// content or journal entries. Ops: prune aged episodic notes into a monthly digest
+// + archive (invalidate-never-delete); mark aged-unverified semantic notes
 // `review: stale` (never auto-archive); LIST contradictions (Jaccard, no auto-merge);
 // GC old `current-work-*.json` state (the ONE true deletion); rebuild INDEX.
 export interface SomaMemoryConsolidateOptions {

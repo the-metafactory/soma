@@ -5,6 +5,7 @@ import { isEnoent } from "./fs-utils";
 import { appendSomaMemoryEvent } from "./memory";
 import { parseMemoryNote, serializeMemoryNote, MemoryNoteError } from "./memory-note";
 import { collectDurableNotes } from "./memory-write";
+import { runBoundedConcurrent } from "./internal-concurrency";
 import { memoryTermSet } from "./memory-terms";
 import { rebuildMemoryIndex, memoryIndexPath } from "./memory-index";
 import type {
@@ -102,15 +103,16 @@ function jaccard(a: Set<string>, b: Set<string>): number {
 }
 
 /**
- * Archive target that MIRRORS the source's full relative path under `archive/`
- * (`memory/episodic/…/x.md` → `archive/memory/episodic/…/x.md`), so the audit trail
- * truly preserves the original location. `paths.resolve` asserts the result stays
- * inside the Soma root — combined with the id-slug validation upstream, no crafted
- * frontmatter can redirect a rename outside the tree.
+ * Archive target that MIRRORS the source's path relative to the memory root, under
+ * `memory/archive/` (`memory/episodic/…/x.md` → `memory/archive/episodic/…/x.md`),
+ * so the tombstone preserves the original location AND stays under the single
+ * lowercase `memory/` root (architecture.md) rather than creating a second root.
+ * `paths.resolve` asserts the result stays inside the Soma root — combined with the
+ * id-slug validation upstream, no crafted frontmatter can redirect a rename out.
  */
 function archiveTargetFor(paths: SomaPaths, sourcePath: string): string {
-  const relSegments = relative(paths.root(), sourcePath).split(sep);
-  return paths.resolve("archive", ...relSegments);
+  const relSegments = relative(paths.memory(), sourcePath).split(sep);
+  return paths.resolve("memory", "archive", ...relSegments);
 }
 
 interface EpisodicArchive {
@@ -131,10 +133,20 @@ async function planEpisodicArchive(
   const root = paths.root();
   const base = paths.resolve("memory", "episodic", kind);
   const files = await listEpisodicNotes(base);
+  // Reads are independent and only feed the plan — do them with bounded parallelism
+  // (same helper the durable-corpus scan uses) rather than serially.
+  const parsedFiles = await runBoundedConcurrent(
+    files,
+    async (path): Promise<{ path: string; note: SomaMemoryNote } | undefined> => {
+      const note = await readFile(path, "utf8").then(parseMemoryNote).catch(() => undefined);
+      return note === undefined ? undefined : { path, note };
+    },
+    16,
+  );
   const out: EpisodicArchive[] = [];
-  for (const path of files) {
-    const parsed = await readFile(path, "utf8").then(parseMemoryNote).catch(() => undefined);
-    if (parsed === undefined) continue; // unreadable/unparseable — leave for the audit
+  for (const entry of parsedFiles) {
+    if (entry === undefined) continue; // unreadable/unparseable — leave for the audit
+    const { path, note: parsed } = entry;
     if (!NOTE_ID_SLUG.test(parsed.id) || parsed.id.length > 64) {
       // Defense in depth: an id that isn't a plain slug could form a traversal path.
       throw new MemoryNoteError(`episodic note ${path} has an unsafe id "${parsed.id}".`, "id");
@@ -190,17 +202,15 @@ function planContradictions(notes: { note: SomaMemoryNote }[]): SomaMemoryContra
     }
   }
 
-  const seen = new Set<string>();
   const pairs: SomaMemoryContradiction[] = [];
   for (let i = 0; i < active.length; i += 1) {
+    // candidates is a Set keyed by j, and only j > i is added, so every (i, j)
+    // pair is visited at most once — no extra dedup needed.
     const candidates = new Set<number>();
     for (const token of tokens[i]) {
       for (const j of postings.get(token)!) if (j > i) candidates.add(j);
     }
     for (const j of candidates) {
-      const key = `${i}:${j}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
       const score = jaccard(tokens[i], tokens[j]);
       if (score >= CONTRADICTION_JACCARD) {
         const [a, b] = [active[i].id, active[j].id].sort();
@@ -235,29 +245,25 @@ async function planStateGc(paths: SomaPaths, now: Date): Promise<string[]> {
   return out;
 }
 
-/** Apply the episodic prune: append monthly-digest pointers, then MOVE the notes. */
+/**
+ * Apply the episodic prune. For EACH note: move it first, THEN record its monthly-
+ * digest pointer — so a rename that fails never leaves a digest entry claiming a
+ * still-active note is consolidated (and a retry, which only re-plans notes that
+ * are still in place, can't append a duplicate). Notes are processed in a
+ * deterministic order (digest file, then id).
+ */
 async function applyEpisodicArchive(episodic: EpisodicArchive[]): Promise<void> {
-  const byDigest = new Map<string, EpisodicArchive[]>();
-  for (const e of episodic) {
-    const list = byDigest.get(e.digestPath) ?? [];
-    list.push(e);
-    byDigest.set(e.digestPath, list);
-  }
-  for (const [digestPath, group] of [...byDigest.entries()].sort(([a], [b]) => a.localeCompare(b))) {
-    await mkdir(dirname(digestPath), { recursive: true });
-    const header = (await readFile(digestPath, "utf8").catch(() => "")).length === 0
-      ? `# Episodic digest ${group[0].note.created.slice(0, 7)}\n\n`
-      : "";
-    const lines = group
-      .slice()
-      .sort((a, b) => a.note.id.localeCompare(b.note.id))
-      .map((e) => `- ${e.note.id}: ${firstBodyLine(e.note)}`)
-      .join("\n");
-    await appendFile(digestPath, `${header}${lines}\n`, "utf8");
-  }
-  for (const e of episodic) {
+  const ordered = episodic
+    .slice()
+    .sort((a, b) => a.digestPath.localeCompare(b.digestPath) || a.note.id.localeCompare(b.note.id));
+  for (const e of ordered) {
     await mkdir(dirname(e.to), { recursive: true });
-    await rename(e.from, e.to);
+    await rename(e.from, e.to); // move first
+    await mkdir(dirname(e.digestPath), { recursive: true });
+    const header = (await readFile(e.digestPath, "utf8").catch(() => "")).length === 0
+      ? `# Episodic digest ${e.note.created.slice(0, 7)}\n\n`
+      : "";
+    await appendFile(e.digestPath, `${header}- ${e.note.id}: ${firstBodyLine(e.note)}\n`, "utf8");
   }
 }
 
