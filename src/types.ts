@@ -2628,7 +2628,8 @@ export interface SomaMemoryConsolidateResult {
 // Memory subsystem M7 (audit). Plan v2 §M7: a DETERMINISTIC health check over the
 // on-disk memory tree — no LLM, no sentiment, only filesystem ground-truth probes.
 // Read-only: it mutates nothing and appends no event. The CLI exits NON-ZERO when
-// `healthy` is false (a schema-invalid note or a stale INDEX), so it can gate CI /
+// `healthy` is false — any health-gating probe failing: an abnormal note root
+// (root-integrity), a schema-invalid note, or a stale INDEX — so it can gate CI /
 // a pre-consolidation check.
 export interface SomaMemoryAuditOptions {
   homeDir?: string;
@@ -2646,9 +2647,10 @@ export type SomaMemoryAuditProbeName =
 
 /**
  * One deterministic probe's outcome. `gatesHealth` is machine-readable: when it is
- * true, `ok: false` forces `result.healthy` false (only `schema` and
- * `index-freshness` gate). Informational probes have `gatesHealth: false` and always
- * report `ok: true`.
+ * true, `ok: false` forces `result.healthy` false. Three probes gate:
+ * `root-integrity`, `schema`, and `index-freshness`. Informational probes
+ * (`digest-coverage`, `orphaned-archive`, `event-ratio`) have `gatesHealth: false`
+ * and always report `ok: true`.
  */
 export interface SomaMemoryAuditProbe {
   name: SomaMemoryAuditProbeName;
