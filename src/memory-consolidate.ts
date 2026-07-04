@@ -66,6 +66,13 @@ const MAX_SIMILAR_PAIRS = 50;
 const MS_PER_DAY = 86_400_000;
 const NOTE_ID_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
+/** `YYYY-MM-DD` shape (the M0 parser already enforces this on created/last_verified;
+ *  this is a defensive re-check before age/month math so a bad date is classified,
+ *  not silently turned into NaN). */
+function isIsoDate(s: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(s);
+}
+
 function dateMs(isoDate: string): number {
   const [y, m, d] = isoDate.split("-").map(Number);
   return Date.UTC(y, m - 1, d);
@@ -207,6 +214,10 @@ async function planEpisodicArchive(
       // Defense in depth: an id that isn't a plain slug could form a traversal path.
       throw new MemoryNoteError(`episodic note ${path} has an unsafe id "${parsed.id}".`, "id");
     }
+    if (!isIsoDate(parsed.created)) {
+      unreadable.push(relative(root, path)); // malformed date → classify, never NaN-age it
+      continue;
+    }
     if (ageDays(parsed.created, now) <= ttlDays) continue;
     const month = parsed.created.slice(0, 7);
     // The note MUST live in its created-month dir — the archive mirrors the source
@@ -241,6 +252,7 @@ async function planStaleMarks(
     if (note.valid_until !== null) continue; // superseded already
     if (note.review === "stale") continue; // already marked
     if (note.resurface_count !== 0) continue; // used → not stale
+    if (!isIsoDate(note.last_verified)) continue; // malformed date → don't NaN-age; leave for the audit
     if (ageDays(note.last_verified, now) <= SEMANTIC_STALE_DAYS) continue;
     // The stale mark REWRITES the file, so never write through a symlink — a
     // symlinked memory/semantic/*.md could point outside Soma. lstat + require a
@@ -331,7 +343,8 @@ async function planStateGc(paths: SomaPaths, now: Date): Promise<string[]> {
  * restored on the next run, because the archived note (the durable record) is
  * re-scanned. Notes still live in their raw archived form regardless.
  */
-async function regenerateMonthlyDigests(paths: SomaPaths, months: Set<string>): Promise<void> {
+async function regenerateMonthlyDigests(paths: SomaPaths, months: Set<string>): Promise<string[]> {
+  const omitted: string[] = []; // unreadable archived notes, RETURNED (core stays IO-channel-free)
   for (const month of [...months].sort()) {
     // Episodic notes are stored under their created month (`YYYY-MM/`), and the
     // archive mirrors that, so only the affected month's archive dirs need reading —
@@ -341,14 +354,12 @@ async function regenerateMonthlyDigests(paths: SomaPaths, months: Set<string>): 
       ...(await listArchivedMonthNotes(paths, "actions", month)),
     ];
     const parsed = await parseNotesBounded(monthFiles);
-    // An unparseable ARCHIVED note is a corrupt durable record — warn so the digest
-    // is not silently regenerated as an incomplete recovery artifact (a memory
-    // audit, M7/forthcoming, is the intended ground-truth check). It is not thrown,
-    // so one corrupt tombstone can't block maintenance of the rest.
+    // An unparseable ARCHIVED note is a corrupt durable record — return it (the
+    // caller surfaces it in the result) so the digest is not silently regenerated as
+    // an incomplete recovery artifact. It is not thrown, so one corrupt tombstone
+    // can't block maintenance of the rest (the M7 audit, forthcoming, is ground truth).
     for (const entry of parsed) {
-      if (entry.note === undefined) {
-        console.warn(`soma: archived note ${entry.path} is unreadable — omitted from the ${month} digest (surface for the audit).`);
-      }
+      if (entry.note === undefined) omitted.push(relative(paths.root(), entry.path));
     }
     const notes = parsed
       .map((entry) => entry.note)
@@ -362,6 +373,7 @@ async function regenerateMonthlyDigests(paths: SomaPaths, months: Set<string>): 
     await mkdir(dirname(digestPath), { recursive: true });
     await writeFile(digestPath, `# Episodic digest ${month}\n\n${body}\n`, "utf8");
   }
+  return omitted;
 }
 
 /** Real `.md` files directly under one archived-episodic `<kind>/<month>/` dir. */
@@ -375,7 +387,7 @@ function listArchivedMonthNotes(paths: SomaPaths, kind: "sessions" | "actions", 
  * — the archived raw note is the durable record, and the digest is a recoverable,
  * idempotent derivation of it (never the source of truth).
  */
-async function applyEpisodicArchive(paths: SomaPaths, episodic: EpisodicArchive[]): Promise<void> {
+async function applyEpisodicArchive(paths: SomaPaths, episodic: EpisodicArchive[]): Promise<string[]> {
   const months = new Set<string>();
   // Destinations were all preflighted in the plan phase (both dry-run and real),
   // so no per-note refusal can leave an earlier note already moved.
@@ -384,7 +396,7 @@ async function applyEpisodicArchive(paths: SomaPaths, episodic: EpisodicArchive[
     await rename(e.from, e.to);
     months.add(e.note.created.slice(0, 7));
   }
-  await regenerateMonthlyDigests(paths, months);
+  return regenerateMonthlyDigests(paths, months); // unreadable archived notes, for the caller to surface
 }
 
 /** Apply the `review: stale` marks in place. */
@@ -460,9 +472,15 @@ export async function consolidateMemory(options: SomaMemoryConsolidateOptions = 
   if (dryRun) return result;
 
   // --- apply (mutations only on the real run) ---
-  await applyEpisodicArchive(paths, episodic);
+  const archivedOmissions = await applyEpisodicArchive(paths, episodic);
   await applyStaleMarks(staleMarks);
   await applyStateGc(somaHome, stateGc);
+  // Any unreadable archived note found during digest regeneration is surfaced too
+  // (the result's `unreadable` array is the same reference the event reads below).
+  if (archivedOmissions.length > 0) {
+    for (const p of archivedOmissions) if (!unreadable.includes(p)) unreadable.push(p);
+    unreadable.sort();
+  }
   // Only rebuild the INDEX when something actually changed — a no-op maintenance
   // run must not do corpus-scale work for an unchanged corpus.
   if (mutated) await rebuildMemoryIndex({ somaHome, now });

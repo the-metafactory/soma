@@ -148,7 +148,7 @@ export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAct
     consolidate:
       "Usage: soma memory consolidate [--dry-run] [--gc-state] [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]. " +
       "Deterministic maintenance: prune aged episodic → digest+archive, mark aged-unverified semantic review:stale, " +
-      "list similar-note pairs (candidate contradictions), rebuild INDEX. --gc-state additionally DELETES current-work state >7d (explicit override). " +
+      "list lexically-similar note pairs (near-duplicates for review; no semantic check), rebuild INDEX. --gc-state additionally DELETES current-work state >7d (explicit override). " +
       "--dry-run prints the plan without touching anything.",
   },
 };
@@ -712,7 +712,7 @@ function formatMemoryConsolidateResult(result: SomaMemoryConsolidateResult): str
     ...result.markedStale.map((p) => `  - ${p}`),
     `state GC'd: ${result.stateGced.length} current-work file(s)`,
     ...result.stateGced.map((p) => `  - ${p}`),
-    `similar pairs listed: ${result.similarPairs.length} (candidate duplicates/contradictions)`,
+    `similar pairs listed: ${result.similarPairs.length} (lexical near-duplicates for review; no semantic check)`,
     ...result.similarPairs.map((c) => `  - ${c.a} ~ ${c.b} (jaccard ${c.score.toFixed(2)})`),
     indexLine,
   ];
