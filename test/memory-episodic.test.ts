@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import {
   parseMemoryNote,
+  runSomaLifecycleSessionEnd,
   somaMemoryEventsPath,
   writeMemoryAction,
   writeSessionDigest,
@@ -249,7 +250,7 @@ test("extractDigestBodyFromTranscript builds 8–15 lines from genuine prompts, 
   expect(lines.length).toBeGreaterThanOrEqual(8);
   expect(lines.length).toBeLessThanOrEqual(15);
   expect(lines[0]).toContain("6 principal prompts"); // sidechain + command + tool_result excluded
-  // prompt text is quoted + labeled (injection-safe), not a bare instruction line
+  // prompt text is quoted + labeled (REDUCES injection risk; not a bare instruction line)
   expect(body).toContain(`- principal prompt: "add a login endpoint"`);
   expect(body).toContain("- tools: "); // rollup line
   expect(body).not.toContain("/clear"); // command noise filtered
@@ -346,8 +347,20 @@ test("an unreadable transcript reports 'unreadable' (distinct from a thin sessio
   });
 });
 
-test("parseMemoryArgs digest accepts --transcript and rejects --body + --transcript together", () => {
-  const parsed = parseMemoryArgs(["memory", "digest", "--session", "s", "--transcript", "/t.jsonl"]);
-  expect(parsed.options).toMatchObject({ mode: "transcript" });
-  expect(() => parseMemoryArgs(["memory", "digest", "--session", "s", "--body", "b", "--transcript", "/t.jsonl"])).toThrow(/exactly one/);
+test("lifecycle session-end writes the deterministic fallback digest for claude-code", async () => {
+  await withTempSoma((somaHome) =>
+    withTranscriptFile(SEVEN_PROMPTS, async (tp) => {
+      await runSomaLifecycleSessionEnd({ somaHome, substrate: "claude-code", sessionId: SESSION, transcriptPath: tp });
+      // The lifecycle-dispatched fallback wrote the session digest — a fresh fallback
+      // now no-ops (date-independent one-per-session gate), proving it was written.
+      const again = await writeSessionDigestFromTranscript({ somaHome, now: NOW, sessionId: SESSION, transcriptPath: tp });
+      expect(again.outcome).toBe("duplicate");
+    }),
+  );
+});
+
+test("the neutral `soma memory digest` is body-only — it rejects the Claude --transcript flag", () => {
+  // The transcript FALLBACK is a Claude Code adapter concern routed through
+  // `soma lifecycle session-end`, NOT the substrate-neutral memory command.
+  expect(() => parseMemoryArgs(["memory", "digest", "--session", "s", "--transcript", "/t.jsonl"])).toThrow(/Unknown option/);
 });

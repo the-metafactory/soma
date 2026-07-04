@@ -12,11 +12,6 @@ import {
 } from "../index";
 import { WRITABLE_NOTE_TYPES, isWritableNoteType } from "../memory-write";
 import { SOMA_MEMORY_ACTION_APPROVALS } from "../types";
-import {
-  writeSessionDigestFromTranscript,
-  type ClaudeSessionDigestOptions,
-  type ClaudeSessionDigestResult,
-} from "../adapters/claude-code/session-digest";
 import type {
   SomaMemoryActionApproval,
   SomaMemoryActionOptions,
@@ -89,16 +84,10 @@ export interface ParsedMemoryReindexArgs {
   options: MemoryReindexOptions;
 }
 
-/** A digest is authored EITHER by the assistant (`--body`) OR deterministically from
- *  a transcript by the SessionEnd fallback (`--transcript`). */
-export type ParsedMemoryDigest =
-  | { mode: "body"; options: SomaMemoryDigestOptions }
-  | { mode: "transcript"; options: ClaudeSessionDigestOptions };
-
 export interface ParsedMemoryDigestArgs {
   command: "memory";
   action: "digest";
-  options: ParsedMemoryDigest;
+  options: SomaMemoryDigestOptions;
 }
 
 export interface ParsedMemoryActionArgs {
@@ -161,8 +150,9 @@ export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAct
       "Rebuild memory/INDEX.md from note frontmatter (earned-inclusion ladder, retention-score budget); " +
       "ages are computed against the current date, so 'verified Nd ago' advances day to day. Quarantined notes never appear.",
     digest:
-      "Usage: soma memory digest --session <id> (--body <text> | --transcript <path>) [--agent-id <id>] [--agent-type <t>] [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]. " +
-      "Write the ONE session digest (8–15 non-empty lines). --body is assistant-authored; --transcript is the deterministic SessionEnd fallback (extracts the body, marks hook: session-end, suppresses sub-agent sessions per ADR 0014 unless SOMA_MEMORY_FORCE_PRIMARY=1). A second digest for the same session no-ops with an event.",
+      "Usage: soma memory digest --session <id> --body <text> [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]. " +
+      "Write the ONE assistant-authored session digest (8–15 non-empty lines). A second digest for the same session no-ops with an event. " +
+      "(The deterministic SessionEnd fallback is a Claude Code adapter concern — see `soma lifecycle session-end`.)",
     action:
       "Usage: soma memory action --slug <slug> --planned-action <text> --approval <proposed|approved|rejected|auto> " +
       "[--outcome <text>] [--session <id>] [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]. " +
@@ -284,67 +274,35 @@ function consumeSharedMemoryOption(
   }
 }
 
-function parseMemoryDigestArgs(args: string[]): ParsedMemoryDigest {
-  const shared: { homeDir?: string; somaHome?: string; substrate?: SubstrateId } = {};
-  let sessionId: string | undefined;
-  let body: string | undefined;
-  let transcript: string | undefined;
-  let agentId: string | undefined;
-  let agentType: string | undefined;
+function parseMemoryDigestArgs(args: string[]): SomaMemoryDigestOptions {
+  const options: Partial<SomaMemoryDigestOptions> = {};
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    const consumed = consumeSharedMemoryOption(args, index, arg, shared);
+    const consumed = consumeSharedMemoryOption(args, index, arg, options);
     if (consumed > 0) {
       index += consumed;
       continue;
     }
     switch (arg) {
       case "--session":
-        sessionId = readOption(args, index, arg);
+        options.sessionId = readOption(args, index, arg);
         index += 1;
         break;
       case "--body":
-        body = readOption(args, index, arg);
-        index += 1;
-        break;
-      case "--transcript":
-        transcript = readOption(args, index, arg);
-        index += 1;
-        break;
-      case "--agent-id":
-        agentId = readOption(args, index, arg);
-        index += 1;
-        break;
-      case "--agent-type":
-        agentType = readOption(args, index, arg);
+        options.body = readOption(args, index, arg);
         index += 1;
         break;
       default:
         throw new Error(`Unknown option: ${arg}`);
     }
   }
-  if (!sessionId) throw new Error("soma memory digest is missing required option: --session.");
-  if (body !== undefined && transcript !== undefined) {
-    throw new Error("soma memory digest takes exactly one of --body (assistant-authored) or --transcript (SessionEnd fallback), not both.");
+  const missing: string[] = [];
+  if (!options.sessionId) missing.push("--session");
+  if (options.body === undefined) missing.push("--body");
+  if (missing.length > 0) {
+    throw new Error(`soma memory digest is missing required option(s): ${missing.join(", ")}.`);
   }
-  if (transcript !== undefined) {
-    // Sub-agent suppression (ADR 0014) and its overrides are read from the env here —
-    // the SDK stays pure and takes explicit booleans.
-    return {
-      mode: "transcript",
-      options: {
-        ...shared,
-        sessionId,
-        transcriptPath: transcript,
-        agentId,
-        agentType,
-        forcePrimary: process.env.SOMA_MEMORY_FORCE_PRIMARY === "1",
-        forceSubagent: process.env.SOMA_MEMORY_FORCE_SUBAGENT === "1",
-      },
-    };
-  }
-  if (body === undefined) throw new Error("soma memory digest is missing required option: --body (or --transcript).");
-  return { mode: "body", options: { ...shared, sessionId, body } };
+  return options as SomaMemoryDigestOptions;
 }
 
 function parseActionApproval(value: string): SomaMemoryActionApproval {
@@ -770,9 +728,7 @@ export async function runMemoryCli(parsed: ParsedMemoryArgs): Promise<string> {
     case "reindex":
       return formatMemoryReindexResult(await rebuildMemoryIndex(parsed.options));
     case "digest":
-      return parsed.options.mode === "transcript"
-        ? formatMemoryDigestFromTranscriptResult(await writeSessionDigestFromTranscript(parsed.options.options))
-        : formatMemoryDigestResult(await writeSessionDigest(parsed.options.options));
+      return formatMemoryDigestResult(await writeSessionDigest(parsed.options));
     case "action":
       return formatMemoryActionResult(await writeMemoryAction(parsed.options));
     case "consolidate":
@@ -840,12 +796,6 @@ function formatMemoryDigestResult(result: SomaMemoryDigestResult): string {
     `path: ${result.path}`,
     `event: ${result.event.id}`,
   ].join("\n");
-}
-
-function formatMemoryDigestFromTranscriptResult(result: ClaudeSessionDigestResult): string {
-  const header = `Soma memory digest (SessionEnd fallback): ${result.outcome} — ${result.reason}`;
-  if (result.digest === undefined) return header; // suppressed / skipped
-  return [header, `id: ${result.digest.note.id}`, `path: ${result.digest.path}`].join("\n");
 }
 
 function formatMemoryActionResult(result: SomaMemoryActionResult): string {

@@ -64,6 +64,18 @@ export function parseLifecycleArgs(args: string[]): ParsedLifecycleArgs {
         options.gitBranch = readOption(rest, index, arg);
         index += 1;
         break;
+      case "--transcript":
+        options.transcriptPath = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--agent-id":
+        options.agentId = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--agent-type":
+        options.agentType = readOption(rest, index, arg);
+        index += 1;
+        break;
       default:
         throw new Error(`Unknown option: ${arg}`);
     }

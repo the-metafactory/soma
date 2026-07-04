@@ -74,12 +74,15 @@ type ClassifiedEntry = { kind: "prompt"; text: string } | { kind: "assistant"; t
 function parseTranscriptLine(raw: string): ClassifiedEntry | undefined {
   const line = raw.trim();
   if (line.length === 0) return undefined;
-  let entry: Record<string, unknown>;
+  let parsed: unknown;
   try {
-    entry = JSON.parse(line) as Record<string, unknown>;
+    parsed = JSON.parse(line);
   } catch {
     return undefined; // a non-JSON line — skip, never fail the whole extraction
   }
+  // A valid JSONL line can be `null`, a number, or an array — none is a usable entry.
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+  const entry = parsed as Record<string, unknown>;
   if (entry.isSidechain === true || entry.isMeta === true) return undefined; // sub-agent / meta noise
   const message = entry.message as { role?: unknown; content?: unknown } | undefined;
 
@@ -181,14 +184,18 @@ export interface ClaudeSessionDigestResult {
   reason: string;
 }
 
-/** A sub-agent invocation carries a non-empty agent id or type in the hook payload. */
+/** True when the hook payload CARRIES a sub-agent marker (agent id or type). NOTE:
+ *  suppression depends on the payload actually supplying these — an unmarked sub-agent
+ *  invocation is NOT detected here and falls through to the write path. Detection is
+ *  only as complete as the substrate's markers. */
 function hasAgentMarker(options: ClaudeSessionDigestOptions): boolean {
   return (options.agentId ?? "").trim().length > 0 || (options.agentType ?? "").trim().length > 0;
 }
 
 /**
  * SessionEnd fallback (M5b): write a deterministic digest from a Claude transcript.
- * Suppresses sub-agent sessions (ADR 0014); no-ops when a digest already exists (the
+ * Suppresses MARKED sub-agent sessions (ADR 0014 — via agentId/agentType in the hook
+ * payload; an unmarked sub-agent is not detected); no-ops when a digest already exists (the
  * one-per-session gate — checked BEFORE reading the transcript, so the common primary
  * path does no wasted work); skips a too-thin session; reports an unreadable transcript
  * distinctly. NEVER throws for an absent/unreadable transcript — a hook must not block

@@ -2259,6 +2259,15 @@ export interface SomaLifecycleOptions {
   cwd?: string;
   /** Git branch of `cwd`, when known. Detected from `cwd` when omitted. */
   gitBranch?: string;
+  /**
+   * On `session-end`: path to the substrate session transcript. When set (and the
+   * substrate has a transcript adapter, e.g. claude-code), the handler attempts the
+   * deterministic digest FALLBACK. Substrate-owned — core does not parse it.
+   */
+  transcriptPath?: string;
+  /** Sub-agent markers from the hook payload (suppress the fallback per ADR 0014). */
+  agentId?: string;
+  agentType?: string;
 }
 
 export interface SomaStartupContext {

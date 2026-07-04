@@ -6,6 +6,9 @@ import { promisify } from "node:util";
 import { listAlgorithmRunSummaries, listAlgorithmRuns, readAlgorithmRunById, writeAlgorithmRun } from "./algorithm-store";
 import { appendAlgorithmProvenance } from "./algorithm-provenance";
 import { appendSomaMemoryEvent } from "./memory";
+// Substrate-integration boundary: lifecycle dispatches the substrate-specific digest
+// fallback to the Claude Code transcript adapter (keeps `soma memory digest` neutral).
+import { writeSessionDigestFromTranscript } from "./adapters/claude-code/session-digest";
 import { loadSomaProfile } from "./soma-home";
 import { normalizeSomaWorkRegistryArtifacts, upsertSomaCurrentWorkPointer } from "./work-registry";
 import { SECTION_NAME_MAP, getCriteria, getGoal } from "./vsa-accessors";
@@ -749,10 +752,34 @@ export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions =
     }
   }
 
+  // M5b deterministic digest FALLBACK. The transcript FORMAT is substrate-specific,
+  // so lifecycle (the substrate-integration boundary) dispatches to the substrate's
+  // transcript adapter — currently only claude-code. The neutral `soma memory digest`
+  // stays body-only. Best-effort: never blocks session end.
+  let digestNote = "";
+  if (options.transcriptPath && options.sessionId && substrate(options) === "claude-code") {
+    try {
+      const fallback = await writeSessionDigestFromTranscript({
+        somaHome,
+        now: new Date(timestamp),
+        substrate: substrate(options),
+        sessionId: options.sessionId,
+        transcriptPath: options.transcriptPath,
+        agentId: options.agentId,
+        agentType: options.agentType,
+        forcePrimary: process.env.SOMA_MEMORY_FORCE_PRIMARY === "1",
+        forceSubagent: process.env.SOMA_MEMORY_FORCE_SUBAGENT === "1",
+      });
+      digestNote = ` | digest: ${fallback.outcome}`;
+    } catch {
+      // A fallback failure must never block session end.
+    }
+  }
+
   await appendSomaMemoryEvent(somaHome, {
     substrate: substrate(options),
     kind: "lifecycle.session_end",
-    summary: `Session ended; captured ${learningFiles.length} Algorithm learning artifact(s).${tierGateNote}`,
+    summary: `Session ended; captured ${learningFiles.length} Algorithm learning artifact(s).${tierGateNote}${digestNote}`,
     timestamp,
     artifactPaths: normalizeLifecycleArtifactPaths(somaHome, [index.path, index.activePath, ...learningFiles, ...registryFiles]),
     metadata: {

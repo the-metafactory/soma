@@ -170,7 +170,20 @@ export async function hasSessionDigest(options: { homeDir?: string; somaHome?: s
  * account); a machine-extracted digest passes a distinct `tool:<name>` provenance so
  * recall's trust banner shows the body was NOT assistant-authored.
  */
+// Provenance grammar (mirrors the M0 note schema): a closed set plus the open
+// `tool:<name>` family. Validated HERE so a caller-supplied override can't persist a
+// forged/malformed provenance into trusted recall metadata.
+const PROVENANCE_LITERALS = new Set(["conversation", "consolidation", "import"]);
+const TOOL_PROVENANCE = /^tool:[a-z0-9][a-z0-9._-]{0,63}$/i;
+
+function assertProvenance(provenance: string): void {
+  if (!PROVENANCE_LITERALS.has(provenance) && !TOOL_PROVENANCE.test(provenance)) {
+    throw new MemoryNoteError(`provenance "${provenance}" must be conversation, consolidation, import, or tool:<name>.`, "provenance");
+  }
+}
+
 function buildEpisodicNote(id: string, now: Date, body: string, hook?: string, provenance?: string): SomaMemoryNote {
+  if (provenance !== undefined) assertProvenance(provenance);
   const today = isoDate(now);
   const note: SomaMemoryNote = {
     id,
