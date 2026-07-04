@@ -2661,7 +2661,8 @@ export interface SomaMemoryAuditProbe {
 
 export interface SomaMemoryAuditResult {
   somaHome: string;
-  /** false ⇒ the CLI exits non-zero. Gated by: no schema-invalid notes AND a fresh INDEX. */
+  /** false ⇒ the CLI exits non-zero. Gated by ALL three: real note roots (root-integrity),
+   *  no schema-invalid notes, AND a fresh INDEX. */
   healthy: boolean;
   /** Valid-note counts by type across the whole tree (durable + episodic + archive). */
   notesByType: { semantic: number; procedural: number; episodic: number };
