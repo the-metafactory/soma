@@ -33,7 +33,7 @@ import type {
  *    relocated, never deleted, and no `valid_until` field is stamped (that marker
  *    belongs to the semantic/procedural supersede path, not episodic archival).
  * 2. **Mark stale** — active semantic notes unverified >180d AND never resurfaced
- *    get frontmatter `review: stale`. NEVER auto-archived — a human reviews.
+ *    get frontmatter `review: stale`. NEVER auto-archived — the principal reviews.
  * 3. **List similar pairs** — active durable notes with high LEXICAL similarity
  *    (Jaccard ≥ 0.6) are surfaced for human review as CANDIDATE duplicates/
  *    contradictions — the overlap is lexical, not a proven semantic contradiction,
@@ -404,10 +404,20 @@ async function applyEpisodicArchive(paths: SomaPaths, episodic: EpisodicArchive[
   return regenerateMonthlyDigests(paths, months); // unreadable archived notes, for the caller to surface
 }
 
-/** Apply the `review: stale` marks in place. */
+/**
+ * Apply the `review: stale` marks. Re-lstat immediately before writing (planning
+ * lstat'd too, but a TOCTOU swap could turn the path into a symlink), then write via
+ * a temp file + `rename` OVER the path: `rename` replaces the entry itself, so even
+ * if the target were swapped to a symlink after the re-check, the write lands on a
+ * real file in the memory tree, never through the symlink to somewhere outside.
+ */
 async function applyStaleMarks(marks: { path: string; note: SomaMemoryNote }[]): Promise<void> {
   for (const { path, note } of marks) {
-    await writeFile(path, serializeMemoryNote({ ...note, review: "stale" }), "utf8");
+    const info = await lstat(path).catch(() => undefined);
+    if (info === undefined || info.isSymbolicLink() || !info.isFile()) continue; // swapped away — skip
+    const tmp = `${path}.soma-stale-tmp`;
+    await writeFile(tmp, serializeMemoryNote({ ...note, review: "stale" }), { encoding: "utf8", flag: "wx" });
+    await rename(tmp, path); // atomic replace of the real file (not a follow-through write)
   }
 }
 
@@ -480,11 +490,10 @@ export async function consolidateMemory(options: SomaMemoryConsolidateOptions = 
   const archivedOmissions = await applyEpisodicArchive(paths, episodic);
   await applyStaleMarks(staleMarks);
   await applyStateGc(somaHome, stateGc);
-  // Any unreadable archived note found during digest regeneration is surfaced too
-  // (the result's `unreadable` array is the same reference the event reads below).
+  // Merge in any unreadable archived note found during digest regeneration, then
+  // ASSIGN the result field explicitly (no hidden aliasing of the plan-phase array).
   if (archivedOmissions.length > 0) {
-    for (const p of archivedOmissions) if (!unreadable.includes(p)) unreadable.push(p);
-    unreadable.sort();
+    result.unreadable = Array.from(new Set([...unreadable, ...archivedOmissions])).sort();
   }
   // Only rebuild the INDEX when something actually changed — a no-op maintenance
   // run must not do corpus-scale work for an unchanged corpus.
@@ -507,8 +516,8 @@ export async function consolidateMemory(options: SomaMemoryConsolidateOptions = 
         markedStale: staleMarks.length,
         stateGced: stateGc.length,
         similarPairs: similarPairs.length,
-        unreadableCount: unreadable.length,
-        unreadablePaths: unreadable, // the actual files, so the journal identifies them
+        unreadableCount: result.unreadable.length,
+        unreadablePaths: result.unreadable, // the actual files (incl. archived omissions), so the journal identifies them
       },
     });
   }

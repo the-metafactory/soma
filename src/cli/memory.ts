@@ -190,8 +190,9 @@ function parseMemoryConsolidateArgs(args: string[]): SomaMemoryConsolidateOption
   const options: SomaMemoryConsolidateOptions = {};
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    if (consumeSharedMemoryOption(args, index, arg, options)) {
-      index += 1;
+    const consumed = consumeSharedMemoryOption(args, index, arg, options);
+    if (consumed > 0) {
+      index += consumed;
       continue;
     }
     switch (arg) {
@@ -209,29 +210,30 @@ function parseMemoryConsolidateArgs(args: string[]): SomaMemoryConsolidateOption
 }
 
 /**
- * Consume a shared episodic/home option (`--home-dir`, `--soma-home`,
- * `--substrate`) into `options`. Returns true if `arg` was one of them (the value
- * was read from args[index+1], so the caller advances the index). One place for the
- * options both `digest` and `action` share, so they can't drift.
+ * Consume a shared home/substrate option (`--home-dir`, `--soma-home`,
+ * `--substrate`) into `options`. Returns the number of EXTRA argv entries consumed
+ * (the option's value) — so the caller advances by exactly that, never over-skipping
+ * a following option — or 0 if `arg` was not a shared option. All shared options
+ * take a value today; returning the count keeps that from being a hidden assumption.
  */
 function consumeSharedMemoryOption(
   args: string[],
   index: number,
   arg: string,
   options: { homeDir?: string; somaHome?: string; substrate?: SubstrateId },
-): boolean {
+): number {
   switch (arg) {
     case "--home-dir":
       options.homeDir = readOption(args, index, arg);
-      return true;
+      return 1;
     case "--soma-home":
       options.somaHome = readOption(args, index, arg);
-      return true;
+      return 1;
     case "--substrate":
       options.substrate = parseSubstrate(readOption(args, index, arg));
-      return true;
+      return 1;
     default:
-      return false;
+      return 0;
   }
 }
 
@@ -239,8 +241,9 @@ function parseMemoryDigestArgs(args: string[]): SomaMemoryDigestOptions {
   const options: Partial<SomaMemoryDigestOptions> = {};
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    if (consumeSharedMemoryOption(args, index, arg, options)) {
-      index += 1;
+    const consumed = consumeSharedMemoryOption(args, index, arg, options);
+    if (consumed > 0) {
+      index += consumed;
       continue;
     }
     switch (arg) {
@@ -276,8 +279,9 @@ function parseMemoryActionArgs(args: string[]): SomaMemoryActionOptions {
   const options: Partial<SomaMemoryActionOptions> = {};
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    if (consumeSharedMemoryOption(args, index, arg, options)) {
-      index += 1;
+    const consumed = consumeSharedMemoryOption(args, index, arg, options);
+    if (consumed > 0) {
+      index += consumed;
       continue;
     }
     switch (arg) {
