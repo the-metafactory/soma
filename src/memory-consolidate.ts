@@ -58,7 +58,7 @@ const EPISODIC_ACTION_TTL_DAYS = 180;
 const SEMANTIC_STALE_DAYS = 180;
 const STATE_GC_DAYS = 7;
 // Same near-duplicate floor as the M1 write-path dedup gate.
-const CONTRADICTION_JACCARD = 0.6;
+const NEAR_DUPLICATE_JACCARD = 0.6;
 // Cap on the similar-pair report (highest-scored kept) — a duplicated corpus could
 // otherwise surface n(n-1)/2 pairs.
 const MAX_SIMILAR_PAIRS = 50;
@@ -66,11 +66,14 @@ const MAX_SIMILAR_PAIRS = 50;
 const MS_PER_DAY = 86_400_000;
 const NOTE_ID_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-/** `YYYY-MM-DD` shape (the M0 parser already enforces this on created/last_verified;
- *  this is a defensive re-check before age/month math so a bad date is classified,
- *  not silently turned into NaN). */
+/** A real `YYYY-MM-DD` CALENDAR date (the M0 parser already enforces this; this is a
+ *  defensive re-check before age/month math). Round-trips through UTC so impossible
+ *  dates like `2026-02-31` are rejected — shape alone would let `Date.UTC` normalize
+ *  them into a valid-looking but wrong day. */
 function isIsoDate(s: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}$/.test(s);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const [y, m, d] = s.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).toISOString().slice(0, 10) === s;
 }
 
 function dateMs(isoDate: string): number {
@@ -299,7 +302,7 @@ function planSimilarPairs(notes: { note: SomaMemoryNote }[]): SomaMemorySimilarP
     }
     for (const j of candidates) {
       const score = jaccard(tokens[i], tokens[j]);
-      if (score >= CONTRADICTION_JACCARD) {
+      if (score >= NEAR_DUPLICATE_JACCARD) {
         const [a, b] = [active[i].id, active[j].id].sort();
         pairs.push({ a, b, score });
         if (pairs.length >= flushAt) {
@@ -411,14 +414,19 @@ async function applyEpisodicArchive(paths: SomaPaths, episodic: EpisodicArchive[
  * if the target were swapped to a symlink after the re-check, the write lands on a
  * real file in the memory tree, never through the symlink to somewhere outside.
  */
-async function applyStaleMarks(marks: { path: string; note: SomaMemoryNote }[]): Promise<void> {
-  for (const { path, note } of marks) {
+async function applyStaleMarks(marks: { path: string; rel: string; note: SomaMemoryNote }[]): Promise<{ skipped: string[] }> {
+  const skipped: string[] = [];
+  for (const { path, rel, note } of marks) {
     const info = await lstat(path).catch(() => undefined);
-    if (info === undefined || info.isSymbolicLink() || !info.isFile()) continue; // swapped away — skip
+    if (info === undefined || info.isSymbolicLink() || !info.isFile()) {
+      skipped.push(rel); // swapped away since planning — NOT marked; caller drops it from the result
+      continue;
+    }
     const tmp = `${path}.soma-stale-tmp`;
     await writeFile(tmp, serializeMemoryNote({ ...note, review: "stale" }), { encoding: "utf8", flag: "wx" });
     await rename(tmp, path); // atomic replace of the real file (not a follow-through write)
   }
+  return { skipped };
 }
 
 /** Apply the state GC — the only deletion. Reported `stateGced` must be TRUE. */
@@ -451,10 +459,12 @@ export async function consolidateMemory(options: SomaMemoryConsolidateOptions = 
   const sessionPlan = await planEpisodicArchive(paths, "sessions", EPISODIC_SESSION_TTL_DAYS, now);
   const actionPlan = await planEpisodicArchive(paths, "actions", EPISODIC_ACTION_TTL_DAYS, now);
   const episodic = [...sessionPlan.archives, ...actionPlan.archives];
-  // Preflight EVERY mutation destination now (in the plan phase, so a dry-run refuses
-  // exactly what the real run would) — before ANY note is moved, so an unsafe or
-  // colliding target can never leave a partially-applied consolidation. Covers both
-  // the per-note archive targets AND the shared digests dir the regenerate step writes.
+  // Preflight the ARCHIVE-MOVE destinations (per-note targets + the shared digests
+  // dir) in the plan phase — before ANY note is moved — so an unsafe/colliding
+  // archive target never strands earlier moves, and a dry-run refuses exactly what
+  // the real run would. The other two mutating paths carry their OWN inline symlink
+  // guards at write time instead: stale-mark re-lstats + writes via temp+rename, and
+  // state-GC lstat-filters — those are not part of this archive preflight.
   const memoryRoot = paths.memory();
   for (const e of episodic) await assertSafeArchiveDest(memoryRoot, e.to);
   if (episodic.length > 0) {
@@ -488,11 +498,18 @@ export async function consolidateMemory(options: SomaMemoryConsolidateOptions = 
 
   // --- apply (mutations only on the real run) ---
   const archivedOmissions = await applyEpisodicArchive(paths, episodic);
-  await applyStaleMarks(staleMarks);
+  const { skipped: staleSkipped } = await applyStaleMarks(staleMarks);
   await applyStateGc(somaHome, stateGc);
+  // A stale mark skipped by a TOCTOU swap was NOT applied — drop it from the result
+  // so `markedStale` reflects what actually happened, and surface the swapped path.
+  if (staleSkipped.length > 0) {
+    const skippedSet = new Set(staleSkipped);
+    result.markedStale = result.markedStale.filter((p) => !skippedSet.has(p));
+    unreadable.push(...staleSkipped);
+  }
   // Merge in any unreadable archived note found during digest regeneration, then
   // ASSIGN the result field explicitly (no hidden aliasing of the plan-phase array).
-  if (archivedOmissions.length > 0) {
+  if (archivedOmissions.length > 0 || staleSkipped.length > 0) {
     result.unreadable = Array.from(new Set([...unreadable, ...archivedOmissions])).sort();
   }
   // Only rebuild the INDEX when something actually changed — a no-op maintenance
@@ -509,11 +526,11 @@ export async function consolidateMemory(options: SomaMemoryConsolidateOptions = 
       timestamp: now.toISOString(),
       substrate: options.substrate ?? "custom",
       kind: "memory.consolidate",
-      summary: `Consolidation: ${episodic.length} archived, ${staleMarks.length} marked stale, ${stateGc.length} state GC'd.`,
+      summary: `Consolidation: ${episodic.length} archived, ${result.markedStale.length} marked stale, ${stateGc.length} state GC'd.`,
       artifactPaths: [result.indexPath],
       metadata: {
         archived: episodic.length,
-        markedStale: staleMarks.length,
+        markedStale: result.markedStale.length, // actual, after any TOCTOU skips
         stateGced: stateGc.length,
         similarPairs: similarPairs.length,
         unreadableCount: result.unreadable.length,
