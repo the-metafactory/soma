@@ -162,8 +162,10 @@ created-month digest, and the event/note ratio — and EXITS NON-ZERO on a
 schema-invalid note or a stale INDEX (so it can gate CI). A no-op pass writes no event. The write/event
 coupling is best-effort, not crash-atomic: an event-append *failure* rolls the file
 mutation back, but a hard process crash in the window between the two can still
-orphan a file from its event (a documented gap the M7 audit surfaces; soma has no
-WAL/2PC). This
+orphan a file from its event (soma has no WAL/2PC). The M7 audit does NOT reconcile
+note↔event linkage — its event-ratio probe is a COARSE count (event lines over
+notes), not per-note orphan detection; a missing event can be masked by unrelated
+lines. This
 taxonomy is intentionally distinct from the `MEMORY/*` stores: those stores hold
 curated free-form material; the note store holds single-fact, governed,
 decay-tracked notes.

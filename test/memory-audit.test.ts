@@ -202,6 +202,23 @@ test("a symlinked note DIRECTORY is not followed (no reading outside the root)",
   });
 });
 
+test("a durable ROOT replaced by a symlink is UNHEALTHY, not silently empty", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeNote(somaHome, "real", "A real note.");
+    await rebuildMemoryIndex({ somaHome, now: NOW });
+    // Replace memory/semantic ROOT with a symlink to an outside dir of notes.
+    const outsideDir = join(somaHome, "..", "swapped-root");
+    await mkdir(outsideDir, { recursive: true });
+    await rm(join(somaHome, "memory/semantic"), { recursive: true, force: true });
+    await symlink(outsideDir, join(somaHome, "memory/semantic"));
+
+    const result = await auditMemory({ somaHome });
+    // Must NOT fail open as healthy-empty — the root-integrity gate fails.
+    expect(result.healthy).toBe(false);
+    expect(result.probes.find((p) => p.name === "root-integrity")?.ok).toBe(false);
+  });
+});
+
 // --- CLI gate -----------------------------------------------------------------
 
 test("the CLI exits non-zero (throws) on an unhealthy tree, with the report", async () => {

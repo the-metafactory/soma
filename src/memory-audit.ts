@@ -25,24 +25,35 @@ import type { SomaMemoryAuditOptions, SomaMemoryAuditProbe, SomaMemoryAuditResul
  */
 const SCAN_CONCURRENCY = 16;
 
+/** Raised when a directory is replaced (swapped for a symlink or another inode)
+ *  between the pre- and post-`readdir` lstat — the audit fails LOUDLY rather than
+ *  trusting a possibly-redirected read. */
+class AuditTreeError extends Error {}
+
 /** All `.md` files under `dir`, recursively, REJECTING symlinked dirs/files (they
  *  could point outside the memory root — the audit only trusts real entries). */
 async function listRealMarkdownFilesRec(dir: string): Promise<string[]> {
   // lstat the dir ITSELF before reading it — `readdir` follows a symlinked directory,
-  // so a symlinked root (memory/semantic, archive, …) could otherwise redirect the
-  // whole walk outside the memory root and have the audit trust foreign files.
-  const dirInfo = await lstat(dir).catch((error) => {
+  // so a symlinked dir could otherwise redirect the walk outside the memory root and
+  // have the audit trust foreign files.
+  const before = await lstat(dir).catch((error) => {
     if (isEnoent(error)) return undefined;
     throw error;
   });
-  if (dirInfo === undefined) return []; // a missing dir is genuinely empty
-  if (!dirInfo.isDirectory()) return []; // a symlink or non-directory — never follow it
+  if (before === undefined) return []; // a missing dir is genuinely empty
+  if (!before.isDirectory()) return []; // a symlink or non-directory — never follow it
   let entries: Dirent[];
   try {
     entries = await readdir(dir, { withFileTypes: true });
   } catch (error) {
     if (isEnoent(error)) return []; // vanished between lstat and readdir
     throw error; // any other failure is a real blind spot — do not treat as empty
+  }
+  // Close the lstat→readdir TOCTOU: re-lstat and require the SAME real directory
+  // (inode+device unchanged, still not a symlink). A mid-read swap → fail loudly.
+  const after = await lstat(dir).catch(() => undefined);
+  if (after === undefined || after.isSymbolicLink() || !after.isDirectory() || after.ino !== before.ino || after.dev !== before.dev) {
+    throw new AuditTreeError(`directory ${dir} was replaced during the audit walk — refusing to trust the read`);
   }
   const files: string[] = [];
   const subdirs: string[] = [];
@@ -102,6 +113,13 @@ export async function auditMemory(options: SomaMemoryAuditOptions = {}): Promise
   const episodicDirs = [paths.resolve("memory", "episodic", "sessions"), paths.resolve("memory", "episodic", "actions")];
   const archiveDir = paths.resolve("memory", "archive");
 
+  // Root integrity GATES health FIRST: a present-but-abnormal root (a symlink or
+  // non-directory where a real note dir belongs) makes the corpus inaccessible/
+  // untrusted — the walk skips it, so without this the tree would fail OPEN as
+  // "empty and healthy". A missing root is genuinely empty and fine.
+  const rootDirs = [...durableDirs, ...episodicDirs, archiveDir, paths.resolve("memory", "episodic", "digests")];
+  const treeIntegrity = await probeTreeIntegrity(rootDirs, somaHome);
+
   const durableFiles = (await Promise.all(durableDirs.map(listRealMarkdownFilesRec))).flat();
   const [sessionFiles, actionFiles] = await Promise.all(episodicDirs.map(listRealMarkdownFilesRec));
   const archiveFiles = await listRealMarkdownFilesRec(archiveDir);
@@ -122,7 +140,7 @@ export async function auditMemory(options: SomaMemoryAuditOptions = {}): Promise
   const validNotes = parsed.length - schema.invalidNotes.length;
   const eventProbe = probeEventRatio(eventLines, validNotes);
 
-  probes.push(schema.probe, index.probe, digestCov.probe, archive.probe, eventProbe.probe);
+  probes.push(treeIntegrity.probe, schema.probe, index.probe, digestCov.probe, archive.probe, eventProbe.probe);
 
   // Single source of truth: healthy iff every HEALTH-GATING probe is ok. The
   // informational probes carry gatesHealth:false and never affect this.
@@ -137,6 +155,36 @@ export async function auditMemory(options: SomaMemoryAuditOptions = {}): Promise
     orphanedArchive: archive.orphanedArchive,
     events: eventProbe.events,
     probes,
+  };
+}
+
+/**
+ * Probe: every expected note ROOT dir is either absent (empty, fine) or a REAL
+ * directory (GATES health). A root that exists but is a symlink or non-directory is
+ * abnormal — the walk skips it, so without this gate the corpus would fail OPEN as
+ * "empty and healthy" while durable notes are actually inaccessible/redirected.
+ */
+async function probeTreeIntegrity(rootDirs: string[], somaHome: string): Promise<{ probe: SomaMemoryAuditProbe }> {
+  const abnormal: string[] = [];
+  for (const dir of rootDirs) {
+    const info = await lstat(dir).catch((error) => {
+      if (isEnoent(error)) return undefined;
+      throw error;
+    });
+    if (info === undefined) continue; // absent → genuinely empty
+    if (info.isSymbolicLink() || !info.isDirectory()) abnormal.push(relative(somaHome, dir));
+  }
+  abnormal.sort();
+  return {
+    probe: {
+      name: "root-integrity",
+      gatesHealth: true,
+      ok: abnormal.length === 0,
+      detail:
+        abnormal.length === 0
+          ? "every note root is absent or a real directory"
+          : `${abnormal.length} note root(s) replaced by a symlink/non-directory: ${abnormal.join(", ")}`,
+    },
   };
 }
 

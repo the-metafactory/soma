@@ -2637,6 +2637,7 @@ export interface SomaMemoryAuditOptions {
 
 /** The fixed set of audit probes (stable public names; `auditMemory` is exported). */
 export type SomaMemoryAuditProbeName =
+  | "root-integrity"
   | "schema"
   | "index-freshness"
   | "digest-coverage"
@@ -2673,9 +2674,10 @@ export interface SomaMemoryAuditResult {
   /** Event-stream vs corpus size — a coarse write-amplification signal (informational). */
   events: { lines: number; notes: number };
   /**
-   * Every probe run, in report order. Exactly TWO gate `healthy`: `schema` and
-   * `index-freshness`. The other three (`digest-coverage`, `orphaned-archive`,
-   * `event-ratio`) are informational drift signals whose `ok` is always true.
+   * Every probe run, in report order. THREE gate `healthy` (`root-integrity`,
+   * `schema`, `index-freshness`); the other three (`digest-coverage`,
+   * `orphaned-archive`, `event-ratio`) are informational drift signals whose `ok` is
+   * always true. Read `probe.gatesHealth` rather than hardcoding this list.
    */
   probes: SomaMemoryAuditProbe[];
 }
