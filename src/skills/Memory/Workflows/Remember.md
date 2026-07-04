@@ -54,8 +54,9 @@ soma memory digest --session <session-id> --body "<8–15 non-empty lines>"
   DETERMINISTIC fallback digest (`--transcript`, marked `hook: session-end`) — legible
   but mechanical, not a real summary. Prefer self-authoring for a genuine summary; the
   fallback is only a BEST-EFFORT floor — it skips silently if the transcript is unreadable or
-  too thin, and writes nothing for a sub-agent session (ADR 0014), so it is not a
-  guarantee. The fallback is a hook concern — you invoke `--body`, never `--transcript`.
+  too thin, and writes nothing for a MARKED sub-agent session (ADR 0014; an unmarked
+  sub-agent is not detected), so it is not a guarantee. The fallback is a hook concern
+  — you invoke `--body`, never `--transcript`.
 
 ## Action log
 

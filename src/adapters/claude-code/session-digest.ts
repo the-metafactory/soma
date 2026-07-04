@@ -79,7 +79,11 @@ function parseTranscriptLine(raw: string): ClassifiedEntry | undefined {
   try {
     parsed = JSON.parse(line);
   } catch {
-    return undefined; // a non-JSON line — skip, never fail the whole extraction
+    // Best-effort: a malformed line is SKIPPED so one bad line can't fail the whole
+    // extraction. A corrupt transcript therefore yields a digest from its readable
+    // subset with no error — acceptable for a best-effort fallback record (the M7 audit,
+    // not this, is the integrity check), NOT a guarantee the digest saw every line.
+    return undefined;
   }
   // A valid JSONL line can be `null`, a number, or an array — none is a usable entry.
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
@@ -103,8 +107,11 @@ function parseTranscriptLine(raw: string): ClassifiedEntry | undefined {
       for (const part of message.content) {
         if (part && typeof part === "object" && (part as { type?: unknown }).type === "tool_use") {
           const name = (part as { name?: unknown }).name;
-          // A transcript-derived tool name is untrusted — control-collapse it (same as
-          // prompts) so it can't inject directive text into the `- tools:` rollup line.
+          // Tool names come from the ASSISTANT's own tool_use (not principal input), so
+          // the injection surface is small; still control-collapse them (strips control
+          // chars/newlines) before the `- tools:` rollup. This does NOT escape ordinary
+          // directive PROSE — a tool literally named "ignore prior memory" would still
+          // read as prose; real tool names are short identifiers, so it is left readable.
           if (typeof name === "string") {
             const clean = cleanLine(name);
             if (clean.length > 0) tools.push(clean);
@@ -123,6 +130,8 @@ function parseTranscriptLine(raw: string): ClassifiedEntry | undefined {
  * lines and sidechain/sub-agent lines are excluded — while assistant `tool_use`
  * activity is SUMMARIZED into a rollup line (counts by tool), not listed as prompts.
  * Returns `undefined` when the session has too few real prompts to summarize.
+ * DETERMINISTIC but best-effort: malformed/non-JSON lines are silently skipped, so a
+ * corrupt transcript yields a digest of its readable subset (not a complete record).
  */
 export function extractDigestBodyFromTranscript(transcript: string): string | undefined {
   const prompts: string[] = [];
