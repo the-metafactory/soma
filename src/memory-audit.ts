@@ -13,15 +13,17 @@ import type { SomaMemoryAuditOptions, SomaMemoryAuditProbe, SomaMemoryAuditResul
  * M7 — a DETERMINISTIC audit of the on-disk memory tree. No LLM, no sentiment: every
  * probe reads the filesystem and reports a ground-truth fact. Read-only — it mutates
  * nothing and appends no event. `healthy` is false (and the CLI exits non-zero) when
- * a probe that GATES health fails: a schema-invalid note, or a stale INDEX. The rest
- * (digest coverage, orphaned archive, event ratio) are informational drift signals.
+ * any HEALTH-GATING probe fails: an abnormal note root (root-integrity), a
+ * schema-invalid note, or a stale INDEX. The other three (digest coverage, orphaned
+ * archive, event ratio) are informational — they never affect `healthy`.
  *
  * These are DETERMINISTIC SMOKE checks, not invariant ENFORCEMENT: they surface the
- * cheap-to-detect drift each memory milestone can leave behind — an unparseable note
- * (schema), an INDEX older by mtime than the corpus (freshness — NOT a content
- * check), archived notes missing from their month's digest (coverage), and a coarse
- * event/note ratio. A passing audit means no drift was DETECTED, not that every
- * invariant is proven.
+ * cheap-to-detect drift each memory milestone can leave behind — a redirected note
+ * root (root-integrity), an unparseable note (schema), an INDEX older by mtime than
+ * the corpus (freshness — NOT a content check), archived notes missing from their
+ * month's digest (orphaned-archive), and a coarse event/note ratio. A HEALTHY exit
+ * means no health-GATING drift was detected — the informational probes may STILL
+ * report drift (e.g. orphaned archive) on a healthy tree; read each probe.
  */
 const SCAN_CONCURRENCY = 16;
 
@@ -282,7 +284,9 @@ function probeDigestCoverage(
 /**
  * Probe: every archived episodic note is referenced by ITS created-month digest
  * (informational). A reference in a DIFFERENT month is drift, not coverage — the
- * check is scoped per month, not against all digests globally.
+ * check is scoped per month, not against all digests globally. Covers only PARSEABLE
+ * episodic notes under `memory/archive/`; a malformed archived file is surfaced by
+ * the (health-gating) schema probe instead, not double-counted here.
  */
 async function probeOrphanedArchive(
   parsed: { path: string; note: SomaMemoryNote | undefined }[],
