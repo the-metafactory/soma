@@ -5,6 +5,7 @@ import {
   projectCursor,
   projectGrok,
   projectPiDev,
+  projectPiDevHome,
   claudeCodeAdapter,
   cursorAdapter,
   piDevAdapter,
@@ -17,8 +18,26 @@ test("pi.dev adapter builds an extension-shaped context bundle", () => {
   expect(bundle.substrate).toBe("pi-dev");
   expect(bundle.files.map((file) => file.path)).toContain(".pi/extensions/soma-core/extension.json");
   expect(bundle.files.map((file) => file.path)).toContain(".pi/extensions/soma-core/tools.md");
-  expect(bundle.files.find((file) => file.path.endsWith("extension.json"))?.content).toContain("memory_search");
+  const manifest = bundle.files.find((file) => file.path.endsWith("extension.json"))?.content ?? "";
+  expect(manifest).toContain("memory_search");
+  // Note-based memory kernel surfaced on Pi (M0–M7 substrate wiring).
+  expect(manifest).toContain("memory_recall");
+  expect(manifest).toContain("memory_index");
   expectPortableSemantics(bundle);
+});
+
+test("pi.dev home extension wires note-aware recall, live INDEX, and a digest wrap-up rule", () => {
+  const bundle = projectPiDevHome(portableProjectionInput, "/tmp/soma-home");
+  const extension = bundle.files.find((file) => file.path === "agent/extensions/soma.ts")?.content ?? "";
+  // Both new soma_context actions and their routing exist in the rendered extension.
+  expect(extension).toContain('"memory_recall"');
+  expect(extension).toContain('"memory_index"');
+  expect(extension).toContain("memoryRecallArgs");
+  expect(extension).toContain("memory/INDEX.md");
+  // Digest capture is agent-invoked (Pi has no SessionEnd digest hook).
+  expect(extension).toContain("soma memory digest");
+  // Back-compat: legacy line-grep search is not removed.
+  expect(extension).toContain("memorySearchArgs");
 });
 
 test("pi.dev adapter requires HOME when SOMA_HOME is unset", () => {
