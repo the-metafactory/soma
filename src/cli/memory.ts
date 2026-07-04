@@ -148,7 +148,7 @@ export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAct
     consolidate:
       "Usage: soma memory consolidate [--dry-run] [--gc-state] [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]. " +
       "Deterministic maintenance: prune aged episodic → digest+archive, mark aged-unverified semantic review:stale, " +
-      "list contradictions, rebuild INDEX. --gc-state additionally DELETES current-work state >7d (explicit override). " +
+      "list similar-note pairs (candidate contradictions), rebuild INDEX. --gc-state additionally DELETES current-work state >7d (explicit override). " +
       "--dry-run prints the plan without touching anything.",
   },
 };
@@ -705,8 +705,8 @@ function formatMemoryConsolidateResult(result: SomaMemoryConsolidateResult): str
     ...result.markedStale.map((p) => `  - ${p}`),
     `state GC'd: ${result.stateGced.length} current-work file(s)`,
     ...result.stateGced.map((p) => `  - ${p}`),
-    `contradictions listed: ${result.contradictions.length} pair(s)`,
-    ...result.contradictions.map((c) => `  - ${c.a} ~ ${c.b} (jaccard ${c.score.toFixed(2)})`),
+    `similar pairs listed: ${result.similarPairs.length} (candidate duplicates/contradictions)`,
+    ...result.similarPairs.map((c) => `  - ${c.a} ~ ${c.b} (jaccard ${c.score.toFixed(2)})`),
     result.dryRun ? `index: would rebuild ${result.indexPath}` : `index: rebuilt ${result.indexPath}`,
   ];
   return lines.join("\n");

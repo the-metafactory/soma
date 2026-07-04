@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, rename, stat, lstat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, lstat, unlink, writeFile } from "node:fs/promises";
 import { dirname, join, relative, sep } from "node:path";
 import { createPaths } from "./paths";
 import { isEnoent } from "./fs-utils";
@@ -12,7 +12,7 @@ import type {
   SomaMemoryConsolidateOptions,
   SomaMemoryConsolidateResult,
   SomaMemoryArchivePlan,
-  SomaMemoryContradiction,
+  SomaMemorySimilarPair,
   SomaMemoryNote,
   SomaPaths,
 } from "./types";
@@ -31,8 +31,10 @@ import type {
  *    the source's FULL relative path (invalidate-never-delete; archive-before-prune).
  * 2. **Mark stale** — active semantic notes unverified >180d AND never resurfaced
  *    get frontmatter `review: stale`. NEVER auto-archived — a human reviews.
- * 3. **List contradictions** — active durable notes with Jaccard ≥ 0.6 are surfaced
- *    for review (no auto-merge — the write path already refuses near-duplicates).
+ * 3. **List similar pairs** — active durable notes with high LEXICAL similarity
+ *    (Jaccard ≥ 0.6) are surfaced for human review as CANDIDATE duplicates/
+ *    contradictions — the overlap is lexical, not a proven semantic contradiction,
+ *    and nothing is auto-merged (the write path already refuses near-duplicates).
  * 4. **GC state** — `current-work-*.json` files older than 7d are DELETED. This is
  *    the only file DELETION this pass performs (state is not memory; notes are only
  *    archived, never deleted).
@@ -71,6 +73,18 @@ async function isRealEntry(path: string, kind: "dir" | "file"): Promise<boolean>
   return kind === "dir" ? info.isDirectory() : info.isFile();
 }
 
+/** Real (non-symlink) `.md` files directly in `dir`; [] if `dir` is absent/symlink/not-a-dir. */
+async function listRealMarkdownFiles(dir: string): Promise<string[]> {
+  if (!(await isRealEntry(dir, "dir"))) return [];
+  const out: string[] = [];
+  for (const entry of (await readdir(dir)).sort()) {
+    if (!entry.endsWith(".md")) continue;
+    const filePath = join(dir, entry);
+    if (await isRealEntry(filePath, "file")) out.push(filePath); // skip symlinked notes
+  }
+  return out;
+}
+
 /**
  * List `*.md` note files under a two-level `<base>/<month>/` tree; [] if base absent.
  * SYMLINKS are rejected at every level (a symlinked month dir or note file could
@@ -79,16 +93,10 @@ async function isRealEntry(path: string, kind: "dir" | "file"): Promise<boolean>
  */
 async function listEpisodicNotes(base: string): Promise<string[]> {
   if (!(await isRealEntry(base, "dir"))) return []; // absent, a symlink, or not a dir
-  const months = await readdir(base);
   const files: string[] = [];
-  for (const month of months.sort()) {
-    const monthDir = join(base, month);
-    if (!(await isRealEntry(monthDir, "dir"))) continue; // skip symlinked/non-dir month
-    for (const entry of (await readdir(monthDir)).sort()) {
-      if (!entry.endsWith(".md")) continue;
-      const filePath = join(monthDir, entry);
-      if (await isRealEntry(filePath, "file")) files.push(filePath); // skip symlinked notes
-    }
+  for (const month of (await readdir(base)).sort()) {
+    if (!(await isRealEntry(join(base, month), "dir"))) continue; // skip symlinked/non-dir month
+    files.push(...(await listRealMarkdownFiles(join(base, month))));
   }
   return files;
 }
@@ -194,7 +202,7 @@ function planStaleMarks(
  * are Jaccard-scored — pairs with zero overlap (score 0) can never clear the
  * threshold, so skipping them changes nothing but avoids the full O(n²) product.
  */
-function planContradictions(notes: { note: SomaMemoryNote }[]): SomaMemoryContradiction[] {
+function planSimilarPairs(notes: { note: SomaMemoryNote }[]): SomaMemorySimilarPair[] {
   const active = notes.map((n) => n.note).filter((note) => note.valid_until === null);
   const tokens = active.map((note) => memoryTermSet(note.body.toLowerCase()));
 
@@ -207,7 +215,7 @@ function planContradictions(notes: { note: SomaMemoryNote }[]): SomaMemoryContra
     }
   }
 
-  const pairs: SomaMemoryContradiction[] = [];
+  const pairs: SomaMemorySimilarPair[] = [];
   for (let i = 0; i < active.length; i += 1) {
     // candidates is a Set keyed by j, and only j > i is added, so every (i, j)
     // pair is visited at most once — no extra dedup needed.
@@ -241,8 +249,10 @@ async function planStateGc(paths: SomaPaths, now: Date): Promise<string[]> {
   for (const entry of entries.sort()) {
     if (!/^current-work-.*\.json$/.test(entry)) continue;
     const full = join(stateDir, entry);
-    const info = await stat(full).catch(() => undefined);
-    if (info === undefined) continue;
+    // lstat (not stat): a symlinked current-work file must NOT be followed or
+    // deleted — only a real, regular state file is a GC candidate.
+    const info = await lstat(full).catch(() => undefined);
+    if (info === undefined || info.isSymbolicLink() || !info.isFile()) continue;
     if ((now.getTime() - info.mtimeMs) / MS_PER_DAY > STATE_GC_DAYS) {
       out.push(relative(paths.root(), full));
     }
@@ -284,16 +294,8 @@ async function regenerateMonthlyDigests(paths: SomaPaths, months: Set<string>): 
 }
 
 /** Real `.md` files directly under one archived-episodic `<kind>/<month>/` dir. */
-async function listArchivedMonthNotes(paths: SomaPaths, kind: "sessions" | "actions", month: string): Promise<string[]> {
-  const dir = paths.resolve("memory", "archive", "episodic", kind, month);
-  if (!(await isRealEntry(dir, "dir"))) return [];
-  const out: string[] = [];
-  for (const entry of (await readdir(dir)).sort()) {
-    if (!entry.endsWith(".md")) continue;
-    const filePath = join(dir, entry);
-    if (await isRealEntry(filePath, "file")) out.push(filePath);
-  }
-  return out;
+function listArchivedMonthNotes(paths: SomaPaths, kind: "sessions" | "actions", month: string): Promise<string[]> {
+  return listRealMarkdownFiles(paths.resolve("memory", "archive", "episodic", kind, month));
 }
 
 /**
@@ -345,7 +347,7 @@ export async function consolidateMemory(options: SomaMemoryConsolidateOptions = 
   ];
   const durable = await collectDurableNotes(somaHome);
   const staleMarks = planStaleMarks(durable.notes, somaHome, now);
-  const contradictions = planContradictions(durable.notes);
+  const similarPairs = planSimilarPairs(durable.notes);
   // State GC deletes protected state, so it only runs under the explicit --gc-state
   // override (CONTEXT.md: protected data needs a deliberate destructive flag).
   const stateGc = options.gcState === true ? await planStateGc(paths, now) : [];
@@ -357,30 +359,33 @@ export async function consolidateMemory(options: SomaMemoryConsolidateOptions = 
     digestsWritten: Array.from(new Set(episodic.map((e) => relative(somaHome, e.digestPath)))).sort(),
     markedStale: staleMarks.map((s) => s.rel).sort(),
     stateGced: stateGc,
-    contradictions,
+    similarPairs,
     indexPath: memoryIndexPath(somaHome),
   };
   if (dryRun) return result;
 
   // --- apply (mutations only on the real run) ---
+  const mutated = episodic.length > 0 || staleMarks.length > 0 || stateGc.length > 0;
   await applyEpisodicArchive(paths, episodic);
   await applyStaleMarks(staleMarks);
   await applyStateGc(somaHome, stateGc);
-  await rebuildMemoryIndex({ somaHome, now });
+  // Only rebuild the INDEX when something actually changed — a no-op maintenance
+  // run must not do corpus-scale work for an unchanged corpus.
+  if (mutated) await rebuildMemoryIndex({ somaHome, now });
 
   // Governed event: a post-hoc RECORD of the pass (only when it mutated something).
   // NOT rollback-coupled — consolidation is idempotent and safe to repeat, so a
   // failed append leaves the already-applied, re-runnable mutations rather than
   // attempting a multi-file rollback (the guarantee is repeatability, not atomicity;
   // see architecture.md). The M1 write|verify rollback is a different, single-note path.
-  if (episodic.length > 0 || staleMarks.length > 0 || stateGc.length > 0) {
+  if (mutated) {
     await appendSomaMemoryEvent(somaHome, {
       timestamp: now.toISOString(),
       substrate: options.substrate ?? "custom",
       kind: "memory.consolidate",
       summary: `Consolidation: ${episodic.length} archived, ${staleMarks.length} marked stale, ${stateGc.length} state GC'd.`,
       artifactPaths: [result.indexPath],
-      metadata: { archived: episodic.length, markedStale: staleMarks.length, stateGced: stateGc.length, contradictions: contradictions.length },
+      metadata: { archived: episodic.length, markedStale: staleMarks.length, stateGced: stateGc.length, similarPairs: similarPairs.length },
     });
   }
 

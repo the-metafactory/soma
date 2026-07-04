@@ -162,8 +162,8 @@ test("near-duplicate active notes are LISTED as contradictions (no auto-merge)",
     await writeNote(somaHome, "memory/semantic/c.md", note({ id: "c", type: "semantic", body: "completely unrelated content about widgets" }));
 
     const result = await consolidateMemory({ somaHome, now: NOW });
-    expect(result.contradictions).toHaveLength(1);
-    expect([result.contradictions[0].a, result.contradictions[0].b].sort()).toEqual(["a", "b"]);
+    expect(result.similarPairs).toHaveLength(1);
+    expect([result.similarPairs[0].a, result.similarPairs[0].b].sort()).toEqual(["a", "b"]);
     // both files still present — listing only, no merge/delete
     expect(await exists(join(somaHome, "memory/semantic/a.md"))).toBe(true);
     expect(await exists(join(somaHome, "memory/semantic/b.md"))).toBe(true);
@@ -200,9 +200,16 @@ test("current-work state older than 7d is GC'd (the one deletion); recent kept",
 
 // --- INDEX + dry-run parity + idempotency ------------------------------------
 
-test("real run rebuilds INDEX.md", async () => {
+test("a MUTATING real run rebuilds INDEX.md; a no-op run skips the rebuild", async () => {
   await withTempSoma(async (somaHome) => {
+    // no-op: only a recent note, nothing aged → no mutation → no rebuild
     await writeNote(somaHome, "memory/semantic/f.md", note({ id: "f", type: "semantic", trust: "principal", body: "a fact" }));
+    await consolidateMemory({ somaHome, now: NOW });
+    expect(await exists(memoryIndexPath(somaHome))).toBe(false);
+
+    // add an aged episodic note → the pass mutates (archives) → INDEX rebuilds
+    await writeNote(somaHome, "memory/episodic/sessions/2026-03/20260301-old.md",
+      note({ id: "20260301-old", type: "episodic", trust: "assistant", created: "2026-03-01", body: "old" }));
     await consolidateMemory({ somaHome, now: NOW });
     expect(await exists(memoryIndexPath(somaHome))).toBe(true);
   });
@@ -228,7 +235,7 @@ test("--dry-run changes nothing and its plan matches the subsequent real run", a
     expect(dry.archived).toEqual(real.archived);
     expect(dry.markedStale).toEqual(real.markedStale);
     expect(dry.stateGced).toEqual(real.stateGced);
-    expect(dry.contradictions).toEqual(real.contradictions);
+    expect(dry.similarPairs).toEqual(real.similarPairs);
     expect(await exists(oldPath)).toBe(false); // real run applied
   });
 });

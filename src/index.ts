@@ -109,7 +109,7 @@ export type {
   SomaMemoryActionApproval,
   SomaMemoryConsolidateOptions,
   SomaMemoryConsolidateResult,
-  SomaMemoryContradiction,
+  SomaMemorySimilarPair,
   SomaMemoryArchivePlan,
   SomaMemorySearchMatch,
   SomaMemorySearchOptions,

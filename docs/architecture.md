@@ -144,10 +144,12 @@ under `memory/archive/`, invalidate-never-delete), marks aged-unverified semanti
 notes `review: stale`, and (only under an explicit `--gc-state`) GCs old
 `current-work-*` state. It is governed (deterministic, event-emitting, no LLM) but
 does NOT re-derive trust — it never mints or elevates a note, only ages/relocates
-existing ones. Its `memory.consolidate` event is a post-hoc RECORD of the pass, NOT
-rollback-coupled: the pass is idempotent and safe to repeat, so a failed event
-append leaves the (already-applied, re-runnable) mutations rather than attempting a
-multi-file rollback — the guarantee is repeatability, not atomicity. The write/event coupling is best-effort, not
+existing ones. When it mutates anything it appends one `memory.consolidate` event —
+a post-hoc RECORD of the pass, NOT rollback-coupled: the pass is idempotent and safe
+to repeat, so a failed event append leaves the (already-applied, re-runnable)
+mutations rather than attempting a multi-file rollback — the guarantee is
+repeatability, not atomicity. A no-op pass (nothing aged, nothing to GC) writes no
+event, since there is no mutation to record. The write/event coupling is best-effort, not
 crash-atomic: an event-append *failure* rolls the file mutation back, but a hard
 process crash in the window between the two can still orphan a file from its
 event (a documented gap reconciled by the M7 audit; soma has no WAL/2PC). This

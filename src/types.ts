@@ -2576,8 +2576,12 @@ export interface SomaMemoryArchivePlan {
   reason: string;
 }
 
-/** A near-duplicate/contradiction pair surfaced for human review (never auto-merged). */
-export interface SomaMemoryContradiction {
+/**
+ * A pair of notes with high LEXICAL similarity (Jaccard token overlap), surfaced
+ * for human review — a CANDIDATE contradiction/duplicate, not a proven semantic
+ * one. `score` is the token-overlap ratio; consolidation never auto-merges.
+ */
+export interface SomaMemorySimilarPair {
   a: string;
   b: string;
   score: number;
@@ -2594,8 +2598,8 @@ export interface SomaMemoryConsolidateResult {
   markedStale: string[];
   /** `current-work-*.json` files GC'd (age > 7d) — this pass's only deletion. */
   stateGced: string[];
-  /** Contradiction pairs listed for review. */
-  contradictions: SomaMemoryContradiction[];
+  /** High-lexical-similarity note pairs listed for review (candidate duplicates/contradictions). */
+  similarPairs: SomaMemorySimilarPair[];
   /** INDEX.md path rebuilt (real run) or that would be rebuilt (dry-run). */
   indexPath: string;
 }
