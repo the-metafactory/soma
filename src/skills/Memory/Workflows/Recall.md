@@ -7,7 +7,7 @@ recollection or writing a new note. Recall is READ-ONLY.
 
 - Before asserting a remembered fact ("we decided X", "the stack is Y").
 - Before a durable write, to avoid creating a near-duplicate.
-- User: "what do we know about …", "have we noted …", "recall …".
+- Principal says: "what do we know about …", "have we noted …", "recall …".
 
 ## Command
 

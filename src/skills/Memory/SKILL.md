@@ -1,6 +1,6 @@
 ---
 name: Memory
-description: "Files-first assistant memory: durable notes (semantic/procedural), episodic session digests and action logs, a projected INDEX, deterministic consolidation, and a health audit. Use to remember a durable fact, recall what is known about a topic, log a session or action, run maintenance, or check memory-tree health. No LLM; every operation is a `soma memory` CLI call over markdown notes."
+description: "Files-first assistant memory: durable notes (semantic/procedural), episodic session digests and action logs, a generated INDEX, deterministic consolidation, and a health audit. Use to remember a durable fact, recall what is known about a topic, log a session or action, run maintenance, or check memory-tree health. No LLM; every operation is a `soma memory` CLI call over markdown notes."
 effort: low
 version: 1.0.0
 pack-id: soma-memory-v0.1.0
@@ -22,13 +22,14 @@ edits note files by hand.
 | semantic | `memory/semantic/` | durable facts | principal or assistant |
 | procedural | `memory/procedural/` | durable how-to / SOPs | principal or assistant |
 | episodic | `memory/episodic/sessions,actions/` | session digests + planned-action logs | assistant |
-| (projection) | `memory/INDEX.md` | the earned-inclusion index over durable notes | — |
+| (generated) | `memory/INDEX.md` | the earned-inclusion index over durable notes | — |
 | (archive) | `memory/archive/` | pruned episodic notes + monthly digests | — |
 
 Trust is DERIVED from how a note was written, never set by a flag. A
 `principal-correction` write needs `--principal-authority`; `import` writes are
-lower trust. Consolidation is the only path that mints `assistant` trust, and it
-is an internal SDK path, not a public flag.
+lower trust. Episodic notes (session digests, action logs) are written at
+`assistant` trust by the assistant itself. Consolidation NEVER mints or elevates
+trust — it only ages or relocates existing notes.
 
 ## Fast Path
 
@@ -64,5 +65,8 @@ recall (`soma algorithm`); or any non-memory Soma command.
 - A durable write updates the INDEX admission ladder (M1/M3).
 - Recall is READ-ONLY — it never verifies or mutates (M2).
 - Consolidation is idempotent, event-logged, and never auto-merges notes (M6).
-- `soma memory audit` is the deterministic check that these hold (M7); it exits
-  non-zero on a schema-invalid note or a stale INDEX, so it can gate CI.
+- `soma memory audit` (M7) is a smoke check, not a proof: it verifies notes PARSE
+  (schema) and that INDEX.md is at least as NEW as every durable note (mtime
+  freshness — NOT a check of INDEX contents), plus informational drift signals. It
+  exits non-zero on a schema-invalid note or a stale-by-mtime INDEX, so it can gate
+  CI. A content-correct INDEX is not proven; `soma memory reindex` rebuilds it.

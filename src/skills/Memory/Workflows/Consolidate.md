@@ -9,7 +9,7 @@ nothing is auto-merged.
 
 - Periodic housekeeping (the memory tree has grown; digests/INDEX may lag).
 - The audit reported orphaned-archive drift or a stale INDEX.
-- User: "consolidate memory", "tidy up memory", "run memory maintenance".
+- Principal says: "consolidate memory", "tidy up memory", "run memory maintenance".
 
 ## Preview first (always)
 

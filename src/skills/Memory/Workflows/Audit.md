@@ -9,7 +9,7 @@ subsystem's invariants hold, or to gate CI / a pre-consolidation check.
 - Before trusting recall on a load-bearing question.
 - After a manual touch of the `memory/` tree, or a crashed consolidation.
 - As a CI gate — it EXITS NON-ZERO when the tree is unhealthy.
-- User: "audit memory", "is memory healthy", "check the memory tree".
+- Principal says: "audit memory", "is memory healthy", "check the memory tree".
 
 ## Command
 

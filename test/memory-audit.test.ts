@@ -142,6 +142,28 @@ test("an archived episodic note absent from any digest is reported as orphaned",
   });
 });
 
+test("an archived note referenced only in the WRONG month's digest is still orphaned", async () => {
+  await withTempSoma(async (somaHome) => {
+    // Archived note created 2026-07, but the only digest listing its id is 2026-06.
+    const archiveDir = join(somaHome, "memory/archive/episodic/sessions/2026-07");
+    const digestsDir = join(somaHome, "memory/episodic/digests");
+    await mkdir(archiveDir, { recursive: true });
+    await mkdir(digestsDir, { recursive: true });
+    const note = [
+      "---", "id: 20260704-misfiled", "type: episodic", "created: 2026-07-04",
+      "last_verified: 2026-07-04", "valid_until: null", "provenance: tool:test",
+      "trust: assistant", "source_of_truth: null", "project: null", "links: []",
+      "resurface_count: 0", "---", "A misfiled archived session.", "",
+    ].join("\n");
+    await writeFile(join(archiveDir, "20260704-misfiled.md"), note, "utf8");
+    // Wrong-month digest references the id — must NOT count as coverage.
+    await writeFile(join(digestsDir, "2026-06.md"), "# Episodic digest 2026-06\n\n- 20260704-misfiled: a misfiled session\n", "utf8");
+
+    const result = await auditMemory({ somaHome });
+    expect(result.orphanedArchive.some((p) => p.includes("20260704-misfiled.md"))).toBe(true);
+  });
+});
+
 // --- symlink safety -----------------------------------------------------------
 
 test("a symlinked note is NOT followed (only real entries are audited)", async () => {

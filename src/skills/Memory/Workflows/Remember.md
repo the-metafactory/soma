@@ -5,7 +5,7 @@ or a planned-action log. Pick the sub-path by DURABILITY and KIND.
 
 ## When to invoke
 
-- User: "remember that …", "note that …", "log this decision", "record the outcome".
+- Principal says: "remember that …", "note that …", "log this decision", "record the outcome".
 - End of a work session: write the one session digest.
 - After an approved/executed action worth an audit trail.
 

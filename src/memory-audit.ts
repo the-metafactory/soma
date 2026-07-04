@@ -1,6 +1,6 @@
 import type { Dirent } from "node:fs";
 import { readFile, readdir, stat } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { basename, join, relative, sep } from "node:path";
 import { createPaths } from "./paths";
 import { isEnoent } from "./fs-utils";
 import { runBoundedConcurrent } from "./internal-concurrency";
@@ -33,17 +33,18 @@ async function listRealMarkdownFilesRec(dir: string): Promise<string[]> {
     if (isEnoent(error)) return []; // a missing dir is genuinely empty
     throw error; // any other failure is a real blind spot — do not treat as empty
   }
-  const out: string[] = [];
+  const files: string[] = [];
+  const subdirs: string[] = [];
   for (const entry of entries) {
-    const full = join(dir, entry.name);
     if (entry.isSymbolicLink()) continue; // never follow a symlink out of the tree
-    if (entry.isDirectory()) {
-      out.push(...(await listRealMarkdownFilesRec(full)));
-    } else if (entry.isFile() && entry.name.endsWith(".md")) {
-      out.push(full);
-    }
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) subdirs.push(full);
+    else if (entry.isFile() && entry.name.endsWith(".md")) files.push(full);
   }
-  return out;
+  // Walk sibling subtrees concurrently rather than serially — a wide archive
+  // (many month/project dirs) would otherwise pay sequential walk latency.
+  const nested = await Promise.all(subdirs.map(listRealMarkdownFilesRec));
+  return [...files, ...nested.flat()];
 }
 
 /** Parse one note file → the note, or `undefined` if it cannot be read/parsed. */
@@ -80,110 +81,164 @@ export async function auditMemory(options: SomaMemoryAuditOptions = {}): Promise
     SCAN_CONCURRENCY,
   );
 
-  // --- probe: schema validity (GATES health) ---
-  const invalidNotes = parsed.filter((p) => p.note === undefined).map((p) => relative(somaHome, p.path)).sort();
-  const notesByType = { semantic: 0, procedural: 0, episodic: 0 };
-  for (const { note } of parsed) {
-    if (note && note.type in notesByType) notesByType[note.type] += 1;
-  }
-  probes.push({
-    name: "schema",
-    ok: invalidNotes.length === 0,
-    detail:
-      invalidNotes.length === 0
-        ? `${allFiles.length} note file(s) parse (semantic ${notesByType.semantic}, procedural ${notesByType.procedural}, episodic ${notesByType.episodic})`
-        : `${invalidNotes.length} schema-invalid note file(s): ${invalidNotes.join(", ")}`,
-  });
-
-  // --- probe: INDEX freshness (GATES health) ---
-  const indexPath = memoryIndexPath(somaHome);
-  const indexMtime = await mtimeMs(indexPath);
-  // The INDEX is built from the DURABLE corpus only (M3), so freshness is measured
-  // against durable-note mtimes — an episodic write does not stale the INDEX.
-  const durableMtimes = await Promise.all(durableFiles.map(mtimeMs));
-  const newestDurable = durableMtimes.reduce<number>((max, m) => (m !== undefined && m > max ? m : max), 0);
-  let indexStale: boolean;
-  let indexReason: string;
-  if (durableFiles.length === 0) {
-    indexStale = false;
-    indexReason = "no durable notes — nothing to index";
-  } else if (indexMtime === undefined) {
-    indexStale = true;
-    indexReason = `INDEX.md is absent but ${durableFiles.length} durable note(s) exist — run 'soma memory reindex'`;
-  } else if (newestDurable > indexMtime) {
-    indexStale = true;
-    indexReason = "a durable note is newer than INDEX.md — run 'soma memory reindex'";
-  } else {
-    indexStale = false;
-    indexReason = "INDEX.md is at least as new as every durable note";
-  }
-  probes.push({ name: "index-freshness", ok: !indexStale, detail: indexReason });
-
-  // --- probe: digest coverage (informational) ---
+  const schema = probeSchema(parsed, allFiles.length, somaHome);
+  const index = await probeIndexFreshness(somaHome, durableFiles);
   const digestFilesList = await listRealMarkdownFilesRec(paths.resolve("memory", "episodic", "digests"));
-  const digests = { sessionNotes: sessionFiles.length, actionNotes: actionFiles.length, digestFiles: digestFilesList.length };
-  probes.push({
-    name: "digest-coverage",
-    ok: true,
-    detail: `${digests.sessionNotes} session + ${digests.actionNotes} action note(s), ${digests.digestFiles} monthly digest file(s)`,
-  });
-
-  // --- probe: orphaned archive (informational) ---
-  // An archived episodic note whose id is not referenced in its created-month digest
-  // signals digest/archive drift (a lost or un-regenerated digest pointer).
-  const digestIds = await collectDigestIds(digestFilesList);
-  const orphanedArchive: string[] = [];
-  for (const { path, note } of parsed) {
-    if (note === undefined) continue;
-    if (!path.startsWith(archiveDir)) continue;
-    if (note.type !== "episodic") continue;
-    if (!digestIds.has(note.id)) orphanedArchive.push(relative(somaHome, path));
-  }
-  orphanedArchive.sort();
-  probes.push({
-    name: "orphaned-archive",
-    ok: true, // informational: a re-consolidation regenerates digests
-    detail:
-      orphanedArchive.length === 0
-        ? "every archived episodic note is referenced by a monthly digest"
-        : `${orphanedArchive.length} archived note(s) missing from a digest (run 'soma memory consolidate')`,
-  });
-
-  // --- probe: event/note ratio (informational) ---
+  const digestCov = probeDigestCoverage(sessionFiles.length, actionFiles.length, digestFilesList.length);
+  const archive = await probeOrphanedArchive(parsed, archiveDir, digestFilesList, somaHome);
   const eventLines = await countEventLines(somaMemoryEventsPath(somaHome));
-  const validNotes = parsed.length - invalidNotes.length;
-  const events = { lines: eventLines, notes: validNotes };
-  probes.push({ name: "event-ratio", ok: true, detail: `${eventLines} event line(s) over ${validNotes} valid note(s)` });
+  const validNotes = parsed.length - schema.invalidNotes.length;
+  const eventProbe = probeEventRatio(eventLines, validNotes);
 
-  const healthy = invalidNotes.length === 0 && !indexStale;
+  probes.push(schema.probe, index.probe, digestCov.probe, archive.probe, eventProbe.probe);
+
+  // Only schema + index-freshness GATE health; the rest are informational drift signals.
+  const healthy = schema.probe.ok && index.probe.ok;
   return {
     somaHome,
     healthy,
-    notesByType,
-    invalidNotes,
-    index: { path: indexPath, stale: indexStale, reason: indexReason },
-    digests,
-    orphanedArchive,
-    events,
+    notesByType: schema.notesByType,
+    invalidNotes: schema.invalidNotes,
+    index: { path: index.path, stale: !index.probe.ok, reason: index.probe.detail },
+    digests: digestCov.digests,
+    orphanedArchive: archive.orphanedArchive,
+    events: eventProbe.events,
     probes,
   };
 }
 
-/** Ids referenced by any monthly digest — each digest line is `- <id>: <text>`. */
-async function collectDigestIds(digestFiles: string[]): Promise<Set<string>> {
-  const ids = new Set<string>();
-  const contents = await runBoundedConcurrent(
+/** Probe: every note file parses against the schema (GATES health). */
+function probeSchema(
+  parsed: { path: string; note: SomaMemoryNote | undefined }[],
+  fileCount: number,
+  somaHome: string,
+): { probe: SomaMemoryAuditProbe; invalidNotes: string[]; notesByType: { semantic: number; procedural: number; episodic: number } } {
+  const invalidNotes = parsed.filter((p) => p.note === undefined).map((p) => relative(somaHome, p.path)).sort();
+  const notesByType = { semantic: 0, procedural: 0, episodic: 0 };
+  for (const { note } of parsed) if (note && note.type in notesByType) notesByType[note.type] += 1;
+  return {
+    invalidNotes,
+    notesByType,
+    probe: {
+      name: "schema",
+      ok: invalidNotes.length === 0,
+      detail:
+        invalidNotes.length === 0
+          ? `${fileCount} note file(s) parse (semantic ${notesByType.semantic}, procedural ${notesByType.procedural}, episodic ${notesByType.episodic})`
+          : `${invalidNotes.length} schema-invalid note file(s): ${invalidNotes.join(", ")}`,
+    },
+  };
+}
+
+/**
+ * Probe: INDEX.md is at least as new as every DURABLE note (GATES health). This is a
+ * FRESHNESS smoke check via mtime only — it does NOT read or validate INDEX contents,
+ * so a stale INDEX that was merely touched would still pass. `soma memory reindex`
+ * is the fix for a real staleness.
+ */
+async function probeIndexFreshness(
+  somaHome: string,
+  durableFiles: string[],
+): Promise<{ probe: SomaMemoryAuditProbe; path: string }> {
+  const path = memoryIndexPath(somaHome);
+  const indexMtime = await mtimeMs(path);
+  const durableMtimes = await Promise.all(durableFiles.map(mtimeMs));
+  const newestDurable = durableMtimes.reduce<number>((max, m) => (m !== undefined && m > max ? m : max), 0);
+  let ok: boolean;
+  let detail: string;
+  if (durableFiles.length === 0) {
+    ok = true;
+    detail = "no durable notes — nothing to index";
+  } else if (indexMtime === undefined) {
+    ok = false;
+    detail = `INDEX.md is absent but ${durableFiles.length} durable note(s) exist — run 'soma memory reindex'`;
+  } else if (newestDurable > indexMtime) {
+    ok = false;
+    detail = "a durable note is newer than INDEX.md (mtime check only, not contents) — run 'soma memory reindex'";
+  } else {
+    ok = true;
+    detail = "INDEX.md is at least as new as every durable note (mtime freshness only)";
+  }
+  return { path, probe: { name: "index-freshness", ok, detail } };
+}
+
+/** Probe: episodic coverage counts (informational). */
+function probeDigestCoverage(
+  sessionNotes: number,
+  actionNotes: number,
+  digestFiles: number,
+): { probe: SomaMemoryAuditProbe; digests: { sessionNotes: number; actionNotes: number; digestFiles: number } } {
+  const digests = { sessionNotes, actionNotes, digestFiles };
+  return {
+    digests,
+    probe: {
+      name: "digest-coverage",
+      ok: true,
+      detail: `${sessionNotes} session + ${actionNotes} action note(s), ${digestFiles} monthly digest file(s)`,
+    },
+  };
+}
+
+/**
+ * Probe: every archived episodic note is referenced by ITS created-month digest
+ * (informational). A reference in a DIFFERENT month is drift, not coverage — the
+ * check is scoped per month, not against all digests globally.
+ */
+async function probeOrphanedArchive(
+  parsed: { path: string; note: SomaMemoryNote | undefined }[],
+  archiveDir: string,
+  digestFilesList: string[],
+  somaHome: string,
+): Promise<{ probe: SomaMemoryAuditProbe; orphanedArchive: string[] }> {
+  const digestIdsByMonth = await collectDigestIdsByMonth(digestFilesList);
+  const orphanedArchive: string[] = [];
+  for (const { path, note } of parsed) {
+    if (note === undefined || note.type !== "episodic") continue;
+    if (!path.startsWith(archiveDir + sep)) continue;
+    const month = note.created.slice(0, 7);
+    if (!digestIdsByMonth.get(month)?.has(note.id)) orphanedArchive.push(relative(somaHome, path));
+  }
+  orphanedArchive.sort();
+  return {
+    orphanedArchive,
+    probe: {
+      name: "orphaned-archive",
+      ok: true, // informational: a re-consolidation regenerates the month's digest
+      detail:
+        orphanedArchive.length === 0
+          ? "every archived episodic note is referenced by its created-month digest"
+          : `${orphanedArchive.length} archived note(s) missing from their created-month digest (run 'soma memory consolidate')`,
+    },
+  };
+}
+
+/** Probe: event-stream lines over valid-note count (informational). */
+function probeEventRatio(lines: number, notes: number): { probe: SomaMemoryAuditProbe; events: { lines: number; notes: number } } {
+  return { events: { lines, notes }, probe: { name: "event-ratio", ok: true, detail: `${lines} event line(s) over ${notes} valid note(s)` } };
+}
+
+/**
+ * Digest-referenced ids keyed by MONTH (the digest's `YYYY-MM.md` basename). Keyed
+ * by month so the orphan check can require a note to appear in ITS created-month
+ * digest — a reference in the wrong month is drift, not coverage. Each digest line
+ * is `- <id>: <text>`.
+ */
+async function collectDigestIdsByMonth(digestFiles: string[]): Promise<Map<string, Set<string>>> {
+  const byMonth = new Map<string, Set<string>>();
+  const parsedFiles = await runBoundedConcurrent(
     digestFiles,
-    (path) => readFile(path, "utf8").catch(() => ""),
+    async (path) => ({ month: basename(path).replace(/\.md$/, ""), content: await readFile(path, "utf8").catch(() => "") }),
     SCAN_CONCURRENCY,
   );
-  for (const content of contents) {
+  for (const { month, content } of parsedFiles) {
+    const ids = byMonth.get(month) ?? new Set<string>();
     for (const line of content.split("\n")) {
       const match = /^-\s+([^:\s]+):/.exec(line.trim());
       if (match) ids.add(match[1]);
     }
+    byMonth.set(month, ids);
   }
-  return ids;
+  return byMonth;
 }
 
 /** Non-empty JSONL lines in the events file (0 if absent). */
