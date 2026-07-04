@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  Your assistant's identity, telos, memory, skills, and working method kept in one place —<br />
+  Your assistant's identity, purpose, memory, skills, and working method kept in one place —<br />
   projected into Claude Code, OpenAI Codex, Pi.dev, Cursor, and future substrates.
 </p>
 
@@ -43,7 +43,7 @@ A useful AI assistant is not just a model prompt. It is a portable operating
 context around the model:
 
 - identity: who the assistant is and who it serves
-- telos: goals, principles, commitments, and desired state
+- purpose: goals, principles, commitments, and desired state
 - memory: what has been learned across sessions
 - skills: reusable procedures and capability folders
 - working method: Algorithm, VSA, verification, and learning loops
@@ -71,7 +71,7 @@ import source; Soma is independent, MIT-licensed tooling, not a PAI fork.
              +----------------+
              |   Soma home    |
              | identity       |
-             | telos          |
+             | purpose        |
              | VSA            |
              | skills         |
              | memory         |
@@ -116,7 +116,7 @@ Soma.
 # 1. Install Soma (Arc, or from source - see Install below)
 arc install @metafactory/soma
 
-# 2. Create your Soma home (identity, telos, memory, skills, policy).
+# 2. Create your Soma home (identity, purpose, memory, skills, policy).
 #    If an existing Claude Code / PAI installation is found, init also
 #    imports its skills and identity. On a fresh machine (no Claude at
 #    all) it starts from the starter profile — run `soma init` without
@@ -172,7 +172,7 @@ The Algorithm and VSA are implemented by Soma itself — `soma algorithm` and
 [docs/soma-home-layout.md](docs/soma-home-layout.md) for the full on-disk
 layout `soma init` creates.
 
-That run, your identity, telos, and anything learned now travel with you to the
+That run, your identity, purpose, and anything learned now travel with you to the
 next host. Switch to Claude Code or Cursor (`soma install claude-code --apply`)
 and the same assistant shows up.
 
@@ -274,13 +274,13 @@ Each adapter writes the same assistant context into the host's native shape:
 
 The shared experience comes from a single source of truth:
 
-- session startup reads the same identity, telos, active work, and learning
+- session startup reads the same identity, purpose, active work, and learning
 - Algorithm runs and VSA state stay portable
 - feedback and lifecycle events write back through Soma's memory and policy gates
 - uninstall removes only generated Soma projection files
 
 The home projection is the default assistant context for a substrate: identity,
-telos, memory layout, policy, active work, and shared skills. A workspace
+purpose, memory layout, policy, active work, and shared skills. A workspace
 projection is an extra project-local layer. Use it when a repository needs its
 own VSA, local rules, local skills, or project-specific memory pointers. The
 workspace layer adds that context for sessions started in that repository
@@ -360,11 +360,53 @@ MCP-capable substrates can use the optional
 [docs/mcp-server.md](docs/mcp-server.md) surface for the same on-demand loading
 without replacing the eager projection.
 
+### Memory
+
+Beyond Algorithm-run and learning state, Soma keeps a files-first memory of
+markdown notes under `~/.soma/memory/`. There is no database and no model in the
+loop — every operation is a deterministic `soma memory` subcommand over readable
+files, and each note carries frontmatter (id, type, trust, provenance,
+verification) so its origin and trust stay auditable.
+
+Notes come in three kinds:
+
+- **semantic** — durable facts
+- **procedural** — durable how-to and SOPs
+- **episodic** — session digests and a planned-action log
+
+A generated `memory/INDEX.md` is the earned-inclusion index over durable notes.
+Trust is *derived* from how a note was written, never set by a flag: a principal
+correction requires `--principal-authority`, imports land at lower trust, and
+consolidation never mints or elevates trust.
+
+```bash
+# Save a durable fact (trust derived from the trigger, not a flag)
+soma memory write --trigger principal-correction --principal-authority \
+  --id client-sovereignty --type semantic --body "Clients own their agency data."
+
+soma memory recall "client sovereignty"   # note-aware, read-only, with links
+soma memory digest --session <id> --body "..."   # the one session digest
+soma memory consolidate --dry-run          # deterministic maintenance, plan only
+soma memory audit                          # health check; exits non-zero on failure
+```
+
+`soma memory recall` retrieves durable notes with a verification banner and
+one-hop links, and never mutates. `soma memory consolidate` is idempotent and
+event-logged: it prunes aged episodic notes into archived digests, marks
+aged-unverified semantic notes `review: stale`, flags near-duplicate pairs for
+review, and rebuilds the INDEX — it never auto-merges notes. `soma memory audit`
+is a deterministic smoke check (note-root integrity, schema validity, INDEX
+freshness, digest coverage) that exits non-zero on any health-gating failure, so
+it can gate CI. The note subsystem also ships as the portable **Memory** skill,
+which routes a remember/recall/log/maintain/audit request to the right
+subcommand. See [docs/architecture.md](docs/architecture.md#memory) for the full
+model.
+
 ### Learning patterns
 
 PAI's strongest lesson is that the assistant should improve from verified
-work, not vague session vibes. Soma keeps memory as readable files and exposes
-explicit learning paths:
+work, not vague session vibes. On top of the memory notes above, Soma exposes
+explicit learning paths that turn a verified run into a durable lesson:
 
 ```bash
 soma memory search --query "client sovereignty agency"
@@ -373,8 +415,10 @@ soma memory promote --from-run <run-id> --store learning --title "Reusable lesso
 soma feedback capture --text "you missed the arc-manifest check"
 ```
 
-`soma memory search` accepts either `--query <text>` or a single positional
-query. When both are present, `--query` wins.
+`soma memory search` is the path-based line grep over the legacy
+`WORK/`/`KNOWLEDGE/` stores — distinct from the note-aware `soma memory recall`
+above. It accepts either `--query <text>` or a single positional query; when
+both are present, `--query` wins.
 
 Promotion is deliberate: a verified run can become durable learning. Feedback
 capture is weaker by design: it records candidate corrections, preferences, or
@@ -456,7 +500,7 @@ public files and destructive root-level paths. See
 
 Soma is a typed CLI and library with shipping home projections for Codex,
 Claude Code, Pi.dev, and Cursor. The current center of gravity is the portable
-filesystem contract: profile, telos, memory, policy, skills, Algorithm runs,
+filesystem contract: profile, purpose, memory, policy, skills, Algorithm runs,
 and VSAs stay in the Soma home while adapters project that core into each
 substrate's native shape.
 
