@@ -1,5 +1,5 @@
 import type { Dirent } from "node:fs";
-import { readFile, readdir, stat } from "node:fs/promises";
+import { lstat, readFile, readdir, stat } from "node:fs/promises";
 import { basename, join, relative, sep } from "node:path";
 import { createPaths } from "./paths";
 import { isEnoent } from "./fs-utils";
@@ -16,10 +16,12 @@ import type { SomaMemoryAuditOptions, SomaMemoryAuditProbe, SomaMemoryAuditResul
  * a probe that GATES health fails: a schema-invalid note, or a stale INDEX. The rest
  * (digest coverage, orphaned archive, event ratio) are informational drift signals.
  *
- * Every §15 design invariant of the memory subsystem maps to a probe here: notes
- * parse (schema), the INDEX reflects the corpus (freshness), episodic prune leaves a
- * digest (coverage), the archive stays consistent with its digests (orphans), and
- * the event stream tracks mutations (ratio).
+ * These are DETERMINISTIC SMOKE checks, not invariant ENFORCEMENT: they surface the
+ * cheap-to-detect drift each memory milestone can leave behind — an unparseable note
+ * (schema), an INDEX older by mtime than the corpus (freshness — NOT a content
+ * check), archived notes missing from their month's digest (coverage), and a coarse
+ * event/note ratio. A passing audit means no drift was DETECTED, not that every
+ * invariant is proven.
  */
 const SCAN_CONCURRENCY = 16;
 
@@ -41,9 +43,9 @@ async function listRealMarkdownFilesRec(dir: string): Promise<string[]> {
     if (entry.isDirectory()) subdirs.push(full);
     else if (entry.isFile() && entry.name.endsWith(".md")) files.push(full);
   }
-  // Walk sibling subtrees concurrently rather than serially — a wide archive
-  // (many month/project dirs) would otherwise pay sequential walk latency.
-  const nested = await Promise.all(subdirs.map(listRealMarkdownFilesRec));
+  // Walk sibling subtrees concurrently but BOUNDED — a wide archive (many
+  // month/project dirs) neither serializes nor spikes fds on an unbounded fan-out.
+  const nested = await runBoundedConcurrent(subdirs, listRealMarkdownFilesRec, SCAN_CONCURRENCY);
   return [...files, ...nested.flat()];
 }
 
@@ -58,6 +60,19 @@ async function mtimeMs(path: string): Promise<number | undefined> {
     if (isEnoent(error)) return undefined;
     throw error;
   });
+}
+
+/** lstat-based classification of INDEX.md — the audit trusts only a REAL file, so a
+ *  symlinked INDEX (which could point at a newer file to spoof freshness) is rejected. */
+async function classifyIndex(path: string): Promise<{ kind: "absent" | "symlink" | "irregular" | "file"; mtimeMs: number }> {
+  const info = await lstat(path).catch((error) => {
+    if (isEnoent(error)) return undefined;
+    throw error;
+  });
+  if (info === undefined) return { kind: "absent", mtimeMs: 0 };
+  if (info.isSymbolicLink()) return { kind: "symlink", mtimeMs: 0 };
+  if (!info.isFile()) return { kind: "irregular", mtimeMs: 0 };
+  return { kind: "file", mtimeMs: info.mtimeMs };
 }
 
 export async function auditMemory(options: SomaMemoryAuditOptions = {}): Promise<SomaMemoryAuditResult> {
@@ -141,18 +156,22 @@ async function probeIndexFreshness(
   durableFiles: string[],
 ): Promise<{ probe: SomaMemoryAuditProbe; path: string }> {
   const path = memoryIndexPath(somaHome);
-  const indexMtime = await mtimeMs(path);
+  const index = await classifyIndex(path);
   const durableMtimes = await Promise.all(durableFiles.map(mtimeMs));
   const newestDurable = durableMtimes.reduce<number>((max, m) => (m !== undefined && m > max ? m : max), 0);
   let ok: boolean;
   let detail: string;
-  if (durableFiles.length === 0) {
+  if (index.kind === "symlink" || index.kind === "irregular") {
+    // A non-regular INDEX can spoof mtime freshness — reject regardless of note count.
+    ok = false;
+    detail = `INDEX.md is a ${index.kind === "symlink" ? "symlink" : "non-regular file"} — refusing to trust it; run 'soma memory reindex' on a clean tree`;
+  } else if (durableFiles.length === 0) {
     ok = true;
     detail = "no durable notes — nothing to index";
-  } else if (indexMtime === undefined) {
+  } else if (index.kind === "absent") {
     ok = false;
     detail = `INDEX.md is absent but ${durableFiles.length} durable note(s) exist — run 'soma memory reindex'`;
-  } else if (newestDurable > indexMtime) {
+  } else if (newestDurable > index.mtimeMs) {
     ok = false;
     detail = "a durable note is newer than INDEX.md (mtime check only, not contents) — run 'soma memory reindex'";
   } else {
@@ -241,11 +260,24 @@ async function collectDigestIdsByMonth(digestFiles: string[]): Promise<Map<strin
   return byMonth;
 }
 
-/** Non-empty JSONL lines in the events file (0 if absent). */
+/** Non-empty JSONL lines in the events file (0 if absent). Single pass over the
+ *  content counting non-empty lines — no `split` allocation of the whole history. */
 async function countEventLines(eventsPath: string): Promise<number> {
   const content = await readFile(eventsPath, "utf8").catch((error) => {
     if (isEnoent(error)) return "";
     throw error;
   });
-  return content.trim() === "" ? 0 : content.trim().split("\n").length;
+  let count = 0;
+  let lineHasContent = false;
+  for (let i = 0; i < content.length; i += 1) {
+    const ch = content[i];
+    if (ch === "\n") {
+      if (lineHasContent) count += 1;
+      lineHasContent = false;
+    } else if (ch !== "\r" && ch !== " " && ch !== "\t") {
+      lineHasContent = true;
+    }
+  }
+  if (lineHasContent) count += 1; // a final line with no trailing newline
+  return count;
 }

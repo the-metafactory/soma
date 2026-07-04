@@ -29,6 +29,19 @@ async function setMtime(path: string, when: Date): Promise<void> {
   await utimes(path, when, when);
 }
 
+/** Write an archived episodic note under `archive/episodic/sessions/<month>/`. */
+async function writeArchivedEpisodicNote(somaHome: string, id: string, created: string, body: string): Promise<void> {
+  const month = created.slice(0, 7);
+  const dir = join(somaHome, "memory/archive/episodic/sessions", month);
+  await mkdir(dir, { recursive: true });
+  const note = [
+    "---", `id: ${id}`, "type: episodic", `created: ${created}`, `last_verified: ${created}`,
+    "valid_until: null", "provenance: tool:test", "trust: assistant", "source_of_truth: null",
+    "project: null", "links: []", "resurface_count: 0", "---", body, "",
+  ].join("\n");
+  await writeFile(join(dir, `${id}.md`), note, "utf8");
+}
+
 // --- healthy baseline ---------------------------------------------------------
 
 test("a valid note + fresh INDEX audits HEALTHY with a type count", async () => {
@@ -113,27 +126,8 @@ test("session digests are counted and do not stale the durable INDEX", async () 
 
 test("an archived episodic note absent from any digest is reported as orphaned", async () => {
   await withTempSoma(async (somaHome) => {
-    // Place an archived episodic note with no corresponding digest.
-    const archiveDir = join(somaHome, "memory/archive/episodic/sessions/2026-07");
-    await mkdir(archiveDir, { recursive: true });
-    const note = [
-      "---",
-      "id: 20260704-orphan",
-      "type: episodic",
-      "created: 2026-07-04",
-      "last_verified: 2026-07-04",
-      "valid_until: null",
-      "provenance: tool:test",
-      "trust: assistant",
-      "source_of_truth: null",
-      "project: null",
-      "links: []",
-      "resurface_count: 0",
-      "---",
-      "An archived session with no digest pointer.",
-      "",
-    ].join("\n");
-    await writeFile(join(archiveDir, "20260704-orphan.md"), note, "utf8");
+    // An archived episodic note with no corresponding digest.
+    await writeArchivedEpisodicNote(somaHome, "20260704-orphan", "2026-07-04", "An archived session with no digest pointer.");
 
     const result = await auditMemory({ somaHome });
     expect(result.orphanedArchive.some((p) => p.includes("20260704-orphan.md"))).toBe(true);
@@ -145,22 +139,31 @@ test("an archived episodic note absent from any digest is reported as orphaned",
 test("an archived note referenced only in the WRONG month's digest is still orphaned", async () => {
   await withTempSoma(async (somaHome) => {
     // Archived note created 2026-07, but the only digest listing its id is 2026-06.
-    const archiveDir = join(somaHome, "memory/archive/episodic/sessions/2026-07");
+    await writeArchivedEpisodicNote(somaHome, "20260704-misfiled", "2026-07-04", "A misfiled archived session.");
     const digestsDir = join(somaHome, "memory/episodic/digests");
-    await mkdir(archiveDir, { recursive: true });
     await mkdir(digestsDir, { recursive: true });
-    const note = [
-      "---", "id: 20260704-misfiled", "type: episodic", "created: 2026-07-04",
-      "last_verified: 2026-07-04", "valid_until: null", "provenance: tool:test",
-      "trust: assistant", "source_of_truth: null", "project: null", "links: []",
-      "resurface_count: 0", "---", "A misfiled archived session.", "",
-    ].join("\n");
-    await writeFile(join(archiveDir, "20260704-misfiled.md"), note, "utf8");
-    // Wrong-month digest references the id — must NOT count as coverage.
     await writeFile(join(digestsDir, "2026-06.md"), "# Episodic digest 2026-06\n\n- 20260704-misfiled: a misfiled session\n", "utf8");
 
     const result = await auditMemory({ somaHome });
     expect(result.orphanedArchive.some((p) => p.includes("20260704-misfiled.md"))).toBe(true);
+  });
+});
+
+test("a symlinked INDEX.md is refused — it cannot spoof freshness past the gate", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeNote(somaHome, "durable", "A durable note.");
+    await rebuildMemoryIndex({ somaHome, now: NOW });
+    // Replace the real INDEX with a symlink to a newer file outside the tree.
+    const realIndex = join(somaHome, "memory/INDEX.md");
+    const decoy = join(somaHome, "..", "newer-decoy.md");
+    await writeFile(decoy, "not a real index", "utf8");
+    await rm(realIndex);
+    await symlink(decoy, realIndex);
+
+    const result = await auditMemory({ somaHome });
+    expect(result.index.stale).toBe(true);
+    expect(result.healthy).toBe(false);
+    expect(result.index.reason).toContain("symlink");
   });
 });
 

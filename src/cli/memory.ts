@@ -124,7 +124,7 @@ const MEMORY_ACTIONS = ["search", "recall", "promote", "write", "verify", "reind
 type MemoryAction = (typeof MEMORY_ACTIONS)[number];
 
 export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAction, string> } = {
-  usage: "Usage: soma memory <search|recall|promote|write|verify|reindex|digest|action|consolidate> ...",
+  usage: "Usage: soma memory <search|recall|promote|write|verify|reindex|digest|action|consolidate|audit> ...",
   subcommands: {
     search: "Usage: soma memory search [query] [--query <text>] [--limit <n>] [--home-dir <dir>] [--soma-home <dir>]",
     recall:
