@@ -41,9 +41,12 @@ import type {
  * 5. **Rebuild INDEX** to reflect the archived/stale changes.
  *
  * A real run that mutated anything appends one governed `memory.consolidate` event
- * to the journal (the consolidation counterpart of M1's one-mutation-one-event).
- * Idempotent: a second run finds the aged notes already archived, the stale notes
- * already marked, the old state already gone → an empty plan, unchanged INDEX.
+ * to the journal (the consolidation counterpart of M1's one-mutation-one-event); a
+ * no-op run writes none and skips the INDEX rebuild.
+ * Idempotent on MUTATIONS: a second run finds the aged notes already archived, the
+ * stale notes already marked, the old state already gone → no archive/stale/GC ops
+ * and an unchanged INDEX. (The similar-pairs list is a read-only REPORT, not a
+ * mutation, so it recurs every run — it does not make the run non-idempotent.)
  */
 
 const EPISODIC_SESSION_TTL_DAYS = 90;

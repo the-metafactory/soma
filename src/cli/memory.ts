@@ -696,6 +696,15 @@ export async function runMemoryCli(parsed: ParsedMemoryArgs): Promise<string> {
 }
 
 function formatMemoryConsolidateResult(result: SomaMemoryConsolidateResult): string {
+  // INDEX is rebuilt only when something actually mutated (archive/stale/GC).
+  const mutated = result.archived.length > 0 || result.markedStale.length > 0 || result.stateGced.length > 0;
+  const indexLine = result.dryRun
+    ? mutated
+      ? `index: would rebuild ${result.indexPath}`
+      : "index: unchanged (no mutations planned)"
+    : mutated
+      ? `index: rebuilt ${result.indexPath}`
+      : "index: unchanged (no mutations)";
   const lines = [
     result.dryRun ? "Soma memory consolidate (dry-run — nothing changed)" : "Soma memory consolidate",
     `archived: ${result.archived.length} aged episodic note(s)`,
@@ -707,7 +716,7 @@ function formatMemoryConsolidateResult(result: SomaMemoryConsolidateResult): str
     ...result.stateGced.map((p) => `  - ${p}`),
     `similar pairs listed: ${result.similarPairs.length} (candidate duplicates/contradictions)`,
     ...result.similarPairs.map((c) => `  - ${c.a} ~ ${c.b} (jaccard ${c.score.toFixed(2)})`),
-    result.dryRun ? `index: would rebuild ${result.indexPath}` : `index: rebuilt ${result.indexPath}`,
+    indexLine,
   ];
   return lines.join("\n");
 }
