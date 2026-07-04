@@ -277,8 +277,15 @@ async function collectDigestIdsByMonth(digestFiles: string[]): Promise<Map<strin
 }
 
 /** Non-empty JSONL lines in the events file (0 if absent). Single pass over the
- *  content counting non-empty lines — no `split` allocation of the whole history. */
+ *  content counting non-empty lines — no `split` allocation of the whole history.
+ *  lstat-guarded: a symlinked/non-regular events file is not read through (the audit
+ *  follows NO symlink), so it counts as 0. */
 async function countEventLines(eventsPath: string): Promise<number> {
+  const info = await lstat(eventsPath).catch((error) => {
+    if (isEnoent(error)) return undefined;
+    throw error;
+  });
+  if (info === undefined || !info.isFile()) return 0; // absent, symlink, or non-regular → not followed
   const content = await readFile(eventsPath, "utf8").catch((error) => {
     if (isEnoent(error)) return "";
     throw error;

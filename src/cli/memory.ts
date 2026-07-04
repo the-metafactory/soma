@@ -204,15 +204,20 @@ export function parseMemoryArgs(args: string[]): ParsedMemoryArgs {
 }
 
 function parseMemoryAuditArgs(args: string[]): SomaMemoryAuditOptions {
+  // Audit takes ONLY home overrides — no --substrate (it has no substrate behavior;
+  // accepting it as a no-op is confusing for a health gate).
   const options: SomaMemoryAuditOptions = {};
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    const consumed = consumeSharedMemoryOption(args, index, arg, options);
-    if (consumed > 0) {
-      index += consumed;
-      continue;
+    if (arg === "--home-dir") {
+      options.homeDir = readOption(args, index, arg);
+      index += 1;
+    } else if (arg === "--soma-home") {
+      options.somaHome = readOption(args, index, arg);
+      index += 1;
+    } else {
+      throw new Error(MEMORY_COMMAND_HELP.subcommands.audit);
     }
-    throw new Error(MEMORY_COMMAND_HELP.subcommands.audit);
   }
   return options;
 }
