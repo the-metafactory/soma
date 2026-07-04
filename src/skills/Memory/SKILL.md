@@ -67,8 +67,9 @@ recall (`soma algorithm`); or any non-memory Soma command.
 - A durable write updates the INDEX admission ladder (M1/M3).
 - Recall is READ-ONLY — it never verifies or mutates (M2).
 - Consolidation is idempotent, event-logged, and never auto-merges notes (M6).
-- `soma memory audit` (M7) is a smoke check, not a proof: it verifies notes PARSE
-  (schema) and that INDEX.md is at least as NEW as every durable note (mtime
-  freshness — NOT a check of INDEX contents), plus informational drift signals. It
-  exits non-zero on a schema-invalid note or a stale-by-mtime INDEX, so it can gate
-  CI. A content-correct INDEX is not proven; `soma memory reindex` rebuilds it.
+- `soma memory audit` (M7) is a smoke check, not a proof. THREE probes gate health:
+  root-integrity (every note root is a real directory, not a symlink), schema (notes
+  PARSE), and index-freshness (INDEX.md is at least as NEW as every durable note by
+  mtime — NOT a check of INDEX contents). Three more are informational drift signals.
+  It exits non-zero on any gating failure, so it can gate CI; a content-correct INDEX
+  is not proven — `soma memory reindex` rebuilds it.

@@ -25,6 +25,7 @@ soma memory audit
 
 | Probe | Gates health? | What it checks |
 |-------|---------------|----------------|
+| root-integrity | YES | Every expected note root is absent or a REAL directory (not a symlink/non-dir). |
 | schema | YES | Every note file parses against the schema. |
 | index-freshness | YES | INDEX.md is at least as new as every durable note (else run `soma memory reindex`). |
 | digest-coverage | no (info) | Counts session/action notes and monthly digest files. |
@@ -34,15 +35,19 @@ soma memory audit
 ## Exit code
 
 - HEALTHY → exit 0.
-- UNHEALTHY → exit NON-ZERO. Cause is always a schema-invalid note or a stale
-  INDEX (the two health-gating probes). The full report is still printed.
+- UNHEALTHY → exit NON-ZERO. Cause is one of the THREE health-gating probes:
+  root-integrity, schema, or index-freshness. The full report is still printed;
+  read each probe's `gatesHealth`/`ok` rather than assuming the cause.
 
 ## Acting on failures
 
+- root-integrity FAIL: a note root (e.g. `memory/semantic`) exists but is a symlink
+  or non-directory — the corpus is inaccessible/redirected. Restore it to a real
+  directory before trusting recall.
 - schema FAIL: a listed note file does not parse. Inspect it; fix or remove it
   (never leave a corrupt note — it is invisible to recall and dedup).
 - index-freshness FAIL: run `soma memory reindex` (a durable write landed after
-  the last index build, or INDEX.md is missing).
+  the last index build, or INDEX.md is missing/abnormal).
 - orphaned-archive (info): run `soma memory consolidate` to regenerate digests.
 
 ## Report

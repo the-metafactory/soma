@@ -164,7 +164,7 @@ export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAct
     audit:
       "Usage: soma memory audit [--home-dir <dir>] [--soma-home <dir>]. " +
       "Deterministic, read-only health check of the memory tree (no LLM): schema validity, INDEX freshness, " +
-      "digest coverage, orphaned archive notes, event/note ratio. EXITS NON-ZERO on a schema-invalid note or a stale INDEX.",
+      "digest coverage, orphaned archive notes, event/note ratio. EXITS NON-ZERO on any health-gating failure: an abnormal note root (root-integrity), a schema-invalid note, or a stale INDEX.",
   },
 };
 
@@ -735,7 +735,7 @@ export async function runMemoryCli(parsed: ParsedMemoryArgs): Promise<string> {
     case "audit": {
       const audit = await auditMemory(parsed.options);
       const report = formatMemoryAuditResult(audit);
-      // A deterministic gate: an unhealthy tree (schema-invalid note or stale INDEX)
+      // A deterministic gate: an unhealthy tree (abnormal root, schema-invalid note, or stale INDEX)
       // exits NON-ZERO so the audit can fail CI / a pre-consolidation check. The full
       // report is carried on the error so it is still shown.
       if (!audit.healthy) throw new SomaCliError(report, 1);
