@@ -113,6 +113,38 @@ test("skips reserved dirs, root-level files, and README.md", async () => {
   });
 });
 
+test("imports only markdown files — non-markdown under a category dir is skipped", async () => {
+  await withTempSoma(async (somaHome) => {
+    await seed(somaHome, "KNOWLEDGE/note.md", "a real markdown note body");
+    await seed(somaHome, "KNOWLEDGE/creds.env", "SECRET=should-never-be-imported");
+    await seed(somaHome, "KNOWLEDGE/data.json", '{"not":"a note"}');
+    await seed(somaHome, "KNOWLEDGE/deep.markdown", "a .markdown file is also imported");
+
+    const result = await runMemoryBackfill({ somaHome });
+    expect(result.entries.map((e) => e.relativePath).sort()).toEqual([
+      "KNOWLEDGE/deep.markdown",
+      "KNOWLEDGE/note.md",
+    ]);
+    expect(result.writtenCount).toBe(2);
+  });
+});
+
+test("no-op rerun is byte-stable even when a source is touched (mtime bumped, bytes unchanged)", async () => {
+  await withTempSoma(async (somaHome) => {
+    await seed(somaHome, "KNOWLEDGE/a.md", "stable body content one two three", new Date("2025-01-01T00:00:00Z"));
+    const first = await runMemoryBackfill({ somaHome, now: new Date("2026-07-04T00:00:00Z") });
+    expect(first.writtenCount).toBe(1);
+    const manifest1 = await readFile(first.manifestPath, "utf8");
+
+    // Touch the source: mtime changes, bytes (and thus SHA) do not.
+    await utimes(join(somaHome, "memory", "KNOWLEDGE", "a.md"), new Date("2025-06-06T00:00:00Z"), new Date("2025-06-06T00:00:00Z"));
+    const second = await runMemoryBackfill({ somaHome, now: new Date("2026-07-05T00:00:00Z") });
+    expect(second.skippedManifestCount).toBe(1);
+    expect(second.writtenCount).toBe(0);
+    expect(await readFile(second.manifestPath, "utf8")).toBe(manifest1);
+  });
+});
+
 test("refuses symlinks loudly", async () => {
   await withTempSoma(async (somaHome) => {
     await seed(somaHome, "KNOWLEDGE/real.md", "a real file body here");

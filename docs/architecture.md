@@ -126,11 +126,11 @@ markdown; the **memory-note subsystem** (plan v2, milestones M0–M8) is a
 *separate*, schema-governed durable store whose lowercase-named directories
 (`semantic`, `procedural`, `episodic`) sit as siblings under the same `memory/`
 root. Both are sub-stores within the single Memory compartment, not peer Soma
-compartments. `soma memory backfill` (M8) bridges the two for a migrating user:
-it walks the legacy category dirs and writes each file as a `quarantined` note
-through the governed write path (below), mapping the category to a note type
-(`LEARNING`→procedural, `KNOWLEDGE`→semantic). It is deterministic (bodies
-verbatim, `created` from the source mtime, no LLM) and idempotent via a SHA
+compartments. `soma memory backfill` (M8) bridges the two for a migrating
+principal: it walks the legacy category dirs and writes each markdown file as a
+`quarantined` note through the governed write path (below), mapping the category
+to a note type (`LEARNING`→procedural, `KNOWLEDGE`→semantic). It is deterministic
+(bodies verbatim, `created` from the source mtime, no LLM) and idempotent via a SHA
 manifest at `imports/backfill/.manifest.json`. Imports stay recall-discoverable
 (with a ⚠ untrusted banner) but out of the always-loaded INDEX until a human
 verifies them.

@@ -11,7 +11,12 @@
  * once, in one place.
  *
  * Deterministic by contract:
- *   - No LLM. Bodies are wrapped verbatim (with a one-line provenance preamble).
+ *   - No LLM. Bodies are the legacy content VERBATIM — no injected preamble (a
+ *     shared preamble would inflate token overlap and make the recall-first
+ *     dedup over-fire on short files); origin lives in frontmatter instead.
+ *   - Only `.md`/`.markdown` files are imported — non-markdown files under a
+ *     category dir (JSON, `.env`, binaries, editor artifacts) are skipped so
+ *     they never become garbage notes.
  *   - `created`/`last_verified` come from the source file's mtime, not the clock.
  *   - Trust is ALWAYS `quarantined` — the `import` trigger derives it and no
  *     caller flag can elevate it (MINJA defense). Backfilled notes are recall-
@@ -22,9 +27,10 @@
  *
  * Idempotency mirrors `pai-memory-migrator.ts`: a SHA manifest at
  * `imports/backfill/.manifest.json` lets a rerun skip already-imported files
- * whose source bytes are unchanged and whose target note still exists. A pure
- * no-op rerun writes a byte-identical manifest (the `importedAt` is preserved
- * when nothing new was written).
+ * whose source bytes are unchanged and whose target note still exists. A no-op
+ * rerun (nothing new written) re-emits each prior manifest entry verbatim and
+ * preserves `importedAt`, so the manifest is byte-identical — even if a source
+ * was merely `touch`ed (mtime bumped, bytes unchanged).
  */
 import { createHash } from "node:crypto";
 import { lstat, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
@@ -36,6 +42,7 @@ import { SOMA_MEMORY_BACKFILL_TYPE_MAP } from "./types";
 import type {
   SomaMemoryBackfillEntry,
   SomaMemoryBackfillManifest,
+  SomaMemoryBackfillManifestEntry,
   SomaMemoryBackfillOptions,
   SomaMemoryBackfillResult,
   WritableNoteType,
@@ -135,11 +142,17 @@ interface SourceFile {
   mtimeMs: number;
 }
 
+// Markdown is the only backfill input: a category dir may hold JSON, `.env`,
+// exports, or binaries that would become garbage (or sensitive) notes if read as
+// UTF-8 and imported. Restrict to markdown extensions.
+const MARKDOWN_EXT = /\.(?:md|markdown)$/i;
+
 /**
- * Recursively collect eligible source files under `root`. Skips reserved
- * categories, root-level files (READMEs/INDEX territory), any README.md, and
- * refuses symlinks loudly (matching the migrators' stance). Returns entries
- * sorted by relative path for deterministic ordering.
+ * Recursively collect eligible source files under `root`. Imports only markdown
+ * files; skips reserved categories, root-level files (READMEs/INDEX territory),
+ * any README.md, and non-markdown files; refuses symlinks loudly (matching the
+ * migrators' stance). Returns entries sorted by relative path for deterministic
+ * ordering.
  */
 async function collectSources(root: string): Promise<SourceFile[]> {
   const files: SourceFile[] = [];
@@ -170,6 +183,7 @@ async function collectSources(root: string): Promise<SourceFile[]> {
       }
       if (!entry.isFile()) continue;
       if (entry.name === "README.md") continue;
+      if (!MARKDOWN_EXT.test(entry.name)) continue;
       const stat = await lstat(abs);
       files.push({
         relativePath: rel,
@@ -193,16 +207,22 @@ function resolveType(
   return SOMA_MEMORY_BACKFILL_TYPE_MAP[category] ?? "semantic";
 }
 
+/**
+ * Read the manifest once into a `relativePath → full entry` map (the whole
+ * record, not just the SHA), so the run loop can check the SHA, reuse the note
+ * id/type, and re-emit the prior entry verbatim without re-reading the file per
+ * source. Returns null when the manifest is missing or corrupt (→ re-import).
+ */
 async function readManifest(
   somaHome: string,
-): Promise<{ map: Map<string, string>; importedAt: string } | null> {
+): Promise<{ map: Map<string, SomaMemoryBackfillManifestEntry>; importedAt: string } | null> {
   const path = join(somaHome, MANIFEST_RELATIVE);
   if (!(await pathExists(path))) return null;
   try {
     const parsed = JSON.parse(await readFile(path, "utf8")) as SomaMemoryBackfillManifest;
     if (!Array.isArray(parsed.files)) return null;
-    const map = new Map<string, string>();
-    for (const entry of parsed.files) map.set(entry.relativePath, entry.sha256);
+    const map = new Map<string, SomaMemoryBackfillManifestEntry>();
+    for (const entry of parsed.files) map.set(entry.relativePath, entry);
     return { map, importedAt: parsed.importedAt };
   } catch {
     return null;
@@ -284,28 +304,23 @@ export async function runMemoryBackfill(
     const sha = sha256Hex(content);
     const created = isoDate(new Date(src.mtimeMs));
 
-    // Already backfilled and unchanged? Keep the prior manifest entry and skip.
-    const priorSha = previous?.map.get(src.relativePath);
-    if (priorSha && priorSha === sha) {
-      const existing = await noteExistsForRelative(somaHome, src.relativePath, previous);
-      if (existing) {
+    // Already backfilled and unchanged (same bytes) with its note still present?
+    // Re-emit the PRIOR manifest entry VERBATIM (including its stored mtimeMs) so
+    // a no-op rerun is byte-stable even if the source was merely `touch`ed.
+    const prior = previous?.map.get(src.relativePath);
+    if (prior?.sha256 === sha) {
+      if (await pathExists(memoryNotePath(somaHome, prior.type, prior.noteId))) {
         entries.push({
           relativePath: src.relativePath,
           source: src.absPath,
-          noteId: existing.id,
-          type: existing.type,
+          noteId: prior.noteId,
+          type: prior.type,
           created,
-          target: memoryNotePath(somaHome, existing.type, existing.id),
+          target: memoryNotePath(somaHome, prior.type, prior.noteId),
           status: "skipped-manifest",
         });
-        manifestFiles.push({
-          relativePath: src.relativePath,
-          noteId: existing.id,
-          type: existing.type,
-          sha256: sha,
-          mtimeMs: src.mtimeMs,
-        });
-        used.add(existing.id);
+        manifestFiles.push({ ...prior });
+        used.add(prior.noteId);
         skippedManifestCount += 1;
         continue;
       }
@@ -400,22 +415,4 @@ export async function runMemoryBackfill(
     manifestPath,
     entries,
   };
-}
-
-/**
- * For a manifest-hit relative path, locate its still-present note. The manifest
- * records the note id + type, so this checks that the target file survives.
- */
-async function noteExistsForRelative(
-  somaHome: string,
-  relativePath: string,
-  previous: { map: Map<string, string>; importedAt: string } | null,
-): Promise<{ id: string; type: WritableNoteType } | null> {
-  const manifestPath = join(somaHome, MANIFEST_RELATIVE);
-  if (!previous || !(await pathExists(manifestPath))) return null;
-  const parsed = JSON.parse(await readFile(manifestPath, "utf8")) as SomaMemoryBackfillManifest;
-  const record = parsed.files.find((f) => f.relativePath === relativePath);
-  if (!record) return null;
-  if (!(await pathExists(memoryNotePath(somaHome, record.type, record.noteId)))) return null;
-  return { id: record.noteId, type: record.type };
 }

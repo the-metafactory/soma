@@ -398,8 +398,8 @@ aged-unverified semantic notes `review: stale`, flags near-duplicate pairs for
 review, and rebuilds the INDEX — it never auto-merges notes. `soma memory audit`
 is a deterministic smoke check (note-root integrity, schema validity, INDEX
 freshness, digest coverage) that exits non-zero on any health-gating failure, so
-it can gate CI. `soma memory backfill` bulk-imports a user's existing free-form
-markdown (default source: the legacy `<somaHome>/memory` category dirs) into
+it can gate CI. `soma memory backfill` bulk-imports a principal's existing
+free-form markdown (default source: the legacy `<somaHome>/memory` category dirs) into
 schema-valid notes through the same governed write path — deterministically, no
 LLM, idempotent via a SHA manifest. Every imported note lands at `quarantined`
 trust (recall-discoverable with a ⚠ banner, held out of the INDEX until a human
