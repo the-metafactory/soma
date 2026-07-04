@@ -2517,40 +2517,10 @@ export interface SomaMemoryDigestOptions {
   hook?: string;
 }
 
-/**
- * Write a session digest whose body is DETERMINISTICALLY extracted from a Claude Code
- * transcript (the SessionEnd hook fallback). No LLM. Sub-agent sessions are suppressed
- * (ADR 0014) unless `forcePrimary`. Reuses the one-per-session gate, so it no-ops when
- * an assistant-authored digest already exists.
- */
-export interface SomaMemoryDigestFromTranscriptOptions {
-  homeDir?: string;
-  somaHome?: string;
-  substrate?: SubstrateId;
-  now?: Date;
-  /** The session this digest summarizes. */
-  sessionId: string;
-  /** Path to the Claude Code session transcript (JSONL). */
-  transcriptPath: string;
-  /** Sub-agent markers from the hook payload — when set, the digest is suppressed. */
-  agentId?: string;
-  agentType?: string;
-  /** Force the primary (write) path even for a sub-agent-marked invocation. */
-  forcePrimary?: boolean;
-  /** Force treating the invocation as a sub-agent (suppress) regardless of markers. */
-  forceSubagent?: boolean;
-}
-
-/** Outcome of the transcript-fallback digest. */
-export interface SomaMemoryDigestFromTranscriptResult {
-  /** "written" (a new fallback digest), "duplicate" (a digest already existed),
-   *  "suppressed" (sub-agent), or "skipped" (too little transcript content). */
-  outcome: "written" | "duplicate" | "suppressed" | "skipped";
-  /** The digest result when a write/dedup happened; absent for suppressed/skipped. */
-  digest?: SomaMemoryDigestResult;
-  /** Human-readable reason (always set). */
-  reason: string;
-}
+// The Claude Code SessionEnd transcript-fallback types (ClaudeSessionDigestOptions/
+// Result) are adapter-owned — see src/adapters/claude-code/session-digest.ts. Core
+// stays substrate-neutral: it exposes only `writeSessionDigest` (ready body + hook
+// marker) and `hasSessionDigest`; the Claude JSONL format never enters core.
 
 export interface SomaMemoryDigestResult {
   somaHome: string;

@@ -265,59 +265,72 @@ test("extractDigestBodyFromTranscript samples head+tail when there are many prom
   expect(body).toContain("more prompts");
 });
 
-test("writeSessionDigestFromTranscript writes a digest marked hook: session-end", async () => {
-  await withTempSoma(async (somaHome) => {
-    const dir = await mkdtemp(join(tmpdir(), "soma-tx-"));
+/** Write `content` to a temp .jsonl file, run `fn(path)`, then clean up. */
+async function withTranscriptFile<T>(content: string, fn: (transcriptPath: string) => Promise<T>): Promise<T> {
+  const dir = await mkdtemp(join(tmpdir(), "soma-tx-"));
+  try {
     const tp = join(dir, "t.jsonl");
-    await writeFile(tp, SEVEN_PROMPTS, "utf8");
-    const result = await writeSessionDigestFromTranscript({ somaHome, now: NOW, sessionId: SESSION, transcriptPath: tp });
-    expect(result.outcome).toBe("written");
-    expect(result.digest!.note.hook).toBe("session-end");
-    const onDisk = parseMemoryNote(await readFile(result.digest!.path, "utf8"));
-    expect(onDisk.hook).toBe("session-end");
+    await writeFile(tp, content, "utf8");
+    return await fn(tp);
+  } finally {
     await rm(dir, { recursive: true, force: true });
-  });
+  }
+}
+
+test("writeSessionDigestFromTranscript writes a digest marked hook: session-end", async () => {
+  await withTempSoma((somaHome) =>
+    withTranscriptFile(SEVEN_PROMPTS, async (tp) => {
+      const result = await writeSessionDigestFromTranscript({ somaHome, now: NOW, sessionId: SESSION, transcriptPath: tp });
+      expect(result.outcome).toBe("written");
+      expect(result.digest!.note.hook).toBe("session-end");
+      const onDisk = parseMemoryNote(await readFile(result.digest!.path, "utf8"));
+      expect(onDisk.hook).toBe("session-end");
+    }),
+  );
 });
 
 test("a sub-agent invocation is suppressed and writes nothing (ADR 0014)", async () => {
-  await withTempSoma(async (somaHome) => {
-    const dir = await mkdtemp(join(tmpdir(), "soma-tx-"));
-    const tp = join(dir, "t.jsonl");
-    await writeFile(tp, SEVEN_PROMPTS, "utf8");
-    const result = await writeSessionDigestFromTranscript({ somaHome, now: NOW, sessionId: SESSION, transcriptPath: tp, agentId: "agt-1" });
-    expect(result.outcome).toBe("suppressed");
-    expect(result.digest).toBeUndefined();
-    await rm(dir, { recursive: true, force: true });
-  });
+  await withTempSoma((somaHome) =>
+    withTranscriptFile(SEVEN_PROMPTS, async (tp) => {
+      const result = await writeSessionDigestFromTranscript({ somaHome, now: NOW, sessionId: SESSION, transcriptPath: tp, agentId: "agt-1" });
+      expect(result.outcome).toBe("suppressed");
+      expect(result.digest).toBeUndefined();
+    }),
+  );
+});
+
+test("forceSubagent suppresses even when forcePrimary is also set (precedence)", async () => {
+  await withTempSoma((somaHome) =>
+    withTranscriptFile(SEVEN_PROMPTS, async (tp) => {
+      const result = await writeSessionDigestFromTranscript({ somaHome, now: NOW, sessionId: SESSION, transcriptPath: tp, forcePrimary: true, forceSubagent: true });
+      expect(result.outcome).toBe("suppressed");
+    }),
+  );
 });
 
 test("forcePrimary overrides sub-agent suppression", async () => {
-  await withTempSoma(async (somaHome) => {
-    const dir = await mkdtemp(join(tmpdir(), "soma-tx-"));
-    const tp = join(dir, "t.jsonl");
-    await writeFile(tp, SEVEN_PROMPTS, "utf8");
-    const result = await writeSessionDigestFromTranscript({ somaHome, now: NOW, sessionId: SESSION, transcriptPath: tp, agentId: "agt-1", forcePrimary: true });
-    expect(result.outcome).toBe("written");
-    await rm(dir, { recursive: true, force: true });
-  });
+  await withTempSoma((somaHome) =>
+    withTranscriptFile(SEVEN_PROMPTS, async (tp) => {
+      const result = await writeSessionDigestFromTranscript({ somaHome, now: NOW, sessionId: SESSION, transcriptPath: tp, agentId: "agt-1", forcePrimary: true });
+      expect(result.outcome).toBe("written");
+    }),
+  );
 });
 
 test("the fallback no-ops when an assistant-authored digest already exists", async () => {
-  await withTempSoma(async (somaHome) => {
-    await writeSessionDigest({ somaHome, now: NOW, sessionId: SESSION, body: DIGEST_BODY }); // assistant-authored, no hook:
-    const dir = await mkdtemp(join(tmpdir(), "soma-tx-"));
-    const tp = join(dir, "t.jsonl");
-    await writeFile(tp, SEVEN_PROMPTS, "utf8");
-    const result = await writeSessionDigestFromTranscript({ somaHome, now: NOW, sessionId: SESSION, transcriptPath: tp });
-    expect(result.outcome).toBe("duplicate");
-    await rm(dir, { recursive: true, force: true });
-  });
+  await withTempSoma((somaHome) =>
+    withTranscriptFile(SEVEN_PROMPTS, async (tp) => {
+      await writeSessionDigest({ somaHome, now: NOW, sessionId: SESSION, body: DIGEST_BODY }); // assistant-authored, no hook:
+      const result = await writeSessionDigestFromTranscript({ somaHome, now: NOW, sessionId: SESSION, transcriptPath: tp });
+      expect(result.outcome).toBe("duplicate");
+    }),
+  );
 });
 
-test("an unreadable transcript skips silently (never throws)", async () => {
+test("an unreadable transcript reports 'unreadable' (distinct from a thin session) and never throws", async () => {
   await withTempSoma(async (somaHome) => {
     const result = await writeSessionDigestFromTranscript({ somaHome, now: NOW, sessionId: SESSION, transcriptPath: "/no/such/transcript.jsonl" });
-    expect(result.outcome).toBe("skipped");
+    expect(result.outcome).toBe("unreadable");
   });
 });
 

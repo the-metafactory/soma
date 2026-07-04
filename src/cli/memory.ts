@@ -13,14 +13,13 @@ import {
 } from "../index";
 import { WRITABLE_NOTE_TYPES, isWritableNoteType } from "../memory-write";
 import { SOMA_MEMORY_ACTION_APPROVALS } from "../types";
+import type { ClaudeSessionDigestOptions, ClaudeSessionDigestResult } from "../adapters/claude-code/session-digest";
 import type {
   SomaMemoryActionApproval,
   SomaMemoryActionOptions,
   SomaMemoryActionResult,
   SomaMemoryAuditOptions,
   SomaMemoryAuditResult,
-  SomaMemoryDigestFromTranscriptOptions,
-  SomaMemoryDigestFromTranscriptResult,
   SomaMemoryConsolidateOptions,
   SomaMemoryConsolidateResult,
   SomaMemoryDigestOptions,
@@ -91,7 +90,7 @@ export interface ParsedMemoryReindexArgs {
  *  a transcript by the SessionEnd fallback (`--transcript`). */
 export type ParsedMemoryDigest =
   | { mode: "body"; options: SomaMemoryDigestOptions }
-  | { mode: "transcript"; options: SomaMemoryDigestFromTranscriptOptions };
+  | { mode: "transcript"; options: ClaudeSessionDigestOptions };
 
 export interface ParsedMemoryDigestArgs {
   command: "memory";
@@ -840,7 +839,7 @@ function formatMemoryDigestResult(result: SomaMemoryDigestResult): string {
   ].join("\n");
 }
 
-function formatMemoryDigestFromTranscriptResult(result: SomaMemoryDigestFromTranscriptResult): string {
+function formatMemoryDigestFromTranscriptResult(result: ClaudeSessionDigestResult): string {
   const header = `Soma memory digest (SessionEnd fallback): ${result.outcome} — ${result.reason}`;
   if (result.digest === undefined) return header; // suppressed / skipped
   return [header, `id: ${result.digest.note.id}`, `path: ${result.digest.path}`].join("\n");

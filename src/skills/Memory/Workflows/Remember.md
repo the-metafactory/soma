@@ -50,12 +50,12 @@ soma memory digest --session <session-id> --body "<8–15 non-empty lines>"
 - Exactly ONE digest per session. A second call for the same session no-ops
   (and logs an event) — it never overwrites the first.
 - The body must be 8–15 non-empty lines; anything outside that is rejected.
-- **Do this before the session ends.** If you don't, the SessionEnd hook writes a
+- **Do this before the session ends.** If you don't, the SessionEnd hook attempts a
   DETERMINISTIC fallback digest (`--transcript`, marked `hook: session-end`) — legible
   but mechanical, not a real summary. Self-authoring is strictly better; the fallback
-  is only a floor so substantial sessions are never lost. A sub-agent session writes
-  no fallback (ADR 0014). The fallback is a hook concern — you invoke `--body`, never
-  `--transcript`.
+  is only a BEST-EFFORT floor — it skips silently if the transcript is unreadable or
+  too thin, and writes nothing for a sub-agent session (ADR 0014), so it is not a
+  guarantee. The fallback is a hook concern — you invoke `--body`, never `--transcript`.
 
 ## Action log
 

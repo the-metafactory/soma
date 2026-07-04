@@ -468,7 +468,13 @@ export { recallMemory } from "./memory-recall";
 // storage path are not frozen as stable API — episodic joins at M5); internal soma
 // modules and tests import them from "./memory-index" directly.
 export { rebuildMemoryIndex } from "./memory-index";
-export { writeSessionDigest, writeMemoryAction, writeSessionDigestFromTranscript, extractDigestBodyFromTranscript } from "./memory-episodic";
+export { writeSessionDigest, writeMemoryAction, hasSessionDigest } from "./memory-episodic";
+export {
+  extractDigestBodyFromTranscript,
+  writeSessionDigestFromTranscript,
+  type ClaudeSessionDigestOptions,
+  type ClaudeSessionDigestResult,
+} from "./adapters/claude-code/session-digest";
 export { consolidateMemory } from "./memory-consolidate";
 export { auditMemory } from "./memory-audit";
 export { createSomaSnapshot, listSomaSnapshots, rollbackSomaSnapshot } from "./snapshots";
