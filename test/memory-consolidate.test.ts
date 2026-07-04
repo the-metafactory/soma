@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
@@ -83,6 +83,24 @@ test("aged episodic action uses the 180d TTL (a 100d-old action is NOT pruned)",
     );
     const result = await consolidateMemory({ somaHome, now: NOW });
     expect(result.archived).toHaveLength(0);
+  });
+});
+
+test("a symlinked episodic month directory is NOT traversed (trust-boundary guard)", async () => {
+  await withTempSoma(async (somaHome) => {
+    // A foreign directory with an old note, reached only via a symlinked month dir.
+    const foreign = join(somaHome, "..", "foreign");
+    await mkdir(foreign, { recursive: true });
+    await writeFile(join(foreign, "20260301-evil.md"), serializeMemoryNote(
+      note({ id: "20260301-evil", type: "episodic", trust: "assistant", created: "2026-03-01", body: "foreign note" }),
+    ), "utf8");
+    await mkdir(join(somaHome, "memory/episodic/sessions"), { recursive: true });
+    await symlink(foreign, join(somaHome, "memory/episodic/sessions/2026-03"));
+
+    const result = await consolidateMemory({ somaHome, now: NOW });
+    // the symlinked month is skipped → nothing archived, foreign file untouched
+    expect(result.archived).toHaveLength(0);
+    expect(await exists(join(foreign, "20260301-evil.md"))).toBe(true);
   });
 });
 

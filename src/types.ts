@@ -2548,15 +2548,11 @@ export interface SomaMemoryActionResult {
   event: SomaMemoryEvent;
 }
 
-// Memory subsystem M6 (deterministic consolidation). Plan v2 §M6: a no-LLM
-// maintenance pass with a `--dry-run` that PLANS the same set of file OPERATIONS
-// the real run applies (which notes archive, which are marked stale, which state
-// files are deleted, which pairs contradict) — the dry-run plan equals the real
-// run's plan. It enumerates the operations, NOT a byte-level diff of digest/INDEX
-// content or journal entries. Ops: prune aged episodic notes into a monthly digest
-// + archive (invalidate-never-delete); mark aged-unverified semantic notes
-// `review: stale` (never auto-archive); LIST contradictions (Jaccard, no auto-merge);
-// GC old `current-work-*.json` state (the ONE true deletion); rebuild INDEX.
+// Memory subsystem M6 (deterministic consolidation). The full contract — ops,
+// ordering, dry-run parity semantics, archive layout, idempotency — lives with the
+// implementation in `src/memory-consolidate.ts` (single source of truth). In brief:
+// a no-LLM maintenance pass; `--dry-run` reports the same file OPERATIONS the real
+// run applies (operation-level parity, not a byte-level diff).
 export interface SomaMemoryConsolidateOptions {
   homeDir?: string;
   somaHome?: string;
@@ -2584,13 +2580,13 @@ export interface SomaMemoryContradiction {
 export interface SomaMemoryConsolidateResult {
   somaHome: string;
   dryRun: boolean;
-  /** Aged episodic notes moved to `archive/` (or planned to be, on dry-run). */
+  /** Aged episodic notes moved under `memory/archive/` (or planned to, on dry-run). */
   archived: SomaMemoryArchivePlan[];
-  /** Monthly digest files written/appended with pointers to archived notes. */
+  /** Monthly digest files regenerated from the archive for the archived notes' months. */
   digestsWritten: string[];
   /** Semantic notes newly marked `review: stale`. */
   markedStale: string[];
-  /** `current-work-*.json` files GC'd (age > 7d) — the only deletion. */
+  /** `current-work-*.json` files GC'd (age > 7d) — this pass's only deletion. */
   stateGced: string[];
   /** Contradiction pairs listed for review. */
   contradictions: SomaMemoryContradiction[];

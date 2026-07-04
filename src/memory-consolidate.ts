@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, rename, stat, unlink, writeFile, appendFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, stat, lstat, unlink, writeFile } from "node:fs/promises";
 import { dirname, join, relative, sep } from "node:path";
 import { createPaths } from "./paths";
 import { isEnoent } from "./fs-utils";
@@ -34,7 +34,8 @@ import type {
  * 3. **List contradictions** — active durable notes with Jaccard ≥ 0.6 are surfaced
  *    for review (no auto-merge — the write path already refuses near-duplicates).
  * 4. **GC state** — `current-work-*.json` files older than 7d are DELETED. This is
- *    the ONE true deletion in the whole memory subsystem (state is not memory).
+ *    the only file DELETION this pass performs (state is not memory; notes are only
+ *    archived, never deleted).
  * 5. **Rebuild INDEX** to reflect the archived/stale changes.
  *
  * A real run that mutated anything appends one governed `memory.consolidate` event
@@ -63,26 +64,30 @@ function ageDays(isoDate: string, now: Date): number {
   return Math.floor((now.getTime() - dateMs(isoDate)) / MS_PER_DAY);
 }
 
-/** List `*.md` note files under a two-level `<base>/<month>/` tree; [] if base absent. */
+/** True iff `path` is a real (non-symlink) entry of the wanted kind. */
+async function isRealEntry(path: string, kind: "dir" | "file"): Promise<boolean> {
+  const info = await lstat(path).catch(() => undefined); // lstat: does NOT follow a symlink
+  if (info === undefined || info.isSymbolicLink()) return false;
+  return kind === "dir" ? info.isDirectory() : info.isFile();
+}
+
+/**
+ * List `*.md` note files under a two-level `<base>/<month>/` tree; [] if base absent.
+ * SYMLINKS are rejected at every level (a symlinked month dir or note file could
+ * point outside the memory root, so consolidation would parse/move foreign files
+ * across the trust boundary). Only real directories and real files are followed.
+ */
 async function listEpisodicNotes(base: string): Promise<string[]> {
-  let months: string[];
-  try {
-    months = await readdir(base);
-  } catch (error) {
-    if (isEnoent(error)) return [];
-    throw error;
-  }
+  if (!(await isRealEntry(base, "dir"))) return []; // absent, a symlink, or not a dir
+  const months = await readdir(base);
   const files: string[] = [];
   for (const month of months.sort()) {
-    let entries: string[];
-    try {
-      entries = await readdir(join(base, month));
-    } catch (error) {
-      if (isEnoent(error)) continue;
-      throw error;
-    }
-    for (const entry of entries.sort()) {
-      if (entry.endsWith(".md")) files.push(join(base, month, entry));
+    const monthDir = join(base, month);
+    if (!(await isRealEntry(monthDir, "dir"))) continue; // skip symlinked/non-dir month
+    for (const entry of (await readdir(monthDir)).sort()) {
+      if (!entry.endsWith(".md")) continue;
+      const filePath = join(monthDir, entry);
+      if (await isRealEntry(filePath, "file")) files.push(filePath); // skip symlinked notes
     }
   }
   return files;
@@ -246,25 +251,52 @@ async function planStateGc(paths: SomaPaths, now: Date): Promise<string[]> {
 }
 
 /**
- * Apply the episodic prune. For EACH note: move it first, THEN record its monthly-
- * digest pointer — so a rename that fails never leaves a digest entry claiming a
- * still-active note is consolidated (and a retry, which only re-plans notes that
- * are still in place, can't append a duplicate). Notes are processed in a
- * deterministic order (digest file, then id).
+ * Regenerate the monthly digest files for `months`, deterministically from the
+ * ARCHIVE. The digest is a pure function of the archived notes for that created-
+ * month (header + id-sorted pointer lines), so it is idempotent AND recoverable: a
+ * digest pointer lost to a crash between an archive move and a digest write is
+ * restored on the next run, because the archived note (the durable record) is
+ * re-scanned. Notes still live in their raw archived form regardless.
  */
-async function applyEpisodicArchive(episodic: EpisodicArchive[]): Promise<void> {
-  const ordered = episodic
-    .slice()
-    .sort((a, b) => a.digestPath.localeCompare(b.digestPath) || a.note.id.localeCompare(b.note.id));
-  for (const e of ordered) {
-    await mkdir(dirname(e.to), { recursive: true });
-    await rename(e.from, e.to); // move first
-    await mkdir(dirname(e.digestPath), { recursive: true });
-    const header = (await readFile(e.digestPath, "utf8").catch(() => "")).length === 0
-      ? `# Episodic digest ${e.note.created.slice(0, 7)}\n\n`
-      : "";
-    await appendFile(e.digestPath, `${header}- ${e.note.id}: ${firstBodyLine(e.note)}\n`, "utf8");
+async function regenerateMonthlyDigests(paths: SomaPaths, months: Set<string>): Promise<void> {
+  if (months.size === 0) return;
+  const archived: SomaMemoryNote[] = [];
+  for (const kind of ["sessions", "actions"] as const) {
+    const files = await listEpisodicNotes(paths.resolve("memory", "archive", "episodic", kind));
+    for (const path of files) {
+      const note = await readFile(path, "utf8").then(parseMemoryNote).catch(() => undefined);
+      if (note !== undefined) archived.push(note);
+    }
   }
+  const byMonth = new Map<string, SomaMemoryNote[]>();
+  for (const note of archived) {
+    const month = note.created.slice(0, 7);
+    (byMonth.get(month) ?? byMonth.set(month, []).get(month)!).push(note);
+  }
+  for (const month of [...months].sort()) {
+    const notes = (byMonth.get(month) ?? []).slice().sort((a, b) => a.id.localeCompare(b.id));
+    if (notes.length === 0) continue;
+    const digestPath = paths.resolve("memory", "episodic", "digests", `${month}.md`);
+    const body = notes.map((n) => `- ${n.id}: ${firstBodyLine(n)}`).join("\n");
+    await mkdir(dirname(digestPath), { recursive: true });
+    await writeFile(digestPath, `# Episodic digest ${month}\n\n${body}\n`, "utf8");
+  }
+}
+
+/**
+ * Apply the episodic prune: MOVE each note into the archive, then regenerate the
+ * affected monthly digests from the archive. Move-then-regenerate is crash-tolerant
+ * — the archived raw note is the durable record, and the digest is a recoverable,
+ * idempotent derivation of it (never the source of truth).
+ */
+async function applyEpisodicArchive(paths: SomaPaths, episodic: EpisodicArchive[]): Promise<void> {
+  const months = new Set<string>();
+  for (const e of episodic.slice().sort((a, b) => a.note.id.localeCompare(b.note.id))) {
+    await mkdir(dirname(e.to), { recursive: true });
+    await rename(e.from, e.to);
+    months.add(e.note.created.slice(0, 7));
+  }
+  await regenerateMonthlyDigests(paths, months);
 }
 
 /** Apply the `review: stale` marks in place. */
@@ -316,7 +348,7 @@ export async function consolidateMemory(options: SomaMemoryConsolidateOptions = 
   if (dryRun) return result;
 
   // --- apply (mutations only on the real run) ---
-  await applyEpisodicArchive(episodic);
+  await applyEpisodicArchive(paths, episodic);
   await applyStaleMarks(staleMarks);
   await applyStateGc(somaHome, stateGc);
   await rebuildMemoryIndex({ somaHome, now });
