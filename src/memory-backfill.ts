@@ -21,7 +21,9 @@
  *   - Trust is ALWAYS `quarantined` — the `import` trigger derives it and no
  *     caller flag can elevate it (MINJA defense). Backfilled notes are recall-
  *     pull-discoverable immediately (with a ⚠ untrusted banner) but stay out of
- *     the always-loaded INDEX until the principal verifies/elevates them.
+ *     the always-loaded INDEX until re-authored at higher trust (the INDEX
+ *     admission filter excludes quarantined unconditionally, so `verify` — which
+ *     only bumps freshness — cannot promote one; principal-correction/supersede can).
  *   - Files are processed SEQUENTIALLY so the recall-first refusal dedups within
  *     the batch deterministically (a later near-duplicate sees earlier writes).
  *
@@ -241,7 +243,15 @@ async function collectSources(root: string, skipRootFiles: boolean): Promise<Sou
       if (/^readme\.(?:md|markdown)$/i.test(entry.name)) continue;
       if (!MARKDOWN_EXT.test(entry.name)) continue;
       const category = rel.includes("/") ? rel.split("/")[0] : "";
-      const stat = await lstat(abs);
+      // A file can vanish between `readdir` and `lstat` (concurrent cleanup). Skip
+      // it rather than aborting the whole scan; a genuinely broken FS still throws.
+      let stat;
+      try {
+        stat = await lstat(abs);
+      } catch (error) {
+        if (error instanceof Error && "code" in error && error.code === "ENOENT") continue;
+        throw error;
+      }
       files.push({
         relativePath: rel,
         absPath: abs,

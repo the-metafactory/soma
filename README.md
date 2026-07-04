@@ -403,7 +403,8 @@ free-form markdown (default source: the legacy `<somaHome>/memory` category dirs
 schema-valid notes through the same governed write path — deterministically, no
 LLM, idempotent via a SHA manifest. Every imported note lands at `quarantined`
 trust (recall-discoverable with a ⚠ banner, held out of the INDEX until the
-principal verifies it); the category dir maps to a note type (`LEARNING`→procedural,
+principal re-authors it at higher trust — `verify` alone does not elevate a
+quarantined note); the category dir maps to a note type (`LEARNING`→procedural,
 `KNOWLEDGE`→semantic) unless `--type` forces one. The note subsystem also ships
 as the portable **Memory** skill,
 which routes a remember/recall/log/maintain/audit request to the right

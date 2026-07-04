@@ -16,7 +16,7 @@ M1 trust-governance model. This is milestone **M8 — backfill**.
 
 **Key design facts established during exploration:**
 - The `import` write trigger is the sanctioned bulk path: `SOMA_MEMORY_TRIGGER_TRUST.import → "quarantined"`, needs **no authority signal** (`memory-write.ts:30`, MINJA defense). Backfilled content lands untrusted by design.
-- Lifecycle is correct, not a dead end: **recall INCLUDES quarantined notes** with a ⚠ untrusted banner (`memory-recall.ts:136,162` — only `valid_until===null` is filtered, not trust), while **INDEX EXCLUDES quarantined** (`memory-index.ts:17`). So imports are pull-discoverable immediately and earn always-on INDEX only after the principal verifies/elevates them.
+- Lifecycle is correct, not a dead end: **recall INCLUDES quarantined notes** with a ⚠ untrusted banner (`memory-recall.ts:136,162` — only `valid_until===null` is filtered, not trust), while **INDEX EXCLUDES quarantined** (`memory-index.ts:17`). So imports are pull-discoverable immediately and earn always-on INDEX only after the principal re-authors them at higher trust (the admission filter excludes quarantined unconditionally, so `verify` — freshness only — cannot promote them; `principal-correction`/`supersede` can).
 - `writeMemoryNote({mode:"create", trigger:"import", …})` (`memory-write.ts:779`) already does schema serialization, per-note dedup (recall-first refusal, Jaccard ≥0.6 / exact-body), and event journaling. Backfill is a **batch importer over this existing path**, not a new writer.
 - Idempotency pattern to mirror: `src/pai-memory-migrator.ts` (SHA manifest, skip-unchanged, byte-stable no-op rerun, symlink refusal).
 

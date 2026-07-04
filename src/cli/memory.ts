@@ -179,7 +179,7 @@ export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAct
     backfill:
       "Usage: soma memory backfill [--from <dir>] [--type <semantic|procedural>] [--project <key>] [--dry-run] [--home-dir <dir>] [--soma-home <dir>]. " +
       "Bulk-import legacy free-form markdown (default source: <somaHome>/memory category dirs) into schema-valid notes via the import trigger. " +
-      "Every note lands at QUARANTINED trust (recall-discoverable with a ⚠ banner, excluded from INDEX until verified); category dir → type is mapped (LEARNING→procedural, KNOWLEDGE→semantic) unless --type forces one. " +
+      "Every note lands at QUARANTINED trust (recall-discoverable with a ⚠ banner, excluded from INDEX until re-authored at higher trust); category dir → type is mapped (LEARNING→procedural, KNOWLEDGE→semantic) unless --type forces one. " +
       "Deterministic, idempotent (SHA manifest); --dry-run prints the plan without writing.",
   },
 };
@@ -843,7 +843,7 @@ function formatMemoryBackfillResult(result: SomaMemoryBackfillResult): string {
   };
   appendSection(
     "written",
-    "imported (quarantined — recall-discoverable, elevate via verify to reach INDEX):",
+    "imported (quarantined — recall-discoverable with a ⚠ banner; excluded from INDEX until re-authored at higher trust via principal-correction/supersede — verify alone does not elevate):",
     (e) => `  ${e.relativePath} → ${e.type}/${e.noteId}.md`,
   );
   appendSection("skipped-duplicate", "skipped as duplicates of existing notes:", (e) => `  ${e.relativePath}: ${e.detail ?? ""}`);
