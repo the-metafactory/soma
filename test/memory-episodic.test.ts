@@ -3,12 +3,38 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import {
+  extractDigestBodyFromTranscript,
   parseMemoryNote,
   somaMemoryEventsPath,
   writeMemoryAction,
   writeSessionDigest,
+  writeSessionDigestFromTranscript,
 } from "../src/index";
 import { parseMemoryArgs, runMemoryCli } from "../src/cli/memory";
+
+/** Build a JSONL transcript from a list of {user}/{assistant tool} lines. */
+function transcript(lines: object[]): string {
+  return lines.map((l) => JSON.stringify(l)).join("\n") + "\n";
+}
+function userLine(content: unknown, extra: object = {}): object {
+  return { type: "user", message: { role: "user", content }, ...extra };
+}
+function assistantTool(name: string): object {
+  return { type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", name }] } };
+}
+const SEVEN_PROMPTS = transcript([
+  userLine("add a login endpoint"),
+  assistantTool("Edit"),
+  userLine("<command-name>/clear</command-name>"), // noise — filtered
+  userLine([{ type: "tool_result", content: "x" }]), // tool result — filtered
+  userLine("now add tests"),
+  userLine("fix the bug", { isSidechain: true }), // sub-agent line — skipped
+  userLine("handle the null case"),
+  assistantTool("Bash"),
+  userLine("run the linter"),
+  userLine("commit and push"),
+  userLine("update the changelog"),
+]);
 
 const NOW = new Date("2026-07-04T10:00:00.000Z");
 const SESSION = "0afea4e4-967d-4a38-a855-0d12ac63c2f3";
@@ -210,4 +236,93 @@ test("runMemoryCli action logs an entry", async () => {
     // the CLI uses the real clock, so assert on the date-independent slug
     expect(out).toMatch(/id: \d{8}-ship-it/);
   });
+});
+
+// --- SessionEnd deterministic fallback (M5b) ---------------------------------
+
+test("extractDigestBodyFromTranscript builds 8–15 lines from genuine prompts, filtering noise", () => {
+  const body = extractDigestBodyFromTranscript(SEVEN_PROMPTS);
+  expect(body).toBeDefined();
+  const lines = body!.split("\n");
+  expect(lines.length).toBeGreaterThanOrEqual(8);
+  expect(lines.length).toBeLessThanOrEqual(15);
+  expect(lines[0]).toContain("6 principal prompts"); // sidechain + command + tool_result excluded
+  expect(body).toContain("- add a login endpoint");
+  expect(body).toContain("- tools: "); // rollup line
+  expect(body).not.toContain("/clear"); // command noise filtered
+  expect(body).not.toContain("fix the bug"); // sidechain skipped
+});
+
+test("extractDigestBodyFromTranscript returns undefined when too few genuine prompts", () => {
+  const thin = transcript([userLine("only one real prompt"), assistantTool("Read")]);
+  expect(extractDigestBodyFromTranscript(thin)).toBeUndefined();
+});
+
+test("extractDigestBodyFromTranscript samples head+tail when there are many prompts", () => {
+  const many = transcript(Array.from({ length: 30 }, (_, i) => userLine(`prompt number ${i}`)));
+  const body = extractDigestBodyFromTranscript(many)!;
+  expect(body.split("\n").length).toBeLessThanOrEqual(15);
+  expect(body).toContain("more prompts");
+});
+
+test("writeSessionDigestFromTranscript writes a digest marked hook: session-end", async () => {
+  await withTempSoma(async (somaHome) => {
+    const dir = await mkdtemp(join(tmpdir(), "soma-tx-"));
+    const tp = join(dir, "t.jsonl");
+    await writeFile(tp, SEVEN_PROMPTS, "utf8");
+    const result = await writeSessionDigestFromTranscript({ somaHome, now: NOW, sessionId: SESSION, transcriptPath: tp });
+    expect(result.outcome).toBe("written");
+    expect(result.digest!.note.hook).toBe("session-end");
+    const onDisk = parseMemoryNote(await readFile(result.digest!.path, "utf8"));
+    expect(onDisk.hook).toBe("session-end");
+    await rm(dir, { recursive: true, force: true });
+  });
+});
+
+test("a sub-agent invocation is suppressed and writes nothing (ADR 0014)", async () => {
+  await withTempSoma(async (somaHome) => {
+    const dir = await mkdtemp(join(tmpdir(), "soma-tx-"));
+    const tp = join(dir, "t.jsonl");
+    await writeFile(tp, SEVEN_PROMPTS, "utf8");
+    const result = await writeSessionDigestFromTranscript({ somaHome, now: NOW, sessionId: SESSION, transcriptPath: tp, agentId: "agt-1" });
+    expect(result.outcome).toBe("suppressed");
+    expect(result.digest).toBeUndefined();
+    await rm(dir, { recursive: true, force: true });
+  });
+});
+
+test("forcePrimary overrides sub-agent suppression", async () => {
+  await withTempSoma(async (somaHome) => {
+    const dir = await mkdtemp(join(tmpdir(), "soma-tx-"));
+    const tp = join(dir, "t.jsonl");
+    await writeFile(tp, SEVEN_PROMPTS, "utf8");
+    const result = await writeSessionDigestFromTranscript({ somaHome, now: NOW, sessionId: SESSION, transcriptPath: tp, agentId: "agt-1", forcePrimary: true });
+    expect(result.outcome).toBe("written");
+    await rm(dir, { recursive: true, force: true });
+  });
+});
+
+test("the fallback no-ops when an assistant-authored digest already exists", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeSessionDigest({ somaHome, now: NOW, sessionId: SESSION, body: DIGEST_BODY }); // assistant-authored, no hook:
+    const dir = await mkdtemp(join(tmpdir(), "soma-tx-"));
+    const tp = join(dir, "t.jsonl");
+    await writeFile(tp, SEVEN_PROMPTS, "utf8");
+    const result = await writeSessionDigestFromTranscript({ somaHome, now: NOW, sessionId: SESSION, transcriptPath: tp });
+    expect(result.outcome).toBe("duplicate");
+    await rm(dir, { recursive: true, force: true });
+  });
+});
+
+test("an unreadable transcript skips silently (never throws)", async () => {
+  await withTempSoma(async (somaHome) => {
+    const result = await writeSessionDigestFromTranscript({ somaHome, now: NOW, sessionId: SESSION, transcriptPath: "/no/such/transcript.jsonl" });
+    expect(result.outcome).toBe("skipped");
+  });
+});
+
+test("parseMemoryArgs digest accepts --transcript and rejects --body + --transcript together", () => {
+  const parsed = parseMemoryArgs(["memory", "digest", "--session", "s", "--transcript", "/t.jsonl"]);
+  expect(parsed.options).toMatchObject({ mode: "transcript" });
+  expect(() => parseMemoryArgs(["memory", "digest", "--session", "s", "--body", "b", "--transcript", "/t.jsonl"])).toThrow(/exactly one/);
 });

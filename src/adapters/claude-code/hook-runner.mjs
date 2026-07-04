@@ -85,6 +85,26 @@ function lifecycle(config, event, input) {
   const cwd = typeof input.cwd === "string" && input.cwd.trim().length > 0 ? input.cwd : undefined;
   if (cwd) args.push("--cwd", cwd);
   runSomaDetached(config, args);
+  // M5b: on SessionEnd, also fire the deterministic digest FALLBACK (assistant-authored
+  // digests come from the wrap-up rule, not here). Sub-agent suppression + one-per-session
+  // dedup live in the CLI/SDK; this only forwards the payload. Detached, never blocks.
+  if (event === "session-end") sessionEndDigest(config, input, id);
+}
+
+function sessionEndDigest(config, input, id) {
+  const transcriptPath =
+    typeof input.transcript_path === "string" && input.transcript_path.trim().length > 0 ? input.transcript_path : undefined;
+  if (!id || !transcriptPath) return; // nothing to summarize without a session id + transcript
+  const args = [
+    "src/cli.ts", "memory", "digest",
+    "--session", id,
+    "--transcript", transcriptPath,
+    "--soma-home", config.somaHome,
+    "--substrate", "claude-code",
+  ];
+  if (typeof input.agent_id === "string" && input.agent_id.trim().length > 0) args.push("--agent-id", input.agent_id);
+  if (typeof input.agent_type === "string" && input.agent_type.trim().length > 0) args.push("--agent-type", input.agent_type);
+  runSomaDetached(config, args);
 }
 
 function metadata(input, source) {
