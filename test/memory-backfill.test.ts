@@ -119,6 +119,9 @@ test("imports only markdown files — non-markdown under a category dir is skipp
     await seed(somaHome, "KNOWLEDGE/creds.env", "SECRET=should-never-be-imported");
     await seed(somaHome, "KNOWLEDGE/data.json", '{"not":"a note"}');
     await seed(somaHome, "KNOWLEDGE/deep.markdown", "a .markdown file is also imported");
+    // READMEs are skipped case-insensitively.
+    await seed(somaHome, "KNOWLEDGE/Readme.md", "readme variant skip");
+    await seed(somaHome, "KNOWLEDGE/README.MD", "readme variant skip two");
 
     const result = await runMemoryBackfill({ somaHome });
     expect(result.entries.map((e) => e.relativePath).sort()).toEqual([

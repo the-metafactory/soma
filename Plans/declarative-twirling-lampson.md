@@ -71,7 +71,7 @@ For each eligible source file at relative path `rel`:
 
 - Files processed **sequentially** (not concurrent) so later files see earlier-written ones and the recall-first refusal dedups within the batch deterministically.
 - A per-file **recall-first refusal** (exact/near-dup already in corpus) is caught and counted as `skipped-duplicate`, not a batch abort (`memory-write.ts:618` builds the refusal — implementation inspects that surface to classify).
-- Manifest `<somaHome>/memory/STATE/imports/backfill/.manifest.json` (schema `soma.memory-backfill.v1`, entries `{relativePath, noteId, type, sha256, mtimeMs}`) — inside the Memory compartment, under the reserved STATE dir the source walk never re-imports. Rerun skips a file only when its source SHA matches, its resolved type matches the prior import, AND its target note still exists; the prior entry is re-emitted verbatim → byte-stable no-op (even across a `touch`). Source drift = re-import as a new note (documented limitation; no auto-supersede yet).
+- Manifest `<somaHome>/memory/STATE/imports/backfill/.manifest.json` (schema `soma.memory-backfill.v1`, entries `{relativePath, noteId, type, sha256, mtimeMs}`) — inside the Memory compartment, under the reserved STATE dir the source walk never re-imports. Rerun skips a file only when its source SHA matches, its resolved type matches the prior import, AND its target note still exists; the prior entry is re-emitted verbatim → byte-stable no-op (even across a `touch`). An edited source (new SHA) is re-processed through the write path — written as a *new* note, OR classified `skipped-duplicate` if the edited body still trips the recall-first refusal against an existing note (no auto-supersede in v1).
 
 ### Result / reporting
 

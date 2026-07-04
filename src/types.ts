@@ -2496,23 +2496,23 @@ export interface SomaMemoryVerifyResult {
 // Deterministic, no LLM: bodies are wrapped verbatim, `created` comes from the
 // source mtime, and every note lands at `quarantined` trust via the `import`
 // trigger (MINJA defense — bulk-imported content is never trusted incidentally;
-// a human elevates it later via verify/supersede). The top-level category dir is
-// mapped to a note type by {@link SOMA_MEMORY_BACKFILL_TYPE_MAP}; `--type` forces
-// a single type for all files. Idempotent via a SHA manifest at
-// `imports/backfill/.manifest.json` (mirrors the pai-memory-migrator pattern).
+// the principal elevates it later via verify/supersede). The top-level category
+// dir is mapped to a note type by {@link SOMA_MEMORY_BACKFILL_TYPE_MAP}; `--type`
+// forces a single type for all files. Idempotent via a SHA manifest at
+// `memory/STATE/imports/backfill/.manifest.json` (mirrors pai-memory-migrator).
+
+/** The durable, backfillable note types (episodic is written via digest/action, not backfill). */
+export type WritableNoteType = Exclude<SomaMemoryNoteType, "episodic">;
 
 /**
  * Top-level source category dir → note type. Categories not listed here fall
  * back to `semantic`. The map affects TYPE only — trust is always `quarantined`
  * (derived from the `import` trigger), never selectable here.
  */
-export const SOMA_MEMORY_BACKFILL_TYPE_MAP: Record<string, "semantic" | "procedural"> = {
+export const SOMA_MEMORY_BACKFILL_TYPE_MAP: Record<string, WritableNoteType> = {
   LEARNING: "procedural",
   KNOWLEDGE: "semantic",
 };
-
-/** The durable, backfillable note types (episodic is written via digest/action, not backfill). */
-export type WritableNoteType = Exclude<SomaMemoryNoteType, "episodic">;
 
 export interface SomaMemoryBackfillOptions {
   homeDir?: string;
@@ -2523,7 +2523,7 @@ export interface SomaMemoryBackfillOptions {
   /** Source root walked recursively. Defaults to `<somaHome>/memory`. */
   from?: string;
   /** Force ALL notes to this type, overriding the category map. */
-  type?: "semantic" | "procedural";
+  type?: WritableNoteType;
   /** Sets each note's `project` field. Defaults to null. */
   project?: string | null;
   /** Plan only — print the intended imports and touch nothing (no manifest write). */
@@ -2543,7 +2543,7 @@ export interface SomaMemoryBackfillEntry {
   /** Absolute source path (also recorded as the note's `source_of_truth`). */
   source: string;
   noteId: string;
-  type: "semantic" | "procedural";
+  type: WritableNoteType;
   /** `created`/`last_verified` date derived from the source mtime (YYYY-MM-DD, UTC). */
   created: string;
   /** Target note path (written, or would-be for a dry-run). */
@@ -2569,7 +2569,7 @@ export interface SomaMemoryBackfillResult {
 export interface SomaMemoryBackfillManifestEntry {
   relativePath: string;
   noteId: string;
-  type: "semantic" | "procedural";
+  type: WritableNoteType;
   sha256: string;
   mtimeMs: number;
 }

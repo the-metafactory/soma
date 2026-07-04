@@ -188,7 +188,7 @@ async function collectSources(root: string): Promise<SourceFile[]> {
         continue;
       }
       if (!entry.isFile()) continue;
-      if (entry.name === "README.md") continue;
+      if (/^readme\.md$/i.test(entry.name)) continue;
       if (!MARKDOWN_EXT.test(entry.name)) continue;
       const stat = await lstat(abs);
       files.push({
