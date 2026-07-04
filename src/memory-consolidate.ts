@@ -173,15 +173,17 @@ interface EpisodicArchive {
  * the root. A not-yet-existing ancestor is fine; `mkdir` creates real dirs. Used for
  * BOTH the archive move and the digest write (any consolidation destination).
  */
-async function assertRealParentChain(memoryRoot: string, target: string): Promise<void> {
+async function assertRealParentChain(memoryRoot: string, target: string, verified?: Set<string>): Promise<void> {
   let cur = memoryRoot;
   for (const seg of relative(memoryRoot, dirname(target)).split(sep)) {
     cur = join(cur, seg);
+    if (verified?.has(cur)) continue; // an ancestor already proven real this run — skip the re-lstat
     const info = await lstat(cur).catch(() => undefined);
     if (info === undefined) break; // this and deeper segments don't exist yet
     if (info.isSymbolicLink() || !info.isDirectory()) {
       throw new MemoryNoteError(`consolidation destination parent "${cur}" is a symlink or non-directory — refusing to write outside the memory root.`, "id");
     }
+    verified?.add(cur); // most archive targets share the sessions/actions ancestors
   }
 }
 
@@ -190,8 +192,8 @@ async function assertRealParentChain(memoryRoot: string, target: string): Promis
  * does not already exist in ANY form (no-clobber — a lone `isRealEntry` check would
  * miss a symlinked tombstone).
  */
-async function assertSafeArchiveDest(memoryRoot: string, target: string): Promise<void> {
-  await assertRealParentChain(memoryRoot, target);
+async function assertSafeArchiveDest(memoryRoot: string, target: string, verified?: Set<string>): Promise<void> {
+  await assertRealParentChain(memoryRoot, target, verified);
   if ((await lstat(target).catch(() => undefined)) !== undefined) {
     throw new MemoryNoteError(`archive target already exists: ${target} — refusing to overwrite the tombstone.`, "id");
   }
@@ -489,9 +491,10 @@ export async function consolidateMemory(options: SomaMemoryConsolidateOptions = 
   // guards at write time instead: stale-mark re-lstats + writes via temp+rename, and
   // state-GC lstat-filters — those are not part of this archive preflight.
   const memoryRoot = paths.memory();
-  for (const e of episodic) await assertSafeArchiveDest(memoryRoot, e.to);
+  const verifiedDirs = new Set<string>(); // archive targets share ancestors — verify each real dir once
+  for (const e of episodic) await assertSafeArchiveDest(memoryRoot, e.to, verifiedDirs);
   if (episodic.length > 0) {
-    await assertRealParentChain(memoryRoot, paths.resolve("memory", "episodic", "digests", "any.md"));
+    await assertRealParentChain(memoryRoot, paths.resolve("memory", "episodic", "digests", "any.md"), verifiedDirs);
   }
 
   const durable = await collectDurableNotes(somaHome);
