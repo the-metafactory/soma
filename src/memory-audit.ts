@@ -1,6 +1,6 @@
-import type { Dirent } from "node:fs";
-import { lstat, readFile, readdir, stat } from "node:fs/promises";
-import { basename, join, relative, sep } from "node:path";
+import { type Dirent, constants as fsConstants } from "node:fs";
+import { lstat, readFile, readdir } from "node:fs/promises";
+import { basename, isAbsolute, join, relative } from "node:path";
 import { createPaths } from "./paths";
 import { isEnoent } from "./fs-utils";
 import { runBoundedConcurrent } from "./internal-concurrency";
@@ -58,14 +58,22 @@ async function listRealMarkdownFilesRec(dir: string): Promise<string[]> {
   return [...files, ...nested.flat()];
 }
 
-/** Parse one note file → the note, or `undefined` if it cannot be read/parsed. */
+// Read WITHOUT following a final-component symlink — closes the TOCTOU where a listed
+// regular file is swapped for a symlink between enumeration and read. O_NOFOLLOW makes
+// the open fail (ELOOP) on a symlink, so a swapped file reads as unreadable, never
+// through the link to an outside target.
+const NOFOLLOW_READ = fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW;
+
+/** Parse one note file → the note, or `undefined` if it cannot be read/parsed (incl.
+ *  a symlink swapped in after enumeration, which O_NOFOLLOW rejects). */
 async function parseFile(path: string): Promise<SomaMemoryNote | undefined> {
-  return readFile(path, "utf8").then(parseMemoryNote).catch(() => undefined);
+  return readFile(path, { encoding: "utf8", flag: NOFOLLOW_READ }).then(parseMemoryNote).catch(() => undefined);
 }
 
-/** mtime in ms, or `undefined` if the path is absent. */
+/** mtime in ms, or `undefined` if the path is absent. Uses `lstat` — a path swapped to
+ *  a symlink after enumeration is measured as the link itself, never followed. */
 async function mtimeMs(path: string): Promise<number | undefined> {
-  return stat(path).then((s) => s.mtimeMs).catch((error) => {
+  return lstat(path).then((s) => s.mtimeMs).catch((error) => {
     if (isEnoent(error)) return undefined;
     throw error;
   });
@@ -229,7 +237,10 @@ async function probeOrphanedArchive(
   const orphanedArchive: string[] = [];
   for (const { path, note } of parsed) {
     if (note === undefined || note.type !== "episodic") continue;
-    if (!path.startsWith(archiveDir + sep)) continue;
+    // Path-segment containment (not a raw string prefix): `path` is under the archive
+    // iff its relative path neither escapes (`..`) nor is absolute.
+    const rel = relative(archiveDir, path);
+    if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) continue;
     const month = note.created.slice(0, 7);
     if (!digestIdsByMonth.get(month)?.has(note.id)) orphanedArchive.push(relative(somaHome, path));
   }

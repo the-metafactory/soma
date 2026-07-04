@@ -2658,7 +2658,11 @@ export interface SomaMemoryAuditResult {
   orphanedArchive: string[];
   /** Event-stream vs corpus size — a coarse write-amplification signal (informational). */
   events: { lines: number; notes: number };
-  /** Every probe run, in report order (most gate `healthy`; some are informational). */
+  /**
+   * Every probe run, in report order. Exactly TWO gate `healthy`: `schema` and
+   * `index-freshness`. The other three (`digest-coverage`, `orphaned-archive`,
+   * `event-ratio`) are informational drift signals whose `ok` is always true.
+   */
   probes: SomaMemoryAuditProbe[];
 }
 
