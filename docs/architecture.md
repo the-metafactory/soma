@@ -133,8 +133,8 @@ principal: it walks the legacy category dirs and writes each markdown file
 to a note type (`LEARNING`→procedural, `KNOWLEDGE`→semantic). It is deterministic
 (bodies verbatim, `created` from the source mtime, no LLM) and idempotent via a SHA
 manifest at `memory/STATE/imports/backfill/.manifest.json`. Imports stay recall-discoverable
-(with a ⚠ untrusted banner) but out of the always-loaded INDEX until a human
-verifies them.
+(with a ⚠ untrusted banner) but out of the always-loaded INDEX until the
+principal verifies them.
 
 Each note is one file: strict frontmatter (id, type, trust, provenance,
 bi-temporal `valid_until`, `last_verified`, `resurface_count`, links) plus a

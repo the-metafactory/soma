@@ -402,8 +402,8 @@ it can gate CI. `soma memory backfill` bulk-imports a principal's existing
 free-form markdown (default source: the legacy `<somaHome>/memory` category dirs) into
 schema-valid notes through the same governed write path — deterministically, no
 LLM, idempotent via a SHA manifest. Every imported note lands at `quarantined`
-trust (recall-discoverable with a ⚠ banner, held out of the INDEX until a human
-verifies it); the category dir maps to a note type (`LEARNING`→procedural,
+trust (recall-discoverable with a ⚠ banner, held out of the INDEX until the
+principal verifies it); the category dir maps to a note type (`LEARNING`→procedural,
 `KNOWLEDGE`→semantic) unless `--type` forces one. The note subsystem also ships
 as the portable **Memory** skill,
 which routes a remember/recall/log/maintain/audit request to the right

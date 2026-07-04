@@ -10,14 +10,14 @@ Legacy files can even carry a stopgap banner: *"re-promote via `soma memory
 write` once M1 ships."*
 
 For **shipping Soma to other users**, we need a first-class, reusable command
-that takes a user's existing markdown memory and turns it into schema-valid,
+that takes a principal's existing markdown memory and turns it into schema-valid,
 governed notes — deterministically, no LLM (subsystem invariant), respecting the
 M1 trust-governance model. This is milestone **M8 — backfill**.
 
 **Key design facts established during exploration:**
 - The `import` write trigger is the sanctioned bulk path: `SOMA_MEMORY_TRIGGER_TRUST.import → "quarantined"`, needs **no authority signal** (`memory-write.ts:30`, MINJA defense). Backfilled content lands untrusted by design.
-- Lifecycle is correct, not a dead end: **recall INCLUDES quarantined notes** with a ⚠ untrusted banner (`memory-recall.ts:136,162` — only `valid_until===null` is filtered, not trust), while **INDEX EXCLUDES quarantined** (`memory-index.ts:17`). So imports are pull-discoverable immediately and earn always-on INDEX only after a human verifies/elevates them.
-- `writeMemoryNote({mode:"create", trigger:"import", …})` (`memory-write.ts:779`) already does schema serialization, per-note dedup (recall-first refusal, Jaccard ≥0.6 / exact-body), and event journaling. Backfill is a **batch adapter over this existing path**, not a new writer.
+- Lifecycle is correct, not a dead end: **recall INCLUDES quarantined notes** with a ⚠ untrusted banner (`memory-recall.ts:136,162` — only `valid_until===null` is filtered, not trust), while **INDEX EXCLUDES quarantined** (`memory-index.ts:17`). So imports are pull-discoverable immediately and earn always-on INDEX only after the principal verifies/elevates them.
+- `writeMemoryNote({mode:"create", trigger:"import", …})` (`memory-write.ts:779`) already does schema serialization, per-note dedup (recall-first refusal, Jaccard ≥0.6 / exact-body), and event journaling. Backfill is a **batch importer over this existing path**, not a new writer.
 - Idempotency pattern to mirror: `src/pai-memory-migrator.ts` (SHA manifest, skip-unchanged, byte-stable no-op rerun, symlink refusal).
 
 ## Approach
@@ -51,9 +51,11 @@ deterministically would blow open the MINJA hole for anyone who can drop a file
 in the source dir).
 
 **Skipped, never imported:** reserved dirs `STATE`, `episodic`, `semantic`,
-`procedural`, `archive`, `imports`; files directly under the root (READMEs,
-`INDEX.md`); any `README.md`; symlinks anywhere (loud refusal, matching the
-migrator's stance).
+`procedural`, `archive`, `imports`; any `README.md` (case-insensitive);
+non-markdown files; symlinks anywhere (loud refusal, matching the migrator's
+stance). Files sitting directly under the root are skipped **only for the
+default `<somaHome>/memory` root** (README/`INDEX.md` territory); a custom
+`--from <dir>` imports its top-level markdown (category `""` → semantic).
 
 ### Per-file note synthesis (deterministic)
 
@@ -62,7 +64,7 @@ For each eligible source file at relative path `rel`:
 - **type** = category map (or `--type`).
 - **created / last_verified** = file **mtime** → `YYYY-MM-DD` UTC (injected via `writeMemoryNote`'s `now` option, set per-file to `new Date(mtimeMs)`).
 - **provenance** = `import`; **trust** = `quarantined` (derived).
-- **source_of_truth** = absolute path of the original file (so a human can verify against the archived original).
+- **source_of_truth** = absolute path of the original file (so the principal can verify against the archived original).
 - **project** = `--project` or `null`; **links** = `[]`; **resurface_count** = 0.
 - **hook** = short humanized recall phrase from the stem (optional; aids recall matching).
 - **body** = original file content **verbatim** — no injected preamble (a shared preamble inflates token overlap and makes the recall-first dedup over-fire on short files; origin lives in frontmatter instead). Only `.md`/`.markdown` files are imported.
@@ -101,5 +103,5 @@ For each eligible source file at relative path `rel`:
 
 - LLM distillation of legacy content (subsystem is deterministic-only; bodies are wrapped verbatim).
 - Auto-supersede on source drift (rerun re-imports changed files as new notes).
-- Trust elevation of imports (stays `quarantined`; a human elevates later via the verify/supersede path — a separate, deliberate step).
+- Trust elevation of imports (stays `quarantined`; the principal elevates later via the verify/supersede path — a separate, deliberate step).
 - Non-markdown / recall-SQLite sources (SQLite-as-canon explicitly rejected, plan v2 §fatal-flaws).

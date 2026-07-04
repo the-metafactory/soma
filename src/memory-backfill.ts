@@ -21,7 +21,7 @@
  *   - Trust is ALWAYS `quarantined` — the `import` trigger derives it and no
  *     caller flag can elevate it (MINJA defense). Backfilled notes are recall-
  *     pull-discoverable immediately (with a ⚠ untrusted banner) but stay out of
- *     the always-loaded INDEX until a human verifies/elevates them.
+ *     the always-loaded INDEX until the principal verifies/elevates them.
  *   - Files are processed SEQUENTIALLY so the recall-first refusal dedups within
  *     the batch deterministically (a later near-duplicate sees earlier writes).
  *
