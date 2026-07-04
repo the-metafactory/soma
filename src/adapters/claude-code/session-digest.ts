@@ -244,6 +244,11 @@ export async function writeSessionDigestFromTranscript(options: ClaudeSessionDig
     return { outcome: "skipped", reason: "transcript has too few principal prompts for a fallback digest" };
   }
 
+  // Governance: this is the GOVERNED M5 memory-write path — schema validation, the
+  // one-per-session gate, provenance validation, and a memory.digest event. That is the
+  // write governance for memory CONTENT. It is NOT the PostToolUse tool-activity
+  // writeback QUEUE (substrate telemetry); a session digest is memory content, so it is
+  // authored through the memory API, not the telemetry writeback pipeline.
   const digest = await writeSessionDigest({
     homeDir: options.homeDir,
     somaHome: options.somaHome,
@@ -267,4 +272,6 @@ export async function writeSessionDigestFromTranscript(options: ClaudeSessionDig
 // Dependency inversion: register this adapter's transcript fallback with core
 // lifecycle at module load. Core never imports this adapter — it looks the handler up
 // by substrate. Importing this module (CLI side-effect / tests) triggers registration.
-registerSessionEndTranscriptHandler("claude-code", (input) => writeSessionDigestFromTranscript(input));
+registerSessionEndTranscriptHandler("claude-code", (input) =>
+  writeSessionDigestFromTranscript(input).then((r) => ({ outcome: r.outcome, path: r.digest?.path })),
+);

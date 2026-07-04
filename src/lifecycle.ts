@@ -722,7 +722,7 @@ export type SessionEndTranscriptHandler = (input: {
   subagentType?: string;
   forcePrimary?: boolean;
   forceSubagent?: boolean;
-}) => Promise<{ outcome: string }>;
+}) => Promise<{ outcome: string; path?: string }>;
 
 const sessionEndTranscriptHandlers = new Map<SubstrateId, SessionEndTranscriptHandler>();
 
@@ -780,6 +780,7 @@ export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions =
   // registerSessionEndTranscriptHandler) which core looks up by substrate here.
   // Best-effort: never blocks session end.
   let digestNote = "";
+  let digestPath: string | undefined;
   const transcriptHandler = sessionEndTranscriptHandlers.get(substrate(options));
   if (options.transcriptPath && options.sessionId && transcriptHandler) {
     try {
@@ -795,6 +796,7 @@ export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions =
         forceSubagent: process.env.SOMA_MEMORY_FORCE_SUBAGENT === "1",
       });
       digestNote = ` | digest: ${fallback.outcome}`;
+      digestPath = fallback.path; // so lifecycle reports the written digest file below
     } catch {
       // A fallback failure must never block session end.
     }
@@ -813,6 +815,7 @@ export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions =
   });
 
   const files = [index.path, index.activePath, ...learningFiles, ...registryFiles, join(somaHome, "memory/STATE/events.jsonl")];
+  if (digestPath) files.push(digestPath); // the SessionEnd fallback digest, when written
   return {
     event: "session_end",
     somaHome,
