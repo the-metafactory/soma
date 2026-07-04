@@ -62,6 +62,24 @@ function renderInstructions(input: ProjectionInput): string {
   return renderSubstrateInstructions({ substrate: "Codex", runtimeLabel: "Codex" }, input);
 }
 
+/**
+ * Codex Tier-0 memory injection: project the durable memory INDEX as a static
+ * file. Codex has no runtime tool to pull `memory/INDEX.md` live (unlike Pi), so
+ * it rides along as a projected file. Reads the same `input.memory.indexContent`
+ * field the Claude adapter's `memoryIndexBundleFile` consumes, and omits when it
+ * is empty/absent. A test pins that narrow contract — the presence/absence toggle
+ * and that the projected content is the verbatim `indexContent` — against Claude's
+ * bundle helper (it does NOT assert INDEX rendering semantics or install-time
+ * regeneration, which are the index renderer's and installer's concerns). It is
+ * "regenerated at consolidation" only in the sense that consolidation rebuilds
+ * INDEX.md and the next `soma install` re-projects it — a recorded degradation.
+ */
+export function codexMemoryIndexFile(input: ProjectionInput): { path: string; content: string }[] {
+  const indexContent = input.memory?.indexContent;
+  if (indexContent === undefined || indexContent.trim().length === 0) return [];
+  return [{ path: "memories/soma/memory-index.md", content: indexContent }];
+}
+
 function renderHomeRules(input: ProjectionInput, somaHome: string): string {
   const contextLines = [
     "# Soma default availability",
@@ -111,8 +129,9 @@ function renderHomeSkill(input: ProjectionInput, somaHome: string): string {
     "- Read `~/.codex/memories/soma/profile.md` for the current projected assistant profile.",
     "- Read `~/.codex/memories/soma/pai-imports.md` when the task needs detailed migrated PAI identity, voice, relationship, purpose, or decision-context material.",
     "- Read `~/.codex/memories/soma/startup-context.md` for lifecycle-generated active work and recent learning context when present.",
+    "- When present, read `~/.codex/memories/soma/memory-index.md` for the durable memory INDEX (Tier-0 orientation). It is a snapshot written whenever the Codex bundle is projected (e.g. `soma install`) from the index at that moment, and only when durable notes exist — so it may be absent (no index yet) or lag the live store between projections.",
     "- Read `~/.codex/memories/soma/lifecycle.md` for lifecycle refresh commands.",
-    "- Use `cd $(cat ~/.codex/memories/soma/soma-repo.txt) && bun run soma memory search --query \"...\"` before making durable claims that may depend on prior knowledge, learning, relationship, work, or imported PAI context.",
+    "- Use `cd $(cat ~/.codex/memories/soma/soma-repo.txt) && bun run soma memory recall --query \"...\"` before making durable claims that may depend on prior knowledge, learning, relationship, work, or imported PAI context. This is note-aware retrieval; `soma memory search` remains as a legacy line-grep fallback.",
     "- Use `cd $(cat ~/.codex/memories/soma/soma-repo.txt) && bun run soma memory promote --from-run <id> --store learning --title \"...\" --substrate codex` when verified Algorithm work should become durable recall.",
     "- Do not assume a global `soma` binary exists; use lifecycle hooks or the `bun run soma` commands in `lifecycle.md`.",
     "- Read `~/.codex/memories/soma/memory-layout.md` before using persistent memory.",
@@ -165,10 +184,15 @@ function renderLifecycleProjection(somaHome: string): string {
     "- `cd $(cat ~/.codex/memories/soma/soma-repo.txt) && bun run soma lifecycle algorithm-updated --substrate codex`",
     "- `cd $(cat ~/.codex/memories/soma/soma-repo.txt) && bun run soma lifecycle session-end --substrate codex`",
     "- `cd $(cat ~/.codex/memories/soma/soma-repo.txt) && bun run soma algorithm new --prompt \"...\" --intent \"...\" --current-state \"...\" --goal \"...\" --criterion \"C1:...\"`",
-    "- `cd $(cat ~/.codex/memories/soma/soma-repo.txt) && bun run soma memory search --query \"...\"`",
+    "- `cd $(cat ~/.codex/memories/soma/soma-repo.txt) && bun run soma memory recall --query \"...\"` (note-aware; `soma memory search` is the legacy line-grep fallback)",
+    "- `cd $(cat ~/.codex/memories/soma/soma-repo.txt) && bun run soma memory digest --session <id> --body \"8-15 lines\"` at session wrap-up",
     "- `cd $(cat ~/.codex/memories/soma/soma-repo.txt) && bun run soma memory promote --from-run <id> --store learning --title \"...\" --substrate codex`",
     "",
     "Do not use `command -v soma`; Soma is installed as a repo CLI, not a global binary.",
+    "",
+    "## Capture Limitation (recorded)",
+    "",
+    "Codex has no automatic session-digest capture: the SessionEnd deterministic digest fallback is a Claude Code adapter concern. On Codex, run `soma memory digest` manually (or via cron) at wrap-up. This reduced capture tempo is an accepted adapter limitation, not a gap in the kernel.",
     "",
     "## Source Files",
     "",
@@ -424,6 +448,8 @@ export function projectCodexHome(input: ProjectionInput, somaHome: string, homeD
         path: "memories/soma/policy.md",
         content: renderCodexPolicy(),
       },
+      // Tier-0 durable memory INDEX (M4 parity). OMITTED when no index exists yet.
+      ...codexMemoryIndexFile(input),
       ...portableSkillFiles,
       {
         path: "skills/the-algorithm/SKILL.md",

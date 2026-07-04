@@ -56,9 +56,15 @@ The first useful Pi adapter can be a `soma-core` extension with:
 
 - `isa_create`
 - `isa_update`
-- `memory_search`
+- `memory_search` (legacy line-grep; kept for back-compat)
+- `memory_recall` (note-aware retrieval over durable notes)
+- `memory_index` (read the live durable memory INDEX)
 - `capture_learning`
 - `policy_check`
+
+Digest capture on Pi is agent-invoked (no SessionEnd digest hook): the projected
+context instructs the agent to run `soma memory digest` at wrap-up — a recorded
+reduced-tempo limitation.
 
 Initial implementation: `projectPiDev` generates a workspace-shaped
 `soma-core` extension projection under
