@@ -313,6 +313,12 @@ function listArchivedMonthNotes(paths: SomaPaths, kind: "sessions" | "actions", 
 async function applyEpisodicArchive(paths: SomaPaths, episodic: EpisodicArchive[]): Promise<void> {
   const months = new Set<string>();
   for (const e of episodic.slice().sort((a, b) => a.note.id.localeCompare(b.note.id))) {
+    // Never clobber an existing archive tombstone: `rename` would overwrite it on
+    // POSIX, silently losing a prior raw note. A collision means a same-id note was
+    // already archived — refuse and surface it for manual reconciliation.
+    if (await isRealEntry(e.to, "file")) {
+      throw new MemoryNoteError(`archive target already exists: ${e.to} — refusing to overwrite the tombstone.`, "id");
+    }
     await mkdir(dirname(e.to), { recursive: true });
     await rename(e.from, e.to);
     months.add(e.note.created.slice(0, 7));
@@ -327,10 +333,17 @@ async function applyStaleMarks(marks: { path: string; note: SomaMemoryNote }[]):
   }
 }
 
-/** Apply the state GC — the one true deletion. */
+/** Apply the state GC — the only deletion. Reported `stateGced` must be TRUE. */
 async function applyStateGc(root: string, stateGc: string[]): Promise<void> {
   for (const rel of stateGc) {
-    await unlink(join(root, rel)).catch(() => undefined);
+    try {
+      await unlink(join(root, rel));
+    } catch (error) {
+      // ENOENT = already gone (fine). Any other failure means the file is NOT
+      // deleted — do NOT swallow it, or the pass would report/record a deletion
+      // that did not happen.
+      if (!isEnoent(error)) throw error;
+    }
   }
 }
 
