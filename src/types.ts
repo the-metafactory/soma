@@ -2548,6 +2548,83 @@ export interface SomaMemoryActionResult {
   event: SomaMemoryEvent;
 }
 
+// Memory subsystem M6 (deterministic consolidation). The full contract — ops,
+// ordering, dry-run parity semantics, archive layout, idempotency — lives with the
+// implementation in `src/memory-consolidate.ts` (single source of truth). In brief:
+// a no-LLM maintenance pass; `--dry-run` reports the same file OPERATIONS the real
+// run applies (operation-level parity, not a byte-level diff).
+export interface SomaMemoryConsolidateOptions {
+  homeDir?: string;
+  somaHome?: string;
+  substrate?: SubstrateId;
+  /** Injected clock for deterministic age math. Defaults to now. */
+  now?: Date;
+  /** Plan only — print the ops without touching the filesystem. */
+  dryRun?: boolean;
+  /**
+   * Explicit override for the destructive state GC. Deleting `current-work-*.json`
+   * is a destructive mutation of protected state, so per CONTEXT.md it needs a
+   * deliberate flag — without this, the pass plans/deletes no state files.
+   */
+  gcState?: boolean;
+}
+
+/** One planned file move (episodic prune → archive), preserving relative path. */
+export interface SomaMemoryArchivePlan {
+  from: string;
+  to: string;
+  reason: string;
+}
+
+/**
+ * A pair of notes with high LEXICAL similarity (Jaccard token overlap), surfaced
+ * for principal review — a CANDIDATE duplicate/contradiction, not a proven semantic
+ * one. `score` is the token-overlap ratio; consolidation never auto-merges.
+ */
+export interface SomaMemorySimilarPair {
+  a: string;
+  b: string;
+  score: number;
+}
+
+export interface SomaMemoryConsolidateResult {
+  somaHome: string;
+  dryRun: boolean;
+  // NOTE: on a dry-run these are the PLANNED operations (nothing was applied); on a
+  // real run they are what was applied. Each field's verb is mode-neutral for that
+  // reason.
+  /** Aged episodic notes to move under `memory/archive/` (planned on dry-run, moved on a real run). */
+  archived: SomaMemoryArchivePlan[];
+  /** Monthly digest files whose archived-notes months are affected (regenerated on a real run). */
+  digestsWritten: string[];
+  /** Semantic notes to mark `review: stale` (planned on dry-run, marked on a real run). */
+  markedStale: string[];
+  /** `current-work-*.json` files older than 7d to GC — only under `--gc-state`; this pass's only deletion. */
+  stateGced: string[];
+  /** High-lexical-similarity note pairs listed for review (candidate duplicates/contradictions). */
+  similarPairs: SomaMemorySimilarPair[];
+  /**
+   * Note files surfaced for the audit and NOT acted on — either an I/O/parse failure
+   * (couldn't be read/parsed) OR a safety refusal (unsafe id, malformed calendar date,
+   * or a mis-placed episodic note whose directory month ≠ its created month). Never
+   * silently skipped; the two classes are not distinguished in this field.
+   */
+  unreadable: string[];
+  /**
+   * True iff the pass has (or, on dry-run, would have) any file mutation — i.e. any
+   * of archived / markedStale / stateGced is non-empty. The single source of truth
+   * for whether the INDEX is rebuilt and a `memory.consolidate` event is emitted;
+   * the similar-pairs report is read-only and does NOT set this.
+   */
+  mutated: boolean;
+  /**
+   * The INDEX.md path. Always reported, but the index is REBUILT only when the pass
+   * mutated something (any of archived / markedStale / stateGced non-empty) — a
+   * no-op run leaves it untouched. This is the path, not proof a rebuild happened.
+   */
+  indexPath: string;
+}
+
 // Memory subsystem M2 (recall). Plan v2 §M2: note-aware retrieval over the
 // durable corpus (semantic + procedural) — term scoring, whole-file retrieval
 // (limit 3), 1-hop link expansion, superseded-exclusion via `valid_until`, and a

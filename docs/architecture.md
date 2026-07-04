@@ -130,14 +130,32 @@ compartments.
 
 Each note is one file: strict frontmatter (id, type, trust, provenance,
 bi-temporal `valid_until`, `last_verified`, `resurface_count`, links) plus a
-markdown body. `soma memory write|verify` (M1) is the only *governed* write path
+markdown body. `soma memory write|verify` (M1) is the primary *governed* write path
 (a convention, not a filesystem-enforced guarantee — nothing stops out-of-band
 edits to the markdown, which is why every recalled note carries a verification
 banner). Through it, trust is derived from the write trigger, writes are
 dedup-gated (recall-first refusal),
 and each mutation appends one event to the **existing** `memory/STATE/events.jsonl`
 stream (the same journal the Observability section reads — note mutations do not
-fork a second event stream). The write/event coupling is best-effort, not
+fork a second event stream). The write/event rollback coupling above is specific to the single-note
+`write|verify` path. One other governed path exists: `soma memory consolidate`
+(M6), the deterministic maintenance pass — it archives aged episodic notes (moved
+out of the active tree, under `memory/archive/`; relocated, never deleted — the
+move itself is the invalidation, no `valid_until` field is stamped), marks
+aged-unverified semantic
+notes `review: stale`, and (only under an explicit `--gc-state`) GCs old
+`current-work-*` state. It is governed (deterministic, event-emitting, no LLM) but
+does NOT re-derive trust — it never mints or elevates a note, only ages/relocates
+existing ones. A mutating pass appends one `memory.consolidate` event as its FINAL
+step — a post-hoc RECORD, NOT rollback-coupled. The pass is idempotent and safe to
+repeat, so the guarantee is repeatability, not atomicity: if the pass throws
+part-way, OR the event append itself fails, mutations may already be applied WITHOUT
+the event — so an absent event does NOT prove no mutation happened. A re-run
+reconciles the STATE (it re-does nothing already done — idempotent), but it does NOT
+back-fill the missing journal record: a subsequent no-op run writes no event, so the
+gap persists. A memory audit (M7, forthcoming — not yet built) that reads the files
+directly, not the event stream, is the intended ground-truth check. A no-op pass
+writes no event. The write/event coupling is best-effort, not
 crash-atomic: an event-append *failure* rolls the file mutation back, but a hard
 process crash in the window between the two can still orphan a file from its
 event (a documented gap reconciled by the M7 audit; soma has no WAL/2PC). This

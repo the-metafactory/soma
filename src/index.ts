@@ -107,6 +107,10 @@ export type {
   SomaMemoryActionOptions,
   SomaMemoryActionResult,
   SomaMemoryActionApproval,
+  SomaMemoryConsolidateOptions,
+  SomaMemoryConsolidateResult,
+  SomaMemorySimilarPair,
+  SomaMemoryArchivePlan,
   SomaMemorySearchMatch,
   SomaMemorySearchOptions,
   SomaMemorySearchResult,
@@ -465,6 +469,7 @@ export { recallMemory } from "./memory-recall";
 // modules and tests import them from "./memory-index" directly.
 export { rebuildMemoryIndex } from "./memory-index";
 export { writeSessionDigest, writeMemoryAction } from "./memory-episodic";
+export { consolidateMemory } from "./memory-consolidate";
 export { createSomaSnapshot, listSomaSnapshots, rollbackSomaSnapshot } from "./snapshots";
 export { querySomaTelemetryEvents, summarizeSomaTelemetry } from "./observability";
 export {

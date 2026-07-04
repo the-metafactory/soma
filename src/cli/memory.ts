@@ -1,4 +1,5 @@
 import {
+  consolidateMemory,
   promoteAlgorithmRunMemory,
   rebuildMemoryIndex,
   recallMemory,
@@ -14,6 +15,8 @@ import type {
   SomaMemoryActionApproval,
   SomaMemoryActionOptions,
   SomaMemoryActionResult,
+  SomaMemoryConsolidateOptions,
+  SomaMemoryConsolidateResult,
   SomaMemoryDigestOptions,
   SomaMemoryDigestResult,
   SomaMemoryIndexResult,
@@ -89,6 +92,12 @@ export interface ParsedMemoryActionArgs {
   options: SomaMemoryActionOptions;
 }
 
+export interface ParsedMemoryConsolidateArgs {
+  command: "memory";
+  action: "consolidate";
+  options: SomaMemoryConsolidateOptions;
+}
+
 export type ParsedMemoryArgs =
   | ParsedMemorySearchArgs
   | ParsedMemoryRecallArgs
@@ -97,13 +106,14 @@ export type ParsedMemoryArgs =
   | ParsedMemoryVerifyArgs
   | ParsedMemoryReindexArgs
   | ParsedMemoryDigestArgs
-  | ParsedMemoryActionArgs;
+  | ParsedMemoryActionArgs
+  | ParsedMemoryConsolidateArgs;
 
-const MEMORY_ACTIONS = ["search", "recall", "promote", "write", "verify", "reindex", "digest", "action"] as const;
+const MEMORY_ACTIONS = ["search", "recall", "promote", "write", "verify", "reindex", "digest", "action", "consolidate"] as const;
 type MemoryAction = (typeof MEMORY_ACTIONS)[number];
 
 export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAction, string> } = {
-  usage: "Usage: soma memory <search|recall|promote|write|verify|reindex|digest|action> ...",
+  usage: "Usage: soma memory <search|recall|promote|write|verify|reindex|digest|action|consolidate> ...",
   subcommands: {
     search: "Usage: soma memory search [query] [--query <text>] [--limit <n>] [--home-dir <dir>] [--soma-home <dir>]",
     recall:
@@ -135,6 +145,11 @@ export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAct
       "Usage: soma memory action --slug <slug> --planned-action <text> --approval <proposed|approved|rejected|auto> " +
       "[--outcome <text>] [--session <id>] [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]. " +
       "Log one planned-action→approval→outcome entry (id YYYYMMDD-<slug>; collision refused).",
+    consolidate:
+      "Usage: soma memory consolidate [--dry-run] [--gc-state] [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]. " +
+      "Deterministic maintenance: prune aged episodic → digest+archive, mark aged-unverified semantic review:stale, " +
+      "list lexically-similar note pairs (near-duplicates for review; no semantic check), rebuild INDEX. --gc-state additionally DELETES current-work state >7d (explicit override). " +
+      "--dry-run prints the plan without touching anything.",
   },
 };
 
@@ -166,33 +181,59 @@ export function parseMemoryArgs(args: string[]): ParsedMemoryArgs {
       return { command, action, options: parseMemoryDigestArgs(rest) };
     case "action":
       return { command, action, options: parseMemoryActionArgs(rest) };
+    case "consolidate":
+      return { command, action, options: parseMemoryConsolidateArgs(rest) };
   }
 }
 
+function parseMemoryConsolidateArgs(args: string[]): SomaMemoryConsolidateOptions {
+  const options: SomaMemoryConsolidateOptions = {};
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    const consumed = consumeSharedMemoryOption(args, index, arg, options);
+    if (consumed > 0) {
+      index += consumed;
+      continue;
+    }
+    switch (arg) {
+      case "--dry-run":
+        options.dryRun = true;
+        break;
+      case "--gc-state":
+        options.gcState = true;
+        break;
+      default:
+        throw new Error(`Unknown option: ${arg}`);
+    }
+  }
+  return options;
+}
+
 /**
- * Consume a shared episodic/home option (`--home-dir`, `--soma-home`,
- * `--substrate`) into `options`. Returns true if `arg` was one of them (the value
- * was read from args[index+1], so the caller advances the index). One place for the
- * options both `digest` and `action` share, so they can't drift.
+ * Consume a shared home/substrate option (`--home-dir`, `--soma-home`,
+ * `--substrate`) into `options`. Returns the number of EXTRA argv entries consumed
+ * (the option's value) — so the caller advances by exactly that, never over-skipping
+ * a following option — or 0 if `arg` was not a shared option. All shared options
+ * take a value today; returning the count keeps that from being a hidden assumption.
  */
 function consumeSharedMemoryOption(
   args: string[],
   index: number,
   arg: string,
   options: { homeDir?: string; somaHome?: string; substrate?: SubstrateId },
-): boolean {
+): number {
   switch (arg) {
     case "--home-dir":
       options.homeDir = readOption(args, index, arg);
-      return true;
+      return 1;
     case "--soma-home":
       options.somaHome = readOption(args, index, arg);
-      return true;
+      return 1;
     case "--substrate":
       options.substrate = parseSubstrate(readOption(args, index, arg));
-      return true;
+      return 1;
     default:
-      return false;
+      return 0;
   }
 }
 
@@ -200,8 +241,9 @@ function parseMemoryDigestArgs(args: string[]): SomaMemoryDigestOptions {
   const options: Partial<SomaMemoryDigestOptions> = {};
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    if (consumeSharedMemoryOption(args, index, arg, options)) {
-      index += 1;
+    const consumed = consumeSharedMemoryOption(args, index, arg, options);
+    if (consumed > 0) {
+      index += consumed;
       continue;
     }
     switch (arg) {
@@ -237,8 +279,9 @@ function parseMemoryActionArgs(args: string[]): SomaMemoryActionOptions {
   const options: Partial<SomaMemoryActionOptions> = {};
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    if (consumeSharedMemoryOption(args, index, arg, options)) {
-      index += 1;
+    const consumed = consumeSharedMemoryOption(args, index, arg, options);
+    if (consumed > 0) {
+      index += consumed;
       continue;
     }
     switch (arg) {
@@ -651,7 +694,37 @@ export async function runMemoryCli(parsed: ParsedMemoryArgs): Promise<string> {
       return formatMemoryDigestResult(await writeSessionDigest(parsed.options));
     case "action":
       return formatMemoryActionResult(await writeMemoryAction(parsed.options));
+    case "consolidate":
+      return formatMemoryConsolidateResult(await consolidateMemory(parsed.options));
   }
+}
+
+function formatConsolidateIndexLine(result: SomaMemoryConsolidateResult, mutated: boolean): string {
+  // INDEX is rebuilt only when something actually mutated (archive/stale/GC).
+  if (!mutated) return `index: unchanged (no mutations${result.dryRun ? " planned" : ""})`;
+  return result.dryRun ? `index: would rebuild ${result.indexPath}` : `index: rebuilt ${result.indexPath}`;
+}
+
+function formatMemoryConsolidateResult(result: SomaMemoryConsolidateResult): string {
+  const indexLine = formatConsolidateIndexLine(result, result.mutated);
+  const lines = [
+    result.dryRun ? "Soma memory consolidate (dry-run — nothing changed)" : "Soma memory consolidate",
+    `archived: ${result.archived.length} aged episodic note(s)`,
+    ...result.archived.map((a) => `  - ${a.from} → ${a.to} (${a.reason})`),
+    `digests: ${result.digestsWritten.length} monthly file(s)`,
+    `marked review:stale: ${result.markedStale.length} semantic note(s)`,
+    ...result.markedStale.map((p) => `  - ${p}`),
+    `state GC'd: ${result.stateGced.length} current-work file(s)`,
+    ...result.stateGced.map((p) => `  - ${p}`),
+    `similar pairs listed: ${result.similarPairs.length} (lexical near-duplicates for review; no semantic check)`,
+    ...result.similarPairs.map((c) => `  - ${c.a} ~ ${c.b} (jaccard ${c.score.toFixed(2)})`),
+    indexLine,
+  ];
+  if (result.unreadable.length > 0) {
+    lines.push(`⚠ ${result.unreadable.length} unreadable note file(s) — skipped, surface for the audit:`);
+    for (const p of result.unreadable) lines.push(`  - ${p}`);
+  }
+  return lines.join("\n");
 }
 
 function formatMemoryDigestResult(result: SomaMemoryDigestResult): string {
