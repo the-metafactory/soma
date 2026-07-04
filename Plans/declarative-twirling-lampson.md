@@ -95,7 +95,7 @@ For each eligible source file at relative path `rel`:
 - **Live acceptance against a throwaway `--soma-home` fixture:**
   - `soma memory backfill --dry-run` → shows `KNOWLEDGE/*`→semantic, `LEARNING/*`→procedural, nothing written.
   - Real run: notes land in `semantic/`/`procedural/`, `trust: quarantined`, `provenance: import`, `created` = source mtime.
-  - `soma memory audit` passes (schema-valid, INDEX fresh).
+  - `soma memory audit` passes (schema-valid, INDEX fresh) — backfill rebuilds the INDEX after writing, so index-freshness holds without a separate `reindex` step.
   - `soma memory recall <term>` surfaces a backfilled note **with the ⚠ untrusted banner**; `soma memory reindex` keeps them **out** of INDEX (quarantined) — confirming the intended lifecycle.
   - Rerun `backfill` → 0 written / all skipped, manifest byte-identical.
 

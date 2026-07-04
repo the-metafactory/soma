@@ -37,6 +37,7 @@ import { constants as FS } from "node:fs";
 import { lstat, mkdir, open, readFile, readdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, relative, resolve, sep } from "node:path";
+import { rebuildMemoryIndex } from "./memory-index";
 import { MemoryNoteError } from "./memory-note";
 import { memoryNotePath, writeMemoryNote } from "./memory-write";
 import { SOMA_MEMORY_BACKFILL_TYPE_MAP } from "./types";
@@ -196,6 +197,20 @@ const MARKDOWN_EXT = /\.(?:md|markdown)$/i;
  */
 async function collectSources(root: string, skipRootFiles: boolean): Promise<SourceFile[]> {
   const files: SourceFile[] = [];
+
+  // Refuse a symlinked source ROOT up front — the per-entry walk below only guards
+  // entries *within* the tree, so without this a `--from` pointing at a symlink
+  // would be traversed. A non-existent root simply yields no sources.
+  let rootStat;
+  try {
+    rootStat = await lstat(root);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return files;
+    throw error;
+  }
+  if (rootStat.isSymbolicLink()) {
+    throw new Error(`Soma memory backfill refused symlink source root: ${root}`);
+  }
 
   async function visit(dir: string, depth: number): Promise<void> {
     let entries;
@@ -466,6 +481,14 @@ export async function runMemoryBackfill(
     ),
   };
   await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+
+  // Rebuild the INDEX after writing notes so the store stays audit-clean: fresh
+  // note files are newer than INDEX.md, which would fail the audit's index-freshness
+  // probe until a rebuild. Quarantined imports never earn an INDEX line (admission
+  // filter), so this refreshes INDEX.md's mtime without surfacing untrusted content.
+  if (writtenCount > 0) {
+    await rebuildMemoryIndex({ somaHome });
+  }
 
   return {
     somaHome,

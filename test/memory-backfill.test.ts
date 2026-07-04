@@ -9,6 +9,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from 
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
+import { auditMemory } from "../src/index";
 import { planMemoryBackfill, runMemoryBackfill } from "../src/memory-backfill";
 import { parseMemoryNote } from "../src/memory-note";
 import { parseMemoryArgs } from "../src/cli/memory";
@@ -128,6 +129,28 @@ test("skips reserved dirs, root-level files, and README.md", async () => {
     const result = await runMemoryBackfill({ somaHome });
     expect(result.writtenCount).toBe(1);
     expect(result.entries.map((e) => e.relativePath)).toEqual(["KNOWLEDGE/keep.md"]);
+  });
+});
+
+test("refuses a symlinked source root", async () => {
+  await withTempSoma(async (somaHome) => {
+    const real = join(somaHome, "real-src");
+    await mkdir(join(real, "KNOWLEDGE"), { recursive: true });
+    await writeFile(join(real, "KNOWLEDGE", "n.md"), "a note under the real source", "utf8");
+    const link = join(somaHome, "linked-src");
+    await symlink(real, link);
+    await expect(runMemoryBackfill({ somaHome, from: link })).rejects.toThrow(/refused symlink source root/i);
+  });
+});
+
+test("leaves the store audit-clean: INDEX rebuilt after writes", async () => {
+  await withTempSoma(async (somaHome) => {
+    await seed(somaHome, "KNOWLEDGE/a.md", "an imported fact for audit health");
+    await seed(somaHome, "LEARNING/b.md", "a lesson for audit health check");
+    const result = await runMemoryBackfill({ somaHome });
+    expect(result.writtenCount).toBe(2);
+    const audit = await auditMemory({ somaHome });
+    expect(audit.healthy).toBe(true);
   });
 });
 
