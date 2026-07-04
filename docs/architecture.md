@@ -151,7 +151,8 @@ existing ones. A pass that RUNS TO COMPLETION with any mutation appends one
 idempotent and safe to repeat, so the guarantee is repeatability, not atomicity: a
 pass that throws part-way (or whose event append fails) may leave some mutations
 applied WITHOUT the event — so an absent event does NOT prove no mutation happened;
-a re-run reconciles, and the M7 audit is the ground-truth check. A no-op pass writes
+a re-run reconciles, and a memory audit (M7, forthcoming — not yet built) is the
+intended ground-truth check. A no-op pass writes
 no event. The write/event coupling is best-effort, not
 crash-atomic: an event-append *failure* rolls the file mutation back, but a hard
 process crash in the window between the two can still orphan a file from its

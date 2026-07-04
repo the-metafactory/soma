@@ -146,22 +146,30 @@ interface EpisodicArchive {
 }
 
 /**
- * Assert the archive destination is safe to `rename` into: every EXISTING ancestor
- * directory under the memory root is a real directory (not a symlink that could
- * redirect the move outside the root), and the target file itself does not already
- * exist in ANY form (no-clobber — a lone `isRealEntry` check would miss a symlinked
- * tombstone). A not-yet-existing ancestor is fine; `mkdir` will create real dirs.
+ * Assert every EXISTING ancestor directory of `target` under the memory root is a
+ * real directory — not a symlink that could redirect a governed write/move outside
+ * the root. A not-yet-existing ancestor is fine; `mkdir` creates real dirs. Used for
+ * BOTH the archive move and the digest write (any consolidation destination).
  */
-async function assertSafeArchiveDest(memoryRoot: string, target: string): Promise<void> {
+async function assertRealParentChain(memoryRoot: string, target: string): Promise<void> {
   let cur = memoryRoot;
   for (const seg of relative(memoryRoot, dirname(target)).split(sep)) {
     cur = join(cur, seg);
     const info = await lstat(cur).catch(() => undefined);
-    if (info === undefined) break; // this and deeper segments don't exist yet — mkdir makes real dirs
+    if (info === undefined) break; // this and deeper segments don't exist yet
     if (info.isSymbolicLink() || !info.isDirectory()) {
-      throw new MemoryNoteError(`archive destination parent "${cur}" is a symlink or non-directory — refusing to move outside the memory root.`, "id");
+      throw new MemoryNoteError(`consolidation destination parent "${cur}" is a symlink or non-directory — refusing to write outside the memory root.`, "id");
     }
   }
+}
+
+/**
+ * Archive destination safety: real parent chain (escape guard) AND the target file
+ * does not already exist in ANY form (no-clobber — a lone `isRealEntry` check would
+ * miss a symlinked tombstone).
+ */
+async function assertSafeArchiveDest(memoryRoot: string, target: string): Promise<void> {
+  await assertRealParentChain(memoryRoot, target);
   if ((await lstat(target).catch(() => undefined)) !== undefined) {
     throw new MemoryNoteError(`archive target already exists: ${target} — refusing to overwrite the tombstone.`, "id");
   }
@@ -342,9 +350,9 @@ async function regenerateMonthlyDigests(paths: SomaPaths, months: Set<string>): 
       16,
     );
     // An unparseable ARCHIVED note is a corrupt durable record — warn so the digest
-    // is not silently regenerated as an incomplete recovery artifact (the M7 audit
-    // is the ground-truth check). It is not thrown, so one corrupt tombstone can't
-    // block maintenance of the rest.
+    // is not silently regenerated as an incomplete recovery artifact (a memory
+    // audit, M7/forthcoming, is the intended ground-truth check). It is not thrown,
+    // so one corrupt tombstone can't block maintenance of the rest.
     for (const entry of parsed) {
       if (entry !== undefined && entry.note === undefined) {
         console.warn(`soma: archived note ${entry.path} is unreadable — omitted from the ${month} digest (surface for the audit).`);
@@ -357,6 +365,8 @@ async function regenerateMonthlyDigests(paths: SomaPaths, months: Set<string>): 
     if (notes.length === 0) continue;
     const digestPath = paths.resolve("memory", "episodic", "digests", `${month}.md`);
     const body = notes.map((n) => `- ${n.id}: ${firstBodyLine(n)}`).join("\n");
+    // Never write a governed digest through a symlinked parent (escape guard).
+    await assertRealParentChain(paths.memory(), digestPath);
     await mkdir(dirname(digestPath), { recursive: true });
     await writeFile(digestPath, `# Episodic digest ${month}\n\n${body}\n`, "utf8");
   }
@@ -472,7 +482,14 @@ export async function consolidateMemory(options: SomaMemoryConsolidateOptions = 
       kind: "memory.consolidate",
       summary: `Consolidation: ${episodic.length} archived, ${staleMarks.length} marked stale, ${stateGc.length} state GC'd.`,
       artifactPaths: [result.indexPath],
-      metadata: { archived: episodic.length, markedStale: staleMarks.length, stateGced: stateGc.length, similarPairs: similarPairs.length, unreadable: unreadable.length },
+      metadata: {
+        archived: episodic.length,
+        markedStale: staleMarks.length,
+        stateGced: stateGc.length,
+        similarPairs: similarPairs.length,
+        unreadableCount: unreadable.length,
+        unreadablePaths: unreadable, // the actual files, so the journal identifies them
+      },
     });
   }
 

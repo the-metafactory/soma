@@ -131,7 +131,7 @@ test("archiving refuses a symlinked archive-destination parent (escape guard)", 
     await mkdir(join(somaHome, "memory"), { recursive: true });
     await symlink(outside, join(somaHome, "memory/archive"));
 
-    await expect(consolidateMemory({ somaHome, now: NOW })).rejects.toThrow(/refusing to move outside/);
+    await expect(consolidateMemory({ somaHome, now: NOW })).rejects.toThrow(/refusing to write outside/);
     // the aged note is NOT moved through the symlink
     expect(await exists(join(somaHome, "memory/episodic/sessions/2026-03/20260301-old.md"))).toBe(true);
   });
