@@ -470,6 +470,7 @@ export { recallMemory } from "./memory-recall";
 export { rebuildMemoryIndex } from "./memory-index";
 export { writeSessionDigest, writeMemoryAction } from "./memory-episodic";
 export { consolidateMemory } from "./memory-consolidate";
+export { auditMemory } from "./memory-audit";
 export { createSomaSnapshot, listSomaSnapshots, rollbackSomaSnapshot } from "./snapshots";
 export { querySomaTelemetryEvents, summarizeSomaTelemetry } from "./observability";
 export {

@@ -153,12 +153,15 @@ part-way, OR the event append itself fails, mutations may already be applied WIT
 the event — so an absent event does NOT prove no mutation happened. A re-run
 reconciles the STATE (it re-does nothing already done — idempotent), but it does NOT
 back-fill the missing journal record: a subsequent no-op run writes no event, so the
-gap persists. A memory audit (M7, forthcoming — not yet built) that reads the files
-directly, not the event stream, is the intended ground-truth check. A no-op pass
-writes no event. The write/event coupling is best-effort, not
-crash-atomic: an event-append *failure* rolls the file mutation back, but a hard
-process crash in the window between the two can still orphan a file from its
-event (a documented gap reconciled by the M7 audit; soma has no WAL/2PC). This
+gap persists. `soma memory audit` (M7) — a deterministic, read-only health check
+that reads the FILES directly, not the event stream — is the ground-truth check:
+it probes schema validity, INDEX freshness, digest coverage, orphaned archive
+notes, and the event/note ratio, and EXITS NON-ZERO on a schema-invalid note or a
+stale INDEX (so it can gate CI). A no-op pass writes no event. The write/event
+coupling is best-effort, not crash-atomic: an event-append *failure* rolls the file
+mutation back, but a hard process crash in the window between the two can still
+orphan a file from its event (a documented gap the M7 audit surfaces; soma has no
+WAL/2PC). This
 taxonomy is intentionally distinct from the `MEMORY/*` stores: those stores hold
 curated free-form material; the note store holds single-fact, governed,
 decay-tracked notes.
