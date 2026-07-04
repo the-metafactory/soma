@@ -1,4 +1,7 @@
+import { constants as fsConstants } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { hasSessionDigest, writeSessionDigest } from "../../memory-episodic";
 import { registerSessionEndTranscriptHandler } from "../../lifecycle";
 import type { SomaMemoryDigestResult, SubstrateId } from "../../types";
@@ -183,8 +186,15 @@ export interface ClaudeSessionDigestOptions {
   now?: Date;
   /** The session this digest summarizes. */
   sessionId: string;
-  /** Path to the Claude Code session transcript (JSONL). */
+  /** Path to the Claude Code session transcript (JSONL). VALIDATED against transcriptRoot. */
   transcriptPath: string;
+  /**
+   * The directory the transcript MUST live under — a hook-controlled path is only read
+   * if it resolves inside this root and ends in `.jsonl`. Defaults to
+   * `$SOMA_CLAUDE_TRANSCRIPT_ROOT` or `~/.claude/projects` (Claude Code's transcript
+   * store). Injected by tests to point at a fixture dir.
+   */
+  transcriptRoot?: string;
   /** Claude Code sub-agent markers from the hook payload — when set, the digest is suppressed. */
   subagentId?: string;
   subagentType?: string;
@@ -196,7 +206,7 @@ export interface ClaudeSessionDigestOptions {
 
 /** Outcome of the transcript-fallback digest. Each cause is distinguished. */
 export interface ClaudeSessionDigestResult {
-  outcome: "written" | "duplicate" | "suppressed" | "skipped" | "unreadable";
+  outcome: "written" | "duplicate" | "suppressed" | "skipped" | "unreadable" | "refused";
   /** The core digest result when a write/dedup happened; absent otherwise. */
   digest?: SomaMemoryDigestResult;
   /** Human-readable reason (always set). */
@@ -229,13 +239,25 @@ export async function writeSessionDigestFromTranscript(options: ClaudeSessionDig
     return { outcome: "suppressed", reason: "sub-agent session (ADR 0014) — no fallback digest written" };
   }
 
+  // Path containment: transcriptPath is HOOK-CONTROLLED, so validate it before reading —
+  // a forged/confused payload must not read an arbitrary local file into recall. Require
+  // an absolute `.jsonl` path resolving inside the Claude transcript root.
+  const root = resolve(options.transcriptRoot ?? process.env.SOMA_CLAUDE_TRANSCRIPT_ROOT ?? join(homedir(), ".claude", "projects"));
+  const target = resolve(options.transcriptPath);
+  const rel = relative(root, target);
+  if (!isAbsolute(options.transcriptPath) || !target.endsWith(".jsonl") || rel === "" || rel.startsWith("..") || isAbsolute(rel)) {
+    return { outcome: "refused", reason: `transcript path is outside the allowed transcript root or not a .jsonl file: ${options.transcriptPath}` };
+  }
+
   // Dedup BEFORE reading the transcript — an assistant-authored digest (the primary
   // path) makes the whole transcript read/parse unnecessary.
   if (await hasSessionDigest({ homeDir: options.homeDir, somaHome: options.somaHome, sessionId: options.sessionId })) {
     return { outcome: "duplicate", reason: "a digest already exists for this session — no-op (no transcript read)" };
   }
 
-  const transcript = await readFile(options.transcriptPath, "utf8").catch(() => undefined);
+  // Read WITHOUT following a final-component symlink (a symlinked transcript could point
+  // outside the validated root).
+  const transcript = await readFile(options.transcriptPath, { encoding: "utf8", flag: fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW }).catch(() => undefined);
   if (transcript === undefined) {
     return { outcome: "unreadable", reason: `transcript could not be read at ${options.transcriptPath}` };
   }

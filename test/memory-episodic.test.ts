@@ -277,14 +277,19 @@ test("extractDigestBodyFromTranscript samples head+tail when there are many prom
   expect(body).toContain("more prompts");
 });
 
-/** Write `content` to a temp .jsonl file, run `fn(path)`, then clean up. */
+/** Write `content` to a temp .jsonl file, point the transcript-root allowlist at the
+ *  temp dir (so path validation accepts the fixture), run `fn(path)`, then clean up. */
 async function withTranscriptFile<T>(content: string, fn: (transcriptPath: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "soma-tx-"));
+  const prev = process.env.SOMA_CLAUDE_TRANSCRIPT_ROOT;
   try {
     const tp = join(dir, "t.jsonl");
     await writeFile(tp, content, "utf8");
+    process.env.SOMA_CLAUDE_TRANSCRIPT_ROOT = dir;
     return await fn(tp);
   } finally {
+    if (prev === undefined) delete process.env.SOMA_CLAUDE_TRANSCRIPT_ROOT;
+    else process.env.SOMA_CLAUDE_TRANSCRIPT_ROOT = prev;
     await rm(dir, { recursive: true, force: true });
   }
 }
@@ -339,10 +344,27 @@ test("the fallback no-ops when an assistant-authored digest already exists", asy
   );
 });
 
-test("an unreadable transcript reports 'unreadable' (distinct from a thin session) and never throws", async () => {
+test("a transcript path OUTSIDE the allowed root is REFUSED (not read)", async () => {
   await withTempSoma(async (somaHome) => {
-    const result = await writeSessionDigestFromTranscript({ somaHome, now: NOW, sessionId: SESSION, transcriptPath: "/no/such/transcript.jsonl" });
-    expect(result.outcome).toBe("unreadable");
+    // Absolute .jsonl, but not under transcriptRoot → refused before any read.
+    const result = await writeSessionDigestFromTranscript({
+      somaHome, now: NOW, sessionId: SESSION, transcriptPath: "/etc/anything.jsonl", transcriptRoot: "/tmp/soma-allowed-root",
+    });
+    expect(result.outcome).toBe("refused");
+  });
+});
+
+test("a missing transcript INSIDE the allowed root reports 'unreadable' and never throws", async () => {
+  await withTempSoma(async (somaHome) => {
+    const dir = await mkdtemp(join(tmpdir(), "soma-tx-"));
+    try {
+      const result = await writeSessionDigestFromTranscript({
+        somaHome, now: NOW, sessionId: SESSION, transcriptPath: join(dir, "missing.jsonl"), transcriptRoot: dir,
+      });
+      expect(result.outcome).toBe("unreadable");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -354,7 +376,12 @@ test("the SPAWNED `soma lifecycle session-end` CLI writes the fallback for claud
   await withTempSoma((somaHome) =>
     withTranscriptFile(SEVEN_PROMPTS, async (tp) => {
       const cli = join(import.meta.dirname, "..", "src", "cli.ts");
-      const proc = Bun.spawnSync(["bun", "run", cli, "lifecycle", "session-end", "--session-id", "spawned-x", "--transcript", tp, "--substrate", "claude-code", "--soma-home", somaHome]);
+      const proc = Bun.spawnSync(
+        ["bun", "run", cli, "lifecycle", "session-end", "--session-id", "spawned-x", "--transcript", tp, "--substrate", "claude-code", "--soma-home", somaHome],
+        // Pass the transcript-root allowlist explicitly (the fixture dir) so the child's
+        // path validation accepts the temp transcript.
+        { env: { ...process.env, SOMA_CLAUDE_TRANSCRIPT_ROOT: join(tp, "..") } },
+      );
       expect(proc.exitCode).toBe(0);
       // A digest marked as the machine-extracted fallback now exists (month-agnostic:
       // the spawned CLI uses the real clock).
