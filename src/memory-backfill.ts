@@ -33,7 +33,8 @@
  * was merely `touch`ed (mtime bumped, bytes unchanged).
  */
 import { createHash } from "node:crypto";
-import { lstat, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { constants as FS } from "node:fs";
+import { lstat, mkdir, open, readFile, readdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, relative, resolve, sep } from "node:path";
 import { MemoryNoteError } from "./memory-note";
@@ -81,6 +82,30 @@ function sha256Hex(content: Buffer | string): string {
 /** Format a Date as YYYY-MM-DD in UTC (the note schema's date grammar). */
 function isoDate(date: Date): string {
   return date.toISOString().slice(0, 10);
+}
+
+/**
+ * Read a source file refusing to follow a symlink at the final path component
+ * (`O_NOFOLLOW`). Closes the collect→read TOCTOU: even if a vetted `.md` file is
+ * swapped for a symlink to a sensitive target between the walk and the read, the
+ * open fails (ELOOP) rather than importing the target's bytes. The walk already
+ * rejects symlink *directories* in the tree.
+ */
+async function readSourceNoFollow(path: string): Promise<string> {
+  let fh;
+  try {
+    fh = await open(path, FS.O_RDONLY | FS.O_NOFOLLOW);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ELOOP") {
+      throw new Error(`Soma memory backfill refused symlink at source path: ${path}`, { cause: error });
+    }
+    throw error;
+  }
+  try {
+    return await fh.readFile("utf8");
+  } finally {
+    await fh.close();
+  }
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -160,7 +185,7 @@ const MARKDOWN_EXT = /\.(?:md|markdown)$/i;
  * migrators' stance). Returns entries sorted by relative path for deterministic
  * ordering.
  */
-async function collectSources(root: string): Promise<SourceFile[]> {
+async function collectSources(root: string, skipRootFiles: boolean): Promise<SourceFile[]> {
   const files: SourceFile[] = [];
 
   async function visit(dir: string, depth: number): Promise<void> {
@@ -177,19 +202,21 @@ async function collectSources(root: string): Promise<SourceFile[]> {
       if (entry.isSymbolicLink()) {
         throw new Error(`Soma memory backfill refused symlink path: ${rel}`);
       }
-      const category = rel.split("/")[0];
-      if (depth === 0 && (RESERVED_CATEGORIES.has(entry.name) || entry.isFile())) {
-        // Reserved top-level dir, or a file directly under the root (README /
-        // INDEX.md territory) — never a backfill source.
-        continue;
-      }
+      // Reserved top-level names (the note stores + STATE/archive/imports) are
+      // never descended into — they are subsystem territory, not sources.
+      if (depth === 0 && RESERVED_CATEGORIES.has(entry.name)) continue;
       if (entry.isDirectory()) {
         await visit(abs, depth + 1);
         continue;
       }
       if (!entry.isFile()) continue;
+      // A file directly under the root is README/INDEX territory ONLY for the
+      // default memory root; a custom `--from <dir>` may legitimately hold its
+      // markdown right at the top, so those are imported (category "" → semantic).
+      if (depth === 0 && skipRootFiles) continue;
       if (/^readme\.md$/i.test(entry.name)) continue;
       if (!MARKDOWN_EXT.test(entry.name)) continue;
+      const category = rel.includes("/") ? rel.split("/")[0] : "";
       const stat = await lstat(abs);
       files.push({
         relativePath: rel,
@@ -244,8 +271,9 @@ export async function planMemoryBackfill(
   options: SomaMemoryBackfillOptions = {},
 ): Promise<SomaMemoryBackfillResult> {
   const somaHome = resolveSomaHome(options);
-  const from = resolve(options.from ?? join(somaHome, "memory"));
-  const sources = await collectSources(from);
+  const defaultRoot = resolve(join(somaHome, "memory"));
+  const from = resolve(options.from ?? defaultRoot);
+  const sources = await collectSources(from, from === defaultRoot);
 
   const used = new Set<string>();
   const entries: SomaMemoryBackfillEntry[] = [];
@@ -286,14 +314,15 @@ export async function runMemoryBackfill(
   options: SomaMemoryBackfillOptions = {},
 ): Promise<SomaMemoryBackfillResult> {
   const somaHome = resolveSomaHome(options);
-  const from = resolve(options.from ?? join(somaHome, "memory"));
+  const defaultRoot = resolve(join(somaHome, "memory"));
+  const from = resolve(options.from ?? defaultRoot);
   const manifestPath = join(somaHome, MANIFEST_RELATIVE);
 
   if (options.dryRun) {
     return planMemoryBackfill(options);
   }
 
-  const sources = await collectSources(from);
+  const sources = await collectSources(from, from === defaultRoot);
   const previous = await readManifest(somaHome);
 
   const used = new Set<string>();
@@ -306,7 +335,7 @@ export async function runMemoryBackfill(
 
   for (const src of sources) {
     const type = resolveType(options, src.category);
-    const content = await readFile(src.absPath, "utf8");
+    const content = await readSourceNoFollow(src.absPath);
     const sha = sha256Hex(content);
     const created = isoDate(new Date(src.mtimeMs));
 

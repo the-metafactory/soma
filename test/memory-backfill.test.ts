@@ -53,6 +53,24 @@ test("maps category dir → note type (LEARNING→procedural, KNOWLEDGE→semant
   });
 });
 
+test("a custom --from root imports markdown sitting directly under it (category \"\" → semantic)", async () => {
+  await withTempSoma(async (somaHome) => {
+    const from = join(somaHome, "external-notes");
+    await mkdir(from, { recursive: true });
+    await writeFile(join(from, "loose-note.md"), "a note living at the custom root", "utf8");
+    await mkdir(join(from, "TOPIC"), { recursive: true });
+    await writeFile(join(from, "TOPIC", "nested.md"), "a nested note under a topic dir", "utf8");
+
+    const result = await runMemoryBackfill({ somaHome, from });
+    expect(result.writtenCount).toBe(2);
+    const byRel = new Map(result.entries.map((e) => [e.relativePath, e]));
+    // Root-level file is imported (not treated as README/INDEX territory).
+    expect(byRel.get("loose-note.md")?.type).toBe("semantic");
+    expect(byRel.get("loose-note.md")?.noteId).toBe("loose-note");
+    expect(byRel.get("TOPIC/nested.md")?.type).toBe("semantic");
+  });
+});
+
 test("--type forces a single type, overriding the category map", async () => {
   await withTempSoma(async (somaHome) => {
     await seed(somaHome, "KNOWLEDGE/x.md", "forced type body one two three");

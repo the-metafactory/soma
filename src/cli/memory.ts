@@ -830,10 +830,11 @@ function formatMemoryBackfillResult(result: SomaMemoryBackfillResult): string {
       `skipped (duplicate): ${result.skippedDuplicateCount} · errors: ${result.errorCount}`,
     `manifest: ${result.manifestPath}`,
   ];
+  type BackfillEntry = SomaMemoryBackfillResult["entries"][number];
   const appendSection = (
-    status: SomaMemoryBackfillResult["entries"][number]["status"],
+    status: BackfillEntry["status"],
     heading: string,
-    format: (e: SomaMemoryBackfillResult["entries"][number]) => string,
+    format: (e: BackfillEntry) => string,
   ): void => {
     const matched = result.entries.filter((e) => e.status === status);
     if (matched.length === 0) return;

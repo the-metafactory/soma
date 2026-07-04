@@ -2493,8 +2493,8 @@ export interface SomaMemoryVerifyResult {
 
 // Memory subsystem M8 (backfill). Bulk-import a principal's existing free-form
 // markdown memory into schema-valid, governed notes through the M1 write path.
-// Deterministic, no LLM: bodies are wrapped verbatim, `created` comes from the
-// source mtime, and every note lands at `quarantined` trust via the `import`
+// Deterministic, no LLM: bodies are imported verbatim (no wrapper/preamble),
+// `created` comes from the source mtime, and every note lands at `quarantined` trust via the `import`
 // trigger (MINJA defense — bulk-imported content is never trusted incidentally;
 // the principal elevates it later via verify/supersede). The top-level category
 // dir is mapped to a note type by {@link SOMA_MEMORY_BACKFILL_TYPE_MAP}; `--type`
