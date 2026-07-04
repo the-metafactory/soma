@@ -702,8 +702,7 @@ function formatConsolidateIndexLine(result: SomaMemoryConsolidateResult, mutated
 }
 
 function formatMemoryConsolidateResult(result: SomaMemoryConsolidateResult): string {
-  const mutated = result.archived.length > 0 || result.markedStale.length > 0 || result.stateGced.length > 0;
-  const indexLine = formatConsolidateIndexLine(result, mutated);
+  const indexLine = formatConsolidateIndexLine(result, result.mutated);
   const lines = [
     result.dryRun ? "Soma memory consolidate (dry-run — nothing changed)" : "Soma memory consolidate",
     `archived: ${result.archived.length} aged episodic note(s)`,

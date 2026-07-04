@@ -110,6 +110,16 @@ async function listEpisodicNotes(base: string): Promise<string[]> {
   return files;
 }
 
+/** Read + parse notes with bounded concurrency; each result pairs its path with the
+ *  parsed note or `undefined` when unreadable/unparseable (surfaced, never dropped). */
+function parseNotesBounded(paths: string[]): Promise<{ path: string; note: SomaMemoryNote | undefined }[]> {
+  return runBoundedConcurrent(
+    paths,
+    async (path) => ({ path, note: await readFile(path, "utf8").then(parseMemoryNote).catch(() => undefined) }),
+    16,
+  );
+}
+
 /** First non-empty body line, control-stripped + truncated — the digest pointer text. */
 function firstBodyLine(note: SomaMemoryNote): string {
   const line = note.body.split("\n").map((l) => l.trim()).find((l) => l.length > 0) ?? "";
@@ -184,22 +194,10 @@ async function planEpisodicArchive(
 ): Promise<{ archives: EpisodicArchive[]; unreadable: string[] }> {
   const root = paths.root();
   const base = paths.resolve("memory", "episodic", kind);
-  const files = await listEpisodicNotes(base);
-  // Reads are independent and only feed the plan — do them with bounded parallelism
-  // (same helper the durable-corpus scan uses) rather than serially.
-  const parsedFiles = await runBoundedConcurrent(
-    files,
-    async (path): Promise<{ path: string; note: SomaMemoryNote | undefined }> => ({
-      path,
-      note: await readFile(path, "utf8").then(parseMemoryNote).catch(() => undefined),
-    }),
-    16,
-  );
+  const parsedFiles = await parseNotesBounded(await listEpisodicNotes(base));
   const archives: EpisodicArchive[] = [];
   const unreadable: string[] = [];
-  for (const entry of parsedFiles) {
-    if (entry === undefined) continue;
-    const { path, note: parsed } = entry;
+  for (const { path, note: parsed } of parsedFiles) {
     if (parsed === undefined) {
       unreadable.push(relative(root, path)); // surfaced, not silently dropped
       continue;
@@ -341,32 +339,25 @@ async function regenerateMonthlyDigests(paths: SomaPaths, months: Set<string>): 
       ...(await listArchivedMonthNotes(paths, "sessions", month)),
       ...(await listArchivedMonthNotes(paths, "actions", month)),
     ];
-    const parsed = await runBoundedConcurrent(
-      monthFiles,
-      async (path): Promise<{ path: string; note: SomaMemoryNote | undefined }> => ({
-        path,
-        note: await readFile(path, "utf8").then(parseMemoryNote).catch(() => undefined),
-      }),
-      16,
-    );
+    const parsed = await parseNotesBounded(monthFiles);
     // An unparseable ARCHIVED note is a corrupt durable record — warn so the digest
     // is not silently regenerated as an incomplete recovery artifact (a memory
     // audit, M7/forthcoming, is the intended ground-truth check). It is not thrown,
     // so one corrupt tombstone can't block maintenance of the rest.
     for (const entry of parsed) {
-      if (entry !== undefined && entry.note === undefined) {
+      if (entry.note === undefined) {
         console.warn(`soma: archived note ${entry.path} is unreadable — omitted from the ${month} digest (surface for the audit).`);
       }
     }
     const notes = parsed
-      .map((entry) => entry?.note)
+      .map((entry) => entry.note)
       .filter((n): n is SomaMemoryNote => n !== undefined && n.created.slice(0, 7) === month)
       .sort((a, b) => a.id.localeCompare(b.id));
     if (notes.length === 0) continue;
     const digestPath = paths.resolve("memory", "episodic", "digests", `${month}.md`);
     const body = notes.map((n) => `- ${n.id}: ${firstBodyLine(n)}`).join("\n");
-    // Never write a governed digest through a symlinked parent (escape guard).
-    await assertRealParentChain(paths.memory(), digestPath);
+    // The digests-dir parent chain was preflighted in the plan phase (before any
+    // move), so no symlinked-parent refusal can strike here after notes have moved.
     await mkdir(dirname(digestPath), { recursive: true });
     await writeFile(digestPath, `# Episodic digest ${month}\n\n${body}\n`, "utf8");
   }
@@ -432,11 +423,15 @@ export async function consolidateMemory(options: SomaMemoryConsolidateOptions = 
   const sessionPlan = await planEpisodicArchive(paths, "sessions", EPISODIC_SESSION_TTL_DAYS, now);
   const actionPlan = await planEpisodicArchive(paths, "actions", EPISODIC_ACTION_TTL_DAYS, now);
   const episodic = [...sessionPlan.archives, ...actionPlan.archives];
-  // Preflight EVERY archive destination now (in the plan phase, so a dry-run refuses
-  // exactly what the real run would) — before any note is moved, so an unsafe or
-  // colliding target can never leave a partially-applied consolidation.
+  // Preflight EVERY mutation destination now (in the plan phase, so a dry-run refuses
+  // exactly what the real run would) — before ANY note is moved, so an unsafe or
+  // colliding target can never leave a partially-applied consolidation. Covers both
+  // the per-note archive targets AND the shared digests dir the regenerate step writes.
   const memoryRoot = paths.memory();
   for (const e of episodic) await assertSafeArchiveDest(memoryRoot, e.to);
+  if (episodic.length > 0) {
+    await assertRealParentChain(memoryRoot, paths.resolve("memory", "episodic", "digests", "any.md"));
+  }
 
   const durable = await collectDurableNotes(somaHome);
   const staleMarks = await planStaleMarks(durable.notes, somaHome, now);
@@ -448,6 +443,7 @@ export async function consolidateMemory(options: SomaMemoryConsolidateOptions = 
   // otherwise a run could report success while known notes went unchecked.
   const unreadable = [...sessionPlan.unreadable, ...actionPlan.unreadable, ...durable.unreadable].sort();
 
+  const mutated = episodic.length > 0 || staleMarks.length > 0 || stateGc.length > 0;
   const result: SomaMemoryConsolidateResult = {
     somaHome,
     dryRun,
@@ -457,12 +453,12 @@ export async function consolidateMemory(options: SomaMemoryConsolidateOptions = 
     stateGced: stateGc,
     similarPairs,
     unreadable,
+    mutated,
     indexPath: memoryIndexPath(somaHome),
   };
   if (dryRun) return result;
 
   // --- apply (mutations only on the real run) ---
-  const mutated = episodic.length > 0 || staleMarks.length > 0 || stateGc.length > 0;
   await applyEpisodicArchive(paths, episodic);
   await applyStaleMarks(staleMarks);
   await applyStateGc(somaHome, stateGc);

@@ -2606,6 +2606,13 @@ export interface SomaMemoryConsolidateResult {
   /** Note files that exist but could not be read/parsed — surfaced, never silently skipped. */
   unreadable: string[];
   /**
+   * True iff the pass has (or, on dry-run, would have) any file mutation — i.e. any
+   * of archived / markedStale / stateGced is non-empty. The single source of truth
+   * for whether the INDEX is rebuilt and a `memory.consolidate` event is emitted;
+   * the similar-pairs report is read-only and does NOT set this.
+   */
+  mutated: boolean;
+  /**
    * The INDEX.md path. Always reported, but the index is REBUILT only when the pass
    * mutated something (any of archived / markedStale / stateGced non-empty) — a
    * no-op run leaves it untouched. This is the path, not proof a rebuild happened.
