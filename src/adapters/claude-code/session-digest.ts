@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { hasSessionDigest, writeSessionDigest } from "../../memory-episodic";
+import { registerSessionEndTranscriptHandler } from "../../lifecycle";
 import type { SomaMemoryDigestResult, SubstrateId } from "../../types";
 
 /**
@@ -143,11 +144,12 @@ export function extractDigestBodyFromTranscript(transcript: string): string | un
     .map(([name, n]) => `${name}×${n}`)
     .join(", ");
 
-  // Prompt lines are VERBATIM principal input. Quote + label them (JSON.stringify
-  // escapes quotes/controls) so they read as DATA — what was asked — rather than as
-  // assistant instructions. This REDUCES the prompt-injection risk (paired with the
-  // tool:<name> provenance below); it does not PROVE every downstream recall consumer
-  // treats embedded instructions as inert.
+  // Prompt lines are principal input, control-collapsed + truncated by cleanLine (a
+  // lossy pointer, NOT an exact excerpt). Quote + label them (JSON.stringify escapes
+  // quotes/controls) so they read as DATA — what was asked — rather than as assistant
+  // instructions. This REDUCES the prompt-injection risk (paired with the tool:<name>
+  // provenance below); it does not PROVE every downstream recall consumer treats
+  // embedded instructions as inert.
   const lines = [
     `- session: ${prompts.length} principal prompts, ${assistantTurns} assistant turns, ${totalTools} tool calls`,
     ...shown.map((p) => `- principal prompt: ${JSON.stringify(p)}`),
@@ -244,3 +246,8 @@ export async function writeSessionDigestFromTranscript(options: ClaudeSessionDig
     reason: digest.created ? "wrote a deterministic session-end fallback digest" : "a digest already exists for this session — no-op",
   };
 }
+
+// Dependency inversion: register this adapter's transcript fallback with core
+// lifecycle at module load. Core never imports this adapter — it looks the handler up
+// by substrate. Importing this module (CLI side-effect / tests) triggers registration.
+registerSessionEndTranscriptHandler("claude-code", (input) => writeSessionDigestFromTranscript(input));

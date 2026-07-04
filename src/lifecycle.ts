@@ -6,9 +6,6 @@ import { promisify } from "node:util";
 import { listAlgorithmRunSummaries, listAlgorithmRuns, readAlgorithmRunById, writeAlgorithmRun } from "./algorithm-store";
 import { appendAlgorithmProvenance } from "./algorithm-provenance";
 import { appendSomaMemoryEvent } from "./memory";
-// Substrate-integration boundary: lifecycle dispatches the substrate-specific digest
-// fallback to the Claude Code transcript adapter (keeps `soma memory digest` neutral).
-import { writeSessionDigestFromTranscript } from "./adapters/claude-code/session-digest";
 import { loadSomaProfile } from "./soma-home";
 import { normalizeSomaWorkRegistryArtifacts, upsertSomaCurrentWorkPointer } from "./work-registry";
 import { SECTION_NAME_MAP, getCriteria, getGoal } from "./vsa-accessors";
@@ -709,6 +706,31 @@ function normalizeLifecycleArtifactPaths(somaHome: string, artifactPaths: string
   return Object.values(normalizeSomaWorkRegistryArtifacts({ somaHome }, artifacts));
 }
 
+/**
+ * A substrate-registered SessionEnd transcript-digest handler. Dependency INVERSION:
+ * core lifecycle owns this neutral hook point; a substrate adapter (e.g. claude-code)
+ * registers its transcript→digest fallback, so core never imports an adapter. The
+ * transcript FORMAT stays entirely inside the adapter.
+ */
+export type SessionEndTranscriptHandler = (input: {
+  somaHome: string;
+  now: Date;
+  substrate: SubstrateId;
+  sessionId: string;
+  transcriptPath: string;
+  agentId?: string;
+  agentType?: string;
+  forcePrimary?: boolean;
+  forceSubagent?: boolean;
+}) => Promise<{ outcome: string }>;
+
+const sessionEndTranscriptHandlers = new Map<SubstrateId, SessionEndTranscriptHandler>();
+
+/** Register a substrate's SessionEnd transcript-digest fallback (see the type doc). */
+export function registerSessionEndTranscriptHandler(substrate: SubstrateId, handler: SessionEndTranscriptHandler): void {
+  sessionEndTranscriptHandlers.set(substrate, handler);
+}
+
 export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions = {}): Promise<SomaLifecycleResult> {
   const somaHome = resolveSomaHome(options);
   const timestamp = options.timestamp ?? new Date().toISOString();
@@ -752,14 +774,16 @@ export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions =
     }
   }
 
-  // M5b deterministic digest FALLBACK. The transcript FORMAT is substrate-specific,
-  // so lifecycle (the substrate-integration boundary) dispatches to the substrate's
-  // transcript adapter — currently only claude-code. The neutral `soma memory digest`
-  // stays body-only. Best-effort: never blocks session end.
+  // M5b deterministic digest FALLBACK — dependency-INVERTED so core stays
+  // substrate-neutral. The transcript FORMAT is substrate-specific, so core does not
+  // import any adapter; instead a substrate REGISTERS a handler (see
+  // registerSessionEndTranscriptHandler) which core looks up by substrate here.
+  // Best-effort: never blocks session end.
   let digestNote = "";
-  if (options.transcriptPath && options.sessionId && substrate(options) === "claude-code") {
+  const transcriptHandler = sessionEndTranscriptHandlers.get(substrate(options));
+  if (options.transcriptPath && options.sessionId && transcriptHandler) {
     try {
-      const fallback = await writeSessionDigestFromTranscript({
+      const fallback = await transcriptHandler({
         somaHome,
         now: new Date(timestamp),
         substrate: substrate(options),

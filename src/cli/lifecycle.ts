@@ -7,6 +7,10 @@ import {
 import type { SomaLifecycleOptions, SomaLifecycleResult } from "../types";
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
+// Composition layer: importing the Claude Code adapter registers its SessionEnd
+// transcript-digest handler with core lifecycle (dependency inversion — core never
+// imports the adapter). Side-effect import; the symbol itself is not used here.
+import "../adapters/claude-code/session-digest";
 
 export interface ParsedLifecycleArgs {
   command: "lifecycle";
