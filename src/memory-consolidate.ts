@@ -263,11 +263,15 @@ function planSimilarPairs(notes: { note: SomaMemoryNote }[]): SomaMemorySimilarP
     }
   }
 
+  const compare = (l: SomaMemorySimilarPair, r: SomaMemorySimilarPair) =>
+    r.score - l.score || l.a.localeCompare(r.a) || l.b.localeCompare(r.b);
+  // Bounded collection: a heavily-duplicated corpus could match n(n-1)/2 pairs, so
+  // the working array is periodically sorted-and-truncated to the cap — memory stays
+  // O(cap), not O(n²), while the final result is the deterministic top-N by score.
   const pairs: SomaMemorySimilarPair[] = [];
+  const flushAt = MAX_SIMILAR_PAIRS * 4;
   for (let i = 0; i < active.length; i += 1) {
-    // candidates is a Set keyed by j, and only j > i is added, so every (i, j)
-    // pair is visited at most once — no extra dedup needed.
-    const candidates = new Set<number>();
+    const candidates = new Set<number>(); // keyed by j, only j > i → each pair once
     for (const token of tokens[i]) {
       for (const j of postings.get(token)!) if (j > i) candidates.add(j);
     }
@@ -276,13 +280,14 @@ function planSimilarPairs(notes: { note: SomaMemoryNote }[]): SomaMemorySimilarP
       if (score >= CONTRADICTION_JACCARD) {
         const [a, b] = [active[i].id, active[j].id].sort();
         pairs.push({ a, b, score });
+        if (pairs.length >= flushAt) {
+          pairs.sort(compare);
+          pairs.length = MAX_SIMILAR_PAIRS;
+        }
       }
     }
   }
-  pairs.sort((l, r) => r.score - l.score || l.a.localeCompare(r.a) || l.b.localeCompare(r.b));
-  // Cap the report: a heavily-duplicated corpus could otherwise produce n(n-1)/2
-  // pairs. The highest-similarity pairs are what a reviewer acts on first; the tail
-  // is bounded away rather than allocated/rendered in full.
+  pairs.sort(compare);
   return pairs.slice(0, MAX_SIMILAR_PAIRS);
 }
 
@@ -330,10 +335,23 @@ async function regenerateMonthlyDigests(paths: SomaPaths, months: Set<string>): 
     ];
     const parsed = await runBoundedConcurrent(
       monthFiles,
-      (path) => readFile(path, "utf8").then(parseMemoryNote).catch(() => undefined),
+      async (path): Promise<{ path: string; note: SomaMemoryNote | undefined }> => ({
+        path,
+        note: await readFile(path, "utf8").then(parseMemoryNote).catch(() => undefined),
+      }),
       16,
     );
+    // An unparseable ARCHIVED note is a corrupt durable record — warn so the digest
+    // is not silently regenerated as an incomplete recovery artifact (the M7 audit
+    // is the ground-truth check). It is not thrown, so one corrupt tombstone can't
+    // block maintenance of the rest.
+    for (const entry of parsed) {
+      if (entry !== undefined && entry.note === undefined) {
+        console.warn(`soma: archived note ${entry.path} is unreadable — omitted from the ${month} digest (surface for the audit).`);
+      }
+    }
     const notes = parsed
+      .map((entry) => entry?.note)
       .filter((n): n is SomaMemoryNote => n !== undefined && n.created.slice(0, 7) === month)
       .sort((a, b) => a.id.localeCompare(b.id));
     if (notes.length === 0) continue;
