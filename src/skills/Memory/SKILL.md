@@ -37,7 +37,9 @@ trust — it only ages or relocates existing notes.
 2. Load ONLY that workflow file from `Workflows/`.
 3. Run the single `soma memory` command it specifies; report its output verbatim.
 4. Never hand-edit files under `memory/` — the CLI owns the schema, INDEX, and
-   event log. Hand edits desync the INDEX (the audit will flag them).
+   event log. A hand edit can desync the INDEX; the audit flags a note NEWER than
+   INDEX by mtime, but a mtime-preserving edit slips past — always run
+   `soma memory reindex` after any manual change.
 
 ## Routing
 

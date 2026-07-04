@@ -124,8 +124,9 @@ export async function auditMemory(options: SomaMemoryAuditOptions = {}): Promise
 
   probes.push(schema.probe, index.probe, digestCov.probe, archive.probe, eventProbe.probe);
 
-  // Only schema + index-freshness GATE health; the rest are informational drift signals.
-  const healthy = schema.probe.ok && index.probe.ok;
+  // Single source of truth: healthy iff every HEALTH-GATING probe is ok. The
+  // informational probes carry gatesHealth:false and never affect this.
+  const healthy = probes.every((p) => !p.gatesHealth || p.ok);
   return {
     somaHome,
     healthy,
@@ -153,6 +154,7 @@ function probeSchema(
     notesByType,
     probe: {
       name: "schema",
+      gatesHealth: true,
       ok: invalidNotes.length === 0,
       detail:
         invalidNotes.length === 0
@@ -202,7 +204,7 @@ async function probeIndexFreshness(
     ok = true;
     detail = "INDEX.md is at least as new as every durable note (mtime freshness only)";
   }
-  return { path, probe: { name: "index-freshness", ok, detail } };
+  return { path, probe: { name: "index-freshness", gatesHealth: true, ok, detail } };
 }
 
 /** Probe: episodic coverage counts (informational). */
@@ -216,6 +218,7 @@ function probeDigestCoverage(
     digests,
     probe: {
       name: "digest-coverage",
+      gatesHealth: false,
       ok: true,
       detail: `${sessionNotes} session + ${actionNotes} action note(s), ${digestFiles} monthly digest file(s)`,
     },
@@ -233,8 +236,10 @@ async function probeOrphanedArchive(
   digestFilesList: string[],
   somaHome: string,
 ): Promise<{ probe: SomaMemoryAuditProbe; orphanedArchive: string[] }> {
-  const digestIdsByMonth = await collectDigestIdsByMonth(digestFilesList);
-  const orphanedArchive: string[] = [];
+  // Archived episodic notes and the months they need a digest for — computed FIRST so
+  // only the digests for those months are read (an empty archive reads no digest).
+  const archived: { relFromSoma: string; id: string; month: string }[] = [];
+  const neededMonths = new Set<string>();
   for (const { path, note } of parsed) {
     if (note === undefined || note.type !== "episodic") continue;
     // Path-segment containment (not a raw string prefix): `path` is under the archive
@@ -242,13 +247,21 @@ async function probeOrphanedArchive(
     const rel = relative(archiveDir, path);
     if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) continue;
     const month = note.created.slice(0, 7);
-    if (!digestIdsByMonth.get(month)?.has(note.id)) orphanedArchive.push(relative(somaHome, path));
+    archived.push({ relFromSoma: relative(somaHome, path), id: note.id, month });
+    neededMonths.add(month);
+  }
+  const relevantDigests = digestFilesList.filter((p) => neededMonths.has(basename(p).replace(/\.md$/, "")));
+  const digestIdsByMonth = await collectDigestIdsByMonth(relevantDigests);
+  const orphanedArchive: string[] = [];
+  for (const a of archived) {
+    if (!digestIdsByMonth.get(a.month)?.has(a.id)) orphanedArchive.push(a.relFromSoma);
   }
   orphanedArchive.sort();
   return {
     orphanedArchive,
     probe: {
       name: "orphaned-archive",
+      gatesHealth: false,
       ok: true, // informational: a re-consolidation regenerates the month's digest
       detail:
         orphanedArchive.length === 0
@@ -260,7 +273,7 @@ async function probeOrphanedArchive(
 
 /** Probe: event-stream lines over valid-note count (informational). */
 function probeEventRatio(lines: number, notes: number): { probe: SomaMemoryAuditProbe; events: { lines: number; notes: number } } {
-  return { events: { lines, notes }, probe: { name: "event-ratio", ok: true, detail: `${lines} event line(s) over ${notes} valid note(s)` } };
+  return { events: { lines, notes }, probe: { name: "event-ratio", gatesHealth: false, ok: true, detail: `${lines} event line(s) over ${notes} valid note(s)` } };
 }
 
 /**
@@ -273,7 +286,9 @@ async function collectDigestIdsByMonth(digestFiles: string[]): Promise<Map<strin
   const byMonth = new Map<string, Set<string>>();
   const parsedFiles = await runBoundedConcurrent(
     digestFiles,
-    async (path) => ({ month: basename(path).replace(/\.md$/, ""), content: await readFile(path, "utf8").catch(() => "") }),
+    // NOFOLLOW like every other audit read — a digest swapped to a symlink is not
+    // followed (reads empty), so it can't spoof archive coverage from an outside file.
+    async (path) => ({ month: basename(path).replace(/\.md$/, ""), content: await readFile(path, { encoding: "utf8", flag: NOFOLLOW_READ }).catch(() => "") }),
     SCAN_CONCURRENCY,
   );
   for (const { month, content } of parsedFiles) {

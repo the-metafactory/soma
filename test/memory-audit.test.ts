@@ -222,3 +222,21 @@ test("the CLI returns a HEALTHY report string on a clean tree", async () => {
     expect(out).toContain("[ok] schema:");
   });
 });
+
+// Real spawned-process exit codes (not just a thrown SomaCliError) — the audit is a
+// CI gate, so the actual process exit is what matters.
+test("the spawned CLI exits 0 on a healthy tree and non-zero on an unhealthy one", async () => {
+  await withTempSoma(async (somaHome) => {
+    const cli = join(import.meta.dirname, "..", "src", "cli.ts");
+    await writeNote(somaHome, "clean", "A clean, indexed note.");
+    await rebuildMemoryIndex({ somaHome, now: NOW });
+
+    const healthy = Bun.spawnSync(["bun", "run", cli, "memory", "audit", "--soma-home", somaHome]);
+    expect(healthy.exitCode).toBe(0);
+
+    // Corrupt a note → the process must exit non-zero.
+    await writeFile(join(somaHome, "memory/semantic/broken.md"), "invalid", "utf8");
+    const unhealthy = Bun.spawnSync(["bun", "run", cli, "memory", "audit", "--soma-home", somaHome]);
+    expect(unhealthy.exitCode).not.toBe(0);
+  });
+});

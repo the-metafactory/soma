@@ -2635,10 +2635,24 @@ export interface SomaMemoryAuditOptions {
   somaHome?: string;
 }
 
-/** One deterministic probe's outcome. `ok: false` on any that gates health. */
+/** The fixed set of audit probes (stable public names; `auditMemory` is exported). */
+export type SomaMemoryAuditProbeName =
+  | "schema"
+  | "index-freshness"
+  | "digest-coverage"
+  | "orphaned-archive"
+  | "event-ratio";
+
+/**
+ * One deterministic probe's outcome. `gatesHealth` is machine-readable: when it is
+ * true, `ok: false` forces `result.healthy` false (only `schema` and
+ * `index-freshness` gate). Informational probes have `gatesHealth: false` and always
+ * report `ok: true`.
+ */
 export interface SomaMemoryAuditProbe {
-  name: string;
+  name: SomaMemoryAuditProbeName;
   ok: boolean;
+  gatesHealth: boolean;
   detail: string;
 }
 
