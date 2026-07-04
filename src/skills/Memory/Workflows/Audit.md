@@ -1,8 +1,10 @@
 # Audit Workflow
 
 Run the deterministic, read-only health check over the memory tree. No LLM: every
-probe reports a filesystem ground-truth fact. Use it to verify the memory
-subsystem's invariants hold, or to gate CI / a pre-consolidation check.
+probe reports a filesystem ground-truth fact. It is a SMOKE check that surfaces
+detectable drift — a passing audit means no drift was DETECTED, not that every
+invariant is proven. Use it to catch obvious breakage, or to gate CI / a
+pre-consolidation check.
 
 ## When to invoke
 

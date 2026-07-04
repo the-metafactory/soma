@@ -28,11 +28,20 @@ const SCAN_CONCURRENCY = 16;
 /** All `.md` files under `dir`, recursively, REJECTING symlinked dirs/files (they
  *  could point outside the memory root — the audit only trusts real entries). */
 async function listRealMarkdownFilesRec(dir: string): Promise<string[]> {
+  // lstat the dir ITSELF before reading it — `readdir` follows a symlinked directory,
+  // so a symlinked root (memory/semantic, archive, …) could otherwise redirect the
+  // whole walk outside the memory root and have the audit trust foreign files.
+  const dirInfo = await lstat(dir).catch((error) => {
+    if (isEnoent(error)) return undefined;
+    throw error;
+  });
+  if (dirInfo === undefined) return []; // a missing dir is genuinely empty
+  if (!dirInfo.isDirectory()) return []; // a symlink or non-directory — never follow it
   let entries: Dirent[];
   try {
     entries = await readdir(dir, { withFileTypes: true });
   } catch (error) {
-    if (isEnoent(error)) return []; // a missing dir is genuinely empty
+    if (isEnoent(error)) return []; // vanished between lstat and readdir
     throw error; // any other failure is a real blind spot — do not treat as empty
   }
   const files: string[] = [];
@@ -157,7 +166,11 @@ async function probeIndexFreshness(
 ): Promise<{ probe: SomaMemoryAuditProbe; path: string }> {
   const path = memoryIndexPath(somaHome);
   const index = await classifyIndex(path);
-  const durableMtimes = await Promise.all(durableFiles.map(mtimeMs));
+  // Bounded stats (not one-per-note unbounded), and every listed durable note MUST
+  // stat — a note that vanished/could-not-be-statted mid-audit means we can't confirm
+  // freshness against the full corpus, so the probe fails rather than passing blind.
+  const durableMtimes = await runBoundedConcurrent(durableFiles, mtimeMs, SCAN_CONCURRENCY);
+  const unstattable = durableFiles.filter((_, i) => durableMtimes[i] === undefined).length;
   const newestDurable = durableMtimes.reduce<number>((max, m) => (m !== undefined && m > max ? m : max), 0);
   let ok: boolean;
   let detail: string;
@@ -165,6 +178,9 @@ async function probeIndexFreshness(
     // A non-regular INDEX can spoof mtime freshness — reject regardless of note count.
     ok = false;
     detail = `INDEX.md is a ${index.kind === "symlink" ? "symlink" : "non-regular file"} — refusing to trust it; run 'soma memory reindex' on a clean tree`;
+  } else if (unstattable > 0) {
+    ok = false;
+    detail = `${unstattable} durable note(s) could not be statted (changed under the audit) — re-run the audit`;
   } else if (durableFiles.length === 0) {
     ok = true;
     detail = "no durable notes — nothing to index";

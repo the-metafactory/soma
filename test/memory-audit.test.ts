@@ -184,6 +184,24 @@ test("a symlinked note is NOT followed (only real entries are audited)", async (
   });
 });
 
+test("a symlinked note DIRECTORY is not followed (no reading outside the root)", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeNote(somaHome, "real", "A real note.");
+    await rebuildMemoryIndex({ somaHome, now: NOW });
+    // Replace memory/procedural with a symlink to an outside dir holding a note.
+    const outsideDir = join(somaHome, "..", "outside-notes");
+    await mkdir(outsideDir, { recursive: true });
+    await writeFile(join(outsideDir, "foreign.md"), "would-be note", "utf8");
+    await rm(join(somaHome, "memory/procedural"), { recursive: true, force: true });
+    await symlink(outsideDir, join(somaHome, "memory/procedural"));
+
+    const result = await auditMemory({ somaHome });
+    // The symlinked dir is not walked → only the one real semantic note is seen.
+    expect(result.notesByType.semantic).toBe(1);
+    expect(result.notesByType.procedural).toBe(0);
+  });
+});
+
 // --- CLI gate -----------------------------------------------------------------
 
 test("the CLI exits non-zero (throws) on an unhealthy tree, with the report", async () => {
