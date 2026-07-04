@@ -67,10 +67,12 @@ function renderInstructions(input: ProjectionInput): string {
  * file. Codex has no runtime tool to pull `memory/INDEX.md` live (unlike Pi), so
  * it rides along as a projected file. Reads the same `input.memory.indexContent`
  * field the Claude adapter's `memoryIndexBundleFile` consumes, and omits when it
- * is empty/absent — a lockstep pinned by test ("codex memory-index file toggles
- * in lockstep with the Claude MEMORY.md bundle"). It is "regenerated at
- * consolidation" only in the sense that consolidation rebuilds INDEX.md and the
- * next `soma install` re-projects it — a recorded degradation.
+ * is empty/absent. A test pins that narrow contract — the presence/absence toggle
+ * and that the projected content is the verbatim `indexContent` — against Claude's
+ * bundle helper (it does NOT assert INDEX rendering semantics or install-time
+ * regeneration, which are the index renderer's and installer's concerns). It is
+ * "regenerated at consolidation" only in the sense that consolidation rebuilds
+ * INDEX.md and the next `soma install` re-projects it — a recorded degradation.
  */
 export function codexMemoryIndexFile(input: ProjectionInput): { path: string; content: string }[] {
   const indexContent = input.memory?.indexContent;
@@ -127,7 +129,7 @@ function renderHomeSkill(input: ProjectionInput, somaHome: string): string {
     "- Read `~/.codex/memories/soma/profile.md` for the current projected assistant profile.",
     "- Read `~/.codex/memories/soma/pai-imports.md` when the task needs detailed migrated PAI identity, voice, relationship, purpose, or decision-context material.",
     "- Read `~/.codex/memories/soma/startup-context.md` for lifecycle-generated active work and recent learning context when present.",
-    "- Read `~/.codex/memories/soma/memory-index.md` for the durable memory INDEX (Tier-0 orientation). It is a static projection regenerated on each `soma install`; treat it as possibly stale between installs.",
+    "- When present, read `~/.codex/memories/soma/memory-index.md` for the durable memory INDEX (Tier-0 orientation). It is projected only when durable notes exist, is regenerated on each `soma install`, and may be absent (no index yet) or stale between installs.",
     "- Read `~/.codex/memories/soma/lifecycle.md` for lifecycle refresh commands.",
     "- Use `cd $(cat ~/.codex/memories/soma/soma-repo.txt) && bun run soma memory recall --query \"...\"` before making durable claims that may depend on prior knowledge, learning, relationship, work, or imported PAI context. This is note-aware retrieval; `soma memory search` remains as a legacy line-grep fallback.",
     "- Use `cd $(cat ~/.codex/memories/soma/soma-repo.txt) && bun run soma memory promote --from-run <id> --store learning --title \"...\" --substrate codex` when verified Algorithm work should become durable recall.",
