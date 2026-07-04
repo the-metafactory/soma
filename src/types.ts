@@ -2625,6 +2625,66 @@ export interface SomaMemoryConsolidateResult {
   indexPath: string;
 }
 
+// Memory subsystem M7 (audit). Plan v2 §M7: a DETERMINISTIC health check over the
+// on-disk memory tree — no LLM, no sentiment, only filesystem ground-truth probes.
+// Read-only: it mutates nothing and appends no event. The CLI exits NON-ZERO when
+// `healthy` is false — any health-gating probe failing: an abnormal note root
+// (root-integrity), a schema-invalid note, or a stale INDEX — so it can gate CI /
+// a pre-consolidation check.
+export interface SomaMemoryAuditOptions {
+  homeDir?: string;
+  somaHome?: string;
+}
+
+/** The fixed set of audit probes (stable public names; `auditMemory` is exported). */
+export type SomaMemoryAuditProbeName =
+  | "root-integrity"
+  | "schema"
+  | "index-freshness"
+  | "digest-coverage"
+  | "orphaned-archive"
+  | "event-ratio";
+
+/**
+ * One deterministic probe's outcome. `gatesHealth` is machine-readable: when it is
+ * true, `ok: false` forces `result.healthy` false. Three probes gate:
+ * `root-integrity`, `schema`, and `index-freshness`. Informational probes
+ * (`digest-coverage`, `orphaned-archive`, `event-ratio`) have `gatesHealth: false`
+ * and always report `ok: true`.
+ */
+export interface SomaMemoryAuditProbe {
+  name: SomaMemoryAuditProbeName;
+  ok: boolean;
+  gatesHealth: boolean;
+  detail: string;
+}
+
+export interface SomaMemoryAuditResult {
+  somaHome: string;
+  /** false ⇒ the CLI exits non-zero. Gated by ALL three: real note roots (root-integrity),
+   *  no schema-invalid notes, AND a fresh INDEX. */
+  healthy: boolean;
+  /** Valid-note counts by type across the whole tree (durable + episodic + archive). */
+  notesByType: { semantic: number; procedural: number; episodic: number };
+  /** Note files that exist but fail to parse (schema-invalid) — a health failure. */
+  invalidNotes: string[];
+  /** INDEX freshness: stale when a durable note is newer than INDEX.md, or INDEX is absent while durable notes exist. */
+  index: { path: string; stale: boolean; reason: string };
+  /** Episodic coverage counts — session/action notes vs monthly digest files present. */
+  digests: { sessionNotes: number; actionNotes: number; digestFiles: number };
+  /** Archived episodic notes whose id is absent from their month's digest (informational drift signal). */
+  orphanedArchive: string[];
+  /** Event-stream vs corpus size — a coarse write-amplification signal (informational). */
+  events: { lines: number; notes: number };
+  /**
+   * Every probe run, in report order. THREE gate `healthy` (`root-integrity`,
+   * `schema`, `index-freshness`); the other three (`digest-coverage`,
+   * `orphaned-archive`, `event-ratio`) are informational drift signals whose `ok` is
+   * always true. Read `probe.gatesHealth` rather than hardcoding this list.
+   */
+  probes: SomaMemoryAuditProbe[];
+}
+
 // Memory subsystem M2 (recall). Plan v2 §M2: note-aware retrieval over the
 // durable corpus (semantic + procedural) — term scoring, whole-file retrieval
 // (limit 3), 1-hop link expansion, superseded-exclusion via `valid_until`, and a

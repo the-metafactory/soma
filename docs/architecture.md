@@ -153,12 +153,19 @@ part-way, OR the event append itself fails, mutations may already be applied WIT
 the event — so an absent event does NOT prove no mutation happened. A re-run
 reconciles the STATE (it re-does nothing already done — idempotent), but it does NOT
 back-fill the missing journal record: a subsequent no-op run writes no event, so the
-gap persists. A memory audit (M7, forthcoming — not yet built) that reads the files
-directly, not the event stream, is the intended ground-truth check. A no-op pass
-writes no event. The write/event coupling is best-effort, not
-crash-atomic: an event-append *failure* rolls the file mutation back, but a hard
-process crash in the window between the two can still orphan a file from its
-event (a documented gap reconciled by the M7 audit; soma has no WAL/2PC). This
+gap persists. `soma memory audit` (M7) — a deterministic, read-only health check
+that reads the FILES directly, not the event stream — is the ground-truth check:
+it has three health-gating probes — root-integrity (every note root is a real
+directory), schema validity, and INDEX freshness — plus three informational drift
+signals — episodic note/digest COUNTS (a coverage indicator, not a verified
+note↔digest mapping), archived notes missing from their created-month digest, and
+the event/note ratio — and EXITS NON-ZERO on any gating failure (so it can gate CI). A no-op pass writes no event. The write/event
+coupling is best-effort, not crash-atomic: an event-append *failure* rolls the file
+mutation back, but a hard process crash in the window between the two can still
+orphan a file from its event (soma has no WAL/2PC). The M7 audit does NOT reconcile
+note↔event linkage — its event-ratio probe is a COARSE count (event lines over
+notes), not per-note orphan detection; a missing event can be masked by unrelated
+lines. This
 taxonomy is intentionally distinct from the `MEMORY/*` stores: those stores hold
 curated free-form material; the note store holds single-fact, governed,
 decay-tracked notes.

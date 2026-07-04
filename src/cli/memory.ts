@@ -1,4 +1,5 @@
 import {
+  auditMemory,
   consolidateMemory,
   promoteAlgorithmRunMemory,
   rebuildMemoryIndex,
@@ -15,6 +16,8 @@ import type {
   SomaMemoryActionApproval,
   SomaMemoryActionOptions,
   SomaMemoryActionResult,
+  SomaMemoryAuditOptions,
+  SomaMemoryAuditResult,
   SomaMemoryConsolidateOptions,
   SomaMemoryConsolidateResult,
   SomaMemoryDigestOptions,
@@ -43,6 +46,7 @@ interface MemoryReindexOptions {
 }
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
+import { SomaCliError } from "./errors";
 
 export interface ParsedMemorySearchArgs {
   command: "memory";
@@ -98,6 +102,12 @@ export interface ParsedMemoryConsolidateArgs {
   options: SomaMemoryConsolidateOptions;
 }
 
+export interface ParsedMemoryAuditArgs {
+  command: "memory";
+  action: "audit";
+  options: SomaMemoryAuditOptions;
+}
+
 export type ParsedMemoryArgs =
   | ParsedMemorySearchArgs
   | ParsedMemoryRecallArgs
@@ -107,13 +117,14 @@ export type ParsedMemoryArgs =
   | ParsedMemoryReindexArgs
   | ParsedMemoryDigestArgs
   | ParsedMemoryActionArgs
-  | ParsedMemoryConsolidateArgs;
+  | ParsedMemoryConsolidateArgs
+  | ParsedMemoryAuditArgs;
 
-const MEMORY_ACTIONS = ["search", "recall", "promote", "write", "verify", "reindex", "digest", "action", "consolidate"] as const;
+const MEMORY_ACTIONS = ["search", "recall", "promote", "write", "verify", "reindex", "digest", "action", "consolidate", "audit"] as const;
 type MemoryAction = (typeof MEMORY_ACTIONS)[number];
 
 export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAction, string> } = {
-  usage: "Usage: soma memory <search|recall|promote|write|verify|reindex|digest|action|consolidate> ...",
+  usage: "Usage: soma memory <search|recall|promote|write|verify|reindex|digest|action|consolidate|audit> ...",
   subcommands: {
     search: "Usage: soma memory search [query] [--query <text>] [--limit <n>] [--home-dir <dir>] [--soma-home <dir>]",
     recall:
@@ -150,6 +161,10 @@ export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAct
       "Deterministic maintenance: prune aged episodic → digest+archive, mark aged-unverified semantic review:stale, " +
       "list lexically-similar note pairs (near-duplicates for review; no semantic check), rebuild INDEX. --gc-state additionally DELETES current-work state >7d (explicit override). " +
       "--dry-run prints the plan without touching anything.",
+    audit:
+      "Usage: soma memory audit [--home-dir <dir>] [--soma-home <dir>]. " +
+      "Deterministic, read-only health check of the memory tree (no LLM): schema validity, INDEX freshness, " +
+      "digest coverage, orphaned archive notes, event/note ratio. EXITS NON-ZERO on any health-gating failure: an abnormal note root (root-integrity), a schema-invalid note, or a stale INDEX.",
   },
 };
 
@@ -183,7 +198,28 @@ export function parseMemoryArgs(args: string[]): ParsedMemoryArgs {
       return { command, action, options: parseMemoryActionArgs(rest) };
     case "consolidate":
       return { command, action, options: parseMemoryConsolidateArgs(rest) };
+    case "audit":
+      return { command, action, options: parseMemoryAuditArgs(rest) };
   }
+}
+
+function parseMemoryAuditArgs(args: string[]): SomaMemoryAuditOptions {
+  // Audit takes ONLY home overrides — no --substrate (it has no substrate behavior;
+  // accepting it as a no-op is confusing for a health gate).
+  const options: SomaMemoryAuditOptions = {};
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--home-dir") {
+      options.homeDir = readOption(args, index, arg);
+      index += 1;
+    } else if (arg === "--soma-home") {
+      options.somaHome = readOption(args, index, arg);
+      index += 1;
+    } else {
+      throw new Error(MEMORY_COMMAND_HELP.subcommands.audit);
+    }
+  }
+  return options;
 }
 
 function parseMemoryConsolidateArgs(args: string[]): SomaMemoryConsolidateOptions {
@@ -696,7 +732,32 @@ export async function runMemoryCli(parsed: ParsedMemoryArgs): Promise<string> {
       return formatMemoryActionResult(await writeMemoryAction(parsed.options));
     case "consolidate":
       return formatMemoryConsolidateResult(await consolidateMemory(parsed.options));
+    case "audit": {
+      const audit = await auditMemory(parsed.options);
+      const report = formatMemoryAuditResult(audit);
+      // A deterministic gate: an unhealthy tree (abnormal root, schema-invalid note, or stale INDEX)
+      // exits NON-ZERO so the audit can fail CI / a pre-consolidation check. The full
+      // report is carried on the error so it is still shown.
+      if (!audit.healthy) throw new SomaCliError(report, 1);
+      return report;
+    }
   }
+}
+
+function formatMemoryAuditResult(result: SomaMemoryAuditResult): string {
+  const lines = [
+    result.healthy ? "Soma memory audit: HEALTHY" : "Soma memory audit: UNHEALTHY",
+    ...result.probes.map((p) => `  [${p.ok ? "ok" : "FAIL"}] ${p.name}: ${p.detail}`),
+  ];
+  if (result.invalidNotes.length > 0) {
+    lines.push("schema-invalid notes:");
+    for (const p of result.invalidNotes) lines.push(`  - ${p}`);
+  }
+  if (result.orphanedArchive.length > 0) {
+    lines.push("archived notes missing from a digest:");
+    for (const p of result.orphanedArchive) lines.push(`  - ${p}`);
+  }
+  return lines.join("\n");
 }
 
 function formatConsolidateIndexLine(result: SomaMemoryConsolidateResult, mutated: boolean): string {
