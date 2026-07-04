@@ -38,9 +38,9 @@ import type {
  *    (Jaccard ≥ 0.6) are surfaced for human review as CANDIDATE duplicates/
  *    contradictions — the overlap is lexical, not a proven semantic contradiction,
  *    and nothing is auto-merged (the write path already refuses near-duplicates).
- * 4. **GC state** — `current-work-*.json` files older than 7d are DELETED. This is
- *    the only file DELETION this pass performs (state is not memory; notes are only
- *    archived, never deleted).
+ * 4. **GC state** — ONLY under the explicit `--gc-state` override (default: off),
+ *    `current-work-*.json` files older than 7d are DELETED. This is the only file
+ *    DELETION this pass performs (state is not memory; notes are only archived).
  * 5. **Rebuild INDEX** to reflect the archived/stale changes.
  *
  * A real run that mutated anything appends one governed `memory.consolidate` event
@@ -58,6 +58,9 @@ const SEMANTIC_STALE_DAYS = 180;
 const STATE_GC_DAYS = 7;
 // Same near-duplicate floor as the M1 write-path dedup gate.
 const CONTRADICTION_JACCARD = 0.6;
+// Cap on the similar-pair report (highest-scored kept) — a duplicated corpus could
+// otherwise surface n(n-1)/2 pairs.
+const MAX_SIMILAR_PAIRS = 50;
 
 const MS_PER_DAY = 86_400_000;
 const NOTE_ID_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -260,7 +263,10 @@ function planSimilarPairs(notes: { note: SomaMemoryNote }[]): SomaMemorySimilarP
     }
   }
   pairs.sort((l, r) => r.score - l.score || l.a.localeCompare(r.a) || l.b.localeCompare(r.b));
-  return pairs;
+  // Cap the report: a heavily-duplicated corpus could otherwise produce n(n-1)/2
+  // pairs. The highest-similarity pairs are what a reviewer acts on first; the tail
+  // is bounded away rather than allocated/rendered in full.
+  return pairs.slice(0, MAX_SIMILAR_PAIRS);
 }
 
 /** Plan the state GC: `current-work-*.json` files older than 7d. */
@@ -333,12 +339,10 @@ function listArchivedMonthNotes(paths: SomaPaths, kind: "sessions" | "actions", 
  * idempotent derivation of it (never the source of truth).
  */
 async function applyEpisodicArchive(paths: SomaPaths, episodic: EpisodicArchive[]): Promise<void> {
-  const memoryRoot = paths.memory();
   const months = new Set<string>();
+  // Destinations were all preflighted in the plan phase (both dry-run and real),
+  // so no per-note refusal can leave an earlier note already moved.
   for (const e of episodic.slice().sort((a, b) => a.note.id.localeCompare(b.note.id))) {
-    // Reject a symlinked parent chain (escape-outside-root) OR an existing target
-    // of any kind (no-clobber) BEFORE moving.
-    await assertSafeArchiveDest(memoryRoot, e.to);
     await mkdir(dirname(e.to), { recursive: true });
     await rename(e.from, e.to);
     months.add(e.note.created.slice(0, 7));
@@ -384,6 +388,12 @@ export async function consolidateMemory(options: SomaMemoryConsolidateOptions = 
     ...(await planEpisodicArchive(paths, "sessions", EPISODIC_SESSION_TTL_DAYS, now)),
     ...(await planEpisodicArchive(paths, "actions", EPISODIC_ACTION_TTL_DAYS, now)),
   ];
+  // Preflight EVERY archive destination now (in the plan phase, so a dry-run refuses
+  // exactly what the real run would) — before any note is moved, so an unsafe or
+  // colliding target can never leave a partially-applied consolidation.
+  const memoryRoot = paths.memory();
+  for (const e of episodic) await assertSafeArchiveDest(memoryRoot, e.to);
+
   const durable = await collectDurableNotes(somaHome);
   const staleMarks = planStaleMarks(durable.notes, somaHome, now);
   const similarPairs = planSimilarPairs(durable.notes);
