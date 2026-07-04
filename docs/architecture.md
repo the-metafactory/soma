@@ -131,7 +131,7 @@ principal: it walks the legacy category dirs and writes each markdown file as a
 `quarantined` note through the governed write path (below), mapping the category
 to a note type (`LEARNING`→procedural, `KNOWLEDGE`→semantic). It is deterministic
 (bodies verbatim, `created` from the source mtime, no LLM) and idempotent via a SHA
-manifest at `imports/backfill/.manifest.json`. Imports stay recall-discoverable
+manifest at `memory/STATE/imports/backfill/.manifest.json`. Imports stay recall-discoverable
 (with a ⚠ untrusted banner) but out of the always-loaded INDEX until a human
 verifies them.
 

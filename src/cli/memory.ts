@@ -830,21 +830,23 @@ function formatMemoryBackfillResult(result: SomaMemoryBackfillResult): string {
       `skipped (duplicate): ${result.skippedDuplicateCount} · errors: ${result.errorCount}`,
     `manifest: ${result.manifestPath}`,
   ];
-  const written = result.entries.filter((e) => e.status === "written");
-  if (written.length > 0) {
-    lines.push("imported (quarantined — recall-discoverable, elevate via verify to reach INDEX):");
-    for (const e of written) lines.push(`  ${e.relativePath} → ${e.type}/${e.noteId}.md`);
-  }
-  const dups = result.entries.filter((e) => e.status === "skipped-duplicate");
-  if (dups.length > 0) {
-    lines.push("skipped as duplicates of existing notes:");
-    for (const e of dups) lines.push(`  ${e.relativePath}: ${e.detail ?? ""}`);
-  }
-  const errors = result.entries.filter((e) => e.status === "error");
-  if (errors.length > 0) {
-    lines.push("errors:");
-    for (const e of errors) lines.push(`  ${e.relativePath}: ${e.detail ?? ""}`);
-  }
+  const appendSection = (
+    status: SomaMemoryBackfillResult["entries"][number]["status"],
+    heading: string,
+    format: (e: SomaMemoryBackfillResult["entries"][number]) => string,
+  ): void => {
+    const matched = result.entries.filter((e) => e.status === status);
+    if (matched.length === 0) return;
+    lines.push(heading);
+    for (const e of matched) lines.push(format(e));
+  };
+  appendSection(
+    "written",
+    "imported (quarantined — recall-discoverable, elevate via verify to reach INDEX):",
+    (e) => `  ${e.relativePath} → ${e.type}/${e.noteId}.md`,
+  );
+  appendSection("skipped-duplicate", "skipped as duplicates of existing notes:", (e) => `  ${e.relativePath}: ${e.detail ?? ""}`);
+  appendSection("error", "errors:", (e) => `  ${e.relativePath}: ${e.detail ?? ""}`);
   return lines.join("\n");
 }
 
