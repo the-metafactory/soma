@@ -39,8 +39,9 @@ import type {
  *    contradictions — the overlap is lexical, not a proven semantic contradiction,
  *    and nothing is auto-merged (the write path already refuses near-duplicates).
  * 4. **GC state** — ONLY under the explicit `--gc-state` override (default: off),
- *    `current-work-*.json` files older than 7d are DELETED. This is the only file
- *    DELETION this pass performs (state is not memory; notes are only archived).
+ *    `current-work-*.json` files older than 7d are DELETED. This is the pass's only
+ *    destructive mutation of protected state, and its only file deletion — notes
+ *    (also in the Memory compartment) are archived, never deleted.
  * 5. **Rebuild INDEX** to reflect the archived/stale changes.
  *
  * A real run that mutated anything appends one governed `memory.consolidate` event

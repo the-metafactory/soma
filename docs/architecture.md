@@ -146,14 +146,13 @@ aged-unverified semantic
 notes `review: stale`, and (only under an explicit `--gc-state`) GCs old
 `current-work-*` state. It is governed (deterministic, event-emitting, no LLM) but
 does NOT re-derive trust — it never mints or elevates a note, only ages/relocates
-existing ones. A pass that RUNS TO COMPLETION with any mutation appends one
-`memory.consolidate` event — a post-hoc RECORD, NOT rollback-coupled. The pass is
-idempotent and safe to repeat, so the guarantee is repeatability, not atomicity: a
-pass that throws part-way (or whose event append fails) may leave some mutations
-applied WITHOUT the event — so an absent event does NOT prove no mutation happened;
-a re-run reconciles, and a memory audit (M7, forthcoming — not yet built) is the
-intended ground-truth check. A no-op pass writes
-no event. The write/event coupling is best-effort, not
+existing ones. A mutating pass appends one `memory.consolidate` event as its FINAL
+step — a post-hoc RECORD, NOT rollback-coupled. The pass is idempotent and safe to
+repeat, so the guarantee is repeatability, not atomicity: if the pass throws
+part-way, OR the event append itself fails, mutations may already be applied WITHOUT
+the event — so an absent event does NOT prove no mutation happened; a re-run
+reconciles, and a memory audit (M7, forthcoming — not yet built) is the intended
+ground-truth check. A no-op pass writes no event. The write/event coupling is best-effort, not
 crash-atomic: an event-append *failure* rolls the file mutation back, but a hard
 process crash in the window between the two can still orphan a file from its
 event (a documented gap reconciled by the M7 audit; soma has no WAL/2PC). This
