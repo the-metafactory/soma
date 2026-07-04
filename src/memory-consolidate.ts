@@ -21,7 +21,7 @@ import type {
  * Deterministic consolidation (subsystem M6). A no-LLM maintenance pass. Every op
  * is computed into a PLAN first, so a `--dry-run` reports the SAME set of file
  * operations (which notes archive, which are marked stale, which state files are
- * deleted, which pairs contradict) that the real run applies — the dry-run plan
+ * deleted, which pairs are lexically similar) that the real run applies — the dry-run plan
  * equals the real run's plan. (It does NOT reproduce byte-level digest/INDEX
  * content; it enumerates the operations, not their diffs.) Ops, in apply order:
  *
@@ -35,9 +35,10 @@ import type {
  * 2. **Mark stale** — active semantic notes unverified >180d AND never resurfaced
  *    get frontmatter `review: stale`. NEVER auto-archived — the principal reviews.
  * 3. **List similar pairs** — active durable notes with high LEXICAL similarity
- *    (Jaccard ≥ 0.6) are surfaced for human review as CANDIDATE duplicates/
- *    contradictions — the overlap is lexical, not a proven semantic contradiction,
- *    and nothing is auto-merged (the write path already refuses near-duplicates).
+ *    (Jaccard ≥ 0.6) are surfaced for principal review as near-duplicates (which a
+ *    reviewer may find to be duplicates OR contradictions) — the overlap is lexical,
+ *    NOT a semantic check, and nothing is auto-merged (the write path already
+ *    refuses near-duplicates).
  * 4. **GC state** — ONLY under the explicit `--gc-state` override (default: off),
  *    `current-work-*.json` files older than 7d are DELETED. This is the pass's only
  *    destructive mutation of protected state, and its only file deletion — notes
@@ -267,7 +268,8 @@ async function planStaleMarks(
 }
 
 /**
- * Plan contradiction pairs among ACTIVE durable notes (listing only). A token→notes
+ * Plan lexically-similar (near-duplicate) pairs among ACTIVE durable notes (listing
+ * only — no semantic contradiction check). A token→notes
  * inverted index prefilters candidates so only pairs that SHARE at least one term
  * are Jaccard-scored — pairs with zero overlap (score 0) can never clear the
  * threshold, so skipping them changes nothing but avoids the full O(n²) product.
