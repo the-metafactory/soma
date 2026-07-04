@@ -53,10 +53,11 @@ soma memory digest --session <session-id> --body "<8–15 non-empty lines>"
 - **Do this before the session ends.** If you don't, the SessionEnd hook attempts a
   DETERMINISTIC fallback digest (`--transcript`, marked `hook: session-end`) — legible
   but mechanical, not a real summary. Prefer self-authoring for a genuine summary; the
-  fallback is only a BEST-EFFORT floor — it skips silently if the transcript is unreadable or
-  too thin, and writes nothing for a MARKED sub-agent session (ADR 0014; an unmarked
-  sub-agent is not detected), so it is not a guarantee. The fallback is a hook concern
-  — you invoke `--body`, never `--transcript`.
+  fallback is only a BEST-EFFORT floor — it writes nothing if the transcript is unreadable,
+  too thin, or refused (path outside the allowed root), and nothing for a MARKED sub-agent
+  session (ADR 0014; an unmarked sub-agent is not detected), so it is not a guarantee. Its
+  outcome is recorded on the `lifecycle.session_end` event (`digest: <outcome>`) — not
+  silent. The fallback is a hook concern — you invoke `--body`, never `--transcript`.
 
 ## Action log
 
