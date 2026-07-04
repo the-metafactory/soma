@@ -354,42 +354,51 @@ export async function runMemoryBackfill(
   let errorCount = 0;
 
   for (const src of sources) {
+    // `type` and `created` are pure (no I/O) — safe to compute before the try so
+    // an error entry can still report them if a later fallible step throws.
     const type = resolveType(options, src.category);
-    const content = await readSourceNoFollow(src.absPath, { dev: src.dev, ino: src.ino });
-    const sha = sha256Hex(content);
     const created = isoDate(new Date(src.mtimeMs));
-
-    // Already backfilled and unchanged (same bytes AND same resolved type) with
-    // its note still present? Re-emit the PRIOR manifest entry VERBATIM (including
-    // its stored mtimeMs) so a no-op rerun is byte-stable even if the source was
-    // merely `touch`ed. The type guard keeps `--type` honest: rerunning with a
-    // different --type than a prior import is NOT a hit — it falls through to the
-    // write path (where the identical body is caught by the recall-first gate).
-    const prior = previous?.map.get(src.relativePath);
-    if (prior?.sha256 === sha && prior.type === type) {
-      if (await pathExists(memoryNotePath(somaHome, prior.type, prior.noteId))) {
-        entries.push({
-          relativePath: src.relativePath,
-          source: src.absPath,
-          noteId: prior.noteId,
-          type: prior.type,
-          created,
-          target: memoryNotePath(somaHome, prior.type, prior.noteId),
-          status: "skipped-manifest",
-        });
-        manifestFiles.push({ ...prior });
-        used.add(prior.noteId);
-        skippedManifestCount += 1;
-        continue;
-      }
-    }
-
-    const id = await uniqueNoteId(somaHome, slugifyId(src.category, src.stem), used);
-    used.add(id);
-    const target = memoryNotePath(somaHome, type, id);
-    const hook = hookFromStem(src.stem);
+    // `id` is assigned once allocated; a read failure before allocation leaves it
+    // empty, which the error entry reports as an unknown target.
+    let id = "";
 
     try {
+      // EVERY fallible step lives inside the try so a single bad source (deleted,
+      // unreadable, symlink-swapped, identity-changed, or a write/dedup refusal)
+      // becomes a per-file entry — never a batch abort.
+      const content = await readSourceNoFollow(src.absPath, { dev: src.dev, ino: src.ino });
+      const sha = sha256Hex(content);
+
+      // Already backfilled and unchanged (same bytes AND same resolved type) with
+      // its note still present? Re-emit the PRIOR manifest entry VERBATIM (including
+      // its stored mtimeMs) so a no-op rerun is byte-stable even if the source was
+      // merely `touch`ed. The type guard keeps `--type` honest: rerunning with a
+      // different --type than a prior import is NOT a hit — it falls through to the
+      // write path (where the identical body is caught by the recall-first gate).
+      const prior = previous?.map.get(src.relativePath);
+      if (prior?.sha256 === sha && prior.type === type) {
+        if (await pathExists(memoryNotePath(somaHome, prior.type, prior.noteId))) {
+          entries.push({
+            relativePath: src.relativePath,
+            source: src.absPath,
+            noteId: prior.noteId,
+            type: prior.type,
+            created,
+            target: memoryNotePath(somaHome, prior.type, prior.noteId),
+            status: "skipped-manifest",
+          });
+          manifestFiles.push({ ...prior });
+          used.add(prior.noteId);
+          skippedManifestCount += 1;
+          continue;
+        }
+      }
+
+      id = await uniqueNoteId(somaHome, slugifyId(src.category, src.stem), used);
+      used.add(id);
+      const target = memoryNotePath(somaHome, type, id);
+      const hook = hookFromStem(src.stem);
+
       await writeMemoryNote({
         somaHome,
         substrate: options.substrate,
@@ -428,20 +437,16 @@ export async function runMemoryBackfill(
         noteId: id,
         type,
         created,
-        target,
+        target: id ? memoryNotePath(somaHome, type, id) : "",
         status: isDuplicate ? "skipped-duplicate" : "error",
         detail: message,
       });
-      if (isDuplicate) {
-        // A near/exact duplicate already lives in the corpus — the desired
-        // outcome, not a failure. It is NOT recorded in the manifest (no note
-        // was created for this file); a later rerun re-scans and re-skips it.
-        used.delete(id);
-        skippedDuplicateCount += 1;
-      } else {
-        used.delete(id);
-        errorCount += 1;
-      }
+      // Release a tentatively-claimed id: a duplicate maps to an existing note
+      // (not recorded in the manifest → re-scanned next run); an error produced no
+      // note at all. A read failure before allocation leaves id empty (no-op).
+      if (id) used.delete(id);
+      if (isDuplicate) skippedDuplicateCount += 1;
+      else errorCount += 1;
     }
   }
 

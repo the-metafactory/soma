@@ -5,7 +5,7 @@
  * write path. Deterministic, no LLM, `import`-trigger → `quarantined` trust,
  * SHA-manifest idempotency. See `Plans/declarative-twirling-lampson.md`.
  */
-import { mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
@@ -206,6 +206,32 @@ test("a manifest built for a different --from root is not treated as a hit", asy
     const second = await runMemoryBackfill({ somaHome, from: dirB });
     expect(second.skippedManifestCount).toBe(0);
     expect(second.writtenCount).toBe(1);
+  });
+});
+
+test("an unreadable source is recorded as a per-file error, not a batch abort", async () => {
+  await withTempSoma(async (somaHome) => {
+    await seed(somaHome, "KNOWLEDGE/good.md", "a healthy note body one two three");
+    const badPath = await seed(somaHome, "KNOWLEDGE/bad.md", "an unreadable body four five six");
+    await chmod(badPath, 0o000);
+    // Under root, mode 000 doesn't restrict reads — detect and relax the assertion.
+    let restricted: boolean;
+    try {
+      await readFile(badPath, "utf8");
+      restricted = false;
+    } catch {
+      restricted = true;
+    }
+
+    // The key property: one bad source never aborts the whole batch.
+    const result = await runMemoryBackfill({ somaHome });
+    expect(result.entries.some((e) => e.relativePath === "KNOWLEDGE/good.md" && e.status === "written")).toBe(true);
+    if (restricted) {
+      expect(result.errorCount).toBe(1);
+      const bad = result.entries.find((e) => e.relativePath === "KNOWLEDGE/bad.md");
+      expect(bad?.status).toBe("error");
+    }
+    await chmod(badPath, 0o600); // let withTempSoma clean up
   });
 });
 
