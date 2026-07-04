@@ -65,11 +65,12 @@ function renderInstructions(input: ProjectionInput): string {
 /**
  * Codex Tier-0 memory injection: project the durable memory INDEX as a static
  * file. Codex has no runtime tool to pull `memory/INDEX.md` live (unlike Pi), so
- * it rides along as a projected file — the SAME `input.memory.indexContent` the
- * Claude adapter consumes (claude-code.ts memoryIndexBundleFile). It is
- * "regenerated at consolidation" only in the sense that consolidation rebuilds
- * INDEX.md and the next `soma install` re-projects it — a recorded degradation.
- * OMITTED when no index exists yet, exactly like Claude's conditional bundle.
+ * it rides along as a projected file. Reads the same `input.memory.indexContent`
+ * field the Claude adapter's `memoryIndexBundleFile` consumes, and omits when it
+ * is empty/absent — a lockstep pinned by test ("codex memory-index file toggles
+ * in lockstep with the Claude MEMORY.md bundle"). It is "regenerated at
+ * consolidation" only in the sense that consolidation rebuilds INDEX.md and the
+ * next `soma install` re-projects it — a recorded degradation.
  */
 export function codexMemoryIndexFile(input: ProjectionInput): { path: string; content: string }[] {
   const indexContent = input.memory?.indexContent;
