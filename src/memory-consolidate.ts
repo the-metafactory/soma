@@ -28,7 +28,10 @@ import type {
  * 1. **Prune aged episodic** — session notes older than 90d and action notes older
  *    than 180d (by `created`) are folded into a monthly digest (`episodic/digests/
  *    YYYY-MM.md`, a deterministic pointer list) and MOVED to `archive/`, mirroring
- *    the source's FULL relative path (invalidate-never-delete; archive-before-prune).
+ *    the source's FULL relative path. The move OUT of the active episodic tree is
+ *    itself the invalidation (recall/index no longer see it); the raw note is
+ *    relocated, never deleted, and no `valid_until` field is stamped (that marker
+ *    belongs to the semantic/procedural supersede path, not episodic archival).
  * 2. **Mark stale** — active semantic notes unverified >180d AND never resurfaced
  *    get frontmatter `review: stale`. NEVER auto-archived — a human reviews.
  * 3. **List similar pairs** — active durable notes with high LEXICAL similarity

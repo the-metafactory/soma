@@ -695,16 +695,15 @@ export async function runMemoryCli(parsed: ParsedMemoryArgs): Promise<string> {
   }
 }
 
-function formatMemoryConsolidateResult(result: SomaMemoryConsolidateResult): string {
+function formatConsolidateIndexLine(result: SomaMemoryConsolidateResult, mutated: boolean): string {
   // INDEX is rebuilt only when something actually mutated (archive/stale/GC).
+  if (!mutated) return `index: unchanged (no mutations${result.dryRun ? " planned" : ""})`;
+  return result.dryRun ? `index: would rebuild ${result.indexPath}` : `index: rebuilt ${result.indexPath}`;
+}
+
+function formatMemoryConsolidateResult(result: SomaMemoryConsolidateResult): string {
   const mutated = result.archived.length > 0 || result.markedStale.length > 0 || result.stateGced.length > 0;
-  const indexLine = result.dryRun
-    ? mutated
-      ? `index: would rebuild ${result.indexPath}`
-      : "index: unchanged (no mutations planned)"
-    : mutated
-      ? `index: rebuilt ${result.indexPath}`
-      : "index: unchanged (no mutations)";
+  const indexLine = formatConsolidateIndexLine(result, mutated);
   const lines = [
     result.dryRun ? "Soma memory consolidate (dry-run — nothing changed)" : "Soma memory consolidate",
     `archived: ${result.archived.length} aged episodic note(s)`,

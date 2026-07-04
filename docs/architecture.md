@@ -139,8 +139,10 @@ and each mutation appends one event to the **existing** `memory/STATE/events.jso
 stream (the same journal the Observability section reads — note mutations do not
 fork a second event stream). The write/event rollback coupling above is specific to the single-note
 `write|verify` path. One other governed path exists: `soma memory consolidate`
-(M6), the deterministic maintenance pass — it archives aged episodic notes (move
-under `memory/archive/`, invalidate-never-delete), marks aged-unverified semantic
+(M6), the deterministic maintenance pass — it archives aged episodic notes (moved
+out of the active tree, under `memory/archive/`; relocated, never deleted — the
+move itself is the invalidation, no `valid_until` field is stamped), marks
+aged-unverified semantic
 notes `review: stale`, and (only under an explicit `--gc-state`) GCs old
 `current-work-*` state. It is governed (deterministic, event-emitting, no LLM) but
 does NOT re-derive trust — it never mints or elevates a note, only ages/relocates
