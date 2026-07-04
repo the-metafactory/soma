@@ -717,6 +717,10 @@ function formatMemoryConsolidateResult(result: SomaMemoryConsolidateResult): str
     ...result.similarPairs.map((c) => `  - ${c.a} ~ ${c.b} (jaccard ${c.score.toFixed(2)})`),
     indexLine,
   ];
+  if (result.unreadable.length > 0) {
+    lines.push(`⚠ ${result.unreadable.length} unreadable note file(s) — skipped, surface for the audit:`);
+    for (const p of result.unreadable) lines.push(`  - ${p}`);
+  }
   return lines.join("\n");
 }
 

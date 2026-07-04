@@ -2590,16 +2590,21 @@ export interface SomaMemorySimilarPair {
 export interface SomaMemoryConsolidateResult {
   somaHome: string;
   dryRun: boolean;
-  /** Aged episodic notes moved under `memory/archive/` (or planned to, on dry-run). */
+  // NOTE: on a dry-run these are the PLANNED operations (nothing was applied); on a
+  // real run they are what was applied. Each field's verb is mode-neutral for that
+  // reason.
+  /** Aged episodic notes to move under `memory/archive/` (planned on dry-run, moved on a real run). */
   archived: SomaMemoryArchivePlan[];
-  /** Monthly digest files regenerated from the archive for the archived notes' months. */
+  /** Monthly digest files whose archived-notes months are affected (regenerated on a real run). */
   digestsWritten: string[];
-  /** Semantic notes newly marked `review: stale`. */
+  /** Semantic notes to mark `review: stale` (planned on dry-run, marked on a real run). */
   markedStale: string[];
-  /** `current-work-*.json` files GC'd (age > 7d) — this pass's only deletion. */
+  /** `current-work-*.json` files older than 7d to GC — only under `--gc-state`; this pass's only deletion. */
   stateGced: string[];
   /** High-lexical-similarity note pairs listed for review (candidate duplicates/contradictions). */
   similarPairs: SomaMemorySimilarPair[];
+  /** Note files that exist but could not be read/parsed — surfaced, never silently skipped. */
+  unreadable: string[];
   /**
    * The INDEX.md path. Always reported, but the index is REBUILT only when the pass
    * mutated something (any of archived / markedStale / stateGced non-empty) — a

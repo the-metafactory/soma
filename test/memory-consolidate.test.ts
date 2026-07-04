@@ -186,6 +186,15 @@ test("near-duplicate active notes are LISTED as contradictions (no auto-merge)",
   });
 });
 
+test("unreadable note files are surfaced, never silently skipped", async () => {
+  await withTempSoma(async (somaHome) => {
+    await mkdir(join(somaHome, "memory/semantic"), { recursive: true });
+    await writeFile(join(somaHome, "memory/semantic/broken.md"), "not a valid note", "utf8");
+    const result = await consolidateMemory({ somaHome, now: NOW });
+    expect(result.unreadable.some((p) => p.includes("broken.md"))).toBe(true);
+  });
+});
+
 // --- state GC ----------------------------------------------------------------
 
 test("current-work state older than 7d is GC'd (the one deletion); recent kept", async () => {
