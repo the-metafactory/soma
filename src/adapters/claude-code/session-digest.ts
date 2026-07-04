@@ -63,8 +63,9 @@ function samplePrompts(prompts: string[], max: number): string[] {
 
 /**
  * Deterministically extract an 8–15-line digest body from a Claude Code transcript
- * (JSONL). No LLM: it lists the genuine principal prompts (noise/tool/command lines
- * filtered, sidechain/sub-agent lines skipped) plus a header and a tool-use rollup.
+ * (JSONL). No LLM: it lists the genuine principal prompts — command/system/tool-RESULT
+ * lines and sidechain/sub-agent lines are excluded — while assistant `tool_use`
+ * activity is SUMMARIZED into a rollup line (counts by tool), not listed as prompts.
  * Returns `undefined` when the session has too few real prompts to summarize.
  */
 export function extractDigestBodyFromTranscript(transcript: string): string | undefined {
@@ -115,9 +116,12 @@ export function extractDigestBodyFromTranscript(transcript: string): string | un
     .map(([name, n]) => `${name}×${n}`)
     .join(", ");
 
+  // Prompt lines are VERBATIM principal input — quote + label them so a trusted-recall
+  // reader treats them as DATA (what was asked), never as assistant instructions to
+  // follow. JSON.stringify escapes quotes/controls, closing the injection vector.
   const lines = [
     `- session: ${prompts.length} principal prompts, ${assistantTurns} assistant turns, ${totalTools} tool calls`,
-    ...shown.map((p) => `- ${p}`),
+    ...shown.map((p) => `- principal prompt: ${JSON.stringify(p)}`),
     `- tools: ${topTools.length > 0 ? topTools : "none"}`,
   ];
   return lines.join("\n");
@@ -196,6 +200,9 @@ export async function writeSessionDigestFromTranscript(options: ClaudeSessionDig
     sessionId: options.sessionId,
     body,
     hook: "session-end",
+    // Distinct provenance: recall's trust banner shows this body was machine-extracted
+    // from principal input, NOT assistant-authored.
+    provenance: "tool:claude-session-end",
   });
   // A race could still have another writer win between the dedup check and here.
   return {

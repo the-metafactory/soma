@@ -2515,6 +2515,12 @@ export interface SomaMemoryDigestOptions {
    * assistant-authored one (which omits it). Absent ⇒ assistant-authored.
    */
   hook?: string;
+  /**
+   * Optional provenance override (`conversation` | `import` | `tool:<name>`). Defaults
+   * to `conversation`. A machine-extracted fallback passes a `tool:<name>` value so
+   * recall surfaces that the body was not assistant-authored.
+   */
+  provenance?: string;
 }
 
 // The Claude Code SessionEnd transcript-fallback types (ClaudeSessionDigestOptions/

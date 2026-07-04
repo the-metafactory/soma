@@ -2,7 +2,6 @@ import {
   auditMemory,
   consolidateMemory,
   promoteAlgorithmRunMemory,
-  writeSessionDigestFromTranscript,
   rebuildMemoryIndex,
   recallMemory,
   searchSomaMemory,
@@ -13,7 +12,11 @@ import {
 } from "../index";
 import { WRITABLE_NOTE_TYPES, isWritableNoteType } from "../memory-write";
 import { SOMA_MEMORY_ACTION_APPROVALS } from "../types";
-import type { ClaudeSessionDigestOptions, ClaudeSessionDigestResult } from "../adapters/claude-code/session-digest";
+import {
+  writeSessionDigestFromTranscript,
+  type ClaudeSessionDigestOptions,
+  type ClaudeSessionDigestResult,
+} from "../adapters/claude-code/session-digest";
 import type {
   SomaMemoryActionApproval,
   SomaMemoryActionOptions,

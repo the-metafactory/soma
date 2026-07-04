@@ -3,13 +3,15 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import {
-  extractDigestBodyFromTranscript,
   parseMemoryNote,
   somaMemoryEventsPath,
   writeMemoryAction,
   writeSessionDigest,
-  writeSessionDigestFromTranscript,
 } from "../src/index";
+import {
+  extractDigestBodyFromTranscript,
+  writeSessionDigestFromTranscript,
+} from "../src/adapters/claude-code/session-digest";
 import { parseMemoryArgs, runMemoryCli } from "../src/cli/memory";
 
 /** Build a JSONL transcript from a list of {user}/{assistant tool} lines. */
@@ -247,10 +249,20 @@ test("extractDigestBodyFromTranscript builds 8–15 lines from genuine prompts, 
   expect(lines.length).toBeGreaterThanOrEqual(8);
   expect(lines.length).toBeLessThanOrEqual(15);
   expect(lines[0]).toContain("6 principal prompts"); // sidechain + command + tool_result excluded
-  expect(body).toContain("- add a login endpoint");
+  // prompt text is quoted + labeled (injection-safe), not a bare instruction line
+  expect(body).toContain(`- principal prompt: "add a login endpoint"`);
   expect(body).toContain("- tools: "); // rollup line
   expect(body).not.toContain("/clear"); // command noise filtered
   expect(body).not.toContain("fix the bug"); // sidechain skipped
+});
+
+test("a fallback digest carries tool:claude-session-end provenance (not assistant conversation)", async () => {
+  await withTempSoma((somaHome) =>
+    withTranscriptFile(SEVEN_PROMPTS, async (tp) => {
+      const result = await writeSessionDigestFromTranscript({ somaHome, now: NOW, sessionId: SESSION, transcriptPath: tp });
+      expect(result.digest!.note.provenance).toBe("tool:claude-session-end");
+    }),
+  );
 });
 
 test("extractDigestBodyFromTranscript returns undefined when too few genuine prompts", () => {

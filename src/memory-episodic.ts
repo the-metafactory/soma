@@ -165,8 +165,12 @@ export async function hasSessionDigest(options: { homeDir?: string; somaHome?: s
   return (await findExistingSessionDigestPath(somaHome, sessionSlug(options.sessionId))) !== undefined;
 }
 
-/** Build an episodic note (assistant trust, assistant-authored account). */
-function buildEpisodicNote(id: string, now: Date, body: string, hook?: string): SomaMemoryNote {
+/**
+ * Build an episodic note. `provenance` defaults to `conversation` (an assistant's own
+ * account); a machine-extracted digest passes a distinct `tool:<name>` provenance so
+ * recall's trust banner shows the body was NOT assistant-authored.
+ */
+function buildEpisodicNote(id: string, now: Date, body: string, hook?: string, provenance?: string): SomaMemoryNote {
   const today = isoDate(now);
   const note: SomaMemoryNote = {
     id,
@@ -174,7 +178,7 @@ function buildEpisodicNote(id: string, now: Date, body: string, hook?: string): 
     created: today,
     last_verified: today,
     valid_until: null,
-    provenance: "conversation",
+    provenance: provenance ?? "conversation",
     trust: "assistant",
     source_of_truth: null,
     project: null,
@@ -297,7 +301,7 @@ export async function writeSessionDigest(options: SomaMemoryDigestOptions): Prom
   }
 
   const path = episodicPath(somaHome, "sessions", now, id);
-  const note = buildEpisodicNote(id, now, options.body, options.hook);
+  const note = buildEpisodicNote(id, now, options.body, options.hook, options.provenance);
   try {
     const event = await writeEpisodicNoteWithEvent({
       somaHome,
