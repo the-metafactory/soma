@@ -816,10 +816,16 @@ export async function runMemoryCli(parsed: ParsedMemoryArgs): Promise<string> {
 
 function formatMemoryBackfillResult(result: SomaMemoryBackfillResult): string {
   if (result.dryRun) {
+    const wouldImport = result.entries.filter((e) => e.status === undefined);
+    const alreadyImported = result.entries.filter((e) => e.status === "skipped-manifest");
+    const errored = result.entries.filter((e) => e.status === "error");
+    const skipSummary = alreadyImported.length > 0 ? `, skip ${alreadyImported.length} already imported` : "";
     const lines = [
       `Soma memory backfill (dry-run — nothing changed) from ${result.from}`,
-      `would import ${result.entries.length} file(s):`,
-      ...result.entries.map((e) => `  ${e.relativePath} → ${e.type}/${e.noteId}.md (created ${e.created})`),
+      `would import ${wouldImport.length} file(s)${skipSummary}:`,
+      ...wouldImport.map((e) => `  ${e.relativePath} → ${e.type}/${e.noteId}.md (created ${e.created})`),
+      ...alreadyImported.map((e) => `  [skip] ${e.relativePath} → ${e.type}/${e.noteId}.md (already imported)`),
+      ...errored.map((e) => `  [error] ${e.relativePath}: ${e.detail ?? ""}`),
     ];
     if (result.entries.length === 0) lines.push("  (no eligible source files found)");
     return lines.join("\n");

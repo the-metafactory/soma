@@ -303,52 +303,26 @@ async function readManifest(
 }
 
 /**
- * Plan the backfill without touching anything: which source files map to which
- * note id/type/target. Duplicate detection is NOT part of the plan — it needs a
- * corpus scan at write time, so a real run may additionally skip near-duplicates.
+ * Plan the backfill without touching anything — a thin wrapper over the single
+ * manifest-aware core in {@link runMemoryBackfill}, so the preview reflects
+ * exactly what a real run would do (manifest hits show as `skipped-manifest`, not
+ * as fresh imports). Near-duplicate detection is still NOT part of the plan — it
+ * needs the corpus scan the write path performs, so a real run may additionally
+ * skip some `would-import` files as duplicates.
  */
 export async function planMemoryBackfill(
   options: SomaMemoryBackfillOptions = {},
 ): Promise<SomaMemoryBackfillResult> {
-  const somaHome = resolveSomaHome(options);
-  const defaultRoot = resolve(join(somaHome, "memory"));
-  const from = resolve(options.from ?? defaultRoot);
-  const sources = await collectSources(from, from === defaultRoot);
-
-  const used = new Set<string>();
-  const entries: SomaMemoryBackfillEntry[] = [];
-  for (const src of sources) {
-    const type = resolveType(options, src.category);
-    const id = await uniqueNoteId(somaHome, slugifyId(src.category, src.stem), used);
-    used.add(id);
-    entries.push({
-      relativePath: src.relativePath,
-      source: src.absPath,
-      noteId: id,
-      type,
-      created: isoDate(new Date(src.mtimeMs)),
-      target: memoryNotePath(somaHome, type, id),
-    });
-  }
-
-  return {
-    somaHome,
-    from,
-    dryRun: true,
-    writtenCount: 0,
-    skippedManifestCount: 0,
-    skippedDuplicateCount: 0,
-    errorCount: 0,
-    manifestPath: join(somaHome, MANIFEST_RELATIVE),
-    entries,
-  };
+  return runMemoryBackfill({ ...options, dryRun: true });
 }
 
 /**
- * Run the backfill. Writes each eligible source file as a `quarantined` note via
- * the M1 write path, sequentially so intra-batch dedup is deterministic. Returns
- * a per-file account; `--dry-run` returns the plan without writing or touching
- * the manifest.
+ * The single backfill core. Reads the (root-gated) manifest, then per source:
+ * re-emits a `skipped-manifest` entry for an unchanged prior import, else writes
+ * the file as a `quarantined` note via the M1 write path — sequentially, so
+ * intra-batch dedup is deterministic. With `dryRun`, every step runs EXCEPT the
+ * note write, manifest write, and INDEX rebuild: would-import entries carry no
+ * status (a plan), manifest hits still show as `skipped-manifest`.
  */
 export async function runMemoryBackfill(
   options: SomaMemoryBackfillOptions = {},
@@ -357,10 +331,7 @@ export async function runMemoryBackfill(
   const defaultRoot = resolve(join(somaHome, "memory"));
   const from = resolve(options.from ?? defaultRoot);
   const manifestPath = join(somaHome, MANIFEST_RELATIVE);
-
-  if (options.dryRun) {
-    return planMemoryBackfill(options);
-  }
+  const dryRun = options.dryRun ?? false;
 
   const sources = await collectSources(from, from === defaultRoot);
   // The manifest lives at one path per soma-home but its relative paths are keyed
@@ -422,8 +393,15 @@ export async function runMemoryBackfill(
       id = await uniqueNoteId(somaHome, slugifyId(src.category, src.stem), used);
       used.add(id);
       const target = memoryNotePath(somaHome, type, id);
-      const hook = hookFromStem(src.stem);
 
+      if (dryRun) {
+        // A plan entry (no status) — a real run would write this, unless the
+        // corpus scan (only done at write time) reveals it as a near-duplicate.
+        entries.push({ relativePath: src.relativePath, source: src.absPath, noteId: id, type, created, target });
+        continue;
+      }
+
+      const hook = hookFromStem(src.stem);
       await writeMemoryNote({
         somaHome,
         substrate: options.substrate,
@@ -475,35 +453,38 @@ export async function runMemoryBackfill(
     }
   }
 
-  // Manifest reflects exactly the files currently backfilled to a present note
-  // (written this run + previously-written-and-still-present). Vanished sources
-  // drop out; duplicates are excluded (they map to a note this run did not own).
-  await mkdir(join(somaHome, MANIFEST_DIR_RELATIVE), { recursive: true });
-  const importedAt =
-    writtenCount === 0 && previous ? previous.importedAt : (options.now ?? new Date()).toISOString();
-  const manifest: SomaMemoryBackfillManifest = {
-    schema: MANIFEST_SCHEMA,
-    somaHome,
-    from,
-    importedAt,
-    files: manifestFiles.sort((a, b) =>
-      a.relativePath < b.relativePath ? -1 : a.relativePath > b.relativePath ? 1 : 0,
-    ),
-  };
-  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  // A dry-run previews only — it never touches the manifest or the INDEX.
+  if (!dryRun) {
+    // Manifest reflects exactly the files currently backfilled to a present note
+    // (written this run + previously-written-and-still-present). Vanished sources
+    // drop out; duplicates are excluded (they map to a note this run did not own).
+    await mkdir(join(somaHome, MANIFEST_DIR_RELATIVE), { recursive: true });
+    const importedAt =
+      writtenCount === 0 && previous ? previous.importedAt : (options.now ?? new Date()).toISOString();
+    const manifest: SomaMemoryBackfillManifest = {
+      schema: MANIFEST_SCHEMA,
+      somaHome,
+      from,
+      importedAt,
+      files: manifestFiles.sort((a, b) =>
+        a.relativePath < b.relativePath ? -1 : a.relativePath > b.relativePath ? 1 : 0,
+      ),
+    };
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
 
-  // Rebuild the INDEX after writing notes so the store stays audit-clean: fresh
-  // note files are newer than INDEX.md, which would fail the audit's index-freshness
-  // probe until a rebuild. Quarantined imports never earn an INDEX line (admission
-  // filter), so this refreshes INDEX.md's mtime without surfacing untrusted content.
-  if (writtenCount > 0) {
-    await rebuildMemoryIndex({ somaHome });
+    // Rebuild the INDEX after writing notes so the store stays audit-clean: fresh
+    // note files are newer than INDEX.md, which would fail the audit's index-freshness
+    // probe until a rebuild. Quarantined imports never earn an INDEX line (admission
+    // filter), so this refreshes INDEX.md's mtime without surfacing untrusted content.
+    if (writtenCount > 0) {
+      await rebuildMemoryIndex({ somaHome });
+    }
   }
 
   return {
     somaHome,
     from,
-    dryRun: false,
+    dryRun,
     writtenCount,
     skippedManifestCount,
     skippedDuplicateCount,

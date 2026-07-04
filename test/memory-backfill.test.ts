@@ -271,6 +271,24 @@ test("--dry-run plans without writing or touching the manifest", async () => {
   });
 });
 
+test("--dry-run is manifest-aware: already-imported files show as skipped, not fresh imports", async () => {
+  await withTempSoma(async (somaHome) => {
+    await seed(somaHome, "KNOWLEDGE/a.md", "already imported body one two three");
+    await runMemoryBackfill({ somaHome });
+
+    // Now add a new file and dry-run: the prior file must show as a manifest skip
+    // (keeping its original id), only the new file as a would-import.
+    await seed(somaHome, "KNOWLEDGE/b.md", "a brand new body four five six");
+    const plan = await runMemoryBackfill({ somaHome, dryRun: true });
+    const byRel = new Map(plan.entries.map((e) => [e.relativePath, e]));
+    expect(byRel.get("KNOWLEDGE/a.md")?.status).toBe("skipped-manifest");
+    expect(byRel.get("KNOWLEDGE/a.md")?.noteId).toBe("knowledge-a");
+    expect(byRel.get("KNOWLEDGE/b.md")?.status).toBeUndefined(); // would import
+    expect(plan.skippedManifestCount).toBe(1);
+    expect(plan.writtenCount).toBe(0);
+  });
+});
+
 test("planMemoryBackfill matches the dry-run plan shape", async () => {
   await withTempSoma(async (somaHome) => {
     await seed(somaHome, "LEARNING/y.md", "plan shape body content");

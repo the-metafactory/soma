@@ -2496,8 +2496,9 @@ export interface SomaMemoryVerifyResult {
 // Deterministic, no LLM: bodies are imported verbatim (no wrapper/preamble),
 // `created` comes from the source mtime, and every note lands at `quarantined` trust via the `import`
 // trigger (MINJA defense — bulk-imported content is never trusted incidentally;
-// the principal elevates it later via verify/supersede). The top-level category
-// dir is mapped to a note type by {@link SOMA_MEMORY_BACKFILL_TYPE_MAP}; `--type`
+// the principal re-authors it later at higher trust via principal-correction/
+// supersede — verify alone does not elevate a quarantined note). The top-level
+// category dir is mapped to a note type by {@link SOMA_MEMORY_BACKFILL_TYPE_MAP}; `--type`
 // forces a single type for all files. Idempotent via a SHA manifest at
 // `memory/STATE/imports/backfill/.manifest.json` (mirrors pai-memory-migrator).
 
