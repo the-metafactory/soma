@@ -2520,11 +2520,12 @@ export interface SomaMemoryDigestOptions {
   body: string;
   /**
    * Optional lifecycle-event label (e.g. `session-end`) recorded into the note's M0
-   * `hook:` frontmatter field. Marks a digest as lifecycle-triggered rather than
-   * assistant-authored (absent ⇒ assistant-authored). The VALUE is an opaque string
-   * the adapter supplies; the field carries lifecycle-event semantics (not
-   * SUBSTRATE-specific hook names), so core stays substrate-neutral without being
-   * semantics-free.
+   * `hook:` frontmatter field, marking the digest as lifecycle-triggered. Its ABSENCE
+   * means only "not lifecycle-triggered" — it does NOT by itself prove assistant
+   * authorship; `provenance` is the independent source signal (e.g. a `tool:<name>`
+   * digest is machine-authored with no lifecycleEvent). Read both. The VALUE is an
+   * opaque adapter-supplied string carrying lifecycle-event (not substrate-hook)
+   * semantics, so core stays substrate-neutral without being semantics-free.
    */
   lifecycleEvent?: string;
   /**

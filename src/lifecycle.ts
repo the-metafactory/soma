@@ -778,7 +778,9 @@ export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions =
   // substrate-neutral. The transcript FORMAT is substrate-specific, so core does not
   // import any adapter; instead a substrate REGISTERS a handler (see
   // registerSessionEndTranscriptHandler) which core looks up by substrate here.
-  // Best-effort: never blocks session end.
+  // Best-effort: a thrown handler failure is swallowed so it never FAILS session end —
+  // but the handler IS awaited, so its transcript read/parse/write latency is on the
+  // session-end path (the dedup-before-read keeps the common no-op path cheap).
   let digestNote = "";
   let digestPath: string | undefined;
   const transcriptHandler = sessionEndTranscriptHandlers.get(substrate(options));
