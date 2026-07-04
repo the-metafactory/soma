@@ -52,10 +52,13 @@ in the source dir).
 
 **Skipped, never imported:** reserved dirs `STATE`, `episodic`, `semantic`,
 `procedural`, `archive`, `imports`; any `README.md` (case-insensitive);
-non-markdown files; symlinks anywhere (loud refusal, matching the migrator's
-stance). Files sitting directly under the root are skipped **only for the
-default `<somaHome>/memory` root** (README/`INDEX.md` territory); a custom
-`--from <dir>` imports its top-level markdown (category `""` → semantic).
+non-markdown files. **Symlink handling** (not a whole-run guarantee): the source
+root and every entry the walk returns are lstat-refused if a symlink; the leaf
+read then uses `O_NOFOLLOW` and re-checks the opened file's `dev`+`ino` against
+the scan, so a leaf- or ancestor-swap between scan and read is refused at read
+time. Files sitting directly under the root are skipped **only for the default
+`<somaHome>/memory` root** (README/`INDEX.md` territory); a custom `--from <dir>`
+imports its top-level markdown (category `""` → semantic).
 
 ### Per-file note synthesis (deterministic)
 
@@ -77,7 +80,7 @@ For each eligible source file at relative path `rel`:
 
 ### Result / reporting
 
-`runMemoryBackfill` returns `{ somaHome, from, dryRun, writtenCount, skippedManifestCount, skippedDuplicateCount, errorCount, manifestPath, entries }` (each `entries[]` item carries `relativePath`, `noteId`, `type`, `created`, `target`, and a per-file `status`); CLI prints a summary table. `--dry-run` prints the plan without writing or touching the manifest.
+`runMemoryBackfill` returns `{ somaHome, from, dryRun, writtenCount, skippedManifestCount, skippedDuplicateCount, errorCount, manifestPath, entries }` (each `entries[]` item carries `relativePath`, `noteId`, `type`, `created`, `target`, and a per-file `status`); CLI prints a summary table. `--dry-run` previews without writing or touching the manifest/INDEX — it is manifest-aware (already-imported files show as `skipped-manifest`) but does **not** run the corpus scan, so a would-import entry may still turn into a `skipped-duplicate` at a real run.
 
 ## Files to create / modify
 
