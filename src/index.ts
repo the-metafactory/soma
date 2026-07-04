@@ -468,7 +468,12 @@ export { recallMemory } from "./memory-recall";
 // storage path are not frozen as stable API — episodic joins at M5); internal soma
 // modules and tests import them from "./memory-index" directly.
 export { rebuildMemoryIndex } from "./memory-index";
-export { writeSessionDigest, writeMemoryAction } from "./memory-episodic";
+export { writeSessionDigest, writeMemoryAction, hasSessionDigest } from "./memory-episodic";
+// The Claude Code SessionEnd transcript fallback (extractDigestBodyFromTranscript /
+// writeSessionDigestFromTranscript / ClaudeSessionDigest*) is adapter-specific and is
+// NOT re-exported from the package root — the CLI and tests import it directly from
+// `./adapters/claude-code/session-digest`, keeping the root substrate-neutral
+// (docs/architecture.md#Core; sage m5b r2).
 export { consolidateMemory } from "./memory-consolidate";
 export { auditMemory } from "./memory-audit";
 export { createSomaSnapshot, listSomaSnapshots, rollbackSomaSnapshot } from "./snapshots";

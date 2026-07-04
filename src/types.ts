@@ -2259,6 +2259,15 @@ export interface SomaLifecycleOptions {
   cwd?: string;
   /** Git branch of `cwd`, when known. Detected from `cwd` when omitted. */
   gitBranch?: string;
+  /**
+   * On `session-end`: path to the substrate session transcript. When set (and the
+   * substrate has a transcript adapter, e.g. claude-code), the handler attempts the
+   * deterministic digest FALLBACK. Substrate-owned — core does not parse it.
+   */
+  transcriptPath?: string;
+  /** Claude Code sub-agent markers from the hook payload (suppress the fallback per ADR 0014). */
+  subagentId?: string;
+  subagentType?: string;
 }
 
 export interface SomaStartupContext {
@@ -2509,7 +2518,29 @@ export interface SomaMemoryDigestOptions {
   sessionId: string;
   /** The digest text: 8–15 non-empty lines of what happened / changed / open loops. */
   body: string;
+  /**
+   * Optional lifecycle-event label (e.g. `session-end`) recorded into the note's M0
+   * `hook:` frontmatter field, marking the digest as lifecycle-triggered. Its ABSENCE
+   * means only "not lifecycle-triggered" — it does NOT by itself prove assistant
+   * authorship; `provenance` is the independent source signal (e.g. a `tool:<name>`
+   * digest is machine-authored with no lifecycleEvent). Read both. The VALUE is an
+   * opaque adapter-supplied string carrying lifecycle-event (not substrate-hook)
+   * semantics, so core stays substrate-neutral without being semantics-free.
+   */
+  lifecycleEvent?: string;
+  /**
+   * Optional provenance override (`conversation` | `consolidation` | `import` |
+   * `tool:<name>`). Defaults to `conversation`. A machine-extracted fallback passes a
+   * `tool:<name>` value so recall surfaces that the body was not assistant-authored.
+   * Rejected if outside this grammar.
+   */
+  provenance?: string;
 }
+
+// The Claude Code SessionEnd transcript-fallback types (ClaudeSessionDigestOptions/
+// Result) are adapter-owned — see src/adapters/claude-code/session-digest.ts. Core
+// stays substrate-neutral: it exposes only `writeSessionDigest` (ready body + hook
+// marker) and `hasSessionDigest`; the Claude JSONL format never enters core.
 
 export interface SomaMemoryDigestResult {
   somaHome: string;

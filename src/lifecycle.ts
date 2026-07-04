@@ -706,6 +706,31 @@ function normalizeLifecycleArtifactPaths(somaHome: string, artifactPaths: string
   return Object.values(normalizeSomaWorkRegistryArtifacts({ somaHome }, artifacts));
 }
 
+/**
+ * A substrate-registered SessionEnd transcript-digest handler. Dependency INVERSION:
+ * core lifecycle owns this neutral hook point; a substrate adapter (e.g. claude-code)
+ * registers its transcript→digest fallback, so core never imports an adapter. The
+ * transcript FORMAT stays entirely inside the adapter.
+ */
+export type SessionEndTranscriptHandler = (input: {
+  somaHome: string;
+  now: Date;
+  substrate: SubstrateId;
+  sessionId: string;
+  transcriptPath: string;
+  subagentId?: string;
+  subagentType?: string;
+  forcePrimary?: boolean;
+  forceSubagent?: boolean;
+}) => Promise<{ outcome: string; path?: string }>;
+
+const sessionEndTranscriptHandlers = new Map<SubstrateId, SessionEndTranscriptHandler>();
+
+/** Register a substrate's SessionEnd transcript-digest fallback (see the type doc). */
+export function registerSessionEndTranscriptHandler(substrate: SubstrateId, handler: SessionEndTranscriptHandler): void {
+  sessionEndTranscriptHandlers.set(substrate, handler);
+}
+
 export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions = {}): Promise<SomaLifecycleResult> {
   const somaHome = resolveSomaHome(options);
   const timestamp = options.timestamp ?? new Date().toISOString();
@@ -749,10 +774,40 @@ export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions =
     }
   }
 
+  // M5b deterministic digest FALLBACK — dependency-INVERTED so core stays
+  // substrate-neutral. The transcript FORMAT is substrate-specific, so core does not
+  // import any adapter; instead a substrate REGISTERS a handler (see
+  // registerSessionEndTranscriptHandler) which core looks up by substrate here.
+  // Best-effort: a thrown handler failure is swallowed so it never FAILS session end —
+  // but the handler IS awaited, so its transcript read/parse/write latency is on the
+  // session-end path (the dedup-before-read keeps the common no-op path cheap).
+  let digestNote = "";
+  let digestPath: string | undefined;
+  const transcriptHandler = sessionEndTranscriptHandlers.get(substrate(options));
+  if (options.transcriptPath && options.sessionId && transcriptHandler) {
+    try {
+      const fallback = await transcriptHandler({
+        somaHome,
+        now: new Date(timestamp),
+        substrate: substrate(options),
+        sessionId: options.sessionId,
+        transcriptPath: options.transcriptPath,
+        subagentId: options.subagentId,
+        subagentType: options.subagentType,
+        forcePrimary: process.env.SOMA_MEMORY_FORCE_PRIMARY === "1",
+        forceSubagent: process.env.SOMA_MEMORY_FORCE_SUBAGENT === "1",
+      });
+      digestNote = ` | digest: ${fallback.outcome}`;
+      digestPath = fallback.path; // so lifecycle reports the written digest file below
+    } catch {
+      // A fallback failure must never block session end.
+    }
+  }
+
   await appendSomaMemoryEvent(somaHome, {
     substrate: substrate(options),
     kind: "lifecycle.session_end",
-    summary: `Session ended; captured ${learningFiles.length} Algorithm learning artifact(s).${tierGateNote}`,
+    summary: `Session ended; captured ${learningFiles.length} Algorithm learning artifact(s).${tierGateNote}${digestNote}`,
     timestamp,
     artifactPaths: normalizeLifecycleArtifactPaths(somaHome, [index.path, index.activePath, ...learningFiles, ...registryFiles]),
     metadata: {
@@ -762,6 +817,7 @@ export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions =
   });
 
   const files = [index.path, index.activePath, ...learningFiles, ...registryFiles, join(somaHome, "memory/STATE/events.jsonl")];
+  if (digestPath) files.push(digestPath); // the SessionEnd fallback digest, when written
   return {
     event: "session_end",
     somaHome,

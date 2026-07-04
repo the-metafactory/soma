@@ -40,6 +40,9 @@ Rules:
 
 ## Session digest
 
+At session WRAP-UP, self-author the digest — this is the primary, high-quality path
+(a real "what happened / what changed / open loops" summary at `trust: assistant`):
+
 ```
 soma memory digest --session <session-id> --body "<8–15 non-empty lines>"
 ```
@@ -47,6 +50,14 @@ soma memory digest --session <session-id> --body "<8–15 non-empty lines>"
 - Exactly ONE digest per session. A second call for the same session no-ops
   (and logs an event) — it never overwrites the first.
 - The body must be 8–15 non-empty lines; anything outside that is rejected.
+- **Do this before the session ends.** If you don't, the SessionEnd hook attempts a
+  DETERMINISTIC fallback digest (`--transcript`, marked `hook: session-end`) — legible
+  but mechanical, not a real summary. Prefer self-authoring for a genuine summary; the
+  fallback is only a BEST-EFFORT floor — it writes nothing if the transcript is unreadable,
+  too thin, or refused (path outside the allowed root), and nothing for a MARKED sub-agent
+  session (ADR 0014; an unmarked sub-agent is not detected), so it is not a guarantee. Its
+  outcome is recorded on the `lifecycle.session_end` event (`digest: <outcome>`) — not
+  silent. The fallback is a hook concern — you invoke `--body`, never `--transcript`.
 
 ## Action log
 

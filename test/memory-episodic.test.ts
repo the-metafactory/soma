@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
@@ -8,7 +8,35 @@ import {
   writeMemoryAction,
   writeSessionDigest,
 } from "../src/index";
+import {
+  extractDigestBodyFromTranscript,
+  writeSessionDigestFromTranscript,
+} from "../src/adapters/claude-code/session-digest";
 import { parseMemoryArgs, runMemoryCli } from "../src/cli/memory";
+
+/** Build a JSONL transcript from a list of {user}/{assistant tool} lines. */
+function transcript(lines: object[]): string {
+  return lines.map((l) => JSON.stringify(l)).join("\n") + "\n";
+}
+function userLine(content: unknown, extra: object = {}): object {
+  return { type: "user", message: { role: "user", content }, ...extra };
+}
+function assistantTool(name: string): object {
+  return { type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", name }] } };
+}
+const SEVEN_PROMPTS = transcript([
+  userLine("add a login endpoint"),
+  assistantTool("Edit"),
+  userLine("<command-name>/clear</command-name>"), // noise — filtered
+  userLine([{ type: "tool_result", content: "x" }]), // tool result — filtered
+  userLine("now add tests"),
+  userLine("fix the bug", { isSidechain: true }), // sub-agent line — skipped
+  userLine("handle the null case"),
+  assistantTool("Bash"),
+  userLine("run the linter"),
+  userLine("commit and push"),
+  userLine("update the changelog"),
+]);
 
 const NOW = new Date("2026-07-04T10:00:00.000Z");
 const SESSION = "0afea4e4-967d-4a38-a855-0d12ac63c2f3";
@@ -210,4 +238,169 @@ test("runMemoryCli action logs an entry", async () => {
     // the CLI uses the real clock, so assert on the date-independent slug
     expect(out).toMatch(/id: \d{8}-ship-it/);
   });
+});
+
+// --- SessionEnd deterministic fallback (M5b) ---------------------------------
+
+test("extractDigestBodyFromTranscript builds 8–15 lines from genuine prompts, filtering noise", () => {
+  const body = extractDigestBodyFromTranscript(SEVEN_PROMPTS);
+  expect(body).toBeDefined();
+  const lines = body!.split("\n");
+  expect(lines.length).toBeGreaterThanOrEqual(8);
+  expect(lines.length).toBeLessThanOrEqual(15);
+  expect(lines[0]).toContain("6 principal prompts"); // sidechain + command + tool_result excluded
+  // prompt text is quoted + labeled (REDUCES injection risk; not a bare instruction line)
+  expect(body).toContain(`- principal prompt: "add a login endpoint"`);
+  expect(body).toContain("- tools: "); // rollup line
+  expect(body).not.toContain("/clear"); // command noise filtered
+  expect(body).not.toContain("fix the bug"); // sidechain skipped
+});
+
+test("a fallback digest carries tool:claude-session-end provenance (not assistant conversation)", async () => {
+  await withTempSoma((somaHome) =>
+    withTranscriptFile(SEVEN_PROMPTS, async (tp) => {
+      const result = await writeSessionDigestFromTranscript({ somaHome, now: NOW, sessionId: SESSION, transcriptPath: tp });
+      expect(result.digest!.note.provenance).toBe("tool:claude-session-end");
+    }),
+  );
+});
+
+test("extractDigestBodyFromTranscript returns undefined when too few genuine prompts", () => {
+  const thin = transcript([userLine("only one real prompt"), assistantTool("Read")]);
+  expect(extractDigestBodyFromTranscript(thin)).toBeUndefined();
+});
+
+test("extractDigestBodyFromTranscript samples head+tail when there are many prompts", () => {
+  const many = transcript(Array.from({ length: 30 }, (_, i) => userLine(`prompt number ${i}`)));
+  const body = extractDigestBodyFromTranscript(many)!;
+  expect(body.split("\n").length).toBeLessThanOrEqual(15);
+  expect(body).toContain("more prompts");
+});
+
+/** Write `content` to a temp .jsonl file, point the transcript-root allowlist at the
+ *  temp dir (so path validation accepts the fixture), run `fn(path)`, then clean up. */
+async function withTranscriptFile<T>(content: string, fn: (transcriptPath: string) => Promise<T>): Promise<T> {
+  const dir = await mkdtemp(join(tmpdir(), "soma-tx-"));
+  const prev = process.env.SOMA_CLAUDE_TRANSCRIPT_ROOT;
+  try {
+    const tp = join(dir, "t.jsonl");
+    await writeFile(tp, content, "utf8");
+    process.env.SOMA_CLAUDE_TRANSCRIPT_ROOT = dir;
+    return await fn(tp);
+  } finally {
+    if (prev === undefined) delete process.env.SOMA_CLAUDE_TRANSCRIPT_ROOT;
+    else process.env.SOMA_CLAUDE_TRANSCRIPT_ROOT = prev;
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+test("writeSessionDigestFromTranscript writes a digest marked hook: session-end", async () => {
+  await withTempSoma((somaHome) =>
+    withTranscriptFile(SEVEN_PROMPTS, async (tp) => {
+      const result = await writeSessionDigestFromTranscript({ somaHome, now: NOW, sessionId: SESSION, transcriptPath: tp });
+      expect(result.outcome).toBe("written");
+      expect(result.digest!.note.hook).toBe("session-end");
+      const onDisk = parseMemoryNote(await readFile(result.digest!.path, "utf8"));
+      expect(onDisk.hook).toBe("session-end");
+    }),
+  );
+});
+
+test("a sub-agent invocation is suppressed and writes nothing (ADR 0014)", async () => {
+  await withTempSoma((somaHome) =>
+    withTranscriptFile(SEVEN_PROMPTS, async (tp) => {
+      const result = await writeSessionDigestFromTranscript({ somaHome, now: NOW, sessionId: SESSION, transcriptPath: tp, subagentId: "agt-1" });
+      expect(result.outcome).toBe("suppressed");
+      expect(result.digest).toBeUndefined();
+    }),
+  );
+});
+
+test("forceSubagent suppresses even when forcePrimary is also set (precedence)", async () => {
+  await withTempSoma((somaHome) =>
+    withTranscriptFile(SEVEN_PROMPTS, async (tp) => {
+      const result = await writeSessionDigestFromTranscript({ somaHome, now: NOW, sessionId: SESSION, transcriptPath: tp, forcePrimary: true, forceSubagent: true });
+      expect(result.outcome).toBe("suppressed");
+    }),
+  );
+});
+
+test("forcePrimary overrides sub-agent suppression", async () => {
+  await withTempSoma((somaHome) =>
+    withTranscriptFile(SEVEN_PROMPTS, async (tp) => {
+      const result = await writeSessionDigestFromTranscript({ somaHome, now: NOW, sessionId: SESSION, transcriptPath: tp, subagentId: "agt-1", forcePrimary: true });
+      expect(result.outcome).toBe("written");
+    }),
+  );
+});
+
+test("the fallback no-ops when an assistant-authored digest already exists", async () => {
+  await withTempSoma((somaHome) =>
+    withTranscriptFile(SEVEN_PROMPTS, async (tp) => {
+      await writeSessionDigest({ somaHome, now: NOW, sessionId: SESSION, body: DIGEST_BODY }); // assistant-authored, no hook:
+      const result = await writeSessionDigestFromTranscript({ somaHome, now: NOW, sessionId: SESSION, transcriptPath: tp });
+      expect(result.outcome).toBe("duplicate");
+    }),
+  );
+});
+
+test("a transcript path OUTSIDE the allowed root is REFUSED (not read)", async () => {
+  await withTempSoma(async (somaHome) => {
+    // Absolute .jsonl, but not under transcriptRoot → refused before any read.
+    const result = await writeSessionDigestFromTranscript({
+      somaHome, now: NOW, sessionId: SESSION, transcriptPath: "/etc/anything.jsonl", transcriptRoot: "/tmp/soma-allowed-root",
+    });
+    expect(result.outcome).toBe("refused");
+  });
+});
+
+test("a missing transcript INSIDE the allowed root reports 'unreadable' and never throws", async () => {
+  await withTempSoma(async (somaHome) => {
+    const dir = await mkdtemp(join(tmpdir(), "soma-tx-"));
+    try {
+      const result = await writeSessionDigestFromTranscript({
+        somaHome, now: NOW, sessionId: SESSION, transcriptPath: join(dir, "missing.jsonl"), transcriptRoot: dir,
+      });
+      expect(result.outcome).toBe("unreadable");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+test("the SPAWNED `soma lifecycle session-end` CLI writes the fallback for claude-code", async () => {
+  // Spawn the SOURCE CLI entrypoint (`bun run src/cli.ts`, not an installed binary) in
+  // a fresh process, so registration happens ONLY through the composition-layer
+  // side-effect import — NOT primed by this test file importing the adapter. This
+  // proves the source CLI path writes the fallback end to end.
+  await withTempSoma((somaHome) =>
+    withTranscriptFile(SEVEN_PROMPTS, async (tp) => {
+      const cli = join(import.meta.dirname, "..", "src", "cli.ts");
+      const proc = Bun.spawnSync(
+        ["bun", "run", cli, "lifecycle", "session-end", "--session-id", "spawned-x", "--transcript", tp, "--substrate", "claude-code", "--soma-home", somaHome],
+        // Pass the transcript-root allowlist explicitly (the fixture dir) so the child's
+        // path validation accepts the temp transcript.
+        { env: { ...process.env, SOMA_CLAUDE_TRANSCRIPT_ROOT: join(tp, "..") } },
+      );
+      expect(proc.exitCode).toBe(0);
+      // A digest marked as the machine-extracted fallback now exists (month-agnostic:
+      // the spawned CLI uses the real clock).
+      const base = join(somaHome, "memory/episodic/sessions");
+      const months = await readdir(base).catch(() => [] as string[]);
+      let body = "";
+      for (const month of months) {
+        const files = await readdir(join(base, month)).catch(() => [] as string[]);
+        const digest = files.find((f) => f.includes("spawned-x"));
+        if (digest) body = await readFile(join(base, month, digest), "utf8");
+      }
+      expect(body).toContain("hook: session-end");
+      expect(body).toContain("provenance: tool:claude-session-end");
+    }),
+  );
+});
+
+test("the neutral `soma memory digest` is body-only — it rejects the Claude --transcript flag", () => {
+  // The transcript FALLBACK is a Claude Code adapter concern routed through
+  // `soma lifecycle session-end`, NOT the substrate-neutral memory command.
+  expect(() => parseMemoryArgs(["memory", "digest", "--session", "s", "--transcript", "/t.jsonl"])).toThrow(/Unknown option/);
 });

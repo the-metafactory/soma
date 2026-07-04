@@ -154,16 +154,44 @@ async function findExistingSessionDigestPath(somaHome: string, slug: string): Pr
   return undefined;
 }
 
-/** Build an episodic note (assistant trust, assistant-authored account). */
-function buildEpisodicNote(id: string, now: Date, body: string): SomaMemoryNote {
+/**
+ * Cheap, substrate-neutral check: does a session already have a digest? Reuses the
+ * date-independent one-per-session scan. Lets a caller (e.g. a SessionEnd fallback)
+ * skip expensive body preparation when an assistant-authored digest already exists.
+ */
+export async function hasSessionDigest(options: { homeDir?: string; somaHome?: string; sessionId: string }): Promise<boolean> {
+  const somaHome = createPaths(options).root();
+  assertNonEmpty(options.sessionId, "sessionId");
+  return (await findExistingSessionDigestPath(somaHome, sessionSlug(options.sessionId))) !== undefined;
+}
+
+/**
+ * Build an episodic note. `provenance` defaults to `conversation` (an assistant's own
+ * account); a machine-extracted digest passes a distinct `tool:<name>` provenance so
+ * recall's trust banner shows the body was NOT assistant-authored.
+ */
+// Provenance grammar (mirrors the M0 note schema): a closed set plus the open
+// `tool:<name>` family. Validated HERE so a caller-supplied override can't persist a
+// forged/malformed provenance into trusted recall metadata.
+const PROVENANCE_LITERALS = new Set(["conversation", "consolidation", "import"]);
+const TOOL_PROVENANCE = /^tool:[a-z0-9][a-z0-9._-]{0,63}$/i;
+
+function assertProvenance(provenance: string): void {
+  if (!PROVENANCE_LITERALS.has(provenance) && !TOOL_PROVENANCE.test(provenance)) {
+    throw new MemoryNoteError(`provenance "${provenance}" must be conversation, consolidation, import, or tool:<name>.`, "provenance");
+  }
+}
+
+function buildEpisodicNote(id: string, now: Date, body: string, hook?: string, provenance?: string): SomaMemoryNote {
+  if (provenance !== undefined) assertProvenance(provenance);
   const today = isoDate(now);
-  return {
+  const note: SomaMemoryNote = {
     id,
     type: "episodic",
     created: today,
     last_verified: today,
     valid_until: null,
-    provenance: "conversation",
+    provenance: provenance ?? "conversation",
     trust: "assistant",
     source_of_truth: null,
     project: null,
@@ -171,6 +199,8 @@ function buildEpisodicNote(id: string, now: Date, body: string): SomaMemoryNote 
     resurface_count: 0,
     body: body.trim(),
   };
+  if (hook !== undefined && hook.trim().length > 0) note.hook = hook.trim();
+  return note;
 }
 
 interface EpisodicWrite {
@@ -284,7 +314,7 @@ export async function writeSessionDigest(options: SomaMemoryDigestOptions): Prom
   }
 
   const path = episodicPath(somaHome, "sessions", now, id);
-  const note = buildEpisodicNote(id, now, options.body);
+  const note = buildEpisodicNote(id, now, options.body, options.lifecycleEvent, options.provenance);
   try {
     const event = await writeEpisodicNoteWithEvent({
       somaHome,

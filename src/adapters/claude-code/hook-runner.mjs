@@ -84,6 +84,19 @@ function lifecycle(config, event, input) {
   if (id) args.push("--session-id", id);
   const cwd = typeof input.cwd === "string" && input.cwd.trim().length > 0 ? input.cwd : undefined;
   if (cwd) args.push("--cwd", cwd);
+  // M5b: on SessionEnd, forward the transcript path + sub-agent markers so the
+  // lifecycle handler can attempt the deterministic digest FALLBACK (dispatched to the
+  // Claude Code transcript adapter — `soma memory digest` itself stays neutral/body-only).
+  // Assistant-authored digests come from the wrap-up rule, not here.
+  if (event === "session-end") {
+    const transcriptPath =
+      typeof input.transcript_path === "string" && input.transcript_path.trim().length > 0 ? input.transcript_path : undefined;
+    if (transcriptPath) args.push("--transcript", transcriptPath);
+    // Claude Code's payload keys are `agent_id`/`agent_type`; Soma's flags are the
+    // qualified `--subagent-*` (bare `agent` is banned in Soma surfaces).
+    if (typeof input.agent_id === "string" && input.agent_id.trim().length > 0) args.push("--subagent-id", input.agent_id);
+    if (typeof input.agent_type === "string" && input.agent_type.trim().length > 0) args.push("--subagent-type", input.agent_type);
+  }
   runSomaDetached(config, args);
 }
 

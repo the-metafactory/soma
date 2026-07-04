@@ -7,6 +7,10 @@ import {
 import type { SomaLifecycleOptions, SomaLifecycleResult } from "../types";
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
+// Composition layer: importing the Claude Code adapter registers its SessionEnd
+// transcript-digest handler with core lifecycle (dependency inversion — core never
+// imports the adapter). Side-effect import; the symbol itself is not used here.
+import "../adapters/claude-code/session-digest";
 
 export interface ParsedLifecycleArgs {
   command: "lifecycle";
@@ -62,6 +66,18 @@ export function parseLifecycleArgs(args: string[]): ParsedLifecycleArgs {
         break;
       case "--git-branch":
         options.gitBranch = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--transcript":
+        options.transcriptPath = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--subagent-id":
+        options.subagentId = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--subagent-type":
+        options.subagentType = readOption(rest, index, arg);
         index += 1;
         break;
       default:

@@ -151,7 +151,8 @@ export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAct
       "ages are computed against the current date, so 'verified Nd ago' advances day to day. Quarantined notes never appear.",
     digest:
       "Usage: soma memory digest --session <id> --body <text> [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]. " +
-      "Write the ONE session digest (8–15 non-empty lines). A second digest for the same session no-ops with an event.",
+      "Write the ONE assistant-authored session digest (8–15 non-empty lines). A second digest for the same session no-ops with an event. " +
+      "(The deterministic SessionEnd fallback is a Claude Code adapter concern — see `soma lifecycle session-end`.)",
     action:
       "Usage: soma memory action --slug <slug> --planned-action <text> --approval <proposed|approved|rejected|auto> " +
       "[--outcome <text>] [--session <id>] [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]. " +
