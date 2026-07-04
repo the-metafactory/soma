@@ -150,9 +150,12 @@ existing ones. A mutating pass appends one `memory.consolidate` event as its FIN
 step — a post-hoc RECORD, NOT rollback-coupled. The pass is idempotent and safe to
 repeat, so the guarantee is repeatability, not atomicity: if the pass throws
 part-way, OR the event append itself fails, mutations may already be applied WITHOUT
-the event — so an absent event does NOT prove no mutation happened; a re-run
-reconciles, and a memory audit (M7, forthcoming — not yet built) is the intended
-ground-truth check. A no-op pass writes no event. The write/event coupling is best-effort, not
+the event — so an absent event does NOT prove no mutation happened. A re-run
+reconciles the STATE (it re-does nothing already done — idempotent), but it does NOT
+back-fill the missing journal record: a subsequent no-op run writes no event, so the
+gap persists. A memory audit (M7, forthcoming — not yet built) that reads the files
+directly, not the event stream, is the intended ground-truth check. A no-op pass
+writes no event. The write/event coupling is best-effort, not
 crash-atomic: an event-append *failure* rolls the file mutation back, but a hard
 process crash in the window between the two can still orphan a file from its
 event (a documented gap reconciled by the M7 audit; soma has no WAL/2PC). This

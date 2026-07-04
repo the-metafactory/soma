@@ -284,9 +284,12 @@ function planSimilarPairs(notes: { note: SomaMemoryNote }[]): SomaMemorySimilarP
 
   const compare = (l: SomaMemorySimilarPair, r: SomaMemorySimilarPair) =>
     r.score - l.score || l.a.localeCompare(r.a) || l.b.localeCompare(r.b);
-  // Bounded collection: a heavily-duplicated corpus could match n(n-1)/2 pairs, so
-  // the working array is periodically sorted-and-truncated to the cap — memory stays
-  // O(cap), not O(n²), while the final result is the deterministic top-N by score.
+  // Bounded collection that still yields the exact deterministic top-N. The working
+  // array is sorted-and-truncated to the cap whenever it grows to 4×, so memory stays
+  // O(cap), not O(n²). This CANNOT drop a true top-N pair: a pair is only removed by a
+  // truncation, which happens right after a sort — so a pair is dropped only if ≥cap
+  // OTHER real pairs currently outrank it, which means it was never in the true
+  // top-N. Every surviving pair meets the final sort, so the result is the true top-N.
   const pairs: SomaMemorySimilarPair[] = [];
   const flushAt = MAX_SIMILAR_PAIRS * 4;
   for (let i = 0; i < active.length; i += 1) {
@@ -389,8 +392,10 @@ function listArchivedMonthNotes(paths: SomaPaths, kind: "sessions" | "actions", 
  */
 async function applyEpisodicArchive(paths: SomaPaths, episodic: EpisodicArchive[]): Promise<string[]> {
   const months = new Set<string>();
-  // Destinations were all preflighted in the plan phase (both dry-run and real),
-  // so no per-note refusal can leave an earlier note already moved.
+  // Destinations were all preflighted in the plan phase, so no per-note REFUSAL
+  // (unsafe/colliding target) can abort mid-loop and strand earlier moves. This is
+  // not crash-atomic, though: a raw filesystem I/O failure during a later mkdir/rename
+  // can still leave the archive partially applied — a re-run reconciles (idempotent).
   for (const e of episodic.slice().sort((a, b) => a.note.id.localeCompare(b.note.id))) {
     await mkdir(dirname(e.to), { recursive: true });
     await rename(e.from, e.to);

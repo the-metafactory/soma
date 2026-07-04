@@ -2578,7 +2578,7 @@ export interface SomaMemoryArchivePlan {
 
 /**
  * A pair of notes with high LEXICAL similarity (Jaccard token overlap), surfaced
- * for human review — a CANDIDATE contradiction/duplicate, not a proven semantic
+ * for principal review — a CANDIDATE duplicate/contradiction, not a proven semantic
  * one. `score` is the token-overlap ratio; consolidation never auto-merges.
  */
 export interface SomaMemorySimilarPair {
