@@ -190,6 +190,25 @@ test("near-duplicate bodies are skipped as duplicates, not errors (sequential in
   });
 });
 
+test("a manifest built for a different --from root is not treated as a hit", async () => {
+  await withTempSoma(async (somaHome) => {
+    const dirA = join(somaHome, "a");
+    const dirB = join(somaHome, "b");
+    await mkdir(dirA, { recursive: true });
+    await mkdir(dirB, { recursive: true });
+    await writeFile(join(dirA, "note.md"), "body from root A one two three", "utf8");
+    await writeFile(join(dirB, "note.md"), "distinct body from root B four five six", "utf8");
+
+    const first = await runMemoryBackfill({ somaHome, from: dirA });
+    expect(first.writtenCount).toBe(1);
+
+    // Same relative path ("note.md") but a different root — must NOT skip-manifest.
+    const second = await runMemoryBackfill({ somaHome, from: dirB });
+    expect(second.skippedManifestCount).toBe(0);
+    expect(second.writtenCount).toBe(1);
+  });
+});
+
 test("--dry-run plans without writing or touching the manifest", async () => {
   await withTempSoma(async (somaHome) => {
     await seed(somaHome, "KNOWLEDGE/x.md", "dry run body content here");

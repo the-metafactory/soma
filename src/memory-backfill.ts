@@ -26,7 +26,7 @@
  *     the batch deterministically (a later near-duplicate sees earlier writes).
  *
  * Idempotency mirrors `pai-memory-migrator.ts`: a SHA manifest at
- * `imports/backfill/.manifest.json` lets a rerun skip already-imported files
+ * `memory/STATE/imports/backfill/.manifest.json` lets a rerun skip already-imported files
  * whose source bytes are unchanged and whose target note still exists. A no-op
  * rerun (nothing new written) re-emits each prior manifest entry verbatim and
  * preserves `importedAt`, so the manifest is byte-identical — even if a source
@@ -88,10 +88,13 @@ function isoDate(date: Date): string {
  * Read a source file refusing to follow a symlink at the final path component
  * (`O_NOFOLLOW`). Closes the collect→read TOCTOU: even if a vetted `.md` file is
  * swapped for a symlink to a sensitive target between the walk and the read, the
- * open fails (ELOOP) rather than importing the target's bytes. The walk already
- * rejects symlink *directories* in the tree.
+ * open fails (ELOOP) rather than importing the target's bytes. To also close the
+ * *ancestor* race (a vetted directory swapped for a symlink after the walk, which
+ * `O_NOFOLLOW` on the leaf would not catch), the opened file's `dev`+`ino` are
+ * compared against what the walk `lstat`ed — a redirected ancestor resolves to a
+ * different inode and is refused.
  */
-async function readSourceNoFollow(path: string): Promise<string> {
+async function readSourceNoFollow(path: string, expect: { dev: number; ino: number }): Promise<string> {
   let fh;
   try {
     fh = await open(path, FS.O_RDONLY | FS.O_NOFOLLOW);
@@ -102,6 +105,10 @@ async function readSourceNoFollow(path: string): Promise<string> {
     throw error;
   }
   try {
+    const st = await fh.stat();
+    if (st.dev !== expect.dev || st.ino !== expect.ino) {
+      throw new Error(`Soma memory backfill refused source that changed identity between scan and read: ${path}`);
+    }
     return await fh.readFile("utf8");
   } finally {
     await fh.close();
@@ -171,6 +178,8 @@ interface SourceFile {
   category: string; // first path segment
   stem: string;
   mtimeMs: number;
+  dev: number; // captured at scan; re-checked at read to catch ancestor-symlink swaps
+  ino: number;
 }
 
 // Markdown is the only backfill input: a category dir may hold JSON, `.env`,
@@ -224,6 +233,8 @@ async function collectSources(root: string, skipRootFiles: boolean): Promise<Sou
         category,
         stem: entry.name.replace(/\.[^.]+$/, ""),
         mtimeMs: stat.mtimeMs,
+        dev: stat.dev,
+        ino: stat.ino,
       });
     }
   }
@@ -244,11 +255,15 @@ function resolveType(
  * Read the manifest once into a `relativePath → full entry` map (the whole
  * record, not just the SHA), so the run loop can check the SHA, reuse the note
  * id/type, and re-emit the prior entry verbatim without re-reading the file per
- * source. Returns null when the manifest is missing or corrupt (→ re-import).
+ * source. Also returns the recorded source root so the caller can reject a
+ * manifest built for a *different* `--from` (relative paths would false-hit).
+ * Returns null only when the manifest is absent, unreadable, non-JSON, or its
+ * `files` is not an array — a structurally-valid-but-semantically-odd manifest
+ * is accepted (each entry is still re-validated against the corpus + SHA at use).
  */
 async function readManifest(
   somaHome: string,
-): Promise<{ map: Map<string, SomaMemoryBackfillManifestEntry>; importedAt: string } | null> {
+): Promise<{ map: Map<string, SomaMemoryBackfillManifestEntry>; importedAt: string; from: string } | null> {
   const path = join(somaHome, MANIFEST_RELATIVE);
   if (!(await pathExists(path))) return null;
   try {
@@ -256,7 +271,7 @@ async function readManifest(
     if (!Array.isArray(parsed.files)) return null;
     const map = new Map<string, SomaMemoryBackfillManifestEntry>();
     for (const entry of parsed.files) map.set(entry.relativePath, entry);
-    return { map, importedAt: parsed.importedAt };
+    return { map, importedAt: parsed.importedAt, from: parsed.from };
   } catch {
     return null;
   }
@@ -323,7 +338,12 @@ export async function runMemoryBackfill(
   }
 
   const sources = await collectSources(from, from === defaultRoot);
-  const previous = await readManifest(somaHome);
+  // The manifest lives at one path per soma-home but its relative paths are keyed
+  // to the root it was built for. A rerun against a DIFFERENT `--from` must not
+  // treat same-relative-path files as hits — ignore a manifest built elsewhere
+  // (the run then rewrites it for the current root).
+  const rawPrevious = await readManifest(somaHome);
+  const previous = rawPrevious?.from === from ? rawPrevious : null;
 
   const used = new Set<string>();
   const entries: SomaMemoryBackfillEntry[] = [];
@@ -335,7 +355,7 @@ export async function runMemoryBackfill(
 
   for (const src of sources) {
     const type = resolveType(options, src.category);
-    const content = await readSourceNoFollow(src.absPath);
+    const content = await readSourceNoFollow(src.absPath, { dev: src.dev, ino: src.ino });
     const sha = sha256Hex(content);
     const created = isoDate(new Date(src.mtimeMs));
 
