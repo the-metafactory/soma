@@ -2600,7 +2600,11 @@ export interface SomaMemoryConsolidateResult {
   stateGced: string[];
   /** High-lexical-similarity note pairs listed for review (candidate duplicates/contradictions). */
   similarPairs: SomaMemorySimilarPair[];
-  /** INDEX.md path rebuilt (real run) or that would be rebuilt (dry-run). */
+  /**
+   * The INDEX.md path. Always reported, but the index is REBUILT only when the pass
+   * mutated something (any of archived / markedStale / stateGced non-empty) — a
+   * no-op run leaves it untouched. This is the path, not proof a rebuild happened.
+   */
   indexPath: string;
 }
 

@@ -142,6 +142,28 @@ interface EpisodicArchive {
   digestPath: string;
 }
 
+/**
+ * Assert the archive destination is safe to `rename` into: every EXISTING ancestor
+ * directory under the memory root is a real directory (not a symlink that could
+ * redirect the move outside the root), and the target file itself does not already
+ * exist in ANY form (no-clobber — a lone `isRealEntry` check would miss a symlinked
+ * tombstone). A not-yet-existing ancestor is fine; `mkdir` will create real dirs.
+ */
+async function assertSafeArchiveDest(memoryRoot: string, target: string): Promise<void> {
+  let cur = memoryRoot;
+  for (const seg of relative(memoryRoot, dirname(target)).split(sep)) {
+    cur = join(cur, seg);
+    const info = await lstat(cur).catch(() => undefined);
+    if (info === undefined) break; // this and deeper segments don't exist yet — mkdir makes real dirs
+    if (info.isSymbolicLink() || !info.isDirectory()) {
+      throw new MemoryNoteError(`archive destination parent "${cur}" is a symlink or non-directory — refusing to move outside the memory root.`, "id");
+    }
+  }
+  if ((await lstat(target).catch(() => undefined)) !== undefined) {
+    throw new MemoryNoteError(`archive target already exists: ${target} — refusing to overwrite the tombstone.`, "id");
+  }
+}
+
 /** Plan the episodic prune → digest → archive for one kind, oldest first. */
 async function planEpisodicArchive(
   paths: SomaPaths,
@@ -311,14 +333,12 @@ function listArchivedMonthNotes(paths: SomaPaths, kind: "sessions" | "actions", 
  * idempotent derivation of it (never the source of truth).
  */
 async function applyEpisodicArchive(paths: SomaPaths, episodic: EpisodicArchive[]): Promise<void> {
+  const memoryRoot = paths.memory();
   const months = new Set<string>();
   for (const e of episodic.slice().sort((a, b) => a.note.id.localeCompare(b.note.id))) {
-    // Never clobber an existing archive tombstone: `rename` would overwrite it on
-    // POSIX, silently losing a prior raw note. A collision means a same-id note was
-    // already archived — refuse and surface it for manual reconciliation.
-    if (await isRealEntry(e.to, "file")) {
-      throw new MemoryNoteError(`archive target already exists: ${e.to} — refusing to overwrite the tombstone.`, "id");
-    }
+    // Reject a symlinked parent chain (escape-outside-root) OR an existing target
+    // of any kind (no-clobber) BEFORE moving.
+    await assertSafeArchiveDest(memoryRoot, e.to);
     await mkdir(dirname(e.to), { recursive: true });
     await rename(e.from, e.to);
     months.add(e.note.created.slice(0, 7));

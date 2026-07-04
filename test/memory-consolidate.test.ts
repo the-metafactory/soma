@@ -121,6 +121,22 @@ test("the monthly digest is regenerated cumulatively from the archive across run
   });
 });
 
+test("archiving refuses a symlinked archive-destination parent (escape guard)", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeNote(somaHome, "memory/episodic/sessions/2026-03/20260301-old.md",
+      note({ id: "20260301-old", type: "episodic", trust: "assistant", created: "2026-03-01", body: "old" }));
+    // pre-create memory/archive as a symlink pointing outside the memory root
+    const outside = join(somaHome, "..", "outside-archive");
+    await mkdir(outside, { recursive: true });
+    await mkdir(join(somaHome, "memory"), { recursive: true });
+    await symlink(outside, join(somaHome, "memory/archive"));
+
+    await expect(consolidateMemory({ somaHome, now: NOW })).rejects.toThrow(/refusing to move outside/);
+    // the aged note is NOT moved through the symlink
+    expect(await exists(join(somaHome, "memory/episodic/sessions/2026-03/20260301-old.md"))).toBe(true);
+  });
+});
+
 // --- mark stale --------------------------------------------------------------
 
 test("aged-unverified semantic is marked review:stale but NEVER archived; used/recent are not", async () => {
