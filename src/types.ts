@@ -2510,9 +2510,10 @@ export interface SomaMemoryDigestOptions {
   /** The digest text: 8–15 non-empty lines of what happened / changed / open loops. */
   body: string;
   /**
-   * Optional `hook:` frontmatter marker. Set to `session-end` by the deterministic
-   * SessionEnd fallback so a machine-extracted digest is distinguishable from an
-   * assistant-authored one (which omits it). Absent ⇒ assistant-authored.
+   * Optional `hook:` frontmatter marker (the neutral M0 note field). A lifecycle
+   * capture on ANY substrate may set it (e.g. `session-end`) to mark a digest as
+   * lifecycle-triggered rather than assistant-authored; absent ⇒ assistant-authored.
+   * The value is an opaque string — no substrate vocabulary is baked into core.
    */
   hook?: string;
   /**

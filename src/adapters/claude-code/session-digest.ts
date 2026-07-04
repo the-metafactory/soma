@@ -61,6 +61,52 @@ function samplePrompts(prompts: string[], max: number): string[] {
   return [...prompts.slice(0, head), `… (${prompts.length - head - tail} more prompts) …`, ...prompts.slice(prompts.length - tail)];
 }
 
+/** A classified transcript line: a genuine principal prompt, an assistant turn (with
+ *  the tools it used), or nothing worth counting. */
+type ClassifiedEntry = { kind: "prompt"; text: string } | { kind: "assistant"; tools: string[] };
+
+/**
+ * Classify ONE raw JSONL line. Returns `undefined` for a blank/non-JSON line, a
+ * sidechain/meta entry, or a "user" line that isn't a genuine principal prompt
+ * (tool_result content or a command/system wrapper). Keeps line-parsing, filtering,
+ * and tool-collection out of the extraction loop.
+ */
+function parseTranscriptLine(raw: string): ClassifiedEntry | undefined {
+  const line = raw.trim();
+  if (line.length === 0) return undefined;
+  let entry: Record<string, unknown>;
+  try {
+    entry = JSON.parse(line) as Record<string, unknown>;
+  } catch {
+    return undefined; // a non-JSON line — skip, never fail the whole extraction
+  }
+  if (entry.isSidechain === true || entry.isMeta === true) return undefined; // sub-agent / meta noise
+  const message = entry.message as { role?: unknown; content?: unknown } | undefined;
+
+  if (entry.type === "user" && message?.role === "user") {
+    // A real prompt is string content; a tool_result array is not principal text.
+    if (typeof message.content !== "string" && !isTextOnlyContent(message.content)) return undefined;
+    const text = cleanLine(messageText(message.content));
+    if (text.length === 0) return undefined;
+    if (PROMPT_NOISE_PREFIXES.some((p) => text.toLowerCase().startsWith(p))) return undefined;
+    return { kind: "prompt", text };
+  }
+
+  if (entry.type === "assistant" && message?.role === "assistant") {
+    const tools: string[] = [];
+    if (Array.isArray(message.content)) {
+      for (const part of message.content) {
+        if (part && typeof part === "object" && (part as { type?: unknown }).type === "tool_use") {
+          const name = (part as { name?: unknown }).name;
+          if (typeof name === "string") tools.push(name);
+        }
+      }
+    }
+    return { kind: "assistant", tools };
+  }
+  return undefined;
+}
+
 /**
  * Deterministically extract an 8–15-line digest body from a Claude Code transcript
  * (JSONL). No LLM: it lists the genuine principal prompts — command/system/tool-RESULT
@@ -74,34 +120,12 @@ export function extractDigestBodyFromTranscript(transcript: string): string | un
   let assistantTurns = 0;
 
   for (const raw of transcript.split("\n")) {
-    const line = raw.trim();
-    if (line.length === 0) continue;
-    let entry: Record<string, unknown>;
-    try {
-      entry = JSON.parse(line) as Record<string, unknown>;
-    } catch {
-      continue; // a non-JSON line — skip, never fail the whole extraction
-    }
-    if (entry.isSidechain === true || entry.isMeta === true) continue; // sub-agent / meta noise
-    const message = entry.message as { role?: unknown; content?: unknown } | undefined;
-    if (entry.type === "user" && message?.role === "user") {
-      // A real prompt is string content; a tool_result array is not principal text.
-      if (typeof message.content !== "string" && !isTextOnlyContent(message.content)) continue;
-      const text = cleanLine(messageText(message.content));
-      if (text.length === 0) continue;
-      const lower = text.toLowerCase();
-      if (PROMPT_NOISE_PREFIXES.some((p) => lower.startsWith(p))) continue;
-      prompts.push(text);
-    } else if (entry.type === "assistant" && message?.role === "assistant") {
+    const entry = parseTranscriptLine(raw);
+    if (entry === undefined) continue; // blank / non-JSON / sidechain / meta
+    if (entry.kind === "prompt") prompts.push(entry.text);
+    else {
       assistantTurns += 1;
-      if (Array.isArray(message.content)) {
-        for (const part of message.content) {
-          if (part && typeof part === "object" && (part as { type?: unknown }).type === "tool_use") {
-            const name = (part as { name?: unknown }).name;
-            if (typeof name === "string") toolCounts.set(name, (toolCounts.get(name) ?? 0) + 1);
-          }
-        }
-      }
+      for (const name of entry.tools) toolCounts.set(name, (toolCounts.get(name) ?? 0) + 1);
     }
   }
 
@@ -116,9 +140,11 @@ export function extractDigestBodyFromTranscript(transcript: string): string | un
     .map(([name, n]) => `${name}×${n}`)
     .join(", ");
 
-  // Prompt lines are VERBATIM principal input — quote + label them so a trusted-recall
-  // reader treats them as DATA (what was asked), never as assistant instructions to
-  // follow. JSON.stringify escapes quotes/controls, closing the injection vector.
+  // Prompt lines are VERBATIM principal input. Quote + label them (JSON.stringify
+  // escapes quotes/controls) so they read as DATA — what was asked — rather than as
+  // assistant instructions. This REDUCES the prompt-injection risk (paired with the
+  // tool:<name> provenance below); it does not PROVE every downstream recall consumer
+  // treats embedded instructions as inert.
   const lines = [
     `- session: ${prompts.length} principal prompts, ${assistantTurns} assistant turns, ${totalTools} tool calls`,
     ...shown.map((p) => `- principal prompt: ${JSON.stringify(p)}`),
