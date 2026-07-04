@@ -257,8 +257,10 @@ export async function writeSessionDigestFromTranscript(options: ClaudeSessionDig
     sessionId: options.sessionId,
     body,
     lifecycleEvent: "session-end", // → the note's M0 `hook:` field
-    // Distinct provenance: recall's trust banner shows this body was machine-extracted
-    // from principal input, NOT assistant-authored.
+    // Distinct provenance: recall surfaces the raw provenance TOKEN
+    // (`tool:claude-session-end`) in its banner rather than the default `conversation`,
+    // so a reader CAN tell this body is machine-extracted — the banner shows the token,
+    // not a rendered "machine-authored" label.
     provenance: "tool:claude-session-end",
   });
   // A race could still have another writer win between the dedup check and here.
