@@ -2491,6 +2491,97 @@ export interface SomaMemoryVerifyResult {
   event: SomaMemoryEvent;
 }
 
+// Memory subsystem M8 (backfill). Bulk-import a user's existing free-form
+// markdown memory into schema-valid, governed notes through the M1 write path.
+// Deterministic, no LLM: bodies are wrapped verbatim, `created` comes from the
+// source mtime, and every note lands at `quarantined` trust via the `import`
+// trigger (MINJA defense — bulk-imported content is never trusted incidentally;
+// a human elevates it later via verify/supersede). The top-level category dir is
+// mapped to a note type by {@link SOMA_MEMORY_BACKFILL_TYPE_MAP}; `--type` forces
+// a single type for all files. Idempotent via a SHA manifest at
+// `imports/backfill/.manifest.json` (mirrors the pai-memory-migrator pattern).
+
+/**
+ * Top-level source category dir → note type. Categories not listed here fall
+ * back to `semantic`. The map affects TYPE only — trust is always `quarantined`
+ * (derived from the `import` trigger), never selectable here.
+ */
+export const SOMA_MEMORY_BACKFILL_TYPE_MAP: Record<string, "semantic" | "procedural"> = {
+  LEARNING: "procedural",
+  KNOWLEDGE: "semantic",
+};
+
+/** The durable, backfillable note types (episodic is written via digest/action, not backfill). */
+export type WritableNoteType = Exclude<SomaMemoryNoteType, "episodic">;
+
+export interface SomaMemoryBackfillOptions {
+  homeDir?: string;
+  somaHome?: string;
+  substrate?: SubstrateId;
+  /** Injected clock for deterministic manifest `importedAt`. Defaults to now. */
+  now?: Date;
+  /** Source root walked recursively. Defaults to `<somaHome>/memory`. */
+  from?: string;
+  /** Force ALL notes to this type, overriding the category map. */
+  type?: "semantic" | "procedural";
+  /** Sets each note's `project` field. Defaults to null. */
+  project?: string | null;
+  /** Plan only — print the intended imports and touch nothing (no manifest write). */
+  dryRun?: boolean;
+}
+
+export type SomaMemoryBackfillEntryStatus =
+  | "written"
+  | "skipped-manifest"
+  | "skipped-duplicate"
+  | "error";
+
+/** One planned/attempted source-file → note import. */
+export interface SomaMemoryBackfillEntry {
+  /** POSIX relative path under the source root. */
+  relativePath: string;
+  /** Absolute source path (also recorded as the note's `source_of_truth`). */
+  source: string;
+  noteId: string;
+  type: "semantic" | "procedural";
+  /** `created`/`last_verified` date derived from the source mtime (YYYY-MM-DD, UTC). */
+  created: string;
+  /** Target note path (written, or would-be for a dry-run). */
+  target: string;
+  /** Populated after a real run; absent for a dry-run plan entry. */
+  status?: SomaMemoryBackfillEntryStatus;
+  /** Present for `skipped-duplicate` / `error`: the reason. */
+  detail?: string;
+}
+
+export interface SomaMemoryBackfillResult {
+  somaHome: string;
+  from: string;
+  dryRun: boolean;
+  writtenCount: number;
+  skippedManifestCount: number;
+  skippedDuplicateCount: number;
+  errorCount: number;
+  manifestPath: string;
+  entries: SomaMemoryBackfillEntry[];
+}
+
+export interface SomaMemoryBackfillManifestEntry {
+  relativePath: string;
+  noteId: string;
+  type: "semantic" | "procedural";
+  sha256: string;
+  mtimeMs: number;
+}
+
+export interface SomaMemoryBackfillManifest {
+  schema: "soma.memory-backfill.v1";
+  somaHome: string;
+  from: string;
+  importedAt: string;
+  files: SomaMemoryBackfillManifestEntry[];
+}
+
 // Memory subsystem M5 (episodic capture). Plan v2 §M5: session digests + a
 // first-class action log, stored as `episodic` notes under
 // `memory/episodic/{sessions,actions}/YYYY-MM/YYYYMMDD-<slug>.md`. Deterministic,
