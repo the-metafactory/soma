@@ -2491,7 +2491,7 @@ export interface SomaMemoryVerifyResult {
   event: SomaMemoryEvent;
 }
 
-// Memory subsystem M8 (backfill). Bulk-import a user's existing free-form
+// Memory subsystem M8 (backfill). Bulk-import a principal's existing free-form
 // markdown memory into schema-valid, governed notes through the M1 write path.
 // Deterministic, no LLM: bodies are wrapped verbatim, `created` comes from the
 // source mtime, and every note lands at `quarantined` trust via the `import`

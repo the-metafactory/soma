@@ -210,6 +210,21 @@ test("idempotent rerun: 0 written, all skipped-manifest, byte-identical manifest
   });
 });
 
+test("rerun with a different --type is not a silent manifest hit (type guard keeps --type honest)", async () => {
+  await withTempSoma(async (somaHome) => {
+    await seed(somaHome, "KNOWLEDGE/x.md", "distinct body content alpha beta gamma");
+    const first = await runMemoryBackfill({ somaHome }); // KNOWLEDGE → semantic
+    expect(first.entries[0].type).toBe("semantic");
+
+    // Rerun forcing procedural: NOT a manifest hit (type differs). The identical
+    // body is caught by the recall-first gate → skipped-duplicate, not skipped-manifest.
+    const second = await runMemoryBackfill({ somaHome, type: "procedural" });
+    expect(second.skippedManifestCount).toBe(0);
+    expect(second.skippedDuplicateCount).toBe(1);
+    expect(second.writtenCount).toBe(0);
+  });
+});
+
 test("a changed source file after import is re-imported as a new note on rerun", async () => {
   await withTempSoma(async (somaHome) => {
     await seed(somaHome, "KNOWLEDGE/a.md", "original imported body one two three");

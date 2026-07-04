@@ -49,7 +49,13 @@ import type {
 } from "./types";
 
 const MANIFEST_SCHEMA = "soma.memory-backfill.v1";
-const MANIFEST_RELATIVE = "imports/backfill/.manifest.json";
+// Backfill is a Memory-subsystem operation, so its bookkeeping lives INSIDE the
+// Memory compartment (`memory/`), under STATE (the subsystem's runtime-state dir,
+// alongside events.jsonl) — not at the Soma root. STATE is a reserved category
+// that the source walk never re-imports, and the manifest is `.json` (never a
+// markdown source), so it can never round-trip into a note.
+const MANIFEST_RELATIVE = "memory/STATE/imports/backfill/.manifest.json";
+const MANIFEST_DIR_RELATIVE = "memory/STATE/imports/backfill";
 
 // Category dirs (or root children) that are never backfill sources: STATE is
 // runtime JSON, episodic/semantic/procedural are the note stores themselves,
@@ -304,11 +310,14 @@ export async function runMemoryBackfill(
     const sha = sha256Hex(content);
     const created = isoDate(new Date(src.mtimeMs));
 
-    // Already backfilled and unchanged (same bytes) with its note still present?
-    // Re-emit the PRIOR manifest entry VERBATIM (including its stored mtimeMs) so
-    // a no-op rerun is byte-stable even if the source was merely `touch`ed.
+    // Already backfilled and unchanged (same bytes AND same resolved type) with
+    // its note still present? Re-emit the PRIOR manifest entry VERBATIM (including
+    // its stored mtimeMs) so a no-op rerun is byte-stable even if the source was
+    // merely `touch`ed. The type guard keeps `--type` honest: rerunning with a
+    // different --type than a prior import is NOT a hit — it falls through to the
+    // write path (where the identical body is caught by the recall-first gate).
     const prior = previous?.map.get(src.relativePath);
-    if (prior?.sha256 === sha) {
+    if (prior?.sha256 === sha && prior.type === type) {
       if (await pathExists(memoryNotePath(somaHome, prior.type, prior.noteId))) {
         entries.push({
           relativePath: src.relativePath,
@@ -390,7 +399,7 @@ export async function runMemoryBackfill(
   // Manifest reflects exactly the files currently backfilled to a present note
   // (written this run + previously-written-and-still-present). Vanished sources
   // drop out; duplicates are excluded (they map to a note this run did not own).
-  await mkdir(join(somaHome, "imports/backfill"), { recursive: true });
+  await mkdir(join(somaHome, MANIFEST_DIR_RELATIVE), { recursive: true });
   const importedAt =
     writtenCount === 0 && previous ? previous.importedAt : (options.now ?? new Date()).toISOString();
   const manifest: SomaMemoryBackfillManifest = {

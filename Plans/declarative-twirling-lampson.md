@@ -65,21 +65,21 @@ For each eligible source file at relative path `rel`:
 - **source_of_truth** = absolute path of the original file (so a human can verify against the archived original).
 - **project** = `--project` or `null`; **links** = `[]`; **resurface_count** = 0.
 - **hook** = short humanized recall phrase from the stem (optional; aids recall matching).
-- **body** = original file content, prefixed with a one-line blockquote preamble noting the backfill origin.
+- **body** = original file content **verbatim** — no injected preamble (a shared preamble inflates token overlap and makes the recall-first dedup over-fire on short files; origin lives in frontmatter instead). Only `.md`/`.markdown` files are imported.
 
 ### Dedup & idempotency
 
 - Files processed **sequentially** (not concurrent) so later files see earlier-written ones and the recall-first refusal dedups within the batch deterministically.
 - A per-file **recall-first refusal** (exact/near-dup already in corpus) is caught and counted as `skipped-duplicate`, not a batch abort (`memory-write.ts:618` builds the refusal — implementation inspects that surface to classify).
-- Manifest `<somaHome>/imports/backfill/.manifest.json` (schema `soma.memory-backfill.v1`, entries `{relativePath, noteId, type, sha256, mtimeMs}`). Rerun skips files whose source SHA matches AND whose target note still exists → byte-stable no-op. Source drift in v1 = re-import as a new note (documented limitation; no auto-supersede yet).
+- Manifest `<somaHome>/memory/STATE/imports/backfill/.manifest.json` (schema `soma.memory-backfill.v1`, entries `{relativePath, noteId, type, sha256, mtimeMs}`) — inside the Memory compartment, under the reserved STATE dir the source walk never re-imports. Rerun skips a file only when its source SHA matches, its resolved type matches the prior import, AND its target note still exists; the prior entry is re-emitted verbatim → byte-stable no-op (even across a `touch`). Source drift = re-import as a new note (documented limitation; no auto-supersede yet).
 
 ### Result / reporting
 
-`runMemoryBackfill` returns `{ writtenCount, skippedDuplicateCount, skippedManifestCount, errors[], notes[] }`; CLI prints a summary table. `--dry-run` prints the same plan without writing or touching the manifest.
+`runMemoryBackfill` returns `{ somaHome, from, dryRun, writtenCount, skippedManifestCount, skippedDuplicateCount, errorCount, manifestPath, entries }` (each `entries[]` item carries `relativePath`, `noteId`, `type`, `created`, `target`, and a per-file `status`); CLI prints a summary table. `--dry-run` prints the plan without writing or touching the manifest.
 
 ## Files to create / modify
 
-1. **`src/memory-backfill.ts`** (new, ~250 LOC) — `planMemoryBackfill()` + `runMemoryBackfill()`; category map, file walk (skip/symlink rules), id derivation + collision handling, mtime→date, body preamble, manifest read/render, sequential loop calling `writeMemoryNote`. Reuses the write path (serialization, dedup, events) rather than re-implementing note I/O.
+1. **`src/memory-backfill.ts`** (new, ~250 LOC) — `planMemoryBackfill()` + `runMemoryBackfill()`; category map, markdown-only file walk (skip/symlink rules), id derivation + collision handling, mtime→date, verbatim body, manifest read/render, sequential loop calling `writeMemoryNote`. Reuses the write path (serialization, dedup, events) rather than re-implementing note I/O.
 2. **`src/types.ts`** — add `SomaMemoryBackfillOptions`, `SomaMemoryBackfillPlanEntry`, `SomaMemoryBackfillResult`, manifest types, and `SOMA_MEMORY_BACKFILL_TYPE_MAP` constant (near the other memory-subsystem types).
 3. **`src/cli/memory.ts`** — add `"backfill"` to `MEMORY_ACTIONS`; `ParsedMemoryBackfillArgs` + union member; `parseMemoryBackfillArgs`; a `MEMORY_COMMAND_HELP.subcommands.backfill` usage string; dispatch `case "backfill"`; handler calling `runMemoryBackfill` + a `formatMemoryBackfillResult`.
 4. **`test/memory-backfill.test.ts`** (new) — mirror `pai-memory-migrator.test.ts` + `memory-write.test.ts` patterns: category→type mapping, id derivation + collision, mtime→created, trust=quarantined, dedup skip, `--dry-run` no-op, idempotent rerun (byte-stable manifest), symlink refusal, reserved-dir skipping.
