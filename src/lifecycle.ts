@@ -718,8 +718,8 @@ export type SessionEndTranscriptHandler = (input: {
   substrate: SubstrateId;
   sessionId: string;
   transcriptPath: string;
-  agentId?: string;
-  agentType?: string;
+  subagentId?: string;
+  subagentType?: string;
   forcePrimary?: boolean;
   forceSubagent?: boolean;
 }) => Promise<{ outcome: string }>;
@@ -789,8 +789,8 @@ export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions =
         substrate: substrate(options),
         sessionId: options.sessionId,
         transcriptPath: options.transcriptPath,
-        agentId: options.agentId,
-        agentType: options.agentType,
+        subagentId: options.subagentId,
+        subagentType: options.subagentType,
         forcePrimary: process.env.SOMA_MEMORY_FORCE_PRIMARY === "1",
         forceSubagent: process.env.SOMA_MEMORY_FORCE_SUBAGENT === "1",
       });

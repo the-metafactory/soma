@@ -52,8 +52,8 @@ soma memory digest --session <session-id> --body "<8–15 non-empty lines>"
 - The body must be 8–15 non-empty lines; anything outside that is rejected.
 - **Do this before the session ends.** If you don't, the SessionEnd hook attempts a
   DETERMINISTIC fallback digest (`--transcript`, marked `hook: session-end`) — legible
-  but mechanical, not a real summary. Self-authoring is strictly better; the fallback
-  is only a BEST-EFFORT floor — it skips silently if the transcript is unreadable or
+  but mechanical, not a real summary. Prefer self-authoring for a genuine summary; the
+  fallback is only a BEST-EFFORT floor — it skips silently if the transcript is unreadable or
   too thin, and writes nothing for a sub-agent session (ADR 0014), so it is not a
   guarantee. The fallback is a hook concern — you invoke `--body`, never `--transcript`.
 

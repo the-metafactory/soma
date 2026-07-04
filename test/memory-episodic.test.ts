@@ -1,10 +1,9 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import {
   parseMemoryNote,
-  runSomaLifecycleSessionEnd,
   somaMemoryEventsPath,
   writeMemoryAction,
   writeSessionDigest,
@@ -305,7 +304,7 @@ test("writeSessionDigestFromTranscript writes a digest marked hook: session-end"
 test("a sub-agent invocation is suppressed and writes nothing (ADR 0014)", async () => {
   await withTempSoma((somaHome) =>
     withTranscriptFile(SEVEN_PROMPTS, async (tp) => {
-      const result = await writeSessionDigestFromTranscript({ somaHome, now: NOW, sessionId: SESSION, transcriptPath: tp, agentId: "agt-1" });
+      const result = await writeSessionDigestFromTranscript({ somaHome, now: NOW, sessionId: SESSION, transcriptPath: tp, subagentId: "agt-1" });
       expect(result.outcome).toBe("suppressed");
       expect(result.digest).toBeUndefined();
     }),
@@ -324,7 +323,7 @@ test("forceSubagent suppresses even when forcePrimary is also set (precedence)",
 test("forcePrimary overrides sub-agent suppression", async () => {
   await withTempSoma((somaHome) =>
     withTranscriptFile(SEVEN_PROMPTS, async (tp) => {
-      const result = await writeSessionDigestFromTranscript({ somaHome, now: NOW, sessionId: SESSION, transcriptPath: tp, agentId: "agt-1", forcePrimary: true });
+      const result = await writeSessionDigestFromTranscript({ somaHome, now: NOW, sessionId: SESSION, transcriptPath: tp, subagentId: "agt-1", forcePrimary: true });
       expect(result.outcome).toBe("written");
     }),
   );
@@ -347,14 +346,27 @@ test("an unreadable transcript reports 'unreadable' (distinct from a thin sessio
   });
 });
 
-test("lifecycle session-end writes the deterministic fallback digest for claude-code", async () => {
+test("the SPAWNED `soma lifecycle session-end` CLI writes the fallback for claude-code", async () => {
+  // Spawn the real CLI (fresh process) so registration happens ONLY through the
+  // composition-layer side-effect import — NOT primed by this test file importing the
+  // adapter. This proves the exported CLI path writes the fallback end to end.
   await withTempSoma((somaHome) =>
     withTranscriptFile(SEVEN_PROMPTS, async (tp) => {
-      await runSomaLifecycleSessionEnd({ somaHome, substrate: "claude-code", sessionId: SESSION, transcriptPath: tp });
-      // The lifecycle-dispatched fallback wrote the session digest — a fresh fallback
-      // now no-ops (date-independent one-per-session gate), proving it was written.
-      const again = await writeSessionDigestFromTranscript({ somaHome, now: NOW, sessionId: SESSION, transcriptPath: tp });
-      expect(again.outcome).toBe("duplicate");
+      const cli = join(import.meta.dirname, "..", "src", "cli.ts");
+      const proc = Bun.spawnSync(["bun", "run", cli, "lifecycle", "session-end", "--session-id", "spawned-x", "--transcript", tp, "--substrate", "claude-code", "--soma-home", somaHome]);
+      expect(proc.exitCode).toBe(0);
+      // A digest marked as the machine-extracted fallback now exists (month-agnostic:
+      // the spawned CLI uses the real clock).
+      const base = join(somaHome, "memory/episodic/sessions");
+      const months = await readdir(base).catch(() => [] as string[]);
+      let body = "";
+      for (const month of months) {
+        const files = await readdir(join(base, month)).catch(() => [] as string[]);
+        const digest = files.find((f) => f.includes("spawned-x"));
+        if (digest) body = await readFile(join(base, month, digest), "utf8");
+      }
+      expect(body).toContain("hook: session-end");
+      expect(body).toContain("provenance: tool:claude-session-end");
     }),
   );
 });

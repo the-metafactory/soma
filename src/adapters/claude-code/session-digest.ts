@@ -92,7 +92,8 @@ function parseTranscriptLine(raw: string): ClassifiedEntry | undefined {
     if (typeof message.content !== "string" && !isTextOnlyContent(message.content)) return undefined;
     const text = cleanLine(messageText(message.content));
     if (text.length === 0) return undefined;
-    if (PROMPT_NOISE_PREFIXES.some((p) => text.toLowerCase().startsWith(p))) return undefined;
+    const lowerText = text.toLowerCase(); // lowercase ONCE, not per prefix
+    if (PROMPT_NOISE_PREFIXES.some((p) => lowerText.startsWith(p))) return undefined;
     return { kind: "prompt", text };
   }
 
@@ -102,7 +103,12 @@ function parseTranscriptLine(raw: string): ClassifiedEntry | undefined {
       for (const part of message.content) {
         if (part && typeof part === "object" && (part as { type?: unknown }).type === "tool_use") {
           const name = (part as { name?: unknown }).name;
-          if (typeof name === "string") tools.push(name);
+          // A transcript-derived tool name is untrusted — control-collapse it (same as
+          // prompts) so it can't inject directive text into the `- tools:` rollup line.
+          if (typeof name === "string") {
+            const clean = cleanLine(name);
+            if (clean.length > 0) tools.push(clean);
+          }
         }
       }
     }
@@ -168,9 +174,9 @@ export interface ClaudeSessionDigestOptions {
   sessionId: string;
   /** Path to the Claude Code session transcript (JSONL). */
   transcriptPath: string;
-  /** Sub-agent markers from the hook payload — when set, the digest is suppressed. */
-  agentId?: string;
-  agentType?: string;
+  /** Claude Code sub-agent markers from the hook payload — when set, the digest is suppressed. */
+  subagentId?: string;
+  subagentType?: string;
   /** Force the primary (write) path even for a sub-agent-marked invocation. */
   forcePrimary?: boolean;
   /** Force treating the invocation as a sub-agent (suppress) — takes precedence over forcePrimary. */
@@ -190,13 +196,13 @@ export interface ClaudeSessionDigestResult {
  *  suppression depends on the payload actually supplying these — an unmarked sub-agent
  *  invocation is NOT detected here and falls through to the write path. Detection is
  *  only as complete as the substrate's markers. */
-function hasAgentMarker(options: ClaudeSessionDigestOptions): boolean {
-  return (options.agentId ?? "").trim().length > 0 || (options.agentType ?? "").trim().length > 0;
+function hasSubagentMarker(options: ClaudeSessionDigestOptions): boolean {
+  return (options.subagentId ?? "").trim().length > 0 || (options.subagentType ?? "").trim().length > 0;
 }
 
 /**
  * SessionEnd fallback (M5b): write a deterministic digest from a Claude transcript.
- * Suppresses MARKED sub-agent sessions (ADR 0014 — via agentId/agentType in the hook
+ * Suppresses MARKED sub-agent sessions (ADR 0014 — via subagentId/subagentType in the hook
  * payload; an unmarked sub-agent is not detected); no-ops when a digest already exists (the
  * one-per-session gate — checked BEFORE reading the transcript, so the common primary
  * path does no wasted work); skips a too-thin session; reports an unreadable transcript
@@ -208,7 +214,7 @@ export async function writeSessionDigestFromTranscript(options: ClaudeSessionDig
   if (options.forceSubagent === true) {
     return { outcome: "suppressed", reason: "forced sub-agent (ADR 0014) — no fallback digest written" };
   }
-  if (options.forcePrimary !== true && hasAgentMarker(options)) {
+  if (options.forcePrimary !== true && hasSubagentMarker(options)) {
     return { outcome: "suppressed", reason: "sub-agent session (ADR 0014) — no fallback digest written" };
   }
 

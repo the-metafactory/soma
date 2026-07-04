@@ -2265,9 +2265,9 @@ export interface SomaLifecycleOptions {
    * deterministic digest FALLBACK. Substrate-owned — core does not parse it.
    */
   transcriptPath?: string;
-  /** Sub-agent markers from the hook payload (suppress the fallback per ADR 0014). */
-  agentId?: string;
-  agentType?: string;
+  /** Claude Code sub-agent markers from the hook payload (suppress the fallback per ADR 0014). */
+  subagentId?: string;
+  subagentType?: string;
 }
 
 export interface SomaStartupContext {

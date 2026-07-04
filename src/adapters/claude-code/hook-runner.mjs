@@ -92,8 +92,10 @@ function lifecycle(config, event, input) {
     const transcriptPath =
       typeof input.transcript_path === "string" && input.transcript_path.trim().length > 0 ? input.transcript_path : undefined;
     if (transcriptPath) args.push("--transcript", transcriptPath);
-    if (typeof input.agent_id === "string" && input.agent_id.trim().length > 0) args.push("--agent-id", input.agent_id);
-    if (typeof input.agent_type === "string" && input.agent_type.trim().length > 0) args.push("--agent-type", input.agent_type);
+    // Claude Code's payload keys are `agent_id`/`agent_type`; Soma's flags are the
+    // qualified `--subagent-*` (bare `agent` is banned in Soma surfaces).
+    if (typeof input.agent_id === "string" && input.agent_id.trim().length > 0) args.push("--subagent-id", input.agent_id);
+    if (typeof input.agent_type === "string" && input.agent_type.trim().length > 0) args.push("--subagent-type", input.agent_type);
   }
   runSomaDetached(config, args);
 }

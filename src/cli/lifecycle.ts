@@ -72,12 +72,12 @@ export function parseLifecycleArgs(args: string[]): ParsedLifecycleArgs {
         options.transcriptPath = readOption(rest, index, arg);
         index += 1;
         break;
-      case "--agent-id":
-        options.agentId = readOption(rest, index, arg);
+      case "--subagent-id":
+        options.subagentId = readOption(rest, index, arg);
         index += 1;
         break;
-      case "--agent-type":
-        options.agentType = readOption(rest, index, arg);
+      case "--subagent-type":
+        options.subagentType = readOption(rest, index, arg);
         index += 1;
         break;
       default:
