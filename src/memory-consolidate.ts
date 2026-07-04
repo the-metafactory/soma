@@ -512,16 +512,21 @@ export async function consolidateMemory(options: SomaMemoryConsolidateOptions = 
   if (archivedOmissions.length > 0 || staleSkipped.length > 0) {
     result.unreadable = Array.from(new Set([...unreadable, ...archivedOmissions])).sort();
   }
+  // Recompute `mutated` from what ACTUALLY happened (result.markedStale is now the
+  // post-skip set), so a run whose only planned stale marks were all TOCTOU-skipped
+  // does NOT rebuild the INDEX or append an event as if it changed something.
+  result.mutated = episodic.length > 0 || result.markedStale.length > 0 || stateGc.length > 0;
+
   // Only rebuild the INDEX when something actually changed — a no-op maintenance
   // run must not do corpus-scale work for an unchanged corpus.
-  if (mutated) await rebuildMemoryIndex({ somaHome, now });
+  if (result.mutated) await rebuildMemoryIndex({ somaHome, now });
 
   // Governed event: a post-hoc RECORD of the pass (only when it mutated something).
   // NOT rollback-coupled — consolidation is idempotent and safe to repeat, so a
   // failed append leaves the already-applied, re-runnable mutations rather than
   // attempting a multi-file rollback (the guarantee is repeatability, not atomicity;
   // see architecture.md). The M1 write|verify rollback is a different, single-note path.
-  if (mutated) {
+  if (result.mutated) {
     await appendSomaMemoryEvent(somaHome, {
       timestamp: now.toISOString(),
       substrate: options.substrate ?? "custom",

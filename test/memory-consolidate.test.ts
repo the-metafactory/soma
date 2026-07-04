@@ -171,7 +171,7 @@ test("aged-unverified semantic is marked review:stale but NEVER archived; used/r
 
 // --- contradictions ----------------------------------------------------------
 
-test("near-duplicate active notes are LISTED as contradictions (no auto-merge)", async () => {
+test("lexically-similar active notes are LISTED as near-duplicate pairs (no merge, no semantic check)", async () => {
   await withTempSoma(async (somaHome) => {
     await writeNote(somaHome, "memory/semantic/a.md", note({ id: "a", type: "semantic", body: "gateway retries thrice before dead lettering the message" }));
     await writeNote(somaHome, "memory/semantic/b.md", note({ id: "b", type: "semantic", body: "gateway retries thrice before dead lettering the message now" }));
