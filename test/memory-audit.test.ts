@@ -111,10 +111,14 @@ test("durable notes present but INDEX.md absent is stale", async () => {
 
 test("session digests are counted and do not stale the durable INDEX", async () => {
   await withTempSoma(async (somaHome) => {
-    await writeNote(somaHome, "durable", "A durable note.");
+    const notePath = await writeNote(somaHome, "durable", "A durable note.");
     await rebuildMemoryIndex({ somaHome, now: NOW });
-    // An episodic write lands AFTER the index build but must NOT stale it.
+    // Pin BOTH the durable note (older) and INDEX (newer) mtimes so freshness is
+    // deterministic — otherwise the note keeps its real wall-clock mtime, which the
+    // forced INDEX time may predate (a time-of-day flake).
+    await setMtime(notePath, new Date("2026-07-04T09:00:00.000Z"));
     await setMtime(join(somaHome, "memory/INDEX.md"), new Date("2026-07-04T10:00:00.000Z"));
+    // An episodic write lands AFTER (real mtime, now) but must NOT stale the durable INDEX.
     await writeSessionDigest({ somaHome, now: new Date("2026-07-04T12:00:00.000Z"), sessionId: SESSION, body: DIGEST_BODY });
 
     const result = await auditMemory({ somaHome });
