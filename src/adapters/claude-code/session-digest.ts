@@ -14,7 +14,9 @@ import type { SomaMemoryDigestResult, SubstrateId } from "../../types";
  */
 
 // A deterministic fallback needs enough genuine prompts to make a useful 8–15-line
-// digest — below this it skips (the assistant self-authors small sessions instead).
+// digest — below this it returns undefined and the session is simply DROPPED (no
+// fallback digest). A small session is only captured if the assistant self-authored
+// one; the fallback neither checks nor guarantees that.
 const FALLBACK_MIN_PROMPTS = 6;
 const FALLBACK_MAX_PROMPT_LINES = 13; // + 2 structural (header + tools) = 15 max
 const PROMPT_LINE_MAX_CHARS = 120;
@@ -249,7 +251,7 @@ export async function writeSessionDigestFromTranscript(options: ClaudeSessionDig
     now: options.now,
     sessionId: options.sessionId,
     body,
-    hook: "session-end",
+    lifecycleEvent: "session-end", // → the note's M0 `hook:` field
     // Distinct provenance: recall's trust banner shows this body was machine-extracted
     // from principal input, NOT assistant-authored.
     provenance: "tool:claude-session-end",

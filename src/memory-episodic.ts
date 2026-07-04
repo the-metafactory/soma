@@ -314,7 +314,7 @@ export async function writeSessionDigest(options: SomaMemoryDigestOptions): Prom
   }
 
   const path = episodicPath(somaHome, "sessions", now, id);
-  const note = buildEpisodicNote(id, now, options.body, options.hook, options.provenance);
+  const note = buildEpisodicNote(id, now, options.body, options.lifecycleEvent, options.provenance);
   try {
     const event = await writeEpisodicNoteWithEvent({
       somaHome,

@@ -347,9 +347,10 @@ test("an unreadable transcript reports 'unreadable' (distinct from a thin sessio
 });
 
 test("the SPAWNED `soma lifecycle session-end` CLI writes the fallback for claude-code", async () => {
-  // Spawn the real CLI (fresh process) so registration happens ONLY through the
-  // composition-layer side-effect import — NOT primed by this test file importing the
-  // adapter. This proves the exported CLI path writes the fallback end to end.
+  // Spawn the SOURCE CLI entrypoint (`bun run src/cli.ts`, not an installed binary) in
+  // a fresh process, so registration happens ONLY through the composition-layer
+  // side-effect import — NOT primed by this test file importing the adapter. This
+  // proves the source CLI path writes the fallback end to end.
   await withTempSoma((somaHome) =>
     withTranscriptFile(SEVEN_PROMPTS, async (tp) => {
       const cli = join(import.meta.dirname, "..", "src", "cli.ts");
