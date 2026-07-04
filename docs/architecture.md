@@ -137,13 +137,17 @@ banner). Through it, trust is derived from the write trigger, writes are
 dedup-gated (recall-first refusal),
 and each mutation appends one event to the **existing** `memory/STATE/events.jsonl`
 stream (the same journal the Observability section reads — note mutations do not
-fork a second event stream). One other governed path exists: `soma memory
-consolidate` (M6), the deterministic maintenance pass — it archives aged episodic
-notes (move under `memory/archive/`, invalidate-never-delete), marks aged-unverified
-semantic notes `review: stale`, and GC's old `current-work-*` state; a run that
-mutates anything appends one `memory.consolidate` event to the same journal. It is
-governed (deterministic, event-emitting, no LLM) but does NOT re-derive trust — it
-never mints or elevates a note, only ages/relocates existing ones. The write/event coupling is best-effort, not
+fork a second event stream). The write/event rollback coupling above is specific to the single-note
+`write|verify` path. One other governed path exists: `soma memory consolidate`
+(M6), the deterministic maintenance pass — it archives aged episodic notes (move
+under `memory/archive/`, invalidate-never-delete), marks aged-unverified semantic
+notes `review: stale`, and (only under an explicit `--gc-state`) GCs old
+`current-work-*` state. It is governed (deterministic, event-emitting, no LLM) but
+does NOT re-derive trust — it never mints or elevates a note, only ages/relocates
+existing ones. Its `memory.consolidate` event is a post-hoc RECORD of the pass, NOT
+rollback-coupled: the pass is idempotent and safe to repeat, so a failed event
+append leaves the (already-applied, re-runnable) mutations rather than attempting a
+multi-file rollback — the guarantee is repeatability, not atomicity. The write/event coupling is best-effort, not
 crash-atomic: an event-append *failure* rolls the file mutation back, but a hard
 process crash in the window between the two can still orphan a file from its
 event (a documented gap reconciled by the M7 audit; soma has no WAL/2PC). This

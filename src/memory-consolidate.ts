@@ -259,28 +259,41 @@ async function planStateGc(paths: SomaPaths, now: Date): Promise<string[]> {
  * re-scanned. Notes still live in their raw archived form regardless.
  */
 async function regenerateMonthlyDigests(paths: SomaPaths, months: Set<string>): Promise<void> {
-  if (months.size === 0) return;
-  const archived: SomaMemoryNote[] = [];
-  for (const kind of ["sessions", "actions"] as const) {
-    const files = await listEpisodicNotes(paths.resolve("memory", "archive", "episodic", kind));
-    for (const path of files) {
-      const note = await readFile(path, "utf8").then(parseMemoryNote).catch(() => undefined);
-      if (note !== undefined) archived.push(note);
-    }
-  }
-  const byMonth = new Map<string, SomaMemoryNote[]>();
-  for (const note of archived) {
-    const month = note.created.slice(0, 7);
-    (byMonth.get(month) ?? byMonth.set(month, []).get(month)!).push(note);
-  }
   for (const month of [...months].sort()) {
-    const notes = (byMonth.get(month) ?? []).slice().sort((a, b) => a.id.localeCompare(b.id));
+    // Episodic notes are stored under their created month (`YYYY-MM/`), and the
+    // archive mirrors that, so only the affected month's archive dirs need reading —
+    // NOT the whole growing archive.
+    const monthFiles = [
+      ...(await listArchivedMonthNotes(paths, "sessions", month)),
+      ...(await listArchivedMonthNotes(paths, "actions", month)),
+    ];
+    const parsed = await runBoundedConcurrent(
+      monthFiles,
+      (path) => readFile(path, "utf8").then(parseMemoryNote).catch(() => undefined),
+      16,
+    );
+    const notes = parsed
+      .filter((n): n is SomaMemoryNote => n !== undefined && n.created.slice(0, 7) === month)
+      .sort((a, b) => a.id.localeCompare(b.id));
     if (notes.length === 0) continue;
     const digestPath = paths.resolve("memory", "episodic", "digests", `${month}.md`);
     const body = notes.map((n) => `- ${n.id}: ${firstBodyLine(n)}`).join("\n");
     await mkdir(dirname(digestPath), { recursive: true });
     await writeFile(digestPath, `# Episodic digest ${month}\n\n${body}\n`, "utf8");
   }
+}
+
+/** Real `.md` files directly under one archived-episodic `<kind>/<month>/` dir. */
+async function listArchivedMonthNotes(paths: SomaPaths, kind: "sessions" | "actions", month: string): Promise<string[]> {
+  const dir = paths.resolve("memory", "archive", "episodic", kind, month);
+  if (!(await isRealEntry(dir, "dir"))) return [];
+  const out: string[] = [];
+  for (const entry of (await readdir(dir)).sort()) {
+    if (!entry.endsWith(".md")) continue;
+    const filePath = join(dir, entry);
+    if (await isRealEntry(filePath, "file")) out.push(filePath);
+  }
+  return out;
 }
 
 /**
@@ -333,7 +346,9 @@ export async function consolidateMemory(options: SomaMemoryConsolidateOptions = 
   const durable = await collectDurableNotes(somaHome);
   const staleMarks = planStaleMarks(durable.notes, somaHome, now);
   const contradictions = planContradictions(durable.notes);
-  const stateGc = await planStateGc(paths, now);
+  // State GC deletes protected state, so it only runs under the explicit --gc-state
+  // override (CONTEXT.md: protected data needs a deliberate destructive flag).
+  const stateGc = options.gcState === true ? await planStateGc(paths, now) : [];
 
   const result: SomaMemoryConsolidateResult = {
     somaHome,
@@ -353,7 +368,11 @@ export async function consolidateMemory(options: SomaMemoryConsolidateOptions = 
   await applyStateGc(somaHome, stateGc);
   await rebuildMemoryIndex({ somaHome, now });
 
-  // Governed event for the pass (only when it actually mutated something).
+  // Governed event: a post-hoc RECORD of the pass (only when it mutated something).
+  // NOT rollback-coupled — consolidation is idempotent and safe to repeat, so a
+  // failed append leaves the already-applied, re-runnable mutations rather than
+  // attempting a multi-file rollback (the guarantee is repeatability, not atomicity;
+  // see architecture.md). The M1 write|verify rollback is a different, single-note path.
   if (episodic.length > 0 || staleMarks.length > 0 || stateGc.length > 0) {
     await appendSomaMemoryEvent(somaHome, {
       timestamp: now.toISOString(),

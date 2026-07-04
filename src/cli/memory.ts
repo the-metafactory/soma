@@ -146,9 +146,10 @@ export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAct
       "[--outcome <text>] [--session <id>] [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]. " +
       "Log one planned-action→approval→outcome entry (id YYYYMMDD-<slug>; collision refused).",
     consolidate:
-      "Usage: soma memory consolidate [--dry-run] [--home-dir <dir>] [--soma-home <dir>]. " +
+      "Usage: soma memory consolidate [--dry-run] [--gc-state] [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]. " +
       "Deterministic maintenance: prune aged episodic → digest+archive, mark aged-unverified semantic review:stale, " +
-      "list contradictions, GC old state, rebuild INDEX. --dry-run prints the plan without touching anything.",
+      "list contradictions, rebuild INDEX. --gc-state additionally DELETES current-work state >7d (explicit override). " +
+      "--dry-run prints the plan without touching anything.",
   },
 };
 
@@ -189,17 +190,16 @@ function parseMemoryConsolidateArgs(args: string[]): SomaMemoryConsolidateOption
   const options: SomaMemoryConsolidateOptions = {};
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
+    if (consumeSharedMemoryOption(args, index, arg, options)) {
+      index += 1;
+      continue;
+    }
     switch (arg) {
-      case "--home-dir":
-        options.homeDir = readOption(args, index, arg);
-        index += 1;
-        break;
-      case "--soma-home":
-        options.somaHome = readOption(args, index, arg);
-        index += 1;
-        break;
       case "--dry-run":
         options.dryRun = true;
+        break;
+      case "--gc-state":
+        options.gcState = true;
         break;
       default:
         throw new Error(`Unknown option: ${arg}`);

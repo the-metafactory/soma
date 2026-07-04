@@ -104,6 +104,23 @@ test("a symlinked episodic month directory is NOT traversed (trust-boundary guar
   });
 });
 
+test("the monthly digest is regenerated cumulatively from the archive across runs", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeNote(somaHome, "memory/episodic/sessions/2026-03/20260301-a.md",
+      note({ id: "20260301-a", type: "episodic", trust: "assistant", created: "2026-03-01", body: "session a" }));
+    await consolidateMemory({ somaHome, now: NOW });
+
+    // a second aged note in the SAME month, archived on a later run
+    await writeNote(somaHome, "memory/episodic/sessions/2026-03/20260315-b.md",
+      note({ id: "20260315-b", type: "episodic", trust: "assistant", created: "2026-03-15", body: "session b" }));
+    await consolidateMemory({ somaHome, now: NOW });
+
+    const digest = await readFile(join(somaHome, "memory/episodic/digests/2026-03.md"), "utf8");
+    expect(digest).toContain("- 20260301-a: session a");
+    expect(digest).toContain("- 20260315-b: session b"); // prior-archived note NOT lost
+  });
+});
+
 // --- mark stale --------------------------------------------------------------
 
 test("aged-unverified semantic is marked review:stale but NEVER archived; used/recent are not", async () => {
@@ -168,7 +185,13 @@ test("current-work state older than 7d is GC'd (the one deletion); recent kept",
     await utimes(oldState, old, old);
     await utimes(newState, recent, recent);
 
-    const result = await consolidateMemory({ somaHome, now: NOW });
+    // without --gc-state, protected state is NOT deleted
+    const noFlag = await consolidateMemory({ somaHome, now: NOW });
+    expect(noFlag.stateGced).toEqual([]);
+    expect(await exists(oldState)).toBe(true);
+
+    // with the explicit override, old state is GC'd; recent kept
+    const result = await consolidateMemory({ somaHome, now: NOW, gcState: true });
     expect(result.stateGced.some((p) => p.includes("current-work-old-abc.json"))).toBe(true);
     expect(await exists(oldState)).toBe(false);
     expect(await exists(newState)).toBe(true);

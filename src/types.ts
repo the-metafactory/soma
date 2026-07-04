@@ -2561,6 +2561,12 @@ export interface SomaMemoryConsolidateOptions {
   now?: Date;
   /** Plan only — print the ops without touching the filesystem. */
   dryRun?: boolean;
+  /**
+   * Explicit override for the destructive state GC. Deleting `current-work-*.json`
+   * is a destructive mutation of protected state, so per CONTEXT.md it needs a
+   * deliberate flag — without this, the pass plans/deletes no state files.
+   */
+  gcState?: boolean;
 }
 
 /** One planned file move (episodic prune → archive), preserving relative path. */
