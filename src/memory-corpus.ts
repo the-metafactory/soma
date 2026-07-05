@@ -7,9 +7,12 @@
  * nuance); and note-text sanitization split across three strippers of differing
  * strength (`cli/memory.ts`'s full ANSI/OSC strip, wired only into recall;
  * memory-index.ts's weaker `oneLine`, guarding the ALWAYS-LOADED INDEX;
- * episodic-digest.ts's third strip for the digest pointer). Named here so a new
- * output surface can't silently reinvent (or skip) a defense, and so the two
- * near-duplicate paths can't silently disagree on the threshold.
+ * episodic-digest.ts's third strip for the digest pointer). Named here so every
+ * output surface has ONE strong sanitizer to reach for instead of reinventing a
+ * weaker one, and so the two near-duplicate paths can't silently disagree on the
+ * threshold. This is a convention, not an enforced invariant — exporting
+ * `sanitizeNoteText` does not compel a future surface to call it; it only
+ * removes the excuse that no shared, strong one existed.
  */
 
 const MS_PER_DAY = 86_400_000;
