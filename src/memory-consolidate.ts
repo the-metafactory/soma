@@ -4,6 +4,7 @@ import { createPaths } from "./paths";
 import { isEnoent } from "./fs-utils";
 import { appendSomaMemoryEvent } from "./memory";
 import { parseMemoryNote, serializeMemoryNote, MemoryNoteError } from "./memory-note";
+import { renderDigestPointer } from "./episodic-digest";
 import { collectDurableNotes } from "./memory-write";
 import { runBoundedConcurrent } from "./internal-concurrency";
 import { memoryTermSet } from "./memory-terms";
@@ -130,12 +131,6 @@ function parseNotesBounded(paths: string[]): Promise<{ path: string; note: SomaM
     async (path) => ({ path, note: await readFile(path, "utf8").then(parseMemoryNote).catch(() => undefined) }),
     16,
   );
-}
-
-/** First non-empty body line, control-stripped + truncated — the digest pointer text. */
-function firstBodyLine(note: SomaMemoryNote): string {
-  const line = note.body.split("\n").map((l) => l.trim()).find((l) => l.length > 0) ?? "";
-  return line.replace(/[\x00-\x1f\x7f-\x9f]+/g, " ").slice(0, 120);
 }
 
 function jaccard(a: Set<string>, b: Set<string>): number {
@@ -377,7 +372,7 @@ async function regenerateMonthlyDigests(paths: SomaPaths, months: Set<string>): 
       .sort((a, b) => a.id.localeCompare(b.id));
     if (notes.length === 0) continue;
     const digestPath = paths.resolve("memory", "episodic", "digests", `${month}.md`);
-    const body = notes.map((n) => `- ${n.id}: ${firstBodyLine(n)}`).join("\n");
+    const body = notes.map(renderDigestPointer).join("\n");
     // The digests-dir parent chain was preflighted in the plan phase (before any
     // move), so no symlinked-parent refusal can strike here after notes have moved.
     await mkdir(dirname(digestPath), { recursive: true });

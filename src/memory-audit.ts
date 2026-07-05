@@ -1,6 +1,7 @@
 import { type Dirent, constants as fsConstants } from "node:fs";
 import { lstat, readFile, readdir } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
+import { parseDigestPointerIds } from "./episodic-digest";
 import { createPaths } from "./paths";
 import { isEnoent } from "./fs-utils";
 import { runBoundedConcurrent } from "./internal-concurrency";
@@ -337,8 +338,8 @@ function probeEventRatio(lines: number, notes: number): { probe: SomaMemoryAudit
 /**
  * Digest-referenced ids keyed by MONTH (the digest's `YYYY-MM.md` basename). Keyed
  * by month so the orphan check can require a note to appear in ITS created-month
- * digest — a reference in the wrong month is drift, not coverage. Each digest line
- * is `- <id>: <text>`.
+ * digest — a reference in the wrong month is drift, not coverage. The digest
+ * pointer grammar is owned by `episodic-digest.ts` so producer and consumer stay paired.
  */
 async function collectDigestIdsByMonth(digestFiles: string[]): Promise<Map<string, Set<string>>> {
   const byMonth = new Map<string, Set<string>>();
@@ -351,9 +352,8 @@ async function collectDigestIdsByMonth(digestFiles: string[]): Promise<Map<strin
   );
   for (const { month, content } of parsedFiles) {
     const ids = byMonth.get(month) ?? new Set<string>();
-    for (const line of content.split("\n")) {
-      const match = /^-\s+([^:\s]+):/.exec(line.trim());
-      if (match) ids.add(match[1]);
+    for (const id of parseDigestPointerIds(content)) {
+      ids.add(id);
     }
     byMonth.set(month, ids);
   }
