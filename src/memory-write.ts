@@ -382,10 +382,14 @@ interface CorpusScan {
  * previously this walk had NO symlink guard at all (a planted
  * `semantic/evil.md` → outside-the-tree symlink would be readdir'd and read
  * like any other note), the one caller among the four re-derivations of this
- * walk with no hardening whatsoever. `onSwap: "skip"` matches the sibling
+ * walk with no hardening whatsoever. `onSymlink: "skip"` matches the sibling
  * durable-corpus scan `consolidateMemory` already uses for episodic notes —
  * a symlinked note is now silently invisible to the dedup gate, the index,
- * and recall (this function's three callers), never followed.
+ * and recall (this function's three callers), never followed. The seam also
+ * re-`lstat`s each leaf before returning it (closing the enumeration-side
+ * swap window); the read below adds `O_NOFOLLOW` so even a leaf swapped for a
+ * symlink AFTER the seam returns cannot be followed — it reads as unreadable
+ * (ELOOP → surfaced), never through the link to an outside target.
  */
 export async function collectDurableNotes(somaHome: string): Promise<CorpusScan> {
   // Enumerate all note files across both durable dirs, then read them with a
@@ -397,7 +401,7 @@ export async function collectDurableNotes(somaHome: string): Promise<CorpusScan>
     const dir = typeDir(somaHome, type);
     let files: string[];
     try {
-      files = await listMemoryNotes(dir, { onSwap: "skip" });
+      files = await listMemoryNotes(dir, { onSymlink: "skip" });
     } catch {
       // A missing dir is genuinely empty (listMemoryNotes already returns []
       // for that, never throwing) — anything that DOES throw here (a real
@@ -412,7 +416,10 @@ export async function collectDurableNotes(somaHome: string): Promise<CorpusScan>
   const scanned = await runBoundedConcurrent(
     targets,
     async ({ path, type }): Promise<ScannedNote | { unreadable: string }> => {
-      const content = await readFile(path, "utf8").catch(() => undefined);
+      // O_NOFOLLOW: a leaf swapped for a symlink after the seam's re-lstat but
+      // before this read fails the open (ELOOP) rather than following the link
+      // out of the memory tree — the read-time half of the leaf-TOCTOU guard.
+      const content = await readFile(path, { encoding: "utf8", flag: FS.O_RDONLY | FS.O_NOFOLLOW }).catch(() => undefined);
       if (content === undefined) return { unreadable: path };
       try {
         return { path, type, note: parseMemoryNote(content) };

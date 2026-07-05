@@ -97,14 +97,25 @@ async function isRealEntry(path: string, kind: "dir" | "file"): Promise<boolean>
 }
 
 /**
- * Note files under a two-level `<base>/<month>/` tree — or a single flat dir,
- * via the shared `listMemoryNotes` seam (#408): SYMLINKS are skipped at every
+ * `*.md` note files in a STRICT two-level `<base>/<month>/` tree: enumerate the
+ * real (non-symlink) month dirs directly under `base`, then list the `.md`
+ * files directly inside each via the shared `listMemoryNotes` seam (#408) —
+ * NON-recursive, so consolidation never descends BELOW a month dir (an episodic
+ * note lives at `<base>/<month>/<note>.md`, never deeper; a nested file is not
+ * an episodic note and must not be parsed/moved). SYMLINKS are skipped at every
  * level (a symlinked month dir or note file could point outside the memory
- * root, so consolidation would parse/move foreign files across the trust
- * boundary). `[]` if `base`/`dir` is absent, a symlink, or not a directory.
+ * root, so consolidation would otherwise parse/move foreign files across the
+ * trust boundary). `[]` if `base` is absent, a symlink, or not a directory.
  */
-function listEpisodicNotes(base: string): Promise<string[]> {
-  return listMemoryNotes(base, { recursive: true, onSwap: "skip" });
+async function listEpisodicNotes(base: string): Promise<string[]> {
+  if (!(await isRealEntry(base, "dir"))) return []; // absent, a symlink, or not a dir
+  const files: string[] = [];
+  for (const month of (await readdir(base)).sort()) {
+    const monthDir = join(base, month);
+    if (!(await isRealEntry(monthDir, "dir"))) continue; // skip symlinked/non-dir month
+    files.push(...(await listMemoryNotes(monthDir, { onSymlink: "skip" }))); // direct .md files only
+  }
+  return files;
 }
 
 /** Read + parse notes with bounded concurrency; each result pairs its path with the
@@ -367,7 +378,7 @@ async function regenerateMonthlyDigests(paths: SomaPaths, months: Set<string>): 
 
 /** Real `.md` files directly under one archived-episodic `<kind>/<month>/` dir. */
 function listArchivedMonthNotes(paths: SomaPaths, kind: "sessions" | "actions", month: string): Promise<string[]> {
-  return listMemoryNotes(paths.archive("episodic", kind, month), { onSwap: "skip" });
+  return listMemoryNotes(paths.archive("episodic", kind, month), { onSymlink: "skip" });
 }
 
 /**

@@ -196,7 +196,7 @@ const MARKDOWN_EXT = /\.(?:md|markdown)$/i;
  * ordering.
  *
  * The recursive walk and its symlink refusal go through the shared
- * `listMemoryNotes` seam (#408) with `onSwap: "throw"` — backfill is the one
+ * `listMemoryNotes` seam (#408) with `onSymlink: "throw"` — backfill is the one
  * caller among the seam's four re-derivations that wants ANY symlink (not
  * just a mid-walk swap) to abort the whole scan loudly, since it is importing
  * arbitrary legacy content into governed notes and must never silently follow
@@ -225,8 +225,9 @@ async function collectSources(root: string, skipRootFiles: boolean): Promise<Sou
 
   const paths = await listMemoryNotes(root, {
     recursive: true,
-    onSwap: "throw",
+    onSymlink: "throw",
     extensions: [], // markdown matching (case-insensitive, .md/.markdown) is done in `include` below
+    sort: false, // backfill re-sorts its SourceFiles by POSIX relativePath below — skip the seam's redundant abspath sort
     include: ({ name, depth, isDirectory }) => {
       if (isDirectory) {
         // Reserved top-level names (the note stores + STATE/archive/imports)

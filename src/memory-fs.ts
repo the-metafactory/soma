@@ -13,24 +13,33 @@ import { runBoundedConcurrent } from "./internal-concurrency";
  * `memory-backfill.ts` (throw on any symlink), and `memory-write.ts`
  * (no guard at all) — and had drifted into four disagreeing policies. This
  * module owns the `lstat` / TOCTOU mechanics ONCE; every caller states its
- * own stance through `onSwap` instead of re-implementing the walk.
+ * own stance through `onSymlink` instead of re-implementing the walk.
  *
- * Two distinct hazards this walk defends against, with different reporting:
+ * Three distinct hazards this walk defends against:
  *
  * 1. **A symlinked entry** (a file or directory seen directly from
- *    `readdir`'s dirent type) — this walk NEVER follows it. `onSwap: "skip"`
+ *    `readdir`'s dirent type) — this walk NEVER follows it. `onSymlink: "skip"`
  *    (default) silently omits it and continues (consolidate's and the durable
  *    write-scan's stance: a symlinked note is invisible, not an error).
- *    `onSwap: "throw"` raises a {@link MemoryTraversalError} naming the path
+ *    `onSymlink: "throw"` raises a {@link MemoryTraversalError} naming the path
  *    instead (backfill's stance: an untrusted source tree must never import
- *    a symlink's target silently).
+ *    a symlink's target silently). This flag governs ONLY plain symlinked
+ *    entries — the two races below are handled unconditionally.
  * 2. **A directory replaced between the pre- and post-`readdir` `lstat`** — a
  *    TOCTOU race (originally the M7 audit's `AuditTreeError`). This is
- *    ALWAYS a loud failure, regardless of `onSwap`: a caller that asked only
- *    to "skip plain symlinked entries" never asked to trust a directory that
- *    provably changed identity out from under the read. No production
+ *    ALWAYS a loud failure, regardless of `onSymlink`: a caller that asked
+ *    only to "skip plain symlinked entries" never asked to trust a directory
+ *    that provably changed identity out from under the read. No production
  *    caller has ever needed this to fail open, and detecting it costs one
  *    extra `lstat` per directory.
+ * 3. **A file leaf swapped for a symlink between `readdir` and return** —
+ *    `readdir`'s dirent type is a snapshot; an attacker can swap a listed
+ *    regular file for a symlink before a caller reads the returned path. Each
+ *    file candidate is therefore RE-`lstat`ed right before it is returned and
+ *    must still be a real regular file, so this walk never hands back a path
+ *    that now resolves through a symlink. (A caller reading with `O_NOFOLLOW`
+ *    gets a second, atomic guarantee at read time; this closes the
+ *    enumeration-side window for every caller regardless.)
  *
  * A missing, symlinked, or non-directory `dir` (including the ROOT passed
  * in) yields `[]` — every caller's existing stance is that an absent or
@@ -39,7 +48,7 @@ import { runBoundedConcurrent } from "./internal-concurrency";
  * checks that itself before calling in, with its own message.
  */
 
-export type MemorySwapPolicy = "skip" | "throw";
+export type MemorySymlinkPolicy = "skip" | "throw";
 
 export interface ListMemoryNotesEntry {
   /** The entry's own name (not a path). */
@@ -52,8 +61,8 @@ export interface ListMemoryNotesEntry {
 export interface ListMemoryNotesOptions {
   /** Recurse into real (non-symlink) subdirectories. Default: false (direct children of `dir` only). */
   recursive?: boolean;
-  /** Policy for a symlinked entry found during the walk. See the module doc. Default: "skip". */
-  onSwap?: MemorySwapPolicy;
+  /** Policy for a plain symlinked entry found during the walk. See the module doc. Default: "skip". */
+  onSymlink?: MemorySymlinkPolicy;
   /**
    * Filename suffixes a FILE must match (case-sensitive, checked with
    * `endsWith`), each including the leading dot. Default: `[".md"]`. Pass
@@ -71,13 +80,20 @@ export interface ListMemoryNotesOptions {
    * everything.
    */
   include?: (entry: ListMemoryNotesEntry) => boolean;
-  /** Bounded concurrency for recursive fan-out across sibling subdirectories. Default: 16. */
+  /**
+   * Sort the returned paths (lexicographically, absolute). Default: true —
+   * callers rely on deterministic ordering. A caller that re-sorts by its own
+   * key afterwards (e.g. backfill sorts its `SourceFile`s by POSIX relative
+   * path) can pass `false` to skip this redundant sort.
+   */
+  sort?: boolean;
+  /** Bounded concurrency for recursive fan-out and leaf re-`lstat`ing. Default: 16. */
   concurrency?: number;
 }
 
 /**
- * Raised when the walk finds a symlinked entry under `onSwap: "throw"`, or
- * (regardless of `onSwap`) when a directory is discovered to have been
+ * Raised when the walk finds a symlinked entry under `onSymlink: "throw"`, or
+ * (regardless of `onSymlink`) when a directory is discovered to have been
  * replaced — a different inode/device, or no longer a real directory —
  * between the pre-read and post-read `lstat` of it.
  */
@@ -93,13 +109,14 @@ async function lstatOrUndefined(path: string): Promise<Stats | undefined> {
 /**
  * List file paths under `dir` matching `extensions` (default `.md`), never
  * following a symlink out of the tree. See the module doc for the full
- * `onSwap` / TOCTOU contract.
+ * `onSymlink` / TOCTOU contract.
  */
 export async function listMemoryNotes(dir: string, options: ListMemoryNotesOptions = {}): Promise<string[]> {
   const recursive = options.recursive ?? false;
-  const onSwap: MemorySwapPolicy = options.onSwap ?? "skip";
+  const onSymlink: MemorySymlinkPolicy = options.onSymlink ?? "skip";
   const extensions = options.extensions ?? [".md"];
   const concurrency = options.concurrency ?? 16;
+  const sort = options.sort ?? true;
   const include = options.include;
 
   async function walk(current: string, depth: number): Promise<string[]> {
@@ -119,8 +136,8 @@ export async function listMemoryNotes(dir: string, options: ListMemoryNotesOptio
 
     // Close the lstat→readdir TOCTOU: re-lstat and require the SAME real
     // directory (inode+device unchanged, still not a symlink). Unconditional
-    // — a provably-swapped directory is never trusted, whichever `onSwap` the
-    // caller chose for plain symlinked entries below.
+    // — a provably-swapped directory is never trusted, whichever `onSymlink`
+    // the caller chose for plain symlinked entries below.
     const after = await lstatOrUndefined(current);
     if (
       after === undefined ||
@@ -132,12 +149,12 @@ export async function listMemoryNotes(dir: string, options: ListMemoryNotesOptio
       throw new MemoryTraversalError(`directory ${current} was replaced during the memory walk — refusing to trust the read`);
     }
 
-    const files: string[] = [];
+    const fileCandidates: string[] = [];
     const subdirs: string[] = [];
     for (const entry of entries) {
       const full = join(current, entry.name);
       if (entry.isSymbolicLink()) {
-        if (onSwap === "throw") {
+        if (onSymlink === "throw") {
           throw new MemoryTraversalError(`refused symlink in the memory tree: ${full}`);
         }
         continue; // skip — never follow a symlink out of the memory root
@@ -149,11 +166,26 @@ export async function listMemoryNotes(dir: string, options: ListMemoryNotesOptio
       }
       if (entry.isFile()) {
         if (include && !include({ name: entry.name, depth, isDirectory: false })) continue;
-        if (extensions.length === 0 || extensions.some((ext) => entry.name.endsWith(ext))) files.push(full);
+        if (extensions.length === 0 || extensions.some((ext) => entry.name.endsWith(ext))) fileCandidates.push(full);
       }
       // Neither file, directory, nor symlink (a FIFO/socket/device): silently
       // ignored, matching every caller's existing stance.
     }
+
+    // Leaf TOCTOU (hazard 3): the dirent said "regular file", but that was a
+    // snapshot from `readdir`. Re-`lstat` each candidate right before returning
+    // it and require it to STILL be a real regular file — a leaf swapped for a
+    // symlink after enumeration is dropped here, so no caller is ever handed a
+    // path that now resolves through a symlink out of the memory root.
+    const verified = await runBoundedConcurrent(
+      fileCandidates,
+      async (full) => {
+        const st = await lstatOrUndefined(full);
+        return st !== undefined && !st.isSymbolicLink() && st.isFile() ? full : undefined;
+      },
+      concurrency,
+    );
+    const files = verified.filter((f): f is string => f !== undefined);
 
     if (subdirs.length === 0) return files;
     const nested = await runBoundedConcurrent(subdirs, (d) => walk(d, depth + 1), concurrency);
@@ -161,5 +193,5 @@ export async function listMemoryNotes(dir: string, options: ListMemoryNotesOptio
   }
 
   const result = await walk(dir, 0);
-  return result.sort();
+  return sort ? result.sort() : result;
 }

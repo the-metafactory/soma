@@ -31,19 +31,19 @@ const SCAN_CONCURRENCY = 16;
 
 /**
  * All `.md` files under `dir`, recursively, via the shared `listMemoryNotes`
- * seam (#408). `onSwap: "skip"` — the audit only trusts real entries, so a
+ * seam (#408). `onSymlink: "skip"` — the audit only trusts real entries, so a
  * symlinked dir/file is silently omitted rather than followed (matching this
  * probe's own tests: a symlinked note or note dir is invisible, not flagged).
  * The seam's mid-walk directory-swap TOCTOU detection (a directory replaced —
  * a different inode — between the pre- and post-`readdir` `lstat`) is
- * UNCONDITIONAL regardless of `onSwap`, so the audit's original loud-fail
+ * UNCONDITIONAL regardless of `onSymlink`, so the audit's original loud-fail
  * stance on that specific race (formerly `AuditTreeError`, now the shared
  * `MemoryTraversalError`) is preserved without asking for "throw" here (which
  * would also make a plain symlinked entry fail the whole walk — this probe's
  * contract is to skip those, not abort on them).
  */
 function listRealMarkdownFilesRec(dir: string): Promise<string[]> {
-  return listMemoryNotes(dir, { recursive: true, onSwap: "skip" });
+  return listMemoryNotes(dir, { recursive: true, onSymlink: "skip" });
 }
 
 // Read WITHOUT following a final-component symlink — closes the TOCTOU where a listed
