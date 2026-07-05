@@ -2,6 +2,10 @@ import type { SomaAdapter, Projection, ProjectionInput, SomaTask } from "../type
 import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills, withProvenance } from "./shared";
 import { activeVsaBundleFile } from "../adapter-active-vsa";
 
+export function isClaudeCodeSkillProjectionPath(_path: string): boolean {
+  return false;
+}
+
 function renderInstructions(input: ProjectionInput): string {
   return [
     "# Soma Claude Code Context",

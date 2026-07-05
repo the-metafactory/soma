@@ -127,36 +127,45 @@ async function installSomaForSubstrate(
   // r1 caught a bypass that trusted `process.versions.bun`, which
   // doesn't prove anything about the hook's later spawn environment.
   requireBunInPath();
-  const somaHome = await bootstrapSomaHome(options);
-  // soma#329 MIGRATION SHIM (removable once all homes are reprojected past the
-  // ISA→VSA rename): prune the renamed-away "ISA" skill from the SOURCE home
-  // BEFORE the VSA baseline is (re)written and BEFORE loadSomaHome enumerates
-  // skills below. `loadSomaSkills` projects EVERY dir under <somaHome>/skills, so a
-  // stale ISA here would re-propagate to every substrate on each install. Cheap +
-  // idempotent (a no-op readdir+gate once ISA is gone). Provenance-gated
-  // (frontmatter name: ISA + identity marker) — a user "ISA" skill is preserved.
-  await pruneLegacyVsaSkill(createPaths(somaHome.somaHome).skills());
-  const somaRepoPath = options.somaRepoPath ?? defaultSomaRepoPath();
-  // Install VSA skill into Soma home (canonical baseline) so other
-  // tooling reading <somaHome>/skills/VSA continues to work.
-  await installVsaSkillProjection({
+  const codeOnly = options.codeOnly === true;
+  const somaHome = await bootstrapSomaHome({
     homeDir: options.homeDir,
-    somaHome: somaHome.somaHome,
-    somaRepoPath,
+    somaHome: options.somaHome,
+    includeSkills: !codeOnly,
   });
-  // bootstrapSomaHome captured its context snapshot BEFORE the VSA skill
-  // baseline above existed, so its skill list is empty on a first install.
-  // Re-read the Soma home now that <somaHome>/skills/VSA is on disk: without
-  // this, the first install projects a skills.md that reads "No Soma skills
-  // were declared." and only the second install converges. Reloading makes
-  // the very first projection already list the VSA skill — install #1 is
-  // correct and byte-identical to every re-run.
-  const projectionContext = await loadSomaHome(somaHome.somaHome);
+  const somaRepoPath = options.somaRepoPath ?? defaultSomaRepoPath();
+  let projectionContext = somaHome.context;
+  if (!codeOnly) {
+    // soma#329 MIGRATION SHIM (removable once all homes are reprojected past the
+    // ISA→VSA rename): prune the renamed-away "ISA" skill from the SOURCE home
+    // BEFORE the VSA baseline is (re)written and BEFORE loadSomaHome enumerates
+    // skills below. `loadSomaSkills` projects EVERY dir under <somaHome>/skills, so a
+    // stale ISA here would re-propagate to every substrate on each install. Cheap +
+    // idempotent (a no-op readdir+gate once ISA is gone). Provenance-gated
+    // (frontmatter name: ISA + identity marker) — a user "ISA" skill is preserved.
+    await pruneLegacyVsaSkill(createPaths(somaHome.somaHome).skills());
+    // Install VSA skill into Soma home (canonical baseline) so other
+    // tooling reading <somaHome>/skills/VSA continues to work.
+    await installVsaSkillProjection({
+      homeDir: options.homeDir,
+      somaHome: somaHome.somaHome,
+      somaRepoPath,
+    });
+    // bootstrapSomaHome captured its context snapshot BEFORE the VSA skill
+    // baseline above existed, so its skill list is empty on a first install.
+    // Re-read the Soma home now that <somaHome>/skills/VSA is on disk: without
+    // this, the first install projects a skills.md that reads "No Soma skills
+    // were declared." and only the second install converges. Reloading makes
+    // the very first projection already list the VSA skill — install #1 is
+    // correct and byte-identical to every re-run.
+    projectionContext = await loadSomaHome(somaHome.somaHome);
+  }
   const projectionOptions = {
     homeDir: options.homeDir,
     somaHome: options.somaHome,
     substrateHome: options.substrateHome,
     somaRepoPath,
+    codeOnly,
   };
   // Per-substrate skill projection (#37 AC-3). Each substrate gets the
   // versioned VSA skill under its native skills dir, with independent
@@ -165,15 +174,17 @@ async function installSomaForSubstrate(
   const resolvedHomeDir = resolve(options.homeDir ?? homedir());
   const substrateRoot = resolve(options.substrateHome ?? join(resolvedHomeDir, spec.defaultHome));
   await spec.validator?.(substrateRoot);
-  await spec.vsaSkillProjection.prepare?.(substrateRoot);
-  await installVsaSkillProjection({
-    homeDir: options.homeDir,
-    somaHome: somaHome.somaHome,
-    somaRepoPath,
-    skillDestinationDir: spec.vsaSkillProjection.destinationDir(substrateRoot),
-    skillNameOverride: spec.vsaSkillProjection.skillNameOverride,
-    projectionSubstrate: substrate,
-  });
+  if (!codeOnly) {
+    await spec.vsaSkillProjection.prepare?.(substrateRoot);
+    await installVsaSkillProjection({
+      homeDir: options.homeDir,
+      somaHome: somaHome.somaHome,
+      somaRepoPath,
+      skillDestinationDir: spec.vsaSkillProjection.destinationDir(substrateRoot),
+      skillNameOverride: spec.vsaSkillProjection.skillNameOverride,
+      projectionSubstrate: substrate,
+    });
+  }
   // Populate the projection input with the active VSA so each substrate writes its
   // `active-vsa.md` file (#37 AC-1/AC-2), and with the memory index (M4) so
   // memory-aware substrates project their always-loaded memory file. Both are
@@ -280,7 +291,7 @@ async function runPostProjectionSteps(
 async function installHomeProjectionFor(
   substrate: InstallSubstrate,
   context: ProjectionInput,
-  options: { homeDir?: string; somaHome?: string; substrateHome?: string; somaRepoPath: string },
+  options: { homeDir?: string; somaHome?: string; substrateHome?: string; somaRepoPath: string; codeOnly?: boolean },
 ) {
   switch (substrate) {
     case "codex":

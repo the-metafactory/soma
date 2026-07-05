@@ -12,6 +12,10 @@ import { somaMemoryPrivateRoots, somaProjectionPrivateRoots } from "../../projec
 import { defaultInboundContentSecurityConfig } from "../../inbound-security";
 import { rewriteSubstrateProjectionContent } from "../../substrate-projection-rewrites";
 
+export function isCodexSkillProjectionPath(path: string): boolean {
+  return path.startsWith("skills/");
+}
+
 /**
  * Compute the runtime config the soma-lifecycle.mjs hook reads at
  * startup from a colocated soma-lifecycle.config.json. Replaces the
