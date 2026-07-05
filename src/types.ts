@@ -1929,12 +1929,21 @@ export interface SomaResultSearchResult {
   matches: SomaResultSearchMatch[];
 }
 
-// Single source of truth for the promotion-store enumeration: `promoted()`
-// (src/paths.ts) maps each of these to its on-disk dir, and the CLI's
-// `--store` validator (src/cli/memory.ts) checks against this same array —
-// neither re-lists the literals independently.
-export const SOMA_MEMORY_PROMOTION_STORES = ["learning", "knowledge", "relationship", "work"] as const;
-export type SomaMemoryPromotionStore = (typeof SOMA_MEMORY_PROMOTION_STORES)[number];
+// Single source of truth for the promotion-store enumeration AND its on-disk
+// dir mapping: `promoted()` (src/paths.ts) keys this map, and the CLI's
+// `--store` validator (src/cli/memory.ts) checks against the derived array —
+// neither re-lists the literals independently (soma#419 review: the dir map
+// used to be re-declared in paths.ts, a second source list).
+export const SOMA_MEMORY_PROMOTION_STORE_DIRS = {
+  learning: "LEARNING",
+  knowledge: "KNOWLEDGE",
+  relationship: "RELATIONSHIP",
+  work: "WORK",
+} as const;
+export type SomaMemoryPromotionStore = keyof typeof SOMA_MEMORY_PROMOTION_STORE_DIRS;
+export const SOMA_MEMORY_PROMOTION_STORES = Object.keys(
+  SOMA_MEMORY_PROMOTION_STORE_DIRS,
+) as SomaMemoryPromotionStore[];
 
 export interface SomaMemoryPromotionOptions {
   homeDir?: string;

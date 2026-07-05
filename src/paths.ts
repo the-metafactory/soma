@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve as resolvePath, sep } from "node:path";
+import { SOMA_MEMORY_PROMOTION_STORE_DIRS } from "./types";
 import type { SomaMemoryPromotionStore, SomaPaths } from "./types";
 
 export interface SomaPathsOptions {
@@ -19,16 +20,6 @@ function assertInsideRoot(root: string, target: string): void {
   throw new Error(`Soma path escapes root: ${target}`);
 }
 
-// The one place the promotion store→dir mapping lives (mirrors the dedicated
-// per-store accessors below) — `promoted()` is the sole reader, so a caller
-// never re-lists these literals (soma#407: this used to be triplicated across
-// memory-promotion.ts, memory-write.ts, and cli/memory.ts).
-const PROMOTED_STORE_DIR: Record<SomaMemoryPromotionStore, string> = {
-  learning: "LEARNING",
-  knowledge: "KNOWLEDGE",
-  relationship: "RELATIONSHIP",
-  work: "WORK",
-};
 
 export function createPaths(optionsOrSomaHome: SomaPathsOptions | string = {}): SomaPaths {
   const options = typeof optionsOrSomaHome === "string"
@@ -61,7 +52,8 @@ export function createPaths(optionsOrSomaHome: SomaPathsOptions | string = {}): 
     procedural: () => underRoot("memory", "procedural"),
     episodic: (kind: "sessions" | "actions" | "digests", ...segments: string[]) =>
       underRoot("memory", "episodic", kind, ...segments),
-    promoted: (store: SomaMemoryPromotionStore) => underRoot("memory", PROMOTED_STORE_DIR[store], "PROMOTED"),
+    promoted: (store: SomaMemoryPromotionStore) =>
+      underRoot("memory", SOMA_MEMORY_PROMOTION_STORE_DIRS[store], "PROMOTED"),
     archive: (...segments: string[]) => underRoot("memory", "archive", ...segments),
     ratings: () => underRoot("memory", "LEARNING", "SIGNALS", "ratings.jsonl"),
     opinions: () => underRoot("identity", "opinions.md"),
