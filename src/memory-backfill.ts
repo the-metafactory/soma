@@ -222,6 +222,12 @@ async function collectSources(root: string, skipRootFiles: boolean): Promise<Sou
   if (rootStat.isSymbolicLink()) {
     throw new Error(`Soma memory backfill refused symlink source root: ${root}`);
   }
+  // A regular-file `--from` used to surface ENOTDIR from `readdir`; the seam
+  // treats a non-directory root as empty, so reject it explicitly here rather
+  // than silently reporting no sources.
+  if (!rootStat.isDirectory()) {
+    throw new Error(`Soma memory backfill source root is not a directory: ${root}`);
+  }
 
   const paths = await listMemoryNotes(root, {
     recursive: true,
