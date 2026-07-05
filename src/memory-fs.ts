@@ -181,7 +181,17 @@ export async function listMemoryNotes(dir: string, options: ListMemoryNotesOptio
       fileCandidates,
       async (full) => {
         const st = await lstatOrUndefined(full);
-        return st !== undefined && !st.isSymbolicLink() && st.isFile() ? full : undefined;
+        if (st?.isSymbolicLink()) {
+          // A leaf swapped for a symlink after enumeration: honour the same
+          // policy as a symlinked dirent above — loud-fail under "throw",
+          // drop under "skip". Silently dropping here would weaken backfill's
+          // loud-fail contract.
+          if (onSymlink === "throw") {
+            throw new MemoryTraversalError(`refused symlink in the memory tree: ${full}`);
+          }
+          return undefined;
+        }
+        return st !== undefined && st.isFile() ? full : undefined;
       },
       concurrency,
     );
