@@ -42,6 +42,15 @@ policy is documented in
 [runtime-policy-inspection.md](./runtime-policy-inspection.md) and remains
 separate from both private-source path guarding and inbound-content scanning.
 
+Session digest capture: Codex `Stop` hooks call Soma lifecycle `session-end`
+with the session id, cwd, and a transcript path when Codex provides one. Without
+an explicit path, the hook only checks an exact `<session-id>.jsonl` direct
+child of the Codex session root. The Codex transcript
+fallback is adapter-owned, deterministic, best-effort, and idempotent: it writes
+at most one `hook: session-end` memory digest per qualifying session, refuses
+paths that escape the Codex session root, skips short sessions without error,
+and leaves lifecycle metadata capture non-blocking.
+
 ## Pi.dev
 
 Pi.dev is model-agnostic and supports extensions and skills. The adapter should

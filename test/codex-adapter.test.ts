@@ -72,7 +72,8 @@ test("codex home repoints durable-claim guidance to note-aware recall", () => {
   const lifecycle = bundle.files.find((file) => file.path === "memories/soma/lifecycle.md")?.content ?? "";
   expect(lifecycle).toContain("soma memory recall");
   expect(lifecycle).toContain("soma memory digest");
-  expect(lifecycle).toContain("Capture Limitation");
+  expect(lifecycle).toContain("Session Digest Capture");
+  expect(lifecycle).not.toContain("Codex has no automatic session-digest capture");
 });
 
 test("codex adapter exposes context build before execution", async () => {
