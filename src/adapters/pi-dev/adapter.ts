@@ -317,7 +317,7 @@ function renderHomeExtension(somaHome: string): string {
     "When the user asks who they are, answer from the Soma-projected principal identity.",
     "Use the soma_context tool or read paths listed below when deeper migrated PAI identity, values, goals, strategies, or decision context matters.",
     "Before durable claims that may depend on prior work, call soma_context action=memory_recall (note-aware), and action=memory_index for the durable INDEX.",
-    "Pi has no SessionEnd digest hook: when wrapping up substantial work, author ONE session digest and run `cd $(cat ~/.pi/agent/soma/soma-repo.txt) && bun run soma memory digest --session <session-id> --body \"8-15 lines\"`. This capture is agent-invoked.",
+    "Pi has no SessionEnd digest hook: when wrapping up substantial work, author ONE session digest and run \\`cd $(cat ~/.pi/agent/soma/soma-repo.txt) && bun run soma memory digest --session <session-id> --body \"8-15 lines\"\\`. This capture is agent-invoked.",
     "",
     "${profile}",
     "",

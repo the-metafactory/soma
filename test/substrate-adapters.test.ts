@@ -42,6 +42,12 @@ test("pi.dev home extension wires note-aware recall, live INDEX, and a digest wr
   expect(extension).toContain("soma memory digest");
   // Back-compat: legacy line-grep search is not removed.
   expect(extension).toContain("memorySearchArgs");
+  // Regression (#402): the rendered extension must be syntactically valid TS.
+  // A backtick-wrapped shell command was embedded RAW inside the `somaPrompt`
+  // template literal, closing it early → Pi refused to load with
+  // "ParseError: Missing semicolon" at the digest line. A string-contains check
+  // (above) passes on broken syntax; transpiling is what actually guards it.
+  expect(() => new Bun.Transpiler({ loader: "ts" }).transformSync(extension)).not.toThrow();
 });
 
 test("pi.dev adapter requires HOME when SOMA_HOME is unset", () => {
