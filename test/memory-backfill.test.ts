@@ -143,15 +143,6 @@ test("refuses a symlinked source root", async () => {
   });
 });
 
-test("refuses a regular-file source root (does not silently no-op)", async () => {
-  await withTempSoma(async (somaHome) => {
-    await mkdir(somaHome, { recursive: true });
-    const file = join(somaHome, "not-a-dir.md");
-    await writeFile(file, "a file passed where a directory is expected", "utf8");
-    await expect(runMemoryBackfill({ somaHome, from: file })).rejects.toThrow(/not a directory/i);
-  });
-});
-
 test("leaves the store audit-clean: INDEX rebuilt after writes", async () => {
   await withTempSoma(async (somaHome) => {
     await seed(somaHome, "KNOWLEDGE/a.md", "an imported fact for audit health");

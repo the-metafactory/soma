@@ -12,8 +12,7 @@ import {
   writeSessionDigest,
 } from "../index";
 import { WRITABLE_NOTE_TYPES, isWritableNoteType } from "../memory-write";
-import { sanitizeNoteText } from "../memory-corpus";
-import { SOMA_MEMORY_ACTION_APPROVALS, SOMA_MEMORY_PROMOTION_STORES } from "../types";
+import { SOMA_MEMORY_ACTION_APPROVALS } from "../types";
 import type {
   SomaMemoryActionApproval,
   SomaMemoryActionOptions,
@@ -142,7 +141,7 @@ export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAct
       "Usage: soma memory recall <query> [--query <text>] [--limit <n>] [--home-dir <dir>] [--soma-home <dir>]. " +
       "Note-aware retrieval over durable notes: term-scored whole-file matches (limit 3) + 1-hop links, " +
       "superseded notes excluded, each result carrying a verification banner. Read-only.",
-    promote: "Usage: soma memory promote --from-run <run-id> --store <learning|knowledge|relationship|work> --title <text> [--lesson <text>] [--applies-when <text>]",
+    promote: "Usage: soma memory promote --from-run <run-id> --store <learning|knowledge|relationship|work> --title <text> --principal-authority [--lesson <text>] [--applies-when <text>] [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]. --principal-authority is required: promotion mints a principal-trust durable note, a deliberate, logged escalation (same surface as `soma memory write --principal-authority`).",
     write:
       "Usage: soma memory write --trigger <principal-correction|import> --body <text> " +
       "(create: --id <slug> --type <semantic|procedural> [--force]) " +
@@ -552,6 +551,9 @@ function parseMemoryPromoteArgs(args: string[]): SomaMemoryPromotionOptions {
         options.appliesWhen = readOption(args, index, arg);
         index += 1;
         break;
+      case "--principal-authority":
+        options.principalAuthority = true;
+        break;
       default:
         throw new Error(`Unknown option: ${arg}`);
     }
@@ -569,13 +571,11 @@ function parseMemoryPromoteArgs(args: string[]): SomaMemoryPromotionOptions {
 }
 
 function parseMemoryPromotionStore(value: string): SomaMemoryPromotionStore {
-  // Delegates to the canonical enumeration (types.ts) instead of re-listing the
-  // store literals — the same array `paths.promoted()` maps to on-disk dirs.
-  if ((SOMA_MEMORY_PROMOTION_STORES as readonly string[]).includes(value)) {
-    return value as SomaMemoryPromotionStore;
+  if (value === "learning" || value === "knowledge" || value === "relationship" || value === "work") {
+    return value;
   }
 
-  throw new Error(`--store must be one of ${SOMA_MEMORY_PROMOTION_STORES.join(", ")}.`);
+  throw new Error("--store must be one of learning, knowledge, relationship, or work.");
 }
 
 function parseWriteTrigger(value: string): SomaMemoryWriteTrigger {
@@ -978,6 +978,27 @@ function formatMemorySearchResult(result: SomaMemorySearchResult): string {
 }
 
 /**
+ * Strip terminal control sequences from note-authored text before it reaches the
+ * terminal. Memory notes can hold imported / quarantined tool/web content, and a
+ * malicious note body or `source_of_truth` could smuggle ANSI CSI / OSC escapes
+ * that spoof output, rewrite earlier lines, or poke the terminal's title and
+ * clipboard state when the principal runs `soma memory recall`. Removes:
+ *   - ESC-introduced sequences (CSI `ESC [ … final`, OSC `ESC ] … BEL|ST`, and
+ *     any other `ESC <byte>` form), plus the C1 CSI byte 0x9b, and
+ *   - remaining C0/C1 control chars, keeping only tab and newline (the layout
+ *     this formatter itself relies on).
+ * Deliberately conservative: it discards control bytes rather than escaping them,
+ * since recall output is human-facing text, not a round-trippable channel.
+ */
+function sanitizeForTerminal(text: string): string {
+  return text
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "") // OSC … terminated by BEL or ST
+    .replace(/\x1b[@-_][0-?]*[ -/]*[@-~]/g, "")         // CSI and other two-byte ESC sequences
+    .replace(/\x1b./g, "")                                // any stray ESC + following byte
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/g, ""); // C0/C1 controls except \t (\x09) and \n (\x0a)
+}
+
+/**
  * Render one recalled note to its output lines (heading + banner + body). Every
  * note-derived field is sanitized here — the id/linkedFrom are slug-validated by
  * the parser (they cannot hold control chars in a note that parsed at all), but
@@ -985,12 +1006,12 @@ function formatMemorySearchResult(result: SomaMemorySearchResult): string {
  * no future edit can reintroduce a raw one.
  */
 function formatRecalledMatch(match: SomaMemoryRecallResult["matches"][number]): string[] {
-  const id = sanitizeNoteText(match.id);
+  const id = sanitizeForTerminal(match.id);
   const heading =
     match.via === "match"
       ? `━━ ${id} [${match.type}] · ${match.score} term${match.score === 1 ? "" : "s"} matched`
-      : `━━ ${id} [${match.type}] · via link from ${sanitizeNoteText(match.linkedFrom ?? "")}`;
-  return [heading, sanitizeNoteText(match.banner), "", sanitizeNoteText(match.note.body), ""];
+      : `━━ ${id} [${match.type}] · via link from ${sanitizeForTerminal(match.linkedFrom ?? "")}`;
+  return [heading, sanitizeForTerminal(match.banner), "", sanitizeForTerminal(match.note.body), ""];
 }
 
 function formatMemoryRecallResult(result: SomaMemoryRecallResult): string {
@@ -999,11 +1020,11 @@ function formatMemoryRecallResult(result: SomaMemoryRecallResult): string {
     // The query is principal-supplied and the note body/banner can carry imported
     // or quarantined tool/web content — never render any of it to the terminal raw
     // (ANSI/OSC escapes could spoof output or touch clipboard/title state).
-    `query: ${sanitizeNoteText(result.query)}`,
-    `terms: ${result.terms.length > 0 ? result.terms.map((term) => sanitizeNoteText(term)).join(", ") : "(none — needs a 3+char term)"}`,
+    `query: ${sanitizeForTerminal(result.query)}`,
+    `terms: ${result.terms.length > 0 ? result.terms.map(sanitizeForTerminal).join(", ") : "(none — needs a 3+char term)"}`,
     // somaHome is derived from a caller-supplied --soma-home; a path with ANSI/OSC
     // bytes must not reach the terminal raw either.
-    `somaHome: ${sanitizeNoteText(result.somaHome)}`,
+    `somaHome: ${sanitizeForTerminal(result.somaHome)}`,
     "",
   ];
 
@@ -1016,12 +1037,12 @@ function formatMemoryRecallResult(result: SomaMemoryRecallResult): string {
   // Surface both blind spots explicitly — recall never hides an unresolved link or
   // an unreadable corpus file behind a clean-looking result.
   if (result.unresolvedLinks.length > 0) {
-    const rendered = result.unresolvedLinks.map((link) => sanitizeNoteText(link)).join(", ");
+    const rendered = result.unresolvedLinks.map(sanitizeForTerminal).join(", ");
     lines.push(`Unresolved 1-hop links (missing or superseded): ${rendered}`);
   }
   if (result.unreadable.length > 0) {
     lines.push(`⚠ ${result.unreadable.length} corpus file(s) unreadable — recall was partial:`);
-    for (const path of result.unreadable) lines.push(`  - ${sanitizeNoteText(path)}`);
+    for (const path of result.unreadable) lines.push(`  - ${sanitizeForTerminal(path)}`);
   }
 
   return lines.join("\n").trimEnd();

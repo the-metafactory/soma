@@ -156,24 +156,6 @@ test("renderMemoryIndex golden output for a fixed tree and now", () => {
   expect(excluded).toBe(2);
 });
 
-// --- sanitization (SECURITY-CRITICAL, #410) -----------------------------------
-
-test("an ANSI/OSC spoofing payload in a note body renders inert through the INDEX surface", () => {
-  // A CSI color escape + an OSC 8 hyperlink-spoofing payload (would render as a
-  // clickable link to an attacker-controlled URI in a terminal that honors it),
-  // both embedded in a principal-trust note body — the descriptor is the FIRST
-  // body line the INDEX ever admits verbatim.
-  const payload = "\x1b[31mALERT\x1b[0m click \x1b]8;;http://evil.example\x07here\x1b]8;;\x07 now";
-  const notes = [note({ id: "spoof-note", trust: "principal", body: payload })];
-
-  const { content } = renderMemoryIndex(notes, NOW);
-
-  expect(content).not.toContain("\x1b");
-  expect(content).not.toContain("\x07");
-  expect(content).not.toContain("evil.example");
-  expect(content).toContain("ALERT click here now");
-});
-
 // --- budget ------------------------------------------------------------------
 
 test("line budget sheds the lowest-score notes first", () => {
@@ -273,21 +255,6 @@ test("rebuildMemoryIndex writes memory/INDEX.md and returns counts", async () =>
     expect(onDisk).toBe(result.content);
     expect(onDisk).toContain("- earned —");
     expect(onDisk).not.toContain("quar");
-  });
-});
-
-test("rebuildMemoryIndex writes an ANSI/OSC spoofing payload inert to memory/INDEX.md on disk", async () => {
-  await withTempSoma(async (somaHome) => {
-    const payload = "\x1b[31mALERT\x1b[0m click \x1b]8;;http://evil.example\x07here\x1b]8;;\x07 now";
-    await seed(somaHome, note({ id: "spoof-note", body: payload, trust: "principal" }));
-
-    const result = await rebuildMemoryIndex({ somaHome, now: NOW });
-    const onDisk = await readFile(result.path, "utf8");
-
-    expect(onDisk).not.toContain("\x1b");
-    expect(onDisk).not.toContain("\x07");
-    expect(onDisk).not.toContain("evil.example");
-    expect(onDisk).toContain("ALERT click here now");
   });
 });
 

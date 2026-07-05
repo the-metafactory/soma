@@ -96,10 +96,9 @@ export type ParsedSubstrateLifecycleArgs =
 export const INSTALL_SUBSTRATES = ["codex", "pi-dev", "claude-code", "cursor", "grok"] as const satisfies readonly InstallSubstrate[];
 
 const substrateList = INSTALL_SUBSTRATES.join("|");
-const installOptions = "[--dry-run] [--apply] [--workspace] [--code-only] [--no-mode-classifier] [--no-policy-guard] [--claude-md] [--skills <name[,name…]>] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
-// Shared by uninstall and projection verbs for common workspace/home flags.
+const installOptions = "[--dry-run] [--apply] [--workspace] [--no-mode-classifier] [--no-policy-guard] [--claude-md] [--skills <name[,name…]>] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
+// Shared by uninstall, reproject, and upgrade — all workspace-capable verbs.
 const workspaceVerbOptions = "[--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
-const projectionVerbOptions = "[--workspace] [--code-only] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
 const uninstallOptions = workspaceVerbOptions;
 
 function lifecycleUsage(command: string, target: string, options: string): string {
@@ -159,10 +158,10 @@ export const SUBSTRATE_LIFECYCLE_COMMAND_HELP: Record<
     subcommands: lifecycleSubcommandUsage("uninstall", uninstallOptions),
   },
   reproject: {
-    usage: lifecycleUsage("reproject", `<${substrateList}>`, projectionVerbOptions),
+    usage: lifecycleUsage("reproject", `<${substrateList}>`, workspaceVerbOptions),
   },
   upgrade: {
-    usage: lifecycleUsage("upgrade", `<${substrateList}>`, projectionVerbOptions),
+    usage: lifecycleUsage("upgrade", `<${substrateList}>`, workspaceVerbOptions),
   },
   export: {
     usage: lifecycleUsage("export", `<${substrateList}>`, "[--out <dir>] [--home-dir <dir>] [--soma-home <dir>]"),
@@ -206,7 +205,6 @@ function parseSubstrateLifecycleOptions<TOptions extends SomaInstallOptions = So
   substrate: InstallSubstrate,
   rest: string[],
   extra: (arg: string, index: number, options: TOptions) => boolean,
-  parserOptions: { allowCodeOnly?: boolean } = {},
 ): { workspace: boolean; options: TOptions } {
   const options = {} as TOptions;
   let workspace = false;
@@ -218,10 +216,6 @@ function parseSubstrateLifecycleOptions<TOptions extends SomaInstallOptions = So
     switch (arg) {
       case "--workspace":
         workspace = true;
-        continue;
-      case "--code-only":
-        if (parserOptions.allowCodeOnly !== true) break;
-        options.codeOnly = true;
         continue;
       case "--home-dir":
         options.homeDir = readOption(rest, index, arg);
@@ -294,7 +288,7 @@ export function parseInstallArgs(args: string[]): ParsedInstallArgs {
         return true;
     }
     return false;
-  }, { allowCodeOnly: true });
+  });
   if (options.modeClassifier !== undefined && substrate !== "claude-code") {
     throw new Error("--mode-classifier / --no-mode-classifier is only supported for claude-code installs.");
   }
@@ -342,9 +336,7 @@ function parseLifecycleVerbArgs(
     throw new Error(commandUsage(verb));
   }
 
-  const { workspace, options } = parseSubstrateLifecycleOptions(substrate, rest, () => false, {
-    allowCodeOnly: verb === "reproject" || verb === "upgrade",
-  });
+  const { workspace, options } = parseSubstrateLifecycleOptions(substrate, rest, () => false);
   return { substrate, workspace, options };
 }
 

@@ -495,17 +495,11 @@ export interface SomaPaths {
   profile(): string;
   skills(): string;
   learning(): string;
-  knowledge(): string;
   signals(): string;
   wisdom(): string;
   relationship(): string;
-  state(...segments: string[]): string;
+  state(): string;
   work(): string;
-  semantic(): string;
-  procedural(): string;
-  episodic(kind: "sessions" | "actions" | "digests", ...segments: string[]): string;
-  promoted(store: SomaMemoryPromotionStore): string;
-  archive(...segments: string[]): string;
   ratings(): string;
   opinions(): string;
   story(): string;
@@ -603,7 +597,6 @@ export interface SomaHomeProjectionOptions {
   somaHome?: string;
   substrateHome?: string;
   somaRepoPath?: string;
-  codeOnly?: boolean;
 }
 
 export interface SomaHomeProjection {
@@ -616,7 +609,6 @@ export interface SomaHomeProjection {
 export interface SomaHomeBootstrapOptions {
   homeDir?: string;
   somaHome?: string;
-  includeSkills?: boolean;
 }
 
 export interface SomaHomeBootstrapResult {
@@ -630,7 +622,6 @@ export interface SomaInstallOptions {
   somaHome?: string;
   substrateHome?: string;
   somaRepoPath?: string;
-  codeOnly?: boolean;
 }
 
 export interface SomaInstallResult {
@@ -1929,21 +1920,10 @@ export interface SomaResultSearchResult {
   matches: SomaResultSearchMatch[];
 }
 
-// Single source of truth for the promotion-store enumeration AND its on-disk
-// dir mapping: `promoted()` (src/paths.ts) keys this map, and the CLI's
-// `--store` validator (src/cli/memory.ts) checks against the derived array —
-// neither re-lists the literals independently (soma#419 review: the dir map
-// used to be re-declared in paths.ts, a second source list).
-export const SOMA_MEMORY_PROMOTION_STORE_DIRS = {
-  learning: "LEARNING",
-  knowledge: "KNOWLEDGE",
-  relationship: "RELATIONSHIP",
-  work: "WORK",
-} as const;
-export type SomaMemoryPromotionStore = keyof typeof SOMA_MEMORY_PROMOTION_STORE_DIRS;
-export const SOMA_MEMORY_PROMOTION_STORES = Object.keys(
-  SOMA_MEMORY_PROMOTION_STORE_DIRS,
-) as SomaMemoryPromotionStore[];
+export type SomaMemoryPromotionStore = "learning" | "knowledge" | "relationship" | "work";
+
+// The on-disk store directory mapping for these stores lives in
+// src/memory-stores.ts (internal — not part of the public API surface).
 
 export interface SomaMemoryPromotionOptions {
   homeDir?: string;
@@ -1955,12 +1935,19 @@ export interface SomaMemoryPromotionOptions {
   lesson?: string;
   appliesWhen?: string;
   timestamp?: string;
+  /** Deliberate-escalation gate (required, fail-closed). See docs/architecture.md Memory section. */
+  principalAuthority: boolean;
 }
 
 export interface SomaMemoryPromotionResult {
   somaHome: string;
   store: SomaMemoryPromotionStore;
+  /** The verbatim promotion record under <STORE>/PROMOTED/ (source of truth). */
   path: string;
+  /** The durable, INDEX-admissible note (principal trust) created from the promotion. */
+  notePath: string;
+  /** The id of the durable note (mirrors backfill's `<category>-<stem>` convention). */
+  noteId: string;
   sourceRunPath: string;
   event: SomaMemoryEvent;
 }

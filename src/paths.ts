@@ -1,7 +1,6 @@
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve as resolvePath, sep } from "node:path";
-import { SOMA_MEMORY_PROMOTION_STORE_DIRS } from "./types";
-import type { SomaMemoryPromotionStore, SomaPaths } from "./types";
+import type { SomaPaths } from "./types";
 
 export interface SomaPathsOptions {
   homeDir?: string;
@@ -20,7 +19,6 @@ function assertInsideRoot(root: string, target: string): void {
   throw new Error(`Soma path escapes root: ${target}`);
 }
 
-
 export function createPaths(optionsOrSomaHome: SomaPathsOptions | string = {}): SomaPaths {
   const options = typeof optionsOrSomaHome === "string"
     ? { somaHome: optionsOrSomaHome }
@@ -33,8 +31,6 @@ export function createPaths(optionsOrSomaHome: SomaPathsOptions | string = {}): 
     return target;
   };
 
-  const state = (...segments: string[]): string => underRoot("memory", "STATE", ...segments);
-
   return {
     root: () => root,
     identity: () => underRoot("identity"),
@@ -42,23 +38,15 @@ export function createPaths(optionsOrSomaHome: SomaPathsOptions | string = {}): 
     profile: () => underRoot("profile"),
     skills: () => underRoot("skills"),
     learning: () => underRoot("memory", "LEARNING"),
-    knowledge: () => underRoot("memory", "KNOWLEDGE"),
     signals: () => underRoot("memory", "LEARNING", "SIGNALS"),
     wisdom: () => underRoot("memory", "WISDOM"),
     relationship: () => underRoot("memory", "RELATIONSHIP"),
-    state,
+    state: () => underRoot("memory", "STATE"),
     work: () => underRoot("memory", "WORK"),
-    semantic: () => underRoot("memory", "semantic"),
-    procedural: () => underRoot("memory", "procedural"),
-    episodic: (kind: "sessions" | "actions" | "digests", ...segments: string[]) =>
-      underRoot("memory", "episodic", kind, ...segments),
-    promoted: (store: SomaMemoryPromotionStore) =>
-      underRoot("memory", SOMA_MEMORY_PROMOTION_STORE_DIRS[store], "PROMOTED"),
-    archive: (...segments: string[]) => underRoot("memory", "archive", ...segments),
     ratings: () => underRoot("memory", "LEARNING", "SIGNALS", "ratings.jsonl"),
     opinions: () => underRoot("identity", "opinions.md"),
     story: () => underRoot("identity", "our-story.md"),
-    events: () => state("events.jsonl"),
+    events: () => underRoot("memory", "STATE", "events.jsonl"),
     resolve: (...segments: string[]) => underRoot(...segments),
   };
 }

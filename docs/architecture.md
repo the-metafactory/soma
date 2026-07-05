@@ -158,7 +158,38 @@ notes `review: stale`, and (only under an explicit `--gc-state`) GCs old
 `current-work-*` state. It is governed (deterministic, event-emitting, no LLM) but
 does NOT re-derive trust — it never mints or elevates a note, only ages/relocates
 existing ones. A mutating pass appends one `memory.consolidate` event as its FINAL
-step — a post-hoc RECORD, NOT rollback-coupled. The pass is idempotent and safe to
+step — a post-hoc RECORD, NOT rollback-coupled. A third governed path — and the
+second that MINTS trust — is `soma memory promote`: it takes a verified Algorithm
+run and writes a `principal`-trust durable note (the v0 `PROMOTED/` verbatim record
+plus a `principal-correction`-trigger note pointing back at it). Promotion is the
+deliberate-escalation surface for durable memory, NOT a path that proves the
+principal initiated it: soma has no cryptographic principal authentication (the
+same recorded limitation the `principalAuthority` JSDoc calls out for the CLI
+`--principal-authority` flag). The `hasPromotionVerification` gate (≥1 verification
+entry or passed criterion) is a PRECONDITION that refuses to promote unverified
+work — NOT itself the source of principal authority. The authority is the
+deliberate promote invocation itself, executed in-process by the SDK caller
+(typically the assistant acting on the principal's directive), passing
+`principalAuthority: true` to `promoteAlgorithmRunMemory` just as the CLI sets
+it from `--principal-authority` (the enforced gate is the boolean opt-in, not
+any asserted human-authority provenance — soma can prove caller opt-in, not
+that the principal directed it).
+What IS enforced is the SURFACE (promotion layer): `import` stays
+quarantined, a promotion without verification evidence is refused, and a
+promotion without `--principal-authority` is refused (fail-closed at the
+promote-API layer). The
+`syncAlgorithmRunFromVsa` promote-on-complete hook is a best-effort caller of
+that API: it wraps promotion in failure isolation so the hook never breaks a
+VSA sync, swallowing PRE-durable promotion refusals (unverified, run-not-found,
+EEXIST) as no-ops while RE-throwing POST-durable failures (the promotion
+landed its durable artifacts but a later bookkeeping step failed) so the caller
+is not left unaware of a durable-but-unrecorded promotion. So the fail-closed
+refusal is surfaced by the promote API and the CLI; the sync hook's contract is
+narrower (best-effort promotion, post-durable surfacing). This is best-effort trust minting with the same
+unforgeability limitation soma documents for `principalAuthority`; it is NOT a
+principal-signed assertion. A backfill re-import of a `PROMOTED/` file is skipped
+(`collectSources` excludes `PROMOTED/` subtrees) so the import trigger cannot
+shadow the principal note with a quarantined clone. The pass is idempotent and safe to
 repeat, so the guarantee is repeatability, not atomicity: if the pass throws
 part-way, OR the event append itself fails, mutations may already be applied WITHOUT
 the event — so an absent event does NOT prove no mutation happened. A re-run
