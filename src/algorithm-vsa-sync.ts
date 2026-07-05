@@ -41,7 +41,7 @@ import { datePrefixSlug } from "./dated-slug";
 import { getRunPhase } from "./algorithm-lifecycle";
 import { parseVsa, serializeVsa } from "./vsa-parse";
 import { getCriteria, getDecisions, getGoal, isClosedCriterion } from "./vsa-accessors";
-import { _promoteAlgorithmRunMemoryWithCallback } from "./memory-promotion";
+import { promoteAlgorithmRunMemory } from "./memory-promotion";
 import type {
   AlgorithmPhase,
   AlgorithmRun,
@@ -59,8 +59,6 @@ export interface SyncAlgorithmRunFromVsaOptions {
   somaHome?: string;
   /** When set and the VSA is complete, promote learning to the knowledge store. */
   promoteOnComplete?: boolean;
-  /** Deliberate-escalation gate forwarded to promoteAlgorithmRunMemory. See docs/architecture.md Memory section. */
-  principalAuthority?: boolean;
   timestamp?: string;
 }
 
@@ -439,40 +437,16 @@ async function loadOrCreateRun(
 export async function syncAlgorithmRunFromVsa(
   options: SyncAlgorithmRunFromVsaOptions,
 ): Promise<SyncAlgorithmRunFromVsaResult> {
-  // Set true by the inner function the moment a promotion becomes durable
-  // (PROMOTED file + principal note written). Lets this catch distinguish a
-  // post-durable bookkeeping failure (re-throw — the caller must know the
-  // promotion landed but is unrecorded) from a bad-VSA error (no-op). Shared
-  // via an object so the inner function can read AND write it.
-  const promotionState = { becameDurable: false };
-  // Surface the authority gap explicitly rather than swallowing it: a
-  // --promote-on-complete without --principal-authority is a caller error, not
-  // a best-effort promotion failure. Check this BEFORE the failure-isolation
-  // try/catch below (which turns bad-VSA errors into no-ops) so a
-  // misconfigured invocation refuses loudly instead of silently skipping.
-  if (options.promoteOnComplete === true && options.principalAuthority !== true) {
-    throw new Error(
-      "syncAlgorithmRunFromVsa: --promote-on-complete requires --principal-authority to mint a principal-trust durable note (deliberate-escalation gate).",
-    );
-  }
   try {
-    return await syncAlgorithmRunFromVsaInner(options, promotionState);
-  } catch (error) {
-    // Failure isolation: the hook returns a no-op for any PRE-durable error
-    // (bad VSA, read/write, parsing, pre-durable promotion failures) so the
-    // sync never breaks on a malformed input. POST-durable errors (promotion
-    // landed but a later bookkeeping step failed) are re-thrown above because
-    // the caller must know the promotion became durable but is unrecorded.
-    if (promotionState.becameDurable) {
-      throw error;
-    }
+    return await syncAlgorithmRunFromVsaInner(options);
+  } catch {
+    // Failure isolation: the hook must never break on a bad VSA.
     return noopResult();
   }
 }
 
 async function syncAlgorithmRunFromVsaInner(
   options: SyncAlgorithmRunFromVsaOptions,
-  promotionState: { becameDurable: boolean } = { becameDurable: false },
 ): Promise<SyncAlgorithmRunFromVsaResult> {
   const somaHome = resolveSomaHome(options);
   const timestamp = options.timestamp ?? new Date().toISOString();
@@ -529,28 +503,18 @@ async function syncAlgorithmRunFromVsaInner(
   let promotionPath: string | null = null;
   if (options.promoteOnComplete === true && (allClosed || atLearn) && run.learning.length > 0) {
     try {
-      const result = await _promoteAlgorithmRunMemoryWithCallback({
+      const result = await promoteAlgorithmRunMemory({
         somaHome,
         fromRun: run.id,
         store: "knowledge",
         title: getGoal(isa) ?? slug,
         substrate: options.substrate,
         timestamp,
-        principalAuthority: options.principalAuthority === true,
-      },
-      () => { promotionState.becameDurable = true; });
+      });
       promoted = true;
       promotionPath = result.path;
-    } catch (error) {
-      // Promotion is best-effort for PRE-durable failures (EEXIST,
-      // unverified, run not found) — those stay no-ops so the hook never
-      // breaks a VSA sync. (Missing authority is NOT here — the outer pre-check
-      // throws before reaching this block.) But a POST-durable failure (event
-      // append or run-provenance write threw after the PROMOTED file + note
-      // landed) has onDurable already fired, so promotionState.becameDurable
-      // is true — re-throw so the outer catch surfaces it to the caller instead
-      // of swallowing it here.
-      if (promotionState.becameDurable) throw error;
+    } catch {
+      // Promotion is best-effort (e.g. already-promoted EEXIST); never break sync.
     }
   }
 

@@ -65,6 +65,13 @@ test("every lifecycle verb accepts grok", () => {
   expect(parseExportArgs(["export", "grok"]).substrate).toBe("grok");
 });
 
+test("code-only is accepted for projection lifecycle verbs", () => {
+  expect(parseInstallArgs(["install", "grok", "--code-only"]).options.codeOnly).toBe(true);
+  expect(parseReprojectArgs(["reproject", "grok", "--code-only"]).options.codeOnly).toBe(true);
+  expect(parseUpgradeArgs(["upgrade", "grok", "--code-only"]).options.codeOnly).toBe(true);
+  expect(() => parseUninstallArgs(["uninstall", "grok", "--code-only"])).toThrow("Unknown option: --code-only");
+});
+
 test("workspace grok install targets a .grok home, not the .codex fallback", () => {
   // Regression for workspaceSubstrateHome's silent `.codex` else-branch:
   // an unrecognized substrate would have fallen through to `.codex`.

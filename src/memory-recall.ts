@@ -2,6 +2,9 @@ import { createPaths } from "./paths";
 import { collectDurableNotes } from "./memory-write";
 import type { ScannedNote } from "./memory-write";
 import { memoryTerms } from "./memory-terms";
+// Aliased: `toRecalledNote` below binds a local `ageDays` (the field name on
+// SomaMemoryRecalledNote), so the imported function keeps a distinct name.
+import { noteDateMs, ageDays as ageDaysSince } from "./memory-corpus";
 import type {
   SomaMemoryNote,
   SomaMemoryRecallOptions,
@@ -38,7 +41,6 @@ import type {
  * let a mere read keep a note artificially alive in the M3 index).
  */
 
-const MS_PER_DAY = 86_400_000;
 const DEFAULT_LIMIT = 3;
 
 /**
@@ -91,18 +93,6 @@ function scoreNote(note: SomaMemoryNote, terms: string[]): NoteScore {
     }
   }
   return { matched, freq };
-}
-
-/** UTC midnight ms for a `YYYY-MM-DD` date; the note schema guarantees the shape. */
-function dateMs(isoDate: string): number {
-  const [y, m, d] = isoDate.split("-").map(Number);
-  return Date.UTC(y, m - 1, d);
-}
-
-/** Whole days since `last_verified`, clamped at 0 for a future date. Derived from injected `now`. */
-function ageDaysSince(lastVerified: string, now: Date): number {
-  const delta = now.getTime() - dateMs(lastVerified);
-  return delta <= 0 ? 0 : Math.floor(delta / MS_PER_DAY);
 }
 
 /**
@@ -179,7 +169,7 @@ export async function recallMemory(options: SomaMemoryRecallOptions): Promise<So
       (a, b) =>
         b.matched - a.matched ||
         b.freq - a.freq ||
-        dateMs(b.scanned.note.last_verified) - dateMs(a.scanned.note.last_verified) ||
+        noteDateMs(b.scanned.note.last_verified) - noteDateMs(a.scanned.note.last_verified) ||
         a.scanned.note.id.localeCompare(b.scanned.note.id),
     );
 
