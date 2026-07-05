@@ -63,6 +63,26 @@ test("sanitizeNoteText strips an OSC 8 hyperlink-spoofing payload", () => {
   expect(out).toBe("click here now");
 });
 
+test("sanitizeNoteText strips an 8-bit C1 CSI sequence as a whole (params too, not just the introducer)", () => {
+  // 0x9b is the single-byte C1 CSI introducer — no leading ESC. A naive
+  // control-byte strip removes 0x9b but leaves "31m" as literal text.
+  const payload = "Alert \x9b31mRED\x9b0m gateway done";
+  const out = sanitizeNoteText(payload);
+  expect(out).not.toContain("\x9b");
+  expect(out).not.toContain("31m");
+  expect(out).not.toContain("0m");
+  expect(out).toBe("Alert RED gateway done");
+});
+
+test("sanitizeNoteText strips an 8-bit C1 OSC hyperlink-spoofing payload", () => {
+  // 0x9d is the single-byte C1 OSC introducer; 0x9c (C1 ST) terminates it.
+  const payload = "click \x9d8;;http://evil.example\x9chere\x9d8;;\x9c now";
+  const out = sanitizeNoteText(payload);
+  expect(out).not.toContain("\x9d");
+  expect(out).not.toContain("evil.example");
+  expect(out).toBe("click here now");
+});
+
 test("sanitizeNoteText (default) preserves tabs and newlines for multi-line rendering", () => {
   expect(sanitizeNoteText("line one\nline\ttwo")).toBe("line one\nline\ttwo");
 });

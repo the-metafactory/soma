@@ -58,6 +58,12 @@ export function ageDays(isoDate: string, now: Date): number {
 
 const OSC_SEQUENCE = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g; // OSC … terminated by BEL or ST
 const CSI_SEQUENCE = /\x1b[@-_][0-?]*[ -/]*[@-~]/g; // CSI and other two-byte ESC sequences
+// 8-bit C1 forms: a single introducer byte (0x9b CSI / 0x9d OSC) with no
+// leading ESC. Strip the WHOLE sequence, not just the introducer — otherwise
+// the C0/C1 byte strip below removes 0x9b but leaves its parameters ("31m") as
+// literal text, understating the removal.
+const C1_CSI_SEQUENCE = /\x9b[0-?]*[ -/]*[@-~]/g; // C1 CSI (0x9b … final)
+const C1_OSC_SEQUENCE = /\x9d[^\x07\x1b\x9c]*(?:\x07|\x1b\\|\x9c)/g; // C1 OSC … terminated by BEL, ST, or C1 ST
 const STRAY_ESC = /\x1b./g; // any stray ESC + following byte
 const C0_C1_KEEP_TAB_NL = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/g; // C0/C1 controls except \t (\x09) and \n (\x0a)
 
@@ -69,7 +75,9 @@ const C0_C1_KEEP_TAB_NL = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/g; // C0/C1 con
  * poke the terminal's title/clipboard state — on recall, on the always-loaded
  * INDEX, or in a regenerated episodic digest. Removes:
  *   - ESC-introduced sequences (CSI `ESC [ … final`, OSC `ESC ] … BEL|ST`, and
- *     any other `ESC <byte>` form), and
+ *     any other `ESC <byte>` form),
+ *   - the 8-bit C1 equivalents as WHOLE sequences (C1 CSI `0x9b … final`, C1
+ *     OSC `0x9d … BEL|ST`), not just their introducer byte, and
  *   - remaining C0/C1 control chars, keeping tab and newline UNLESS `oneLine`.
  * Deliberately conservative: it discards control bytes rather than escaping
  * them, since every surface this guards renders human-facing text, not a
@@ -85,6 +93,8 @@ export function sanitizeNoteText(text: string, options: { oneLine?: boolean } = 
   const stripped = text
     .replace(OSC_SEQUENCE, "")
     .replace(CSI_SEQUENCE, "")
+    .replace(C1_OSC_SEQUENCE, "")
+    .replace(C1_CSI_SEQUENCE, "")
     .replace(STRAY_ESC, "")
     .replace(C0_C1_KEEP_TAB_NL, "");
   return options.oneLine ? stripped.replace(/\s+/g, " ").trim() : stripped;

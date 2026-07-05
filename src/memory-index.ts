@@ -116,9 +116,10 @@ function isAdmitted(note: SomaMemoryNote): boolean {
 /**
  * Collapse to a single sanitized line and truncate — index descriptors are one
  * line. Sanitization (#410) is the SAME strong stripper that guards recall's
- * terminal output (full ANSI CSI/OSC escape removal, not just a blanked
- * control byte) — the always-loaded INDEX is the highest-stakes surface for
- * note-authored text and must never be the weakest-guarded one.
+ * terminal output (whole-sequence removal of ESC-introduced AND 8-bit C1
+ * CSI/OSC escapes, not just a blanked introducer byte) — the always-loaded
+ * INDEX is the highest-stakes surface for note-authored text and must never be
+ * the weakest-guarded one.
  */
 function oneLine(text: string, max: number): string {
   const collapsed = sanitizeNoteText(text, { oneLine: true });
