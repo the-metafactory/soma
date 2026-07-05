@@ -165,15 +165,15 @@ async function appendMutationEvent(
  * public index API; create/merge/supersede/verify remain the only production
  * callers.
  */
-export interface AtomicNoteWrite {
-  path: string;
-  flag: "wx" | "w";
-  note: SomaMemoryNote;
-  priorRaw?: string;
-}
+export type AtomicNoteWrite =
+  | { path: string; flag: "wx"; note: SomaMemoryNote }
+  | { path: string; flag: "w"; note: SomaMemoryNote; priorRaw: string };
 
 async function undoAtomicWrite(somaHome: string, write: AtomicNoteWrite): Promise<void> {
-  if (write.flag === "w") await restoreBytes(somaHome, write.path, write.priorRaw ?? "");
+  // Discriminated union: a "w" undo always has the captured prior bytes, so the
+  // rollback restores real content — never an empty-string fallback that would
+  // truncate the note.
+  if (write.flag === "w") await restoreBytes(somaHome, write.path, write.priorRaw);
   else await unlink(write.path);
 }
 
