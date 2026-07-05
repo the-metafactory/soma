@@ -122,11 +122,22 @@ The initial version should avoid requiring a vector database. Search can start
 with filenames, frontmatter, ripgrep, and small deterministic indexes.
 
 The uppercase-named legacy stores (`WORK`, `KNOWLEDGE`, …) hold free-form
-markdown; the **memory-note subsystem** (plan v2, milestones M0–M7) is a
+markdown; the **memory-note subsystem** (plan v2, milestones M0–M8) is a
 *separate*, schema-governed durable store whose lowercase-named directories
 (`semantic`, `procedural`, `episodic`) sit as siblings under the same `memory/`
 root. Both are sub-stores within the single Memory compartment, not peer Soma
-compartments.
+compartments. `soma memory backfill` (M8) bridges the two for a migrating
+principal: it walks the legacy category dirs and writes each markdown file
+(READMEs excluded) as a `quarantined` note — as a **batch caller of the governed
+`write` path** (below), not a distinct governed path of its own — mapping the
+category to a note type (`LEARNING`→procedural, `KNOWLEDGE`→semantic). It is
+deterministic (bodies verbatim, `created` from the source mtime, no LLM) and
+idempotent via a SHA manifest at `memory/STATE/imports/backfill/.manifest.json`,
+and rebuilds the INDEX after writing so the store stays audit-clean. Imports stay
+recall-discoverable (with a ⚠ untrusted banner) but out of the always-loaded
+INDEX until the principal re-authors them at higher trust (the admission filter
+excludes quarantined unconditionally, so `verify` alone — which only bumps
+freshness — cannot promote them; `principal-correction`/`supersede` can).
 
 Each note is one file: strict frontmatter (id, type, trust, provenance,
 bi-temporal `valid_until`, `last_verified`, `resurface_count`, links) plus a

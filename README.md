@@ -388,6 +388,7 @@ soma memory recall "client sovereignty"   # note-aware, read-only, with links
 soma memory digest --session <id> --body "..."   # the one session digest
 soma memory consolidate --dry-run          # deterministic maintenance, plan only
 soma memory audit                          # health check; exits non-zero on failure
+soma memory backfill --dry-run             # bulk-import legacy markdown → notes (plan only)
 ```
 
 `soma memory recall` retrieves durable notes with a verification banner and
@@ -397,7 +398,15 @@ aged-unverified semantic notes `review: stale`, flags near-duplicate pairs for
 review, and rebuilds the INDEX — it never auto-merges notes. `soma memory audit`
 is a deterministic smoke check (note-root integrity, schema validity, INDEX
 freshness, digest coverage) that exits non-zero on any health-gating failure, so
-it can gate CI. The note subsystem also ships as the portable **Memory** skill,
+it can gate CI. `soma memory backfill` bulk-imports a principal's existing
+free-form markdown (default source: the legacy `<somaHome>/memory` category dirs) into
+schema-valid notes through the same governed write path — deterministically, no
+LLM, idempotent via a SHA manifest. Every imported note lands at `quarantined`
+trust (recall-discoverable with a ⚠ banner, held out of the INDEX until the
+principal re-authors it at higher trust — `verify` alone does not elevate a
+quarantined note); the category dir maps to a note type (`LEARNING`→procedural,
+`KNOWLEDGE`→semantic) unless `--type` forces one. The note subsystem also ships
+as the portable **Memory** skill,
 which routes a remember/recall/log/maintain/audit request to the right
 subcommand. See [docs/architecture.md](docs/architecture.md#memory) for the full
 model.

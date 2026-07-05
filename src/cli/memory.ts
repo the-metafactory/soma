@@ -4,6 +4,7 @@ import {
   promoteAlgorithmRunMemory,
   rebuildMemoryIndex,
   recallMemory,
+  runMemoryBackfill,
   searchSomaMemory,
   verifyMemoryNote,
   writeMemoryAction,
@@ -18,6 +19,8 @@ import type {
   SomaMemoryActionResult,
   SomaMemoryAuditOptions,
   SomaMemoryAuditResult,
+  SomaMemoryBackfillOptions,
+  SomaMemoryBackfillResult,
   SomaMemoryConsolidateOptions,
   SomaMemoryConsolidateResult,
   SomaMemoryDigestOptions,
@@ -108,6 +111,12 @@ export interface ParsedMemoryAuditArgs {
   options: SomaMemoryAuditOptions;
 }
 
+export interface ParsedMemoryBackfillArgs {
+  command: "memory";
+  action: "backfill";
+  options: SomaMemoryBackfillOptions;
+}
+
 export type ParsedMemoryArgs =
   | ParsedMemorySearchArgs
   | ParsedMemoryRecallArgs
@@ -118,13 +127,14 @@ export type ParsedMemoryArgs =
   | ParsedMemoryDigestArgs
   | ParsedMemoryActionArgs
   | ParsedMemoryConsolidateArgs
-  | ParsedMemoryAuditArgs;
+  | ParsedMemoryAuditArgs
+  | ParsedMemoryBackfillArgs;
 
-const MEMORY_ACTIONS = ["search", "recall", "promote", "write", "verify", "reindex", "digest", "action", "consolidate", "audit"] as const;
+const MEMORY_ACTIONS = ["search", "recall", "promote", "write", "verify", "reindex", "digest", "action", "consolidate", "audit", "backfill"] as const;
 type MemoryAction = (typeof MEMORY_ACTIONS)[number];
 
 export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAction, string> } = {
-  usage: "Usage: soma memory <search|recall|promote|write|verify|reindex|digest|action|consolidate|audit> ...",
+  usage: "Usage: soma memory <search|recall|promote|write|verify|reindex|digest|action|consolidate|audit|backfill> ...",
   subcommands: {
     search: "Usage: soma memory search [query] [--query <text>] [--limit <n>] [--home-dir <dir>] [--soma-home <dir>]",
     recall:
@@ -166,6 +176,11 @@ export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAct
       "Usage: soma memory audit [--home-dir <dir>] [--soma-home <dir>]. " +
       "Deterministic, read-only health check of the memory tree (no LLM): schema validity, INDEX freshness, " +
       "digest coverage, orphaned archive notes, event/note ratio. EXITS NON-ZERO on any health-gating failure: an abnormal note root (root-integrity), a schema-invalid note, or a stale INDEX.",
+    backfill:
+      "Usage: soma memory backfill [--from <dir>] [--type <semantic|procedural>] [--project <key>] [--dry-run] [--home-dir <dir>] [--soma-home <dir>]. " +
+      "Bulk-import legacy free-form markdown (default source: <somaHome>/memory category dirs) into schema-valid notes via the import trigger. " +
+      "Every note lands at QUARANTINED trust (recall-discoverable with a ⚠ banner, excluded from INDEX until re-authored at higher trust); category dir → type is mapped (LEARNING→procedural, KNOWLEDGE→semantic) unless --type forces one. " +
+      "Deterministic, idempotent (SHA manifest); --dry-run prints the plan without writing.",
   },
 };
 
@@ -201,7 +216,53 @@ export function parseMemoryArgs(args: string[]): ParsedMemoryArgs {
       return { command, action, options: parseMemoryConsolidateArgs(rest) };
     case "audit":
       return { command, action, options: parseMemoryAuditArgs(rest) };
+    case "backfill":
+      return { command, action, options: parseMemoryBackfillArgs(rest) };
   }
+}
+
+function parseMemoryBackfillArgs(args: string[]): SomaMemoryBackfillOptions {
+  const options: SomaMemoryBackfillOptions = {};
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    switch (arg) {
+      case "--home-dir":
+        options.homeDir = readOption(args, index, arg);
+        index += 1;
+        break;
+      case "--soma-home":
+        options.somaHome = readOption(args, index, arg);
+        index += 1;
+        break;
+      case "--substrate":
+        options.substrate = parseSubstrate(readOption(args, index, arg));
+        index += 1;
+        break;
+      case "--from":
+        options.from = readOption(args, index, arg);
+        index += 1;
+        break;
+      case "--type": {
+        const value = readOption(args, index, arg);
+        if (value !== "semantic" && value !== "procedural") {
+          throw new Error(MEMORY_COMMAND_HELP.subcommands.backfill);
+        }
+        options.type = value;
+        index += 1;
+        break;
+      }
+      case "--project":
+        options.project = readOption(args, index, arg);
+        index += 1;
+        break;
+      case "--dry-run":
+        options.dryRun = true;
+        break;
+      default:
+        throw new Error(MEMORY_COMMAND_HELP.subcommands.backfill);
+    }
+  }
+  return options;
 }
 
 function parseMemoryAuditArgs(args: string[]): SomaMemoryAuditOptions {
@@ -742,7 +803,58 @@ export async function runMemoryCli(parsed: ParsedMemoryArgs): Promise<string> {
       if (!audit.healthy) throw new SomaCliError(report, 1);
       return report;
     }
+    case "backfill": {
+      const result = await runMemoryBackfill(parsed.options);
+      const report = formatMemoryBackfillResult(result);
+      // A non-dry-run with per-file write errors exits NON-ZERO so a scripted
+      // backfill surfaces partial failure (the full account is on the error).
+      if (!result.dryRun && result.errorCount > 0) throw new SomaCliError(report, 1);
+      return report;
+    }
   }
+}
+
+function formatMemoryBackfillResult(result: SomaMemoryBackfillResult): string {
+  if (result.dryRun) {
+    const wouldImport = result.entries.filter((e) => e.status === undefined);
+    const alreadyImported = result.entries.filter((e) => e.status === "skipped-manifest");
+    const errored = result.entries.filter((e) => e.status === "error");
+    const skipSummary = alreadyImported.length > 0 ? `, skip ${alreadyImported.length} already imported` : "";
+    const lines = [
+      `Soma memory backfill (dry-run — nothing changed) from ${result.from}`,
+      `would import ${wouldImport.length} file(s)${skipSummary}:`,
+      ...wouldImport.map((e) => `  ${e.relativePath} → ${e.type}/${e.noteId}.md (created ${e.created})`),
+      ...alreadyImported.map((e) => `  [skip] ${e.relativePath} → ${e.type}/${e.noteId}.md (already imported)`),
+      ...errored.map((e) => `  [error] ${e.relativePath}: ${e.detail ?? ""}`),
+    ];
+    if (result.entries.length === 0) lines.push("  (no eligible source files found)");
+    return lines.join("\n");
+  }
+  const lines = [
+    `Soma memory backfill from ${result.from}`,
+    `written: ${result.writtenCount} · skipped (already imported): ${result.skippedManifestCount} · ` +
+      `skipped (duplicate): ${result.skippedDuplicateCount} · errors: ${result.errorCount}`,
+    `manifest: ${result.manifestPath}`,
+  ];
+  type BackfillEntry = SomaMemoryBackfillResult["entries"][number];
+  const appendSection = (
+    status: BackfillEntry["status"],
+    heading: string,
+    format: (e: BackfillEntry) => string,
+  ): void => {
+    const matched = result.entries.filter((e) => e.status === status);
+    if (matched.length === 0) return;
+    lines.push(heading);
+    for (const e of matched) lines.push(format(e));
+  };
+  appendSection(
+    "written",
+    "imported (quarantined — recall-discoverable with a ⚠ banner; excluded from INDEX until re-authored at higher trust via principal-correction/supersede — verify alone does not elevate):",
+    (e) => `  ${e.relativePath} → ${e.type}/${e.noteId}.md`,
+  );
+  appendSection("skipped-duplicate", "skipped as duplicates of existing notes:", (e) => `  ${e.relativePath}: ${e.detail ?? ""}`);
+  appendSection("error", "errors:", (e) => `  ${e.relativePath}: ${e.detail ?? ""}`);
+  return lines.join("\n");
 }
 
 function formatMemoryAuditResult(result: SomaMemoryAuditResult): string {

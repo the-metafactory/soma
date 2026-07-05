@@ -496,6 +496,7 @@ export {
 } from "./work-registry";
 export { applySomaWriteback, type SomaWritebackOptions, type SomaWritebackResult } from "./writeback";
 export { promoteAlgorithmRunMemory } from "./memory-promotion";
+export { planMemoryBackfill, runMemoryBackfill } from "./memory-backfill";
 export {
   syncAlgorithmRunFromVsa,
   formatSyncResult,
