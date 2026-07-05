@@ -113,7 +113,7 @@ function sessionSlug(sessionId: string): string {
 }
 
 function episodicPath(somaHome: string, kind: "sessions" | "actions", now: Date, id: string): string {
-  return createPaths(somaHome).resolve("memory", "episodic", kind, monthDir(now), `${id}.md`);
+  return createPaths(somaHome).episodic(kind, monthDir(now), `${id}.md`);
 }
 
 /**
@@ -127,7 +127,7 @@ function episodicPath(somaHome: string, kind: "sessions" | "actions", now: Date,
  * atomic gate — this is only the cross-date fast-path.
  */
 async function findExistingSessionDigestPath(somaHome: string, slug: string): Promise<string | undefined> {
-  const base = createPaths(somaHome).resolve("memory", "episodic", "sessions");
+  const base = createPaths(somaHome).episodic("sessions");
   const idPattern = new RegExp(`^\\d{8}-${slug}\\.md$`); // slug is [a-z0-9-] only — no regex metachars
   let months: string[];
   try {

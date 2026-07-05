@@ -7,7 +7,7 @@ import { runBoundedConcurrent } from "./internal-concurrency";
 import { appendSomaMemoryEvent } from "./memory";
 import { parseMemoryNote, serializeMemoryNote, MemoryNoteError } from "./memory-note";
 import { memoryTermSet } from "./memory-terms";
-import { SOMA_MEMORY_TRIGGER_TRUST } from "./types";
+import { SOMA_MEMORY_NOTE_TYPES, SOMA_MEMORY_TRIGGER_TRUST } from "./types";
 import type {
   SomaMemoryDuplicateCandidate,
   SomaMemoryNote,
@@ -66,17 +66,17 @@ export const MEMORY_DEDUP_JACCARD_THRESHOLD = 0.6;
 
 // The durable, dedup-gated corpus. Episodic notes live elsewhere (M5) and are
 // not written through this path.
-const WRITABLE_TYPE_DIRS: Record<Exclude<SomaMemoryNoteType, "episodic">, string> = {
-  semantic: "semantic",
-  procedural: "procedural",
-};
-
 export type WritableType = Exclude<SomaMemoryNoteType, "episodic">;
 
 // One source of truth for the writable-type enumeration — every helper that
 // walks both durable dirs reuses this instead of re-casting Object.keys. Exported
 // so the CLI validates `--type` against the same list the writer routes on.
-export const WRITABLE_NOTE_TYPES = Object.keys(WRITABLE_TYPE_DIRS) as WritableType[];
+// Derived from the canonical note-type array (types.ts) rather than a private
+// dir-name map — the on-disk dir for each type now comes from the SomaPaths
+// seam (`paths.semantic()` / `paths.procedural()`, see `typeDir` below).
+export const WRITABLE_NOTE_TYPES = SOMA_MEMORY_NOTE_TYPES.filter(
+  (type): type is WritableType => type !== "episodic",
+);
 const WRITABLE_TYPES = WRITABLE_NOTE_TYPES;
 
 /** True iff `value` is a note type the write path accepts (semantic|procedural). */
@@ -164,7 +164,8 @@ function isoDate(now: Date): string {
 
 /** Directory holding notes of a writable type. */
 function typeDir(somaHome: string, type: WritableType): string {
-  return createPaths(somaHome).resolve("memory", WRITABLE_TYPE_DIRS[type]);
+  const paths = createPaths(somaHome);
+  return type === "semantic" ? paths.semantic() : paths.procedural();
 }
 
 /**

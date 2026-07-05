@@ -12,7 +12,7 @@ import {
   writeSessionDigest,
 } from "../index";
 import { WRITABLE_NOTE_TYPES, isWritableNoteType } from "../memory-write";
-import { SOMA_MEMORY_ACTION_APPROVALS } from "../types";
+import { SOMA_MEMORY_ACTION_APPROVALS, SOMA_MEMORY_PROMOTION_STORES } from "../types";
 import type {
   SomaMemoryActionApproval,
   SomaMemoryActionOptions,
@@ -568,11 +568,13 @@ function parseMemoryPromoteArgs(args: string[]): SomaMemoryPromotionOptions {
 }
 
 function parseMemoryPromotionStore(value: string): SomaMemoryPromotionStore {
-  if (value === "learning" || value === "knowledge" || value === "relationship" || value === "work") {
-    return value;
+  // Delegates to the canonical enumeration (types.ts) instead of re-listing the
+  // store literals — the same array `paths.promoted()` maps to on-disk dirs.
+  if ((SOMA_MEMORY_PROMOTION_STORES as readonly string[]).includes(value)) {
+    return value as SomaMemoryPromotionStore;
   }
 
-  throw new Error("--store must be one of learning, knowledge, relationship, or work.");
+  throw new Error(`--store must be one of ${SOMA_MEMORY_PROMOTION_STORES.join(", ")}.`);
 }
 
 function parseWriteTrigger(value: string): SomaMemoryWriteTrigger {

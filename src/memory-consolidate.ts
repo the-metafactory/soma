@@ -146,12 +146,12 @@ function jaccard(a: Set<string>, b: Set<string>): number {
  * `memory/archive/` (`memory/episodic/…/x.md` → `memory/archive/episodic/…/x.md`),
  * so the tombstone preserves the original location AND stays under the single
  * lowercase `memory/` root (architecture.md) rather than creating a second root.
- * `paths.resolve` asserts the result stays inside the Soma root — combined with the
+ * `paths.archive` asserts the result stays inside the Soma root — combined with the
  * id-slug validation upstream, no crafted frontmatter can redirect a rename out.
  */
 function archiveTargetFor(paths: SomaPaths, sourcePath: string): string {
   const relSegments = relative(paths.memory(), sourcePath).split(sep);
-  return paths.resolve("memory", "archive", ...relSegments);
+  return paths.archive(...relSegments);
 }
 
 interface EpisodicArchive {
@@ -202,7 +202,7 @@ async function planEpisodicArchive(
   now: Date,
 ): Promise<{ archives: EpisodicArchive[]; unreadable: string[] }> {
   const root = paths.root();
-  const base = paths.resolve("memory", "episodic", kind);
+  const base = paths.episodic(kind);
   const parsedFiles = await parseNotesBounded(await listEpisodicNotes(base));
   const archives: EpisodicArchive[] = [];
   const unreadable: string[] = [];
@@ -235,7 +235,7 @@ async function planEpisodicArchive(
       from: path,
       to,
       note: parsed,
-      digestPath: paths.resolve("memory", "episodic", "digests", `${month}.md`),
+      digestPath: paths.episodic("digests", `${month}.md`),
     });
   }
   return { archives, unreadable };
@@ -371,7 +371,7 @@ async function regenerateMonthlyDigests(paths: SomaPaths, months: Set<string>): 
       .filter((n): n is SomaMemoryNote => n !== undefined && n.created.slice(0, 7) === month)
       .sort((a, b) => a.id.localeCompare(b.id));
     if (notes.length === 0) continue;
-    const digestPath = paths.resolve("memory", "episodic", "digests", `${month}.md`);
+    const digestPath = paths.episodic("digests", `${month}.md`);
     const body = notes.map(renderDigestPointer).join("\n");
     // The digests-dir parent chain was preflighted in the plan phase (before any
     // move), so no symlinked-parent refusal can strike here after notes have moved.
@@ -383,7 +383,7 @@ async function regenerateMonthlyDigests(paths: SomaPaths, months: Set<string>): 
 
 /** Real `.md` files directly under one archived-episodic `<kind>/<month>/` dir. */
 function listArchivedMonthNotes(paths: SomaPaths, kind: "sessions" | "actions", month: string): Promise<string[]> {
-  return listRealMarkdownFiles(paths.resolve("memory", "archive", "episodic", kind, month));
+  return listRealMarkdownFiles(paths.archive("episodic", kind, month));
 }
 
 /**
@@ -489,7 +489,7 @@ export async function consolidateMemory(options: SomaMemoryConsolidateOptions = 
   const verifiedDirs = new Set<string>(); // archive targets share ancestors — verify each real dir once
   for (const e of episodic) await assertSafeArchiveDest(memoryRoot, e.to, verifiedDirs);
   if (episodic.length > 0) {
-    await assertRealParentChain(memoryRoot, paths.resolve("memory", "episodic", "digests", "any.md"), verifiedDirs);
+    await assertRealParentChain(memoryRoot, paths.episodic("digests", "any.md"), verifiedDirs);
   }
 
   const durable = await collectDurableNotes(somaHome);

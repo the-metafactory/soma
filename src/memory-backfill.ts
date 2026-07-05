@@ -37,11 +37,11 @@
 import { createHash } from "node:crypto";
 import { constants as FS } from "node:fs";
 import { lstat, mkdir, open, readFile, readdir, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join, relative, resolve, sep } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { rebuildMemoryIndex } from "./memory-index";
 import { MemoryNoteError } from "./memory-note";
 import { memoryNotePath, writeMemoryNote } from "./memory-write";
+import { createPaths } from "./paths";
 import { SOMA_MEMORY_BACKFILL_TYPE_MAP } from "./types";
 import type {
   SomaMemoryBackfillEntry,
@@ -49,17 +49,18 @@ import type {
   SomaMemoryBackfillManifestEntry,
   SomaMemoryBackfillOptions,
   SomaMemoryBackfillResult,
+  SomaPaths,
   WritableNoteType,
 } from "./types";
 
 const MANIFEST_SCHEMA = "soma.memory-backfill.v1";
 // Backfill is a Memory-subsystem operation, so its bookkeeping lives INSIDE the
 // Memory compartment (`memory/`), under STATE (the subsystem's runtime-state dir,
-// alongside events.jsonl) — not at the Soma root. STATE is a reserved category
-// that the source walk never re-imports, and the manifest is `.json` (never a
-// markdown source), so it can never round-trip into a note.
-const MANIFEST_RELATIVE = "memory/STATE/imports/backfill/.manifest.json";
-const MANIFEST_DIR_RELATIVE = "memory/STATE/imports/backfill";
+// alongside events.jsonl) — not at the Soma root, via `paths.state(...)`. STATE
+// is a reserved category that the source walk never re-imports, and the
+// manifest is `.json` (never a markdown source), so it can never round-trip
+// into a note.
+const MANIFEST_SEGMENTS = ["imports", "backfill", ".manifest.json"] as const;
 
 // Category dirs (or root children) that are never backfill sources: STATE is
 // runtime JSON, episodic/semantic/procedural are the note stores themselves,
@@ -73,10 +74,6 @@ const RESERVED_CATEGORIES = new Set([
   "archive",
   "imports",
 ]);
-
-function resolveSomaHome(options: SomaMemoryBackfillOptions): string {
-  return resolve(options.somaHome ?? join(resolve(options.homeDir ?? homedir()), ".soma"));
-}
 
 function sha256Hex(content: Buffer | string): string {
   return createHash("sha256").update(content).digest("hex");
@@ -287,9 +284,9 @@ function resolveType(
  * is accepted (each entry is still re-validated against the corpus + SHA at use).
  */
 async function readManifest(
-  somaHome: string,
+  paths: SomaPaths,
 ): Promise<{ map: Map<string, SomaMemoryBackfillManifestEntry>; importedAt: string; from: string } | null> {
-  const path = join(somaHome, MANIFEST_RELATIVE);
+  const path = paths.state(...MANIFEST_SEGMENTS);
   if (!(await pathExists(path))) return null;
   try {
     const parsed = JSON.parse(await readFile(path, "utf8")) as SomaMemoryBackfillManifest;
@@ -327,10 +324,11 @@ export async function planMemoryBackfill(
 export async function runMemoryBackfill(
   options: SomaMemoryBackfillOptions = {},
 ): Promise<SomaMemoryBackfillResult> {
-  const somaHome = resolveSomaHome(options);
-  const defaultRoot = resolve(join(somaHome, "memory"));
+  const paths = createPaths(options);
+  const somaHome = paths.root();
+  const defaultRoot = paths.memory();
   const from = resolve(options.from ?? defaultRoot);
-  const manifestPath = join(somaHome, MANIFEST_RELATIVE);
+  const manifestPath = paths.state(...MANIFEST_SEGMENTS);
   const dryRun = options.dryRun ?? false;
 
   const sources = await collectSources(from, from === defaultRoot);
@@ -338,7 +336,7 @@ export async function runMemoryBackfill(
   // to the root it was built for. A rerun against a DIFFERENT `--from` must not
   // treat same-relative-path files as hits — ignore a manifest built elsewhere
   // (the run then rewrites it for the current root).
-  const rawPrevious = await readManifest(somaHome);
+  const rawPrevious = await readManifest(paths);
   const previous = rawPrevious?.from === from ? rawPrevious : null;
 
   const used = new Set<string>();
@@ -458,7 +456,7 @@ export async function runMemoryBackfill(
     // Manifest reflects exactly the files currently backfilled to a present note
     // (written this run + previously-written-and-still-present). Vanished sources
     // drop out; duplicates are excluded (they map to a note this run did not own).
-    await mkdir(join(somaHome, MANIFEST_DIR_RELATIVE), { recursive: true });
+    await mkdir(dirname(manifestPath), { recursive: true });
     const importedAt =
       writtenCount === 0 && previous ? previous.importedAt : (options.now ?? new Date()).toISOString();
     const manifest: SomaMemoryBackfillManifest = {

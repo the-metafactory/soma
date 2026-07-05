@@ -1,28 +1,17 @@
 import { mkdir, unlink, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { readAlgorithmRunById, writeAlgorithmRun } from "./algorithm-store";
 import { appendAlgorithmProvenance } from "./algorithm-provenance";
 import { appendSomaMemoryEvent } from "./memory";
+import { createPaths } from "./paths";
 import { getCriteria, getGoal } from "./vsa-accessors";
 import { getRunPhase } from "./algorithm-lifecycle";
 import type { AlgorithmRun, SomaMemoryPromotionOptions, SomaMemoryPromotionResult } from "./types";
-
-const PROMOTION_STORE_DIRS = {
-  learning: "LEARNING",
-  knowledge: "KNOWLEDGE",
-  relationship: "RELATIONSHIP",
-  work: "WORK",
-} as const;
 
 function assertNonEmpty(value: string, field: string): void {
   if (value.trim().length === 0) {
     throw new Error(`Soma memory promotion ${field} must not be empty.`);
   }
-}
-
-function resolveSomaHome(options: Pick<SomaMemoryPromotionOptions, "homeDir" | "somaHome"> = {}): string {
-  return resolve(options.somaHome ?? join(options.homeDir ?? homedir(), ".soma"));
 }
 
 function slugify(value: string): string {
@@ -108,7 +97,8 @@ export async function promoteAlgorithmRunMemory(options: SomaMemoryPromotionOpti
   assertNonEmpty(options.fromRun, "source run");
   assertNonEmpty(options.title, "title");
 
-  const somaHome = resolveSomaHome(options);
+  const paths = createPaths(options);
+  const somaHome = paths.root();
   const timestamp = options.timestamp ?? new Date().toISOString();
   const { path: sourceRunPath, run } = await readAlgorithmRunById(options.fromRun, { somaHome });
   const lesson = promotionLesson(run, options.lesson);
@@ -117,8 +107,7 @@ export async function promoteAlgorithmRunMemory(options: SomaMemoryPromotionOpti
     throw new Error(`Algorithm run ${run.id} has no verification evidence or passed criteria; refusing memory promotion.`);
   }
 
-  const relativeStore = PROMOTION_STORE_DIRS[options.store];
-  const path = join(somaHome, "memory", relativeStore, "PROMOTED", `${slugify(options.title)}-${slugify(run.id)}.md`);
+  const path = join(paths.promoted(options.store), `${slugify(options.title)}-${slugify(run.id)}.md`);
   const content = `${renderPromotionContent({
     run,
     runPath: sourceRunPath,
