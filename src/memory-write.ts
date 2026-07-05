@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
-import { lstat, mkdir, open, readdir, readFile, realpath, unlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, realpath, unlink, writeFile } from "node:fs/promises";
 import { constants as FS } from "node:fs";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { createPaths } from "./paths";
+import { listMemoryNotes } from "./memory-fs";
 import { runBoundedConcurrent } from "./internal-concurrency";
 import { appendSomaMemoryEvent } from "./memory";
 import { parseMemoryNote, serializeMemoryNote, MemoryNoteError } from "./memory-note";
@@ -376,6 +377,15 @@ interface CorpusScan {
  * partially scanned (the dedup gate would otherwise fail open on a corrupt
  * near-duplicate). Returns `ScannedNote` (no `raw`) — the dedup scan never needs
  * the bytes; `loadNoteById` reads raw itself for its rollback path.
+ *
+ * Enumeration goes through the shared `listMemoryNotes` seam (#408) —
+ * previously this walk had NO symlink guard at all (a planted
+ * `semantic/evil.md` → outside-the-tree symlink would be readdir'd and read
+ * like any other note), the one caller among the four re-derivations of this
+ * walk with no hardening whatsoever. `onSwap: "skip"` matches the sibling
+ * durable-corpus scan `consolidateMemory` already uses for episodic notes —
+ * a symlinked note is now silently invisible to the dedup gate, the index,
+ * and recall (this function's three callers), never followed.
  */
 export async function collectDurableNotes(somaHome: string): Promise<CorpusScan> {
   // Enumerate all note files across both durable dirs, then read them with a
@@ -385,19 +395,18 @@ export async function collectDurableNotes(somaHome: string): Promise<CorpusScan>
   const unreadableDirs: string[] = [];
   for (const type of WRITABLE_TYPES) {
     const dir = typeDir(somaHome, type);
-    let entries: string[];
+    let files: string[];
     try {
-      entries = await readdir(dir);
-    } catch (error) {
-      // A missing dir is genuinely empty; any OTHER error (e.g. permissions) is
-      // an unscanned blind spot and must be surfaced, not treated as empty.
-      const code = error instanceof Error && "code" in error ? error.code : undefined;
-      if (code !== "ENOENT") unreadableDirs.push(dir);
+      files = await listMemoryNotes(dir, { onSwap: "skip" });
+    } catch {
+      // A missing dir is genuinely empty (listMemoryNotes already returns []
+      // for that, never throwing) — anything that DOES throw here (a real
+      // readdir failure, or a mid-walk directory-swap TOCTOU) is an unscanned
+      // blind spot and must be surfaced, not treated as empty.
+      unreadableDirs.push(dir);
       continue;
     }
-    for (const entry of entries.filter((entry) => entry.endsWith(".md"))) {
-      targets.push({ path: join(dir, entry), type });
-    }
+    for (const path of files) targets.push({ path, type });
   }
 
   const scanned = await runBoundedConcurrent(

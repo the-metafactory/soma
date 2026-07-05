@@ -12,7 +12,7 @@ import {
   type SomaMemoryWriteOptions,
 } from "../src/index";
 // Path/dedup/governance helpers are module-private (not public index API) — import direct.
-import { MEMORY_DEDUP_JACCARD_THRESHOLD, findDuplicateCandidates, memoryNotePath, resolveMutationGovernance } from "../src/memory-write";
+import { MEMORY_DEDUP_JACCARD_THRESHOLD, collectDurableNotes, findDuplicateCandidates, memoryNotePath, resolveMutationGovernance } from "../src/memory-write";
 import { parseMemoryArgs } from "../src/cli/memory";
 
 const NOW = new Date("2026-07-03T10:00:00.000Z");
@@ -219,6 +219,38 @@ test("the dedup gate surfaces unreadable notes instead of silently skipping them
     // The create still succeeds but records the blind spot in its event metadata.
     const result = await writeMemoryNote(createOpts(somaHome, { id: "fresh", body: "unrelated fresh body ghi jkl" }));
     expect(result.event.metadata?.dedupUnreadable).toBe(1);
+  });
+});
+
+test("#408: a symlinked note in the durable corpus is never followed by collectDurableNotes (the closed no-check gap)", async () => {
+  await withTempSoma(async (somaHome) => {
+    // A note OUTSIDE the memory tree entirely, reachable only through a
+    // symlink planted inside `semantic/`. Before #408, `collectDurableNotes`
+    // had NO symlink guard at all (unlike consolidate's episodic walk in the
+    // same pass) and would have read straight through it.
+    const outside = join(somaHome, "..", "outside-secrets.md");
+    await writeFile(
+      outside,
+      "---\nid: outside-secret\ntype: semantic\ncreated: 2026-01-01\nlast_verified: 2026-01-01\nvalid_until: null\nprovenance: conversation\ntrust: principal\nsource_of_truth: null\nproject: null\nlinks: []\nresurface_count: 0\n---\na secret note that must never surface from outside the memory root",
+      "utf8",
+    );
+    await mkdir(join(somaHome, "memory", "semantic"), { recursive: true });
+    await symlink(outside, join(somaHome, "memory", "semantic", "leak.md"));
+    await writeMemoryNote(createOpts(somaHome, { id: "real-note", body: "a genuine durable note kept in the corpus" }));
+
+    const { notes, unreadable } = await collectDurableNotes(somaHome);
+
+    // Only the real note is visible; the symlinked one is silently invisible —
+    // never read, never counted as a note, never reported as an unreadable
+    // blind spot either (matching consolidate's silent-skip stance for
+    // episodic notes, now applied symmetrically to the durable corpus).
+    expect(notes.map((n) => n.note.id)).toEqual(["real-note"]);
+    expect(unreadable).toEqual([]);
+
+    // The dedup gate (this function's own caller) never sees the outside
+    // content as a candidate either.
+    const { candidates } = await findDuplicateCandidates(somaHome, "a secret note that must never surface from outside the memory root");
+    expect(candidates).toEqual([]);
   });
 });
 

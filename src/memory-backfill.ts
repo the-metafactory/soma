@@ -36,8 +36,9 @@
  */
 import { createHash } from "node:crypto";
 import { constants as FS } from "node:fs";
-import { lstat, mkdir, open, readFile, readdir, writeFile } from "node:fs/promises";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { lstat, mkdir, open, readFile, writeFile } from "node:fs/promises";
+import { basename, dirname, relative, resolve, sep } from "node:path";
+import { listMemoryNotes } from "./memory-fs";
 import { rebuildMemoryIndex } from "./memory-index";
 import { MemoryNoteError } from "./memory-note";
 import { memoryNotePath, writeMemoryNote } from "./memory-write";
@@ -193,75 +194,77 @@ const MARKDOWN_EXT = /\.(?:md|markdown)$/i;
  * any README.md, and non-markdown files; refuses symlinks loudly (matching the
  * migrators' stance). Returns entries sorted by relative path for deterministic
  * ordering.
+ *
+ * The recursive walk and its symlink refusal go through the shared
+ * `listMemoryNotes` seam (#408) with `onSwap: "throw"` — backfill is the one
+ * caller among the seam's four re-derivations that wants ANY symlink (not
+ * just a mid-walk swap) to abort the whole scan loudly, since it is importing
+ * arbitrary legacy content into governed notes and must never silently follow
+ * a symlink's target. The category/README/root-file filtering stays here (via
+ * `include`) — it is backfill's own business rule, not a traversal-safety
+ * concern the seam should know about. The source ROOT's own symlink refusal
+ * also stays here (its own explicit message) — `listMemoryNotes` treats an
+ * abnormal ROOT as empty, matching every OTHER caller, so a `--from` pointing
+ * at a symlink is checked as a precondition before the walk begins.
  */
 async function collectSources(root: string, skipRootFiles: boolean): Promise<SourceFile[]> {
-  const files: SourceFile[] = [];
-
-  // Refuse a symlinked source ROOT up front — the per-entry walk below only guards
-  // entries *within* the tree, so without this a `--from` pointing at a symlink
-  // would be traversed. A non-existent root simply yields no sources.
+  // Refuse a symlinked source ROOT up front — the seam walk below only guards
+  // entries *within* an already-vetted directory, so without this a `--from`
+  // pointing at a symlink would be traversed. A non-existent root simply
+  // yields no sources.
   let rootStat;
   try {
     rootStat = await lstat(root);
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") return files;
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return [];
     throw error;
   }
   if (rootStat.isSymbolicLink()) {
     throw new Error(`Soma memory backfill refused symlink source root: ${root}`);
   }
 
-  async function visit(dir: string, depth: number): Promise<void> {
-    let entries;
-    try {
-      entries = await readdir(dir, { withFileTypes: true });
-    } catch (error) {
-      if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
-      throw error;
-    }
-    for (const entry of entries) {
-      const abs = join(dir, entry.name);
-      const rel = relative(root, abs).split(sep).join("/");
-      if (entry.isSymbolicLink()) {
-        throw new Error(`Soma memory backfill refused symlink path: ${rel}`);
+  const paths = await listMemoryNotes(root, {
+    recursive: true,
+    onSwap: "throw",
+    extensions: [], // markdown matching (case-insensitive, .md/.markdown) is done in `include` below
+    include: ({ name, depth, isDirectory }) => {
+      if (isDirectory) {
+        // Reserved top-level names (the note stores + STATE/archive/imports)
+        // are never descended into — they are subsystem territory, not sources.
+        return !(depth === 0 && RESERVED_CATEGORIES.has(name));
       }
-      // Reserved top-level names (the note stores + STATE/archive/imports) are
-      // never descended into — they are subsystem territory, not sources.
-      if (depth === 0 && RESERVED_CATEGORIES.has(entry.name)) continue;
-      if (entry.isDirectory()) {
-        await visit(abs, depth + 1);
-        continue;
-      }
-      if (!entry.isFile()) continue;
       // A file directly under the root is README/INDEX territory ONLY for the
       // default memory root; a custom `--from <dir>` may legitimately hold its
       // markdown right at the top, so those are imported (category "" → semantic).
-      if (depth === 0 && skipRootFiles) continue;
-      if (/^readme\.(?:md|markdown)$/i.test(entry.name)) continue;
-      if (!MARKDOWN_EXT.test(entry.name)) continue;
-      const category = rel.includes("/") ? rel.split("/")[0] : "";
-      // A file can vanish between `readdir` and `lstat` (concurrent cleanup). Skip
-      // it rather than aborting the whole scan; a genuinely broken FS still throws.
-      let stat;
-      try {
-        stat = await lstat(abs);
-      } catch (error) {
-        if (error instanceof Error && "code" in error && error.code === "ENOENT") continue;
-        throw error;
-      }
-      files.push({
-        relativePath: rel,
-        absPath: abs,
-        category,
-        stem: entry.name.replace(/\.[^.]+$/, ""),
-        mtimeMs: stat.mtimeMs,
-        dev: stat.dev,
-        ino: stat.ino,
-      });
-    }
-  }
+      if (depth === 0 && skipRootFiles) return false;
+      if (/^readme\.(?:md|markdown)$/i.test(name)) return false;
+      return MARKDOWN_EXT.test(name);
+    },
+  });
 
-  await visit(root, 0);
+  const files: SourceFile[] = [];
+  for (const abs of paths) {
+    const rel = relative(root, abs).split(sep).join("/");
+    const category = rel.includes("/") ? rel.split("/")[0] : "";
+    // A file can vanish between the walk and this `lstat` (concurrent cleanup).
+    // Skip it rather than aborting the whole scan; a genuinely broken FS still throws.
+    let stat;
+    try {
+      stat = await lstat(abs);
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") continue;
+      throw error;
+    }
+    files.push({
+      relativePath: rel,
+      absPath: abs,
+      category,
+      stem: basename(abs).replace(/\.[^.]+$/, ""),
+      mtimeMs: stat.mtimeMs,
+      dev: stat.dev,
+      ino: stat.ino,
+    });
+  }
   return files.sort((a, b) => (a.relativePath < b.relativePath ? -1 : a.relativePath > b.relativePath ? 1 : 0));
 }
 
