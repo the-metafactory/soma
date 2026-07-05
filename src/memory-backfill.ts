@@ -40,7 +40,7 @@ import { lstat, mkdir, open, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, relative, resolve, sep } from "node:path";
 import { listMemoryNotes } from "./memory-fs";
 import { rebuildMemoryIndex } from "./memory-index";
-import { MemoryNoteError } from "./memory-note";
+import { MemoryNoteError, toNoteIdSlug, NOTE_ID_MAX_LEN } from "./memory-note";
 import { memoryNotePath, writeMemoryNote } from "./memory-write";
 import { createPaths } from "./paths";
 import { SOMA_MEMORY_BACKFILL_TYPE_MAP } from "./types";
@@ -127,18 +127,13 @@ async function pathExists(path: string): Promise<boolean> {
 }
 
 /**
- * Slugify `<category>-<stem>` into a note id: lowercase, non-alphanumeric runs
- * collapse to a single hyphen, no leading/trailing/double hyphens, ≤64 chars.
- * Matches the note SLUG grammar (`/^[a-z0-9]+(?:-[a-z0-9]+)*$/`, id ≤ 64).
+ * Slugify `<category>-<stem>` into a note id — delegates to the shared,
+ * valid-by-construction `toNoteIdSlug` (memory-note.ts, #410) next to the
+ * id-grammar definition, so this call site never re-approximates the grammar
+ * or re-validates the result.
  */
 function slugifyId(category: string, stem: string): string {
-  const raw = `${category}-${stem}`
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 64)
-    .replace(/-+$/g, "");
-  return raw || "note";
+  return toNoteIdSlug(`${category}-${stem}`, { fallback: "note" });
 }
 
 /** True iff a note with `id` already exists as either a semantic or procedural note. */
@@ -152,13 +147,13 @@ async function noteExists(somaHome: string, id: string): Promise<boolean> {
 /**
  * Resolve a unique note id from a base slug, suffixing `-2`, `-3`, … against
  * both the existing corpus and the ids already claimed in this run. The base is
- * trimmed to leave room for the suffix so the result stays ≤ 64 chars.
+ * trimmed to leave room for the suffix so the result stays ≤ NOTE_ID_MAX_LEN chars.
  */
 async function uniqueNoteId(somaHome: string, base: string, used: Set<string>): Promise<string> {
   if (!used.has(base) && !(await noteExists(somaHome, base))) return base;
   for (let n = 2; ; n += 1) {
     const suffix = `-${n}`;
-    const candidate = `${base.slice(0, 64 - suffix.length).replace(/-+$/g, "")}${suffix}`;
+    const candidate = `${base.slice(0, NOTE_ID_MAX_LEN - suffix.length).replace(/-+$/g, "")}${suffix}`;
     if (!used.has(candidate) && !(await noteExists(somaHome, candidate))) return candidate;
   }
 }

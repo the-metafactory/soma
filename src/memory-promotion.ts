@@ -4,6 +4,7 @@ import { readAlgorithmRunById, writeAlgorithmRun } from "./algorithm-store";
 import { appendAlgorithmProvenance } from "./algorithm-provenance";
 import { appendSomaMemoryEvent } from "./memory";
 import { createPaths } from "./paths";
+import { toNoteIdSlug } from "./memory-note";
 import { getCriteria, getGoal } from "./vsa-accessors";
 import { getRunPhase } from "./algorithm-lifecycle";
 import type { AlgorithmRun, SomaMemoryPromotionOptions, SomaMemoryPromotionResult } from "./types";
@@ -14,14 +15,13 @@ function assertNonEmpty(value: string, field: string): void {
   }
 }
 
+// These promoted files are plain lesson markdown (no frontmatter `id`), so this
+// slug is a FILENAME component, not a note-id field — it keeps its own historical
+// 80-char cap (wider than the 64-char note-id cap) rather than the id-grammar
+// default. Delegates to the shared, valid-by-construction `toNoteIdSlug`
+// (memory-note.ts, #410) instead of re-approximating the grammar locally.
 function slugify(value: string): string {
-  return (
-    value
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 80) || "memory"
-  );
+  return toNoteIdSlug(value, { maxLen: 80, fallback: "memory" });
 }
 
 function checkedCriteria(run: AlgorithmRun): string[] {
