@@ -4,14 +4,7 @@ import { dirname, join } from "node:path";
 import { createPaths } from "./paths";
 import { isEnoent } from "./fs-utils";
 import { appendSomaMemoryEvent } from "./memory";
-import {
-  serializeMemoryNote,
-  parseMemoryNote,
-  MemoryNoteError,
-  NOTE_ID_PATTERN,
-  NOTE_ID_MAX_LEN,
-  noteIdSlugSegment,
-} from "./memory-note";
+import { serializeMemoryNote, parseMemoryNote, MemoryNoteError } from "./memory-note";
 import { SOMA_MEMORY_ACTION_APPROVALS } from "./types";
 import type {
   SomaMemoryActionOptions,
@@ -55,6 +48,9 @@ import type {
  * reconciled by the M7 audit.
  */
 
+// Same slug grammar as the M0 note id / M1 write boundary.
+const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
 // Digest body bounds (plan §M5): a digest is 8–15 non-empty lines.
 const DIGEST_MIN_LINES = 8;
 const DIGEST_MAX_LINES = 15;
@@ -65,10 +61,8 @@ function assertNonEmpty(value: string | undefined, field: string): asserts value
   }
 }
 
-// Same slug grammar as the M0 note id / M1 write boundary (memory-note.ts's
-// NOTE_ID_PATTERN, #410).
-function assertSlug(slug: string, field: string, maxLen = NOTE_ID_MAX_LEN): void {
-  if (!NOTE_ID_PATTERN.test(slug) || slug.length > maxLen) {
+function assertSlug(slug: string, field: string, maxLen = 64): void {
+  if (!SLUG.test(slug) || slug.length > maxLen) {
     throw new MemoryNoteError(`${field} "${slug}" is not a valid slug (lowercase [a-z0-9-], <=${maxLen} chars).`, field);
   }
 }
@@ -77,7 +71,7 @@ function assertSlug(slug: string, field: string, maxLen = NOTE_ID_MAX_LEN): void
 // caller-supplied action slug is capped so `${date}-${slug}` stays a valid id —
 // caught at the `slug` field (clear error) rather than surfacing later as a
 // confusing `action id` failure.
-const MAX_ID_SLUG = NOTE_ID_MAX_LEN - "YYYYMMDD-".length;
+const MAX_ID_SLUG = 64 - "YYYYMMDD-".length;
 
 function isEexist(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "EEXIST";
@@ -108,16 +102,18 @@ function monthDir(now: Date): string {
  * characters, the hash alone identifies it.
  */
 function sessionSlug(sessionId: string): string {
-  // The shared slug-shape builder (memory-note.ts, #410) — this is the ONE
-  // caller that needs the possibly-empty raw form: the collision-resistant
-  // hash suffix (not a generic placeholder) is the empty-input fallback here.
-  const readable = noteIdSlugSegment(sessionId, 32);
+  const readable = sessionId
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 32)
+    .replace(/-+$/g, "");
   const hash = createHash("sha256").update(sessionId).digest("hex").slice(0, 8);
   return readable.length > 0 ? `${readable}-${hash}` : hash;
 }
 
 function episodicPath(somaHome: string, kind: "sessions" | "actions", now: Date, id: string): string {
-  return createPaths(somaHome).episodic(kind, monthDir(now), `${id}.md`);
+  return createPaths(somaHome).resolve("memory", "episodic", kind, monthDir(now), `${id}.md`);
 }
 
 /**
@@ -131,7 +127,7 @@ function episodicPath(somaHome: string, kind: "sessions" | "actions", now: Date,
  * atomic gate — this is only the cross-date fast-path.
  */
 async function findExistingSessionDigestPath(somaHome: string, slug: string): Promise<string | undefined> {
-  const base = createPaths(somaHome).episodic("sessions");
+  const base = createPaths(somaHome).resolve("memory", "episodic", "sessions");
   const idPattern = new RegExp(`^\\d{8}-${slug}\\.md$`); // slug is [a-z0-9-] only — no regex metachars
   let months: string[];
   try {

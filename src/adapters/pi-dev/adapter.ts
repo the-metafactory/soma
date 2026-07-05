@@ -7,10 +7,6 @@ import { projectableSkills, renderAssistantCore, renderMemoryLayout, renderPolic
 import { activeVsaBundleFile } from "../../adapter-active-vsa";
 import { SOMA_VERSION } from "../../version";
 
-export function isPiDevSkillProjectionPath(path: string): boolean {
-  return path.startsWith("agent/skills/");
-}
-
 function renderInstructions(input: ProjectionInput): string {
   return [
     "# Soma Pi.dev Context",

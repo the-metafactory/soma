@@ -27,10 +27,6 @@ export const CURSOR_HOME_FILE_PATHS = [
   CURSOR_MCP_PATH,
 ] as const;
 
-export function isCursorSkillProjectionPath(_path: string): boolean {
-  return false;
-}
-
 export function cursorWorkspaceSubstrateHome(cwd: string = process.cwd()): string {
   return resolve(cwd);
 }

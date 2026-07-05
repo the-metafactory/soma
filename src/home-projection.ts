@@ -4,13 +4,8 @@ import { join, resolve } from "node:path";
 import { dirname } from "node:path";
 import { CURSOR_RULES_BLOCK_BEGIN, CURSOR_RULES_BLOCK_END, CURSOR_RULES_PATH } from "./adapters/cursor";
 import { projectClaudeCodeHome, projectCodexHome, projectCursorHome, projectGrokHome, projectPiDevHome } from "./adapters";
-import { isClaudeCodeSkillProjectionPath } from "./adapters/claude-code";
-import { isCodexSkillProjectionPath } from "./adapters/codex/adapter";
-import { isCursorSkillProjectionPath } from "./adapters/cursor";
-import { isGrokSkillProjectionPath } from "./adapters/grok/adapter";
 import { isGrokPortableSkillProjectionPath } from "./adapters/grok/install";
 import { reconcileGrokPortableSkillProjection, writeGrokInstallManifest } from "./adapters/grok/install-manifest";
-import { isPiDevSkillProjectionPath } from "./adapters/pi-dev/adapter";
 import { writeProjection } from "./projection";
 import { defaultSomaRepoPath } from "./repo-path";
 import { defaultSubstrateHome } from "./install-spec-registry";
@@ -47,27 +42,11 @@ function buildHomeProjectionFor(
   };
 }
 
-type SkillProjectionPathPredicate = (path: string) => boolean;
-
-function maybeCodeOnlyProjection(
-  projection: Projection,
-  options: SomaHomeProjectionOptions,
-  isSkillProjectionPath: SkillProjectionPathPredicate,
-): Projection {
-  if (options.codeOnly !== true) return projection;
-  return {
-    ...projection,
-    files: projection.files.filter((file) => !isSkillProjectionPath(file.path)),
-  };
-}
-
 export function buildCodexHomeProjection(input: ProjectionInput, options: SomaHomeProjectionOptions = {}): SomaHomeProjection {
   const homeDir = resolve(options.homeDir ?? homedir());
   const somaRepoPath = resolve(options.somaRepoPath ?? defaultSomaRepoPath());
 
-  return buildHomeProjectionFor("codex", options, (paths) =>
-    maybeCodeOnlyProjection(projectCodexHome(input, paths.somaHome, homeDir, somaRepoPath), options, isCodexSkillProjectionPath),
-  );
+  return buildHomeProjectionFor("codex", options, (paths) => projectCodexHome(input, paths.somaHome, homeDir, somaRepoPath));
 }
 
 export async function installCodexHomeProjection(
@@ -79,9 +58,7 @@ export async function installCodexHomeProjection(
 }
 
 export function buildPiDevHomeProjection(input: ProjectionInput, options: SomaHomeProjectionOptions = {}): SomaHomeProjection {
-  return buildHomeProjectionFor("pi-dev", options, (paths) =>
-    maybeCodeOnlyProjection(projectPiDevHome(input, paths.somaHome), options, isPiDevSkillProjectionPath),
-  );
+  return buildHomeProjectionFor("pi-dev", options, (paths) => projectPiDevHome(input, paths.somaHome));
 }
 
 export async function installPiDevHomeProjection(
@@ -101,9 +78,7 @@ export function buildClaudeCodeHomeProjection(
   input: ProjectionInput,
   options: SomaHomeProjectionOptions = {},
 ): SomaHomeProjection {
-  return buildHomeProjectionFor("claude-code", options, () =>
-    maybeCodeOnlyProjection(projectClaudeCodeHome(input), options, isClaudeCodeSkillProjectionPath),
-  );
+  return buildHomeProjectionFor("claude-code", options, () => projectClaudeCodeHome(input));
 }
 
 export async function installClaudeCodeHomeProjection(
@@ -115,7 +90,7 @@ export async function installClaudeCodeHomeProjection(
 }
 
 export function buildCursorHomeProjection(input: ProjectionInput, options: SomaHomeProjectionOptions = {}): SomaHomeProjection {
-  return buildHomeProjectionFor("cursor", options, () => maybeCodeOnlyProjection(projectCursorHome(input), options, isCursorSkillProjectionPath));
+  return buildHomeProjectionFor("cursor", options, () => projectCursorHome(input));
 }
 
 export function buildGrokHomeProjection(input: ProjectionInput, options: SomaHomeProjectionOptions = {}): SomaHomeProjection {
@@ -126,11 +101,7 @@ export function buildGrokHomeProjection(input: ProjectionInput, options: SomaHom
   // resolved substrate home — including a substrateHome override — and
   // the trusted repo path flow into the projection.
   return buildHomeProjectionFor("grok", options, (paths) =>
-    maybeCodeOnlyProjection(
-      projectGrokHome(input, paths.somaHome, { homeDir, somaRepoPath, grokHome: paths.substrateHome }),
-      options,
-      isGrokSkillProjectionPath,
-    ),
+    projectGrokHome(input, paths.somaHome, { homeDir, somaRepoPath, grokHome: paths.substrateHome }),
   );
 }
 
@@ -165,9 +136,6 @@ export async function installGrokHomeProjection(
   const projection = buildGrokHomeProjection(input, options);
   const portableFiles = projection.bundle.files.filter((file) => isGrokPortableSkillProjectionPath(file.path));
   const written = await writeProjection(projection.bundle, projection.substrateHome);
-  if (options.codeOnly === true) {
-    return written;
-  }
   // U6 follow-up: the manifest records the dynamically-named
   // portable-skill files (path + content hash) on the Soma side so
   // uninstall can round-trip them. Before refreshing it, reconcile:

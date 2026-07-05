@@ -11,16 +11,8 @@ import {
   type SomaMemoryNote,
   type SomaMemoryWriteOptions,
 } from "../src/index";
-// Path/dedup/governance helpers are module-private (not public index API) — import direct.
-import {
-  MEMORY_DEDUP_JACCARD_THRESHOLD,
-  collectDurableNotes,
-  findDuplicateCandidates,
-  memoryNotePath,
-  resolveMutationGovernance,
-  writeNotesAtomically,
-  type AtomicNoteWrite,
-} from "../src/memory-write";
+// Path/dedup helpers are module-private (not public index API) — import direct.
+import { MEMORY_DEDUP_JACCARD_THRESHOLD, findDuplicateCandidates, memoryNotePath } from "../src/memory-write";
 import { parseMemoryArgs } from "../src/cli/memory";
 
 const NOW = new Date("2026-07-03T10:00:00.000Z");
@@ -136,36 +128,6 @@ test("import needs no authority; consolidation needs consolidation-authority", a
   });
 });
 
-test("resolveMutationGovernance: a mint refusal and its audit-meta come from the SAME call (#409 locality)", () => {
-  // Insufficient authority — the gate refuses the mint outright; no governance
-  // result (and therefore no audit-meta) is ever produced for a refused call.
-  expect(() => resolveMutationGovernance("principal-correction", null, { principalAuthority: false })).toThrow(
-    /requires --principal-authority/,
-  );
-
-  // With authority, the SAME call that approves the mint is what returns the
-  // audit-meta an event will record — trust and eventMeta come out of one
-  // resolution, so a caller can never reconstruct eventMeta independently of
-  // the check that authorized it (the bug #409 closes).
-  const granted = resolveMutationGovernance("principal-correction", null, { principalAuthority: true });
-  expect(granted.trust).toBe("principal");
-  expect(granted.provenance).toBe("conversation");
-  expect(granted.eventMeta).toEqual({ principalAuthority: true });
-
-  // Same proof for the other mintable tier: refusal, then a matched grant.
-  expect(() => resolveMutationGovernance("consolidation", null, { consolidationAuthority: false })).toThrow(
-    /requires consolidation authority/,
-  );
-  const consolidationGrant = resolveMutationGovernance("consolidation", null, { consolidationAuthority: true });
-  expect(consolidationGrant.trust).toBe("assistant");
-  expect(consolidationGrant.eventMeta).toEqual({ consolidationAuthority: true });
-
-  // import mints quarantined trust — free, no authority signal required or recorded.
-  const imported = resolveMutationGovernance("import", null, {});
-  expect(imported.trust).toBe("quarantined");
-  expect(imported.eventMeta).toEqual({});
-});
-
 test("ids are globally unique across types — a cross-type collision is refused", async () => {
   await withTempSoma(async (somaHome) => {
     await writeMemoryNote(createOpts(somaHome, { id: "shared", type: "semantic", body: "semantic body one two three" }));
@@ -227,38 +189,6 @@ test("the dedup gate surfaces unreadable notes instead of silently skipping them
     // The create still succeeds but records the blind spot in its event metadata.
     const result = await writeMemoryNote(createOpts(somaHome, { id: "fresh", body: "unrelated fresh body ghi jkl" }));
     expect(result.event.metadata?.dedupUnreadable).toBe(1);
-  });
-});
-
-test("#408: a symlinked note in the durable corpus is never followed by collectDurableNotes (the closed no-check gap)", async () => {
-  await withTempSoma(async (somaHome) => {
-    // A note OUTSIDE the memory tree entirely, reachable only through a
-    // symlink planted inside `semantic/`. Before #408, `collectDurableNotes`
-    // had NO symlink guard at all (unlike consolidate's episodic walk in the
-    // same pass) and would have read straight through it.
-    const outside = join(somaHome, "..", "outside-secrets.md");
-    await writeFile(
-      outside,
-      "---\nid: outside-secret\ntype: semantic\ncreated: 2026-01-01\nlast_verified: 2026-01-01\nvalid_until: null\nprovenance: conversation\ntrust: principal\nsource_of_truth: null\nproject: null\nlinks: []\nresurface_count: 0\n---\na secret note that must never surface from outside the memory root",
-      "utf8",
-    );
-    await mkdir(join(somaHome, "memory", "semantic"), { recursive: true });
-    await symlink(outside, join(somaHome, "memory", "semantic", "leak.md"));
-    await writeMemoryNote(createOpts(somaHome, { id: "real-note", body: "a genuine durable note kept in the corpus" }));
-
-    const { notes, unreadable } = await collectDurableNotes(somaHome);
-
-    // Only the real note is visible; the symlinked one is silently invisible —
-    // never read, never counted as a note, never reported as an unreadable
-    // blind spot either (matching consolidate's silent-skip stance for
-    // episodic notes, now applied symmetrically to the durable corpus).
-    expect(notes.map((n) => n.note.id)).toEqual(["real-note"]);
-    expect(unreadable).toEqual([]);
-
-    // The dedup gate (this function's own caller) never sees the outside
-    // content as a candidate either.
-    const { candidates } = await findDuplicateCandidates(somaHome, "a secret note that must never surface from outside the memory root");
-    expect(candidates).toEqual([]);
   });
 });
 
@@ -631,134 +561,5 @@ test("supersede rolls back both sides when the event append fails", async () => 
     expect(old.valid_until).toBeNull();
     expect(old.links).not.toContain("new");
     await expect(readNote(memoryNotePath(somaHome, "semantic", "new"))).rejects.toThrow();
-  });
-});
-
-// --- #412: one atomicity contract, one error shape for staged note writes ---
-
-function rawNote(overrides: Partial<SomaMemoryNote> & { id: string; body: string }): SomaMemoryNote {
-  return {
-    type: "semantic",
-    created: "2026-07-03",
-    last_verified: "2026-07-03",
-    valid_until: null,
-    provenance: "conversation",
-    trust: "principal",
-    source_of_truth: null,
-    project: null,
-    links: [],
-    resurface_count: 0,
-    ...overrides,
-  };
-}
-
-test("writeNotesAtomically: a mid-write failure rolls back every staged write with the SAME error shape as an event-append failure (#412)", async () => {
-  await withTempSoma(async (somaHome) => {
-    await mkdir(join(somaHome, "memory/semantic"), { recursive: true });
-    // Mirrors supersedeNote's own write shape: a "wx" create followed by a "w"
-    // overwrite — the exact two-write staging supersede routes through this
-    // primitive for.
-    const firstPath = memoryNotePath(somaHome, "semantic", "atomic-first");
-    const secondPath = memoryNotePath(somaHome, "semantic", "atomic-second");
-    const priorRaw = "restored-content-from-rollback\n";
-    await writeFile(secondPath, "current-content-before-the-call\n", "utf8");
-
-    const writes: AtomicNoteWrite[] = [
-      { path: firstPath, flag: "wx", note: rawNote({ id: "atomic-first", body: "first note body alpha beta" }) },
-      {
-        path: secondPath,
-        flag: "w",
-        // An embedded newline in `hook` breaks the round-trip law (memory-note.ts's
-        // serializeMemoryNote re-parses and compares) — `writeNoteFile` throws
-        // BEFORE any byte of this write hits disk, forcing a mid-write failure
-        // deterministically and without needing root-unsafe permission tricks.
-        note: rawNote({ id: "atomic-second", body: "second note body gamma delta", hook: "line one\nline two" }),
-        priorRaw,
-      },
-    ];
-
-    let thrown: unknown;
-    try {
-      await writeNotesAtomically(somaHome, NOW, undefined, "test.atomic-write", writes, {
-        summary: "atomic write test",
-        artifactPaths: [firstPath, secondPath],
-        metadata: {},
-      });
-    } catch (error) {
-      thrown = error;
-    }
-
-    expect(thrown).toBeInstanceOf(Error);
-    const error = thrown as Error;
-    // Same shape as the append-failure rollback (`rolled back the file mutation`,
-    // a plain Error with `cause`) — NOT the AggregateError supersedeNote used to
-    // hand-roll for this exact failure window.
-    expect(error).not.toBeInstanceOf(AggregateError);
-    expect(error.message).toBe("Soma memory test.atomic-write write failed; rolled back the file mutation.");
-    expect(error.cause).toBeDefined();
-
-    // Every staged write was rolled back: the first write's file is gone...
-    await expect(readNote(firstPath)).rejects.toThrow();
-    // ...and the second write's target was restored to the caller-supplied prior
-    // bytes (proving the rollback actually ran, not merely that nothing changed).
-    expect(await readFile(secondPath, "utf8")).toBe(priorRaw);
-  });
-});
-
-test("writeNotesAtomically: a failure on a first CREATE (wx) propagates un-rolled-back and un-wrapped (EEXIST left the target untouched)", async () => {
-  await withTempSoma(async (somaHome) => {
-    await mkdir(join(somaHome, "memory/semantic"), { recursive: true });
-    const firstPath = memoryNotePath(somaHome, "semantic", "atomic-only");
-    const writes: AtomicNoteWrite[] = [
-      { path: firstPath, flag: "wx", note: rawNote({ id: "atomic-only", body: "body", hook: "line one\nline two" }) },
-    ];
-
-    await expect(
-      writeNotesAtomically(somaHome, NOW, undefined, "test.atomic-write", writes, {
-        summary: "atomic write test",
-        artifactPaths: [firstPath],
-        metadata: {},
-      }),
-    ).rejects.toThrow(/malformed frontmatter line/);
-  });
-});
-
-test("writeNotesAtomically: a failure on a first OVERWRITE (w) rolls back to prior bytes with the shared error shape (#412 review)", async () => {
-  await withTempSoma(async (somaHome) => {
-    await mkdir(join(somaHome, "memory/semantic"), { recursive: true });
-    // A single "w" overwrite (the shape merge/verify route through). An
-    // overwrite can truncate its target before failing, so a first-write
-    // failure must still restore the caller's prior bytes — NOT propagate raw.
-    const onlyPath = memoryNotePath(somaHome, "semantic", "overwrite-only");
-    const priorRaw = "trusted-prior-bytes-that-must-survive\n";
-    await writeFile(onlyPath, priorRaw, "utf8");
-    const writes: AtomicNoteWrite[] = [
-      {
-        path: onlyPath,
-        flag: "w",
-        // Embedded newline in `hook` breaks the round-trip law → writeNoteFile
-        // throws, deterministically forcing the first-write failure.
-        note: rawNote({ id: "overwrite-only", body: "new body that never lands", hook: "line one\nline two" }),
-        priorRaw,
-      },
-    ];
-
-    let thrown: unknown;
-    try {
-      await writeNotesAtomically(somaHome, NOW, undefined, "test.atomic-write", writes, {
-        summary: "atomic write test",
-        artifactPaths: [onlyPath],
-        metadata: {},
-      });
-    } catch (error) {
-      thrown = error;
-    }
-
-    // Wrapped shared shape, not a raw round-trip error nor an AggregateError.
-    expect(thrown).toBeInstanceOf(Error);
-    expect(thrown).not.toBeInstanceOf(AggregateError);
-    expect((thrown as Error).message).toBe("Soma memory test.atomic-write write failed; rolled back the file mutation.");
-    // Prior bytes restored (rollback ran even though it was the first write).
-    expect(await readFile(onlyPath, "utf8")).toBe(priorRaw);
   });
 });

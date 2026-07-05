@@ -27,64 +27,10 @@ export class MemoryNoteError extends Error {
   }
 }
 
-// The note-id / slug grammar (#410's "id grammar definition"): lowercase
-// [a-z0-9], single hyphens between runs, no leading/trailing/double hyphens.
-// Exported so every module that validates or MINTS an id (memory-write.ts's
-// write-boundary guard, memory-consolidate.ts's episodic-id safety re-check,
-// memory-episodic.ts's slug validation, and the generative slugifiers below)
-// shares this ONE definition instead of re-declaring the same regex.
-export const NOTE_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-export const NOTE_ID_MAX_LEN = 64;
+const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const NOTE_TYPES: readonly SomaMemoryNoteType[] = SOMA_MEMORY_NOTE_TYPES;
 const TRUSTS: readonly SomaMemoryTrust[] = SOMA_MEMORY_TRUSTS;
-
-/** True iff `id` matches the note-id slug grammar and fits within `maxLen`
- *  (default 64, the frontmatter `id` field's own cap; a caller building a
- *  narrower id — e.g. an episodic action id that must leave room for its
- *  `YYYYMMDD-` prefix — passes a smaller cap). */
-export function isValidNoteId(id: string, maxLen: number = NOTE_ID_MAX_LEN): boolean {
-  return NOTE_ID_PATTERN.test(id) && id.length <= maxLen;
-}
-
-/**
- * Pure slug-shape transform: lowercase, collapse non-[a-z0-9] runs to a single
- * hyphen, trim leading/trailing hyphens, cap at `maxLen` (re-trimming a hyphen
- * that truncation may expose). May return `""` if nothing sluggable remains — the
- * building block for {@link toNoteIdSlug} below, exposed directly for a
- * composing caller that needs its own non-generic empty-input fallback (e.g.
- * memory-episodic.ts's collision-resistant session slug, which appends a hash
- * suffix rather than a placeholder word).
- */
-export function noteIdSlugSegment(base: string, maxLen: number = NOTE_ID_MAX_LEN): string {
-  return base
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, maxLen)
-    .replace(/-+$/g, "");
-}
-
-/**
- * Slugify `base` into a note-id-shaped slug — valid-by-construction: a caller
- * never needs to re-test the result against {@link isValidNoteId}. Replaces
- * the produce-then-validate scatter across memory-backfill.ts's `slugifyId`
- * and memory-promotion.ts's `slugify` (both delegate to this).
- *
- * If nothing sluggable remains (e.g. an all-punctuation title), returns
- * `fallback` (default `"note"`) — asserted to itself be a valid slug so this
- * function can never silently break its own guarantee.
- */
-export function toNoteIdSlug(base: string, options: { maxLen?: number; fallback?: string } = {}): string {
-  const maxLen = options.maxLen ?? NOTE_ID_MAX_LEN;
-  const slug = noteIdSlugSegment(base, maxLen);
-  if (slug.length > 0) return slug;
-  const fallback = options.fallback ?? "note";
-  if (!isValidNoteId(fallback, maxLen)) {
-    throw new Error(`toNoteIdSlug: fallback "${fallback}" is not itself a valid slug (<=${maxLen} chars).`);
-  }
-  return fallback;
-}
 
 // Provenance is a closed set plus the open `tool:<name>` family (plan v2 §2.2,
 // design doc line 105): conversation | consolidation | import | tool:<name>.
@@ -130,7 +76,7 @@ function parseLinks(raw: string): string[] {
   if (inner === "") return [];
   const items = inner.split(",").map((s) => s.trim());
   for (const item of items) {
-    assert(NOTE_ID_PATTERN.test(item), `links entry "${item}" is not a valid slug`, "links");
+    assert(SLUG.test(item), `links entry "${item}" is not a valid slug`, "links");
   }
   return items;
 }
@@ -214,7 +160,7 @@ export function parseMemoryNote(content: string): SomaMemoryNote {
   }
 
   const id = raw.id;
-  assert(isValidNoteId(id), `id "${id}" is not a valid slug (<=${NOTE_ID_MAX_LEN} chars)`, "id");
+  assert(SLUG.test(id) && id.length <= 64, `id "${id}" is not a valid slug (<=64 chars)`, "id");
   assert((NOTE_TYPES as readonly string[]).includes(raw.type), `type "${raw.type}" is not valid`, "type");
   assert((TRUSTS as readonly string[]).includes(raw.trust), `trust "${raw.trust}" is not valid`, "trust");
   assert(isCalendarDate(raw.created), `created "${raw.created}" must be a valid YYYY-MM-DD date`, "created");

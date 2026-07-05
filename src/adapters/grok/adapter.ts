@@ -30,10 +30,6 @@ import {
 import { readGrokHookAsset } from "./hooks/assets";
 import { GROK_PRE_TOOL_USE_VERB } from "./hooks/grok-hook-verbs.mjs";
 
-export function isGrokSkillProjectionPath(path: string): boolean {
-  return path.startsWith("skills/");
-}
-
 /**
  * Resolve the user-level Grok home (`~/.grok`). `detect()` probes this
  * directory's existence: unlike Codex (`CODEX_HOME`) or Cursor

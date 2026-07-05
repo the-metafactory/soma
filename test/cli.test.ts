@@ -1715,11 +1715,14 @@ test("cli promotes Algorithm run memory", async () => {
       "Promoted memories should be concise and searchable.",
       "--applies-when",
       "Recall when closing Algorithm runs.",
+      "--principal-authority",
     ]);
 
     expect(output).toContain("Soma memory promotion created");
-    expect(output).toContain("memory/LEARNING/PROMOTED/promotion-cli-lesson-promote-run.md");
-    await expect(readFile(join(homeDir, ".soma/memory/LEARNING/PROMOTED/promotion-cli-lesson-promote-run.md"), "utf8")).resolves.toContain(
+    expect(output).toMatch(/memory\/LEARNING\/PROMOTED\/promotion-cli-lesson-promote-run-[0-9a-f]{8}\.md/);
+    const files = await import("node:fs/promises").then((fs) => fs.readdir(join(homeDir, ".soma/memory/LEARNING/PROMOTED")));
+    const promoFile = files.find((f) => /^promotion-cli-lesson-promote-run-[0-9a-f]{8}\.md$/.test(f))!;
+    await expect(readFile(join(homeDir, ".soma/memory/LEARNING/PROMOTED", promoFile), "utf8")).resolves.toContain(
       "Promoted memories should be concise and searchable.",
     );
   });
@@ -2143,39 +2146,20 @@ test("cli uninstall codex/pi-dev is a reserved stub", async () => {
 
 test("cli reproject codex routes through the install applier", async () => {
   await withTempHome(async (homeDir) => {
-    const { somaHome } = await bootstrapSomaHome({ homeDir });
-    await mkdir(join(somaHome, "skills", "Widget"), { recursive: true });
-    await writeFile(join(somaHome, "skills", "Widget", "SKILL.md"), "---\nname: Widget\n---\n\nWidget skill.\n", "utf8");
-    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir]);
-    const projectedSkill = join(homeDir, ".codex", "skills", "Widget", "SKILL.md");
-    expect(await readFile(projectedSkill, "utf8")).toContain("Widget skill");
-    const staleOwnedFile = join(homeDir, ".codex", "memories", "soma", "stale.md");
-    await writeFile(staleOwnedFile, "stale generated projection\n", "utf8");
-
-    const output = await runSomaCli(["reproject", "codex", "--code-only", "--home-dir", homeDir]);
+    const output = await runSomaCli(["reproject", "codex", "--home-dir", homeDir]);
 
     expect(output).toContain("Soma install applied");
     expect(output).toContain(`substrate: codex`);
     await expect(stat(join(homeDir, ".codex/rules/soma.rules"))).resolves.toBeDefined();
-    expect(await readFile(projectedSkill, "utf8")).toContain("Widget skill");
-    await expect(readFile(staleOwnedFile, "utf8")).rejects.toThrow();
   });
 });
 
 test("cli upgrade codex routes through the install applier", async () => {
   await withTempHome(async (homeDir) => {
-    const { somaHome } = await bootstrapSomaHome({ homeDir });
-    await mkdir(join(somaHome, "skills", "Widget"), { recursive: true });
-    await writeFile(join(somaHome, "skills", "Widget", "SKILL.md"), "---\nname: Widget\n---\n\nWidget skill.\n", "utf8");
-    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir]);
-    const projectedSkill = join(homeDir, ".codex", "skills", "Widget", "SKILL.md");
-    expect(await readFile(projectedSkill, "utf8")).toContain("Widget skill");
-
-    const output = await runSomaCli(["upgrade", "codex", "--code-only", "--home-dir", homeDir]);
+    const output = await runSomaCli(["upgrade", "codex", "--home-dir", homeDir]);
 
     expect(output).toContain("Soma install applied");
     expect(output).toContain(`substrate: codex`);
-    expect(await readFile(projectedSkill, "utf8")).toContain("Widget skill");
   });
 });
 

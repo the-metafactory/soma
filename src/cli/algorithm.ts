@@ -131,6 +131,7 @@ interface AlgorithmCliOptions {
   json?: boolean;
   vsaPath?: string;
   promoteOnComplete?: boolean;
+  principalAuthority?: boolean;
   missedEarlyStep?: string;
   missedVerifyOrParallel?: string;
   highestValueMove?: string;
@@ -502,6 +503,9 @@ export function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
         break;
       case "--promote-on-complete":
         options.promoteOnComplete = true;
+        break;
+      case "--principal-authority":
+        options.principalAuthority = true;
         break;
       case "--missed-early-step":
         options.missedEarlyStep = readOption(rest, index, arg);
@@ -903,6 +907,7 @@ export async function runAlgorithmCli(parsed: ParsedAlgorithmArgs): Promise<stri
       homeDir: options.homeDir,
       somaHome: options.somaHome,
       promoteOnComplete: options.promoteOnComplete === true,
+      principalAuthority: options.principalAuthority === true,
     });
     return formatSyncResult(result);
   }
