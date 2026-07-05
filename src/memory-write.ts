@@ -6,8 +6,9 @@ import { createPaths } from "./paths";
 import { listMemoryNotes } from "./memory-fs";
 import { runBoundedConcurrent } from "./internal-concurrency";
 import { appendSomaMemoryEvent } from "./memory";
-import { parseMemoryNote, serializeMemoryNote, MemoryNoteError } from "./memory-note";
+import { parseMemoryNote, serializeMemoryNote, MemoryNoteError, isValidNoteId, NOTE_ID_MAX_LEN } from "./memory-note";
 import { memoryTermSet } from "./memory-terms";
+import { jaccard, NEAR_DUPLICATE_JACCARD_THRESHOLD } from "./memory-corpus";
 import { SOMA_MEMORY_NOTE_TYPES, SOMA_MEMORY_TRIGGER_TRUST } from "./types";
 import type {
   SomaMemoryDuplicateCandidate,
@@ -60,10 +61,12 @@ import type {
  * stay within the Soma memory tree under `memory/semantic/` + `memory/procedural/`.
  */
 
-// The recall-first refusal fires at/above this Jaccard token-set overlap.
-// Adapted from recall's dedup concept (see Plans/2026-07-02-recall-adoption-analysis.md);
-// Soma owns the constant after port.
-export const MEMORY_DEDUP_JACCARD_THRESHOLD = 0.6;
+// The recall-first refusal fires at/above this Jaccard token-set overlap — the
+// same shared floor (#410) the M6 consolidation near-dup report scores against
+// (memory-consolidate.ts's `planSimilarPairs`). Re-exported under this file's
+// established name: internal soma modules and tests import it from here (see
+// index.ts's public-surface note), not from memory-corpus.ts directly.
+export { NEAR_DUPLICATE_JACCARD_THRESHOLD as MEMORY_DEDUP_JACCARD_THRESHOLD };
 
 // The durable, dedup-gated corpus. Episodic notes live elsewhere (M5) and are
 // not written through this path.
@@ -95,16 +98,15 @@ function assertNonEmpty(value: string | undefined, field: string): asserts value
   }
 }
 
-// Same slug grammar the M0 parser enforces on `id`. Validated HERE at the write
-// boundary — before the id is ever joined into a filesystem path — so a
-// traversal id (`../../evil`) is refused up front rather than incidentally by
-// serialize's round-trip re-parse. Defense in depth: memoryNotePath must never
-// receive an unvalidated id.
-const NOTE_ID_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-
+// Same slug grammar the M0 parser enforces on `id` (memory-note.ts's
+// NOTE_ID_PATTERN). Validated HERE at the write boundary — before the id is
+// ever joined into a filesystem path — so a traversal id (`../../evil`) is
+// refused up front rather than incidentally by serialize's round-trip
+// re-parse. Defense in depth: memoryNotePath must never receive an
+// unvalidated id.
 function assertNoteId(id: string): void {
-  if (!NOTE_ID_SLUG.test(id) || id.length > 64) {
-    throw new MemoryNoteError(`id "${id}" is not a valid slug (lowercase [a-z0-9-], <=64 chars).`, "id");
+  if (!isValidNoteId(id)) {
+    throw new MemoryNoteError(`id "${id}" is not a valid slug (lowercase [a-z0-9-], <=${NOTE_ID_MAX_LEN} chars).`, "id");
   }
 }
 
@@ -198,16 +200,6 @@ function bodyHash(body: string): string {
 
 function bodyTokens(body: string): Set<string> {
   return tokensFromLower(body.toLowerCase());
-}
-
-function jaccard(a: Set<string>, b: Set<string>): number {
-  if (a.size === 0 && b.size === 0) return 0;
-  let intersection = 0;
-  for (const token of a) {
-    if (b.has(token)) intersection += 1;
-  }
-  const union = a.size + b.size - intersection;
-  return union === 0 ? 0 : intersection / union;
 }
 
 export interface ScannedNote {
@@ -463,7 +455,7 @@ export async function findDuplicateCandidates(somaHome: string, body: string): P
     const lower = note.body.toLowerCase(); // one pass, feeds both hash and tokens
     const exact = hashFromLower(lower) === hash;
     const score = exact ? 1 : jaccard(tokens, tokensFromLower(lower));
-    if (exact || score >= MEMORY_DEDUP_JACCARD_THRESHOLD) {
+    if (exact || score >= NEAR_DUPLICATE_JACCARD_THRESHOLD) {
       candidates.push({ id: note.id, type, path, score, exact });
     }
   }

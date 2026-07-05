@@ -12,6 +12,7 @@ import {
   writeSessionDigest,
 } from "../index";
 import { WRITABLE_NOTE_TYPES, isWritableNoteType } from "../memory-write";
+import { sanitizeNoteText } from "../memory-corpus";
 import { SOMA_MEMORY_ACTION_APPROVALS, SOMA_MEMORY_PROMOTION_STORES } from "../types";
 import type {
   SomaMemoryActionApproval,
@@ -977,27 +978,6 @@ function formatMemorySearchResult(result: SomaMemorySearchResult): string {
 }
 
 /**
- * Strip terminal control sequences from note-authored text before it reaches the
- * terminal. Memory notes can hold imported / quarantined tool/web content, and a
- * malicious note body or `source_of_truth` could smuggle ANSI CSI / OSC escapes
- * that spoof output, rewrite earlier lines, or poke the terminal's title and
- * clipboard state when the principal runs `soma memory recall`. Removes:
- *   - ESC-introduced sequences (CSI `ESC [ … final`, OSC `ESC ] … BEL|ST`, and
- *     any other `ESC <byte>` form), plus the C1 CSI byte 0x9b, and
- *   - remaining C0/C1 control chars, keeping only tab and newline (the layout
- *     this formatter itself relies on).
- * Deliberately conservative: it discards control bytes rather than escaping them,
- * since recall output is human-facing text, not a round-trippable channel.
- */
-function sanitizeForTerminal(text: string): string {
-  return text
-    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "") // OSC … terminated by BEL or ST
-    .replace(/\x1b[@-_][0-?]*[ -/]*[@-~]/g, "")         // CSI and other two-byte ESC sequences
-    .replace(/\x1b./g, "")                                // any stray ESC + following byte
-    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/g, ""); // C0/C1 controls except \t (\x09) and \n (\x0a)
-}
-
-/**
  * Render one recalled note to its output lines (heading + banner + body). Every
  * note-derived field is sanitized here — the id/linkedFrom are slug-validated by
  * the parser (they cannot hold control chars in a note that parsed at all), but
@@ -1005,12 +985,12 @@ function sanitizeForTerminal(text: string): string {
  * no future edit can reintroduce a raw one.
  */
 function formatRecalledMatch(match: SomaMemoryRecallResult["matches"][number]): string[] {
-  const id = sanitizeForTerminal(match.id);
+  const id = sanitizeNoteText(match.id);
   const heading =
     match.via === "match"
       ? `━━ ${id} [${match.type}] · ${match.score} term${match.score === 1 ? "" : "s"} matched`
-      : `━━ ${id} [${match.type}] · via link from ${sanitizeForTerminal(match.linkedFrom ?? "")}`;
-  return [heading, sanitizeForTerminal(match.banner), "", sanitizeForTerminal(match.note.body), ""];
+      : `━━ ${id} [${match.type}] · via link from ${sanitizeNoteText(match.linkedFrom ?? "")}`;
+  return [heading, sanitizeNoteText(match.banner), "", sanitizeNoteText(match.note.body), ""];
 }
 
 function formatMemoryRecallResult(result: SomaMemoryRecallResult): string {
@@ -1019,11 +999,11 @@ function formatMemoryRecallResult(result: SomaMemoryRecallResult): string {
     // The query is principal-supplied and the note body/banner can carry imported
     // or quarantined tool/web content — never render any of it to the terminal raw
     // (ANSI/OSC escapes could spoof output or touch clipboard/title state).
-    `query: ${sanitizeForTerminal(result.query)}`,
-    `terms: ${result.terms.length > 0 ? result.terms.map(sanitizeForTerminal).join(", ") : "(none — needs a 3+char term)"}`,
+    `query: ${sanitizeNoteText(result.query)}`,
+    `terms: ${result.terms.length > 0 ? result.terms.map((term) => sanitizeNoteText(term)).join(", ") : "(none — needs a 3+char term)"}`,
     // somaHome is derived from a caller-supplied --soma-home; a path with ANSI/OSC
     // bytes must not reach the terminal raw either.
-    `somaHome: ${sanitizeForTerminal(result.somaHome)}`,
+    `somaHome: ${sanitizeNoteText(result.somaHome)}`,
     "",
   ];
 
@@ -1036,12 +1016,12 @@ function formatMemoryRecallResult(result: SomaMemoryRecallResult): string {
   // Surface both blind spots explicitly — recall never hides an unresolved link or
   // an unreadable corpus file behind a clean-looking result.
   if (result.unresolvedLinks.length > 0) {
-    const rendered = result.unresolvedLinks.map(sanitizeForTerminal).join(", ");
+    const rendered = result.unresolvedLinks.map((link) => sanitizeNoteText(link)).join(", ");
     lines.push(`Unresolved 1-hop links (missing or superseded): ${rendered}`);
   }
   if (result.unreadable.length > 0) {
     lines.push(`⚠ ${result.unreadable.length} corpus file(s) unreadable — recall was partial:`);
-    for (const path of result.unreadable) lines.push(`  - ${sanitizeForTerminal(path)}`);
+    for (const path of result.unreadable) lines.push(`  - ${sanitizeNoteText(path)}`);
   }
 
   return lines.join("\n").trimEnd();

@@ -4,11 +4,12 @@ import { createPaths } from "./paths";
 import { isEnoent } from "./fs-utils";
 import { listMemoryNotes } from "./memory-fs";
 import { appendSomaMemoryEvent } from "./memory";
-import { parseMemoryNote, serializeMemoryNote, MemoryNoteError } from "./memory-note";
+import { parseMemoryNote, serializeMemoryNote, MemoryNoteError, NOTE_ID_PATTERN, NOTE_ID_MAX_LEN } from "./memory-note";
 import { renderDigestPointer } from "./episodic-digest";
 import { collectDurableNotes } from "./memory-write";
 import { runBoundedConcurrent } from "./internal-concurrency";
 import { memoryTermSet } from "./memory-terms";
+import { jaccard, ageDays, NEAR_DUPLICATE_JACCARD_THRESHOLD } from "./memory-corpus";
 import { rebuildMemoryIndex, memoryIndexPath } from "./memory-index";
 import type {
   SomaMemoryConsolidateOptions,
@@ -60,14 +61,13 @@ const EPISODIC_SESSION_TTL_DAYS = 90;
 const EPISODIC_ACTION_TTL_DAYS = 180;
 const SEMANTIC_STALE_DAYS = 180;
 const STATE_GC_DAYS = 7;
-// Same near-duplicate floor as the M1 write-path dedup gate.
-const NEAR_DUPLICATE_JACCARD = 0.6;
 // Cap on the similar-pair report (highest-scored kept) — a duplicated corpus could
 // otherwise surface n(n-1)/2 pairs.
 const MAX_SIMILAR_PAIRS = 50;
 
+// Used directly against raw file mtimes (state GC) — not an ISO-date age, so it
+// stays local rather than routing through the shared `ageDays` (#410).
 const MS_PER_DAY = 86_400_000;
-const NOTE_ID_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 /** A real `YYYY-MM-DD` CALENDAR date (the M0 parser already enforces this; this is a
  *  defensive re-check before age/month math). Round-trips through UTC so impossible
@@ -77,16 +77,6 @@ function isIsoDate(s: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
   const [y, m, d] = s.split("-").map(Number);
   return new Date(Date.UTC(y, m - 1, d)).toISOString().slice(0, 10) === s;
-}
-
-function dateMs(isoDate: string): number {
-  const [y, m, d] = isoDate.split("-").map(Number);
-  return Date.UTC(y, m - 1, d);
-}
-
-/** Whole days between a `YYYY-MM-DD` date and `now` (negative if the date is future). */
-function ageDays(isoDate: string, now: Date): number {
-  return Math.floor((now.getTime() - dateMs(isoDate)) / MS_PER_DAY);
 }
 
 /** True iff `path` is a real (non-symlink) entry of the wanted kind. */
@@ -126,14 +116,6 @@ function parseNotesBounded(paths: string[]): Promise<{ path: string; note: SomaM
     async (path) => ({ path, note: await readFile(path, "utf8").then(parseMemoryNote).catch(() => undefined) }),
     16,
   );
-}
-
-function jaccard(a: Set<string>, b: Set<string>): number {
-  if (a.size === 0 && b.size === 0) return 0;
-  let intersection = 0;
-  for (const token of a) if (b.has(token)) intersection += 1;
-  const union = a.size + b.size - intersection;
-  return union === 0 ? 0 : intersection / union;
 }
 
 /**
@@ -206,7 +188,7 @@ async function planEpisodicArchive(
       unreadable.push(relative(root, path)); // surfaced, not silently dropped
       continue;
     }
-    if (!NOTE_ID_SLUG.test(parsed.id) || parsed.id.length > 64) {
+    if (!NOTE_ID_PATTERN.test(parsed.id) || parsed.id.length > NOTE_ID_MAX_LEN) {
       // Defense in depth: an id that isn't a plain slug could form a traversal path.
       throw new MemoryNoteError(`episodic note ${path} has an unsafe id "${parsed.id}".`, "id");
     }
@@ -296,7 +278,7 @@ function planSimilarPairs(notes: { note: SomaMemoryNote }[]): SomaMemorySimilarP
     }
     for (const j of candidates) {
       const score = jaccard(tokens[i], tokens[j]);
-      if (score >= NEAR_DUPLICATE_JACCARD) {
+      if (score >= NEAR_DUPLICATE_JACCARD_THRESHOLD) {
         const [a, b] = [active[i].id, active[j].id].sort();
         pairs.push({ a, b, score });
         if (pairs.length >= flushAt) {

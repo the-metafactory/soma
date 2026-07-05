@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { createPaths } from "./paths";
 import { isEnoent } from "./fs-utils";
 import { collectDurableNotes } from "./memory-write";
+import { noteDateMs, ageDays, sanitizeNoteText } from "./memory-corpus";
 import type { SomaMemoryIndexResult, SomaMemoryNote, SomaMemoryNoteType, SomaMemoryTrust } from "./types";
 
 /**
@@ -74,18 +75,6 @@ const SECTION_TITLE: Record<SomaMemoryNoteType, string> = {
 const MS_PER_DAY = 86_400_000;
 const DESCRIPTOR_MAX = 80;
 
-/** UTC-midnight ms for a `YYYY-MM-DD` date; the note schema guarantees the shape. */
-function dateMs(isoDate: string): number {
-  const [y, m, d] = isoDate.split("-").map(Number);
-  return Date.UTC(y, m - 1, d);
-}
-
-/** Whole days between `isoDate` and `now`, clamped at 0 for a future date. */
-function ageDays(isoDate: string, now: Date): number {
-  const delta = now.getTime() - dateMs(isoDate);
-  return delta <= 0 ? 0 : Math.floor(delta / MS_PER_DAY);
-}
-
 /**
  * Freshness term — recall's decay curve on frontmatter. Never-resurfaced notes
  * (`resurface_count === 0`) score 0 on this term; a future `last_verified`
@@ -94,7 +83,7 @@ function ageDays(isoDate: string, now: Date): number {
 function freshness(note: SomaMemoryNote, now: Date, halflifeDays: number): number {
   const count = note.resurface_count > 0 ? note.resurface_count : 0;
   if (count === 0) return 0;
-  const dt = now.getTime() - dateMs(note.last_verified);
+  const dt = now.getTime() - noteDateMs(note.last_verified);
   if (dt <= 0) return count; // future/equal timestamp → no decay
   const days = dt / MS_PER_DAY;
   const hl = halflifeDays > 0 ? halflifeDays : DEFAULT_HALFLIFE_DAYS;
@@ -124,12 +113,15 @@ function isAdmitted(note: SomaMemoryNote): boolean {
   return note.resurface_count >= RESURFACE_ADMIT;
 }
 
-/** Collapse to a single sanitized line and truncate — index descriptors are one line. */
+/**
+ * Collapse to a single sanitized line and truncate — index descriptors are one
+ * line. Sanitization (#410) is the SAME strong stripper that guards recall's
+ * terminal output (full ANSI CSI/OSC escape removal, not just a blanked
+ * control byte) — the always-loaded INDEX is the highest-stakes surface for
+ * note-authored text and must never be the weakest-guarded one.
+ */
 function oneLine(text: string, max: number): string {
-  const collapsed = text
-    .replace(/[\x00-\x1f\x7f-\x9f]+/g, " ") // control chars (incl. newlines/tabs) → space
-    .replace(/\s+/g, " ")
-    .trim();
+  const collapsed = sanitizeNoteText(text, { oneLine: true });
   return collapsed.length > max ? `${collapsed.slice(0, max - 1)}…` : collapsed;
 }
 
@@ -157,7 +149,7 @@ function compareScored(a: ScoredLine, b: ScoredLine): number {
   return (
     b.score - a.score ||
     TRUST_WEIGHT[b.note.trust] - TRUST_WEIGHT[a.note.trust] ||
-    dateMs(b.note.last_verified) - dateMs(a.note.last_verified) ||
+    noteDateMs(b.note.last_verified) - noteDateMs(a.note.last_verified) ||
     a.note.id.localeCompare(b.note.id)
   );
 }
@@ -166,11 +158,13 @@ function pointerLine(note: SomaMemoryNote, now: Date): string {
   // "verified Nd ago" is computed HERE, at rebuild time, from the injected now —
   // never a wall clock at projection time (M4 invariant AC-4). Both id and
   // descriptor go through oneLine, which enforces the one-line pointer invariant
-  // and strips control chars — NOT a semantic prompt-injection defense: the
-  // descriptor deliberately projects note-authored hook/body text (that IS the
-  // index). What keeps untrusted text out is the admission ladder upstream
-  // (quarantined excluded, non-principal admitted only after verified resurfacing).
-  // trust is an enum and the age a number, so both are safe as-is.
+  // and strips terminal escapes/control chars — NOT a semantic prompt-injection
+  // defense: the descriptor deliberately projects note-authored hook/body text
+  // (that IS the index). What keeps untrusted CONTENT out is the admission
+  // ladder upstream (quarantined excluded, non-principal admitted only after
+  // verified resurfacing); sanitization only keeps admitted text from spoofing
+  // the terminal it's rendered to. trust is an enum and the age a number, so
+  // both are safe as-is.
   const id = oneLine(note.id, DESCRIPTOR_MAX);
   return `- ${id} — ${descriptorFor(note)} · ${note.trust}, verified ${ageDays(note.last_verified, now)}d ago`;
 }

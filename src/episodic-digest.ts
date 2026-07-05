@@ -1,12 +1,16 @@
+import { sanitizeNoteText } from "./memory-corpus";
 import type { SomaMemoryNote } from "./types";
 
 /**
- * First non-empty body line, control-stripped + truncated — the digest pointer text.
+ * First non-empty body line, sanitized + truncated — the digest pointer text.
  * This is a display summary only; the note id is the durable parse target.
+ * Sanitization (#410) is the shared `sanitizeNoteText` that also guards recall
+ * and the INDEX — a digest is a rendered artifact too, so the same strong
+ * escape-sequence strip applies here rather than a third, weaker copy.
  */
 function digestPointerText(note: SomaMemoryNote): string {
   const line = note.body.split("\n").map((l) => l.trim()).find((l) => l.length > 0) ?? "";
-  return line.replace(/[\x00-\x1f\x7f-\x9f]+/g, " ").slice(0, 120);
+  return sanitizeNoteText(line, { oneLine: true }).slice(0, 120);
 }
 
 /** Escape the id segment so the first unescaped colon remains the grammar boundary. */
