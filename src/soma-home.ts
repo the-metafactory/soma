@@ -6,6 +6,10 @@ import { SOMA_MEMORY_CATEGORIES, SOMA_MEMORY_CATEGORY_READMES } from "./memory-r
 import { createPaths } from "./paths";
 import type { ProjectionInput, SomaHomeBootstrapOptions, SomaHomeBootstrapResult, SomaSkill } from "./types";
 
+export interface LoadSomaHomeOptions {
+  includeSkills?: boolean;
+}
+
 // #88 / DD-2: canonical PAI v5.0.0 memory taxonomy (17 substrate-neutral +
 // 2 PAI-bound). The directory list and per-category README content live in
 // `memory-readmes.ts` so the install planner, bootstrap, and tests all share
@@ -240,9 +244,9 @@ export async function loadSomaProfile(somaHome: string): Promise<Omit<Projection
   };
 }
 
-export async function loadSomaHome(somaHome: string): Promise<ProjectionInput> {
+export async function loadSomaHome(somaHome: string, options: LoadSomaHomeOptions = {}): Promise<ProjectionInput> {
   const profile = await loadSomaProfile(somaHome);
-  const skills = await loadSomaSkills(somaHome);
+  const skills = options.includeSkills === false ? [] : await loadSomaSkills(somaHome);
 
   return {
     profile: {
@@ -346,7 +350,7 @@ export async function bootstrapSomaHome(options: SomaHomeBootstrapOptions = {}):
 
   return {
     somaHome,
-    context: await loadSomaHome(somaHome),
+    context: await loadSomaHome(somaHome, { includeSkills: options.includeSkills }),
     files: writtenFiles,
   };
 }

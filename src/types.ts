@@ -597,6 +597,7 @@ export interface SomaHomeProjectionOptions {
   somaHome?: string;
   substrateHome?: string;
   somaRepoPath?: string;
+  codeOnly?: boolean;
 }
 
 export interface SomaHomeProjection {
@@ -609,6 +610,7 @@ export interface SomaHomeProjection {
 export interface SomaHomeBootstrapOptions {
   homeDir?: string;
   somaHome?: string;
+  includeSkills?: boolean;
 }
 
 export interface SomaHomeBootstrapResult {
@@ -622,6 +624,7 @@ export interface SomaInstallOptions {
   somaHome?: string;
   substrateHome?: string;
   somaRepoPath?: string;
+  codeOnly?: boolean;
 }
 
 export interface SomaInstallResult {

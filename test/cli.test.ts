@@ -2143,20 +2143,39 @@ test("cli uninstall codex/pi-dev is a reserved stub", async () => {
 
 test("cli reproject codex routes through the install applier", async () => {
   await withTempHome(async (homeDir) => {
-    const output = await runSomaCli(["reproject", "codex", "--home-dir", homeDir]);
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    await mkdir(join(somaHome, "skills", "Widget"), { recursive: true });
+    await writeFile(join(somaHome, "skills", "Widget", "SKILL.md"), "---\nname: Widget\n---\n\nWidget skill.\n", "utf8");
+    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir]);
+    const projectedSkill = join(homeDir, ".codex", "skills", "Widget", "SKILL.md");
+    expect(await readFile(projectedSkill, "utf8")).toContain("Widget skill");
+    const staleOwnedFile = join(homeDir, ".codex", "memories", "soma", "stale.md");
+    await writeFile(staleOwnedFile, "stale generated projection\n", "utf8");
+
+    const output = await runSomaCli(["reproject", "codex", "--code-only", "--home-dir", homeDir]);
 
     expect(output).toContain("Soma install applied");
     expect(output).toContain(`substrate: codex`);
     await expect(stat(join(homeDir, ".codex/rules/soma.rules"))).resolves.toBeDefined();
+    expect(await readFile(projectedSkill, "utf8")).toContain("Widget skill");
+    await expect(readFile(staleOwnedFile, "utf8")).rejects.toThrow();
   });
 });
 
 test("cli upgrade codex routes through the install applier", async () => {
   await withTempHome(async (homeDir) => {
-    const output = await runSomaCli(["upgrade", "codex", "--home-dir", homeDir]);
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    await mkdir(join(somaHome, "skills", "Widget"), { recursive: true });
+    await writeFile(join(somaHome, "skills", "Widget", "SKILL.md"), "---\nname: Widget\n---\n\nWidget skill.\n", "utf8");
+    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir]);
+    const projectedSkill = join(homeDir, ".codex", "skills", "Widget", "SKILL.md");
+    expect(await readFile(projectedSkill, "utf8")).toContain("Widget skill");
+
+    const output = await runSomaCli(["upgrade", "codex", "--code-only", "--home-dir", homeDir]);
 
     expect(output).toContain("Soma install applied");
     expect(output).toContain(`substrate: codex`);
+    expect(await readFile(projectedSkill, "utf8")).toContain("Widget skill");
   });
 });
 
