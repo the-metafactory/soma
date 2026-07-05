@@ -11,6 +11,7 @@ import { parseSubstrate } from "./substrate";
 // transcript-digest handler with core lifecycle (dependency inversion — core never
 // imports the adapter). Side-effect import; the symbol itself is not used here.
 import "../adapters/claude-code/session-digest";
+import "../adapters/codex/session-digest";
 
 export interface ParsedLifecycleArgs {
   command: "lifecycle";

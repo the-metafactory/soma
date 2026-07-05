@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { lstatSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { extractInboundContentTargets, extractWriteTargets, shouldCheckPolicyTarget } from "./codex-policy-hook.mjs";
 // __SOMA_HOOK_MODULE_IMPORTS__
 
@@ -31,10 +32,65 @@ function runSomaCommand(config, args, env = {}) {
   });
 }
 
-function runSomaLifecycle(config, event, sessionId) {
+function codexHome(config) {
+  return resolve(dirname(resolve(config.somaHome)), ".codex");
+}
+
+function codexTranscriptRoot(config) {
+  return resolve(join(codexHome(config), "sessions"));
+}
+
+function isSafeTranscriptPath(candidate, root) {
+  if (typeof candidate !== "string" || candidate.trim().length === 0) return false;
+  const target = resolve(candidate);
+  if (!isAbsolute(candidate) || !target.endsWith(".jsonl")) return false;
+  const rel = relative(root, target);
+  if (rel === "" || rel.includes("/") || rel.includes("\\") || rel.startsWith("..") || isAbsolute(rel)) return false;
+  try {
+    const rootReal = realpathSync(root);
+    const parentReal = realpathSync(dirname(target));
+    const realRel = relative(rootReal, parentReal);
+    if (realRel !== "" && (realRel.startsWith("..") || isAbsolute(realRel))) return false;
+    const stat = lstatSync(target);
+    return stat.isFile() && !stat.isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+function findSessionTranscript(root, sessionId) {
+  if (typeof sessionId !== "string" || sessionId.trim().length === 0) return undefined;
+  const candidate = join(root, `${sessionId}.jsonl`);
+  return isSafeTranscriptPath(candidate, root) ? candidate : undefined;
+}
+
+function resolveSessionTranscript(config, input, sessionId) {
+  const root = codexTranscriptRoot(config);
+  const explicit =
+    typeof input.transcript_path === "string" ? input.transcript_path :
+    typeof input.transcriptPath === "string" ? input.transcriptPath :
+    undefined;
+  if (explicit && isSafeTranscriptPath(explicit, root)) return explicit;
+  if (explicit) return undefined;
+  return findSessionTranscript(root, sessionId);
+}
+
+function runSomaLifecycle(config, event, input) {
+  const sessionId = typeof input.session_id === "string" && input.session_id.trim().length > 0 ? input.session_id : undefined;
   const args = ["run", "soma", "lifecycle", event, "--soma-home", config.somaHome, "--substrate", "codex"];
   if (sessionId) {
     args.push("--session-id", sessionId);
+  }
+  if (typeof input.cwd === "string" && input.cwd.trim().length > 0) {
+    args.push("--cwd", input.cwd);
+  } else if (typeof process.cwd() === "string" && process.cwd().trim().length > 0) {
+    args.push("--cwd", process.cwd());
+  }
+  if (event === "session-end" && sessionId) {
+    const transcript = resolveSessionTranscript(config, input, sessionId);
+    if (transcript) {
+      args.push("--transcript", transcript);
+    }
   }
 
   return runSomaCommand(config, args);
@@ -333,7 +389,7 @@ function handlePromptSubmit(config, input) {
 }
 
 function handleLifecycleEvent(config, event, input) {
-  const result = runSomaLifecycle(config, event, input.session_id);
+  const result = runSomaLifecycle(config, event, input);
 
   if (result.status !== 0) {
     if (event === "session-start") {

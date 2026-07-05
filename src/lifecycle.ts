@@ -713,6 +713,7 @@ function normalizeLifecycleArtifactPaths(somaHome: string, artifactPaths: string
  * transcript FORMAT stays entirely inside the adapter.
  */
 export type SessionEndTranscriptHandler = (input: {
+  homeDir?: string;
   somaHome: string;
   now: Date;
   substrate: SubstrateId;
@@ -787,6 +788,7 @@ export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions =
   if (options.transcriptPath && options.sessionId && transcriptHandler) {
     try {
       const fallback = await transcriptHandler({
+        homeDir: options.homeDir,
         somaHome,
         now: new Date(timestamp),
         substrate: substrate(options),

@@ -48,6 +48,7 @@ async function waitForFileContaining(path: string, text: string): Promise<string
 
 interface CodexHookTestOutput {
   continue?: boolean;
+  systemMessage?: string;
   stopReason?: string;
   hookSpecificOutput?: {
     additionalContext?: string;
@@ -57,6 +58,29 @@ interface CodexHookTestOutput {
     permissionDecisionReason?: string;
   };
 }
+
+function codexTranscript(lines: object[]): string {
+  return `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`;
+}
+
+function codexUser(content: unknown, extra: object = {}): object {
+  return { type: "user", message: { role: "user", content }, ...extra };
+}
+
+function codexAssistantTool(name: string): object {
+  return { type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", name }] } };
+}
+
+const CODEX_DIGEST_TRANSCRIPT = codexTranscript([
+  codexUser("inspect lifecycle hook"),
+  codexAssistantTool("Read"),
+  codexUser("forward transcript"),
+  codexUser("write adapter"),
+  codexAssistantTool("Edit"),
+  codexUser("test duplicate"),
+  codexUser("test traversal"),
+  codexUser("update docs"),
+]);
 
 function runCodexHook(
   hook: string,
@@ -766,6 +790,73 @@ test("installed codex session-start hook returns concise visible context", async
       substrate: "codex",
       status: "active",
     });
+  });
+});
+
+test("installed codex session-end hook resolves transcript and writes one digest", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const sessionId = "codex-hook-digest";
+    const transcriptDir = join(homeDir, ".codex", "sessions");
+    const transcriptPath = join(transcriptDir, `${sessionId}.jsonl`);
+    await mkdir(transcriptDir, { recursive: true });
+    await writeFile(transcriptPath, CODEX_DIGEST_TRANSCRIPT, "utf8");
+
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const first = runCodexHook(hook, "session-end", homeDir, { session_id: sessionId, cwd: homeDir });
+    const second = runCodexHook(hook, "session-end", homeDir, { session_id: sessionId, cwd: homeDir });
+    const events = await readFile(join(homeDir, ".soma", "memory", "STATE", "events.jsonl"), "utf8");
+    const sessionMonths = await readdir(join(homeDir, ".soma", "memory", "episodic", "sessions"));
+    const digestFiles = (
+      await Promise.all(
+        sessionMonths.map(async (month) => (await readdir(join(homeDir, ".soma", "memory", "episodic", "sessions", month))).map((file) => join(month, file))),
+      )
+    ).flat();
+
+    expect(first.status).toBe(0);
+    expect(first.output.systemMessage).toBe("Soma lifecycle session-end handled.");
+    expect(second.status).toBe(0);
+    expect(events).toContain("digest: written");
+    expect(events).toContain("digest: duplicate");
+    expect(digestFiles.filter((file) => file.includes(sessionId))).toHaveLength(1);
+  });
+});
+
+test("installed codex session-end hook does not resolve substring transcript names", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const sessionId = "codex-hook-digest";
+    const transcriptDir = join(homeDir, ".codex", "sessions");
+    await mkdir(transcriptDir, { recursive: true });
+    await writeFile(join(transcriptDir, `${sessionId}-other.jsonl`), CODEX_DIGEST_TRANSCRIPT, "utf8");
+
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const result = runCodexHook(hook, "session-end", homeDir, { session_id: sessionId, cwd: homeDir });
+    const events = await readFile(join(homeDir, ".soma", "memory", "STATE", "events.jsonl"), "utf8");
+
+    expect(result.status).toBe(0);
+    expect(events).not.toContain("digest: written");
+    await expect(readdir(join(homeDir, ".soma", "memory", "episodic", "sessions"))).rejects.toThrow();
+  });
+});
+
+test("installed codex session-end hook refuses unsafe explicit transcript without fallback", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const sessionId = "codex-hook-digest";
+    const transcriptDir = join(homeDir, ".codex", "sessions");
+    const outsidePath = join(homeDir, "outside.jsonl");
+    await mkdir(transcriptDir, { recursive: true });
+    await writeFile(join(transcriptDir, `${sessionId}.jsonl`), CODEX_DIGEST_TRANSCRIPT, "utf8");
+    await writeFile(outsidePath, CODEX_DIGEST_TRANSCRIPT, "utf8");
+
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const result = runCodexHook(hook, "session-end", homeDir, { session_id: sessionId, cwd: homeDir, transcript_path: outsidePath });
+    const events = await readFile(join(homeDir, ".soma", "memory", "STATE", "events.jsonl"), "utf8");
+
+    expect(result.status).toBe(0);
+    expect(events).not.toContain("digest: written");
+    await expect(readdir(join(homeDir, ".soma", "memory", "episodic", "sessions"))).rejects.toThrow();
   });
 });
 
