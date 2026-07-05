@@ -22,11 +22,15 @@ import type {
 
 /**
  * Deterministic consolidation (subsystem M6). A no-LLM maintenance pass. Every op
- * is computed into a PLAN first, so a `--dry-run` reports the SAME set of file
- * operations (which notes archive, which are marked stale, which state files are
- * deleted, which pairs are lexically similar) that the real run applies — the dry-run plan
- * equals the real run's plan. (It does NOT reproduce byte-level digest/INDEX
- * content; it enumerates the operations, not their diffs.) Ops, in apply order:
+ * is computed into an immutable PLAN first (`planConsolidation`), so a `--dry-run`
+ * reports the SAME set of file operations (which notes archive, which are marked
+ * stale, which state files are deleted, which pairs are lexically similar) that a
+ * real run applies — the dry-run plan equals the real run's plan. (It does NOT
+ * reproduce byte-level digest/INDEX content; it enumerates the operations, not
+ * their diffs.) A real run separately applies that plan (`applyConsolidationPlan`)
+ * and returns what ACTUALLY happened as its own delta — the same `plan()` /
+ * `apply(plan)` split `runMemoryBackfill` uses (M8), never one mutable result
+ * object patched across the dry-run boundary. Ops, in apply order:
  *
  * 1. **Prune aged episodic** — session notes older than 90d and action notes older
  *    than 180d (by `created`) are folded into a monthly digest (`episodic/digests/
@@ -441,18 +445,63 @@ async function applyStateGc(root: string, stateGc: string[], now: Date): Promise
 }
 
 /**
- * Run (or plan, under `dryRun`) the deterministic consolidation pass. See the
- * module docstring for the ops and ordering. Given the same tree + `now`, the plan
- * is identical whether or not it is applied — so a dry-run's reported ops match the
- * real run's.
+ * The pure-read output of the plan phase: every file operation consolidation
+ * WOULD perform, computed once from the tree + `now`. SHALLOW-frozen (the
+ * top-level object and every array field, NOT the nested note/archive entries)
+ * before it is returned — enough that `applyConsolidationPlan` cannot repoint,
+ * grow, or replace the plan's arrays (an accidental structural mutation throws
+ * in strict mode); it does not deep-freeze individual note contents. That is
+ * the property the plan/apply split needs: the set of ops can't drift between a
+ * dry-run's reported plan and a real run's applied result. This
+ * is the same `plan()` / `apply(plan)` split `runMemoryBackfill` uses (M8) —
+ * a `SomaMemoryConsolidateResult` for a real run is built by COMBINING this
+ * plan with the separately-returned `ConsolidationApplied` delta, never by
+ * patching one shared mutable object across the dry-run boundary.
+ *
+ * Exported (with `planConsolidation`/`applyConsolidationPlan`/`ConsolidationApplied`)
+ * for the plan-immutability acceptance test — not public index API; `consolidateMemory`
+ * remains the only production caller.
  */
-export async function consolidateMemory(options: SomaMemoryConsolidateOptions = {}): Promise<SomaMemoryConsolidateResult> {
-  const paths = createPaths(options);
-  const somaHome = paths.root();
-  const now = options.now ?? new Date();
-  const dryRun = options.dryRun === true;
+export interface ConsolidationPlan {
+  somaHome: string;
+  indexPath: string;
+  episodic: EpisodicArchive[];
+  /** Relative digest paths the archive move would (re)write — identical for dry-run and real. */
+  digestsWritten: string[];
+  staleMarks: { path: string; rel: string; note: SomaMemoryNote }[];
+  similarPairs: SomaMemorySimilarPair[];
+  /** `current-work-*.json` relative paths planned for deletion (empty unless `--gc-state`). */
+  stateGc: string[];
+  /** Files surfaced as unscanned/unsafe at PLAN time (episodic + durable-corpus blind spots). */
+  unreadable: string[];
+  /** Whether this plan, if applied verbatim (no TOCTOU race), would mutate anything. */
+  mutated: boolean;
+}
 
-  // --- plan (pure reads) ---
+/**
+ * The delta a real run actually produced applying a `ConsolidationPlan` —
+ * separate from the plan, never folded back into it. Differs from the plan
+ * only under a TOCTOU race (a planned candidate swapped away before it could
+ * be applied): `markedStale`/`stateGced` drop any swapped-away candidate, and
+ * `unreadable`/`mutated` are recomputed from what actually happened.
+ */
+export interface ConsolidationApplied {
+  markedStale: string[];
+  stateGced: string[];
+  unreadable: string[];
+  mutated: boolean;
+}
+
+/**
+ * Plan phase: compute every file operation consolidation would perform,
+ * touching nothing on disk. See the module docstring for the ops and
+ * ordering. Given the same tree + `now`, this is identical whether or not it
+ * is subsequently applied — so a `--dry-run` reports exactly the plan a real
+ * run would apply.
+ */
+export async function planConsolidation(paths: SomaPaths, options: SomaMemoryConsolidateOptions, now: Date): Promise<ConsolidationPlan> {
+  const somaHome = paths.root();
+
   const sessionPlan = await planEpisodicArchive(paths, "sessions", EPISODIC_SESSION_TTL_DAYS, now);
   const actionPlan = await planEpisodicArchive(paths, "actions", EPISODIC_ACTION_TTL_DAYS, now);
   const episodic = [...sessionPlan.archives, ...actionPlan.archives];
@@ -478,72 +527,125 @@ export async function consolidateMemory(options: SomaMemoryConsolidateOptions = 
   // Unreadable files (episodic + durable) are surfaced, never silently skipped —
   // otherwise a run could report success while known notes went unchecked.
   const unreadable = [...sessionPlan.unreadable, ...actionPlan.unreadable, ...durable.unreadable].sort();
-
   const mutated = episodic.length > 0 || staleMarks.length > 0 || stateGc.length > 0;
-  const result: SomaMemoryConsolidateResult = {
+
+  const plan: ConsolidationPlan = {
     somaHome,
-    dryRun,
-    archived: episodic.map((e) => e.plan),
+    indexPath: memoryIndexPath(somaHome),
+    episodic,
     digestsWritten: Array.from(new Set(episodic.map((e) => relative(somaHome, e.digestPath)))).sort(),
-    markedStale: staleMarks.map((s) => s.rel).sort(),
-    stateGced: stateGc,
+    staleMarks,
     similarPairs,
+    stateGc,
     unreadable,
     mutated,
-    indexPath: memoryIndexPath(somaHome),
   };
-  if (dryRun) return result;
+  Object.freeze(plan.episodic);
+  Object.freeze(plan.digestsWritten);
+  Object.freeze(plan.staleMarks);
+  Object.freeze(plan.similarPairs);
+  Object.freeze(plan.stateGc);
+  Object.freeze(plan.unreadable);
+  return Object.freeze(plan);
+}
 
-  // --- apply (mutations only on the real run) ---
-  const archivedOmissions = await applyEpisodicArchive(paths, episodic);
-  const { skipped: staleSkipped } = await applyStaleMarks(staleMarks);
-  const gcDeleted = await applyStateGc(somaHome, stateGc, now);
-  // A stale mark skipped by a TOCTOU swap was NOT applied — drop it from the result
-  // so `markedStale` reflects what actually happened, and surface the swapped path.
-  if (staleSkipped.length > 0) {
-    const skippedSet = new Set(staleSkipped);
-    result.markedStale = result.markedStale.filter((p) => !skippedSet.has(p));
-    unreadable.push(...staleSkipped);
-  }
-  // Likewise, `stateGced` reflects the files ACTUALLY deleted (a swapped candidate is
-  // refused), not the plan.
-  result.stateGced = gcDeleted;
-  // Merge in any unreadable archived note found during digest regeneration, then
-  // ASSIGN the result field explicitly (no hidden aliasing of the plan-phase array).
-  if (archivedOmissions.length > 0 || staleSkipped.length > 0) {
-    result.unreadable = Array.from(new Set([...unreadable, ...archivedOmissions])).sort();
-  }
+/**
+ * Apply phase: perform every mutation `plan` describes — move aged episodic
+ * notes to the archive (regenerating affected digests), mark stale semantic
+ * notes, GC old state files — then rebuild the INDEX and append the governed
+ * `memory.consolidate` event, but ONLY if something actually changed. Returns
+ * the applied delta as a fresh object; `plan` is read, never written.
+ *
+ * NOT rollback-coupled — consolidation is idempotent and safe to repeat, so a
+ * failed event append leaves the already-applied, re-runnable mutations
+ * rather than attempting a multi-file rollback (the guarantee is
+ * repeatability, not atomicity; see architecture.md). The M1 write/verify
+ * rollback (`writeNotesAtomically`, memory-write.ts) is a different,
+ * single-mutation path.
+ */
+export async function applyConsolidationPlan(
+  paths: SomaPaths,
+  plan: ConsolidationPlan,
+  now: Date,
+  substrate: SomaMemoryConsolidateOptions["substrate"],
+): Promise<ConsolidationApplied> {
+  const somaHome = paths.root();
+
+  const archivedOmissions = await applyEpisodicArchive(paths, plan.episodic);
+  const { skipped: staleSkipped } = await applyStaleMarks(plan.staleMarks);
+  const stateGced = await applyStateGc(somaHome, plan.stateGc, now);
+
+  // A stale mark skipped by a TOCTOU swap was NOT applied — drop it so
+  // `markedStale` reflects what actually happened, and surface the swapped path.
+  const skippedSet = new Set(staleSkipped);
+  const markedStale = plan.staleMarks.map((s) => s.rel).filter((rel) => !skippedSet.has(rel)).sort();
+  const unreadable = Array.from(new Set([...plan.unreadable, ...archivedOmissions, ...staleSkipped])).sort();
   // Recompute `mutated` from what ACTUALLY happened (post-skip markedStale + actual
   // deletions), so a run whose planned mutations were all TOCTOU-skipped does NOT
   // rebuild the INDEX or append an event as if it changed something.
-  result.mutated = episodic.length > 0 || result.markedStale.length > 0 || result.stateGced.length > 0;
+  const mutated = plan.episodic.length > 0 || markedStale.length > 0 || stateGced.length > 0;
 
   // Only rebuild the INDEX when something actually changed — a no-op maintenance
   // run must not do corpus-scale work for an unchanged corpus.
-  if (result.mutated) await rebuildMemoryIndex({ somaHome, now });
+  if (mutated) await rebuildMemoryIndex({ somaHome, now });
 
   // Governed event: a post-hoc RECORD of the pass (only when it mutated something).
-  // NOT rollback-coupled — consolidation is idempotent and safe to repeat, so a
-  // failed append leaves the already-applied, re-runnable mutations rather than
-  // attempting a multi-file rollback (the guarantee is repeatability, not atomicity;
-  // see architecture.md). The M1 write|verify rollback is a different, single-note path.
-  if (result.mutated) {
+  if (mutated) {
     await appendSomaMemoryEvent(somaHome, {
       timestamp: now.toISOString(),
-      substrate: options.substrate ?? "custom",
+      substrate: substrate ?? "custom",
       kind: "memory.consolidate",
-      summary: `Consolidation: ${episodic.length} archived, ${result.markedStale.length} marked stale, ${result.stateGced.length} state GC'd.`,
-      artifactPaths: [result.indexPath],
+      summary: `Consolidation: ${plan.episodic.length} archived, ${markedStale.length} marked stale, ${stateGced.length} state GC'd.`,
+      artifactPaths: [plan.indexPath],
       metadata: {
-        archived: episodic.length,
-        markedStale: result.markedStale.length, // actual, after any TOCTOU skips
-        stateGced: result.stateGced.length, // actual deletions, not the plan
-        similarPairs: similarPairs.length,
-        unreadableCount: result.unreadable.length,
-        unreadablePaths: result.unreadable, // the actual files (incl. archived omissions), so the journal identifies them
+        archived: plan.episodic.length,
+        markedStale: markedStale.length, // actual, after any TOCTOU skips
+        stateGced: stateGced.length, // actual deletions, not the plan
+        similarPairs: plan.similarPairs.length,
+        unreadableCount: unreadable.length,
+        unreadablePaths: unreadable, // the actual files (incl. archived omissions), so the journal identifies them
       },
     });
   }
 
-  return result;
+  return { markedStale, stateGced, unreadable, mutated };
+}
+
+/** Combine a plan with its (optional) applied delta into the public result shape. */
+function planToResult(plan: ConsolidationPlan, dryRun: boolean, applied?: ConsolidationApplied): SomaMemoryConsolidateResult {
+  return {
+    somaHome: plan.somaHome,
+    dryRun,
+    archived: plan.episodic.map((e) => e.plan),
+    // Copy the plan-owned (frozen) arrays so the public result stays mutable —
+    // dry-run callers previously got fresh mutable arrays and some mutate them.
+    digestsWritten: [...plan.digestsWritten],
+    markedStale: applied ? applied.markedStale : plan.staleMarks.map((s) => s.rel).sort(),
+    stateGced: applied ? applied.stateGced : [...plan.stateGc],
+    similarPairs: [...plan.similarPairs],
+    unreadable: applied ? applied.unreadable : [...plan.unreadable],
+    mutated: applied ? applied.mutated : plan.mutated,
+    indexPath: plan.indexPath,
+  };
+}
+
+/**
+ * Run (or plan, under `dryRun`) the deterministic consolidation pass. See the
+ * module docstring for the ops and ordering, and `planConsolidation` /
+ * `applyConsolidationPlan` for the plan/apply split (mirrors `runMemoryBackfill`,
+ * M8 — a pure plan, and a separately-returned applied delta, never one mutable
+ * result patched across the dry-run boundary). Given the same tree + `now`, the
+ * plan is identical whether or not it is applied — so a dry-run's reported ops
+ * match the real run's.
+ */
+export async function consolidateMemory(options: SomaMemoryConsolidateOptions = {}): Promise<SomaMemoryConsolidateResult> {
+  const paths = createPaths(options);
+  const now = options.now ?? new Date();
+  const dryRun = options.dryRun === true;
+
+  const plan = await planConsolidation(paths, options, now);
+  if (dryRun) return planToResult(plan, true);
+
+  const applied = await applyConsolidationPlan(paths, plan, now, options.substrate);
+  return planToResult(plan, false, applied);
 }
