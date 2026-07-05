@@ -11,8 +11,8 @@ import {
   type SomaMemoryNote,
   type SomaMemoryWriteOptions,
 } from "../src/index";
-// Path/dedup helpers are module-private (not public index API) — import direct.
-import { MEMORY_DEDUP_JACCARD_THRESHOLD, findDuplicateCandidates, memoryNotePath } from "../src/memory-write";
+// Path/dedup/governance helpers are module-private (not public index API) — import direct.
+import { MEMORY_DEDUP_JACCARD_THRESHOLD, findDuplicateCandidates, memoryNotePath, resolveMutationGovernance } from "../src/memory-write";
 import { parseMemoryArgs } from "../src/cli/memory";
 
 const NOW = new Date("2026-07-03T10:00:00.000Z");
@@ -126,6 +126,36 @@ test("import needs no authority; consolidation needs consolidation-authority", a
     const consolidated = await writeMemoryNote(createOpts(somaHome, { id: "c", trigger: "consolidation", consolidationAuthority: true, body: "consolidated fact delta epsilon" }));
     expect(consolidated.note.trust).toBe("assistant");
   });
+});
+
+test("resolveMutationGovernance: a mint refusal and its audit-meta come from the SAME call (#409 locality)", () => {
+  // Insufficient authority — the gate refuses the mint outright; no governance
+  // result (and therefore no audit-meta) is ever produced for a refused call.
+  expect(() => resolveMutationGovernance("principal-correction", null, { principalAuthority: false })).toThrow(
+    /requires --principal-authority/,
+  );
+
+  // With authority, the SAME call that approves the mint is what returns the
+  // audit-meta an event will record — trust and eventMeta come out of one
+  // resolution, so a caller can never reconstruct eventMeta independently of
+  // the check that authorized it (the bug #409 closes).
+  const granted = resolveMutationGovernance("principal-correction", null, { principalAuthority: true });
+  expect(granted.trust).toBe("principal");
+  expect(granted.provenance).toBe("conversation");
+  expect(granted.eventMeta).toEqual({ principalAuthority: true });
+
+  // Same proof for the other mintable tier: refusal, then a matched grant.
+  expect(() => resolveMutationGovernance("consolidation", null, { consolidationAuthority: false })).toThrow(
+    /requires consolidation authority/,
+  );
+  const consolidationGrant = resolveMutationGovernance("consolidation", null, { consolidationAuthority: true });
+  expect(consolidationGrant.trust).toBe("assistant");
+  expect(consolidationGrant.eventMeta).toEqual({ consolidationAuthority: true });
+
+  // import mints quarantined trust — free, no authority signal required or recorded.
+  const imported = resolveMutationGovernance("import", null, {});
+  expect(imported.trust).toBe("quarantined");
+  expect(imported.eventMeta).toEqual({});
 });
 
 test("ids are globally unique across types — a cross-type collision is refused", async () => {

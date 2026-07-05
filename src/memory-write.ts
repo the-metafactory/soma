@@ -17,6 +17,7 @@ import type {
   SomaMemoryVerifyResult,
   SomaMemoryWriteOptions,
   SomaMemoryWriteResult,
+  SomaMemoryWriteTrigger,
 } from "./types";
 
 /**
@@ -32,9 +33,11 @@ import type {
  *   booleans, NOT cryptographic capabilities — the ENFORCED surface is the CLI
  *   (no `--*-authority` self-assert path for consolidation; `--trigger
  *   consolidation` refused), while an in-process SDK caller can set the boolean,
- *   as soma has no capability primitive. (2) Authorization is CHECKED at the gate
- *   (`assertTierAuthority`); it is separately RECORDED in the mutation's event on
- *   success — the audit trail exists only if the mutation reaches event append.
+ *   as soma has no capability primitive. (2) Authorization is CHECKED and its
+ *   audit-meta RESOLVED together, by one call to `resolveMutationGovernance` —
+ *   the single gate every mutation path (create/merge/supersede/verify) goes
+ *   through — and that audit-meta is only RECORDED in the mutation's event on
+ *   success: the audit trail exists only if the mutation reaches event append.
  * - **Recall-first refusal** — `create` walks the durable corpus (`semantic/` +
  *   `procedural/`), hashes normalized bodies, and refuses when an active note is
  *   an exact-body match OR Jaccard ≥ 0.6 (transplant #1 from recall's dedup
@@ -217,8 +220,11 @@ interface LoadedNote extends ScannedNote {
 }
 
 // The authority signals a caller can hold. Both write and verify options carry
-// these fields; the tier gate reads only this narrow shape.
-interface AuthoritySignals {
+// these fields; the tier gate reads only this narrow shape. Exported (not
+// public index API — same "module-private, test-imported" pattern as
+// `findDuplicateCandidates`/`memoryNotePath` below) so the governance test can
+// call `resolveMutationGovernance` directly.
+export interface AuthoritySignals {
   principalAuthority?: boolean;
   consolidationAuthority?: boolean;
 }
@@ -244,10 +250,11 @@ function assertTierAuthority(tier: SomaMemoryTrust, auth: AuthoritySignals, cont
   }
 }
 
-/** Minting a note: the trigger's derived tier needs that tier's authority. */
-function assertMintAuthority(options: SomaMemoryWriteOptions): void {
-  const tier = SOMA_MEMORY_TRIGGER_TRUST[options.trigger];
-  assertTierAuthority(tier, options, `${options.trigger} mints ${tier} trust and`);
+/** Minting a note: the trigger's derived tier needs that tier's authority. Returns the tier. */
+function assertMintAuthority(trigger: SomaMemoryWriteTrigger, auth: AuthoritySignals): SomaMemoryTrust {
+  const tier = SOMA_MEMORY_TRIGGER_TRUST[trigger];
+  assertTierAuthority(tier, auth, `${trigger} mints ${tier} trust and`);
+  return tier;
 }
 
 /**
@@ -259,16 +266,16 @@ function assertMintAuthority(options: SomaMemoryWriteOptions): void {
  *   2. Mutating a non-quarantined note needs the TARGET tier's authority — the
  *      same signal that minted it.
  */
-function assertMayMutate(target: SomaMemoryNote, options: SomaMemoryWriteOptions): void {
-  const incoming = SOMA_MEMORY_TRIGGER_TRUST[options.trigger];
+function assertMayMutate(target: SomaMemoryNote, trigger: SomaMemoryWriteTrigger, auth: AuthoritySignals): void {
+  const incoming = SOMA_MEMORY_TRIGGER_TRUST[trigger];
   if (TRUST_RANK[incoming] < TRUST_RANK[target.trust]) {
     throw new MemoryNoteError(
       `Cannot mutate ${target.trust}-trust note ${target.id} with ${incoming}-trust content ` +
-        `(trigger ${options.trigger}) — a mutation may not inject lower-trust content.`,
+        `(trigger ${trigger}) — a mutation may not inject lower-trust content.`,
       "trigger",
     );
   }
-  assertTierAuthority(target.trust, options, `Mutating ${target.trust}-trust note ${target.id}`);
+  assertTierAuthority(target.trust, auth, `Mutating ${target.trust}-trust note ${target.id}`);
 }
 
 /**
@@ -279,6 +286,73 @@ function authorityMeta(trust: SomaMemoryTrust): Record<string, unknown> {
   if (trust === "principal") return { principalAuthority: true };
   if (trust === "assistant") return { consolidationAuthority: true };
   return {};
+}
+
+/**
+ * The single entry for M1 mutation governance: `(trigger, target, auth) →
+ * { trust, provenance, eventMeta } | refusal`. Every mutation path
+ * (create/merge/supersede/verify) resolves its authority through this one
+ * function, so the tier-authority check and the audit-meta describing it can
+ * never be paired by hand at the call site (and drift) — the `trust` a call
+ * approves is exactly the `trust` `eventMeta` documents, because both come out
+ * of the same call. The six formerly-scattered predicates (`TRUST_RANK`,
+ * `assertTierAuthority`, `assertMintAuthority`, `assertMayMutate`,
+ * `authorityMeta`, `resolveProvenance`) are this function's internal
+ * implementation; no call site outside it names them directly.
+ *
+ * Dispatches on `target`/`trigger` into the three shapes M1 actually has:
+ * - **MINT** (`target: null`) — a NEW note at the trigger-derived tier
+ *   (`createNote`; `supersedeNote`'s replacement). Needs that tier's own
+ *   authority, and resolves/validates `provenance` for the trigger.
+ * - **MUTATE** (`target` set, `trigger` given) — editing an EXISTING note
+ *   with new incoming content (`mergeNote`'s body edit; `supersedeNote`'s
+ *   close-old). The trigger's tier must be allowed to inject into the
+ *   target's tier (the rank check), and the authority required is the
+ *   TARGET's tier — closing a principal note always needs
+ *   `principalAuthority`, whatever tier minted the replacement.
+ * - **VERIFY** (`target` set, `trigger` omitted) — refreshing an existing
+ *   note's decay signal with no incoming content to rank, so only the
+ *   target's own tier authority applies (`verifyMemoryNote`, whose options
+ *   carry no `trigger` at all).
+ *
+ * `supersedeNote` governs TWO notes — mint the replacement, mutate the old —
+ * which can sit at different tiers requiring different signals, so it is the
+ * one path that calls this twice. The invariant this function preserves is
+ * per-call (a resolved `trust` and its `eventMeta` can never desync), not
+ * "at most one call per mutation path".
+ */
+export interface MutationGovernance {
+  trust: SomaMemoryTrust;
+  /** Only set by a MINT resolution; `undefined` for MUTATE/VERIFY. */
+  provenance?: string;
+  eventMeta: Record<string, unknown>;
+}
+
+// Exported for the M1 acceptance test (a mint refusal and its audit-meta must
+// come from the same call) — not public index API; the four mutation paths
+// below remain the only production callers.
+export function resolveMutationGovernance(
+  trigger: SomaMemoryWriteTrigger | undefined,
+  target: SomaMemoryNote | null,
+  auth: AuthoritySignals,
+  provenanceOverride?: string,
+): MutationGovernance {
+  if (target === null) {
+    // MINT — a trigger is required here; only the mint call sites pass `target: null`.
+    if (trigger === undefined) {
+      throw new Error("resolveMutationGovernance: a MINT resolution (target: null) requires a trigger.");
+    }
+    const tier = assertMintAuthority(trigger, auth);
+    return { trust: tier, provenance: resolveProvenance(trigger, provenanceOverride), eventMeta: authorityMeta(tier) };
+  }
+  if (trigger !== undefined) {
+    // MUTATE — incoming content is being injected into an existing note.
+    assertMayMutate(target, trigger, auth);
+    return { trust: target.trust, eventMeta: authorityMeta(target.trust) };
+  }
+  // VERIFY — no incoming content, so no rank check; only the target's own tier authority.
+  assertTierAuthority(target.trust, auth, `Verifying ${target.trust}-trust note ${target.id}`);
+  return { trust: target.trust, eventMeta: authorityMeta(target.trust) };
 }
 
 // Bounded read concurrency for the dedup scan — parallel enough to not serialize
@@ -391,25 +465,28 @@ export async function findDuplicateCandidates(somaHome: string, body: string): P
  * - `consolidation` → forced `consolidation`.
  * - `import` → caller may pass `import` (default) or `tool:<name>`; anything else
  *   is refused. Either way the derived trust is `quarantined`.
+ *
+ * Only meaningful for a MINT (a brand-new note names its own provenance);
+ * `resolveMutationGovernance` is this function's only caller.
  */
-function resolveProvenance(options: SomaMemoryWriteOptions): string {
-  switch (options.trigger) {
+function resolveProvenance(trigger: SomaMemoryWriteTrigger, provenanceOverride: string | undefined): string {
+  switch (trigger) {
     case "principal-correction":
-      if (options.provenance !== undefined && options.provenance !== "conversation") {
+      if (provenanceOverride !== undefined && provenanceOverride !== "conversation") {
         throw new MemoryNoteError(
-          `principal-correction writes are provenance "conversation"; refusing "${options.provenance}" ` +
+          `principal-correction writes are provenance "conversation"; refusing "${provenanceOverride}" ` +
             `(tool/import content cannot ride in under principal trust).`,
           "provenance",
         );
       }
       return "conversation";
     case "consolidation":
-      if (options.provenance !== undefined && options.provenance !== "consolidation") {
+      if (provenanceOverride !== undefined && provenanceOverride !== "consolidation") {
         throw new MemoryNoteError(`consolidation writes are provenance "consolidation".`, "provenance");
       }
       return "consolidation";
     case "import": {
-      const provenance = options.provenance ?? "import";
+      const provenance = provenanceOverride ?? "import";
       // Anchored safe grammar at the trust boundary: a `tool:` name is a bounded
       // slug, so untrusted import input can't smuggle a newline/extra frontmatter
       // field (e.g. `tool:x\ntrust: principal`) through this check.
@@ -559,7 +636,13 @@ async function noteIdExists(somaHome: string, id: string): Promise<boolean> {
 
 // --- create / merge / supersede ----------------------------------------------
 
-function buildNewNote(options: SomaMemoryWriteOptions, now: Date): SomaMemoryNote {
+interface NewNote {
+  note: SomaMemoryNote;
+  /** The MINT resolution that authorized and derived this note's trust/provenance. */
+  governance: MutationGovernance;
+}
+
+function buildNewNote(options: SomaMemoryWriteOptions, now: Date): NewNote {
   assertNonEmpty(options.id, "id");
   assertNoteId(options.id);
   if (options.type === undefined || options.type === "episodic") {
@@ -569,7 +652,14 @@ function buildNewNote(options: SomaMemoryWriteOptions, now: Date): SomaMemoryNot
 
   // Minting a tier above quarantined needs that tier's authority — no caller can
   // mint principal/assistant trust by choosing a trigger alone; import defaults safe.
-  assertMintAuthority(options);
+  const governance = resolveMutationGovernance(options.trigger, null, options, options.provenance);
+  if (governance.provenance === undefined) {
+    // Unreachable in practice — a MINT resolution (target: null) always sets
+    // provenance. Guarded rather than asserted so a future regression in
+    // resolveMutationGovernance surfaces here instead of writing a note with a
+    // missing provenance.
+    throw new Error(`resolveMutationGovernance did not resolve a provenance for trigger "${options.trigger}".`);
+  }
 
   const today = isoDate(now);
   const note: SomaMemoryNote = {
@@ -578,8 +668,8 @@ function buildNewNote(options: SomaMemoryWriteOptions, now: Date): SomaMemoryNot
     created: today,
     last_verified: today,
     valid_until: null,
-    provenance: resolveProvenance(options),
-    trust: SOMA_MEMORY_TRIGGER_TRUST[options.trigger],
+    provenance: governance.provenance,
+    trust: governance.trust,
     source_of_truth: options.sourceOfTruth ?? null,
     project: options.project ?? null,
     links: options.links ?? [],
@@ -588,11 +678,11 @@ function buildNewNote(options: SomaMemoryWriteOptions, now: Date): SomaMemoryNot
   };
   if (options.hook !== undefined) note.hook = options.hook;
   if (options.review !== undefined) note.review = options.review;
-  return note;
+  return { note, governance };
 }
 
 async function createNote(somaHome: string, options: SomaMemoryWriteOptions, now: Date): Promise<SomaMemoryWriteResult> {
-  const note = buildNewNote(options, now);
+  const { note, governance } = buildNewNote(options, now);
 
   // Cheap path-existence PREFLIGHT — reject an id collision before paying for
   // the whole-corpus dedup scan, and reject `procedural/foo` when `semantic/foo`
@@ -637,7 +727,7 @@ async function createNote(somaHome: string, options: SomaMemoryWriteOptions, now
         type: note.type,
         trust: note.trust,
         trigger: options.trigger,
-        ...authorityMeta(note.trust), // audit the escalation when non-quarantined
+        ...governance.eventMeta, // audit the escalation when non-quarantined — from the SAME governance call that authorized the mint
         // Record the dedup gate's blind spot so "dedup-gated" is never a silent
         // overstatement when part of the corpus was unreadable.
         ...(unreadable.length > 0 ? { dedupUnreadable: unreadable.length } : {}),
@@ -663,7 +753,7 @@ async function mergeNote(somaHome: string, options: SomaMemoryWriteOptions, now:
   if (note.valid_until !== null) {
     throw new MemoryNoteError(`Cannot merge into superseded note ${note.id} (valid_until set).`, "targetId");
   }
-  assertMayMutate(note, options);
+  const governance = resolveMutationGovernance(options.trigger, note, options);
 
   const today = isoDate(now);
   const merged: SomaMemoryNote = {
@@ -681,8 +771,9 @@ async function mergeNote(somaHome: string, options: SomaMemoryWriteOptions, now:
       kind: "memory.write.merge",
       summary: `Merged update into memory note ${merged.id} (${type})`,
       artifactPaths: [path],
-      // Log the escalation so an audit can prove a principal-note mutation was authorized.
-      metadata: { id: merged.id, type, trust: merged.trust, trigger: options.trigger, ...authorityMeta(merged.trust) },
+      // Log the escalation so an audit can prove a principal-note mutation was authorized
+      // — from the SAME governance call that authorized the mutation.
+      metadata: { id: merged.id, type, trust: merged.trust, trigger: options.trigger, ...governance.eventMeta },
     },
     () => restoreBytes(somaHome, path, raw), // roll back: restore the pre-merge bytes
   );
@@ -692,7 +783,7 @@ async function mergeNote(somaHome: string, options: SomaMemoryWriteOptions, now:
 
 async function supersedeNote(somaHome: string, options: SomaMemoryWriteOptions, now: Date): Promise<SomaMemoryWriteResult> {
   assertNonEmpty(options.targetId, "targetId");
-  const newNote = buildNewNote(options, now);
+  const { note: newNote, governance: mintGovernance } = buildNewNote(options, now);
   if (newNote.id === options.targetId) {
     throw new MemoryNoteError(`A note cannot supersede itself (${newNote.id}).`, "id");
   }
@@ -705,11 +796,13 @@ async function supersedeNote(somaHome: string, options: SomaMemoryWriteOptions, 
   if (old.note.valid_until !== null) {
     throw new MemoryNoteError(`Note ${old.note.id} is already superseded (valid_until set).`, "targetId");
   }
-  // Closing an existing note is a mutation of it — same trust gate as merge
-  // (can't close a higher-trust note with lower-trust content; principal needs
-  // the escalation). The new replacement note's own trust was already gated in
-  // buildNewNote.
-  assertMayMutate(old.note, options);
+  // Closing an existing note is a SEPARATE governance resolution from minting
+  // the replacement above (same trust gate as merge — can't close a
+  // higher-trust note with lower-trust content; principal needs the
+  // escalation). The two notes can sit at different tiers, each requiring its
+  // own authority signal, which is why supersede is the one path that resolves
+  // governance twice.
+  const closeGovernance = resolveMutationGovernance(options.trigger, old.note, options);
 
   // New note points back at what it replaces; the closed note points forward.
   if (!newNote.links.includes(old.note.id)) newNote.links = [...newNote.links, old.note.id];
@@ -753,15 +846,16 @@ async function supersedeNote(somaHome: string, options: SomaMemoryWriteOptions, 
       summary: `Note ${newNote.id} supersedes ${closed.id} (closed ${closed.valid_until})`,
       artifactPaths: [newPath, old.path],
       // Supersede validates TWO authorities — minting the new note (its tier) and
-      // closing the old one (its tier). Log BOTH so the journal can prove every
+      // closing the old one (its tier). Log BOTH, each straight from the
+      // governance call that authorized it, so the journal can prove every
       // required signal was present (e.g. principal replacement of an assistant
       // note carries both principalAuthority and consolidationAuthority).
       metadata: {
         id: newNote.id,
         supersededId: closed.id,
         trigger: options.trigger,
-        ...authorityMeta(newNote.trust),
-        ...authorityMeta(closed.trust),
+        ...mintGovernance.eventMeta,
+        ...closeGovernance.eventMeta,
       },
     },
     // roll back BOTH sides — reopen the closed note FIRST (the trusted state we
@@ -813,8 +907,9 @@ export async function verifyMemoryNote(options: SomaMemoryVerifyOptions): Promis
 
   // Verifying refreshes a note's decay signal — a mutation — so a non-quarantined
   // note needs its tier's authority (principal→--principal-authority,
-  // assistant→internal consolidator authority).
-  assertTierAuthority(note.trust, options, `Verifying ${note.trust}-trust note ${note.id}`);
+  // assistant→internal consolidator authority). No `trigger` here (verify carries
+  // none) — that's what selects the VERIFY shape inside resolveMutationGovernance.
+  const governance = resolveMutationGovernance(undefined, note, options);
 
   const verified: SomaMemoryNote = {
     ...note,
@@ -831,7 +926,7 @@ export async function verifyMemoryNote(options: SomaMemoryVerifyOptions): Promis
       kind: "memory.verify",
       summary: `Verified memory note ${verified.id} (${type}); resurface_count ${verified.resurface_count}`,
       artifactPaths: [path],
-      metadata: { id: verified.id, type, resurfaceCount: verified.resurface_count, ...authorityMeta(note.trust) },
+      metadata: { id: verified.id, type, resurfaceCount: verified.resurface_count, ...governance.eventMeta },
     },
     () => restoreBytes(somaHome, path, raw), // roll back: restore the pre-verify bytes
   );
