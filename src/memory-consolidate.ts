@@ -2,6 +2,7 @@ import { mkdir, readdir, readFile, rename, lstat, unlink, writeFile } from "node
 import { basename, dirname, join, relative, sep } from "node:path";
 import { createPaths } from "./paths";
 import { isEnoent } from "./fs-utils";
+import { listMemoryNotes } from "./memory-fs";
 import { appendSomaMemoryEvent } from "./memory";
 import { parseMemoryNote, serializeMemoryNote, MemoryNoteError } from "./memory-note";
 import { renderDigestPointer } from "./episodic-digest";
@@ -95,30 +96,24 @@ async function isRealEntry(path: string, kind: "dir" | "file"): Promise<boolean>
   return kind === "dir" ? info.isDirectory() : info.isFile();
 }
 
-/** Real (non-symlink) `.md` files directly in `dir`; [] if `dir` is absent/symlink/not-a-dir. */
-async function listRealMarkdownFiles(dir: string): Promise<string[]> {
-  if (!(await isRealEntry(dir, "dir"))) return [];
-  const out: string[] = [];
-  for (const entry of (await readdir(dir)).sort()) {
-    if (!entry.endsWith(".md")) continue;
-    const filePath = join(dir, entry);
-    if (await isRealEntry(filePath, "file")) out.push(filePath); // skip symlinked notes
-  }
-  return out;
-}
-
 /**
- * List `*.md` note files under a two-level `<base>/<month>/` tree; [] if base absent.
- * SYMLINKS are rejected at every level (a symlinked month dir or note file could
- * point outside the memory root, so consolidation would parse/move foreign files
- * across the trust boundary). Only real directories and real files are followed.
+ * `*.md` note files in a STRICT two-level `<base>/<month>/` tree: enumerate the
+ * real (non-symlink) month dirs directly under `base`, then list the `.md`
+ * files directly inside each via the shared `listMemoryNotes` seam (#408) —
+ * NON-recursive, so consolidation never descends BELOW a month dir (an episodic
+ * note lives at `<base>/<month>/<note>.md`, never deeper; a nested file is not
+ * an episodic note and must not be parsed/moved). SYMLINKS are skipped at every
+ * level (a symlinked month dir or note file could point outside the memory
+ * root, so consolidation would otherwise parse/move foreign files across the
+ * trust boundary). `[]` if `base` is absent, a symlink, or not a directory.
  */
 async function listEpisodicNotes(base: string): Promise<string[]> {
   if (!(await isRealEntry(base, "dir"))) return []; // absent, a symlink, or not a dir
   const files: string[] = [];
   for (const month of (await readdir(base)).sort()) {
-    if (!(await isRealEntry(join(base, month), "dir"))) continue; // skip symlinked/non-dir month
-    files.push(...(await listRealMarkdownFiles(join(base, month))));
+    const monthDir = join(base, month);
+    if (!(await isRealEntry(monthDir, "dir"))) continue; // skip symlinked/non-dir month
+    files.push(...(await listMemoryNotes(monthDir, { onSymlink: "skip" }))); // direct .md files only
   }
   return files;
 }
@@ -383,7 +378,7 @@ async function regenerateMonthlyDigests(paths: SomaPaths, months: Set<string>): 
 
 /** Real `.md` files directly under one archived-episodic `<kind>/<month>/` dir. */
 function listArchivedMonthNotes(paths: SomaPaths, kind: "sessions" | "actions", month: string): Promise<string[]> {
-  return listRealMarkdownFiles(paths.archive("episodic", kind, month));
+  return listMemoryNotes(paths.archive("episodic", kind, month), { onSymlink: "skip" });
 }
 
 /**

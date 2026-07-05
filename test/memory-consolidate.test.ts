@@ -86,6 +86,38 @@ test("aged episodic action uses the 180d TTL (a 100d-old action is NOT pruned)",
   });
 });
 
+test("episodic enumeration is depth-limited: a note NESTED below a month dir is NOT archived", async () => {
+  await withTempSoma(async (somaHome) => {
+    // An aged note directly under its month dir — MUST be archived.
+    const direct = await writeNote(
+      somaHome,
+      "memory/episodic/sessions/2026-03/20260301-direct.md",
+      note({ id: "20260301-direct", type: "episodic", trust: "assistant", created: "2026-03-01", body: "direct session" }),
+    );
+    // A same-aged note one level DEEPER (`<month>/<subdir>/...`) — an episodic note
+    // lives at `<month>/<note>.md`, never deeper, so this is not a note the pass
+    // should ever parse or move. Consolidation must not descend into the subdir.
+    const nested = await writeNote(
+      somaHome,
+      "memory/episodic/sessions/2026-03/nested/20260302-nested.md",
+      note({ id: "20260302-nested", type: "episodic", trust: "assistant", created: "2026-03-02", body: "nested session" }),
+    );
+
+    const result = await consolidateMemory({ somaHome, now: NOW });
+
+    // Only the direct note is archived; the nested one is left completely untouched.
+    expect(result.archived).toHaveLength(1);
+    expect(result.archived[0].from).toContain("2026-03/20260301-direct.md");
+    expect(await exists(direct)).toBe(false); // moved to archive
+    expect(await exists(nested)).toBe(true); // never seen, never moved
+    // The regression signal: a recursive walk would have PARSED the nested note
+    // and (its parent dir "nested" ≠ its created month) surfaced it as unreadable.
+    // A depth-limited walk never enumerates it, so `unreadable` stays empty.
+    expect(result.unreadable).toHaveLength(0);
+    expect(result.unreadable.some((p) => p.includes("20260302-nested"))).toBe(false);
+  });
+});
+
 test("a symlinked episodic month directory is NOT traversed (trust-boundary guard)", async () => {
   await withTempSoma(async (somaHome) => {
     // A foreign directory with an old note, reached only via a symlinked month dir.

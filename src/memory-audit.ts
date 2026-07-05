@@ -1,9 +1,10 @@
-import { type Dirent, constants as fsConstants } from "node:fs";
-import { lstat, readFile, readdir } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative } from "node:path";
+import { constants as fsConstants } from "node:fs";
+import { lstat, readFile } from "node:fs/promises";
+import { basename, dirname, isAbsolute, relative } from "node:path";
 import { parseDigestPointerIds } from "./episodic-digest";
 import { createPaths } from "./paths";
 import { isEnoent } from "./fs-utils";
+import { listMemoryNotes } from "./memory-fs";
 import { runBoundedConcurrent } from "./internal-concurrency";
 import { memoryIndexPath } from "./memory-index";
 import { somaMemoryEventsPath } from "./memory";
@@ -28,48 +29,21 @@ import type { SomaMemoryAuditOptions, SomaMemoryAuditProbe, SomaMemoryAuditResul
  */
 const SCAN_CONCURRENCY = 16;
 
-/** Raised when a directory is replaced (swapped for a symlink or another inode)
- *  between the pre- and post-`readdir` lstat — the audit fails LOUDLY rather than
- *  trusting a possibly-redirected read. */
-class AuditTreeError extends Error {}
-
-/** All `.md` files under `dir`, recursively, REJECTING symlinked dirs/files (they
- *  could point outside the memory root — the audit only trusts real entries). */
-async function listRealMarkdownFilesRec(dir: string): Promise<string[]> {
-  // lstat the dir ITSELF before reading it — `readdir` follows a symlinked directory,
-  // so a symlinked dir could otherwise redirect the walk outside the memory root and
-  // have the audit trust foreign files.
-  const before = await lstat(dir).catch((error) => {
-    if (isEnoent(error)) return undefined;
-    throw error;
-  });
-  if (before === undefined) return []; // a missing dir is genuinely empty
-  if (!before.isDirectory()) return []; // a symlink or non-directory — never follow it
-  let entries: Dirent[];
-  try {
-    entries = await readdir(dir, { withFileTypes: true });
-  } catch (error) {
-    if (isEnoent(error)) return []; // vanished between lstat and readdir
-    throw error; // any other failure is a real blind spot — do not treat as empty
-  }
-  // Close the lstat→readdir TOCTOU: re-lstat and require the SAME real directory
-  // (inode+device unchanged, still not a symlink). A mid-read swap → fail loudly.
-  const after = await lstat(dir).catch(() => undefined);
-  if (after === undefined || after.isSymbolicLink() || !after.isDirectory() || after.ino !== before.ino || after.dev !== before.dev) {
-    throw new AuditTreeError(`directory ${dir} was replaced during the audit walk — refusing to trust the read`);
-  }
-  const files: string[] = [];
-  const subdirs: string[] = [];
-  for (const entry of entries) {
-    if (entry.isSymbolicLink()) continue; // never follow a symlink out of the tree
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) subdirs.push(full);
-    else if (entry.isFile() && entry.name.endsWith(".md")) files.push(full);
-  }
-  // Walk sibling subtrees concurrently but BOUNDED — a wide archive (many
-  // month/project dirs) neither serializes nor spikes fds on an unbounded fan-out.
-  const nested = await runBoundedConcurrent(subdirs, listRealMarkdownFilesRec, SCAN_CONCURRENCY);
-  return [...files, ...nested.flat()];
+/**
+ * All `.md` files under `dir`, recursively, via the shared `listMemoryNotes`
+ * seam (#408). `onSymlink: "skip"` — the audit only trusts real entries, so a
+ * symlinked dir/file is silently omitted rather than followed (matching this
+ * probe's own tests: a symlinked note or note dir is invisible, not flagged).
+ * The seam's mid-walk directory-swap TOCTOU detection (a directory replaced —
+ * a different inode — between the pre- and post-`readdir` `lstat`) is
+ * UNCONDITIONAL regardless of `onSymlink`, so the audit's original loud-fail
+ * stance on that specific race (formerly `AuditTreeError`, now the shared
+ * `MemoryTraversalError`) is preserved without asking for "throw" here (which
+ * would also make a plain symlinked entry fail the whole walk — this probe's
+ * contract is to skip those, not abort on them).
+ */
+function listRealMarkdownFilesRec(dir: string): Promise<string[]> {
+  return listMemoryNotes(dir, { recursive: true, onSymlink: "skip" });
 }
 
 // Read WITHOUT following a final-component symlink — closes the TOCTOU where a listed
