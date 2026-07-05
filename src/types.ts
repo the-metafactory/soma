@@ -495,11 +495,17 @@ export interface SomaPaths {
   profile(): string;
   skills(): string;
   learning(): string;
+  knowledge(): string;
   signals(): string;
   wisdom(): string;
   relationship(): string;
-  state(): string;
+  state(...segments: string[]): string;
   work(): string;
+  semantic(): string;
+  procedural(): string;
+  episodic(kind: "sessions" | "actions" | "digests", ...segments: string[]): string;
+  promoted(store: SomaMemoryPromotionStore): string;
+  archive(...segments: string[]): string;
   ratings(): string;
   opinions(): string;
   story(): string;
@@ -1923,7 +1929,12 @@ export interface SomaResultSearchResult {
   matches: SomaResultSearchMatch[];
 }
 
-export type SomaMemoryPromotionStore = "learning" | "knowledge" | "relationship" | "work";
+// Single source of truth for the promotion-store enumeration: `promoted()`
+// (src/paths.ts) maps each of these to its on-disk dir, and the CLI's
+// `--store` validator (src/cli/memory.ts) checks against this same array —
+// neither re-lists the literals independently.
+export const SOMA_MEMORY_PROMOTION_STORES = ["learning", "knowledge", "relationship", "work"] as const;
+export type SomaMemoryPromotionStore = (typeof SOMA_MEMORY_PROMOTION_STORES)[number];
 
 export interface SomaMemoryPromotionOptions {
   homeDir?: string;

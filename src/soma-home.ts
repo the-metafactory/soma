@@ -236,7 +236,7 @@ export async function loadSomaProfile(somaHome: string): Promise<Omit<Projection
     memory: {
       root: paths.memory(),
       work: paths.work(),
-      knowledge: paths.resolve("memory", "KNOWLEDGE"),
+      knowledge: paths.knowledge(),
       learning: paths.learning(),
       relationship: paths.relationship(),
       state: paths.state(),
