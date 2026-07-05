@@ -446,11 +446,13 @@ async function applyStateGc(root: string, stateGc: string[], now: Date): Promise
 
 /**
  * The pure-read output of the plan phase: every file operation consolidation
- * WOULD perform, computed once from the tree + `now`. Frozen (top level and
- * every array field) before it is returned — `applyConsolidationPlan` reads
- * this object but must never patch it, so an accidental future mutation
- * throws (ES modules run in strict mode) instead of silently letting a
- * dry-run's reported plan and a real run's applied result drift apart. This
+ * WOULD perform, computed once from the tree + `now`. SHALLOW-frozen (the
+ * top-level object and every array field, NOT the nested note/archive entries)
+ * before it is returned — enough that `applyConsolidationPlan` cannot repoint,
+ * grow, or replace the plan's arrays (an accidental structural mutation throws
+ * in strict mode); it does not deep-freeze individual note contents. That is
+ * the property the plan/apply split needs: the set of ops can't drift between a
+ * dry-run's reported plan and a real run's applied result. This
  * is the same `plan()` / `apply(plan)` split `runMemoryBackfill` uses (M8) —
  * a `SomaMemoryConsolidateResult` for a real run is built by COMBINING this
  * plan with the separately-returned `ConsolidationApplied` delta, never by
@@ -615,11 +617,13 @@ function planToResult(plan: ConsolidationPlan, dryRun: boolean, applied?: Consol
     somaHome: plan.somaHome,
     dryRun,
     archived: plan.episodic.map((e) => e.plan),
-    digestsWritten: plan.digestsWritten,
+    // Copy the plan-owned (frozen) arrays so the public result stays mutable —
+    // dry-run callers previously got fresh mutable arrays and some mutate them.
+    digestsWritten: [...plan.digestsWritten],
     markedStale: applied ? applied.markedStale : plan.staleMarks.map((s) => s.rel).sort(),
-    stateGced: applied ? applied.stateGced : plan.stateGc,
-    similarPairs: plan.similarPairs,
-    unreadable: applied ? applied.unreadable : plan.unreadable,
+    stateGced: applied ? applied.stateGced : [...plan.stateGc],
+    similarPairs: [...plan.similarPairs],
+    unreadable: applied ? applied.unreadable : [...plan.unreadable],
     mutated: applied ? applied.mutated : plan.mutated,
     indexPath: plan.indexPath,
   };
