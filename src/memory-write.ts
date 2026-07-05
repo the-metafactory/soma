@@ -181,12 +181,14 @@ async function undoAtomicWrite(somaHome: string, write: AtomicNoteWrite): Promis
  * produce the IDENTICAL error shape (`rollbackAndThrow`) instead of each
  * mutation path hand-rolling its own undo and its own error shape.
  *
- * Writes run in order. A failure on the FIRST write has nothing staged yet, so
- * it propagates directly (nothing to roll back). A failure on a LATER write
- * (index `i > 0`) rolls back every write up to and INCLUDING it, latest-first
- * — `writes[i]`'s own undo runs too, because an overwrite (`"w"`) may have
- * already truncated its target before failing, so restoring its prior bytes is
- * still required even though that specific write "failed". (`supersedeNote`'s
+ * Writes run in order. A failed write rolls back every write up to and
+ * INCLUDING it, latest-first — `writes[i]`'s own undo runs too, because an
+ * overwrite (`"w"`) may have already truncated its target before failing, so
+ * restoring its prior bytes is still required even though that specific write
+ * "failed". The ONE exception is a first CREATE (`i === 0`, `"wx"`): it
+ * propagates directly, since an EEXIST failure left the target untouched (and
+ * unlinking it would clobber a pre-existing file) and a partial create has no
+ * prior state to restore. (`supersedeNote`'s
  * two writes — mint the replacement, then close the old note — roll back in
  * exactly this order: restore the old note FIRST, the trusted state most
  * worth restoring, then drop the new one SECOND.) If every write succeeds, the
@@ -209,7 +211,12 @@ export async function writeNotesAtomically(
     try {
       await writeNoteFile(somaHome, writes[i].path, writes[i].note, writes[i].flag);
     } catch (writeError) {
-      if (i === 0) throw writeError; // nothing staged yet — nothing to roll back
+      // A first CREATE (`"wx"`) propagates directly: an EEXIST failure left the
+      // target untouched (must NOT unlink a pre-existing file) and a partial
+      // create has no prior bytes to restore. A first OVERWRITE (`"w"`) may
+      // have truncated its target before failing, so its prior bytes still need
+      // restoring — roll back through i even at i === 0.
+      if (i === 0 && writes[i].flag === "wx") throw writeError;
       return rollbackAndThrow(kind, "write", writeError, () => undoThrough(i));
     }
   }

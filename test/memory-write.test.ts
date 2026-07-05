@@ -705,7 +705,7 @@ test("writeNotesAtomically: a mid-write failure rolls back every staged write wi
   });
 });
 
-test("writeNotesAtomically: a failure on the FIRST write has nothing staged, so it propagates un-rolled-back and un-wrapped", async () => {
+test("writeNotesAtomically: a failure on a first CREATE (wx) propagates un-rolled-back and un-wrapped (EEXIST left the target untouched)", async () => {
   await withTempSoma(async (somaHome) => {
     await mkdir(join(somaHome, "memory/semantic"), { recursive: true });
     const firstPath = memoryNotePath(somaHome, "semantic", "atomic-only");
@@ -720,5 +720,45 @@ test("writeNotesAtomically: a failure on the FIRST write has nothing staged, so 
         metadata: {},
       }),
     ).rejects.toThrow(/malformed frontmatter line/);
+  });
+});
+
+test("writeNotesAtomically: a failure on a first OVERWRITE (w) rolls back to prior bytes with the shared error shape (#412 review)", async () => {
+  await withTempSoma(async (somaHome) => {
+    await mkdir(join(somaHome, "memory/semantic"), { recursive: true });
+    // A single "w" overwrite (the shape merge/verify route through). An
+    // overwrite can truncate its target before failing, so a first-write
+    // failure must still restore the caller's prior bytes — NOT propagate raw.
+    const onlyPath = memoryNotePath(somaHome, "semantic", "overwrite-only");
+    const priorRaw = "trusted-prior-bytes-that-must-survive\n";
+    await writeFile(onlyPath, priorRaw, "utf8");
+    const writes: AtomicNoteWrite[] = [
+      {
+        path: onlyPath,
+        flag: "w",
+        // Embedded newline in `hook` breaks the round-trip law → writeNoteFile
+        // throws, deterministically forcing the first-write failure.
+        note: rawNote({ id: "overwrite-only", body: "new body that never lands", hook: "line one\nline two" }),
+        priorRaw,
+      },
+    ];
+
+    let thrown: unknown;
+    try {
+      await writeNotesAtomically(somaHome, NOW, undefined, "test.atomic-write", writes, {
+        summary: "atomic write test",
+        artifactPaths: [onlyPath],
+        metadata: {},
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    // Wrapped shared shape, not a raw round-trip error nor an AggregateError.
+    expect(thrown).toBeInstanceOf(Error);
+    expect(thrown).not.toBeInstanceOf(AggregateError);
+    expect((thrown as Error).message).toBe("Soma memory test.atomic-write write failed; rolled back the file mutation.");
+    // Prior bytes restored (rollback ran even though it was the first write).
+    expect(await readFile(onlyPath, "utf8")).toBe(priorRaw);
   });
 });
