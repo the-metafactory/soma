@@ -56,10 +56,13 @@ import type {
  *   the event append succeed together or are rolled back together (created
  *   files unlinked, edited files restored to prior bytes), so a mid-write
  *   failure and an append failure both surface the SAME error shape and never
- *   leave a note without its event. The one exception: a FIRST write that is a
- *   create (`wx`) and fails leaves the target untouched (EEXIST) or unrestorable
- *   (partial create), so it propagates directly — there is no prior state to
- *   roll back to. This is NOT crash-atomic — a process kill
+ *   commit a note without its event. A FIRST write that is a create (`wx`)
+ *   propagates its failure directly rather than rolling back — but that is not
+ *   a hole in the guarantee: such a failure is either EEXIST (the target is
+ *   untouched) or a pre-write serialization error (nothing reached disk), so no
+ *   partial note is ever committed and there is nothing to undo. (A crash
+ *   mid-write is a different matter — see the non-atomic note next.) This is
+ *   NOT crash-atomic — a process kill
  *   in the window between a file write and the append can still orphan a file
  *   from its event (a documented gap reconciled by the M7 audit; soma has no
  *   WAL/2PC primitive).
