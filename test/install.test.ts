@@ -1521,3 +1521,26 @@ test("#88 AC-3: bootstrap is idempotent — re-running install does not overwrit
     expect(second).toBe("# OBSERVABILITY (user-edited)\n\nCustom notes.\n");
   });
 });
+
+
+test("code-only codex install skips skill projection and preserves existing projected skills", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const skillDir = join(homeDir, ".soma", "skills", "Widget");
+    await mkdir(join(skillDir, "references"), { recursive: true });
+    await writeFile(join(skillDir, "SKILL.md"), "---\nname: Widget\n---\n\nWidget skill.\n", "utf8");
+    await writeFile(join(skillDir, "references", "guide.md"), "# Guide\n", "utf8");
+
+    await installSomaForCodex({ homeDir });
+    const projectedSkill = join(homeDir, ".codex", "skills", "Widget", "SKILL.md");
+    expect(await readFile(projectedSkill, "utf8")).toContain("Widget skill");
+    const staleOwnedFile = join(homeDir, ".codex", "memories", "soma", "stale.md");
+    await writeFile(staleOwnedFile, "stale generated projection\n", "utf8");
+
+    const result = await installSomaForCodex({ homeDir, codeOnly: true });
+
+    expect(result.substrateHome.files.some((file) => file.includes("/skills/"))).toBe(false);
+    expect(await readFile(projectedSkill, "utf8")).toContain("Widget skill");
+    await expect(readFile(staleOwnedFile, "utf8")).rejects.toThrow();
+  });
+});

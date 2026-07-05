@@ -36,31 +36,32 @@
  */
 import { createHash } from "node:crypto";
 import { constants as FS } from "node:fs";
-import { lstat, mkdir, open, readFile, readdir, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join, relative, resolve, sep } from "node:path";
+import { lstat, mkdir, open, readFile, writeFile } from "node:fs/promises";
+import { basename, dirname, relative, resolve, sep } from "node:path";
+import { listMemoryNotes } from "./memory-fs";
 import { rebuildMemoryIndex } from "./memory-index";
-import { MemoryNoteError } from "./memory-note";
+import { MemoryNoteError, toNoteIdSlug, NOTE_ID_MAX_LEN } from "./memory-note";
 import { memoryNotePath, writeMemoryNote } from "./memory-write";
+import { createPaths } from "./paths";
 import { SOMA_MEMORY_BACKFILL_TYPE_MAP } from "./types";
-import { SOMA_PROMOTION_STORE_DIR_NAMES } from "./memory-stores";
 import type {
   SomaMemoryBackfillEntry,
   SomaMemoryBackfillManifest,
   SomaMemoryBackfillManifestEntry,
   SomaMemoryBackfillOptions,
   SomaMemoryBackfillResult,
+  SomaPaths,
   WritableNoteType,
 } from "./types";
 
 const MANIFEST_SCHEMA = "soma.memory-backfill.v1";
 // Backfill is a Memory-subsystem operation, so its bookkeeping lives INSIDE the
 // Memory compartment (`memory/`), under STATE (the subsystem's runtime-state dir,
-// alongside events.jsonl) — not at the Soma root. STATE is a reserved category
-// that the source walk never re-imports, and the manifest is `.json` (never a
-// markdown source), so it can never round-trip into a note.
-const MANIFEST_RELATIVE = "memory/STATE/imports/backfill/.manifest.json";
-const MANIFEST_DIR_RELATIVE = "memory/STATE/imports/backfill";
+// alongside events.jsonl) — not at the Soma root, via `paths.state(...)`. STATE
+// is a reserved category that the source walk never re-imports, and the
+// manifest is `.json` (never a markdown source), so it can never round-trip
+// into a note.
+const MANIFEST_SEGMENTS = ["imports", "backfill", ".manifest.json"] as const;
 
 // Category dirs (or root children) that are never backfill sources: STATE is
 // runtime JSON, episodic/semantic/procedural are the note stores themselves,
@@ -74,19 +75,6 @@ const RESERVED_CATEGORIES = new Set([
   "archive",
   "imports",
 ]);
-
-// Promotion store directories whose PROMOTED/ subtrees promote owns — see
-// SOMA_PROMOTION_STORE_DIR_NAMES in memory-stores.ts (the shared canonical source so
-// this module and memory-promotion never drift).
-
-function resolveSomaHome(options: SomaMemoryBackfillOptions): string {
-  return resolve(options.somaHome ?? join(resolve(options.homeDir ?? homedir()), ".soma"));
-}
-
-/** True iff `rel` is a PROMOTED/ subtree directly under a promotion store dir. */
-function isPromotionOwnedPromotedSubtree(entryName: string, depth: number, rel: string): boolean {
-  return entryName === "PROMOTED" && depth === 1 && SOMA_PROMOTION_STORE_DIR_NAMES.has(rel.split("/")[0]);
-}
 
 function sha256Hex(content: Buffer | string): string {
   return createHash("sha256").update(content).digest("hex");
@@ -139,18 +127,13 @@ async function pathExists(path: string): Promise<boolean> {
 }
 
 /**
- * Slugify `<category>-<stem>` into a note id: lowercase, non-alphanumeric runs
- * collapse to a single hyphen, no leading/trailing/double hyphens, ≤64 chars.
- * Matches the note SLUG grammar (`/^[a-z0-9]+(?:-[a-z0-9]+)*$/`, id ≤ 64).
+ * Slugify `<category>-<stem>` into a note id — delegates to the shared,
+ * valid-by-construction `toNoteIdSlug` (memory-note.ts, #410) next to the
+ * id-grammar definition, so this call site never re-approximates the grammar
+ * or re-validates the result.
  */
 function slugifyId(category: string, stem: string): string {
-  const raw = `${category}-${stem}`
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 64)
-    .replace(/-+$/g, "");
-  return raw || "note";
+  return toNoteIdSlug(`${category}-${stem}`, { fallback: "note" });
 }
 
 /** True iff a note with `id` already exists as either a semantic or procedural note. */
@@ -164,13 +147,13 @@ async function noteExists(somaHome: string, id: string): Promise<boolean> {
 /**
  * Resolve a unique note id from a base slug, suffixing `-2`, `-3`, … against
  * both the existing corpus and the ids already claimed in this run. The base is
- * trimmed to leave room for the suffix so the result stays ≤ 64 chars.
+ * trimmed to leave room for the suffix so the result stays ≤ NOTE_ID_MAX_LEN chars.
  */
 async function uniqueNoteId(somaHome: string, base: string, used: Set<string>): Promise<string> {
   if (!used.has(base) && !(await noteExists(somaHome, base))) return base;
   for (let n = 2; ; n += 1) {
     const suffix = `-${n}`;
-    const candidate = `${base.slice(0, 64 - suffix.length).replace(/-+$/g, "")}${suffix}`;
+    const candidate = `${base.slice(0, NOTE_ID_MAX_LEN - suffix.length).replace(/-+$/g, "")}${suffix}`;
     if (!used.has(candidate) && !(await noteExists(somaHome, candidate))) return candidate;
   }
 }
@@ -206,84 +189,84 @@ const MARKDOWN_EXT = /\.(?:md|markdown)$/i;
  * any README.md, and non-markdown files; refuses symlinks loudly (matching the
  * migrators' stance). Returns entries sorted by relative path for deterministic
  * ordering.
+ *
+ * The recursive walk and its symlink refusal go through the shared
+ * `listMemoryNotes` seam (#408) with `onSymlink: "throw"` — backfill is the one
+ * caller among the seam's four re-derivations that wants ANY symlink (not
+ * just a mid-walk swap) to abort the whole scan loudly, since it is importing
+ * arbitrary legacy content into governed notes and must never silently follow
+ * a symlink's target. The category/README/root-file filtering stays here (via
+ * `include`) — it is backfill's own business rule, not a traversal-safety
+ * concern the seam should know about. The source ROOT's own symlink refusal
+ * also stays here (its own explicit message) — `listMemoryNotes` treats an
+ * abnormal ROOT as empty, matching every OTHER caller, so a `--from` pointing
+ * at a symlink is checked as a precondition before the walk begins.
  */
 async function collectSources(root: string, skipRootFiles: boolean): Promise<SourceFile[]> {
-  const files: SourceFile[] = [];
-
-  // Refuse a symlinked source ROOT up front — the per-entry walk below only guards
-  // entries *within* the tree, so without this a `--from` pointing at a symlink
-  // would be traversed. A non-existent root simply yields no sources.
+  // Refuse a symlinked source ROOT up front — the seam walk below only guards
+  // entries *within* an already-vetted directory, so without this a `--from`
+  // pointing at a symlink would be traversed. A non-existent root simply
+  // yields no sources.
   let rootStat;
   try {
     rootStat = await lstat(root);
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") return files;
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return [];
     throw error;
   }
   if (rootStat.isSymbolicLink()) {
     throw new Error(`Soma memory backfill refused symlink source root: ${root}`);
   }
+  // A regular-file `--from` used to surface ENOTDIR from `readdir`; the seam
+  // treats a non-directory root as empty, so reject it explicitly here rather
+  // than silently reporting no sources.
+  if (!rootStat.isDirectory()) {
+    throw new Error(`Soma memory backfill source root is not a directory: ${root}`);
+  }
 
-  async function visit(dir: string, depth: number): Promise<void> {
-    let entries;
-    try {
-      entries = await readdir(dir, { withFileTypes: true });
-    } catch (error) {
-      if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
-      throw error;
-    }
-    for (const entry of entries) {
-      const abs = join(dir, entry.name);
-      const rel = relative(root, abs).split(sep).join("/");
-      if (entry.isSymbolicLink()) {
-        throw new Error(`Soma memory backfill refused symlink path: ${rel}`);
+  const paths = await listMemoryNotes(root, {
+    recursive: true,
+    onSymlink: "throw",
+    extensions: [], // markdown matching (case-insensitive, .md/.markdown) is done in `include` below
+    sort: false, // backfill re-sorts its SourceFiles by POSIX relativePath below — skip the seam's redundant abspath sort
+    include: ({ name, depth, isDirectory }) => {
+      if (isDirectory) {
+        // Reserved top-level names (the note stores + STATE/archive/imports)
+        // are never descended into — they are subsystem territory, not sources.
+        return !(depth === 0 && RESERVED_CATEGORIES.has(name));
       }
-      // Reserved top-level names (the note stores + STATE/archive/imports) are
-      // never descended into — they are subsystem territory, not sources.
-      if (depth === 0 && RESERVED_CATEGORIES.has(entry.name)) continue;
-      if (entry.isDirectory()) {
-        // The promote path (promoteAlgorithmRunMemory) owns promotion notes:
-        // it writes a principal-trust note whose source_of_truth points back
-        // at the <STORE>/PROMOTED/ file. Importing that same file here would
-        // create a quarantined clone that shadows the principal note in recall
-        // and never earns an INDEX line. Skip ONLY the promotion-store-owned
-        // PROMOTED subtrees, not any folder coincidentally named PROMOTED
-        // elsewhere, so a principal-created PROMOTED/ outside the promotion
-        // stores still backfills normally.
-        if (isPromotionOwnedPromotedSubtree(entry.name, depth, rel)) continue;
-        await visit(abs, depth + 1);
-        continue;
-      }
-      if (!entry.isFile()) continue;
       // A file directly under the root is README/INDEX territory ONLY for the
       // default memory root; a custom `--from <dir>` may legitimately hold its
       // markdown right at the top, so those are imported (category "" → semantic).
-      if (depth === 0 && skipRootFiles) continue;
-      if (/^readme\.(?:md|markdown)$/i.test(entry.name)) continue;
-      if (!MARKDOWN_EXT.test(entry.name)) continue;
-      const category = rel.includes("/") ? rel.split("/")[0] : "";
-      // A file can vanish between `readdir` and `lstat` (concurrent cleanup). Skip
-      // it rather than aborting the whole scan; a genuinely broken FS still throws.
-      let stat;
-      try {
-        stat = await lstat(abs);
-      } catch (error) {
-        if (error instanceof Error && "code" in error && error.code === "ENOENT") continue;
-        throw error;
-      }
-      files.push({
-        relativePath: rel,
-        absPath: abs,
-        category,
-        stem: entry.name.replace(/\.[^.]+$/, ""),
-        mtimeMs: stat.mtimeMs,
-        dev: stat.dev,
-        ino: stat.ino,
-      });
-    }
-  }
+      if (depth === 0 && skipRootFiles) return false;
+      if (/^readme\.(?:md|markdown)$/i.test(name)) return false;
+      return MARKDOWN_EXT.test(name);
+    },
+  });
 
-  await visit(root, 0);
+  const files: SourceFile[] = [];
+  for (const abs of paths) {
+    const rel = relative(root, abs).split(sep).join("/");
+    const category = rel.includes("/") ? rel.split("/")[0] : "";
+    // A file can vanish between the walk and this `lstat` (concurrent cleanup).
+    // Skip it rather than aborting the whole scan; a genuinely broken FS still throws.
+    let stat;
+    try {
+      stat = await lstat(abs);
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") continue;
+      throw error;
+    }
+    files.push({
+      relativePath: rel,
+      absPath: abs,
+      category,
+      stem: basename(abs).replace(/\.[^.]+$/, ""),
+      mtimeMs: stat.mtimeMs,
+      dev: stat.dev,
+      ino: stat.ino,
+    });
+  }
   return files.sort((a, b) => (a.relativePath < b.relativePath ? -1 : a.relativePath > b.relativePath ? 1 : 0));
 }
 
@@ -306,9 +289,9 @@ function resolveType(
  * is accepted (each entry is still re-validated against the corpus + SHA at use).
  */
 async function readManifest(
-  somaHome: string,
+  paths: SomaPaths,
 ): Promise<{ map: Map<string, SomaMemoryBackfillManifestEntry>; importedAt: string; from: string } | null> {
-  const path = join(somaHome, MANIFEST_RELATIVE);
+  const path = paths.state(...MANIFEST_SEGMENTS);
   if (!(await pathExists(path))) return null;
   try {
     const parsed = JSON.parse(await readFile(path, "utf8")) as SomaMemoryBackfillManifest;
@@ -346,10 +329,11 @@ export async function planMemoryBackfill(
 export async function runMemoryBackfill(
   options: SomaMemoryBackfillOptions = {},
 ): Promise<SomaMemoryBackfillResult> {
-  const somaHome = resolveSomaHome(options);
-  const defaultRoot = resolve(join(somaHome, "memory"));
+  const paths = createPaths(options);
+  const somaHome = paths.root();
+  const defaultRoot = paths.memory();
   const from = resolve(options.from ?? defaultRoot);
-  const manifestPath = join(somaHome, MANIFEST_RELATIVE);
+  const manifestPath = paths.state(...MANIFEST_SEGMENTS);
   const dryRun = options.dryRun ?? false;
 
   const sources = await collectSources(from, from === defaultRoot);
@@ -357,7 +341,7 @@ export async function runMemoryBackfill(
   // to the root it was built for. A rerun against a DIFFERENT `--from` must not
   // treat same-relative-path files as hits — ignore a manifest built elsewhere
   // (the run then rewrites it for the current root).
-  const rawPrevious = await readManifest(somaHome);
+  const rawPrevious = await readManifest(paths);
   const previous = rawPrevious?.from === from ? rawPrevious : null;
 
   const used = new Set<string>();
@@ -477,7 +461,7 @@ export async function runMemoryBackfill(
     // Manifest reflects exactly the files currently backfilled to a present note
     // (written this run + previously-written-and-still-present). Vanished sources
     // drop out; duplicates are excluded (they map to a note this run did not own).
-    await mkdir(join(somaHome, MANIFEST_DIR_RELATIVE), { recursive: true });
+    await mkdir(dirname(manifestPath), { recursive: true });
     const importedAt =
       writtenCount === 0 && previous ? previous.importedAt : (options.now ?? new Date()).toISOString();
     const manifest: SomaMemoryBackfillManifest = {

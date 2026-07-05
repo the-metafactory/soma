@@ -2,11 +2,14 @@ import { mkdir, readdir, readFile, rename, lstat, unlink, writeFile } from "node
 import { basename, dirname, join, relative, sep } from "node:path";
 import { createPaths } from "./paths";
 import { isEnoent } from "./fs-utils";
+import { listMemoryNotes } from "./memory-fs";
 import { appendSomaMemoryEvent } from "./memory";
-import { parseMemoryNote, serializeMemoryNote, MemoryNoteError } from "./memory-note";
+import { parseMemoryNote, serializeMemoryNote, MemoryNoteError, NOTE_ID_PATTERN, NOTE_ID_MAX_LEN } from "./memory-note";
+import { renderDigestPointer } from "./episodic-digest";
 import { collectDurableNotes } from "./memory-write";
 import { runBoundedConcurrent } from "./internal-concurrency";
 import { memoryTermSet } from "./memory-terms";
+import { jaccard, ageDays, NEAR_DUPLICATE_JACCARD_THRESHOLD } from "./memory-corpus";
 import { rebuildMemoryIndex, memoryIndexPath } from "./memory-index";
 import type {
   SomaMemoryConsolidateOptions,
@@ -19,11 +22,15 @@ import type {
 
 /**
  * Deterministic consolidation (subsystem M6). A no-LLM maintenance pass. Every op
- * is computed into a PLAN first, so a `--dry-run` reports the SAME set of file
- * operations (which notes archive, which are marked stale, which state files are
- * deleted, which pairs are lexically similar) that the real run applies — the dry-run plan
- * equals the real run's plan. (It does NOT reproduce byte-level digest/INDEX
- * content; it enumerates the operations, not their diffs.) Ops, in apply order:
+ * is computed into an immutable PLAN first (`planConsolidation`), so a `--dry-run`
+ * reports the SAME set of file operations (which notes archive, which are marked
+ * stale, which state files are deleted, which pairs are lexically similar) that a
+ * real run applies — the dry-run plan equals the real run's plan. (It does NOT
+ * reproduce byte-level digest/INDEX content; it enumerates the operations, not
+ * their diffs.) A real run separately applies that plan (`applyConsolidationPlan`)
+ * and returns what ACTUALLY happened as its own delta — the same `plan()` /
+ * `apply(plan)` split `runMemoryBackfill` uses (M8), never one mutable result
+ * object patched across the dry-run boundary. Ops, in apply order:
  *
  * 1. **Prune aged episodic** — session notes older than 90d and action notes older
  *    than 180d (by `created`) are folded into a monthly digest (`episodic/digests/
@@ -58,14 +65,13 @@ const EPISODIC_SESSION_TTL_DAYS = 90;
 const EPISODIC_ACTION_TTL_DAYS = 180;
 const SEMANTIC_STALE_DAYS = 180;
 const STATE_GC_DAYS = 7;
-// Same near-duplicate floor as the M1 write-path dedup gate.
-const NEAR_DUPLICATE_JACCARD = 0.6;
 // Cap on the similar-pair report (highest-scored kept) — a duplicated corpus could
 // otherwise surface n(n-1)/2 pairs.
 const MAX_SIMILAR_PAIRS = 50;
 
+// Used directly against raw file mtimes (state GC) — not an ISO-date age, so it
+// stays local rather than routing through the shared `ageDays` (#410).
 const MS_PER_DAY = 86_400_000;
-const NOTE_ID_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 /** A real `YYYY-MM-DD` CALENDAR date (the M0 parser already enforces this; this is a
  *  defensive re-check before age/month math). Round-trips through UTC so impossible
@@ -77,16 +83,6 @@ function isIsoDate(s: string): boolean {
   return new Date(Date.UTC(y, m - 1, d)).toISOString().slice(0, 10) === s;
 }
 
-function dateMs(isoDate: string): number {
-  const [y, m, d] = isoDate.split("-").map(Number);
-  return Date.UTC(y, m - 1, d);
-}
-
-/** Whole days between a `YYYY-MM-DD` date and `now` (negative if the date is future). */
-function ageDays(isoDate: string, now: Date): number {
-  return Math.floor((now.getTime() - dateMs(isoDate)) / MS_PER_DAY);
-}
-
 /** True iff `path` is a real (non-symlink) entry of the wanted kind. */
 async function isRealEntry(path: string, kind: "dir" | "file"): Promise<boolean> {
   const info = await lstat(path).catch(() => undefined); // lstat: does NOT follow a symlink
@@ -94,30 +90,24 @@ async function isRealEntry(path: string, kind: "dir" | "file"): Promise<boolean>
   return kind === "dir" ? info.isDirectory() : info.isFile();
 }
 
-/** Real (non-symlink) `.md` files directly in `dir`; [] if `dir` is absent/symlink/not-a-dir. */
-async function listRealMarkdownFiles(dir: string): Promise<string[]> {
-  if (!(await isRealEntry(dir, "dir"))) return [];
-  const out: string[] = [];
-  for (const entry of (await readdir(dir)).sort()) {
-    if (!entry.endsWith(".md")) continue;
-    const filePath = join(dir, entry);
-    if (await isRealEntry(filePath, "file")) out.push(filePath); // skip symlinked notes
-  }
-  return out;
-}
-
 /**
- * List `*.md` note files under a two-level `<base>/<month>/` tree; [] if base absent.
- * SYMLINKS are rejected at every level (a symlinked month dir or note file could
- * point outside the memory root, so consolidation would parse/move foreign files
- * across the trust boundary). Only real directories and real files are followed.
+ * `*.md` note files in a STRICT two-level `<base>/<month>/` tree: enumerate the
+ * real (non-symlink) month dirs directly under `base`, then list the `.md`
+ * files directly inside each via the shared `listMemoryNotes` seam (#408) —
+ * NON-recursive, so consolidation never descends BELOW a month dir (an episodic
+ * note lives at `<base>/<month>/<note>.md`, never deeper; a nested file is not
+ * an episodic note and must not be parsed/moved). SYMLINKS are skipped at every
+ * level (a symlinked month dir or note file could point outside the memory
+ * root, so consolidation would otherwise parse/move foreign files across the
+ * trust boundary). `[]` if `base` is absent, a symlink, or not a directory.
  */
 async function listEpisodicNotes(base: string): Promise<string[]> {
   if (!(await isRealEntry(base, "dir"))) return []; // absent, a symlink, or not a dir
   const files: string[] = [];
   for (const month of (await readdir(base)).sort()) {
-    if (!(await isRealEntry(join(base, month), "dir"))) continue; // skip symlinked/non-dir month
-    files.push(...(await listRealMarkdownFiles(join(base, month))));
+    const monthDir = join(base, month);
+    if (!(await isRealEntry(monthDir, "dir"))) continue; // skip symlinked/non-dir month
+    files.push(...(await listMemoryNotes(monthDir, { onSymlink: "skip" }))); // direct .md files only
   }
   return files;
 }
@@ -132,31 +122,17 @@ function parseNotesBounded(paths: string[]): Promise<{ path: string; note: SomaM
   );
 }
 
-/** First non-empty body line, control-stripped + truncated — the digest pointer text. */
-function firstBodyLine(note: SomaMemoryNote): string {
-  const line = note.body.split("\n").map((l) => l.trim()).find((l) => l.length > 0) ?? "";
-  return line.replace(/[\x00-\x1f\x7f-\x9f]+/g, " ").slice(0, 120);
-}
-
-function jaccard(a: Set<string>, b: Set<string>): number {
-  if (a.size === 0 && b.size === 0) return 0;
-  let intersection = 0;
-  for (const token of a) if (b.has(token)) intersection += 1;
-  const union = a.size + b.size - intersection;
-  return union === 0 ? 0 : intersection / union;
-}
-
 /**
  * Archive target that MIRRORS the source's path relative to the memory root, under
  * `memory/archive/` (`memory/episodic/…/x.md` → `memory/archive/episodic/…/x.md`),
  * so the tombstone preserves the original location AND stays under the single
  * lowercase `memory/` root (architecture.md) rather than creating a second root.
- * `paths.resolve` asserts the result stays inside the Soma root — combined with the
+ * `paths.archive` asserts the result stays inside the Soma root — combined with the
  * id-slug validation upstream, no crafted frontmatter can redirect a rename out.
  */
 function archiveTargetFor(paths: SomaPaths, sourcePath: string): string {
   const relSegments = relative(paths.memory(), sourcePath).split(sep);
-  return paths.resolve("memory", "archive", ...relSegments);
+  return paths.archive(...relSegments);
 }
 
 interface EpisodicArchive {
@@ -207,7 +183,7 @@ async function planEpisodicArchive(
   now: Date,
 ): Promise<{ archives: EpisodicArchive[]; unreadable: string[] }> {
   const root = paths.root();
-  const base = paths.resolve("memory", "episodic", kind);
+  const base = paths.episodic(kind);
   const parsedFiles = await parseNotesBounded(await listEpisodicNotes(base));
   const archives: EpisodicArchive[] = [];
   const unreadable: string[] = [];
@@ -216,7 +192,7 @@ async function planEpisodicArchive(
       unreadable.push(relative(root, path)); // surfaced, not silently dropped
       continue;
     }
-    if (!NOTE_ID_SLUG.test(parsed.id) || parsed.id.length > 64) {
+    if (!NOTE_ID_PATTERN.test(parsed.id) || parsed.id.length > NOTE_ID_MAX_LEN) {
       // Defense in depth: an id that isn't a plain slug could form a traversal path.
       throw new MemoryNoteError(`episodic note ${path} has an unsafe id "${parsed.id}".`, "id");
     }
@@ -240,7 +216,7 @@ async function planEpisodicArchive(
       from: path,
       to,
       note: parsed,
-      digestPath: paths.resolve("memory", "episodic", "digests", `${month}.md`),
+      digestPath: paths.episodic("digests", `${month}.md`),
     });
   }
   return { archives, unreadable };
@@ -306,7 +282,7 @@ function planSimilarPairs(notes: { note: SomaMemoryNote }[]): SomaMemorySimilarP
     }
     for (const j of candidates) {
       const score = jaccard(tokens[i], tokens[j]);
-      if (score >= NEAR_DUPLICATE_JACCARD) {
+      if (score >= NEAR_DUPLICATE_JACCARD_THRESHOLD) {
         const [a, b] = [active[i].id, active[j].id].sort();
         pairs.push({ a, b, score });
         if (pairs.length >= flushAt) {
@@ -376,8 +352,8 @@ async function regenerateMonthlyDigests(paths: SomaPaths, months: Set<string>): 
       .filter((n): n is SomaMemoryNote => n !== undefined && n.created.slice(0, 7) === month)
       .sort((a, b) => a.id.localeCompare(b.id));
     if (notes.length === 0) continue;
-    const digestPath = paths.resolve("memory", "episodic", "digests", `${month}.md`);
-    const body = notes.map((n) => `- ${n.id}: ${firstBodyLine(n)}`).join("\n");
+    const digestPath = paths.episodic("digests", `${month}.md`);
+    const body = notes.map(renderDigestPointer).join("\n");
     // The digests-dir parent chain was preflighted in the plan phase (before any
     // move), so no symlinked-parent refusal can strike here after notes have moved.
     await mkdir(dirname(digestPath), { recursive: true });
@@ -388,7 +364,7 @@ async function regenerateMonthlyDigests(paths: SomaPaths, months: Set<string>): 
 
 /** Real `.md` files directly under one archived-episodic `<kind>/<month>/` dir. */
 function listArchivedMonthNotes(paths: SomaPaths, kind: "sessions" | "actions", month: string): Promise<string[]> {
-  return listRealMarkdownFiles(paths.resolve("memory", "archive", "episodic", kind, month));
+  return listMemoryNotes(paths.archive("episodic", kind, month), { onSymlink: "skip" });
 }
 
 /**
@@ -469,18 +445,63 @@ async function applyStateGc(root: string, stateGc: string[], now: Date): Promise
 }
 
 /**
- * Run (or plan, under `dryRun`) the deterministic consolidation pass. See the
- * module docstring for the ops and ordering. Given the same tree + `now`, the plan
- * is identical whether or not it is applied — so a dry-run's reported ops match the
- * real run's.
+ * The pure-read output of the plan phase: every file operation consolidation
+ * WOULD perform, computed once from the tree + `now`. SHALLOW-frozen (the
+ * top-level object and every array field, NOT the nested note/archive entries)
+ * before it is returned — enough that `applyConsolidationPlan` cannot repoint,
+ * grow, or replace the plan's arrays (an accidental structural mutation throws
+ * in strict mode); it does not deep-freeze individual note contents. That is
+ * the property the plan/apply split needs: the set of ops can't drift between a
+ * dry-run's reported plan and a real run's applied result. This
+ * is the same `plan()` / `apply(plan)` split `runMemoryBackfill` uses (M8) —
+ * a `SomaMemoryConsolidateResult` for a real run is built by COMBINING this
+ * plan with the separately-returned `ConsolidationApplied` delta, never by
+ * patching one shared mutable object across the dry-run boundary.
+ *
+ * Exported (with `planConsolidation`/`applyConsolidationPlan`/`ConsolidationApplied`)
+ * for the plan-immutability acceptance test — not public index API; `consolidateMemory`
+ * remains the only production caller.
  */
-export async function consolidateMemory(options: SomaMemoryConsolidateOptions = {}): Promise<SomaMemoryConsolidateResult> {
-  const paths = createPaths(options);
-  const somaHome = paths.root();
-  const now = options.now ?? new Date();
-  const dryRun = options.dryRun === true;
+export interface ConsolidationPlan {
+  somaHome: string;
+  indexPath: string;
+  episodic: EpisodicArchive[];
+  /** Relative digest paths the archive move would (re)write — identical for dry-run and real. */
+  digestsWritten: string[];
+  staleMarks: { path: string; rel: string; note: SomaMemoryNote }[];
+  similarPairs: SomaMemorySimilarPair[];
+  /** `current-work-*.json` relative paths planned for deletion (empty unless `--gc-state`). */
+  stateGc: string[];
+  /** Files surfaced as unscanned/unsafe at PLAN time (episodic + durable-corpus blind spots). */
+  unreadable: string[];
+  /** Whether this plan, if applied verbatim (no TOCTOU race), would mutate anything. */
+  mutated: boolean;
+}
 
-  // --- plan (pure reads) ---
+/**
+ * The delta a real run actually produced applying a `ConsolidationPlan` —
+ * separate from the plan, never folded back into it. Differs from the plan
+ * only under a TOCTOU race (a planned candidate swapped away before it could
+ * be applied): `markedStale`/`stateGced` drop any swapped-away candidate, and
+ * `unreadable`/`mutated` are recomputed from what actually happened.
+ */
+export interface ConsolidationApplied {
+  markedStale: string[];
+  stateGced: string[];
+  unreadable: string[];
+  mutated: boolean;
+}
+
+/**
+ * Plan phase: compute every file operation consolidation would perform,
+ * touching nothing on disk. See the module docstring for the ops and
+ * ordering. Given the same tree + `now`, this is identical whether or not it
+ * is subsequently applied — so a `--dry-run` reports exactly the plan a real
+ * run would apply.
+ */
+export async function planConsolidation(paths: SomaPaths, options: SomaMemoryConsolidateOptions, now: Date): Promise<ConsolidationPlan> {
+  const somaHome = paths.root();
+
   const sessionPlan = await planEpisodicArchive(paths, "sessions", EPISODIC_SESSION_TTL_DAYS, now);
   const actionPlan = await planEpisodicArchive(paths, "actions", EPISODIC_ACTION_TTL_DAYS, now);
   const episodic = [...sessionPlan.archives, ...actionPlan.archives];
@@ -494,7 +515,7 @@ export async function consolidateMemory(options: SomaMemoryConsolidateOptions = 
   const verifiedDirs = new Set<string>(); // archive targets share ancestors — verify each real dir once
   for (const e of episodic) await assertSafeArchiveDest(memoryRoot, e.to, verifiedDirs);
   if (episodic.length > 0) {
-    await assertRealParentChain(memoryRoot, paths.resolve("memory", "episodic", "digests", "any.md"), verifiedDirs);
+    await assertRealParentChain(memoryRoot, paths.episodic("digests", "any.md"), verifiedDirs);
   }
 
   const durable = await collectDurableNotes(somaHome);
@@ -506,72 +527,125 @@ export async function consolidateMemory(options: SomaMemoryConsolidateOptions = 
   // Unreadable files (episodic + durable) are surfaced, never silently skipped —
   // otherwise a run could report success while known notes went unchecked.
   const unreadable = [...sessionPlan.unreadable, ...actionPlan.unreadable, ...durable.unreadable].sort();
-
   const mutated = episodic.length > 0 || staleMarks.length > 0 || stateGc.length > 0;
-  const result: SomaMemoryConsolidateResult = {
+
+  const plan: ConsolidationPlan = {
     somaHome,
-    dryRun,
-    archived: episodic.map((e) => e.plan),
+    indexPath: memoryIndexPath(somaHome),
+    episodic,
     digestsWritten: Array.from(new Set(episodic.map((e) => relative(somaHome, e.digestPath)))).sort(),
-    markedStale: staleMarks.map((s) => s.rel).sort(),
-    stateGced: stateGc,
+    staleMarks,
     similarPairs,
+    stateGc,
     unreadable,
     mutated,
-    indexPath: memoryIndexPath(somaHome),
   };
-  if (dryRun) return result;
+  Object.freeze(plan.episodic);
+  Object.freeze(plan.digestsWritten);
+  Object.freeze(plan.staleMarks);
+  Object.freeze(plan.similarPairs);
+  Object.freeze(plan.stateGc);
+  Object.freeze(plan.unreadable);
+  return Object.freeze(plan);
+}
 
-  // --- apply (mutations only on the real run) ---
-  const archivedOmissions = await applyEpisodicArchive(paths, episodic);
-  const { skipped: staleSkipped } = await applyStaleMarks(staleMarks);
-  const gcDeleted = await applyStateGc(somaHome, stateGc, now);
-  // A stale mark skipped by a TOCTOU swap was NOT applied — drop it from the result
-  // so `markedStale` reflects what actually happened, and surface the swapped path.
-  if (staleSkipped.length > 0) {
-    const skippedSet = new Set(staleSkipped);
-    result.markedStale = result.markedStale.filter((p) => !skippedSet.has(p));
-    unreadable.push(...staleSkipped);
-  }
-  // Likewise, `stateGced` reflects the files ACTUALLY deleted (a swapped candidate is
-  // refused), not the plan.
-  result.stateGced = gcDeleted;
-  // Merge in any unreadable archived note found during digest regeneration, then
-  // ASSIGN the result field explicitly (no hidden aliasing of the plan-phase array).
-  if (archivedOmissions.length > 0 || staleSkipped.length > 0) {
-    result.unreadable = Array.from(new Set([...unreadable, ...archivedOmissions])).sort();
-  }
+/**
+ * Apply phase: perform every mutation `plan` describes — move aged episodic
+ * notes to the archive (regenerating affected digests), mark stale semantic
+ * notes, GC old state files — then rebuild the INDEX and append the governed
+ * `memory.consolidate` event, but ONLY if something actually changed. Returns
+ * the applied delta as a fresh object; `plan` is read, never written.
+ *
+ * NOT rollback-coupled — consolidation is idempotent and safe to repeat, so a
+ * failed event append leaves the already-applied, re-runnable mutations
+ * rather than attempting a multi-file rollback (the guarantee is
+ * repeatability, not atomicity; see architecture.md). The M1 write/verify
+ * rollback (`writeNotesAtomically`, memory-write.ts) is a different,
+ * single-mutation path.
+ */
+export async function applyConsolidationPlan(
+  paths: SomaPaths,
+  plan: ConsolidationPlan,
+  now: Date,
+  substrate: SomaMemoryConsolidateOptions["substrate"],
+): Promise<ConsolidationApplied> {
+  const somaHome = paths.root();
+
+  const archivedOmissions = await applyEpisodicArchive(paths, plan.episodic);
+  const { skipped: staleSkipped } = await applyStaleMarks(plan.staleMarks);
+  const stateGced = await applyStateGc(somaHome, plan.stateGc, now);
+
+  // A stale mark skipped by a TOCTOU swap was NOT applied — drop it so
+  // `markedStale` reflects what actually happened, and surface the swapped path.
+  const skippedSet = new Set(staleSkipped);
+  const markedStale = plan.staleMarks.map((s) => s.rel).filter((rel) => !skippedSet.has(rel)).sort();
+  const unreadable = Array.from(new Set([...plan.unreadable, ...archivedOmissions, ...staleSkipped])).sort();
   // Recompute `mutated` from what ACTUALLY happened (post-skip markedStale + actual
   // deletions), so a run whose planned mutations were all TOCTOU-skipped does NOT
   // rebuild the INDEX or append an event as if it changed something.
-  result.mutated = episodic.length > 0 || result.markedStale.length > 0 || result.stateGced.length > 0;
+  const mutated = plan.episodic.length > 0 || markedStale.length > 0 || stateGced.length > 0;
 
   // Only rebuild the INDEX when something actually changed — a no-op maintenance
   // run must not do corpus-scale work for an unchanged corpus.
-  if (result.mutated) await rebuildMemoryIndex({ somaHome, now });
+  if (mutated) await rebuildMemoryIndex({ somaHome, now });
 
   // Governed event: a post-hoc RECORD of the pass (only when it mutated something).
-  // NOT rollback-coupled — consolidation is idempotent and safe to repeat, so a
-  // failed append leaves the already-applied, re-runnable mutations rather than
-  // attempting a multi-file rollback (the guarantee is repeatability, not atomicity;
-  // see architecture.md). The M1 write|verify rollback is a different, single-note path.
-  if (result.mutated) {
+  if (mutated) {
     await appendSomaMemoryEvent(somaHome, {
       timestamp: now.toISOString(),
-      substrate: options.substrate ?? "custom",
+      substrate: substrate ?? "custom",
       kind: "memory.consolidate",
-      summary: `Consolidation: ${episodic.length} archived, ${result.markedStale.length} marked stale, ${result.stateGced.length} state GC'd.`,
-      artifactPaths: [result.indexPath],
+      summary: `Consolidation: ${plan.episodic.length} archived, ${markedStale.length} marked stale, ${stateGced.length} state GC'd.`,
+      artifactPaths: [plan.indexPath],
       metadata: {
-        archived: episodic.length,
-        markedStale: result.markedStale.length, // actual, after any TOCTOU skips
-        stateGced: result.stateGced.length, // actual deletions, not the plan
-        similarPairs: similarPairs.length,
-        unreadableCount: result.unreadable.length,
-        unreadablePaths: result.unreadable, // the actual files (incl. archived omissions), so the journal identifies them
+        archived: plan.episodic.length,
+        markedStale: markedStale.length, // actual, after any TOCTOU skips
+        stateGced: stateGced.length, // actual deletions, not the plan
+        similarPairs: plan.similarPairs.length,
+        unreadableCount: unreadable.length,
+        unreadablePaths: unreadable, // the actual files (incl. archived omissions), so the journal identifies them
       },
     });
   }
 
-  return result;
+  return { markedStale, stateGced, unreadable, mutated };
+}
+
+/** Combine a plan with its (optional) applied delta into the public result shape. */
+function planToResult(plan: ConsolidationPlan, dryRun: boolean, applied?: ConsolidationApplied): SomaMemoryConsolidateResult {
+  return {
+    somaHome: plan.somaHome,
+    dryRun,
+    archived: plan.episodic.map((e) => e.plan),
+    // Copy the plan-owned (frozen) arrays so the public result stays mutable —
+    // dry-run callers previously got fresh mutable arrays and some mutate them.
+    digestsWritten: [...plan.digestsWritten],
+    markedStale: applied ? applied.markedStale : plan.staleMarks.map((s) => s.rel).sort(),
+    stateGced: applied ? applied.stateGced : [...plan.stateGc],
+    similarPairs: [...plan.similarPairs],
+    unreadable: applied ? applied.unreadable : [...plan.unreadable],
+    mutated: applied ? applied.mutated : plan.mutated,
+    indexPath: plan.indexPath,
+  };
+}
+
+/**
+ * Run (or plan, under `dryRun`) the deterministic consolidation pass. See the
+ * module docstring for the ops and ordering, and `planConsolidation` /
+ * `applyConsolidationPlan` for the plan/apply split (mirrors `runMemoryBackfill`,
+ * M8 — a pure plan, and a separately-returned applied delta, never one mutable
+ * result patched across the dry-run boundary). Given the same tree + `now`, the
+ * plan is identical whether or not it is applied — so a dry-run's reported ops
+ * match the real run's.
+ */
+export async function consolidateMemory(options: SomaMemoryConsolidateOptions = {}): Promise<SomaMemoryConsolidateResult> {
+  const paths = createPaths(options);
+  const now = options.now ?? new Date();
+  const dryRun = options.dryRun === true;
+
+  const plan = await planConsolidation(paths, options, now);
+  if (dryRun) return planToResult(plan, true);
+
+  const applied = await applyConsolidationPlan(paths, plan, now, options.substrate);
+  return planToResult(plan, false, applied);
 }
