@@ -4,6 +4,10 @@ import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { consolidateMemory, parseMemoryNote, serializeMemoryNote, type SomaMemoryNote } from "../src/index";
 import { memoryIndexPath } from "../src/memory-index";
+import { createPaths } from "../src/paths";
+// Plan/apply internals are module-private (not public index API) — import direct,
+// for the #412 plan-immutability acceptance test.
+import { applyConsolidationPlan, planConsolidation } from "../src/memory-consolidate";
 
 const NOW = new Date("2026-07-04T10:00:00.000Z");
 
@@ -311,5 +315,56 @@ test("consolidation is idempotent — a second real run plans no file mutations"
     expect(second.archived).toEqual([]);
     expect(second.markedStale).toEqual([]);
     expect(second.stateGced).toEqual([]);
+  });
+});
+
+// --- #412: an immutable plan, an applied delta returned separately ----------
+
+test("planConsolidation's plan is frozen and untouched by applyConsolidationPlan (#412)", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeNote(
+      somaHome,
+      "memory/episodic/sessions/2026-03/20260301-old.md",
+      note({ id: "20260301-old", type: "episodic", trust: "assistant", created: "2026-03-01", body: "old session" }),
+    );
+    await writeNote(somaHome, "memory/semantic/old-fact.md", note({ id: "old-fact", type: "semantic", last_verified: "2026-01-01", body: "stale fact" }));
+
+    const paths = createPaths(somaHome);
+    const plan = await planConsolidation(paths, {}, NOW);
+
+    // Frozen top-level and every array field — an accidental future mutation
+    // throws (ES modules run in strict mode) rather than silently drifting from
+    // what a dry-run reported.
+    expect(Object.isFrozen(plan)).toBe(true);
+    expect(Object.isFrozen(plan.episodic)).toBe(true);
+    expect(Object.isFrozen(plan.digestsWritten)).toBe(true);
+    expect(Object.isFrozen(plan.staleMarks)).toBe(true);
+    expect(Object.isFrozen(plan.similarPairs)).toBe(true);
+    expect(Object.isFrozen(plan.stateGc)).toBe(true);
+    expect(Object.isFrozen(plan.unreadable)).toBe(true);
+    expect(() => plan.unreadable.push("x")).toThrow(TypeError);
+    expect(() => {
+      (plan as { mutated: boolean }).mutated = false;
+    }).toThrow(TypeError);
+
+    // Sanity: this plan actually has something to apply (episodic archive +
+    // stale mark), so the immutability proof below isn't vacuous.
+    expect(plan.episodic.length).toBe(1);
+    expect(plan.staleMarks.length).toBe(1);
+    expect(plan.mutated).toBe(true);
+
+    const planSnapshot = structuredClone({ ...plan });
+    const applied = await applyConsolidationPlan(paths, plan, NOW, undefined);
+
+    // The plan object itself is byte-identical to before the apply — the
+    // real-run mutations landed on disk (asserted below) and in the SEPARATELY
+    // returned `applied` delta, never patched back onto `plan`.
+    expect({ ...plan }).toEqual(planSnapshot);
+    expect(applied.mutated).toBe(true);
+    expect(applied.markedStale).toEqual(plan.staleMarks.map((s) => s.rel));
+
+    // The apply actually happened on disk.
+    expect(await exists(join(somaHome, "memory/archive/episodic/sessions/2026-03/20260301-old.md"))).toBe(true);
+    expect(parseMemoryNote(await readFile(join(somaHome, "memory/semantic/old-fact.md"), "utf8")).review).toBe("stale");
   });
 });

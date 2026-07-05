@@ -12,7 +12,15 @@ import {
   type SomaMemoryWriteOptions,
 } from "../src/index";
 // Path/dedup/governance helpers are module-private (not public index API) — import direct.
-import { MEMORY_DEDUP_JACCARD_THRESHOLD, collectDurableNotes, findDuplicateCandidates, memoryNotePath, resolveMutationGovernance } from "../src/memory-write";
+import {
+  MEMORY_DEDUP_JACCARD_THRESHOLD,
+  collectDurableNotes,
+  findDuplicateCandidates,
+  memoryNotePath,
+  resolveMutationGovernance,
+  writeNotesAtomically,
+  type AtomicNoteWrite,
+} from "../src/memory-write";
 import { parseMemoryArgs } from "../src/cli/memory";
 
 const NOW = new Date("2026-07-03T10:00:00.000Z");
@@ -623,5 +631,94 @@ test("supersede rolls back both sides when the event append fails", async () => 
     expect(old.valid_until).toBeNull();
     expect(old.links).not.toContain("new");
     await expect(readNote(memoryNotePath(somaHome, "semantic", "new"))).rejects.toThrow();
+  });
+});
+
+// --- #412: one atomicity contract, one error shape for staged note writes ---
+
+function rawNote(overrides: Partial<SomaMemoryNote> & { id: string; body: string }): SomaMemoryNote {
+  return {
+    type: "semantic",
+    created: "2026-07-03",
+    last_verified: "2026-07-03",
+    valid_until: null,
+    provenance: "conversation",
+    trust: "principal",
+    source_of_truth: null,
+    project: null,
+    links: [],
+    resurface_count: 0,
+    ...overrides,
+  };
+}
+
+test("writeNotesAtomically: a mid-write failure rolls back every staged write with the SAME error shape as an event-append failure (#412)", async () => {
+  await withTempSoma(async (somaHome) => {
+    await mkdir(join(somaHome, "memory/semantic"), { recursive: true });
+    // Mirrors supersedeNote's own write shape: a "wx" create followed by a "w"
+    // overwrite — the exact two-write staging supersede routes through this
+    // primitive for.
+    const firstPath = memoryNotePath(somaHome, "semantic", "atomic-first");
+    const secondPath = memoryNotePath(somaHome, "semantic", "atomic-second");
+    const priorRaw = "restored-content-from-rollback\n";
+    await writeFile(secondPath, "current-content-before-the-call\n", "utf8");
+
+    const writes: AtomicNoteWrite[] = [
+      { path: firstPath, flag: "wx", note: rawNote({ id: "atomic-first", body: "first note body alpha beta" }) },
+      {
+        path: secondPath,
+        flag: "w",
+        // An embedded newline in `hook` breaks the round-trip law (memory-note.ts's
+        // serializeMemoryNote re-parses and compares) — `writeNoteFile` throws
+        // BEFORE any byte of this write hits disk, forcing a mid-write failure
+        // deterministically and without needing root-unsafe permission tricks.
+        note: rawNote({ id: "atomic-second", body: "second note body gamma delta", hook: "line one\nline two" }),
+        priorRaw,
+      },
+    ];
+
+    let thrown: unknown;
+    try {
+      await writeNotesAtomically(somaHome, NOW, undefined, "test.atomic-write", writes, {
+        summary: "atomic write test",
+        artifactPaths: [firstPath, secondPath],
+        metadata: {},
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    const error = thrown as Error;
+    // Same shape as the append-failure rollback (`rolled back the file mutation`,
+    // a plain Error with `cause`) — NOT the AggregateError supersedeNote used to
+    // hand-roll for this exact failure window.
+    expect(error).not.toBeInstanceOf(AggregateError);
+    expect(error.message).toBe("Soma memory test.atomic-write write failed; rolled back the file mutation.");
+    expect(error.cause).toBeDefined();
+
+    // Every staged write was rolled back: the first write's file is gone...
+    await expect(readNote(firstPath)).rejects.toThrow();
+    // ...and the second write's target was restored to the caller-supplied prior
+    // bytes (proving the rollback actually ran, not merely that nothing changed).
+    expect(await readFile(secondPath, "utf8")).toBe(priorRaw);
+  });
+});
+
+test("writeNotesAtomically: a failure on the FIRST write has nothing staged, so it propagates un-rolled-back and un-wrapped", async () => {
+  await withTempSoma(async (somaHome) => {
+    await mkdir(join(somaHome, "memory/semantic"), { recursive: true });
+    const firstPath = memoryNotePath(somaHome, "semantic", "atomic-only");
+    const writes: AtomicNoteWrite[] = [
+      { path: firstPath, flag: "wx", note: rawNote({ id: "atomic-only", body: "body", hook: "line one\nline two" }) },
+    ];
+
+    await expect(
+      writeNotesAtomically(somaHome, NOW, undefined, "test.atomic-write", writes, {
+        summary: "atomic write test",
+        artifactPaths: [firstPath],
+        metadata: {},
+      }),
+    ).rejects.toThrow(/malformed frontmatter line/);
   });
 });

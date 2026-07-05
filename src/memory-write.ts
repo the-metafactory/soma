@@ -50,12 +50,16 @@ import type {
  * - **Invalidate, never delete** — `supersede` sets the old note's `valid_until`
  *   and cross-links; nothing is unlinked. `merge` delta-appends (ACE-style,
  *   never regenerates).
- * - One mutating call → one events journal line: if the event append fails, the
- *   file mutation is rolled back (created files unlinked, edited files restored
- *   to prior bytes), so an append failure never leaves a note without its event.
- *   This is NOT crash-atomic — a process kill in the window between the file
- *   write and the append can still orphan a file from its event (a documented
- *   gap reconciled by the M7 audit; soma has no WAL/2PC primitive).
+ * - One mutating call → one events journal line, through one shared primitive
+ *   (`writeNotesAtomically`): every staged file write (one for create/merge/
+ *   verify, two for supersede — mint the replacement, close the old note) and
+ *   the event append succeed together or are rolled back together (created
+ *   files unlinked, edited files restored to prior bytes), so a mid-write
+ *   failure and an append failure both surface the SAME error shape and never
+ *   leave a note without its event. This is NOT crash-atomic — a process kill
+ *   in the window between a file write and the append can still orphan a file
+ *   from its event (a documented gap reconciled by the M7 audit; soma has no
+ *   WAL/2PC primitive).
  *
  * Deterministic: dates come from an injected `now` (UTC), no LLM calls, writes
  * stay within the Soma memory tree under `memory/semantic/` + `memory/procedural/`.
@@ -111,52 +115,108 @@ function assertNoteId(id: string): void {
 }
 
 /**
- * Append the mutation's event; if the append fails, roll the file mutation back
- * so no file mutation is ever left without its event. `rollback` restores disk
- * to its pre-mutation state (unlink a created file, or rewrite an edited one's
- * prior bytes) and MUST throw if it cannot — a swallowed rollback failure would
- * report "rolled back" while leaving the note in a mutated state.
+ * Roll back a mutation whose write OR event-append just failed, and shape the
+ * resulting error IDENTICALLY either way — one atomicity contract, one error
+ * shape, for every mutation path (create/merge/supersede/verify), instead of a
+ * mid-write failure and a post-write event-append rejection each growing their
+ * own divergent undo + error shape. `rollback` restores disk to its
+ * pre-mutation state and MUST throw if it cannot — a swallowed rollback
+ * failure would report "rolled back" while leaving the note mutated.
  *
- * NOTE (honest limitation): this guards against an append *rejection*, not a
- * process crash/kill in the window between the file write and this append. A
- * hard crash there can still leave a file without an event; the journal is
- * best-effort append-only and that gap is reconciled by a later audit (M7), not
- * prevented here. Soma has no write-ahead-log / 2-phase-commit primitive.
+ * NOTE (honest limitation): this guards against a write/append *rejection*,
+ * not a process crash/kill mid-operation. A hard crash there can still leave a
+ * file without its event; the journal is best-effort append-only and that gap
+ * is reconciled by a later audit (M7), not prevented here. Soma has no
+ * write-ahead-log / 2-phase-commit primitive.
  */
+async function rollbackAndThrow(kind: string, operation: string, cause: unknown, rollback: () => Promise<void>): Promise<never> {
+  try {
+    await rollback();
+  } catch (rollbackError) {
+    throw new Error(
+      `Soma memory ${kind} ${operation} failed AND the rollback failed — memory may be inconsistent; reconcile manually.`,
+      { cause: rollbackError },
+    );
+  }
+  throw new Error(`Soma memory ${kind} ${operation} failed; rolled back the file mutation.`, { cause });
+}
+
+/** Append the mutation's event; on a rejection, roll the file mutation back via `rollbackAndThrow`. */
 async function appendMutationEvent(
   somaHome: string,
   input: Parameters<typeof appendSomaMemoryEvent>[1],
   rollback: () => Promise<void>,
 ): ReturnType<typeof appendSomaMemoryEvent> {
-  return appendSomaMemoryEvent(somaHome, input).catch(async (appendError: unknown) => {
-    try {
-      await rollback();
-    } catch (rollbackError) {
-      throw new Error(
-        `Soma memory ${input.kind} event append failed AND the rollback failed — ` +
-          `memory may be inconsistent; reconcile manually.`,
-        { cause: rollbackError },
-      );
-    }
-    throw new Error(`Soma memory ${input.kind} event append failed; rolled back the file mutation.`, { cause: appendError });
-  });
+  return appendSomaMemoryEvent(somaHome, input).catch((appendError: unknown) =>
+    rollbackAndThrow(input.kind, "event append", appendError, rollback),
+  );
 }
 
 /**
- * Fill the shared event envelope (timestamp + substrate) for a note mutation so
- * the four mutation paths can't drift on journal shape, then append-with-rollback.
+ * One staged file write for {@link writeNotesAtomically}: what to write, and
+ * how to undo it. `priorRaw` is required for an overwrite (`"w"`) — captured
+ * BEFORE the write runs, since undoing it means restoring exactly those bytes;
+ * a create (`"wx"`) needs no prior bytes, since undoing it is a plain unlink.
+ * Exported for the atomicity-shape acceptance test (a mid-write failure and a
+ * post-write event-append failure must produce the SAME error shape) — not
+ * public index API; create/merge/supersede/verify remain the only production
+ * callers.
  */
-async function appendNoteMutationEvent(
+export interface AtomicNoteWrite {
+  path: string;
+  flag: "wx" | "w";
+  note: SomaMemoryNote;
+  priorRaw?: string;
+}
+
+async function undoAtomicWrite(somaHome: string, write: AtomicNoteWrite): Promise<void> {
+  if (write.flag === "w") await restoreBytes(somaHome, write.path, write.priorRaw ?? "");
+  else await unlink(write.path);
+}
+
+/**
+ * Stage every file write in `writes`, then append the mutation's event, as ONE
+ * atomic unit — the single contract create/merge/supersede/verify all resolve
+ * through, so a mid-write failure and a post-write event-append rejection
+ * produce the IDENTICAL error shape (`rollbackAndThrow`) instead of each
+ * mutation path hand-rolling its own undo and its own error shape.
+ *
+ * Writes run in order. A failure on the FIRST write has nothing staged yet, so
+ * it propagates directly (nothing to roll back). A failure on a LATER write
+ * (index `i > 0`) rolls back every write up to and INCLUDING it, latest-first
+ * — `writes[i]`'s own undo runs too, because an overwrite (`"w"`) may have
+ * already truncated its target before failing, so restoring its prior bytes is
+ * still required even though that specific write "failed". (`supersedeNote`'s
+ * two writes — mint the replacement, then close the old note — roll back in
+ * exactly this order: restore the old note FIRST, the trusted state most
+ * worth restoring, then drop the new one SECOND.) If every write succeeds, the
+ * event is appended with a rollback that undoes every staged write,
+ * latest-first — the same primitive whether one write (create/merge/verify)
+ * or two (supersede) were staged.
+ */
+export async function writeNotesAtomically(
   somaHome: string,
   now: Date,
   substrate: SomaMemoryWriteOptions["substrate"],
-  fields: { kind: string; summary: string; artifactPaths: string[]; metadata: Record<string, unknown> },
-  rollback: () => Promise<void>,
+  kind: string,
+  writes: AtomicNoteWrite[],
+  fields: { summary: string; artifactPaths: string[]; metadata: Record<string, unknown> },
 ): ReturnType<typeof appendSomaMemoryEvent> {
+  const undoThrough = async (last: number): Promise<void> => {
+    for (let j = last; j >= 0; j -= 1) await undoAtomicWrite(somaHome, writes[j]);
+  };
+  for (let i = 0; i < writes.length; i += 1) {
+    try {
+      await writeNoteFile(somaHome, writes[i].path, writes[i].note, writes[i].flag);
+    } catch (writeError) {
+      if (i === 0) throw writeError; // nothing staged yet — nothing to roll back
+      return rollbackAndThrow(kind, "write", writeError, () => undoThrough(i));
+    }
+  }
   return appendMutationEvent(
     somaHome,
-    { timestamp: now.toISOString(), substrate: substrate ?? "custom", ...fields },
-    rollback,
+    { timestamp: now.toISOString(), substrate: substrate ?? "custom", kind, ...fields },
+    () => undoThrough(writes.length - 1),
   );
 }
 
@@ -721,29 +781,20 @@ async function createNote(somaHome: string, options: SomaMemoryWriteOptions, now
   }
 
   const path = memoryNotePath(somaHome, note.type as WritableType, note.id);
-  await writeNoteFile(somaHome, path, note, "wx");
-
-  const event = await appendNoteMutationEvent(
-    somaHome,
-    now,
-    options.substrate,
-    {
-      kind: "memory.write.create",
-      summary: `Created memory note ${note.id} (${note.type}, trust ${note.trust})`,
-      artifactPaths: [path],
-      metadata: {
-        id: note.id,
-        type: note.type,
-        trust: note.trust,
-        trigger: options.trigger,
-        ...governance.eventMeta, // audit the escalation when non-quarantined — from the SAME governance call that authorized the mint
-        // Record the dedup gate's blind spot so "dedup-gated" is never a silent
-        // overstatement when part of the corpus was unreadable.
-        ...(unreadable.length > 0 ? { dedupUnreadable: unreadable.length } : {}),
-      },
+  const event = await writeNotesAtomically(somaHome, now, options.substrate, "memory.write.create", [{ path, flag: "wx", note }], {
+    summary: `Created memory note ${note.id} (${note.type}, trust ${note.trust})`,
+    artifactPaths: [path],
+    metadata: {
+      id: note.id,
+      type: note.type,
+      trust: note.trust,
+      trigger: options.trigger,
+      ...governance.eventMeta, // audit the escalation when non-quarantined — from the SAME governance call that authorized the mint
+      // Record the dedup gate's blind spot so "dedup-gated" is never a silent
+      // overstatement when part of the corpus was unreadable.
+      ...(unreadable.length > 0 ? { dedupUnreadable: unreadable.length } : {}),
     },
-    () => unlink(path), // roll back: remove the freshly created file
-  );
+  });
 
   return { somaHome, mode: "create", path, note, event };
 }
@@ -770,22 +821,13 @@ async function mergeNote(somaHome: string, options: SomaMemoryWriteOptions, now:
     last_verified: today,
     body: `${note.body}\n\n**Update (${today}):** ${options.body.trim()}`,
   };
-  await writeNoteFile(somaHome, path, merged, "w");
-
-  const event = await appendNoteMutationEvent(
-    somaHome,
-    now,
-    options.substrate,
-    {
-      kind: "memory.write.merge",
-      summary: `Merged update into memory note ${merged.id} (${type})`,
-      artifactPaths: [path],
-      // Log the escalation so an audit can prove a principal-note mutation was authorized
-      // — from the SAME governance call that authorized the mutation.
-      metadata: { id: merged.id, type, trust: merged.trust, trigger: options.trigger, ...governance.eventMeta },
-    },
-    () => restoreBytes(somaHome, path, raw), // roll back: restore the pre-merge bytes
-  );
+  const event = await writeNotesAtomically(somaHome, now, options.substrate, "memory.write.merge", [{ path, flag: "w", note: merged, priorRaw: raw }], {
+    summary: `Merged update into memory note ${merged.id} (${type})`,
+    artifactPaths: [path],
+    // Log the escalation so an audit can prove a principal-note mutation was authorized
+    // — from the SAME governance call that authorized the mutation.
+    metadata: { id: merged.id, type, trust: merged.trust, trigger: options.trigger, ...governance.eventMeta },
+  });
 
   return { somaHome, mode: "merge", path, note: merged, event };
 }
@@ -822,36 +864,22 @@ async function supersedeNote(somaHome: string, options: SomaMemoryWriteOptions, 
   };
 
   const newPath = memoryNotePath(somaHome, newNote.type as WritableType, newNote.id);
-  await writeNoteFile(somaHome, newPath, newNote, "wx");
-  try {
-    await writeNoteFile(somaHome, old.path, closed, "w");
-  } catch (closeError) {
-    // Closing the old note failed (possibly after truncating it) and no event
-    // exists yet — fully undo: restore the old note's bytes AND drop the new one.
-    // Do NOT swallow the undo's own failures; surface them as an inconsistency.
-    try {
-      await restoreBytes(somaHome, old.path, old.raw);
-      await unlink(newPath);
-    } catch (undoError) {
-      // Carry BOTH failures — `cause` is the undo error (the one just caught),
-      // the errors array holds the original close failure; both are needed to
-      // debug the inconsistent state.
-      throw new AggregateError(
-        [closeError],
-        `Soma memory supersede failed to close ${old.note.id} AND the undo failed — ` +
-          `memory may be inconsistent; reconcile manually.`,
-        { cause: undoError },
-      );
-    }
-    throw closeError;
-  }
-
-  const event = await appendNoteMutationEvent(
+  // Two staged writes — mint the replacement, then close the old note — resolved
+  // through the SAME atomicity primitive as the single-write paths above. A
+  // failure closing the old note (index 1) rolls back BOTH: `writeNotesAtomically`
+  // undoes latest-first (restore the old note's bytes first — the trusted state
+  // most worth restoring — then drop the new one), sharing one error shape with
+  // every other mutation path instead of a bespoke two-file undo here.
+  const event = await writeNotesAtomically(
     somaHome,
     now,
     options.substrate,
+    "memory.write.supersede",
+    [
+      { path: newPath, flag: "wx", note: newNote },
+      { path: old.path, flag: "w", note: closed, priorRaw: old.raw },
+    ],
     {
-      kind: "memory.write.supersede",
       summary: `Note ${newNote.id} supersedes ${closed.id} (closed ${closed.valid_until})`,
       artifactPaths: [newPath, old.path],
       // Supersede validates TWO authorities — minting the new note (its tier) and
@@ -866,13 +894,6 @@ async function supersedeNote(somaHome: string, options: SomaMemoryWriteOptions, 
         ...mintGovernance.eventMeta,
         ...closeGovernance.eventMeta,
       },
-    },
-    // roll back BOTH sides — reopen the closed note FIRST (the trusted state we
-    // most need to restore), then drop the new one. Failures are NOT swallowed:
-    // appendMutationEvent surfaces them as an inconsistency error.
-    async () => {
-      await restoreBytes(somaHome, old.path, old.raw);
-      await unlink(newPath);
     },
   );
 
@@ -925,20 +946,11 @@ export async function verifyMemoryNote(options: SomaMemoryVerifyOptions): Promis
     last_verified: isoDate(now),
     resurface_count: note.resurface_count + 1,
   };
-  await writeNoteFile(somaHome, path, verified, "w");
-
-  const event = await appendNoteMutationEvent(
-    somaHome,
-    now,
-    options.substrate,
-    {
-      kind: "memory.verify",
-      summary: `Verified memory note ${verified.id} (${type}); resurface_count ${verified.resurface_count}`,
-      artifactPaths: [path],
-      metadata: { id: verified.id, type, resurfaceCount: verified.resurface_count, ...governance.eventMeta },
-    },
-    () => restoreBytes(somaHome, path, raw), // roll back: restore the pre-verify bytes
-  );
+  const event = await writeNotesAtomically(somaHome, now, options.substrate, "memory.verify", [{ path, flag: "w", note: verified, priorRaw: raw }], {
+    summary: `Verified memory note ${verified.id} (${type}); resurface_count ${verified.resurface_count}`,
+    artifactPaths: [path],
+    metadata: { id: verified.id, type, resurfaceCount: verified.resurface_count, ...governance.eventMeta },
+  });
 
   return { somaHome, path, note: verified, event };
 }
