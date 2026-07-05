@@ -142,7 +142,11 @@ export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAct
       "Usage: soma memory recall <query> [--query <text>] [--limit <n>] [--home-dir <dir>] [--soma-home <dir>]. " +
       "Note-aware retrieval over durable notes: term-scored whole-file matches (limit 3) + 1-hop links, " +
       "superseded notes excluded, each result carrying a verification banner. Read-only.",
-    promote: "Usage: soma memory promote --from-run <run-id> --store <learning|knowledge|relationship|work> --title <text> [--lesson <text>] [--applies-when <text>]",
+    promote:
+      "Usage: soma memory promote --from-run <run-id> --store <learning|knowledge|relationship|work> --title <text> " +
+      "--principal-authority [--lesson <text>] [--applies-when <text>] [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]. " +
+      "--principal-authority is required: promotion mints a principal-trust durable note, a deliberate, logged escalation " +
+      "(same surface as `soma memory write --principal-authority`); omitting it refuses the promotion (fail-closed).",
     write:
       "Usage: soma memory write --trigger <principal-correction|import> --body <text> " +
       "(create: --id <slug> --type <semantic|procedural> [--force]) " +
@@ -551,6 +555,9 @@ function parseMemoryPromoteArgs(args: string[]): SomaMemoryPromotionOptions {
       case "--applies-when":
         options.appliesWhen = readOption(args, index, arg);
         index += 1;
+        break;
+      case "--principal-authority":
+        options.principalAuthority = true;
         break;
       default:
         throw new Error(`Unknown option: ${arg}`);
@@ -1032,6 +1039,8 @@ function formatMemoryPromotionResult(result: SomaMemoryPromotionResult): string 
     "Soma memory promotion created",
     `store: ${result.store}`,
     `path: ${result.path}`,
+    `noteId: ${result.noteId}`,
+    `notePath: ${result.notePath}`,
     `sourceRunPath: ${result.sourceRunPath}`,
     `event: ${result.event.id}`,
   ].join("\n");

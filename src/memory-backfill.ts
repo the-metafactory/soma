@@ -37,13 +37,13 @@
 import { createHash } from "node:crypto";
 import { constants as FS } from "node:fs";
 import { lstat, mkdir, open, readFile, writeFile } from "node:fs/promises";
-import { basename, dirname, relative, resolve, sep } from "node:path";
+import { basename, dirname, posix, relative, resolve, sep } from "node:path";
 import { listMemoryNotes } from "./memory-fs";
 import { rebuildMemoryIndex } from "./memory-index";
 import { MemoryNoteError, toNoteIdSlug, NOTE_ID_MAX_LEN } from "./memory-note";
 import { memoryNotePath, writeMemoryNote } from "./memory-write";
 import { createPaths } from "./paths";
-import { SOMA_MEMORY_BACKFILL_TYPE_MAP } from "./types";
+import { SOMA_MEMORY_BACKFILL_TYPE_MAP, SOMA_MEMORY_PROMOTION_STORE_DIRS } from "./types";
 import type {
   SomaMemoryBackfillEntry,
   SomaMemoryBackfillManifest,
@@ -75,6 +75,26 @@ const RESERVED_CATEGORIES = new Set([
   "archive",
   "imports",
 ]);
+
+// The promotion store dir NAMES ("LEARNING", "KNOWLEDGE", …) whose PROMOTED/
+// subtree the promote path (memory-promotion.ts) owns exclusively — derived
+// from the canonical store→dir map (types.ts, the same map `paths.promoted()`
+// keys off) rather than re-listing the literals, so the two modules can never
+// drift.
+const PROMOTION_STORE_DIR_NAMES = new Set<string>(Object.values(SOMA_MEMORY_PROMOTION_STORE_DIRS));
+
+/**
+ * True iff `path` (the `include` hook's POSIX-relative path, see memory-fs.ts)
+ * names a `PROMOTED` dir directly under a promotion store dir — e.g.
+ * `"LEARNING/PROMOTED"`, not a `PROMOTED` dir nested any deeper, and not one
+ * under a non-promotion-store top-level category. Uses `posix.dirname` (the
+ * `path` field is always "/"-joined by construction, regardless of host
+ * platform) rather than splitting the string by index, so this stays correct
+ * even if a future caller passes a deeper path.
+ */
+function isPromotionOwnedPromotedSubtree(name: string, depth: number, path: string): boolean {
+  return name === "PROMOTED" && depth === 1 && PROMOTION_STORE_DIR_NAMES.has(posix.dirname(path));
+}
 
 function sha256Hex(content: Buffer | string): string {
   return createHash("sha256").update(content).digest("hex");
@@ -185,7 +205,8 @@ const MARKDOWN_EXT = /\.(?:md|markdown)$/i;
 
 /**
  * Recursively collect eligible source files under `root`. Imports only markdown
- * files; skips reserved categories, root-level files (READMEs/INDEX territory),
+ * files; skips reserved categories, promotion-owned `PROMOTED/` subtrees (see
+ * `isPromotionOwnedPromotedSubtree`), root-level files (READMEs/INDEX territory),
  * any README.md, and non-markdown files; refuses symlinks loudly (matching the
  * migrators' stance). Returns entries sorted by relative path for deterministic
  * ordering.
@@ -229,11 +250,21 @@ async function collectSources(root: string, skipRootFiles: boolean): Promise<Sou
     onSymlink: "throw",
     extensions: [], // markdown matching (case-insensitive, .md/.markdown) is done in `include` below
     sort: false, // backfill re-sorts its SourceFiles by POSIX relativePath below — skip the seam's redundant abspath sort
-    include: ({ name, depth, isDirectory }) => {
+    include: ({ name, depth, isDirectory, path }) => {
       if (isDirectory) {
         // Reserved top-level names (the note stores + STATE/archive/imports)
         // are never descended into — they are subsystem territory, not sources.
-        return !(depth === 0 && RESERVED_CATEGORIES.has(name));
+        if (depth === 0 && RESERVED_CATEGORIES.has(name)) return false;
+        // The promote path (promoteAlgorithmRunMemory) owns promotion notes:
+        // it writes a principal-trust note whose source_of_truth points back
+        // at the <STORE>/PROMOTED/ file. Importing that same file here would
+        // create a quarantined clone that shadows the principal note in recall
+        // and never earns an INDEX line. Skip ONLY the promotion-store-owned
+        // PROMOTED subtrees, not any folder coincidentally named PROMOTED
+        // elsewhere, so a principal-created PROMOTED/ outside the promotion
+        // stores still backfills normally.
+        if (isPromotionOwnedPromotedSubtree(name, depth, path)) return false;
+        return true;
       }
       // A file directly under the root is README/INDEX territory ONLY for the
       // default memory root; a custom `--from <dir>` may legitimately hold its

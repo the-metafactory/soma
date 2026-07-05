@@ -467,6 +467,7 @@ test("promote-on-complete records learning and promotes when all criteria pass",
       substrate: "claude-code",
       somaHome,
       promoteOnComplete: true,
+      principalAuthority: true,
     });
 
     expect(result.phase).toBe("learn");
@@ -478,6 +479,25 @@ test("promote-on-complete records learning and promotes when all criteria pass",
 
     const promoted = await readFile(result.promotionPath!, "utf8");
     expect(promoted).toContain("Promote goal");
+  });
+});
+
+test("sync promote-on-complete refuses without --principal-authority instead of swallowing it", async () => {
+  await withSomaHome(async (somaHome, dir) => {
+    const vsaPath = await writeVsaFile(
+      dir,
+      "noauth",
+      vsaMarkdown({
+        slug: "noauth",
+        phase: "learn",
+        goal: "Promote goal",
+        criteria: [{ id: "ISC-1", text: "only", done: true }],
+        decisions: ["2026-05-29 key insight worth keeping"],
+      }),
+    );
+    await expect(
+      syncAlgorithmRunFromVsa({ vsaPath, substrate: "claude-code", somaHome, promoteOnComplete: true }),
+    ).rejects.toThrow("requires --principal-authority");
   });
 });
 

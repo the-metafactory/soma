@@ -97,7 +97,8 @@ export const ALGORITHM_COMMAND_HELP: { usage: string; subcommands: Record<Algori
     advance: "Usage: soma algorithm advance --id <run-id> [--substrate <id>] [--home-dir <dir>] [--soma-home <dir>]",
     resume: "Usage: soma algorithm resume --id <run-id> --until-phase <phase> [--substrate <id>] [--home-dir <dir>] [--soma-home <dir>]",
     "sync-from-isa":
-      "Usage: soma algorithm sync-from-isa --isa <path> --substrate <id> [--soma-home <dir>] [--home-dir <dir>] [--promote-on-complete]",
+      "Usage: soma algorithm sync-from-isa --isa <path> --substrate <id> [--soma-home <dir>] [--home-dir <dir>] [--promote-on-complete] [--principal-authority]. " +
+      "--promote-on-complete requires --principal-authority (a deliberate, logged escalation) to mint the promotion's principal-trust durable note — omitting it refuses (fail-closed).",
   },
 };
 
@@ -131,6 +132,7 @@ interface AlgorithmCliOptions {
   json?: boolean;
   vsaPath?: string;
   promoteOnComplete?: boolean;
+  principalAuthority?: boolean;
   missedEarlyStep?: string;
   missedVerifyOrParallel?: string;
   highestValueMove?: string;
@@ -502,6 +504,9 @@ export function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
         break;
       case "--promote-on-complete":
         options.promoteOnComplete = true;
+        break;
+      case "--principal-authority":
+        options.principalAuthority = true;
         break;
       case "--missed-early-step":
         options.missedEarlyStep = readOption(rest, index, arg);
@@ -903,6 +908,7 @@ export async function runAlgorithmCli(parsed: ParsedAlgorithmArgs): Promise<stri
       homeDir: options.homeDir,
       somaHome: options.somaHome,
       promoteOnComplete: options.promoteOnComplete === true,
+      principalAuthority: options.principalAuthority === true,
     });
     return formatSyncResult(result);
   }
