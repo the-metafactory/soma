@@ -1955,6 +1955,15 @@ export interface SomaMemoryPromotionOptions {
   lesson?: string;
   appliesWhen?: string;
   timestamp?: string;
+  /**
+   * The deliberate-escalation gate for the principal-trust durable note that
+   * promotion mints (see docs/architecture.md Memory section). Mirrors
+   * `principalAuthority` on {@link SomaMemoryWriteOptions}: a sudo-style
+   * explicit, logged opt-in, NOT cryptographic principal authentication (soma
+   * has no such primitive). REQUIRED — omitting it is a compile-time nudge for
+   * honest callers; at runtime, promotion fails closed when it is not `true`.
+   */
+  principalAuthority: boolean;
 }
 
 export interface SomaMemoryPromotionResult {
@@ -1963,6 +1972,10 @@ export interface SomaMemoryPromotionResult {
   path: string;
   sourceRunPath: string;
   event: SomaMemoryEvent;
+  /** Path of the principal-trust durable note minted alongside the PROMOTED file. */
+  notePath: string;
+  /** Id of the principal-trust durable note (see {@link notePath}). */
+  noteId: string;
 }
 
 export type SomaFeedbackKind = "correction" | "missed-surface" | "preference" | "relationship-note" | "task-learning" | "none";

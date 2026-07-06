@@ -56,6 +56,15 @@ export interface ListMemoryNotesEntry {
   /** 0 for a direct child of the walked `dir`; N for an entry N levels deeper. */
   depth: number;
   isDirectory: boolean;
+  /**
+   * This entry's path relative to the walked `dir`, always "/"-joined
+   * regardless of host platform (e.g. `"LEARNING/PROMOTED"` for a depth-1
+   * `PROMOTED` entry under `LEARNING`). Lets an `include` hook make an
+   * ancestry-aware decision (e.g. "is this nested under a specific top-level
+   * category") without re-deriving it via a second walk or relying on
+   * call-order side effects across the walk's concurrent subtree fan-out.
+   */
+  path: string;
 }
 
 export interface ListMemoryNotesOptions {
@@ -119,7 +128,7 @@ export async function listMemoryNotes(dir: string, options: ListMemoryNotesOptio
   const sort = options.sort ?? true;
   const include = options.include;
 
-  async function walk(current: string, depth: number): Promise<string[]> {
+  async function walk(current: string, depth: number, relPrefix: string): Promise<string[]> {
     // lstat: does NOT follow a symlink. A missing/symlinked/non-directory
     // `current` is treated as genuinely empty — abnormal-ROOT refusal (if a
     // caller wants one) is the caller's own precondition, not this walk's.
@@ -150,9 +159,12 @@ export async function listMemoryNotes(dir: string, options: ListMemoryNotesOptio
     }
 
     const fileCandidates: string[] = [];
-    const subdirs: string[] = [];
+    const subdirs: { full: string; path: string }[] = [];
     for (const entry of entries) {
       const full = join(current, entry.name);
+      // Always "/"-joined (never the platform `sep`) so `include` hooks get a
+      // stable, portable path regardless of host OS.
+      const entryPath = relPrefix === "" ? entry.name : `${relPrefix}/${entry.name}`;
       if (entry.isSymbolicLink()) {
         if (onSymlink === "throw") {
           throw new MemoryTraversalError(`refused symlink in the memory tree: ${full}`);
@@ -160,12 +172,12 @@ export async function listMemoryNotes(dir: string, options: ListMemoryNotesOptio
         continue; // skip — never follow a symlink out of the memory root
       }
       if (entry.isDirectory()) {
-        if (include && !include({ name: entry.name, depth, isDirectory: true })) continue;
-        if (recursive) subdirs.push(full);
+        if (include && !include({ name: entry.name, depth, isDirectory: true, path: entryPath })) continue;
+        if (recursive) subdirs.push({ full, path: entryPath });
         continue;
       }
       if (entry.isFile()) {
-        if (include && !include({ name: entry.name, depth, isDirectory: false })) continue;
+        if (include && !include({ name: entry.name, depth, isDirectory: false, path: entryPath })) continue;
         if (extensions.length === 0 || extensions.some((ext) => entry.name.endsWith(ext))) fileCandidates.push(full);
       }
       // Neither file, directory, nor symlink (a FIFO/socket/device): silently
@@ -198,10 +210,10 @@ export async function listMemoryNotes(dir: string, options: ListMemoryNotesOptio
     const files = verified.filter((f): f is string => f !== undefined);
 
     if (subdirs.length === 0) return files;
-    const nested = await runBoundedConcurrent(subdirs, (d) => walk(d, depth + 1), concurrency);
+    const nested = await runBoundedConcurrent(subdirs, (d) => walk(d.full, depth + 1, d.path), concurrency);
     return [...files, ...nested.flat()];
   }
 
-  const result = await walk(dir, 0);
+  const result = await walk(dir, 0, "");
   return sort ? result.sort() : result;
 }

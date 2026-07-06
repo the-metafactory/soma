@@ -164,7 +164,40 @@ part-way, OR the event append itself fails, mutations may already be applied WIT
 the event — so an absent event does NOT prove no mutation happened. A re-run
 reconciles the STATE (it re-does nothing already done — idempotent), but it does NOT
 back-fill the missing journal record: a subsequent no-op run writes no event, so the
-gap persists. `soma memory audit` (M7) — a deterministic, read-only health check
+gap persists. A third governed path — and the second that MINTS trust — is
+`soma memory promote`: it takes a verified Algorithm run and writes a
+`principal`-trust durable note (the `PROMOTED/` verbatim record plus a
+`principal-correction`-trigger note pointing back at it as its `source_of_truth`).
+Promotion is the deliberate-escalation surface for durable memory, NOT a path that
+proves the principal initiated it: soma has no cryptographic principal
+authentication (the same recorded limitation the `principalAuthority` JSDoc calls
+out for `soma memory write --principal-authority`). `hasPromotionVerification`
+(≥1 verification entry or a passed criterion) is a PRECONDITION that refuses to
+promote unverified work — it is NOT the source of principal authority; the
+authority is the deliberate `principalAuthority: true` opt-in the caller passes at
+every in-repo surface (CLI `--principal-authority`, the SDK option, and algorithm
+`sync-from-isa --principal-authority`, forwarded to promote-on-complete). What IS
+fail-closed is the promote-API layer itself: an omitted `--principal-authority`
+refuses the promotion outright — never a silent downgrade to a lower-trust write.
+The `syncAlgorithmRunFromVsa` promote-on-complete hook is a narrower, best-effort
+CALLER of that API, not an equally fail-closed surface: a `--promote-on-complete`
+without `--principal-authority` is refused up front (a caller-configuration
+error), but once past that gate the hook wraps promotion in failure isolation so a
+bad VSA never breaks it — and that isolation SWALLOWS any PRE-durable promotion
+error (unverified run, EEXIST, run-not-found) as a no-op. Only a POST-durable
+failure — the PROMOTED file and note already landed, but a later bookkeeping step
+(the `memory.promotion` event append or the run-provenance write) then threw — is
+re-thrown, because by then the caller must know the promotion is durable but
+unrecorded. So the fail-closed refusal itself is guaranteed by the promote API and
+the CLI; the sync hook's own contract stays narrower and deliberately best-effort
+for everything short of that authority precondition. `soma memory backfill`'s
+source walk skips `PROMOTED/` subtrees owned by a promotion store dir (its
+`include` hook, `isPromotionOwnedPromotedSubtree`), so backfill's forward source
+walk no longer creates a `quarantined` clone that would shadow the lesson's own
+principal-trust note in recall. This closes the forward import path only — it does
+not detect or remove a clone already imported (e.g. before promotion, or by an
+earlier backfill); surfacing such a pre-existing shadow is `soma memory audit`'s job,
+not backfill's. `soma memory audit` (M7) — a deterministic, read-only health check
 that reads the FILES directly, not the event stream — is the ground-truth check:
 it has three health-gating probes — root-integrity (every note root is a real
 directory), schema validity, and INDEX freshness — plus three informational drift

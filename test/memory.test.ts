@@ -11,13 +11,16 @@ import {
   createAlgorithmRun,
   promoteAlgorithmRunMemory,
   readAlgorithmRunById,
+  rebuildMemoryIndex,
   searchSomaMemory,
   searchSomaResults,
   somaMemoryEventsPath,
   SOMA_RESULT_EVENT_KINDS,
   writeAlgorithmRun,
   type SomaMemoryEvent,
+  type SomaMemoryPromotionOptions,
 } from "../src/index";
+import { _promoteAlgorithmRunMemoryWithCallback, promotionNoteId } from "../src/memory-promotion";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-memory-"));
@@ -35,6 +38,47 @@ function parseEvents(content: string): SomaMemoryEvent[] {
     .split("\n")
     .filter(Boolean)
     .map((line) => JSON.parse(line) as SomaMemoryEvent);
+}
+
+// Shared verified-run fixture for promotion tests: a complete run with one
+// passed criterion, satisfying `hasPromotionVerification` via the checked VSA
+// criterion (no explicit `verification` entry needed). Override fields via
+// `overrides`.
+async function writeVerifiedRun(
+  homeDir: string,
+  id: string,
+  overrides: { goal?: string; intent?: string; criterionText?: string } = {},
+): Promise<void> {
+  await writeAlgorithmRun(
+    {
+      ...createAlgorithmRun({
+        id,
+        prompt: "Promote this lesson",
+        intent: overrides.intent ?? "Make a reusable memory note.",
+        currentState: "Lesson is only in work state.",
+        goal: overrides.goal ?? "Lesson is promoted into memory.",
+        criteria: [{ id: "C1", text: overrides.criterionText ?? "Promotion file exists." }],
+      }),
+      vsa: {
+        slug: id,
+        frontmatter: {
+          task: overrides.goal ?? "Promotion",
+          effort: "E1",
+          mode: "algorithm",
+          phase: "complete",
+          progress: "1/1",
+          verified: true,
+          updated: "2026-05-14T12:05:00.000Z",
+        },
+        sections: [
+          { name: "Goal", content: overrides.goal ?? "Lesson is promoted into memory." },
+          { name: "Criteria", content: `- [x] C1: ${overrides.criterionText ?? "Promotion file exists."} Evidence: present.` },
+        ],
+      },
+      verification: [{ timestamp: "2026-05-14T12:05:00.000Z", phase: "verify", text: "present" }],
+    },
+    { homeDir },
+  );
 }
 
 test("appends a substrate memory event to soma state JSONL", async () => {
@@ -534,15 +578,19 @@ test("promotes an Algorithm run into durable Soma memory", async () => {
       title: "Consulting autonomy metric",
       appliesWhen: "Recall when designing AI consulting offers.",
       timestamp: "2026-05-14T12:30:00.000Z",
+      principalAuthority: true,
     });
     const content = await readFile(result.path, "utf8");
     const events = parseEvents(await readFile(somaMemoryEventsPath(somaHome), "utf8"));
     const { run } = await readAlgorithmRunById("consulting-lesson", { homeDir });
 
-    expect(result.path).toEndWith("memory/KNOWLEDGE/PROMOTED/consulting-autonomy-metric-consulting-lesson.md");
+    expect(result.path).toMatch(/memory\/KNOWLEDGE\/PROMOTED\/consulting-autonomy-metric-consulting-less[a-z-]*-[0-9a-f]{8}\.md$/);
     expect(content).toContain("Measure autonomy transfer, not dependency.");
     expect(content).toContain("Recall when designing AI consulting offers.");
-    expect(events[0]).toMatchObject({
+    // The durable-note write (memory.write.create) now lands BEFORE the
+    // memory.promotion event, so find the promotion event by kind, not index.
+    const promotionEvent = events.find((e) => e.kind === "memory.promotion");
+    expect(promotionEvent).toMatchObject({
       substrate: "codex",
       kind: "memory.promotion",
       summary: "Promoted Algorithm run consulting-lesson to knowledge: Consulting autonomy metric",
@@ -553,6 +601,20 @@ test("promotes an Algorithm run into durable Soma memory", async () => {
       substrate: "codex",
       detail: "knowledge",
     });
+
+    // Promotion mints a principal-trust durable note that earns an INDEX line
+    // immediately (closing the quarantined-promotion gap). The note points back
+    // at the PROMOTED/ file as its source of truth.
+    expect(result.noteId).toMatch(/^knowledge-consulting-autonomy-metric-consulting-less[a-z-]*-[0-9a-f]{8}$/);
+    expect(result.notePath).toMatch(/memory\/semantic\/knowledge-consulting-autonomy-metric-consulting-less[a-z-]*-[0-9a-f]{8}\.md$/);
+    const note = await readFile(result.notePath, "utf8");
+    expect(note).toContain("trust: principal");
+    expect(note).toContain("provenance: conversation");
+    expect(note).toContain(`source_of_truth: ${result.path}`);
+    const index = await rebuildMemoryIndex({ homeDir });
+    expect(index.rendered).toBe(1);
+    expect(index.admitted).toBe(1);
+    expect(index.excluded).toBe(0);
   });
 });
 
@@ -577,7 +639,7 @@ test("refuses to promote unverified Algorithm runs", async () => {
         fromRun: "unverified-run",
         store: "learning",
         title: "Draft lesson",
-      }),
+      } as SomaMemoryPromotionOptions),
     ).rejects.toThrow("has no verification evidence or passed criteria");
   });
 });
@@ -620,8 +682,102 @@ test("sanitizes Algorithm run ids in promotion filenames", async () => {
       fromRun: "nested/run:id",
       store: "learning",
       title: "Nested ID lesson",
+      principalAuthority: true,
     });
 
-    expect(result.path).toEndWith("memory/LEARNING/PROMOTED/nested-id-lesson-nested-run-id.md");
+    expect(result.path).toMatch(/memory\/LEARNING\/PROMOTED\/nested-id-lesson-nested-run-id-[0-9a-f]{8}\.md$/);
+  });
+});
+
+test("refuses to promote without --principal-authority even when verified", async () => {
+  await withTempHome(async (homeDir) => {
+    await bootstrapSomaHome({ homeDir });
+    await writeVerifiedRun(homeDir, "verified-no-auth", {
+      goal: "Promotion refuses without --principal-authority.",
+      intent: "Authority gate fails closed.",
+      criterionText: "Authority required.",
+    });
+
+    // Verified run, but no principalAuthority — must refuse (fail closed), not
+    // silently downgrade. This makes the "deliberate escalation" claim honest
+    // at the SDK surface, mirroring --principal-authority on `soma memory write`.
+    // The cast is deliberate: the type now requires the field so omission is a
+    // compile error for honest callers; this negative test deliberately passes
+    // a malformed object to exercise the runtime refusal.
+    await expect(
+      promoteAlgorithmRunMemory({
+        homeDir,
+        fromRun: "verified-no-auth",
+        store: "knowledge",
+        title: "Should refuse",
+      } as SomaMemoryPromotionOptions),
+    ).rejects.toThrow("requires --principal-authority");
+  });
+});
+
+test("promotion note id preserves the run id when the title is long", async () => {
+  // Direct unit test of the id builder: two same-store promotions sharing a
+  // long title must NOT collide — the run id must survive the 64-char cap.
+  // (The full promote path is gated by the recall-first dedup check, which
+  // would refuse two near-identical bodies; that is a separate feature, so
+  // test the id logic directly rather than via two real promotions.)
+  const longTitle =
+    "Consulting lesson with a very long descriptive title that exceeds the sixty-four character id cap and would historically truncate the run id suffix away entirely";
+  const a = promotionNoteId("knowledge", longTitle, "alpha-run");
+  const b = promotionNoteId("knowledge", longTitle, "beta-run");
+  expect(a).not.toBe(b);
+  expect(a).toContain("alpha");
+  expect(b).toContain("beta");
+  expect(a.length).toBeLessThanOrEqual(64);
+  expect(b.length).toBeLessThanOrEqual(64);
+  // Two run ids that share a long leading prefix but differ late must still
+  // disambiguate (a short sha256 prefix of the full run id is appended when
+  // the slug exceeds the run budget — collision-resistant at personal-
+  // assistant scale, not a cryptographic guarantee).
+  const longA = promotionNoteId("knowledge", "Same title", "very-long-run-id-with-a-shared-prefix-AAAA");
+  const longB = promotionNoteId("knowledge", "Same title", "very-long-run-id-with-a-shared-prefix-BBBB");
+  expect(longA).not.toBe(longB);
+  expect(longA.length).toBeLessThanOrEqual(64);
+  expect(longB.length).toBeLessThanOrEqual(64);
+  // A short title still keeps the run id and stays within cap.
+  const short = promotionNoteId("learning", "Short lesson", "run-42");
+  expect(short).toMatch(/^learning-short-lesson-run-42-[0-9a-f]{8}$/);
+  // A run id that slugifies away entirely (e.g. "///") must still produce a
+  // unique run component (a hash of the full run id), so two such ids do not
+  // collide on a title-only id.
+  const empty1 = promotionNoteId("knowledge", "Same title", "///");
+  const empty2 = promotionNoteId("knowledge", "Same title", "!!!");
+  expect(empty1).not.toBe(empty2);
+  expect(empty1).toContain("run-");
+});
+
+test("promotion fires onDurable after the durable artifacts land, before bookkeeping", async () => {
+  await withTempHome(async (homeDir) => {
+    await bootstrapSomaHome({ homeDir });
+    await writeVerifiedRun(homeDir, "durable-cb-run", {
+      goal: "onDurable fires after note write, before event append.",
+      intent: "Verify the durability callback fires.",
+      criterionText: "Callback fired.",
+    });
+
+    let fired = false;
+    const result = await _promoteAlgorithmRunMemoryWithCallback(
+      {
+        homeDir,
+        fromRun: "durable-cb-run",
+        store: "knowledge",
+        title: "Durable callback",
+        principalAuthority: true,
+      },
+      () => {
+        fired = true;
+      },
+    );
+    expect(fired).toBe(true);
+    // The durable artifacts exist.
+    const note = await readFile(result.notePath, "utf8");
+    expect(note).toContain("trust: principal");
+    const promoted = await readFile(result.path, "utf8");
+    expect(promoted).toContain("Durable callback");
   });
 });

@@ -1715,13 +1715,19 @@ test("cli promotes Algorithm run memory", async () => {
       "Promoted memories should be concise and searchable.",
       "--applies-when",
       "Recall when closing Algorithm runs.",
+      "--principal-authority",
     ]);
 
     expect(output).toContain("Soma memory promotion created");
-    expect(output).toContain("memory/LEARNING/PROMOTED/promotion-cli-lesson-promote-run.md");
-    await expect(readFile(join(homeDir, ".soma/memory/LEARNING/PROMOTED/promotion-cli-lesson-promote-run.md"), "utf8")).resolves.toContain(
+    expect(output).toMatch(/memory\/LEARNING\/PROMOTED\/promotion-cli-lesson-promote-run-[0-9a-f]{8}\.md/);
+    const promotedFiles = await readdir(join(homeDir, ".soma/memory/LEARNING/PROMOTED"));
+    const promotedFile = promotedFiles.find((f) => /^promotion-cli-lesson-promote-run-[0-9a-f]{8}\.md$/.test(f));
+    expect(promotedFile).toBeDefined();
+    await expect(readFile(join(homeDir, ".soma/memory/LEARNING/PROMOTED", promotedFile!), "utf8")).resolves.toContain(
       "Promoted memories should be concise and searchable.",
     );
+    expect(output).toContain("noteId: learning-promotion-cli-lesson-promote-run-");
+    expect(output).toMatch(/notePath: .*memory\/procedural\/learning-promotion-cli-lesson-promote-run-[0-9a-f]{8}\.md/);
   });
 });
 

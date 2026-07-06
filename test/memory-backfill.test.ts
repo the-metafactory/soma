@@ -132,6 +132,29 @@ test("skips reserved dirs, root-level files, and README.md", async () => {
   });
 });
 
+test("skips promotion-owned PROMOTED/ subtrees, but not a PROMOTED dir outside a promotion store", async () => {
+  await withTempSoma(async (somaHome) => {
+    // Owned by the promote path (memory-promotion.ts): must NOT be re-imported
+    // as a quarantined clone that would shadow the principal-trust note.
+    await seed(somaHome, "LEARNING/PROMOTED/some-promotion.md", "a promoted lesson the promote path already owns");
+    // An ordinary legacy lesson in the SAME store still backfills normally.
+    await seed(somaHome, "LEARNING/a-lesson.md", "an ordinary legacy lesson to import normally");
+    // A `PROMOTED` dir that is NOT directly under one of the four promotion
+    // store dirs (LEARNING/KNOWLEDGE/RELATIONSHIP/WORK) is not promote-owned —
+    // it must still backfill normally (proves the skip is scoped to the
+    // promotion stores, not any folder coincidentally named PROMOTED).
+    await seed(somaHome, "Projects/PROMOTED/not-a-promotion-store.md", "this PROMOTED dir is not a promotion store");
+
+    const result = await runMemoryBackfill({ somaHome });
+
+    const byRel = new Map(result.entries.map((e) => [e.relativePath, e]));
+    expect(byRel.has("LEARNING/PROMOTED/some-promotion.md")).toBe(false);
+    expect(byRel.get("LEARNING/a-lesson.md")).toBeDefined();
+    expect(byRel.get("Projects/PROMOTED/not-a-promotion-store.md")).toBeDefined();
+    expect(result.writtenCount).toBe(2);
+  });
+});
+
 test("refuses a symlinked source root", async () => {
   await withTempSoma(async (somaHome) => {
     const real = join(somaHome, "real-src");
