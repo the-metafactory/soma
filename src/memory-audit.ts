@@ -1,5 +1,6 @@
 import { constants as fsConstants } from "node:fs";
-import { lstat, readFile } from "node:fs/promises";
+import { lstat, open, readFile } from "node:fs/promises";
+import { createInterface } from "node:readline/promises";
 import { basename, dirname, isAbsolute, relative } from "node:path";
 import { parseDigestPointerIds } from "./episodic-digest";
 import { createPaths } from "./paths";
@@ -9,23 +10,36 @@ import { runBoundedConcurrent } from "./internal-concurrency";
 import { memoryIndexPath } from "./memory-index";
 import { somaMemoryEventsPath } from "./memory";
 import { parseMemoryNote } from "./memory-note";
-import type { SomaMemoryAuditOptions, SomaMemoryAuditProbe, SomaMemoryAuditResult, SomaMemoryNote } from "./types";
+import type {
+  SomaMemoryAuditOptions,
+  SomaMemoryAuditProbe,
+  SomaMemoryAuditResult,
+  SomaMemoryEvent,
+  SomaMemoryNote,
+  SomaMemoryRetrievalQuality,
+} from "./types";
 
 /**
- * M7 — a DETERMINISTIC audit of the on-disk memory tree. No LLM, no sentiment: every
- * probe reads the filesystem and reports a ground-truth fact. Read-only — it mutates
- * nothing and appends no event. `healthy` is false (and the CLI exits non-zero) when
- * any HEALTH-GATING probe fails: an abnormal note root (root-integrity), a
- * schema-invalid note, or a stale INDEX. The other three (digest coverage, orphaned
- * archive, event ratio) are informational — they never affect `healthy`.
+ * M7 — a DETERMINISTIC audit of the on-disk memory tree. No LLM, no sentiment: each
+ * GATING probe reads the filesystem and reports a ground-truth fact. Read-only — it
+ * mutates nothing and appends no event. `healthy` is false (and the CLI exits
+ * non-zero) when any HEALTH-GATING probe fails: an abnormal note root
+ * (root-integrity), a schema-invalid note, or a stale INDEX. The other four (digest
+ * coverage, orphaned archive, event ratio, retrieval quality) are informational —
+ * they never affect `healthy`.
  *
  * These are DETERMINISTIC SMOKE checks, not invariant ENFORCEMENT: they surface the
  * cheap-to-detect drift each memory milestone can leave behind — a redirected note
  * root (root-integrity), an unparseable note (schema), an INDEX older by mtime than
  * the corpus (freshness — NOT a content check), archived notes missing from their
- * month's digest (orphaned-archive), and a coarse event/note ratio. A HEALTHY exit
- * means no health-GATING drift was detected — the informational probes may STILL
- * report drift (e.g. orphaned archive) on a healthy tree; read each probe.
+ * month's digest (orphaned-archive), a coarse event/note ratio, and (#425) a
+ * retrieval-quality signal read from the `memory.recall`/`memory.verify` journal.
+ * The retrieval-quality metric is over PARSEABLE journal events only — a malformed
+ * JSONL line is skipped and surfaced as a count (`skippedEventLines`), so that one
+ * probe is honestly "ground truth over the parseable journal", not the complete
+ * journal. A HEALTHY exit means no health-GATING drift was detected — the
+ * informational probes may STILL report drift (e.g. orphaned archive) on a
+ * healthy tree; read each probe.
  */
 const SCAN_CONCURRENCY = 16;
 
@@ -119,11 +133,16 @@ export async function auditMemory(options: SomaMemoryAuditOptions = {}): Promise
   );
   const digestCov = probeDigestCoverage(sessionFiles.length, actionFiles.length, digestFilesList.length);
   const archive = await probeOrphanedArchive(parsed, archiveDir, digestFilesList, somaHome);
-  const eventLines = await countEventLines(somaMemoryEventsPath(somaHome));
+  // ONE streaming pass over the journal feeds BOTH the event-ratio line count AND the
+  // #425 retrieval-quality metric — the file is read once, line by line, and only a
+  // bounded window of pending recalls (plus the counters) stays resident, so audit
+  // memory does not grow with total historical events.
+  const journal = await streamJournalStats(somaMemoryEventsPath(somaHome));
   const validNotes = parsed.length - schema.invalidNotes.length;
-  const eventProbe = probeEventRatio(eventLines, validNotes);
+  const eventProbe = probeEventRatio(journal.eventLines, validNotes);
+  const retrieval = probeRetrievalQuality(journal.retrieval);
 
-  probes.push(treeIntegrity.probe, schema.probe, index.probe, digestCov.probe, archive.probe, eventProbe.probe);
+  probes.push(treeIntegrity.probe, schema.probe, index.probe, digestCov.probe, archive.probe, eventProbe.probe, retrieval.probe);
 
   // Single source of truth: healthy iff every HEALTH-GATING probe is ok. The
   // informational probes carry gatesHealth:false and never affect this.
@@ -137,6 +156,7 @@ export async function auditMemory(options: SomaMemoryAuditOptions = {}): Promise
     digests: digestCov.digests,
     orphanedArchive: archive.orphanedArchive,
     events: eventProbe.events,
+    retrieval: journal.retrieval,
     probes,
   };
 }
@@ -309,6 +329,175 @@ function probeEventRatio(lines: number, notes: number): { probe: SomaMemoryAudit
   return { events: { lines, notes }, probe: { name: "event-ratio", gatesHealth: false, ok: true, detail: `${lines} event line(s) over ${notes} valid note(s)` } };
 }
 
+// --- #425 retrieval-quality (informational) -----------------------------------
+
+/**
+ * The subsequent-event window the retrieval-quality metric searches, chronologically
+ * after a `memory.recall` event, for a `memory.verify` of one of its returned ids.
+ * No existing audit window applies here (the consolidate TTLs are day-based
+ * staleness thresholds for a different concern), so this is a fresh, documented
+ * default rather than a reused constant — events, not days, keep the correlation
+ * deterministic and independent of clock/timezone handling. The window is counted
+ * in PARSEABLE journal events (a malformed line is skipped, does not consume a
+ * window slot). Not yet configurable; a future slice may need to tune it once real
+ * recall volume exists.
+ */
+const RECALL_VERIFY_WINDOW_EVENTS = 50;
+
+/** The `noteIds` a `memory.recall` event recorded (its returned note ids — both
+ *  term matches and 1-hop link pulls), or `[]` if absent/malformed. */
+function recallEventNoteIds(event: SomaMemoryEvent): string[] {
+  const raw = event.metadata?.noteIds;
+  return Array.isArray(raw) ? raw.filter((v): v is string => typeof v === "string") : [];
+}
+
+/** The note id a `memory.verify` event bumped (`memory-write.ts`'s verify path
+ *  records it as `metadata.id`), or `undefined` if absent/malformed. */
+function verifyEventNoteId(event: SomaMemoryEvent): string | undefined {
+  const raw = event.metadata?.id;
+  return typeof raw === "string" ? raw : undefined;
+}
+
+/**
+ * The bounded, incremental retrieval-quality accumulator. Only the running counters
+ * plus a window of PENDING recalls (each a non-empty recall still inside its
+ * lookahead window) are resident — never the whole journal. A pending recall retires
+ * as soon as a matching `memory.verify` is seen (counted as followed) OR after
+ * `RECALL_VERIFY_WINDOW_EVENTS` subsequent parseable events elapse (unfollowed), so
+ * `pending.length ≤ RECALL_VERIFY_WINDOW_EVENTS` at all times.
+ */
+interface RetrievalAccumulator {
+  recallVolume: number;
+  emptyRecalls: number;
+  recallsWithResults: number;
+  verifiedFollows: number;
+  pending: { noteIds: Set<string>; remaining: number }[];
+}
+
+function newRetrievalAccumulator(): RetrievalAccumulator {
+  return { recallVolume: 0, emptyRecalls: 0, recallsWithResults: 0, verifiedFollows: 0, pending: [] };
+}
+
+/**
+ * Fold one PARSEABLE event into the accumulator, preserving the exact
+ * array-based semantics of the prior implementation: the current event is a
+ * SUBSEQUENT event for every earlier pending recall (so it decrements each window
+ * and may satisfy one via a matching verify), and only AFTER that does the event
+ * — if it is itself a recall — become pending (a recall never verifies itself).
+ */
+function foldRetrievalEvent(acc: RetrievalAccumulator, event: SomaMemoryEvent): void {
+  if (acc.pending.length > 0) {
+    const verifiedId = event.kind === "memory.verify" ? verifyEventNoteId(event) : undefined;
+    const stillPending: RetrievalAccumulator["pending"][number][] = [];
+    for (const p of acc.pending) {
+      p.remaining -= 1;
+      if (verifiedId !== undefined && p.noteIds.has(verifiedId)) {
+        acc.verifiedFollows += 1; // satisfied → retire, counted as followed
+      } else if (p.remaining > 0) {
+        stillPending.push(p); // window not yet exhausted → keep watching
+      }
+      // else: window exhausted unsatisfied → retire, uncounted
+    }
+    acc.pending = stillPending;
+  }
+
+  if (event.kind === "memory.recall") {
+    acc.recallVolume += 1;
+    const noteIds = recallEventNoteIds(event);
+    if (noteIds.length === 0) {
+      acc.emptyRecalls += 1;
+    } else {
+      acc.recallsWithResults += 1;
+      acc.pending.push({ noteIds: new Set(noteIds), remaining: RECALL_VERIFY_WINDOW_EVENTS });
+    }
+  }
+}
+
+function finalizeRetrieval(acc: RetrievalAccumulator, skippedEventLines: number): SomaMemoryRetrievalQuality {
+  return {
+    recallVolume: acc.recallVolume,
+    emptyRecallRate: acc.recallVolume === 0 ? 0 : acc.emptyRecalls / acc.recallVolume,
+    verifyFollowsRecallRate: acc.recallsWithResults === 0 ? 0 : acc.verifiedFollows / acc.recallsWithResults,
+    recallsWithResults: acc.recallsWithResults,
+    verifyWindowEvents: RECALL_VERIFY_WINDOW_EVENTS,
+    skippedEventLines,
+  };
+}
+
+/**
+ * ONE streaming pass over the JSONL journal — read line by line via an
+ * O_NOFOLLOW-opened FileHandle (a symlinked events file fails the open with ELOOP
+ * and is treated as an empty journal, same forgiving stance as the rest of the
+ * audit), so audit memory stays O(window + counters), not O(journal). Feeds BOTH:
+ * `eventLines` (non-empty lines — the coarse event-ratio count, malformed lines
+ * INCLUDED, matching the old byte-scan) and the incremental retrieval accumulator
+ * (PARSEABLE events only; a malformed line is skipped and counted). A malformed
+ * line is a non-empty line that is not JSON, or lacks a string `kind`/`timestamp`.
+ */
+async function streamJournalStats(eventsPath: string): Promise<{ eventLines: number; retrieval: SomaMemoryRetrievalQuality }> {
+  let eventLines = 0;
+  let skippedEventLines = 0;
+  const acc = newRetrievalAccumulator();
+
+  const handle = await open(eventsPath, NOFOLLOW_READ).catch(() => undefined);
+  if (handle === undefined) {
+    // absent, symlinked (ELOOP), or otherwise unopenable → empty journal
+    return { eventLines: 0, retrieval: finalizeRetrieval(acc, 0) };
+  }
+  try {
+    const lines = createInterface({ input: handle.createReadStream({ encoding: "utf8" }), crlfDelay: Infinity });
+    for await (const line of lines) {
+      if (line.trim().length === 0) continue;
+      eventLines += 1; // event-ratio counts every non-empty line, parseable or not
+      let event: SomaMemoryEvent | undefined;
+      try {
+        const parsed = JSON.parse(line) as Partial<SomaMemoryEvent>;
+        if (typeof parsed.kind === "string" && typeof parsed.timestamp === "string") {
+          event = parsed as SomaMemoryEvent;
+        }
+      } catch {
+        // fall through to the malformed count below
+      }
+      if (event === undefined) {
+        skippedEventLines += 1;
+        continue; // malformed → does not consume a retrieval window slot
+      }
+      foldRetrievalEvent(acc, event);
+    }
+  } finally {
+    await handle.close().catch(() => undefined);
+  }
+
+  return { eventLines, retrieval: finalizeRetrieval(acc, skippedEventLines) };
+}
+
+/**
+ * Probe: the #425 retrieval-quality signal, computed PURELY from the journal (no
+ * new state) — informational, never gates `healthy`. Three AUTOMEM-inspired
+ * numbers over `memory.recall` events: recall volume, empty-recall rate (0
+ * returned ids), and verify-follows-recall rate (a returned id gets a
+ * `memory.verify` within `RECALL_VERIFY_WINDOW_EVENTS` subsequent parseable
+ * journal events — the "recalled → actually useful" proxy). The verify-follow
+ * denominator is recalls WITH results, not every recall: an empty recall can
+ * structurally never be verify-followed, so folding it in would just re-encode
+ * the empty-recall rate a second time. Malformed journal lines are skipped and
+ * surfaced (`skippedEventLines`) so the rates read as "over the parseable journal".
+ */
+function probeRetrievalQuality(retrieval: SomaMemoryRetrievalQuality): { probe: SomaMemoryAuditProbe } {
+  const skipped = retrieval.skippedEventLines > 0 ? `, ${retrieval.skippedEventLines} malformed line(s) skipped` : "";
+  return {
+    probe: {
+      name: "retrieval-quality",
+      gatesHealth: false,
+      ok: true,
+      detail:
+        `${retrieval.recallVolume} recall(s), empty-recall-rate ${(retrieval.emptyRecallRate * 100).toFixed(1)}%, ` +
+        `verify-follows-recall-rate ${(retrieval.verifyFollowsRecallRate * 100).toFixed(1)}% ` +
+        `(${retrieval.recallsWithResults} non-empty recall(s), ${retrieval.verifyWindowEvents}-event window)${skipped}`,
+    },
+  };
+}
+
 /**
  * Digest-referenced ids keyed by MONTH (the digest's `YYYY-MM.md` basename). Keyed
  * by month so the orphan check can require a note to appear in ITS created-month
@@ -334,24 +523,3 @@ async function collectDigestIdsByMonth(digestFiles: string[]): Promise<Map<strin
   return byMonth;
 }
 
-/** Non-empty JSONL lines in the events file (0 if absent). Single pass over the
- *  content counting non-empty lines — no `split` allocation of the whole history.
- *  Read with O_NOFOLLOW (same as notes), so a symlinked events file — even one
- *  swapped in racily — makes the open fail and counts as 0; the audit follows NO
- *  symlink, atomically, with no lstat/read TOCTOU gap. */
-async function countEventLines(eventsPath: string): Promise<number> {
-  const content = await readFile(eventsPath, { encoding: "utf8", flag: NOFOLLOW_READ }).catch(() => "");
-  let count = 0;
-  let lineHasContent = false;
-  for (let i = 0; i < content.length; i += 1) {
-    const ch = content[i];
-    if (ch === "\n") {
-      if (lineHasContent) count += 1;
-      lineHasContent = false;
-    } else if (ch !== "\r" && ch !== " " && ch !== "\t") {
-      lineHasContent = true;
-    }
-  }
-  if (lineHasContent) count += 1; // a final line with no trailing newline
-  return count;
-}

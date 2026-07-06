@@ -31,6 +31,7 @@ soma memory audit
 | digest-coverage | no (info) | Counts session/action notes and monthly digest files. |
 | orphaned-archive | no (info) | Archived episodic notes missing from a digest (run `soma memory consolidate`). |
 | event-ratio | no (info) | Event-stream lines over valid-note count. |
+| retrieval-quality | no (info) | Recall volume, empty-recall rate, and verify-follows-recall rate — computed purely from the `memory.recall`/`memory.verify` journal (#425; measure only, does not gate anything yet). |
 
 ## Exit code
 
