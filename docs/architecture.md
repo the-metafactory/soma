@@ -192,9 +192,12 @@ unrecorded. So the fail-closed refusal itself is guaranteed by the promote API a
 the CLI; the sync hook's own contract stays narrower and deliberately best-effort
 for everything short of that authority precondition. `soma memory backfill`'s
 source walk skips `PROMOTED/` subtrees owned by a promotion store dir (its
-`include` hook, `isPromotionOwnedPromotedSubtree`), so a promoted lesson is never
-re-imported as a `quarantined` clone that would shadow its own principal-trust
-note in recall. `soma memory audit` (M7) — a deterministic, read-only health check
+`include` hook, `isPromotionOwnedPromotedSubtree`), so backfill's forward source
+walk no longer creates a `quarantined` clone that would shadow the lesson's own
+principal-trust note in recall. This closes the forward import path only — it does
+not detect or remove a clone already imported (e.g. before promotion, or by an
+earlier backfill); surfacing such a pre-existing shadow is `soma memory audit`'s job,
+not backfill's. `soma memory audit` (M7) — a deterministic, read-only health check
 that reads the FILES directly, not the event stream — is the ground-truth check:
 it has three health-gating probes — root-integrity (every note root is a real
 directory), schema validity, and INDEX freshness — plus three informational drift
