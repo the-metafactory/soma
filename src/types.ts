@@ -2540,8 +2540,12 @@ export interface SomaMemoryVerifyResult {
  * `consolidationAuthority`), `principal` notes are a no-op (already
  * unconditionally admitted, see `memory-index.ts`'s `isAdmitted`), and
  * `quarantined` notes are refused outright (never admitted; resurfacing one would
- * only mislead the retention score). No new authority surface, no change to the
- * admission threshold or retention formula.
+ * only mislead the retention score). This DOES introduce a narrow new governed
+ * authority — the resurface act self-authorizes an assistant-tier `resurface_count`
+ * bump that is reachable from the public CLI (justified above: it moves only a
+ * decay signal, never body content or trust tier, so "the `used` call fired" is
+ * sufficient authority for it). It adds no new note-CONTENT authority, and no
+ * change to the admission threshold or retention formula.
  */
 export interface SomaMemoryResurfaceOptions {
   homeDir?: string;

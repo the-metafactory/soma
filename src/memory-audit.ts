@@ -355,9 +355,12 @@ function recallEventNoteIds(event: SomaMemoryEvent): string[] {
  * #427 — the second event kind that satisfies a pending recall, alongside
  * `memory.verify`: `memory.resurface` (`memory-write.ts`'s `resurfaceMemoryNote`,
  * the low-friction "this recalled note helped" signal). Both record the bumped
- * note id the same way (`metadata.id`) and both assert the recalled note was
- * useful — one by hand-authored re-confirmation, the other by observed usage —
- * so both count toward `verifyFollowsRecallRate`; the metric name stays
+ * note id the same way (`metadata.id`) and both count toward
+ * `verifyFollowsRecallRate` as "the recall got reinforced" — but they assert
+ * different things: `memory.resurface` asserts observed USEFULNESS, while
+ * `memory.verify` asserts a fact was RE-CONFIRMED (which can happen independently
+ * of a note actually being useful). The rate conflates the two deliberately as a
+ * reinforcement proxy, not as a pure usefulness measure; the metric name stays
  * `verifyFollowsRecallRate` (not renamed) since it is still measuring "did a
  * recall get reinforced", just via either turning force.
  */

@@ -190,7 +190,17 @@ failure — the PROMOTED file and note already landed, but a later bookkeeping s
 re-thrown, because by then the caller must know the promotion is durable but
 unrecorded. So the fail-closed refusal itself is guaranteed by the promote API and
 the CLI; the sync hook's own contract stays narrower and deliberately best-effort
-for everything short of that authority precondition. `soma memory backfill`'s
+for everything short of that authority precondition. A fourth governed path —
+the second that does NOT mint or elevate trust — is `soma memory used <id>`
+(`resurfaceMemoryNote`, #427): a low-friction "this recalled note helped" signal
+that bumps an already-existing `assistant`-trust note's `resurface_count += 1` /
+`last_verified` through the same governance + atomicity path, so recalled-and-useful
+notes cross the INDEX admission threshold (`resurface_count ≥ 2`). It is
+trust-scoped — `assistant` bumped freely (the `used` act self-authorizes this one
+decay-signal field, reachable from the public CLI unlike `verify`'s SDK-only
+`consolidationAuthority`), `principal` a no-op (already admitted), `quarantined`
+refused — moves no body content or trust tier, and appends one `memory.resurface`
+event that #425's `verify-follows-recall` metric counts. `soma memory backfill`'s
 source walk skips `PROMOTED/` subtrees owned by a promotion store dir (its
 `include` hook, `isPromotionOwnedPromotedSubtree`), so backfill's forward source
 walk no longer creates a `quarantined` clone that would shadow the lesson's own
