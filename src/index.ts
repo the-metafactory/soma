@@ -189,6 +189,8 @@ export type {
   SomaMemoryWriteResult,
   SomaMemoryVerifyOptions,
   SomaMemoryVerifyResult,
+  SomaMemoryResurfaceOptions,
+  SomaMemoryResurfaceResult,
   SomaMemoryDuplicateCandidate,
 } from "./types";
 
@@ -461,7 +463,7 @@ export { MemoryNoteError, parseMemoryNote, serializeMemoryNote } from "./memory-
 // findDuplicateCandidates, MEMORY_DEDUP_JACCARD_THRESHOLD) stay module-private so
 // the storage layout and dedup threshold are not frozen as stable API — internal
 // soma modules (M2/M3/M6) and tests import them from "./memory-write" directly.
-export { writeMemoryNote, verifyMemoryNote } from "./memory-write";
+export { writeMemoryNote, verifyMemoryNote, resurfaceMemoryNote } from "./memory-write";
 export { recallMemory } from "./memory-recall";
 // Public surface is the CLI-facing rebuild only. renderMemoryIndex / retentionScore
 // / collectAllNotes / memoryIndexPath stay module-private (the scoring model and

@@ -5,6 +5,8 @@ import { expect, test } from "bun:test";
 import {
   MemoryNoteError,
   parseMemoryNote,
+  rebuildMemoryIndex,
+  resurfaceMemoryNote,
   somaMemoryEventsPath,
   verifyMemoryNote,
   writeMemoryNote,
@@ -21,7 +23,7 @@ import {
   writeNotesAtomically,
   type AtomicNoteWrite,
 } from "../src/memory-write";
-import { parseMemoryArgs } from "../src/cli/memory";
+import { parseMemoryArgs, runMemoryCli } from "../src/cli/memory";
 
 const NOW = new Date("2026-07-03T10:00:00.000Z");
 const LATER = new Date("2026-08-01T12:00:00.000Z");
@@ -502,6 +504,107 @@ test("verifying an assistant note needs consolidation-authority", async () => {
     await expect(verifyMemoryNote({ somaHome, id: "asst", now: LATER })).rejects.toThrow(/requires consolidation authority/);
     const ok = await verifyMemoryNote({ somaHome, id: "asst", consolidationAuthority: true, now: LATER });
     expect(ok.note.resurface_count).toBe(1);
+  });
+});
+
+// --- resurfaceMemoryNote (#427) -----------------------------------------------
+
+test("resurfacing an assistant note bumps last_verified/resurface_count with ONE memory.resurface event, no authority flag needed", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeMemoryNote(
+      createOpts(somaHome, { id: "asst-note", trigger: "consolidation", consolidationAuthority: true, body: "assistant fact resurfaced chi psi omega" }),
+    );
+    const result = await resurfaceMemoryNote({ somaHome, id: "asst-note", now: LATER });
+
+    expect(result.mutated).toBe(true);
+    expect(result.note.last_verified).toBe("2026-08-01");
+    expect(result.note.resurface_count).toBe(1);
+    expect(result.event?.kind).toBe("memory.resurface");
+    expect(result.event?.metadata?.id).toBe("asst-note");
+
+    const persisted = await readNote(result.path);
+    expect(persisted.resurface_count).toBe(1);
+    expect(await countEvents(somaHome)).toBe(2); // create + resurface
+  });
+});
+
+test("a second resurface crosses RESURFACE_ADMIT and the note appears in the next INDEX rebuild", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeMemoryNote(
+      createOpts(somaHome, { id: "asst-note", trigger: "consolidation", consolidationAuthority: true, body: "assistant fact earning admission" }),
+    );
+
+    let before = await rebuildMemoryIndex({ somaHome, now: LATER });
+    expect(before.admitted).toBe(0); // resurface_count 0 < RESURFACE_ADMIT (2) — not yet earned
+
+    await resurfaceMemoryNote({ somaHome, id: "asst-note", now: LATER });
+    const afterOne = await resurfaceMemoryNote({ somaHome, id: "asst-note", now: LATER });
+    expect(afterOne.note.resurface_count).toBe(2);
+
+    const after = await rebuildMemoryIndex({ somaHome, now: LATER });
+    expect(after.admitted).toBe(1);
+    expect(after.content).toContain("asst-note");
+  });
+});
+
+test("resurfacing a quarantined note is refused", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeMemoryNote(createOpts(somaHome, { id: "imported", trigger: "import", principalAuthority: false, body: "imported fact for resurface test" }));
+    await expect(resurfaceMemoryNote({ somaHome, id: "imported", now: LATER })).rejects.toThrow(/Cannot resurface quarantined note/);
+  });
+});
+
+test("resurfacing a principal note is a no-op — already unconditionally admitted, nothing written", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeMemoryNote(createOpts(somaHome, { id: "trusted" })); // principal
+    const before = await countEvents(somaHome);
+
+    const result = await resurfaceMemoryNote({ somaHome, id: "trusted", now: LATER });
+
+    expect(result.mutated).toBe(false);
+    expect(result.event).toBeUndefined();
+    expect(result.note.resurface_count).toBe(0);
+    expect(await countEvents(somaHome)).toBe(before); // no new event appended
+
+    const persisted = await readNote(result.path);
+    expect(persisted.last_verified).not.toBe("2026-08-01"); // untouched on disk too
+  });
+});
+
+test("resurfacing a superseded note is refused", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeMemoryNote(createOpts(somaHome, { id: "old" }));
+    await writeMemoryNote(createOpts(somaHome, { mode: "supersede", id: "new", targetId: "old", body: "replacement body for resurface test" }));
+    await expect(resurfaceMemoryNote({ somaHome, id: "old", now: LATER })).rejects.toThrow(/Cannot resurface superseded note/);
+  });
+});
+
+test("resurfacing a missing id throws a typed error", async () => {
+  await withTempSoma(async (somaHome) => {
+    await expect(resurfaceMemoryNote({ somaHome, id: "ghost" })).rejects.toThrow(MemoryNoteError);
+  });
+});
+
+test("CLI: soma memory used parses a positional id, --id, and rejects a conflicting pair", () => {
+  const parsed = parseMemoryArgs(["memory", "used", "some-id"]);
+  expect(parsed.action).toBe("used");
+  expect(parsed.action === "used" && parsed.options.id).toBe("some-id");
+
+  const viaFlag = parseMemoryArgs(["memory", "used", "--id", "some-id"]);
+  expect(viaFlag.action === "used" && viaFlag.options.id).toBe("some-id");
+
+  expect(() => parseMemoryArgs(["memory", "used", "old", "--id", "new"])).toThrow(/two different ids/);
+  expect(() => parseMemoryArgs(["memory", "used"])).toThrow(/needs a note id/);
+});
+
+test("CLI: soma memory used runs resurfaceMemoryNote end to end", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeMemoryNote(
+      createOpts(somaHome, { id: "asst-note", trigger: "consolidation", consolidationAuthority: true, body: "assistant fact for CLI resurface" }),
+    );
+    const out = await runMemoryCli(parseMemoryArgs(["memory", "used", "asst-note", "--soma-home", somaHome]));
+    expect(out).toContain("Soma memory used");
+    expect(out).toContain("resurface_count: 1");
   });
 });
 

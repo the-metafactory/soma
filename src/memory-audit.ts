@@ -33,8 +33,8 @@ import type {
  * root (root-integrity), an unparseable note (schema), an INDEX older by mtime than
  * the corpus (freshness — NOT a content check), archived notes missing from their
  * month's digest (orphaned-archive), a coarse event/note ratio, and (#425) a
- * retrieval-quality signal read from the `memory.recall`/`memory.verify` journal.
- * The retrieval-quality metric is over PARSEABLE journal events only — a malformed
+ * retrieval-quality signal read from the `memory.recall`/`memory.verify`/(#427)
+ * `memory.resurface` journal. The retrieval-quality metric is over PARSEABLE journal events only — a malformed
  * JSONL line is skipped and surfaced as a count (`skippedEventLines`), so that one
  * probe is honestly "ground truth over the parseable journal", not the complete
  * journal. A HEALTHY exit means no health-GATING drift was detected — the
@@ -333,8 +333,8 @@ function probeEventRatio(lines: number, notes: number): { probe: SomaMemoryAudit
 
 /**
  * The subsequent-event window the retrieval-quality metric searches, chronologically
- * after a `memory.recall` event, for a `memory.verify` of one of its returned ids.
- * No existing audit window applies here (the consolidate TTLs are day-based
+ * after a `memory.recall` event, for a `memory.verify` OR (#427) `memory.resurface`
+ * of one of its returned ids. No existing audit window applies here (the consolidate TTLs are day-based
  * staleness thresholds for a different concern), so this is a fresh, documented
  * default rather than a reused constant — events, not days, keep the correlation
  * deterministic and independent of clock/timezone handling. The window is counted
@@ -351,9 +351,24 @@ function recallEventNoteIds(event: SomaMemoryEvent): string[] {
   return Array.isArray(raw) ? raw.filter((v): v is string => typeof v === "string") : [];
 }
 
-/** The note id a `memory.verify` event bumped (`memory-write.ts`'s verify path
- *  records it as `metadata.id`), or `undefined` if absent/malformed. */
+/**
+ * #427 — the second event kind that satisfies a pending recall, alongside
+ * `memory.verify`: `memory.resurface` (`memory-write.ts`'s `resurfaceMemoryNote`,
+ * the low-friction "this recalled note helped" signal). Both record the bumped
+ * note id the same way (`metadata.id`) and both assert the recalled note was
+ * useful — one by hand-authored re-confirmation, the other by observed usage —
+ * so both count toward `verifyFollowsRecallRate`; the metric name stays
+ * `verifyFollowsRecallRate` (not renamed) since it is still measuring "did a
+ * recall get reinforced", just via either turning force.
+ */
+const VERIFY_LIKE_EVENT_KINDS = new Set(["memory.verify", "memory.resurface"]);
+
+/** The note id a `memory.verify`/`memory.resurface` event bumped
+ *  (`memory-write.ts`'s verify/resurface paths both record it as
+ *  `metadata.id`), or `undefined` if the event is neither kind, or the id is
+ *  absent/malformed. */
 function verifyEventNoteId(event: SomaMemoryEvent): string | undefined {
+  if (!VERIFY_LIKE_EVENT_KINDS.has(event.kind)) return undefined;
   const raw = event.metadata?.id;
   return typeof raw === "string" ? raw : undefined;
 }
@@ -382,12 +397,13 @@ function newRetrievalAccumulator(): RetrievalAccumulator {
  * Fold one PARSEABLE event into the accumulator, preserving the exact
  * array-based semantics of the prior implementation: the current event is a
  * SUBSEQUENT event for every earlier pending recall (so it decrements each window
- * and may satisfy one via a matching verify), and only AFTER that does the event
- * — if it is itself a recall — become pending (a recall never verifies itself).
+ * and may satisfy one via a matching verify OR #427 resurface), and only AFTER
+ * that does the event — if it is itself a recall — become pending (a recall
+ * never verifies/resurfaces itself).
  */
 function foldRetrievalEvent(acc: RetrievalAccumulator, event: SomaMemoryEvent): void {
   if (acc.pending.length > 0) {
-    const verifiedId = event.kind === "memory.verify" ? verifyEventNoteId(event) : undefined;
+    const verifiedId = verifyEventNoteId(event);
     const stillPending: RetrievalAccumulator["pending"][number][] = [];
     for (const p of acc.pending) {
       p.remaining -= 1;
@@ -476,12 +492,14 @@ async function streamJournalStats(eventsPath: string): Promise<{ eventLines: num
  * new state) — informational, never gates `healthy`. Three AUTOMEM-inspired
  * numbers over `memory.recall` events: recall volume, empty-recall rate (0
  * returned ids), and verify-follows-recall rate (a returned id gets a
- * `memory.verify` within `RECALL_VERIFY_WINDOW_EVENTS` subsequent parseable
- * journal events — the "recalled → actually useful" proxy). The verify-follow
- * denominator is recalls WITH results, not every recall: an empty recall can
- * structurally never be verify-followed, so folding it in would just re-encode
- * the empty-recall rate a second time. Malformed journal lines are skipped and
- * surfaced (`skippedEventLines`) so the rates read as "over the parseable journal".
+ * `memory.verify` OR (#427) `memory.resurface` within `RECALL_VERIFY_WINDOW_EVENTS`
+ * subsequent parseable journal events — the "recalled → actually useful" proxy,
+ * satisfied either by a hand-authored re-confirmation or the cheaper observed-use
+ * signal). The verify-follow denominator is recalls WITH results, not every
+ * recall: an empty recall can structurally never be verify-followed, so folding
+ * it in would just re-encode the empty-recall rate a second time. Malformed
+ * journal lines are skipped and surfaced (`skippedEventLines`) so the rates read
+ * as "over the parseable journal".
  */
 function probeRetrievalQuality(retrieval: SomaMemoryRetrievalQuality): { probe: SomaMemoryAuditProbe } {
   const skipped = retrieval.skippedEventLines > 0 ? `, ${retrieval.skippedEventLines} malformed line(s) skipped` : "";

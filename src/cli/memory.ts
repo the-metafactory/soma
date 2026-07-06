@@ -4,6 +4,7 @@ import {
   promoteAlgorithmRunMemory,
   rebuildMemoryIndex,
   recallMemory,
+  resurfaceMemoryNote,
   runMemoryBackfill,
   searchSomaMemory,
   verifyMemoryNote,
@@ -33,6 +34,8 @@ import type {
   SomaMemoryPromotionStore,
   SomaMemoryRecallOptions,
   SomaMemoryRecallResult,
+  SomaMemoryResurfaceOptions,
+  SomaMemoryResurfaceResult,
   SomaMemorySearchOptions,
   SomaMemorySearchResult,
   SomaMemoryVerifyOptions,
@@ -82,6 +85,13 @@ export interface ParsedMemoryVerifyArgs {
   options: SomaMemoryVerifyOptions;
 }
 
+/** #427 — the low-friction "this recalled note helped" signal (`soma memory used <id>`). */
+export interface ParsedMemoryUsedArgs {
+  command: "memory";
+  action: "used";
+  options: SomaMemoryResurfaceOptions;
+}
+
 export interface ParsedMemoryReindexArgs {
   command: "memory";
   action: "reindex";
@@ -124,6 +134,7 @@ export type ParsedMemoryArgs =
   | ParsedMemoryPromoteArgs
   | ParsedMemoryWriteArgs
   | ParsedMemoryVerifyArgs
+  | ParsedMemoryUsedArgs
   | ParsedMemoryReindexArgs
   | ParsedMemoryDigestArgs
   | ParsedMemoryActionArgs
@@ -131,11 +142,11 @@ export type ParsedMemoryArgs =
   | ParsedMemoryAuditArgs
   | ParsedMemoryBackfillArgs;
 
-const MEMORY_ACTIONS = ["search", "recall", "promote", "write", "verify", "reindex", "digest", "action", "consolidate", "audit", "backfill"] as const;
+const MEMORY_ACTIONS = ["search", "recall", "promote", "write", "verify", "used", "reindex", "digest", "action", "consolidate", "audit", "backfill"] as const;
 type MemoryAction = (typeof MEMORY_ACTIONS)[number];
 
 export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAction, string> } = {
-  usage: "Usage: soma memory <search|recall|promote|write|verify|reindex|digest|action|consolidate|audit|backfill> ...",
+  usage: "Usage: soma memory <search|recall|promote|write|verify|used|reindex|digest|action|consolidate|audit|backfill> ...",
   subcommands: {
     search: "Usage: soma memory search [query] [--query <text>] [--limit <n>] [--home-dir <dir>] [--soma-home <dir>]",
     recall:
@@ -161,6 +172,14 @@ export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAct
     verify:
       "Usage: soma memory verify <id> [--id <id>] [--principal-authority] [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]. " +
       "Verifying a principal-trust note requires --principal-authority (assistant-trust notes are an internal SDK path).",
+    used:
+      "Usage: soma memory used <id> [--id <id>] [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]. " +
+      "#427 — the low-friction 'this recalled note helped' signal: performs the SAME bump verify does " +
+      "(last_verified = today, resurface_count += 1), distinct from verify (an assertion the FACT still holds) " +
+      "in that it asserts USEFULNESS observed and needs no authority flag. assistant-trust notes are bumped " +
+      "freely (the whole point — verify's assistant path is an internal-only SDK capability, unreachable here); " +
+      "principal-trust notes no-op (already always-admitted); quarantined notes are refused. " +
+      "Emits a `memory.resurface` event, counted by `soma memory audit`'s verify-follows-recall probe.",
     reindex:
       "Usage: soma memory reindex [--home-dir <dir>] [--soma-home <dir>]. " +
       "Rebuild memory/INDEX.md from note frontmatter (earned-inclusion ladder, retention-score budget); " +
@@ -212,6 +231,8 @@ export function parseMemoryArgs(args: string[]): ParsedMemoryArgs {
       return { command, action, options: parseMemoryWriteArgs(rest) };
     case "verify":
       return { command, action, options: parseMemoryVerifyArgs(rest) };
+    case "used":
+      return { command, action, options: parseMemoryUsedArgs(rest) };
     case "reindex":
       return { command, action, options: parseMemoryReindexArgs(rest) };
     case "digest":
@@ -785,6 +806,59 @@ function parseMemoryVerifyArgs(args: string[]): SomaMemoryVerifyOptions {
   return options as SomaMemoryVerifyOptions;
 }
 
+/**
+ * #427 — `soma memory used <id>`. No `--principal-authority`/consolidation flag:
+ * unlike verify, the "used" signal needs no per-call authority (see
+ * `resurfaceMemoryNote`'s docstring in `memory-write.ts` for the trust-scoping).
+ */
+function parseMemoryUsedArgs(args: string[]): SomaMemoryResurfaceOptions {
+  const options: Partial<SomaMemoryResurfaceOptions> = {};
+  let positionalId: string | undefined;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+
+    switch (arg) {
+      case "--home-dir":
+        options.homeDir = readOption(args, index, arg);
+        index += 1;
+        break;
+      case "--soma-home":
+        options.somaHome = readOption(args, index, arg);
+        index += 1;
+        break;
+      case "--substrate":
+        options.substrate = parseSubstrate(readOption(args, index, arg));
+        index += 1;
+        break;
+      case "--id":
+        options.id = readOption(args, index, arg);
+        index += 1;
+        break;
+      default:
+        if (arg.startsWith("-")) {
+          throw new Error(`Unknown option: ${arg}`);
+        }
+        if (positionalId !== undefined) {
+          throw new Error(`soma memory used accepts only one positional id; unexpected argument: ${arg}`);
+        }
+        positionalId = arg;
+    }
+  }
+
+  // Reject a conflicting positional + --id rather than silently preferring one —
+  // used is a mutating command, so an ignored id must not slip through.
+  if (options.id !== undefined && positionalId !== undefined && options.id !== positionalId) {
+    throw new Error(`soma memory used got two different ids ("${positionalId}" and --id "${options.id}"); pass only one.`);
+  }
+  options.id ??= positionalId;
+  if (!options.id) {
+    throw new Error("soma memory used needs a note id; pass it as the first argument or --id <id>.");
+  }
+
+  return options as SomaMemoryResurfaceOptions;
+}
+
 export async function runMemoryCli(parsed: ParsedMemoryArgs): Promise<string> {
   switch (parsed.action) {
     case "promote":
@@ -793,6 +867,8 @@ export async function runMemoryCli(parsed: ParsedMemoryArgs): Promise<string> {
       return formatMemoryWriteResult(await writeMemoryNote(parsed.options));
     case "verify":
       return formatMemoryVerifyResult(await verifyMemoryNote(parsed.options));
+    case "used":
+      return formatMemoryResurfaceResult(await resurfaceMemoryNote(parsed.options));
     case "search":
       return formatMemorySearchResult(await searchSomaMemory(parsed.options));
     case "recall":
@@ -969,6 +1045,26 @@ function formatMemoryVerifyResult(result: SomaMemoryVerifyResult): string {
     `resurface_count: ${result.note.resurface_count}`,
     `path: ${result.path}`,
     `event: ${result.event.id}`,
+  ].join("\n");
+}
+
+function formatMemoryResurfaceResult(result: SomaMemoryResurfaceResult): string {
+  if (!result.mutated) {
+    return [
+      "Soma memory used",
+      `id: ${result.note.id}`,
+      `trust: ${result.note.trust}`,
+      "no-op: already unconditionally admitted (principal-trust) — nothing written.",
+      `path: ${result.path}`,
+    ].join("\n");
+  }
+  return [
+    "Soma memory used",
+    `id: ${result.note.id}`,
+    `last_verified: ${result.note.last_verified}`,
+    `resurface_count: ${result.note.resurface_count}`,
+    `path: ${result.path}`,
+    `event: ${result.event?.id}`,
   ].join("\n");
 }
 
