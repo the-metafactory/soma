@@ -139,8 +139,13 @@ async function removeListedProjectionFiles(
     try {
       await rmdir(dir);
       removed.push(dir);
-    } catch {
-      // ENOTEMPTY (user content), ENOENT, or anything else: keep the dir.
+    } catch (error) {
+      // ENOTEMPTY (unmanaged/user content still present) and ENOENT (already
+      // gone) are expected — keep the dir and continue. Anything else
+      // (EACCES/EPERM/EBUSY/…) is a real filesystem fault and must surface,
+      // not be silently masked as a keep.
+      const code = (error as { code?: string } | null)?.code;
+      if (code !== "ENOTEMPTY" && code !== "ENOENT") throw error;
     }
   }
   return removed;

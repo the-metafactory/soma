@@ -575,10 +575,12 @@ export interface ProjectionInput {
    */
   memory?: { indexContent: string };
   /**
-   * Names (skill dir basenames) of the repo-bundled skills — `src/skills/*`,
-   * e.g. the-algorithm, Memory, VSA — that the install copied into the Soma
+   * Names (skill dir basenames) of the repo-bundled skills — every `src/skills/*`
+   * dir (the-algorithm, Memory, and VSA) — that the install copied into the Soma
    * home. When present, the generic portable-skill loop projects ONLY these as
-   * invocable dirs; user/registry skills present in `~/.soma/skills` reach a
+   * invocable dirs (VSA is in the list but still excluded by `projectableSkills`'
+   * dedicated VSA guard — it has its own managed installer); user/registry
+   * skills present in `~/.soma/skills` reach a
    * substrate through `soma install --skills` symlinks instead, not the
    * always-on loop. Absent for direct projection callers (kept permissive:
    * legacy all-except-VSA behavior) — install is the sole scope authority.

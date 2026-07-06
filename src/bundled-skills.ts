@@ -1,6 +1,6 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
+import { defaultSomaHome } from "./paths";
 import { defaultSomaRepoPath } from "./repo-path";
 import { VSA_SKILL_NAME } from "./vsa-skill-installer";
 
@@ -49,7 +49,7 @@ export interface InstallBundledSkillsOptions {
  */
 export async function installBundledSkillsIntoHome(options: InstallBundledSkillsOptions = {}): Promise<string[]> {
   const somaRepoPath = resolve(options.somaRepoPath ?? defaultSomaRepoPath());
-  const somaHome = resolve(options.somaHome ?? join(options.homeDir ?? homedir(), ".soma"));
+  const somaHome = defaultSomaHome({ homeDir: options.homeDir, somaHome: options.somaHome });
   const written: string[] = [];
   for (const name of await listBundledSkills(somaRepoPath)) {
     if (name === VSA_SKILL_NAME) continue;
