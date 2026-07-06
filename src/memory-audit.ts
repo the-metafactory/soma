@@ -9,23 +9,33 @@ import { runBoundedConcurrent } from "./internal-concurrency";
 import { memoryIndexPath } from "./memory-index";
 import { somaMemoryEventsPath } from "./memory";
 import { parseMemoryNote } from "./memory-note";
-import type { SomaMemoryAuditOptions, SomaMemoryAuditProbe, SomaMemoryAuditResult, SomaMemoryNote } from "./types";
+import type {
+  SomaMemoryAuditOptions,
+  SomaMemoryAuditProbe,
+  SomaMemoryAuditResult,
+  SomaMemoryEvent,
+  SomaMemoryNote,
+  SomaMemoryRetrievalQuality,
+} from "./types";
 
 /**
  * M7 — a DETERMINISTIC audit of the on-disk memory tree. No LLM, no sentiment: every
- * probe reads the filesystem and reports a ground-truth fact. Read-only — it mutates
- * nothing and appends no event. `healthy` is false (and the CLI exits non-zero) when
- * any HEALTH-GATING probe fails: an abnormal note root (root-integrity), a
- * schema-invalid note, or a stale INDEX. The other three (digest coverage, orphaned
- * archive, event ratio) are informational — they never affect `healthy`.
+ * probe reads the filesystem (or the journal) and reports a ground-truth fact.
+ * Read-only — it mutates nothing and appends no event. `healthy` is false (and the
+ * CLI exits non-zero) when any HEALTH-GATING probe fails: an abnormal note root
+ * (root-integrity), a schema-invalid note, or a stale INDEX. The other four (digest
+ * coverage, orphaned archive, event ratio, retrieval quality) are informational —
+ * they never affect `healthy`.
  *
  * These are DETERMINISTIC SMOKE checks, not invariant ENFORCEMENT: they surface the
  * cheap-to-detect drift each memory milestone can leave behind — a redirected note
  * root (root-integrity), an unparseable note (schema), an INDEX older by mtime than
  * the corpus (freshness — NOT a content check), archived notes missing from their
- * month's digest (orphaned-archive), and a coarse event/note ratio. A HEALTHY exit
- * means no health-GATING drift was detected — the informational probes may STILL
- * report drift (e.g. orphaned archive) on a healthy tree; read each probe.
+ * month's digest (orphaned-archive), a coarse event/note ratio, and (#425) a
+ * retrieval-quality signal read from the `memory.recall`/`memory.verify` journal
+ * entries. A HEALTHY exit means no health-GATING drift was detected — the
+ * informational probes may STILL report drift (e.g. orphaned archive) on a
+ * healthy tree; read each probe.
  */
 const SCAN_CONCURRENCY = 16;
 
@@ -119,11 +129,17 @@ export async function auditMemory(options: SomaMemoryAuditOptions = {}): Promise
   );
   const digestCov = probeDigestCoverage(sessionFiles.length, actionFiles.length, digestFilesList.length);
   const archive = await probeOrphanedArchive(parsed, archiveDir, digestFilesList, somaHome);
-  const eventLines = await countEventLines(somaMemoryEventsPath(somaHome));
+  const eventsPath = somaMemoryEventsPath(somaHome);
+  const eventLines = await countEventLines(eventsPath);
   const validNotes = parsed.length - schema.invalidNotes.length;
   const eventProbe = probeEventRatio(eventLines, validNotes);
+  // A SEPARATE read from `countEventLines` above (which only byte-scans for a line
+  // count): #425's retrieval-quality signal needs each event's kind/metadata, so it
+  // parses the journal as JSONL rather than repurposing that coarse scan.
+  const events = await readMemoryEvents(eventsPath);
+  const retrieval = probeRetrievalQuality(events);
 
-  probes.push(treeIntegrity.probe, schema.probe, index.probe, digestCov.probe, archive.probe, eventProbe.probe);
+  probes.push(treeIntegrity.probe, schema.probe, index.probe, digestCov.probe, archive.probe, eventProbe.probe, retrieval.probe);
 
   // Single source of truth: healthy iff every HEALTH-GATING probe is ok. The
   // informational probes carry gatesHealth:false and never affect this.
@@ -137,6 +153,7 @@ export async function auditMemory(options: SomaMemoryAuditOptions = {}): Promise
     digests: digestCov.digests,
     orphanedArchive: archive.orphanedArchive,
     events: eventProbe.events,
+    retrieval: retrieval.retrieval,
     probes,
   };
 }
@@ -307,6 +324,115 @@ async function probeOrphanedArchive(
 /** Probe: event-stream lines over valid-note count (informational). */
 function probeEventRatio(lines: number, notes: number): { probe: SomaMemoryAuditProbe; events: { lines: number; notes: number } } {
   return { events: { lines, notes }, probe: { name: "event-ratio", gatesHealth: false, ok: true, detail: `${lines} event line(s) over ${notes} valid note(s)` } };
+}
+
+// --- #425 retrieval-quality (informational) -----------------------------------
+
+/**
+ * The subsequent-event window `probeRetrievalQuality` searches, chronologically
+ * after a `memory.recall` event, for a `memory.verify` of one of its returned ids.
+ * No existing audit window applies here (the consolidate TTLs are day-based
+ * staleness thresholds for a different concern), so this is a fresh, documented
+ * default rather than a reused constant — events, not days, keep the correlation
+ * deterministic and independent of clock/timezone handling. Not yet configurable;
+ * a future slice may need to tune it once real recall volume exists.
+ */
+const RECALL_VERIFY_WINDOW_EVENTS = 50;
+
+/** The `noteIds` a `memory.recall` event recorded (its returned note ids — both
+ *  term matches and 1-hop link pulls), or `[]` if absent/malformed. */
+function recallEventNoteIds(event: SomaMemoryEvent): string[] {
+  const raw = event.metadata?.noteIds;
+  return Array.isArray(raw) ? raw.filter((v): v is string => typeof v === "string") : [];
+}
+
+/** The note id a `memory.verify` event bumped (`memory-write.ts`'s verify path
+ *  records it as `metadata.id`), or `undefined` if absent/malformed. */
+function verifyEventNoteId(event: SomaMemoryEvent): string | undefined {
+  const raw = event.metadata?.id;
+  return typeof raw === "string" ? raw : undefined;
+}
+
+/**
+ * Probe: the #425 retrieval-quality signal, computed PURELY from the journal (no
+ * new state) — informational, never gates `healthy`. Three AUTOMEM-inspired
+ * numbers over `memory.recall` events: recall volume, empty-recall rate (0
+ * returned ids), and verify-follows-recall rate (a returned id gets a
+ * `memory.verify` within `RECALL_VERIFY_WINDOW_EVENTS` subsequent journal
+ * entries — the "recalled → actually useful" proxy). The verify-follow
+ * denominator is recalls WITH results, not every recall: an empty recall can
+ * structurally never be verify-followed, so folding it in would just re-encode
+ * the empty-recall rate a second time.
+ */
+function probeRetrievalQuality(events: SomaMemoryEvent[]): { probe: SomaMemoryAuditProbe; retrieval: SomaMemoryRetrievalQuality } {
+  const recalls = events
+    .map((event, index) => ({ event, index }))
+    .filter(({ event }) => event.kind === "memory.recall");
+
+  const recallVolume = recalls.length;
+  const emptyRecalls = recalls.filter(({ event }) => recallEventNoteIds(event).length === 0).length;
+  const emptyRecallRate = recallVolume === 0 ? 0 : emptyRecalls / recallVolume;
+
+  const nonEmptyRecalls = recalls.filter(({ event }) => recallEventNoteIds(event).length > 0);
+  let verifiedFollows = 0;
+  for (const { event, index } of nonEmptyRecalls) {
+    const noteIds = new Set(recallEventNoteIds(event));
+    const windowEnd = Math.min(events.length, index + 1 + RECALL_VERIFY_WINDOW_EVENTS);
+    for (let j = index + 1; j < windowEnd; j += 1) {
+      const candidate = events[j];
+      if (candidate.kind !== "memory.verify") continue;
+      const verifiedId = verifyEventNoteId(candidate);
+      if (verifiedId !== undefined && noteIds.has(verifiedId)) {
+        verifiedFollows += 1;
+        break;
+      }
+    }
+  }
+  const verifyFollowsRecallRate = nonEmptyRecalls.length === 0 ? 0 : verifiedFollows / nonEmptyRecalls.length;
+
+  const retrieval: SomaMemoryRetrievalQuality = {
+    recallVolume,
+    emptyRecallRate,
+    verifyFollowsRecallRate,
+    recallsWithResults: nonEmptyRecalls.length,
+    verifyWindowEvents: RECALL_VERIFY_WINDOW_EVENTS,
+  };
+
+  return {
+    retrieval,
+    probe: {
+      name: "retrieval-quality",
+      gatesHealth: false,
+      ok: true,
+      detail:
+        `${recallVolume} recall(s), empty-recall-rate ${(emptyRecallRate * 100).toFixed(1)}%, ` +
+        `verify-follows-recall-rate ${(verifyFollowsRecallRate * 100).toFixed(1)}% ` +
+        `(${nonEmptyRecalls.length} non-empty recall(s), ${RECALL_VERIFY_WINDOW_EVENTS}-event window)`,
+    },
+  };
+}
+
+/** Parse the events journal as JSONL (informational-probe tolerant: a malformed
+ *  line is skipped, never thrown). Read with O_NOFOLLOW, same as every other
+ *  audit read — a symlinked events file cannot spoof this probe from an outside
+ *  target. A separate read from `countEventLines` (which only byte-scans for a
+ *  count): this probe needs each event's `kind`/`metadata`. */
+async function readMemoryEvents(eventsPath: string): Promise<SomaMemoryEvent[]> {
+  const content = await readFile(eventsPath, { encoding: "utf8", flag: NOFOLLOW_READ }).catch(() => "");
+  const events: SomaMemoryEvent[] = [];
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue;
+    try {
+      const parsed = JSON.parse(trimmed) as Partial<SomaMemoryEvent>;
+      if (typeof parsed.kind === "string" && typeof parsed.timestamp === "string") {
+        events.push(parsed as SomaMemoryEvent);
+      }
+    } catch {
+      // malformed line — skip, mirroring this audit's forgiving-read stance elsewhere
+    }
+  }
+  return events;
 }
 
 /**

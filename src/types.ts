@@ -2802,20 +2802,46 @@ export type SomaMemoryAuditProbeName =
   | "index-freshness"
   | "digest-coverage"
   | "orphaned-archive"
-  | "event-ratio";
+  | "event-ratio"
+  | "retrieval-quality";
 
 /**
  * One deterministic probe's outcome. `gatesHealth` is machine-readable: when it is
  * true, `ok: false` forces `result.healthy` false. Three probes gate:
  * `root-integrity`, `schema`, and `index-freshness`. Informational probes
- * (`digest-coverage`, `orphaned-archive`, `event-ratio`) have `gatesHealth: false`
- * and always report `ok: true`.
+ * (`digest-coverage`, `orphaned-archive`, `event-ratio`, `retrieval-quality`) have
+ * `gatesHealth: false` and always report `ok: true`.
  */
 export interface SomaMemoryAuditProbe {
   name: SomaMemoryAuditProbeName;
   ok: boolean;
   gatesHealth: boolean;
   detail: string;
+}
+
+/**
+ * #425 — the first retrieval-quality signal, computed PURELY from the journal
+ * (no new state files, no gating): the AUTOMEM-inspired "does recall actually
+ * help" proxy. `verifyFollowsRecallRate`'s denominator is recalls WITH results
+ * (`recallsWithResults`), not every recall — an empty recall structurally can
+ * never be followed by a verify of a returned note, so folding it into this rate
+ * would just re-encode `emptyRecallRate` a second time. `verifyWindowEvents` is
+ * the number of SUBSEQUENT journal events (any kind) searched, chronologically
+ * after a recall, for a `memory.verify` of one of its returned ids — a fixed
+ * default (see `memory-audit.ts`), not yet configurable; a future slice may gate
+ * on this metric, this one only measures it.
+ */
+export interface SomaMemoryRetrievalQuality {
+  /** Total `memory.recall` events in the journal. */
+  recallVolume: number;
+  /** Fraction of recalls returning 0 note ids (AUTOMEM's "empty-search rate"). 0 when recallVolume is 0. */
+  emptyRecallRate: number;
+  /** Fraction of non-empty recalls followed by a `memory.verify` of a returned id within the window. 0 when recallsWithResults is 0. */
+  verifyFollowsRecallRate: number;
+  /** Denominator for verifyFollowsRecallRate: recalls that returned ≥1 note id. */
+  recallsWithResults: number;
+  /** The subsequent-event window used to correlate a recall with a later verify. */
+  verifyWindowEvents: number;
 }
 
 export interface SomaMemoryAuditResult {
@@ -2835,11 +2861,14 @@ export interface SomaMemoryAuditResult {
   orphanedArchive: string[];
   /** Event-stream vs corpus size — a coarse write-amplification signal (informational). */
   events: { lines: number; notes: number };
+  /** #425 retrieval-quality signal computed from the journal (informational, never gates `healthy`). */
+  retrieval: SomaMemoryRetrievalQuality;
   /**
    * Every probe run, in report order. THREE gate `healthy` (`root-integrity`,
-   * `schema`, `index-freshness`); the other three (`digest-coverage`,
-   * `orphaned-archive`, `event-ratio`) are informational drift signals whose `ok` is
-   * always true. Read `probe.gatesHealth` rather than hardcoding this list.
+   * `schema`, `index-freshness`); the other four (`digest-coverage`,
+   * `orphaned-archive`, `event-ratio`, `retrieval-quality`) are informational drift
+   * signals whose `ok` is always true. Read `probe.gatesHealth` rather than
+   * hardcoding this list.
    */
   probes: SomaMemoryAuditProbe[];
 }
@@ -2848,17 +2877,23 @@ export interface SomaMemoryAuditResult {
 // durable corpus (semantic + procedural) — term scoring, whole-file retrieval
 // (limit 3), 1-hop link expansion, superseded-exclusion via `valid_until`, and a
 // read-time verification banner whose age derives from an injected `now`. Recall
-// is read-only: it appends no event and mutates nothing (verifying is a separate,
-// authority-gated act). Distinct from the legacy line-grep `searchSomaMemory`,
-// which walks the pre-note memory tree (WORK/KNOWLEDGE/…).
+// mutates NO note (verifying is a separate, authority-gated act) — that purity
+// invariant is unchanged. #425 adds exactly one observability side effect: every
+// call appends a `memory.recall` journal event (query terms, returned note ids,
+// result count, unresolved-link count) so retrieval can finally be measured; see
+// `memory-recall.ts`'s module docstring for the full contract. Distinct from the
+// legacy line-grep `searchSomaMemory`, which walks the pre-note memory tree
+// (WORK/KNOWLEDGE/…) and still appends no event.
 export interface SomaMemoryRecallOptions {
   homeDir?: string;
   somaHome?: string;
   query: string;
   /** Cap on primary (term-matched) notes returned; 1-hop link pulls are additional. Default 3. */
   limit?: number;
-  /** Injected clock for deterministic banner ages. Defaults to now. */
+  /** Injected clock for deterministic banner ages AND the recall event's timestamp. Defaults to now. */
   now?: Date;
+  /** Substrate tag for the `memory.recall` event this call appends. Defaults to `"custom"`. */
+  substrate?: SubstrateId;
 }
 
 /** One retrieved note with its verification banner (M2). */

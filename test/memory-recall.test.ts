@@ -1,8 +1,8 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import { recallMemory, serializeMemoryNote, type SomaMemoryNote } from "../src/index";
+import { recallMemory, serializeMemoryNote, somaMemoryEventsPath, type SomaMemoryEvent, type SomaMemoryNote } from "../src/index";
 import { memoryNotePath, type WritableType } from "../src/memory-write";
 import { parseMemoryArgs, runMemoryCli } from "../src/cli/memory";
 
@@ -16,6 +16,17 @@ async function withTempSoma<T>(fn: (somaHome: string) => Promise<T>): Promise<T>
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+}
+
+/** Every `memory.recall` event currently in the journal (JSONL, in append order). */
+async function readRecallEvents(somaHome: string): Promise<SomaMemoryEvent[]> {
+  const content = await readFile(somaMemoryEventsPath(somaHome), "utf8").catch(() => "");
+  return content
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as SomaMemoryEvent)
+    .filter((event) => event.kind === "memory.recall");
 }
 
 /** Seed a note file directly (bypassing the write governance) for precise control
@@ -188,6 +199,91 @@ test("recallMemory rejects a non-positive or non-integer limit at the API bounda
         /positive integer/,
       );
     }
+  });
+});
+
+// --- #425 evented recall (purity + the memory.recall journal event) ----------
+
+test("recall appends exactly one memory.recall event with the correct returned ids, AND the note's frontmatter (incl. resurface_count) is byte-identical afterward (purity preserved)", async () => {
+  await withTempSoma(async (somaHome) => {
+    await seed(somaHome, {
+      id: "prefers-colon-over-emdash",
+      body: "Andreas reads em-dashes as an AI tell; use a colon instead.",
+      source_of_truth: "CONTEXT.md",
+      resurface_count: 3,
+    });
+    const path = memoryNotePath(somaHome, "semantic", "prefers-colon-over-emdash");
+    const before = await readFile(path, "utf8");
+
+    const result = await recallMemory({ somaHome, query: "em-dashes colon", now: NOW });
+
+    // recall still returns exactly what it always returned
+    expect(result.matches.map((m) => m.id)).toEqual(["prefers-colon-over-emdash"]);
+
+    // the ONLY new side effect: one memory.recall event, carrying the returned ids
+    const recallEvents = await readRecallEvents(somaHome);
+    expect(recallEvents).toHaveLength(1);
+    expect(recallEvents[0]).toMatchObject({
+      kind: "memory.recall",
+      substrate: "custom",
+      metadata: {
+        query: "em-dashes colon",
+        terms: ["dashes", "colon"],
+        noteIds: ["prefers-colon-over-emdash"],
+        resultCount: 1,
+        unresolvedLinksCount: 0,
+      },
+    });
+
+    // purity: the note file on disk is byte-identical after recall — no frontmatter
+    // touch, resurface_count untouched.
+    const after = await readFile(path, "utf8");
+    expect(after).toBe(before);
+    expect(after).toContain("resurface_count: 3");
+  });
+});
+
+test("an unresolved 1-hop link is carried on the memory.recall event's unresolvedLinksCount", async () => {
+  await withTempSoma(async (somaHome) => {
+    await seed(somaHome, { id: "hub-note", body: "primary match about deployment", links: ["ghost-note"] });
+
+    await recallMemory({ somaHome, query: "deployment", now: NOW });
+
+    const [event] = await readRecallEvents(somaHome);
+    expect(event.metadata).toMatchObject({ noteIds: ["hub-note"], resultCount: 1, unresolvedLinksCount: 1 });
+  });
+});
+
+test("an empty (sub-3-char) query still emits a memory.recall event with an empty result set", async () => {
+  await withTempSoma(async (somaHome) => {
+    await seed(somaHome, { id: "some-note", body: "a bc de fg" });
+
+    const result = await recallMemory({ somaHome, query: "a bc de", now: NOW });
+    expect(result.matches).toEqual([]);
+
+    const recallEvents = await readRecallEvents(somaHome);
+    expect(recallEvents).toHaveLength(1);
+    expect(recallEvents[0]).toMatchObject({
+      kind: "memory.recall",
+      metadata: { query: "a bc de", terms: [], noteIds: [], resultCount: 0, unresolvedLinksCount: 0 },
+    });
+  });
+});
+
+test("a rejected (invalid-limit) recall call appends no event", async () => {
+  await withTempSoma(async (somaHome) => {
+    await seed(somaHome, { id: "note", body: "alpha content" });
+    await expect(recallMemory({ somaHome, query: "alpha", now: NOW, limit: 0 })).rejects.toThrow();
+    expect(await readRecallEvents(somaHome)).toEqual([]);
+  });
+});
+
+test("recall's memory.recall event honors an explicit substrate", async () => {
+  await withTempSoma(async (somaHome) => {
+    await seed(somaHome, { id: "note", body: "alpha content" });
+    await recallMemory({ somaHome, query: "alpha", now: NOW, substrate: "claude-code" });
+    const [event] = await readRecallEvents(somaHome);
+    expect(event.substrate).toBe("claude-code");
   });
 });
 

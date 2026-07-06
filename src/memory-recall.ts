@@ -5,6 +5,7 @@ import { memoryTerms } from "./memory-terms";
 // Aliased: `toRecalledNote` below binds a local `ageDays` (the field name on
 // SomaMemoryRecalledNote), so the imported function keeps a distinct name.
 import { noteDateMs, ageDays as ageDaysSince } from "./memory-corpus";
+import { appendSomaMemoryEvent } from "./memory";
 import type {
   SomaMemoryNote,
   SomaMemoryRecallOptions,
@@ -35,10 +36,17 @@ import type {
  *   age derives from the injected `now`; quarantined notes carry an explicit
  *   untrusted-content warning.
  *
- * Read-only: recall appends NO event and mutates nothing. Bumping a note's
+ * Non-mutating: recall touches NO note frontmatter. Bumping a note's
  * `last_verified`/`resurface_count` is the separate, authority-gated `verify` act
  * (M1) — recall deliberately does not confer freshness by being read (that would
- * let a mere read keep a note artificially alive in the M3 index).
+ * let a mere read keep a note artificially alive in the M3 index). #425 adds
+ * exactly ONE observability side effect on top of that unchanged purity
+ * invariant: every call appends a single `memory.recall` journal event (query
+ * terms, returned note ids, result count, unresolved-link count) — nothing is
+ * mutated, and what recall RETURNS is unchanged; only that the call is now
+ * observed. The event is appended for the empty-terms early-return path too, so
+ * an empty recall still contributes to the empty-recall-rate metric
+ * (`memory-audit.ts`'s `retrieval-quality` probe reads this journal).
  */
 
 const DEFAULT_LIMIT = 3;
@@ -130,9 +138,40 @@ function toRecalledNote(
 }
 
 /**
+ * Append the ONE `memory.recall` journal event #425 adds — query terms, returned
+ * note ids (both term-matched AND their 1-hop link pulls, i.e. every id in
+ * `result.matches`), result count, and unresolved-link count. Called for every
+ * `recallMemory` return path (including the empty-terms early return), so an
+ * empty recall still contributes to the empty-recall-rate metric. This is the
+ * ONLY new side effect — it appends, it does not mutate any note.
+ */
+async function appendRecallEvent(
+  somaHome: string,
+  options: SomaMemoryRecallOptions,
+  now: Date,
+  result: SomaMemoryRecallResult,
+): Promise<void> {
+  const noteIds = result.matches.map((m) => m.id);
+  await appendSomaMemoryEvent(somaHome, {
+    timestamp: now.toISOString(),
+    substrate: options.substrate ?? "custom",
+    kind: "memory.recall",
+    summary: `Recalled ${noteIds.length} note(s) for "${result.query}"`,
+    metadata: {
+      query: result.query,
+      terms: result.terms,
+      noteIds,
+      resultCount: noteIds.length,
+      unresolvedLinksCount: result.unresolvedLinks.length,
+    },
+  });
+}
+
+/**
  * Recall active durable notes for `query`. See the module docstring for the full
  * contract (term scoring, whole-file, limit 3, 1-hop links, superseded-exclusion,
- * verification banner). Deterministic and side-effect-free.
+ * verification banner, and the `memory.recall` event #425 appends). Deterministic
+ * and non-mutating (see module docstring for the recall-purity invariant).
  */
 export async function recallMemory(options: SomaMemoryRecallOptions): Promise<SomaMemoryRecallResult> {
   const somaHome = createPaths(options).root();
@@ -152,7 +191,9 @@ export async function recallMemory(options: SomaMemoryRecallOptions): Promise<So
   const active = notes.filter((scanned) => scanned.note.valid_until === null);
 
   if (terms.length === 0) {
-    return { query: options.query, somaHome, terms, matches: [], unresolvedLinks: [], unreadable };
+    const emptyResult: SomaMemoryRecallResult = { query: options.query, somaHome, terms, matches: [], unresolvedLinks: [], unreadable };
+    await appendRecallEvent(somaHome, options, now, emptyResult);
+    return emptyResult;
   }
 
   // Score, keep only notes matching at least one term, and rank deterministically:
@@ -205,5 +246,7 @@ export async function recallMemory(options: SomaMemoryRecallOptions): Promise<So
     }
   }
 
-  return { query: options.query, somaHome, terms, matches, unresolvedLinks, unreadable };
+  const result: SomaMemoryRecallResult = { query: options.query, somaHome, terms, matches, unresolvedLinks, unreadable };
+  await appendRecallEvent(somaHome, options, now, result);
+  return result;
 }

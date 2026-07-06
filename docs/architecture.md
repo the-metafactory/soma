@@ -198,18 +198,26 @@ principal-trust note in recall. This closes the forward import path only — it 
 not detect or remove a clone already imported (e.g. before promotion, or by an
 earlier backfill); surfacing such a pre-existing shadow is `soma memory audit`'s job,
 not backfill's. `soma memory audit` (M7) — a deterministic, read-only health check
-that reads the FILES directly, not the event stream — is the ground-truth check:
-it has three health-gating probes — root-integrity (every note root is a real
-directory), schema validity, and INDEX freshness — plus three informational drift
-signals — episodic note/digest COUNTS (a coverage indicator, not a verified
-note↔digest mapping), archived notes missing from their created-month digest, and
-the event/note ratio — and EXITS NON-ZERO on any gating failure (so it can gate CI). A no-op pass writes no event. The write/event
-coupling is best-effort, not crash-atomic: an event-append *failure* rolls the file
-mutation back, but a hard process crash in the window between the two can still
-orphan a file from its event (soma has no WAL/2PC). The M7 audit does NOT reconcile
-note↔event linkage — its event-ratio probe is a COARSE count (event lines over
-notes), not per-note orphan detection; a missing event can be masked by unrelated
-lines. This
+that reads the FILES directly for its three GATING probes (the event stream feeds
+only informational probes) — is the ground-truth check: it has three
+health-gating probes — root-integrity (every note root is a real directory),
+schema validity, and INDEX freshness — plus four informational drift signals —
+episodic note/digest COUNTS (a coverage indicator, not a verified note↔digest
+mapping), archived notes missing from their created-month digest, the event/note
+ratio, and (#425) retrieval quality (recall volume, empty-recall rate, and
+verify-follows-recall rate, computed purely from the `memory.recall`/
+`memory.verify` journal entries — measure only, gates nothing) — and EXITS
+NON-ZERO on any gating failure (so it can gate CI). A no-op pass writes no event.
+The write/event coupling is best-effort, not crash-atomic: an event-append
+*failure* rolls the file mutation back, but a hard process crash in the window
+between the two can still orphan a file from its event (soma has no WAL/2PC). The
+M7 audit does NOT reconcile note↔event linkage — its event-ratio probe is a
+COARSE count (event lines over notes), not per-note orphan detection; a missing
+event can be masked by unrelated lines. Recall itself now appends exactly one
+`memory.recall` event per call (#425) — query terms, returned note ids, result
+count, unresolved-link count — without touching any note's frontmatter; recall's
+non-mutating contract (bumping `last_verified`/`resurface_count` remains the
+separate, authority-gated `verify` act) is unchanged. This
 taxonomy is intentionally distinct from the `MEMORY/*` stores: those stores hold
 curated free-form material; the note store holds single-fact, governed,
 decay-tracked notes.

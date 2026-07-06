@@ -141,7 +141,8 @@ export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAct
     recall:
       "Usage: soma memory recall <query> [--query <text>] [--limit <n>] [--home-dir <dir>] [--soma-home <dir>]. " +
       "Note-aware retrieval over durable notes: term-scored whole-file matches (limit 3) + 1-hop links, " +
-      "superseded notes excluded, each result carrying a verification banner. Read-only.",
+      "superseded notes excluded, each result carrying a verification banner. Mutates no note (read-only); " +
+      "appends one `memory.recall` journal event per call for the retrieval-quality audit probe (`soma memory audit`).",
     promote:
       "Usage: soma memory promote --from-run <run-id> --store <learning|knowledge|relationship|work> --title <text> " +
       "--principal-authority [--lesson <text>] [--applies-when <text>] [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]. " +
