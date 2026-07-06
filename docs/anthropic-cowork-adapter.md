@@ -318,6 +318,55 @@ bun run typecheck
 7. Defer: MCP (soma#153), plugin packaging, team overlays, global-instructions
    projection (pending `[S1]` file-backing).
 
+## Implementation Breakdown (planned epic + sub-issues — not yet filed)
+
+Issues are deliberately **not created yet**. This section is the ready-to-file
+breakdown; when implementation starts, an epic is opened pinning this doc by
+merged commit (the #346 → `copilot-cli-adapter.md` pattern) and these become
+its sub-issues verbatim. Until then this section is the single source of the
+plan.
+
+### Epic: Anthropic Cowork substrate adapter
+
+Definition of Done — demonstrable walkthrough on a macOS machine with Cowork
+installed:
+
+1. `soma install anthropic-cowork` prints a dry-run plan; `--apply` writes
+   only marker-owned files (S3–S5)
+2. A new Cowork session in the projected working folder, asked "who are you
+   and what's my active work?", answers with the assistant identity and cites
+   startup context (S4)
+3. Algorithm-mode work is driven by the projected `the-algorithm` skill (S5)
+4. `soma doctor --substrate anthropic-cowork` reports healthy; after deleting
+   one projected file it reports the gap (S6)
+5. `soma uninstall anthropic-cowork` removes only Soma-owned files/blocks;
+   user-authored content is untouched (S6)
+
+### Sub-issues
+
+| ID | Title | Blocked by | Notes |
+| --- | --- | --- | --- |
+| S1 | Probe Cowork extensibility surfaces on a live install | — | manual/attended: skills dir, global-instructions file-backing, working-folder auto-read, MCP reachability from the VM, hook-surface absence, Cowork version. Output: filled Native Surfaces table |
+| S2 | Finalize this spec against S1 results | S1 | replace every `[S1]` marker with verified paths or drop the surface |
+| S3 | Add `anthropic-cowork` substrate id + install spec + CLI wiring (stub projection) | S2 | touch-points: `src/types.ts`, `src/install-spec.ts`, `src/install-spec-registry.ts`, `src/cli/substrate-lifecycle.ts`, usage strings; Cursor adapter is the structural template |
+| S4 | Pure `projectAnthropicCoworkHome()` — working-folder bundle incl. `memory-snapshot.md` | S3 | compartment-exclusion tests are part of this slice |
+| S5 | Skill projection: `soma`, `the-algorithm`, `VSA` | S3 | rendering note: harness CLI unavailable in-VM; run state via capture |
+| S6 | Capture ingestion + uninstall + doctor + greenfield acceptance | S4, S5 | quarantined-trust ingestion; add substrate to the all-adapter install acceptance test (soma#373) |
+| S7 | MCP consumption in `claude_desktop_config.json` | soma#153 | HELD until the MCP server exists; marker-guarded, read-oriented tools only |
+
+### Waves
+
+| Wave | Issues | Lane rule |
+| --- | --- | --- |
+| 0 | S1 | manual/attended — needs a human on a Cowork machine |
+| 1 | S2 | solo, spec finalization |
+| 2 | S3 → (S4 ∥ S5) → S6 | single lane for S3 (registry file overlap), then parallel |
+| 3 | S7 | HELD, blocked by soma#153 |
+
+Holds, written where executors read: no S7 work until soma#153 merges; never
+edit a live `claude_desktop_config.json` outside marker-guarded install code;
+hooks are permanently out of scope unless S1 proves a surface exists.
+
 ## References
 
 - Soma adapter contract: [substrate-adapters.md](./substrate-adapters.md)
