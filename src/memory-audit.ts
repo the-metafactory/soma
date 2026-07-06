@@ -490,6 +490,66 @@ async function streamJournalStats(eventsPath: string): Promise<{ eventLines: num
   return { eventLines, retrieval: finalizeRetrieval(acc, skippedEventLines) };
 }
 
+// --- #428 per-note retrieval counts (M6 auto-merge gating) --------------------
+
+/**
+ * Per-note counterpart of the #425 corpus-wide retrieval-quality signal: how
+ * many times THIS id was returned by a `memory.recall` event, and how many
+ * times it was reinforced by a `memory.verify`/(#427) `memory.resurface` event.
+ * Used by M6's #428 auto-merge to PREFER collapsing low-value churn (rarely
+ * recalled, never reinforced) over actively-useful notes when two near-dup
+ * pairs compete for the same note. This is a documented HEURISTIC — a combined
+ * count, no recency/decay weighting — rather than a true per-PAIR "was this
+ * recall useful" correlation: that would need the same recall→verify window
+ * correlation `foldRetrievalEvent` already does at the CORPUS level, and
+ * re-deriving it per-note here would be premature tuning before real recall
+ * volume exists (the #425 retrieval-quality probe documents the same
+ * young-corpus caveat). Malformed journal lines are silently skipped (not
+ * surfaced) — this is an internal gating signal, not a health probe.
+ */
+export interface SomaMemoryNoteRetrievalCount {
+  /** Times this note id appeared in a `memory.recall` event's returned ids. */
+  recalled: number;
+  /** Times this note id was bumped by `memory.verify` or `memory.resurface`. */
+  verified: number;
+}
+
+/** Stream the journal once, counting per-note recall/verify occurrences (#428). */
+export async function computeNoteRetrievalCounts(somaHome: string): Promise<Map<string, SomaMemoryNoteRetrievalCount>> {
+  const counts = new Map<string, SomaMemoryNoteRetrievalCount>();
+  const bump = (id: string, field: keyof SomaMemoryNoteRetrievalCount): void => {
+    const existing = counts.get(id) ?? { recalled: 0, verified: 0 };
+    existing[field] += 1;
+    counts.set(id, existing);
+  };
+
+  const handle = await open(somaMemoryEventsPath(somaHome), NOFOLLOW_READ).catch(() => undefined);
+  if (handle === undefined) return counts; // absent/symlinked journal → no signal, same forgiving stance as the audit
+  try {
+    const lines = createInterface({ input: handle.createReadStream({ encoding: "utf8" }), crlfDelay: Infinity });
+    for await (const line of lines) {
+      if (line.trim().length === 0) continue;
+      let event: SomaMemoryEvent | undefined;
+      try {
+        const parsed = JSON.parse(line) as Partial<SomaMemoryEvent>;
+        if (typeof parsed.kind === "string" && typeof parsed.timestamp === "string") event = parsed as SomaMemoryEvent;
+      } catch {
+        // malformed line — skipped, same forgiving stance as the retrieval-quality probe
+      }
+      if (event === undefined) continue;
+      if (event.kind === "memory.recall") {
+        for (const id of recallEventNoteIds(event)) bump(id, "recalled");
+        continue;
+      }
+      const verifiedId = verifyEventNoteId(event);
+      if (verifiedId !== undefined) bump(verifiedId, "verified");
+    }
+  } finally {
+    await handle.close().catch(() => undefined);
+  }
+  return counts;
+}
+
 /**
  * Probe: the #425 retrieval-quality signal, computed PURELY from the journal (no
  * new state) — informational, never gates `healthy`. Three AUTOMEM-inspired

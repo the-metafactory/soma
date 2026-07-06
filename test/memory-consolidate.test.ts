@@ -2,7 +2,7 @@ import { access, mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import { consolidateMemory, parseMemoryNote, serializeMemoryNote, type SomaMemoryNote } from "../src/index";
+import { appendSomaMemoryEvent, consolidateMemory, parseMemoryNote, serializeMemoryNote, type SomaMemoryNote } from "../src/index";
 import { memoryIndexPath } from "../src/memory-index";
 import { createPaths } from "../src/paths";
 // Plan/apply internals are module-private (not public index API) — import direct,
@@ -222,6 +222,201 @@ test("lexically-similar active notes are LISTED as near-duplicate pairs (no merg
   });
 });
 
+// --- #428: auto-merge assistant-trust near-dups ------------------------------
+
+test("#428: an assistant-trust near-dup pair is auto-merged — delta-merge + close, never delete", async () => {
+  await withTempSoma(async (somaHome) => {
+    const aPath = await writeNote(
+      somaHome,
+      "memory/semantic/a.md",
+      note({ id: "a", type: "semantic", trust: "assistant", provenance: "consolidation", body: "gateway retries thrice before dead lettering the message" }),
+    );
+    const bPath = await writeNote(
+      somaHome,
+      "memory/semantic/b.md",
+      note({ id: "b", type: "semantic", trust: "assistant", provenance: "consolidation", body: "gateway retries thrice before dead lettering the message now" }),
+    );
+
+    const result = await consolidateMemory({ somaHome, now: NOW });
+
+    expect(result.autoMerged).toHaveLength(1);
+    expect(result.autoMerged[0].keepId).toBe("a");
+    expect(result.autoMerged[0].dropId).toBe("b");
+    expect(result.autoMerged[0].score).toBeGreaterThanOrEqual(0.6);
+
+    const kept = parseMemoryNote(await readFile(aPath, "utf8"));
+    expect(kept.valid_until).toBeNull(); // survives, active
+    expect(kept.body).toContain("**Update");
+    expect(kept.links).toContain("b");
+
+    const dropped = parseMemoryNote(await readFile(bPath, "utf8"));
+    expect(dropped.valid_until).toBe("2026-07-04"); // closed, not deleted
+    expect(dropped.links).toContain("a");
+    expect(await exists(bPath)).toBe(true); // invalidate, never delete
+  });
+});
+
+test("#428: a principal-trust near-dup pair stays report-only — consolidation never merges or closes it", async () => {
+  await withTempSoma(async (somaHome) => {
+    const aPath = await writeNote(
+      somaHome,
+      "memory/semantic/a.md",
+      note({ id: "a", type: "semantic", trust: "principal", body: "gateway retries thrice before dead lettering the message" }),
+    );
+    const bPath = await writeNote(
+      somaHome,
+      "memory/semantic/b.md",
+      note({ id: "b", type: "semantic", trust: "principal", body: "gateway retries thrice before dead lettering the message now" }),
+    );
+
+    const result = await consolidateMemory({ somaHome, now: NOW });
+
+    expect(result.similarPairs).toHaveLength(1); // still reported for principal review
+    expect(result.autoMerged).toEqual([]); // never auto-merged
+
+    const a = parseMemoryNote(await readFile(aPath, "utf8"));
+    const b = parseMemoryNote(await readFile(bPath, "utf8"));
+    expect(a.valid_until).toBeNull();
+    expect(b.valid_until).toBeNull();
+    expect(a.body).not.toContain("**Update");
+    expect(b.body).not.toContain("**Update");
+  });
+});
+
+test("#428: a MIXED-trust pair (one principal, one assistant) is never auto-merged", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeNote(somaHome, "memory/semantic/a.md", note({ id: "a", type: "semantic", trust: "principal", body: "gateway retries thrice before dead lettering the message" }));
+    await writeNote(
+      somaHome,
+      "memory/semantic/b.md",
+      note({ id: "b", type: "semantic", trust: "assistant", provenance: "consolidation", body: "gateway retries thrice before dead lettering the message now" }),
+    );
+
+    const result = await consolidateMemory({ somaHome, now: NOW });
+    expect(result.autoMerged).toEqual([]);
+  });
+});
+
+test("#428: a quarantined near-dup pair is excluded from auto-merge too (unvetted content is never auto-consolidated)", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeNote(
+      somaHome,
+      "memory/semantic/a.md",
+      note({ id: "a", type: "semantic", trust: "quarantined", provenance: "import", body: "gateway retries thrice before dead lettering the message" }),
+    );
+    await writeNote(
+      somaHome,
+      "memory/semantic/b.md",
+      note({ id: "b", type: "semantic", trust: "quarantined", provenance: "import", body: "gateway retries thrice before dead lettering the message now" }),
+    );
+
+    const result = await consolidateMemory({ somaHome, now: NOW });
+    expect(result.autoMerged).toEqual([]);
+  });
+});
+
+test("#428: --dry-run's auto-merge plan matches the applied result", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeNote(
+      somaHome,
+      "memory/semantic/a.md",
+      note({ id: "a", type: "semantic", trust: "assistant", provenance: "consolidation", body: "gateway retries thrice before dead lettering the message" }),
+    );
+    await writeNote(
+      somaHome,
+      "memory/semantic/b.md",
+      note({ id: "b", type: "semantic", trust: "assistant", provenance: "consolidation", body: "gateway retries thrice before dead lettering the message now" }),
+    );
+
+    const dry = await consolidateMemory({ somaHome, now: NOW, dryRun: true });
+    expect(dry.autoMerged).toHaveLength(1);
+    expect(dry.dryRun).toBe(true);
+
+    const real = await consolidateMemory({ somaHome, now: NOW });
+    expect(dry.autoMerged).toEqual(real.autoMerged);
+  });
+});
+
+test("#428: auto-merge is idempotent — a second run does not re-merge an already-closed pair", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeNote(
+      somaHome,
+      "memory/semantic/a.md",
+      note({ id: "a", type: "semantic", trust: "assistant", provenance: "consolidation", body: "gateway retries thrice before dead lettering the message" }),
+    );
+    await writeNote(
+      somaHome,
+      "memory/semantic/b.md",
+      note({ id: "b", type: "semantic", trust: "assistant", provenance: "consolidation", body: "gateway retries thrice before dead lettering the message now" }),
+    );
+
+    const first = await consolidateMemory({ somaHome, now: NOW });
+    expect(first.autoMerged).toHaveLength(1);
+
+    const second = await consolidateMemory({ somaHome, now: NOW });
+    expect(second.autoMerged).toEqual([]); // "b" is closed — no longer an active near-dup candidate
+  });
+});
+
+test("#428: auto-merge PREFERS low-value churn — a never-recalled note wins a shared-pair claim over a recalled+verified one", async () => {
+  await withTempSoma(async (somaHome) => {
+    // A chain: hot ~ shared ~ cold (all three pairs clear the Jaccard floor).
+    // "shared" can only be claimed by ONE merge this run — the #425 journal
+    // signal should prefer pairing it with "cold" (never recalled) over "hot"
+    // (recalled + verified).
+    await writeNote(
+      somaHome,
+      "memory/semantic/hot.md",
+      note({ id: "hot", type: "semantic", trust: "assistant", provenance: "consolidation", body: "gateway retries thrice before dead lettering hot message alpha" }),
+    );
+    await writeNote(
+      somaHome,
+      "memory/semantic/shared.md",
+      note({ id: "shared", type: "semantic", trust: "assistant", provenance: "consolidation", body: "gateway retries thrice before dead lettering hot message" }),
+    );
+    await writeNote(
+      somaHome,
+      "memory/semantic/cold.md",
+      note({ id: "cold", type: "semantic", trust: "assistant", provenance: "consolidation", body: "gateway retries thrice before dead lettering hot message beta" }),
+    );
+
+    // "hot" has journal history; "shared"/"cold" have none.
+    await appendSomaMemoryEvent(somaHome, { timestamp: NOW.toISOString(), substrate: "custom", kind: "memory.recall", summary: "recall", metadata: { noteIds: ["hot"] } });
+    await appendSomaMemoryEvent(somaHome, { timestamp: NOW.toISOString(), substrate: "custom", kind: "memory.verify", summary: "verify", metadata: { id: "hot" } });
+
+    const result = await consolidateMemory({ somaHome, now: NOW });
+
+    expect(result.autoMerged).toHaveLength(1); // the chain resolves ONE pair this run
+    const involvesShared = result.autoMerged.find((p) => p.keepId === "shared" || p.dropId === "shared");
+    expect(involvesShared).toBeDefined();
+    expect([involvesShared!.keepId, involvesShared!.dropId]).toContain("cold");
+    expect([involvesShared!.keepId, involvesShared!.dropId]).not.toContain("hot");
+    // "hot" (actively used) is left untouched this run — a future run resolves it.
+    expect(result.autoMerged.some((p) => p.keepId === "hot" || p.dropId === "hot")).toBe(false);
+  });
+});
+
+test("#428: planConsolidation's autoMergePairs is frozen too (#412 immutability)", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeNote(
+      somaHome,
+      "memory/semantic/a.md",
+      note({ id: "a", type: "semantic", trust: "assistant", provenance: "consolidation", body: "gateway retries thrice before dead lettering the message" }),
+    );
+    await writeNote(
+      somaHome,
+      "memory/semantic/b.md",
+      note({ id: "b", type: "semantic", trust: "assistant", provenance: "consolidation", body: "gateway retries thrice before dead lettering the message now" }),
+    );
+
+    const paths = createPaths(somaHome);
+    const plan = await planConsolidation(paths, {}, NOW);
+    expect(plan.autoMergePairs.length).toBe(1);
+    expect(Object.isFrozen(plan.autoMergePairs)).toBe(true);
+    expect(() => plan.autoMergePairs.push({ keepId: "x", dropId: "y", score: 1 })).toThrow(TypeError);
+  });
+});
+
 test("unreadable note files are surfaced, never silently skipped", async () => {
   await withTempSoma(async (somaHome) => {
     await mkdir(join(somaHome, "memory/semantic"), { recursive: true });
@@ -380,6 +575,7 @@ const forgedPlan = (somaHome: string, staleMark: string, extra: Partial<Consolid
   digestsWritten: [],
   staleMarks: staleMark ? [{ path: staleMark, rel: "forged", note: note({ id: "x", type: "semantic", body: "forged mark" }) }] : [],
   similarPairs: [],
+  autoMergePairs: [],
   stateGc: [],
   unreadable: [],
   mutated: true,

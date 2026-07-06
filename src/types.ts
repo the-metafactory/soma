@@ -2491,6 +2491,18 @@ export interface SomaMemoryWriteOptions {
   targetId?: string;
   /** create only: bypass the recall-first refusal gate. */
   force?: boolean;
+  /**
+   * #428 — create only: when the recall-first refusal gate finds a near-dup
+   * (exact-hash or Jaccard ≥ 0.6), delta-merge this write's body into the
+   * BEST-scoring candidate (the existing `merge` mode) instead of refusing —
+   * an opt-in resolution, not a silent auto-merge. Governance is UNCHANGED: the
+   * redirect only picks the target automatically, `mergeNote`'s own
+   * trust-rank + tier-authority checks still apply exactly as for an explicit
+   * `--merge <id>`. Mutually exclusive with `force` (which skips the scan
+   * entirely, so there is nothing for `upsert` to react to). Ignored when no
+   * candidate is found — the write proceeds as a normal create.
+   */
+  upsert?: boolean;
 }
 
 export interface SomaMemoryWriteResult {
@@ -2779,11 +2791,29 @@ export interface SomaMemoryArchivePlan {
 /**
  * A pair of notes with high LEXICAL similarity (Jaccard token overlap), surfaced
  * for principal review — a CANDIDATE duplicate/contradiction, not a proven semantic
- * one. `score` is the token-overlap ratio; consolidation never auto-merges.
+ * one. `score` is the token-overlap ratio. This report itself is always read-only
+ * (unchanged by #428); the ELIGIBLE-for-auto-merge subset of it is a separate field,
+ * {@link SomaMemoryAutoMergePlan}.
  */
 export interface SomaMemorySimilarPair {
   a: string;
   b: string;
+  score: number;
+}
+
+/**
+ * #428 — a near-dup pair from {@link SomaMemorySimilarPair} that M6 consolidation
+ * is eligible to auto-merge: BOTH notes are `assistant` trust (never `principal` —
+ * those stay a read-only `similarPairs` entry only; never `quarantined` — unvetted
+ * content is never auto-consolidated either). `keepId` absorbs `dropId`'s body via
+ * the SAME delta-append shape the M1 `merge` mode uses; `dropId` is then CLOSED
+ * (`valid_until` set, cross-linked) — invalidated, never deleted, and never
+ * re-minted under a new id (this is NOT `supersede`). `score` is the pair's
+ * Jaccard score at plan time.
+ */
+export interface SomaMemoryAutoMergePlan {
+  keepId: string;
+  dropId: string;
   score: number;
 }
 
@@ -2801,8 +2831,14 @@ export interface SomaMemoryConsolidateResult {
   markedStale: string[];
   /** `current-work-*.json` files older than 7d to GC — only under `--gc-state`; this pass's only deletion. */
   stateGced: string[];
-  /** High-lexical-similarity note pairs listed for review (candidate duplicates/contradictions). */
+  /** High-lexical-similarity note pairs listed for review (candidate duplicates/contradictions). Read-only; never mutates anything itself. */
   similarPairs: SomaMemorySimilarPair[];
+  /**
+   * #428 — assistant-trust near-dup pairs auto-merged (planned on dry-run, applied
+   * on a real run): `keepId` absorbed `dropId`'s body and `dropId` was closed.
+   * Principal-trust pairs NEVER appear here — see {@link SomaMemoryAutoMergePlan}.
+   */
+  autoMerged: SomaMemoryAutoMergePlan[];
   /**
    * Note files surfaced for the audit and NOT acted on — either an I/O/parse failure
    * (couldn't be read/parsed) OR a safety refusal (unsafe id, malformed calendar date,
@@ -2812,9 +2848,9 @@ export interface SomaMemoryConsolidateResult {
   unreadable: string[];
   /**
    * True iff the pass has (or, on dry-run, would have) any file mutation — i.e. any
-   * of archived / markedStale / stateGced is non-empty. The single source of truth
-   * for whether the INDEX is rebuilt and a `memory.consolidate` event is emitted;
-   * the similar-pairs report is read-only and does NOT set this.
+   * of archived / markedStale / stateGced / autoMerged is non-empty. The single
+   * source of truth for whether the INDEX is rebuilt and a `memory.consolidate`
+   * event is emitted; the similar-pairs report is read-only and does NOT set this.
    */
   mutated: boolean;
   /**

@@ -6,7 +6,8 @@ import { listMemoryNotes } from "./memory-fs";
 import { appendSomaMemoryEvent } from "./memory";
 import { parseMemoryNote, serializeMemoryNote, MemoryNoteError, NOTE_ID_PATTERN, NOTE_ID_MAX_LEN } from "./memory-note";
 import { renderDigestPointer } from "./episodic-digest";
-import { collectDurableNotes } from "./memory-write";
+import { collectDurableNotes, mergeAndCloseAssistantPair } from "./memory-write";
+import { computeNoteRetrievalCounts, type SomaMemoryNoteRetrievalCount } from "./memory-audit";
 import { runBoundedConcurrent } from "./internal-concurrency";
 import { memoryTermSet } from "./memory-terms";
 import { jaccard, ageDays, NEAR_DUPLICATE_JACCARD_THRESHOLD } from "./memory-corpus";
@@ -15,8 +16,10 @@ import type {
   SomaMemoryConsolidateOptions,
   SomaMemoryConsolidateResult,
   SomaMemoryArchivePlan,
+  SomaMemoryAutoMergePlan,
   SomaMemorySimilarPair,
   SomaMemoryNote,
+  SomaMemoryTrust,
   SomaPaths,
 } from "./types";
 
@@ -44,21 +47,36 @@ import type {
  * 3. **List similar pairs** — active durable notes with high LEXICAL similarity
  *    (Jaccard ≥ 0.6) are surfaced for principal review as near-duplicates (which a
  *    reviewer may find to be duplicates OR contradictions) — the overlap is lexical,
- *    NOT a semantic check, and nothing is auto-merged (the write path already
- *    refuses near-duplicates).
+ *    NOT a semantic check. This report itself never merges anything.
+ * 3.5. **Auto-merge assistant near-dups (#428)** — from the pairs above, the subset
+ *    where BOTH notes are `assistant` trust is eligible for auto-merge: one note
+ *    absorbs the other's body via the SAME delta-append shape the M1 `merge` mode
+ *    uses, and the absorbed note is CLOSED (`valid_until` set, never deleted, never
+ *    re-minted under a new id — this is not `supersede`). `principal`-trust pairs
+ *    are NEVER auto-merged — those stay a read-only report only (the hard
+ *    governance line: never silently rewrite principal memory); `quarantined`
+ *    pairs are excluded from auto-merge too (unvetted content is never
+ *    auto-consolidated). Preferred order is LOW-VALUE-CHURN FIRST — pairs whose
+ *    notes were rarely recalled/verified in the #425 journal signal — a
+ *    documented heuristic (see `planAutoMergePairs`), not a hard cutoff.
  * 4. **GC state** — ONLY under the explicit `--gc-state` override (default: off),
  *    `current-work-*.json` files older than 7d are DELETED. This is the pass's only
  *    destructive mutation of protected state, and its only file deletion — notes
- *    (also in the Memory compartment) are archived, never deleted.
- * 5. **Rebuild INDEX** to reflect the archived/stale changes.
+ *    (also in the Memory compartment) are archived or closed, never deleted.
+ * 5. **Rebuild INDEX** to reflect the archived/stale/auto-merged changes.
  *
  * A real run that mutated anything appends one governed `memory.consolidate` event
- * to the journal (the consolidation counterpart of M1's one-mutation-one-event); a
- * no-op run writes none and skips the INDEX rebuild.
+ * to the journal (the consolidation counterpart of M1's one-mutation-one-event) —
+ * PLUS one `memory.consolidate.merge` event PER auto-merged pair (mirroring M1's
+ * own one-mutation-one-event discipline for that content-level mutation); a no-op
+ * run writes none and skips the INDEX rebuild.
  * Idempotent on MUTATIONS: a second run finds the aged notes already archived, the
- * stale notes already marked, the old state already gone → no archive/stale/GC ops
- * and an unchanged INDEX. (The similar-pairs list is a read-only REPORT, not a
- * mutation, so it recurs every run — it does not make the run non-idempotent.)
+ * stale notes already marked, the old state already gone, and an auto-merged pair's
+ * absorbed note already CLOSED (so `planSimilarPairs`/`findDuplicateCandidates`,
+ * which both filter on `valid_until === null`, no longer see it) → no archive/
+ * stale/GC/auto-merge ops and an unchanged INDEX. (The similar-pairs list itself is
+ * a read-only REPORT, not a mutation, so it recurs every run — it does not make the
+ * run non-idempotent.)
  */
 
 const EPISODIC_SESSION_TTL_DAYS = 90;
@@ -296,6 +314,65 @@ function planSimilarPairs(notes: { note: SomaMemoryNote }[]): SomaMemorySimilarP
   return pairs.slice(0, MAX_SIMILAR_PAIRS);
 }
 
+/**
+ * #428 — from the READ-ONLY near-duplicate report (`similarPairs`), select the
+ * subset eligible for auto-merge: BOTH notes must be `assistant` trust. Never
+ * `principal` (that stays report-only — the hard governance line: never
+ * silently rewrite principal memory) and never `quarantined` (unvetted content
+ * is never auto-consolidated either).
+ *
+ * Eligible pairs are ordered LOW-VALUE-CHURN FIRST using the #425 retrieval
+ * signal (`retrieval`, from `computeNoteRetrievalCounts`): a pair whose notes
+ * were rarely recalled/verified in the journal is preferred for collapsing over
+ * an actively-useful one. This is a per-pair PREFERENCE (an ordering), not a
+ * hard cutoff — there is no minimum-churn threshold, since #425's signal is
+ * corpus-young and a hard cutoff would be premature tuning; a future slice may
+ * add one once real recall volume exists (the same caveat the #425
+ * retrieval-quality probe documents).
+ *
+ * At most ONE merge per note per run (the `consumed` set): a note already
+ * claimed as a keep/drop in this pass cannot be claimed again, so a 3-way
+ * near-dup CHAIN (a~b~c) resolves ONE pair now and the rest on a LATER run
+ * (once the keep note's tokens shift) — a documented heuristic degrade rather
+ * than a full transitive-closure resolver, kept simple and deterministic.
+ */
+function planAutoMergePairs(
+  similarPairs: SomaMemorySimilarPair[],
+  notes: { note: SomaMemoryNote }[],
+  retrieval: Map<string, SomaMemoryNoteRetrievalCount>,
+): SomaMemoryAutoMergePlan[] {
+  const trustById = new Map<string, SomaMemoryTrust>();
+  for (const { note } of notes) trustById.set(note.id, note.trust);
+
+  const eligible = similarPairs.filter((p) => trustById.get(p.a) === "assistant" && trustById.get(p.b) === "assistant");
+
+  const churn = (id: string): number => {
+    const c = retrieval.get(id);
+    return c === undefined ? 0 : c.recalled + c.verified;
+  };
+  const ordered = [...eligible].sort(
+    (l, r) =>
+      churn(l.a) + churn(l.b) - (churn(r.a) + churn(r.b)) ||
+      r.score - l.score ||
+      l.a.localeCompare(r.a) ||
+      l.b.localeCompare(r.b),
+  );
+
+  const consumed = new Set<string>();
+  const plan: SomaMemoryAutoMergePlan[] = [];
+  for (const pair of ordered) {
+    if (consumed.has(pair.a) || consumed.has(pair.b)) continue;
+    consumed.add(pair.a);
+    consumed.add(pair.b);
+    // `similarPairs` already orders [a, b] lexicographically (planSimilarPairs'
+    // own sort) — keep the lexicographically-earlier id, drop the later. An
+    // arbitrary-but-stable, deterministic tie-break: neither note's content is
+    // objectively "better"; this only fixes which id/file survives.
+    plan.push({ keepId: pair.a, dropId: pair.b, score: pair.score });
+  }
+  return plan;
+}
+
 /** Plan the state GC: `current-work-*.json` files older than 7d. */
 async function planStateGc(paths: SomaPaths, now: Date): Promise<string[]> {
   const stateDir = paths.state();
@@ -470,6 +547,8 @@ export interface ConsolidationPlan {
   digestsWritten: string[];
   staleMarks: { path: string; rel: string; note: SomaMemoryNote }[];
   similarPairs: SomaMemorySimilarPair[];
+  /** #428 — the assistant-trust subset of `similarPairs` eligible for auto-merge. */
+  autoMergePairs: SomaMemoryAutoMergePlan[];
   /** `current-work-*.json` relative paths planned for deletion (empty unless `--gc-state`). */
   stateGc: string[];
   /** Files surfaced as unscanned/unsafe at PLAN time (episodic + durable-corpus blind spots). */
@@ -482,12 +561,15 @@ export interface ConsolidationPlan {
  * The delta a real run actually produced applying a `ConsolidationPlan` —
  * separate from the plan, never folded back into it. Differs from the plan
  * only under a TOCTOU race (a planned candidate swapped away before it could
- * be applied): `markedStale`/`stateGced` drop any swapped-away candidate, and
- * `unreadable`/`mutated` are recomputed from what actually happened.
+ * be applied): `markedStale`/`stateGced`/`autoMerged` drop any swapped-away or
+ * no-longer-eligible candidate, and `unreadable`/`mutated` are recomputed from
+ * what actually happened.
  */
 export interface ConsolidationApplied {
   markedStale: string[];
   stateGced: string[];
+  /** #428 — pairs actually auto-merged (a pair skipped by a TOCTOU race is dropped). */
+  autoMerged: SomaMemoryAutoMergePlan[];
   unreadable: string[];
   mutated: boolean;
 }
@@ -521,13 +603,17 @@ export async function planConsolidation(paths: SomaPaths, options: SomaMemoryCon
   const durable = await collectDurableNotes(somaHome);
   const staleMarks = await planStaleMarks(durable.notes, somaHome, now);
   const similarPairs = planSimilarPairs(durable.notes);
+  // #428 — gate/prefer the auto-merge subset on the #425 retrieval signal (one
+  // streaming pass over the journal, reused here rather than re-deriving it).
+  const retrievalCounts = await computeNoteRetrievalCounts(somaHome);
+  const autoMergePairs = planAutoMergePairs(similarPairs, durable.notes, retrievalCounts);
   // State GC deletes protected state, so it only runs under the explicit --gc-state
   // override (CONTEXT.md: protected data needs a deliberate destructive flag).
   const stateGc = options.gcState === true ? await planStateGc(paths, now) : [];
   // Unreadable files (episodic + durable) are surfaced, never silently skipped —
   // otherwise a run could report success while known notes went unchecked.
   const unreadable = [...sessionPlan.unreadable, ...actionPlan.unreadable, ...durable.unreadable].sort();
-  const mutated = episodic.length > 0 || staleMarks.length > 0 || stateGc.length > 0;
+  const mutated = episodic.length > 0 || staleMarks.length > 0 || stateGc.length > 0 || autoMergePairs.length > 0;
 
   const plan: ConsolidationPlan = {
     somaHome,
@@ -536,6 +622,7 @@ export async function planConsolidation(paths: SomaPaths, options: SomaMemoryCon
     digestsWritten: Array.from(new Set(episodic.map((e) => relative(somaHome, e.digestPath)))).sort(),
     staleMarks,
     similarPairs,
+    autoMergePairs,
     stateGc,
     unreadable,
     mutated,
@@ -544,6 +631,7 @@ export async function planConsolidation(paths: SomaPaths, options: SomaMemoryCon
   Object.freeze(plan.digestsWritten);
   Object.freeze(plan.staleMarks);
   Object.freeze(plan.similarPairs);
+  Object.freeze(plan.autoMergePairs);
   Object.freeze(plan.stateGc);
   Object.freeze(plan.unreadable);
   return Object.freeze(plan);
@@ -626,15 +714,28 @@ export async function applyConsolidationPlan(
   const { skipped: staleSkipped } = await applyStaleMarks(plan.staleMarks);
   const stateGced = await applyStateGc(somaHome, plan.stateGc, now);
 
+  // #428 — apply each planned auto-merge pair. `mergeAndCloseAssistantPair` is
+  // its OWN governed, atomic mutation (resolveMutationGovernance +
+  // writeNotesAtomically, appending its own `memory.consolidate.merge` event
+  // per pair — the M1 one-mutation-one-event discipline for a content-level
+  // change); it returns `undefined` for a pair no longer eligible by apply time
+  // (TOCTOU: re-authored, already closed, or vanished), which is silently
+  // dropped from `autoMerged` below rather than surfaced as an error.
+  const autoMerged: SomaMemoryAutoMergePlan[] = [];
+  for (const pair of plan.autoMergePairs) {
+    const result = await mergeAndCloseAssistantPair(somaHome, now, substrate, pair.keepId, pair.dropId);
+    if (result !== undefined) autoMerged.push(pair);
+  }
+
   // A stale mark skipped by a TOCTOU swap was NOT applied — drop it so
   // `markedStale` reflects what actually happened, and surface the swapped path.
   const skippedSet = new Set(staleSkipped);
   const markedStale = plan.staleMarks.map((s) => s.rel).filter((rel) => !skippedSet.has(rel)).sort();
   const unreadable = Array.from(new Set([...plan.unreadable, ...archivedOmissions, ...staleSkipped])).sort();
   // Recompute `mutated` from what ACTUALLY happened (post-skip markedStale + actual
-  // deletions), so a run whose planned mutations were all TOCTOU-skipped does NOT
-  // rebuild the INDEX or append an event as if it changed something.
-  const mutated = plan.episodic.length > 0 || markedStale.length > 0 || stateGced.length > 0;
+  // deletions/merges), so a run whose planned mutations were all TOCTOU-skipped does
+  // NOT rebuild the INDEX or append an event as if it changed something.
+  const mutated = plan.episodic.length > 0 || markedStale.length > 0 || stateGced.length > 0 || autoMerged.length > 0;
 
   // Only rebuild the INDEX when something actually changed — a no-op maintenance
   // run must not do corpus-scale work for an unchanged corpus.
@@ -646,20 +747,21 @@ export async function applyConsolidationPlan(
       timestamp: now.toISOString(),
       substrate: substrate ?? "custom",
       kind: "memory.consolidate",
-      summary: `Consolidation: ${plan.episodic.length} archived, ${markedStale.length} marked stale, ${stateGced.length} state GC'd.`,
+      summary: `Consolidation: ${plan.episodic.length} archived, ${markedStale.length} marked stale, ${stateGced.length} state GC'd, ${autoMerged.length} auto-merged.`,
       artifactPaths: [plan.indexPath],
       metadata: {
         archived: plan.episodic.length,
         markedStale: markedStale.length, // actual, after any TOCTOU skips
         stateGced: stateGced.length, // actual deletions, not the plan
         similarPairs: plan.similarPairs.length,
+        autoMerged: autoMerged.length, // actual, after any TOCTOU skips — each pair also carries its own memory.consolidate.merge event
         unreadableCount: unreadable.length,
         unreadablePaths: unreadable, // the actual files (incl. archived omissions), so the journal identifies them
       },
     });
   }
 
-  return { markedStale, stateGced, unreadable, mutated };
+  return { markedStale, stateGced, autoMerged, unreadable, mutated };
 }
 
 /** Combine a plan with its (optional) applied delta into the public result shape. */
@@ -674,6 +776,7 @@ function planToResult(plan: ConsolidationPlan, dryRun: boolean, applied?: Consol
     markedStale: applied ? applied.markedStale : plan.staleMarks.map((s) => s.rel).sort(),
     stateGced: applied ? applied.stateGced : [...plan.stateGc],
     similarPairs: [...plan.similarPairs],
+    autoMerged: applied ? applied.autoMerged : [...plan.autoMergePairs],
     unreadable: applied ? applied.unreadable : [...plan.unreadable],
     mutated: applied ? applied.mutated : plan.mutated,
     indexPath: plan.indexPath,
