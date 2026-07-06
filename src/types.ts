@@ -2822,14 +2822,17 @@ export interface SomaMemoryAuditProbe {
 /**
  * #425 — the first retrieval-quality signal, computed PURELY from the journal
  * (no new state files, no gating): the AUTOMEM-inspired "does recall actually
- * help" proxy. `verifyFollowsRecallRate`'s denominator is recalls WITH results
- * (`recallsWithResults`), not every recall — an empty recall structurally can
- * never be followed by a verify of a returned note, so folding it into this rate
- * would just re-encode `emptyRecallRate` a second time. `verifyWindowEvents` is
- * the number of SUBSEQUENT journal events (any kind) searched, chronologically
- * after a recall, for a `memory.verify` of one of its returned ids — a fixed
- * default (see `memory-audit.ts`), not yet configurable; a future slice may gate
- * on this metric, this one only measures it.
+ * help" proxy. Every rate here is over PARSEABLE journal events — a malformed
+ * JSONL line is skipped and counted in `skippedEventLines`, so a reader can see
+ * the metric is not necessarily over the complete journal. `verifyFollowsRecallRate`'s
+ * denominator is recalls WITH results (`recallsWithResults`), not every recall —
+ * an empty recall structurally can never be followed by a verify of a returned
+ * note, so folding it into this rate would just re-encode `emptyRecallRate` a
+ * second time. `verifyWindowEvents` is the number of SUBSEQUENT parseable journal
+ * events (any kind) searched, chronologically after a recall, for a
+ * `memory.verify` of one of its returned ids — a fixed default (see
+ * `memory-audit.ts`), not yet configurable; a future slice may gate on this
+ * metric, this one only measures it.
  */
 export interface SomaMemoryRetrievalQuality {
   /** Total `memory.recall` events in the journal. */
@@ -2842,6 +2845,8 @@ export interface SomaMemoryRetrievalQuality {
   recallsWithResults: number;
   /** The subsequent-event window used to correlate a recall with a later verify. */
   verifyWindowEvents: number;
+  /** Non-empty journal lines that failed to parse (skipped, not counted in any rate) — surfaces that the metric is over PARSEABLE events, not the whole journal. */
+  skippedEventLines: number;
 }
 
 export interface SomaMemoryAuditResult {

@@ -1,8 +1,8 @@
-import { mkdir, mkdtemp, rm, symlink, utimes, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import { appendSomaMemoryEvent, auditMemory, rebuildMemoryIndex, writeMemoryNote, writeSessionDigest } from "../src/index";
+import { appendSomaMemoryEvent, auditMemory, rebuildMemoryIndex, somaMemoryEventsPath, writeMemoryNote, writeSessionDigest } from "../src/index";
 import { parseMemoryArgs, runMemoryCli } from "../src/cli/memory";
 
 const NOW = new Date("2026-07-04T10:00:00.000Z");
@@ -323,7 +323,41 @@ test("retrieval-quality: an empty tree (no journal) reports zeroed rates, not Na
       verifyFollowsRecallRate: 0,
       recallsWithResults: 0,
       verifyWindowEvents: 50,
+      skippedEventLines: 0,
     });
+  });
+});
+
+test("retrieval-quality: a malformed journal line is skipped, counted, and surfaced — the metric still computes over the parseable events", async () => {
+  await withTempSoma(async (somaHome) => {
+    // A real recall-then-verify pair, with a garbage line spliced in the middle so
+    // the malformed line sits inside the recall's lookahead window.
+    await seedRecallEvent(somaHome, ["note-a"]);
+    await appendFile(somaMemoryEventsPath(somaHome), "this is not json\n", "utf8");
+    await seedVerifyEvent(somaHome, "note-a");
+
+    const result = await auditMemory({ somaHome });
+    // the malformed line does not derail the metric: the verify still follows the recall
+    expect(result.retrieval.recallVolume).toBe(1);
+    expect(result.retrieval.recallsWithResults).toBe(1);
+    expect(result.retrieval.verifyFollowsRecallRate).toBe(1);
+    // ...and the skipped count is surfaced on the result AND in the probe detail
+    expect(result.retrieval.skippedEventLines).toBe(1);
+    expect(result.probes.find((p) => p.name === "retrieval-quality")?.detail).toContain("1 malformed line(s) skipped");
+  });
+});
+
+test("retrieval-quality: the event-ratio line count includes a malformed line (coarse count unchanged)", async () => {
+  await withTempSoma(async (somaHome) => {
+    await seedRecallEvent(somaHome, ["note-a"]); // 1 valid line
+    await appendFile(somaMemoryEventsPath(somaHome), "garbage\n", "utf8"); // 1 malformed line
+
+    const result = await auditMemory({ somaHome });
+    // event-ratio counts every non-empty line, parseable or not: 2
+    expect(result.events.lines).toBe(2);
+    // but only 1 parseable event fed the retrieval metric
+    expect(result.retrieval.recallVolume).toBe(1);
+    expect(result.retrieval.skippedEventLines).toBe(1);
   });
 });
 
