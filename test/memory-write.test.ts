@@ -660,8 +660,11 @@ test("writeNotesAtomically: a mid-write failure rolls back every staged write wi
     // primitive for.
     const firstPath = memoryNotePath(somaHome, "semantic", "atomic-first");
     const secondPath = memoryNotePath(somaHome, "semantic", "atomic-second");
-    const priorRaw = "restored-content-from-rollback\n";
-    await writeFile(secondPath, "current-content-before-the-call\n", "utf8");
+    // priorRaw is EXACTLY the target's current on-disk bytes — the way a real
+    // overwrite captures it (not an arbitrary sentinel), so the assertion below
+    // proves genuine prior-state restoration.
+    const priorRaw = "the-notes-actual-prior-on-disk-bytes\n";
+    await writeFile(secondPath, priorRaw, "utf8");
 
     const writes: AtomicNoteWrite[] = [
       { path: firstPath, flag: "wx", note: rawNote({ id: "atomic-first", body: "first note body alpha beta" }) },
@@ -697,10 +700,11 @@ test("writeNotesAtomically: a mid-write failure rolls back every staged write wi
     expect(error.message).toBe("Soma memory test.atomic-write write failed; rolled back the file mutation.");
     expect(error.cause).toBeDefined();
 
-    // Every staged write was rolled back: the first write's file is gone...
+    // Every staged write was rolled back: the first write's file is gone
+    // (this is the proof the rollback actually ran)...
     await expect(readNote(firstPath)).rejects.toThrow();
-    // ...and the second write's target was restored to the caller-supplied prior
-    // bytes (proving the rollback actually ran, not merely that nothing changed).
+    // ...and the second write's target still holds its exact prior on-disk bytes —
+    // the failed overwrite left it uncorrupted, restored to its captured state.
     expect(await readFile(secondPath, "utf8")).toBe(priorRaw);
   });
 });
