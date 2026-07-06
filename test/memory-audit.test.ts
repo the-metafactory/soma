@@ -2,7 +2,16 @@ import { appendFile, mkdir, mkdtemp, rm, symlink, utimes, writeFile } from "node
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import { appendSomaMemoryEvent, auditMemory, rebuildMemoryIndex, somaMemoryEventsPath, writeMemoryNote, writeSessionDigest } from "../src/index";
+import {
+  appendSomaMemoryEvent,
+  auditMemory,
+  rebuildMemoryIndex,
+  recallMemory,
+  resurfaceMemoryNote,
+  somaMemoryEventsPath,
+  writeMemoryNote,
+  writeSessionDigest,
+} from "../src/index";
 import { parseMemoryArgs, runMemoryCli } from "../src/cli/memory";
 
 const NOW = new Date("2026-07-04T10:00:00.000Z");
@@ -22,6 +31,13 @@ async function withTempSoma<T>(fn: (somaHome: string) => Promise<T>): Promise<T>
 /** Write a valid semantic note directly (bypassing the write path's clock). */
 async function writeNote(somaHome: string, id: string, body: string): Promise<string> {
   const r = await writeMemoryNote({ somaHome, now: NOW, mode: "create", trigger: "import", id, type: "semantic", body, provenance: "import" });
+  return r.path;
+}
+
+/** Write an assistant-trust semantic note (#427 resurface needs assistant, not
+ *  quarantined, trust to actually mutate — quarantined is refused outright). */
+async function writeAssistantNote(somaHome: string, id: string, body: string): Promise<string> {
+  const r = await writeMemoryNote({ somaHome, now: NOW, mode: "create", trigger: "consolidation", consolidationAuthority: true, id, type: "semantic", body });
   return r.path;
 }
 
@@ -47,6 +63,17 @@ async function seedVerifyEvent(somaHome: string, id: string): Promise<void> {
     substrate: "custom",
     kind: "memory.verify",
     summary: `Verified memory note ${id}`,
+    metadata: { id, type: "semantic", resurfaceCount: 1 },
+  });
+}
+
+/** Seed a `memory.resurface` journal event directly (#427), matching the shape
+ *  `resurfaceMemoryNote` (memory-write.ts) actually writes (`metadata.id`). */
+async function seedResurfaceEvent(somaHome: string, id: string): Promise<void> {
+  await appendSomaMemoryEvent(somaHome, {
+    substrate: "custom",
+    kind: "memory.resurface",
+    summary: `Resurfaced memory note ${id}`,
     metadata: { id, type: "semantic", resurfaceCount: 1 },
   });
 }
@@ -358,6 +385,44 @@ test("retrieval-quality: the event-ratio line count includes a malformed line (c
     // but only 1 parseable event fed the retrieval metric
     expect(result.retrieval.recallVolume).toBe(1);
     expect(result.retrieval.skippedEventLines).toBe(1);
+  });
+});
+
+// --- #427 resurface counts as a verify-follows-recall satisfier --------------
+
+test("retrieval-quality: a memory.resurface event (#427) satisfies a pending recall exactly like memory.verify", async () => {
+  await withTempSoma(async (somaHome) => {
+    await seedRecallEvent(somaHome, ["note-a"]);
+    await seedResurfaceEvent(somaHome, "note-a");
+    await seedRecallEvent(somaHome, ["note-b"]); // never followed
+    await seedRecallEvent(somaHome, []); // empty, excluded from the denominator
+
+    const result = await auditMemory({ somaHome });
+    expect(result.retrieval.recallVolume).toBe(3);
+    expect(result.retrieval.recallsWithResults).toBe(2);
+    expect(result.retrieval.verifyFollowsRecallRate).toBeCloseTo(1 / 2);
+  });
+});
+
+test("retrieval-quality: a real recall(#425) followed by soma memory used (#427) on the recalled note moves verify-follows-recall-rate", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeAssistantNote(somaHome, "reporter-stack", "Reporter uses Bun and SQLite for its storage layer.");
+
+    const recall = await recallMemory({ somaHome, query: "Bun SQLite storage", now: NOW });
+    expect(recall.matches.length).toBeGreaterThan(0); // sanity: the recall actually matched the seeded note
+    const recalledId = recall.matches[0]!.id;
+    expect(recalledId).toBe("reporter-stack");
+
+    // Before "used" fires, nothing has reinforced the recall.
+    const before = await auditMemory({ somaHome });
+    expect(before.retrieval.recallsWithResults).toBe(1);
+    expect(before.retrieval.verifyFollowsRecallRate).toBe(0);
+
+    await resurfaceMemoryNote({ somaHome, id: recalledId, now: NOW });
+
+    const after = await auditMemory({ somaHome });
+    expect(after.retrieval.recallsWithResults).toBe(1);
+    expect(after.retrieval.verifyFollowsRecallRate).toBe(1);
   });
 });
 

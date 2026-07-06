@@ -14,6 +14,8 @@ import type {
   SomaMemoryDuplicateCandidate,
   SomaMemoryNote,
   SomaMemoryNoteType,
+  SomaMemoryResurfaceOptions,
+  SomaMemoryResurfaceResult,
   SomaMemoryTrust,
   SomaMemoryVerifyOptions,
   SomaMemoryVerifyResult,
@@ -971,4 +973,96 @@ export async function verifyMemoryNote(options: SomaMemoryVerifyOptions): Promis
   });
 
   return { somaHome, path, note: verified, event };
+}
+
+// --- resurface (#427) ---------------------------------------------------------
+
+/**
+ * Close the recall→useful→admission loop with a low-friction turning force
+ * (#427): the caller observes that an already-recalled note was USEFUL, and
+ * that observation performs the SAME bump `verify` does (`last_verified` =
+ * today, `resurface_count += 1`) — through the SAME governance +
+ * atomicity path (`resolveMutationGovernance` / `writeNotesAtomically`), so a
+ * mid-write failure rolls back identically and the journal records the same
+ * shape of authority metadata.
+ *
+ * The trust-scoping is deliberately DIFFERENT from `verify`'s, because
+ * "recalled and used" is a cheaper, weaker claim than "I re-confirmed this
+ * fact": the target's own tier's authority isn't asked for; the fact that this
+ * narrow, single-purpose call fired at all IS the authority for the one tier
+ * that needs one.
+ * - `quarantined` — refused. A quarantined note never earns an INDEX line
+ *   (`memory-index.ts`'s `isAdmitted`); resurfacing one would only feed a
+ *   number nobody reads and could mask that the note still needs re-authoring
+ *   at higher trust.
+ * - `principal` — a no-op. Principal notes are unconditionally admitted
+ *   already, so there is nothing for the signal to unlock; returned with
+ *   `mutated: false` and no event (no file write, no journal line) rather than
+ *   erroring — the caller asked a reasonable question and got a reasonable,
+ *   harmless answer.
+ * - `assistant` — bumped, freely. This is the entire point of #427: `verify`
+ *   requires `consolidationAuthority`, an internal M6-only capability NOT
+ *   reachable from the public CLI (see `cli/memory.ts`'s verify help), so
+ *   today NOTHING can move an assistant-trust note's resurface_count from the
+ *   CLI. `resurfaceMemoryNote` supplies `consolidationAuthority: true` to
+ *   `resolveMutationGovernance` itself for this one call — not a bypass of the
+ *   gate, but the gate's OWN mechanism, satisfied by the narrower thing this
+ *   function asserts. Unlike `consolidation`, "used" never injects or mutates
+ *   note BODY content — the only field this ever changes is the decay signal
+ *   verify already owns.
+ *
+ * Emits a distinct `memory.resurface` event (not `memory.verify`) so the two
+ * kinds of "turning force" — hand-authored re-confirmation vs. observed
+ * usefulness — stay tellable apart in the journal, while still counting as a
+ * `memory.verify`-equivalent satisfier for #425's verify-follows-recall probe
+ * (`memory-audit.ts`'s `foldRetrievalEvent`).
+ */
+export async function resurfaceMemoryNote(options: SomaMemoryResurfaceOptions): Promise<SomaMemoryResurfaceResult> {
+  assertNonEmpty(options.id, "id");
+  const somaHome = createPaths(options).root();
+  const now = options.now ?? new Date();
+  const { path, type, note, raw } = await loadNoteById(somaHome, options.id);
+
+  // A superseded note is closed — reinforcing its freshness signal is meaningless
+  // (and would resurrect it in retention scoring). Refuse, same as verify.
+  if (note.valid_until !== null) {
+    throw new MemoryNoteError(`Cannot resurface superseded note ${note.id} (valid_until set ${note.valid_until}).`, "id");
+  }
+
+  // Quarantined never earns admission — resurfacing it has nothing to unlock and
+  // would only misrepresent the note's standing. Refused, NOT silently ignored
+  // (unlike verify, which lets a quarantined note's own freshness signal move
+  // freely since it never affects admission either way).
+  if (note.trust === "quarantined") {
+    throw new MemoryNoteError(
+      `Cannot resurface quarantined note ${note.id} — quarantined notes never earn an INDEX line; re-author it at a higher trust first.`,
+      "id",
+    );
+  }
+
+  // Principal notes are already unconditionally admitted (memory-index.ts's
+  // isAdmitted) — the resurface signal has nothing to add. A true no-op: no file
+  // write, no journal event, no rollback machinery invoked.
+  if (note.trust === "principal") {
+    return { somaHome, path, note, mutated: false };
+  }
+
+  // Assistant tier: the "used" signal IS the authority for this call (see the
+  // module docstring above) — resolved through the SAME governance function
+  // verify uses, so the audit-meta shape never drifts from the mutation it
+  // documents.
+  const governance = resolveMutationGovernance(undefined, note, { consolidationAuthority: true });
+
+  const resurfaced: SomaMemoryNote = {
+    ...note,
+    last_verified: isoDate(now),
+    resurface_count: note.resurface_count + 1,
+  };
+  const event = await writeNotesAtomically(somaHome, now, options.substrate, "memory.resurface", [{ path, flag: "w", note: resurfaced, priorRaw: raw }], {
+    summary: `Resurfaced memory note ${resurfaced.id} (${type}); resurface_count ${resurfaced.resurface_count}`,
+    artifactPaths: [path],
+    metadata: { id: resurfaced.id, type, resurfaceCount: resurfaced.resurface_count, ...governance.eventMeta },
+  });
+
+  return { somaHome, path, note: resurfaced, mutated: true, event };
 }

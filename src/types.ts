@@ -2527,6 +2527,47 @@ export interface SomaMemoryVerifyResult {
   event: SomaMemoryEvent;
 }
 
+/**
+ * #427 — the low-friction "this recalled note helped" signal. Distinct from
+ * `verify`: `verify` is the caller ASSERTING a fact still holds (authority-gated,
+ * requires `--principal-authority`/`consolidationAuthority` per tier); `resurface`
+ * is the caller observing that a recall was USEFUL, which is a weaker, cheaper
+ * claim — so it needs no per-call authority flag at all. It performs the identical
+ * frontmatter bump (`last_verified` = today, `resurface_count += 1`) through the
+ * same governance + atomicity path, but with its OWN trust-scoping instead of
+ * verify's: `assistant` notes are bumped freely (the resurface act IS the
+ * authority — the whole point is a path reachable from the public CLI, unlike
+ * `consolidationAuthority`), `principal` notes are a no-op (already
+ * unconditionally admitted, see `memory-index.ts`'s `isAdmitted`), and
+ * `quarantined` notes are refused outright (never admitted; resurfacing one would
+ * only mislead the retention score). This DOES introduce a narrow new governed
+ * authority — the resurface act self-authorizes an assistant-tier `resurface_count`
+ * bump that is reachable from the public CLI (justified above: it moves only a
+ * decay signal, never body content or trust tier, so "the `used` call fired" is
+ * sufficient authority for it). It adds no new note-CONTENT authority, and no
+ * change to the admission threshold or retention formula.
+ */
+export interface SomaMemoryResurfaceOptions {
+  homeDir?: string;
+  somaHome?: string;
+  substrate?: SubstrateId;
+  now?: Date;
+  id: string;
+}
+
+export interface SomaMemoryResurfaceResult {
+  somaHome: string;
+  path: string;
+  note: SomaMemoryNote;
+  /**
+   * `false` for the principal-trust no-op (already admitted — nothing written,
+   * `event` is `undefined`). `true` for the assistant-trust bump (`event` is set).
+   * Quarantined never reaches a result — `resurfaceMemoryNote` throws instead.
+   */
+  mutated: boolean;
+  event?: SomaMemoryEvent;
+}
+
 // Memory subsystem M8 (backfill). Bulk-import a principal's existing free-form
 // markdown memory into schema-valid, governed notes through the M1 write path.
 // Deterministic, no LLM: bodies are imported verbatim (no wrapper/preamble),
@@ -2830,16 +2871,16 @@ export interface SomaMemoryAuditProbe {
  * note, so folding it into this rate would just re-encode `emptyRecallRate` a
  * second time. `verifyWindowEvents` is the number of SUBSEQUENT parseable journal
  * events (any kind) searched, chronologically after a recall, for a
- * `memory.verify` of one of its returned ids — a fixed default (see
- * `memory-audit.ts`), not yet configurable; a future slice may gate on this
- * metric, this one only measures it.
+ * `memory.verify` OR (#427) `memory.resurface` of one of its returned ids — a
+ * fixed default (see `memory-audit.ts`), not yet configurable; a future slice
+ * may gate on this metric, this one only measures it.
  */
 export interface SomaMemoryRetrievalQuality {
   /** Total `memory.recall` events in the journal. */
   recallVolume: number;
   /** Fraction of recalls returning 0 note ids (AUTOMEM's "empty-search rate"). 0 when recallVolume is 0. */
   emptyRecallRate: number;
-  /** Fraction of non-empty recalls followed by a `memory.verify` of a returned id within the window. 0 when recallsWithResults is 0. */
+  /** Fraction of non-empty recalls followed by a `memory.verify` OR (#427) `memory.resurface` of a returned id within the window. 0 when recallsWithResults is 0. */
   verifyFollowsRecallRate: number;
   /** Denominator for verifyFollowsRecallRate: recalls that returned ≥1 note id. */
   recallsWithResults: number;
