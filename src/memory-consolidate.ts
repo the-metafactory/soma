@@ -1,5 +1,5 @@
 import { mkdir, readdir, readFile, rename, lstat, unlink, writeFile } from "node:fs/promises";
-import { basename, dirname, join, relative, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import { createPaths } from "./paths";
 import { isEnoent } from "./fs-utils";
 import { listMemoryNotes } from "./memory-fs";
@@ -563,6 +563,27 @@ export async function planConsolidation(paths: SomaPaths, options: SomaMemoryCon
  * rollback (`writeNotesAtomically`, memory-write.ts) is a different,
  * single-mutation path.
  */
+/**
+ * A plan produced by `planConsolidation` only ever holds paths under the memory
+ * tree. But `applyConsolidationPlan` is exported (for the plan-immutability test),
+ * so treat the plan as a trust boundary: reject any mutation-target path that
+ * escapes the soma home before touching the filesystem, so a forged plan cannot
+ * drive writes/renames/unlinks outside the tree.
+ */
+function assertPlanPathsInsideRoot(somaHome: string, plan: ConsolidationPlan): void {
+  const assertInside = (target: string): void => {
+    const rel = relative(somaHome, target);
+    if (rel === "" || (!rel.startsWith(`..${sep}`) && rel !== ".." && !isAbsolute(rel))) return;
+    throw new Error(`Soma consolidation plan path escapes the soma home: ${target}`);
+  };
+  for (const m of plan.staleMarks) assertInside(m.path);
+  for (const rel of plan.stateGc) assertInside(join(somaHome, rel)); // `rel` could carry `..`
+  for (const e of plan.episodic) {
+    assertInside(e.from);
+    assertInside(e.to);
+  }
+}
+
 export async function applyConsolidationPlan(
   paths: SomaPaths,
   plan: ConsolidationPlan,
@@ -570,6 +591,7 @@ export async function applyConsolidationPlan(
   substrate: SomaMemoryConsolidateOptions["substrate"],
 ): Promise<ConsolidationApplied> {
   const somaHome = paths.root();
+  assertPlanPathsInsideRoot(somaHome, plan);
 
   const archivedOmissions = await applyEpisodicArchive(paths, plan.episodic);
   const { skipped: staleSkipped } = await applyStaleMarks(plan.staleMarks);

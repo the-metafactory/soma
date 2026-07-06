@@ -7,7 +7,7 @@ import { memoryIndexPath } from "../src/memory-index";
 import { createPaths } from "../src/paths";
 // Plan/apply internals are module-private (not public index API) — import direct,
 // for the #412 plan-immutability acceptance test.
-import { applyConsolidationPlan, planConsolidation } from "../src/memory-consolidate";
+import { applyConsolidationPlan, planConsolidation, type ConsolidationPlan } from "../src/memory-consolidate";
 
 const NOW = new Date("2026-07-04T10:00:00.000Z");
 
@@ -366,5 +366,27 @@ test("planConsolidation's plan is frozen and untouched by applyConsolidationPlan
     // The apply actually happened on disk.
     expect(await exists(join(somaHome, "memory/archive/episodic/sessions/2026-03/20260301-old.md"))).toBe(true);
     expect(parseMemoryNote(await readFile(join(somaHome, "memory/semantic/old-fact.md"), "utf8")).review).toBe("stale");
+  });
+});
+
+test("applyConsolidationPlan rejects a forged plan path that escapes the soma home (#423 hardening)", async () => {
+  await withTempSoma(async (somaHome) => {
+    const paths = createPaths(somaHome);
+    const escapeTarget = join(somaHome, "..", "escaped-stale.md"); // outside the memory tree
+    // A plan built by planConsolidation only ever holds in-tree paths, but the
+    // function is exported — a forged plan must not drive a write outside the root.
+    const forged: ConsolidationPlan = {
+      somaHome,
+      indexPath: join(somaHome, "memory", "INDEX.md"),
+      episodic: [],
+      digestsWritten: [],
+      staleMarks: [{ path: escapeTarget, rel: "../escaped-stale.md", note: note({ id: "x", type: "semantic", body: "forged mark" }) }],
+      similarPairs: [],
+      stateGc: [],
+      unreadable: [],
+      mutated: true,
+    };
+    await expect(applyConsolidationPlan(paths, forged, NOW, undefined)).rejects.toThrow(/escapes the soma home/);
+    expect(await exists(escapeTarget)).toBe(false); // threw BEFORE any out-of-tree write
   });
 });

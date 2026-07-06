@@ -161,9 +161,13 @@ async function appendMutationEvent(
 
 /**
  * One staged file write for {@link writeNotesAtomically}: what to write, and
- * how to undo it. `priorRaw` is required for an overwrite (`"w"`) — captured
- * BEFORE the write runs, since undoing it means restoring exactly those bytes;
- * a create (`"wx"`) needs no prior bytes, since undoing it is a plain unlink.
+ * how to undo it. For an overwrite (`"w"`) the type requires `priorRaw`, but the
+ * temporal contract is the CALLER's to honour and cannot be type-enforced: it
+ * must be the target's current bytes read BEFORE the write runs, since undoing
+ * the write means restoring exactly those bytes. (The production callers —
+ * merge/supersede/verify — read the note file for other reasons first and pass
+ * that same content.) A create (`"wx"`) needs no prior bytes: undoing it is a
+ * plain unlink.
  * Exported for the atomicity-shape acceptance test (a mid-write failure and a
  * post-write event-append failure must produce the SAME error shape) — not
  * public index API; create/merge/supersede/verify remain the only production
