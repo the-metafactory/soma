@@ -369,24 +369,55 @@ test("planConsolidation's plan is frozen and untouched by applyConsolidationPlan
   });
 });
 
-test("applyConsolidationPlan rejects a forged plan path that escapes the soma home (#423 hardening)", async () => {
+// A plan built by planConsolidation only ever holds in-memory-tree paths, but
+// applyConsolidationPlan is exported — a forged plan must not drive a mutation
+// outside the Memory compartment, whether by `..` traversal, into a non-Memory
+// compartment, or through a symlinked ancestor. (#423 hardening)
+const forgedPlan = (somaHome: string, staleMark: string, extra: Partial<ConsolidationPlan> = {}): ConsolidationPlan => ({
+  somaHome,
+  indexPath: join(somaHome, "memory", "INDEX.md"),
+  episodic: [],
+  digestsWritten: [],
+  staleMarks: staleMark ? [{ path: staleMark, rel: "forged", note: note({ id: "x", type: "semantic", body: "forged mark" }) }] : [],
+  similarPairs: [],
+  stateGc: [],
+  unreadable: [],
+  mutated: true,
+  ...extra,
+});
+
+test("applyConsolidationPlan rejects a forged `..` path escaping the memory tree (#423)", async () => {
   await withTempSoma(async (somaHome) => {
-    const paths = createPaths(somaHome);
-    const escapeTarget = join(somaHome, "..", "escaped-stale.md"); // outside the memory tree
-    // A plan built by planConsolidation only ever holds in-tree paths, but the
-    // function is exported — a forged plan must not drive a write outside the root.
-    const forged: ConsolidationPlan = {
-      somaHome,
-      indexPath: join(somaHome, "memory", "INDEX.md"),
-      episodic: [],
-      digestsWritten: [],
-      staleMarks: [{ path: escapeTarget, rel: "../escaped-stale.md", note: note({ id: "x", type: "semantic", body: "forged mark" }) }],
-      similarPairs: [],
-      stateGc: [],
-      unreadable: [],
-      mutated: true,
-    };
-    await expect(applyConsolidationPlan(paths, forged, NOW, undefined)).rejects.toThrow(/escapes the soma home/);
-    expect(await exists(escapeTarget)).toBe(false); // threw BEFORE any out-of-tree write
+    const escapeTarget = join(somaHome, "..", "escaped-stale.md");
+    await expect(applyConsolidationPlan(createPaths(somaHome), forgedPlan(somaHome, escapeTarget), NOW, undefined)).rejects.toThrow(
+      /escapes the memory tree/,
+    );
+    expect(await exists(escapeTarget)).toBe(false);
+  });
+});
+
+test("applyConsolidationPlan rejects a forged path into a non-Memory compartment (#423)", async () => {
+  await withTempSoma(async (somaHome) => {
+    // Inside the soma home but OUTSIDE memory/ — consolidation must never touch Identity/Purpose/…
+    const target = join(somaHome, "profile", "purpose.md");
+    await expect(applyConsolidationPlan(createPaths(somaHome), forgedPlan(somaHome, target), NOW, undefined)).rejects.toThrow(
+      /escapes the memory tree/,
+    );
+    expect(await exists(target)).toBe(false);
+  });
+});
+
+test("applyConsolidationPlan rejects a forged path through a symlinked in-tree ancestor (#423)", async () => {
+  await withTempSoma(async (somaHome) => {
+    const outside = join(somaHome, "..", "outside-target");
+    await mkdir(outside, { recursive: true });
+    const link = join(somaHome, "memory", "evil-link"); // lexically in-tree, resolves outside
+    await mkdir(join(somaHome, "memory"), { recursive: true });
+    await symlink(outside, link);
+    const target = join(link, "note.md");
+    await expect(applyConsolidationPlan(createPaths(somaHome), forgedPlan(somaHome, target), NOW, undefined)).rejects.toThrow(
+      /resolves outside the memory tree/,
+    );
+    expect(await exists(join(outside, "note.md"))).toBe(false);
   });
 });

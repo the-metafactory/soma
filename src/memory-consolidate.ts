@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, rename, lstat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, realpath, rename, lstat, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import { createPaths } from "./paths";
 import { isEnoent } from "./fs-utils";
@@ -564,23 +564,52 @@ export async function planConsolidation(paths: SomaPaths, options: SomaMemoryCon
  * single-mutation path.
  */
 /**
- * A plan produced by `planConsolidation` only ever holds paths under the memory
+ * A plan produced by `planConsolidation` only ever holds paths under the MEMORY
  * tree. But `applyConsolidationPlan` is exported (for the plan-immutability test),
  * so treat the plan as a trust boundary: reject any mutation-target path that
- * escapes the soma home before touching the filesystem, so a forged plan cannot
- * drive writes/renames/unlinks outside the tree.
+ * escapes `<somaHome>/memory` before touching the filesystem, so a forged plan
+ * cannot drive writes/renames/unlinks outside the Memory compartment (not merely
+ * outside the whole Soma home — consolidation must never touch Identity/Purpose/…).
+ *
+ * Two layers, because a lexical `..` check alone is not enough — a forged
+ * in-tree path could route through a symlinked ancestor that resolves outside:
+ *   (1) lexical: reject `..`/absolute escapes even for paths that don't exist yet;
+ *   (2) real: resolve the deepest EXISTING ancestor (a write/rename/unlink can
+ *       only land where its parent already resolves) and require the real path to
+ *       stay inside the real memory root — catching a symlinked ancestor.
  */
-function assertPlanPathsInsideRoot(somaHome: string, plan: ConsolidationPlan): void {
-  const assertInside = (target: string): void => {
-    const rel = relative(somaHome, target);
-    if (rel === "" || (!rel.startsWith(`..${sep}`) && rel !== ".." && !isAbsolute(rel))) return;
-    throw new Error(`Soma consolidation plan path escapes the soma home: ${target}`);
+async function assertPlanPathsInsideMemory(somaHome: string, memoryRoot: string, plan: ConsolidationPlan): Promise<void> {
+  const realMemoryRoot = await realpath(memoryRoot).catch(() => memoryRoot);
+  const escapes = (root: string, target: string): boolean => {
+    const rel = relative(root, target);
+    return rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel);
   };
-  for (const m of plan.staleMarks) assertInside(m.path);
-  for (const rel of plan.stateGc) assertInside(join(somaHome, rel)); // `rel` could carry `..`
+  const assertInside = async (target: string): Promise<void> => {
+    if (escapes(memoryRoot, target)) {
+      throw new Error(`Soma consolidation plan path escapes the memory tree: ${target}`);
+    }
+    // Resolve symlinks on the deepest existing ancestor.
+    let probe = target;
+    for (;;) {
+      const real = await realpath(probe).catch(() => undefined);
+      if (real !== undefined) {
+        if (escapes(realMemoryRoot, real)) {
+          throw new Error(`Soma consolidation plan path resolves outside the memory tree: ${target}`);
+        }
+        return;
+      }
+      const parent = dirname(probe);
+      if (parent === probe) return; // hit the fs root without resolving; the lexical check already passed
+      probe = parent;
+    }
+  };
+  for (const m of plan.staleMarks) await assertInside(m.path);
+  // `stateGc` rels are soma-home-relative (applyStateGc joins them onto the home)
+  // and could carry `..`, so resolve against `somaHome` then require memory-tree containment.
+  for (const rel of plan.stateGc) await assertInside(join(somaHome, rel));
   for (const e of plan.episodic) {
-    assertInside(e.from);
-    assertInside(e.to);
+    await assertInside(e.from);
+    await assertInside(e.to);
   }
 }
 
@@ -591,7 +620,7 @@ export async function applyConsolidationPlan(
   substrate: SomaMemoryConsolidateOptions["substrate"],
 ): Promise<ConsolidationApplied> {
   const somaHome = paths.root();
-  assertPlanPathsInsideRoot(somaHome, plan);
+  await assertPlanPathsInsideMemory(somaHome, paths.memory(), plan);
 
   const archivedOmissions = await applyEpisodicArchive(paths, plan.episodic);
   const { skipped: staleSkipped } = await applyStaleMarks(plan.staleMarks);
