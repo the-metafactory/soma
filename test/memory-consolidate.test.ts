@@ -1,13 +1,16 @@
 import { access, mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { appendSomaMemoryEvent, consolidateMemory, parseMemoryNote, serializeMemoryNote, type SomaMemoryNote } from "../src/index";
 import { memoryIndexPath } from "../src/memory-index";
 import { createPaths } from "../src/paths";
 // Plan/apply internals are module-private (not public index API) — import direct,
 // for the #412 plan-immutability acceptance test.
 import { applyConsolidationPlan, planConsolidation, type ConsolidationPlan } from "../src/memory-consolidate";
+// The neutral journal read-model — spied on to prove the #428-R2 perf gate skips
+// the O(events) journal scan when no assistant-trust pair is eligible.
+import * as journal from "../src/memory-journal";
 
 const NOW = new Date("2026-07-04T10:00:00.000Z");
 
@@ -414,6 +417,41 @@ test("#428: planConsolidation's autoMergePairs is frozen too (#412 immutability)
     expect(plan.autoMergePairs.length).toBe(1);
     expect(Object.isFrozen(plan.autoMergePairs)).toBe(true);
     expect(() => plan.autoMergePairs.push({ keepId: "x", dropId: "y", score: 1 })).toThrow(TypeError);
+  });
+});
+
+test("#428 review R2: a principal-only near-dup pair is reported but does NOT trigger the O(events) journal scan", async () => {
+  await withTempSoma(async (somaHome) => {
+    // A near-dup pair that is REPORTED but never eligible (both principal), so
+    // there is no assistant-trust pair to rank → the journal read is skipped.
+    await writeNote(somaHome, "memory/semantic/a.md", note({ id: "a", type: "semantic", trust: "principal", body: "gateway retries thrice before dead lettering the message" }));
+    await writeNote(somaHome, "memory/semantic/b.md", note({ id: "b", type: "semantic", trust: "principal", body: "gateway retries thrice before dead lettering the message now" }));
+
+    const spy = spyOn(journal, "computeNoteRetrievalCounts");
+    try {
+      const result = await consolidateMemory({ somaHome, now: NOW });
+      expect(result.similarPairs).toHaveLength(1); // still reported for principal review
+      expect(result.autoMerged).toEqual([]);
+      expect(spy).not.toHaveBeenCalled(); // the journal scan was skipped entirely
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+test("#428 review R2 (positive control): an assistant-trust near-dup pair DOES scan the journal exactly once", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeNote(somaHome, "memory/semantic/a.md", note({ id: "a", type: "semantic", trust: "assistant", provenance: "consolidation", body: "gateway retries thrice before dead lettering the message" }));
+    await writeNote(somaHome, "memory/semantic/b.md", note({ id: "b", type: "semantic", trust: "assistant", provenance: "consolidation", body: "gateway retries thrice before dead lettering the message now" }));
+
+    const spy = spyOn(journal, "computeNoteRetrievalCounts");
+    try {
+      const result = await consolidateMemory({ somaHome, now: NOW });
+      expect(result.autoMerged).toHaveLength(1);
+      expect(spy).toHaveBeenCalledTimes(1); // eligible pair present → the scan runs
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 

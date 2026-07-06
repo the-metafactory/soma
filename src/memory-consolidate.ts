@@ -7,7 +7,7 @@ import { appendSomaMemoryEvent } from "./memory";
 import { parseMemoryNote, serializeMemoryNote, MemoryNoteError, NOTE_ID_PATTERN, NOTE_ID_MAX_LEN } from "./memory-note";
 import { renderDigestPointer } from "./episodic-digest";
 import { collectDurableNotes, mergeAndCloseAssistantPair } from "./memory-write";
-import { computeNoteRetrievalCounts, type SomaMemoryNoteRetrievalCount } from "./memory-audit";
+import { computeNoteRetrievalCounts } from "./memory-journal";
 import { runBoundedConcurrent } from "./internal-concurrency";
 import { memoryTermSet } from "./memory-terms";
 import { jaccard, ageDays, NEAR_DUPLICATE_JACCARD_THRESHOLD } from "./memory-corpus";
@@ -322,13 +322,19 @@ function planSimilarPairs(notes: { note: SomaMemoryNote }[]): SomaMemorySimilarP
  * is never auto-consolidated either).
  *
  * Eligible pairs are ordered LOW-VALUE-CHURN FIRST using the #425 retrieval
- * signal (`retrieval`, from `computeNoteRetrievalCounts`): a pair whose notes
- * were rarely recalled/verified in the journal is preferred for collapsing over
- * an actively-useful one. This is a per-pair PREFERENCE (an ordering), not a
- * hard cutoff — there is no minimum-churn threshold, since #425's signal is
- * corpus-young and a hard cutoff would be premature tuning; a future slice may
- * add one once real recall volume exists (the same caveat the #425
- * retrieval-quality probe documents).
+ * signal (`computeNoteRetrievalCounts`, from the neutral journal read-model): a
+ * pair whose notes were rarely recalled/verified in the journal is preferred for
+ * collapsing over an actively-useful one. This is a per-pair PREFERENCE (an
+ * ordering), not a hard cutoff — there is no minimum-churn threshold, since
+ * #425's signal is corpus-young and a hard cutoff would be premature tuning; a
+ * future slice may add one once real recall volume exists (the same caveat the
+ * #425 retrieval-quality probe documents).
+ *
+ * PERF (#428 review R2): the O(events) journal scan for that ordering is only
+ * paid when there IS at least one assistant-trust pair to rank — the trust
+ * filter runs FIRST, and a corpus with no eligible pair (the common maintenance
+ * case, incl. every principal-only or dup-free tree) returns early WITHOUT
+ * reading the journal at all.
  *
  * At most ONE merge per note per run (the `consumed` set): a note already
  * claimed as a keep/drop in this pass cannot be claimed again, so a 3-way
@@ -336,16 +342,19 @@ function planSimilarPairs(notes: { note: SomaMemoryNote }[]): SomaMemorySimilarP
  * (once the keep note's tokens shift) — a documented heuristic degrade rather
  * than a full transitive-closure resolver, kept simple and deterministic.
  */
-function planAutoMergePairs(
+async function planAutoMergePairs(
+  somaHome: string,
   similarPairs: SomaMemorySimilarPair[],
   notes: { note: SomaMemoryNote }[],
-  retrieval: Map<string, SomaMemoryNoteRetrievalCount>,
-): SomaMemoryAutoMergePlan[] {
+): Promise<SomaMemoryAutoMergePlan[]> {
   const trustById = new Map<string, SomaMemoryTrust>();
   for (const { note } of notes) trustById.set(note.id, note.trust);
 
   const eligible = similarPairs.filter((p) => trustById.get(p.a) === "assistant" && trustById.get(p.b) === "assistant");
+  // No assistant-trust near-dup to rank → skip the whole journal read (perf).
+  if (eligible.length === 0) return [];
 
+  const retrieval = await computeNoteRetrievalCounts(somaHome);
   const churn = (id: string): number => {
     const c = retrieval.get(id);
     return c === undefined ? 0 : c.recalled + c.verified;
@@ -603,10 +612,10 @@ export async function planConsolidation(paths: SomaPaths, options: SomaMemoryCon
   const durable = await collectDurableNotes(somaHome);
   const staleMarks = await planStaleMarks(durable.notes, somaHome, now);
   const similarPairs = planSimilarPairs(durable.notes);
-  // #428 — gate/prefer the auto-merge subset on the #425 retrieval signal (one
-  // streaming pass over the journal, reused here rather than re-deriving it).
-  const retrievalCounts = await computeNoteRetrievalCounts(somaHome);
-  const autoMergePairs = planAutoMergePairs(similarPairs, durable.notes, retrievalCounts);
+  // #428 — the assistant-trust auto-merge subset, ordered low-value-churn-first
+  // by the #425 retrieval signal. The O(events) journal read happens INSIDE
+  // only when an eligible pair exists (perf: no eligible pair → no scan).
+  const autoMergePairs = await planAutoMergePairs(somaHome, similarPairs, durable.notes);
   // State GC deletes protected state, so it only runs under the explicit --gc-state
   // override (CONTEXT.md: protected data needs a deliberate destructive flag).
   const stateGc = options.gcState === true ? await planStateGc(paths, now) : [];
