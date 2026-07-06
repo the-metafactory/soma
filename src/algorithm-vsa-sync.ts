@@ -466,10 +466,12 @@ export async function syncAlgorithmRunFromVsa(
   } catch (error) {
     // Failure isolation: the hook returns a no-op for any PRE-durable error
     // (bad VSA, read/write, parsing, pre-durable promotion refusals) so the
-    // sync never breaks on a malformed input. POST-durable errors (promotion
-    // landed its durable artifacts but a later bookkeeping step then failed)
-    // are re-thrown, because the caller must know the promotion is durable
-    // but unrecorded.
+    // sync never breaks on a malformed input. Once `becameDurable` is set (the
+    // PROMOTED file + principal-trust note are on disk), ANY later error is
+    // re-thrown — not just a bookkeeping-event gap: this covers the
+    // `memory.promotion` event append AND the run-provenance `writeAlgorithmRun`,
+    // either of which can fail after the artifacts landed. The caller must know
+    // the promotion is durable but unrecorded.
     if (promotionState.becameDurable) {
       throw error;
     }
