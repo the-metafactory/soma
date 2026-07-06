@@ -733,7 +733,10 @@ export async function applyConsolidationPlan(
   const autoMerged: SomaMemoryAutoMergePlan[] = [];
   for (const pair of plan.autoMergePairs) {
     const result = await mergeAndCloseAssistantPair(somaHome, now, substrate, pair.keepId, pair.dropId);
-    if (result !== undefined) autoMerged.push(pair);
+    // Report what was ACTUALLY applied (from `result`, reloaded fresh at apply
+    // time), not the planned pair — so a TOCTOU-adjusted apply is reflected
+    // faithfully. Absent a race these are identical to `pair`.
+    if (result !== undefined) autoMerged.push({ keepId: result.keptNote.id, dropId: result.closedId, score: pair.score });
   }
 
   // A stale mark skipped by a TOCTOU swap was NOT applied — drop it so
