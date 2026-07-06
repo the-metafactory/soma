@@ -1,9 +1,15 @@
 import type { SomaAdapter, Projection, ProjectionInput, SomaTask } from "../types";
-import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills, withProvenance } from "./shared";
+import { projectableSkills, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills, withProvenance } from "./shared";
+import { rewriteSubstrateProjectionContent } from "../substrate-projection-rewrites";
 import { activeVsaBundleFile } from "../adapter-active-vsa";
 
-export function isClaudeCodeSkillProjectionPath(_path: string): boolean {
-  return false;
+// Every `skills/<name>/` file claude-code's home projection emits is a portable
+// bundled skill (the-algorithm, Memory, …). Unlike codex/grok, claude-code has
+// no dedicated `skills/soma/` home skill and no static the-algorithm render, so
+// the whole `skills/` surface is dynamic — this predicate serves both the
+// codeOnly filter and the install manifest that round-trips them on uninstall.
+export function isClaudeCodeSkillProjectionPath(path: string): boolean {
+  return path.startsWith("skills/");
 }
 
 function renderInstructions(input: ProjectionInput): string {
@@ -240,10 +246,29 @@ export function projectClaudeCodeHome(input: ProjectionInput): Projection {
     path,
     content: CLAUDE_RULES_CONTENT_BUILDERS[path](input),
   }));
+  // Portable bundled skills project as invocable dirs under `skills/<name>/`,
+  // the dir Claude Code auto-discovers, so `the-algorithm`/`Memory` become
+  // `Skill(...)`-invocable via install (retiring the manual symlink). VSA is
+  // excluded (its dedicated edit-preserving installer owns it). Content takes
+  // the default substrate rewrite (Claude memory roots stay, Claude-only lines
+  // kept), same shape as codex/grok. The `skills/` dir is SHARED (user + PAI
+  // skills), so it is NOT an owned subtree; removals round-trip via the install
+  // manifest (installClaudeCodeHomeProjection), not the owned-subtree reconcile.
+  const portableSkillFiles = projectableSkills(input.profile.skills, input.bundledSkillNames).flatMap((skill) =>
+    (skill.files ?? []).map((file) => ({
+      path: `skills/${skill.name}/${file.path}`,
+      content: rewriteSubstrateProjectionContent({
+        substrate: "claude-code",
+        path: file.path,
+        content: file.content,
+      }),
+    })),
+  );
   return {
     substrate: "claude-code",
     instructions: renderInstructions(input),
     files: [
+      ...portableSkillFiles,
       // soma#370: each generated rules/soma skeleton file carries a byte-stable
       // provenance header so `soma doctor` can tell a managed projection from a
       // hand-replaced one. The header has no timestamp, preserving AC-4

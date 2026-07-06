@@ -15,6 +15,7 @@ import { defaultSomaRepoPath } from "./repo-path";
 import { bootstrapSomaHome, loadSomaHome } from "./soma-home";
 import { createPaths } from "./paths";
 import { pruneLegacyVsaSkill } from "./legacy-skill-prune";
+import { installBundledSkillsIntoHome, listBundledSkills } from "./bundled-skills";
 import { installVsaSkillProjection } from "./vsa-skill-installer";
 import { loadActiveVsaForBundle } from "./adapter-active-vsa";
 import { loadMemoryIndexForProjection } from "./memory-index";
@@ -151,6 +152,18 @@ async function installSomaForSubstrate(
       somaHome: somaHome.somaHome,
       somaRepoPath,
     });
+    // Copy the repo-bundled skills (src/skills/* except VSA — the-algorithm,
+    // Memory) into <somaHome>/skills so they enter the Soma catalog (SKILLS.md)
+    // and profile.skills, and therefore project to every substrate through the
+    // generic portable-skill loop. VSA is excluded here (its dedicated
+    // installer above owns its baseline). Placed before the loadSomaHome reload
+    // below so install #1 already lists + projects them. Idempotent + byte-for-
+    // byte from the repo source; user-added files under a skill dir survive.
+    await installBundledSkillsIntoHome({
+      homeDir: options.homeDir,
+      somaHome: somaHome.somaHome,
+      somaRepoPath,
+    });
     // bootstrapSomaHome captured its context snapshot BEFORE the VSA skill
     // baseline above existed, so its skill list is empty on a first install.
     // Re-read the Soma home now that <somaHome>/skills/VSA is on disk: without
@@ -194,6 +207,12 @@ async function installSomaForSubstrate(
     ...projectionContext,
     activeVsa: (await loadActiveVsaForBundle({ somaHome: somaHome.somaHome })) ?? undefined,
     memory: memoryIndexContent !== undefined ? { indexContent: memoryIndexContent } : undefined,
+    // The repo-bundled skills (src/skills/*) copied into the home above scope
+    // the portable-skill loop: only these project as invocable dirs, so a
+    // 100-skill migrated home projects the bundle, not everything, and never
+    // collides with the `--skills` selective symlink flow. codeOnly skips the
+    // home copy, so profile.skills is empty and this list is inert.
+    bundledSkillNames: codeOnly ? undefined : await listBundledSkills(somaRepoPath),
   };
   const substrateHome = await installHomeProjectionFor(substrate, contextWithActiveVsa, projectionOptions);
   await removeObsoleteHomeFiles(spec, substrateHome.rootDir);

@@ -509,7 +509,7 @@ export function projectPiDev(input: ProjectionInput): Projection {
 
 export function projectPiDevHome(input: ProjectionInput, somaHome: string): Projection {
   const instructions = renderInstructions(input);
-  const portableSkillFiles = buildPiDevPortableSkillFiles(projectableSkills(input.profile.skills));
+  const portableSkillFiles = buildPiDevPortableSkillFiles(projectableSkills(input.profile.skills, input.bundledSkillNames));
 
   return {
     substrate: "pi-dev",

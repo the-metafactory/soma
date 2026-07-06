@@ -574,6 +574,16 @@ export interface ProjectionInput {
    * which case the substrate simply does not project a memory file.
    */
   memory?: { indexContent: string };
+  /**
+   * Names (skill dir basenames) of the repo-bundled skills — `src/skills/*`,
+   * e.g. the-algorithm, Memory, VSA — that the install copied into the Soma
+   * home. When present, the generic portable-skill loop projects ONLY these as
+   * invocable dirs; user/registry skills present in `~/.soma/skills` reach a
+   * substrate through `soma install --skills` symlinks instead, not the
+   * always-on loop. Absent for direct projection callers (kept permissive:
+   * legacy all-except-VSA behavior) — install is the sole scope authority.
+   */
+  bundledSkillNames?: readonly string[];
 }
 
 export interface Projection {

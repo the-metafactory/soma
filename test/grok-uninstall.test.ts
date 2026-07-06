@@ -151,38 +151,31 @@ test("grok uninstall leaves a user directory that merely shares a Soma name", as
   });
 });
 
-test("grok uninstall round-trips portable skills via the install manifest", async () => {
+test("grok uninstall round-trips the bundled portable skills via the install manifest", async () => {
   await withTempDir("soma-grok-uninstall-portable-", async (homeDir) => {
     const { somaHome } = await bootstrapSomaHome({ homeDir });
-    for (const [skill, file, body] of [
-      ["notes", "SKILL.md", "---\nname: notes\n---\n\nNote-taking skill.\n"],
-      ["notes", "reference.md", "Reference material.\n"],
-      ["tasks", "SKILL.md", "---\nname: tasks\n---\n\nTask skill.\n"],
-    ] as const) {
-      await mkdir(join(somaHome, "skills", skill), { recursive: true });
-      await writeFile(join(somaHome, "skills", skill, file), body, "utf8");
-    }
 
     await installSomaForGrok({ homeDir });
     const grokHome = join(homeDir, ".grok");
-    expect(await readFile(join(grokHome, "skills", "notes", "SKILL.md"), "utf8")).toContain("Note-taking");
-    expect(await readFile(join(grokHome, "skills", "tasks", "SKILL.md"), "utf8")).toContain("Task skill");
+    // The bundled Memory skill projects as an invocable dir with several files.
+    expect(await readFile(join(grokHome, "skills", "Memory", "SKILL.md"), "utf8")).toContain("name: Memory");
+    expect(await readFile(join(grokHome, "skills", "Memory", "Workflows", "Recall.md"), "utf8")).not.toBe("");
 
     // A user edit to a projected file and a user-added file must survive.
-    await writeFile(join(grokHome, "skills", "notes", "reference.md"), "My hand-tuned reference.\n", "utf8");
-    await writeFile(join(grokHome, "skills", "notes", "extra.md"), "User-added.\n", "utf8");
+    await writeFile(join(grokHome, "skills", "Memory", "SKILL.md"), "hand-tuned\n", "utf8");
+    await writeFile(join(grokHome, "skills", "Memory", "extra.md"), "User-added.\n", "utf8");
 
     const result = await uninstallSomaForGrok({ homeDir });
     const removed = result.removed.map(normalize);
 
-    expect(removed).toContain(normalize(join(grokHome, "skills/notes/SKILL.md")));
-    expect(removed).toContain(normalize(join(grokHome, "skills/tasks/SKILL.md")));
+    // Unedited managed files round-trip via the manifest; the manifest is consumed.
+    expect(removed).toContain(normalize(join(grokHome, "skills/Memory/Workflows/Recall.md")));
     expect(removed).toContain(normalize(grokInstallManifestPath(somaHome)));
-    // tasks emptied out and was pruned; notes kept the user content.
-    expect(await pathGone(join(grokHome, "skills", "tasks"))).toBe(true);
-    expect(await pathGone(join(grokHome, "skills", "notes", "SKILL.md"))).toBe(true);
-    expect(await readFile(join(grokHome, "skills", "notes", "reference.md"), "utf8")).toBe("My hand-tuned reference.\n");
-    expect(await readFile(join(grokHome, "skills", "notes", "extra.md"), "utf8")).toBe("User-added.\n");
+    // The Workflows subdir emptied out and was pruned...
+    expect(await pathGone(join(grokHome, "skills", "Memory", "Workflows"))).toBe(true);
+    // ...but the user edit + user-added file survive, keeping the Memory dir.
+    expect(await readFile(join(grokHome, "skills", "Memory", "SKILL.md"), "utf8")).toBe("hand-tuned\n");
+    expect(await readFile(join(grokHome, "skills", "Memory", "extra.md"), "utf8")).toBe("User-added.\n");
     expect(await pathGone(grokInstallManifestPath(somaHome))).toBe(true);
   });
 });

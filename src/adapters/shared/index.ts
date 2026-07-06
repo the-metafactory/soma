@@ -30,10 +30,23 @@ export {
  * let a locally renamed SKILL.md frontmatter slip back into the generic loop
  * and double-write the dedicated projection.
  */
-export function projectableSkills(skills: SomaSkill[]): SomaSkill[] {
-  return skills.filter(
-    (skill) => skill.name !== VSA_SKILL_NAME && basename(skill.path) !== VSA_SKILL_NAME,
-  );
+export function projectableSkills(skills: SomaSkill[], bundledNames?: readonly string[]): SomaSkill[] {
+  return skills.filter((skill) => {
+    // VSA is always excluded (dedicated managed installer) — matched on BOTH
+    // frontmatter name and canonical dir basename so a renamed SKILL.md cannot
+    // slip its dedicated projection back into the generic loop.
+    if (skill.name === VSA_SKILL_NAME || basename(skill.path) === VSA_SKILL_NAME) return false;
+    // When install supplies the repo-bundled skill set, project ONLY those
+    // (src/skills/*, by dir basename): user/registry skills reach a substrate
+    // through `soma install --skills` symlinks, not this always-on loop, so a
+    // 100-skill home projects two bundled dirs, not a hundred, and never
+    // collides with the selective symlink flow. Matched on basename (not
+    // frontmatter name) for parity with the VSA exclusion and the copied dir
+    // layout. Absent (direct projection callers/tests) → legacy behavior: all
+    // non-VSA skills, so pure-projection unit tests are unaffected.
+    if (bundledNames && !bundledNames.includes(basename(skill.path))) return false;
+    return true;
+  });
 }
 
 export function formatList(items: string[]): string {

@@ -368,7 +368,7 @@ export function projectCodex(input: ProjectionInput): Projection {
 
 export function projectCodexHome(input: ProjectionInput, somaHome: string, homeDir?: string, somaRepoPath = defaultSomaRepoPath()): Projection {
   const instructions = renderHomeRules(input, somaHome);
-  const portableSkillFiles = projectableSkills(input.profile.skills).flatMap((skill) =>
+  const portableSkillFiles = projectableSkills(input.profile.skills, input.bundledSkillNames).flatMap((skill) =>
     (skill.files ?? []).map((file) => ({
       path: `skills/${skill.name}/${file.path}`,
       content: rewriteSubstrateProjectionContent({

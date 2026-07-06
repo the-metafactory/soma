@@ -582,7 +582,7 @@ export function projectGrokHome(input: ProjectionInput, somaHome: string, option
   // Portable Soma skills project through the default substrate rewrite
   // (Claude memory roots -> Soma memory, Claude-only lines stripped) —
   // grok deliberately takes the default-rewrite branch, same as codex.
-  const portableSkillFiles = projectableSkills(input.profile.skills).flatMap((skill) =>
+  const portableSkillFiles = projectableSkills(input.profile.skills, input.bundledSkillNames).flatMap((skill) =>
     (skill.files ?? []).map((file) => ({
       path: `skills/${skill.name}/${file.path}`,
       content: rewriteSubstrateProjectionContent({
