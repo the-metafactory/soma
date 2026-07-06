@@ -110,6 +110,7 @@ export type {
   SomaMemoryConsolidateOptions,
   SomaMemoryConsolidateResult,
   SomaMemorySimilarPair,
+  SomaMemoryAutoMergePlan,
   SomaMemoryArchivePlan,
   SomaMemorySearchMatch,
   SomaMemorySearchOptions,

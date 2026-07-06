@@ -275,6 +275,106 @@ test("--force overrides the recall-first refusal", async () => {
   });
 });
 
+// --- #428: write-time upsert (near-dup → merge instead of refuse) -----------
+
+test("#428: --upsert delta-merges a write-time near-dup into the best-scoring assistant note (no second file, one memory.write.merge event)", async () => {
+  await withTempSoma(async (somaHome) => {
+    const original = await writeMemoryNote(
+      createOpts(somaHome, {
+        id: "original",
+        trigger: "consolidation",
+        consolidationAuthority: true,
+        body: "assistant fact about gateway retries and backoff",
+      }),
+    );
+    expect(original.note.trust).toBe("assistant");
+    expect(await countEvents(somaHome)).toBe(1);
+
+    const upserted = await writeMemoryNote(
+      createOpts(somaHome, {
+        id: "reworded", // ignored — the redirect targets the near-dup, no second file is minted
+        trigger: "consolidation",
+        consolidationAuthority: true,
+        upsert: true,
+        body: "assistant fact about gateway retries and backoff, now with jitter",
+      }),
+    );
+
+    expect(upserted.mode).toBe("merge");
+    expect(upserted.note.id).toBe("original");
+    expect(upserted.path).toBe(original.path);
+    expect(upserted.event.kind).toBe("memory.write.merge");
+
+    const note = await readNote(upserted.path);
+    expect(note.body).toContain("**Update");
+    expect(note.body).toContain("now with jitter");
+
+    // No second file was ever minted under the rejected id.
+    await expect(readNote(memoryNotePath(somaHome, "semantic", "reworded"))).rejects.toThrow();
+    // Exactly one create event + one merge event — no separate create landed.
+    expect(await countEvents(somaHome)).toBe(2);
+  });
+});
+
+test("#428: --upsert still enforces merge governance — a lower-trust trigger cannot inject via upsert either", async () => {
+  await withTempSoma(async (somaHome) => {
+    await writeMemoryNote(
+      createOpts(somaHome, {
+        id: "assistant-note",
+        trigger: "consolidation",
+        consolidationAuthority: true,
+        body: "assistant fact about gateway retries and backoff",
+      }),
+    );
+
+    await expect(
+      writeMemoryNote(
+        createOpts(somaHome, {
+          id: "reworded",
+          trigger: "import",
+          upsert: true,
+          body: "assistant fact about gateway retries and backoff, now with jitter",
+        }),
+      ),
+    ).rejects.toThrow(/Cannot mutate assistant-trust note/);
+    // Refused — no note was minted or merged.
+    await expect(readNote(memoryNotePath(somaHome, "semantic", "reworded"))).rejects.toThrow();
+  });
+});
+
+test("#428: --force and --upsert are mutually exclusive", async () => {
+  await withTempSoma(async (somaHome) => {
+    await expect(writeMemoryNote(createOpts(somaHome, { force: true, upsert: true }))).rejects.toThrow(
+      /--force and --upsert are mutually exclusive/,
+    );
+  });
+});
+
+test("#428: --upsert has no effect when there is no near-dup collision (falls through to a normal create)", async () => {
+  await withTempSoma(async (somaHome) => {
+    const result = await writeMemoryNote(createOpts(somaHome, { upsert: true, body: "a completely unrelated fresh fact zzz yyy xxx" }));
+    expect(result.mode).toBe("create");
+  });
+});
+
+test("CLI: --upsert is accepted on write and rejected alongside --merge/--supersede/--force", () => {
+  const parsed = parseMemoryArgs([
+    "memory", "write", "--trigger", "principal-correction", "--principal-authority",
+    "--id", "a", "--type", "semantic", "--body", "x", "--upsert",
+  ]);
+  expect(parsed.action === "write" && parsed.options.upsert).toBe(true);
+
+  expect(() =>
+    parseMemoryArgs(["memory", "write", "--trigger", "principal-correction", "--body", "x", "--merge", "t", "--upsert"]),
+  ).toThrow(/--upsert only applies to a create-mode collision/);
+  expect(() =>
+    parseMemoryArgs([
+      "memory", "write", "--trigger", "principal-correction", "--body", "x",
+      "--id", "a", "--type", "semantic", "--force", "--upsert",
+    ]),
+  ).toThrow(/--upsert and --force are mutually exclusive/);
+});
+
 test("an exact-body duplicate is refused as an exact match", async () => {
   await withTempSoma(async (somaHome) => {
     await writeMemoryNote(createOpts(somaHome, { id: "original" }));

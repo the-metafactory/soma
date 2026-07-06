@@ -1,6 +1,4 @@
-import { constants as fsConstants } from "node:fs";
-import { lstat, open, readFile } from "node:fs/promises";
-import { createInterface } from "node:readline/promises";
+import { lstat, readFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, relative } from "node:path";
 import { parseDigestPointerIds } from "./episodic-digest";
 import { createPaths } from "./paths";
@@ -9,12 +7,15 @@ import { listMemoryNotes } from "./memory-fs";
 import { runBoundedConcurrent } from "./internal-concurrency";
 import { memoryIndexPath } from "./memory-index";
 import { somaMemoryEventsPath } from "./memory";
+// The neutral journal read-model (#425/#428) — audit sources its retrieval-quality
+// stream AND its shared O_NOFOLLOW read flag from here rather than owning them, so
+// M6 consolidation can reuse the same journal fold without depending on the audit.
+import { NOFOLLOW_READ, streamJournalStats } from "./memory-journal";
 import { parseMemoryNote } from "./memory-note";
 import type {
   SomaMemoryAuditOptions,
   SomaMemoryAuditProbe,
   SomaMemoryAuditResult,
-  SomaMemoryEvent,
   SomaMemoryNote,
   SomaMemoryRetrievalQuality,
 } from "./types";
@@ -60,11 +61,11 @@ function listRealMarkdownFilesRec(dir: string): Promise<string[]> {
   return listMemoryNotes(dir, { recursive: true, onSymlink: "skip" });
 }
 
-// Read WITHOUT following a final-component symlink — closes the TOCTOU where a listed
-// regular file is swapped for a symlink between enumeration and read. O_NOFOLLOW makes
-// the open fail (ELOOP) on a symlink, so a swapped file reads as unreadable, never
-// through the link to an outside target.
-const NOFOLLOW_READ = fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW;
+// `NOFOLLOW_READ` (O_RDONLY | O_NOFOLLOW) — the shared "read WITHOUT following a
+// final-component symlink" flag — now lives in ./memory-journal and is imported
+// above. A listed file swapped for a symlink between enumeration and read fails
+// the open (ELOOP), so it reads as unreadable, never through the link to an
+// outside target.
 
 /** Parse one note file → the note, or `undefined` if it cannot be read/parsed (incl.
  *  a symlink swapped in after enumeration, which O_NOFOLLOW rejects). */
@@ -329,166 +330,10 @@ function probeEventRatio(lines: number, notes: number): { probe: SomaMemoryAudit
   return { events: { lines, notes }, probe: { name: "event-ratio", gatesHealth: false, ok: true, detail: `${lines} event line(s) over ${notes} valid note(s)` } };
 }
 
-// --- #425 retrieval-quality (informational) -----------------------------------
-
-/**
- * The subsequent-event window the retrieval-quality metric searches, chronologically
- * after a `memory.recall` event, for a `memory.verify` OR (#427) `memory.resurface`
- * of one of its returned ids. No existing audit window applies here (the consolidate TTLs are day-based
- * staleness thresholds for a different concern), so this is a fresh, documented
- * default rather than a reused constant — events, not days, keep the correlation
- * deterministic and independent of clock/timezone handling. The window is counted
- * in PARSEABLE journal events (a malformed line is skipped, does not consume a
- * window slot). Not yet configurable; a future slice may need to tune it once real
- * recall volume exists.
- */
-const RECALL_VERIFY_WINDOW_EVENTS = 50;
-
-/** The `noteIds` a `memory.recall` event recorded (its returned note ids — both
- *  term matches and 1-hop link pulls), or `[]` if absent/malformed. */
-function recallEventNoteIds(event: SomaMemoryEvent): string[] {
-  const raw = event.metadata?.noteIds;
-  return Array.isArray(raw) ? raw.filter((v): v is string => typeof v === "string") : [];
-}
-
-/**
- * #427 — the second event kind that satisfies a pending recall, alongside
- * `memory.verify`: `memory.resurface` (`memory-write.ts`'s `resurfaceMemoryNote`,
- * the low-friction "this recalled note helped" signal). Both record the bumped
- * note id the same way (`metadata.id`) and both count toward
- * `verifyFollowsRecallRate` as "the recall got reinforced" — but they assert
- * different things: `memory.resurface` asserts observed USEFULNESS, while
- * `memory.verify` asserts a fact was RE-CONFIRMED (which can happen independently
- * of a note actually being useful). The rate conflates the two deliberately as a
- * reinforcement proxy, not as a pure usefulness measure; the metric name stays
- * `verifyFollowsRecallRate` (not renamed) since it is still measuring "did a
- * recall get reinforced", just via either turning force.
- */
-const VERIFY_LIKE_EVENT_KINDS = new Set(["memory.verify", "memory.resurface"]);
-
-/** The note id a `memory.verify`/`memory.resurface` event bumped
- *  (`memory-write.ts`'s verify/resurface paths both record it as
- *  `metadata.id`), or `undefined` if the event is neither kind, or the id is
- *  absent/malformed. */
-function verifyEventNoteId(event: SomaMemoryEvent): string | undefined {
-  if (!VERIFY_LIKE_EVENT_KINDS.has(event.kind)) return undefined;
-  const raw = event.metadata?.id;
-  return typeof raw === "string" ? raw : undefined;
-}
-
-/**
- * The bounded, incremental retrieval-quality accumulator. Only the running counters
- * plus a window of PENDING recalls (each a non-empty recall still inside its
- * lookahead window) are resident — never the whole journal. A pending recall retires
- * as soon as a matching `memory.verify` is seen (counted as followed) OR after
- * `RECALL_VERIFY_WINDOW_EVENTS` subsequent parseable events elapse (unfollowed), so
- * `pending.length ≤ RECALL_VERIFY_WINDOW_EVENTS` at all times.
- */
-interface RetrievalAccumulator {
-  recallVolume: number;
-  emptyRecalls: number;
-  recallsWithResults: number;
-  verifiedFollows: number;
-  pending: { noteIds: Set<string>; remaining: number }[];
-}
-
-function newRetrievalAccumulator(): RetrievalAccumulator {
-  return { recallVolume: 0, emptyRecalls: 0, recallsWithResults: 0, verifiedFollows: 0, pending: [] };
-}
-
-/**
- * Fold one PARSEABLE event into the accumulator, preserving the exact
- * array-based semantics of the prior implementation: the current event is a
- * SUBSEQUENT event for every earlier pending recall (so it decrements each window
- * and may satisfy one via a matching verify OR #427 resurface), and only AFTER
- * that does the event — if it is itself a recall — become pending (a recall
- * never verifies/resurfaces itself).
- */
-function foldRetrievalEvent(acc: RetrievalAccumulator, event: SomaMemoryEvent): void {
-  if (acc.pending.length > 0) {
-    const verifiedId = verifyEventNoteId(event);
-    const stillPending: RetrievalAccumulator["pending"][number][] = [];
-    for (const p of acc.pending) {
-      p.remaining -= 1;
-      if (verifiedId !== undefined && p.noteIds.has(verifiedId)) {
-        acc.verifiedFollows += 1; // satisfied → retire, counted as followed
-      } else if (p.remaining > 0) {
-        stillPending.push(p); // window not yet exhausted → keep watching
-      }
-      // else: window exhausted unsatisfied → retire, uncounted
-    }
-    acc.pending = stillPending;
-  }
-
-  if (event.kind === "memory.recall") {
-    acc.recallVolume += 1;
-    const noteIds = recallEventNoteIds(event);
-    if (noteIds.length === 0) {
-      acc.emptyRecalls += 1;
-    } else {
-      acc.recallsWithResults += 1;
-      acc.pending.push({ noteIds: new Set(noteIds), remaining: RECALL_VERIFY_WINDOW_EVENTS });
-    }
-  }
-}
-
-function finalizeRetrieval(acc: RetrievalAccumulator, skippedEventLines: number): SomaMemoryRetrievalQuality {
-  return {
-    recallVolume: acc.recallVolume,
-    emptyRecallRate: acc.recallVolume === 0 ? 0 : acc.emptyRecalls / acc.recallVolume,
-    verifyFollowsRecallRate: acc.recallsWithResults === 0 ? 0 : acc.verifiedFollows / acc.recallsWithResults,
-    recallsWithResults: acc.recallsWithResults,
-    verifyWindowEvents: RECALL_VERIFY_WINDOW_EVENTS,
-    skippedEventLines,
-  };
-}
-
-/**
- * ONE streaming pass over the JSONL journal — read line by line via an
- * O_NOFOLLOW-opened FileHandle (a symlinked events file fails the open with ELOOP
- * and is treated as an empty journal, same forgiving stance as the rest of the
- * audit), so audit memory stays O(window + counters), not O(journal). Feeds BOTH:
- * `eventLines` (non-empty lines — the coarse event-ratio count, malformed lines
- * INCLUDED, matching the old byte-scan) and the incremental retrieval accumulator
- * (PARSEABLE events only; a malformed line is skipped and counted). A malformed
- * line is a non-empty line that is not JSON, or lacks a string `kind`/`timestamp`.
- */
-async function streamJournalStats(eventsPath: string): Promise<{ eventLines: number; retrieval: SomaMemoryRetrievalQuality }> {
-  let eventLines = 0;
-  let skippedEventLines = 0;
-  const acc = newRetrievalAccumulator();
-
-  const handle = await open(eventsPath, NOFOLLOW_READ).catch(() => undefined);
-  if (handle === undefined) {
-    // absent, symlinked (ELOOP), or otherwise unopenable → empty journal
-    return { eventLines: 0, retrieval: finalizeRetrieval(acc, 0) };
-  }
-  try {
-    const lines = createInterface({ input: handle.createReadStream({ encoding: "utf8" }), crlfDelay: Infinity });
-    for await (const line of lines) {
-      if (line.trim().length === 0) continue;
-      eventLines += 1; // event-ratio counts every non-empty line, parseable or not
-      let event: SomaMemoryEvent | undefined;
-      try {
-        const parsed = JSON.parse(line) as Partial<SomaMemoryEvent>;
-        if (typeof parsed.kind === "string" && typeof parsed.timestamp === "string") {
-          event = parsed as SomaMemoryEvent;
-        }
-      } catch {
-        // fall through to the malformed count below
-      }
-      if (event === undefined) {
-        skippedEventLines += 1;
-        continue; // malformed → does not consume a retrieval window slot
-      }
-      foldRetrievalEvent(acc, event);
-    }
-  } finally {
-    await handle.close().catch(() => undefined);
-  }
-
-  return { eventLines, retrieval: finalizeRetrieval(acc, skippedEventLines) };
-}
+// The #425 retrieval-quality fold (`streamJournalStats`) and the #428 per-note
+// counts (`computeNoteRetrievalCounts`) moved to the neutral ./memory-journal
+// read-model, so M6 consolidation can reuse the SAME journal fold without
+// depending on this audit module. `streamJournalStats` is imported above.
 
 /**
  * Probe: the #425 retrieval-quality signal, computed PURELY from the journal (no

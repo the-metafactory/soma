@@ -161,14 +161,17 @@ export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAct
       "(same surface as `soma memory write --principal-authority`); omitting it refuses the promotion (fail-closed).",
     write:
       "Usage: soma memory write --trigger <principal-correction|import> --body <text> " +
-      "(create: --id <slug> --type <semantic|procedural> [--force]) " +
+      "(create: --id <slug> --type <semantic|procedural> [--force | --upsert]) " +
       "(--merge <id> | --supersede <id>) " +
       "[--principal-authority] [--project <key>] [--source-of-truth <ref>] [--links a,b] " +
       "[--recall-trigger <text>] [--review <text>] " +
       "[--provenance <import|tool:name>] [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]. " +
       "Trust is DERIVED from --trigger; there is no --trust flag. principal-correction requires " +
       "--principal-authority. (The consolidation trigger, which mints assistant trust, is an internal " +
-      "M6 SDK path and is not accepted on the public CLI.)",
+      "M6 SDK path and is not accepted on the public CLI.) " +
+      "--upsert (#428): on a recall-first-refusal collision, delta-merge into the BEST-scoring near-dup " +
+      "(the existing --merge semantics, target chosen automatically) instead of refusing — an opt-in " +
+      "resolution, not a silent auto-merge; governance is unchanged. Mutually exclusive with --force/--merge/--supersede.",
     verify:
       "Usage: soma memory verify <id> [--id <id>] [--principal-authority] [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]. " +
       "Verifying a principal-trust note requires --principal-authority (assistant-trust notes are an internal SDK path).",
@@ -195,7 +198,9 @@ export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAct
     consolidate:
       "Usage: soma memory consolidate [--dry-run] [--gc-state] [--substrate <s>] [--home-dir <dir>] [--soma-home <dir>]. " +
       "Deterministic maintenance: prune aged episodic → digest+archive, mark aged-unverified semantic review:stale, " +
-      "list lexically-similar note pairs (near-duplicates for review; no semantic check), rebuild INDEX. --gc-state additionally DELETES current-work state >7d (explicit override). " +
+      "list lexically-similar note pairs (near-duplicates for review; no semantic check), auto-merge the assistant-trust " +
+      "subset of those pairs (#428 — delta-merge + close, never delete; principal-trust pairs always stay report-only), " +
+      "rebuild INDEX. --gc-state additionally DELETES current-work state >7d (explicit override). " +
       "--dry-run prints the plan without touching anything.",
     audit:
       "Usage: soma memory audit [--home-dir <dir>] [--soma-home <dir>]. " +
@@ -704,6 +709,9 @@ function parseMemoryWriteArgs(args: string[]): SomaMemoryWriteOptions {
       case "--force":
         options.force = true;
         break;
+      case "--upsert":
+        options.upsert = true;
+        break;
       case "--principal-authority":
         options.principalAuthority = true;
         break;
@@ -719,6 +727,12 @@ function parseMemoryWriteArgs(args: string[]): SomaMemoryWriteOptions {
 
   if (mergeTarget !== undefined && supersedeTarget !== undefined) {
     throw new Error("soma memory write accepts --merge or --supersede, not both.");
+  }
+  if (options.upsert === true && (mergeTarget !== undefined || supersedeTarget !== undefined)) {
+    throw new Error("soma memory write --upsert only applies to a create-mode collision; it cannot be combined with --merge or --supersede.");
+  }
+  if (options.upsert === true && options.force === true) {
+    throw new Error("soma memory write --upsert and --force are mutually exclusive (force skips the dedup scan entirely; upsert needs it to run).");
   }
   if (!options.trigger) {
     throw new Error("soma memory write needs --trigger <principal-correction|import>.");
@@ -961,7 +975,7 @@ function formatMemoryAuditResult(result: SomaMemoryAuditResult): string {
 }
 
 function formatConsolidateIndexLine(result: SomaMemoryConsolidateResult, mutated: boolean): string {
-  // INDEX is rebuilt only when something actually mutated (archive/stale/GC).
+  // INDEX is rebuilt only when something actually mutated (archive/stale/GC/auto-merge).
   if (!mutated) return `index: unchanged (no mutations${result.dryRun ? " planned" : ""})`;
   return result.dryRun ? `index: would rebuild ${result.indexPath}` : `index: rebuilt ${result.indexPath}`;
 }
@@ -979,6 +993,8 @@ function formatMemoryConsolidateResult(result: SomaMemoryConsolidateResult): str
     ...result.stateGced.map((p) => `  - ${p}`),
     `similar pairs listed: ${result.similarPairs.length} (lexical near-duplicates for review; no semantic check)`,
     ...result.similarPairs.map((c) => `  - ${c.a} ~ ${c.b} (jaccard ${c.score.toFixed(2)})`),
+    `auto-merged (assistant-trust only, #428): ${result.autoMerged.length} pair(s)`,
+    ...result.autoMerged.map((p) => `  - ${p.dropId} merged into ${p.keepId} and closed (jaccard ${p.score.toFixed(2)})`),
     indexLine,
   ];
   if (result.unreadable.length > 0) {

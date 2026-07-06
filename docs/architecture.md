@@ -158,7 +158,15 @@ notes `review: stale`, and (only under an explicit `--gc-state`) GCs old
 `current-work-*` state. It is governed (deterministic, event-emitting, no LLM) but
 does NOT re-derive trust — it never mints or elevates a note, only ages/relocates
 existing ones. A mutating pass appends one `memory.consolidate` event as its FINAL
-step — a post-hoc RECORD, NOT rollback-coupled. The pass is idempotent and safe to
+step — a post-hoc RECORD, NOT rollback-coupled. The **#428 auto-merge sub-op** is the
+one exception to that post-hoc shape: because collapsing two near-duplicate
+`assistant`-trust notes is a CONTENT-level mutation (not an age/relocate), each
+merged pair goes through the same governed atomic write primitive as `write`
+(`resolveMutationGovernance` + `writeNotesAtomically`) and appends its OWN
+rollback-coupled `memory.consolidate.merge` event per pair (the M1
+one-mutation-one-event discipline), emitted as the pass runs rather than as a
+post-hoc aggregate; principal-trust pairs are never auto-merged (report-only). The
+aging/relocating ops otherwise still record via the single final event. The pass is idempotent and safe to
 repeat, so the guarantee is repeatability, not atomicity: if the pass throws
 part-way, OR the event append itself fails, mutations may already be applied WITHOUT
 the event — so an absent event does NOT prove no mutation happened. A re-run

@@ -13,6 +13,10 @@ import {
   writeSessionDigest,
 } from "../src/index";
 import { parseMemoryArgs, runMemoryCli } from "../src/cli/memory";
+// #428: computeNoteRetrievalCounts now lives in the neutral journal read-model
+// (moved out of memory-audit so M6 consolidation can reuse it without depending
+// on the audit module). Module-private, test-imported (same pattern as elsewhere).
+import { computeNoteRetrievalCounts } from "../src/memory-journal";
 
 const NOW = new Date("2026-07-04T10:00:00.000Z");
 const SESSION = "0afea4e4-967d-4a38-a855-0d12ac63c2f3";
@@ -423,6 +427,38 @@ test("retrieval-quality: a real recall(#425) followed by soma memory used (#427)
     const after = await auditMemory({ somaHome });
     expect(after.retrieval.recallsWithResults).toBe(1);
     expect(after.retrieval.verifyFollowsRecallRate).toBe(1);
+  });
+});
+
+// --- #428: per-note retrieval counts (M6 auto-merge gating) ------------------
+
+test("#428: computeNoteRetrievalCounts tallies per-note recall + verify/resurface occurrences from the journal", async () => {
+  await withTempSoma(async (somaHome) => {
+    await seedRecallEvent(somaHome, ["a", "b"]);
+    await seedRecallEvent(somaHome, ["a"]);
+    await seedVerifyEvent(somaHome, "a");
+    await seedResurfaceEvent(somaHome, "b");
+    await seedRecallEvent(somaHome, []); // empty recall — contributes to neither
+
+    const counts = await computeNoteRetrievalCounts(somaHome);
+    expect(counts.get("a")).toEqual({ recalled: 2, verified: 1 });
+    expect(counts.get("b")).toEqual({ recalled: 1, verified: 1 });
+    expect(counts.get("c")).toBeUndefined(); // never mentioned — no entry, not a zeroed one
+  });
+});
+
+test("#428: computeNoteRetrievalCounts returns an empty map when the journal is absent, and skips malformed lines", async () => {
+  await withTempSoma(async (somaHome) => {
+    const empty = await computeNoteRetrievalCounts(somaHome);
+    expect(empty.size).toBe(0);
+
+    const eventsPath = somaMemoryEventsPath(somaHome);
+    await mkdir(join(eventsPath, ".."), { recursive: true });
+    await appendFile(eventsPath, "not json\n", "utf8");
+    await seedRecallEvent(somaHome, ["a"]);
+
+    const counts = await computeNoteRetrievalCounts(somaHome);
+    expect(counts.get("a")).toEqual({ recalled: 1, verified: 0 });
   });
 });
 

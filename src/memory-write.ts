@@ -12,6 +12,7 @@ import { jaccard, NEAR_DUPLICATE_JACCARD_THRESHOLD } from "./memory-corpus";
 import { SOMA_MEMORY_NOTE_TYPES, SOMA_MEMORY_TRIGGER_TRUST } from "./types";
 import type {
   SomaMemoryDuplicateCandidate,
+  SomaMemoryEvent,
   SomaMemoryNote,
   SomaMemoryNoteType,
   SomaMemoryResurfaceOptions,
@@ -771,6 +772,17 @@ function buildNewNote(options: SomaMemoryWriteOptions, now: Date): NewNote {
 }
 
 async function createNote(somaHome: string, options: SomaMemoryWriteOptions, now: Date): Promise<SomaMemoryWriteResult> {
+  // #428: force and upsert are contradictory intents — force says "write anyway,
+  // skip the scan"; upsert says "resolve a collision via merge" (which needs the
+  // scan to run to find a target). Refused up front rather than silently letting
+  // force win, so a caller never wonders why --upsert appeared to do nothing.
+  if (options.force === true && options.upsert === true) {
+    throw new MemoryNoteError(
+      `Soma memory write: --force and --upsert are mutually exclusive (force skips the dedup scan entirely; upsert needs it to run).`,
+      "upsert",
+    );
+  }
+
   const { note, governance } = buildNewNote(options, now);
 
   // Cheap path-existence PREFLIGHT — reject an id collision before paying for
@@ -791,11 +803,26 @@ async function createNote(somaHome: string, options: SomaMemoryWriteOptions, now
     const scan = await findDuplicateCandidates(somaHome, note.body);
     unreadable = scan.unreadable;
     if (scan.candidates.length > 0) {
+      // #428 — an opt-in resolution, not a silent auto-merge: redirect to the
+      // SAME `merge` mode an explicit `--merge <id>` would use, targeting the
+      // BEST-scoring candidate (`scan.candidates` is sorted score-desc, id-asc).
+      // Governance is UNCHANGED — `mergeNote`'s own trust-rank + tier-authority
+      // checks still apply exactly as they would for a manual merge; `upsert`
+      // only automates target SELECTION, it grants no new authority. `id`/`type`
+      // are mint-only fields the merge path doesn't take; `force`/`upsert`
+      // themselves aren't merge options either; `provenance` is refused by
+      // `mergeNote` (merge always preserves the target's existing provenance) —
+      // all five are stripped before redirecting.
+      if (options.upsert === true) {
+        const target = scan.candidates[0];
+        const { id: _id, type: _type, force: _force, upsert: _upsert, provenance: _provenance, ...mergeOptions } = options;
+        return mergeNote(somaHome, { ...mergeOptions, mode: "merge", targetId: target.id }, now);
+      }
       const list = scan.candidates.map((c) => `${c.id} (${c.exact ? "exact" : c.score.toFixed(2)})`).join(", ");
       const blindSpot = unreadable.length > 0 ? ` (${unreadable.length} note(s)/dir(s) were unreadable and not checked)` : "";
       throw new MemoryNoteError(
         `Recall-first refusal: ${scan.candidates.length} similar note(s) exist — ${list}${blindSpot}. ` +
-          `Re-run with --merge <id>, --supersede <id>, or --force.`,
+          `Re-run with --merge <id>, --supersede <id>, --upsert, or --force.`,
       );
     }
   }
@@ -918,6 +945,108 @@ async function supersedeNote(somaHome: string, options: SomaMemoryWriteOptions, 
   );
 
   return { somaHome, mode: "supersede", path: newPath, note: newNote, supersededId: closed.id, event };
+}
+
+// --- M6 consolidation auto-merge (#428) ---------------------------------------
+
+/** The result of a successful {@link mergeAndCloseAssistantPair} call. */
+export interface AutoMergeApplied {
+  keptPath: string;
+  keptNote: SomaMemoryNote;
+  closedPath: string;
+  closedId: string;
+  event: SomaMemoryEvent;
+}
+
+/**
+ * The M6 counterpart of `mergeNote`, reachable ONLY from `applyConsolidationPlan`
+ * (never the public write dispatch, never the CLI): delta-merge `dropId`'s body
+ * into `keepId` — the SAME body-delta shape `mergeNote` uses — and, in the SAME
+ * atomic transaction, CLOSE `dropId` (`valid_until` set, cross-linked, never
+ * deleted). Closing `dropId` is what makes repeated consolidation runs
+ * idempotent: a closed note is already excluded from `findDuplicateCandidates`/
+ * `planSimilarPairs` (both filter on `valid_until === null`), so the SAME pair
+ * cannot be re-merged on a later run — reusing that existing exclusion instead
+ * of inventing a second "already merged" signal. This is NOT `supersede`: no new
+ * note id is minted; an EXISTING note absorbs another EXISTING note's content.
+ *
+ * Both notes are re-verified as `assistant` trust and active HERE, fresh from
+ * disk — never trusted from the caller's plan snapshot. This is the hard
+ * governance line ("never auto-merge principal-trust notes") holding even under
+ * a plan→apply TOCTOU race: a note re-authored to `principal` (or closed by
+ * another process) between planning and applying is silently SKIPPED
+ * (`undefined`), not merged — a best-effort maintenance op, not a hard failure
+ * path. Authorization is resolved through the SAME `resolveMutationGovernance`
+ * gate (#409) every other mutation uses (twice, mirroring `supersedeNote`'s
+ * two-resolution shape — merge-into-keep and close-drop each need their own
+ * resolution), and both writes go through the SAME `writeNotesAtomically` (#412)
+ * atomicity primitive — not a hand-rolled write.
+ */
+export async function mergeAndCloseAssistantPair(
+  somaHome: string,
+  now: Date,
+  substrate: SomaMemoryWriteOptions["substrate"],
+  keepId: string,
+  dropId: string,
+): Promise<AutoMergeApplied | undefined> {
+  let keep: LoadedNote;
+  let drop: LoadedNote;
+  try {
+    keep = await loadNoteById(somaHome, keepId);
+    drop = await loadNoteById(somaHome, dropId);
+  } catch {
+    return undefined; // one of the pair vanished since planning — skip, not an error
+  }
+  // Already closed (by a prior run, or a concurrent process) — skip.
+  if (keep.note.valid_until !== null || drop.note.valid_until !== null) return undefined;
+  // Re-authored since planning — the hard governance line holds even on a race.
+  if (keep.note.trust !== "assistant" || drop.note.trust !== "assistant") return undefined;
+
+  // Both sides authorize via the SAME internal capability the rest of M6 uses to
+  // mint/mutate assistant trust (SOMA_MEMORY_WRITE_TRIGGERS' documented
+  // "consolidation → assistant" path) — resolved through the SAME gate every
+  // other mutation uses, not a bespoke check.
+  const auth = { consolidationAuthority: true };
+  const mergeGovernance = resolveMutationGovernance("consolidation", keep.note, auth);
+  const closeGovernance = resolveMutationGovernance("consolidation", drop.note, auth);
+
+  const today = isoDate(now);
+  const merged: SomaMemoryNote = {
+    ...keep.note,
+    last_verified: today,
+    body: `${keep.note.body}\n\n**Update (${today}):** ${drop.note.body.trim()}`,
+    links: keep.note.links.includes(drop.note.id) ? keep.note.links : [...keep.note.links, drop.note.id],
+  };
+  const closed: SomaMemoryNote = {
+    ...drop.note,
+    valid_until: today,
+    links: drop.note.links.includes(keep.note.id) ? drop.note.links : [...drop.note.links, keep.note.id],
+  };
+
+  const event = await writeNotesAtomically(
+    somaHome,
+    now,
+    substrate,
+    "memory.consolidate.merge",
+    [
+      { path: keep.path, flag: "w", note: merged, priorRaw: keep.raw },
+      { path: drop.path, flag: "w", note: closed, priorRaw: drop.raw },
+    ],
+    {
+      summary: `Consolidation merged near-duplicate ${closed.id} into ${merged.id} (assistant trust)`,
+      artifactPaths: [keep.path, drop.path],
+      metadata: {
+        keptId: merged.id,
+        mergedId: closed.id,
+        trust: "assistant",
+        trigger: "consolidation",
+        ...mergeGovernance.eventMeta,
+        ...closeGovernance.eventMeta,
+      },
+    },
+  );
+
+  return { keptPath: keep.path, keptNote: merged, closedPath: drop.path, closedId: closed.id, event };
 }
 
 export async function writeMemoryNote(options: SomaMemoryWriteOptions): Promise<SomaMemoryWriteResult> {
