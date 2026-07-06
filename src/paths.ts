@@ -8,7 +8,7 @@ export interface SomaPathsOptions {
   somaHome?: string;
 }
 
-function defaultSomaHome(options: SomaPathsOptions = {}): string {
+export function defaultSomaHome(options: SomaPathsOptions = {}): string {
   return resolvePath(options.somaHome ?? join(options.homeDir ?? homedir(), ".soma"));
 }
 

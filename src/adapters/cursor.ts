@@ -1,8 +1,7 @@
 import { resolve } from "node:path";
 import type { SomaAdapter, Projection, ProjectionInput, SomaTask } from "../types";
 import { activeVsaBundleFile } from "../adapter-active-vsa";
-import { projectableSkills, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "./shared";
-import { rewriteSubstrateProjectionContent } from "../substrate-projection-rewrites";
+import { buildPortableSkillFiles, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "./shared";
 
 export const CURSOR_RULES_PATH = ".cursorrules";
 export const CURSOR_RULES_BLOCK_BEGIN = "<!-- SOMA_CURSOR_BEGIN -->";
@@ -152,16 +151,9 @@ export function projectCursor(input: ProjectionInput): Projection {
   // Portable bundled skills (the-algorithm, Memory) project as invocable dirs
   // under the Soma-owned Cursor skills dir. VSA excluded (dedicated installer).
   // Same default substrate rewrite as codex/grok/claude-code.
-  const portableSkillFiles = projectableSkills(input.profile.skills, input.bundledSkillNames).flatMap((skill) =>
-    (skill.files ?? []).map((file) => ({
-      path: `${CURSOR_SKILLS_DIR_PREFIX}${skill.name}/${file.path}`,
-      content: rewriteSubstrateProjectionContent({
-        substrate: "cursor",
-        path: file.path,
-        content: file.content,
-      }),
-    })),
-  );
+  const portableSkillFiles = buildPortableSkillFiles(input.profile.skills, input.bundledSkillNames, "cursor", {
+    skillsDirPrefix: CURSOR_SKILLS_DIR_PREFIX,
+  });
 
   return {
     substrate: "cursor",

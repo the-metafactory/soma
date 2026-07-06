@@ -1,7 +1,8 @@
 import { basename } from "node:path";
-import type { ProjectionInput, SomaSkill } from "../../types";
+import type { ProjectionInput, SomaSkill, SubstrateId } from "../../types";
 import { getCriteria, getGoal } from "../../vsa-accessors";
 import { VSA_SKILL_NAME } from "../../vsa-skill-installer";
+import { rewriteSubstrateProjectionContent } from "../../substrate-projection-rewrites";
 
 export { renderAlgorithmRenderingContract } from "./algorithm-rendering-contract";
 export {
@@ -37,16 +38,48 @@ export function projectableSkills(skills: SomaSkill[], bundledNames?: readonly s
     // slip its dedicated projection back into the generic loop.
     if (skill.name === VSA_SKILL_NAME || basename(skill.path) === VSA_SKILL_NAME) return false;
     // When install supplies the repo-bundled skill set, project ONLY those
-    // (src/skills/*, by dir basename): user/registry skills reach a substrate
-    // through `soma install --skills` symlinks, not this always-on loop, so a
-    // 100-skill home projects two bundled dirs, not a hundred, and never
-    // collides with the selective symlink flow. Matched on basename (not
-    // frontmatter name) for parity with the VSA exclusion and the copied dir
-    // layout. Absent (direct projection callers/tests) → legacy behavior: all
-    // non-VSA skills, so pure-projection unit tests are unaffected.
+    // (src/skills/*): user/registry skills reach a substrate through `soma
+    // install --skills` symlinks, not this always-on loop, so a 100-skill home
+    // projects two bundled dirs, not a hundred, and never collides with the
+    // selective symlink flow. Absent (direct projection callers/tests) → legacy
+    // behavior: all non-VSA skills, so pure-projection unit tests are unaffected.
+    //
+    // Matched on `basename(skill.path)` (the on-disk dir the install copied),
+    // NOT `skill.name` (frontmatter). This is deliberately a SINGLE key, unlike
+    // VSA's two-key guard above: VSA needs both because a locally-renamed VSA
+    // SKILL.md frontmatter must not slip past its dedicated managed installer.
+    // The bundle here is repo-owned (installBundledSkillsIntoHome writes the
+    // dir), so the dir name is authoritative and a name/dir mismatch cannot
+    // arise from user edits — one key suffices.
     if (bundledNames && !bundledNames.includes(basename(skill.path))) return false;
     return true;
   });
+}
+
+/**
+ * Build the portable-skill projection files an adapter's home projection emits:
+ * one `<skillsDirPrefix><skill.name>/<file>` entry per file of each projectable
+ * (bundled, non-VSA) skill, with content run through the substrate rewrite.
+ * Shared by the four adapters whose loop is identical (claude-code, codex, grok,
+ * cursor) — cursor differs only in `skillsDirPrefix`. `substrate` drives
+ * `rewriteSubstrateProjectionContent`: `claude-code` is a verbatim passthrough,
+ * every other substrate (codex, grok, cursor) takes the memory-root rewrite +
+ * Claude-only-line strip. pi-dev is NOT a caller — it normalizes skill names to
+ * ids via its own `buildPiDevPortableSkillFiles`.
+ */
+export function buildPortableSkillFiles(
+  skills: SomaSkill[],
+  bundledNames: readonly string[] | undefined,
+  substrate: SubstrateId,
+  options: { skillsDirPrefix?: string } = {},
+): { path: string; content: string }[] {
+  const prefix = options.skillsDirPrefix ?? "skills/";
+  return projectableSkills(skills, bundledNames).flatMap((skill) =>
+    (skill.files ?? []).map((file) => ({
+      path: `${prefix}${skill.name}/${file.path}`,
+      content: rewriteSubstrateProjectionContent({ substrate, path: file.path, content: file.content }),
+    })),
+  );
 }
 
 export function formatList(items: string[]): string {

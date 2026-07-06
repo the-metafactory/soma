@@ -1,7 +1,6 @@
-import { homedir } from "node:os";
-import { resolve } from "node:path";
 import { skillsLoaderUnder, vsaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
 import { vsaSiblingPrunePrepare } from "../../legacy-skill-prune";
+import { defaultSomaHome } from "../../paths";
 import { removePortableSkillProjection } from "../shared/portable-skill-manifest";
 import { CLAUDE_CODE_RULES_FILES } from "../claude-code";
 import {
@@ -74,7 +73,7 @@ export const claudeCodeInstallSpec: SubstrateInstallSpec<"claude-code"> = {
       // uninstall round-trips them (user-edited files preserved).
       removed.push(
         ...(await removePortableSkillProjection({
-          somaHome: context.somaHome ?? resolve(context.homeDir ?? homedir(), ".soma"),
+          somaHome: defaultSomaHome({ homeDir: context.homeDir, somaHome: context.somaHome }),
           substrate: "claude-code",
           substrateHome: context.substrateHome,
         })),

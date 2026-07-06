@@ -1,6 +1,5 @@
 import type { SomaAdapter, Projection, ProjectionInput, SomaTask } from "../types";
-import { projectableSkills, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills, withProvenance } from "./shared";
-import { rewriteSubstrateProjectionContent } from "../substrate-projection-rewrites";
+import { buildPortableSkillFiles, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills, withProvenance } from "./shared";
 import { activeVsaBundleFile } from "../adapter-active-vsa";
 
 // Every `skills/<name>/` file claude-code's home projection emits is a portable
@@ -254,16 +253,7 @@ export function projectClaudeCodeHome(input: ProjectionInput): Projection {
   // kept), same shape as codex/grok. The `skills/` dir is SHARED (user + PAI
   // skills), so it is NOT an owned subtree; removals round-trip via the install
   // manifest (installClaudeCodeHomeProjection), not the owned-subtree reconcile.
-  const portableSkillFiles = projectableSkills(input.profile.skills, input.bundledSkillNames).flatMap((skill) =>
-    (skill.files ?? []).map((file) => ({
-      path: `skills/${skill.name}/${file.path}`,
-      content: rewriteSubstrateProjectionContent({
-        substrate: "claude-code",
-        path: file.path,
-        content: file.content,
-      }),
-    })),
-  );
+  const portableSkillFiles = buildPortableSkillFiles(input.profile.skills, input.bundledSkillNames, "claude-code");
   return {
     substrate: "claude-code",
     instructions: renderInstructions(input),
