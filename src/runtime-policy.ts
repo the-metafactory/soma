@@ -90,6 +90,7 @@ const SUBSTRATE_SECURITY_CONFIG_KEYS = {
   // actually honors. U9 (policy enforcement) refines these against the
   // live config schema; this is data, not an enforcement claim.
   grok: ["hooks", "mcp_servers", "permission", "plugins"],
+  "anthropic-cowork": [],
   cortex: ["dispatcher", "artifactIngress", "taskRouting", "capabilities"],
   custom: [],
 } as const;

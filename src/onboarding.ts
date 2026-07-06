@@ -15,10 +15,13 @@ import type {
   SomaInitStep,
   SomaInitStepId,
   SomaOnboardingOptions,
-  SubstrateId,
+  SomaOnboardingSubstrate,
 } from "./types";
 
-type InitSubstrate = Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor" | "grok">;
+type InitSubstrate = SomaOnboardingSubstrate;
+
+export const ANTHROPIC_COWORK_INIT_UNSUPPORTED_MESSAGE =
+  "soma init does not support anthropic-cowork yet; use soma install anthropic-cowork for the experimental scaffold.";
 
 function resolveHomeDir(homeDir?: string): string {
   return resolve(homeDir ?? homedir());
@@ -29,11 +32,22 @@ function resolveSomaHome(options: SomaOnboardingOptions, homeDir: string): strin
 }
 
 function initSubstrate(options: SomaOnboardingOptions): InitSubstrate {
+  if ((options.substrate as string | undefined) === "anthropic-cowork") {
+    throw new Error(ANTHROPIC_COWORK_INIT_UNSUPPORTED_MESSAGE);
+  }
   return options.substrate ?? "codex";
 }
 
+const INSTALL_STEP_IDS = {
+  codex: "install-codex",
+  "pi-dev": "install-pi-dev",
+  "claude-code": "install-claude-code",
+  cursor: "install-cursor",
+  grok: "install-grok",
+} satisfies Record<InitSubstrate, SomaInitStepId>;
+
 function installStepId(substrate: InitSubstrate): SomaInitStepId {
-  return `install-${substrate}`;
+  return INSTALL_STEP_IDS[substrate];
 }
 
 function installCommand(substrate: InitSubstrate, apply: boolean): string {

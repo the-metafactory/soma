@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { configureCodexInstall } from "./config";
 import { skillsLoaderUnder, vsaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
 import { vsaSiblingPrunePrepare } from "../../legacy-skill-prune";
-import type { SubstrateId } from "../../types";
+import type { PrivateRootOptions } from "../../install-spec";
 
 const CODEX_DEFAULT_HOME = ".codex";
 
@@ -34,13 +34,13 @@ export const CODEX_HOME_FILES = [
 
 export const CODEX_AGENTS_IMPORTS = ["@./skills/the-algorithm/SKILL.md", "@./memories/soma/startup-context.md"] as const;
 
-export function codexProjectionPrivateRoots(options: { homeDir?: string; substrate?: SubstrateId } = {}): string[] {
+export function codexProjectionPrivateRoots(options: PrivateRootOptions = {}): string[] {
   if (options.substrate !== undefined && options.substrate !== "codex") return [];
   const home = resolve(options.homeDir ?? homedir());
   return [join(home, CODEX_DEFAULT_HOME, "skills", "soma")].map((path) => resolve(path));
 }
 
-export function codexMemoryPrivateRoots(options: { homeDir?: string; substrate?: SubstrateId } = {}): string[] {
+export function codexMemoryPrivateRoots(options: PrivateRootOptions = {}): string[] {
   if (options.substrate !== undefined && options.substrate !== "codex") return [];
   const home = resolve(options.homeDir ?? homedir());
   return [join(home, CODEX_DEFAULT_HOME, "memories")].map((path) => resolve(path));

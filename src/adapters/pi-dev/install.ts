@@ -1,7 +1,6 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { skillsLoaderUnder, type SubstrateInstallSpec } from "../../install-spec";
-import type { SubstrateId } from "../../types";
+import { skillsLoaderUnder, type PrivateRootOptions, type SubstrateInstallSpec } from "../../install-spec";
 import {
   PI_DEV_VSA_SKILL_ID,
   piDevVsaSkillDestinationDir,
@@ -27,7 +26,7 @@ export const PI_DEV_HOME_FILES = [
   "agent/skills/soma/SKILL.md",
 ] as const;
 
-function piDevProjectionPrivateRoots(options: { homeDir?: string; substrate?: SubstrateId } = {}): string[] {
+function piDevProjectionPrivateRoots(options: PrivateRootOptions = {}): string[] {
   if (options.substrate !== undefined && options.substrate !== "pi-dev") return [];
   const home = resolve(options.homeDir ?? homedir());
   return [

@@ -2,46 +2,54 @@ import { homedir } from "node:os";
 import { join as pathJoin, relative as pathRelative, resolve as pathResolve } from "node:path";
 import { cursorWorkspaceSubstrateHome } from "../adapters/cursor";
 import {
+  buildAnthropicCoworkHomeProjection,
   buildClaudeCodeHomeProjection,
   buildCodexHomeProjection,
   buildCursorHomeProjection,
   buildGrokHomeProjection,
   buildPiDevHomeProjection,
+} from "../home-projection";
+import {
+  installSomaForAnthropicCowork,
   installSomaForClaudeCode,
   installSomaForCodex,
   installSomaForCursor,
   installSomaForGrok,
   installSomaForPiDev,
-  loadSomaHome,
+  planSomaForAnthropicCoworkInstall,
   planSomaForClaudeCodeInstall,
   planSomaForCodexInstall,
   planSomaForCursorInstall,
   planSomaForGrokInstall,
   planSomaForPiDevInstall,
+  uninstallSomaForAnthropicCowork,
   uninstallSomaForClaudeCode,
   uninstallSomaForCursor,
   uninstallSomaForGrok,
+  type UninstallAnthropicCoworkResult,
   type UninstallClaudeCodeOptions,
   type UninstallClaudeCodeResult,
   type UninstallCursorResult,
   type UninstallGrokResult,
-} from "../index";
+} from "../install";
 import type { ClaudeCodeInstallOptions } from "../adapters/claude-code/install-options";
 import { projectVsaSkillBundleFiles } from "../vsa-skill-installer";
 import { defaultSubstrateHome, installSpecFor } from "../install-spec-registry";
+import { loadSomaHome } from "../soma-home";
 import { projectSkills } from "../skill-projection";
 import type {
+  InstallSubstrate,
   ProjectionInput,
   SomaInstallOptions,
   SomaInstallPlan,
   SomaInstallResult,
-  SubstrateId,
 } from "../types";
 import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";
 
-export type InstallSubstrate = Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor" | "grok">;
+export type { InstallSubstrate } from "../types";
 type InstallCliOptions = SomaInstallOptions & Partial<Pick<ClaudeCodeInstallOptions, "modeClassifier" | "policyGuard" | "claudeMd">>;
+type ProjectionLifecycleSubstrate = Exclude<InstallSubstrate, "anthropic-cowork">;
 
 export interface ParsedInstallArgs {
   command: "install";
@@ -62,14 +70,14 @@ export interface ParsedUninstallArgs {
 
 export interface ParsedReprojectArgs {
   command: "reproject";
-  substrate: InstallSubstrate;
+  substrate: ProjectionLifecycleSubstrate;
   workspace: boolean;
   options: SomaInstallOptions;
 }
 
 export interface ParsedUpgradeArgs {
   command: "upgrade";
-  substrate: InstallSubstrate;
+  substrate: ProjectionLifecycleSubstrate;
   workspace: boolean;
   options: SomaInstallOptions;
 }
@@ -93,9 +101,11 @@ export type ParsedSubstrateLifecycleArgs =
   | ParsedExportArgs
   | ParsedDaemonArgs;
 
-export const INSTALL_SUBSTRATES = ["codex", "pi-dev", "claude-code", "cursor", "grok"] as const satisfies readonly InstallSubstrate[];
+export const PROJECTION_LIFECYCLE_SUBSTRATES = ["codex", "pi-dev", "claude-code", "cursor", "grok"] as const satisfies readonly ProjectionLifecycleSubstrate[];
+export const INSTALL_SUBSTRATES = [...PROJECTION_LIFECYCLE_SUBSTRATES, "anthropic-cowork"] as const satisfies readonly InstallSubstrate[];
 
 const substrateList = INSTALL_SUBSTRATES.join("|");
+const projectionLifecycleSubstrateList = PROJECTION_LIFECYCLE_SUBSTRATES.join("|");
 const installOptions = "[--dry-run] [--apply] [--workspace] [--code-only] [--no-mode-classifier] [--no-policy-guard] [--claude-md] [--skills <name[,name…]>] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
 // Shared by uninstall and projection verbs for common workspace/home flags.
 const workspaceVerbOptions = "[--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
@@ -125,6 +135,7 @@ const installPlanners: Record<InstallSubstrate, (options: SomaInstallOptions) =>
   "claude-code": planSomaForClaudeCodeInstall,
   cursor: planSomaForCursorInstall,
   grok: planSomaForGrokInstall,
+  "anthropic-cowork": planSomaForAnthropicCoworkInstall,
 };
 
 const installers: Record<InstallSubstrate, (options: SomaInstallOptions) => Promise<SomaInstallResult>> = {
@@ -133,6 +144,7 @@ const installers: Record<InstallSubstrate, (options: SomaInstallOptions) => Prom
   "claude-code": installSomaForClaudeCode,
   cursor: installSomaForCursor,
   grok: installSomaForGrok,
+  "anthropic-cowork": installSomaForAnthropicCowork,
 };
 
 const projectionBuilders: Record<
@@ -144,6 +156,7 @@ const projectionBuilders: Record<
   "claude-code": (input, options) => buildClaudeCodeHomeProjection(input, options).bundle.files,
   cursor: (input, options) => buildCursorHomeProjection(input, options).bundle.files,
   grok: (input, options) => buildGrokHomeProjection(input, options).bundle.files,
+  "anthropic-cowork": (input, options) => buildAnthropicCoworkHomeProjection(input, options).bundle.files,
 };
 
 export const SUBSTRATE_LIFECYCLE_COMMAND_HELP: Record<
@@ -159,10 +172,10 @@ export const SUBSTRATE_LIFECYCLE_COMMAND_HELP: Record<
     subcommands: lifecycleSubcommandUsage("uninstall", uninstallOptions),
   },
   reproject: {
-    usage: lifecycleUsage("reproject", `<${substrateList}>`, projectionVerbOptions),
+    usage: lifecycleUsage("reproject", `<${projectionLifecycleSubstrateList}>`, projectionVerbOptions),
   },
   upgrade: {
-    usage: lifecycleUsage("upgrade", `<${substrateList}>`, projectionVerbOptions),
+    usage: lifecycleUsage("upgrade", `<${projectionLifecycleSubstrateList}>`, projectionVerbOptions),
   },
   export: {
     usage: lifecycleUsage("export", `<${substrateList}>`, "[--out <dir>] [--home-dir <dir>] [--soma-home <dir>]"),
@@ -176,9 +189,13 @@ export function isInstallSubstrate(value: string | undefined): value is InstallS
   return value !== undefined && (INSTALL_SUBSTRATES as readonly string[]).includes(value);
 }
 
+function isProjectionLifecycleSubstrate(value: string | undefined): value is ProjectionLifecycleSubstrate {
+  return value !== undefined && (PROJECTION_LIFECYCLE_SUBSTRATES as readonly string[]).includes(value);
+}
+
 export function parseOnboardingSubstrate(value: string): InstallSubstrate {
   if (isInstallSubstrate(value)) return value;
-  throw new Error("--substrate must be one of codex, pi-dev, claude-code, cursor, or grok.");
+  throw new Error("--substrate must be one of codex, pi-dev, claude-code, cursor, grok, or anthropic-cowork.");
 }
 
 function commandUsage(command: keyof typeof SUBSTRATE_LIFECYCLE_COMMAND_HELP): string {
@@ -333,19 +350,34 @@ function parseSkillNames(csv: string): string[] {
 }
 
 function parseLifecycleVerbArgs(
+  verb: "uninstall",
+  args: string[],
+): { substrate: InstallSubstrate; workspace: boolean; options: SomaInstallOptions };
+function parseLifecycleVerbArgs(
+  verb: "reproject" | "upgrade",
+  args: string[],
+): { substrate: ProjectionLifecycleSubstrate; workspace: boolean; options: SomaInstallOptions };
+function parseLifecycleVerbArgs(
   verb: "uninstall" | "reproject" | "upgrade",
   args: string[],
-): { substrate: InstallSubstrate; workspace: boolean; options: SomaInstallOptions } {
+): { substrate: InstallSubstrate | ProjectionLifecycleSubstrate; workspace: boolean; options: SomaInstallOptions } {
   const [command, substrate, ...rest] = args;
 
-  if (command !== verb || !isInstallSubstrate(substrate)) {
+  if (command !== verb) {
     throw new Error(commandUsage(verb));
   }
 
-  const { workspace, options } = parseSubstrateLifecycleOptions(substrate, rest, () => false, {
+  const parsedSubstrate = verb === "uninstall"
+    ? (isInstallSubstrate(substrate) ? substrate : undefined)
+    : (isProjectionLifecycleSubstrate(substrate) ? substrate : undefined);
+  if (parsedSubstrate === undefined) {
+    throw new Error(commandUsage(verb));
+  }
+
+  const { workspace, options } = parseSubstrateLifecycleOptions(parsedSubstrate, rest, () => false, {
     allowCodeOnly: verb === "reproject" || verb === "upgrade",
   });
-  return { substrate, workspace, options };
+  return { substrate: parsedSubstrate, workspace, options };
 }
 
 export function parseUninstallArgs(args: string[]): ParsedUninstallArgs {
@@ -480,6 +512,9 @@ async function runUninstall(parsed: ParsedUninstallArgs): Promise<string> {
   }
   if (parsed.substrate === "grok") {
     return formatGrokUninstallResult(await uninstallSomaForGrok(parsed.options));
+  }
+  if (parsed.substrate === "anthropic-cowork") {
+    return formatAnthropicCoworkUninstallResult(await uninstallSomaForAnthropicCowork(parsed.options));
   }
   // Remaining uninstallers are reserved. The CLI surface exists so
   // CONTEXT.md's "Lifecycle verbs" table maps one-to-one (#54 AC); the
@@ -680,6 +715,10 @@ function formatCursorUninstallResult(result: UninstallCursorResult): string {
 
 function formatGrokUninstallResult(result: UninstallGrokResult): string {
   return formatUninstallResult("soma uninstall grok", result);
+}
+
+function formatAnthropicCoworkUninstallResult(result: UninstallAnthropicCoworkResult): string {
+  return formatUninstallResult("soma uninstall anthropic-cowork", result);
 }
 
 function formatUninstallResult(title: string, result: UninstallResult): string {

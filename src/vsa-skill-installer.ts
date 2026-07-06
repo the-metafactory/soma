@@ -10,12 +10,12 @@ import type {
   VsaSkillInstallResult,
   SomaSkillBaseline,
   SomaSkillBaselines,
-  SubstrateId,
+  ProjectionSubstrate,
 } from "./types";
 
 interface InternalVsaSkillInstallOptions extends VsaSkillInstallOptions {
   skillNameOverride?: string;
-  projectionSubstrate?: SubstrateId;
+  projectionSubstrate?: ProjectionSubstrate;
 }
 
 // The canonical VSA skill directory name under <somaHome>/skills. Exported so
@@ -207,7 +207,7 @@ function transformSkillFileContent(
   relPath: string,
   content: string,
   skillNameOverride?: string,
-  projectionSubstrate?: SubstrateId,
+  projectionSubstrate?: ProjectionSubstrate,
 ): string {
   const rewritten = projectionSubstrate
     ? rewriteSubstrateProjectionContent({ substrate: projectionSubstrate, path: relPath, content })
@@ -227,7 +227,7 @@ function transformSkillFileContent(
 async function computeSourceFileEntries(
   sourceDir: string,
   skillNameOverride?: string,
-  projectionSubstrate?: SubstrateId,
+  projectionSubstrate?: ProjectionSubstrate,
 ): Promise<{ rel: string; content: string }[]> {
   const sourceFiles = await listSkillFiles(sourceDir);
   const entries: { rel: string; content: string }[] = [];
@@ -303,7 +303,7 @@ export function installVsaSkillProjection(options: InternalVsaSkillInstallOption
 export interface VsaSkillBundleProjectionOptions {
   somaRepoPath?: string;
   skillNameOverride?: string;
-  projectionSubstrate?: SubstrateId;
+  projectionSubstrate?: ProjectionSubstrate;
   /**
    * Bundle-relative directory the VSA files live under (e.g. `skills/VSA`
    * or `.cursor/rules/soma/skills/VSA`). Backslashes are normalized to `/`.

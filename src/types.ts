@@ -1,6 +1,17 @@
 import type { InferenceBackend, InferenceLevel } from "./tools/inference/types";
 
-export type SubstrateId = "codex" | "pi-dev" | "claude-code" | "cursor" | "grok" | "cortex" | "custom";
+export type SubstrateId =
+  | "codex"
+  | "pi-dev"
+  | "claude-code"
+  | "cursor"
+  | "grok"
+  | "cortex"
+  | "custom";
+
+export type ExperimentalScaffoldSubstrate = "anthropic-cowork";
+export type ProjectionSubstrate = SubstrateId | ExperimentalScaffoldSubstrate;
+export type InstallSubstrate = Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor" | "grok"> | ExperimentalScaffoldSubstrate;
 
 export interface AssistantIdentity {
   name: string;
@@ -577,7 +588,7 @@ export interface ProjectionInput {
 }
 
 export interface Projection {
-  substrate: SubstrateId;
+  substrate: ProjectionSubstrate;
   instructions: string;
   files: {
     path: string;
@@ -593,7 +604,7 @@ export interface Projection {
 }
 
 export interface WrittenProjection {
-  substrate: SubstrateId;
+  substrate: ProjectionSubstrate;
   rootDir: string;
   files: string[];
 }
@@ -607,7 +618,7 @@ export interface SomaHomeProjectionOptions {
 }
 
 export interface SomaHomeProjection {
-  substrate: SubstrateId;
+  substrate: ProjectionSubstrate;
   somaHome: string;
   substrateHome: string;
   bundle: Projection;
@@ -634,13 +645,13 @@ export interface SomaInstallOptions {
 }
 
 export interface SomaInstallResult {
-  substrate: SubstrateId;
+  substrate: InstallSubstrate;
   somaHome: SomaHomeBootstrapResult;
   substrateHome: WrittenProjection;
 }
 
 export interface SomaInstallPlan {
-  substrate: SubstrateId;
+  substrate: InstallSubstrate;
   apply: boolean;
   somaHome: string;
   substrateHome: string;
@@ -928,7 +939,7 @@ export interface SomaSkillManifest {
   workflows: string[];
   tools: string[];
   triggers: string[];
-  substrates: ("claude-code" | "codex" | "pi-dev" | "cursor" | "grok" | "cortex" | "custom")[];
+  substrates: SubstrateId[];
   algorithmCapability?: SomaSkillAlgorithmCapabilityManifest;
 }
 
@@ -1685,10 +1696,12 @@ export type SomaDoctorFindingId =
   | "grok-hook-interpreter-missing"
   | "grok-inspect-unavailable";
 
+export type SomaOnboardingSubstrate = Exclude<InstallSubstrate, "anthropic-cowork">;
+
 export interface SomaOnboardingOptions {
   homeDir?: string;
   somaHome?: string;
-  substrate?: Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor" | "grok">;
+  substrate?: SomaOnboardingSubstrate;
 }
 
 // Classification of a detected Claude skills source dir (sage review on
@@ -1708,7 +1721,7 @@ export interface SomaInitPlan {
   mode: "dry-run" | "apply";
   homeDir: string;
   somaHome: string;
-  substrate: Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor" | "grok">;
+  substrate: SomaOnboardingSubstrate;
   detected: {
     paiInstall: string | null;
     paiUserDir: string | null;
@@ -2334,21 +2347,21 @@ export interface SomaLifecycleResult {
 
 export interface SomaTask {
   id: string;
-  substrate: SubstrateId;
+  substrate: ProjectionSubstrate;
   prompt: string;
   cwd?: string;
 }
 
 export interface SomaRunResult {
   taskId: string;
-  substrate: SubstrateId;
+  substrate: ProjectionSubstrate;
   status: "completed" | "failed" | "cancelled";
   summary: string;
   artifacts?: string[];
 }
 
 export interface SomaAdapter {
-  name: SubstrateId;
+  name: ProjectionSubstrate;
   detect(): Promise<boolean>;
   project(input: ProjectionInput): Promise<Projection>;
   run(task: SomaTask): Promise<SomaRunResult>;

@@ -1,10 +1,11 @@
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
-import { isAbsolute, join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import { bootstrapSomaHome, installSomaForClaudeCode, installSomaForCodex, installSomaForCursor, installSomaForPiDev, planSomaForCodexInstall, planSomaForPiDevInstall, somaWorkRegistryPaths } from "../src/index";
+import { bootstrapSomaHome, experimentalAnthropicCowork, installSomaForClaudeCode, installSomaForCodex, installSomaForCursor, installSomaForPiDev, planSomaForCodexInstall, planSomaForPiDevInstall, somaWorkRegistryPaths } from "../src/index";
 import { codexInstallSpec } from "../src/adapters/codex/install";
+import { ANTHROPIC_COWORK_ACTIVE_VSA_MARKER, isAnthropicCoworkSkillProjectionPath } from "../src/adapters/anthropic-cowork";
 import { removeLegacyPiDevVsaSkillProjection } from "../src/adapters/pi-dev/skill-projection";
 import { renderStartupContextSummary } from "../src/adapters/codex/hooks/codex-hook-entry.mjs";
 import {
@@ -14,6 +15,12 @@ import {
 import { somaMemoryPrivateRoots, somaProjectionPrivateRoots } from "../src/projection-private-roots";
 import { allInstallSpecs, installSpecFor } from "../src/install-spec-registry";
 import { expectReprojectPrunesStaleTelos } from "./fixtures";
+
+const {
+  installSomaForAnthropicCowork,
+  planSomaForAnthropicCoworkInstall,
+  uninstallSomaForAnthropicCowork,
+} = experimentalAnthropicCowork;
 
 // #88 — Canonical PAI v5.0.0 memory taxonomy (DD-2). 17 substrate-neutral +
 // 2 PAI-bound = 19. Tests consume the production-exported lists from
@@ -30,6 +37,10 @@ async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> 
   } finally {
     await rm(homeDir, { recursive: true, force: true });
   }
+}
+
+function coworkPath(homeDir: string, path = ""): string {
+  return join(homeDir, ".anthropic-cowork", path);
 }
 
 async function waitForFileContaining(path: string, text: string): Promise<string> {
@@ -200,6 +211,32 @@ test("codex install dry-run lists every substrate file apply reports", async () 
   });
 });
 
+test("anthropic-cowork install writes a standalone Soma projection folder", async () => {
+  await withTempHome(async (homeDir) => {
+    const plan = planSomaForAnthropicCoworkInstall({ homeDir });
+    const result = await installSomaForAnthropicCowork({ homeDir });
+
+    expect(result.substrate).toBe("anthropic-cowork");
+    expect(plan.substrateHome).toBe(coworkPath(homeDir));
+    expect(plan.substrateFiles).not.toContain(coworkPath(homeDir, "soma/active-vsa.md"));
+    expect(result.substrateHome.files.every((file) => plan.substrateFiles.includes(file))).toBe(true);
+
+    const entrypoint = await readFile(coworkPath(homeDir, "SOMA.md"), "utf8");
+    const instructions = await readFile(coworkPath(homeDir, "soma/instructions.md"), "utf8");
+    const policy = await readFile(coworkPath(homeDir, "soma/policy.md"), "utf8");
+    const memory = await readFile(coworkPath(homeDir, "soma/memory-snapshot.md"), "utf8");
+    const capture = await readFile(coworkPath(homeDir, "capture/README.md"), "utf8");
+
+    expect(entrypoint).toContain("generated Soma projection for Claude Cowork");
+    expect(instructions).toContain("Claude Cowork");
+    expect(policy).toContain("Substrate: anthropic-cowork");
+    expect(policy).toContain("## Enforceable\n- None declared");
+    expect(memory).toContain("renders the memory index projection input verbatim");
+    expect(memory).toContain("not an independent privacy filter");
+    expect(capture).toContain("candidate input only");
+  });
+});
+
 test("codex install spec owns lifecycle and private root facts", () => {
   const homeDir = "/tmp/soma-install-spec-home";
 
@@ -236,7 +273,7 @@ test("soma#329: cursor reproject removes a stale .cursor/rules/soma/TELOS.md", a
 });
 
 test("install spec registry has adapter-owned facts for every install substrate", () => {
-  const substrates = ["codex", "pi-dev", "claude-code", "cursor", "grok"] as const;
+  const substrates = ["codex", "pi-dev", "claude-code", "cursor", "grok", "anthropic-cowork"] as const;
 
   expect(allInstallSpecs().map((spec) => spec.substrate).sort()).toEqual([...substrates].sort());
 
@@ -266,6 +303,7 @@ test("install spec registry has adapter-owned facts for every install substrate"
     "claude-code-claude-md",
   ]);
   expect(installSpecFor("cursor").uninstall.kind).toBe("implemented");
+  expect(installSpecFor("anthropic-cowork").uninstall.kind).toBe("implemented");
 });
 
 test("projection private roots aggregate adapter specs", () => {
@@ -280,8 +318,121 @@ test("projection private roots aggregate adapter specs", () => {
     join(homeDir, ".pi/agent/soma"),
     join(homeDir, ".pi/agent/skills/soma"),
     join(homeDir, ".grok/skills/soma"),
+    join(homeDir, ".anthropic-cowork/soma"),
+    join(homeDir, ".anthropic-cowork/capture"),
+    join(homeDir, ".anthropic-cowork/skills/VSA"),
   ]);
   expect(somaProjectionPrivateRoots({ homeDir, substrate: "grok" })).toEqual([join(homeDir, ".grok/skills/soma")]);
+  expect(somaProjectionPrivateRoots({ homeDir, substrate: "anthropic-cowork" })).toEqual([
+    join(homeDir, ".anthropic-cowork/soma"),
+    join(homeDir, ".anthropic-cowork/capture"),
+    join(homeDir, ".anthropic-cowork/skills/VSA"),
+  ]);
+  expect(somaProjectionPrivateRoots({
+    homeDir,
+    substrate: "anthropic-cowork",
+    substrateHome: "/tmp/cowork-projection-folder",
+  })).toEqual([
+    "/tmp/cowork-projection-folder/soma",
+    "/tmp/cowork-projection-folder/capture",
+    "/tmp/cowork-projection-folder/skills/VSA",
+  ]);
+  expect(somaProjectionPrivateRoots({
+    homeDir,
+    substrate: "anthropic-cowork",
+    substrateHome: "cowork-projection-folder",
+  })).toEqual([
+    resolve("cowork-projection-folder/soma"),
+    resolve("cowork-projection-folder/capture"),
+    resolve("cowork-projection-folder/skills/VSA"),
+  ]);
+});
+
+test("anthropic-cowork uninstall removes marker-owned projection files and the managed VSA skill", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForAnthropicCowork({ homeDir });
+    await writeFile(coworkPath(homeDir, "user-notes.md"), "keep me\n", "utf8");
+    await writeFile(coworkPath(homeDir, "soma/active-vsa.md"), "user active VSA\n", "utf8");
+    await writeFile(coworkPath(homeDir, "capture/candidate.md"), "candidate memory\n", "utf8");
+
+    const result = await uninstallSomaForAnthropicCowork({ homeDir });
+
+    expect(result.removed).toContain(coworkPath(homeDir, "SOMA.md"));
+    expect(result.removed).toContain(coworkPath(homeDir, "soma/instructions.md"));
+    expect(result.removed).toContain(coworkPath(homeDir, "skills/VSA"));
+    await expect(readFile(coworkPath(homeDir, "user-notes.md"), "utf8")).resolves.toBe("keep me\n");
+    await expect(readFile(coworkPath(homeDir, "soma/active-vsa.md"), "utf8")).resolves.toBe("user active VSA\n");
+    await expect(readFile(coworkPath(homeDir, "capture/candidate.md"), "utf8")).resolves.toBe("candidate memory\n");
+    await expect(stat(coworkPath(homeDir, "soma/instructions.md"))).rejects.toThrow();
+    await expect(stat(coworkPath(homeDir, "skills/VSA"))).rejects.toThrow();
+  });
+});
+
+test("anthropic-cowork uninstall preserves user-authored SOMA.md without Cowork marker", async () => {
+  await withTempHome(async (homeDir) => {
+    await mkdir(coworkPath(homeDir), { recursive: true });
+    await writeFile(coworkPath(homeDir, "SOMA.md"), "# Soma\n\nUser-maintained notes.\n", "utf8");
+
+    const result = await uninstallSomaForAnthropicCowork({ homeDir });
+
+    expect(result.removed).not.toContain(coworkPath(homeDir, "SOMA.md"));
+    await expect(readFile(coworkPath(homeDir, "SOMA.md"), "utf8")).resolves.toContain("User-maintained notes");
+  });
+});
+
+test("anthropic-cowork uninstall removes marker-owned active VSA files", async () => {
+  await withTempHome(async (homeDir) => {
+    const activeVsa = coworkPath(homeDir, "soma/active-vsa.md");
+    await installSomaForAnthropicCowork({ homeDir });
+    await writeFile(activeVsa, `${ANTHROPIC_COWORK_ACTIVE_VSA_MARKER}\n---\neffort: E1\nphase: VERIFY\nupdated: now\n---\n\n## Goal\n\nGenerated.\n`, "utf8");
+
+    const result = await uninstallSomaForAnthropicCowork({ homeDir });
+
+    expect(result.removed).toContain(activeVsa);
+    await expect(stat(activeVsa)).rejects.toThrow();
+  });
+});
+
+test("anthropic-cowork uninstall preserves locally modified VSA skill files", async () => {
+  await withTempHome(async (homeDir) => {
+    const skill = coworkPath(homeDir, "skills/VSA/SKILL.md");
+    await installSomaForAnthropicCowork({ homeDir });
+    await writeFile(skill, "---\nname: VSA\npack-id: soma-vsa-v1.0.0\n---\n\n# Local VSA edits\n", "utf8");
+
+    const result = await uninstallSomaForAnthropicCowork({ homeDir });
+
+    expect(result.removed).not.toContain(coworkPath(homeDir, "skills/VSA"));
+    await expect(readFile(skill, "utf8")).resolves.toContain("Local VSA edits");
+  });
+});
+
+test("anthropic-cowork uninstall preserves nested marker-like files without a generated root marker", async () => {
+  await withTempHome(async (homeDir) => {
+    const coworkHome = join(homeDir, "custom-cowork-home");
+    await mkdir(join(coworkHome, "soma"), { recursive: true });
+    await mkdir(join(coworkHome, "skills", "VSA"), { recursive: true });
+    await writeFile(join(coworkHome, "SOMA.md"), "# Soma\n\nUser-maintained notes.\n", "utf8");
+    await writeFile(join(coworkHome, "soma", "instructions.md"), "# Soma Anthropic Cowork Instructions\n\nUser copied this.\n", "utf8");
+    await writeFile(join(coworkHome, "skills", "VSA", "SKILL.md"), "---\nname: VSA\npack-id: soma-vsa-v1.0.0\n---\n", "utf8");
+
+    const result = await uninstallSomaForAnthropicCowork({ homeDir, substrateHome: coworkHome });
+
+    expect(result.removed).toEqual([]);
+    await expect(readFile(join(coworkHome, "soma", "instructions.md"), "utf8")).resolves.toContain("User copied this");
+    await expect(readFile(join(coworkHome, "skills", "VSA", "SKILL.md"), "utf8")).resolves.toContain("name: VSA");
+  });
+});
+
+test("anthropic-cowork reinstall preserves capture inbox candidates", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForAnthropicCowork({ homeDir });
+    const capture = join(homeDir, ".anthropic-cowork/capture/candidate.md");
+    await writeFile(capture, "candidate memory\n", "utf8");
+
+    await installSomaForAnthropicCowork({ homeDir });
+
+    await expect(readFile(capture, "utf8")).resolves.toBe("candidate memory\n");
+  });
 });
 
 test("pi.dev install dry-run lists every substrate file apply reports", async () => {
@@ -1543,4 +1694,26 @@ test("code-only codex install skips skill projection and preserves existing proj
     expect(await readFile(projectedSkill, "utf8")).toContain("Widget skill");
     await expect(readFile(staleOwnedFile, "utf8")).rejects.toThrow();
   });
+});
+
+test("code-only anthropic-cowork install skips skill projection and preserves existing VSA skill", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForAnthropicCowork({ homeDir });
+    const projectedSkill = join(homeDir, ".anthropic-cowork", "skills", "VSA", "SKILL.md");
+    expect(await readFile(projectedSkill, "utf8")).toContain("name: VSA");
+
+    const result = await installSomaForAnthropicCowork({ homeDir, codeOnly: true });
+
+    expect(result.substrateHome.files.some((file) => file.includes("/skills/"))).toBe(false);
+    expect(await readFile(projectedSkill, "utf8")).toContain("name: VSA");
+  });
+});
+
+test("anthropic-cowork skill predicate recognizes only relative skill projection paths", () => {
+  expect(isAnthropicCoworkSkillProjectionPath("skills/VSA/SKILL.md")).toBe(true);
+  expect(isAnthropicCoworkSkillProjectionPath("skills\\VSA\\SKILL.md")).toBe(true);
+  expect(isAnthropicCoworkSkillProjectionPath("/tmp/home/.anthropic-cowork/skills/VSA/SKILL.md")).toBe(false);
+  expect(isAnthropicCoworkSkillProjectionPath("C:\\home\\.anthropic-cowork\\skills\\VSA\\SKILL.md")).toBe(false);
+  expect(isAnthropicCoworkSkillProjectionPath("soma/skills.md")).toBe(false);
+  expect(isAnthropicCoworkSkillProjectionPath("/tmp/skills/work/.anthropic-cowork/soma/profile.md")).toBe(false);
 });

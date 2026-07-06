@@ -57,6 +57,17 @@ test("planSomaInit orders PAI migrant commands as dry-run copy-paste steps", asy
   });
 });
 
+test("soma init rejects anthropic-cowork until a verified load primitive exists", async () => {
+  await withTempHome(async (homeDir) => {
+    await expect(runSomaCli(["init", "--substrate", "anthropic-cowork", "--home-dir", homeDir])).rejects.toThrow(
+      "soma init does not support anthropic-cowork yet",
+    );
+    await expect(planSomaInit({ homeDir, substrate: "anthropic-cowork" as never })).rejects.toThrow(
+      "soma init does not support anthropic-cowork yet",
+    );
+  });
+});
+
 test("planSomaInit shell-quotes paths in copy-paste commands", async () => {
   await withTempHome(async (root) => {
     const homeDir = join(root, "home with spaces");

@@ -15,7 +15,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { getActiveVsa, readVsa } from "./vsa";
 import { serializeVsa } from "./vsa-parse";
-import type { VerificationStateArtifact, SubstrateId } from "./types";
+import type { VerificationStateArtifact, ProjectionSubstrate } from "./types";
 
 export interface LoadActiveVsaOptions {
   homeDir?: string;
@@ -57,6 +57,7 @@ export function renderActiveVsaFile(isa: VerificationStateArtifact): string {
  * | pi-dev       | agent/soma/active-vsa.md          |
  * | claude-code  | rules/soma/ACTIVE_VSA.md          |
  * | cursor       | .cursor/rules/soma/ACTIVE_VSA.md  |
+ * | anthropic-cowork | soma/active-vsa.md             |
  *
  * The Claude Code path moved from `PAI/ACTIVE_VSA.md` (the original
  * #37 spec) to `rules/soma/ACTIVE_VSA.md` per the soma#64 pivot (#29).
@@ -64,7 +65,7 @@ export function renderActiveVsaFile(isa: VerificationStateArtifact): string {
  * Throws on unsupported substrates so a new substrate must be added
  * here explicitly rather than silently picking a default.
  */
-export function activeVsaProjectionPath(substrate: SubstrateId): string {
+export function activeVsaProjectionPath(substrate: ProjectionSubstrate): string {
   switch (substrate) {
     case "codex":
       return "memories/soma/active-vsa.md";
@@ -76,6 +77,8 @@ export function activeVsaProjectionPath(substrate: SubstrateId): string {
       return ".cursor/rules/soma/ACTIVE_VSA.md";
     case "grok":
       return "skills/soma/active-vsa.md";
+    case "anthropic-cowork":
+      return "soma/active-vsa.md";
     case "cortex":
     case "custom":
       throw new Error(`activeVsaProjectionPath: unsupported substrate '${substrate}'`);
@@ -89,7 +92,7 @@ export function activeVsaProjectionPath(substrate: SubstrateId): string {
  * instead of re-implementing the conditional and path lookup.
  */
 export function activeVsaBundleFile(
-  substrate: SubstrateId,
+  substrate: ProjectionSubstrate,
   activeVsa: VerificationStateArtifact | undefined,
 ): { path: string; content: string }[] {
   if (!activeVsa) return [];

@@ -18,9 +18,13 @@ import { TOOL_COMMAND_HELP } from "../src/cli/tools";
 import { appendSomaMemoryEvent, bootstrapSomaHome } from "../src/index";
 import {
   INSTALL_SUBSTRATES,
+  PROJECTION_LIFECYCLE_SUBSTRATES,
   SUBSTRATE_LIFECYCLE_COMMAND_HELP,
 } from "../src/cli/substrate-lifecycle";
 import { installSpecFor } from "../src/install-spec-registry";
+
+const INSTALL_SUBSTRATE_USAGE = INSTALL_SUBSTRATES.join("|");
+const PROJECTION_LIFECYCLE_SUBSTRATE_USAGE = PROJECTION_LIFECYCLE_SUBSTRATES.join("|");
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-cli-"));
@@ -120,11 +124,11 @@ test("cli shows no-argument usage as normal help", async () => {
   const output = await runSomaCli([]);
 
   expect(output).toContain("Usage:");
-  expect(output).toContain("soma install <codex|pi-dev|claude-code|cursor|grok>");
-  expect(output).toContain("soma uninstall <codex|pi-dev|claude-code|cursor|grok>");
-  expect(output).toContain("soma reproject <codex|pi-dev|claude-code|cursor|grok>");
-  expect(output).toContain("soma upgrade <codex|pi-dev|claude-code|cursor|grok>");
-  expect(output).toContain("soma export <codex|pi-dev|claude-code|cursor|grok>");
+  expect(output).toContain(`soma install <${INSTALL_SUBSTRATE_USAGE}>`);
+  expect(output).toContain(`soma uninstall <${INSTALL_SUBSTRATE_USAGE}>`);
+  expect(output).toContain(`soma reproject <${PROJECTION_LIFECYCLE_SUBSTRATE_USAGE}>`);
+  expect(output).toContain(`soma upgrade <${PROJECTION_LIFECYCLE_SUBSTRATE_USAGE}>`);
+  expect(output).toContain(`soma export <${INSTALL_SUBSTRATE_USAGE}>`);
   expect(output).toContain("soma daemon");
 
   const result = spawnSync(process.execPath, ["run", "soma"], {
@@ -156,7 +160,7 @@ test("cli supports explicit main help as normal help", async () => {
   const output = await runSomaCli(["--help"]);
 
   expect(output).toContain("Usage:");
-  expect(output).toContain("soma install <codex|pi-dev|claude-code|cursor|grok>");
+  expect(output).toContain(`soma install <${INSTALL_SUBSTRATE_USAGE}>`);
 
   const result = spawnSync(process.execPath, ["run", "soma", "--help"], {
     cwd: join(import.meta.dir, ".."),
@@ -239,6 +243,11 @@ test("substrate lifecycle command module keeps substrates and help in sync", asy
   for (const command of ["reproject", "upgrade", "export", "daemon"] as const) {
     await expect(runSomaCli([command, "--help"])).resolves.toBe(SUBSTRATE_LIFECYCLE_COMMAND_HELP[command].usage);
   }
+});
+
+test("cli keeps anthropic-cowork out of reproject and upgrade lifecycle verbs", async () => {
+  await expect(runSomaCli(["reproject", "anthropic-cowork"])).rejects.toThrow(SUBSTRATE_LIFECYCLE_COMMAND_HELP.reproject.usage);
+  await expect(runSomaCli(["upgrade", "anthropic-cowork"])).rejects.toThrow(SUBSTRATE_LIFECYCLE_COMMAND_HELP.upgrade.usage);
 });
 
 test("migrate command module keeps migration sources and help in sync", async () => {

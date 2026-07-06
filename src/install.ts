@@ -3,6 +3,7 @@ import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import {
   installClaudeCodeHomeProjection,
+  installAnthropicCoworkHomeProjection,
   installCodexHomeProjection,
   installCursorHomeProjection,
   installGrokHomeProjection,
@@ -28,7 +29,7 @@ import {
   type UninstallContext,
 } from "./install-spec";
 import { allInstallSpecs, defaultSubstrateHome, installSpecFor } from "./install-spec-registry";
-import type { ProjectionInput, SomaInstallOptions, SomaInstallPlan, SomaInstallResult } from "./types";
+import type { ProjectionInput, SomaInstallOptions, SomaInstallPlan, SomaInstallResult, SubstrateId } from "./types";
 
 export type { ClaudeCodeInstallOptions } from "./adapters/claude-code/install-options";
 
@@ -113,6 +114,10 @@ export function planSomaForCursorInstall(options: SomaInstallOptions = {}): Soma
 
 export function planSomaForGrokInstall(options: SomaInstallOptions = {}): SomaInstallPlan {
   return planSomaInstall("grok", options);
+}
+
+export function planSomaForAnthropicCoworkInstall(options: SomaInstallOptions = {}): SomaInstallPlan {
+  return planSomaInstall("anthropic-cowork", options);
 }
 
 async function installSomaForSubstrate(
@@ -210,7 +215,7 @@ async function installSomaForSubstrate(
         homeDir: options.homeDir,
         somaHome: somaHome.somaHome,
         somaRepoPath: projectionOptions.somaRepoPath,
-        substrate,
+        substrate: substrate as SubstrateId,
       })
     : [];
 
@@ -304,6 +309,8 @@ async function installHomeProjectionFor(
       return installCursorHomeProjection(context, options);
     case "grok":
       return installGrokHomeProjection(context, options);
+    case "anthropic-cowork":
+      return installAnthropicCoworkHomeProjection(context, options);
   }
 }
 
@@ -319,7 +326,7 @@ async function writeProjectionFile(root: string, relativePath: string, content: 
 async function installLifecycleProjection(
   lifecycle: LifecycleProjectionSpec,
   substrateHome: string,
-  options: { homeDir?: string; somaHome: string; somaRepoPath: string; substrate: InstallSubstrate },
+  options: { homeDir?: string; somaHome: string; somaRepoPath: string; substrate: SubstrateId },
 ): Promise<string[]> {
   await runSomaLifecycleAlgorithmUpdated(options);
   const startup = await buildSomaStartupContext(options);
@@ -372,6 +379,10 @@ export async function installSomaForGrok(options: SomaInstallOptions = {}): Prom
   return installSomaForSubstrate("grok", options);
 }
 
+export async function installSomaForAnthropicCowork(options: SomaInstallOptions = {}): Promise<SomaInstallResult> {
+  return installSomaForSubstrate("anthropic-cowork", options);
+}
+
 /**
  * Uninstall Soma's projection from a Claude Code home (#29). Removes
  * `<substrateHome>/rules/soma/` and `<substrateHome>/skills/VSA/`
@@ -380,47 +391,22 @@ export async function installSomaForGrok(options: SomaInstallOptions = {}): Prom
  * directories — by construction, those are the only paths the
  * installer writes.
  */
-export interface UninstallClaudeCodeOptions {
-  homeDir?: string;
-  substrateHome?: string;
-}
-
-export interface UninstallClaudeCodeResult {
-  substrate: "claude-code";
-  substrateHome: string;
-  removed: string[];
-}
-
-export interface UninstallCursorOptions {
-  homeDir?: string;
-  substrateHome?: string;
-}
-
-export interface UninstallCursorResult {
-  substrate: "cursor";
-  substrateHome: string;
-  removed: string[];
-}
-
-export interface UninstallGrokOptions {
-  homeDir?: string;
-  somaHome?: string;
-  substrateHome?: string;
-}
-
-export interface UninstallGrokResult {
-  substrate: "grok";
-  substrateHome: string;
-  removed: string[];
-}
-
-type ImplementedUninstallSubstrate = "claude-code" | "cursor" | "grok";
-interface ImplementedUninstallOptions { homeDir?: string; somaHome?: string; substrateHome?: string }
-interface ImplementedUninstallResult<S extends ImplementedUninstallSubstrate> {
+type ImplementedUninstallSubstrate = "claude-code" | "cursor" | "grok" | "anthropic-cowork";
+export interface ImplementedUninstallOptions { homeDir?: string; somaHome?: string; substrateHome?: string }
+export interface ImplementedUninstallResult<S extends ImplementedUninstallSubstrate> {
   substrate: S;
   substrateHome: string;
   removed: string[];
 }
+
+export type UninstallClaudeCodeOptions = ImplementedUninstallOptions;
+export type UninstallClaudeCodeResult = ImplementedUninstallResult<"claude-code">;
+export type UninstallCursorOptions = ImplementedUninstallOptions;
+export type UninstallCursorResult = ImplementedUninstallResult<"cursor">;
+export type UninstallGrokOptions = ImplementedUninstallOptions;
+export type UninstallGrokResult = ImplementedUninstallResult<"grok">;
+export type UninstallAnthropicCoworkOptions = ImplementedUninstallOptions;
+export type UninstallAnthropicCoworkResult = ImplementedUninstallResult<"anthropic-cowork">;
 
 async function removeExistingTargets(
   targets: readonly string[],
@@ -485,4 +471,10 @@ export async function uninstallSomaForGrok(
   options: UninstallGrokOptions = {},
 ): Promise<UninstallGrokResult> {
   return uninstallSomaForSubstrate("grok", options);
+}
+
+export async function uninstallSomaForAnthropicCowork(
+  options: UninstallAnthropicCoworkOptions = {},
+): Promise<UninstallAnthropicCoworkResult> {
+  return uninstallSomaForSubstrate("anthropic-cowork", options);
 }

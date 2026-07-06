@@ -433,6 +433,7 @@ export {
   type UninstallGrokOptions,
   type UninstallGrokResult,
 } from "./install";
+export * as experimentalAnthropicCowork from "./experimental/anthropic-cowork";
 export type { ClaudeCodeInstallOptions } from "./adapters/claude-code/install-options";
 // Adapter active-VSA projection helpers (#37).
 export {
