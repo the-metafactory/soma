@@ -89,12 +89,27 @@ export function preCompactHandoverPath(somaHome: string, sessionId?: string): st
   return join(somaHome, "memory/STATE", name);
 }
 
+// The handover is re-injected into the model's context after compaction, so
+// hook-provided fields (cwd, session id) are an injection surface: a workspace
+// path or session id carrying backticks/newlines/control chars could break out
+// of its markdown line and inject instructions. Neutralize to a single line —
+// strip backticks and any C0 control char + DEL, keep ordinary path characters.
+// (Char loop, not a regex, to sidestep character-class range pitfalls.)
+function sanitizeInline(value: string): string {
+  let out = "";
+  for (const ch of value) {
+    const code = ch.codePointAt(0) ?? 0;
+    out += ch === "`" || code < 0x20 || code === 0x7f ? " " : ch;
+  }
+  return out.trim();
+}
+
 function renderHandover(input: { context: string; timestamp: string; sessionId?: string; cwd?: string }): string {
   const header = [
     "# Pre-Compaction Handover",
     `*Captured: ${input.timestamp}*`,
-    input.sessionId ? `Session: ${input.sessionId}` : undefined,
-    input.cwd ? `Working directory: \`${input.cwd}\`` : undefined,
+    input.sessionId ? `Session: ${sanitizeInline(input.sessionId)}` : undefined,
+    input.cwd ? `Working directory: \`${sanitizeInline(input.cwd)}\`` : undefined,
     "",
     input.context,
   ].filter((line): line is string => line !== undefined);

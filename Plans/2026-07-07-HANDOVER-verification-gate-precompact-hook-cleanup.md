@@ -2,6 +2,8 @@
 
 *Written 2026-07-07. Read this first when resuming. Sibling doc: `Plans/2026-07-06-HANDOVER-remove-pai-from-claude.md` (the de-PAI migration — still the source of truth for tree removal + settings.json cleanup).*
 
+> **STATUS UPDATE (later same day):** BOTH ports are now DONE. VerificationGate (`41d9830`) + PreCompact (`7735ca2`) are committed on `feat/verification-gate-and-precompact` and **pushed** — bundled in **PR #439**. The "PreCompact — NOT started" and "1 commit, not pushed" statements below are the point-in-time framing from when this doc was written; they are superseded. Remaining work = land #439 (Sage review → admin-merge), then finish de-PAI (settings.json residue → retire hook files → remove the 18 MB PAI tree).
+
 ## The frame
 
 **First finish line = Soma-as-a-standalone-product** (the composability epic: #381 AI-native install doc, #373 greenfield CI across adapters, #370 provenance/doctor, #371 compact skill registry — no milestone defined yet). JC's sequencing: **clean up the local installation first**, then the product work.

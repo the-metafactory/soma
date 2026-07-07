@@ -16,7 +16,7 @@
  * Fail-open: Soma continuity must never block normal Claude Code use.
  */
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -67,31 +67,54 @@ function withSession(args, input) {
 }
 
 // PreCompact: persist the handover (the CLI writes the durable file) and echo it
-// to stdout. Non-blocking — exit 0 regardless.
+// to stdout. Non-blocking — exit 0 regardless, even if the spawn fails.
 function capture(config, input) {
-  const args = withSession(baseArgs(config, "capture"), input);
-  const cwd = nonEmptyString(input.cwd);
-  if (cwd) args.push("--cwd", cwd);
-  const result = runSoma(config, args, 20000);
-  const handover = typeof result.stdout === "string" ? result.stdout.trim() : "";
-  if (handover.length > 0) console.log(handover);
+  try {
+    const args = withSession(baseArgs(config, "capture"), input);
+    const cwd = nonEmptyString(input.cwd);
+    if (cwd) args.push("--cwd", cwd);
+    const result = runSoma(config, args, 20000);
+    const handover = typeof result.stdout === "string" ? result.stdout.trim() : "";
+    if (handover.length > 0) console.log(handover);
+  } catch {
+    // Non-blocking: a failed capture must not interfere with compaction.
+  }
   process.exit(0);
+}
+
+// The durable handover path the CLI would read — a mirror of preCompactHandoverPath
+// in src/cli/precompact.ts, kept in sync (same sanitize + filename template) so the
+// hook can skip the CLI spawn when no handover is pending. A drift only costs a
+// missed fast-path, never correctness: the CLI remains the authoritative reader.
+function handoverPath(config, input) {
+  const id = nonEmptyString(input.session_id);
+  const name = id ? `precompact-handover-${id.replace(/[^A-Za-z0-9_-]/g, "_")}.md` : "precompact-handover.md";
+  return join(config.somaHome, "memory/STATE", name);
 }
 
 // UserPromptSubmit: resurface the persisted handover once. The CLI consumes the
 // file, so this injects additionalContext only on the first prompt after a
-// compaction and stays silent otherwise.
+// compaction and stays silent otherwise. Fail-open on any error.
 function resurface(config, input) {
-  const result = runSoma(config, withSession(baseArgs(config, "resurface"), input), 8000);
-  const handover = result.status === 0 && typeof result.stdout === "string" ? result.stdout.trim() : "";
-  if (handover.length === 0) emitContinue();
-  emitAndExit({
-    continue: true,
-    hookSpecificOutput: {
-      hookEventName: "UserPromptSubmit",
-      additionalContext: handover,
-    },
-  });
+  try {
+    // Hot-path guard: this hook fires on EVERY prompt. Only pay the Bun/TS CLI
+    // startup on the rare prompt where a handover file actually exists (once per
+    // compaction); otherwise return immediately.
+    if (!existsSync(handoverPath(config, input))) emitContinue();
+    const result = runSoma(config, withSession(baseArgs(config, "resurface"), input), 8000);
+    const handover = result.status === 0 && typeof result.stdout === "string" ? result.stdout.trim() : "";
+    if (handover.length === 0) emitContinue();
+    emitAndExit({
+      continue: true,
+      hookSpecificOutput: {
+        hookEventName: "UserPromptSubmit",
+        additionalContext: handover,
+      },
+    });
+  } catch {
+    // Fail-open: Soma continuity must never block a prompt.
+    emitContinue();
+  }
 }
 
 function emitContinue() {

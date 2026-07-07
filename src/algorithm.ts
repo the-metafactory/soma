@@ -382,7 +382,7 @@ export function verifyAlgorithmCriterion(
   provenance?: Pick<AlgorithmProvenanceInput, "substrate">,
   evidenceKind?: Checkpoint["evidenceKind"],
   // VerificationGate opt-out for the RECONSTRUCTION surface. The gate fires on
-  // fresh agent/CLI assertions (default); the VSA→run sync passes false because
+  // fresh assistant/CLI assertions (default); the VSA→run sync passes false because
   // it reconstructs already-DECLARED state from existing VSA markdown (a bare
   // `[x]` legitimately carries no probe kind). Synced hollow passes remain
   // caught by the audit-time LEARN gate (layer b) — the strictness belongs on
