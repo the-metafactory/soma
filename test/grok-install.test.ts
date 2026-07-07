@@ -125,10 +125,13 @@ test("grok install records the bundled portable skills in the install manifest",
     expect(manifest.schema).toBe(GROK_INSTALL_MANIFEST_SCHEMA);
     expect(resolve(manifest.substrateHome)).toBe(resolve(join(homeDir, ".grok")));
     // Only bundled portable skills project (the loop is scoped to src/skills).
-    // Memory is manifest-tracked so uninstall round-trips it; the-algorithm is
-    // EXCLUDED — it is dir-removed via grok's static remove list, not here.
+    // Memory + migrate-pai-telos are manifest-tracked so uninstall round-trips
+    // them; the-algorithm and VSA are EXCLUDED — dir-removed via grok's static
+    // remove list, not here.
     expect(manifest.files.some((file: { path: string }) => file.path === "skills/Memory/SKILL.md")).toBe(true);
-    expect(manifest.files.every((file: { path: string }) => file.path.startsWith("skills/Memory/"))).toBe(true);
+    expect(manifest.files.every((file: { path: string }) => file.path.startsWith("skills/"))).toBe(true);
+    expect(manifest.files.some((file: { path: string }) => file.path.startsWith("skills/the-algorithm/"))).toBe(false);
+    expect(manifest.files.some((file: { path: string }) => file.path.startsWith("skills/VSA/"))).toBe(false);
     // The hash matches the on-disk (rewritten) projection bytes, so
     // uninstall's edited-file guard compares like for like.
     const entry = manifest.files.find((file: { path: string }) => file.path === "skills/Memory/SKILL.md");
