@@ -2,11 +2,19 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, rm, rmdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
 import { isEnoent } from "../../fs-errors";
-import type { InstallSubstrate } from "../../install-spec";
+
+/**
+ * The substrates this manifest serves: ONLY those whose skills land in a SHARED
+ * skills dir (see the module doc). cursor/pi-dev project into an owned subtree
+ * and codex's uninstall is reserved — none use this manifest, so narrowing the
+ * type stops a future caller from wiring the manifest to a substrate whose
+ * lifecycle it does not fit.
+ */
+export type PortableSkillManifestSubstrate = "grok" | "claude-code";
 
 /**
  * Portable Soma skills project under dynamic `skills/<name>/` paths (inside a
- * SHARED skills dir that may also hold user-authored skills), so a substrate's
+ * SHARED skills dir that may also hold principal-authored skills), so a substrate's
  * static uninstall `remove` list cannot name them and the owned-subtree
  * reconcile cannot own their dir. Install records what it wrote — paths plus
  * content hashes — in a manifest on the SOMA side (`<somaHome>/projections/
@@ -23,7 +31,7 @@ import type { InstallSubstrate } from "../../install-spec";
  * uninstall `remove` entry covers them. This module is for substrates with a
  * shared skills dir (grok, claude-code).
  */
-export function portableSkillManifestSchema(substrate: InstallSubstrate): string {
+export function portableSkillManifestSchema(substrate: PortableSkillManifestSubstrate): string {
   return `soma-${substrate}-install-manifest-v1`;
 }
 
@@ -34,7 +42,7 @@ export interface PortableSkillManifest {
   files: { path: string; sha256: string }[];
 }
 
-export function portableSkillManifestPath(somaHome: string, substrate: InstallSubstrate): string {
+export function portableSkillManifestPath(somaHome: string, substrate: PortableSkillManifestSubstrate): string {
   return join(somaHome, "projections", substrate, "install-manifest.json");
 }
 
@@ -44,7 +52,7 @@ function contentHash(content: string): string {
 
 export async function writePortableSkillManifest(options: {
   somaHome: string;
-  substrate: InstallSubstrate;
+  substrate: PortableSkillManifestSubstrate;
   substrateHome: string;
   files: readonly { path: string; content: string }[];
 }): Promise<string> {
@@ -61,7 +69,7 @@ export async function writePortableSkillManifest(options: {
   return path;
 }
 
-function parseManifest(raw: string, substrate: InstallSubstrate): PortableSkillManifest | null {
+function parseManifest(raw: string, substrate: PortableSkillManifestSubstrate): PortableSkillManifest | null {
   const schema = portableSkillManifestSchema(substrate);
   let parsed: unknown;
   try {
@@ -90,7 +98,7 @@ function isInsideRoot(root: string, target: string): boolean {
 
 export async function readPortableSkillManifest(
   somaHome: string,
-  substrate: InstallSubstrate,
+  substrate: PortableSkillManifestSubstrate,
 ): Promise<PortableSkillManifest | null> {
   let raw: string;
   try {
@@ -107,8 +115,8 @@ export async function readPortableSkillManifest(
  * reconciliation: remove the listed files from the substrate home,
  * skipping anything outside the root (tampered manifest), anything
  * missing, and anything whose bytes no longer match the install-time
- * hash (user-edited). Emptied directories are pruned deepest-first with
- * a non-recursive rmdir, so user-added files keep their dirs alive.
+ * hash (principal-edited). Emptied directories are pruned deepest-first with
+ * a non-recursive rmdir, so principal-added files keep their dirs alive.
  */
 async function removeListedProjectionFiles(
   substrateHome: string,
@@ -140,7 +148,7 @@ async function removeListedProjectionFiles(
       await rmdir(dir);
       removed.push(dir);
     } catch (error) {
-      // ENOTEMPTY (unmanaged/user content still present) and ENOENT (already
+      // ENOTEMPTY (unmanaged/principal content still present) and ENOENT (already
       // gone) are expected — keep the dir and continue. Anything else
       // (EACCES/EPERM/EBUSY/…) is a real filesystem fault and must surface,
       // not be silently masked as a keep.
@@ -161,7 +169,7 @@ async function removeListedProjectionFiles(
  */
 export async function reconcilePortableSkillProjection(options: {
   somaHome: string;
-  substrate: InstallSubstrate;
+  substrate: PortableSkillManifestSubstrate;
   substrateHome: string;
   currentPaths: readonly string[];
 }): Promise<string[]> {
@@ -183,15 +191,15 @@ export async function reconcilePortableSkillProjection(options: {
  *     record).
  *   - a listed path resolving outside the substrate home (tampered
  *     manifest) → skipped.
- *   - on-disk bytes differing from the install-time hash (user-edited
+ *   - on-disk bytes differing from the install-time hash (principal-edited
  *     file) → preserved, mirroring the local-edits-preserved contract.
- *   - user files ADDED inside a portable skill dir survive: only listed
+ *   - principal files ADDED inside a portable skill dir survive: only listed
  *     files are removed, and emptied directories are pruned with a
  *     non-recursive rmdir that fails closed on ENOTEMPTY.
  */
 export async function removePortableSkillProjection(options: {
   somaHome: string;
-  substrate: InstallSubstrate;
+  substrate: PortableSkillManifestSubstrate;
   substrateHome: string;
 }): Promise<string[]> {
   const manifest = await readPortableSkillManifest(options.somaHome, options.substrate);

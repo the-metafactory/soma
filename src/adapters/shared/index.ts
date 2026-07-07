@@ -38,8 +38,8 @@ export function projectableSkills(skills: SomaSkill[], bundledNames?: readonly s
     // slip its dedicated projection back into the generic loop.
     if (skill.name === VSA_SKILL_NAME || basename(skill.path) === VSA_SKILL_NAME) return false;
     // When install supplies the repo-bundled skill set, project ONLY those
-    // (src/skills/*): user/registry skills reach a substrate through `soma
-    // install --skills` symlinks, not this always-on loop, so a 100-skill home
+    // (src/skills/*): principal-authored/registry skills reach a substrate
+    // through `soma install --skills` symlinks, not this always-on loop, so a 100-skill home
     // projects two bundled dirs, not a hundred, and never collides with the
     // selective symlink flow. Absent (direct projection callers/tests) → legacy
     // behavior: all non-VSA skills, so pure-projection unit tests are unaffected.
