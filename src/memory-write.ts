@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { lstat, mkdir, open, readFile, realpath, unlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, realpath, stat, unlink, writeFile } from "node:fs/promises";
 import { constants as FS } from "node:fs";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { createPaths } from "./paths";
@@ -443,9 +443,16 @@ interface CorpusScan {
   unreadable: string[];
 }
 
-/** Result of {@link listDurableNotePaths}: note paths plus the freshness blind spot. */
+/** Result of {@link listDurableNotePaths}: note paths, dir mtimes, and the blind spot. */
 export interface DurableNotePathScan {
   paths: string[];
+  /**
+   * mtime (ms) of each readable durable dir. A dir's mtime bumps when an entry
+   * is added OR removed (but not on an in-place content edit) — this is the ONLY
+   * cheap signal that catches note DELETIONS, which no per-file mtime can (a
+   * deleted note leaves nothing to stat).
+   */
+  dirMtimes: number[];
   /**
    * Durable dirs that EXIST but could not be enumerated. Distinct from the
    * common "missing dir → empty" case: a note dir the walk cannot read may hold
@@ -467,12 +474,17 @@ export interface DurableNotePathScan {
  */
 export async function listDurableNotePaths(somaHome: string): Promise<DurableNotePathScan> {
   const paths: string[] = [];
+  const dirMtimes: number[] = [];
   const unreadableDirs: string[] = [];
   for (const type of WRITABLE_TYPES) {
     const dir = typeDir(somaHome, type);
     try {
       const files = await listMemoryNotes(dir, { onSymlink: "skip" });
       for (const path of files) paths.push(path);
+      // Capture the dir's own mtime — the deletion signal (see DurableNotePathScan).
+      // A missing dir stats as ENOENT here → skipped (no entries to delete anyway).
+      const dirStat = await stat(dir).catch(() => undefined);
+      if (dirStat) dirMtimes.push(dirStat.mtimeMs);
     } catch {
       // Missing dir → [] (listMemoryNotes never throws for that). A GENUINE
       // readdir failure is surfaced: the dir may hold notes newer than the
@@ -480,7 +492,7 @@ export async function listDurableNotePaths(somaHome: string): Promise<DurableNot
       unreadableDirs.push(dir);
     }
   }
-  return { paths, unreadableDirs };
+  return { paths, dirMtimes, unreadableDirs };
 }
 
 /**

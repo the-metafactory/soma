@@ -412,8 +412,10 @@ export interface ReindexMemoryIfStaleResult {
 
 /**
  * SessionStart's "smart" reindex gate (M8). Rebuilds `memory/INDEX.md` ONLY when
- * it is actually stale — missing, or some durable note file has been modified
- * (created/edited/verified) more recently than the index was last rebuilt.
+ * it is actually stale — missing, or the durable corpus changed since the index
+ * was last rebuilt: a note added/edited/verified (a note-file mtime newer than
+ * the index) OR a note deleted (a durable-dir mtime newer than the index — a
+ * removed note bumps its dir but leaves no file to stat).
  *
  * This is the invariant an idle session must preserve: `renderMemoryIndex`'s
  * "verified Nd ago" ages are baked in at rebuild time from an injected `now`
@@ -449,7 +451,7 @@ export async function reindexMemoryIfStale(options: SomaMemoryIndexOptions = {})
   // Freshness only needs mtimes, so enumerate note paths WITHOUT reading/parsing
   // them (parse-free walk) — an idle session start must not pay the O(notes)
   // readFile+parse of a full corpus scan.
-  const { paths: notePaths, unreadableDirs } = await listDurableNotePaths(somaHome);
+  const { paths: notePaths, dirMtimes, unreadableDirs } = await listDurableNotePaths(somaHome);
   // A durable dir we could not read may hold a note newer than the index —
   // conservatively rebuild rather than risk reporting a false "up-to-date".
   if (unreadableDirs.length > 0) {
@@ -468,12 +470,15 @@ export async function reindexMemoryIfStale(options: SomaMemoryIndexOptions = {})
       }
     }),
   );
-  const newestNoteMtimeMs = noteMtimes.reduce<number>(
+  // Newest of the note-file mtimes (catches adds + in-place edits) AND the
+  // durable-dir mtimes (catches DELETIONS — a removed note bumps its dir's
+  // mtime but leaves no file to stat). Together they cover add/edit/delete.
+  const newestEntryMtimeMs = [...noteMtimes, ...dirMtimes].reduce<number>(
     (max, mtimeMs) => (mtimeMs !== undefined && mtimeMs > max ? mtimeMs : max),
     -Infinity,
   );
 
-  if (newestNoteMtimeMs > indexMtimeMs) {
+  if (newestEntryMtimeMs > indexMtimeMs) {
     await rebuildMemoryIndex(options);
     return { rebuilt: true, reason: "rebuilt" };
   }

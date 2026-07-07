@@ -368,9 +368,16 @@ export async function runSomaLifecycleSessionStart(options: SomaLifecycleOptions
     }
   }
   // #440-follow-up (M8): keep the projected substrate memory file current at
-  // session start — rebuild memory/INDEX.md only if stale, then re-project
-  // just that one file. Detached/soft like the registry writeback above: a
-  // failure here must never block a session starting.
+  // session start. This stays on the right side of CONTEXT.md's lifecycle
+  // boundary (`reproject` = Soma-triggered on source change; `load` = the
+  // substrate's read at session start): it is Soma's OWN hook — not the
+  // substrate's load — reprojecting because the shared memory source may have
+  // drifted in another substrate since last projection. Cross-substrate writes
+  // have no eager cross-process signal, so that drift is detected lazily at the
+  // session boundary, just before load reads the projection. Rebuild
+  // memory/INDEX.md only if stale, then re-project just that one file.
+  // Detached/soft like the registry writeback above: a failure here must never
+  // block a session starting.
   let memoryProjectedFile: string | undefined;
   try {
     const memoryReproject = await reprojectSubstrateMemoryProjection({

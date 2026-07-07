@@ -30,13 +30,15 @@ export interface ReprojectSubstrateMemoryProjectionResult {
  *
  * 1. {@link reindexMemoryIfStale} — rebuild `memory/INDEX.md` only if stale.
  * 2. Re-render the FULL substrate home projection in memory (never write it),
- *    then write out ONLY the one file whose content is the verbatim rendered
- *    index — CONTEXT.md, PURPOSE.md, SKILLS.md, POLICY.md, etc. are left
- *    untouched on disk. Matching by content (not by a hardcoded per-adapter
- *    path) is deliberate: each adapter that supports memory projection places
- *    it somewhere different (claude-code `rules/soma/MEMORY.md`, codex
- *    `memories/soma/memory-index.md`, …), and this stays correct without this
- *    module needing to know every adapter's layout.
+ *    then write out ONLY the memory file — CONTEXT.md, PURPOSE.md, SKILLS.md,
+ *    POLICY.md, etc. are left untouched on disk. The memory file is identified
+ *    by its DEFINING property: it is the one file projected as the verbatim
+ *    rendered index (`indexContent`), so `file.content === indexContent` selects
+ *    it. This leans on that invariant rather than hardcoding each adapter's path
+ *    (claude-code `rules/soma/MEMORY.md`, codex `memories/soma/memory-index.md`,
+ *    …); the early empty-index guard above rules out a spurious match on empty
+ *    content. (A dedicated adapter-level memory-file accessor would be a cleaner
+ *    contract than content equality — deferred; see PR #443 follow-ups.)
  *
  * No-ops with `projected: null` (never throws for this reason) when: memory
  * projection is disabled or the index is empty (nothing to project), or

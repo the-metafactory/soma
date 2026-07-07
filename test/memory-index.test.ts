@@ -350,6 +350,36 @@ test("reindexMemoryIfStale rebuilds when a note is newer than the index", async 
   });
 });
 
+test("reindexMemoryIfStale rebuilds when a note is DELETED (dir-mtime signal; no note is newer)", async () => {
+  await withTempSoma(async (somaHome) => {
+    await seed(somaHome, note({ id: "a", body: "aa", trust: "principal", resurface_count: 2, last_verified: "2026-07-01" }));
+    await seed(somaHome, note({ id: "b", body: "bb", trust: "principal", resurface_count: 2, last_verified: "2026-07-01" }));
+    await rebuildMemoryIndex({ somaHome, now: NOW });
+    const indexPath = memoryIndexPath(somaHome);
+    const pathA = memoryNotePath(somaHome, "semantic", "a");
+    const pathB = memoryNotePath(somaHome, "semantic", "b");
+    const semanticDir = dirname(pathA);
+
+    // Baseline: force both notes, the durable dir, AND the index all to the same
+    // far past → newest entry is NOT newer than the index → up-to-date, no rebuild.
+    await utimes(pathA, FAR_PAST, FAR_PAST);
+    await utimes(pathB, FAR_PAST, FAR_PAST);
+    await utimes(semanticDir, FAR_PAST, FAR_PAST);
+    await utimes(indexPath, FAR_PAST, FAR_PAST);
+    expect(await reindexMemoryIfStale({ somaHome, now: NOW })).toEqual({ rebuilt: false, reason: "up-to-date" });
+
+    // Delete b: no remaining note file is newer than the (far-past) index, but
+    // removing the entry bumps the dir's mtime to real-now — the deletion signal.
+    await rm(pathB);
+    const result = await reindexMemoryIfStale({ somaHome, now: NOW });
+
+    expect(result).toEqual({ rebuilt: true, reason: "rebuilt" });
+    const onDisk = await readFile(indexPath, "utf8");
+    expect(onDisk).toContain("- a —");
+    expect(onDisk).not.toContain("- b —"); // the deleted note is gone from the projected index
+  });
+});
+
 test("reindexMemoryIfStale rebuilds when memory/INDEX.md is missing", async () => {
   await withTempSoma(async (somaHome) => {
     await seed(somaHome, note({ id: "a", body: "aa", trust: "principal", resurface_count: 2, last_verified: "2026-07-01" }));
