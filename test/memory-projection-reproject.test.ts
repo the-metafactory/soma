@@ -2,12 +2,12 @@ import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/p
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import { bootstrapSomaHome, refreshSubstrateMemoryProjection, serializeMemoryNote, type SomaMemoryNote } from "../src/index";
+import { bootstrapSomaHome, reprojectSubstrateMemoryProjection, serializeMemoryNote, type SomaMemoryNote } from "../src/index";
 import { memoryIndexPath } from "../src/memory-index";
 import { memoryNotePath, type WritableType } from "../src/memory-write";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
-  const homeDir = await mkdtemp(join(tmpdir(), "soma-memory-refresh-"));
+  const homeDir = await mkdtemp(join(tmpdir(), "soma-memory-reproject-"));
   try {
     return await fn(homeDir);
   } finally {
@@ -41,35 +41,35 @@ const FAR_PAST = new Date("2020-01-01T00:00:00.000Z");
 
 /** Narrow a nullable `projected` path to `string`, failing loudly if absent. */
 function expectProjected(projected: string | null): string {
-  if (projected === null) throw new Error("expected refreshSubstrateMemoryProjection to project a file");
+  if (projected === null) throw new Error("expected reprojectSubstrateMemoryProjection to project a file");
   return projected;
 }
 
-test("refreshSubstrateMemoryProjection writes only the memory bundle file, not CONTEXT/PURPOSE/SKILLS", async () => {
+test("reprojectSubstrateMemoryProjection writes only the memory bundle file, not CONTEXT/PURPOSE/SKILLS", async () => {
   await withTempHome(async (homeDir) => {
     const { somaHome } = await bootstrapSomaHome({ homeDir });
     await seed(somaHome, note({ id: "fact", body: "the gateway retries thrice", trust: "principal" }));
 
-    const result = await refreshSubstrateMemoryProjection({ substrate: "claude-code", homeDir });
+    const result = await reprojectSubstrateMemoryProjection({ substrate: "claude-code", homeDir });
 
     expect(result.reindexed).toBe(true); // missing-index → first rebuild
     expect(result.projected).toBe(join(homeDir, ".claude", "rules", "soma", "MEMORY.md"));
     const content = await readFile(expectProjected(result.projected), "utf8");
     expect(content).toContain("fact —");
 
-    // Sibling projection files were never written by a refresh — CONTEXT.md /
-    // PURPOSE.md / SKILLS.md are install/reproject-owned, not refresh-owned.
+    // Sibling projection files were never written by a reproject — CONTEXT.md /
+    // PURPOSE.md / SKILLS.md are install/reproject-owned, not reproject-owned.
     await expect(stat(join(homeDir, ".claude", "rules", "soma", "CONTEXT.md"))).rejects.toThrow();
     await expect(stat(join(homeDir, ".claude", "rules", "soma", "PURPOSE.md"))).rejects.toThrow();
     await expect(stat(join(homeDir, ".claude", "rules", "soma", "SKILLS.md"))).rejects.toThrow();
   });
 });
 
-test("refreshSubstrateMemoryProjection picks up a new note across a simulated rebuild", async () => {
+test("reprojectSubstrateMemoryProjection picks up a new note across a simulated rebuild", async () => {
   await withTempHome(async (homeDir) => {
     const { somaHome } = await bootstrapSomaHome({ homeDir });
 
-    const first = await refreshSubstrateMemoryProjection({ substrate: "claude-code", homeDir });
+    const first = await reprojectSubstrateMemoryProjection({ substrate: "claude-code", homeDir });
     expect(first.reindexed).toBe(true); // missing-index → rebuild (empty-corpus placeholder)
     const firstContent = await readFile(expectProjected(first.projected), "utf8");
     expect(firstContent).toContain("No notes have earned an index line yet");
@@ -79,7 +79,7 @@ test("refreshSubstrateMemoryProjection picks up a new note across a simulated re
     await utimes(memoryIndexPath(somaHome), FAR_PAST, FAR_PAST);
     await seed(somaHome, note({ id: "new-fact", body: "newly learned", trust: "principal" }));
 
-    const second = await refreshSubstrateMemoryProjection({ substrate: "claude-code", homeDir });
+    const second = await reprojectSubstrateMemoryProjection({ substrate: "claude-code", homeDir });
 
     expect(second.reindexed).toBe(true);
     const secondContent = await readFile(expectProjected(second.projected), "utf8");
@@ -87,7 +87,7 @@ test("refreshSubstrateMemoryProjection picks up a new note across a simulated re
   });
 });
 
-test("refreshSubstrateMemoryProjection no-ops when the index is up to date but empty", async () => {
+test("reprojectSubstrateMemoryProjection no-ops when the index is up to date but empty", async () => {
   await withTempHome(async (homeDir) => {
     const { somaHome } = await bootstrapSomaHome({ homeDir });
     // Present (so reindex has nothing to rebuild — no notes exist, so it can
@@ -96,19 +96,19 @@ test("refreshSubstrateMemoryProjection no-ops when the index is up to date but e
     await mkdir(dirname(memoryIndexPath(somaHome)), { recursive: true });
     await writeFile(memoryIndexPath(somaHome), "   \n", "utf8");
 
-    const result = await refreshSubstrateMemoryProjection({ substrate: "claude-code", homeDir });
+    const result = await reprojectSubstrateMemoryProjection({ substrate: "claude-code", homeDir });
 
     expect(result).toEqual({ reindexed: false, projected: null });
   });
 });
 
-test("refreshSubstrateMemoryProjection no-ops (but still reindexes) for a SubstrateId with no install spec", async () => {
+test("reprojectSubstrateMemoryProjection no-ops (but still reindexes) for a SubstrateId with no install spec", async () => {
   await withTempHome(async (homeDir) => {
     await bootstrapSomaHome({ homeDir });
     // "custom"/"cortex" are valid SubstrateId values but have no install spec —
     // no default home, no home-projection builder — so there is nothing to
     // project, even though the index itself can still be (re)built.
-    const result = await refreshSubstrateMemoryProjection({ substrate: "custom", homeDir });
+    const result = await reprojectSubstrateMemoryProjection({ substrate: "custom", homeDir });
     expect(result.reindexed).toBe(true);
     expect(result.projected).toBeNull();
   });

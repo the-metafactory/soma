@@ -476,10 +476,10 @@ export { rebuildMemoryIndex } from "./memory-index";
 // CLI-facing entry point; `reindexMemoryIfStale` itself is imported directly
 // from "./memory-index" by the lifecycle handler and tests.
 export {
-  refreshSubstrateMemoryProjection,
-  type RefreshSubstrateMemoryProjectionOptions,
-  type RefreshSubstrateMemoryProjectionResult,
-} from "./memory-projection-refresh";
+  reprojectSubstrateMemoryProjection,
+  type ReprojectSubstrateMemoryProjectionOptions,
+  type ReprojectSubstrateMemoryProjectionResult,
+} from "./memory-projection-reproject";
 export { writeSessionDigest, writeMemoryAction, hasSessionDigest } from "./memory-episodic";
 // The Claude Code SessionEnd transcript fallback (extractDigestBodyFromTranscript /
 // writeSessionDigestFromTranscript / ClaudeSessionDigest*) is adapter-specific and is

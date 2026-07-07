@@ -2,7 +2,7 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { createPaths } from "./paths";
 import { isEnoent } from "./fs-utils";
-import { collectDurableNotes } from "./memory-write";
+import { collectDurableNotes, listDurableNotePaths } from "./memory-write";
 import { noteDateMs, ageDays, sanitizeNoteText } from "./memory-corpus";
 import type { SomaMemoryIndexResult, SomaMemoryNote, SomaMemoryNoteType, SomaMemoryTrust } from "./types";
 
@@ -422,9 +422,10 @@ export interface ReindexMemoryIfStaleResult {
  * generated file (and, if `~/.soma` is snapshotted, its history) for zero
  * informational gain. Comparing mtimes keeps a truly idle session a no-op.
  *
- * Note mtimes are read via the SAME symlink-guarded corpus walk the index
- * itself renders from ({@link collectDurableNotes}) — a note this function
- * can't see can't make it stale, and vice versa.
+ * Note mtimes come from the SAME symlink-guarded seam the index itself renders
+ * from, via the parse-free {@link listDurableNotePaths} (no readFile/parse — an
+ * idle check must not scan the whole corpus) — a note this function can't see
+ * can't make it stale, and vice versa.
  */
 export async function reindexMemoryIfStale(options: SomaMemoryIndexOptions = {}): Promise<ReindexMemoryIfStaleResult> {
   if (memoryProjectionDisabled()) return { rebuilt: false, reason: "disabled" };
@@ -445,15 +446,18 @@ export async function reindexMemoryIfStale(options: SomaMemoryIndexOptions = {})
     return { rebuilt: true, reason: "missing-index" };
   }
 
-  const { notes } = await collectDurableNotes(somaHome);
+  // Freshness only needs mtimes, so enumerate note paths WITHOUT reading/parsing
+  // them (parse-free walk) — an idle session start must not pay the O(notes)
+  // readFile+parse of a full corpus scan.
+  const notePaths = await listDurableNotePaths(somaHome);
   const noteMtimes = await Promise.all(
-    notes.map(async ({ path }) => {
+    notePaths.map(async (path) => {
       try {
         return (await stat(path)).mtimeMs;
       } catch {
-        // Vanished between the corpus walk and this stat (TOCTOU) — it can no
-        // longer contribute a staleness signal (rebuildMemoryIndex's own scan
-        // will simply not see it either).
+        // Vanished between the walk and this stat (TOCTOU) — it can no longer
+        // contribute a staleness signal (rebuildMemoryIndex's own scan will
+        // simply not see it either).
         return undefined;
       }
     }),

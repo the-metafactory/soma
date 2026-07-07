@@ -464,6 +464,31 @@ interface CorpusScan {
  * symlink AFTER the seam returns cannot be followed — it reads as unreadable
  * (ELOOP → surfaced), never through the link to an outside target.
  */
+/**
+ * Parse-free enumeration of every durable note's file path across both writable
+ * dirs, using the SAME symlink-guarded seam ({@link listMemoryNotes} with
+ * `onSymlink: "skip"`) that {@link collectDurableNotes} walks — but WITHOUT the
+ * `readFile` + `parseMemoryNote` of a full corpus scan. For a freshness probe
+ * that only needs mtimes (M8 `reindexMemoryIfStale`), reading/parsing every note
+ * on an idle session start is pure waste; this keeps the walk O(notes) in cheap
+ * stats only. A dir that throws mid-walk is skipped: its notes cannot signal
+ * staleness anyway (a triggered rebuild's own scan won't see them either).
+ */
+export async function listDurableNotePaths(somaHome: string): Promise<string[]> {
+  const paths: string[] = [];
+  for (const type of WRITABLE_TYPES) {
+    const dir = typeDir(somaHome, type);
+    try {
+      const files = await listMemoryNotes(dir, { onSymlink: "skip" });
+      for (const path of files) paths.push(path);
+    } catch {
+      // Missing dir → [] (listMemoryNotes never throws for that); a genuine
+      // readdir failure is skipped — it can't contribute a staleness signal.
+    }
+  }
+  return paths;
+}
+
 export async function collectDurableNotes(somaHome: string): Promise<CorpusScan> {
   // Enumerate all note files across both durable dirs, then read them with a
   // bounded concurrency window (shared helper) rather than one unbounded

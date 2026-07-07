@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { listAlgorithmRunSummaries, listAlgorithmRuns, readAlgorithmRunById, writeAlgorithmRun } from "./algorithm-store";
 import { appendAlgorithmProvenance } from "./algorithm-provenance";
 import { appendSomaMemoryEvent } from "./memory";
-import { refreshSubstrateMemoryProjection } from "./memory-projection-refresh";
+import { reprojectSubstrateMemoryProjection } from "./memory-projection-reproject";
 import { loadSomaProfile } from "./soma-home";
 import { normalizeSomaWorkRegistryArtifacts, upsertSomaCurrentWorkPointer } from "./work-registry";
 import { SECTION_NAME_MAP, getCriteria, getGoal } from "./vsa-accessors";
@@ -373,17 +373,17 @@ export async function runSomaLifecycleSessionStart(options: SomaLifecycleOptions
   // failure here must never block a session starting.
   let memoryProjectedFile: string | undefined;
   try {
-    const memoryRefresh = await refreshSubstrateMemoryProjection({
+    const memoryReproject = await reprojectSubstrateMemoryProjection({
       substrate: startup.substrate,
       homeDir: options.homeDir,
       somaHome: startup.somaHome,
     });
-    memoryProjectedFile = memoryRefresh.projected ?? undefined;
+    memoryProjectedFile = memoryReproject.projected ?? undefined;
   } catch (error: unknown) {
     await appendSomaMemoryEvent(startup.somaHome, {
       substrate: startup.substrate,
-      kind: "lifecycle.session_start.memory-refresh-failed",
-      summary: "Session started; memory index refresh/projection failed.",
+      kind: "lifecycle.session_start.memory-reproject-failed",
+      summary: "Session started; memory index reproject/projection failed.",
       timestamp: startup.timestamp,
       metadata: {
         sessionId: startup.sessionId,
@@ -727,7 +727,7 @@ function lifecycleErrorMessage(error: unknown, somaHome: string): string {
   const message = error instanceof Error ? error.message : String(error);
   // Substrate homes (e.g. claude-code's ~/.claude) are siblings of somaHome
   // under the same homeDir, not under somaHome itself — a filesystem error
-  // from the memory-refresh write path (soma-home) can name one, so scrub
+  // from the memory-reproject write path (soma-home) can name one, so scrub
   // homeDir too (after the more specific somaHome replace) or it leaks.
   const homeDir = dirname(somaHome);
   return message.replaceAll(somaHome, "<soma-home>").replaceAll(homeDir, "<home-dir>").slice(0, 300);

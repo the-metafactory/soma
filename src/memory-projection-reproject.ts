@@ -7,7 +7,7 @@ import { loadMemoryIndexForProjection, reindexMemoryIfStale } from "./memory-ind
 import { loadSomaHome } from "./soma-home";
 import type { ProjectionInput, SubstrateId } from "./types";
 
-export interface RefreshSubstrateMemoryProjectionOptions {
+export interface ReprojectSubstrateMemoryProjectionOptions {
   substrate: SubstrateId;
   homeDir?: string;
   somaHome?: string;
@@ -16,7 +16,7 @@ export interface RefreshSubstrateMemoryProjectionOptions {
   now?: Date;
 }
 
-export interface RefreshSubstrateMemoryProjectionResult {
+export interface ReprojectSubstrateMemoryProjectionResult {
   /** Whether `memory/INDEX.md` was rebuilt (see {@link reindexMemoryIfStale}). */
   reindexed: boolean;
   /** Absolute path of the substrate memory file written, or `null` if nothing was projected. */
@@ -24,7 +24,7 @@ export interface RefreshSubstrateMemoryProjectionResult {
 }
 
 /**
- * SessionStart's memory refresh (M8): keep a substrate's projected memory file
+ * SessionStart's memory reproject (M8): keep a substrate's projected memory file
  * (e.g. claude-code's `rules/soma/MEMORY.md`) current without a full reproject.
  * Exactly two effects, both soft:
  *
@@ -47,9 +47,9 @@ export interface RefreshSubstrateMemoryProjectionResult {
  * writable) is NOT swallowed here — it rejects, and the caller (session-start
  * lifecycle, the CLI) decides how to handle it.
  */
-export async function refreshSubstrateMemoryProjection(
-  options: RefreshSubstrateMemoryProjectionOptions,
-): Promise<RefreshSubstrateMemoryProjectionResult> {
+export async function reprojectSubstrateMemoryProjection(
+  options: ReprojectSubstrateMemoryProjectionOptions,
+): Promise<ReprojectSubstrateMemoryProjectionResult> {
   const reindexResult = await reindexMemoryIfStale({
     homeDir: options.homeDir,
     somaHome: options.somaHome,
@@ -78,7 +78,7 @@ export async function refreshSubstrateMemoryProjection(
   if (!memoryFile) return { reindexed, projected: null };
 
   // Same on-disk normalization `writeProjectionFile` (install.ts) applies to
-  // every projected file, so a refresh produces byte-identical output to what
+  // every projected file, so a reproject produces byte-identical output to what
   // a full install/reproject would write for this one file.
   const target = join(projection.substrateHome, memoryFile.path);
   await mkdir(dirname(target), { recursive: true });

@@ -4,7 +4,7 @@ import {
   promoteAlgorithmRunMemory,
   rebuildMemoryIndex,
   recallMemory,
-  refreshSubstrateMemoryProjection,
+  reprojectSubstrateMemoryProjection,
   resurfaceMemoryNote,
   runMemoryBackfill,
   searchSomaMemory,
@@ -12,7 +12,7 @@ import {
   writeMemoryAction,
   writeMemoryNote,
   writeSessionDigest,
-  type RefreshSubstrateMemoryProjectionResult,
+  type ReprojectSubstrateMemoryProjectionResult,
 } from "../index";
 import { WRITABLE_NOTE_TYPES, isWritableNoteType } from "../memory-write";
 import { sanitizeNoteText } from "../memory-corpus";
@@ -54,8 +54,8 @@ interface MemoryReindexOptions {
   somaHome?: string;
 }
 
-/** Parsed `soma memory refresh` — the SessionStart-style smart reindex + single-file substrate projection. */
-interface MemoryRefreshOptions {
+/** Parsed `soma memory reproject` — the SessionStart-style smart reindex + single-file substrate projection. */
+interface MemoryReprojectOptions {
   homeDir?: string;
   somaHome?: string;
   substrate?: SubstrateId;
@@ -108,10 +108,10 @@ export interface ParsedMemoryReindexArgs {
   options: MemoryReindexOptions;
 }
 
-export interface ParsedMemoryRefreshArgs {
+export interface ParsedMemoryReprojectArgs {
   command: "memory";
-  action: "refresh";
-  options: MemoryRefreshOptions;
+  action: "reproject";
+  options: MemoryReprojectOptions;
 }
 
 export interface ParsedMemoryDigestArgs {
@@ -152,18 +152,18 @@ export type ParsedMemoryArgs =
   | ParsedMemoryVerifyArgs
   | ParsedMemoryUsedArgs
   | ParsedMemoryReindexArgs
-  | ParsedMemoryRefreshArgs
+  | ParsedMemoryReprojectArgs
   | ParsedMemoryDigestArgs
   | ParsedMemoryActionArgs
   | ParsedMemoryConsolidateArgs
   | ParsedMemoryAuditArgs
   | ParsedMemoryBackfillArgs;
 
-const MEMORY_ACTIONS = ["search", "recall", "promote", "write", "verify", "used", "reindex", "refresh", "digest", "action", "consolidate", "audit", "backfill"] as const;
+const MEMORY_ACTIONS = ["search", "recall", "promote", "write", "verify", "used", "reindex", "reproject", "digest", "action", "consolidate", "audit", "backfill"] as const;
 type MemoryAction = (typeof MEMORY_ACTIONS)[number];
 
 export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAction, string> } = {
-  usage: "Usage: soma memory <search|recall|promote|write|verify|used|reindex|refresh|digest|action|consolidate|audit|backfill> ...",
+  usage: "Usage: soma memory <search|recall|promote|write|verify|used|reindex|reproject|digest|action|consolidate|audit|backfill> ...",
   subcommands: {
     search: "Usage: soma memory search [query] [--query <text>] [--limit <n>] [--home-dir <dir>] [--soma-home <dir>]",
     recall:
@@ -204,9 +204,9 @@ export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAct
       "Usage: soma memory reindex [--home-dir <dir>] [--soma-home <dir>]. " +
       "Rebuild memory/INDEX.md from note frontmatter (earned-inclusion ladder, retention-score budget); " +
       "ages are computed against the current date, so 'verified Nd ago' advances day to day. Quarantined notes never appear.",
-    refresh:
-      "Usage: soma memory refresh [--substrate <id>] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]. " +
-      "The SessionStart-style SMART refresh (M8): rebuild memory/INDEX.md ONLY if a note file is newer than it " +
+    reproject:
+      "Usage: soma memory reproject [--substrate <id>] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]. " +
+      "The SessionStart-style SMART reproject (M8): rebuild memory/INDEX.md ONLY if a note file is newer than it " +
       "(an idle tree never rebuilds — no age restamp, no churn), then re-project JUST the substrate's memory " +
       "bundle file (e.g. claude-code's rules/soma/MEMORY.md) — CONTEXT.md/PURPOSE.md/SKILLS.md etc. are left " +
       "untouched. --substrate defaults to claude-code; a substrate with no memory-projecting adapter no-ops.",
@@ -263,8 +263,8 @@ export function parseMemoryArgs(args: string[]): ParsedMemoryArgs {
       return { command, action, options: parseMemoryUsedArgs(rest) };
     case "reindex":
       return { command, action, options: parseMemoryReindexArgs(rest) };
-    case "refresh":
-      return { command, action, options: parseMemoryRefreshArgs(rest) };
+    case "reproject":
+      return { command, action, options: parseMemoryReprojectArgs(rest) };
     case "digest":
       return { command, action, options: parseMemoryDigestArgs(rest) };
     case "action":
@@ -494,8 +494,8 @@ function parseMemoryReindexArgs(args: string[]): MemoryReindexOptions {
   return options;
 }
 
-function parseMemoryRefreshArgs(args: string[]): MemoryRefreshOptions {
-  const options: MemoryRefreshOptions = {};
+function parseMemoryReprojectArgs(args: string[]): MemoryReprojectOptions {
+  const options: MemoryReprojectOptions = {};
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     const consumed = consumeSharedMemoryOption(args, index, arg, options);
@@ -935,9 +935,9 @@ export async function runMemoryCli(parsed: ParsedMemoryArgs): Promise<string> {
       return formatMemoryRecallResult(await recallMemory(parsed.options));
     case "reindex":
       return formatMemoryReindexResult(await rebuildMemoryIndex(parsed.options));
-    case "refresh":
-      return formatMemoryRefreshResult(
-        await refreshSubstrateMemoryProjection({
+    case "reproject":
+      return formatMemoryReprojectResult(
+        await reprojectSubstrateMemoryProjection({
           substrate: parsed.options.substrate ?? "claude-code",
           homeDir: parsed.options.homeDir,
           somaHome: parsed.options.somaHome,
@@ -1094,9 +1094,9 @@ function formatMemoryReindexResult(result: SomaMemoryIndexResult): string {
   return lines.join("\n");
 }
 
-function formatMemoryRefreshResult(result: RefreshSubstrateMemoryProjectionResult): string {
+function formatMemoryReprojectResult(result: ReprojectSubstrateMemoryProjectionResult): string {
   return [
-    "Soma memory refresh",
+    "Soma memory reproject",
     `reindexed: ${result.reindexed ? "yes (memory/INDEX.md rebuilt — a note was newer)" : "no (already up to date)"}`,
     result.projected ? `projected: ${result.projected}` : "projected: (nothing to project — no memory file for this substrate, or the index is empty)",
   ].join("\n");
