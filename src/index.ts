@@ -472,6 +472,14 @@ export { recallMemory } from "./memory-recall";
 // storage path are not frozen as stable API — episodic joins at M5); internal soma
 // modules and tests import them from "./memory-index" directly.
 export { rebuildMemoryIndex } from "./memory-index";
+// SessionStart's smart reindex + single-file substrate projection (M8). The
+// CLI-facing entry point; `reindexMemoryIfStale` itself is imported directly
+// from "./memory-index" by the lifecycle handler and tests.
+export {
+  reprojectSubstrateMemoryProjection,
+  type ReprojectSubstrateMemoryProjectionOptions,
+  type ReprojectSubstrateMemoryProjectionResult,
+} from "./memory-projection-reproject";
 export { writeSessionDigest, writeMemoryAction, hasSessionDigest } from "./memory-episodic";
 // The Claude Code SessionEnd transcript fallback (extractDigestBodyFromTranscript /
 // writeSessionDigestFromTranscript / ClaudeSessionDigest*) is adapter-specific and is

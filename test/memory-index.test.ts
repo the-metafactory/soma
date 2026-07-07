@@ -1,10 +1,10 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { rebuildMemoryIndex, serializeMemoryNote, type SomaMemoryNote } from "../src/index";
 // Index internals are module-private (not public index API) — import direct.
-import { renderMemoryIndex, retentionScore, memoryIndexPath } from "../src/memory-index";
+import { renderMemoryIndex, retentionScore, memoryIndexPath, reindexMemoryIfStale } from "../src/memory-index";
 import { memoryNotePath, type WritableType } from "../src/memory-write";
 import { parseMemoryArgs, runMemoryCli } from "../src/cli/memory";
 
@@ -307,5 +307,113 @@ test("runMemoryCli reindex reports the rebuild summary", async () => {
     const out = await runMemoryCli(parseMemoryArgs(["memory", "reindex", "--soma-home", somaHome]));
     expect(out).toContain("Soma memory reindex");
     expect(out).toContain("rendered: 1 line(s)");
+  });
+});
+
+test("parseMemoryArgs routes --substrate on 'memory reproject' via the shared option (never 'Unknown option')", () => {
+  // Regression guard: `--substrate` is handled by consumeSharedMemoryOption
+  // BEFORE the reproject parser's switch, so it must NOT fall through to the
+  // Unknown-option throw — it flows into options.substrate.
+  const parsed = parseMemoryArgs(["memory", "reproject", "--substrate", "codex"]);
+  expect(parsed.action).toBe("reproject");
+  if (parsed.action !== "reproject") throw new Error("unreachable");
+  expect(parsed.options.substrate).toBe("codex");
+});
+
+// --- reindexMemoryIfStale (SessionStart smart reindex, M8) -------------------
+//
+// mtimes are forced with `utimes` rather than real sleeps — deterministic
+// regardless of filesystem mtime resolution or how fast the test runs.
+
+const FAR_PAST = new Date("2020-01-01T00:00:00.000Z");
+const FAR_FUTURE = new Date("2030-01-01T00:00:00.000Z");
+
+test("reindexMemoryIfStale does not rebuild when the index is newer than every note", async () => {
+  await withTempSoma(async (somaHome) => {
+    await seed(somaHome, note({ id: "a", body: "aa", trust: "principal", resurface_count: 2, last_verified: "2026-07-01" }));
+    const built = await rebuildMemoryIndex({ somaHome, now: NOW });
+    const indexPath = memoryIndexPath(somaHome);
+    await utimes(indexPath, FAR_FUTURE, FAR_FUTURE); // definitely newer than the note's real mtime
+
+    const result = await reindexMemoryIfStale({ somaHome });
+
+    expect(result).toEqual({ rebuilt: false, reason: "up-to-date" });
+    // Untouched — still the NOW-dated render, not silently restamped from a
+    // real-clock rebuild (which would use today's date, far past NOW).
+    const onDisk = await readFile(indexPath, "utf8");
+    expect(onDisk).toBe(built.content);
+  });
+});
+
+test("reindexMemoryIfStale rebuilds when a note is newer than the index", async () => {
+  await withTempSoma(async (somaHome) => {
+    await seed(somaHome, note({ id: "a", body: "aa", trust: "principal", resurface_count: 2, last_verified: "2026-07-01" }));
+    await rebuildMemoryIndex({ somaHome, now: NOW });
+    const indexPath = memoryIndexPath(somaHome);
+    await utimes(indexPath, FAR_PAST, FAR_PAST); // force the index stale relative to the note's real mtime
+
+    const result = await reindexMemoryIfStale({ somaHome, now: NOW });
+
+    expect(result).toEqual({ rebuilt: true, reason: "rebuilt" });
+    const onDisk = await readFile(indexPath, "utf8");
+    expect(onDisk).toContain("- a —");
+  });
+});
+
+test("reindexMemoryIfStale rebuilds when a note is DELETED (dir-mtime signal; no note is newer)", async () => {
+  await withTempSoma(async (somaHome) => {
+    await seed(somaHome, note({ id: "a", body: "aa", trust: "principal", resurface_count: 2, last_verified: "2026-07-01" }));
+    await seed(somaHome, note({ id: "b", body: "bb", trust: "principal", resurface_count: 2, last_verified: "2026-07-01" }));
+    await rebuildMemoryIndex({ somaHome, now: NOW });
+    const indexPath = memoryIndexPath(somaHome);
+    const pathA = memoryNotePath(somaHome, "semantic", "a");
+    const pathB = memoryNotePath(somaHome, "semantic", "b");
+    const semanticDir = dirname(pathA);
+
+    // Baseline: force both notes, the durable dir, AND the index all to the same
+    // far past → newest entry is NOT newer than the index → up-to-date, no rebuild.
+    await utimes(pathA, FAR_PAST, FAR_PAST);
+    await utimes(pathB, FAR_PAST, FAR_PAST);
+    await utimes(semanticDir, FAR_PAST, FAR_PAST);
+    await utimes(indexPath, FAR_PAST, FAR_PAST);
+    expect(await reindexMemoryIfStale({ somaHome, now: NOW })).toEqual({ rebuilt: false, reason: "up-to-date" });
+
+    // Delete b: no remaining note file is newer than the (far-past) index, but
+    // removing the entry bumps the dir's mtime to real-now — the deletion signal.
+    await rm(pathB);
+    const result = await reindexMemoryIfStale({ somaHome, now: NOW });
+
+    expect(result).toEqual({ rebuilt: true, reason: "rebuilt" });
+    const onDisk = await readFile(indexPath, "utf8");
+    expect(onDisk).toContain("- a —");
+    expect(onDisk).not.toContain("- b —"); // the deleted note is gone from the projected index
+  });
+});
+
+test("reindexMemoryIfStale rebuilds when memory/INDEX.md is missing", async () => {
+  await withTempSoma(async (somaHome) => {
+    await seed(somaHome, note({ id: "a", body: "aa", trust: "principal", resurface_count: 2, last_verified: "2026-07-01" }));
+
+    const result = await reindexMemoryIfStale({ somaHome, now: NOW });
+
+    expect(result).toEqual({ rebuilt: true, reason: "missing-index" });
+    const onDisk = await readFile(memoryIndexPath(somaHome), "utf8");
+    expect(onDisk).toContain("- a —");
+  });
+});
+
+test("reindexMemoryIfStale skips entirely (no read, no write) when memory projection is disabled", async () => {
+  await withTempSoma(async (somaHome) => {
+    await seed(somaHome, note({ id: "a", body: "aa", trust: "principal", resurface_count: 2, last_verified: "2026-07-01" }));
+    const previous = process.env.SOMA_MEMORY_DISABLE;
+    process.env.SOMA_MEMORY_DISABLE = "1";
+    try {
+      const result = await reindexMemoryIfStale({ somaHome, now: NOW });
+      expect(result).toEqual({ rebuilt: false, reason: "disabled" });
+      await expect(readFile(memoryIndexPath(somaHome), "utf8")).rejects.toThrow();
+    } finally {
+      if (previous === undefined) delete process.env.SOMA_MEMORY_DISABLE;
+      else process.env.SOMA_MEMORY_DISABLE = previous;
+    }
   });
 });

@@ -1,9 +1,14 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { createPaths } from "./paths";
 import { isEnoent } from "./fs-utils";
-import { collectDurableNotes } from "./memory-write";
+import { collectDurableNotes, listDurableNotePaths } from "./memory-write";
+import { runBoundedConcurrent } from "./internal-concurrency";
 import { noteDateMs, ageDays, sanitizeNoteText } from "./memory-corpus";
+
+// Cap on concurrent freshness stats so a huge corpus can't fire thousands of
+// `stat` calls at once (fd/scheduler pressure) on an idle SessionStart.
+const FRESHNESS_STAT_CONCURRENCY = 16;
 import type { SomaMemoryIndexResult, SomaMemoryNote, SomaMemoryNoteType, SomaMemoryTrust } from "./types";
 
 /**
@@ -403,4 +408,86 @@ export async function rebuildMemoryIndex(options: SomaMemoryIndexOptions = {}): 
   await writeFile(path, content, "utf8");
 
   return { somaHome, path, content, admitted, rendered, shed, excluded, unreadable };
+}
+
+export interface ReindexMemoryIfStaleResult {
+  rebuilt: boolean;
+  reason: "disabled" | "up-to-date" | "rebuilt" | "missing-index";
+}
+
+/**
+ * SessionStart's "smart" reindex gate (M8). Rebuilds `memory/INDEX.md` ONLY when
+ * it is actually stale — missing, or the durable corpus changed since the index
+ * was last rebuilt: a note added/edited/verified (a note-file mtime newer than
+ * the index) OR a note deleted (a durable-dir mtime newer than the index — a
+ * removed note bumps its dir but leaves no file to stat).
+ *
+ * This is the invariant an idle session must preserve: `renderMemoryIndex`'s
+ * "verified Nd ago" ages are baked in at rebuild time from an injected `now`
+ * (AC-4) — rebuilding on every session start, even with nothing changed, would
+ * silently re-stamp those ages from wall-clock drift alone and churn the
+ * generated file (and, if `~/.soma` is snapshotted, its history) for zero
+ * informational gain. Comparing mtimes keeps a truly idle session a no-op.
+ *
+ * Note mtimes come from the SAME symlink-guarded seam the index itself renders
+ * from, via the parse-free {@link listDurableNotePaths} (no readFile/parse — an
+ * idle check must not scan the whole corpus) — a note this function can't see
+ * can't make it stale, and vice versa.
+ */
+export async function reindexMemoryIfStale(options: SomaMemoryIndexOptions = {}): Promise<ReindexMemoryIfStaleResult> {
+  if (memoryProjectionDisabled()) return { rebuilt: false, reason: "disabled" };
+
+  const somaHome = createPaths(options).root();
+  const indexPath = memoryIndexPath(somaHome);
+
+  let indexMtimeMs: number | undefined;
+  try {
+    indexMtimeMs = (await stat(indexPath)).mtimeMs;
+  } catch (error) {
+    if (!isEnoent(error)) throw error;
+    indexMtimeMs = undefined;
+  }
+
+  if (indexMtimeMs === undefined) {
+    await rebuildMemoryIndex(options);
+    return { rebuilt: true, reason: "missing-index" };
+  }
+
+  // Freshness only needs mtimes, so enumerate note paths WITHOUT reading/parsing
+  // them (parse-free walk) — an idle session start must not pay the O(notes)
+  // readFile+parse of a full corpus scan.
+  const { paths: notePaths, dirMtimes, unreadableDirs } = await listDurableNotePaths(somaHome);
+  // A durable dir we could not read may hold a note newer than the index —
+  // conservatively rebuild rather than risk reporting a false "up-to-date".
+  if (unreadableDirs.length > 0) {
+    await rebuildMemoryIndex(options);
+    return { rebuilt: true, reason: "rebuilt" };
+  }
+  const noteMtimes = await runBoundedConcurrent(
+    notePaths,
+    async (path): Promise<number | undefined> => {
+      try {
+        return (await stat(path)).mtimeMs;
+      } catch {
+        // Vanished between the walk and this stat (TOCTOU) — it can no longer
+        // contribute a staleness signal (rebuildMemoryIndex's own scan will
+        // simply not see it either).
+        return undefined;
+      }
+    },
+    FRESHNESS_STAT_CONCURRENCY,
+  );
+  // Newest of the note-file mtimes (catches adds + in-place edits) AND the
+  // durable-dir mtimes (catches DELETIONS — a removed note bumps its dir's
+  // mtime but leaves no file to stat). Together they cover add/edit/delete.
+  const newestEntryMtimeMs = [...noteMtimes, ...dirMtimes].reduce<number>(
+    (max, mtimeMs) => (mtimeMs !== undefined && mtimeMs > max ? mtimeMs : max),
+    -Infinity,
+  );
+
+  if (newestEntryMtimeMs > indexMtimeMs) {
+    await rebuildMemoryIndex(options);
+    return { rebuilt: true, reason: "rebuilt" };
+  }
+  return { rebuilt: false, reason: "up-to-date" };
 }

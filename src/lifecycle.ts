@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import { listAlgorithmRunSummaries, listAlgorithmRuns, readAlgorithmRunById, writeAlgorithmRun } from "./algorithm-store";
 import { appendAlgorithmProvenance } from "./algorithm-provenance";
 import { appendSomaMemoryEvent } from "./memory";
+import { reprojectSubstrateMemoryProjection } from "./memory-projection-reproject";
 import { loadSomaProfile } from "./soma-home";
 import { normalizeSomaWorkRegistryArtifacts, upsertSomaCurrentWorkPointer } from "./work-registry";
 import { SECTION_NAME_MAP, getCriteria, getGoal } from "./vsa-accessors";
@@ -361,11 +362,44 @@ export async function runSomaLifecycleSessionStart(options: SomaLifecycleOptions
         metadata: {
           sessionId: startup.sessionId,
           substrate: startup.substrate,
-          error: lifecycleErrorMessage(error, startup.somaHome),
+          error: lifecycleErrorMessage(error, startup.somaHome, options.homeDir),
         },
       });
     }
   }
+  // #440-follow-up (M8): keep the projected substrate memory file current at
+  // session start. This stays on the right side of CONTEXT.md's lifecycle
+  // boundary (`reproject` = Soma-triggered on source change; `load` = the
+  // substrate's read at session start): it is Soma's OWN hook — not the
+  // substrate's load — reprojecting because the shared memory source may have
+  // drifted in another substrate since last projection. Cross-substrate writes
+  // have no eager cross-process signal, so that drift is detected lazily at the
+  // session boundary, just before load reads the projection. Rebuild
+  // memory/INDEX.md only if stale, then re-project just that one file.
+  // Detached/soft like the registry writeback above: a failure here must never
+  // block a session starting.
+  let memoryProjectedFile: string | undefined;
+  try {
+    const memoryReproject = await reprojectSubstrateMemoryProjection({
+      substrate: startup.substrate,
+      homeDir: options.homeDir,
+      somaHome: startup.somaHome,
+    });
+    memoryProjectedFile = memoryReproject.projected ?? undefined;
+  } catch (error: unknown) {
+    await appendSomaMemoryEvent(startup.somaHome, {
+      substrate: startup.substrate,
+      kind: "lifecycle.session_start.memory-reproject-failed",
+      summary: "Session started; memory index reproject/projection failed.",
+      timestamp: startup.timestamp,
+      metadata: {
+        sessionId: startup.sessionId,
+        substrate: startup.substrate,
+        error: lifecycleErrorMessage(error, startup.somaHome, options.homeDir),
+      },
+    });
+  }
+
   await appendSomaMemoryEvent(startup.somaHome, {
     substrate: startup.substrate,
     kind: "lifecycle.session_start",
@@ -382,7 +416,7 @@ export async function runSomaLifecycleSessionStart(options: SomaLifecycleOptions
     event: "session_start",
     somaHome: startup.somaHome,
     timestamp: startup.timestamp,
-    files: Array.from(new Set([...registryFiles, eventsPath])),
+    files: Array.from(new Set([...registryFiles, eventsPath, ...(memoryProjectedFile ? [memoryProjectedFile] : [])])),
     context: startup.context,
     activeVsa: active === null ? null : { slug: active.slug, phase: active.isa.frontmatter.phase },
   };
@@ -696,9 +730,20 @@ export function buildSessionEndRegistryArtifacts(input: {
   return normalizeSomaWorkRegistryArtifacts({ somaHome: input.somaHome }, rawArtifacts);
 }
 
-function lifecycleErrorMessage(error: unknown, somaHome: string): string {
+function lifecycleErrorMessage(error: unknown, somaHome: string, homeDir?: string): string {
   const message = error instanceof Error ? error.message : String(error);
-  return message.replaceAll(somaHome, "<soma-home>").slice(0, 300);
+  // A filesystem error from the memory-reproject write path can name a substrate
+  // home (e.g. claude-code's ~/.claude), which derives from the home dir, not from
+  // somaHome. Scrub somaHome first (most specific), then the RESOLVED home dir —
+  // the caller's `homeDir` if given, else the OS home — so a custom somaHome that
+  // is NOT under the real home cannot leak a substrate path. `dirname(somaHome)`
+  // is also covered so the default ~/.soma layout stays scrubbed regardless.
+  const resolvedHome = homeDir ?? homedir();
+  let scrubbed = message.replaceAll(somaHome, "<soma-home>");
+  for (const dir of new Set([resolvedHome, dirname(somaHome)])) {
+    scrubbed = scrubbed.replaceAll(dir, "<home-dir>");
+  }
+  return scrubbed.slice(0, 300);
 }
 
 function normalizeLifecycleArtifactPaths(somaHome: string, artifactPaths: string[]): string[] {

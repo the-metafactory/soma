@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
-import { lstat, mkdir, open, readFile, realpath, unlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, realpath, stat, unlink, writeFile } from "node:fs/promises";
 import { constants as FS } from "node:fs";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { createPaths } from "./paths";
+import { isEnoent } from "./fs-utils";
 import { listMemoryNotes } from "./memory-fs";
 import { runBoundedConcurrent } from "./internal-concurrency";
 import { appendSomaMemoryEvent } from "./memory";
@@ -441,6 +442,64 @@ interface CorpusScan {
   notes: ScannedNote[];
   /** Paths that exist but could not be read or parsed — invisible to dedup. */
   unreadable: string[];
+}
+
+/** Result of {@link listDurableNotePaths}: note paths, dir mtimes, and the blind spot. */
+export interface DurableNotePathScan {
+  paths: string[];
+  /**
+   * mtime (ms) of each readable durable dir. A dir's mtime bumps when an entry
+   * is added OR removed (but not on an in-place content edit) — this is the ONLY
+   * cheap signal that catches note DELETIONS, which no per-file mtime can (a
+   * deleted note leaves nothing to stat).
+   */
+  dirMtimes: number[];
+  /**
+   * Durable dirs that EXIST but could not be enumerated. Distinct from the
+   * common "missing dir → empty" case: a note dir the walk cannot read may hold
+   * a note newer than the index, so the freshness probe must treat it as
+   * possibly-stale rather than silently up-to-date.
+   */
+  unreadableDirs: string[];
+}
+
+/**
+ * Parse-free enumeration of every durable note's file path across both writable
+ * dirs, using the SAME symlink-guarded seam ({@link listMemoryNotes} with
+ * `onSymlink: "skip"`) that {@link collectDurableNotes} walks — but WITHOUT the
+ * `readFile` + `parseMemoryNote` of a full corpus scan. For a freshness probe
+ * that only needs mtimes (M8 `reindexMemoryIfStale`), reading/parsing every note
+ * on an idle session start is pure waste; this keeps the walk O(notes) in cheap
+ * stats only. Genuine readdir failures are surfaced via `unreadableDirs`, NOT
+ * dropped — an unreadable dir is a staleness blind spot the caller must respect.
+ */
+export async function listDurableNotePaths(somaHome: string): Promise<DurableNotePathScan> {
+  const paths: string[] = [];
+  const dirMtimes: number[] = [];
+  const unreadableDirs: string[] = [];
+  for (const type of WRITABLE_TYPES) {
+    const dir = typeDir(somaHome, type);
+    try {
+      const files = await listMemoryNotes(dir, { onSymlink: "skip" });
+      for (const path of files) paths.push(path);
+      // Capture the dir's own mtime — the deletion signal (see DurableNotePathScan).
+      try {
+        dirMtimes.push((await stat(dir)).mtimeMs);
+      } catch (error) {
+        // ENOENT = this note type's dir simply doesn't exist yet (no notes ever
+        // written) → nothing could have been deleted, skip. Any OTHER stat
+        // failure loses the deletion signal, so treat the dir as a blind spot →
+        // the caller rebuilds conservatively rather than claim a false up-to-date.
+        if (!isEnoent(error)) unreadableDirs.push(dir);
+      }
+    } catch {
+      // Missing dir → [] (listMemoryNotes never throws for that). A GENUINE
+      // readdir failure is surfaced: the dir may hold notes newer than the
+      // index, so the caller fails toward freshness instead of a false no-op.
+      unreadableDirs.push(dir);
+    }
+  }
+  return { paths, dirMtimes, unreadableDirs };
 }
 
 /**

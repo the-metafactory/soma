@@ -44,6 +44,13 @@ const SNAPSHOT_GITIGNORE_RULES = [
   "*.token",
 ] as const;
 
+// Separate header/block: NOT a secrets concern like the block above — the memory
+// index is a deterministic, rebuildable PROJECTION (M3/M8), never a source, so a
+// snapshot has no reason to track its byte-for-byte churn (rebuilds re-stamp
+// "verified Nd ago" ages even when the underlying notes didn't change).
+const GENERATED_GITIGNORE_HEADER = "# Soma generated files";
+const GENERATED_GITIGNORE_RULES = ["memory/INDEX.md"] as const;
+
 interface SnapshotMetadata {
   ignoredPaths: string[];
 }
@@ -102,8 +109,11 @@ async function ensureSnapshotGitignore(somaHome: string): Promise<void> {
   const gitignorePath = join(somaHome, ".gitignore");
   const current = await readTextIfExists(gitignorePath);
   const lines = current.split(/\r?\n/);
-  const additions = [SNAPSHOT_GITIGNORE_HEADER, ...SNAPSHOT_GITIGNORE_RULES]
-    .filter((line) => !lines.includes(line));
+  const gitignoreBlocks: readonly (readonly string[])[] = [
+    [SNAPSHOT_GITIGNORE_HEADER, ...SNAPSHOT_GITIGNORE_RULES],
+    [GENERATED_GITIGNORE_HEADER, ...GENERATED_GITIGNORE_RULES],
+  ];
+  const additions = gitignoreBlocks.flat().filter((line) => !lines.includes(line));
   if (additions.length === 0) return;
 
   const prefix = current.trimEnd();
