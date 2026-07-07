@@ -1,5 +1,5 @@
 import { normalizeSkillContent } from "./pai-pack-normalizer";
-import type { SubstrateId } from "./types";
+import type { ProjectionSubstrate } from "./types";
 
 const CLAUDE_HOME = "~/" + ".claude";
 const SOMA_HOME = "~/" + ".soma";
@@ -39,7 +39,7 @@ function isMarkdownInstructionFile(path: string): boolean {
 }
 
 export function rewriteSubstrateProjectionContent(input: {
-  substrate: SubstrateId;
+  substrate: ProjectionSubstrate;
   path: string;
   content: string;
 }): string {

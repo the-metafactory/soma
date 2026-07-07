@@ -1,3 +1,4 @@
+import { anthropicCoworkInstallSpec } from "./adapters/anthropic-cowork/install";
 import { codexInstallSpec } from "./adapters/codex/install";
 import { claudeCodeInstallSpec } from "./adapters/claude-code/install";
 import { cursorInstallSpec } from "./adapters/cursor/install";
@@ -13,6 +14,7 @@ const INSTALL_SPECS = {
   "claude-code": claudeCodeInstallSpec,
   cursor: cursorInstallSpec,
   grok: grokInstallSpec,
+  "anthropic-cowork": anthropicCoworkInstallSpec,
 } satisfies InstallSpecRegistry;
 
 export function installSpecFor<S extends InstallSubstrate>(substrate: S): InstallSpecRegistry[S] {

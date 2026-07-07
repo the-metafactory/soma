@@ -5,7 +5,7 @@ import {
   type UninstallClaudeCodeOptions,
 } from "../index";
 import { DOCTOR_SUPPORTED_SUBSTRATES, DOCTOR_UNSUPPORTED_SUBSTRATE_MESSAGE, isDoctorSubstrate } from "../adapters/doctor";
-import { applySomaInit, diagnoseSomaDoctor, planSomaInit } from "../onboarding";
+import { ANTHROPIC_COWORK_INIT_UNSUPPORTED_MESSAGE, applySomaInit, diagnoseSomaDoctor, planSomaInit } from "../onboarding";
 import type { SomaDoctorDiagnosis, SomaInitPlan, SomaInstallOptions, SomaOnboardingOptions } from "../types";
 import {
   formatClaudeUninstallResult,
@@ -138,7 +138,13 @@ function parseOnboardingOptions(rest: string[]): SomaOnboardingOptions {
 
     switch (arg) {
       case "--substrate":
-        options.substrate = parseOnboardingSubstrate(readOption(rest, index, arg));
+        {
+          const substrate = parseOnboardingSubstrate(readOption(rest, index, arg));
+          if (substrate === "anthropic-cowork") {
+            throw new Error(ANTHROPIC_COWORK_INIT_UNSUPPORTED_MESSAGE);
+          }
+          options.substrate = substrate;
+        }
         index += 1;
         break;
       default:

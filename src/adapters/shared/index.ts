@@ -171,17 +171,20 @@ export function renderMemoryLayout(input: ProjectionInput): string {
   ].join("\n");
 }
 
+export const SOMA_SKILLS_HEADING = "# Soma Skills";
+export const SOMA_POLICY_PROJECTION_HEADING = "# Soma Policy Projection";
+
 export function renderSkills(input: ProjectionInput): string {
   const skills = input.profile.skills.map((skill) =>
     [`## ${skill.name}`, "", skill.description, "", `Path: ${skill.path}`, "", "Triggers:", formatList(skill.triggers)].join("\n"),
   );
 
-  return ["# Soma Skills", "", skills.length === 0 ? "No Soma skills were declared." : skills.join("\n\n")].join("\n");
+  return [SOMA_SKILLS_HEADING, "", skills.length === 0 ? "No Soma skills were declared." : skills.join("\n\n")].join("\n");
 }
 
 export function renderPolicyProjection(substrate: string, enforceable: string[], advisory: string[]): string {
   return [
-    "# Soma Policy Projection",
+    SOMA_POLICY_PROJECTION_HEADING,
     "",
     `Substrate: ${substrate}`,
     "",

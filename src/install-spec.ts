@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
-import type { SubstrateId } from "./types";
+import type { InstallSubstrate, ProjectionSubstrate } from "./types";
 
-export type InstallSubstrate = Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor" | "grok">;
+export type { InstallSubstrate } from "./types";
 
 export interface LifecycleProjectionSpec {
   startupContextPath: string;
@@ -65,9 +65,15 @@ export interface ImplementedUninstallSpec {
 
 export type UninstallSpec = ReservedUninstallSpec | ImplementedUninstallSpec;
 
+export interface PrivateRootOptions {
+  homeDir?: string;
+  substrate?: ProjectionSubstrate;
+  substrateHome?: string;
+}
+
 export interface PrivateRootSpec {
-  projection?(options?: { homeDir?: string; substrate?: SubstrateId }): string[];
-  memory?(options?: { homeDir?: string; substrate?: SubstrateId }): string[];
+  projection?(options?: PrivateRootOptions): string[];
+  memory?(options?: PrivateRootOptions): string[];
 }
 
 export interface SubstrateInstallSpec<S extends InstallSubstrate = InstallSubstrate> {

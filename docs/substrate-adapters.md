@@ -199,6 +199,32 @@ It is not implemented yet. Copilot cloud agent support is intentionally scoped
 as a later, public-safe workspace/repository projection because cloud sessions
 cannot assume access to the principal's local Soma home.
 
+## Anthropic Cowork
+
+The Soma scaffold uses the vendor-prefixed substrate id `anthropic-cowork` for
+this experimental Cowork projection.
+
+The current implementation is not a verified Cowork-native adapter yet and
+should not be treated as satisfying the normal substrate-native adapter
+contract. It is an experimental local projection scaffold exposed through the
+Soma install/export machinery while the real Cowork load surface remains
+unverified: `soma install anthropic-cowork --apply` writes `SOMA.md`, `soma/`
+projection files, a `memory-snapshot.md`, a top-level `capture/` inbox, and the
+managed VSA skill under the selected local projection folder. The default target
+is `~/.anthropic-cowork/`; pass `--substrate-home <projection-folder>` to choose
+another local folder.
+
+No Cowork-specific app-support path or hook/config surface is encoded as
+verified in this implementation, so the adapter does not edit Claude/Cowork app
+state, MCP config, preferences, session databases, plugin stores, or VM state.
+Policy is advisory in the projection. Treat Cowork consumption of this folder as
+manual/experimental until a future probe proves a Cowork-loaded folder or config
+surface. Capture ingestion, MCP, plugin packaging, and doctor checks are
+follow-up slices after verified Cowork surfaces exist.
+
+The implementation notes are in
+[anthropic-cowork-adapter.md](./anthropic-cowork-adapter.md).
+
 ## OpenCode
 
 OpenCode is a local coding-agent substrate with native global and project

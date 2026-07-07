@@ -2,8 +2,7 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { isEnoent } from "../../fs-errors";
-import { skillsLoaderUnder, vsaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
-import type { SubstrateId } from "../../types";
+import { skillsLoaderUnder, vsaSkillUnder, type PrivateRootOptions, type SubstrateInstallSpec } from "../../install-spec";
 import {
   GROK_AGENT_MARKER,
   GROK_PERSONA_MARKER,
@@ -167,7 +166,7 @@ export function isGrokPortableSkillProjectionPath(path: string): boolean {
   return name !== undefined && name !== "VSA" && !(GROK_PROJECTED_SKILL_NAMES as readonly string[]).includes(name);
 }
 
-export function grokProjectionPrivateRoots(options: { homeDir?: string; substrate?: SubstrateId } = {}): string[] {
+export function grokProjectionPrivateRoots(options: PrivateRootOptions = {}): string[] {
   if (options.substrate !== undefined && options.substrate !== "grok") return [];
   const home = resolve(options.homeDir ?? homedir());
   // The projected identity/context surface (Soma never writes into

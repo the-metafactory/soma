@@ -261,6 +261,12 @@ but deterministic enforcement is the target.
 Adapters project Soma into substrate-native primitives. One adapter per
 substrate. See [CONTEXT.md](../CONTEXT.md) for glossary.
 
+Issue- or PR-scoped experimental scaffolds may reserve a vendor-prefixed
+substrate id only when the PR artifact documents the exception and its limits.
+They must stay below the normal adapter bar, avoid editing unverified app state,
+and keep policy advisory until the native surface is proven. They are
+scaffolds, not evidence that the substrate can load the projection.
+
 ```ts
 interface SomaAdapter {
   name: string;

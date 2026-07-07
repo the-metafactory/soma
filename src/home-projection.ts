@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { dirname } from "node:path";
 import { CURSOR_RULES_BLOCK_BEGIN, CURSOR_RULES_BLOCK_END, CURSOR_RULES_PATH } from "./adapters/cursor";
 import { projectClaudeCodeHome, projectCodexHome, projectCursorHome, projectGrokHome, projectPiDevHome } from "./adapters";
+import { isAnthropicCoworkSkillProjectionPath, projectAnthropicCoworkHome } from "./adapters/anthropic-cowork";
 import { isClaudeCodeSkillProjectionPath } from "./adapters/claude-code";
 import { isCodexSkillProjectionPath } from "./adapters/codex/adapter";
 import { isCursorSkillProjectionPath } from "./adapters/cursor";
@@ -15,13 +16,19 @@ import { isPiDevSkillProjectionPath } from "./adapters/pi-dev/adapter";
 import { writeProjection } from "./projection";
 import { defaultSomaRepoPath } from "./repo-path";
 import { defaultSubstrateHome } from "./install-spec-registry";
-import type { Projection, ProjectionInput, SomaHomeProjection, SomaHomeProjectionOptions, SubstrateId, WrittenProjection } from "./types";
+import type { InstallSubstrate, Projection, ProjectionInput, ProjectionSubstrate, SomaHomeProjection, SomaHomeProjectionOptions, WrittenProjection } from "./types";
+
+const HOME_PROJECTION_INSTALL_SUBSTRATES = ["codex", "pi-dev", "claude-code", "cursor", "grok", "anthropic-cowork"] as const satisfies readonly InstallSubstrate[];
+
+function isHomeProjectionInstallSubstrate(substrate: ProjectionSubstrate): substrate is InstallSubstrate {
+  return (HOME_PROJECTION_INSTALL_SUBSTRATES as readonly ProjectionSubstrate[]).includes(substrate);
+}
 
 export function resolveHomeProjectionPaths(
-  substrate: SubstrateId,
+  substrate: ProjectionSubstrate,
   options: SomaHomeProjectionOptions = {},
 ): Omit<SomaHomeProjection, "bundle"> {
-  if (substrate !== "codex" && substrate !== "pi-dev" && substrate !== "claude-code" && substrate !== "cursor" && substrate !== "grok") {
+  if (!isHomeProjectionInstallSubstrate(substrate)) {
     throw new Error(`Home projection is not implemented for substrate: ${substrate}`);
   }
 
@@ -36,7 +43,7 @@ export function resolveHomeProjectionPaths(
 }
 
 function buildHomeProjectionFor(
-  substrate: Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor" | "grok">,
+  substrate: InstallSubstrate,
   options: SomaHomeProjectionOptions,
   project: (paths: Omit<SomaHomeProjection, "bundle">) => Projection,
 ): SomaHomeProjection {
@@ -158,13 +165,19 @@ export function buildGrokHomeProjection(input: ProjectionInput, options: SomaHom
   );
 }
 
+export function buildAnthropicCoworkHomeProjection(input: ProjectionInput, options: SomaHomeProjectionOptions = {}): SomaHomeProjection {
+  return buildHomeProjectionFor("anthropic-cowork", options, () =>
+    maybeCodeOnlyProjection(projectAnthropicCoworkHome(input), options, isAnthropicCoworkSkillProjectionPath),
+  );
+}
+
 /**
  * Central substrate → home-projection dispatcher. soma#356: a single owner of
  * the substrate-to-builder mapping so callers (e.g. `project-skill`'s catalog
  * refresh) do not each maintain a parallel hard-coded map.
  */
 export function buildSubstrateHomeProjection(
-  substrate: Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor" | "grok">,
+  substrate: InstallSubstrate,
   input: ProjectionInput,
   options: SomaHomeProjectionOptions = {},
 ): SomaHomeProjection {
@@ -179,7 +192,17 @@ export function buildSubstrateHomeProjection(
       return buildCursorHomeProjection(input, options);
     case "grok":
       return buildGrokHomeProjection(input, options);
+    case "anthropic-cowork":
+      return buildAnthropicCoworkHomeProjection(input, options);
   }
+}
+
+export async function installAnthropicCoworkHomeProjection(
+  input: ProjectionInput,
+  options: SomaHomeProjectionOptions = {},
+): Promise<WrittenProjection> {
+  const projection = buildAnthropicCoworkHomeProjection(input, options);
+  return writeProjection(projection.bundle, projection.substrateHome);
 }
 
 export async function installGrokHomeProjection(
