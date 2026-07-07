@@ -444,27 +444,6 @@ interface CorpusScan {
 }
 
 /**
- * Parse every `.md` note under the durable corpus. Unreadable/malformed files
- * cannot block a legitimate write, but they are NOT silently dropped: their
- * paths are returned so the caller can surface that the corpus was only
- * partially scanned (the dedup gate would otherwise fail open on a corrupt
- * near-duplicate). Returns `ScannedNote` (no `raw`) — the dedup scan never needs
- * the bytes; `loadNoteById` reads raw itself for its rollback path.
- *
- * Enumeration goes through the shared `listMemoryNotes` seam (#408) —
- * previously this walk had NO symlink guard at all (a planted
- * `semantic/evil.md` → outside-the-tree symlink would be readdir'd and read
- * like any other note), the one caller among the four re-derivations of this
- * walk with no hardening whatsoever. `onSymlink: "skip"` matches the sibling
- * durable-corpus scan `consolidateMemory` already uses for episodic notes —
- * a symlinked note is now silently invisible to the dedup gate, the index,
- * and recall (this function's three callers), never followed. The seam also
- * re-`lstat`s each leaf before returning it (closing the enumeration-side
- * swap window); the read below adds `O_NOFOLLOW` so even a leaf swapped for a
- * symlink AFTER the seam returns cannot be followed — it reads as unreadable
- * (ELOOP → surfaced), never through the link to an outside target.
- */
-/**
  * Parse-free enumeration of every durable note's file path across both writable
  * dirs, using the SAME symlink-guarded seam ({@link listMemoryNotes} with
  * `onSymlink: "skip"`) that {@link collectDurableNotes} walks — but WITHOUT the
@@ -489,6 +468,27 @@ export async function listDurableNotePaths(somaHome: string): Promise<string[]> 
   return paths;
 }
 
+/**
+ * Parse every `.md` note under the durable corpus. Unreadable/malformed files
+ * cannot block a legitimate write, but they are NOT silently dropped: their
+ * paths are returned so the caller can surface that the corpus was only
+ * partially scanned (the dedup gate would otherwise fail open on a corrupt
+ * near-duplicate). Returns `ScannedNote` (no `raw`) — the dedup scan never needs
+ * the bytes; `loadNoteById` reads raw itself for its rollback path.
+ *
+ * Enumeration goes through the shared `listMemoryNotes` seam (#408) —
+ * previously this walk had NO symlink guard at all (a planted
+ * `semantic/evil.md` → outside-the-tree symlink would be readdir'd and read
+ * like any other note), the one caller among the four re-derivations of this
+ * walk with no hardening whatsoever. `onSymlink: "skip"` matches the sibling
+ * durable-corpus scan `consolidateMemory` already uses for episodic notes —
+ * a symlinked note is now silently invisible to the dedup gate, the index,
+ * and recall (this function's three callers), never followed. The seam also
+ * re-`lstat`s each leaf before returning it (closing the enumeration-side
+ * swap window); the read below adds `O_NOFOLLOW` so even a leaf swapped for a
+ * symlink AFTER the seam returns cannot be followed — it reads as unreadable
+ * (ELOOP → surfaced), never through the link to an outside target.
+ */
 export async function collectDurableNotes(somaHome: string): Promise<CorpusScan> {
   // Enumerate all note files across both durable dirs, then read them with a
   // bounded concurrency window (shared helper) rather than one unbounded

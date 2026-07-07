@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { createPaths } from "./paths";
 import { buildSubstrateHomeProjection } from "./home-projection";
@@ -77,12 +77,19 @@ export async function reprojectSubstrateMemoryProjection(
   const memoryFile = projection.bundle.files.find((file) => file.content === indexContent);
   if (!memoryFile) return { reindexed, projected: null };
 
+  const target = join(projection.substrateHome, memoryFile.path);
   // Same on-disk normalization `writeProjectionFile` (install.ts) applies to
   // every projected file, so a reproject produces byte-identical output to what
   // a full install/reproject would write for this one file.
-  const target = join(projection.substrateHome, memoryFile.path);
-  await mkdir(dirname(target), { recursive: true });
-  await writeFile(target, `${memoryFile.content.trimEnd()}\n`, "utf8");
+  const desired = `${memoryFile.content.trimEnd()}\n`;
+  // Idempotent: when the projection is already current, skip the write so an
+  // idle SessionStart reproject touches no disk at all (no churn, no mtime bump).
+  // The file is still "projected" — return its path regardless.
+  const existing = await readFile(target, "utf8").catch(() => undefined);
+  if (existing !== desired) {
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, desired, "utf8");
+  }
 
   return { reindexed, projected: target };
 }

@@ -65,6 +65,26 @@ test("reprojectSubstrateMemoryProjection writes only the memory bundle file, not
   });
 });
 
+test("reprojectSubstrateMemoryProjection is idempotent — an unchanged reproject does not rewrite MEMORY.md", async () => {
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    await seed(somaHome, note({ id: "fact", body: "the gateway retries thrice", trust: "principal" }));
+
+    const first = await reprojectSubstrateMemoryProjection({ substrate: "claude-code", homeDir });
+    const target = expectProjected(first.projected);
+
+    // Backdate the projected file, then reproject again with NOTHING changed: the
+    // index is up to date AND the rendered content is identical, so the write is
+    // skipped and the mtime does not move (a truly idle SessionStart is disk-free).
+    await utimes(target, FAR_PAST, FAR_PAST);
+    const second = await reprojectSubstrateMemoryProjection({ substrate: "claude-code", homeDir });
+
+    expect(second.reindexed).toBe(false); // no note newer than the index
+    expect(second.projected).toBe(target); // still projected
+    expect((await stat(target)).mtimeMs).toBe(FAR_PAST.getTime()); // NOT rewritten
+  });
+});
+
 test("reprojectSubstrateMemoryProjection picks up a new note across a simulated rebuild", async () => {
   await withTempHome(async (homeDir) => {
     const { somaHome } = await bootstrapSomaHome({ homeDir });
