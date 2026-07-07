@@ -198,6 +198,43 @@ export function defaultEvidenceKind(
   return kind ?? (status === "passed" ? "specified" : undefined);
 }
 
+/**
+ * VerificationGate (ported from PAI `EvidenceGate`, Ladder EX-00004): the
+ * block-mode, record-time counterpart to #330's audit-time LEARN gate. #330
+ * lets a hollow pass be RECORDED and only blocks it from COMPLETING; this
+ * refuses to record a `passed` on specification-only or rote evidence in the
+ * first place, so the caller learns immediately instead of at the finish line.
+ *
+ * Returns a violation (reason + message) when `status === "passed"` and the
+ * evidence is either rote ("done"/"verified"/…) or specification-only (no
+ * `probed`/`tested` kind declared); otherwise null. Escape hatches, same as the
+ * LEARN gate: declare a real probe (`evidenceKind: "probed"|"tested"`) or record
+ * `status: "deferred-probe"`. Non-`passed` statuses never violate.
+ */
+const ROTE_EVIDENCE = /^(?:done|verified|checked|confirmed|ok(?:ay)?|yes|pass(?:ed)?|complete[d]?|works?|looks?\s*good|good|fine)\.?$/i;
+
+export function verificationGateViolation(
+  status: CriterionStatus,
+  evidence: string,
+  evidenceKind: EvidenceKind | undefined,
+): { reason: "rote_evidence" | "specification_only"; message: string } | null {
+  if (status !== "passed") return null;
+  const cleaned = evidence.trim().replace(/^evidence:\s*/i, "").trim();
+  if (ROTE_EVIDENCE.test(cleaned)) {
+    return {
+      reason: "rote_evidence",
+      message: `rote evidence rejected (${JSON.stringify(cleaned)}) — describe what you actually observed (a command + its output, a file:line, a probe result)`,
+    };
+  }
+  if (defaultEvidenceKind(evidenceKind, status) === "specified") {
+    return {
+      reason: "specification_only",
+      message: `specification-only evidence — declare a real probe (evidenceKind "probed" or "tested") or record status "deferred-probe"`,
+    };
+  }
+  return null;
+}
+
 export function updateCriterion(
   isa: VerificationStateArtifact,
   criterionId: string,

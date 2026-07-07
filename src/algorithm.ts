@@ -28,6 +28,7 @@ import {
   isHollowPass,
   progressFromCriteria,
   updateCriterionWithResult,
+  verificationGateViolation,
   verifiedFromCriteria,
 } from "./vsa-accessors";
 
@@ -380,8 +381,25 @@ export function verifyAlgorithmCriterion(
   timestamp?: string,
   provenance?: Pick<AlgorithmProvenanceInput, "substrate">,
   evidenceKind?: Checkpoint["evidenceKind"],
+  // VerificationGate opt-out for the RECONSTRUCTION surface. The gate fires on
+  // fresh agent/CLI assertions (default); the VSA→run sync passes false because
+  // it reconstructs already-DECLARED state from existing VSA markdown (a bare
+  // `[x]` legitimately carries no probe kind). Synced hollow passes remain
+  // caught by the audit-time LEARN gate (layer b) — the strictness belongs on
+  // the assertion surface, not on mirroring on-disk state.
+  enforceGate = true,
 ): AlgorithmRun {
   assertNonEmpty(evidence, "verification evidence");
+
+  // VerificationGate (layer a) — fail-fast at record time. #330's LEARN gate
+  // (assertGate → learnGateViolations) already blocks a hollow pass from
+  // COMPLETING; this refuses to RECORD a `passed` on spec-only/rote evidence so
+  // the caller is corrected immediately, not at the finish line. Escape hatches:
+  // evidenceKind "probed"/"tested", or status "deferred-probe".
+  const gateViolation = enforceGate ? verificationGateViolation(status, evidence, evidenceKind) : null;
+  if (gateViolation) {
+    throw new Error(`VerificationGate: cannot mark ${criterionId} passed — ${gateViolation.message}.`);
+  }
 
   const { isa: vsaWithSection, criteria: updatedCriteria } = updateCriterionWithResult(
     run.vsa,

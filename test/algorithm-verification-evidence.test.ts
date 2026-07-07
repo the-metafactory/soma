@@ -63,18 +63,22 @@ test("evidence kind round-trips through VSA markdown serialization", () => {
   expect(reparsed?.evidenceKind).toBe("tested");
 });
 
-test("a passed criterion verified only as 'specified' blocks advance to LEARN", () => {
-  let run = toVerify();
-  run = verifyAlgorithmCriterion(run, "C1", "passed", "the design says it returns 200", "2026-06-22T10:10:00.000Z", undefined, "specified");
-  let thrown: unknown;
-  try {
-    advanceAlgorithmRun(run, "2026-06-22T10:11:00.000Z");
-  } catch (error) {
-    thrown = error;
-  }
-  expect(thrown).toBeInstanceOf(Error);
-  expect((thrown as Error).message).toMatch(/C1/);
-  expect((thrown as Error).message).toMatch(/probe|specified|deferred/i);
+test("VerificationGate refuses recording a specification-only pass at record time", () => {
+  const run = toVerify();
+  // Layer (a): #330's LEARN gate blocked a hollow pass from COMPLETING; the
+  // VerificationGate refuses to RECORD it in the first place — fail-fast.
+  expect(() =>
+    verifyAlgorithmCriterion(run, "C1", "passed", "the design says it returns 200", "2026-06-22T10:10:00.000Z", undefined, "specified"),
+  ).toThrow(/VerificationGate.*C1.*(probe|specified|deferred)/is);
+});
+
+test("VerificationGate refuses recording a rote pass even with a probed kind", () => {
+  const run = toVerify();
+  // The rote-text guard (ported from EvidenceGate) fires regardless of the
+  // caller-asserted kind: "done" is never real evidence.
+  expect(() =>
+    verifyAlgorithmCriterion(run, "C1", "passed", "done", "2026-06-22T10:10:00.000Z", undefined, "probed"),
+  ).toThrow(/VerificationGate.*rote/is);
 });
 
 test("a probed pass advances to LEARN", () => {
@@ -95,10 +99,14 @@ test("deferred-probe is an honest resolved state accepted by the LEARN gate", ()
   expect(getRunPhase(run)).toBe("learn");
 });
 
-test("legacy passed verification without an evidence kind is grandfathered", () => {
-  let run = toVerify();
-  // old call signature: no evidenceKind -> undefined, not 'specified'
-  run = verifyAlgorithmCriterion(run, "C1", "passed", "verified", "2026-06-22T10:10:00.000Z");
-  run = advanceAlgorithmRun(run, "2026-06-22T10:11:00.000Z");
-  expect(getRunPhase(run)).toBe("learn");
+test("VerificationGate refuses a passed record with no probe kind (grandfathering removed for new records)", () => {
+  const run = toVerify();
+  // #330 grandfathered an undefined kind at the LEARN gate (isHollowPass only
+  // flags an EXPLICIT `specified`). The VerificationGate closes that at record
+  // time: a new `passed` with no probe kind resolves to specification-only and
+  // is refused. (Loaded legacy runs are still tolerated by the lenient LEARN
+  // gate — the strictness lives on the record path, not on old on-disk state.)
+  expect(() =>
+    verifyAlgorithmCriterion(run, "C1", "passed", "the endpoint should return 200 per the spec", "2026-06-22T10:10:00.000Z"),
+  ).toThrow(/VerificationGate.*specification/is);
 });

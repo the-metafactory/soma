@@ -752,6 +752,8 @@ test("cli records substrate provenance and surfaces touched-by summary", async (
       "passed",
       "--evidence",
       "Codex verified the criterion.",
+      "--evidence-kind",
+      "probed",
     ]);
     await runSomaCli([
       "algorithm",
@@ -1697,6 +1699,8 @@ test("cli promotes Algorithm run memory", async () => {
       "passed",
       "--evidence",
       "Promotion file criteria verified.",
+      "--evidence-kind",
+      "probed",
     ]);
     const output = await runSomaCli([
       "memory",
