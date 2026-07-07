@@ -310,6 +310,16 @@ test("runMemoryCli reindex reports the rebuild summary", async () => {
   });
 });
 
+test("parseMemoryArgs routes --substrate on 'memory reproject' via the shared option (never 'Unknown option')", () => {
+  // Regression guard: `--substrate` is handled by consumeSharedMemoryOption
+  // BEFORE the reproject parser's switch, so it must NOT fall through to the
+  // Unknown-option throw — it flows into options.substrate.
+  const parsed = parseMemoryArgs(["memory", "reproject", "--substrate", "codex"]);
+  expect(parsed.action).toBe("reproject");
+  if (parsed.action !== "reproject") throw new Error("unreachable");
+  expect(parsed.options.substrate).toBe("codex");
+});
+
 // --- reindexMemoryIfStale (SessionStart smart reindex, M8) -------------------
 //
 // mtimes are forced with `utimes` rather than real sleeps — deterministic

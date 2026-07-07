@@ -362,7 +362,7 @@ export async function runSomaLifecycleSessionStart(options: SomaLifecycleOptions
         metadata: {
           sessionId: startup.sessionId,
           substrate: startup.substrate,
-          error: lifecycleErrorMessage(error, startup.somaHome),
+          error: lifecycleErrorMessage(error, startup.somaHome, options.homeDir),
         },
       });
     }
@@ -395,7 +395,7 @@ export async function runSomaLifecycleSessionStart(options: SomaLifecycleOptions
       metadata: {
         sessionId: startup.sessionId,
         substrate: startup.substrate,
-        error: lifecycleErrorMessage(error, startup.somaHome),
+        error: lifecycleErrorMessage(error, startup.somaHome, options.homeDir),
       },
     });
   }
@@ -730,14 +730,20 @@ export function buildSessionEndRegistryArtifacts(input: {
   return normalizeSomaWorkRegistryArtifacts({ somaHome: input.somaHome }, rawArtifacts);
 }
 
-function lifecycleErrorMessage(error: unknown, somaHome: string): string {
+function lifecycleErrorMessage(error: unknown, somaHome: string, homeDir?: string): string {
   const message = error instanceof Error ? error.message : String(error);
-  // Substrate homes (e.g. claude-code's ~/.claude) are siblings of somaHome
-  // under the same homeDir, not under somaHome itself — a filesystem error
-  // from the memory-reproject write path (soma-home) can name one, so scrub
-  // homeDir too (after the more specific somaHome replace) or it leaks.
-  const homeDir = dirname(somaHome);
-  return message.replaceAll(somaHome, "<soma-home>").replaceAll(homeDir, "<home-dir>").slice(0, 300);
+  // A filesystem error from the memory-reproject write path can name a substrate
+  // home (e.g. claude-code's ~/.claude), which derives from the home dir, not from
+  // somaHome. Scrub somaHome first (most specific), then the RESOLVED home dir —
+  // the caller's `homeDir` if given, else the OS home — so a custom somaHome that
+  // is NOT under the real home cannot leak a substrate path. `dirname(somaHome)`
+  // is also covered so the default ~/.soma layout stays scrubbed regardless.
+  const resolvedHome = homeDir ?? homedir();
+  let scrubbed = message.replaceAll(somaHome, "<soma-home>");
+  for (const dir of new Set([resolvedHome, dirname(somaHome)])) {
+    scrubbed = scrubbed.replaceAll(dir, "<home-dir>");
+  }
+  return scrubbed.slice(0, 300);
 }
 
 function normalizeLifecycleArtifactPaths(somaHome: string, artifactPaths: string[]): string[] {
