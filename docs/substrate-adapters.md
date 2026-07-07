@@ -199,6 +199,25 @@ It is not implemented yet. Copilot cloud agent support is intentionally scoped
 as a later, public-safe workspace/repository projection because cloud sessions
 cannot assume access to the principal's local Soma home.
 
+## Claude Cowork
+
+Claude Cowork is Anthropic's desktop agent for general knowledge work. It
+reuses Claude Code's engine (skills, plugins, MCP) but executes inside an
+isolated virtual machine that can only see explicitly granted folders. The
+proposed adapter is therefore split: portable skills project into the
+host-side skills home, while identity, purpose, and a curated memory snapshot
+project into the granted working folder. Memory writes flow back through a
+capture inbox ingested host-side as quarantined-trust notes. Cowork exposes no
+hook surface, so policy is advisory and deterministic enforcement is a
+recorded adapter limitation.
+
+The design is specified in
+[anthropic-cowork-adapter.md](./anthropic-cowork-adapter.md), under the
+vendor-prefixed substrate id `anthropic-cowork` ("Cowork" alone is ambiguous —
+Microsoft ships a similarly named agent product). It is not implemented yet.
+All Cowork surface paths are unverified pending a live-install probe; MCP
+integration is deferred behind soma#153.
+
 ## OpenCode
 
 OpenCode is a local coding-agent substrate with native global and project
