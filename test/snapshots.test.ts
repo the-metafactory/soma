@@ -71,6 +71,18 @@ test("rollback preserves ignored files that existed before the snapshot", async 
   });
 });
 
+test("snapshot bootstrap ignores the generated memory index (memory/INDEX.md)", async () => {
+  await withSnapshotHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    await createSomaSnapshot({ homeDir, name: "baseline", trigger: "test" });
+
+    // memory/INDEX.md is a deterministic PROJECTION (M3/M8), never a source —
+    // it must never show up as tracked churn in the snapshot history.
+    const gitignore = await readFile(join(somaHome, ".gitignore"), "utf8");
+    expect(gitignore).toContain("memory/INDEX.md");
+  });
+});
+
 test("rollback removes ignored nested additions as well as untracked files", async () => {
   await withSnapshotHome(async (homeDir) => {
     const { somaHome } = await bootstrapSomaHome({ homeDir });

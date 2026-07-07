@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { expect, test } from "bun:test";
@@ -229,6 +229,37 @@ test("lifecycle CLI-facing handlers append events and include context", async ()
     expect(end.files).toContain(join(homeDir, ".soma/memory/STATE/active-algorithm-run.json"));
     expect(events).toContain("lifecycle.session_start");
     expect(events).toContain("lifecycle.session_end");
+  });
+});
+
+test("session-start continues when the memory refresh/projection fails", async () => {
+  await withTempHome(async (homeDir) => {
+    await bootstrapSomaHome({ homeDir });
+    // Force refreshSubstrateMemoryProjection's write step to fail: pre-create
+    // the claude-code substrate's "rules" path segment as a FILE, so writing
+    // rules/soma/MEMORY.md's parent dir throws ENOTDIR (mkdir recursive can't
+    // create a dir where a file already sits).
+    const claudeHome = join(homeDir, ".claude");
+    await mkdir(claudeHome, { recursive: true });
+    await writeFile(join(claudeHome, "rules"), "blocker", "utf8");
+
+    const start = await runSomaLifecycleSessionStart({
+      homeDir,
+      substrate: "claude-code",
+      sessionId: "session-memory-refresh-fail",
+      timestamp: "2026-05-14T10:00:00.000Z",
+    });
+
+    const events = (await readFile(join(homeDir, ".soma/memory/STATE/events.jsonl"), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+
+    expect(start.files.some((file) => file.endsWith("MEMORY.md"))).toBe(false);
+    const failed = events.find((event) => event.kind === "lifecycle.session_start.memory-refresh-failed");
+    expect(failed).toBeDefined();
+    expect(failed?.metadata.error).not.toContain(homeDir);
+    expect(events.some((event) => event.kind === "lifecycle.session_start")).toBe(true);
   });
 });
 

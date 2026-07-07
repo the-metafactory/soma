@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { createPaths } from "./paths";
 import { isEnoent } from "./fs-utils";
@@ -403,4 +403,69 @@ export async function rebuildMemoryIndex(options: SomaMemoryIndexOptions = {}): 
   await writeFile(path, content, "utf8");
 
   return { somaHome, path, content, admitted, rendered, shed, excluded, unreadable };
+}
+
+export interface ReindexMemoryIfStaleResult {
+  rebuilt: boolean;
+  reason: "disabled" | "up-to-date" | "rebuilt" | "missing-index";
+}
+
+/**
+ * SessionStart's "smart" reindex gate (M8). Rebuilds `memory/INDEX.md` ONLY when
+ * it is actually stale — missing, or some durable note file has been modified
+ * (created/edited/verified) more recently than the index was last rebuilt.
+ *
+ * This is the invariant an idle session must preserve: `renderMemoryIndex`'s
+ * "verified Nd ago" ages are baked in at rebuild time from an injected `now`
+ * (AC-4) — rebuilding on every session start, even with nothing changed, would
+ * silently re-stamp those ages from wall-clock drift alone and churn the
+ * generated file (and, if `~/.soma` is snapshotted, its history) for zero
+ * informational gain. Comparing mtimes keeps a truly idle session a no-op.
+ *
+ * Note mtimes are read via the SAME symlink-guarded corpus walk the index
+ * itself renders from ({@link collectDurableNotes}) — a note this function
+ * can't see can't make it stale, and vice versa.
+ */
+export async function reindexMemoryIfStale(options: SomaMemoryIndexOptions = {}): Promise<ReindexMemoryIfStaleResult> {
+  if (memoryProjectionDisabled()) return { rebuilt: false, reason: "disabled" };
+
+  const somaHome = createPaths(options).root();
+  const indexPath = memoryIndexPath(somaHome);
+
+  let indexMtimeMs: number | undefined;
+  try {
+    indexMtimeMs = (await stat(indexPath)).mtimeMs;
+  } catch (error) {
+    if (!isEnoent(error)) throw error;
+    indexMtimeMs = undefined;
+  }
+
+  if (indexMtimeMs === undefined) {
+    await rebuildMemoryIndex(options);
+    return { rebuilt: true, reason: "missing-index" };
+  }
+
+  const { notes } = await collectDurableNotes(somaHome);
+  const noteMtimes = await Promise.all(
+    notes.map(async ({ path }) => {
+      try {
+        return (await stat(path)).mtimeMs;
+      } catch {
+        // Vanished between the corpus walk and this stat (TOCTOU) — it can no
+        // longer contribute a staleness signal (rebuildMemoryIndex's own scan
+        // will simply not see it either).
+        return undefined;
+      }
+    }),
+  );
+  const newestNoteMtimeMs = noteMtimes.reduce<number>(
+    (max, mtimeMs) => (mtimeMs !== undefined && mtimeMs > max ? mtimeMs : max),
+    -Infinity,
+  );
+
+  if (newestNoteMtimeMs > indexMtimeMs) {
+    await rebuildMemoryIndex(options);
+    return { rebuilt: true, reason: "rebuilt" };
+  }
+  return { rebuilt: false, reason: "up-to-date" };
 }
