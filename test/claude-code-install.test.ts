@@ -160,6 +160,9 @@ test("AC-2: planSomaForClaudeCodeInstall lists every file written", () => {
     "/tmp/test-home/.claude/hooks/soma/soma-mode-classifier.config.json",
     "/tmp/test-home/.claude/hooks/soma/soma-policy-guard.mjs",
     "/tmp/test-home/.claude/hooks/soma/soma-policy-guard.config.json",
+    // PreCompact handover hook is also default-on.
+    "/tmp/test-home/.claude/hooks/soma/soma-precompact.mjs",
+    "/tmp/test-home/.claude/hooks/soma/soma-precompact.config.json",
   ]);
 });
 
@@ -245,8 +248,8 @@ test("issue #236: claude-code install wires Soma-owned hooks without overwriting
     // Opt out of the soma#369 default-on fleet: this test targets the base
     // lifecycle hook wiring + user-hook preservation. Default-on fleet has its
     // own coverage below.
-    await installSomaForClaudeCode({ homeDir, modeClassifier: false, policyGuard: false });
-    await installSomaForClaudeCode({ homeDir, modeClassifier: false, policyGuard: false });
+    await installSomaForClaudeCode({ homeDir, modeClassifier: false, policyGuard: false, preCompact: false });
+    await installSomaForClaudeCode({ homeDir, modeClassifier: false, policyGuard: false, preCompact: false });
 
     const hookInfo = await stat(join(homeDir, ".claude/hooks/soma/soma-claude-code-hook.mjs"));
     expect((hookInfo.mode & 0o100) !== 0).toBe(true);

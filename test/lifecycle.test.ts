@@ -62,7 +62,7 @@ function completeRun() {
   run = advanceAlgorithmRun(run, "2026-05-14T10:07:00.000Z");
   run = updateAlgorithmPlanStep(run, "P1", "done", "Learning capture exists.", "2026-05-14T10:08:00.000Z");
   run = advanceAlgorithmRun(run, "2026-05-14T10:09:00.000Z");
-  run = verifyAlgorithmCriterion(run, "C1", "passed", "Learning file was written.", "2026-05-14T10:10:00.000Z");
+  run = verifyAlgorithmCriterion(run, "C1", "passed", "Learning file was written.", "2026-05-14T10:10:00.000Z", undefined, "tested");
   run = advanceAlgorithmRun(run, "2026-05-14T10:11:00.000Z");
   run = recordAlgorithmLearning(run, "Lifecycle should capture completed runs once.", "2026-05-14T10:12:00.000Z");
   run = recordAlgorithmMetaReflection(

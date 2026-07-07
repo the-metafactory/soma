@@ -113,6 +113,12 @@ import {
   runToolCli,
   type ParsedToolArgs,
 } from "./cli/tools";
+import {
+  PRECOMPACT_COMMAND_HELP,
+  parsePreCompactArgs,
+  runPreCompactCli,
+  type ParsedPreCompactArgs,
+} from "./cli/precompact";
 
 export { SomaCliError } from "./cli/errors";
 
@@ -153,6 +159,7 @@ type ParsedArgs =
   | ParsedFeedbackArgs
   | ParsedResultArgs
   | ParsedPolicyArgs
+  | ParsedPreCompactArgs
   | ParsedWritebackArgs
   | ParsedVsaArgs
   | ParsedSnapshotCommandArgs
@@ -179,6 +186,7 @@ const TOP_LEVEL_COMMANDS = [
   "migrate",
   "opinion",
   "policy",
+  "precompact",
   "project-skill",
   "relationship",
   "reproject",
@@ -206,6 +214,7 @@ const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string,
   policy: POLICY_COMMAND_HELP,
   writeback: WRITEBACK_COMMAND_HELP,
   lifecycle: LIFECYCLE_COMMAND_HELP,
+  precompact: PRECOMPACT_COMMAND_HELP,
   install: SUBSTRATE_LIFECYCLE_COMMAND_HELP.install,
   uninstall: SUBSTRATE_LIFECYCLE_COMMAND_HELP.uninstall,
   reproject: SUBSTRATE_LIFECYCLE_COMMAND_HELP.reproject,
@@ -291,6 +300,10 @@ function parseArgs(args: string[]): ParsedArgs {
 
   if (args[0] === "policy") {
     return parsePolicyArgs(args);
+  }
+
+  if (args[0] === "precompact") {
+    return parsePreCompactArgs(args);
   }
 
   if (args[0] === "writeback") {
@@ -477,6 +490,10 @@ export async function runSomaCli(args: string[]): Promise<string> {
 
   if (parsed.command === "lifecycle") {
     return runLifecycleCli(parsed);
+  }
+
+  if (parsed.command === "precompact") {
+    return runPreCompactCli(parsed);
   }
 
   if (parsed.command === "doctor" || parsed.command === "init" || parsed.command === "adopt") {

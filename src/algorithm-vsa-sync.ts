@@ -341,6 +341,7 @@ function reconcileCriteria(
       timestamp,
       { substrate },
       vsaCriterion.evidenceKind,
+      false, // reconstruction, not a fresh assertion — VerificationGate does not apply (layer b still audits)
     );
   }
 
@@ -357,7 +358,7 @@ function reconcileCriteria(
     const evidence = goal ? `synced from VSA progress: ${goal}` : `synced from VSA progress: ${vsaCriterion.text}`;
     // A pass fabricated to match a frontmatter progress counter is specification
     // grade only — it must not clear the LEARN integrity gate as if probed.
-    next = verifyAlgorithmCriterion(next, vsaCriterion.id, "passed", evidence, timestamp, { substrate }, "specified");
+    next = verifyAlgorithmCriterion(next, vsaCriterion.id, "passed", evidence, timestamp, { substrate }, "specified", false);
     runCriteria = getCriteria(next.vsa);
     completed = runCriteria.filter(isClosedCriterion).length;
   }
