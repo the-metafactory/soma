@@ -3,6 +3,56 @@ import { readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Projection, ProjectionInput } from "../src/index";
 import { SECTION_NAME_MAP, renderCriteriaMarkdown } from "../src/vsa-accessors";
+import { listBundledSkills } from "../src/bundled-skills";
+import { VSA_SKILL_NAME } from "../src/vsa-skill-installer";
+
+/**
+ * Repo-bundled portable skills (`src/skills/*` except VSA — the-algorithm,
+ * Memory) are copied into the Soma home on install and project as dynamic
+ * invocable skill dirs on every substrate. Like the active VSA, they are
+ * DELIBERATELY excluded from the static install plan (`spec.homeFiles`), so
+ * dry-run==apply tests assert `plan ⊆ apply` and that the only extra files are
+ * these bundled-skill projections.
+ */
+export async function bundledPortableSkillNames(): Promise<string[]> {
+  return (await listBundledSkills()).filter((name) => name !== VSA_SKILL_NAME);
+}
+
+/**
+ * True when `path` is a projected file of a repo-bundled portable skill — a
+ * `skills`/`<bundled-name>` segment pair, matched case/separator-insensitively
+ * so it holds across substrate skill roots (codex `skills/`, cursor
+ * `.cursor/rules/soma/skills/`, pi-dev `agent/skills/<normalized-id>/`).
+ */
+export function isBundledPortableSkillPath(path: string, names: string[]): boolean {
+  const norm = (segment: string) => segment.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const wanted = new Set(names.map(norm));
+  const segments = path.replace(/\\/g, "/").split("/");
+  return segments.some((segment, index) => segment === "skills" && wanted.has(norm(segments[index + 1] ?? "")));
+}
+
+/**
+ * Shared dry-run==apply contract for substrates that now project bundled
+ * portable skills: every planned file is projected, and every projected file
+ * NOT in the plan is a bundled-skill projection (the active VSA and bundled
+ * skills are the only dynamic entries; a fresh test home has no active VSA).
+ */
+export async function expectPlanCoversApplyModuloBundledSkills(
+  planFiles: readonly string[],
+  applyFiles: readonly string[],
+): Promise<void> {
+  const names = await bundledPortableSkillNames();
+  const normalize = (path: string) => path.replace(/\\/g, "/");
+  const planSet = new Set(planFiles.map(normalize));
+  const applySet = new Set(applyFiles.map(normalize));
+  for (const file of planSet) {
+    expect(applySet.has(file)).toBe(true);
+  }
+  for (const file of applySet) {
+    if (planSet.has(file)) continue;
+    expect(isBundledPortableSkillPath(file, names)).toBe(true);
+  }
+}
 
 /**
  * soma#329: prove a renamed projection's stale file is pruned on REPROJECT/

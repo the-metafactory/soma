@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { bootstrapSomaHome, installSomaForGrok, planSomaForGrokInstall, projectGrokHome, activeVsaProjectionPath } from "../src/index";
@@ -26,7 +26,7 @@ import {
   parseUninstallArgs,
   parseUpgradeArgs,
 } from "../src/cli/substrate-lifecycle";
-import { portableProjectionInput } from "./fixtures";
+import { expectPlanCoversApplyModuloBundledSkills, portableProjectionInput } from "./fixtures";
 
 async function withTempDir<T>(prefix: string, fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), prefix));
@@ -115,68 +115,36 @@ test("GROK_HOME_FILES equals the static projection set plus the lifecycle and pa
   ).toEqual(new Set(GROK_HOME_FILES));
 });
 
-test("grok install records portable-skill files in the install manifest", async () => {
+test("grok install records the bundled portable skills in the install manifest", async () => {
   await withTempDir("soma-grok-manifest-", async (homeDir) => {
     const { somaHome } = await bootstrapSomaHome({ homeDir });
-    await mkdir(join(somaHome, "skills", "notes"), { recursive: true });
-    await writeFile(join(somaHome, "skills", "notes", "SKILL.md"), "---\nname: notes\n---\n\nNote-taking skill.\n", "utf8");
 
     await installSomaForGrok({ homeDir });
 
     const manifest = JSON.parse(await readFile(grokInstallManifestPath(somaHome), "utf8"));
     expect(manifest.schema).toBe(GROK_INSTALL_MANIFEST_SCHEMA);
     expect(resolve(manifest.substrateHome)).toBe(resolve(join(homeDir, ".grok")));
-    expect(manifest.files.map((file: { path: string }) => file.path)).toEqual(["skills/notes/SKILL.md"]);
+    // Only bundled portable skills project (the loop is scoped to src/skills).
+    // Memory is manifest-tracked so uninstall round-trips it; the-algorithm is
+    // EXCLUDED — it is dir-removed via grok's static remove list, not here.
+    expect(manifest.files.some((file: { path: string }) => file.path === "skills/Memory/SKILL.md")).toBe(true);
+    expect(manifest.files.every((file: { path: string }) => file.path.startsWith("skills/Memory/"))).toBe(true);
     // The hash matches the on-disk (rewritten) projection bytes, so
     // uninstall's edited-file guard compares like for like.
-    const onDisk = await readFile(join(homeDir, ".grok", "skills", "notes", "SKILL.md"), "utf8");
-    expect(manifest.files[0].sha256).toBe(createHash("sha256").update(onDisk, "utf8").digest("hex"));
+    const entry = manifest.files.find((file: { path: string }) => file.path === "skills/Memory/SKILL.md");
+    const onDisk = await readFile(join(homeDir, ".grok", "skills", "Memory", "SKILL.md"), "utf8");
+    expect(entry.sha256).toBe(createHash("sha256").update(onDisk, "utf8").digest("hex"));
 
-    // Statics never leak into the manifest: a skill-free reinstall
-    // (fresh soma home) records an empty list.
-    await rm(join(somaHome, "skills", "notes"), { recursive: true, force: true });
+    // Idempotent: a reinstall records byte-identical manifest entries.
     await installSomaForGrok({ homeDir });
     const rerecorded = JSON.parse(await readFile(grokInstallManifestPath(somaHome), "utf8"));
-    expect(rerecorded.files).toEqual([]);
+    expect(rerecorded.files).toEqual(manifest.files);
   });
 });
-
-test("grok reinstall reconciles portable skills removed from the profile", async () => {
-  await withTempDir("soma-grok-reconcile-", async (homeDir) => {
-    const { somaHome } = await bootstrapSomaHome({ homeDir });
-    for (const [skill, file, body] of [
-      ["notes", "SKILL.md", "---\nname: notes\n---\n\nNote-taking skill.\n"],
-      ["tasks", "SKILL.md", "---\nname: tasks\n---\n\nTask skill.\n"],
-      ["tasks", "reference.md", "Task reference.\n"],
-    ] as const) {
-      await mkdir(join(somaHome, "skills", skill), { recursive: true });
-      await writeFile(join(somaHome, "skills", skill, file), body, "utf8");
-    }
-    await installSomaForGrok({ homeDir });
-    const grokHome = join(homeDir, ".grok");
-
-    // The principal edits one projected file of the soon-removed skill,
-    // then drops the skill from the profile and reinstalls.
-    await writeFile(join(grokHome, "skills", "tasks", "reference.md"), "My hand-tuned task notes.\n", "utf8");
-    await rm(join(somaHome, "skills", "tasks"), { recursive: true, force: true });
-    await installSomaForGrok({ homeDir });
-
-    // Stale unedited projection removed; the user edit survives in place;
-    // the surviving skill is untouched; the manifest tracks only it.
-    const pathGone = (path: string) => stat(path).then(() => false, () => true);
-    expect(await pathGone(join(grokHome, "skills", "tasks", "SKILL.md"))).toBe(true);
-    expect(await readFile(join(grokHome, "skills", "tasks", "reference.md"), "utf8")).toBe("My hand-tuned task notes.\n");
-    expect(await readFile(join(grokHome, "skills", "notes", "SKILL.md"), "utf8")).toContain("Note-taking");
-    const manifest = JSON.parse(await readFile(grokInstallManifestPath(somaHome), "utf8"));
-    expect(manifest.files.map((file: { path: string }) => file.path)).toEqual(["skills/notes/SKILL.md"]);
-
-    // A fully-unedited removed skill leaves nothing behind: drop notes too.
-    await rm(join(somaHome, "skills", "notes"), { recursive: true, force: true });
-    await installSomaForGrok({ homeDir });
-    expect(await pathGone(join(grokHome, "skills", "notes"))).toBe(true);
-    expect(JSON.parse(await readFile(grokInstallManifestPath(somaHome), "utf8")).files).toEqual([]);
-  });
-});
+// Note: the reconcile-on-removal path (a bundled skill dropped across soma
+// versions) is exercised directly in test/portable-skill-manifest.test.ts —
+// it cannot be reached through installSomaForGrok now that the loop is scoped
+// to the always-present src/skills bundle.
 
 test("grok AGENTS.md pointer block is appended once, idempotently, preserving foreign content", async () => {
   await withTempDir("soma-grok-agents-", async (grokHome) => {
@@ -285,13 +253,11 @@ test("installSomaForGrok applies the plan exactly, idempotently, and preserves u
     const plan = planSomaForGrokInstall({ homeDir });
     const result = await installSomaForGrok({ homeDir });
 
-    // Dry-run == apply: the plan's substrate file set matches what the
-    // installer wrote (fresh soma home -> no active VSA, no portable
-    // skills, so the dynamic entries are absent on both sides). The
-    // plan renders with forward slashes while the installer resolves
-    // native paths, so compare separator-normalized.
-    const normalize = (path: string) => path.replace(/\\/g, "/");
-    expect(new Set(result.substrateHome.files.map(normalize))).toEqual(new Set(plan.substrateFiles.map(normalize)));
+    // Dry-run == apply for STATIC files: the plan lists every static file the
+    // installer wrote. Bundled portable skills (Memory, the-algorithm
+    // Workflows) are dynamic and excluded from the plan — the helper subtracts
+    // them and normalizes separators (plan uses forward slashes).
+    await expectPlanCoversApplyModuloBundledSkills(plan.substrateFiles, result.substrateHome.files);
 
     const skillPath = join(homeDir, ".grok", "skills", "soma", "SKILL.md");
     const agentsPath = join(homeDir, ".grok", "AGENTS.md");

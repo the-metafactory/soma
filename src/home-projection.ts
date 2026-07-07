@@ -10,6 +10,7 @@ import { isCursorSkillProjectionPath } from "./adapters/cursor";
 import { isGrokSkillProjectionPath } from "./adapters/grok/adapter";
 import { isGrokPortableSkillProjectionPath } from "./adapters/grok/install";
 import { reconcileGrokPortableSkillProjection, writeGrokInstallManifest } from "./adapters/grok/install-manifest";
+import { reconcilePortableSkillProjection, writePortableSkillManifest } from "./adapters/shared/portable-skill-manifest";
 import { isPiDevSkillProjectionPath } from "./adapters/pi-dev/adapter";
 import { writeProjection } from "./projection";
 import { defaultSomaRepoPath } from "./repo-path";
@@ -111,7 +112,30 @@ export async function installClaudeCodeHomeProjection(
   options: SomaHomeProjectionOptions = {},
 ): Promise<WrittenProjection> {
   const projection = buildClaudeCodeHomeProjection(input, options);
-  return writeProjection(projection.bundle, projection.substrateHome);
+  // Portable skills land under the SHARED `skills/` dir, so the owned-subtree
+  // reconcile (rules/soma, hooks/soma) cannot prune stale ones. Mirror grok:
+  // record the dynamically-named portable-skill files (path + content hash) in
+  // an install manifest on the Soma side so uninstall round-trips them, and
+  // reconcile away files a previous install recorded that this projection no
+  // longer contains (a skill removed/renamed in the profile).
+  const portableFiles = projection.bundle.files.filter((file) => isClaudeCodeSkillProjectionPath(file.path));
+  const written = await writeProjection(projection.bundle, projection.substrateHome);
+  if (options.codeOnly === true) {
+    return written;
+  }
+  await reconcilePortableSkillProjection({
+    somaHome: projection.somaHome,
+    substrate: "claude-code",
+    substrateHome: projection.substrateHome,
+    currentPaths: portableFiles.map((file) => file.path),
+  });
+  await writePortableSkillManifest({
+    somaHome: projection.somaHome,
+    substrate: "claude-code",
+    substrateHome: projection.substrateHome,
+    files: portableFiles,
+  });
+  return written;
 }
 
 export function buildCursorHomeProjection(input: ProjectionInput, options: SomaHomeProjectionOptions = {}): SomaHomeProjection {

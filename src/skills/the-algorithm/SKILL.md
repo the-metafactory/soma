@@ -1,13 +1,13 @@
 ---
 name: the-algorithm
-description: "Use when work should run through the PAI Algorithm: current-state to ideal-state, VSA/ISC creation or refinement, effort tiers, seven-phase execution, verification-first planning, euphoric-surprise goals, substantial build/design/refactor/migration work, or explicit Algorithm requests."
+description: "Use when work should run through the Algorithm: current-state to ideal-state, VSA/ISC creation or refinement, effort tiers, seven-phase execution, verification-first planning, euphoric-surprise goals, substantial build/design/refactor/migration work, or explicit Algorithm requests."
 metadata:
-  short-description: PAI Algorithm execution doctrine
+  short-description: Soma Algorithm execution doctrine
 ---
 
 # The Algorithm
 
-The Algorithm is Soma's portable version of PAI's core execution doctrine. It turns work into a transition from current state to ideal state, captured as an VSA whose criteria are granular, binary, and verifiable.
+The Algorithm is Soma's portable execution doctrine. It turns work into a transition from current state to ideal state, captured as a VSA whose criteria are granular, binary, and verifiable.
 
 Prefer the Soma Algorithm harness over freeform execution when it is available. The harness is the deterministic layer; these files are the doctrine and substrate-facing instructions.
 

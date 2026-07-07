@@ -85,7 +85,7 @@ test("imports Algorithm doctrine as a portable Soma skill", async () => {
 
     expect(result.files).toContain(join(homeDir, ".soma/skills/the-algorithm/SKILL.md"));
     await expect(readFile(join(homeDir, ".soma/skills/the-algorithm/SKILL.md"), "utf8")).resolves.toContain(
-      'description: "Use when work should run through the PAI Algorithm:',
+      'description: "Use when work should run through the Algorithm:',
     );
     await expect(readFile(join(homeDir, ".soma/skills/the-algorithm/Workflows/RunAlgorithm.md"), "utf8")).resolves.toContain(
       "Create a harness run",

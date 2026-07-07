@@ -1,5 +1,7 @@
 import { skillsLoaderUnder, vsaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
 import { vsaSiblingPrunePrepare } from "../../legacy-skill-prune";
+import { defaultSomaHome } from "../../paths";
+import { removePortableSkillProjection } from "../shared/portable-skill-manifest";
 import { CLAUDE_CODE_RULES_FILES } from "../claude-code";
 import {
   SOMA_CLAUDE_HOOK_CONFIG_RELATIVE_PATH,
@@ -64,6 +66,19 @@ export const claudeCodeInstallSpec: SubstrateInstallSpec<"claude-code"> = {
   uninstall: {
     kind: "implemented",
     remove: ["rules/soma", "skills/VSA"],
-    postRemove: (context) => removeClaudeCodeSomaHookFiles(context.substrateHome),
+    postRemove: async (context) => {
+      const removed = [...(await removeClaudeCodeSomaHookFiles(context.substrateHome))];
+      // Portable bundled skills project under dynamic `skills/<name>/` paths the
+      // static `remove` list cannot name; the install manifest records them so
+      // uninstall round-trips them (user-edited files preserved).
+      removed.push(
+        ...(await removePortableSkillProjection({
+          somaHome: defaultSomaHome({ homeDir: context.homeDir, somaHome: context.somaHome }),
+          substrate: "claude-code",
+          substrateHome: context.substrateHome,
+        })),
+      );
+      return removed;
+    },
   },
 };

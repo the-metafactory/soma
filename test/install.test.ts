@@ -13,7 +13,7 @@ import {
 } from "../src/memory-readmes";
 import { somaMemoryPrivateRoots, somaProjectionPrivateRoots } from "../src/projection-private-roots";
 import { allInstallSpecs, installSpecFor } from "../src/install-spec-registry";
-import { expectReprojectPrunesStaleTelos } from "./fixtures";
+import { expectPlanCoversApplyModuloBundledSkills, expectReprojectPrunesStaleTelos } from "./fixtures";
 
 // #88 — Canonical PAI v5.0.0 memory taxonomy (DD-2). 17 substrate-neutral +
 // 2 PAI-bound = 19. Tests consume the production-exported lists from
@@ -132,7 +132,10 @@ test("installs soma source home and codex home projection", async () => {
     expect(result.substrate).toBe("codex");
     expect(result.somaHome.somaHome).toBe(join(homeDir, ".soma"));
     expect(result.substrateHome.rootDir).toBe(join(homeDir, ".codex"));
-    expect(result.substrateHome.files).toHaveLength(21);
+    // 21 static + 7 bundled-skill projections (Memory ×5, the-algorithm
+    // Workflows ×1, and the portable the-algorithm/SKILL.md that the static
+    // rendering contract overwrites — double-written by design, grok/codex).
+    expect(result.substrateHome.files).toHaveLength(28);
 
     const telos = await readFile(join(homeDir, ".soma/profile/purpose.md"), "utf8");
     const rules = await readFile(join(homeDir, ".codex/rules/soma.rules"), "utf8");
@@ -196,7 +199,9 @@ test("codex install dry-run lists every substrate file apply reports", async () 
     expect(plan.substrateFiles).toContain(join(homeDir, ".codex/memories/soma/soma-repo.txt"));
     expect(plan.substrateFiles).toContain(join(homeDir, ".codex/AGENTS.md"));
     expect(plan.substrateFiles).toContain(join(homeDir, ".codex/skills/the-algorithm/SKILL.md"));
-    expect(new Set(plan.substrateFiles)).toEqual(new Set(result.substrateHome.files));
+    // Dry-run lists every STATIC substrate file; bundled portable skills
+    // (the-algorithm Workflows, Memory) are dynamic and excluded from the plan.
+    await expectPlanCoversApplyModuloBundledSkills(plan.substrateFiles, result.substrateHome.files);
   });
 });
 
@@ -290,7 +295,7 @@ test("pi.dev install dry-run lists every substrate file apply reports", async ()
     const result = await installSomaForPiDev({ homeDir });
 
     expect(plan.substrateFiles).toContain(join(homeDir, ".pi/agent/soma/soma-repo.txt"));
-    expect(new Set(plan.substrateFiles)).toEqual(new Set(result.substrateHome.files));
+    await expectPlanCoversApplyModuloBundledSkills(plan.substrateFiles, result.substrateHome.files);
   });
 });
 
@@ -1390,7 +1395,8 @@ test("installs soma source home and pi.dev home projection", async () => {
     expect(result.substrateHome.rootDir).toBe(join(homeDir, ".pi"));
     // #43 — Algorithm phase renderer extension shipped alongside
     // existing soma.ts + soma-path-guard.ts; brings the count to 13.
-    expect(result.substrateHome.files).toHaveLength(13);
+    // + 7 bundled-skill projections (the-algorithm ×2, Memory ×5) = 20.
+    expect(result.substrateHome.files).toHaveLength(20);
 
     const extension = await readFile(join(homeDir, ".pi/agent/extensions/soma.ts"), "utf8");
     const algorithmExtension = await readFile(join(homeDir, ".pi/agent/extensions/soma-algorithm.ts"), "utf8");
@@ -1525,22 +1531,19 @@ test("#88 AC-3: bootstrap is idempotent — re-running install does not overwrit
 
 test("code-only codex install skips skill projection and preserves existing projected skills", async () => {
   await withTempHome(async (homeDir) => {
+    // A full install projects the bundled skills (Memory here); a code-only
+    // install must skip ALL skill projection yet leave the already-projected
+    // skill on disk and still prune stale owned files.
     await installSomaForCodex({ homeDir });
-    const skillDir = join(homeDir, ".soma", "skills", "Widget");
-    await mkdir(join(skillDir, "references"), { recursive: true });
-    await writeFile(join(skillDir, "SKILL.md"), "---\nname: Widget\n---\n\nWidget skill.\n", "utf8");
-    await writeFile(join(skillDir, "references", "guide.md"), "# Guide\n", "utf8");
-
-    await installSomaForCodex({ homeDir });
-    const projectedSkill = join(homeDir, ".codex", "skills", "Widget", "SKILL.md");
-    expect(await readFile(projectedSkill, "utf8")).toContain("Widget skill");
+    const projectedSkill = join(homeDir, ".codex", "skills", "Memory", "SKILL.md");
+    expect(await readFile(projectedSkill, "utf8")).toContain("name: Memory");
     const staleOwnedFile = join(homeDir, ".codex", "memories", "soma", "stale.md");
     await writeFile(staleOwnedFile, "stale generated projection\n", "utf8");
 
     const result = await installSomaForCodex({ homeDir, codeOnly: true });
 
     expect(result.substrateHome.files.some((file) => file.includes("/skills/"))).toBe(false);
-    expect(await readFile(projectedSkill, "utf8")).toContain("Widget skill");
+    expect(await readFile(projectedSkill, "utf8")).toContain("name: Memory");
     await expect(readFile(staleOwnedFile, "utf8")).rejects.toThrow();
   });
 });

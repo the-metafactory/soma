@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import type { SomaAdapter, Projection, ProjectionInput, SomaTask } from "../types";
 import { activeVsaBundleFile } from "../adapter-active-vsa";
-import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "./shared";
+import { buildPortableSkillFiles, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "./shared";
 
 export const CURSOR_RULES_PATH = ".cursorrules";
 export const CURSOR_RULES_BLOCK_BEGIN = "<!-- SOMA_CURSOR_BEGIN -->";
@@ -14,6 +14,13 @@ export const CURSOR_MEMORY_LAYOUT_PATH = ".cursor/rules/soma/MEMORY_LAYOUT.md";
 export const CURSOR_SKILLS_PATH = ".cursor/rules/soma/SKILLS.md";
 export const CURSOR_POLICY_PATH = ".cursor/rules/soma/POLICY.md";
 export const CURSOR_MCP_PATH = ".cursor/rules/soma/MCP.md";
+// Portable bundled skills land under the Soma-owned Cursor skills dir. It is
+// INSIDE the owned subtree `.cursor/rules/soma`, so the install-time
+// reconcileOwnedSubtrees prunes stale skills and `uninstall.remove` already
+// covers them — no separate install manifest (unlike claude-code/grok, whose
+// skills dir is shared). The VSA skill (`.../skills/VSA`) is projected by its
+// own installer and excluded from reconcile.
+export const CURSOR_SKILLS_DIR_PREFIX = ".cursor/rules/soma/skills/";
 
 export const CURSOR_HOME_FILE_PATHS = [
   CURSOR_RULES_PATH,
@@ -27,8 +34,8 @@ export const CURSOR_HOME_FILE_PATHS = [
   CURSOR_MCP_PATH,
 ] as const;
 
-export function isCursorSkillProjectionPath(_path: string): boolean {
-  return false;
+export function isCursorSkillProjectionPath(path: string): boolean {
+  return path.startsWith(CURSOR_SKILLS_DIR_PREFIX);
 }
 
 export function cursorWorkspaceSubstrateHome(cwd: string = process.cwd()): string {
@@ -141,11 +148,18 @@ function renderCursorPolicy(): string {
 
 export function projectCursor(input: ProjectionInput): Projection {
   const instructions = renderInstructions(input);
+  // Portable bundled skills (the-algorithm, Memory) project as invocable dirs
+  // under the Soma-owned Cursor skills dir. VSA excluded (dedicated installer).
+  // Same default substrate rewrite as codex/grok/claude-code.
+  const portableSkillFiles = buildPortableSkillFiles(input.profile.skills, input.bundledSkillNames, "cursor", {
+    skillsDirPrefix: CURSOR_SKILLS_DIR_PREFIX,
+  });
 
   return {
     substrate: "cursor",
     instructions,
     files: [
+      ...portableSkillFiles,
       {
         path: CURSOR_RULES_PATH,
         content: renderCursorRules(),

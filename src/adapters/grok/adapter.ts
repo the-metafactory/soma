@@ -16,10 +16,9 @@ import {
   GROK_STARTUP_CONTEXT_PATH,
 } from "./projection-constants";
 import { defaultSomaRepoPath } from "../../repo-path";
-import { rewriteSubstrateProjectionContent } from "../../substrate-projection-rewrites";
 import { renderFeedbackHookModule } from "../shared/feedback-helper";
 import {
-  projectableSkills,
+  buildPortableSkillFiles,
   renderAlgorithmRenderingContract,
   renderAssistantCore,
   renderMemoryLayout,
@@ -582,16 +581,7 @@ export function projectGrokHome(input: ProjectionInput, somaHome: string, option
   // Portable Soma skills project through the default substrate rewrite
   // (Claude memory roots -> Soma memory, Claude-only lines stripped) —
   // grok deliberately takes the default-rewrite branch, same as codex.
-  const portableSkillFiles = projectableSkills(input.profile.skills).flatMap((skill) =>
-    (skill.files ?? []).map((file) => ({
-      path: `skills/${skill.name}/${file.path}`,
-      content: rewriteSubstrateProjectionContent({
-        substrate: "grok",
-        path: file.path,
-        content: file.content,
-      }),
-    })),
-  );
+  const portableSkillFiles = buildPortableSkillFiles(input.profile.skills, input.bundledSkillNames, "grok");
 
   return {
     substrate: "grok",
