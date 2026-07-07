@@ -31,7 +31,7 @@ import type {
 
 const execFileAsync = promisify(execFile);
 
-function resolveSomaHome(options: SomaLifecycleOptions = {}): string {
+export function resolveSomaHome(options: SomaLifecycleOptions = {}): string {
   const home = resolve(options.homeDir ?? homedir());
   return resolve(options.somaHome ?? join(home, ".soma"));
 }

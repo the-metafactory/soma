@@ -14,7 +14,7 @@ import { isClaudeCodeInstallOptions } from "./install-options";
  */
 export function claudeCodeHookEnabled(
   options: unknown,
-  hook: "modeClassifier" | "policyGuard",
+  hook: "modeClassifier" | "policyGuard" | "preCompact",
 ): boolean {
   if (!isClaudeCodeInstallOptions(options)) return true;
   return options[hook] !== false;
@@ -26,6 +26,8 @@ export const SOMA_CLAUDE_MODE_CLASSIFIER_RELATIVE_PATH = "hooks/soma/soma-mode-c
 export const SOMA_CLAUDE_MODE_CLASSIFIER_CONFIG_RELATIVE_PATH = "hooks/soma/soma-mode-classifier.config.json";
 export const SOMA_CLAUDE_POLICY_GUARD_RELATIVE_PATH = "hooks/soma/soma-policy-guard.mjs";
 export const SOMA_CLAUDE_POLICY_GUARD_CONFIG_RELATIVE_PATH = "hooks/soma/soma-policy-guard.config.json";
+export const SOMA_CLAUDE_PRECOMPACT_RELATIVE_PATH = "hooks/soma/soma-precompact.mjs";
+export const SOMA_CLAUDE_PRECOMPACT_CONFIG_RELATIVE_PATH = "hooks/soma/soma-precompact.config.json";
 // PreToolUse matcher for the fail-closed enforcement guard: every tool whose
 // input can carry a dangerous command, an outbound exfiltration, or a
 // credential-path read/write that the runtime policy must inspect.
@@ -231,6 +233,81 @@ function removeSomaPolicyGuardFromSettings(settings: JsonObject, substrateHome: 
   const preTool = removeCommandsFromSettingsEvent(settings, "PreToolUse", commands);
   const prompt = removeCommandsFromSettingsEvent(settings, "UserPromptSubmit", commands);
   return preTool || prompt;
+}
+
+// PreCompact handover hook: ONE asset dispatched by argv into two events —
+// `capture` on PreCompact (persist the handover) and `resurface` on
+// UserPromptSubmit (re-inject it once after compaction). The action suffix is
+// part of the command string so idempotent append + clean removal see both.
+function legacySomaPreCompactCommand(substrateHome: string, action: string): string {
+  return `${shellQuote(resolve(substrateHome, SOMA_CLAUDE_PRECOMPACT_RELATIVE_PATH))} ${action}`;
+}
+
+function somaPreCompactCommand(substrateHome: string, bunPath: string, action: string): string {
+  return `${shellQuote(bunPath)} ${shellQuote(resolve(substrateHome, SOMA_CLAUDE_PRECOMPACT_RELATIVE_PATH))} ${action}`;
+}
+
+function somaPreCompactCommands(substrateHome: string, bunPath: string): Set<string> {
+  return new Set(
+    ["capture", "resurface"].flatMap((action) => [
+      somaPreCompactCommand(substrateHome, bunPath, action),
+      legacySomaPreCompactCommand(substrateHome, action),
+    ]),
+  );
+}
+
+function somaPreCompactEntry(substrateHome: string, bunPath: string, action: string, timeout: number): JsonObject {
+  return {
+    type: "command",
+    command: somaPreCompactCommand(substrateHome, bunPath, action),
+    timeout,
+  };
+}
+
+function appendSomaPreCompactHookGroups(settings: JsonObject, substrateHome: string, bunPath: string): boolean {
+  const knownCommands = somaPreCompactCommands(substrateHome, bunPath);
+  const capture = appendCommandHookGroup(settings, {
+    event: "PreCompact",
+    description: "Soma: Capture a pre-compaction handover of active work-state",
+    entry: somaPreCompactEntry(substrateHome, bunPath, "capture", 30),
+    knownCommands,
+  });
+  const resurface = appendCommandHookGroup(settings, {
+    event: "UserPromptSubmit",
+    description: "Soma: Resurface the pre-compaction handover after compaction",
+    entry: somaPreCompactEntry(substrateHome, bunPath, "resurface", 15),
+    knownCommands,
+  });
+  return capture || resurface;
+}
+
+// Like installedPolicyGuardCommands: collect every command in the two events
+// that references the handover script regardless of the bun path it was
+// recorded with, so uninstall is robust to a drifted bun path.
+function installedPreCompactCommands(settings: JsonObject, substrateHome: string): Set<string> {
+  const scriptPath = resolve(substrateHome, SOMA_CLAUDE_PRECOMPACT_RELATIVE_PATH);
+  const found = new Set<string>();
+  if (!isObject(settings.hooks)) return found;
+  for (const event of ["PreCompact", "UserPromptSubmit"]) {
+    const groups = settings.hooks[event];
+    if (!Array.isArray(groups)) continue;
+    for (const group of groups) {
+      for (const command of groupCommands(group)) {
+        if (command.includes(scriptPath)) found.add(command);
+      }
+    }
+  }
+  return found;
+}
+
+function removeSomaPreCompactFromSettings(settings: JsonObject, substrateHome: string, bunPath: string): boolean {
+  const commands = new Set([
+    ...somaPreCompactCommands(substrateHome, bunPath),
+    ...installedPreCompactCommands(settings, substrateHome),
+  ]);
+  const preCompact = removeCommandsFromSettingsEvent(settings, "PreCompact", commands);
+  const prompt = removeCommandsFromSettingsEvent(settings, "UserPromptSubmit", commands);
+  return preCompact || prompt;
 }
 
 function appendCommandHookGroup(
@@ -498,6 +575,22 @@ export async function unpatchClaudeCodePolicyGuardSettings(substrateHome: string
   return writeJsonIfChanged(settingsPath, settings, before);
 }
 
+export async function patchClaudeCodePreCompactSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
+  const settingsPath = resolve(substrateHome, SOMA_CLAUDE_SETTINGS_RELATIVE_PATH);
+  const { before, settings } = await readSettingsWithRaw(settingsPath);
+  const changed = appendSomaPreCompactHookGroups(settings, substrateHome, bunPath);
+  if (!changed && before.trim().length > 0) return [];
+  return writeJsonIfChanged(settingsPath, settings, before);
+}
+
+export async function unpatchClaudeCodePreCompactSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
+  const settingsPath = resolve(substrateHome, SOMA_CLAUDE_SETTINGS_RELATIVE_PATH);
+  const { before, settings } = await readSettingsWithRaw(settingsPath);
+  if (before.trim().length === 0) return [];
+  if (!removeSomaPreCompactFromSettings(settings, substrateHome, bunPath)) return [];
+  return writeJsonIfChanged(settingsPath, settings, before);
+}
+
 export async function unpatchClaudeCodeSomaHookSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
   const settingsPath = resolve(substrateHome, SOMA_CLAUDE_SETTINGS_RELATIVE_PATH);
   const { before, settings } = await readSettingsWithRaw(settingsPath);
@@ -546,7 +639,10 @@ export async function installClaudeCodeSomaHooks(context: {
   const policyGuardFiles = claudeCodeHookEnabled(context.options, "policyGuard")
     ? await installClaudeCodePolicyGuardHook(context, config, bunPath)
     : [];
-  return Array.from(new Set([hookPath, configPath, ...settingsFiles, ...modeClassifierFiles, ...policyGuardFiles]));
+  const preCompactFiles = claudeCodeHookEnabled(context.options, "preCompact")
+    ? await installClaudeCodePreCompactHook(context, config, bunPath)
+    : [];
+  return Array.from(new Set([hookPath, configPath, ...settingsFiles, ...modeClassifierFiles, ...policyGuardFiles, ...preCompactFiles]));
 }
 
 async function installClaudeCodePolicyGuardHook(
@@ -564,6 +660,24 @@ async function installClaudeCodePolicyGuardHook(
     config,
   });
   const settingsFiles = await patchClaudeCodePolicyGuardSettings(context.substrateHome, bunPath);
+  return [hookPath, configPath, ...settingsFiles];
+}
+
+async function installClaudeCodePreCompactHook(
+  context: { somaHome: string; somaRepoPath: string; substrateHome: string },
+  config: { somaHome: string; trustedSomaRepo: string; bunPath: string },
+  bunPath: string,
+): Promise<string[]> {
+  const hookPath = resolve(context.substrateHome, SOMA_CLAUDE_PRECOMPACT_RELATIVE_PATH);
+  const configPath = resolve(context.substrateHome, SOMA_CLAUDE_PRECOMPACT_CONFIG_RELATIVE_PATH);
+
+  await installClaudeCodeHookAsset({
+    hookPath,
+    configPath,
+    source: renderClaudeCodePreCompactHook(),
+    config,
+  });
+  const settingsFiles = await patchClaudeCodePreCompactSettings(context.substrateHome, bunPath);
   return [hookPath, configPath, ...settingsFiles];
 }
 
@@ -602,6 +716,7 @@ export async function removeClaudeCodeSomaHookFiles(substrateHome: string): Prom
   const installedBunPath = await readInstalledClaudeCodeHookBunPath(substrateHome);
   const installedModeClassifierBunPath = await readInstalledClaudeCodeModeClassifierBunPath(substrateHome);
   const installedPolicyGuardBunPath = await readInstalledClaudeCodePolicyGuardBunPath(substrateHome);
+  const installedPreCompactBunPath = await readInstalledClaudeCodePreCompactBunPath(substrateHome);
   for (const relativePath of [
     SOMA_CLAUDE_HOOK_RELATIVE_PATH,
     SOMA_CLAUDE_HOOK_CONFIG_RELATIVE_PATH,
@@ -609,6 +724,8 @@ export async function removeClaudeCodeSomaHookFiles(substrateHome: string): Prom
     SOMA_CLAUDE_MODE_CLASSIFIER_CONFIG_RELATIVE_PATH,
     SOMA_CLAUDE_POLICY_GUARD_RELATIVE_PATH,
     SOMA_CLAUDE_POLICY_GUARD_CONFIG_RELATIVE_PATH,
+    SOMA_CLAUDE_PRECOMPACT_RELATIVE_PATH,
+    SOMA_CLAUDE_PRECOMPACT_CONFIG_RELATIVE_PATH,
   ]) {
     const target = resolve(substrateHome, relativePath);
     const exists = await stat(target).then(
@@ -629,6 +746,7 @@ export async function removeClaudeCodeSomaHookFiles(substrateHome: string): Prom
   removed.push(...(await unpatchClaudeCodeSomaHookSettings(substrateHome, installedBunPath)));
   removed.push(...(await unpatchClaudeCodeModeClassifierSettings(substrateHome, installedModeClassifierBunPath ?? installedBunPath)));
   removed.push(...(await unpatchClaudeCodePolicyGuardSettings(substrateHome, installedPolicyGuardBunPath ?? installedBunPath)));
+  removed.push(...(await unpatchClaudeCodePreCompactSettings(substrateHome, installedPreCompactBunPath ?? installedBunPath)));
   return Array.from(new Set(removed));
 }
 
@@ -642,6 +760,10 @@ async function readInstalledClaudeCodePolicyGuardBunPath(substrateHome: string):
 
 async function readInstalledClaudeCodeModeClassifierBunPath(substrateHome: string): Promise<string | undefined> {
   return readInstalledClaudeCodeHookConfigBunPath(substrateHome, SOMA_CLAUDE_MODE_CLASSIFIER_CONFIG_RELATIVE_PATH);
+}
+
+async function readInstalledClaudeCodePreCompactBunPath(substrateHome: string): Promise<string | undefined> {
+  return readInstalledClaudeCodeHookConfigBunPath(substrateHome, SOMA_CLAUDE_PRECOMPACT_CONFIG_RELATIVE_PATH);
 }
 
 async function readInstalledClaudeCodeHookConfigBunPath(substrateHome: string, relativePath: string): Promise<string | undefined> {
@@ -676,4 +798,8 @@ function renderClaudeCodeModeClassifierHook(): string {
 
 function renderClaudeCodePolicyGuardHook(): string {
   return readFileSync(new URL("./policy-guard-hook.mjs", import.meta.url), "utf8");
+}
+
+function renderClaudeCodePreCompactHook(): string {
+  return readFileSync(new URL("./precompact-hook.mjs", import.meta.url), "utf8");
 }
