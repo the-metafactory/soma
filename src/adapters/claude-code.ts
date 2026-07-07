@@ -250,7 +250,7 @@ export function projectClaudeCodeHome(input: ProjectionInput): Projection {
   // `Skill(...)`-invocable via install (retiring the manual symlink). VSA is
   // excluded (its dedicated edit-preserving installer owns it). Content takes
   // the default substrate rewrite (Claude memory roots stay, Claude-only lines
-  // kept), same shape as codex/grok. The `skills/` dir is SHARED (user + PAI
+  // kept), same shape as codex/grok. The `skills/` dir is SHARED (principal-authored + PAI-migrated
   // skills), so it is NOT an owned subtree; removals round-trip via the install
   // manifest (installClaudeCodeHomeProjection), not the owned-subtree reconcile.
   const portableSkillFiles = buildPortableSkillFiles(input.profile.skills, input.bundledSkillNames, "claude-code");

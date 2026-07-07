@@ -44,13 +44,14 @@ export function projectableSkills(skills: SomaSkill[], bundledNames?: readonly s
     // selective symlink flow. Absent (direct projection callers/tests) → legacy
     // behavior: all non-VSA skills, so pure-projection unit tests are unaffected.
     //
-    // Matched on `basename(skill.path)` (the on-disk dir the install copied),
-    // NOT `skill.name` (frontmatter). This is deliberately a SINGLE key, unlike
-    // VSA's two-key guard above: VSA needs both because a locally-renamed VSA
-    // SKILL.md frontmatter must not slip past its dedicated managed installer.
-    // The bundle here is repo-owned (installBundledSkillsIntoHome writes the
-    // dir), so the dir name is authoritative and a name/dir mismatch cannot
-    // arise from user edits — one key suffices.
+    // Matched on `basename(skill.path)` (the on-disk dir the install copied) —
+    // the authoritative membership key for the repo bundle — NOT `skill.name`
+    // (frontmatter). The projection below still uses `skill.name` for the OUTPUT
+    // dir; if a principal edits the home copy's frontmatter name, the projected
+    // dir would follow that edit, but bundle membership stays anchored to the
+    // repo-owned dir. A SINGLE key suffices here, unlike VSA's two-key guard
+    // above, whose second (name) key stops a locally-renamed VSA frontmatter
+    // from slipping past its dedicated managed installer.
     if (bundledNames && !bundledNames.includes(basename(skill.path))) return false;
     return true;
   });

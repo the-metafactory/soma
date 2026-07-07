@@ -44,14 +44,19 @@ export interface InstallBundledSkillsOptions {
  * copying it here would be redundant and could fight that installer's baseline.
  *
  * Source files are copied verbatim (byte-identical) and overwritten on every
- * run, so the operation is idempotent. User-added files under a skill dir that
- * are not in the bundled source are left untouched. Returns the written paths.
+ * run, so the operation is idempotent. Principal-added files under a skill dir
+ * that are not in the bundled source are left untouched. Returns both the
+ * written paths and `names` (every `src/skills/*` dir, VSA included) so the
+ * caller can scope the portable-skill loop without re-scanning `src/skills`.
  */
-export async function installBundledSkillsIntoHome(options: InstallBundledSkillsOptions = {}): Promise<string[]> {
+export async function installBundledSkillsIntoHome(
+  options: InstallBundledSkillsOptions = {},
+): Promise<{ names: string[]; written: string[] }> {
   const somaRepoPath = resolve(options.somaRepoPath ?? defaultSomaRepoPath());
   const somaHome = defaultSomaHome({ homeDir: options.homeDir, somaHome: options.somaHome });
+  const names = await listBundledSkills(somaRepoPath);
   const written: string[] = [];
-  for (const name of await listBundledSkills(somaRepoPath)) {
+  for (const name of names) {
     if (name === VSA_SKILL_NAME) continue;
     const sourceDir = join(somaRepoPath, SKILLS_SUBPATH, name);
     const destDir = join(somaHome, "skills", name);
@@ -62,5 +67,5 @@ export async function installBundledSkillsIntoHome(options: InstallBundledSkills
       written.push(dest);
     }
   }
-  return written;
+  return { names, written };
 }
