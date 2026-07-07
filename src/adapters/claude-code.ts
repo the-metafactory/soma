@@ -7,8 +7,11 @@ import { activeVsaBundleFile } from "../adapter-active-vsa";
 // no dedicated `skills/soma/` home skill and no static the-algorithm render, so
 // the whole `skills/` surface is dynamic — this predicate serves both the
 // codeOnly filter and the install manifest that round-trips them on uninstall.
+// `skills/VSA/` is excluded: the loop never emits it (projectableSkills filters
+// VSA) and it has its own managed installer + `skills/VSA` uninstall entry, so
+// the manifest/codeOnly filter must not treat it as a dynamic bundled skill.
 export function isClaudeCodeSkillProjectionPath(path: string): boolean {
-  return path.startsWith("skills/");
+  return path.startsWith("skills/") && !path.startsWith("skills/VSA/");
 }
 
 function renderInstructions(input: ProjectionInput): string {
@@ -246,8 +249,10 @@ export function projectClaudeCodeHome(input: ProjectionInput): Projection {
     content: CLAUDE_RULES_CONTENT_BUILDERS[path](input),
   }));
   // Portable bundled skills project as invocable dirs under `skills/<name>/`,
-  // the dir Claude Code auto-discovers, so `the-algorithm`/`Memory` become
-  // `Skill(...)`-invocable via install (retiring the manual symlink). VSA is
+  // the dir Claude Code auto-discovers, so `the-algorithm`/`Memory` are present
+  // for `Skill(...)` invocation via install — making the manual symlink
+  // redundant once a fresh session confirms invocation (not verified here; this
+  // is install-side file projection, not proof of end-to-end skill loading). VSA is
   // excluded (its dedicated edit-preserving installer owns it). Content takes
   // the default substrate rewrite (Claude memory roots stay, Claude-only lines
   // kept), same shape as codex/grok. The `skills/` dir is SHARED (principal-authored + PAI-migrated
