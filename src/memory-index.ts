@@ -3,7 +3,12 @@ import { dirname } from "node:path";
 import { createPaths } from "./paths";
 import { isEnoent } from "./fs-utils";
 import { collectDurableNotes, listDurableNotePaths } from "./memory-write";
+import { runBoundedConcurrent } from "./internal-concurrency";
 import { noteDateMs, ageDays, sanitizeNoteText } from "./memory-corpus";
+
+// Cap on concurrent freshness stats so a huge corpus can't fire thousands of
+// `stat` calls at once (fd/scheduler pressure) on an idle SessionStart.
+const FRESHNESS_STAT_CONCURRENCY = 16;
 import type { SomaMemoryIndexResult, SomaMemoryNote, SomaMemoryNoteType, SomaMemoryTrust } from "./types";
 
 /**
@@ -458,8 +463,9 @@ export async function reindexMemoryIfStale(options: SomaMemoryIndexOptions = {})
     await rebuildMemoryIndex(options);
     return { rebuilt: true, reason: "rebuilt" };
   }
-  const noteMtimes = await Promise.all(
-    notePaths.map(async (path) => {
+  const noteMtimes = await runBoundedConcurrent(
+    notePaths,
+    async (path): Promise<number | undefined> => {
       try {
         return (await stat(path)).mtimeMs;
       } catch {
@@ -468,7 +474,8 @@ export async function reindexMemoryIfStale(options: SomaMemoryIndexOptions = {})
         // simply not see it either).
         return undefined;
       }
-    }),
+    },
+    FRESHNESS_STAT_CONCURRENCY,
   );
   // Newest of the note-file mtimes (catches adds + in-place edits) AND the
   // durable-dir mtimes (catches DELETIONS — a removed note bumps its dir's

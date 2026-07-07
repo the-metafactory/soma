@@ -3,6 +3,7 @@ import { lstat, mkdir, open, readFile, realpath, stat, unlink, writeFile } from 
 import { constants as FS } from "node:fs";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { createPaths } from "./paths";
+import { isEnoent } from "./fs-utils";
 import { listMemoryNotes } from "./memory-fs";
 import { runBoundedConcurrent } from "./internal-concurrency";
 import { appendSomaMemoryEvent } from "./memory";
@@ -482,9 +483,15 @@ export async function listDurableNotePaths(somaHome: string): Promise<DurableNot
       const files = await listMemoryNotes(dir, { onSymlink: "skip" });
       for (const path of files) paths.push(path);
       // Capture the dir's own mtime — the deletion signal (see DurableNotePathScan).
-      // A missing dir stats as ENOENT here → skipped (no entries to delete anyway).
-      const dirStat = await stat(dir).catch(() => undefined);
-      if (dirStat) dirMtimes.push(dirStat.mtimeMs);
+      try {
+        dirMtimes.push((await stat(dir)).mtimeMs);
+      } catch (error) {
+        // ENOENT = this note type's dir simply doesn't exist yet (no notes ever
+        // written) → nothing could have been deleted, skip. Any OTHER stat
+        // failure loses the deletion signal, so treat the dir as a blind spot →
+        // the caller rebuilds conservatively rather than claim a false up-to-date.
+        if (!isEnoent(error)) unreadableDirs.push(dir);
+      }
     } catch {
       // Missing dir → [] (listMemoryNotes never throws for that). A GENUINE
       // readdir failure is surfaced: the dir may hold notes newer than the
