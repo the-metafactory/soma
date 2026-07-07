@@ -449,7 +449,13 @@ export async function reindexMemoryIfStale(options: SomaMemoryIndexOptions = {})
   // Freshness only needs mtimes, so enumerate note paths WITHOUT reading/parsing
   // them (parse-free walk) — an idle session start must not pay the O(notes)
   // readFile+parse of a full corpus scan.
-  const notePaths = await listDurableNotePaths(somaHome);
+  const { paths: notePaths, unreadableDirs } = await listDurableNotePaths(somaHome);
+  // A durable dir we could not read may hold a note newer than the index —
+  // conservatively rebuild rather than risk reporting a false "up-to-date".
+  if (unreadableDirs.length > 0) {
+    await rebuildMemoryIndex(options);
+    return { rebuilt: true, reason: "rebuilt" };
+  }
   const noteMtimes = await Promise.all(
     notePaths.map(async (path) => {
       try {

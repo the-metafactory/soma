@@ -443,6 +443,18 @@ interface CorpusScan {
   unreadable: string[];
 }
 
+/** Result of {@link listDurableNotePaths}: note paths plus the freshness blind spot. */
+export interface DurableNotePathScan {
+  paths: string[];
+  /**
+   * Durable dirs that EXIST but could not be enumerated. Distinct from the
+   * common "missing dir → empty" case: a note dir the walk cannot read may hold
+   * a note newer than the index, so the freshness probe must treat it as
+   * possibly-stale rather than silently up-to-date.
+   */
+  unreadableDirs: string[];
+}
+
 /**
  * Parse-free enumeration of every durable note's file path across both writable
  * dirs, using the SAME symlink-guarded seam ({@link listMemoryNotes} with
@@ -450,22 +462,25 @@ interface CorpusScan {
  * `readFile` + `parseMemoryNote` of a full corpus scan. For a freshness probe
  * that only needs mtimes (M8 `reindexMemoryIfStale`), reading/parsing every note
  * on an idle session start is pure waste; this keeps the walk O(notes) in cheap
- * stats only. A dir that throws mid-walk is skipped: its notes cannot signal
- * staleness anyway (a triggered rebuild's own scan won't see them either).
+ * stats only. Genuine readdir failures are surfaced via `unreadableDirs`, NOT
+ * dropped — an unreadable dir is a staleness blind spot the caller must respect.
  */
-export async function listDurableNotePaths(somaHome: string): Promise<string[]> {
+export async function listDurableNotePaths(somaHome: string): Promise<DurableNotePathScan> {
   const paths: string[] = [];
+  const unreadableDirs: string[] = [];
   for (const type of WRITABLE_TYPES) {
     const dir = typeDir(somaHome, type);
     try {
       const files = await listMemoryNotes(dir, { onSymlink: "skip" });
       for (const path of files) paths.push(path);
     } catch {
-      // Missing dir → [] (listMemoryNotes never throws for that); a genuine
-      // readdir failure is skipped — it can't contribute a staleness signal.
+      // Missing dir → [] (listMemoryNotes never throws for that). A GENUINE
+      // readdir failure is surfaced: the dir may hold notes newer than the
+      // index, so the caller fails toward freshness instead of a false no-op.
+      unreadableDirs.push(dir);
     }
   }
-  return paths;
+  return { paths, unreadableDirs };
 }
 
 /**
