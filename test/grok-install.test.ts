@@ -125,7 +125,7 @@ test("grok install records the bundled portable skills in the install manifest",
     expect(manifest.schema).toBe(GROK_INSTALL_MANIFEST_SCHEMA);
     expect(resolve(manifest.substrateHome)).toBe(resolve(join(homeDir, ".grok")));
     // Only bundled portable skills project (the loop is scoped to src/skills).
-    // Memory + migrate-pai-telos are manifest-tracked so uninstall round-trips
+    // Memory + migrate-pai-purpose are manifest-tracked so uninstall round-trips
     // them; the-algorithm and VSA are EXCLUDED — dir-removed via grok's static
     // remove list, not here.
     expect(manifest.files.some((file: { path: string }) => file.path === "skills/Memory/SKILL.md")).toBe(true);

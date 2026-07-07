@@ -135,7 +135,7 @@ test("installs soma source home and codex home projection", async () => {
     // 21 static + 8 bundled-skill projections (Memory ×5, the-algorithm
     // Workflows ×1, the portable the-algorithm/SKILL.md that the static
     // rendering contract overwrites — double-written by design, grok/codex —
-    // and migrate-pai-telos/SKILL.md ×1).
+    // and migrate-pai-purpose/SKILL.md ×1).
     expect(result.substrateHome.files).toHaveLength(29);
 
     const telos = await readFile(join(homeDir, ".soma/profile/purpose.md"), "utf8");
@@ -1397,7 +1397,7 @@ test("installs soma source home and pi.dev home projection", async () => {
     // #43 — Algorithm phase renderer extension shipped alongside
     // existing soma.ts + soma-path-guard.ts; brings the count to 13.
     // + 8 bundled-skill projections (the-algorithm ×2, Memory ×5,
-    // migrate-pai-telos ×1) = 21.
+    // migrate-pai-purpose ×1) = 21.
     expect(result.substrateHome.files).toHaveLength(21);
 
     const extension = await readFile(join(homeDir, ".pi/agent/extensions/soma.ts"), "utf8");
