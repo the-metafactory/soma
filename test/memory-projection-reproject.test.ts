@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/p
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import { bootstrapSomaHome, reprojectSubstrateMemoryProjection, serializeMemoryNote, type SomaMemoryNote } from "../src/index";
+import { bootstrapSomaHome, reprojectSubstrateMemoryProjection, runSomaLifecycleSessionStart, serializeMemoryNote, type SomaMemoryNote } from "../src/index";
 import { memoryIndexPath } from "../src/memory-index";
 import { memoryNotePath, type WritableType } from "../src/memory-write";
 
@@ -134,33 +134,34 @@ test("reprojectSubstrateMemoryProjection no-ops (but still reindexes) for a Subs
   });
 });
 
-test("reprojectSubstrateMemoryProjection projects codex's own memory file (substrate parity)", async () => {
+test("a codex session start reprojects codex's own memory file (substrate parity)", async () => {
   await withTempHome(async (homeDir) => {
     const { somaHome } = await bootstrapSomaHome({ homeDir });
     await seed(somaHome, note({ id: "fact", body: "the gateway retries thrice", trust: "principal" }));
 
-    // codex's session-start hook runs `soma lifecycle session-start --substrate
-    // codex`, so it rides the same substrate-neutral reproject as claude-code —
-    // to codex's OWN path (memories/soma/memory-index.md, the verbatim index).
-    const result = await reprojectSubstrateMemoryProjection({ substrate: "codex", homeDir });
+    // Exercise the ACTUAL session-start handler the codex hook drives — its
+    // hook (codex-hook-entry.mjs) just spawns `soma lifecycle session-start
+    // --substrate codex`, i.e. this function — so codex rides the same
+    // substrate-neutral reproject to its OWN path (the verbatim index).
+    await runSomaLifecycleSessionStart({ substrate: "codex", homeDir });
 
-    expect(result.projected).toBe(join(homeDir, ".codex", "memories", "soma", "memory-index.md"));
-    const content = await readFile(expectProjected(result.projected), "utf8");
-    expect(content).toContain("fact —");
-    // A codex reproject never touches claude-code's memory file.
+    const codexMemory = join(homeDir, ".codex", "memories", "soma", "memory-index.md");
+    expect(await readFile(codexMemory, "utf8")).toContain("fact —");
+    // A codex session start never touches claude-code's memory file.
     await expect(stat(join(homeDir, ".claude", "rules", "soma", "MEMORY.md"))).rejects.toThrow();
   });
 });
 
-test("reprojectSubstrateMemoryProjection no-ops for a registered substrate with no memory file (cursor)", async () => {
+test("reprojectSubstrateMemoryProjection no-ops for registered substrates with no memory file (cursor/grok/pi-dev)", async () => {
   await withTempHome(async (homeDir) => {
     const { somaHome } = await bootstrapSomaHome({ homeDir });
     await seed(somaHome, note({ id: "fact", body: "x", trust: "principal" }));
-    // cursor HAS an install spec (unlike "custom") but projects no memory file,
-    // so the content match finds nothing → projected null, index still (re)built.
-    // grok and pi-dev are the same shape today.
-    const result = await reprojectSubstrateMemoryProjection({ substrate: "cursor", homeDir });
-    expect(result.reindexed).toBe(true);
-    expect(result.projected).toBeNull();
+    // These HAVE an install spec (unlike "custom") but project no memory file,
+    // so the content match finds nothing → projected null (the index itself is
+    // still (re)built, so reindexing is unaffected).
+    for (const substrate of ["cursor", "grok", "pi-dev"] as const) {
+      const result = await reprojectSubstrateMemoryProjection({ substrate, homeDir });
+      expect(result.projected).toBeNull();
+    }
   });
 });
