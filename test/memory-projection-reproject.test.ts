@@ -134,10 +134,18 @@ test("reprojectSubstrateMemoryProjection no-ops (but still reindexes) for a Subs
   });
 });
 
-test("a codex session start reprojects codex's own memory file (substrate parity)", async () => {
+test("a codex session start reprojects codex's own memory file and leaves claude-code's untouched", async () => {
   await withTempHome(async (homeDir) => {
     const { somaHome } = await bootstrapSomaHome({ homeDir });
     await seed(somaHome, note({ id: "fact", body: "the gateway retries thrice", trust: "principal" }));
+
+    // Pre-existing claude-code memory file with a sentinel — a codex session
+    // start must leave it byte-for-byte unchanged (memory reproject is scoped to
+    // the ACTIVE substrate, so it must not write another substrate's file).
+    const claudeMemory = join(homeDir, ".claude", "rules", "soma", "MEMORY.md");
+    await mkdir(dirname(claudeMemory), { recursive: true });
+    const sentinel = "SENTINEL — claude-code owned\n";
+    await writeFile(claudeMemory, sentinel, "utf8");
 
     // Exercise the ACTUAL session-start handler the codex hook drives — its
     // hook (codex-hook-entry.mjs) just spawns `soma lifecycle session-start
@@ -147,8 +155,8 @@ test("a codex session start reprojects codex's own memory file (substrate parity
 
     const codexMemory = join(homeDir, ".codex", "memories", "soma", "memory-index.md");
     expect(await readFile(codexMemory, "utf8")).toContain("fact —");
-    // A codex session start never touches claude-code's memory file.
-    await expect(stat(join(homeDir, ".claude", "rules", "soma", "MEMORY.md"))).rejects.toThrow();
+    // The pre-existing claude-code file is untouched — not just "absent".
+    expect(await readFile(claudeMemory, "utf8")).toBe(sentinel);
   });
 });
 
