@@ -163,6 +163,8 @@ test("AC-2: planSomaForClaudeCodeInstall lists every file written", () => {
     // PreCompact handover hook is also default-on.
     "/tmp/test-home/.claude/hooks/soma/soma-precompact.mjs",
     "/tmp/test-home/.claude/hooks/soma/soma-precompact.config.json",
+    // Status line is also default-on.
+    "/tmp/test-home/.claude/hooks/soma/soma-statusline.sh",
   ]);
 });
 

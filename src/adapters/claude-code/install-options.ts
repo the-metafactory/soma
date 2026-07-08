@@ -7,6 +7,8 @@ export interface ClaudeCodeInstallOptions extends SomaInstallOptions {
   preCompact?: boolean;
   /** soma#368: generate ~/.claude/CLAUDE.md as a projection (overlay-preserving). */
   claudeMd?: boolean;
+  /** Soma status line (settings.json `statusLine` → bundled soma-statusline.sh). */
+  statusLine?: boolean;
 }
 
 export function isClaudeCodeInstallOptions(options: unknown): options is ClaudeCodeInstallOptions {
