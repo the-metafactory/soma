@@ -4,7 +4,8 @@
 # Layout:  ⚙ slug·phase · model · dir ⎇branch● · ctx 38% · 5h 12%⟳2h14 · 7d 41%⟳3d1h
 # Reads Claude Code's stdin JSON + Soma STATE files. Soma state, git, and the
 # usage windows drop when their data is absent; dir and context always render
-# with sane defaults. The line never errors.
+# with sane defaults. Best-effort: missing or malformed data degrades the
+# affected segment rather than breaking the line.
 # ─────────────────────────────────────────────────────────────────────────────
 set -o pipefail
 
@@ -63,7 +64,8 @@ until_str() {
   else printf '%dm' "$mins"; fi
 }
 pct_color() { # $1=percent → color by severity
-  local p=${1%%.*}; [ -z "$p" ] && { printf '%s' "$DIM"; return; }
+  local p=${1%%.*}
+  [[ "$p" =~ ^[0-9]+$ ]] || { printf '%s' "$DIM"; return; }   # non-numeric → neutral, no arithmetic error
   if   [ "$p" -ge 80 ]; then printf '%s' "$HOT"
   elif [ "$p" -ge 50 ]; then printf '%s' "$WARN"
   else printf '%s' "$OK"; fi
@@ -72,7 +74,9 @@ pct_color() { # $1=percent → color by severity
 # PCT is present (e.g. `5h 12%⟳2h14`). Shared by the 5h + 7d windows.
 append_window() {
   local label="$1" pct="$2" reset="$3" rr
-  [ -z "$pct" ] || [ "$pct" = "null" ] && return
+  # Drop the segment unless PCT is a real number — an absent or malformed value
+  # renders nothing rather than garbage (keeps the window segment truly optional).
+  [[ "$pct" =~ ^[0-9]+(\.[0-9]+)?$ ]] || return
   rr=$(until_str "$reset")
   out+="$(sep)${DIM}${label} ${RESET}$(pct_color "$pct")${pct%%.*}%${RESET}"
   [ -n "$rr" ] && out+="${DIM}⟳${rr}${RESET}"
@@ -111,13 +115,16 @@ gitseg="${DIR}${dir_name}${RESET}"
 if git -C "$cwd" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   # tracked changes only — `-uno` keeps the statusline fast in large repos.
   sb=$(git -C "$cwd" --no-optional-locks status -sb -uno --porcelain 2>/dev/null)
-  head=$(printf '%s\n' "$sb" | head -1)
+  # Parse in-process (no head/tail/grep forks — this runs on every refresh).
+  head=${sb%%$'\n'*}                       # first line: the `## branch...` header
   # Keep dots in the branch name (`release/v1.2`), stopping only at the
   # `...upstream` tracking marker or the ` [ahead/behind]` counts.
   branch="${head#\#\# }"; branch="${branch%%...*}"; branch="${branch%% *}"
-  dirty=$(printf '%s\n' "$sb" | tail -n +2 | grep -c .)
-  ahead=$(printf '%s' "$head" | grep -oE 'ahead ([0-9]+)' | grep -oE '[0-9]+')
-  behind=$(printf '%s' "$head" | grep -oE 'behind ([0-9]+)' | grep -oE '[0-9]+')
+  # Any line beyond the header means tracked changes exist (we only need the ● flag).
+  if [ "$sb" != "$head" ]; then dirty=1; else dirty=0; fi
+  ahead=""; behind=""
+  [[ $head =~ ahead\ ([0-9]+) ]] && ahead=${BASH_REMATCH[1]}
+  [[ $head =~ behind\ ([0-9]+) ]] && behind=${BASH_REMATCH[1]}
   [ -n "$branch" ] && gitseg+=" ${DIM}⎇${RESET}${BR}${branch}${RESET}"
   [ "${dirty:-0}" -gt 0 ] && gitseg+="${HOT}●${RESET}"
   [ -n "$ahead" ] && gitseg+="${DIM}↑${ahead}${RESET}"
