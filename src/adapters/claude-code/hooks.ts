@@ -14,7 +14,7 @@ import { isClaudeCodeInstallOptions } from "./install-options";
  */
 export function claudeCodeHookEnabled(
   options: unknown,
-  hook: "modeClassifier" | "policyGuard" | "preCompact",
+  hook: "modeClassifier" | "policyGuard" | "preCompact" | "statusLine",
 ): boolean {
   if (!isClaudeCodeInstallOptions(options)) return true;
   return options[hook] !== false;
@@ -28,6 +28,9 @@ export const SOMA_CLAUDE_POLICY_GUARD_RELATIVE_PATH = "hooks/soma/soma-policy-gu
 export const SOMA_CLAUDE_POLICY_GUARD_CONFIG_RELATIVE_PATH = "hooks/soma/soma-policy-guard.config.json";
 export const SOMA_CLAUDE_PRECOMPACT_RELATIVE_PATH = "hooks/soma/soma-precompact.mjs";
 export const SOMA_CLAUDE_PRECOMPACT_CONFIG_RELATIVE_PATH = "hooks/soma/soma-precompact.config.json";
+// soma statusline: self-contained bundled script (SOMA_HOME baked in at
+// projection time) — no bunPath, no argv dispatch, no companion config.json.
+export const SOMA_CLAUDE_STATUSLINE_RELATIVE_PATH = "hooks/soma/soma-statusline.sh";
 // PreToolUse matcher for the fail-closed enforcement guard: every tool whose
 // input can carry a dangerous command, an outbound exfiltration, or a
 // credential-path read/write that the runtime policy must inspect.
@@ -591,6 +594,30 @@ export async function unpatchClaudeCodePreCompactSettings(substrateHome: string,
   return writeJsonIfChanged(settingsPath, settings, before);
 }
 
+// The status line is a top-level `statusLine` key, not a hooks[] entry — it
+// has no matcher, no argv action, and (unlike every other soma-owned hook) no
+// bunPath, since Claude Code execs the bundled script directly via its
+// shebang. Soma always writes its own entry on install (last writer wins, as
+// with every other soma-owned settings key); uninstall only removes it when
+// the recorded `command` still points at OUR projected script path, so a
+// user's unrelated statusLine is never clobbered.
+export async function patchClaudeCodeStatusLineSettings(substrateHome: string, scriptPath: string): Promise<string[]> {
+  const settingsPath = resolve(substrateHome, SOMA_CLAUDE_SETTINGS_RELATIVE_PATH);
+  const { before, settings } = await readSettingsWithRaw(settingsPath);
+  settings.statusLine = { type: "command", command: scriptPath };
+  return writeJsonIfChanged(settingsPath, settings, before);
+}
+
+export async function unpatchClaudeCodeStatusLineSettings(substrateHome: string, scriptPath: string): Promise<string[]> {
+  const settingsPath = resolve(substrateHome, SOMA_CLAUDE_SETTINGS_RELATIVE_PATH);
+  const { before, settings } = await readSettingsWithRaw(settingsPath);
+  if (before.trim().length === 0) return [];
+  const statusLine = settings.statusLine;
+  if (!isObject(statusLine) || statusLine.command !== scriptPath) return [];
+  delete settings.statusLine;
+  return writeJsonIfChanged(settingsPath, settings, before);
+}
+
 export async function unpatchClaudeCodeSomaHookSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
   const settingsPath = resolve(substrateHome, SOMA_CLAUDE_SETTINGS_RELATIVE_PATH);
   const { before, settings } = await readSettingsWithRaw(settingsPath);
@@ -642,7 +669,24 @@ export async function installClaudeCodeSomaHooks(context: {
   const preCompactFiles = claudeCodeHookEnabled(context.options, "preCompact")
     ? await installClaudeCodePreCompactHook(context, config, bunPath)
     : [];
-  return Array.from(new Set([hookPath, configPath, ...settingsFiles, ...modeClassifierFiles, ...policyGuardFiles, ...preCompactFiles]));
+  // Status line is also default-on; opt out with `statusLine: false`.
+  const statusLineFiles = claudeCodeHookEnabled(context.options, "statusLine")
+    ? await installClaudeCodeStatusLine(context)
+    : [];
+  return Array.from(new Set([hookPath, configPath, ...settingsFiles, ...modeClassifierFiles, ...policyGuardFiles, ...preCompactFiles, ...statusLineFiles]));
+}
+
+async function installClaudeCodeStatusLine(
+  context: { somaHome: string; somaRepoPath: string; substrateHome: string },
+): Promise<string[]> {
+  const scriptPath = resolve(context.substrateHome, SOMA_CLAUDE_STATUSLINE_RELATIVE_PATH);
+
+  await mkdir(dirname(scriptPath), { recursive: true });
+  await writeFile(scriptPath, renderClaudeCodeStatusLineScript(context.somaHome), { encoding: "utf8", mode: 0o755 });
+  await chmod(scriptPath, 0o755);
+
+  const settingsFiles = await patchClaudeCodeStatusLineSettings(context.substrateHome, scriptPath);
+  return [scriptPath, ...settingsFiles];
 }
 
 async function installClaudeCodePolicyGuardHook(
@@ -726,6 +770,7 @@ export async function removeClaudeCodeSomaHookFiles(substrateHome: string): Prom
     SOMA_CLAUDE_POLICY_GUARD_CONFIG_RELATIVE_PATH,
     SOMA_CLAUDE_PRECOMPACT_RELATIVE_PATH,
     SOMA_CLAUDE_PRECOMPACT_CONFIG_RELATIVE_PATH,
+    SOMA_CLAUDE_STATUSLINE_RELATIVE_PATH,
   ]) {
     const target = resolve(substrateHome, relativePath);
     const exists = await stat(target).then(
@@ -747,6 +792,11 @@ export async function removeClaudeCodeSomaHookFiles(substrateHome: string): Prom
   removed.push(...(await unpatchClaudeCodeModeClassifierSettings(substrateHome, installedModeClassifierBunPath ?? installedBunPath)));
   removed.push(...(await unpatchClaudeCodePolicyGuardSettings(substrateHome, installedPolicyGuardBunPath ?? installedBunPath)));
   removed.push(...(await unpatchClaudeCodePreCompactSettings(substrateHome, installedPreCompactBunPath ?? installedBunPath)));
+  // No bunPath drift concern here (the script is execed directly via its
+  // shebang) — the target path is deterministic from substrateHome alone.
+  removed.push(
+    ...(await unpatchClaudeCodeStatusLineSettings(substrateHome, resolve(substrateHome, SOMA_CLAUDE_STATUSLINE_RELATIVE_PATH))),
+  );
   return Array.from(new Set(removed));
 }
 
@@ -802,4 +852,18 @@ function renderClaudeCodePolicyGuardHook(): string {
 
 function renderClaudeCodePreCompactHook(): string {
   return readFileSync(new URL("./precompact-hook.mjs", import.meta.url), "utf8");
+}
+
+// Bakes the resolved soma-home path into the bundled statusline asset so a
+// custom `--soma-home` (or a substrate-home-only reproject) still finds the
+// right STATE dir, while the script's own `SOMA_HOME` env override keeps
+// working (the substituted value is only the *default*). Mirrors
+// renderClaudeCodeSomaHook's placeholder-substitution + missing-placeholder
+// guard. A function replacer avoids `$`-pattern corruption from String.replace
+// if the resolved path ever contains a literal `$`.
+function renderClaudeCodeStatusLineScript(somaHome: string): string {
+  const source = readFileSync(new URL("./statusline.sh", import.meta.url), "utf8");
+  const rendered = source.replace("__SOMA_HOME__", () => somaHome);
+  if (rendered === source) throw new Error("Claude Code status line asset is missing the SOMA_HOME placeholder.");
+  return rendered;
 }

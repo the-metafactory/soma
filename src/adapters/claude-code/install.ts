@@ -12,6 +12,7 @@ import {
   SOMA_CLAUDE_POLICY_GUARD_RELATIVE_PATH,
   SOMA_CLAUDE_PRECOMPACT_CONFIG_RELATIVE_PATH,
   SOMA_CLAUDE_PRECOMPACT_RELATIVE_PATH,
+  SOMA_CLAUDE_STATUSLINE_RELATIVE_PATH,
   claudeCodeHookEnabled,
   installClaudeCodeSomaHooks,
   removeClaudeCodeSomaHookFiles,
@@ -43,6 +44,9 @@ export const claudeCodeInstallSpec: SubstrateInstallSpec<"claude-code"> = {
       : []),
     ...(claudeCodeHookEnabled(options, "preCompact")
       ? [SOMA_CLAUDE_PRECOMPACT_RELATIVE_PATH, SOMA_CLAUDE_PRECOMPACT_CONFIG_RELATIVE_PATH]
+      : []),
+    ...(claudeCodeHookEnabled(options, "statusLine")
+      ? [SOMA_CLAUDE_STATUSLINE_RELATIVE_PATH]
       : []),
     ...(isClaudeCodeInstallOptions(options) && options.claudeMd === true
       ? [CLAUDE_CODE_CLAUDE_MD_RELATIVE_PATH]
