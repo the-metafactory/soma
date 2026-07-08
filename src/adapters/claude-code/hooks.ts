@@ -859,11 +859,18 @@ function renderClaudeCodePreCompactHook(): string {
 // right STATE dir, while the script's own `SOMA_HOME` env override keeps
 // working (the substituted value is only the *default*). Mirrors
 // renderClaudeCodeSomaHook's placeholder-substitution + missing-placeholder
-// guard. A function replacer avoids `$`-pattern corruption from String.replace
-// if the resolved path ever contains a literal `$`.
+// guard.
+//
+// The placeholder sits inside a double-quoted shell string
+// (`SOMA_HOME="${SOMA_HOME:-<value>}"`), so a path containing `\`, `"`, `$`,
+// or a backtick would otherwise break out or inject. Backslash-escape all four
+// (backslash FIRST so we don't double-escape the escapes we add) so the shell
+// reads them literally. A function replacer also avoids `$`-pattern corruption
+// from String.replace's special `$&`/`$1` handling on the replacement side.
 function renderClaudeCodeStatusLineScript(somaHome: string): string {
   const source = readFileSync(new URL("./statusline.sh", import.meta.url), "utf8");
-  const rendered = source.replace("__SOMA_HOME__", () => somaHome);
+  const escaped = somaHome.replace(/[\\"$`]/g, "\\$&");
+  const rendered = source.replace("__SOMA_HOME__", () => escaped);
   if (rendered === source) throw new Error("Claude Code status line asset is missing the SOMA_HOME placeholder.");
   return rendered;
 }

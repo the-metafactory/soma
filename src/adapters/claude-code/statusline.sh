@@ -1,7 +1,7 @@
 #!/bin/bash
 # ─────────────────────────────────────────────────────────────────────────────
 # Soma status line — one compact line, fast (bash+jq+git, no network, no bun).
-# Layout:  ⚙E2 slug·phase · model · dir ⎇branch● · ctx 38% · 5h 12%⟳2h14 · 7d 41%⟳3d1h
+# Layout:  ⚙ slug·phase · model · dir ⎇branch● · ctx 38% · 5h 12%⟳2h14 · 7d 41%⟳3d1h
 # Reads Claude Code's stdin JSON + Soma STATE files. Every segment is optional:
 # a missing field simply drops its segment; the line never errors.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -11,12 +11,11 @@ SOMA_HOME="${SOMA_HOME:-__SOMA_HOME__}"
 STATE_DIR="$SOMA_HOME/memory/STATE"
 
 # ── colors (subtle) ──────────────────────────────────────────────────────────
-if [ -t 1 ] || true; then
-  DIM=$'\e[38;5;244m'; SEP=$'\e[38;5;240m'; RESET=$'\e[0m'
-  SOMA=$'\e[38;5;39m'           # Soma blue
-  DIR=$'\e[1;38;5;252m'; BR=$'\e[38;5;108m'
-  OK=$'\e[38;5;108m'; WARN=$'\e[38;5;179m'; HOT=$'\e[38;5;174m'
-fi
+# Claude Code renders ANSI regardless of tty, so define unconditionally.
+DIM=$'\e[38;5;244m'; SEP=$'\e[38;5;240m'; RESET=$'\e[0m'
+SOMA=$'\e[38;5;39m'           # Soma blue
+DIR=$'\e[1;38;5;252m'; BR=$'\e[38;5;108m'
+OK=$'\e[38;5;108m'; WARN=$'\e[38;5;179m'; HOT=$'\e[38;5;174m'
 sep() { printf '%s · %s' "$SEP" "$RESET"; }
 
 # ── read stdin JSON once ─────────────────────────────────────────────────────
@@ -57,10 +56,21 @@ pct_color() { # $1=percent → color by severity
   elif [ "$p" -ge 50 ]; then printf '%s' "$WARN"
   else printf '%s' "$OK"; fi
 }
+# append_window LABEL PCT RESET_AT → append a rate-limit window segment when
+# PCT is present (e.g. `5h 12%⟳2h14`). Shared by the 5h + 7d windows.
+append_window() {
+  local label="$1" pct="$2" reset="$3" rr
+  [ -z "$pct" ] || [ "$pct" = "null" ] && return
+  rr=$(until_str "$reset")
+  out+="$(sep)${DIM}${label} ${RESET}$(pct_color "$pct")${pct%%.*}%${RESET}"
+  [ -n "$rr" ] && out+="${DIM}⟳${rr}${RESET}"
+}
 
 out=""
 
 # ── 1. Soma segment (active VSA/run for THIS session) ────────────────────────
+# Session-scoped from the current-work file only — no global reads, so a
+# concurrent session's run can never leak into this line.
 if [ -n "$sid" ]; then
   cw=$(ls -t "$STATE_DIR"/current-work-"$sid"-*.json 2>/dev/null | head -1)
   if [ -n "$cw" ]; then
@@ -69,8 +79,7 @@ if [ -n "$sid" ]; then
     if [ "$phase" = "native" ] || [ "$status" = "complete" ]; then
       [ -n "$task" ] && out+="${SOMA}○ ${task}${RESET}"
     elif [ -n "$phase" ]; then
-      eff=$(jq -r '.effort // ""' "$STATE_DIR/active-algorithm-run.json" 2>/dev/null)
-      out+="${SOMA}⚙${eff}${RESET} ${SOMA}${task}${DIM}·${phase}${RESET}"
+      out+="${SOMA}⚙${RESET} ${SOMA}${task}${DIM}·${phase}${RESET}"
     fi
   fi
 fi
@@ -85,7 +94,8 @@ fi
 dir_name=$(basename "$cwd")
 gitseg="${DIR}${dir_name}${RESET}"
 if git -C "$cwd" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  sb=$(git -C "$cwd" --no-optional-locks status -sb --porcelain 2>/dev/null)
+  # tracked changes only — `-uno` keeps the statusline fast in large repos.
+  sb=$(git -C "$cwd" --no-optional-locks status -sb -uno --porcelain 2>/dev/null)
   head=$(printf '%s\n' "$sb" | head -1)
   branch=$(printf '%s' "$head" | sed -E 's/^## ([^ .]+).*/\1/')
   dirty=$(printf '%s\n' "$sb" | tail -n +2 | grep -c .)
@@ -101,18 +111,8 @@ fi
 # ── 4. context % ─────────────────────────────────────────────────────────────
 out+="$(sep)${DIM}ctx ${RESET}$(pct_color "$ctx")${ctx}%${RESET}"
 
-# ── 5. 5h window ─────────────────────────────────────────────────────────────
-if [ -n "$r5" ] && [ "$r5" != "null" ]; then
-  rr=$(until_str "$r5r")
-  out+="$(sep)${DIM}5h ${RESET}$(pct_color "$r5")${r5%%.*}%${RESET}"
-  [ -n "$rr" ] && out+="${DIM}⟳${rr}${RESET}"
-fi
-
-# ── 6. 7d window ─────────────────────────────────────────────────────────────
-if [ -n "$r7" ] && [ "$r7" != "null" ]; then
-  rr=$(until_str "$r7r")
-  out+="$(sep)${DIM}7d ${RESET}$(pct_color "$r7")${r7%%.*}%${RESET}"
-  [ -n "$rr" ] && out+="${DIM}⟳${rr}${RESET}"
-fi
+# ── 5. rate-limit windows (5h + 7d) ──────────────────────────────────────────
+append_window "5h" "$r5" "$r5r"
+append_window "7d" "$r7" "$r7r"
 
 printf '%s' "$out"

@@ -9,6 +9,7 @@
  * single command entry the substrate execs directly via the script's shebang.
  */
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
@@ -60,7 +61,32 @@ test("install writes the statusline script executable with SOMA_HOME substituted
     // Everything else is byte-identical to the source asset — spot-check a
     // couple of unrelated lines survived untouched.
     expect(content).toContain("STATE_DIR=\"$SOMA_HOME/memory/STATE\"");
-    expect(content).toContain("# ── 6. 7d window");
+    expect(content).toContain("append_window \"5h\" \"$r5\" \"$r5r\"");
+  });
+});
+
+test("a soma-home path with shell metacharacters is safely escaped in the script", async () => {
+  await withTempHome(async (homeDir) => {
+    // A path containing `$`, a space, `"`, a backtick, and a backslash: raw
+    // substitution into the double-quoted `SOMA_HOME="${SOMA_HOME:-<value>}"`
+    // would break out / inject. All four escapable chars must be backslashed.
+    const nastySomaHome = `${homeDir}/od$d "x" \`y\` z\\w/.soma`;
+    await installSomaForClaudeCode({ homeDir, somaHome: nastySomaHome });
+
+    const content = await readFile(join(homeDir, SCRIPT_REL), "utf8");
+    expect(content).not.toContain("__SOMA_HOME__");
+    // The rendered line has each metacharacter backslash-escaped so the shell
+    // reads the literal path inside the double quotes.
+    const escaped = nastySomaHome.replace(/[\\"$`]/g, "\\$&");
+    expect(content).toContain(`SOMA_HOME="\${SOMA_HOME:-${escaped}}"`);
+
+    // Prove the escaping is correct by having bash actually evaluate the line
+    // and echo the resulting SOMA_HOME — it must equal the real path verbatim.
+    const line = content.split("\n").find((l) => l.startsWith("SOMA_HOME="));
+    expect(line).toBeDefined();
+    const result = spawnSync("bash", ["-c", `${line}\nprintf '%s' "$SOMA_HOME"`], { encoding: "utf8" });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe(nastySomaHome);
   });
 });
 
