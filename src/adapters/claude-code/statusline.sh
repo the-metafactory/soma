@@ -2,8 +2,9 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Soma status line — one compact line, fast (bash+jq+git, no network, no bun).
 # Layout:  ⚙ slug·phase · model · dir ⎇branch● · ctx 38% · 5h 12%⟳2h14 · 7d 41%⟳3d1h
-# Reads Claude Code's stdin JSON + Soma STATE files. Every segment is optional:
-# a missing field simply drops its segment; the line never errors.
+# Reads Claude Code's stdin JSON + Soma STATE files. Soma state, git, and the
+# usage windows drop when their data is absent; dir and context always render
+# with sane defaults. The line never errors.
 # ─────────────────────────────────────────────────────────────────────────────
 set -o pipefail
 
@@ -19,17 +20,28 @@ OK=$'\e[38;5;108m'; WARN=$'\e[38;5;179m'; HOT=$'\e[38;5;174m'
 sep() { printf '%s · %s' "$SEP" "$RESET"; }
 
 # ── read stdin JSON once ─────────────────────────────────────────────────────
+# NO eval: jq joins the fields with the ASCII unit separator (US, 0x1f) and one
+# `read` splits them back. This is injection-proof (nothing is evaluated) AND
+# handles empty fields: a whitespace IFS (e.g. tab) collapses adjacent
+# separators, so an absent middle field (empty session_id, or missing rate
+# limits early in a session) would shift every later field — US is
+# non-whitespace, so `read` keeps one field per separator, empties included.
+# Fields land as plain strings (ctx/r5/r7 like "38"; resets_at epoch strings,
+# which until_str already handles). Portable to bash 3.2 (no mapfile -d).
 input=$(cat)
-eval "$(printf '%s' "$input" | jq -r '
-  "cwd=" + (.workspace.current_dir // .cwd // "." | @sh) + "\n" +
-  "sid=" + (.session_id // "" | @sh) + "\n" +
-  "model=" + (.model.display_name // "" | @sh) + "\n" +
-  "ctx=" + (.context_window.used_percentage // 0 | floor | tostring) + "\n" +
-  "r5=" + (.rate_limits.five_hour.used_percentage // "" | tostring) + "\n" +
-  "r5r=" + (.rate_limits.five_hour.resets_at // "" | @sh) + "\n" +
-  "r7=" + (.rate_limits.seven_day.used_percentage // "" | tostring) + "\n" +
-  "r7r=" + (.rate_limits.seven_day.resets_at // "" | @sh)
-' 2>/dev/null)"
+US=$'\037'
+IFS="$US" read -r cwd sid model ctx r5 r5r r7 r7r < <(printf '%s' "$input" | jq -j '
+  [ (.workspace.current_dir // .cwd // "."),
+    (.session_id // ""),
+    (.model.display_name // ""),
+    (.context_window.used_percentage // 0 | floor | tostring),
+    (.rate_limits.five_hour.used_percentage // "" | tostring),
+    (.rate_limits.five_hour.resets_at // "" | tostring),
+    (.rate_limits.seven_day.used_percentage // "" | tostring),
+    (.rate_limits.seven_day.resets_at // "" | tostring)
+  ] | join("\u001f")' 2>/dev/null)
+cwd="${cwd:-.}"
+ctx="${ctx:-0}"
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 # resets_at → compact "time until" e.g. 3d1h / 2h14 / 12m / now.
@@ -74,7 +86,10 @@ out=""
 if [ -n "$sid" ]; then
   cw=$(ls -t "$STATE_DIR"/current-work-"$sid"-*.json 2>/dev/null | head -1)
   if [ -n "$cw" ]; then
-    read -r phase task status < <(jq -r '[.phase // "", .task // .slug // "", .status // ""] | @tsv' "$cw" 2>/dev/null | tr '\t' ' ')
+    # US-joined (not @tsv) for the same reason as the main read: a whitespace
+    # IFS would collapse an empty leading `phase` and mis-shift task/status.
+    # Real separators also keep a multi-word task ("write adapter") in one field.
+    IFS="$US" read -r phase task status < <(jq -j '[.phase // "", .task // .slug // "", .status // ""] | join("\u001f")' "$cw" 2>/dev/null)
     task="${task:0:22}"
     if [ "$phase" = "native" ] || [ "$status" = "complete" ]; then
       [ -n "$task" ] && out+="${SOMA}○ ${task}${RESET}"
@@ -97,7 +112,9 @@ if git -C "$cwd" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   # tracked changes only — `-uno` keeps the statusline fast in large repos.
   sb=$(git -C "$cwd" --no-optional-locks status -sb -uno --porcelain 2>/dev/null)
   head=$(printf '%s\n' "$sb" | head -1)
-  branch=$(printf '%s' "$head" | sed -E 's/^## ([^ .]+).*/\1/')
+  # Keep dots in the branch name (`release/v1.2`), stopping only at the
+  # `...upstream` tracking marker or the ` [ahead/behind]` counts.
+  branch="${head#\#\# }"; branch="${branch%%...*}"; branch="${branch%% *}"
   dirty=$(printf '%s\n' "$sb" | tail -n +2 | grep -c .)
   ahead=$(printf '%s' "$head" | grep -oE 'ahead ([0-9]+)' | grep -oE '[0-9]+')
   behind=$(printf '%s' "$head" | grep -oE 'behind ([0-9]+)' | grep -oE '[0-9]+')

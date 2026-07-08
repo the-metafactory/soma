@@ -38,6 +38,18 @@ async function fileExists(path: string): Promise<boolean> {
   return stat(path).then(() => true, () => false);
 }
 
+// ANSI SGR matcher built from a variable so the ESC byte never appears in a
+// regex literal (avoids eslint no-control-regex).
+const ANSI_SGR = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
+
+// Run the projected statusline script with `input` piped on stdin, returning
+// its exit status + stdout (ANSI stripped, for content assertions).
+function runStatusline(scriptPath: string, input: object): { status: number | null; stdout: string } {
+  const result = spawnSync("bash", [scriptPath], { input: JSON.stringify(input), encoding: "utf8" });
+  const stripped = (result.stdout ?? "").replace(ANSI_SGR, "");
+  return { status: result.status, stdout: stripped };
+}
+
 test("status line file is default-on in the plan, opt-out excludes it", () => {
   const plan = planSomaForClaudeCodeInstall({ homeDir: "/tmp/test-home" });
   expect(plan.substrateFiles).toContain("/tmp/test-home/.claude/hooks/soma/soma-statusline.sh");
@@ -197,5 +209,72 @@ test("issue #236 pattern: statusLine install does not disturb an unrelated user 
     const settings = await readJson<{ theme?: string; statusLine?: unknown }>(join(homeDir, ".claude/settings.json"));
     expect(settings.theme).toBe("dark");
     expect(settings.statusLine).toEqual({ type: "command", command: join(homeDir, SCRIPT_REL) });
+  });
+});
+
+test("BLOCKER: a crafted numeric field cannot inject shell (no eval)", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForClaudeCode({ homeDir });
+    const scriptPath = join(homeDir, SCRIPT_REL);
+
+    // A separate mktemp dir for the injection target so the assertion can't be
+    // confused by anything under the soma/substrate homes.
+    const canaryDir = await mkdtemp(join(tmpdir(), "soma-statusline-canary-"));
+    try {
+      const canary = join(canaryDir, "pwned");
+      // Old code did `eval "$(jq ... tostring)"` with the numeric fields
+      // UNQUOTED, so this command-substitution in `used_percentage` executed.
+      const out = runStatusline(scriptPath, {
+        workspace: { current_dir: "/tmp" },
+        session_id: "inj",
+        model: { display_name: "Claude Opus 4.8" },
+        context_window: { used_percentage: 38 },
+        rate_limits: {
+          five_hour: { used_percentage: `$(touch ${canary})`, resets_at: 1893456000 },
+          seven_day: { used_percentage: 41, resets_at: 1893600000 },
+        },
+      });
+
+      // (a) the injection did NOT run, and (b) the line still rendered.
+      expect(await fileExists(canary)).toBe(false);
+      expect(out.status).toBe(0);
+      expect(out.stdout.length).toBeGreaterThan(0);
+      // Fields stayed aligned (the crafted value did not shift the row): the
+      // real ctx and 7d percentages still render in their own segments.
+      expect(out.stdout).toContain("ctx 38%");
+      expect(out.stdout).toContain("7d 41%");
+    } finally {
+      await rm(canaryDir, { recursive: true, force: true });
+    }
+  });
+});
+
+test("a multi-word Soma task renders fully in the session segment", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForClaudeCode({ homeDir });
+    const scriptPath = join(homeDir, SCRIPT_REL);
+
+    // The script bakes SOMA_HOME = <homeDir>/.soma; drop a current-work file
+    // there for this session with a task that contains spaces.
+    const sid = "task-space-sess";
+    const stateDir = join(homeDir, ".soma/memory/STATE");
+    await mkdir(stateDir, { recursive: true });
+    await writeFile(
+      join(stateDir, `current-work-${sid}-1.json`),
+      JSON.stringify({ phase: "think", task: "write adapter", status: "active" }),
+      "utf8",
+    );
+
+    const out = runStatusline(scriptPath, {
+      workspace: { current_dir: "/tmp" },
+      session_id: sid,
+      model: { display_name: "Claude Opus 4.8" },
+      context_window: { used_percentage: 5 },
+    });
+
+    expect(out.status).toBe(0);
+    // The whole task survives (a tab-collapsing split would truncate at the
+    // first word); the phase renders after it.
+    expect(out.stdout).toContain("write adapter·think");
   });
 });
