@@ -15,7 +15,7 @@ export interface LoadProjectionInputForDoctorOptions {
  * `installSomaForSubstrate`'s context assembly in `install.ts`, without any
  * of its WRITE side effects (bootstrap, VSA-skill baseline, bundled-skill
  * copy). `soma doctor` (soma#370 content-compare drift) uses this to
- * re-render a substrate's projection in memory and diff it against what is
+ * rebuild a substrate's projection in memory and diff it against what is
  * actually on disk, so it must construct the SAME input install does or
  * every file would spuriously read as stale.
  *

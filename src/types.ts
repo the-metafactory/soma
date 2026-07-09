@@ -1709,20 +1709,28 @@ export type SomaInitStepId =
 
 /**
  * Content-compare drift findings (soma#370) are substrate-parameterized: the
- * same three shapes apply uniformly whichever of the 5 doctor-supported
+ * same shapes apply uniformly whichever of the 5 doctor-supported
  * substrates produced them. Declared as a template-literal type over
  * `SubstrateId` (broader than the doctor-supported set — TypeScript has no
  * closed subset literal to key off here) rather than duplicating the
- * three-suffix cross product by hand for every substrate. The pre-existing
+ * suffix cross product by hand for every substrate. The pre-existing
  * substrate-specific strings this generalizes (`codex-projection-stale`,
  * `claude-code-projection-stale`, `claude-code-projection-unmanaged-edit`,
  * `grok-projection-stale`) are exact members of this pattern, so no finding
  * id string actually changes.
+ *
+ * `-not-diagnosable` is the honest "could not check" outcome (soma#370): the
+ * Soma home is not bootstrapped/installed, so the source projection cannot be
+ * built to compare against and NO comparison was performed. It is emitted as
+ * `severity: "info"` so a legitimately-uninstalled home does not hard-fail
+ * CI, but the output says "not diagnosed" rather than a bare "ok" — never
+ * fail open.
  */
 export type SomaDoctorProjectionFindingId =
   | `${SubstrateId}-projection-missing`
   | `${SubstrateId}-projection-stale`
-  | `${SubstrateId}-projection-unmanaged-edit`;
+  | `${SubstrateId}-projection-unmanaged-edit`
+  | `${SubstrateId}-not-diagnosable`;
 
 export type SomaDoctorFindingId =
   | "starter-profile"
@@ -1795,12 +1803,12 @@ export interface SomaInitApplyResult {
 export interface SomaDoctorFinding {
   id: SomaDoctorFindingId;
   /**
-   * `error` (soma#370) is reserved for a rendered projection file that is
-   * entirely ABSENT on disk — a broken/never-installed projection, not
-   * merely an out-of-date one. It is the only severity that flips `soma
-   * doctor`'s process exit code to 2 (see `SomaDoctorDiagnosis.status` and
-   * the CLI doctor handler); `warning` (drift/hand-edit) maps to exit 1,
-   * and no findings above `info` maps to exit 0.
+   * `error` (soma#370) is reserved for a projection file that is entirely
+   * ABSENT on disk — a broken/never-installed projection, not merely an
+   * out-of-date one. It is the only severity that flips `soma doctor`'s
+   * process exit code to 2 (see `SomaDoctorDiagnosis.status` and the CLI
+   * doctor handler); `warning` (drift/hand-edit) maps to exit 1, and no
+   * findings above `info` maps to exit 0.
    */
   severity: "info" | "warning" | "error";
   /** Human-readable explanation of the drift; carries the narrative guidance. */
@@ -1824,11 +1832,11 @@ export interface SomaDoctorFinding {
 
 export interface SomaDoctorDiagnosis {
   /**
-   * `error` (soma#370) when any finding is `severity: "error"` (a rendered
-   * projection file missing on disk); `drift` when the worst finding is a
-   * `warning` (stale/hand-edited but present); `ok` when nothing above
-   * `info` was found. Order matters for the CLI exit code: error dominates
-   * drift dominates ok (2 / 1 / 0).
+   * `error` (soma#370) when any finding is `severity: "error"` (a projection
+   * file missing on disk); `drift` when the worst finding is a `warning`
+   * (stale/hand-edited but present); `ok` when nothing above `info` was
+   * found. Order matters for the CLI exit code: error dominates drift
+   * dominates ok (2 / 1 / 0).
    */
   status: "ok" | "drift" | "error";
   homeDir: string;

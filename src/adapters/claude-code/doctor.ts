@@ -26,14 +26,14 @@ const CLAUDE_CODE_SETTINGS_RELATIVE_PATH = "settings.json";
 
 /**
  * Claude-Code-specific install-artifact checks that sit OUTSIDE the
- * rendered `rules/soma/*` projection bundle: the lifecycle hook script/
- * config on disk, and whether `settings.json` actually wires the hook in.
- * Rendered projection content (staleness / hand-edit detection) is now
- * covered generically by `../content-compare-doctor.ts` (soma#370) — this
- * function used to also own that via a profile-mtime heuristic plus a
- * header-presence scan; both were retired in favor of content-compare,
- * which subsumes them (and, as a byproduct, now ALSO covers ACTIVE_VSA.md
- * and MEMORY.md staleness, which the old mtime check could not).
+ * projected `rules/soma/*` bundle: the lifecycle hook script/config on disk,
+ * and whether `settings.json` actually wires the hook in. Projected content
+ * (staleness / hand-edit detection) is now covered generically by
+ * `../content-compare-doctor.ts` (soma#370) — this function used to also own
+ * that via a profile-mtime heuristic plus a header-presence scan; both were
+ * retired in favor of content-compare, which subsumes them (and, as a
+ * byproduct, now ALSO covers ACTIVE_VSA.md and MEMORY.md staleness, which the
+ * old mtime check could not).
  */
 export async function diagnoseClaudeCodeInstallArtifactDrift(options: {
   homeDir: string;

@@ -89,10 +89,29 @@ test("soma#370: cursor content-compare is clean right after install", async () =
   });
 });
 
+test("soma#370: content-compare does NOT fail open on an unbootstrapped home — surfaces info not-diagnosable", async () => {
+  await withTempHome(async (homeDir) => {
+    // No install/bootstrap at all: the Soma home has no profile, so the
+    // source projection cannot be built to compare against. Returning `[]`
+    // (clean/ok) would claim coverage never performed — instead an `info`
+    // not-diagnosable finding is emitted (keeps exit 0, but honest).
+    for (const substrate of ["cursor", "pi-dev"] as const) {
+      const findings = await diagnoseContentCompareDrift({ substrate, homeDir, somaHome: join(homeDir, ".soma") });
+      expect(findings).toHaveLength(1);
+      expect(findings[0].id).toBe(`${substrate}-not-diagnosable`);
+      expect(findings[0].severity).toBe("info");
+      expect(findings[0].action).toBe(`soma install ${substrate}`);
+      // Never a bare "missing" (which would falsely claim to know what
+      // SHOULD be on disk) and never a clean empty result.
+      expect(findings.some((f) => f.id.endsWith("-projection-missing"))).toBe(false);
+    }
+  });
+});
+
 test("soma#370: cursor content-compare flags a missing whole projection as an error", async () => {
   await withTempHome(async (homeDir) => {
     // Soma home bootstrapped (via install then a hard reset of the cursor
-    // side) so content-compare can render a fresh comparison, but nothing
+    // side) so content-compare can build a fresh comparison, but nothing
     // was ever written under `.cursor` / `.cursorrules`.
     await installSomaForCursor({ homeDir });
     await runSomaCli(["uninstall", "cursor", "--home-dir", homeDir]);

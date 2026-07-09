@@ -9,22 +9,22 @@ import { hasProvenanceHeader } from "./shared";
 import type { InstallSubstrate, SomaDoctorFinding } from "../types";
 
 /**
- * Content-compare drift (soma#370): re-render a substrate's home projection
+ * Content-compare drift (soma#370): rebuild a substrate's home projection
  * in memory using the SAME builder `soma install`/`soma export` use
- * (`buildSubstrateHomeProjection`), then diff each rendered file against
+ * (`buildSubstrateHomeProjection`), then diff each projected file against
  * what is actually on disk. Substrate-agnostic by construction — it needs
  * no per-substrate mtime heuristic — so it replaces the old codex/claude-code
  * profile-mtime diagnosers and, for the first time, covers cursor and
  * pi-dev (neither had ANY drift diagnosis before).
  *
- * Covers ALL 5 install substrates, grok included: grok's rendered
- * home-projection files (skills/soma/*.md, hooks/*, personas/*, roles/*,
- * agents/*) are a pure function of ProjectionInput — exactly as deterministic
- * as codex's — so content-compare is meaningful for them. For grok this runs
- * ALONGSIDE (not instead of) the `grok inspect --json` oracle checks in
- * `../grok/doctor.ts`: whether Grok's RUNTIME has actually loaded a file is a
- * different, complementary question from whether the file's BYTES match a
- * fresh render. `../adapters/doctor.ts` composes the two for grok; see that
+ * Covers ALL 5 install substrates, grok included: grok's projected
+ * home files (skills/soma/*.md, hooks/*, personas/*, roles/*, agents/*) are a
+ * pure function of ProjectionInput — exactly as deterministic as codex's — so
+ * content-compare is meaningful for them. For grok this runs ALONGSIDE (not
+ * instead of) the `grok inspect --json` oracle checks in `../grok/doctor.ts`:
+ * whether Grok's RUNTIME has actually loaded a file is a different,
+ * complementary question from whether the file's BYTES match a fresh
+ * projection. `../adapters/doctor.ts` composes the two for grok; see that
  * file for the composition and the investigation note behind it.
  */
 export type ContentCompareSubstrate = Extract<InstallSubstrate, "codex" | "pi-dev" | "claude-code" | "cursor" | "grok">;
@@ -60,7 +60,7 @@ type FileVerdict = "clean" | "missing" | "unmanaged" | "stale";
  * applies to files the adapter actually wraps with `withProvenance` — a
  * file that never carries the header (JSON/TOML/frontmatter/verbatim
  * scripts) has no header to lose, so any drift there is reported as `stale`
- * instead. Checking `hasProvenanceHeader` on the FRESH render (rather than
+ * instead. Checking `hasProvenanceHeader` on the FRESH projection (rather than
  * maintaining a separate "header-eligible paths" list) is what makes this
  * substrate-agnostic: whichever files a given adapter chose to wrap decide
  * their own classification, with nothing to keep in sync here.
@@ -72,9 +72,9 @@ function classifyMismatch(freshContent: string, onDisk: string): "unmanaged" | "
 
 /**
  * `.cursorrules` is not a plain 1:1 projected file — install splices the
- * rendered block into a possibly foreign-owned file
+ * projected block into a possibly foreign-owned file
  * (`mergeCursorRulesContent`/`CURSOR_RULES_BLOCK_BEGIN/END`), preserving
- * every byte outside the markers. So "does this file match a fresh render"
+ * every byte outside the markers. So "does this file match a fresh projection"
  * means "does re-running the same merge against the CURRENT on-disk bytes
  * reproduce them unchanged" — not raw equality against the un-merged block
  * body. A raw-equality check would flag every legitimately-managed
@@ -168,17 +168,25 @@ export async function diagnoseContentCompareDrift(options: ContentCompareDoctorO
   } catch (error) {
     // The Soma home itself was never bootstrapped, or is only partially
     // written (`soma init`/`soma bootstrap` never ran, or ran incompletely)
-    // — there is no complete source to render FROM, so there is nothing
-    // honest to say about substrate drift yet: reporting "missing" here
-    // would claim knowledge we don't have. Mirrors the old profile-mtime
-    // diagnosers' lenient default (a null profile mtime skipped the check
-    // rather than reporting every file "missing"). An unbootstrapped Soma
-    // home is a DIFFERENT, already-covered concern (the onboarding flow
-    // guides toward `soma init`), not projection drift. Any OTHER failure
-    // (permissions, a directory where a file belongs) is a genuine bug and
-    // must not be swallowed.
+    // — there is no complete source to build the projection FROM, so NO
+    // comparison could be performed. Do NOT fail open by returning `[]`
+    // (which reads as "clean/ok" and would claim coverage we never did):
+    // emit an explicit `info` "not diagnosable" finding instead. `info`
+    // keeps `soma doctor` exit 0 — a legitimately-uninstalled home must not
+    // hard-fail CI — while the output plainly says "not diagnosed", never a
+    // bare "ok" (sage#450 r2). Reporting "missing" would be equally
+    // dishonest: we cannot know what SHOULD be on disk without the source.
+    // Any OTHER failure (permissions, a directory where a file belongs) is a
+    // genuine bug and must not be swallowed.
     if (!isEnoent(error)) throw error;
-    return [];
+    return [{
+      id: `${options.substrate}-not-diagnosable`,
+      severity: "info",
+      message:
+        `Cannot diagnose ${SUBSTRATE_LABELS[options.substrate]} projection drift — the Soma home is not ` +
+        "bootstrapped/installed, so the source projection cannot be built to compare against. No comparison was performed.",
+      action: `soma install ${options.substrate}`,
+    }];
   }
 
   const projection = buildSubstrateHomeProjection(options.substrate, input, {

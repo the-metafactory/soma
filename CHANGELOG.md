@@ -15,17 +15,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cross-substrate artifacts (ACTIVE_VSA.md, the memory index, `.cursorrules`'
   merge block) are deliberately excluded — wrapping them would corrupt parsing
   or diverge from stored bytes. `soma doctor` no longer diagnoses drift via a
-  profile-mtime heuristic: it re-renders each substrate's home projection in
+  profile-mtime heuristic: it rebuilds each substrate's home projection in
   memory (the same builder `soma install`/`soma export` use) and content-compares
   it against disk, so `--substrate` now covers cursor and pi-dev too (previously
   unsupported) alongside codex/claude-code/grok. Grok additionally keeps its
   `grok inspect --json` runtime-discovery oracle — a different, non-deterministic
-  question from whether the on-disk bytes match a fresh render. Findings are
-  `missing` (rendered file absent — new `error` severity), `unmanaged-edit`
-  (present but lost its header — hand-replaced), or `stale` (present but the
-  Soma source moved on). `soma doctor`'s process exit code now reflects the
-  worst finding: 0 clean, 1 drift, 2 error (a rendered file missing on disk) —
-  CI-friendly, mirroring the `vsa` command's existing exit-code convention.
+  question from whether the on-disk bytes match a fresh projection. Findings are
+  `missing` (projected file absent — new `error` severity), `unmanaged-edit`
+  (present but lost its header — hand-replaced), `stale` (present but the Soma
+  source moved on), or `not-diagnosable` (`info`: the Soma home is not
+  bootstrapped/installed, so no source projection could be built to compare
+  against — surfaced honestly instead of a bare "ok", but non-fatal). `soma
+  doctor`'s process exit code now reflects the worst finding: 0 clean, 1 drift,
+  2 error (a projected file missing on disk) — CI-friendly, mirroring the `vsa`
+  command's existing exit-code convention.
 
 ## [0.11.0] - 2026-07-03
 

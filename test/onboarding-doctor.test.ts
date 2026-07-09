@@ -484,11 +484,25 @@ test("soma#377: unmanaged-edit check covers non-CONTEXT skeleton files (e.g. SKI
 // soma#370: content-compare drift is substrate-agnostic, so cursor and
 // pi-dev — which had NO drift diagnosis at all before — are now doctor-
 // supported, same as the grok oracle-check parity test above.
-test("soma doctor --substrate cursor and pi-dev are no longer rejected as unsupported", async () => {
+test("soma doctor --substrate cursor and pi-dev are no longer rejected as unsupported, and surface not-diagnosable on an unbootstrapped home", async () => {
   await withTempHome(async (homeDir) => {
     for (const substrate of ["cursor", "pi-dev"] as const) {
+      // Empty temp home: never bootstrapped, so content-compare cannot build
+      // a source projection to compare against. It must NOT fail open (a bare
+      // "ok" that claims coverage it never performed) NOR hard-fail CI — it
+      // surfaces an `info` not-diagnosable finding that keeps exit 0 while
+      // saying plainly the substrate was not diagnosed (sage#450 r2).
+      const diagnosis = await diagnoseSomaDoctor({ homeDir, substrate });
+      expect(diagnosis.status).toBe("ok"); // info keeps exit 0, non-fatal
+      const finding = diagnosis.findings.find((f) => f.id === `${substrate}-not-diagnosable`);
+      expect(finding).toBeDefined();
+      expect(finding?.severity).toBe("info");
+
+      // CLI resolves (proves "not rejected as unsupported") and the
+      // not-diagnosable note is visible — never a bare, silent "ok".
       const output = await runSomaCli(["doctor", "--substrate", substrate, "--home-dir", homeDir]);
-      expect(output).toContain("soma doctor — ok");
+      expect(output).toContain(`${substrate}-not-diagnosable`);
+      expect(output).toContain("Cannot diagnose");
     }
   });
 });
