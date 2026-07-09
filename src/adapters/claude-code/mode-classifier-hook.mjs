@@ -48,9 +48,10 @@ function runSomaClassification(config, prompt) {
 // soma statusline-mode-feed: this hook is the sole writer of the per-session
 // mode+effort state the claude-code statusline reads. `classify` stays a pure,
 // portable command — the substrate-specific write lives here, in the adapter.
-// Mirrors src/adapters/claude-code/statusline-mode-state.ts (unit-tested there);
-// kept inline because a standalone .mjs cannot import TypeScript. Best-effort:
-// a write failure must never break the classification this hook returns.
+// The filename convention (`statusline-mode-<safe-sid>.json`) and the session-id
+// sanitization are shared, cross-language, with statusline.sh's read side and
+// must stay in lockstep. Best-effort: a write failure must never break the
+// classification this hook returns.
 function writeStatuslineModeState(config, sessionId, classification) {
   if (typeof sessionId !== "string" || sessionId.length === 0) return;
   if (typeof config.somaHome !== "string" || config.somaHome.length === 0) return;
