@@ -157,21 +157,24 @@ test("soma#370: cursor .cursorrules — hand-stripped Soma block reads as unmana
   });
 });
 
-test("soma#370: pi-dev content-compare is clean right after install, and flags a hand-deleted rendered file", async () => {
+test("soma#370: pi-dev content-compare is clean right after install, and flags a hand-edited projected file", async () => {
   await withTempHome(async (homeDir) => {
     await installSomaForPiDev({ homeDir });
 
     const clean = await diagnoseContentCompareDrift({ substrate: "pi-dev", homeDir, somaHome: join(homeDir, ".soma") });
     expect(clean).toEqual([]);
 
-    // Hand-corrupt a header-eligible narrative file — must read as
-    // "stale" against a fresh render (it never had a header to begin
-    // with here since we're overwriting wholesale, not stripping one).
+    // Overwrite a header-eligible projected file with content that has NO
+    // provenance header. Because the fresh projection of tools.md carries the
+    // header and the on-disk copy no longer does, this reads as UNMANAGED
+    // (hand-replaced), not stale — the doctor sees the managed-projection
+    // signal (the header) is gone.
     await writeFile(join(homeDir, ".pi/agent/soma/tools.md"), "not the real tools doc\n", "utf8");
     const drifted = await diagnoseContentCompareDrift({ substrate: "pi-dev", homeDir, somaHome: join(homeDir, ".soma") });
-    const finding = drifted.find((f) => f.id === "pi-dev-projection-stale" || f.id === "pi-dev-projection-unmanaged-edit");
+    const finding = drifted.find((f) => f.id === "pi-dev-projection-unmanaged-edit");
     expect(finding).toBeDefined();
     expect(finding?.message).toContain("agent/soma/tools.md");
+    expect(drifted.find((f) => f.id === "pi-dev-projection-stale")).toBeUndefined();
   });
 });
 
