@@ -18,6 +18,8 @@ import { runSomaCli } from "../src/cli";
 import { PROJECTION_LIFECYCLE_SUBSTRATES, type InstallSubstrate } from "../src/cli/substrate-lifecycle";
 import { installSomaForCursor, installSomaForPiDev } from "../src/index";
 import { diagnoseContentCompareDrift } from "../src/adapters/content-compare-doctor";
+import { SomaHomeNotLoadableError, loadProjectionInputForDoctor } from "../src/doctor-projection-input";
+import { defaultSomaRepoPath } from "../src/repo-path";
 import { expectSomaCliError } from "./fixtures/cli-error";
 import { withTempHome as withSharedTempHome } from "./fixtures/pai-migration-fixtures";
 
@@ -105,6 +107,45 @@ test("soma#370: content-compare does NOT fail open on an unbootstrapped home —
       // SHOULD be on disk) and never a clean empty result.
       expect(findings.some((f) => f.id.endsWith("-projection-missing"))).toBe(false);
     }
+  });
+});
+
+test("soma#370: loadProjectionInputForDoctor distinguishes a missing home (typed error) from a bad repo path (no error)", async () => {
+  await withTempHome(async (homeDir) => {
+    const somaHome = join(homeDir, ".soma");
+
+    // (a) Missing Soma home + a VALID repo path → the ONLY fault is "not
+    // installed", surfaced as the distinct typed SomaHomeNotLoadableError
+    // (an ENOENT reading the profile under somaHome), never a generic throw.
+    await expect(
+      loadProjectionInputForDoctor({ somaHome, somaRepoPath: defaultSomaRepoPath() }),
+    ).rejects.toBeInstanceOf(SomaHomeNotLoadableError);
+
+    // (b) Installed home + a BOGUS repo path → the loader must NOT throw
+    // SomaHomeNotLoadableError (the home IS loadable). The repo miss is
+    // isolated to listBundledSkills, which degrades to [] — a repo-path
+    // problem is never conflated with the user's home being uninstalled.
+    await installSomaForCursor({ homeDir });
+    const input = await loadProjectionInputForDoctor({ somaHome, somaRepoPath: join(homeDir, "no-such-repo") });
+    expect(input.bundledSkillNames).toEqual([]);
+  });
+});
+
+test("soma#370: a bad soma repo path on an installed home does NOT masquerade as not-diagnosable", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCursor({ homeDir });
+
+    // A repo-path (source-checkout) problem is an internal/setup fault, not a
+    // "Soma not installed" state — the doctor must NOT emit the
+    // not-diagnosable finding nor the "soma install" remediation for it.
+    const findings = await diagnoseContentCompareDrift({
+      substrate: "cursor",
+      homeDir,
+      somaHome: join(homeDir, ".soma"),
+      somaRepoPath: join(homeDir, "no-such-repo"),
+    });
+    expect(findings.find((f) => f.id === "cursor-not-diagnosable")).toBeUndefined();
+    expect(findings.some((f) => f.action === "soma install cursor")).toBe(false);
   });
 });
 

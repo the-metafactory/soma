@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { CURSOR_RULES_BLOCK_BEGIN, buildSubstrateHomeProjection, mergeCursorRulesContent } from "../home-projection";
-import { loadProjectionInputForDoctor } from "../doctor-projection-input";
+import { SomaHomeNotLoadableError, loadProjectionInputForDoctor } from "../doctor-projection-input";
 import { defaultSomaRepoPath } from "../repo-path";
 import { isEnoent } from "../fs-utils";
 import { CURSOR_RULES_PATH } from "./cursor";
@@ -181,19 +181,21 @@ export async function diagnoseContentCompareDrift(options: ContentCompareDoctorO
   try {
     input = await loadProjectionInputForDoctor({ somaHome: options.somaHome, somaRepoPath });
   } catch (error) {
-    // The Soma home was never installed, or is only partially written
-    // (`soma install`/`soma init` never ran, or ran incompletely) — there is
-    // no complete source to build the projection FROM, so NO comparison could
-    // be performed. Do NOT fail open by returning `[]` (which reads as
-    // "clean/ok" and would claim coverage we never did): emit an explicit
-    // `info` "not diagnosable" finding instead. `info` keeps `soma doctor`
-    // exit 0 — a legitimately-uninstalled home must not hard-fail CI — while
-    // the output plainly says "not diagnosed", never a bare "ok" (sage#450
-    // r2). Reporting "missing" would be equally dishonest: we cannot know what
-    // SHOULD be on disk without the source. Any OTHER failure (permissions, a
-    // directory where a file belongs) is a genuine bug and must not be
-    // swallowed.
-    if (!isEnoent(error)) throw error;
+    // ONLY a genuine "Soma home not installed / incomplete" condition
+    // (`SomaHomeNotLoadableError` — an ENOENT reading the profile under
+    // `somaHome`, isolated by the loader) becomes the non-fatal
+    // not-diagnosable finding. Do NOT fail open by returning `[]` (which
+    // reads as "clean/ok" and would claim coverage we never did): emit an
+    // explicit `info` finding instead. `info` keeps `soma doctor` exit 0 — a
+    // legitimately-uninstalled home must not hard-fail CI — while the output
+    // plainly says "not diagnosed", never a bare "ok" (sage#450 r2).
+    // Reporting "missing" would be equally dishonest: we cannot know what
+    // SHOULD be on disk without the source. Any OTHER failure — a soma REPO
+    // PATH (source checkout) problem, permissions, a directory where a file
+    // belongs — is an internal/setup fault, NOT a user "not installed" state,
+    // and MUST propagate as itself rather than be disguised as "run soma
+    // install" (sage#450 r5).
+    if (!(error instanceof SomaHomeNotLoadableError)) throw error;
     return [{
       id: `${options.substrate}-not-diagnosable`,
       severity: "info",

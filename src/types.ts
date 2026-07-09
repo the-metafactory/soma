@@ -1708,29 +1708,39 @@ export type SomaInitStepId =
   | "install-grok";
 
 /**
+ * The substrates `soma doctor` can diagnose — every `InstallSubstrate` except
+ * the experimental `anthropic-cowork` scaffold. Kept in lockstep with the
+ * runtime `DOCTOR_SUPPORTED_SUBSTRATES` list in `src/adapters/doctor.ts`
+ * (codex, claude-code, cursor, grok, pi-dev); the two must agree. Used to
+ * parameterize the projection finding-id type below so only supported-substrate
+ * ids are type-valid.
+ */
+export type SomaDoctorSubstrate = Exclude<InstallSubstrate, "anthropic-cowork">;
+
+/**
  * Content-compare drift findings (soma#370) are substrate-parameterized: the
  * same shapes apply uniformly whichever of the 5 doctor-supported
- * substrates produced them. Declared as a template-literal type over
- * `SubstrateId` (broader than the doctor-supported set — TypeScript has no
- * closed subset literal to key off here) rather than duplicating the
- * suffix cross product by hand for every substrate. The pre-existing
- * substrate-specific strings this generalizes (`codex-projection-stale`,
- * `claude-code-projection-stale`, `claude-code-projection-unmanaged-edit`,
- * `grok-projection-stale`) are exact members of this pattern, so no finding
- * id string actually changes.
+ * substrates produced them. Declared as a template-literal type over the
+ * doctor-supported substrate union (`SomaDoctorSubstrate`) — NOT the broader
+ * `SubstrateId`, which would admit `cortex-*`/`custom-*` ids the doctor can
+ * never emit — rather than duplicating the suffix cross product by hand for
+ * every substrate. The pre-existing substrate-specific strings this
+ * generalizes (`codex-projection-stale`, `claude-code-projection-stale`,
+ * `claude-code-projection-unmanaged-edit`, `grok-projection-stale`) are exact
+ * members of this pattern, so no finding id string actually changes.
  *
- * `-not-diagnosable` is the honest "could not check" outcome (soma#370): the
- * Soma home is not bootstrapped/installed, so the source projection cannot be
- * built to compare against and NO comparison was performed. It is emitted as
- * `severity: "info"` so a legitimately-uninstalled home does not hard-fail
- * CI, but the output says "not diagnosed" rather than a bare "ok" — never
- * fail open.
+ * `-not-diagnosable` is the honest "could not check" outcome (soma#370): Soma
+ * is not installed / the Soma home is incomplete, so the source projection
+ * cannot be built to compare against and NO comparison was performed. It is
+ * emitted as `severity: "info"` so a legitimately-uninstalled home does not
+ * hard-fail CI, but the output says "not diagnosed" rather than a bare "ok" —
+ * never fail open.
  */
 export type SomaDoctorProjectionFindingId =
-  | `${SubstrateId}-projection-missing`
-  | `${SubstrateId}-projection-stale`
-  | `${SubstrateId}-projection-unmanaged-edit`
-  | `${SubstrateId}-not-diagnosable`;
+  | `${SomaDoctorSubstrate}-projection-missing`
+  | `${SomaDoctorSubstrate}-projection-stale`
+  | `${SomaDoctorSubstrate}-projection-unmanaged-edit`
+  | `${SomaDoctorSubstrate}-not-diagnosable`;
 
 export type SomaDoctorFindingId =
   | "starter-profile"
