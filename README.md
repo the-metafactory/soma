@@ -267,7 +267,7 @@ Each adapter writes the same assistant context into the host's native shape:
 | Substrate | Projection |
 | --- | --- |
 | OpenAI Codex | AGENTS instructions, rules, hooks, skills, and memory summaries |
-| Claude Code | rules, hooks, settings entries, and generated Soma-owned skill files |
+| Claude Code | rules, hooks, settings entries, a status line (mode+effort, git, context %, 5h/7d usage windows), and generated Soma-owned skill files |
 | Pi.dev | extensions, context files, skills, and Algorithm rendering support |
 | Cursor | `.cursorrules` and `.cursor/rules/soma/` projection files |
 | Cortex/Myelin | planned agent/daemon integration |
@@ -354,7 +354,10 @@ workflows, references, examples, tools, and a `soma-skill.json` manifest.
 Adapters decide how the skill is projected into each substrate.
 
 Soma supports progressive skill loading: project a compact registry by default,
-then load the selected skill body only when a task route needs it. See
+then load the selected skill body only when a task route needs it. The
+registry entry per skill is compact (name, a truncated description, and its
+path, plus optional `triggers:`/`not:` lines) instead of a full heading block,
+kept inside a declared line budget. See
 [docs/progressive-skill-loading.md](docs/progressive-skill-loading.md).
 MCP-capable substrates can use the optional
 [docs/mcp-server.md](docs/mcp-server.md) surface for the same on-demand loading
@@ -378,6 +381,13 @@ A generated `memory/INDEX.md` is the earned-inclusion index over durable notes.
 Trust is *derived* from how a note was written, never set by a flag: a principal
 correction requires `--principal-authority`, imports land at lower trust, and
 consolidation never mints or elevates trust.
+
+On substrates with a SessionStart hook (Claude Code, Codex, Grok), the
+projected memory file (e.g. Claude Code's `rules/soma/MEMORY.md`) reprojects
+from the shared `~/.soma` store at the start of each session, so a note written
+via one of them surfaces in a later session of another without a full
+`soma install` reproject — and, because the reprojection is mtime-gated, an
+idle session touches no disk.
 
 ```bash
 # Save a durable fact (trust derived from the trigger, not a flag)
@@ -512,6 +522,12 @@ Claude Code, Pi.dev, and Cursor. The current center of gravity is the portable
 filesystem contract: profile, purpose, memory, policy, skills, Algorithm runs,
 and VSAs stay in the Soma home while adapters project that core into each
 substrate's native shape.
+
+`soma doctor --substrate <substrate>` content-compares each substrate's
+projection against a fresh projection built in memory — not a timestamp
+heuristic — across all 5 install substrates (codex, claude-code, cursor, grok,
+pi-dev), catching hand-edited, stale, or missing projection files with
+CI-friendly exit codes (0 clean, 1 drift, 2 error).
 
 Daemon mode and deeper Cortex/Myelin integration come after the file format,
 writeback gates, and adapter behavior are stable.
