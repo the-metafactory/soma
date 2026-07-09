@@ -1,8 +1,19 @@
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import type { ImportSourceCheck, PaiImportOptions, PaiImportPlan, PaiImportResult } from "./types";
+
+// soma#441 — single-sourced formatter for the reserved-skip CLI line so
+// `soma import pai` and `soma migrate pai` can't drift on wording. The
+// `prefix` argument carries each command's own bullet/label shape (e.g.
+// `"  - identity "` for the migrate summary); the reserved-noun suffix
+// stays identical. Says `(exists)`, NOT `(curated)`: the skip is gated
+// on the target already being a regular file on disk, which is all we
+// actually detect — it may be hand-curated or a prior generated run.
+export function formatReservedSkipLine(somaHome: string, target: string, prefix = ""): string {
+  return `${prefix}skipped reserved (exists): ${relative(somaHome, target)} — re-run with --overwrite-reserved to replace`;
+}
 
 type PaiSourceRole = "principal" | "assistant" | "mission" | "goals" | "strategies" | "beliefs";
 
@@ -35,6 +46,41 @@ const PROFILE_TARGETS = {
   // read paths below keep PAI's name; this is the Soma write target).
   purpose: "profile/purpose.md",
 } as const;
+
+// soma#441 — `profile/purpose.md` is the one identity target that
+// diverges from its source once a principal hand-curates it (it's
+// the compartment `src/soma-home.ts` reads to build every substrate's
+// projected Purpose). `principal.md` / `assistant.md` stay
+// deterministic distillations of their PAI sources and are always
+// (re)written — only `purpose.md` is reserved.
+const RESERVED_IDENTITY_TARGETS: ReadonlySet<string> = new Set([PROFILE_TARGETS.purpose]);
+
+// soma#441 — classify a reserved target's on-disk state before deciding
+// to reserve-skip. We only skip when the path resolves to a regular
+// FILE (that's the "already landed / possibly curated" case worth
+// preserving). An absent target is a first run → write normally. A
+// target that exists but is NOT a regular file (directory, socket, …)
+// is a broken filesystem state: skipping it would report success while
+// leaving an unusable target, so we surface it loud instead. `stat`
+// (not `lstat`) so a symlink pointing at a real file is treated as the
+// file it resolves to.
+async function reservedTargetState(target: string): Promise<"absent" | "file"> {
+  let stats;
+  try {
+    stats = await stat(target);
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "ENOENT") {
+      return "absent";
+    }
+    // Any other stat failure (EACCES, ELOOP on a broken symlink cycle, …)
+    // must surface — a silent miss could clobber or mis-skip the target.
+    throw error;
+  }
+  if (!stats.isFile()) {
+    throw new Error(`reserved target ${target} exists but is not a regular file`);
+  }
+  return "file";
+}
 
 function resolveHomes(options: PaiImportOptions = {}): { claudeHome: string; somaHome: string } {
   const home = resolve(options.homeDir ?? homedir());
@@ -314,9 +360,26 @@ export async function importPaiIdentity(options: PaiImportOptions = {}): Promise
   }
 
   const written: string[] = [];
+  const skippedReserved: string[] = [];
 
   for (const [relativePath, content] of files) {
     const target = join(homes.somaHome, relativePath);
+
+    // soma#441 — a reserved target that already exists on disk as a
+    // regular file is left untouched unless the principal explicitly
+    // opts in via `overwriteReserved`, so a landed (possibly curated)
+    // purpose.md survives repeated imports. The content is still
+    // computed above (so a fresh-target write further down stays
+    // byte-identical to before this fix) — only the write is gated.
+    // `reservedTargetState` throws if the target exists but is not a
+    // regular file, rather than skipping and reporting a false success.
+    if (RESERVED_IDENTITY_TARGETS.has(relativePath) && options.overwriteReserved !== true) {
+      if ((await reservedTargetState(target)) === "file") {
+        skippedReserved.push(target);
+        continue;
+      }
+    }
+
     await mkdir(dirname(target), { recursive: true });
     await writeFile(target, `${content}\n`, "utf8");
     written.push(target);
@@ -326,5 +389,6 @@ export async function importPaiIdentity(options: PaiImportOptions = {}): Promise
     claudeHome: homes.claudeHome,
     somaHome: homes.somaHome,
     files: written,
+    skippedReserved,
   };
 }

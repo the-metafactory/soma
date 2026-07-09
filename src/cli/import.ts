@@ -8,6 +8,7 @@ import {
   planPaiImport,
   planPaiPackImport,
 } from "../index";
+import { formatReservedSkipLine } from "../pai-importer";
 import type {
   AlgorithmImportOptions,
   AlgorithmImportPlan,
@@ -57,7 +58,7 @@ export type ParsedImportArgs =
 export const IMPORT_COMMAND_HELP: { usage: string; subcommands: Record<ImportSource, string> } = {
   usage: "Usage: soma import <pai|algorithm|pai-pack|pai-docs> ...",
   subcommands: {
-    pai: "Usage: soma import pai [--dry-run] [--apply] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>]",
+    pai: "Usage: soma import pai [--dry-run] [--apply] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>] [--overwrite-reserved]",
     algorithm: "Usage: soma import algorithm [--dry-run] [--apply] [--home-dir <dir>] [--pai-algorithm-dir <dir>] [--soma-home <dir>]",
     "pai-pack": "Usage: soma import pai-pack [--dry-run] [--apply] [--home-dir <dir>] --pai-pack-dir <dir> [--soma-home <dir>] [--skill-name <name>] [--overwrite] [--include-unrecognized]",
     "pai-docs": "Usage: soma import pai-docs [--dry-run] [--apply] [--home-dir <dir>] --pai-source-dir <dir> [--soma-home <dir>]",
@@ -71,7 +72,7 @@ export function parseImportArgs(args: string[]): ParsedImportArgs {
     throw new Error(
       [
         "Usage:",
-        "  soma import pai [--dry-run] [--apply] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>]",
+        "  soma import pai [--dry-run] [--apply] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>] [--overwrite-reserved]",
         "  soma import algorithm [--dry-run] [--apply] [--home-dir <dir>] [--pai-algorithm-dir <dir>] [--soma-home <dir>]",
         "  soma import pai-pack [--dry-run] [--apply] [--home-dir <dir>] --pai-pack-dir <dir> [--soma-home <dir>] [--skill-name <name>] [--overwrite] [--include-unrecognized]",
         "  soma import pai-docs [--dry-run] [--apply] [--home-dir <dir>] --pai-source-dir <dir> [--soma-home <dir>]",
@@ -158,6 +159,15 @@ export function parseImportArgs(args: string[]): ParsedImportArgs {
         options.somaHome = readOption(rest, index, arg);
         index += 1;
         break;
+      case "--overwrite-reserved":
+        // soma#441 — mirrors `soma migrate pai`'s reserved-target
+        // protection. Only meaningful for `soma import pai`, whose
+        // identity importer reserves `profile/purpose.md`.
+        if (source !== "pai") {
+          throw new Error("--overwrite-reserved is only valid for soma import pai.");
+        }
+        options.overwriteReserved = true;
+        break;
       default:
         throw new Error(`Unknown option: ${arg}`);
     }
@@ -219,8 +229,21 @@ function formatSimpleImportResult(title: string, dirEntries: string[], files: st
   ].join("\n");
 }
 
+// soma#441 — per-run reserved-skip detail lives only in this ephemeral
+// CLI summary, not in any on-disk/byte-compared surface (mirrors the
+// memory phase's "written N / unchanged M" precedent in
+// `formatPaiMigrationResult`). Line shape is single-sourced via
+// `formatReservedSkipLine` so this and the migrate summary can't drift.
+function formatSkippedReservedLines(somaHome: string, skippedReserved: string[] | undefined): string[] {
+  if (!skippedReserved || skippedReserved.length === 0) return [];
+  return ["", ...skippedReserved.map((path) => formatReservedSkipLine(somaHome, path))];
+}
+
 function formatPaiImportResult(result: PaiImportResult): string {
-  return formatSimpleImportResult("Soma PAI import applied", [`claudeHome: ${result.claudeHome}`, `somaHome: ${result.somaHome}`], result.files);
+  return [
+    formatSimpleImportResult("Soma PAI import applied", [`claudeHome: ${result.claudeHome}`, `somaHome: ${result.somaHome}`], result.files),
+    ...formatSkippedReservedLines(result.somaHome, result.skippedReserved),
+  ].join("\n");
 }
 
 function formatAlgorithmImportPlan(plan: AlgorithmImportPlan): string {

@@ -187,3 +187,92 @@ test("cli dry-runs and applies the PAI importer", async () => {
     await expect(readFile(join(homeDir, ".soma/profile/assistant.md"), "utf8")).resolves.toContain("Name: Ivy");
   });
 });
+
+// ---- soma#441 — profile/purpose.md is a reserved identity target ----
+
+test("#441 re-import leaves a curated purpose.md byte-unchanged and reports it as skipped-reserved", async () => {
+  await withTempHome(async (homeDir) => {
+    await writePaiFixture(homeDir);
+    await importPaiIdentity({ homeDir });
+
+    const purposePath = join(homeDir, ".soma/profile/purpose.md");
+    const curated = "# Purpose\n\nHand-curated mission that must survive re-import.\n";
+    await writeFile(purposePath, curated, "utf8");
+
+    const second = await importPaiIdentity({ homeDir });
+
+    expect(await readFile(purposePath, "utf8")).toBe(curated);
+    expect(second.skippedReserved ?? []).toContain(purposePath);
+    expect(second.files).not.toContain(purposePath);
+    // principal.md / assistant.md are deterministic distillations and
+    // must still be (re)written on every run.
+    expect(second.files).toContain(join(homeDir, ".soma/profile/principal.md"));
+    expect(second.files).toContain(join(homeDir, ".soma/profile/assistant.md"));
+  });
+});
+
+test("#441 overwriteReserved: true replaces an existing curated purpose.md", async () => {
+  await withTempHome(async (homeDir) => {
+    await writePaiFixture(homeDir);
+    await importPaiIdentity({ homeDir });
+
+    const purposePath = join(homeDir, ".soma/profile/purpose.md");
+    await writeFile(purposePath, "# Purpose\n\nHand-curated, about to be overwritten.\n", "utf8");
+
+    const second = await importPaiIdentity({ homeDir, overwriteReserved: true });
+
+    expect(second.files).toContain(purposePath);
+    expect(second.skippedReserved ?? []).not.toContain(purposePath);
+    const rewritten = await readFile(purposePath, "utf8");
+    expect(rewritten).not.toContain("Hand-curated, about to be overwritten.");
+  });
+});
+
+test("#441 first run (no existing purpose.md) creates it and does not report it as skipped", async () => {
+  await withTempHome(async (homeDir) => {
+    await writePaiFixture(homeDir);
+
+    const result = await importPaiIdentity({ homeDir });
+    const purposePath = join(homeDir, ".soma/profile/purpose.md");
+
+    expect(result.files).toContain(purposePath);
+    expect(result.skippedReserved ?? []).toEqual([]);
+    await expect(readFile(purposePath, "utf8")).resolves.toContain("Build useful test systems without leaking publisher context.");
+  });
+});
+
+test("#441 cli `soma import pai --apply` reports skipped reserved purpose.md and accepts --overwrite-reserved", async () => {
+  await withTempHome(async (homeDir) => {
+    await writePaiFixture(homeDir);
+    await runSomaCli(["import", "pai", "--apply", "--home-dir", homeDir]);
+
+    const purposePath = join(homeDir, ".soma/profile/purpose.md");
+    await writeFile(purposePath, "# Purpose\n\nHand-curated via CLI.\n", "utf8");
+
+    const applied = await runSomaCli(["import", "pai", "--apply", "--home-dir", homeDir]);
+    // The marker is "(exists)", not "(curated)": the skip only detects
+    // that the target is already a regular file.
+    expect(applied).toContain("skipped reserved (exists)");
+    expect(applied).toContain("profile/purpose.md");
+    expect(applied).toContain("--overwrite-reserved");
+    await expect(readFile(purposePath, "utf8")).resolves.toBe("# Purpose\n\nHand-curated via CLI.\n");
+
+    const overwritten = await runSomaCli(["import", "pai", "--apply", "--home-dir", homeDir, "--overwrite-reserved"]);
+    expect(overwritten).not.toContain("skipped reserved");
+    await expect(readFile(purposePath, "utf8")).resolves.not.toContain("Hand-curated via CLI.");
+  });
+});
+
+test("#441 a directory at the reserved purpose target throws instead of silently skipping", async () => {
+  await withTempHome(async (homeDir) => {
+    await writePaiFixture(homeDir);
+
+    // A directory where the reserved file belongs is a broken
+    // filesystem state — the importer must surface it, not report a
+    // false success by "skipping" it.
+    const purposePath = join(homeDir, ".soma/profile/purpose.md");
+    await mkdir(purposePath, { recursive: true });
+
+    await expect(importPaiIdentity({ homeDir })).rejects.toThrow("is not a regular file");
+  });
+});

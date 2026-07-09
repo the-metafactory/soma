@@ -6,6 +6,7 @@ import {
   type PaiMigrationResult,
 } from "../index";
 import { formatPackOutcomeLines } from "../pai-migration";
+import { formatReservedSkipLine } from "../pai-importer";
 import {
   countOutcomesWithMissingDependencies,
   migrateClaudeSkills,
@@ -463,6 +464,14 @@ function formatPaiMigrationPlan(plan: PaiMigrationPlan, verbose = false): string
 }
 
 function formatPaiMigrationResult(result: PaiMigrationResult, verbose = false): string {
+  // soma#441 — per-run reserved-skip detail for the identity phase.
+  // Ephemeral CLI-only line, mirrors the memory phase's "written N /
+  // unchanged M" precedent immediately below — the persisted
+  // MIGRATION.md manifest reports only the stable end-state total
+  // (see `renderManifest`'s identity line), not this per-run delta.
+  const identitySkippedReservedLines = (result.identity.skippedReserved ?? []).map(
+    (path) => formatReservedSkipLine(result.somaHome, path, "  - identity "),
+  );
   const memoryLine = result.memory === null
     ? "  - memory:   skipped"
     : result.memory.memoryDir === null
@@ -503,6 +512,7 @@ function formatPaiMigrationResult(result: PaiMigrationResult, verbose = false): 
     "",
     "Written:",
     `  - identity: ${result.identity.files.length} file(s)`,
+    ...identitySkippedReservedLines,
     result.algorithm ? `  - algorithm: ${result.algorithm.files.length} file(s)` : "  - algorithm: skipped (not present)",
     memoryLine,
     docsLine,
