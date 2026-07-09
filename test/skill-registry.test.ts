@@ -103,7 +103,7 @@ describe("truncateAtWordBoundary", () => {
   test("cuts long text on a word boundary and appends an ellipsis", () => {
     const long = "word ".repeat(60).trim(); // 299 chars
     const result = truncateAtWordBoundary(long, 160);
-    expect(result.length).toBeLessThanOrEqual(161); // 160 + ellipsis char, word-boundary cut
+    expect(result.length).toBeLessThanOrEqual(160); // ellipsis reserved: total never exceeds maxLength
     expect(result.endsWith("…")).toBe(true);
     expect(result.endsWith(" …")).toBe(false); // no trailing space before the ellipsis
   });
@@ -200,11 +200,12 @@ describe("renderSkills — compact registry projection", () => {
 });
 
 /**
- * A representative ~104-skill fixture, mirroring the real soma skill count
- * and the real mix observed in the shipped catalog: most skills declare no
- * structured `triggers` (their guidance lives only in inline `USE WHEN`
+ * A SYNTHETIC ~104-skill fixture — chosen to match the real catalog's
+ * approximate SIZE, with a deliberate (modulo-driven, not sampled) mix: most
+ * skills declare no structured `triggers` (guidance in inline `USE WHEN`
  * prose), a minority declare a real `triggers` array, and roughly a fifth
- * carry a `NOT FOR` / `SKIP:` anti-trigger clause in their description.
+ * carry a `NOT FOR` / `SKIP:` anti-trigger clause. It exercises the budget at
+ * catalog scale; it is not drawn from the shipped catalog's actual contents.
  */
 function buildRepresentativeSkillFixture(count: number): SomaSkill[] {
   const skills: SomaSkill[] = [];
