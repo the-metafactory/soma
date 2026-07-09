@@ -52,8 +52,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the rest of the session hook fleet; opt out with `statusLine: false`):
   directory, git branch/ahead-behind, context-window percentage, 5h/7d usage
   windows, and a mode+effort indicator (e.g. `⚙E3 task`). The mode+effort
-  indicator is fed by a session-scoped state file so a concurrent session's
-  Algorithm run never leaks into another session's status line (#446).
+  indicator reads a per-session state file (keyed by session id) rather than the
+  global active-run pointer, so it reflects the current session's own mode
+  rather than a concurrent session's Algorithm run (#446).
 - **Compact skill registry projection under a line budget (#371)** — the
   projected skill catalog now emits one tight entry per skill (name, a
   truncated lead-clause description, and its path, plus optional `triggers:`
