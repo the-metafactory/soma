@@ -1,19 +1,28 @@
 // soma#373 — greenfield install acceptance test.
 //
-// Every other install test exercises `installSomaFor*` against a home that
-// (within the same test) has already been bootstrapped, so a fresh-machine
+// Every other install test exercises the `installSomaFor*` functions against
+// a home that (within the same test) has already been bootstrapped, so a fresh-machine
 // regression — a file the plan promises but apply never writes, a projected
 // doc that references a path nothing ever creates, a hand-edited JSON
-// fixture that stops parsing — can slip through unnoticed. This file installs
-// into a completely empty `homeDir` + `somaHome` pair (nothing pre-created,
-// mirroring `soma install <substrate> --home-dir <tmp> --soma-home <tmp>
-// --apply` end to end: `installSomaFor*` IS what the CLI's `runInstall`
-// calls — see `src/cli/substrate-lifecycle.ts`'s `installers` map) for every
-// substrate on `PROJECTION_LIFECYCLE_SUBSTRATES`, then audits the result.
+// fixture that stops parsing — can slip through unnoticed. This file drives
+// the REAL CLI install path — `parseInstallArgs(["install", <substrate>,
+// "--home-dir", <tmp>, "--soma-home", <tmp>, "--apply"])` fed through
+// `runSubstrateLifecycleCli` (src/cli/substrate-lifecycle.ts) — so it
+// exercises argv parsing, dispatch, and the `--apply` gate, not just the
+// installer function. It runs for every substrate on
+// `PROJECTION_LIFECYCLE_SUBSTRATES` against empty existing temp roots, then
+// audits what actually landed on disk.
 //
-// Three acceptance checks per substrate, run by `auditProjectedFiles`:
-//   1. every file the install reports as projected (`result.somaHome.files`
-//      + `result.substrateHome.files`) exists on disk and is non-empty.
+// `runSubstrateLifecycleCli` returns a formatted string, not a structured
+// file list, so the audit's file SET is derived two ways (soma#373 sanctions
+// either): the static install PLAN's declared files (asserted present on
+// disk — the "declared promise kept" check), plus a full walk of the temp
+// roots (every projected file, including dynamic bundled-skill/lifecycle
+// output the static plan omits) which feeds the content checks.
+//
+// Three acceptance checks, run by `auditProjectedFiles`:
+//   1. every projected file that landed exists on disk and is non-empty; and
+//      every file the static plan declares is among them (declared→landed).
 //   2. every projected text file (`.md`, `.json`, and other non-binary
 //      projected extensions) decodes as valid UTF-8 under a FATAL decoder —
 //      a lone continuation byte or truncated multibyte sequence fails rather
@@ -27,28 +36,37 @@
 // breakage rather than passing vacuously.
 
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { expect, test } from "bun:test";
 import {
-  installSomaForClaudeCode,
-  installSomaForCodex,
-  installSomaForCursor,
-  installSomaForGrok,
-  installSomaForPiDev,
+  planSomaForClaudeCodeInstall,
+  planSomaForCodexInstall,
+  planSomaForCursorInstall,
+  planSomaForGrokInstall,
+  planSomaForPiDevInstall,
   type SomaInstallOptions,
-  type SomaInstallResult,
+  type SomaInstallPlan,
 } from "../src/index";
-import { INSTALL_SUBSTRATES, PROJECTION_LIFECYCLE_SUBSTRATES, type InstallSubstrate } from "../src/cli/substrate-lifecycle";
-import { defaultSubstrateHome } from "../src/install-spec-registry";
+import {
+  INSTALL_SUBSTRATES,
+  PROJECTION_LIFECYCLE_SUBSTRATES,
+  parseInstallArgs,
+  runSubstrateLifecycleCli,
+  type InstallSubstrate,
+} from "../src/cli/substrate-lifecycle";
+import { defaultSubstrateHome, installSpecFor } from "../src/install-spec-registry";
 
 async function withGreenfieldHomes<T>(
   fn: (homeDir: string, somaHome: string) => Promise<T>,
 ): Promise<T> {
-  // Two INDEPENDENT temp roots (not one nested under the other) — greenfield
-  // means nothing pre-created, and exercises `--home-dir` / `--soma-home`
-  // pointing at unrelated trees, same as a real split-home install.
+  // Two INDEPENDENT temp roots (not one nested under the other): greenfield
+  // means empty EXISTING roots — `mkdtemp` creates them empty — and exercises
+  // `--home-dir` / `--soma-home` pointing at unrelated trees, same as a real
+  // split-home install. (The create-from-absence case, where install must
+  // create a home path that does NOT yet exist, is covered by its own test
+  // below.)
   const homeDir = await mkdtemp(join(tmpdir(), "soma-greenfield-home-"));
   const somaHome = await mkdtemp(join(tmpdir(), "soma-greenfield-soma-"));
   try {
@@ -57,6 +75,51 @@ async function withGreenfieldHomes<T>(
     await rm(homeDir, { recursive: true, force: true });
     await rm(somaHome, { recursive: true, force: true });
   }
+}
+
+/**
+ * Every regular file under `roots`, recursively — the faithful "what actually
+ * landed on disk" projected set. Skips transient `.soma-case.*` case-probe
+ * markers the owned-subtree reconcile may leave mid-run (same filter the
+ * existing install tests use).
+ */
+async function collectProjectedFiles(roots: readonly string[]): Promise<string[]> {
+  const files: string[] = [];
+  for (const root of roots) {
+    for (const rel of await readdir(root, { recursive: true })) {
+      if (basename(rel).startsWith(".soma-case.")) continue;
+      const full = join(root, rel);
+      if ((await stat(full)).isFile()) files.push(full);
+    }
+  }
+  return files;
+}
+
+const SUBSTRATE_PLANNERS: Record<
+  (typeof PROJECTION_LIFECYCLE_SUBSTRATES)[number],
+  (options: SomaInstallOptions) => SomaInstallPlan
+> = {
+  codex: planSomaForCodexInstall,
+  "pi-dev": planSomaForPiDevInstall,
+  "claude-code": planSomaForClaudeCodeInstall,
+  cursor: planSomaForCursorInstall,
+  grok: planSomaForGrokInstall,
+};
+
+/**
+ * Drive the real CLI install for `substrate` into the given roots: parse an
+ * argv, run it through the lifecycle CLI, and assert the apply actually
+ * happened. Callers audit the resulting disk state afterward.
+ */
+async function runCliInstall(substrate: InstallSubstrate, homeDir: string, somaHome: string): Promise<void> {
+  const parsed = parseInstallArgs(["install", substrate, "--home-dir", homeDir, "--soma-home", somaHome, "--apply"]);
+  expect(parsed.command).toBe("install");
+  expect(parsed.substrate).toBe(substrate);
+  expect(parsed.apply).toBe(true);
+  const output = await runSubstrateLifecycleCli(parsed);
+  // The apply-mode result banner (formatInstallResult); the dry-run path emits
+  // "PLAN (no changes written)" instead, so this also guards the --apply gate.
+  expect(output).toContain("Soma install applied");
 }
 
 // Matches an absolute path character run (no whitespace/quote/bracket/paren)
@@ -112,7 +175,7 @@ export interface ProjectionAuditProblem {
  * temp `homeDir`/`somaHome` roots for a real install, or a fixture's own
  * temp root for the broken-projection self-test below. `isExempt` lets a
  * caller declare specific referenced paths as intentionally-not-yet-existing
- * (see `isKnownLazyOrCrossSubstrateReference` below) rather than promises
+ * (see `isKnownOnDemandOrCrossSubstrateReference` below) rather than promises
  * the install broke.
  */
 export async function auditProjectedFiles(
@@ -199,10 +262,10 @@ function isTextProjectionPath(path: string): boolean {
  * Projected docs and runtime configs legitimately reference some paths that
  * don't exist right after a fresh `soma install` — they're not projection
  * promises, they're either (a) cross-substrate defensive policy data, or (b)
- * locations a *later*, separate command populates. Exempting them here keeps
- * the dangling-reference check honest: it still fails on a genuine stale/
- * broken reference (proven by the fixture test below), without flaring on
- * these known, intentional cases.
+ * locations a *later*, separate command creates on demand. Exempting them
+ * here keeps the dangling-reference check honest: it still fails on a genuine
+ * stale/broken reference (proven by the fixture test below), without flaring
+ * on these known, intentional cases.
  *
  * Each exemption cites the source that makes the reference intentional:
  *
@@ -228,7 +291,7 @@ function isTextProjectionPath(path: string): boolean {
  *   install has run none (documented in lifecycle.md's "Source Files" list
  *   as "Completed Algorithm learnings").
  */
-function isKnownLazyOrCrossSubstrateReference(
+function isKnownOnDemandOrCrossSubstrateReference(
   ref: string,
   ctx: { homeDir: string; somaHome: string; substrate: InstallSubstrate },
 ): boolean {
@@ -248,47 +311,82 @@ function isKnownLazyOrCrossSubstrateReference(
   const somaRelPrefix = `${ctx.somaHome}/`;
   if (ref.startsWith(somaRelPrefix)) {
     const rel = ref.slice(somaRelPrefix.length);
-    const lazyPrefixes = [
+    const onDemandPrefixes = [
       "profile/imports",
       "imports",
       "memory/RAW/untrusted",
       "memory/SECURITY/inbound-content",
       "memory/LEARNING/ALGORITHM",
     ];
-    if (lazyPrefixes.some((prefix) => rel === prefix || rel.startsWith(`${prefix}/`))) return true;
+    if (onDemandPrefixes.some((prefix) => rel === prefix || rel.startsWith(`${prefix}/`))) return true;
   }
 
   return false;
 }
 
-const SUBSTRATE_INSTALLERS: Record<
-  (typeof PROJECTION_LIFECYCLE_SUBSTRATES)[number],
-  (options: SomaInstallOptions) => Promise<SomaInstallResult>
-> = {
-  codex: installSomaForCodex,
-  "pi-dev": installSomaForPiDev,
-  "claude-code": installSomaForClaudeCode,
-  cursor: installSomaForCursor,
-  grok: installSomaForGrok,
-};
+/**
+ * Files a spec declares in `homeFiles` (so the planner / doctor / owned-subtree
+ * reconcile know about them) but only PROJECTS when their source exists — so a
+ * greenfield install legitimately omits them. Matched by path suffix. Source:
+ * src/adapters/claude-code.ts, where `ConditionalRulesFile` names exactly
+ * `rules/soma/ACTIVE_VSA.md` (no active VSA) and `rules/soma/MEMORY.md` (no
+ * memory index); both are excluded from the always-on content builders and
+ * appended only when their source is present. A declared file absent for any
+ * OTHER reason is a real "planned but never written" regression.
+ */
+const GREENFIELD_CONDITIONAL_DECLARED_SUFFIXES = [
+  "rules/soma/ACTIVE_VSA.md",
+  "rules/soma/MEMORY.md",
+];
 
 for (const substrate of PROJECTION_LIFECYCLE_SUBSTRATES) {
-  test(`greenfield install: ${substrate} projects a clean, self-consistent home`, async () => {
+  test(`greenfield install: ${substrate} projects a clean, self-consistent home (via CLI)`, async () => {
     await withGreenfieldHomes(async (homeDir, somaHome) => {
-      const install = SUBSTRATE_INSTALLERS[substrate];
-      const result = await install({ homeDir, somaHome });
+      await runCliInstall(substrate, homeDir, somaHome);
 
-      expect(result.substrate).toBe(substrate);
+      // (1a) Declared promise kept: every file the STATIC install plan
+      // declares actually landed on disk — UNLESS it is a known conditional
+      // projection a greenfield install legitimately omits. The plan
+      // deliberately omits dynamic bundled-skill/lifecycle output (see
+      // test/fixtures.ts), so this is a subset check with teeth against the
+      // ugly-parse-free structured plan: it fails if a planned NON-conditional
+      // projection silently didn't get written.
+      const plan = SUBSTRATE_PLANNERS[substrate]({ homeDir, somaHome });
+      const spec = installSpecFor(substrate);
+      // `optionalHomeFiles` are only written when opted-in / their source
+      // exists; drop them from the "must land" set.
+      const optional = new Set(
+        (spec.optionalHomeFiles?.({ homeDir, somaHome }) ?? []).map((path) => resolve(plan.substrateHome, path)),
+      );
+      const declared = [...plan.somaFiles, ...plan.substrateFiles]
+        .map((path) => resolve(path))
+        .filter((path) => !optional.has(path));
+      expect(declared.length).toBeGreaterThan(0);
 
-      // The declared projected-file set: what the install itself reports it
-      // wrote. `somaHome.files` covers the ~/.soma bootstrap; `substrateHome.
-      // files` covers everything projected onto the substrate home (static +
-      // post-projection + lifecycle) — see src/install.ts's `allProjectedFiles`.
-      const expectedFiles = [...new Set([...result.somaHome.files, ...result.substrateHome.files])];
-      expect(expectedFiles.length).toBeGreaterThan(0);
+      // (1b) Full projected set: everything that actually landed under either
+      // temp root — the faithful audit surface for the content checks.
+      const projectedFiles = await collectProjectedFiles([homeDir, somaHome]);
+      const projectedResolved = new Set(projectedFiles.map((path) => resolve(path)));
+      expect(projectedFiles.length).toBeGreaterThan(declared.length - 1); // ≥ declared
 
-      const problems = await auditProjectedFiles(expectedFiles, [homeDir, somaHome], (ref) =>
-        isKnownLazyOrCrossSubstrateReference(ref, { homeDir, somaHome, substrate }),
+      // A declared file may be absent ONLY if it is a documented conditional
+      // projection (no active VSA / no memory index on greenfield); any other
+      // missing declared file is a real "planned but never written" bug.
+      const missingDeclared = declared.filter(
+        (path) =>
+          !projectedResolved.has(path) &&
+          !GREENFIELD_CONDITIONAL_DECLARED_SUFFIXES.some((suffix) => path.endsWith(`/${suffix}`)),
+      );
+      if (missingDeclared.length > 0) {
+        throw new Error(
+          `${substrate}: ${missingDeclared.length} planned file(s) never landed on disk:\n${missingDeclared
+            .map((path) => `  - ${path}`)
+            .join("\n")}`,
+        );
+      }
+
+      const problems = await auditProjectedFiles(projectedFiles, [homeDir, somaHome], (ref) =>
+        isKnownOnDemandOrCrossSubstrateReference(ref, { homeDir, somaHome, substrate }),
       );
       if (problems.length > 0) {
         throw new Error(
@@ -300,6 +398,42 @@ for (const substrate of PROJECTION_LIFECYCLE_SUBSTRATES) {
     });
   });
 }
+
+test("greenfield install (via CLI) creates a home path that does not yet exist (create-from-absence)", async () => {
+  // Unlike withGreenfieldHomes (which mkdtemps both roots so they exist-but-
+  // empty), point --home-dir / --soma-home at child paths UNDER a temp root
+  // that do NOT exist yet, so install must create them from absence — the
+  // fresh-machine case where ~/.soma and the substrate home don't exist.
+  const parent = await mkdtemp(join(tmpdir(), "soma-greenfield-absent-"));
+  try {
+    const homeDir = join(parent, "nested", "home");
+    const somaHome = join(parent, "nested", "soma");
+    expect(existsSync(homeDir)).toBe(false);
+    expect(existsSync(somaHome)).toBe(false);
+
+    await runCliInstall("claude-code", homeDir, somaHome);
+
+    // Both absent paths now exist and hold projected files.
+    expect(existsSync(homeDir)).toBe(true);
+    expect(existsSync(somaHome)).toBe(true);
+
+    const projectedFiles = await collectProjectedFiles([homeDir, somaHome]);
+    expect(projectedFiles.length).toBeGreaterThan(0);
+
+    const problems = await auditProjectedFiles(projectedFiles, [homeDir, somaHome], (ref) =>
+      isKnownOnDemandOrCrossSubstrateReference(ref, { homeDir, somaHome, substrate: "claude-code" }),
+    );
+    if (problems.length > 0) {
+      throw new Error(
+        `create-from-absence: ${problems.length} projection problem(s):\n${problems
+          .map((p) => `  - ${p.file}: ${p.reason}`)
+          .join("\n")}`,
+      );
+    }
+  } finally {
+    await rm(parent, { recursive: true, force: true });
+  }
+});
 
 test("auditProjectedFiles flags a deliberately broken projection (dangling reference + malformed JSON)", async () => {
   const root = await mkdtemp(join(tmpdir(), "soma-greenfield-broken-"));
