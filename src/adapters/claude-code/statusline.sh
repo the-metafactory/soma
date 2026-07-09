@@ -85,9 +85,9 @@ append_window() {
 out=""
 
 # ── 1. Soma segment (mode+effort for THIS session, task from current-work) ──
-# Mode/effort come from the mode-classifier hook's per-session feed, written by
-# `soma algorithm classify --session-id` on every prompt — the authoritative,
-# session-scoped classification (not the current-work pointer's `phase`, which
+# Mode/effort come from the mode-classifier hook's per-session feed: the hook
+# writes `statusline-mode-<sid>.json` after it classifies each prompt — the
+# authoritative, session-scoped classification (not the current-work `phase`,
 # doesn't carry mode/effort, and not the global active-algorithm-run.json,
 # which leaks across concurrent sessions). Task is still read from the newest
 # current-work file. Both reads are session-scoped — no global reads, so a
@@ -99,7 +99,12 @@ out=""
 # (the writer sanitizes on its side, so the two stay in lockstep for safe ids).
 if [ -n "$sid" ] && [[ "$sid" =~ ^[A-Za-z0-9._-]+$ ]]; then
   smode=""; seff=""
-  IFS="$US" read -r smode seff < <(jq -j --arg sep "$US" '[(.mode // ""), (.effort // "")] | join($sep)' "$STATE_DIR/statusline-mode-$sid.json" 2>/dev/null)
+  modefile="$STATE_DIR/statusline-mode-$sid.json"
+  # Only spawn jq when the per-session state file exists (it won't before the
+  # first classifier write, or after cleanup) — keeps the hot path fork-free then.
+  if [ -r "$modefile" ]; then
+    IFS="$US" read -r smode seff < <(jq -j --arg sep "$US" '[(.mode // ""), (.effort // "")] | join($sep)' "$modefile" 2>/dev/null)
+  fi
 
   task=""
   cw=$(ls -t "$STATE_DIR"/current-work-"$sid"-*.json 2>/dev/null | head -1)
