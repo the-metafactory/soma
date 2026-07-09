@@ -36,8 +36,18 @@ function promptFromInput(input) {
   return "";
 }
 
-function runSomaClassification(config, prompt) {
-  return spawnSync(config.bunPath, ["src/cli.ts", "algorithm", "classify", "--prompt", prompt || "", "--json"], {
+function runSomaClassification(config, prompt, sessionId) {
+  const args = ["src/cli.ts", "algorithm", "classify", "--prompt", prompt || "", "--json"];
+  // soma statusline-mode-feeder: when Claude Code gives us a session id, feed
+  // this prompt's classification to the per-session statusline state file
+  // (best-effort inside `classify` itself — never blocks this hook's output).
+  if (typeof sessionId === "string" && sessionId.length > 0) {
+    args.push("--session-id", sessionId);
+    if (typeof config.somaHome === "string" && config.somaHome.length > 0) {
+      args.push("--soma-home", config.somaHome);
+    }
+  }
+  return spawnSync(config.bunPath, args, {
     cwd: config.trustedSomaRepo,
     encoding: "utf8",
     timeout: 3000,
@@ -110,7 +120,8 @@ function main() {
     emitFailOpen(config.error || "Invalid mode classifier config.");
   }
   const input = readHookInput();
-  const result = runSomaClassification(config, promptFromInput(input));
+  const sessionId = typeof input.session_id === "string" ? input.session_id : undefined;
+  const result = runSomaClassification(config, promptFromInput(input), sessionId);
   if (result.status !== 0) {
     emitFailOpen(result.stderr || result.stdout || "");
   }

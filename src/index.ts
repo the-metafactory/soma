@@ -506,6 +506,12 @@ export {
   type UpsertSomaWorkRegistryEntryOptions,
   type UpsertSomaWorkRegistryEntryResult,
 } from "./work-registry";
+export {
+  statuslineModeStatePath,
+  writeStatuslineModeState,
+  type StatuslineModeState,
+  type WriteStatuslineModeStateOptions,
+} from "./statusline-mode-state";
 export { applySomaWriteback, type SomaWritebackOptions, type SomaWritebackResult } from "./writeback";
 export { promoteAlgorithmRunMemory } from "./memory-promotion";
 export { planMemoryBackfill, runMemoryBackfill } from "./memory-backfill";

@@ -1,7 +1,7 @@
 #!/bin/bash
 # ─────────────────────────────────────────────────────────────────────────────
 # Soma status line — one compact line, fast (bash+jq+git, no network, no bun).
-# Layout:  ⚙ slug·phase · model · dir ⎇branch● · ctx 38% · 5h 12%⟳2h14 · 7d 41%⟳3d1h
+# Layout:  ⚙E3 task · model · dir ⎇branch● · ctx 38% · 5h 12%⟳2h14 · 7d 41%⟳3d1h
 # Reads Claude Code's stdin JSON + Soma STATE files. Soma state, git, and the
 # usage windows drop when their data is absent; dir and context always render
 # with sane defaults. Best-effort: missing or malformed data degrades the
@@ -31,7 +31,7 @@ sep() { printf '%s · %s' "$SEP" "$RESET"; }
 # which until_str already handles). Portable to bash 3.2 (no mapfile -d).
 input=$(cat)
 US=$'\037'
-IFS="$US" read -r cwd sid model ctx r5 r5r r7 r7r < <(printf '%s' "$input" | jq -j '
+IFS="$US" read -r cwd sid model ctx r5 r5r r7 r7r < <(printf '%s' "$input" | jq -j --arg sep "$US" '
   [ (.workspace.current_dir // .cwd // "."),
     (.session_id // ""),
     (.model.display_name // ""),
@@ -40,7 +40,7 @@ IFS="$US" read -r cwd sid model ctx r5 r5r r7 r7r < <(printf '%s' "$input" | jq 
     (.rate_limits.five_hour.resets_at // "" | tostring),
     (.rate_limits.seven_day.used_percentage // "" | tostring),
     (.rate_limits.seven_day.resets_at // "" | tostring)
-  ] | join("\u001f")' 2>/dev/null)
+  ] | join($sep)' 2>/dev/null)
 cwd="${cwd:-.}"
 ctx="${ctx:-0}"
 
@@ -84,23 +84,32 @@ append_window() {
 
 out=""
 
-# ── 1. Soma segment (active VSA/run for THIS session) ────────────────────────
-# Session-scoped from the current-work file only — no global reads, so a
-# concurrent session's run can never leak into this line.
+# ── 1. Soma segment (mode+effort for THIS session, task from current-work) ──
+# Mode/effort come from the mode-classifier hook's per-session feed, written by
+# `soma algorithm classify --session-id` on every prompt — the authoritative,
+# session-scoped classification (not the current-work pointer's `phase`, which
+# doesn't carry mode/effort, and not the global active-algorithm-run.json,
+# which leaks across concurrent sessions). Task is still read from the newest
+# current-work file. Both reads are session-scoped — no global reads, so a
+# concurrent session's state can never leak into this line.
 if [ -n "$sid" ]; then
+  smode=""; seff=""
+  IFS="$US" read -r smode seff < <(jq -j --arg sep "$US" '[(.mode // ""), (.effort // "")] | join($sep)' "$STATE_DIR/statusline-mode-$sid.json" 2>/dev/null)
+
+  task=""
   cw=$(ls -t "$STATE_DIR"/current-work-"$sid"-*.json 2>/dev/null | head -1)
   if [ -n "$cw" ]; then
-    # US-joined (not @tsv) for the same reason as the main read: a whitespace
-    # IFS would collapse an empty leading `phase` and mis-shift task/status.
-    # Real separators also keep a multi-word task ("write adapter") in one field.
-    IFS="$US" read -r phase task status < <(jq -j '[.phase // "", .task // .slug // "", .status // ""] | join("\u001f")' "$cw" 2>/dev/null)
+    task=$(jq -r '.task // .slug // ""' "$cw" 2>/dev/null)
     task="${task:0:22}"
-    if [ "$phase" = "native" ] || [ "$status" = "complete" ]; then
-      [ -n "$task" ] && out+="${SOMA}○ ${task}${RESET}"
-    elif [ -n "$phase" ]; then
-      out+="${SOMA}⚙${RESET} ${SOMA}${task}${DIM}·${phase}${RESET}"
-    fi
   fi
+
+  if [ "$smode" = "algorithm" ]; then
+    out+="${SOMA}⚙${seff}${RESET}"
+    [ -n "$task" ] && out+=" ${SOMA}${task}${RESET}"
+  elif [ "$smode" = "native" ]; then
+    [ -n "$task" ] && out+="${SOMA}○ ${task}${RESET}"
+  fi
+  # "minimal", missing state file, or malformed JSON: drop the segment entirely.
 fi
 
 # ── 2. model ─────────────────────────────────────────────────────────────────

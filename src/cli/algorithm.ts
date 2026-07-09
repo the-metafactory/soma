@@ -33,6 +33,7 @@ import { algorithmTouchedBy } from "../algorithm-provenance";
 import { datePrefixSlug } from "../dated-slug";
 import { defaultEvidenceKind, getCriteria, getGoal } from "../vsa-accessors";
 import { getRunPhase } from "../algorithm-lifecycle";
+import { writeStatuslineModeState } from "../statusline-mode-state";
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
 import type {
@@ -40,6 +41,7 @@ import type {
   AlgorithmEffortTier,
   AlgorithmPhase,
   AlgorithmPlanStep,
+  AlgorithmPromptClassification,
   AlgorithmRun,
   AlgorithmRunInput,
   EvidenceKind,
@@ -75,7 +77,9 @@ export const ALGORITHM_COMMAND_HELP: { usage: string; subcommands: Record<Algori
   usage: `Usage: soma algorithm <${ALGORITHM_ACTIONS.join("|")}> ...`,
   subcommands: {
     new: "Usage: soma algorithm new --prompt <text> --intent <text> --current-state <text> --goal <text> --criterion <id:text> [--effort <E1|E2|E3|E4|E5>] [--substrate <id>] [--home-dir <dir>] [--soma-home <dir>]",
-    classify: "Usage: soma algorithm classify --prompt <text> [--json]",
+    classify:
+      "Usage: soma algorithm classify --prompt <text> [--json] [--session-id <id>] [--home-dir <dir>] [--soma-home <dir>] " +
+      "(--session-id also best-effort writes the statusline mode+effort state file for that session)",
     batch: "Usage: soma algorithm batch --id <run-id> --op <kind:...> [--op <kind:...>] [--substrate <id>]",
     list: "Usage: soma algorithm list [--home-dir <dir>] [--soma-home <dir>]",
     show: "Usage: soma algorithm show --id <run-id> [--home-dir <dir>] [--soma-home <dir>]",
@@ -114,6 +118,7 @@ interface AlgorithmCliOptions {
   run?: AlgorithmRunInput;
   id?: string;
   prompt?: string;
+  sessionId?: string;
   capabilities?: string[];
   capabilityPhase?: AlgorithmPhase;
   capabilityReason?: string;
@@ -398,6 +403,10 @@ export function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
         options.prompt = run.prompt;
         index += 1;
         break;
+      case "--session-id":
+        options.sessionId = readOption(rest, index, arg);
+        index += 1;
+        break;
       case "--intent":
         run.intent = readOption(rest, index, arg);
         index += 1;
@@ -582,9 +591,7 @@ function formatAlgorithmRunResult(result: { path: string; run: AlgorithmRun }): 
   ].join("\n");
 }
 
-function formatAlgorithmClassification(prompt: string): string {
-  const classification = classifyAlgorithmPrompt(prompt);
-
+function formatAlgorithmClassification(classification: AlgorithmPromptClassification): string {
   return [
     "Soma Algorithm prompt classification",
     `mode: ${classification.mode}`,
@@ -594,8 +601,8 @@ function formatAlgorithmClassification(prompt: string): string {
   ].join("\n");
 }
 
-function formatAlgorithmClassificationJson(prompt: string): string {
-  return `${JSON.stringify(classifyAlgorithmPrompt(prompt))}\n`;
+function formatAlgorithmClassificationJson(classification: AlgorithmPromptClassification): string {
+  return `${JSON.stringify(classification)}\n`;
 }
 
 function formatAlgorithmRun(run: AlgorithmRun, path: string): string {
@@ -690,7 +697,23 @@ export async function runAlgorithmCli(parsed: ParsedAlgorithmArgs): Promise<stri
 
   if (parsed.action === "classify") {
     if (!options.prompt) throw new Error("--prompt is required.");
-    return options.json ? formatAlgorithmClassificationJson(options.prompt) : formatAlgorithmClassification(options.prompt);
+    const classification = classifyAlgorithmPrompt(options.prompt);
+    if (options.sessionId) {
+      // Best-effort: a statusline-feed write failure (e.g. an unwritable Soma
+      // home) must never block the classification the hook is waiting on.
+      try {
+        await writeStatuslineModeState({
+          homeDir: options.homeDir,
+          somaHome: options.somaHome,
+          sessionId: options.sessionId,
+          classification,
+          updatedAt: new Date().toISOString(),
+        });
+      } catch {
+        // swallow — see comment above.
+      }
+    }
+    return options.json ? formatAlgorithmClassificationJson(classification) : formatAlgorithmClassification(classification);
   }
 
   if (parsed.action === "new") {
