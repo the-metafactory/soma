@@ -355,8 +355,9 @@ Adapters decide how the skill is projected into each substrate.
 
 Soma supports progressive skill loading: project a compact registry by default,
 then load the selected skill body only when a task route needs it. The
-registry entry per skill is one line (name, a truncated description, and its
-path) instead of a full heading block, kept inside a declared line budget. See
+registry entry per skill is compact (name, a truncated description, and its
+path, plus optional `triggers:`/`not:` lines) instead of a full heading block,
+kept inside a declared line budget. See
 [docs/progressive-skill-loading.md](docs/progressive-skill-loading.md).
 MCP-capable substrates can use the optional
 [docs/mcp-server.md](docs/mcp-server.md) surface for the same on-demand loading
@@ -523,7 +524,7 @@ substrate's native shape.
 `soma doctor --substrate <substrate>` content-compares each substrate's
 projection against a fresh projection built in memory — not a timestamp
 heuristic — across all 5 install substrates (codex, claude-code, cursor, grok,
-pi.dev), catching hand-edited, stale, or missing projection files with
+pi-dev), catching hand-edited, stale, or missing projection files with
 CI-friendly exit codes (0 clean, 1 drift, 2 error).
 
 Daemon mode and deeper Cortex/Myelin integration come after the file format,
