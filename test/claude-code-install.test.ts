@@ -3,7 +3,7 @@
  * Minimal-correct scope: rules/soma/ skeleton + VSA skill projection +
  * lifecycle/writeback hooks + uninstaller.
  */
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -319,6 +319,58 @@ test("issue #274: Claude Code mode classifier install disables PAI classifier an
     expect(JSON.stringify(after.hooks)).toContain("echo user-prompt");
     expect(JSON.stringify(after.hooks)).not.toContain("soma-mode-classifier");
     expect(after.somaDisabledHooks).toBeUndefined();
+  });
+});
+
+test("statusline feed: the mode classifier hook writes a per-session mode+effort state file", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForClaudeCode({ homeDir });
+
+    const output = runClaudeModeClassifierHook(homeDir, {
+      session_id: "feed-sess",
+      prompt: "Implement a multi-file migration for the adapter",
+    });
+    // The classification output is unchanged (the feed is a pure side-write).
+    expect(output.hookSpecificOutput?.additionalContext).toContain("Soma MODE: ALGORITHM E3");
+
+    const statePath = join(homeDir, ".soma/memory/STATE/statusline-mode-feed-sess.json");
+    const state = await readJson<{ mode: string; effort: string; updatedAt: string }>(statePath);
+    expect(state.mode).toBe("algorithm");
+    expect(state.effort).toBe("E3");
+    expect(Number.isNaN(Date.parse(state.updatedAt))).toBe(false);
+  });
+});
+
+test("statusline feed: a missing session_id writes no state file (hook still classifies)", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForClaudeCode({ homeDir });
+
+    const output = runClaudeModeClassifierHook(homeDir, { prompt: "Implement a multi-file migration for the adapter" });
+    expect(output.hookSpecificOutput?.additionalContext).toContain("Soma MODE: ALGORITHM E3");
+
+    // No session id → the feed writes no statusline-mode-*.json (STATE itself
+    // may exist from other install/lifecycle machinery).
+    const stateDir = join(homeDir, ".soma/memory/STATE");
+    const entries = await readdir(stateDir).catch(() => [] as string[]);
+    expect(entries.some((name) => name.startsWith("statusline-mode-"))).toBe(false);
+  });
+});
+
+test("statusline feed: a traversal session_id is sanitized to a single basename inside STATE", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForClaudeCode({ homeDir });
+
+    runClaudeModeClassifierHook(homeDir, {
+      session_id: "../../../../tmp/evil",
+      prompt: "Implement a multi-file migration for the adapter",
+    });
+
+    // The write stayed inside STATE as one sanitized file — no traversal, and
+    // nothing landed at the ../.. targets outside STATE.
+    const stateDir = join(homeDir, ".soma/memory/STATE");
+    const entries = (await readFile(join(stateDir, "statusline-mode-..-..-..-..-tmp-evil.json"), "utf8"));
+    expect(JSON.parse(entries).mode).toBe("algorithm");
+    await expect(stat(join(homeDir, ".soma/memory/tmp/evil"))).rejects.toThrow();
   });
 });
 

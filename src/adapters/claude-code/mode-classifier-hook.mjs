@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -36,23 +36,41 @@ function promptFromInput(input) {
   return "";
 }
 
-function runSomaClassification(config, prompt, sessionId) {
-  const args = ["src/cli.ts", "algorithm", "classify", "--prompt", prompt || "", "--json"];
-  // soma statusline-mode-feeder: when Claude Code gives us a session id, feed
-  // this prompt's classification to the per-session statusline state file
-  // (best-effort inside `classify` itself — never blocks this hook's output).
-  if (typeof sessionId === "string" && sessionId.length > 0) {
-    args.push("--session-id", sessionId);
-    if (typeof config.somaHome === "string" && config.somaHome.length > 0) {
-      args.push("--soma-home", config.somaHome);
-    }
-  }
-  return spawnSync(config.bunPath, args, {
+function runSomaClassification(config, prompt) {
+  return spawnSync(config.bunPath, ["src/cli.ts", "algorithm", "classify", "--prompt", prompt || "", "--json"], {
     cwd: config.trustedSomaRepo,
     encoding: "utf8",
     timeout: 3000,
     env: process.env,
   });
+}
+
+// soma statusline-mode-feed: this hook is the sole writer of the per-session
+// mode+effort state the claude-code statusline reads. `classify` stays a pure,
+// portable command — the substrate-specific write lives here, in the adapter.
+// Mirrors src/adapters/claude-code/statusline-mode-state.ts (unit-tested there);
+// kept inline because a standalone .mjs cannot import TypeScript. Best-effort:
+// a write failure must never break the classification this hook returns.
+function writeStatuslineModeState(config, sessionId, classification) {
+  if (typeof sessionId !== "string" || sessionId.length === 0) return;
+  if (typeof config.somaHome !== "string" || config.somaHome.length === 0) return;
+  try {
+    // Sanitize the session id used as a filename segment — kept in lockstep
+    // with statusline.sh's read-side guard (`^[A-Za-z0-9._-]+$`): for a safe id
+    // this is the identity so the reader addresses exactly this file; an unsafe
+    // id collapses to a single safe basename inside STATE (no traversal).
+    const token = sessionId.replace(/[^A-Za-z0-9._-]+/g, "-");
+    const path = join(config.somaHome, "memory", "STATE", `statusline-mode-${token}.json`);
+    mkdirSync(dirname(path), { recursive: true });
+    const payload = {
+      mode: String(classification.mode || ""),
+      effort: typeof classification.effort === "string" ? classification.effort : "",
+      updatedAt: new Date().toISOString(),
+    };
+    writeFileSync(path, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  } catch {
+    // best-effort — see comment above.
+  }
 }
 
 function parseClassification(output) {
@@ -120,16 +138,19 @@ function main() {
     emitFailOpen(config.error || "Invalid mode classifier config.");
   }
   const input = readHookInput();
-  const sessionId = typeof input.session_id === "string" ? input.session_id : undefined;
-  const result = runSomaClassification(config, promptFromInput(input), sessionId);
+  const result = runSomaClassification(config, promptFromInput(input));
   if (result.status !== 0) {
     emitFailOpen(result.stderr || result.stdout || "");
   }
+  const classification = parseClassification(result.stdout);
+  // Feed the per-session statusline state (best-effort; never blocks output).
+  const sessionId = typeof input.session_id === "string" ? input.session_id : undefined;
+  writeStatuslineModeState(config, sessionId, classification);
   emitAndExit({
     continue: true,
     hookSpecificOutput: {
       hookEventName: "UserPromptSubmit",
-      additionalContext: renderModeContext(parseClassification(result.stdout)),
+      additionalContext: renderModeContext(classification),
     },
   });
 }

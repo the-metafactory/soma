@@ -92,7 +92,12 @@ out=""
 # which leaks across concurrent sessions). Task is still read from the newest
 # current-work file. Both reads are session-scoped — no global reads, so a
 # concurrent session's state can never leak into this line.
-if [ -n "$sid" ]; then
+#
+# Guard `$sid` to a safe token BEFORE it touches any path (the mode-state read
+# and the current-work glob): a crafted id (`../…`, `/`) must not traverse out
+# of STATE. An unsafe id fails the guard and the whole Soma segment is dropped
+# (the writer sanitizes on its side, so the two stay in lockstep for safe ids).
+if [ -n "$sid" ] && [[ "$sid" =~ ^[A-Za-z0-9._-]+$ ]]; then
   smode=""; seff=""
   IFS="$US" read -r smode seff < <(jq -j --arg sep "$US" '[(.mode // ""), (.effort // "")] | join($sep)' "$STATE_DIR/statusline-mode-$sid.json" 2>/dev/null)
 
