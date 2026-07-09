@@ -120,8 +120,9 @@ test("grok install records the bundled portable skills in the install manifest",
     const { somaHome } = await bootstrapSomaHome({ homeDir });
 
     await installSomaForGrok({ homeDir });
+    const grokHome = join(homeDir, ".grok");
 
-    const manifest = JSON.parse(await readFile(grokInstallManifestPath(somaHome), "utf8"));
+    const manifest = JSON.parse(await readFile(grokInstallManifestPath(somaHome, grokHome), "utf8"));
     expect(manifest.schema).toBe(GROK_INSTALL_MANIFEST_SCHEMA);
     expect(resolve(manifest.substrateHome)).toBe(resolve(join(homeDir, ".grok")));
     // Only bundled portable skills project (the loop is scoped to src/skills).
@@ -140,7 +141,7 @@ test("grok install records the bundled portable skills in the install manifest",
 
     // Idempotent: a reinstall records byte-identical manifest entries.
     await installSomaForGrok({ homeDir });
-    const rerecorded = JSON.parse(await readFile(grokInstallManifestPath(somaHome), "utf8"));
+    const rerecorded = JSON.parse(await readFile(grokInstallManifestPath(somaHome, grokHome), "utf8"));
     expect(rerecorded.files).toEqual(manifest.files);
   });
 });

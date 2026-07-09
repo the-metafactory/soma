@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { bootstrapSomaHome, installSomaForGrok, uninstallSomaForGrok, projectGrok } from "../src/index";
 import { GROK_INSTALL_MANIFEST_SCHEMA, grokInstallManifestPath } from "../src/adapters/grok/install-manifest";
 import {
@@ -170,13 +170,13 @@ test("grok uninstall round-trips the bundled portable skills via the install man
 
     // Unedited managed files round-trip via the manifest; the manifest is consumed.
     expect(removed).toContain(normalize(join(grokHome, "skills/Memory/Workflows/Recall.md")));
-    expect(removed).toContain(normalize(grokInstallManifestPath(somaHome)));
+    expect(removed).toContain(normalize(grokInstallManifestPath(somaHome, grokHome)));
     // The Workflows subdir emptied out and was pruned...
     expect(await pathGone(join(grokHome, "skills", "Memory", "Workflows"))).toBe(true);
     // ...but the user edit + user-added file survive, keeping the Memory dir.
     expect(await readFile(join(grokHome, "skills", "Memory", "SKILL.md"), "utf8")).toBe("hand-tuned\n");
     expect(await readFile(join(grokHome, "skills", "Memory", "extra.md"), "utf8")).toBe("User-added.\n");
-    expect(await pathGone(grokInstallManifestPath(somaHome))).toBe(true);
+    expect(await pathGone(grokInstallManifestPath(somaHome, grokHome))).toBe(true);
   });
 });
 
@@ -186,8 +186,11 @@ test("grok uninstall ignores a manifest recorded for a different substrate home"
     const grokHome = join(homeDir, ".grok");
     await mkdir(join(grokHome, "skills", "notes"), { recursive: true });
     await writeFile(join(grokHome, "skills", "notes", "SKILL.md"), "User skill.\n", "utf8");
-    const manifestPath = grokInstallManifestPath(somaHome);
-    await mkdir(join(somaHome, "projections", "grok"), { recursive: true });
+    // Written at the path keyed by the REAL grok home (so uninstall finds it),
+    // but the in-file `substrateHome` names a different home — the
+    // defense-in-depth guard this test exercises.
+    const manifestPath = grokInstallManifestPath(somaHome, grokHome);
+    await mkdir(dirname(manifestPath), { recursive: true });
     await writeFile(
       manifestPath,
       `${JSON.stringify({
@@ -214,9 +217,10 @@ test("grok uninstall skips manifest paths that escape the substrate home", async
     await mkdir(grokHome, { recursive: true });
     const outside = join(homeDir, "outside.md");
     await writeFile(outside, "Do not touch.\n", "utf8");
-    await mkdir(join(somaHome, "projections", "grok"), { recursive: true });
+    const manifestPath = grokInstallManifestPath(somaHome, grokHome);
+    await mkdir(dirname(manifestPath), { recursive: true });
     await writeFile(
-      grokInstallManifestPath(somaHome),
+      manifestPath,
       `${JSON.stringify({
         schema: GROK_INSTALL_MANIFEST_SCHEMA,
         substrateHome: resolve(grokHome),
@@ -229,7 +233,7 @@ test("grok uninstall skips manifest paths that escape the substrate home", async
 
     expect(await readFile(outside, "utf8")).toBe("Do not touch.\n");
     // The matching-home manifest is consumed even though its entries were rejected.
-    expect(result.removed.map(normalize)).toContain(normalize(grokInstallManifestPath(somaHome)));
+    expect(result.removed.map(normalize)).toContain(normalize(manifestPath));
   });
 });
 

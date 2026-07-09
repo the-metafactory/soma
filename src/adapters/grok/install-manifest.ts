@@ -11,8 +11,10 @@ import {
 /**
  * Grok's portable-skill install manifest is the shared
  * `portable-skill-manifest` mechanism bound to the `grok` substrate: schema
- * `soma-grok-install-manifest-v1`, stored at `<somaHome>/projections/grok/`.
- * These thin wrappers preserve the grok-named API its adapter/doctor/tests
+ * `soma-grok-install-manifest-v1`, stored at `<somaHome>/projections/grok/
+ * <substrateHomeHash>/` (soma#438: keyed per substrate home so two `.grok`
+ * homes installed from one soma home don't share a manifest). These thin
+ * wrappers preserve the grok-named API its adapter/doctor/tests
  * already import; the byte output is identical to the shared helper with
  * `substrate: "grok"`. See `../shared/portable-skill-manifest.ts` for the
  * full contract (SHARED skills dir → manifest-tracked round-trip).
@@ -21,8 +23,8 @@ export const GROK_INSTALL_MANIFEST_SCHEMA = portableSkillManifestSchema("grok");
 
 export type GrokInstallManifest = PortableSkillManifest;
 
-export function grokInstallManifestPath(somaHome: string): string {
-  return portableSkillManifestPath(somaHome, "grok");
+export function grokInstallManifestPath(somaHome: string, substrateHome: string): string {
+  return portableSkillManifestPath(somaHome, "grok", substrateHome);
 }
 
 export function writeGrokInstallManifest(options: {
@@ -33,8 +35,8 @@ export function writeGrokInstallManifest(options: {
   return writePortableSkillManifest({ ...options, substrate: "grok" });
 }
 
-export function readGrokInstallManifest(somaHome: string): Promise<GrokInstallManifest | null> {
-  return readPortableSkillManifest(somaHome, "grok");
+export function readGrokInstallManifest(somaHome: string, substrateHome: string): Promise<GrokInstallManifest | null> {
+  return readPortableSkillManifest(somaHome, "grok", substrateHome);
 }
 
 export function reconcileGrokPortableSkillProjection(options: {
