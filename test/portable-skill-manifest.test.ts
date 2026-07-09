@@ -61,7 +61,8 @@ test("write records path + content hash; read round-trips; a foreign schema read
     const manifest = await readPortableSkillManifest(somaHome, "claude-code", substrateHome);
     expect(manifest?.schema).toBe("soma-claude-code-install-manifest-v1");
     expect(manifest?.files.map((f) => f.path)).toEqual(["skills/Memory/SKILL.md"]);
-    // Same manifest bytes, read under a DIFFERENT substrate → schema mismatch → null.
+    // The claude-code manifest lives under projections/claude-code/<hash>/; reading
+    // the same home as "grok" looks under a different per-substrate path → no file → null.
     expect(await readPortableSkillManifest(somaHome, "grok", substrateHome)).toBeNull();
   });
 });
