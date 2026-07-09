@@ -12,7 +12,6 @@ import {
   GROK_AGENT_MARKER,
   GROK_PERSONA_MARKER,
   GROK_ROLE_MARKER,
-  GROK_SOMA_REPO_POINTER_PATH,
   GROK_STARTUP_CONTEXT_PATH,
 } from "./projection-constants";
 import { defaultSomaRepoPath } from "../../repo-path";
