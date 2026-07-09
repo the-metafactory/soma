@@ -3,29 +3,14 @@ import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { planSomaInit, diagnoseSomaDoctor } from "../src/onboarding";
 import { withProvenance } from "../src/adapters/shared/provenance";
-import { runSomaCli, SomaCliError } from "../src/cli";
+import { runSomaCli } from "../src/cli";
 import { DOCTOR_SUPPORTED_SUBSTRATES, isDoctorSubstrate } from "../src/adapters/doctor";
 import { bootstrapSomaHome, installSomaForClaudeCode, installSomaForCodex } from "../src/index";
+import { expectSomaCliError } from "./fixtures/cli-error";
 import { withTempHome as withSharedTempHome } from "./fixtures/pai-migration-fixtures";
 
 const withTempHome = <T>(fn: (homeDir: string) => Promise<T>): Promise<T> =>
   withSharedTempHome(fn, "soma-onboarding-");
-
-/**
- * soma#370: `soma doctor` now exits non-zero for drift (1) and errors (2)
- * (mirrors the `vsa` command's SomaCliError(text, exitCode) pattern), so a
- * CLI-level doctor assertion beyond the clean case must catch the thrown
- * error rather than await a resolved string.
- */
-async function expectDoctorCliError(args: string[]): Promise<SomaCliError> {
-  try {
-    await runSomaCli(args);
-  } catch (error) {
-    if (error instanceof SomaCliError) return error;
-    throw error;
-  }
-  throw new Error(`expected \`soma ${args.join(" ")}\` to exit non-zero`);
-}
 
 async function writeMinimalPaiInstall(homeDir: string): Promise<void> {
   await mkdir(join(homeDir, ".claude/PAI/USER"), { recursive: true });
@@ -280,7 +265,7 @@ test("soma doctor reports missing migrations and projection drift actions", asyn
     await writeFile(join(homeDir, ".codex/rules/soma.rules"), "old projection\n", "utf8");
 
     const diagnosis = await diagnoseSomaDoctor({ homeDir });
-    const caught = await expectDoctorCliError(["doctor", "--home-dir", homeDir]);
+    const caught = await expectSomaCliError(["doctor", "--home-dir", homeDir]);
 
     expect(diagnosis.status).toBe("drift");
     expect(diagnosis.findings.map((finding) => finding.id)).toEqual([
@@ -313,7 +298,7 @@ test("soma doctor reports a missing Codex projection as an error (soma#370: miss
       action: "soma reproject codex",
     });
 
-    const caught = await expectDoctorCliError(["doctor", "--home-dir", homeDir]);
+    const caught = await expectSomaCliError(["doctor", "--home-dir", homeDir]);
     expect(caught.exitCode).toBe(2);
     expect(caught.message).toContain("soma doctor — errors detected");
     expect(caught.message).toContain("codex-projection-missing");
@@ -395,7 +380,7 @@ test("soma doctor --substrate claude-code reports a fully missing projection as 
       action: "soma reproject claude-code",
     });
 
-    const caught = await expectDoctorCliError(["doctor", "--substrate", "claude-code", "--home-dir", homeDir]);
+    const caught = await expectSomaCliError(["doctor", "--substrate", "claude-code", "--home-dir", homeDir]);
     expect(caught.exitCode).toBe(2);
     expect(caught.message).toContain("soma doctor — errors detected");
   });

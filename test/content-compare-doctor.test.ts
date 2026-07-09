@@ -14,24 +14,15 @@
 import { readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
-import { runSomaCli, SomaCliError } from "../src/cli";
+import { runSomaCli } from "../src/cli";
 import { PROJECTION_LIFECYCLE_SUBSTRATES, type InstallSubstrate } from "../src/cli/substrate-lifecycle";
 import { installSomaForCursor, installSomaForPiDev } from "../src/index";
 import { diagnoseContentCompareDrift } from "../src/adapters/content-compare-doctor";
+import { expectSomaCliError } from "./fixtures/cli-error";
 import { withTempHome as withSharedTempHome } from "./fixtures/pai-migration-fixtures";
 
 const withTempHome = <T>(fn: (homeDir: string) => Promise<T>): Promise<T> =>
   withSharedTempHome(fn, "soma-content-compare-doctor-");
-
-async function expectCliError(args: string[]): Promise<SomaCliError> {
-  try {
-    await runSomaCli(args);
-  } catch (error) {
-    if (error instanceof SomaCliError) return error;
-    throw error;
-  }
-  throw new Error(`expected \`soma ${args.join(" ")}\` to exit non-zero`);
-}
 
 /** Every regular file's bytes under any of `roots` (file or directory), keyed by absolute path. */
 async function collectFileBytes(roots: string[]): Promise<Record<string, string>> {
@@ -183,7 +174,7 @@ test("soma#370: soma doctor exit codes map 0 (clean) / 1 (drift) / 2 (missing fi
 
     // 1 — drift (a rendered file present but stale).
     await writeFile(join(homeDir, ".pi/agent/soma/tools.md"), "stale body\n", "utf8");
-    const driftError = await expectCliError(["doctor", "--substrate", "pi-dev", "--home-dir", homeDir]);
+    const driftError = await expectSomaCliError(["doctor", "--substrate", "pi-dev", "--home-dir", homeDir]);
     expect(driftError.exitCode).toBe(1);
     expect(driftError.message).toContain("soma doctor — drift detected");
 
@@ -194,7 +185,7 @@ test("soma#370: soma doctor exit codes map 0 (clean) / 1 (drift) / 2 (missing fi
     });
     const { rm } = await import("node:fs/promises");
     await rm(join(homeDir, ".pi"), { recursive: true, force: true });
-    const missingError = await expectCliError(["doctor", "--substrate", "pi-dev", "--home-dir", homeDir]);
+    const missingError = await expectSomaCliError(["doctor", "--substrate", "pi-dev", "--home-dir", homeDir]);
     expect(missingError.exitCode).toBe(2);
     expect(missingError.message).toContain("soma doctor — errors detected");
     expect(missingError.message).toContain("pi-dev-projection-missing");

@@ -17,16 +17,15 @@ import type { InstallSubstrate, SomaDoctorFinding } from "../types";
  * profile-mtime diagnosers and, for the first time, covers cursor and
  * pi-dev (neither had ANY drift diagnosis before).
  *
- * Deliberately excludes grok: grok's `soma-lifecycle` hook, AGENTS.md
- * pointer block, and skill discovery are verified live via `grok inspect
- * --json` (`../grok/doctor.ts`) because whether Grok's RUNTIME has actually
- * loaded a file is a different, non-deterministic question from whether the
- * file's BYTES match a fresh render. Grok's rendered home-projection files
- * (skills/soma/*.md, hooks/*, personas/*, roles/*, agents/*) are themselves
- * a pure function of ProjectionInput — exactly as deterministic as codex's —
- * so this module also runs for grok, composed ALONGSIDE (not instead of)
- * the oracle-based checks in `../adapters/doctor.ts`. See that file for the
- * composition and the investigation note this decision is based on.
+ * Covers ALL 5 install substrates, grok included: grok's rendered
+ * home-projection files (skills/soma/*.md, hooks/*, personas/*, roles/*,
+ * agents/*) are a pure function of ProjectionInput — exactly as deterministic
+ * as codex's — so content-compare is meaningful for them. For grok this runs
+ * ALONGSIDE (not instead of) the `grok inspect --json` oracle checks in
+ * `../grok/doctor.ts`: whether Grok's RUNTIME has actually loaded a file is a
+ * different, complementary question from whether the file's BYTES match a
+ * fresh render. `../adapters/doctor.ts` composes the two for grok; see that
+ * file for the composition and the investigation note behind it.
  */
 export type ContentCompareSubstrate = Extract<InstallSubstrate, "codex" | "pi-dev" | "claude-code" | "cursor" | "grok">;
 
@@ -53,6 +52,9 @@ interface DriftBuckets {
   stale: string[];
 }
 
+/** Per-file comparison outcome. `clean` contributes to no bucket. */
+type FileVerdict = "clean" | "missing" | "unmanaged" | "stale";
+
 /**
  * Classify a single mismatched file. `unmanaged` (hand-replaced) only
  * applies to files the adapter actually wraps with `withProvenance` — a
@@ -78,23 +80,36 @@ function classifyMismatch(freshContent: string, onDisk: string): "unmanaged" | "
  * body. A raw-equality check would flag every legitimately-managed
  * `.cursorrules` as permanently stale.
  */
-async function compareCursorRulesFile(substrateHome: string, freshBlockBody: string, buckets: DriftBuckets): Promise<void> {
-  const path = join(substrateHome, CURSOR_RULES_PATH);
-  const onDisk = await readFileOrNull(path);
-  if (onDisk === null) {
-    buckets.missing.push(CURSOR_RULES_PATH);
-    return;
-  }
+async function classifyCursorRulesFile(substrateHome: string, freshBlockBody: string): Promise<FileVerdict> {
+  const onDisk = await readFileOrNull(join(substrateHome, CURSOR_RULES_PATH));
+  if (onDisk === null) return "missing";
   const expected = mergeCursorRulesContent(onDisk, freshBlockBody);
-  if (expected === onDisk) return;
+  if (expected === onDisk) return "clean";
   // No Soma block markers at all: either hand-stripped, or a foreign
   // .cursorrules that predates Soma ever touching it. Either way it is not
   // currently a managed projection surface.
-  if (!onDisk.includes(CURSOR_RULES_BLOCK_BEGIN)) {
-    buckets.unmanaged.push(CURSOR_RULES_PATH);
-  } else {
-    buckets.stale.push(CURSOR_RULES_PATH);
+  return onDisk.includes(CURSOR_RULES_BLOCK_BEGIN) ? "stale" : "unmanaged";
+}
+
+/**
+ * Classify one projected file against disk. Pure per-file work (a single
+ * read plus a comparison) so the caller can run every file concurrently —
+ * doctor latency becomes the MAX read, not the SUM. Order is reimposed by
+ * the caller, so returning a verdict here (rather than mutating shared
+ * buckets) keeps the concurrency race-free and the findings deterministic.
+ */
+async function classifyProjectedFile(
+  substrateHome: string,
+  substrate: ContentCompareSubstrate,
+  file: { path: string; content: string },
+): Promise<FileVerdict> {
+  if (substrate === "cursor" && file.path === CURSOR_RULES_PATH) {
+    return classifyCursorRulesFile(substrateHome, file.content);
   }
+  const onDisk = await readFileOrNull(join(substrateHome, file.path));
+  if (onDisk === null) return "missing";
+  if (onDisk === file.content) return "clean";
+  return classifyMismatch(file.content, onDisk);
 }
 
 const SUBSTRATE_LABELS: Record<ContentCompareSubstrate, string> = {
@@ -184,22 +199,20 @@ export async function diagnoseContentCompareDrift(options: ContentCompareDoctorO
   for (const file of projection.bundle.files) filesByPath.set(file.path, file.content);
   const files = [...filesByPath.entries()].map(([path, content]) => ({ path, content }));
 
-  const buckets: DriftBuckets = { missing: [], unmanaged: [], stale: [] };
+  // Read + classify every file concurrently (each is an independent read),
+  // so doctor latency is the MAX file read, not the SUM. `Promise.all`
+  // preserves input order, so folding verdicts back in `files` order below
+  // keeps the per-bucket path lists — and thus the findings and their
+  // messages — deterministic for tests and stable output.
+  const verdicts = await Promise.all(
+    files.map((file) => classifyProjectedFile(projection.substrateHome, options.substrate, file)),
+  );
 
-  for (const file of files) {
-    if (options.substrate === "cursor" && file.path === CURSOR_RULES_PATH) {
-      await compareCursorRulesFile(projection.substrateHome, file.content, buckets);
-      continue;
-    }
-    const onDisk = await readFileOrNull(join(projection.substrateHome, file.path));
-    if (onDisk === null) {
-      buckets.missing.push(file.path);
-      continue;
-    }
-    if (onDisk === file.content) continue;
-    const verdict = classifyMismatch(file.content, onDisk);
-    buckets[verdict === "unmanaged" ? "unmanaged" : "stale"].push(file.path);
-  }
+  const buckets: DriftBuckets = { missing: [], unmanaged: [], stale: [] };
+  files.forEach((file, index) => {
+    const verdict = verdicts[index];
+    if (verdict !== "clean") buckets[verdict].push(file.path);
+  });
 
   return buildFindings(options.substrate, files.length, buckets);
 }
