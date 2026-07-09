@@ -116,7 +116,8 @@ test("#441 soma migrate pai --apply reports skipped reserved purpose.md", async 
     await writeFile(purposePath, "# Purpose\n\nHand-curated via CLI migrate.\n", "utf8");
 
     const applied = await runSomaCli(["migrate", "pai", "--apply", "--home-dir", homeDir]);
-    expect(applied).toContain("skipped reserved");
+    // "(exists)", not "(curated)": the skip only detects an existing file.
+    expect(applied).toContain("skipped reserved (exists)");
     expect(applied).toContain("profile/purpose.md");
     expect(applied).toContain("--overwrite-reserved");
     await expect(readFile(purposePath, "utf8")).resolves.toContain("Hand-curated via CLI migrate.");

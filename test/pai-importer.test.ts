@@ -250,7 +250,9 @@ test("#441 cli `soma import pai --apply` reports skipped reserved purpose.md and
     await writeFile(purposePath, "# Purpose\n\nHand-curated via CLI.\n", "utf8");
 
     const applied = await runSomaCli(["import", "pai", "--apply", "--home-dir", homeDir]);
-    expect(applied).toContain("skipped reserved");
+    // The marker is "(exists)", not "(curated)": the skip only detects
+    // that the target is already a regular file.
+    expect(applied).toContain("skipped reserved (exists)");
     expect(applied).toContain("profile/purpose.md");
     expect(applied).toContain("--overwrite-reserved");
     await expect(readFile(purposePath, "utf8")).resolves.toBe("# Purpose\n\nHand-curated via CLI.\n");
@@ -258,5 +260,19 @@ test("#441 cli `soma import pai --apply` reports skipped reserved purpose.md and
     const overwritten = await runSomaCli(["import", "pai", "--apply", "--home-dir", homeDir, "--overwrite-reserved"]);
     expect(overwritten).not.toContain("skipped reserved");
     await expect(readFile(purposePath, "utf8")).resolves.not.toContain("Hand-curated via CLI.");
+  });
+});
+
+test("#441 a directory at the reserved purpose target throws instead of silently skipping", async () => {
+  await withTempHome(async (homeDir) => {
+    await writePaiFixture(homeDir);
+
+    // A directory where the reserved file belongs is a broken
+    // filesystem state — the importer must surface it, not report a
+    // false success by "skipping" it.
+    const purposePath = join(homeDir, ".soma/profile/purpose.md");
+    await mkdir(purposePath, { recursive: true });
+
+    await expect(importPaiIdentity({ homeDir })).rejects.toThrow("is not a regular file");
   });
 });
