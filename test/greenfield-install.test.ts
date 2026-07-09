@@ -14,8 +14,11 @@
 // Three acceptance checks per substrate, run by `auditProjectedFiles`:
 //   1. every file the install reports as projected (`result.somaHome.files`
 //      + `result.substrateHome.files`) exists on disk and is non-empty.
-//   2. every projected `*.md` file is non-empty UTF-8 text; every projected
-//      `*.json` file parses.
+//   2. every projected text file (`.md`, `.json`, and other non-binary
+//      projected extensions) decodes as valid UTF-8 under a FATAL decoder —
+//      a lone continuation byte or truncated multibyte sequence fails rather
+//      than silently becoming U+FFFD. Additionally every `.md` has
+//      non-whitespace content and every `.json` parses.
 //   3. no projected file contains a dangling absolute-path reference into
 //      the temp `homeDir`/`somaHome` tree (a path under one of those roots
 //      that doesn't exist on disk).
@@ -120,7 +123,7 @@ export async function auditProjectedFiles(
   const problems: ProjectionAuditProblem[] = [];
 
   for (const file of files) {
-    let content: string;
+    let buffer: Buffer;
     try {
       const info = await stat(file);
       if (!info.isFile()) {
@@ -131,10 +134,32 @@ export async function auditProjectedFiles(
         problems.push({ file, reason: "empty file" });
         continue;
       }
-      content = await readFile(file, "utf8");
+      // Read the RAW bytes: `readFile(file, "utf8")` silently maps invalid
+      // byte sequences to U+FFFD, so it can never prove a file is valid UTF-8.
+      buffer = await readFile(file);
     } catch (error) {
       problems.push({ file, reason: `missing or unreadable: ${(error as Error).message}` });
       continue;
+    }
+
+    // Validate encoding with a FATAL decoder for text projections — this is
+    // what makes the "valid UTF-8" claim true rather than aspirational. A lone
+    // continuation byte or a truncated multibyte sequence throws here instead
+    // of decoding to a replacement char. Decode ONCE and reuse the string for
+    // the markdown-empty / JSON.parse / dangling-path checks below.
+    let content: string;
+    if (isTextProjectionPath(file)) {
+      try {
+        content = new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+      } catch {
+        problems.push({ file, reason: "invalid UTF-8" });
+        continue;
+      }
+    } else {
+      // Non-text projected asset: don't assert an encoding, but still scan its
+      // decoded text for dangling references (lossy decode is fine here — a
+      // path reference is ASCII and survives replacement-char substitution).
+      content = buffer.toString("utf8");
     }
 
     if (file.endsWith(".md") && content.trim().length === 0) {
@@ -155,6 +180,19 @@ export async function auditProjectedFiles(
   }
 
   return problems;
+}
+
+/**
+ * True when a projected file is expected to be UTF-8 text and should be
+ * validated with the fatal decoder. Soma projects markdown, JSON, and a
+ * handful of other text formats (JSONL logs, TOML config, plain-text
+ * pointer files, `.mjs` hook modules, `.txt`). Anything else is treated as
+ * an opaque asset (no encoding assertion). Extension-driven — a genuinely
+ * binary projection with a text extension would be a separate bug this
+ * check would rightly surface.
+ */
+function isTextProjectionPath(path: string): boolean {
+  return /\.(md|json|jsonl|toml|txt|mjs|js|ts|yaml|yml)$/.test(path) || !/\.[a-z0-9]+$/i.test(path);
 }
 
 /**
@@ -280,12 +318,19 @@ test("auditProjectedFiles flags a deliberately broken projection (dangling refer
     const emptyMd = join(root, "empty.md");
     await writeFile(emptyMd, "", "utf8");
 
-    const problems = await auditProjectedFiles([brokenMd, brokenJson, emptyMd], [root]);
+    // A .md whose bytes are NOT valid UTF-8: a lone continuation byte 0x80
+    // plus a truncated BOM-like sequence. `readFile(_, "utf8")` would have
+    // decoded this to U+FFFD and passed; the fatal decoder must reject it.
+    const badUtf8Md = join(root, "bad-utf8.md");
+    await writeFile(badUtf8Md, Buffer.from([0xff, 0xfe, 0x00, 0x80]));
+
+    const problems = await auditProjectedFiles([brokenMd, brokenJson, emptyMd, badUtf8Md], [root]);
 
     const reasons = problems.map((p) => `${p.file}: ${p.reason}`);
     expect(reasons.some((r) => r.includes(brokenMd) && r.includes(`dangling path reference: ${missingTarget}`))).toBe(true);
     expect(reasons.some((r) => r.includes(brokenJson) && r.includes("invalid JSON"))).toBe(true);
     expect(reasons.some((r) => r.includes(emptyMd) && r.includes("empty file"))).toBe(true);
+    expect(reasons.some((r) => r.includes(badUtf8Md) && r.includes("invalid UTF-8"))).toBe(true);
 
     // And the sibling helper the audit is built on agrees directly.
     const fixtureContent = await readFile(brokenMd, "utf8");
