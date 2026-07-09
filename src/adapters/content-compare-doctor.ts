@@ -8,6 +8,13 @@ import { CURSOR_RULES_PATH } from "./cursor";
 import { hasProvenanceHeader } from "./shared";
 import type { InstallSubstrate, SomaDoctorFinding } from "../types";
 
+// The leading heading of a legacy full-file `.cursorrules` projection —
+// mirrors the literal `mergeCursorRulesContent` (home-projection.ts),
+// `renderCursorRules` (adapters/cursor.ts), and the cursor uninstall guard
+// (adapters/cursor/install.ts) key on. Kept in lockstep so the doctor's
+// "is this managed" test matches what install actually splices/overwrites.
+const CURSOR_LEGACY_FULL_FILE_HEADING = "# Soma Cursor Projection";
+
 /**
  * Content-compare drift (soma#370): rebuild a substrate's home projection
  * in memory using the SAME builder `soma install`/`soma export` use
@@ -85,10 +92,18 @@ async function classifyCursorRulesFile(substrateHome: string, freshBlockBody: st
   if (onDisk === null) return "missing";
   const expected = mergeCursorRulesContent(onDisk, freshBlockBody);
   if (expected === onDisk) return "clean";
-  // No Soma block markers at all: either hand-stripped, or a foreign
-  // .cursorrules that predates Soma ever touching it. Either way it is not
-  // currently a managed projection surface.
-  return onDisk.includes(CURSOR_RULES_BLOCK_BEGIN) ? "stale" : "unmanaged";
+  // Mirror `mergeCursorRulesContent`'s own definition of "Soma-managed" — the
+  // doctor and the writer must never disagree on what counts as managed. A
+  // file is managed when it carries the Soma block markers OR is a legacy
+  // full-file projection that STARTS WITH the Soma heading (that is exactly
+  // the pair `mergeCursorRulesContent` splices/overwrites). A managed file
+  // that no longer matches is `stale`; only a file with NEITHER signal is a
+  // foreign / hand-replaced `.cursorrules` → `unmanaged`. Missing the legacy
+  // full-file case here would misreport an old managed projection whose
+  // content merely lags as hand-replaced (sage#450 r4).
+  const managed =
+    onDisk.includes(CURSOR_RULES_BLOCK_BEGIN) || onDisk.startsWith(CURSOR_LEGACY_FULL_FILE_HEADING);
+  return managed ? "stale" : "unmanaged";
 }
 
 /**
@@ -166,25 +181,25 @@ export async function diagnoseContentCompareDrift(options: ContentCompareDoctorO
   try {
     input = await loadProjectionInputForDoctor({ somaHome: options.somaHome, somaRepoPath });
   } catch (error) {
-    // The Soma home itself was never bootstrapped, or is only partially
-    // written (`soma init`/`soma bootstrap` never ran, or ran incompletely)
-    // — there is no complete source to build the projection FROM, so NO
-    // comparison could be performed. Do NOT fail open by returning `[]`
-    // (which reads as "clean/ok" and would claim coverage we never did):
-    // emit an explicit `info` "not diagnosable" finding instead. `info`
-    // keeps `soma doctor` exit 0 — a legitimately-uninstalled home must not
-    // hard-fail CI — while the output plainly says "not diagnosed", never a
-    // bare "ok" (sage#450 r2). Reporting "missing" would be equally
-    // dishonest: we cannot know what SHOULD be on disk without the source.
-    // Any OTHER failure (permissions, a directory where a file belongs) is a
-    // genuine bug and must not be swallowed.
+    // The Soma home was never installed, or is only partially written
+    // (`soma install`/`soma init` never ran, or ran incompletely) — there is
+    // no complete source to build the projection FROM, so NO comparison could
+    // be performed. Do NOT fail open by returning `[]` (which reads as
+    // "clean/ok" and would claim coverage we never did): emit an explicit
+    // `info` "not diagnosable" finding instead. `info` keeps `soma doctor`
+    // exit 0 — a legitimately-uninstalled home must not hard-fail CI — while
+    // the output plainly says "not diagnosed", never a bare "ok" (sage#450
+    // r2). Reporting "missing" would be equally dishonest: we cannot know what
+    // SHOULD be on disk without the source. Any OTHER failure (permissions, a
+    // directory where a file belongs) is a genuine bug and must not be
+    // swallowed.
     if (!isEnoent(error)) throw error;
     return [{
       id: `${options.substrate}-not-diagnosable`,
       severity: "info",
       message:
-        `Cannot diagnose ${SUBSTRATE_LABELS[options.substrate]} projection drift — the Soma home is not ` +
-        "bootstrapped/installed, so the source projection cannot be built to compare against. No comparison was performed.",
+        `Cannot diagnose ${SUBSTRATE_LABELS[options.substrate]} projection drift — Soma is not installed, or ` +
+        "the Soma home is incomplete, so the source projection cannot be built to compare against. No comparison was performed.",
       action: `soma install ${options.substrate}`,
     }];
   }

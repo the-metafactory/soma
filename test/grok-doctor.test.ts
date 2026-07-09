@@ -423,7 +423,7 @@ test("soma doctor --substrate grok no longer rejects as unsupported", async () =
         id: "grok-not-diagnosable",
         severity: "info",
         message:
-          "Cannot diagnose Grok projection drift — the Soma home is not bootstrapped/installed, so the source projection cannot be built to compare against. No comparison was performed.",
+          "Cannot diagnose Grok projection drift — Soma is not installed, or the Soma home is incomplete, so the source projection cannot be built to compare against. No comparison was performed.",
         action: "soma install grok",
       },
       {

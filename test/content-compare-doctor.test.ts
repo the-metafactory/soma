@@ -157,6 +157,35 @@ test("soma#370: cursor .cursorrules — hand-stripped Soma block reads as unmana
   });
 });
 
+test("soma#370: legacy full-file `.cursorrules` projection (heading, no block markers) with stale content reads as stale, not unmanaged", async () => {
+  await withTempHome(async (homeDir) => {
+    // A fresh cursor install writes `.cursorrules` as the FULL generated
+    // projection — it STARTS WITH `# Soma Cursor Projection` and carries NO
+    // `<!-- SOMA_CURSOR_BEGIN -->` block markers (mergeCursorRulesContent's
+    // legacy full-file path). `mergeCursorRulesContent` treats such a file as
+    // Soma-MANAGED (it overwrites it wholesale on reproject), so when its
+    // content lags the doctor must classify it `stale`, never `unmanaged`
+    // (hand-replaced). Regression guard for the sage#450 r4 misclassification:
+    // keying only on the block marker mislabelled every managed full-file
+    // projection as hand-replaced.
+    await installSomaForCursor({ homeDir });
+    const cursorRulesPath = join(homeDir, ".cursorrules");
+
+    const onDisk = await readFile(cursorRulesPath, "utf8");
+    expect(onDisk.startsWith("# Soma Cursor Projection")).toBe(true);
+    expect(onDisk).not.toContain("<!-- SOMA_CURSOR_BEGIN -->"); // genuinely marker-less
+
+    // Same heading (still managed), stale body.
+    await writeFile(cursorRulesPath, "# Soma Cursor Projection\n\nold stale legacy body\n", "utf8");
+
+    const findings = await diagnoseContentCompareDrift({ substrate: "cursor", homeDir, somaHome: join(homeDir, ".soma") });
+    const staleFinding = findings.find((f) => f.id === "cursor-projection-stale");
+    expect(staleFinding).toBeDefined();
+    expect(staleFinding?.message).toContain(".cursorrules");
+    expect(findings.find((f) => f.id === "cursor-projection-unmanaged-edit")).toBeUndefined();
+  });
+});
+
 test("soma#370: pi-dev content-compare is clean right after install, and flags a hand-edited projected file", async () => {
   await withTempHome(async (homeDir) => {
     await installSomaForPiDev({ homeDir });
