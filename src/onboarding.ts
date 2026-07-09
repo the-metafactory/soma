@@ -6,7 +6,7 @@ import { installSomaForClaudeCode, installSomaForCodex, installSomaForCursor, in
 import { migrateClaudeSkills, probeClaudeSkillsSource } from "./claude-skills-migrator";
 import { bootstrapSomaHome } from "./soma-home";
 import { migratePai } from "./pai-migration";
-import { isEnoent, pathExists, pathMtimeMs } from "./fs-utils";
+import { isEnoent, pathExists } from "./fs-utils";
 import type {
   SomaDoctorDiagnosis,
   SomaDoctorFinding,
@@ -255,18 +255,6 @@ export async function applySomaInit(options: SomaOnboardingOptions = {}): Promis
   return { plan, steps };
 }
 
-async function maxProfileMtime(somaHome: string): Promise<number | null> {
-  const mtimes = await Promise.all([
-    pathMtimeMs(join(somaHome, "profile/assistant.md")),
-    pathMtimeMs(join(somaHome, "profile/principal.md")),
-    // soma#329: prefer purpose.md; fall back to legacy telos.md for pre-rename homes.
-    pathMtimeMs(join(somaHome, "profile/purpose.md")),
-    pathMtimeMs(join(somaHome, "profile/telos.md")),
-  ]);
-  const present = mtimes.filter((value): value is number => value !== null);
-  return present.length === 0 ? null : Math.max(...present);
-}
-
 export async function diagnoseSomaDoctor(options: SomaOnboardingOptions = {}): Promise<SomaDoctorDiagnosis> {
   const detected = await detectOnboarding(options);
   const findings: SomaDoctorFinding[] = [];
@@ -307,13 +295,19 @@ export async function diagnoseSomaDoctor(options: SomaOnboardingOptions = {}): P
   findings.push(...await diagnoseProjectionDrift({
     substrate,
     homeDir: detected.homeDir,
-    profileMtime: await maxProfileMtime(detected.somaHome),
+    somaHome: detected.somaHome,
   }));
 
   return {
     // Informational findings (e.g. "grok binary not found") are notes, not
-    // drift — only warnings flip the diagnosis.
-    status: findings.some((finding) => finding.severity === "warning") ? "drift" : "ok",
+    // drift. `error` (soma#370: a rendered projection file missing on disk)
+    // dominates `warning` (drift/hand-edit) dominates `ok` — see
+    // SomaDoctorDiagnosis's severity/status contract in types.ts.
+    status: findings.some((finding) => finding.severity === "error")
+      ? "error"
+      : findings.some((finding) => finding.severity === "warning")
+        ? "drift"
+        : "ok",
     homeDir: detected.homeDir,
     somaHome: detected.somaHome,
     findings,

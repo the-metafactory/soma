@@ -5,7 +5,7 @@ import { defaultSomaRepoPath } from "../../repo-path";
 import { resolveBunExecutable } from "../../bun-probe";
 import { readCodexHookAsset, renderCodexPolicyHook, renderCodexPolicyTargets } from "./hooks/assets";
 import { renderFeedbackHookModule } from "../shared/feedback-helper";
-import { buildPortableSkillFiles, renderAlgorithmRenderingContract, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills, renderSubstrateInstructions } from "../shared";
+import { buildPortableSkillFiles, renderAlgorithmRenderingContract, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills, renderSubstrateInstructions, withProvenance } from "../shared";
 import { activeVsaBundleFile } from "../../adapter-active-vsa";
 import { somaPolicyPrivateMarkers } from "../../policy";
 import { somaMemoryPrivateRoots, somaProjectionPrivateRoots } from "../../projection-private-roots";
@@ -415,32 +415,41 @@ export function projectCodexHome(input: ProjectionInput, somaHome: string, homeD
         content: readCodexHookAsset("policy-marker.mjs"),
       },
       {
+        // Starlark permission-rules file (comment-only by construction —
+        // see renderHomeRules) and YAML-frontmatter skill file are excluded
+        // from withProvenance: an HTML-comment header would break Starlark
+        // parsing and frontmatter parsing respectively (soma#370
+        // investigation). Both already carry their own generated-by-Soma
+        // notice in-band.
         path: "skills/soma/SKILL.md",
         content: renderHomeSkill(input, somaHome),
       },
       {
+        // soma#370: plain markdown narrative files carry the byte-stable
+        // provenance header so `soma doctor` can distinguish a managed
+        // projection from a hand-replaced one.
         path: "memories/soma/profile.md",
-        content: ["# Soma Profile Projection", "", renderAssistantCore(input)].join("\n"),
+        content: withProvenance("codex", ["# Soma Profile Projection", "", renderAssistantCore(input)].join("\n")),
       },
       {
         path: "memories/soma/memory-layout.md",
-        content: renderMemoryLayout(input),
+        content: withProvenance("codex", renderMemoryLayout(input)),
       },
       {
         path: "memories/soma/pai-imports.md",
-        content: renderPaiImportIndex(somaHome),
+        content: withProvenance("codex", renderPaiImportIndex(somaHome)),
       },
       {
         path: "memories/soma/lifecycle.md",
-        content: renderLifecycleProjection(somaHome),
+        content: withProvenance("codex", renderLifecycleProjection(somaHome)),
       },
       {
         path: "memories/soma/skills.md",
-        content: renderSkills(input),
+        content: withProvenance("codex", renderSkills(input)),
       },
       {
         path: "memories/soma/policy.md",
-        content: renderCodexPolicy(),
+        content: withProvenance("codex", renderCodexPolicy()),
       },
       // Tier-0 durable memory INDEX (M4 parity). OMITTED when no index exists yet.
       ...codexMemoryIndexFile(input),

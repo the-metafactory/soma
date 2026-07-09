@@ -410,17 +410,29 @@ test("every grok doctor finding action is an executable soma command", async () 
 
 test("soma doctor --substrate grok no longer rejects as unsupported", async () => {
   await withTempHome(async (homeDir) => {
-    // Clean temp home: no grok binary, so the only finding is the
-    // informational skip note — which must read as ok, not drift.
+    // Clean temp home: never bootstrapped (so content-compare cannot build a
+    // source projection → info not-diagnosable) AND no grok binary (so the
+    // oracle records its info skip note). Both are info, so the overall
+    // status must read as ok, not drift. Content-compare findings compose
+    // BEFORE the oracle's (see diagnoseProjectionDrift's grok branch).
     const diagnosis = await diagnoseSomaDoctor({ homeDir, substrate: "grok" });
 
     expect(diagnosis.status).toBe("ok");
-    expect(diagnosis.findings).toEqual([{
-      id: "grok-inspect-unavailable",
-      severity: "info",
-      message: "Grok binary not found — skipped `grok inspect` discovery checks. Install the Grok CLI to enable them.",
-      action: "soma doctor --substrate grok",
-    }]);
+    expect(diagnosis.findings).toEqual([
+      {
+        id: "grok-not-diagnosable",
+        severity: "info",
+        message:
+          "Cannot diagnose Grok projection drift — Soma is not installed, or the Soma home is incomplete, so the source projection cannot be built to compare against. No comparison was performed.",
+        action: "soma install grok",
+      },
+      {
+        id: "grok-inspect-unavailable",
+        severity: "info",
+        message: "Grok binary not found — skipped `grok inspect` discovery checks. Install the Grok CLI to enable them.",
+        action: "soma doctor --substrate grok",
+      },
+    ]);
   });
 });
 

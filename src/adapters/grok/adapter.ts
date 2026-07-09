@@ -12,7 +12,6 @@ import {
   GROK_AGENT_MARKER,
   GROK_PERSONA_MARKER,
   GROK_ROLE_MARKER,
-  GROK_SOMA_REPO_POINTER_PATH,
   GROK_STARTUP_CONTEXT_PATH,
 } from "./projection-constants";
 import { defaultSomaRepoPath } from "../../repo-path";
@@ -25,6 +24,7 @@ import {
   renderPolicyProjection,
   renderSkills,
   renderSubstrateInstructions,
+  withProvenance,
 } from "../shared";
 import { readGrokHookAsset } from "./hooks/assets";
 import { GROK_PRE_TOOL_USE_VERB } from "./hooks/grok-hook-verbs.mjs";
@@ -587,11 +587,18 @@ export function projectGrokHome(input: ProjectionInput, somaHome: string, option
     substrate: "grok",
     instructions,
     files: [
+      // skills/soma/SKILL.md carries YAML frontmatter (must open with a literal
+      // `---` line) so it is excluded from withProvenance — an HTML-comment
+      // header would break frontmatter parsing (soma#370 investigation).
       { path: "skills/soma/SKILL.md", content: renderGrokHomeSkill(input, somaHome) },
-      { path: "skills/soma/context.md", content: instructions },
-      { path: "skills/soma/memory-layout.md", content: renderMemoryLayout(input) },
-      { path: "skills/soma/skills.md", content: renderSkills(input) },
-      { path: "skills/soma/policy.md", content: renderGrokPolicy() },
+      // soma#370: plain markdown narrative files carry the byte-stable
+      // provenance header so `soma doctor` can distinguish a managed
+      // projection from a hand-replaced one.
+      { path: "skills/soma/context.md", content: withProvenance("grok", instructions) },
+      { path: "skills/soma/memory-layout.md", content: withProvenance("grok", renderMemoryLayout(input)) },
+      { path: "skills/soma/skills.md", content: withProvenance("grok", renderSkills(input)) },
+      { path: "skills/soma/policy.md", content: withProvenance("grok", renderGrokPolicy()) },
+      // JSON cannot carry comments; hooks registration stays unwrapped.
       { path: "hooks/soma-lifecycle.json", content: renderGrokHooksJson(grokHome, bunPath) },
       // Shipped verbatim; the install-time facts live in the colocated
       // config (same split as codex, soma#73). executable:true is

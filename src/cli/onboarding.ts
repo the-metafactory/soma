@@ -15,6 +15,7 @@ import {
 } from "./substrate-lifecycle";
 import { readOption } from "./parse-utils";
 import { warnDeprecatedYesFlag } from "./deprecated-flags";
+import { SomaCliError } from "./errors";
 
 export interface ParsedInitArgs {
   command: "init";
@@ -174,7 +175,17 @@ function readCommonDirOption(
 
 export async function runOnboardingCli(parsed: ParsedOnboardingArgs): Promise<string> {
   if (parsed.command === "doctor") {
-    return formatSomaDoctorDiagnosis(await diagnoseSomaDoctor(parsed.options));
+    const diagnosis = await diagnoseSomaDoctor(parsed.options);
+    const text = formatSomaDoctorDiagnosis(diagnosis);
+    // soma#370: CI-friendly exit codes — 0 clean, 1 warnings/drift, 2 errors
+    // (a rendered projection file missing on disk). Mirrors the
+    // SomaCliError(text, exitCode) pattern the `vsa` command already uses
+    // (src/cli.ts) to propagate a non-zero exit through the top-level
+    // try/catch without changing this function's return type for the
+    // common (clean) case.
+    if (diagnosis.status === "error") throw new SomaCliError(text, 2);
+    if (diagnosis.status === "drift") throw new SomaCliError(text, 1);
+    return text;
   }
 
   if (parsed.command === "init") {
@@ -272,7 +283,7 @@ function formatSomaDoctorDiagnosis(diagnosis: SomaDoctorDiagnosis): string {
     ].join("\n");
   }
   return [
-    "soma doctor — drift detected",
+    diagnosis.status === "error" ? "soma doctor — errors detected" : "soma doctor — drift detected",
     "",
     `Home:      ${diagnosis.homeDir}`,
     `Soma home: ${diagnosis.somaHome}`,

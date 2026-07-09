@@ -4,6 +4,9 @@ import { expect, test } from "bun:test";
 import { planSomaInit, diagnoseSomaDoctor } from "../src/onboarding";
 import { withProvenance } from "../src/adapters/shared/provenance";
 import { runSomaCli } from "../src/cli";
+import { DOCTOR_SUPPORTED_SUBSTRATES, isDoctorSubstrate } from "../src/adapters/doctor";
+import { bootstrapSomaHome, installSomaForClaudeCode, installSomaForCodex } from "../src/index";
+import { expectSomaCliError } from "./fixtures/cli-error";
 import { withTempHome as withSharedTempHome } from "./fixtures/pai-migration-fixtures";
 
 const withTempHome = <T>(fn: (homeDir: string) => Promise<T>): Promise<T> =>
@@ -253,14 +256,16 @@ test("soma doctor does not suggest skills migration for an empty Claude skills d
 test("soma doctor reports missing migrations and projection drift actions", async () => {
   await withTempHome(async (homeDir) => {
     await writeMinimalPaiInstall(homeDir);
-    await mkdir(join(homeDir, ".soma/profile"), { recursive: true });
-    await mkdir(join(homeDir, ".codex/rules"), { recursive: true });
+    // soma#370: content-compare needs a genuinely loadable Soma profile
+    // (unlike the retired profile-mtime heuristic, which only needed a
+    // file's mtime) — bootstrapSomaHome gives a complete starter profile
+    // (already flagged `status: starter-profile`, feeding the finding
+    // below) plus a real codex projection to hand-corrupt.
+    await installSomaForCodex({ homeDir });
     await writeFile(join(homeDir, ".codex/rules/soma.rules"), "old projection\n", "utf8");
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    await writeFile(join(homeDir, ".soma/profile/principal.md"), "# Principal\n\n## Profile\n\n- status: starter-profile\n", "utf8");
 
     const diagnosis = await diagnoseSomaDoctor({ homeDir });
-    const output = await runSomaCli(["doctor", "--home-dir", homeDir]);
+    const caught = await expectSomaCliError(["doctor", "--home-dir", homeDir]);
 
     expect(diagnosis.status).toBe("drift");
     expect(diagnosis.findings.map((finding) => finding.id)).toEqual([
@@ -269,28 +274,34 @@ test("soma doctor reports missing migrations and projection drift actions", asyn
       "pai-not-migrated",
       "codex-projection-stale",
     ]);
-    expect(output).toContain("soma doctor — drift detected");
-    expect(output).toContain("soma migrate claude-skills --from");
-    expect(output).toContain("soma migrate pai --pai-install");
-    expect(output).toContain(`--home-dir ${homeDir}`);
-    expect(output).toContain(`--soma-home ${join(homeDir, ".soma")}`);
-    expect(output).toContain("soma reproject codex");
+    expect(caught.exitCode).toBe(1);
+    expect(caught.message).toContain("soma doctor — drift detected");
+    expect(caught.message).toContain("soma migrate claude-skills --from");
+    expect(caught.message).toContain("soma migrate pai --pai-install");
+    expect(caught.message).toContain(`--home-dir ${homeDir}`);
+    expect(caught.message).toContain(`--soma-home ${join(homeDir, ".soma")}`);
+    expect(caught.message).toContain("soma reproject codex");
   });
 });
 
-test("soma doctor reports a missing Codex projection as drift", async () => {
+test("soma doctor reports a missing Codex projection as an error (soma#370: missing rendered file -> exit 2)", async () => {
   await withTempHome(async (homeDir) => {
-    await mkdir(join(homeDir, ".soma/profile"), { recursive: true });
-    await writeFile(join(homeDir, ".soma/profile/principal.md"), "# Principal\n\nName: Principal\n", "utf8");
+    await bootstrapSomaHome({ homeDir });
 
     const diagnosis = await diagnoseSomaDoctor({ homeDir });
 
+    expect(diagnosis.status).toBe("error");
     expect(diagnosis.findings).toContainEqual({
-      id: "codex-projection-stale",
-      severity: "warning",
+      id: "codex-projection-missing",
+      severity: "error",
       message: "Codex projection is missing.",
       action: "soma reproject codex",
     });
+
+    const caught = await expectSomaCliError(["doctor", "--home-dir", homeDir]);
+    expect(caught.exitCode).toBe(2);
+    expect(caught.message).toContain("soma doctor — errors detected");
+    expect(caught.message).toContain("codex-projection-missing");
   });
 });
 
@@ -344,69 +355,55 @@ test("soma doctor reports ok after init applies the detected plan", async () => 
 });
 
 async function writeSomaProfile(homeDir: string): Promise<void> {
-  await mkdir(join(homeDir, ".soma/profile"), { recursive: true });
-  await writeFile(join(homeDir, ".soma/profile/principal.md"), "# Principal\n\nName: Principal\n", "utf8");
+  // soma#370: content-compare needs a genuinely loadable Soma profile (the
+  // retired profile-mtime heuristic only needed a file's mtime, so a bare
+  // principal.md used to be enough) — bootstrapSomaHome gives the complete
+  // starter profile every content-compare test below relies on.
+  await bootstrapSomaHome({ homeDir });
 }
 
-async function writeClaudeCodeProjection(homeDir: string): Promise<void> {
-  await mkdir(join(homeDir, ".claude/rules/soma"), { recursive: true });
-  await mkdir(join(homeDir, ".claude/hooks/soma"), { recursive: true });
-  // A real managed projection carries the soma#370 provenance header; the
-  // doctor uses its presence to distinguish a generated file from a
-  // hand-replaced one, so the fixture must include it. Use withProvenance so
-  // the fixture cannot drift from the production wrapping format (sage#377).
-  await writeFile(
-    join(homeDir, ".claude/rules/soma/CONTEXT.md"),
-    withProvenance("claude-code", "# Soma Claude Code Context\n"),
-    "utf8",
-  );
-  await writeFile(join(homeDir, ".claude/hooks/soma/soma-claude-code-hook.mjs"), "// hook\n", "utf8");
-  await writeFile(join(homeDir, ".claude/hooks/soma/soma-claude-code-hook.config.json"), "{}\n", "utf8");
-  await writeFile(
-    join(homeDir, ".claude/settings.json"),
-    `${JSON.stringify({
-      hooks: {
-        SessionStart: [
-          { hooks: [{ type: "command", command: "bun hooks/soma/soma-claude-code-hook.mjs" }] },
-        ],
-      },
-    }, null, 2)}\n`,
-    "utf8",
-  );
-}
-
-test("soma doctor --substrate claude-code reports a fully missing projection as drift", async () => {
+test("soma doctor --substrate claude-code reports a fully missing projection as an error", async () => {
   await withTempHome(async (homeDir) => {
     await writeSomaProfile(homeDir);
 
     const diagnosis = await diagnoseSomaDoctor({ homeDir, substrate: "claude-code" });
 
-    expect(diagnosis.status).toBe("drift");
+    expect(diagnosis.status).toBe("error");
     const ids = diagnosis.findings.map((finding) => finding.id);
-    expect(ids).toContain("claude-code-projection-stale");
+    expect(ids).toContain("claude-code-projection-missing");
     expect(ids).toContain("claude-code-hook-missing");
     expect(ids).toContain("claude-code-settings-missing");
     expect(diagnosis.findings).toContainEqual({
-      id: "claude-code-projection-stale",
-      severity: "warning",
+      id: "claude-code-projection-missing",
+      severity: "error",
       message: "Claude Code projection is missing.",
       action: "soma reproject claude-code",
     });
+
+    const caught = await expectSomaCliError(["doctor", "--substrate", "claude-code", "--home-dir", homeDir]);
+    expect(caught.exitCode).toBe(2);
+    expect(caught.message).toContain("soma doctor — errors detected");
   });
 });
 
 test("soma doctor --substrate claude-code reports a stale projection", async () => {
   await withTempHome(async (homeDir) => {
-    await writeClaudeCodeProjection(homeDir);
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    await writeSomaProfile(homeDir);
+    // A real install first, so every OTHER rules/soma file matches a fresh
+    // render — only the hand-corrupted CONTEXT.md below should read as drift.
+    await installSomaForClaudeCode({ homeDir });
+    await writeFile(
+      join(homeDir, ".claude/rules/soma/CONTEXT.md"),
+      withProvenance("claude-code", "# Soma Claude Code Context\n\nstale body — the Soma source moved on.\n"),
+      "utf8",
+    );
 
     const diagnosis = await diagnoseSomaDoctor({ homeDir, substrate: "claude-code" });
 
     expect(diagnosis.findings).toContainEqual({
       id: "claude-code-projection-stale",
       severity: "warning",
-      message: "Claude Code projection is older than the Soma profile files.",
+      message:
+        "Claude Code projection file(s) are out of date — the Soma source changed since the last reproject: rules/soma/CONTEXT.md.",
       action: "soma reproject claude-code",
     });
   });
@@ -414,24 +411,26 @@ test("soma doctor --substrate claude-code reports a stale projection", async () 
 
 test("soma doctor --substrate claude-code is clean when the projection is current", async () => {
   await withTempHome(async (homeDir) => {
-    await writeSomaProfile(homeDir);
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    await writeClaudeCodeProjection(homeDir);
+    await installSomaForClaudeCode({ homeDir });
 
     const diagnosis = await diagnoseSomaDoctor({ homeDir, substrate: "claude-code" });
-    const output = await runSomaCli(["doctor", "--substrate", "claude-code", "--home-dir", homeDir]);
 
+    // Scoped to claude-code-prefixed findings (not overall status): a fresh
+    // claude-code install also projects its portable skills into the SHARED
+    // `.claude/skills/` dir, which — unrelated to this doctor content-compare
+    // check — the onboarding "claude skills not migrated" heuristic can flag
+    // as an importable pre-existing Claude Code install (a pre-existing
+    // detection quirk, out of scope for soma#370). What THIS test verifies is
+    // that content-compare itself reports zero drift for a genuinely fresh,
+    // untouched projection.
     const claudeFindings = diagnosis.findings.filter((finding) => finding.id.startsWith("claude-code-"));
     expect(claudeFindings).toEqual([]);
-    expect(output).not.toContain("soma reproject claude-code");
   });
 });
 
 test("soma doctor --substrate claude-code flags a settings.json that omits the Soma hook", async () => {
   await withTempHome(async (homeDir) => {
-    await writeSomaProfile(homeDir);
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    await writeClaudeCodeProjection(homeDir);
+    await installSomaForClaudeCode({ homeDir });
     // Overwrite the projected settings.json with vanilla Claude Code settings
     // that do NOT register the Soma hook — presence alone must not pass.
     await writeFile(join(homeDir, ".claude/settings.json"), `${JSON.stringify({ theme: "dark" }, null, 2)}\n`, "utf8");
@@ -453,12 +452,8 @@ test("soma doctor --substrate claude-code flags a settings.json that omits the S
 
 test("soma#370: soma doctor --substrate claude-code flags a hand-edited projection (missing provenance header)", async () => {
   await withTempHome(async (homeDir) => {
-    await writeSomaProfile(homeDir);
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    await writeClaudeCodeProjection(homeDir);
-    // Simulate a hand edit that dropped the provenance header. The file is
-    // present and newer than the profile (not stale), so only the
-    // unmanaged-edit signal should catch it.
+    await installSomaForClaudeCode({ homeDir });
+    // Simulate a hand edit that dropped the provenance header.
     await writeFile(
       join(homeDir, ".claude/rules/soma/CONTEXT.md"),
       "# Soma Claude Code Context\n\nhand edited, no header\n",
@@ -474,9 +469,7 @@ test("soma#370: soma doctor --substrate claude-code flags a hand-edited projecti
 
 test("soma#377: unmanaged-edit check covers non-CONTEXT skeleton files (e.g. SKILLS.md)", async () => {
   await withTempHome(async (homeDir) => {
-    await writeSomaProfile(homeDir);
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    await writeClaudeCodeProjection(homeDir); // CONTEXT.md is header-managed
+    await installSomaForClaudeCode({ homeDir }); // CONTEXT.md is header-managed
     // A hand-replaced SKILLS.md with no header must be caught even though
     // CONTEXT.md is healthy.
     await writeFile(join(homeDir, ".claude/rules/soma/SKILLS.md"), "# Skills\n\nhand replaced\n", "utf8");
@@ -488,10 +481,40 @@ test("soma#377: unmanaged-edit check covers non-CONTEXT skeleton files (e.g. SKI
   });
 });
 
-test("soma doctor rejects unsupported substrates", async () => {
+// soma#370: content-compare drift is substrate-agnostic, so cursor and
+// pi-dev — which had NO drift diagnosis at all before — are now doctor-
+// supported, same as the grok oracle-check parity test above.
+test("soma doctor --substrate cursor and pi-dev are no longer rejected as unsupported, and surface not-diagnosable on an unbootstrapped home", async () => {
   await withTempHome(async (homeDir) => {
-    await expect(runSomaCli(["doctor", "--substrate", "pi-dev", "--home-dir", homeDir])).rejects.toThrow(
-      "soma doctor currently supports --substrate codex, claude-code and grok only.",
-    );
+    for (const substrate of ["cursor", "pi-dev"] as const) {
+      // Empty temp home: never bootstrapped, so content-compare cannot build
+      // a source projection to compare against. It must NOT fail open (a bare
+      // "ok" that claims coverage it never performed) NOR hard-fail CI — it
+      // surfaces an `info` not-diagnosable finding that keeps exit 0 while
+      // saying plainly the substrate was not diagnosed (sage#450 r2).
+      const diagnosis = await diagnoseSomaDoctor({ homeDir, substrate });
+      expect(diagnosis.status).toBe("ok"); // info keeps exit 0, non-fatal
+      const finding = diagnosis.findings.find((f) => f.id === `${substrate}-not-diagnosable`);
+      expect(finding).toBeDefined();
+      expect(finding?.severity).toBe("info");
+
+      // CLI resolves (proves "not rejected as unsupported") and the
+      // not-diagnosable note is visible — never a bare, silent "ok".
+      const output = await runSomaCli(["doctor", "--substrate", substrate, "--home-dir", homeDir]);
+      expect(output).toContain(`${substrate}-not-diagnosable`);
+      expect(output).toContain("Cannot diagnose");
+    }
   });
+});
+
+test("DOCTOR_SUPPORTED_SUBSTRATES / isDoctorSubstrate still gate a genuinely unknown substrate", () => {
+  // Every SomaOnboardingSubstrate (codex/pi-dev/claude-code/cursor/grok) is
+  // now doctor-supported, so `--substrate` can no longer surface
+  // DOCTOR_UNSUPPORTED_SUBSTRATE_MESSAGE through the CLI parser (it rejects
+  // anthropic-cowork and any other bogus value earlier, with a different
+  // message) — this pins the underlying guard directly so the rejection
+  // path itself stays covered.
+  expect(DOCTOR_SUPPORTED_SUBSTRATES).toEqual(["codex", "claude-code", "cursor", "grok", "pi-dev"]);
+  expect(isDoctorSubstrate("anthropic-cowork")).toBe(false);
+  expect(isDoctorSubstrate("bogus")).toBe(false);
 });

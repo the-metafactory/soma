@@ -1707,16 +1707,48 @@ export type SomaInitStepId =
   | "install-cursor"
   | "install-grok";
 
+/**
+ * The substrates `soma doctor` can diagnose — every `InstallSubstrate` except
+ * the experimental `anthropic-cowork` scaffold. Kept in lockstep with the
+ * runtime `DOCTOR_SUPPORTED_SUBSTRATES` list in `src/adapters/doctor.ts`
+ * (codex, claude-code, cursor, grok, pi-dev); the two must agree. Used to
+ * parameterize the projection finding-id type below so only supported-substrate
+ * ids are type-valid.
+ */
+export type SomaDoctorSubstrate = Exclude<InstallSubstrate, "anthropic-cowork">;
+
+/**
+ * Content-compare drift findings (soma#370) are substrate-parameterized: the
+ * same shapes apply uniformly whichever of the 5 doctor-supported
+ * substrates produced them. Declared as a template-literal type over the
+ * doctor-supported substrate union (`SomaDoctorSubstrate`) — NOT the broader
+ * `SubstrateId`, which would admit `cortex-*`/`custom-*` ids the doctor can
+ * never emit — rather than duplicating the suffix cross product by hand for
+ * every substrate. The pre-existing substrate-specific strings this
+ * generalizes (`codex-projection-stale`, `claude-code-projection-stale`,
+ * `claude-code-projection-unmanaged-edit`, `grok-projection-stale`) are exact
+ * members of this pattern, so no finding id string actually changes.
+ *
+ * `-not-diagnosable` is the honest "could not check" outcome (soma#370): Soma
+ * is not installed / the Soma home is incomplete, so the source projection
+ * cannot be built to compare against and NO comparison was performed. It is
+ * emitted as `severity: "info"` so a legitimately-uninstalled home does not
+ * hard-fail CI, but the output says "not diagnosed" rather than a bare "ok" —
+ * never fail open.
+ */
+export type SomaDoctorProjectionFindingId =
+  | `${SomaDoctorSubstrate}-projection-missing`
+  | `${SomaDoctorSubstrate}-projection-stale`
+  | `${SomaDoctorSubstrate}-projection-unmanaged-edit`
+  | `${SomaDoctorSubstrate}-not-diagnosable`;
+
 export type SomaDoctorFindingId =
   | "starter-profile"
   | "claude-skills-not-migrated"
   | "pai-not-migrated"
-  | "codex-projection-stale"
-  | "claude-code-projection-stale"
-  | "claude-code-projection-unmanaged-edit"
+  | SomaDoctorProjectionFindingId
   | "claude-code-hook-missing"
   | "claude-code-settings-missing"
-  | "grok-projection-stale"
   | "grok-hook-missing"
   | "grok-hook-files-incomplete"
   | "grok-hook-interpreter-missing"
@@ -1780,7 +1812,15 @@ export interface SomaInitApplyResult {
 
 export interface SomaDoctorFinding {
   id: SomaDoctorFindingId;
-  severity: "info" | "warning";
+  /**
+   * `error` (soma#370) is reserved for a projection file that is entirely
+   * ABSENT on disk — a broken/never-installed projection, not merely an
+   * out-of-date one. It is the only severity that flips `soma doctor`'s
+   * process exit code to 2 (see `SomaDoctorDiagnosis.status` and the CLI
+   * doctor handler); `warning` (drift/hand-edit) maps to exit 1, and no
+   * findings above `info` maps to exit 0.
+   */
+  severity: "info" | "warning" | "error";
   /** Human-readable explanation of the drift; carries the narrative guidance. */
   message: string;
   /**
@@ -1801,7 +1841,14 @@ export interface SomaDoctorFinding {
 }
 
 export interface SomaDoctorDiagnosis {
-  status: "ok" | "drift";
+  /**
+   * `error` (soma#370) when any finding is `severity: "error"` (a projection
+   * file missing on disk); `drift` when the worst finding is a `warning`
+   * (stale/hand-edited but present); `ok` when nothing above `info` was
+   * found. Order matters for the CLI exit code: error dominates drift
+   * dominates ok (2 / 1 / 0).
+   */
+  status: "ok" | "drift" | "error";
   homeDir: string;
   somaHome: string;
   findings: SomaDoctorFinding[];

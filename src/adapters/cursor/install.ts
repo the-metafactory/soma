@@ -3,12 +3,16 @@ import { join } from "node:path";
 import { isEnoent } from "../../fs-errors";
 import { skillsLoaderUnder, vsaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
 import { CURSOR_HOME_FILE_PATHS, CURSOR_RULES_BLOCK_BEGIN, CURSOR_RULES_BLOCK_END, CURSOR_RULES_PATH } from "../cursor";
+import { stripProvenance } from "../shared";
 
 async function shouldRemoveSomaRulesDir(target: string): Promise<boolean> {
   const markerFile = join(target, "README.md");
   try {
     const content = await readFile(markerFile, "utf8");
-    return content.startsWith("# Soma Cursor Projection");
+    // soma#370: README.md now carries the byte-stable provenance header, so
+    // strip it before checking the marker prefix — otherwise every cursor
+    // uninstall silently no-ops (a real regression this fixes).
+    return stripProvenance(content).startsWith("# Soma Cursor Projection");
   } catch (error) {
     if (isEnoent(error)) return false;
     throw error;

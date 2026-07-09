@@ -3,7 +3,7 @@ import { renderFeedbackHookHelper } from "../shared/feedback-helper";
 import { renderPathGuardExtension } from "./path-guard";
 import { renderSomaAlgorithmExtension } from "./extensions/soma-algorithm";
 import { buildPiDevPortableSkillFiles } from "./skill-projection";
-import { projectableSkills, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "../shared";
+import { projectableSkills, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills, withProvenance } from "../shared";
 import { activeVsaBundleFile } from "../../adapter-active-vsa";
 import { SOMA_VERSION } from "../../version";
 
@@ -515,41 +515,51 @@ export function projectPiDevHome(input: ProjectionInput, somaHome: string): Proj
     substrate: "pi-dev",
     instructions,
     files: [
+      // `.ts` extension modules (pi.dev hot-reloads them as ES modules) are
+      // excluded from withProvenance: a leading HTML comment is only legal in
+      // Script goal source text, not Module goal (ECMA-262 Annex B.1.1), so
+      // it would be a syntax error here (soma#370 investigation).
       {
         path: "agent/extensions/soma.ts",
         content: renderHomeExtension(somaHome),
       },
+      // soma#370: plain markdown narrative files carry the byte-stable
+      // provenance header so `soma doctor` can distinguish a managed
+      // projection from a hand-replaced one.
       {
         path: "agent/soma/context.md",
-        content: instructions,
+        content: withProvenance("pi-dev", instructions),
       },
       {
         path: "agent/soma/profile.md",
-        content: ["# Soma Profile Projection", "", renderAssistantCore(input)].join("\n"),
+        content: withProvenance("pi-dev", ["# Soma Profile Projection", "", renderAssistantCore(input)].join("\n")),
       },
       {
         path: "agent/soma/memory-layout.md",
-        content: renderMemoryLayout(input),
+        content: withProvenance("pi-dev", renderMemoryLayout(input)),
       },
       {
         path: "agent/soma/pai-imports.md",
-        content: renderPaiImportIndex(somaHome),
+        content: withProvenance("pi-dev", renderPaiImportIndex(somaHome)),
       },
       {
         path: "agent/soma/tools.md",
-        content: renderToolContract(),
+        content: withProvenance("pi-dev", renderToolContract()),
       },
       {
         path: "agent/soma/skills.md",
-        content: renderSkills(input),
+        content: withProvenance("pi-dev", renderSkills(input)),
       },
       {
         path: "agent/soma/policy.md",
-        content: renderPolicyProjection("pi-dev", ["soma_context extension tool reads projected context and Soma source snapshots"], [
-          "Model-provider behavior",
-          "Host permission prompts",
-          "Verification reporting",
-        ]),
+        content: withProvenance(
+          "pi-dev",
+          renderPolicyProjection("pi-dev", ["soma_context extension tool reads projected context and Soma source snapshots"], [
+            "Model-provider behavior",
+            "Host permission prompts",
+            "Verification reporting",
+          ]),
+        ),
       },
       {
         path: "agent/extensions/soma-path-guard.ts",
@@ -563,6 +573,8 @@ export function projectPiDevHome(input: ProjectionInput, somaHome: string): Proj
         path: "agent/extensions/soma-algorithm.ts",
         content: renderSomaAlgorithmExtension({ somaHome }),
       },
+      // YAML-frontmatter skill file — same exclusion reasoning as grok/codex's
+      // skills/soma/SKILL.md.
       {
         path: "agent/skills/soma/SKILL.md",
         content: renderHomeSkill(input, somaHome),
