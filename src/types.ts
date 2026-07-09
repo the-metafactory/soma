@@ -731,6 +731,14 @@ export interface PaiImportOptions {
   homeDir?: string;
   claudeHome?: string;
   somaHome?: string;
+  /**
+   * soma#441 — permit overwriting reserved identity targets (currently
+   * just `profile/purpose.md`) that already exist on disk. Without
+   * this flag, an existing reserved target is left untouched on
+   * rerun so hand-curation survives repeated `migrate pai` / `import
+   * pai` runs. See `PaiImportResult.skippedReserved`.
+   */
+  overwriteReserved?: boolean;
 }
 
 export interface PaiImportPlan {
@@ -746,6 +754,12 @@ export interface PaiImportResult {
   claudeHome: string;
   somaHome: string;
   files: string[];
+  /**
+   * soma#441 — reserved identity targets (absolute paths) that already
+   * existed on disk and were left untouched because `overwriteReserved`
+   * was not set. Empty when nothing was reserved-skipped.
+   */
+  skippedReserved?: string[];
 }
 
 export interface AlgorithmImportOptions {

@@ -1764,7 +1764,11 @@ function renderManifest(result: ManifestInputs): string {
     `Last migrated at: ${result.lastMigratedAt}`,
     "",
     "## Categories",
-    `- identity: ${result.identity.files.length} files`,
+    // soma#441 — total identity target count (written + reserved-skipped)
+    // is an end-state fact and stays stable across reruns; per-run
+    // written/skipped deltas live in the result object, not on disk
+    // (matches the memory-phase comment below).
+    `- identity: ${result.identity.files.length + (result.identity.skippedReserved?.length ?? 0)} files`,
     `  - identity fingerprint: ${result.identityFingerprint}`,
     `- algorithm: ${result.algorithm ? `${result.algorithm.files.length} files` : "not present"}`,
     result.algorithm ? `  - algorithm fingerprint: ${result.algorithmFingerprint ?? "empty"}` : null,
@@ -1830,7 +1834,15 @@ interface StableManifestInputs {
 async function renderStableMigrationManifest(
   inputs: StableManifestInputs,
 ): Promise<{ manifest: string; lastMigratedAt: string }> {
-  const identityFingerprint = await fingerprintFiles(inputs.identity.files);
+  // soma#441 — fingerprint over the full identity target set (written
+  // + reserved-skipped), not just `files`. A reserved target
+  // (`profile/purpose.md`) moves from `files` to `skippedReserved`
+  // once it exists on disk, but its bytes on disk are unchanged — the
+  // union keeps this fingerprint (and the "## Categories" identity
+  // count below) an end-state fact that stays stable across a
+  // genuinely idempotent rerun, matching the memory phase's
+  // `writtenCount + skippedCount` precedent.
+  const identityFingerprint = await fingerprintFiles([...inputs.identity.files, ...(inputs.identity.skippedReserved ?? [])]);
   const algorithmFingerprint = inputs.algorithm
     ? await fingerprintFiles(inputs.algorithm.files)
     : null;
@@ -1900,7 +1912,16 @@ export async function migratePai(options: PaiMigrationOptions = {}): Promise<Pai
   const { algorithmDir, packPaths } = await discoverMigrationSources(claudeHome, options);
   const filesWritten: string[] = [];
 
-  const identity = await importPaiIdentity({ homeDir: options.homeDir, claudeHome, somaHome });
+  // soma#441 — `--overwrite-reserved` (already used by the pack phase
+  // below) also gates the identity importer's reserved
+  // `profile/purpose.md` target, so a curated purpose.md survives
+  // repeated `migrate pai` runs unless explicitly overwritten.
+  const identity = await importPaiIdentity({
+    homeDir: options.homeDir,
+    claudeHome,
+    somaHome,
+    overwriteReserved: options.overwriteReserved === true,
+  });
   filesWritten.push(...identity.files);
 
   const algorithm = algorithmDir === null

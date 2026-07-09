@@ -36,6 +36,14 @@ const PROFILE_TARGETS = {
   purpose: "profile/purpose.md",
 } as const;
 
+// soma#441 — `profile/purpose.md` is the one identity target that
+// diverges from its source once a principal hand-curates it (it's
+// the compartment `src/soma-home.ts` reads to build every substrate's
+// projected Purpose). `principal.md` / `assistant.md` stay
+// deterministic distillations of their PAI sources and are always
+// (re)written — only `purpose.md` is reserved.
+const RESERVED_IDENTITY_TARGETS: ReadonlySet<string> = new Set([PROFILE_TARGETS.purpose]);
+
 function resolveHomes(options: PaiImportOptions = {}): { claudeHome: string; somaHome: string } {
   const home = resolve(options.homeDir ?? homedir());
 
@@ -314,9 +322,22 @@ export async function importPaiIdentity(options: PaiImportOptions = {}): Promise
   }
 
   const written: string[] = [];
+  const skippedReserved: string[] = [];
 
   for (const [relativePath, content] of files) {
     const target = join(homes.somaHome, relativePath);
+
+    // soma#441 — a reserved target that already exists on disk is
+    // presumed hand-curated (or at least previously landed); leave it
+    // untouched unless the principal explicitly opts in via
+    // `overwriteReserved`. The content is still computed above (so a
+    // fresh-target write further down stays byte-identical to before
+    // this fix) — only the write itself is gated.
+    if (RESERVED_IDENTITY_TARGETS.has(relativePath) && existsSync(target) && options.overwriteReserved !== true) {
+      skippedReserved.push(target);
+      continue;
+    }
+
     await mkdir(dirname(target), { recursive: true });
     await writeFile(target, `${content}\n`, "utf8");
     written.push(target);
@@ -326,5 +347,6 @@ export async function importPaiIdentity(options: PaiImportOptions = {}): Promise
     claudeHome: homes.claudeHome,
     somaHome: homes.somaHome,
     files: written,
+    skippedReserved,
   };
 }
