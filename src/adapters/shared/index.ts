@@ -17,14 +17,10 @@ export {
   stripProvenance,
   withProvenance,
 } from "./provenance";
-export {
-  SHORT_DESCRIPTION_MAX_LENGTH,
-  SKILL_REGISTRY_LINE_BUDGET,
-  extractAntiTriggers,
-  leadClause,
-  renderSkillRegistryEntry,
-  truncateAtWordBoundary,
-} from "./skill-registry";
+// Only the entry renderer is part of the shared public surface; the parsing/
+// truncation helpers + budget constants stay module-private (tests import them
+// from ./skill-registry directly).
+export { renderSkillRegistryEntry } from "./skill-registry";
 
 /**
  * The portable skills a home projection should emit files for. `skills.md`

@@ -22,10 +22,11 @@ import type { SomaSkill } from "../../types";
  */
 
 /**
- * Design target for the eager registry, verified against representative fixtures
- * and the real skill tree in `test/skill-registry.test.ts`. NOT a runtime-enforced
- * cap — `renderSkills` emits every skill, so a pathologically large tree could
- * exceed it; the compact per-entry format keeps the real ~104-skill tree well under.
+ * Design target for the eager registry, asserted in `test/skill-registry.test.ts`
+ * against representative synthetic fixtures (not the shipped catalog's contents).
+ * NOT a runtime-enforced cap — `renderSkills` emits every skill, so a
+ * pathologically large tree could exceed it; the compact per-entry format keeps
+ * the real ~104-skill tree well under (measured ~122 lines; see the PR).
  */
 export const SKILL_REGISTRY_LINE_BUDGET = 300;
 
@@ -95,6 +96,9 @@ export function leadClause(description: string): string {
  */
 export function truncateAtWordBoundary(text: string, maxLength: number): string {
   if (text.length <= maxLength) return text;
+  // Too small to hold any content plus the ellipsis — just hard-cut to the
+  // limit (never exceeds maxLength; no ellipsis, since there's no room).
+  if (maxLength <= 1) return text.slice(0, Math.max(0, maxLength));
 
   // Reserve one character for the ellipsis so the returned string (cut + "…")
   // never exceeds maxLength.
