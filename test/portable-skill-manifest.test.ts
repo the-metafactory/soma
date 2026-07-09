@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import {
   portableSkillManifestPath,
   portableSkillManifestSchema,
@@ -10,6 +11,10 @@ import {
   removePortableSkillProjection,
   writePortableSkillManifest,
 } from "../src/adapters/shared/portable-skill-manifest";
+
+function substrateHomeSegment(substrateHome: string): string {
+  return createHash("sha256").update(resolve(substrateHome), "utf8").digest("hex").slice(0, 12);
+}
 
 async function withDirs(fn: (somaHome: string, substrateHome: string) => Promise<void>): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), "soma-psm-"));
@@ -34,10 +39,17 @@ async function project(substrateHome: string, files: { path: string; content: st
   }
 }
 
-test("schema and path are substrate-scoped and byte-stable for grok", () => {
+test("schema and path are substrate-scoped, per-substrate-home, and byte-stable for grok", () => {
   expect(portableSkillManifestSchema("grok")).toBe("soma-grok-install-manifest-v1");
   expect(portableSkillManifestSchema("claude-code")).toBe("soma-claude-code-install-manifest-v1");
-  expect(portableSkillManifestPath("/home/.soma", "grok")).toBe("/home/.soma/projections/grok/install-manifest.json");
+  const hash = substrateHomeSegment("/home/.grok");
+  expect(portableSkillManifestPath("/home/.soma", "grok", "/home/.grok")).toBe(
+    `/home/.soma/projections/grok/${hash}/install-manifest.json`,
+  );
+  // Two different substrate homes get two different manifest paths.
+  expect(portableSkillManifestPath("/home/.soma", "grok", "/home/.grok")).not.toBe(
+    portableSkillManifestPath("/home/.soma", "grok", "/home/other-grok"),
+  );
 });
 
 test("write records path + content hash; read round-trips; a foreign schema reads as null", async () => {
@@ -46,11 +58,11 @@ test("write records path + content hash; read round-trips; a foreign schema read
     await project(substrateHome, files);
     await writePortableSkillManifest({ somaHome, substrate: "claude-code", substrateHome, files });
 
-    const manifest = await readPortableSkillManifest(somaHome, "claude-code");
+    const manifest = await readPortableSkillManifest(somaHome, "claude-code", substrateHome);
     expect(manifest?.schema).toBe("soma-claude-code-install-manifest-v1");
     expect(manifest?.files.map((f) => f.path)).toEqual(["skills/Memory/SKILL.md"]);
     // Same manifest bytes, read under a DIFFERENT substrate → schema mismatch → null.
-    expect(await readPortableSkillManifest(somaHome, "grok")).toBeNull();
+    expect(await readPortableSkillManifest(somaHome, "grok", substrateHome)).toBeNull();
   });
 });
 
@@ -69,7 +81,7 @@ test("remove deletes recorded files, prunes emptied dirs, consumes the manifest"
     expect(removed).toContain(resolve(substrateHome, "skills/Memory/Workflows/Recall.md"));
     expect(await gone(join(substrateHome, "skills/Memory"))).toBe(true);
     // The manifest is consumed so a second uninstall is a no-op.
-    expect(await gone(portableSkillManifestPath(somaHome, "claude-code"))).toBe(true);
+    expect(await gone(portableSkillManifestPath(somaHome, "claude-code", substrateHome))).toBe(true);
     expect(await removePortableSkillProjection({ somaHome, substrate: "claude-code", substrateHome })).toEqual([]);
   });
 });
@@ -97,17 +109,30 @@ test("remove preserves user-edited files and user-added files (and keeps their d
   });
 });
 
-test("remove ignores a manifest describing a different substrate home", async () => {
+test("remove ignores a manifest describing a different substrate home (defense-in-depth in-file guard)", async () => {
   await withDirs(async (somaHome, substrateHome) => {
     const files = [{ path: "skills/Memory/SKILL.md", content: "a\n" }];
     await project(substrateHome, files);
-    await writePortableSkillManifest({ somaHome, substrate: "grok", substrateHome: "/some/other/home", files });
+    // Manifest lives at the path keyed by the REAL substrate home (so remove
+    // finds it), but its in-file `substrateHome` field names a different home
+    // — the tampered/stale-content case the in-file guard defends against.
+    const path = portableSkillManifestPath(somaHome, "grok", substrateHome);
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(
+      path,
+      `${JSON.stringify({
+        schema: "soma-grok-install-manifest-v1",
+        substrateHome: "/some/other/home",
+        files: [{ path: files[0].path, sha256: createHash("sha256").update(files[0].content, "utf8").digest("hex") }],
+      })}\n`,
+      "utf8",
+    );
 
     const removed = await removePortableSkillProjection({ somaHome, substrate: "grok", substrateHome });
     expect(removed).toEqual([]);
     // Neither the file nor the (foreign-home) manifest is touched.
     expect(await gone(join(substrateHome, "skills/Memory/SKILL.md"))).toBe(false);
-    expect(await gone(portableSkillManifestPath(somaHome, "grok"))).toBe(false);
+    expect(await gone(path)).toBe(false);
   });
 });
 
@@ -133,6 +158,50 @@ test("reconcile removes only files the current projection dropped, keeping the m
     expect(removed).toContain(resolve(substrateHome, "skills/Gone/SKILL.md"));
     expect(await gone(join(substrateHome, "skills/Gone"))).toBe(true);
     expect(await gone(join(substrateHome, "skills/Memory/SKILL.md"))).toBe(false);
-    expect(await gone(portableSkillManifestPath(somaHome, "claude-code"))).toBe(false);
+    expect(await gone(portableSkillManifestPath(somaHome, "claude-code", substrateHome))).toBe(false);
   });
+});
+
+test("two substrate homes of the same substrate, installed from one soma home, get independent manifests (#438)", async () => {
+  const root = await mkdtemp(join(tmpdir(), "soma-psm-multi-home-"));
+  try {
+    const somaHome = join(root, ".soma");
+    const substrateHomeA = join(root, "home-a", ".claude");
+    const substrateHomeB = join(root, "home-b", ".claude");
+    await mkdir(somaHome, { recursive: true });
+    await mkdir(substrateHomeA, { recursive: true });
+    await mkdir(substrateHomeB, { recursive: true });
+
+    const filesA = [{ path: "skills/Memory/SKILL.md", content: "home-a memory\n" }];
+    const filesB = [{ path: "skills/Memory/SKILL.md", content: "home-b memory\n" }];
+    await project(substrateHomeA, filesA);
+    await project(substrateHomeB, filesB);
+    await writePortableSkillManifest({ somaHome, substrate: "claude-code", substrateHome: substrateHomeA, files: filesA });
+    await writePortableSkillManifest({ somaHome, substrate: "claude-code", substrateHome: substrateHomeB, files: filesB });
+
+    const pathA = portableSkillManifestPath(somaHome, "claude-code", substrateHomeA);
+    const pathB = portableSkillManifestPath(somaHome, "claude-code", substrateHomeB);
+    expect(pathA).not.toBe(pathB);
+    expect(await gone(pathA)).toBe(false);
+    expect(await gone(pathB)).toBe(false);
+
+    // Uninstalling home A only consumes home A's manifest and round-trips
+    // only home A's projected skill dir; home B's manifest and skill dir
+    // are untouched.
+    const removed = await removePortableSkillProjection({ somaHome, substrate: "claude-code", substrateHome: substrateHomeA });
+
+    expect(removed).toContain(resolve(substrateHomeA, "skills/Memory/SKILL.md"));
+    expect(await gone(join(substrateHomeA, "skills/Memory"))).toBe(true);
+    expect(await gone(pathA)).toBe(true);
+
+    // Home B is fully intact — the regression this test guards against is
+    // home A's uninstall reading home B's (last-written-wins) manifest and
+    // orphaning or deleting home B's projected files.
+    expect(await gone(pathB)).toBe(false);
+    expect(await readFile(join(substrateHomeB, "skills/Memory/SKILL.md"), "utf8")).toBe("home-b memory\n");
+    const manifestB = await readPortableSkillManifest(somaHome, "claude-code", substrateHomeB);
+    expect(manifestB?.files.map((f) => f.path)).toEqual(["skills/Memory/SKILL.md"]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

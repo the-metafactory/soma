@@ -18,7 +18,11 @@ export type PortableSkillManifestSubstrate = "grok" | "claude-code";
  * static uninstall `remove` list cannot name them and the owned-subtree
  * reconcile cannot own their dir. Install records what it wrote — paths plus
  * content hashes — in a manifest on the SOMA side (`<somaHome>/projections/
- * <substrate>/`), and uninstall consumes it to round-trip the portable skills.
+ * <substrate>/<substrateHomeHash>/`), and uninstall consumes it to round-trip
+ * the portable skills. The path is keyed by a short hash of the resolved
+ * substrate home (soma#438) so two homes of the same substrate installed
+ * from one soma home get independent manifests instead of silently sharing
+ * (and clobbering) one.
  *
  * The manifest lives outside the substrate home on purpose: every Soma-owned
  * directory under the substrate home is itself removed during uninstall, and
@@ -42,8 +46,23 @@ export interface PortableSkillManifest {
   files: { path: string; sha256: string }[];
 }
 
-export function portableSkillManifestPath(somaHome: string, substrate: PortableSkillManifestSubstrate): string {
-  return join(somaHome, "projections", substrate, "install-manifest.json");
+/**
+ * A stable short hash of the RESOLVED substrate home, used to scope the
+ * manifest path per home (soma#438): two homes of the same substrate
+ * installed from one soma home (e.g. `--substrate-home ~/.claude` and
+ * `--substrate-home ~/claude-fresh`) must not share one manifest file, or
+ * uninstalling one silently orphans the other's projected skill dirs.
+ */
+function substrateHomeSegment(substrateHome: string): string {
+  return createHash("sha256").update(resolve(substrateHome), "utf8").digest("hex").slice(0, 12);
+}
+
+export function portableSkillManifestPath(
+  somaHome: string,
+  substrate: PortableSkillManifestSubstrate,
+  substrateHome: string,
+): string {
+  return join(somaHome, "projections", substrate, substrateHomeSegment(substrateHome), "install-manifest.json");
 }
 
 function contentHash(content: string): string {
@@ -63,7 +82,7 @@ export async function writePortableSkillManifest(options: {
     // bundle content here equals hashing the on-disk bytes.
     files: options.files.map((file) => ({ path: file.path, sha256: contentHash(file.content) })),
   };
-  const path = portableSkillManifestPath(options.somaHome, options.substrate);
+  const path = portableSkillManifestPath(options.somaHome, options.substrate, options.substrateHome);
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
   return path;
@@ -99,10 +118,11 @@ function isInsideRoot(root: string, target: string): boolean {
 export async function readPortableSkillManifest(
   somaHome: string,
   substrate: PortableSkillManifestSubstrate,
+  substrateHome: string,
 ): Promise<PortableSkillManifest | null> {
   let raw: string;
   try {
-    raw = await readFile(portableSkillManifestPath(somaHome, substrate), "utf8");
+    raw = await readFile(portableSkillManifestPath(somaHome, substrate, substrateHome), "utf8");
   } catch (error) {
     if (isEnoent(error)) return null;
     throw error;
@@ -173,7 +193,7 @@ export async function reconcilePortableSkillProjection(options: {
   substrateHome: string;
   currentPaths: readonly string[];
 }): Promise<string[]> {
-  const manifest = await readPortableSkillManifest(options.somaHome, options.substrate);
+  const manifest = await readPortableSkillManifest(options.somaHome, options.substrate, options.substrateHome);
   if (manifest === null) return [];
   const substrateHome = resolve(options.substrateHome);
   if (resolve(manifest.substrateHome) !== substrateHome) return [];
@@ -202,13 +222,13 @@ export async function removePortableSkillProjection(options: {
   substrate: PortableSkillManifestSubstrate;
   substrateHome: string;
 }): Promise<string[]> {
-  const manifest = await readPortableSkillManifest(options.somaHome, options.substrate);
+  const manifest = await readPortableSkillManifest(options.somaHome, options.substrate, options.substrateHome);
   if (manifest === null) return [];
   const substrateHome = resolve(options.substrateHome);
   if (resolve(manifest.substrateHome) !== substrateHome) return [];
 
   const removed = await removeListedProjectionFiles(substrateHome, manifest.files);
-  const manifestPath = portableSkillManifestPath(options.somaHome, options.substrate);
+  const manifestPath = portableSkillManifestPath(options.somaHome, options.substrate, options.substrateHome);
   await rm(manifestPath, { force: true });
   removed.push(manifestPath);
   return removed;
