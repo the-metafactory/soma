@@ -382,10 +382,12 @@ Trust is *derived* from how a note was written, never set by a flag: a principal
 correction requires `--principal-authority`, imports land at lower trust, and
 consolidation never mints or elevates trust.
 
-Each substrate's projected memory file (e.g. Claude Code's
-`rules/soma/MEMORY.md`) reprojects at the start of every session, so a note
-written in one substrate shows up in the next session on another substrate
-without a full `soma install` reproject — an idle session touches no disk.
+On substrates with a SessionStart hook (Claude Code, Codex, Grok), the
+projected memory file (e.g. Claude Code's `rules/soma/MEMORY.md`) reprojects
+from the shared `~/.soma` store at the start of each session, so a note written
+via one of them surfaces in a later session of another without a full
+`soma install` reproject — and, because the reprojection is mtime-gated, an
+idle session touches no disk.
 
 ```bash
 # Save a durable fact (trust derived from the trigger, not a flag)
