@@ -660,7 +660,8 @@ test("first install already converges: skills.md lists VSA and the file set matc
     // before the VSA baseline existed).
     const first = await installSomaForCodex({ homeDir });
     const afterFirst = await readFile(skillsPath, "utf8");
-    expect(afterFirst).toContain("## VSA");
+    // soma#371: compact registry entry (`- **VSA** — ...`), not a `## <name>` heading.
+    expect(afterFirst).toContain("**VSA**");
     expect(afterFirst).not.toContain("No Soma skills were declared.");
 
     // Snapshot every projected file's bytes after the first install.

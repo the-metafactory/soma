@@ -3,6 +3,7 @@ import type { ProjectionInput, SomaSkill, SubstrateId } from "../../types";
 import { getCriteria, getGoal } from "../../vsa-accessors";
 import { VSA_SKILL_NAME } from "../../vsa-skill-installer";
 import { rewriteSubstrateProjectionContent } from "../../substrate-projection-rewrites";
+import { renderSkillRegistryEntry } from "./skill-registry";
 
 export { renderAlgorithmRenderingContract } from "./algorithm-rendering-contract";
 export {
@@ -16,6 +17,10 @@ export {
   stripProvenance,
   withProvenance,
 } from "./provenance";
+// Only the entry renderer is part of the shared public surface; the parsing/
+// truncation helpers + budget constants stay module-private (tests import them
+// from ./skill-registry directly).
+export { renderSkillRegistryEntry } from "./skill-registry";
 
 /**
  * The portable skills a home projection should emit files for. `skills.md`
@@ -174,12 +179,17 @@ export function renderMemoryLayout(input: ProjectionInput): string {
 export const SOMA_SKILLS_HEADING = "# Soma Skills";
 export const SOMA_POLICY_PROJECTION_HEADING = "# Soma Policy Projection";
 
+/**
+ * soma#371 — compact skill registry. One tight entry per skill (see
+ * `renderSkillRegistryEntry`) instead of the pre-#371 `## <name>` full-body
+ * listing, so the eager catalog stops crowding out routing signal. Skill
+ * BODIES still load on demand at invocation time (unchanged by this
+ * projection) — only this always-loaded catalog got smaller.
+ */
 export function renderSkills(input: ProjectionInput): string {
-  const skills = input.profile.skills.map((skill) =>
-    [`## ${skill.name}`, "", skill.description, "", `Path: ${skill.path}`, "", "Triggers:", formatList(skill.triggers)].join("\n"),
-  );
+  const skills = input.profile.skills.map(renderSkillRegistryEntry);
 
-  return [SOMA_SKILLS_HEADING, "", skills.length === 0 ? "No Soma skills were declared." : skills.join("\n\n")].join("\n");
+  return [SOMA_SKILLS_HEADING, "", skills.length === 0 ? "No Soma skills were declared." : skills.join("\n")].join("\n");
 }
 
 export function renderPolicyProjection(substrate: string, enforceable: string[], advisory: string[]): string {

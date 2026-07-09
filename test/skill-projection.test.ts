@@ -54,9 +54,9 @@ describe("projectSkill", () => {
       expect((await lstat(registryLink)).isSymbolicLink()).toBe(true);
       expect(await readlinkAbs(registryLink)).toBe(resolve(skillDir));
 
-      // Catalog lists it.
+      // Catalog lists it (soma#371: compact registry entry, not a `## <name>` heading).
       const catalog = await readFile(join(homeDir, ".claude", "rules", "soma", "SKILLS.md"), "utf8");
-      expect(catalog).toContain("## MyTool");
+      expect(catalog).toContain("**MyTool**");
     });
   });
 
@@ -151,7 +151,7 @@ describe("unprojectSkill", () => {
       await expect(lstat(join(homeDir, ".soma", "skills", "MyTool"))).rejects.toThrow();
 
       const catalog = await readFile(join(homeDir, ".claude", "rules", "soma", "SKILLS.md"), "utf8");
-      expect(catalog).not.toContain("## MyTool");
+      expect(catalog).not.toContain("**MyTool**");
     });
   });
 
@@ -248,8 +248,8 @@ describe("projectSkills (batch)", () => {
       expect((await lstat(join(homeDir, ".claude", "skills", "Beta"))).isSymbolicLink()).toBe(true);
 
       const catalog = await readFile(join(homeDir, ".claude", "rules", "soma", "SKILLS.md"), "utf8");
-      expect(catalog).toContain("## Alpha");
-      expect(catalog).toContain("## Beta");
+      expect(catalog).toContain("**Alpha**");
+      expect(catalog).toContain("**Beta**");
     });
   });
 
@@ -267,7 +267,7 @@ describe("projectSkills (batch)", () => {
       // Ok was linked before the failure; the finally-refresh catalogued it.
       expect((await lstat(join(homeDir, ".claude", "skills", "Ok"))).isSymbolicLink()).toBe(true);
       const catalog = await readFile(join(homeDir, ".claude", "rules", "soma", "SKILLS.md"), "utf8");
-      expect(catalog).toContain("## Ok");
+      expect(catalog).toContain("**Ok**");
     });
   });
 
@@ -290,7 +290,7 @@ describe("projectSkills (batch)", () => {
       // Registry link rolled back → Solo is neither registered nor cataloged.
       await expect(lstat(join(homeDir, ".soma", "skills", "Solo"))).rejects.toThrow();
       const catalog = await readFile(join(homeDir, ".claude", "rules", "soma", "SKILLS.md"), "utf8");
-      expect(catalog).not.toContain("## Solo");
+      expect(catalog).not.toContain("**Solo**");
       // The user's real loader dir is untouched.
       expect((await lstat(loaderSlot)).isDirectory()).toBe(true);
     });
@@ -313,7 +313,7 @@ describe("soma install --skills", () => {
 
       expect((await lstat(join(homeDir, ".claude", "skills", "Widget"))).isSymbolicLink()).toBe(true);
       const catalog = await readFile(join(homeDir, ".claude", "rules", "soma", "SKILLS.md"), "utf8");
-      expect(catalog).toContain("## Widget");
+      expect(catalog).toContain("**Widget**");
     });
   });
 
