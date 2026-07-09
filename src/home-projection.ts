@@ -274,6 +274,23 @@ function replaceCursorRulesBlock(existing: string, generated: string): string {
   return `${next}\n`;
 }
 
+/**
+ * Pure merge decision for `.cursorrules`: given whatever currently sits on
+ * disk (empty string when the file does not exist yet) and the freshly
+ * rendered Soma block body, compute the byte content the file SHOULD have.
+ * Exported so `soma doctor`'s content-compare (soma#370) can ask "does the
+ * on-disk file already reflect a fresh render" without duplicating the
+ * merge/patch semantics `mergeCursorRulesFile` writes to disk — the doctor
+ * and the writer must never drift apart on what "managed" means here.
+ */
+export function mergeCursorRulesContent(existing: string, generated: string): string {
+  if (existing.length === 0 || existing.startsWith("# Soma Cursor Projection")) {
+    return `${generated.trimEnd()}\n`;
+  }
+
+  return replaceCursorRulesBlock(existing, generated);
+}
+
 async function mergeCursorRulesFile(target: string, generated: string): Promise<string> {
   const existing = await readFile(target, "utf8").catch((error: unknown) => {
     if (typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "ENOENT") {
@@ -282,9 +299,5 @@ async function mergeCursorRulesFile(target: string, generated: string): Promise<
     throw error;
   });
 
-  if (existing.length === 0 || existing.startsWith("# Soma Cursor Projection")) {
-    return `${generated.trimEnd()}\n`;
-  }
-
-  return replaceCursorRulesBlock(existing, generated);
+  return mergeCursorRulesContent(existing, generated);
 }

@@ -1,5 +1,5 @@
-import { diagnoseClaudeCodeProjectionDrift } from "./claude-code/doctor";
-import { diagnoseCodexProjectionDrift } from "./codex/doctor";
+import { diagnoseClaudeCodeInstallArtifactDrift } from "./claude-code/doctor";
+import { diagnoseContentCompareDrift } from "./content-compare-doctor";
 import { diagnoseGrokProjectionDrift } from "./grok/doctor";
 import type { SomaDoctorFinding, SubstrateId } from "../types";
 
@@ -8,7 +8,10 @@ type DoctorSubstrate = Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" |
 // Single source of truth for the substrates `soma doctor` can diagnose, and
 // the error strings shown when an unsupported one is requested. Shared so the
 // CLI parser, the diagnosis entrypoint, and this dispatcher stay in lockstep.
-export const DOCTOR_SUPPORTED_SUBSTRATES = ["codex", "claude-code", "grok"] as const satisfies readonly DoctorSubstrate[];
+// soma#370: extended to all 5 install substrates — content-compare drift
+// (../content-compare-doctor.ts) is substrate-agnostic, so cursor and
+// pi-dev, which had no drift diagnosis at all before, are now covered too.
+export const DOCTOR_SUPPORTED_SUBSTRATES = ["codex", "claude-code", "cursor", "grok", "pi-dev"] as const satisfies readonly DoctorSubstrate[];
 
 export type SupportedDoctorSubstrate = (typeof DOCTOR_SUPPORTED_SUBSTRATES)[number];
 
@@ -30,18 +33,30 @@ export const DOCTOR_UNSUPPORTED_DRIFT_MESSAGE =
 export async function diagnoseProjectionDrift(options: {
   substrate: SupportedDoctorSubstrate;
   homeDir: string;
-  profileMtime: number | null;
+  somaHome: string;
+  somaRepoPath?: string;
 }): Promise<SomaDoctorFinding[]> {
-  if (options.substrate === "codex") {
-    return diagnoseCodexProjectionDrift(options);
-  }
+  // soma#370: every doctor-supported substrate's home projection is a pure
+  // function of ProjectionInput, so content-compare runs uniformly for all
+  // 5 — this REPLACES the old codex/claude-code profile-mtime heuristics
+  // outright (they only ever approximated what content-compare now checks
+  // directly) and is the FIRST drift diagnosis cursor/pi-dev have ever had.
+  const contentFindings = await diagnoseContentCompareDrift(options);
+
   if (options.substrate === "claude-code") {
-    return diagnoseClaudeCodeProjectionDrift(options);
+    // Install-artifact checks (hook files on disk, settings.json wiring)
+    // are NOT part of the rendered projection bundle content-compare
+    // diffs, so they stay as a separate, narrower check.
+    return [...contentFindings, ...(await diagnoseClaudeCodeInstallArtifactDrift(options))];
   }
   if (options.substrate === "grok") {
-    // grok drift is judged by Grok's own discovery oracle, not the
-    // profile-mtime heuristic, so profileMtime is deliberately unused here.
-    return diagnoseGrokProjectionDrift({ homeDir: options.homeDir });
+    // grok ADDITIONALLY keeps its `grok inspect --json` oracle-based checks
+    // (../grok/doctor.ts): whether Grok's runtime has actually discovered a
+    // file is a different, non-deterministic question from whether the
+    // file's bytes match a fresh render, so oracle and content-compare
+    // findings are composed rather than one replacing the other — see
+    // content-compare-doctor.ts's module doc for the full rationale.
+    return [...contentFindings, ...(await diagnoseGrokProjectionDrift({ homeDir: options.homeDir }))];
   }
-  throw new Error(DOCTOR_UNSUPPORTED_DRIFT_MESSAGE);
+  return contentFindings;
 }

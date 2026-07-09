@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import type { SomaAdapter, Projection, ProjectionInput, SomaTask } from "../types";
 import { activeVsaBundleFile } from "../adapter-active-vsa";
-import { buildPortableSkillFiles, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "./shared";
+import { buildPortableSkillFiles, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills, withProvenance } from "./shared";
 
 export const CURSOR_RULES_PATH = ".cursorrules";
 export const CURSOR_RULES_BLOCK_BEGIN = "<!-- SOMA_CURSOR_BEGIN -->";
@@ -161,40 +161,50 @@ export function projectCursor(input: ProjectionInput): Projection {
     files: [
       ...portableSkillFiles,
       {
+        // Excluded from withProvenance: this file's content becomes the BODY
+        // of a hand-maintained-file merge block (home-projection.ts wraps it
+        // in CURSOR_RULES_BLOCK_BEGIN/END and splices it into a possibly
+        // foreign-owned .cursorrules), so its own "managed" signal is the
+        // block markers, not the HTML-comment provenance header (soma#370
+        // investigation).
         path: CURSOR_RULES_PATH,
         content: renderCursorRules(),
       },
       {
+        // soma#370: plain markdown narrative files under the owned
+        // `.cursor/rules/soma/` subtree carry the byte-stable provenance
+        // header so `soma doctor` can distinguish a managed projection from
+        // a hand-replaced one.
         path: CURSOR_RULES_README_PATH,
-        content: renderCursorRulesReadme(),
+        content: withProvenance("cursor", renderCursorRulesReadme()),
       },
       {
         path: CURSOR_CONTEXT_PATH,
-        content: instructions,
+        content: withProvenance("cursor", instructions),
       },
       {
         path: CURSOR_PROFILE_PATH,
-        content: renderCursorProfile(input),
+        content: withProvenance("cursor", renderCursorProfile(input)),
       },
       {
         path: CURSOR_PURPOSE_PATH,
-        content: renderCursorPurpose(input),
+        content: withProvenance("cursor", renderCursorPurpose(input)),
       },
       {
         path: CURSOR_MEMORY_LAYOUT_PATH,
-        content: renderMemoryLayout(input),
+        content: withProvenance("cursor", renderMemoryLayout(input)),
       },
       {
         path: CURSOR_SKILLS_PATH,
-        content: renderSkills(input),
+        content: withProvenance("cursor", renderSkills(input)),
       },
       {
         path: CURSOR_POLICY_PATH,
-        content: renderCursorPolicy(),
+        content: withProvenance("cursor", renderCursorPolicy()),
       },
       {
         path: CURSOR_MCP_PATH,
-        content: renderCursorMcpNotes(),
+        content: withProvenance("cursor", renderCursorMcpNotes()),
       },
       ...activeVsaBundleFile("cursor", input.activeVsa),
     ],
