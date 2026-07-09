@@ -72,8 +72,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   models, decision frames, challenges, and hard-won lessons into Soma memory
   as recall-able notes with a source-of-truth pointer, and guards
   `profile/purpose.md` against the identity-importer clobber.
-- **Anthropic Cowork substrate scaffold (#436)** — initial adapter scaffold
-  for the Anthropic Cowork substrate.
+- **Anthropic Cowork substrate scaffold (#436)** — an initial adapter skeleton
+  for a future Anthropic Cowork substrate; not yet an installable target.
 - **VerificationGate + PreCompact ports (#439)** — `soma algorithm verify` now
   refuses to record a `passed` criterion on specification-only or rote
   ("done"/"verified"/…) evidence, moving the existing hollow-pass check from
