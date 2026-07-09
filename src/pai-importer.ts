@@ -1,8 +1,17 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import type { ImportSourceCheck, PaiImportOptions, PaiImportPlan, PaiImportResult } from "./types";
+
+// soma#441 — single-sourced formatter for the reserved-skip CLI line so
+// `soma import pai` and `soma migrate pai` can't drift on wording. The
+// `prefix` argument carries each command's own bullet/label shape (e.g.
+// `"  - identity "` for the migrate summary); the reserved-noun suffix
+// stays identical.
+export function formatReservedSkipLine(somaHome: string, target: string, prefix = ""): string {
+  return `${prefix}skipped reserved (curated): ${relative(somaHome, target)} — re-run with --overwrite-reserved to replace`;
+}
 
 type PaiSourceRole = "principal" | "assistant" | "mission" | "goals" | "strategies" | "beliefs";
 

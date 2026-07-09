@@ -1,4 +1,3 @@
-import { relative } from "node:path";
 import {
   migratePai,
   planPaiMigration,
@@ -7,6 +6,7 @@ import {
   type PaiMigrationResult,
 } from "../index";
 import { formatPackOutcomeLines } from "../pai-migration";
+import { formatReservedSkipLine } from "../pai-importer";
 import {
   countOutcomesWithMissingDependencies,
   migrateClaudeSkills,
@@ -470,7 +470,7 @@ function formatPaiMigrationResult(result: PaiMigrationResult, verbose = false): 
   // MIGRATION.md manifest reports only the stable end-state total
   // (see `renderManifest`'s identity line), not this per-run delta.
   const identitySkippedReservedLines = (result.identity.skippedReserved ?? []).map(
-    (path) => `  - identity skipped reserved (curated): ${relative(result.somaHome, path)} — re-run with --overwrite-reserved to replace`,
+    (path) => formatReservedSkipLine(result.somaHome, path, "  - identity "),
   );
   const memoryLine = result.memory === null
     ? "  - memory:   skipped"

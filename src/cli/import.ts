@@ -1,4 +1,3 @@
-import { relative } from "node:path";
 import {
   importAlgorithm,
   importPaiDocs,
@@ -9,6 +8,7 @@ import {
   planPaiImport,
   planPaiPackImport,
 } from "../index";
+import { formatReservedSkipLine } from "../pai-importer";
 import type {
   AlgorithmImportOptions,
   AlgorithmImportPlan,
@@ -232,15 +232,11 @@ function formatSimpleImportResult(title: string, dirEntries: string[], files: st
 // soma#441 — per-run reserved-skip detail lives only in this ephemeral
 // CLI summary, not in any on-disk/byte-compared surface (mirrors the
 // memory phase's "written N / unchanged M" precedent in
-// `formatPaiMigrationResult`).
+// `formatPaiMigrationResult`). Line shape is single-sourced via
+// `formatReservedSkipLine` so this and the migrate summary can't drift.
 function formatSkippedReservedLines(somaHome: string, skippedReserved: string[] | undefined): string[] {
   if (!skippedReserved || skippedReserved.length === 0) return [];
-  return [
-    "",
-    ...skippedReserved.map(
-      (path) => `skipped reserved (curated): ${relative(somaHome, path)} — re-run with --overwrite-reserved to replace`,
-    ),
-  ];
+  return ["", ...skippedReserved.map((path) => formatReservedSkipLine(somaHome, path))];
 }
 
 function formatPaiImportResult(result: PaiImportResult): string {

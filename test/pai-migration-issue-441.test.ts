@@ -11,17 +11,21 @@
  * `assistant.md` stay deterministic distillations and are always
  * (re)written.
  *
- * The manifest body (`MIGRATION.md`) must stay byte-stable across a
- * genuinely idempotent rerun (established invariant — see
- * `renderManifest`'s Sage r1 #28 comment). Reserved-skip is a
- * per-run split of the SAME end-state file set (written vs.
+ * The manifest body (`MIGRATION.md`) must stay byte-identical across a
+ * genuinely idempotent rerun — the existing invariant asserted by
+ * `test/pai-migration.test.ts` ("migratePai is idempotent at the file
+ * level") and `test/pai-migration-issue-90.test.ts`. Reserved-skip is
+ * a per-run split of the SAME end-state file set (written vs.
  * skipped-because-already-present), so the identity file *count* and
- * *fingerprint* in the manifest must be computed over the union of
- * `files` + `skippedReserved`, not `files` alone — otherwise the count
- * would drop from run 1 (creates purpose.md) to run 2+ (skips it),
- * breaking the existing idempotency tests. The per-run skip detail
- * lives only in the CLI's ephemeral summary output, matching the
- * memory phase's existing "written N / unchanged M" precedent.
+ * *fingerprint* in the manifest are computed over the union of `files`
+ * + `skippedReserved`, not `files` alone. Without the union, run 1
+ * (writes purpose.md → in `files`) and run 2 (skips it → in
+ * `skippedReserved`) would report different identity counts /
+ * fingerprints and the manifest would drift on an idempotent rerun.
+ * The union mirrors the memory phase's `writtenCount + skippedCount`
+ * end-state accounting (`renderStableMigrationManifest` /
+ * `renderManifest` in `src/pai-migration.ts`). The per-run skip detail
+ * lives only in the CLI's ephemeral summary output.
  */
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -30,15 +34,48 @@ import { migratePai } from "../src/pai-migration";
 import { runSomaCli } from "../src/cli";
 import { withTempHome, writePaiIdentityFixture as writePaiFixture } from "./fixtures/pai-migration-fixtures";
 
-test("#441 migratePai leaves a curated purpose.md untouched on rerun; manifest stays byte-stable", async () => {
+test("#441 migratePai manifest is byte-identical across a genuinely idempotent rerun even though run 2 reserved-skips purpose.md", async () => {
   await withTempHome(async (homeDir) => {
     await writePaiFixture(homeDir, { withAlgorithm: true });
 
+    // Run 1 creates purpose.md (in `files`). Run 2 sees it already on
+    // disk and reserved-skips it (in `skippedReserved`). No mutation
+    // between runs → the manifest body must be byte-identical. This is
+    // the direct regression guard: computing the identity count /
+    // fingerprint over `files` alone (not the union with
+    // `skippedReserved`) would drop the count by one and change the
+    // fingerprint on run 2, drifting the manifest.
     const first = await migratePai({ homeDir });
     const purposePath = join(homeDir, ".soma/profile/purpose.md");
     const firstManifest = await readFile(first.manifestPath, "utf8");
+    // Run 1 wrote purpose.md; nothing was reserved-skipped yet.
+    expect(first.identity.files).toContain(purposePath);
+    expect(first.identity.skippedReserved ?? []).not.toContain(purposePath);
 
-    // Simulate hand-curation between runs.
+    const second = await migratePai({ homeDir });
+    // Run 2 reserved-skipped the now-present purpose.md instead of writing it.
+    expect(second.identity.skippedReserved ?? []).toContain(purposePath);
+    expect(second.identity.files).not.toContain(purposePath);
+
+    // The whole manifest body — not just one line — must be byte-for-byte
+    // identical across the idempotent rerun (the `Last migrated at:`
+    // timestamp is preserved by the importer's idempotency machinery, so
+    // a direct full-body comparison is deterministic; same pattern as
+    // pai-migration-issue-90's manifest-stability assertion).
+    const secondManifest = await readFile(second.manifestPath, "utf8");
+    expect(secondManifest).toBe(firstManifest);
+  });
+});
+
+test("#441 migratePai leaves a hand-curated purpose.md byte-unchanged on rerun", async () => {
+  await withTempHome(async (homeDir) => {
+    await writePaiFixture(homeDir, { withAlgorithm: true });
+
+    await migratePai({ homeDir });
+    const purposePath = join(homeDir, ".soma/profile/purpose.md");
+
+    // Simulate hand-curation between runs (content diverges from what
+    // the importer would generate).
     const curated = "# Purpose\n\nHand-curated mission, must survive rerun.\n";
     await writeFile(purposePath, curated, "utf8");
 
@@ -47,15 +84,10 @@ test("#441 migratePai leaves a curated purpose.md untouched on rerun; manifest s
     expect(await readFile(purposePath, "utf8")).toBe(curated);
     expect(second.identity.skippedReserved ?? []).toContain(purposePath);
     expect(second.identity.files).not.toContain(purposePath);
-
-    // The manifest's identity file count + fingerprint are end-state
-    // facts (written + skipped-reserved), not "what this run wrote" —
-    // so a rerun with no real content drift must not change the
-    // manifest body byte-for-byte, even though the curated file moved
-    // from `files` to `skippedReserved` between the two runs.
-    const secondManifest = await readFile(second.manifestPath, "utf8");
-    const identityLine = (text: string) => text.split("\n").find((l) => l.trim().startsWith("- identity:"));
-    expect(identityLine(secondManifest)).toBe(identityLine(firstManifest));
+    // principal.md / assistant.md are deterministic distillations and
+    // are still (re)written every run.
+    expect(second.identity.files).toContain(join(homeDir, ".soma/profile/principal.md"));
+    expect(second.identity.files).toContain(join(homeDir, ".soma/profile/assistant.md"));
   });
 });
 
