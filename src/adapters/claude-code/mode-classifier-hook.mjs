@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -43,6 +43,35 @@ function runSomaClassification(config, prompt) {
     timeout: 3000,
     env: process.env,
   });
+}
+
+// soma statusline-mode-feed: this hook is the sole writer of the per-session
+// mode+effort state the claude-code statusline reads. `classify` stays a pure,
+// portable command — the substrate-specific write lives here, in the adapter.
+// The filename convention (`statusline-mode-<safe-sid>.json`) and the session-id
+// sanitization are shared, cross-language, with statusline.sh's read side and
+// must stay in lockstep. Best-effort: a write failure must never break the
+// classification this hook returns.
+function writeStatuslineModeState(config, sessionId, classification) {
+  if (typeof sessionId !== "string" || sessionId.length === 0) return;
+  if (typeof config.somaHome !== "string" || config.somaHome.length === 0) return;
+  try {
+    // Sanitize the session id used as a filename segment — kept in lockstep
+    // with statusline.sh's read-side guard (`^[A-Za-z0-9._-]+$`): for a safe id
+    // this is the identity so the reader addresses exactly this file; an unsafe
+    // id collapses to a single safe basename inside STATE (no traversal).
+    const token = sessionId.replace(/[^A-Za-z0-9._-]+/g, "-");
+    const path = join(config.somaHome, "memory", "STATE", `statusline-mode-${token}.json`);
+    mkdirSync(dirname(path), { recursive: true });
+    const payload = {
+      mode: String(classification.mode || ""),
+      effort: typeof classification.effort === "string" ? classification.effort : "",
+      updatedAt: new Date().toISOString(),
+    };
+    writeFileSync(path, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  } catch {
+    // best-effort — see comment above.
+  }
 }
 
 function parseClassification(output) {
@@ -114,11 +143,15 @@ function main() {
   if (result.status !== 0) {
     emitFailOpen(result.stderr || result.stdout || "");
   }
+  const classification = parseClassification(result.stdout);
+  // Feed the per-session statusline state (best-effort; never blocks output).
+  const sessionId = typeof input.session_id === "string" ? input.session_id : undefined;
+  writeStatuslineModeState(config, sessionId, classification);
   emitAndExit({
     continue: true,
     hookSpecificOutput: {
       hookEventName: "UserPromptSubmit",
-      additionalContext: renderModeContext(parseClassification(result.stdout)),
+      additionalContext: renderModeContext(classification),
     },
   });
 }

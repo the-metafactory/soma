@@ -249,21 +249,38 @@ test("BLOCKER: a crafted numeric field cannot inject shell (no eval)", async () 
   });
 });
 
-test("a multi-word Soma task renders fully in the session segment", async () => {
+// Mode/effort for the Soma segment come from the mode-classifier hook's
+// per-session feed (`statusline-mode-<sid>.json`, written by the hook after it
+// classifies each prompt) — NOT the current-work pointer's `phase`, which
+// carries no mode/effort. Task text still comes from the newest current-work
+// file. These tests seed both session-scoped state files directly (bypassing
+// the hook) since the statusline script only ever reads them.
+async function writeStatuslineModeState(
+  homeDir: string,
+  sessionId: string,
+  state: { mode: string; effort?: string },
+): Promise<void> {
+  const stateDir = join(homeDir, ".soma/memory/STATE");
+  await mkdir(stateDir, { recursive: true });
+  await writeFile(join(stateDir, `statusline-mode-${sessionId}.json`), JSON.stringify(state), "utf8");
+}
+
+async function writeCurrentWorkTask(homeDir: string, sessionId: string, task: string): Promise<void> {
+  const stateDir = join(homeDir, ".soma/memory/STATE");
+  await mkdir(stateDir, { recursive: true });
+  await writeFile(join(stateDir, `current-work-${sessionId}-1.json`), JSON.stringify({ task }), "utf8");
+}
+
+test("algorithm mode renders ⚙<effort> plus the full multi-word task", async () => {
   await withTempHome(async (homeDir) => {
     await installSomaForClaudeCode({ homeDir });
     const scriptPath = join(homeDir, SCRIPT_REL);
-
-    // The script bakes SOMA_HOME = <homeDir>/.soma; drop a current-work file
-    // there for this session with a task that contains spaces.
     const sid = "task-space-sess";
-    const stateDir = join(homeDir, ".soma/memory/STATE");
-    await mkdir(stateDir, { recursive: true });
-    await writeFile(
-      join(stateDir, `current-work-${sid}-1.json`),
-      JSON.stringify({ phase: "think", task: "write adapter", status: "active" }),
-      "utf8",
-    );
+
+    await writeStatuslineModeState(homeDir, sid, { mode: "algorithm", effort: "E3" });
+    // The whole task survives (a tab-collapsing split would truncate at the
+    // first word).
+    await writeCurrentWorkTask(homeDir, sid, "write adapter");
 
     const out = runStatusline(scriptPath, {
       workspace: { current_dir: "/tmp" },
@@ -273,8 +290,110 @@ test("a multi-word Soma task renders fully in the session segment", async () => 
     });
 
     expect(out.status).toBe(0);
-    // The whole task survives (a tab-collapsing split would truncate at the
-    // first word); the phase renders after it.
-    expect(out.stdout).toContain("write adapter·think");
+    expect(out.stdout).toContain("⚙E3");
+    expect(out.stdout).toContain("write adapter");
+  });
+});
+
+test("native mode renders ○ plus the task", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForClaudeCode({ homeDir });
+    const scriptPath = join(homeDir, SCRIPT_REL);
+    const sid = "native-sess";
+
+    await writeStatuslineModeState(homeDir, sid, { mode: "native" });
+    await writeCurrentWorkTask(homeDir, sid, "read the diff");
+
+    const out = runStatusline(scriptPath, {
+      workspace: { current_dir: "/tmp" },
+      session_id: sid,
+      model: { display_name: "Claude Opus 4.8" },
+      context_window: { used_percentage: 5 },
+    });
+
+    expect(out.status).toBe(0);
+    expect(out.stdout).toContain("○ read the diff");
+    expect(out.stdout).not.toContain("⚙");
+  });
+});
+
+test("minimal mode drops the Soma segment but keeps the rest of the line", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForClaudeCode({ homeDir });
+    const scriptPath = join(homeDir, SCRIPT_REL);
+    const sid = "minimal-sess";
+
+    await writeStatuslineModeState(homeDir, sid, { mode: "minimal" });
+    await writeCurrentWorkTask(homeDir, sid, "should not render");
+
+    const out = runStatusline(scriptPath, {
+      workspace: { current_dir: "/tmp" },
+      session_id: sid,
+      model: { display_name: "Claude Opus 4.8" },
+      context_window: { used_percentage: 5 },
+    });
+
+    expect(out.status).toBe(0);
+    expect(out.stdout).not.toContain("⚙");
+    expect(out.stdout).not.toContain("○");
+    expect(out.stdout).not.toContain("should not render");
+    expect(out.stdout).toContain("ctx ");
+  });
+});
+
+test("a missing statusline-mode state file drops the Soma segment but keeps the rest of the line", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForClaudeCode({ homeDir });
+    const scriptPath = join(homeDir, SCRIPT_REL);
+    const sid = "no-state-sess";
+
+    // No statusline-mode-<sid>.json written at all — only a current-work file.
+    await writeCurrentWorkTask(homeDir, sid, "should not render");
+
+    const out = runStatusline(scriptPath, {
+      workspace: { current_dir: "/tmp" },
+      session_id: sid,
+      model: { display_name: "Claude Opus 4.8" },
+      context_window: { used_percentage: 5 },
+    });
+
+    expect(out.status).toBe(0);
+    expect(out.stdout).not.toContain("⚙");
+    expect(out.stdout).not.toContain("○");
+    expect(out.stdout).not.toContain("should not render");
+    expect(out.stdout).toContain("ctx ");
+  });
+});
+
+test("a traversal session id is guarded: the Soma segment is dropped and no file outside STATE is read", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForClaudeCode({ homeDir });
+    const scriptPath = join(homeDir, SCRIPT_REL);
+
+    // Plant a state file OUTSIDE the STATE dir that a naive
+    // `$STATE_DIR/statusline-mode-$sid.json` read would resolve to if $sid
+    // ("../evil") were used raw. The guard must reject the unsafe id entirely.
+    const stateDir = join(homeDir, ".soma/memory/STATE");
+    await mkdir(stateDir, { recursive: true });
+    await writeFile(
+      join(homeDir, ".soma/memory/statusline-mode-evil.json"),
+      JSON.stringify({ mode: "algorithm", effort: "E9" }),
+      "utf8",
+    );
+
+    const out = runStatusline(scriptPath, {
+      workspace: { current_dir: "/tmp" },
+      session_id: "../evil",
+      model: { display_name: "Claude Opus 4.8" },
+      context_window: { used_percentage: 5 },
+    });
+
+    expect(out.status).toBe(0);
+    // The traversal target was NOT read — no ⚙E9 leaked in — and the Soma
+    // segment is dropped, while the rest of the line still renders.
+    expect(out.stdout).not.toContain("E9");
+    expect(out.stdout).not.toContain("⚙");
+    expect(out.stdout).not.toContain("○");
+    expect(out.stdout).toContain("ctx ");
   });
 });
