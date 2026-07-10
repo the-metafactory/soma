@@ -57,7 +57,6 @@ export type {
   SomaMemoryLayout,
   SomaPaths,
   SomaProfile,
-  SomaRunResult,
   SomaSkill,
   SomaSnapshotEntry,
   SomaSnapshotListOptions,
@@ -65,7 +64,6 @@ export type {
   SomaSnapshotResult,
   SomaSnapshotRollbackOptions,
   SomaSnapshotRollbackResult,
-  SomaTask,
   SubstrateId,
   Purpose,
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- re-exported for back-compat (soma#329)
@@ -179,6 +177,34 @@ export type {
   SomaSkillManifest,
   WrittenProjection,
 } from "./types";
+
+export type {
+  ExecuteOptions,
+  ExecutionCapabilities,
+  ExecutionProbeOptions,
+  PreparedExecution,
+  SomaExecutionEvent,
+  SomaExecutionFailureCode,
+  SomaExecutionRequest,
+  SomaExecutionResult,
+  SubstrateExecutor,
+} from "./execution/types";
+export { runSubstrateExecution } from "./execution/kernel";
+export type { ExecutionKernelOptions, SubstrateExecutionRun } from "./execution/kernel";
+export { SubstrateExecutionAlgorithmLoopExecutor } from "./execution/algorithm-loop-executor";
+export type { SubstrateExecutionAlgorithmLoopExecutorOptions } from "./execution/algorithm-loop-executor";
+export { MockSubstrateExecutor } from "./execution/mock-executor";
+export type { MockExecutionScript } from "./execution/mock-executor";
+export { REQUIRED_EXECUTION_CONFORMANCE_SCENARIOS, runExecutionConformance } from "./execution/conformance";
+export type { ExecutionConformanceReport, ExecutionConformanceResult, ExecutionConformanceScenario, ExecutionConformanceScenarioId } from "./execution/conformance";
+export { ExecutorRegistry } from "./execution/registry";
+export type { ExecutorRegistryResolution, RegisteredSubstrateExecutor } from "./execution/registry";
+export { diagnoseExecutionReadiness } from "./adapters/doctor";
+export type { ExecutionReadiness } from "./adapters/doctor";
+export { CodexExecutor, registerCodexExecutor } from "./execution/codex-executor";
+export type { CodexCommandResult, CodexCommandRunner, CodexExecutorOptions } from "./execution/codex-executor";
+export { ClaudeCodeExecutor, registerClaudeCodeExecutor } from "./execution/claude-code-executor";
+export type { ClaudeCodeCommandResult, ClaudeCodeCommandRunner, ClaudeCodeExecutorOptions } from "./execution/claude-code-executor";
 export { SOMA_RESULT_EVENT_KINDS } from "./types";
 export { SOMA_MEMORY_NOTE_TYPES, SOMA_MEMORY_TRUSTS } from "./types";
 export { SOMA_MEMORY_WRITE_TRIGGERS, SOMA_MEMORY_TRIGGER_TRUST } from "./types";

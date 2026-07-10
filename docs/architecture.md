@@ -272,9 +272,22 @@ interface SomaAdapter {
   name: string;
   detect(): Promise<boolean>;
   project(input: ProjectionInput): Promise<Projection>;
-  run(task: SomaTask): Promise<SomaRunResult>;
+}
+
+interface SubstrateExecutor {
+  substrate: ProjectionSubstrate;
+  probe(options?: ExecutionProbeOptions): Promise<ExecutionCapabilities>;
+  prepare(request: SomaExecutionRequest): Promise<PreparedExecution>;
+  execute(prepared: PreparedExecution, options?: ExecuteOptions): AsyncIterable<SomaExecutionEvent>;
+  cancel(executionId: string): Promise<void>;
 }
 ```
+
+Projection and execution are separate contracts. A substrate can be fully
+supported for projection without having an executor. Executors own optional
+host invocation and normalized evidence; core owns orchestration and canonical
+state transitions; Spawn owns isolation; Cortex/Myelin own distributed routing
+and transport.
 
 Examples:
 

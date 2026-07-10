@@ -51,6 +51,37 @@ at most one `hook: session-end` memory digest per qualifying session, refuses
 paths that escape the Codex session root, skips short sessions without error,
 and leaves lifecycle metadata capture non-blocking.
 
+Execution is an optional `SubstrateExecutor`, separate from the projection
+adapter. The E3 Codex executor probes `codex --version` and `codex exec --help`
+before using only `--ephemeral --json --sandbox workspace-write --cd <cwd> -`.
+It forwards cancellation and timeout through the injected process runner and
+removes request-scoped temporary state on every terminal path. Its JSONL
+reduction is deliberately bounded to 64 records of at most 16 KiB each and
+emits only progress summaries. It neither persists raw stdout/stderr nor claims
+artifact paths or policy events from unprobed Codex JSON schemas; those remain
+executor limitations until a versioned, live-probed contract exists.
+
+The optional Claude Code executor separately probes and uses `claude -p
+--output-format stream-json` without permission-bypass flags. It forwards
+timeout/cancellation through an injected runner, cleans request-scoped state,
+and emits only bounded progress summaries; raw streams, artifact paths, and
+policy events remain unavailable until a versioned stream schema is probed.
+
+## Execution Readiness And Smoke
+
+Projection health and execution readiness are separate checks. The doctor
+readiness API probes only a registered executor; it never prepares a request or
+starts a model host. An unregistered substrate is reported as `projection-only`,
+while a registered but unavailable host is `unavailable` and a successful probe
+is `ready`.
+
+Live execution is opt-in: use a temporary Soma home and workspace, a bounded
+`timeoutMs`, and a narrow fixture prompt through the executor API. Do not use
+permission-bypass flags. Rollback is to stop registering the executor (leaving
+the projection installed) or disable the host-specific integration; append-only
+execution evidence remains auditable and no durable memory is promoted by an
+executor.
+
 ## Pi.dev
 
 Pi.dev is model-agnostic and supports extensions and skills. The adapter should
@@ -336,6 +367,10 @@ structured selections remain unresolved.
 Adapters should be thin. They do not own identity, memory, VSA, skill schemas, or
 policy semantics. They only project those contracts into a substrate's native
 mechanisms, and write back substrate-side events through the writeback gate.
+They do not invoke a host: optional invocation belongs to a separate
+`SubstrateExecutor` with probe, prepare, execute, and cancel contracts. A
+projection-only substrate remains first-class and reports no execution
+capability rather than returning a misleading adapter-level failure stub.
 
 Shared work state is a core contract, not a substrate convention. Adapters that
 can identify a session should update:

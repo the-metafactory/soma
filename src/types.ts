@@ -2422,26 +2422,10 @@ export interface SomaLifecycleResult {
   writes?: string[];
 }
 
-export interface SomaTask {
-  id: string;
-  substrate: ProjectionSubstrate;
-  prompt: string;
-  cwd?: string;
-}
-
-export interface SomaRunResult {
-  taskId: string;
-  substrate: ProjectionSubstrate;
-  status: "completed" | "failed" | "cancelled";
-  summary: string;
-  artifacts?: string[];
-}
-
 export interface SomaAdapter {
   name: ProjectionSubstrate;
   detect(): Promise<boolean>;
   project(input: ProjectionInput): Promise<Projection>;
-  run(task: SomaTask): Promise<SomaRunResult>;
 }
 
 // ── Memory subsystem (Track B, M0) ──────────────────────────────────────────

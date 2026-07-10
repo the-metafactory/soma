@@ -1,4 +1,4 @@
-import type { SomaAdapter, Projection, ProjectionInput, SomaTask } from "../types";
+import type { SomaAdapter, Projection, ProjectionInput } from "../types";
 import { buildPortableSkillFiles, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills, withProvenance } from "./shared";
 import { activeVsaBundleFile } from "../adapter-active-vsa";
 
@@ -286,13 +286,5 @@ export const claudeCodeAdapter: SomaAdapter = {
   },
   project(input) {
     return Promise.resolve(projectClaudeCode(input));
-  },
-  run(task: SomaTask) {
-    return Promise.resolve({
-      taskId: task.id,
-      substrate: "claude-code",
-      status: "failed",
-      summary: "Claude Code execution is not implemented yet; use project() to generate the context projection.",
-    });
   },
 };

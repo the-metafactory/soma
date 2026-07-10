@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import type { SomaAdapter, Projection, ProjectionInput, SomaTask } from "../types";
+import type { SomaAdapter, Projection, ProjectionInput } from "../types";
 import { activeVsaBundleFile } from "../adapter-active-vsa";
 import { buildPortableSkillFiles, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills, withProvenance } from "./shared";
 
@@ -222,13 +222,5 @@ export const cursorAdapter: SomaAdapter = {
   },
   project(input) {
     return Promise.resolve(projectCursor(input));
-  },
-  run(task: SomaTask) {
-    return Promise.resolve({
-      taskId: task.id,
-      substrate: "cursor",
-      status: "failed",
-      summary: "Cursor execution is not implemented yet; use project() to generate the context projection.",
-    });
   },
 };

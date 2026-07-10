@@ -1,6 +1,8 @@
 import { diagnoseClaudeCodeInstallArtifactDrift } from "./claude-code/doctor";
 import { diagnoseContentCompareDrift } from "./content-compare-doctor";
 import { diagnoseGrokProjectionDrift } from "./grok/doctor";
+import type { ExecutorRegistry } from "../execution/registry";
+import type { ExecutionCapabilities } from "../execution/types";
 import type { SomaDoctorFinding, SubstrateId } from "../types";
 
 type DoctorSubstrate = Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor" | "grok">;
@@ -29,6 +31,29 @@ export const DOCTOR_UNSUPPORTED_SUBSTRATE_MESSAGE =
   `soma doctor currently supports --substrate ${SUPPORTED_LIST} only.`;
 export const DOCTOR_UNSUPPORTED_DRIFT_MESSAGE =
   `soma doctor currently supports projection drift checks for --substrate ${SUPPORTED_LIST} only.`;
+
+export type ExecutionReadiness =
+  | { substrate: string; status: "ready"; capabilities: ExecutionCapabilities }
+  | { substrate: string; status: "unavailable"; capabilities: ExecutionCapabilities }
+  | { substrate: string; status: "projection-only"; reason: "unknown-substrate" | "projection-only" };
+
+/**
+ * Execution readiness is intentionally distinct from projection drift: it only
+ * probes a registered executor and never prepares or starts a host process.
+ */
+export async function diagnoseExecutionReadiness(
+  registry: ExecutorRegistry,
+  substrate: string,
+): Promise<ExecutionReadiness> {
+  const resolution = registry.resolve(substrate);
+  if (resolution.status === "unsupported") {
+    return { substrate, status: "projection-only", reason: resolution.reason };
+  }
+  const capabilities = await resolution.executor.probe();
+  return capabilities.available
+    ? { substrate, status: "ready", capabilities }
+    : { substrate, status: "unavailable", capabilities };
+}
 
 export async function diagnoseProjectionDrift(options: {
   substrate: SupportedDoctorSubstrate;

@@ -1,7 +1,15 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
-import { SOMA_VERSION, type SomaAdapter } from "../src/index";
+import {
+  SOMA_VERSION,
+  type ExecutionCapabilities,
+  type PreparedExecution,
+  type SomaAdapter,
+  type SomaExecutionEvent,
+  type SomaExecutionRequest,
+  type SubstrateExecutor,
+} from "../src/index";
 
 test("exports version (source of truth: package.json)", () => {
   // SOMA_VERSION is derived from package.json — bumping the version
@@ -38,15 +46,59 @@ test("adapter contract is structurally usable", async () => {
     async project() {
       return { substrate: "custom", instructions: "", files: [] };
     },
-    async run(task) {
-      return {
-        taskId: task.id,
-        substrate: task.substrate,
-        status: "completed",
-        summary: "ok",
-      };
-    },
   };
 
   await expect(adapter.detect()).resolves.toBe(true);
+  expect("run" in adapter).toBe(false);
+});
+
+test("execution has a separate public contract", () => {
+  const request: SomaExecutionRequest = {
+    taskId: "task-1",
+    substrate: "custom",
+    prompt: "Do bounded work",
+    cwd: "/tmp/soma-work",
+    projectionFingerprint: "projection-1",
+    requiredCapabilities: ["memory-recall"],
+  };
+  const capabilities: ExecutionCapabilities = {
+    substrate: "custom",
+    available: true,
+    executorVersion: "test",
+    streaming: true,
+    cancellation: "hard",
+    approvals: "native",
+    sandbox: "none",
+    sessionLifecycle: [],
+    artifactReporting: true,
+    limitations: [],
+  };
+  const prepared: PreparedExecution = {
+    executionId: "execution-1",
+    request,
+    capabilitySnapshot: capabilities,
+    redactedInvocation: "custom executor",
+  };
+  const event: SomaExecutionEvent = {
+    kind: "execution.completed",
+    executionId: prepared.executionId,
+    timestamp: "2026-07-10T00:00:00.000Z",
+    summary: "completed",
+  };
+  const executor: SubstrateExecutor = {
+    substrate: "custom",
+    async probe() {
+      return capabilities;
+    },
+    async prepare() {
+      return prepared;
+    },
+    async *execute() {
+      yield event;
+    },
+    async cancel() {},
+  };
+
+  expect(executor.substrate).toBe(request.substrate);
+  expect(event.kind).toBe("execution.completed");
 });

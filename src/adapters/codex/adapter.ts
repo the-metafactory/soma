@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import type { SomaAdapter, Projection, ProjectionInput, SomaTask } from "../../types";
+import type { SomaAdapter, Projection, ProjectionInput } from "../../types";
 import { defaultSomaRepoPath } from "../../repo-path";
 import { resolveBunExecutable } from "../../bun-probe";
 import { readCodexHookAsset, renderCodexPolicyHook, renderCodexPolicyTargets } from "./hooks/assets";
@@ -471,13 +471,5 @@ export const codexAdapter: SomaAdapter = {
   },
   project(input) {
     return Promise.resolve(projectCodex(input));
-  },
-  run(task: SomaTask) {
-    return Promise.resolve({
-      taskId: task.id,
-      substrate: "codex",
-      status: "failed",
-      summary: "Codex execution is not implemented yet; use project() to generate the substrate bundle.",
-    });
   },
 };

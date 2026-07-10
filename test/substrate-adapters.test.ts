@@ -101,7 +101,7 @@ test("codex, pi.dev, claude code, cursor, and grok preserve portable semantics f
   }
 });
 
-test("pi.dev, claude code, and cursor adapters expose context build before execution", async () => {
+test("pi.dev, claude code, and cursor adapters remain projection-only", async () => {
   await expect(piDevAdapter.project(portableProjectionInput)).resolves.toMatchObject({
     substrate: "pi-dev",
   });
@@ -114,18 +114,7 @@ test("pi.dev, claude code, and cursor adapters expose context build before execu
     substrate: "cursor",
   });
 
-  await expect(piDevAdapter.run({ id: "task-1", substrate: "pi-dev", prompt: "run" })).resolves.toMatchObject({
-    status: "failed",
-    summary: expect.stringContaining("not implemented"),
-  });
-
-  await expect(claudeCodeAdapter.run({ id: "task-2", substrate: "claude-code", prompt: "run" })).resolves.toMatchObject({
-    status: "failed",
-    summary: expect.stringContaining("not implemented"),
-  });
-
-  await expect(cursorAdapter.run({ id: "task-3", substrate: "cursor", prompt: "run" })).resolves.toMatchObject({
-    status: "failed",
-    summary: expect.stringContaining("not implemented"),
-  });
+  expect("run" in piDevAdapter).toBe(false);
+  expect("run" in claudeCodeAdapter).toBe(false);
+  expect("run" in cursorAdapter).toBe(false);
 });
