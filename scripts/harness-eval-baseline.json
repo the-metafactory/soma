@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-07-11T06:07:57.308Z",
+  "capturedAt": "2026-07-11T06:08:54.035Z",
   "windowDays": 60,
   "metrics": {
     "true_finish_rate": {
@@ -29,6 +29,10 @@
     "memory_loop_closure": {
       "value": 0.05,
       "denominator": 86
+    },
+    "promotion_rate": {
+      "value": 0.97,
+      "denominator": 207
     }
   }
 }

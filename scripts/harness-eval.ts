@@ -448,6 +448,29 @@ export const METRICS: MetricSpec[] = [
       };
     },
   },
+  {
+    id: "promotion_rate",
+    name: "Promotion rate (promotions per finished run)",
+    unit: "%",
+    direction: "higher",
+    minSample: 5,
+    tolerance: 5,
+    goodhart:
+      "Promote everything mechanically — fire a memory.promotion for every finished run regardless of whether the learning is durable, reusable, or ever read again.",
+    countermeasure:
+      "Paired with memory_loop_closure: promoted-but-never-resurfaced notes are writes that drag reads-per-write down, so bulk mechanical promotion surfaces there as unread inventory rather than a healthy signal.",
+    compute(data) {
+      const finished = data.runs.filter((r) => inWindow(data, r.updatedAt) && runFinished(r)).length;
+      const promotions = data.events.filter(
+        (e) => e.kind === "memory.promotion" && inWindow(data, e.timestamp),
+      ).length;
+      return {
+        numerator: promotions,
+        denominator: finished,
+        detail: `${promotions} promotion events vs ${finished} finished runs in window`,
+      };
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------

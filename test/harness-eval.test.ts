@@ -187,6 +187,25 @@ describe("computeMetrics", () => {
     expect(byId.memory_loop_closure.numerator).toBe(2); // recall + promotion
     expect(byId.memory_loop_closure.denominator).toBe(1);
   });
+
+  test("promotion_rate: promotion events over finished runs", () => {
+    const data = makeData({
+      runs: [
+        completedRun("a", 10),
+        completedRun("b", 8),
+        completedRun("c", 6),
+        completedRun("d", 4),
+      ],
+      events: [
+        { timestamp: daysAgo(5), kind: "memory.promotion" },
+        { timestamp: daysAgo(3), kind: "memory.promotion" },
+      ],
+    });
+    const byId = Object.fromEntries(computeMetrics(data).map((m) => [m.id, m]));
+    expect(byId.promotion_rate.numerator).toBe(2);
+    expect(byId.promotion_rate.denominator).toBe(4); // four finished runs
+    expect(byId.promotion_rate.value).toBe(50);
+  });
 });
 
 describe("checkAgainstBaseline", () => {
