@@ -406,6 +406,14 @@ Optional invocation belongs to a separate [[substrate executor|SubstrateExecutor
 
 ---
 
+## substrate executor
+
+The optional actor that invokes one [[substrate]] against a prepared Soma execution request. One executor owns substrate-local capability probing, invocation, cancellation forwarding, and normalized event production.
+
+An executor does not project files, own identity/memory/policy semantics, advance Algorithm criteria, or write durable Soma state. The [[adapter]] remains projection-only; the execution kernel validates the executor's bounded, provider-neutral event boundary before any governed writeback.
+
+---
+
 ## context
 
 Bytes that enter the LLM's context window during a session. Nothing else.

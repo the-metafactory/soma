@@ -95,7 +95,7 @@ export interface SomaExecutionResult {
 export interface SubstrateExecutor {
   substrate: ProjectionSubstrate;
   probe(options?: ExecutionProbeOptions): Promise<ExecutionCapabilities>;
-  prepare(request: SomaExecutionRequest): Promise<PreparedExecution>;
+  prepare(request: SomaExecutionRequest, options?: ExecuteOptions): Promise<PreparedExecution>;
   execute(prepared: PreparedExecution, options?: ExecuteOptions): AsyncIterable<SomaExecutionEvent>;
   cancel(executionId: string): Promise<void>;
 }

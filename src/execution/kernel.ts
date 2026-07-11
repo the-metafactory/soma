@@ -159,9 +159,9 @@ function abortableNext<T>(next: Promise<IteratorResult<T>>, signal: AbortSignal)
 }
 
 /**
- * Runs one already-registered executor without invoking a process or writing
- * durable state. Executors own substrate details; this kernel validates the common
- * event boundary and returns only bounded result metadata.
+ * Runs one already-registered executor through the common event boundary. The
+ * kernel invokes no command directly and writes no durable state; executors own
+ * substrate invocation details and this kernel returns bounded result metadata.
  */
 export async function runSubstrateExecution(
   executor: SubstrateExecutor,
@@ -243,6 +243,12 @@ export async function runSubstrateExecution(
       return fail({ code: "invalid-request", summary: "Execution request is invalid.", retryable: false });
     }
     const probedCapabilities = await executor.probe({ cwd: request.cwd, signal: controller.signal });
+    if (isAborted()) {
+      const summary = timeout.triggered ? "Execution timed out." : "Execution was cancelled.";
+      if (timeout.triggered) return fail({ code: "timeout", summary, retryable: true });
+      const event: SomaExecutionEvent = { kind: "execution.cancelled", executionId, timestamp: now(), summary };
+      return finish(event, resultFor(request, executionId, unavailableCapabilities(request.substrate), "cancelled", summary, [], beganAt));
+    }
     capabilities = probedCapabilities;
     if (probedCapabilities.substrate !== request.substrate || executor.substrate !== request.substrate) {
       return fail({ code: "invalid-request", summary: "Executor substrate does not match the request.", retryable: false });
@@ -253,7 +259,7 @@ export async function runSubstrateExecution(
       return fail({ code: "capability-unsupported", summary: `Required capabilities are unavailable: ${unsupportedCapabilities.join(", ")}.`, retryable: false });
     }
 
-    const prepared = await executor.prepare(request);
+    const prepared = await executor.prepare(request, { signal: controller.signal });
     executionId = prepared.executionId;
     if (prepared.request !== request || prepared.capabilitySnapshot.substrate !== request.substrate) {
       return fail({ code: "invalid-request", summary: "Prepared execution does not match the request.", retryable: false });
@@ -330,6 +336,12 @@ export async function runSubstrateExecution(
         return fail({ code: "malformed-output", summary: "Execution stream terminal event is invalid.", retryable: false });
     }
   } catch (error: unknown) {
+    if (controller.signal.aborted) {
+      const summary = timeout.triggered ? "Execution timed out." : "Execution was cancelled.";
+      if (timeout.triggered) return fail({ code: "timeout", summary, retryable: true });
+      const event: SomaExecutionEvent = { kind: "execution.cancelled", executionId, timestamp: now(), summary };
+      return finish(event, resultFor(request, executionId, capabilities ?? unavailableCapabilities(request.substrate), "cancelled", summary, [], beganAt));
+    }
     return fail(normalizedFailure(error, { code: "internal", summary: "Executor failed unexpectedly.", retryable: false }));
   }
 }

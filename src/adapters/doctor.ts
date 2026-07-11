@@ -39,7 +39,7 @@ export type ExecutionReadiness =
 
 /**
  * Execution readiness is intentionally distinct from projection drift: it only
- * probes a registered executor and never prepares or starts a host process.
+ * probes a registered executor and never prepares or starts a substrate process.
  */
 export async function diagnoseExecutionReadiness(
   registry: ExecutorRegistry,

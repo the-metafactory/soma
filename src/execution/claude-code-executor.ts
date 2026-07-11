@@ -23,9 +23,10 @@ export class ClaudeCodeExecutor implements SubstrateExecutor {
 
   constructor(private readonly options: ClaudeCodeExecutorOptions) {}
 
-  async probe(_options?: ExecutionProbeOptions): Promise<ExecutionCapabilities> {
-    const version = await this.options.runner.run(["claude", "--version"]);
-    const help = await this.options.runner.run(["claude", "--help"]);
+  async probe(options?: ExecutionProbeOptions): Promise<ExecutionCapabilities> {
+    const runnerOptions = { cwd: options?.cwd, signal: options?.signal };
+    const version = await this.options.runner.run(["claude", "--version"], runnerOptions);
+    const help = await this.options.runner.run(["claude", "--help"], runnerOptions);
     const [versionOutput, helpOutput] = await Promise.all([collectProbeOutput(version.stdout), collectProbeOutput(help.stdout)]);
     const available = version.exitCode === 0 && help.exitCode === 0 && ["-p, --print", "--output-format", "stream-json"].every((term) => helpOutput.includes(term));
     return {
@@ -35,8 +36,8 @@ export class ClaudeCodeExecutor implements SubstrateExecutor {
     };
   }
 
-  async prepare(request: SomaExecutionRequest): Promise<PreparedExecution> {
-    const capabilities = await this.probe();
+  async prepare(request: SomaExecutionRequest, options?: ExecuteOptions): Promise<PreparedExecution> {
+    const capabilities = await this.probe({ cwd: request.cwd, signal: options?.signal });
     if (!capabilities.available) throw Object.assign(new Error("Claude Code is unavailable."), { code: "substrate-unavailable", summary: "Claude Code is unavailable.", retryable: true });
     const executionId = `claude-code-${request.taskId}-${randomUUID()}`;
     return this.lifecycle.prepare(executionId, request, capabilities, this.options.temporaryRoot, "soma-claude-code-execution-");

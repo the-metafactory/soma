@@ -144,6 +144,18 @@ test("returns an already-aborted request without probing or preparing", async ()
   expect(calls).toEqual([]);
 });
 
+test("forwards timeout cancellation through preflight without preparing", async () => {
+  const calls: string[] = [];
+  const executor = fakeExecutor({ calls });
+  executor.probe = async (options) => {
+    calls.push("probe");
+    return await new Promise<ExecutionCapabilities>((_, reject) => options?.signal?.addEventListener("abort", () => reject(new Error("probe aborted")), { once: true }));
+  };
+  const timedOut = await run(executor, request({ timeoutMs: 5 }));
+  expect(timedOut.events.at(-1)).toMatchObject({ kind: "execution.failed", code: "timeout" });
+  expect(calls).toEqual(["probe"]);
+});
+
 test("rejects malformed streams and normalizes executor exceptions without leaking raw errors", async () => {
   const malformed = await run(fakeExecutor({ events: events(completed) }), request());
   expect(malformed.events[0]).toMatchObject({ kind: "execution.failed", code: "malformed-output" });

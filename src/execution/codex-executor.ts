@@ -21,9 +21,10 @@ export class CodexExecutor implements SubstrateExecutor {
   readonly substrate = "codex" as const;
   private readonly lifecycle = new RequestScopedExecutionLifecycle();
   constructor(private readonly options: CodexExecutorOptions) {}
-  async probe(_options?: ExecutionProbeOptions): Promise<ExecutionCapabilities> {
-    const version = await this.options.runner.run(["codex", "--version"]);
-    const help = await this.options.runner.run(["codex", "exec", "--help"]);
+  async probe(options?: ExecutionProbeOptions): Promise<ExecutionCapabilities> {
+    const runnerOptions = { cwd: options?.cwd, signal: options?.signal };
+    const version = await this.options.runner.run(["codex", "--version"], runnerOptions);
+    const help = await this.options.runner.run(["codex", "exec", "--help"], runnerOptions);
     const [versionOutput, helpOutput] = await Promise.all([collectProbeOutput(version.stdout), collectProbeOutput(help.stdout)]);
     const available = version.exitCode === 0
       && help.exitCode === 0
@@ -31,8 +32,8 @@ export class CodexExecutor implements SubstrateExecutor {
       && /(?:^|\s)-(?:\s|$)/m.test(helpOutput);
     return { substrate: "codex", available, substrateVersion: versionOutput.trim() || undefined, executorVersion: "soma-codex-e3", supportedCapabilities: [], streaming: true, cancellation: "best-effort", approvals: "native", sandbox: "native", sessionLifecycle: [], artifactReporting: false, limitations: available ? ["JSONL is reduced from a bounded chunked stream; artifact parsing is deferred."] : ["Codex exec noninteractive flags are unavailable."] };
   }
-  async prepare(request: SomaExecutionRequest): Promise<PreparedExecution> {
-    const capabilities = await this.probe();
+  async prepare(request: SomaExecutionRequest, options?: ExecuteOptions): Promise<PreparedExecution> {
+    const capabilities = await this.probe({ cwd: request.cwd, signal: options?.signal });
     if (!capabilities.available) throw Object.assign(new Error("Codex is unavailable."), { code: "substrate-unavailable", summary: "Codex is unavailable.", retryable: true });
     const executionId = `codex-${request.taskId}-${randomUUID()}`;
     return this.lifecycle.prepare(executionId, request, capabilities, this.options.temporaryRoot, "soma-codex-execution-");
