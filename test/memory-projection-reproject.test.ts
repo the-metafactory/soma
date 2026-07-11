@@ -2,9 +2,17 @@ import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/p
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import { bootstrapSomaHome, reprojectSubstrateMemoryProjection, runSomaLifecycleSessionStart, serializeMemoryNote, type SomaMemoryNote } from "../src/index";
+import { bootstrapSomaHome, reprojectSubstrateMemoryProjection, runSomaLifecycleSessionStart, serializeMemoryNote, somaMemoryEventsPath, type SomaMemoryNote } from "../src/index";
 import { memoryIndexPath } from "../src/memory-index";
 import { memoryNotePath, type WritableType } from "../src/memory-write";
+
+async function readEvents(somaHome: string): Promise<Array<Record<string, unknown>>> {
+  const raw = await readFile(somaMemoryEventsPath(somaHome), "utf8").catch(() => "");
+  return raw
+    .split("\n")
+    .filter((line) => line.trim())
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+}
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-memory-reproject-"));
@@ -62,6 +70,21 @@ test("reprojectSubstrateMemoryProjection writes only the memory bundle file, not
     await expect(stat(join(homeDir, ".claude", "rules", "soma", "CONTEXT.md"))).rejects.toThrow();
     await expect(stat(join(homeDir, ".claude", "rules", "soma", "PURPOSE.md"))).rejects.toThrow();
     await expect(stat(join(homeDir, ".claude", "rules", "soma", "SKILLS.md"))).rejects.toThrow();
+  });
+});
+
+test("reprojectSubstrateMemoryProjection appends one memory.projection event with the note count", async () => {
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    await seed(somaHome, note({ id: "fact-a", body: "the gateway retries thrice", trust: "principal" }));
+    await seed(somaHome, note({ id: "fact-b", body: "the cache evicts on write", trust: "principal" }));
+
+    await reprojectSubstrateMemoryProjection({ substrate: "claude-code", homeDir });
+
+    const projections = (await readEvents(somaHome)).filter((e) => e.kind === "memory.projection");
+    expect(projections).toHaveLength(1); // ONE event per projection, not per note
+    expect(projections[0]).toMatchObject({ substrate: "claude-code" });
+    expect((projections[0].metadata as { noteCount: number }).noteCount).toBe(2);
   });
 });
 

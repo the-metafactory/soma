@@ -4,8 +4,18 @@ import { createPaths } from "./paths";
 import { buildSubstrateHomeProjection } from "./home-projection";
 import { isRegisteredInstallSubstrate } from "./install-spec-registry";
 import { loadMemoryIndexForProjection, reindexMemoryIfStale } from "./memory-index";
+import { appendSomaMemoryEvent } from "./memory";
 import { loadSomaHome } from "./soma-home";
 import type { ProjectionInput, SubstrateId } from "./types";
+
+/**
+ * Note-pointer count for the `memory.projection` event: the rendered index lists
+ * one `- <slug> — …` bullet per admitted note under its `## <Store>` header, so
+ * top-level bullets count the projected notes without re-parsing the corpus.
+ */
+function countIndexPointers(indexContent: string): number {
+  return indexContent.split("\n").filter((line) => /^-\s+\S/.test(line)).length;
+}
 
 export interface ReprojectSubstrateMemoryProjectionOptions {
   substrate: SubstrateId;
@@ -91,6 +101,28 @@ export async function reprojectSubstrateMemoryProjection(
   if (existing !== desired) {
     await mkdir(dirname(target), { recursive: true });
     await writeFile(target, desired, "utf8");
+  }
+
+  // ONE observational `memory.projection` event per projection (audit fix, T2):
+  // the MEMORY.md bundle is injected into a substrate's session context. This is
+  // passive context loading, NOT deliberate use — it is deliberately NOT counted
+  // by memory_loop_closure (only recall/promotion/verify move that). It records
+  // the note count so projection frequency is visible against read frequency.
+  // Best-effort: telemetry must never fail an otherwise-successful projection.
+  try {
+    await appendSomaMemoryEvent(somaHome, {
+      timestamp: options.now?.toISOString(),
+      substrate: options.substrate,
+      kind: "memory.projection",
+      summary: `Projected ${countIndexPointers(indexContent)} memory note(s) into ${options.substrate}`,
+      metadata: {
+        substrate: options.substrate,
+        noteCount: countIndexPointers(indexContent),
+        reindexed,
+      },
+    });
+  } catch {
+    // best-effort telemetry
   }
 
   return { reindexed, projected: target };

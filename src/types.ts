@@ -1879,6 +1879,10 @@ export interface SomaMemorySearchOptions {
   somaHome?: string;
   query: string;
   limit?: number;
+  /** Injected clock for the `memory.recall` event's timestamp. Defaults to now. */
+  now?: Date;
+  /** Substrate tag for the `memory.recall` event this call appends. Defaults to `"custom"`. */
+  substrate?: SubstrateId;
 }
 
 export interface SomaMemorySearchMatch {
