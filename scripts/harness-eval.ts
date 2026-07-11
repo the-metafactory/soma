@@ -17,7 +17,8 @@
  * and is committed so drift is reviewable in git history.
  */
 
-import { readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { createReadStream, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { createInterface } from "node:readline";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -101,21 +102,36 @@ export function loadRuns(runsDir: string): RunDoc[] {
   return runs;
 }
 
-export function loadEvents(eventsPath: string): EventDoc[] {
-  let raw: string;
-  try {
-    raw = readFileSync(eventsPath, "utf8");
-  } catch {
-    return [];
-  }
+/**
+ * Stream the append-only event log line by line, retaining ONLY events at or
+ * after `sinceMs`. The live log is tens of MiB and grows without bound, but
+ * every metric works on a trailing window — so loading and holding the whole
+ * history (the previous `readFileSync` + `split`) wasted memory that scales with
+ * all-time history, not the window. Streaming bounds peak memory to one line and
+ * retention to the window. Events older than the cutoff, and events with an
+ * unparseable timestamp, are dropped here — `inWindow()` would drop both anyway,
+ * so per-metric results are unchanged; only out-of-window rows never get held.
+ */
+export async function loadEvents(eventsPath: string, sinceMs = Number.NEGATIVE_INFINITY): Promise<EventDoc[]> {
   const events: EventDoc[] = [];
-  for (const line of raw.split("\n")) {
-    if (!line.trim()) continue;
-    try {
-      events.push(JSON.parse(line) as EventDoc);
-    } catch {
-      // skip torn lines
+  const rl = createInterface({ input: createReadStream(eventsPath, { encoding: "utf8" }), crlfDelay: Infinity });
+  try {
+    for await (const line of rl) {
+      if (!line.trim()) continue;
+      let event: EventDoc;
+      try {
+        event = JSON.parse(line) as EventDoc;
+      } catch {
+        continue; // skip torn lines
+      }
+      if (sinceMs !== Number.NEGATIVE_INFINITY) {
+        const t = event.timestamp ? Date.parse(event.timestamp) : Number.NaN;
+        if (!Number.isFinite(t) || t < sinceMs) continue; // out of window → never retained
+      }
+      events.push(event);
     }
+  } catch {
+    // Missing file or read error: return whatever was collected (empty on ENOENT).
   }
   return events;
 }
@@ -513,7 +529,19 @@ export interface Regression {
   message: string;
 }
 
-export function checkAgainstBaseline(results: MetricResult[], baseline: Baseline): Regression[] {
+/**
+ * `sessionStartsInWindow` — real harness activity for the silent-capture guard,
+ * from in-window `lifecycle.session_start` events. When omitted (older callers,
+ * unit tests), the guard falls back to the run-creation heuristic. It is passed
+ * explicitly by the CLI because "runs created in window" undercounts activity:
+ * a session that only touches existing runs is still active and should still be
+ * producing feedback candidates.
+ */
+export function checkAgainstBaseline(
+  results: MetricResult[],
+  baseline: Baseline,
+  sessionStartsInWindow?: number,
+): Regression[] {
   const regressions: Regression[] = [];
   for (const result of results) {
     const spec = METRICS.find((m) => m.id === result.id);
@@ -536,10 +564,15 @@ export function checkAgainstBaseline(results: MetricResult[], baseline: Baseline
     }
   }
   // Anti-gaming guard for feedback_closure_rate: closure must not "improve"
-  // by capture going silent while the harness is clearly still in use.
+  // by capture going silent while the harness is clearly still in use. "In use"
+  // is measured by real session activity when the caller supplies it; otherwise
+  // it falls back to the run-creation proxy (true_finish_rate's denominator).
   const closure = results.find((r) => r.id === "feedback_closure_rate");
-  const sessions = results.find((r) => r.id === "true_finish_rate");
-  if (closure?.denominator === 0 && sessions && sessions.denominator > 0) {
+  const harnessInUse =
+    sessionStartsInWindow !== undefined
+      ? sessionStartsInWindow > 0
+      : (results.find((r) => r.id === "true_finish_rate")?.denominator ?? 0) > 0;
+  if (closure?.denominator === 0 && harnessInUse) {
     regressions.push({
       id: "feedback_candidate_volume",
       baseline: 1,
@@ -564,7 +597,7 @@ function formatValue(result: MetricResult): string {
   return result.unit === "%" ? `${result.value}%` : result.value.toFixed(2);
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const flag = (name: string) => args.includes(name);
   const windowArg = args.indexOf("--window");
@@ -575,10 +608,14 @@ function main(): void {
   }
 
   const somaHome = process.env.SOMA_HOME ?? join(homedir(), ".soma");
+  const now = new Date();
+  // Only events within the trailing window can affect any metric, so drop older
+  // rows at load time (see loadEvents) rather than holding all-time history.
+  const sinceMs = now.getTime() - windowDays * 24 * 60 * 60 * 1000;
   const data: HarnessData = {
     runs: loadRuns(join(somaHome, "memory", "WORK", "algorithm-runs")),
-    events: loadEvents(join(somaHome, "memory", "STATE", "events.jsonl")),
-    now: new Date(),
+    events: await loadEvents(join(somaHome, "memory", "STATE", "events.jsonl"), sinceMs),
+    now,
     windowDays,
   };
   const results = computeMetrics(data);
@@ -599,7 +636,7 @@ function main(): void {
   if (flag("--json")) {
     console.log(JSON.stringify({ windowDays, results }, null, 2));
   } else {
-    console.log(`Harness eval — trailing ${windowDays}d window (${data.runs.length} runs, ${data.events.length} events on disk)\n`);
+    console.log(`Harness eval — trailing ${windowDays}d window (${data.runs.length} runs, ${data.events.length} events in window)\n`);
     for (const result of results) {
       const spec = METRICS.find((m) => m.id === result.id);
       console.log(`  ${result.name} [${result.direction} is better]`);
@@ -619,7 +656,23 @@ function main(): void {
       console.error(`\nNo readable baseline at ${BASELINE_PATH} — run with --write-baseline first.`);
       process.exit(2);
     }
-    const regressions = checkAgainstBaseline(results, baseline);
+    // A baseline captured over a different window is not comparable — 30-day
+    // metrics vs a 60-day baseline would produce a meaningless verdict. Fail
+    // loudly (exit 2) rather than silently comparing across windows.
+    if (baseline.windowDays !== windowDays) {
+      console.error(
+        `\nWindow mismatch: baseline was captured over ${baseline.windowDays}d but --check ran with ${windowDays}d. ` +
+          `Re-run with --window ${baseline.windowDays}, or recapture the baseline for ${windowDays}d.`,
+      );
+      process.exit(2);
+    }
+    // Harness activity for the silent-capture guard: count real sessions, not
+    // newly-created runs — a session that touched existing runs still means the
+    // capture pipeline should be producing candidates.
+    const sessionStarts = data.events.filter(
+      (e) => e.kind === "lifecycle.session_start" && inWindow(data, e.timestamp),
+    ).length;
+    const regressions = checkAgainstBaseline(results, baseline, sessionStarts);
     if (regressions.length > 0) {
       console.error(`\nREGRESSION: ${regressions.length} metric(s) degraded past tolerance vs baseline (${baseline.capturedAt}):`);
       for (const regression of regressions) console.error(`  ✗ ${regression.message}`);
@@ -629,4 +682,4 @@ function main(): void {
   }
 }
 
-if (import.meta.main) main();
+if (import.meta.main) await main();
