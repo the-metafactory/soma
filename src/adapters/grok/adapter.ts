@@ -2,7 +2,7 @@ import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import type { SomaAdapter, Projection, ProjectionInput, SomaTask } from "../../types";
+import type { SomaAdapter, Projection, ProjectionInput } from "../../types";
 import { activeVsaBundleFile } from "../../adapter-active-vsa";
 import { resolveBunExecutable } from "../../bun-probe";
 import { defaultInboundContentSecurityConfig } from "../../inbound-security";
@@ -648,13 +648,5 @@ export const grokAdapter: SomaAdapter = {
   },
   project(input) {
     return Promise.resolve(projectGrok(input));
-  },
-  run(task: SomaTask) {
-    return Promise.resolve({
-      taskId: task.id,
-      substrate: "grok",
-      status: "failed",
-      summary: "Grok execution is not implemented yet; use project() to generate the substrate bundle.",
-    });
   },
 };

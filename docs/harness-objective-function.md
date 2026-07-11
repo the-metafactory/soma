@@ -10,7 +10,7 @@ The harness is better when, and only when:
 
 1. **A claim can be trusted without re-checking.** The retrospective names the failure: "death by a thousand small overclaims" (coding sessions flat 5.1/10). Every "done" that later turns out hollow taxes every future claim.
 2. **Started work finishes, and stays finished.** Not "phase advanced", not "verified flag set" — every criterion demonstrably closed, and the same intent not respawning under a new name.
-3. **A correction given once changes future behavior.** Learning that doesn't alter what happens next session is storage, not learning. (Current state: 838 feedback events captured, ~0 consumed; 57/58 memory notes never resurfaced.)
+3. **A correction given once changes future behavior.** Learning that doesn't alter what happens next session is storage, not learning. Feedback closure remains a proxy until feedback events carry explicit consumption links.
 4. **All of the above costs less of JC's time and attention over time.** Autonomy is the stated highest value. Ceremony, re-reads, re-explanations, and harness self-maintenance are the cost line.
 
 Anything that can grow while these four stand still is a vanity metric.
@@ -38,7 +38,7 @@ Every metric's Goodhart failure mode and countermeasure live in the metric regis
 
 ## Rejected vanity metrics
 
-These are explicitly **not** health signals. Several were live proxies found drifting in the 2026-07-10 audit (`Plans/2026-07-10-proxy-drift-audit.md`):
+These are explicitly **not** health signals:
 
 - **Tokens saved / rtk efficiency meter** — a cost line, never a score. 97% of it is one output-truncating command; nothing links savings to outcome quality.
 - **Phase field distribution** (`observe`-stall %, `phase=complete` %) — dead pointer; 118/130 "observe" runs had all criteria checked. The old "63% stall at OBSERVE" headline measured tracker rot.

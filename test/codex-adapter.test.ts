@@ -76,13 +76,10 @@ test("codex home repoints durable-claim guidance to note-aware recall", () => {
   expect(lifecycle).not.toContain("Codex has no automatic session-digest capture");
 });
 
-test("codex adapter exposes context build before execution", async () => {
+test("codex adapter remains projection-only", async () => {
   await expect(codexAdapter.project(portableProjectionInput)).resolves.toMatchObject({
     substrate: "codex",
   });
 
-  await expect(codexAdapter.run({ id: "task-1", substrate: "codex", prompt: "run" })).resolves.toMatchObject({
-    status: "failed",
-    summary: expect.stringContaining("not implemented"),
-  });
+  expect("run" in codexAdapter).toBe(false);
 });

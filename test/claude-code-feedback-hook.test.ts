@@ -44,6 +44,8 @@ describe("claude-code feedback capture hook", () => {
     // Excerpts are the point of the fix — content-free capture was the audited drift.
     expect(source).toContain("--store-excerpt");
     expect(source).not.toContain("--no-excerpt");
+    expect(source).toContain("readSync(0, chunk");
+    expect(source).not.toContain('readFileSync(0, "utf8")');
     // Trigger regex is single-sourced from feedback-contract, not forked.
     expect(source).toContain(JSON.stringify(SOMA_FEEDBACK_AUTOMATIC_HOOK_TRIGGER_PATTERN_SOURCE));
     expect(source).toContain('"--substrate", "claude-code"');
@@ -65,6 +67,13 @@ describe("claude-code feedback capture hook", () => {
     const settings = JSON.parse(readFileSync(resolve(substrateHome, "settings.json"), "utf8"));
     const raw = JSON.stringify(settings);
     expect(raw).not.toContain("soma-feedback-capture");
+  });
+
+  test("disabling feedback capture removes a previously installed settings command", async () => {
+    const substrateHome = tempHome();
+    await installInto(substrateHome);
+    await installInto(substrateHome, { feedbackCapture: false });
+    expect(readFileSync(resolve(substrateHome, "settings.json"), "utf8")).not.toContain("soma-feedback-capture");
   });
 
   test("uninstall removes the hook files and the settings entry", async () => {

@@ -91,7 +91,13 @@ interface MetricSpec {
 
 export function loadRuns(runsDir: string): RunDoc[] {
   const runs: RunDoc[] = [];
-  for (const file of readdirSync(runsDir)) {
+  let files: string[];
+  try {
+    files = readdirSync(runsDir);
+  } catch {
+    return runs;
+  }
+  for (const file of files) {
     if (!file.endsWith(".json")) continue;
     try {
       runs.push(JSON.parse(readFileSync(join(runsDir, file), "utf8")) as RunDoc);

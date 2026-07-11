@@ -12,6 +12,7 @@ const SUBSTRATE_IDS = {
   grok: true,
   cortex: true,
   custom: true,
+  "anthropic-cowork": true,
 } as const satisfies Record<SubstrateId, true>;
 
 const SUBSTRATE_ID_LIST = Object.keys(SUBSTRATE_IDS) as readonly SubstrateId[];

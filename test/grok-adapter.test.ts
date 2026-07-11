@@ -137,14 +137,10 @@ test("grok home projection ships portable skills through the default substrate r
   expect(projected).not.toContain("~/.claude/memory/");
 });
 
-test("grok adapter exposes context build before execution and stubs run()", async () => {
+test("grok adapter remains projection-only", async () => {
   await expect(grokAdapter.project(portableProjectionInput)).resolves.toMatchObject({ substrate: "grok" });
 
-  await expect(grokAdapter.run({ id: "task-grok", substrate: "grok", prompt: "run" })).resolves.toMatchObject({
-    substrate: "grok",
-    status: "failed",
-    summary: expect.stringContaining("not implemented"),
-  });
+  expect("run" in grokAdapter).toBe(false);
 });
 
 test("grok adapter detect() reflects ~/.grok presence", async () => {

@@ -20,8 +20,9 @@ The first workflow is a ledger update:
 ## Pass Conditions
 
 - The same profile, purpose, skill list, memory layout, and VSA are used unchanged.
-- Substrate adapters may change only projection shape, file names, and
-  host-specific invocation.
+- Substrate adapters may change only projection shape and file names.
+  Substrate-specific invocation belongs to an optional `SubstrateExecutor`, not the
+  projection adapter.
 - The workflow has a shared verification criterion that does not depend on chat
   transcript style.
 - Any divergence is recorded as an adapter limitation, not solved by changing
@@ -55,4 +56,5 @@ The CI suite verifies:
 This is intentionally not a live behavioral equivalence test. Running the same
 task inside real Codex, Pi.dev, Claude Code, and Cursor sessions is a V2+
 runtime harness because it needs installed hosts, model execution, and
-substrate-specific authentication.
+substrate-specific authentication. It will use separate executor contracts;
+projection-only substrates remain fully supported without a `SubstrateExecutor`.

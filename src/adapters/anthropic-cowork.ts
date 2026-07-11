@@ -1,7 +1,7 @@
 import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
-import type { Projection, ProjectionInput, SomaAdapter, SomaTask } from "../types";
+import type { Projection, ProjectionInput, SomaAdapter } from "../types";
 import { activeVsaBundleFile, activeVsaProjectionPath } from "../adapter-active-vsa";
 import {
   SOMA_POLICY_PROJECTION_HEADING,
@@ -264,13 +264,5 @@ export const anthropicCoworkAdapter: SomaAdapter = {
   },
   project(input) {
     return Promise.resolve(projectAnthropicCoworkHome(input));
-  },
-  run(task: SomaTask) {
-    return Promise.resolve({
-      taskId: task.id,
-      substrate: "anthropic-cowork",
-      status: "failed",
-      summary: "Anthropic Cowork execution is not implemented; use install/export to generate a standalone projection folder.",
-    });
   },
 };

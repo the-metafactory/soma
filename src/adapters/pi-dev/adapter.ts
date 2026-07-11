@@ -1,4 +1,4 @@
-import type { SomaAdapter, Projection, ProjectionInput, SomaTask } from "../../types";
+import type { SomaAdapter, Projection, ProjectionInput } from "../../types";
 import { renderFeedbackHookHelper } from "../shared/feedback-helper";
 import { renderPathGuardExtension } from "./path-guard";
 import { renderSomaAlgorithmExtension } from "./extensions/soma-algorithm";
@@ -593,13 +593,5 @@ export const piDevAdapter: SomaAdapter = {
   },
   project(input) {
     return Promise.resolve(projectPiDev(input));
-  },
-  run(task: SomaTask) {
-    return Promise.resolve({
-      taskId: task.id,
-      substrate: "pi-dev",
-      status: "failed",
-      summary: "Pi.dev execution is not implemented yet; use project() to generate the extension bundle.",
-    });
   },
 };

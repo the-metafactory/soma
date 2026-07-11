@@ -7,7 +7,8 @@ export type SubstrateId =
   | "cursor"
   | "grok"
   | "cortex"
-  | "custom";
+  | "custom"
+  | "anthropic-cowork";
 
 export type ExperimentalScaffoldSubstrate = "anthropic-cowork";
 export type ProjectionSubstrate = SubstrateId | ExperimentalScaffoldSubstrate;
@@ -2422,6 +2423,10 @@ export interface SomaLifecycleResult {
   writes?: string[];
 }
 
+/**
+ * @deprecated Use {@link SomaExecutionRequest}; retained for source
+ * compatibility while adapters remain projection-only.
+ */
 export interface SomaTask {
   id: string;
   substrate: ProjectionSubstrate;
@@ -2429,6 +2434,10 @@ export interface SomaTask {
   cwd?: string;
 }
 
+/**
+ * @deprecated Use {@link SomaExecutionResult}; retained for source
+ * compatibility while adapters remain projection-only.
+ */
 export interface SomaRunResult {
   taskId: string;
   substrate: ProjectionSubstrate;
@@ -2441,7 +2450,6 @@ export interface SomaAdapter {
   name: ProjectionSubstrate;
   detect(): Promise<boolean>;
   project(input: ProjectionInput): Promise<Projection>;
-  run(task: SomaTask): Promise<SomaRunResult>;
 }
 
 // ── Memory subsystem (Track B, M0) ──────────────────────────────────────────
