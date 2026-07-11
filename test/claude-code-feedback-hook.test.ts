@@ -44,6 +44,8 @@ describe("claude-code feedback capture hook", () => {
     // Excerpts are the point of the fix — content-free capture was the audited drift.
     expect(source).toContain("--store-excerpt");
     expect(source).not.toContain("--no-excerpt");
+    expect(source).toContain("readSync(0, chunk");
+    expect(source).not.toContain('readFileSync(0, "utf8")');
     // Trigger regex is single-sourced from feedback-contract, not forked.
     expect(source).toContain(JSON.stringify(SOMA_FEEDBACK_AUTOMATIC_HOOK_TRIGGER_PATTERN_SOURCE));
     expect(source).toContain('"--substrate", "claude-code"');
