@@ -11,6 +11,8 @@ export function outputFromText(value: string): CommandOutput {
 }
 
 const MAX_PROBE_OUTPUT_LENGTH = 64 * 1024;
+export const MAX_EXECUTION_OUTPUT_RECORDS = 64;
+export const MAX_EXECUTION_OUTPUT_RECORD_LENGTH = 16_384;
 
 /** Collects only the small, bounded output needed for version/help probes. */
 export async function collectProbeOutput(output: CommandOutput): Promise<string> {

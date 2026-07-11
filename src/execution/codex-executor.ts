@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { boundedJsonlSummaries, collectProbeOutput, type CommandOutput } from "./command-output";
+import { boundedJsonlSummaries, collectProbeOutput, MAX_EXECUTION_OUTPUT_RECORD_LENGTH, MAX_EXECUTION_OUTPUT_RECORDS, type CommandOutput } from "./command-output";
 import { RequestScopedExecutionLifecycle } from "./request-lifecycle";
 import { REQUIRED_EXECUTION_CONFORMANCE_SCENARIOS } from "./conformance";
 import type { RegisteredSubstrateExecutor } from "./registry";
@@ -13,8 +13,8 @@ export interface CodexExecutorOptions {
   temporaryRoot?: string;
 }
 
-const MAX_JSONL_RECORDS = 64;
-const MAX_JSONL_RECORD_LENGTH = 16_384;
+const MAX_JSONL_RECORDS = MAX_EXECUTION_OUTPUT_RECORDS;
+const MAX_JSONL_RECORD_LENGTH = MAX_EXECUTION_OUTPUT_RECORD_LENGTH;
 
 /** Codex-specific executor; only uses flags confirmed by `codex exec --help`. */
 export class CodexExecutor implements SubstrateExecutor {
@@ -23,10 +23,10 @@ export class CodexExecutor implements SubstrateExecutor {
   constructor(private readonly options: CodexExecutorOptions) {}
   async probe(options?: ExecutionProbeOptions): Promise<ExecutionCapabilities> {
     const runnerOptions = { cwd: options?.cwd, signal: options?.signal };
-    const [version, help] = await Promise.all([
-      this.options.runner.run(["codex", "--version"], runnerOptions),
-      this.options.runner.run(["codex", "exec", "--help"], runnerOptions),
-    ]);
+    let version: CodexCommandResult;
+    let help: CodexCommandResult;
+    try { [version, help] = await Promise.all([this.options.runner.run(["codex", "--version"], runnerOptions), this.options.runner.run(["codex", "exec", "--help"], runnerOptions)]); }
+    catch { return { substrate: "codex", available: false, executorVersion: "soma-codex-e3", supportedCapabilities: [], streaming: true, cancellation: "best-effort", approvals: "native", sandbox: "native", sessionLifecycle: [], artifactReporting: false, limitations: ["Codex capability probe failed."] }; }
     const [versionOutput, helpOutput] = await Promise.all([collectProbeOutput(version.stdout), collectProbeOutput(help.stdout)]);
     const available = version.exitCode === 0
       && help.exitCode === 0

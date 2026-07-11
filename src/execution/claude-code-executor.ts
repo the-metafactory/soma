@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { boundedJsonlSummaries, collectProbeOutput, type CommandOutput } from "./command-output";
+import { boundedJsonlSummaries, collectProbeOutput, MAX_EXECUTION_OUTPUT_RECORD_LENGTH, MAX_EXECUTION_OUTPUT_RECORDS, type CommandOutput } from "./command-output";
 import { RequestScopedExecutionLifecycle } from "./request-lifecycle";
 import { REQUIRED_EXECUTION_CONFORMANCE_SCENARIOS } from "./conformance";
 import type { RegisteredSubstrateExecutor } from "./registry";
@@ -13,8 +13,8 @@ export interface ClaudeCodeExecutorOptions {
   temporaryRoot?: string;
 }
 
-const MAX_STREAM_RECORDS = 64;
-const MAX_STREAM_RECORD_LENGTH = 16_384;
+const MAX_STREAM_RECORDS = MAX_EXECUTION_OUTPUT_RECORDS;
+const MAX_STREAM_RECORD_LENGTH = MAX_EXECUTION_OUTPUT_RECORD_LENGTH;
 
 /** Claude Code-specific executor; only uses flags confirmed by `claude --help`. */
 export class ClaudeCodeExecutor implements SubstrateExecutor {
@@ -25,10 +25,10 @@ export class ClaudeCodeExecutor implements SubstrateExecutor {
 
   async probe(options?: ExecutionProbeOptions): Promise<ExecutionCapabilities> {
     const runnerOptions = { cwd: options?.cwd, signal: options?.signal };
-    const [version, help] = await Promise.all([
-      this.options.runner.run(["claude", "--version"], runnerOptions),
-      this.options.runner.run(["claude", "--help"], runnerOptions),
-    ]);
+    let version: ClaudeCodeCommandResult;
+    let help: ClaudeCodeCommandResult;
+    try { [version, help] = await Promise.all([this.options.runner.run(["claude", "--version"], runnerOptions), this.options.runner.run(["claude", "--help"], runnerOptions)]); }
+    catch { return { substrate: "claude-code", available: false, executorVersion: "soma-claude-code-e4", supportedCapabilities: [], streaming: true, cancellation: "best-effort", approvals: "native", sandbox: "native", sessionLifecycle: [], artifactReporting: false, limitations: ["Claude Code capability probe failed."] }; }
     const [versionOutput, helpOutput] = await Promise.all([collectProbeOutput(version.stdout), collectProbeOutput(help.stdout)]);
     const available = version.exitCode === 0 && help.exitCode === 0 && ["-p, --print", "--output-format", "stream-json"].every((term) => helpOutput.includes(term));
     return {
