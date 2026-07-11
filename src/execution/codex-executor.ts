@@ -23,8 +23,10 @@ export class CodexExecutor implements SubstrateExecutor {
   constructor(private readonly options: CodexExecutorOptions) {}
   async probe(options?: ExecutionProbeOptions): Promise<ExecutionCapabilities> {
     const runnerOptions = { cwd: options?.cwd, signal: options?.signal };
-    const version = await this.options.runner.run(["codex", "--version"], runnerOptions);
-    const help = await this.options.runner.run(["codex", "exec", "--help"], runnerOptions);
+    const [version, help] = await Promise.all([
+      this.options.runner.run(["codex", "--version"], runnerOptions),
+      this.options.runner.run(["codex", "exec", "--help"], runnerOptions),
+    ]);
     const [versionOutput, helpOutput] = await Promise.all([collectProbeOutput(version.stdout), collectProbeOutput(help.stdout)]);
     const available = version.exitCode === 0
       && help.exitCode === 0

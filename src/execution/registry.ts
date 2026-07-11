@@ -2,7 +2,7 @@ import type { ProjectionSubstrate, SubstrateId } from "../types";
 import { REQUIRED_EXECUTION_CONFORMANCE_SCENARIOS, type ExecutionConformanceScenarioId } from "./conformance";
 import type { SubstrateExecutor } from "./types";
 
-export const KNOWN_SUBSTRATES = new Set<SubstrateId>(["codex", "pi-dev", "claude-code", "cursor", "grok", "cortex", "custom"]);
+export const KNOWN_SUBSTRATES = new Set<SubstrateId>(["codex", "pi-dev", "claude-code", "cursor", "grok", "cortex", "custom", "anthropic-cowork"]);
 export const KNOWN_EXECUTION_SUBSTRATES = new Set<ProjectionSubstrate>([...KNOWN_SUBSTRATES, "anthropic-cowork"]);
 
 export function isKnownSubstrate(substrate: string): substrate is SubstrateId {

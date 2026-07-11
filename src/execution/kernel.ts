@@ -280,6 +280,7 @@ export async function runSubstrateExecution(
     const prepared = await executor.prepare(request, { signal: controller.signal, capabilitySnapshot: probedCapabilities });
     executionId = prepared.executionId;
     if (!matchesRequest(prepared.request, request) || prepared.capabilitySnapshot.substrate !== request.substrate) {
+      await cancel();
       return fail({ code: "invalid-request", summary: "Prepared execution does not match the request.", retryable: false });
     }
     capabilities = prepared.capabilitySnapshot;

@@ -117,6 +117,16 @@ test("accepts an equivalent cloned request from an executor", async () => {
   expect(result.result).toMatchObject({ status: "completed", summary: "done" });
 });
 
+test("cancels a prepared execution before rejecting a mismatched request", async () => {
+  const calls: string[] = [];
+  const executor = fakeExecutor({ calls });
+  const prepare = executor.prepare.bind(executor);
+  executor.prepare = async (input, options) => ({ ...(await prepare(input, options)), request: { ...input, prompt: "mismatched" } });
+  const result = await run(executor, request());
+  expect(result.events.at(-1)).toMatchObject({ kind: "execution.failed", code: "invalid-request" });
+  expect(calls).toEqual(["probe", "prepare", "cancel"]);
+});
+
 test("normalizes unavailable substrates and typed preparation refusals", async () => {
   const unavailable = await run(fakeExecutor({ capabilities: capabilities({ available: false }) }), request());
   expect(unavailable.result).toMatchObject({ status: "failed", summary: "Substrate is unavailable." });

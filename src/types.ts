@@ -7,7 +7,8 @@ export type SubstrateId =
   | "cursor"
   | "grok"
   | "cortex"
-  | "custom";
+  | "custom"
+  | "anthropic-cowork";
 
 export type ExperimentalScaffoldSubstrate = "anthropic-cowork";
 export type ProjectionSubstrate = SubstrateId | ExperimentalScaffoldSubstrate;
