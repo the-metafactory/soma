@@ -8,7 +8,7 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "soma": "bun src/cli.ts",
-    "harness-eval": "bun scripts/harness-eval.ts",
+    "objective-eval": "bun scripts/harness-eval.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "test:portability": "bun test test/portability-ci.test.ts",

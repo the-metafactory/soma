@@ -49,7 +49,24 @@ export async function diagnoseExecutionReadiness(
   if (resolution.status === "unsupported") {
     return { substrate, status: "projection-only", reason: resolution.reason };
   }
-  const capabilities = await resolution.executor.probe();
+  let capabilities: ExecutionCapabilities;
+  try {
+    capabilities = await resolution.executor.probe();
+  } catch {
+    capabilities = {
+      substrate: resolution.executor.substrate,
+      available: false,
+      executorVersion: "unavailable",
+      supportedCapabilities: [],
+      streaming: false,
+      cancellation: "unsupported",
+      approvals: "unsupported",
+      sandbox: "none",
+      sessionLifecycle: [],
+      artifactReporting: false,
+      limitations: ["Substrate capability probe failed."],
+    };
+  }
   return capabilities.available
     ? { substrate, status: "ready", capabilities }
     : { substrate, status: "unavailable", capabilities };

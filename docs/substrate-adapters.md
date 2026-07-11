@@ -57,7 +57,8 @@ before using only `--ephemeral --json --sandbox workspace-write --cd <cwd> -`.
 The kernel admits a request only when its cwd stays inside a trusted,
 caller-authorized workspace root and its required capabilities are probed as
 supported. It forwards cancellation and timeout through the injected process
-runner and removes request-scoped temporary state on every terminal path. Its
+runner and asks the executor to release request-scoped state on cancellation or
+validated terminal paths. Its
 JSONL reduction consumes stdout incrementally, is deliberately bounded to 64
 records of at most 16 KiB each, and emits only progress summaries. It neither
 persists raw stdout/stderr nor claims
@@ -81,9 +82,9 @@ is `ready`.
 Live execution is opt-in: use a temporary Soma home and workspace, a bounded
 `timeoutMs`, and a narrow fixture prompt through the executor API. Do not use
 permission-bypass flags. Rollback is to stop registering the executor (leaving
-the projection installed) or disable the substrate-specific integration; append-only
-execution evidence remains auditable and no durable memory is promoted by an
-executor.
+the projection installed) or disable the substrate-specific integration. Direct
+executor calls return normalized in-memory results; append-only evidence is
+written only when an orchestration caller applies the separate writeback bridge.
 
 ## Pi.dev
 
