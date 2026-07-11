@@ -27,6 +27,23 @@ export PATH="${HOME}/.bun/bin:/usr/local/bin:/opt/homebrew/bin:${PATH}"
 STAMP="$(date '+%Y-%m-%dT%H:%M:%S%z')"
 cd "${REPO_DIR}" || { echo "${STAMP} FATAL cannot cd ${REPO_DIR}" >>"${LOG_FILE}"; exit 2; }
 
+# Baseline-integrity guard (Sage review, PR #455): a green --check only means
+# something if the baseline it compared against is the committed one. The
+# `--write-baseline` command overwrites the working file in place, so a session
+# could silently lower the bar and the weekly check would report green while
+# hiding a real regression. Refuse to trust a baseline that differs from HEAD —
+# a legitimate re-baseline is a COMMIT (reviewable in git history), never an
+# uncommitted overwrite. (This catches the silent-overwrite case; a re-baseline
+# committed to a local unpushed branch is still git-reviewable, which is the
+# bar the objective doc claims.)
+BASELINE_REL="scripts/harness-eval-baseline.json"
+if ! git -C "${REPO_DIR}" diff --quiet HEAD -- "${BASELINE_REL}" 2>/dev/null; then
+  MSG="baseline ${BASELINE_REL} differs from committed HEAD — a green check cannot be trusted (possible uncommitted re-baseline). Commit or restore it."
+  printf '%s GUARD baseline-not-committed: %s\n\n' "${STAMP}" "${MSG}" >>"${LOG_FILE}"
+  osascript -e "display notification \"${MSG}\" with title \"Soma harness gate: baseline not committed\"" 2>/dev/null || true
+  exit 3
+fi
+
 OUTPUT="$(bun run harness-eval --check 2>&1)"
 STATUS=$?
 

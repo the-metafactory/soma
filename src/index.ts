@@ -637,5 +637,3 @@ export {
 export { type CompletenessGap, type CompletenessReport } from "./vsa-schema";
 
 export { SOMA_VERSION } from "./version";
-
-export { VerificationGateError } from "./algorithm";

@@ -22,12 +22,16 @@ import {
   setAlgorithmPlan,
   selectAlgorithmCapability,
   updateAlgorithmPlanStep,
-  VerificationGateError,
   verifyAlgorithmCriterion,
   writeAlgorithmRun,
   appendSomaMemoryEvent,
 } from "../index";
 import type { ReflectionForDigest } from "../index";
+// VerificationGateError is a CLI-only classification detail — imported straight
+// from its defining module, deliberately NOT re-exported through the public
+// barrel (Sage review, PR #455): keeping it off ../index leaves the internal
+// error shape free to change without a public-API break.
+import { VerificationGateError } from "../algorithm";
 import { readFile } from "node:fs/promises";
 import { registerSomaHomeAlgorithmCapabilities } from "../algorithm-capabilities";
 import { defaultSomaHome } from "../paths";

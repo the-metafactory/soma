@@ -467,12 +467,16 @@ test("issue #236: installed Claude hook appends lifecycle and metadata-only writ
     await installSomaForClaudeCode({ homeDir });
 
     runClaudeHook(homeDir, "session-start", { session_id: "claude-session-1" });
+    // This test is about capture + redaction, not sampling. The tool writeback
+    // is now 1-in-10 sampled by a hash of the call identity, so the path is
+    // chosen to land in the emit bucket (fnv1a32(key) % 10 === 0) — otherwise a
+    // legitimately-sampled-out event would make this assertion flaky.
     runClaudeHook(homeDir, "writeback-tool", {
       session_id: "claude-session-1",
       hook_event_name: "PostToolUse",
       cwd: "/workspace/example",
       tool_name: "Write",
-      tool_input: { file_path: "/workspace/example/result.md", content: "private transcript content must not be mirrored" },
+      tool_input: { file_path: "/workspace/example/result-10.md", content: "private transcript content must not be mirrored" },
     });
     runClaudeHook(homeDir, "session-end", { session_id: "claude-session-1" });
 
@@ -485,7 +489,7 @@ test("issue #236: installed Claude hook appends lifecycle and metadata-only writ
     expect(events.some((event) => event.substrate === "claude-code" && event.kind === "lifecycle.session_end")).toBe(true);
     const toolEvent = events.find((event) => event.kind === "writeback.claude_code.tool");
     expect(toolEvent).toBeDefined();
-    expect(toolEvent?.artifactPaths).toEqual(["/workspace/example/result.md"]);
+    expect(toolEvent?.artifactPaths).toEqual(["/workspace/example/result-10.md"]);
     expect(toolEvent?.metadata).toMatchObject({
       sessionId: "claude-session-1",
       source: "PostToolUse",
@@ -495,13 +499,17 @@ test("issue #236: installed Claude hook appends lifecycle and metadata-only writ
   });
 });
 
-test("audit §3: per-tool writeback events are sampled 1-in-10 (only the first of ten emits)", async () => {
+test("audit §3: per-tool writeback events are 1-in-10 hash-sampled (most calls drop, some keep)", async () => {
   await withTempHome(async (homeDir) => {
     await installSomaForClaudeCode({ homeDir });
 
-    // Ten identical tool writebacks in a fresh home: the deterministic counter
-    // emits the 1st and would next emit the 11th, so exactly one event lands.
-    for (let i = 0; i < 10; i += 1) {
+    // 30 distinct tool writebacks. The sampler keeps a call when
+    // fnv1a32(sessionId|source|tool|paths) % 10 === 0, so for this fixed input
+    // set exactly file-4/17/22 land — 3 of 30. The assertions pin the invariant
+    // (well under the input count, and not silenced to zero), not the exact 3,
+    // so they read as "sampling reduces volume" rather than a magic number.
+    const TOTAL = 30;
+    for (let i = 0; i < TOTAL; i += 1) {
       runClaudeHook(homeDir, "writeback-tool", {
         session_id: "sample-session",
         hook_event_name: "PostToolUse",
@@ -514,8 +522,9 @@ test("audit §3: per-tool writeback events are sampled 1-in-10 (only the first o
     const events = await waitForEvents(homeDir, (items) =>
       items.some((event) => event.kind === "writeback.claude_code.tool"),
     );
-    const toolEvents = events.filter((event) => event.kind === "writeback.claude_code.tool");
-    expect(toolEvents).toHaveLength(1); // 10 tool calls → 1 emitted event
+    const emitted = events.filter((event) => event.kind === "writeback.claude_code.tool").length;
+    expect(emitted).toBeGreaterThan(0); // capture not silenced
+    expect(emitted).toBeLessThan(TOTAL / 3); // sampled well below the raw call count
   });
 });
 

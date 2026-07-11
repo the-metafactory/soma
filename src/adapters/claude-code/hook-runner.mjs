@@ -137,41 +137,34 @@ function writebackQueuePath() {
 // unsampled (low-volume and consumed). See docs/harness-objective-function.md.
 const WRITEBACK_TOOL_SAMPLE_RATE = 10;
 
-function writebackToolCounterPath() {
-  return join(hookDir(), "soma-claude-code-writeback-tool-counter");
+// FNV-1a 32-bit — a cheap, well-distributed, dependency-free string hash. Used
+// only to bucket a tool call for sampling, never for anything security-bearing.
+function fnv1a32(str) {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash >>> 0;
 }
 
-// Counter-based 1-in-N sampler. The hook is a fresh process per tool call, so a
-// persisted file counter (not Math.random) is what carries state across calls
-// and keeps sampling roughly reproducible. Caveats, by design not accident:
-//   - The counter is process-hosted at a single path, so it is GLOBAL across
-//     sessions/projects on this machine, not per-session. "Emits on the first
-//     call" therefore means the first call machine-wide after the counter is
-//     reset/absent, not the first call of every session.
-//   - PostToolUse hooks can run as parallel processes with no lock (unlike the
-//     flush lock), so the read-modify-write races: concurrent calls can lose an
-//     increment or torn-read to NaN. That only perturbs the sampling RATIO — it
-//     never affects correctness — so a lock isn't worth the contention.
-//   - Fails OPEN (emits) on any counter read/write error, so a broken counter
-//     over-emits rather than silently dropping all tool telemetry.
-// Single-process behaviour is exact: emits at counter 1, N+1, 2N+1, … (the first
-// call included, which the install smoke test relies on).
-function shouldSampleToolWriteback() {
-  const path = writebackToolCounterPath();
-  try {
-    const current = Number.parseInt(readFileSync(path, "utf8"), 10);
-    const next = Number.isFinite(current) ? current + 1 : 1;
-    writeFileSync(path, String(next), "utf8");
-    return next % WRITEBACK_TOOL_SAMPLE_RATE === 1;
-  } catch {
-    // No counter yet (first call) or unreadable: seed it and emit this one.
-    try {
-      writeFileSync(path, "1", "utf8");
-    } catch {
-      // best-effort — still emit
-    }
-    return true;
-  }
+// Stateless 1-in-N sampler for the high-volume `writeback.claude_code.tool`
+// event (Sage review, PR #455): the earlier version read+wrote a counter file on
+// EVERY tool call — two blocking FS ops even for the ~90% of calls it then
+// dropped. This derives the keep/drop decision from a hash of the call's own
+// identity instead, so a skipped call touches no disk at all, and there is no
+// shared counter to race across parallel hook processes. Deterministic and
+// replayable (same call → same decision), which is why it is a hash and not
+// Math.random. The rate is statistical (~1/N over distinct calls), not an exact
+// stride — acceptable, since the counter version was already only approximate
+// under concurrency. Same-file re-edits within a session share a key and thus a
+// decision; that is fine for sampling. An identity-less call (no session/tool/
+// path) hashes a constant key — a negligible corner for real tool writebacks.
+function shouldSampleToolWriteback(input, source) {
+  const sessionId = input && typeof input.session_id === "string" ? input.session_id : "";
+  const toolName = input && typeof input.tool_name === "string" ? input.tool_name : "";
+  const key = `${sessionId}|${source}|${toolName}|${artifactPaths(input).join(",")}`;
+  return fnv1a32(key) % WRITEBACK_TOOL_SAMPLE_RATE === 0;
 }
 
 // Match shared Soma VSA files, legacy PAI VSA files during migration, OR a
@@ -384,7 +377,7 @@ async function writeback(config, input, kind, summary, source) {
   if (source === "PostToolUse") syncVsaPaths(config, input);
 
   // Sample the high-volume per-tool writeback event (see WRITEBACK_TOOL_SAMPLE_RATE).
-  if (kind === "writeback.claude_code.tool" && !shouldSampleToolWriteback()) return;
+  if (kind === "writeback.claude_code.tool" && !shouldSampleToolWriteback(input, source)) return;
 
   const artifacts = artifactPaths(input);
   const event = {
