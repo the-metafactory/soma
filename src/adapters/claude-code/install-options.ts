@@ -9,6 +9,8 @@ export interface ClaudeCodeInstallOptions extends SomaInstallOptions {
   claudeMd?: boolean;
   /** Soma status line (settings.json `statusLine` → bundled soma-statusline.sh). */
   statusLine?: boolean;
+  /** Feedback capture on UserPromptSubmit (correction candidates with redacted excerpts). */
+  feedbackCapture?: boolean;
 }
 
 export function isClaudeCodeInstallOptions(options: unknown): options is ClaudeCodeInstallOptions {

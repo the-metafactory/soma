@@ -24,10 +24,17 @@ import {
   updateAlgorithmPlanStep,
   verifyAlgorithmCriterion,
   writeAlgorithmRun,
+  appendSomaMemoryEvent,
 } from "../index";
 import type { ReflectionForDigest } from "../index";
+// VerificationGateError is a CLI-only classification detail — imported straight
+// from its defining module, deliberately NOT re-exported through the public
+// barrel (Sage review, PR #455): keeping it off ../index leaves the internal
+// error shape free to change without a public-API break.
+import { VerificationGateError } from "../algorithm";
 import { readFile } from "node:fs/promises";
 import { registerSomaHomeAlgorithmCapabilities } from "../algorithm-capabilities";
+import { defaultSomaHome } from "../paths";
 import { syncAlgorithmRunFromVsa, formatSyncResult } from "../algorithm-vsa-sync";
 import { algorithmTouchedBy } from "../algorithm-provenance";
 import { datePrefixSlug } from "../dated-slug";
@@ -653,6 +660,32 @@ function requireText(options: AlgorithmCliOptions): string {
   return options.text;
 }
 
+export async function appendVerificationGateViolationEvent(
+  options: Pick<AlgorithmCliOptions, "homeDir" | "somaHome" | "substrate">,
+  runId: string,
+  error: VerificationGateError,
+  runSubstrate?: AlgorithmRun["substrate"],
+): Promise<void> {
+  try {
+    await appendSomaMemoryEvent(defaultSomaHome({ homeDir: options.homeDir, somaHome: options.somaHome }), {
+      // Attribute to the run's own substrate when the CLI flag is absent — a
+      // `verify` that omits --substrate must not mislabel a claude-code (or any)
+      // run's gate refusal as "custom" telemetry.
+      substrate: options.substrate ?? runSubstrate ?? "custom",
+      kind: "verification.gate_violation",
+      summary: `VerificationGate refused a hollow pass on ${runId}/${error.criterionId} (${error.reason}).`,
+      metadata: {
+        runId,
+        criterionId: error.criterionId,
+        reason: error.reason,
+        evidenceKind: error.evidenceKind ?? null,
+      },
+    });
+  } catch {
+    // Telemetry is best-effort; the gate error itself is what matters.
+  }
+}
+
 async function updateAndReportAlgorithmRun(
   options: AlgorithmCliOptions,
   update: (run: AlgorithmRun) => AlgorithmRun,
@@ -671,7 +704,22 @@ async function updateAndReportAlgorithmRun(
           substrate: run.substrate,
         })
       : run;
-  const written = await writeAlgorithmRun(update(registered), {
+  let updated: AlgorithmRun;
+  try {
+    updated = update(registered);
+  } catch (error) {
+    // A VerificationGate refusal is the most on-mission signal this CLI sees —
+    // an attempted hollow "done". The 2026-07-10 proxy-drift audit found it was
+    // detected and then discarded (bare throw, no trace), making the hollow-pass
+    // attempt rate unmeasurable. Record it before rethrowing. Every substrate
+    // funnels through this CLI, so the emission is substrate-neutral by
+    // construction. Best-effort: a telemetry failure must never mask the gate.
+    if (error instanceof VerificationGateError) {
+      await appendVerificationGateViolationEvent(options, id, error, run.substrate);
+    }
+    throw error;
+  }
+  const written = await writeAlgorithmRun(updated, {
     homeDir: options.homeDir,
     somaHome: options.somaHome,
   });

@@ -49,6 +49,13 @@ export const SHORT_DESCRIPTION_MAX_LENGTH = 160;
 const LEAD_CLAUSE_MARKER = /\bUSE WHEN:?\s+|\bNOT FOR:?\s+|\bSKIP:\s+/;
 
 /**
+ * The `USE WHEN` marker on its own (a subset of {@link LEAD_CLAUSE_MARKER}).
+ * Used by {@link extractUseWhenTriggers} to recover routing keywords from a
+ * skill that carries USE WHEN prose but no structured `triggers` array.
+ */
+const USE_WHEN_MARKER = /\bUSE WHEN:?\s+/;
+
+/**
  * Anti-trigger markers, ordered so the regex engine prefers the more
  * specific alternative when both start at the same index (`NOT FOR` is
  * tried before the bare `NOT` it contains as a prefix). Case-sensitive on
@@ -57,6 +64,15 @@ const LEAD_CLAUSE_MARKER = /\bUSE WHEN:?\s+|\bNOT FOR:?\s+|\bSKIP:\s+/;
  * "cannot") is lowercase and never matches.
  */
 const ANTI_TRIGGER_MARKER = /\bNOT FOR:?\s+|\bSKIP:\s+|\bNOT\s+/;
+
+// Where a USE WHEN clause ends: the first anti-trigger tail. This IS the
+// anti-trigger marker set — an anti-trigger that follows the USE WHEN list must
+// NOT be swept into the derived triggers (extractAntiTriggers surfaces it as the
+// `not:` line instead; double-emitting it in both places would be wrong). Reuses
+// ANTI_TRIGGER_MARKER (declared just above) rather than restating the pattern,
+// so a new anti-trigger marker is added in exactly one place. Safe to share the
+// object: both call sites use non-global `.exec`, which never carries lastIndex.
+const USE_WHEN_TAIL = ANTI_TRIGGER_MARKER;
 
 /**
  * Extract an anti-trigger clause from a skill's description, best-effort.
@@ -74,6 +90,33 @@ export function extractAntiTriggers(description: string): string | undefined {
   const sentenceEnd = rest.indexOf(".");
   const clause = (sentenceEnd === -1 ? rest : rest.slice(0, sentenceEnd)).trim();
   return clause.length > 0 ? clause : undefined;
+}
+
+/**
+ * Recover routing keywords from a skill's USE WHEN prose, as a fallback for the
+ * structured `triggers` array. The 2026-07-10 proxy-drift audit (§6) found the
+ * compactor stripped the USE WHEN tail from the summary on the assumption that
+ * `triggers` replace it — but only 1/106 projected entries actually carried a
+ * `triggers:` line while 71 source skills carry USE WHEN prose, so the routing
+ * signal was deleted, not relocated. Splitting the clause on commas recovers the
+ * trigger phrases skills already write comma-separated (e.g. `USE WHEN review
+ * PR, code review, security review`). Runs from the USE WHEN marker to the next
+ * anti-trigger tail (`NOT FOR`/`SKIP:`/bare `NOT`, all surfaced separately as
+ * `not:`) or the end of the description, so anti-triggers never leak into — or
+ * duplicate onto — the triggers line. Returns `[]` when there is no USE WHEN
+ * clause. (Comma lists inside parentheses still shatter — a known cosmetic limit
+ * accepted by soma#371; the pieces remain routing keywords.)
+ */
+export function extractUseWhenTriggers(description: string): string[] {
+  const match = USE_WHEN_MARKER.exec(description);
+  if (!match) return [];
+  const rest = description.slice(match.index + match[0].length);
+  const tail = USE_WHEN_TAIL.exec(rest);
+  const clause = (tail ? rest.slice(0, tail.index) : rest).replace(/\.\s*$/, "").trim();
+  return clause
+    .split(",")
+    .map((phrase) => phrase.trim())
+    .filter((phrase) => phrase.length > 0);
 }
 
 /**
@@ -113,20 +156,28 @@ export function truncateAtWordBoundary(text: string, maxLength: number): string 
  *
  * ```
  * - **<name>** — <short description> → <path>
- *   triggers: <t1>, <t2>, …            ← only when skill.triggers is non-empty
+ *   triggers: <t1>, <t2>, …            ← structured `triggers`, else USE WHEN prose
  *   not: <anti-triggers>               ← only when the description declares one
  * ```
  *
  * A skill with an empty description omits the `— <lead>` segment entirely
  * rather than rendering a dangling em dash.
+ *
+ * The `triggers:` line prefers the structured `triggers` array and falls back
+ * to keywords recovered from the description's USE WHEN prose
+ * ({@link extractUseWhenTriggers}). Without that fallback the compactor would
+ * strip USE WHEN from the summary yet render nothing in its place for the ~70
+ * skills that carry USE WHEN prose but no `triggers` array — deleting the exact
+ * routing signal the registry exists to preserve (proxy-drift audit §6).
  */
 export function renderSkillRegistryEntry(skill: SomaSkill): string {
   const lead = truncateAtWordBoundary(leadClause(skill.description), SHORT_DESCRIPTION_MAX_LENGTH);
   const summary = lead.length > 0 ? `**${skill.name}** — ${lead}` : `**${skill.name}**`;
   const lines = [`- ${summary} → ${skill.path}`];
 
-  if (skill.triggers.length > 0) {
-    lines.push(`  triggers: ${skill.triggers.join(", ")}`);
+  const triggers = skill.triggers.length > 0 ? skill.triggers : extractUseWhenTriggers(skill.description);
+  if (triggers.length > 0) {
+    lines.push(`  triggers: ${triggers.join(", ")}`);
   }
 
   const antiTriggers = extractAntiTriggers(skill.description);

@@ -373,6 +373,34 @@ export function recordAlgorithmLearning(
   });
 }
 
+/**
+ * Thrown when the record-time VerificationGate refuses a hollow `passed`.
+ * Typed (not a bare Error) so IO layers can observe the refusal: a gate firing
+ * is the single most on-mission telemetry signal the harness produces — an
+ * attempted unverified "done" — and the 2026-07-10 proxy-drift audit found it
+ * was being detected and then discarded. The CLI emits a
+ * `verification.gate_violation` memory event from this error's fields; the
+ * core stays pure (no IO here).
+ */
+export class VerificationGateError extends Error {
+  readonly criterionId: string;
+  readonly reason: "rote_evidence" | "specification_only";
+  readonly evidenceKind: Checkpoint["evidenceKind"] | undefined;
+
+  constructor(input: {
+    criterionId: string;
+    reason: "rote_evidence" | "specification_only";
+    message: string;
+    evidenceKind: Checkpoint["evidenceKind"] | undefined;
+  }) {
+    super(`VerificationGate: cannot mark ${input.criterionId} passed — ${input.message}.`);
+    this.name = "VerificationGateError";
+    this.criterionId = input.criterionId;
+    this.reason = input.reason;
+    this.evidenceKind = input.evidenceKind;
+  }
+}
+
 export function verifyAlgorithmCriterion(
   run: AlgorithmRun,
   criterionId: string,
@@ -398,7 +426,12 @@ export function verifyAlgorithmCriterion(
   // evidenceKind "probed"/"tested", or status "deferred-probe".
   const gateViolation = enforceGate ? verificationGateViolation(status, evidence, evidenceKind) : null;
   if (gateViolation) {
-    throw new Error(`VerificationGate: cannot mark ${criterionId} passed — ${gateViolation.message}.`);
+    throw new VerificationGateError({
+      criterionId,
+      reason: gateViolation.reason,
+      message: gateViolation.message,
+      evidenceKind,
+    });
   }
 
   const { isa: vsaWithSection, criteria: updatedCriteria } = updateCriterionWithResult(

@@ -48,7 +48,8 @@ import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";
 
 export type { InstallSubstrate } from "../types";
-type InstallCliOptions = SomaInstallOptions & Partial<Pick<ClaudeCodeInstallOptions, "modeClassifier" | "policyGuard" | "claudeMd">>;
+type InstallCliOptions = SomaInstallOptions &
+  Partial<Pick<ClaudeCodeInstallOptions, "modeClassifier" | "policyGuard" | "claudeMd" | "feedbackCapture">>;
 type ProjectionLifecycleSubstrate = Exclude<InstallSubstrate, "anthropic-cowork">;
 
 export interface ParsedInstallArgs {
@@ -106,7 +107,7 @@ export const INSTALL_SUBSTRATES = [...PROJECTION_LIFECYCLE_SUBSTRATES, "anthropi
 
 const substrateList = INSTALL_SUBSTRATES.join("|");
 const projectionLifecycleSubstrateList = PROJECTION_LIFECYCLE_SUBSTRATES.join("|");
-const installOptions = "[--dry-run] [--apply] [--workspace] [--code-only] [--no-mode-classifier] [--no-policy-guard] [--claude-md] [--skills <name[,name…]>] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
+const installOptions = "[--dry-run] [--apply] [--workspace] [--code-only] [--no-mode-classifier] [--no-policy-guard] [--no-feedback-capture] [--claude-md] [--skills <name[,name…]>] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
 // Shared by uninstall and projection verbs for common workspace/home flags.
 const workspaceVerbOptions = "[--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
 const projectionVerbOptions = "[--workspace] [--code-only] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
@@ -309,6 +310,12 @@ export function parseInstallArgs(args: string[]): ParsedInstallArgs {
       case "--claude-md":
         parsedOptions.claudeMd = true;
         return true;
+      case "--feedback-capture":
+        parsedOptions.feedbackCapture ??= true;
+        return true;
+      case "--no-feedback-capture":
+        parsedOptions.feedbackCapture = false;
+        return true;
     }
     return false;
   }, { allowCodeOnly: true });
@@ -317,6 +324,9 @@ export function parseInstallArgs(args: string[]): ParsedInstallArgs {
   }
   if (options.policyGuard !== undefined && substrate !== "claude-code") {
     throw new Error("--policy-guard / --no-policy-guard is only supported for claude-code installs.");
+  }
+  if (options.feedbackCapture !== undefined && substrate !== "claude-code") {
+    throw new Error("--feedback-capture / --no-feedback-capture is only supported for claude-code installs.");
   }
   if (options.claudeMd === true && substrate !== "claude-code") {
     throw new Error("--claude-md is only supported for claude-code installs.");

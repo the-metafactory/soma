@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   SKILL_REGISTRY_LINE_BUDGET,
   extractAntiTriggers,
+  extractUseWhenTriggers,
   leadClause,
   renderSkillRegistryEntry,
   truncateAtWordBoundary,
@@ -62,6 +63,42 @@ describe("extractAntiTriggers", () => {
 
   test("returns undefined for an empty description", () => {
     expect(extractAntiTriggers("")).toBeUndefined();
+  });
+});
+
+describe("extractUseWhenTriggers", () => {
+  test("splits a comma-separated USE WHEN clause into trigger phrases", () => {
+    const description = "Multi-lens PR review. USE WHEN review PR, code review, security review, audit PR.";
+    expect(extractUseWhenTriggers(description)).toEqual([
+      "review PR",
+      "code review",
+      "security review",
+      "audit PR",
+    ]);
+  });
+
+  test("stops at a NOT FOR / SKIP: tail so anti-triggers do not leak into triggers", () => {
+    const description = "Scraping. USE WHEN scrape URL, crawl site. NOT FOR simple public content (use WebFetch).";
+    expect(extractUseWhenTriggers(description)).toEqual(["scrape URL", "crawl site"]);
+  });
+
+  test("stops at a bare NOT anti-trigger — it never leaks into or duplicates the triggers", () => {
+    // "USE WHEN <list>. Do NOT trigger on X" must not sweep the anti-trigger
+    // clause into triggers (it belongs on the `not:` line, via extractAntiTriggers).
+    const description = "Router. USE WHEN spec-driven, specflow. Do NOT trigger on bare spec.";
+    const triggers = extractUseWhenTriggers(description);
+    expect(triggers).toContain("spec-driven");
+    expect(triggers.some((t) => /\bNOT\b|bare spec/.test(t))).toBe(false); // anti-trigger not swept in
+    // And the anti-trigger IS still surfaced separately as the `not:` clause.
+    expect(extractAntiTriggers(description)).toContain("NOT trigger on bare spec");
+  });
+
+  test("returns [] when there is no USE WHEN clause", () => {
+    expect(extractUseWhenTriggers("Static visual content via Flux.")).toEqual([]);
+  });
+
+  test("returns [] for an empty description", () => {
+    expect(extractUseWhenTriggers("")).toEqual([]);
   });
 });
 
@@ -142,6 +179,32 @@ describe("renderSkillRegistryEntry", () => {
     expect(entry).toContain("triggers: algorithm, ideal state, VSA");
   });
 
+  test("falls back to USE WHEN prose for the triggers line when the array is empty (audit §6)", () => {
+    // The routing signal must not be silently deleted: this skill has no
+    // structured triggers but declares USE WHEN prose, so the compactor recovers
+    // the trigger phrases rather than stripping USE WHEN and rendering nothing.
+    const entry = renderSkillRegistryEntry(
+      skill({
+        triggers: [],
+        description: "Disciplined diagnosis loop for hard bugs. USE WHEN diagnose, debug, root cause, regression.",
+      }),
+    );
+    expect(entry).toContain("triggers: diagnose, debug, root cause, regression");
+    // and the summary still drops the USE WHEN tail (kept tight, signal on its own line)
+    expect(entry.split("\n")[0]).not.toContain("USE WHEN");
+  });
+
+  test("structured triggers win over USE WHEN prose when both are present", () => {
+    const entry = renderSkillRegistryEntry(
+      skill({
+        triggers: ["curated-a", "curated-b"],
+        description: "Some skill. USE WHEN prose-x, prose-y.",
+      }),
+    );
+    expect(entry).toContain("triggers: curated-a, curated-b");
+    expect(entry).not.toContain("prose-x");
+  });
+
   test("omits the not: line when the description carries no anti-trigger clause", () => {
     const entry = renderSkillRegistryEntry(skill());
     expect(entry).not.toContain("not:");
@@ -210,12 +273,16 @@ describe("renderSkills — compact registry projection", () => {
 function buildRepresentativeSkillFixture(count: number): SomaSkill[] {
   const skills: SomaSkill[] = [];
   for (let i = 0; i < count; i++) {
-    const hasTriggers = i % 5 === 0; // ~20%
+    const hasTriggers = i % 5 === 0; // ~20% carry a structured triggers array
     const hasAntiTrigger = i % 5 === 1; // ~20%
     const base =
       `A moderately long description of what skill number ${i} does, written in the same discursive ` +
       `style real skill authors use, covering the domain, the workflows it exposes, and why it exists in the first place.`;
-    const trigger = hasTriggers ? ` USE WHEN keyword-${i}, another-keyword-${i}, or a third phrase entirely.` : "";
+    // Every skill carries USE WHEN prose — matching the real catalog, where 71
+    // source skills declare routing guidance this way and only a minority also
+    // populate the structured `triggers` array. This exercises the USE-WHEN
+    // fallback (proxy-drift audit §6) at catalog scale.
+    const trigger = ` USE WHEN keyword-${i}, another-keyword-${i}, or a third phrase entirely.`;
     const anti = hasAntiTrigger ? ` NOT FOR unrelated-case-${i} (use OtherSkill${i} instead).` : "";
     skills.push({
       name: `Skill${i}`,
@@ -249,6 +316,22 @@ describe("renderSkills — line budget (soma#371)", () => {
       const entry = renderSkillRegistryEntry(skill);
       expect(rendered).toContain(entry);
       expect(entry).toContain(`triggers: ${skill.triggers.join(", ")}`);
+    }
+  });
+
+  test("no entry with USE WHEN prose loses its routing signal (audit §6 regression guard)", () => {
+    const skills = buildRepresentativeSkillFixture(104);
+    const rendered = renderSkills({
+      ...portableProjectionInput,
+      profile: { ...portableProjectionInput.profile, skills },
+    });
+    // Every fixture skill carries USE WHEN prose, so every projected entry must
+    // carry a triggers: line — whether sourced from the structured array or
+    // recovered from the prose. Zero entries with neither routing form.
+    for (const skill of skills) {
+      const entry = renderSkillRegistryEntry(skill);
+      expect(rendered).toContain(entry);
+      expect(entry).toContain("triggers:");
     }
   });
 

@@ -115,11 +115,12 @@ export async function searchSomaMemory(options: SomaMemorySearchOptions): Promis
   const limit = options.limit ?? 8;
 
   if (terms.length === 0) {
-    return {
-      query: options.query,
-      somaHome,
-      matches: [],
-    };
+    // No searchable terms → nothing was consulted, so NO memory.recall event.
+    // memory_loop_closure counts recalls as deliberate consultation and is very
+    // sensitive; a zero-term "search" (all stopwords) is not a read and must not
+    // inflate it. (recallMemory deliberately DOES emit on its empty path — it
+    // feeds a distinct empty-recall-rate metric; search has no such consumer.)
+    return { query: options.query, somaHome, matches: [] };
   }
 
   const roots = SEARCH_ROOTS.map((root) => join(somaHome, root));
@@ -145,9 +146,43 @@ export async function searchSomaMemory(options: SomaMemorySearchOptions): Promis
 
   matches.sort((left, right) => right.score - left.score || left.path.localeCompare(right.path) || left.line - right.line);
 
-  return {
-    query: options.query,
-    somaHome,
-    matches: matches.slice(0, limit),
-  };
+  const result: SomaMemorySearchResult = { query: options.query, somaHome, matches: matches.slice(0, limit) };
+  await appendSearchRecallEvent(somaHome, options, terms, result);
+  return result;
+}
+
+/**
+ * The read-side instrumentation the 2026-07-10 proxy-drift audit called for:
+ * `searchSomaMemory` (the legacy line-grep) was the one memory read path that
+ * left no trace, so memory read as write-only (74 writes vs 1 recall event).
+ * Every search now appends ONE observational `memory.recall` event — same kind
+ * `recallMemory` emits, so `memory_loop_closure` counts it without change; the
+ * `via: "search"` tag distinguishes the grep path from note-aware recall.
+ *
+ * Observational only: search touches no note frontmatter and confers no
+ * freshness (that is the authority-gated `used`/resurface act). Best-effort —
+ * a telemetry append failure must not fail the read the caller asked for.
+ */
+async function appendSearchRecallEvent(
+  somaHome: string,
+  options: SomaMemorySearchOptions,
+  terms: string[],
+  result: SomaMemorySearchResult,
+): Promise<void> {
+  try {
+    await appendSomaMemoryEvent(somaHome, {
+      timestamp: options.now?.toISOString(),
+      substrate: options.substrate ?? "custom",
+      kind: "memory.recall",
+      summary: `Searched memory for "${result.query}" (${result.matches.length} line match(es))`,
+      metadata: {
+        via: "search",
+        query: result.query,
+        terms,
+        resultCount: result.matches.length,
+      },
+    });
+  } catch {
+    // Telemetry is best-effort; the search result is what the caller needs.
+  }
 }

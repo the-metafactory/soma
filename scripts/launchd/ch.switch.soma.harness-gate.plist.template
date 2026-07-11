@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTD/PropertyList-1.0.dtd">
+<!--
+  Weekly harness regression gate (loop-closure plan T6). Substitute the two
+  __PLACEHOLDER__ tokens for absolute paths, then install:
+
+    sed -e "s#__REPO__#$HOME/work/mf/soma#g" -e "s#__HOME__#$HOME#g" \
+      scripts/launchd/ch.switch.soma.harness-gate.plist.template \
+      > "$HOME/Library/LaunchAgents/ch.switch.soma.harness-gate.plist"
+    launchctl unload "$HOME/Library/LaunchAgents/ch.switch.soma.harness-gate.plist" 2>/dev/null
+    launchctl load   "$HOME/Library/LaunchAgents/ch.switch.soma.harness-gate.plist"
+
+  Runs Mondays 09:00. The wrapper (scripts/harness-gate-check.sh) alerts via a
+  macOS notification on a nonzero exit and logs every run to
+  ~/Library/Logs/soma/harness-gate.log. To remove: launchctl unload + rm plist.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>ch.switch.soma.harness-gate</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>__REPO__/scripts/harness-gate-check.sh</string>
+  </array>
+
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Weekday</key>
+    <integer>1</integer>
+    <key>Hour</key>
+    <integer>9</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <false/>
+
+  <key>StandardOutPath</key>
+  <string>__HOME__/Library/Logs/soma/harness-gate.launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/Library/Logs/soma/harness-gate.launchd.log</string>
+</dict>
+</plist>

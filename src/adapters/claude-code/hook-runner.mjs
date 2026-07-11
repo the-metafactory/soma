@@ -130,6 +130,74 @@ function writebackQueuePath() {
   return join(hookDir(), "soma-claude-code-writeback-queue.jsonl");
 }
 
+// 2026-07-10 proxy-drift audit §3: ~89% of 52k events (per-tool writeback +
+// session bookkeeping) have no automated reader, so the hook's append cost on
+// every tool call buys nothing. The high-volume `writeback.claude_code.tool`
+// event is sampled 1-in-N; session start/end and subagent events are left
+// unsampled (low-volume and consumed). See docs/harness-objective-function.md.
+const WRITEBACK_TOOL_SAMPLE_RATE = 10;
+
+// FNV-1a 32-bit — a cheap, well-distributed, dependency-free string hash. Used
+// only to bucket a tool call for sampling, never for anything security-bearing.
+function fnv1a32(str) {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash >>> 0;
+}
+
+// A per-call sampling key. Identity (session/source/tool/paths) alone is NOT
+// enough — successive edits to the SAME file in a session would then share one
+// key and one keep/drop decision, so a whole high-volume edit stream would be
+// entirely kept or entirely dropped rather than 1-in-N sampled (Sage review,
+// PR #455). tool_input carries the per-call payload (Edit's old/new strings,
+// Write's body, MultiEdit's edits), which differs between successive edits — so
+// a BOUNDED signature of it (length + head + tail, to avoid hashing a whole
+// large file) makes each distinct call hash independently. Byte-identical calls
+// still collide, which is fine — they carry no new information.
+// A bounded per-call signature of the tool payload. It reads a few candidate
+// string fields directly and contributes only each one's LENGTH plus a 128-char
+// head — never the whole body. This is what gives successive edits of one file
+// distinct sampling decisions (their content differs) WITHOUT JSON.stringify-ing
+// a multi-megabyte Write and scanning it end to end (Sage review, PR #455): the
+// cost stays O(number of fields), not O(payload size).
+function toolPayloadSignature(toolInput) {
+  if (!toolInput || typeof toolInput !== "object") return "";
+  const parts = [];
+  for (const key of ["content", "new_string", "old_string", "new_source", "command"]) {
+    const value = toolInput[key];
+    if (typeof value === "string") parts.push(`${key}=${value.length}:${value.slice(0, 128)}`);
+  }
+  if (Array.isArray(toolInput.edits) && toolInput.edits.length > 0) {
+    const first = toolInput.edits[0];
+    const head = first && typeof first.new_string === "string" ? first.new_string.slice(0, 128) : "";
+    parts.push(`edits=${toolInput.edits.length}:${head}`);
+  }
+  return parts.join("|");
+}
+
+function toolCallSampleKey(input, source) {
+  const sessionId = input && typeof input.session_id === "string" ? input.session_id : "";
+  const toolName = input && typeof input.tool_name === "string" ? input.tool_name : "";
+  const signature = input ? toolPayloadSignature(input.tool_input) : "";
+  return `${sessionId}|${source}|${toolName}|${artifactPaths(input).join(",")}|${signature}`;
+}
+
+// Stateless 1-in-N sampler for the high-volume `writeback.claude_code.tool`
+// event (Sage review, PR #455): the earlier version read+wrote a counter file on
+// EVERY tool call — two blocking FS ops even for the ~90% of calls it then
+// dropped. This derives the keep/drop decision from a hash of the call itself
+// (see toolCallSampleKey), so a skipped call touches no disk at all, there is no
+// shared counter to race across parallel hook processes, and each distinct call
+// is sampled independently. Deterministic and replayable (same call → same
+// decision), which is why it is a hash and not Math.random. The rate is
+// statistical (~1/N over distinct calls), not an exact stride.
+function shouldSampleToolWriteback(input, source) {
+  return fnv1a32(toolCallSampleKey(input, source)) % WRITEBACK_TOOL_SAMPLE_RATE === 0;
+}
+
 // Match shared Soma VSA files, legacy PAI VSA files during migration, OR a
 // project-root `VSA.md`. Anything else is ignored so the sync bridge only fires
 // on real VSA edits.
@@ -333,6 +401,15 @@ async function runFlushAttempt(config, paths) {
 }
 
 async function writeback(config, input, kind, summary, source) {
+  // Hook bridge: on tool-edit writebacks, mirror any edited VSA file into a soma
+  // Algorithm run so the run is resumable on other substrates. This is
+  // FUNCTIONAL, not telemetry — it runs on every PostToolUse edit BEFORE (and
+  // independent of) the sampling gate below, so sampling never drops a VSA sync.
+  if (source === "PostToolUse") syncVsaPaths(config, input);
+
+  // Sample the high-volume per-tool writeback event (see WRITEBACK_TOOL_SAMPLE_RATE).
+  if (kind === "writeback.claude_code.tool" && !shouldSampleToolWriteback(input, source)) return;
+
   const artifacts = artifactPaths(input);
   const event = {
     substrate: "claude-code",
@@ -343,10 +420,6 @@ async function writeback(config, input, kind, summary, source) {
   };
   await appendFile(writebackQueuePath(), `${JSON.stringify(event)}\n`, "utf8");
   scheduleWritebackFlush(config);
-  // Hook bridge: on tool-edit writebacks, also mirror any edited VSA file into
-  // a soma Algorithm run so the run is resumable on other substrates. Gated to
-  // the PostToolUse source so subagent start/stop events don't trigger it.
-  if (source === "PostToolUse") syncVsaPaths(config, input);
 }
 
 async function main() {

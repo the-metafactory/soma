@@ -3,6 +3,7 @@ import { chmod, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { resolveBunExecutable } from "../../bun-probe";
 import { isEnoent } from "../../fs-errors";
+import { renderFeedbackHookHelper } from "../shared/feedback-helper";
 import { isClaudeCodeInstallOptions } from "./install-options";
 
 /**
@@ -14,7 +15,7 @@ import { isClaudeCodeInstallOptions } from "./install-options";
  */
 export function claudeCodeHookEnabled(
   options: unknown,
-  hook: "modeClassifier" | "policyGuard" | "preCompact" | "statusLine",
+  hook: "modeClassifier" | "policyGuard" | "preCompact" | "statusLine" | "feedbackCapture",
 ): boolean {
   if (!isClaudeCodeInstallOptions(options)) return true;
   return options[hook] !== false;
@@ -28,6 +29,11 @@ export const SOMA_CLAUDE_POLICY_GUARD_RELATIVE_PATH = "hooks/soma/soma-policy-gu
 export const SOMA_CLAUDE_POLICY_GUARD_CONFIG_RELATIVE_PATH = "hooks/soma/soma-policy-guard.config.json";
 export const SOMA_CLAUDE_PRECOMPACT_RELATIVE_PATH = "hooks/soma/soma-precompact.mjs";
 export const SOMA_CLAUDE_PRECOMPACT_CONFIG_RELATIVE_PATH = "hooks/soma/soma-precompact.config.json";
+// 2026-07-10 proxy-drift audit: claude-code — the substrate JC actually types
+// into — had NO feedback capture at all while the codex-only pipeline counted
+// content-free events. This hook closes that gap on UserPromptSubmit.
+export const SOMA_CLAUDE_FEEDBACK_RELATIVE_PATH = "hooks/soma/soma-feedback-capture.mjs";
+export const SOMA_CLAUDE_FEEDBACK_CONFIG_RELATIVE_PATH = "hooks/soma/soma-feedback-capture.config.json";
 // soma statusline: self-contained bundled script (SOMA_HOME baked in at
 // projection time) — no bunPath, no argv dispatch, no companion config.json.
 export const SOMA_CLAUDE_STATUSLINE_RELATIVE_PATH = "hooks/soma/soma-statusline.sh";
@@ -207,16 +213,22 @@ function appendSomaPolicyGuardHookGroups(settings: JsonObject, substrateHome: st
   return preTool || prompt;
 }
 
-// Collect every command in the guard's two events that references the guard
-// hook script, regardless of the bun path it was written with. This makes
-// uninstall robust to a settings entry recorded with a different bun path than
-// the one in the installed config (otherwise the files are removed but a stale
-// command keeps invoking a now-missing hook).
-function installedPolicyGuardCommands(settings: JsonObject, substrateHome: string): Set<string> {
-  const scriptPath = resolve(substrateHome, SOMA_CLAUDE_POLICY_GUARD_RELATIVE_PATH);
+// Collect every recorded command, across the given `events`, that references
+// `scriptPath` — regardless of the bun path it was written with. Shared by the
+// policy-guard, pre-compact, and feedback-capture uninstall paths (Sage review,
+// PR #455) so the discovery traversal lives in ONE place instead of three
+// near-identical copies. This robustness matters because a settings entry may
+// have been recorded with a different bun path than the installed config's;
+// without it the hook files get removed but a stale command keeps invoking a
+// now-missing hook.
+function installedCommandsReferencingScript(
+  settings: JsonObject,
+  events: readonly string[],
+  scriptPath: string,
+): Set<string> {
   const found = new Set<string>();
   if (!isObject(settings.hooks)) return found;
-  for (const event of ["PreToolUse", "UserPromptSubmit"]) {
+  for (const event of events) {
     const groups = settings.hooks[event];
     if (!Array.isArray(groups)) continue;
     for (const group of groups) {
@@ -226,6 +238,14 @@ function installedPolicyGuardCommands(settings: JsonObject, substrateHome: strin
     }
   }
   return found;
+}
+
+function installedPolicyGuardCommands(settings: JsonObject, substrateHome: string): Set<string> {
+  return installedCommandsReferencingScript(
+    settings,
+    ["PreToolUse", "UserPromptSubmit"],
+    resolve(substrateHome, SOMA_CLAUDE_POLICY_GUARD_RELATIVE_PATH),
+  );
 }
 
 function removeSomaPolicyGuardFromSettings(settings: JsonObject, substrateHome: string, bunPath: string): boolean {
@@ -284,23 +304,12 @@ function appendSomaPreCompactHookGroups(settings: JsonObject, substrateHome: str
   return capture || resurface;
 }
 
-// Like installedPolicyGuardCommands: collect every command in the two events
-// that references the handover script regardless of the bun path it was
-// recorded with, so uninstall is robust to a drifted bun path.
 function installedPreCompactCommands(settings: JsonObject, substrateHome: string): Set<string> {
-  const scriptPath = resolve(substrateHome, SOMA_CLAUDE_PRECOMPACT_RELATIVE_PATH);
-  const found = new Set<string>();
-  if (!isObject(settings.hooks)) return found;
-  for (const event of ["PreCompact", "UserPromptSubmit"]) {
-    const groups = settings.hooks[event];
-    if (!Array.isArray(groups)) continue;
-    for (const group of groups) {
-      for (const command of groupCommands(group)) {
-        if (command.includes(scriptPath)) found.add(command);
-      }
-    }
-  }
-  return found;
+  return installedCommandsReferencingScript(
+    settings,
+    ["PreCompact", "UserPromptSubmit"],
+    resolve(substrateHome, SOMA_CLAUDE_PRECOMPACT_RELATIVE_PATH),
+  );
 }
 
 function removeSomaPreCompactFromSettings(settings: JsonObject, substrateHome: string, bunPath: string): boolean {
@@ -311,6 +320,43 @@ function removeSomaPreCompactFromSettings(settings: JsonObject, substrateHome: s
   const preCompact = removeCommandsFromSettingsEvent(settings, "PreCompact", commands);
   const prompt = removeCommandsFromSettingsEvent(settings, "UserPromptSubmit", commands);
   return preCompact || prompt;
+}
+
+function somaFeedbackCaptureCommand(substrateHome: string, bunPath: string): string {
+  return `${shellQuote(bunPath)} ${shellQuote(resolve(substrateHome, SOMA_CLAUDE_FEEDBACK_RELATIVE_PATH))}`;
+}
+
+function somaFeedbackCaptureCommands(substrateHome: string, bunPath: string): Set<string> {
+  return new Set([somaFeedbackCaptureCommand(substrateHome, bunPath)]);
+}
+
+function appendSomaFeedbackCaptureHookGroup(settings: JsonObject, substrateHome: string, bunPath: string): boolean {
+  return appendCommandHookGroup(settings, {
+    event: "UserPromptSubmit",
+    description: "Soma: Capture correction/feedback candidates from user prompts",
+    entry: {
+      type: "command",
+      command: somaFeedbackCaptureCommand(substrateHome, bunPath),
+      timeout: 10,
+    },
+    knownCommands: somaFeedbackCaptureCommands(substrateHome, bunPath),
+  });
+}
+
+function installedFeedbackCaptureCommands(settings: JsonObject, substrateHome: string): Set<string> {
+  return installedCommandsReferencingScript(
+    settings,
+    ["UserPromptSubmit"],
+    resolve(substrateHome, SOMA_CLAUDE_FEEDBACK_RELATIVE_PATH),
+  );
+}
+
+function removeSomaFeedbackCaptureFromSettings(settings: JsonObject, substrateHome: string, bunPath: string): boolean {
+  const commands = new Set([
+    ...somaFeedbackCaptureCommands(substrateHome, bunPath),
+    ...installedFeedbackCaptureCommands(settings, substrateHome),
+  ]);
+  return removeCommandsFromSettingsEvent(settings, "UserPromptSubmit", commands);
 }
 
 function appendCommandHookGroup(
@@ -552,46 +598,72 @@ export async function patchClaudeCodeSomaHookSettings(substrateHome: string, bun
   return writeJsonIfChanged(settingsPath, settings, before);
 }
 
-export async function patchClaudeCodeModeClassifierSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
+// Shared settings read/mutate/write plumbing for the hook-group patchers (Sage
+// review, PR #455). Every soma hook install/uninstall does the same three
+// steps — resolve settings.json, read it with its raw bytes, write only if the
+// mutator changed something — differing ONLY in the per-hook mutator. Routing
+// them through these two helpers keeps that policy (including the "no write on a
+// no-op, but always materialize an absent settings file" rule) in one place.
+//
+// `patch`: the mutator appends/toggles groups and returns whether it changed
+// anything; a no-op on an already-present settings file writes nothing.
+// `unpatch`: the remover strips groups and returns whether it removed anything;
+// an absent (empty) settings file is left untouched.
+async function patchClaudeCodeHookSettings(
+  substrateHome: string,
+  mutate: (settings: JsonObject) => boolean,
+): Promise<string[]> {
   const settingsPath = resolve(substrateHome, SOMA_CLAUDE_SETTINGS_RELATIVE_PATH);
   const { before, settings } = await readSettingsWithRaw(settingsPath);
-  const disabledPai = disablePaiModeClassifierHooks(settings);
-  const appendedSoma = appendSomaModeClassifierHookGroup(settings, substrateHome, bunPath);
-  const changed = disabledPai || appendedSoma;
+  const changed = mutate(settings);
   if (!changed && before.trim().length > 0) return [];
   return writeJsonIfChanged(settingsPath, settings, before);
 }
 
-export async function patchClaudeCodePolicyGuardSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
-  const settingsPath = resolve(substrateHome, SOMA_CLAUDE_SETTINGS_RELATIVE_PATH);
-  const { before, settings } = await readSettingsWithRaw(settingsPath);
-  const changed = appendSomaPolicyGuardHookGroups(settings, substrateHome, bunPath);
-  if (!changed && before.trim().length > 0) return [];
-  return writeJsonIfChanged(settingsPath, settings, before);
-}
-
-export async function unpatchClaudeCodePolicyGuardSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
+async function unpatchClaudeCodeHookSettings(
+  substrateHome: string,
+  remove: (settings: JsonObject) => boolean,
+): Promise<string[]> {
   const settingsPath = resolve(substrateHome, SOMA_CLAUDE_SETTINGS_RELATIVE_PATH);
   const { before, settings } = await readSettingsWithRaw(settingsPath);
   if (before.trim().length === 0) return [];
-  if (!removeSomaPolicyGuardFromSettings(settings, substrateHome, bunPath)) return [];
+  if (!remove(settings)) return [];
   return writeJsonIfChanged(settingsPath, settings, before);
 }
 
-export async function patchClaudeCodePreCompactSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
-  const settingsPath = resolve(substrateHome, SOMA_CLAUDE_SETTINGS_RELATIVE_PATH);
-  const { before, settings } = await readSettingsWithRaw(settingsPath);
-  const changed = appendSomaPreCompactHookGroups(settings, substrateHome, bunPath);
-  if (!changed && before.trim().length > 0) return [];
-  return writeJsonIfChanged(settingsPath, settings, before);
+export function patchClaudeCodeModeClassifierSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
+  return patchClaudeCodeHookSettings(substrateHome, (settings) => {
+    // Both effects must run (not short-circuit) so a settings file that still
+    // carries PAI classifier hooks gets them disabled even when Soma's group
+    // is already present.
+    const disabledPai = disablePaiModeClassifierHooks(settings);
+    const appendedSoma = appendSomaModeClassifierHookGroup(settings, substrateHome, bunPath);
+    return disabledPai || appendedSoma;
+  });
 }
 
-export async function unpatchClaudeCodePreCompactSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
-  const settingsPath = resolve(substrateHome, SOMA_CLAUDE_SETTINGS_RELATIVE_PATH);
-  const { before, settings } = await readSettingsWithRaw(settingsPath);
-  if (before.trim().length === 0) return [];
-  if (!removeSomaPreCompactFromSettings(settings, substrateHome, bunPath)) return [];
-  return writeJsonIfChanged(settingsPath, settings, before);
+export function patchClaudeCodePolicyGuardSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
+  return patchClaudeCodeHookSettings(substrateHome, (settings) => appendSomaPolicyGuardHookGroups(settings, substrateHome, bunPath));
+}
+
+export function unpatchClaudeCodePolicyGuardSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
+  return unpatchClaudeCodeHookSettings(substrateHome, (settings) => removeSomaPolicyGuardFromSettings(settings, substrateHome, bunPath));
+}
+
+export function patchClaudeCodePreCompactSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
+  return patchClaudeCodeHookSettings(substrateHome, (settings) => appendSomaPreCompactHookGroups(settings, substrateHome, bunPath));
+}
+
+export function unpatchClaudeCodePreCompactSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
+  return unpatchClaudeCodeHookSettings(substrateHome, (settings) => removeSomaPreCompactFromSettings(settings, substrateHome, bunPath));
+}
+
+export function patchClaudeCodeFeedbackCaptureSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
+  return patchClaudeCodeHookSettings(substrateHome, (settings) => appendSomaFeedbackCaptureHookGroup(settings, substrateHome, bunPath));
+}
+
+export function unpatchClaudeCodeFeedbackCaptureSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
+  return unpatchClaudeCodeHookSettings(substrateHome, (settings) => removeSomaFeedbackCaptureFromSettings(settings, substrateHome, bunPath));
 }
 
 // The status line is a top-level `statusLine` key, not a hooks[] entry — it
@@ -669,11 +741,25 @@ export async function installClaudeCodeSomaHooks(context: {
   const preCompactFiles = claudeCodeHookEnabled(context.options, "preCompact")
     ? await installClaudeCodePreCompactHook(context, config, bunPath)
     : [];
+  const feedbackCaptureFiles = claudeCodeHookEnabled(context.options, "feedbackCapture")
+    ? await installClaudeCodeFeedbackCaptureHook(context, config, bunPath)
+    : [];
   // Status line is also default-on; opt out with `statusLine: false`.
   const statusLineFiles = claudeCodeHookEnabled(context.options, "statusLine")
     ? await installClaudeCodeStatusLine(context)
     : [];
-  return Array.from(new Set([hookPath, configPath, ...settingsFiles, ...modeClassifierFiles, ...policyGuardFiles, ...preCompactFiles, ...statusLineFiles]));
+  return Array.from(
+    new Set([
+      hookPath,
+      configPath,
+      ...settingsFiles,
+      ...modeClassifierFiles,
+      ...policyGuardFiles,
+      ...preCompactFiles,
+      ...feedbackCaptureFiles,
+      ...statusLineFiles,
+    ]),
+  );
 }
 
 async function installClaudeCodeStatusLine(
@@ -725,6 +811,24 @@ async function installClaudeCodePreCompactHook(
   return [hookPath, configPath, ...settingsFiles];
 }
 
+async function installClaudeCodeFeedbackCaptureHook(
+  context: { somaHome: string; somaRepoPath: string; substrateHome: string },
+  config: { somaHome: string; trustedSomaRepo: string; bunPath: string },
+  bunPath: string,
+): Promise<string[]> {
+  const hookPath = resolve(context.substrateHome, SOMA_CLAUDE_FEEDBACK_RELATIVE_PATH);
+  const configPath = resolve(context.substrateHome, SOMA_CLAUDE_FEEDBACK_CONFIG_RELATIVE_PATH);
+
+  await installClaudeCodeHookAsset({
+    hookPath,
+    configPath,
+    source: renderClaudeCodeFeedbackCaptureHook(),
+    config,
+  });
+  const settingsFiles = await patchClaudeCodeFeedbackCaptureSettings(context.substrateHome, bunPath);
+  return [hookPath, configPath, ...settingsFiles];
+}
+
 async function installClaudeCodeModeClassifierHook(
   context: { somaHome: string; somaRepoPath: string; substrateHome: string },
   config: { somaHome: string; trustedSomaRepo: string; bunPath: string },
@@ -761,6 +865,7 @@ export async function removeClaudeCodeSomaHookFiles(substrateHome: string): Prom
   const installedModeClassifierBunPath = await readInstalledClaudeCodeModeClassifierBunPath(substrateHome);
   const installedPolicyGuardBunPath = await readInstalledClaudeCodePolicyGuardBunPath(substrateHome);
   const installedPreCompactBunPath = await readInstalledClaudeCodePreCompactBunPath(substrateHome);
+  const installedFeedbackCaptureBunPath = await readInstalledClaudeCodeFeedbackCaptureBunPath(substrateHome);
   for (const relativePath of [
     SOMA_CLAUDE_HOOK_RELATIVE_PATH,
     SOMA_CLAUDE_HOOK_CONFIG_RELATIVE_PATH,
@@ -770,6 +875,8 @@ export async function removeClaudeCodeSomaHookFiles(substrateHome: string): Prom
     SOMA_CLAUDE_POLICY_GUARD_CONFIG_RELATIVE_PATH,
     SOMA_CLAUDE_PRECOMPACT_RELATIVE_PATH,
     SOMA_CLAUDE_PRECOMPACT_CONFIG_RELATIVE_PATH,
+    SOMA_CLAUDE_FEEDBACK_RELATIVE_PATH,
+    SOMA_CLAUDE_FEEDBACK_CONFIG_RELATIVE_PATH,
     SOMA_CLAUDE_STATUSLINE_RELATIVE_PATH,
   ]) {
     const target = resolve(substrateHome, relativePath);
@@ -792,6 +899,9 @@ export async function removeClaudeCodeSomaHookFiles(substrateHome: string): Prom
   removed.push(...(await unpatchClaudeCodeModeClassifierSettings(substrateHome, installedModeClassifierBunPath ?? installedBunPath)));
   removed.push(...(await unpatchClaudeCodePolicyGuardSettings(substrateHome, installedPolicyGuardBunPath ?? installedBunPath)));
   removed.push(...(await unpatchClaudeCodePreCompactSettings(substrateHome, installedPreCompactBunPath ?? installedBunPath)));
+  removed.push(
+    ...(await unpatchClaudeCodeFeedbackCaptureSettings(substrateHome, installedFeedbackCaptureBunPath ?? installedBunPath)),
+  );
   // No bunPath drift concern here (the script is execed directly via its
   // shebang) — the target path is deterministic from substrateHome alone.
   removed.push(
@@ -814,6 +924,10 @@ async function readInstalledClaudeCodeModeClassifierBunPath(substrateHome: strin
 
 async function readInstalledClaudeCodePreCompactBunPath(substrateHome: string): Promise<string | undefined> {
   return readInstalledClaudeCodeHookConfigBunPath(substrateHome, SOMA_CLAUDE_PRECOMPACT_CONFIG_RELATIVE_PATH);
+}
+
+async function readInstalledClaudeCodeFeedbackCaptureBunPath(substrateHome: string): Promise<string | undefined> {
+  return readInstalledClaudeCodeHookConfigBunPath(substrateHome, SOMA_CLAUDE_FEEDBACK_CONFIG_RELATIVE_PATH);
 }
 
 async function readInstalledClaudeCodeHookConfigBunPath(substrateHome: string, relativePath: string): Promise<string | undefined> {
@@ -852,6 +966,74 @@ function renderClaudeCodePolicyGuardHook(): string {
 
 function renderClaudeCodePreCompactHook(): string {
   return readFileSync(new URL("./precompact-hook.mjs", import.meta.url), "utf8");
+}
+
+// Generated (not a static asset) so the trigger regex stays single-sourced
+// from feedback-contract.ts via the shared helper — the same code-gen path
+// codex/grok/pi-dev use. A static .mjs would fork the pattern and drift.
+function renderClaudeCodeFeedbackCaptureHook(): string {
+  return [
+    "#!/usr/bin/env bun",
+    'import { spawn } from "node:child_process";',
+    'import { readFileSync } from "node:fs";',
+    'import { dirname, join } from "node:path";',
+    'import { clearTimeout, setTimeout } from "node:timers";',
+    'import { fileURLToPath } from "node:url";',
+    "",
+    renderFeedbackHookHelper({
+      functionName: "runSomaFeedbackCapture",
+      leadingParameters: ["config"],
+      promptParameter: "prompt",
+      bunPathExpression: "config.bunPath",
+      cwdExpression: "config.trustedSomaRepo",
+      somaHomeExpression: "config.somaHome",
+      substrate: "claude-code",
+      source: "user-prompt-submit",
+      failureComment: "Feedback capture is best-effort and must never block the prompt.",
+    }),
+    "",
+    "function readConfig() {",
+    "\ttry {",
+    `\t\treturn JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), ${JSON.stringify(SOMA_CLAUDE_FEEDBACK_CONFIG_RELATIVE_PATH.split("/").pop())}), "utf8"));`,
+    "\t} catch {",
+    "\t\treturn undefined;",
+    "\t}",
+    "}",
+    "",
+    "function readHookInput() {",
+    "\ttry {",
+    '\t\tconst raw = readFileSync(0, "utf8");',
+    "\t\tif (raw.trim().length === 0) return {};",
+    "\t\tconst parsed = JSON.parse(raw);",
+    '\t\treturn parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};',
+    "\t} catch {",
+    "\t\treturn {};",
+    "\t}",
+    "}",
+    "",
+    "function promptFromInput(input) {",
+    '\tfor (const key of ["prompt", "userPrompt", "message", "input"]) {',
+    '\t\tif (typeof input[key] === "string") return input[key];',
+    "\t}",
+    '\treturn "";',
+    "}",
+    "",
+    "// Non-feedback prompts are the overwhelming majority, so keep their path",
+    "// minimal: read the prompt and test the (single-sourced) trigger pattern",
+    "// BEFORE reading config or spawning anything. On no match this hook process",
+    "// just exits — no config read, no `soma feedback capture` subprocess. (The",
+    "// per-prompt hook process itself is Claude Code's universal hook model, one",
+    "// per event; runSomaFeedbackCapture re-checks the pattern authoritatively.)",
+    "const somaFeedbackPrompt = promptFromInput(readHookInput());",
+    "if (somaFeedbackPrompt && SOMA_FEEDBACK_TRIGGER_PATTERN.test(somaFeedbackPrompt)) {",
+    "\tconst config = readConfig();",
+    '\tif (config && typeof config.bunPath === "string" && typeof config.trustedSomaRepo === "string") {',
+    "\t\trunSomaFeedbackCapture(config, somaFeedbackPrompt);",
+    "\t}",
+    "}",
+    "// UserPromptSubmit stdout is injected as context — print nothing, exit 0.",
+    "",
+  ].join("\n");
 }
 
 // Bakes the resolved soma-home path into the bundled statusline asset so a
