@@ -26,7 +26,7 @@ Run with `bun run harness-eval` (`--check` gates against `scripts/harness-eval-b
 | Learning compounds | Feedback closure rate (candidates → downstream memory writes) | **7.8%** | higher |
 | Learning compounds | Memory loop closure (instrumented reads per write) | **0.05** | higher |
 | Learning compounds | Promotion rate (promotions per finished run) | **1.0%** | higher |
-| Trustworthy claims | Hollow-pass attempt rate (gate refusals / gate decisions) | **0.2%** | lower |
+| Trustworthy claims | Hollow-pass attempt rate (gate refusals / (refusals + passed verifications)) | **0.2%** | lower |
 
 *The last two shipped 2026-07-11 (loop-closure plan T1/T5), reading the `verification.gate_violation` and `memory.promotion` event streams. Both sit near their floor by design — they exist to make a real move visible, not to flatter the current state.*
 

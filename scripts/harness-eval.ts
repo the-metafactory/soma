@@ -353,7 +353,7 @@ export const METRICS: MetricSpec[] = [
       return {
         numerator: violations,
         denominator,
-        detail: `${violations} gate refusals vs ${passed} passed verifications (${denominator} gate decisions) in window`,
+        detail: `${violations} gate refusals vs ${passed} passed verifications (${denominator} verification outcomes) in window`,
       };
     },
   },
