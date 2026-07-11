@@ -1,0 +1,30 @@
+{
+  "capturedAt": "2026-07-10T21:28:31.733Z",
+  "windowDays": 60,
+  "metrics": {
+    "true_finish_rate": {
+      "value": 85.78,
+      "denominator": 232
+    },
+    "probe_evidence_rate": {
+      "value": 39.69,
+      "denominator": 839
+    },
+    "abandoned_run_share": {
+      "value": 9.05,
+      "denominator": 232
+    },
+    "learning_capture_rate": {
+      "value": 66.83,
+      "denominator": 199
+    },
+    "feedback_closure_rate": {
+      "value": 7.76,
+      "denominator": 838
+    },
+    "memory_loop_closure": {
+      "value": 0.05,
+      "denominator": 86
+    }
+  }
+}

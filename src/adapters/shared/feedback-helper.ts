@@ -35,7 +35,12 @@ export function renderFeedbackHookHelper(options: FeedbackHookHelperOptions): st
     "\tconst feedbackInput = feedbackText;",
     "\ttry {",
     "\t\tsomaFeedbackCaptureInFlight = true;",
-    `\t\tconst child = spawn(${options.bunPathExpression}, ["run", "soma", "feedback", "capture", "--soma-home", ${options.somaHomeExpression}, "--substrate", ${JSON.stringify(options.substrate)}, "--source", ${JSON.stringify(options.source)}, "--stdin", "--no-excerpt"], {`,
+    // 2026-07-10 proxy-drift audit: --no-excerpt made every captured event
+    // content-free (promptStored:false, excerptStored:false) — a counter that
+    // could never teach anything. Excerpts are best-effort redacted by
+    // redactedFeedbackExcerpt (src/feedback.ts); capture without content is
+    // cost without signal, so excerpt storage is now the default.
+    `\t\tconst child = spawn(${options.bunPathExpression}, ["run", "soma", "feedback", "capture", "--soma-home", ${options.somaHomeExpression}, "--substrate", ${JSON.stringify(options.substrate)}, "--source", ${JSON.stringify(options.source)}, "--stdin", "--store-excerpt"], {`,
     `\t\t\tcwd: ${options.cwdExpression},`,
     "\t\t\t// soma#73 follow-up, verified on Windows during grok U7: without",
     "\t\t\t// detached:true the capture child dies when the hook parent exits",

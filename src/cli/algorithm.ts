@@ -22,12 +22,15 @@ import {
   setAlgorithmPlan,
   selectAlgorithmCapability,
   updateAlgorithmPlanStep,
+  VerificationGateError,
   verifyAlgorithmCriterion,
   writeAlgorithmRun,
+  appendSomaMemoryEvent,
 } from "../index";
 import type { ReflectionForDigest } from "../index";
 import { readFile } from "node:fs/promises";
 import { registerSomaHomeAlgorithmCapabilities } from "../algorithm-capabilities";
+import { defaultSomaHome } from "../paths";
 import { syncAlgorithmRunFromVsa, formatSyncResult } from "../algorithm-vsa-sync";
 import { algorithmTouchedBy } from "../algorithm-provenance";
 import { datePrefixSlug } from "../dated-slug";
@@ -653,6 +656,28 @@ function requireText(options: AlgorithmCliOptions): string {
   return options.text;
 }
 
+export async function appendVerificationGateViolationEvent(
+  options: Pick<AlgorithmCliOptions, "homeDir" | "somaHome" | "substrate">,
+  runId: string,
+  error: VerificationGateError,
+): Promise<void> {
+  try {
+    await appendSomaMemoryEvent(defaultSomaHome({ homeDir: options.homeDir, somaHome: options.somaHome }), {
+      substrate: options.substrate ?? "custom",
+      kind: "verification.gate_violation",
+      summary: `VerificationGate refused a hollow pass on ${runId}/${error.criterionId} (${error.reason}).`,
+      metadata: {
+        runId,
+        criterionId: error.criterionId,
+        reason: error.reason,
+        evidenceKind: error.evidenceKind ?? null,
+      },
+    });
+  } catch {
+    // Telemetry is best-effort; the gate error itself is what matters.
+  }
+}
+
 async function updateAndReportAlgorithmRun(
   options: AlgorithmCliOptions,
   update: (run: AlgorithmRun) => AlgorithmRun,
@@ -671,7 +696,22 @@ async function updateAndReportAlgorithmRun(
           substrate: run.substrate,
         })
       : run;
-  const written = await writeAlgorithmRun(update(registered), {
+  let updated: AlgorithmRun;
+  try {
+    updated = update(registered);
+  } catch (error) {
+    // A VerificationGate refusal is the most on-mission signal this CLI sees —
+    // an attempted hollow "done". The 2026-07-10 proxy-drift audit found it was
+    // detected and then discarded (bare throw, no trace), making the hollow-pass
+    // attempt rate unmeasurable. Record it before rethrowing. Every substrate
+    // funnels through this CLI, so the emission is substrate-neutral by
+    // construction. Best-effort: a telemetry failure must never mask the gate.
+    if (error instanceof VerificationGateError) {
+      await appendVerificationGateViolationEvent(options, id, error);
+    }
+    throw error;
+  }
+  const written = await writeAlgorithmRun(updated, {
     homeDir: options.homeDir,
     somaHome: options.somaHome,
   });
