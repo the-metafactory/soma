@@ -1,22 +1,26 @@
 {
-  "capturedAt": "2026-07-10T21:28:31.733Z",
+  "capturedAt": "2026-07-11T06:07:57.308Z",
   "windowDays": 60,
   "metrics": {
     "true_finish_rate": {
-      "value": 85.78,
-      "denominator": 232
+      "value": 86.97,
+      "denominator": 238
     },
     "probe_evidence_rate": {
-      "value": 39.69,
-      "denominator": 839
+      "value": 40.49,
+      "denominator": 857
+    },
+    "hollow_pass_attempt_rate": {
+      "value": 0.23,
+      "denominator": 859
     },
     "abandoned_run_share": {
-      "value": 9.05,
-      "denominator": 232
+      "value": 8.82,
+      "denominator": 238
     },
     "learning_capture_rate": {
-      "value": 66.83,
-      "denominator": 199
+      "value": 68.12,
+      "denominator": 207
     },
     "feedback_closure_rate": {
       "value": 7.76,

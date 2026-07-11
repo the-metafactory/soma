@@ -248,6 +248,28 @@ export function isProbeBacked(evidence: string, criterionText: string | undefine
 
 const STALL_IDLE_DAYS = 7;
 
+/**
+ * Passed-criterion verifications in the window, split by whether the evidence
+ * is probe-backed. Sync-minted restatements are excluded (bookkeeping, not
+ * observation). Factored out so probe_evidence_rate and hollow_pass_attempt_rate
+ * count the same denominator from the same rules.
+ */
+export function countPassedVerifications(data: HarnessData): { total: number; probeBacked: number } {
+  let total = 0;
+  let probeBacked = 0;
+  for (const run of data.runs) {
+    const criteria = runCriteria(run);
+    for (const entry of run.verification ?? []) {
+      if (!inWindow(data, entry.timestamp)) continue;
+      const match = PASSED_VERIFICATION.exec(entry.text ?? "");
+      if (!match || SYNC_MINTED.test(match[2])) continue;
+      total++;
+      if (isProbeBacked(match[2], criteria.get(match[1]))) probeBacked++;
+    }
+  }
+  return { total, probeBacked };
+}
+
 // ---------------------------------------------------------------------------
 // Metric registry — every entry documents how it can be gamed and what keeps
 // that in check. A metric without a Goodhart note does not ship.
@@ -287,22 +309,35 @@ export const METRICS: MetricSpec[] = [
     countermeasure:
       "Heuristic checks novelty vs the criterion text, not just probe tokens; periodic manual audit of a random evidence sample stays in the Memory skill's audit workflow.",
     compute(data) {
-      let probeBacked = 0;
-      let total = 0;
-      for (const run of data.runs) {
-        const criteria = runCriteria(run);
-        for (const entry of run.verification ?? []) {
-          if (!inWindow(data, entry.timestamp)) continue;
-          const match = PASSED_VERIFICATION.exec(entry.text ?? "");
-          if (!match || SYNC_MINTED.test(match[2])) continue;
-          total++;
-          if (isProbeBacked(match[2], criteria.get(match[1]))) probeBacked++;
-        }
-      }
+      const { total, probeBacked } = countPassedVerifications(data);
       return {
         numerator: probeBacked,
         denominator: total,
         detail: `${probeBacked}/${total} passed-criterion verifications carry probe-backed, non-tautological evidence`,
+      };
+    },
+  },
+  {
+    id: "hollow_pass_attempt_rate",
+    name: "Hollow-pass attempt rate (gate refusals)",
+    unit: "%",
+    direction: "lower",
+    minSample: 10,
+    tolerance: 5,
+    goodhart:
+      "Bypass the harness CLI when verifying so the VerificationGate never fires — no gate_violation event, no numerator, and the hollow pass is recorded as a clean pass instead.",
+    countermeasure:
+      "Paired with probe_evidence_rate and true_finish_rate: an un-gated hollow pass still lands as low-quality evidence there, and CLI avoidance shrinks this denominator (fewer gate decisions) visibly rather than nudging the rate down.",
+    compute(data) {
+      const violations = data.events.filter(
+        (e) => e.kind === "verification.gate_violation" && inWindow(data, e.timestamp),
+      ).length;
+      const passed = countPassedVerifications(data).total;
+      const denominator = violations + passed;
+      return {
+        numerator: violations,
+        denominator,
+        detail: `${violations} gate refusals vs ${passed} passed verifications (${denominator} gate decisions) in window`,
       };
     },
   },

@@ -142,6 +142,36 @@ describe("computeMetrics", () => {
     expect(byId.probe_evidence_rate.value).toBe(100);
   });
 
+  test("hollow_pass_attempt_rate: gate violations over total gate decisions", () => {
+    const run = {
+      id: "gate-run",
+      createdAt: daysAgo(5),
+      updatedAt: daysAgo(4),
+      vsa: {
+        sections: [
+          { name: "Checkpoints", content: "- [x] C1: The API returns paginated results." },
+        ],
+      },
+      verification: Array.from({ length: 8 }, (_, i) => ({
+        timestamp: daysAgo(4),
+        phase: "verify",
+        text: `V${i}: passed. curl /api/items?page=${i} returned 20 rows, HTTP 200, cursor present.`,
+      })),
+      learning: [],
+    };
+    const data = makeData({
+      runs: [run],
+      events: [
+        { timestamp: daysAgo(3), kind: "verification.gate_violation" },
+        { timestamp: daysAgo(2), kind: "verification.gate_violation" },
+      ],
+    });
+    const byId = Object.fromEntries(computeMetrics(data).map((m) => [m.id, m]));
+    expect(byId.hollow_pass_attempt_rate.numerator).toBe(2); // two gate refusals
+    expect(byId.hollow_pass_attempt_rate.denominator).toBe(10); // 2 refusals + 8 passes
+    expect(byId.hollow_pass_attempt_rate.value).toBe(20);
+  });
+
   test("computes feedback closure and memory loop from events", () => {
     const data = makeData({
       events: [
