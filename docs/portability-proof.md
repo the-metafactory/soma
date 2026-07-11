@@ -21,7 +21,7 @@ The first workflow is a ledger update:
 
 - The same profile, purpose, skill list, memory layout, and VSA are used unchanged.
 - Substrate adapters may change only projection shape and file names.
-  Host-specific invocation belongs to an optional `SubstrateExecutor`, not the
+  Substrate-specific invocation belongs to an optional `SubstrateExecutor`, not the
   projection adapter.
 - The workflow has a shared verification criterion that does not depend on chat
   transcript style.
