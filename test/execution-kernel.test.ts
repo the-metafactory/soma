@@ -109,6 +109,14 @@ test("runs probe, prepare, and execute in order, then reduces a valid event stre
   expect(result.events.map((event) => event.kind)).toEqual(["execution.started", "execution.progress", "execution.artifact", "execution.completed"]);
 });
 
+test("accepts an equivalent cloned request from an executor", async () => {
+  const executor = fakeExecutor({ events: events(started, completed) });
+  const prepare = executor.prepare.bind(executor);
+  executor.prepare = async (input, options) => ({ ...(await prepare(input, options)), request: { ...input, requiredCapabilities: [...input.requiredCapabilities] } });
+  const result = await run(executor, request());
+  expect(result.result).toMatchObject({ status: "completed", summary: "done" });
+});
+
 test("normalizes unavailable substrates and typed preparation refusals", async () => {
   const unavailable = await run(fakeExecutor({ capabilities: capabilities({ available: false }) }), request());
   expect(unavailable.result).toMatchObject({ status: "failed", summary: "Substrate is unavailable." });

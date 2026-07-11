@@ -138,6 +138,24 @@ function unavailableCapabilities(substrate: SomaExecutionRequest["substrate"]): 
   };
 }
 
+function sameStringList(left: readonly string[] | undefined, right: readonly string[] | undefined): boolean {
+  if (left === undefined || right === undefined) return left === right;
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function matchesRequest(prepared: SomaExecutionRequest, request: SomaExecutionRequest): boolean {
+  return prepared.taskId === request.taskId
+    && prepared.substrate === request.substrate
+    && prepared.prompt === request.prompt
+    && prepared.cwd === request.cwd
+    && prepared.algorithmRunId === request.algorithmRunId
+    && prepared.sessionId === request.sessionId
+    && prepared.projectionFingerprint === request.projectionFingerprint
+    && prepared.timeoutMs === request.timeoutMs
+    && sameStringList(prepared.requiredCapabilities, request.requiredCapabilities)
+    && sameStringList(prepared.expectedArtifacts, request.expectedArtifacts);
+}
+
 function abortableNext<T>(next: Promise<IteratorResult<T>>, signal: AbortSignal): Promise<{ kind: "next"; value: IteratorResult<T> } | { kind: "aborted" } | { kind: "error"; error: unknown }> {
   if (signal.aborted) return Promise.resolve({ kind: "aborted" });
   return new Promise((resolveResult) => {
@@ -261,7 +279,7 @@ export async function runSubstrateExecution(
 
     const prepared = await executor.prepare(request, { signal: controller.signal });
     executionId = prepared.executionId;
-    if (prepared.request !== request || prepared.capabilitySnapshot.substrate !== request.substrate) {
+    if (!matchesRequest(prepared.request, request) || prepared.capabilitySnapshot.substrate !== request.substrate) {
       return fail({ code: "invalid-request", summary: "Prepared execution does not match the request.", retryable: false });
     }
     capabilities = prepared.capabilitySnapshot;
