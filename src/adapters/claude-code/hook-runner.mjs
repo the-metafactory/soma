@@ -130,6 +130,41 @@ function writebackQueuePath() {
   return join(hookDir(), "soma-claude-code-writeback-queue.jsonl");
 }
 
+// 2026-07-10 proxy-drift audit §3: ~89% of 52k events (per-tool writeback +
+// session bookkeeping) have no automated reader, so the hook's append cost on
+// every tool call buys nothing. The high-volume `writeback.claude_code.tool`
+// event is sampled 1-in-N; session start/end and subagent events are left
+// unsampled (low-volume and consumed). See docs/harness-objective-function.md.
+const WRITEBACK_TOOL_SAMPLE_RATE = 10;
+
+function writebackToolCounterPath() {
+  return join(hookDir(), "soma-claude-code-writeback-tool-counter");
+}
+
+// Deterministic 1-in-N sampler. The hook is a fresh process per tool call, so a
+// persisted counter (not Math.random) is what makes sampling reproducible and
+// replayable — exactly every Nth tool writeback is emitted. Emits on the first
+// call so low-volume sessions and the install smoke test still see one event.
+// Fails OPEN (emits) on any counter read/write error so a broken counter never
+// silently drops all tool telemetry.
+function shouldSampleToolWriteback() {
+  const path = writebackToolCounterPath();
+  try {
+    const current = Number.parseInt(readFileSync(path, "utf8"), 10);
+    const next = Number.isFinite(current) ? current + 1 : 1;
+    writeFileSync(path, String(next), "utf8");
+    return next % WRITEBACK_TOOL_SAMPLE_RATE === 1;
+  } catch {
+    // No counter yet (first call) or unreadable: seed it and emit this one.
+    try {
+      writeFileSync(path, "1", "utf8");
+    } catch {
+      // best-effort — still emit
+    }
+    return true;
+  }
+}
+
 // Match shared Soma VSA files, legacy PAI VSA files during migration, OR a
 // project-root `VSA.md`. Anything else is ignored so the sync bridge only fires
 // on real VSA edits.
@@ -333,6 +368,15 @@ async function runFlushAttempt(config, paths) {
 }
 
 async function writeback(config, input, kind, summary, source) {
+  // Hook bridge: on tool-edit writebacks, mirror any edited VSA file into a soma
+  // Algorithm run so the run is resumable on other substrates. This is
+  // FUNCTIONAL, not telemetry — it runs on every PostToolUse edit BEFORE (and
+  // independent of) the sampling gate below, so sampling never drops a VSA sync.
+  if (source === "PostToolUse") syncVsaPaths(config, input);
+
+  // Sample the high-volume per-tool writeback event (see WRITEBACK_TOOL_SAMPLE_RATE).
+  if (kind === "writeback.claude_code.tool" && !shouldSampleToolWriteback()) return;
+
   const artifacts = artifactPaths(input);
   const event = {
     substrate: "claude-code",
@@ -343,10 +387,6 @@ async function writeback(config, input, kind, summary, source) {
   };
   await appendFile(writebackQueuePath(), `${JSON.stringify(event)}\n`, "utf8");
   scheduleWritebackFlush(config);
-  // Hook bridge: on tool-edit writebacks, also mirror any edited VSA file into
-  // a soma Algorithm run so the run is resumable on other substrates. Gated to
-  // the PostToolUse source so subagent start/stop events don't trigger it.
-  if (source === "PostToolUse") syncVsaPaths(config, input);
 }
 
 async function main() {

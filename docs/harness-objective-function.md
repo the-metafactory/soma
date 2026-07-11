@@ -1,6 +1,6 @@
 # Harness Objective Function
 
-*What "better" means for this harness. 2026-07-10, derived from the full run corpus (232 runs), the event stream (52k events), the memory tree, and the principal's purpose/retrospective notes — via a 50-agent ground-truth + adversarial-verification sweep plus inline synthesis.*
+*What "better" means for this harness. 2026-07-10, derived from the run corpus, event stream, memory tree, and the principal's purpose and retrospective notes. The metric definitions are reviewable in `scripts/harness-eval.ts` and its baseline.*
 
 ## The definition
 
@@ -25,8 +25,12 @@ Run with `bun run harness-eval` (`--check` gates against `scripts/harness-eval-b
 | Learning compounds | Learning capture rate on finished runs | **66.8%** | higher |
 | Learning compounds | Feedback closure rate (candidates → downstream memory writes) | **7.8%** | higher |
 | Learning compounds | Memory loop closure (instrumented reads per write) | **0.05** | higher |
+| Learning compounds | Promotion rate (promotions per finished run) | **1.0%** | higher |
+| Trustworthy claims | Hollow-pass attempt rate (gate refusals / gate decisions) | **0.2%** | lower |
 
-The headline story these numbers tell: **execution is healthy, the learning loop is nearly open-circuit.** The biggest available win is not doing more work — it is closing feedback→learning→recall.
+*The last two shipped 2026-07-11 (loop-closure plan T1/T5), reading the `verification.gate_violation` and `memory.promotion` event streams. Both sit near their floor by design — they exist to make a real move visible, not to flatter the current state.*
+
+These proxy metrics show a relatively high criterion-completion rate alongside a nearly open-circuit learning loop. They do **not** establish live executor correctness or substrate behavior. The biggest available win is not doing more work — it is closing feedback→learning→recall.
 
 Every metric's Goodhart failure mode and countermeasure live in the metric registry itself (`scripts/harness-eval.ts`, printed by `--explain`). A metric without a documented Goodhart mode does not ship — that is the registry's contract, enforced by test.
 
@@ -45,16 +49,35 @@ These are explicitly **not** health signals. Several were live proxies found dri
 
 ## Instrumentation gaps (the next metrics, once signals exist)
 
-Not shipped because the data doesn't exist yet — each needs a small emitter first:
+The following signals remain incomplete or need stronger coverage:
 
-1. **Hollow-pass attempt rate** — the VerificationGate detects the single most on-mission signal (an attempted unverified "done") and throws it away (`src/algorithm.ts` throw site emits no event). One-line event emit unlocks it.
+1. **Hollow-pass attempt rate** — SHIPPED 2026-07-11 as `hollow_pass_attempt_rate`, reading `verification.gate_violation`. Remaining work is validating coverage and baseline stability over a soak window.
 2. **Contradicted-claim rate** — "done" claims later contradicted within N days. Needs a claim journal or flinch/recurrence keys.
 3. **Lesson-prevents-repeat rate** — did a promoted note's failure class recur? Needs recurrence keys on notes and digests.
-4. **Recall-before-act rate** — requires the real read paths (MEMORY.md projection, `soma memory search`) to emit recall/resurface events; today only the manual CLI does.
+4. **Recall-before-act rate** — the read paths now emit events: `soma memory search` and `recall` both emit `memory.recall`, `soma memory used` bumps `resurface_count` and emits `memory.resurface`, and the MEMORY.md reproject emits one `memory.projection` per projection (2026-07-11, T2). The remaining step is correlating a recall to the act it informed.
 5. **Attention cost per verified outcome** — run wall-time per probe-verified criterion, trended.
 
 ## Operating rules
 
 - The gate (`--check`) runs on the trailing window only; all-time aggregates would dilute fresh degradation under months of healthy history.
-- Baseline updates are deliberate acts (`--write-baseline`, committed) — never automatic.
+- Baseline updates are deliberate acts (`--write-baseline`, committed) — never automatic. **Who may re-baseline:** JC, or a session JC explicitly asks to. A session must never re-baseline to make the gate green — a red gate is the signal to investigate, not to move the goalposts. The one legitimate reason to re-baseline is that the PR *adding or redefining a metric* recaptures the window in the same PR (as T1/T5 did), and that recapture is reviewable in git history. If a number moved because a definition changed rather than because behavior changed, that is the exact failure this suite exists to prevent — revert the definition.
+- **Where the gate runs:** CI (`bun test`, the Portability workflow) runs the unit tests — the metric math and the registry contract — on every PR. The live gate (`bun run harness-eval --check`) needs real soma-home data CI does not have, so it runs weekly on JC's machine via a launchd agent (`scripts/launchd/ch.switch.soma.harness-gate.plist.template` → `scripts/harness-gate-check.sh`); a nonzero exit logs to `~/Library/Logs/soma/harness-gate.log` and fires a macOS notification.
 - When a metric and the felt experience disagree, the felt experience wins and the metric gets audited: the metric is the map.
+
+### Event kinds and their consumers (after the 2026-07-11 sampling change)
+
+Audit §3 found ~89% of the event log had no automated reader — capture that nothing consumes is pure cost. The high-volume `writeback.claude_code.tool` event is now **sampled 1-in-10** at the claude-code hook (`hook-runner.mjs`, deterministic file counter, not `Math.random`); the VSA-sync side effect it also carries runs unsampled because it is functional, not telemetry. What each kind is for after that change:
+
+| Event kind | Consumer today | Sampled? |
+|---|---|---|
+| `verification.gate_violation` | `hollow_pass_attempt_rate` | no — rare, high-signal |
+| `memory.recall` (incl. `via:"search"`) | `memory_loop_closure` | no |
+| `memory.resurface` / `memory.verify` / `memory.promotion` | `memory_loop_closure`, `promotion_rate` | no |
+| `memory.write.*` | `memory_loop_closure`, `feedback_closure_rate` | no |
+| `feedback.candidate` | `feedback_closure_rate` | no (capture volume is itself a guard) |
+| `lifecycle.session_start` / `session_end` | session bookkeeping, sampling denominators | no — low-volume |
+| `writeback.claude_code.subagent_start` / `subagent_stop` | subagent accounting | no — low-volume |
+| `memory.projection` | observational only (projection frequency vs read frequency) — **deliberately not** counted by `memory_loop_closure` | no — one per session |
+| `writeback.claude_code.tool` | no automated metric reader; kept as a sampled audit trail | **yes, 1-in-10** |
+
+A kind with no consumer that is not sampled is a standing cost; adding one should either wire a reader or sample it.

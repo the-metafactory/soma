@@ -495,6 +495,30 @@ test("issue #236: installed Claude hook appends lifecycle and metadata-only writ
   });
 });
 
+test("audit §3: per-tool writeback events are sampled 1-in-10 (only the first of ten emits)", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForClaudeCode({ homeDir });
+
+    // Ten identical tool writebacks in a fresh home: the deterministic counter
+    // emits the 1st and would next emit the 11th, so exactly one event lands.
+    for (let i = 0; i < 10; i += 1) {
+      runClaudeHook(homeDir, "writeback-tool", {
+        session_id: "sample-session",
+        hook_event_name: "PostToolUse",
+        cwd: "/workspace/example",
+        tool_name: "Write",
+        tool_input: { file_path: `/workspace/example/file-${i}.md`, content: "x" },
+      });
+    }
+
+    const events = await waitForEvents(homeDir, (items) =>
+      items.some((event) => event.kind === "writeback.claude_code.tool"),
+    );
+    const toolEvents = events.filter((event) => event.kind === "writeback.claude_code.tool");
+    expect(toolEvents).toHaveLength(1); // 10 tool calls → 1 emitted event
+  });
+});
+
 test("AC-5: CLAUDE.md left untouched (pivot dropped @-import composition)", async () => {
   await withTempHome(async (homeDir) => {
     await mkdir(join(homeDir, ".claude"), { recursive: true });
