@@ -3,6 +3,7 @@ import {
   ExecutorRegistry,
   MockSubstrateExecutor,
   REQUIRED_EXECUTION_CONFORMANCE_SCENARIOS,
+  isKnownSubstrate,
   runExecutionConformance,
   type ExecutionConformanceScenario,
 } from "../src/index";
@@ -37,6 +38,8 @@ function terminalEvents(kind: "execution.completed" | "execution.failed" = "exec
 }
 
 test("registry distinguishes registered, projection-only, and unknown substrates", () => {
+  expect(isKnownSubstrate("codex")).toBe(true);
+  expect(isKnownSubstrate("not-a-substrate")).toBe(false);
   const registry = new ExecutorRegistry();
   expect(registry.resolve("cursor")).toEqual({ status: "unsupported", reason: "projection-only", substrate: "cursor" });
   expect(registry.resolve("not-a-substrate")).toEqual({ status: "unsupported", reason: "unknown-substrate", substrate: "not-a-substrate" });
