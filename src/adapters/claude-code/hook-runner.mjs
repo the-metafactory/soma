@@ -157,16 +157,31 @@ function fnv1a32(str) {
 // a BOUNDED signature of it (length + head + tail, to avoid hashing a whole
 // large file) makes each distinct call hash independently. Byte-identical calls
 // still collide, which is fine — they carry no new information.
+// A bounded per-call signature of the tool payload. It reads a few candidate
+// string fields directly and contributes only each one's LENGTH plus a 128-char
+// head — never the whole body. This is what gives successive edits of one file
+// distinct sampling decisions (their content differs) WITHOUT JSON.stringify-ing
+// a multi-megabyte Write and scanning it end to end (Sage review, PR #455): the
+// cost stays O(number of fields), not O(payload size).
+function toolPayloadSignature(toolInput) {
+  if (!toolInput || typeof toolInput !== "object") return "";
+  const parts = [];
+  for (const key of ["content", "new_string", "old_string", "new_source", "command"]) {
+    const value = toolInput[key];
+    if (typeof value === "string") parts.push(`${key}=${value.length}:${value.slice(0, 128)}`);
+  }
+  if (Array.isArray(toolInput.edits) && toolInput.edits.length > 0) {
+    const first = toolInput.edits[0];
+    const head = first && typeof first.new_string === "string" ? first.new_string.slice(0, 128) : "";
+    parts.push(`edits=${toolInput.edits.length}:${head}`);
+  }
+  return parts.join("|");
+}
+
 function toolCallSampleKey(input, source) {
   const sessionId = input && typeof input.session_id === "string" ? input.session_id : "";
   const toolName = input && typeof input.tool_name === "string" ? input.tool_name : "";
-  let payload = "";
-  try {
-    payload = input && typeof input.tool_input === "object" ? JSON.stringify(input.tool_input) : "";
-  } catch {
-    payload = "";
-  }
-  const signature = `${payload.length}:${payload.slice(0, 512)}:${payload.slice(-256)}`;
+  const signature = input ? toolPayloadSignature(input.tool_input) : "";
   return `${sessionId}|${source}|${toolName}|${artifactPaths(input).join(",")}|${signature}`;
 }
 

@@ -476,7 +476,7 @@ test("issue #236: installed Claude hook appends lifecycle and metadata-only writ
       hook_event_name: "PostToolUse",
       cwd: "/workspace/example",
       tool_name: "Write",
-      tool_input: { file_path: "/workspace/example/result-16.md", content: "private transcript content must not be mirrored" },
+      tool_input: { file_path: "/workspace/example/result-7.md", content: "private transcript content must not be mirrored" },
     });
     runClaudeHook(homeDir, "session-end", { session_id: "claude-session-1" });
 
@@ -489,7 +489,7 @@ test("issue #236: installed Claude hook appends lifecycle and metadata-only writ
     expect(events.some((event) => event.substrate === "claude-code" && event.kind === "lifecycle.session_end")).toBe(true);
     const toolEvent = events.find((event) => event.kind === "writeback.claude_code.tool");
     expect(toolEvent).toBeDefined();
-    expect(toolEvent?.artifactPaths).toEqual(["/workspace/example/result-16.md"]);
+    expect(toolEvent?.artifactPaths).toEqual(["/workspace/example/result-7.md"]);
     expect(toolEvent?.metadata).toMatchObject({
       sessionId: "claude-session-1",
       source: "PostToolUse",

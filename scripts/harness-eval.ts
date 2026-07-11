@@ -454,13 +454,16 @@ export const METRICS: MetricSpec[] = [
       ).length;
       const reads = data.events.filter(
         (e) =>
-          (e.kind === "memory.recall" || e.kind === "memory.promotion" || e.kind === "memory.verify") &&
+          (e.kind === "memory.recall" ||
+            e.kind === "memory.resurface" ||
+            e.kind === "memory.promotion" ||
+            e.kind === "memory.verify") &&
           inWindow(data, e.timestamp),
       ).length;
       return {
         numerator: reads,
         denominator: writes,
-        detail: `${reads} instrumented recalls/promotions/verifies vs ${writes} memory writes in window`,
+        detail: `${reads} instrumented recalls/resurfaces/promotions/verifies vs ${writes} memory writes in window`,
       };
     },
   },

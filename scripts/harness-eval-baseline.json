@@ -1,38 +1,38 @@
 {
-  "capturedAt": "2026-07-11T06:08:54.035Z",
+  "capturedAt": "2026-07-11T09:25:29.937Z",
   "windowDays": 60,
   "metrics": {
     "true_finish_rate": {
-      "value": 86.97,
-      "denominator": 238
+      "value": 86.67,
+      "denominator": 240
     },
     "probe_evidence_rate": {
-      "value": 40.49,
-      "denominator": 857
+      "value": 40.35,
+      "denominator": 860
     },
     "hollow_pass_attempt_rate": {
       "value": 0.23,
-      "denominator": 859
+      "denominator": 862
     },
     "abandoned_run_share": {
-      "value": 8.82,
-      "denominator": 238
+      "value": 8.75,
+      "denominator": 240
     },
     "learning_capture_rate": {
-      "value": 68.12,
-      "denominator": 207
+      "value": 67.79,
+      "denominator": 208
     },
     "feedback_closure_rate": {
-      "value": 7.76,
+      "value": 7.52,
       "denominator": 838
     },
     "memory_loop_closure": {
-      "value": 0.05,
-      "denominator": 86
+      "value": 0.06,
+      "denominator": 84
     },
     "promotion_rate": {
-      "value": 0.97,
-      "denominator": 207
+      "value": 0.96,
+      "denominator": 208
     }
   }
 }

@@ -664,10 +664,14 @@ export async function appendVerificationGateViolationEvent(
   options: Pick<AlgorithmCliOptions, "homeDir" | "somaHome" | "substrate">,
   runId: string,
   error: VerificationGateError,
+  runSubstrate?: AlgorithmRun["substrate"],
 ): Promise<void> {
   try {
     await appendSomaMemoryEvent(defaultSomaHome({ homeDir: options.homeDir, somaHome: options.somaHome }), {
-      substrate: options.substrate ?? "custom",
+      // Attribute to the run's own substrate when the CLI flag is absent — a
+      // `verify` that omits --substrate must not mislabel a claude-code (or any)
+      // run's gate refusal as "custom" telemetry.
+      substrate: options.substrate ?? runSubstrate ?? "custom",
       kind: "verification.gate_violation",
       summary: `VerificationGate refused a hollow pass on ${runId}/${error.criterionId} (${error.reason}).`,
       metadata: {
@@ -711,7 +715,7 @@ async function updateAndReportAlgorithmRun(
     // funnels through this CLI, so the emission is substrate-neutral by
     // construction. Best-effort: a telemetry failure must never mask the gate.
     if (error instanceof VerificationGateError) {
-      await appendVerificationGateViolationEvent(options, id, error);
+      await appendVerificationGateViolationEvent(options, id, error, run.substrate);
     }
     throw error;
   }
