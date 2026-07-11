@@ -21,6 +21,7 @@ export class MockSubstrateExecutor implements SubstrateExecutor {
       substrate: this.substrate,
       available: true,
       executorVersion: "mock",
+      supportedCapabilities: Object.values(this.scripts).flatMap((script) => script.capabilities?.supportedCapabilities ?? []),
       streaming: true,
       cancellation: "hard",
       approvals: "native",
@@ -39,7 +40,6 @@ export class MockSubstrateExecutor implements SubstrateExecutor {
       executionId: `${request.taskId}-execution`,
       request,
       capabilitySnapshot: { ...(await this.probe()), ...script.capabilities },
-      redactedInvocation: "mock executor",
     };
   }
 

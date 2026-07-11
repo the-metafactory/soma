@@ -56,7 +56,12 @@ export async function runExecutionConformance(
     const timer = scenario.abortAfterMs === undefined ? undefined : setTimeout(() => {
       controller.abort();
     }, scenario.abortAfterMs);
-    const run = await runSubstrateExecution(executor, scenario.request, { signal: controller.signal });
+    // Conformance fixtures exercise the kernel with their fixture directory as
+    // the trusted root; production callers must supply their own authorization.
+    const run = await runSubstrateExecution(executor, scenario.request, {
+      authorizedWorkspaceRoot: scenario.request.cwd,
+      signal: controller.signal,
+    });
     if (timer !== undefined) clearTimeout(timer);
     if (run.result.status !== scenario.expectedStatus) failures.push(`status ${run.result.status}`);
     if (scenario.expectedEventKinds !== undefined && JSON.stringify(run.events.map((event) => event.kind)) !== JSON.stringify(scenario.expectedEventKinds)) {

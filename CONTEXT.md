@@ -6,13 +6,13 @@ Glossary of the domain language. One canonical term per concept. No implementati
 
 ## substrate
 
-The host runtime that Soma projects into. Examples: Claude Code, OpenAI Codex, Pi.dev, Cortex/Myelin.
+The substrate that Soma projects into. Examples: Claude Code, OpenAI Codex, Pi.dev, Cortex/Myelin.
 
 Each substrate exposes its own primitives (system prompt, hooks, extensions, instruction files, tool surfaces). Soma is substrate-neutral; adapters translate Soma into substrate-native shape.
 
 **Not synonyms:** Do not use `harness`, `host`, `runtime`, `platform`, `agent runtime` in Soma docs or code. `substrate` is the only word.
 
-**Why:** Coheres with the biological metaphor (Soma = cell body, substrate = medium it lives in). Already entrenched in `docs/architecture.md`, `docs/boundaries.md`, `docs/substrate-adapters.md`, and TypeScript types (`SomaAdapter`, `buildClaudeCodeContext`). `harness` implies strap-in/constraint; `substrate` implies host/medium — matches Soma's stance of projecting into the host, not being strapped to a rig.
+**Why:** Coheres with the biological metaphor (Soma = cell body, substrate = medium it lives in). Already entrenched in `docs/architecture.md`, `docs/boundaries.md`, `docs/substrate-adapters.md`, and TypeScript types (`SomaAdapter`, `buildClaudeCodeContext`). `harness` implies strap-in/constraint; `substrate` implies a medium Soma inhabits, not a strapped-in process.
 
 ---
 
@@ -395,9 +395,10 @@ The actor that performs a [[project|projection]]. One adapter per [[substrate]]:
 An adapter:
 - Detects whether its substrate is present on the principal's machine.
 - Projects [[Soma]] into substrate-native shape (files, hooks, extensions, manifests).
-- Optionally runs the substrate's executor against a Soma task.
 
-**Hard rule — one adapter per substrate.** No multi-substrate adapters. No adapter-of-adapters. If a host runtime is genuinely distinct (different primitives, different install surface), it gets its own adapter.
+Optional invocation belongs to a separate [[substrate executor|SubstrateExecutor]], never to an adapter.
+
+**Hard rule — one adapter per substrate.** No multi-substrate adapters. No adapter-of-adapters. If a substrate is genuinely distinct (different primitives, different install surface), it gets its own adapter.
 
 **Not synonyms:** Do not use `projector`, `bridge`, `translator`, `membrane`, `binding`, `driver` as glossary terms. `adapter` is the only word.
 

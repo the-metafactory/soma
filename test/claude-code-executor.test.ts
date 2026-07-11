@@ -2,12 +2,16 @@ import { expect, test } from "bun:test";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { ClaudeCodeExecutor, ExecutorRegistry, registerClaudeCodeExecutor, REQUIRED_EXECUTION_CONFORMANCE_SCENARIOS, runExecutionConformance, runSubstrateExecution, type ExecutionConformanceScenario } from "../src/index";
+import { ClaudeCodeExecutor, ExecutorRegistry, outputFromText, registerClaudeCodeExecutor, REQUIRED_EXECUTION_CONFORMANCE_SCENARIOS, runExecutionConformance, runSubstrateExecution, type ExecutionConformanceScenario } from "../src/index";
 
-function runner(run: (options?: { input?: string; signal?: AbortSignal }) => Promise<{ exitCode: number; stdout: string; stderr: string }>) {
+function result(exitCode: number, stdout: string, stderr = "") {
+  return { exitCode, stdout: outputFromText(stdout), stderr };
+}
+
+function runner(run: (options?: { input?: string; signal?: AbortSignal }) => Promise<ReturnType<typeof result>>) {
   return { run: async (args: string[], options?: { input?: string; signal?: AbortSignal }) => {
-    if (args.includes("--version")) return { exitCode: 0, stdout: "2.1.206 (Claude Code)", stderr: "" };
-    if (args.includes("--help")) return { exitCode: 0, stdout: "-p, --print --output-format stream-json", stderr: "" };
+    if (args.includes("--version")) return result(0, "2.1.206 (Claude Code)");
+    if (args.includes("--help")) return result(0, "-p, --print --output-format stream-json");
     return run(options);
   } };
 }
@@ -16,7 +20,7 @@ test("Claude Code executor uses probed print stream-json flags and bounds output
   let invocation: { input?: string } | undefined;
   const executor = new ClaudeCodeExecutor({ runner: runner(async (options) => {
     invocation = { input: options?.input };
-    return { exitCode: 0, stdout: Array.from({ length: 80 }, (_, i) => JSON.stringify({ type: i })).join("\n"), stderr: "" };
+    return result(0, Array.from({ length: 80 }, (_, i) => JSON.stringify({ type: i })).join("\n"));
   }) });
   expect(await executor.probe()).toMatchObject({ substrate: "claude-code", available: true, approvals: "native", artifactReporting: false });
   const prepared = await executor.prepare({ taskId: "bounded", substrate: "claude-code", prompt: "private", cwd: "/tmp", projectionFingerprint: "p", requiredCapabilities: [] });
@@ -24,7 +28,7 @@ test("Claude Code executor uses probed print stream-json flags and bounds output
   for await (const event of executor.execute(prepared)) events.push(event);
   expect(invocation).toEqual({ input: "private" });
   expect(events.at(-2)).toMatchObject({ summary: "Claude Code output was truncated after 64 stream records." });
-  const unavailable = new ClaudeCodeExecutor({ runner: { run: async () => ({ exitCode: 127, stdout: "", stderr: "" }) } });
+  const unavailable = new ClaudeCodeExecutor({ runner: { run: async () => result(127, "") } });
   expect(await unavailable.probe()).toMatchObject({ available: false });
 });
 
@@ -48,7 +52,7 @@ test("Claude Code cancellation and timeout abort injected runners and clean temp
   const temporaryRoot = await mkdtemp(join(tmpdir(), "soma-claude-code-executor-test-"));
   try {
     const timed = new ClaudeCodeExecutor({ temporaryRoot, runner: runner(async (options) => await new Promise((_, reject) => options?.signal?.addEventListener("abort", () => reject(new Error("timeout")), { once: true }))) });
-    const run = await runSubstrateExecution(timed, { taskId: "timeout", substrate: "claude-code", prompt: "x", cwd: "/tmp", projectionFingerprint: "p", requiredCapabilities: [], timeoutMs: 20 });
+    const run = await runSubstrateExecution(timed, { taskId: "timeout", substrate: "claude-code", prompt: "x", cwd: "/tmp", projectionFingerprint: "p", requiredCapabilities: [], timeoutMs: 20 }, { authorizedWorkspaceRoot: "/tmp" });
     await Bun.sleep(0);
     expect(run.result).toMatchObject({ status: "failed", summary: "Execution timed out." });
     expect(await readdir(temporaryRoot)).toEqual([]);
@@ -58,7 +62,7 @@ test("Claude Code cancellation and timeout abort injected runners and clean temp
 test("Claude Code registers and passes shared runner-backed conformance fixtures", async () => {
   const executor = new ClaudeCodeExecutor({ runner: runner(async (options) => {
     if (options?.input === "cancel") return await new Promise((_, reject) => options.signal?.addEventListener("abort", () => reject(new Error("cancel")), { once: true }));
-    return options?.input === "deny" ? { exitCode: 7, stdout: '{"type":"policy_denied"}\n', stderr: "" } : { exitCode: 0, stdout: '{"type":"result"}\n', stderr: "" };
+    return options?.input === "deny" ? result(7, '{"type":"policy_denied"}\n') : result(0, '{"type":"result"}\n');
   }) });
   const registry = new ExecutorRegistry();
   registerClaudeCodeExecutor(registry, executor);

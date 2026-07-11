@@ -60,7 +60,7 @@ test("deterministic mock executes every shared conformance scenario through the 
   const mock = new MockSubstrateExecutor("codex", {
     "identity-context": { events: terminalEvents() },
     "memory-recall": { events: terminalEvents() },
-    "skill-selection": { events: terminalEvents() },
+    "skill-selection": { events: terminalEvents(), capabilities: { supportedCapabilities: ["ledger-update"] } },
     "policy-denial": { events: [{ kind: "execution.started", executionId: "$executionId", timestamp }, { kind: "execution.policy", executionId: "$executionId", timestamp, decision: "deny" }, ...terminalEvents("execution.failed").slice(1)] },
     "artifact-declaration": { events: [{ kind: "execution.started", executionId: "$executionId", timestamp }, { kind: "execution.artifact", executionId: "$executionId", timestamp, path: `${cwd}/ledger.md`, change: "created" }, ...terminalEvents().slice(1)] },
     cancellation: { events: terminalEvents(), delayMs: 20 },

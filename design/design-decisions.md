@@ -819,7 +819,7 @@ for a safe invocation boundary: capability probes, policy preflight,
 cancellation, artifact containment, normalized events, and lifecycle evidence.
 
 **Decision:** `SomaAdapter` owns only substrate-native projection facts:
-`detect()` and `project()`. Optional host invocation belongs to the separate,
+`detect()` and `project()`. Optional substrate invocation belongs to the separate,
 provider-neutral `SubstrateExecutor` contract (`probe`, `prepare`, `execute`,
 and `cancel`). Core owns orchestration contracts and canonical state
 transitions. Spawn owns isolated execution. Cortex owns collaboration and work
@@ -828,24 +828,26 @@ routing; Myelin owns transport.
 Execution support is capability data, not a claim implied by projection. A
 projection can therefore be first-class without an executor. Core execution
 contracts contain no provider command, path, authentication detail, or output
-format; live-probed host facts remain beside the owning executor.
+format; live-probed substrate facts remain beside the owning executor.
 
 **Rejected:**
 
 - Expanding `SomaAdapter.run()` would keep incompatible projection and runtime
   responsibilities in one interface.
-- Treating every projection as executable would force unsupported hosts to
+- Treating every projection as executable would force unsupported substrates to
   report misleading runtime failures instead of an explicit unavailable
   capability.
 
 **Implications:**
 
-- `SomaAdapter.run()`, `SomaTask`, and `SomaRunResult` are removed.
+- `SomaAdapter.run()` is removed. Deprecated `SomaTask` and `SomaRunResult`
+  aliases remain exported through the next major version as a source-compatible
+  migration path to the execution contracts.
 - Provider-neutral execution request, capability, preparation, event, result,
   and failure types are public contracts.
-- Future executors must preserve host-native approvals and write only bounded,
+- Future executors must preserve substrate-native approvals and write only bounded,
   validated evidence through core lifecycle/writeback gates.
 
 **Extends:** DD-4. DD-4 assigns adapter-owned installation facts and
-installer-owned lifecycle orchestration; this decision assigns optional host
+installer-owned lifecycle orchestration; this decision assigns optional substrate
 invocation without changing those boundaries.

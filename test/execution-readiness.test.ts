@@ -15,7 +15,7 @@ test("execution readiness leaves projection-only and unavailable substrates dist
   const unavailable = new MockSubstrateExecutor("claude-code", {});
   unavailable.probe = async () => {
     unavailable.calls.push("probe");
-    return { substrate: "claude-code", available: false, executorVersion: "mock", streaming: false, cancellation: "unsupported", approvals: "unsupported", sandbox: "none", sessionLifecycle: [], artifactReporting: false, limitations: ["fixture"] };
+    return { substrate: "claude-code", available: false, executorVersion: "mock", supportedCapabilities: [], streaming: false, cancellation: "unsupported", approvals: "unsupported", sandbox: "none", sessionLifecycle: [], artifactReporting: false, limitations: ["fixture"] };
   };
   registry.register({ executor: unavailable, conformanceScenarios: REQUIRED_EXECUTION_CONFORMANCE_SCENARIOS });
   expect(await diagnoseExecutionReadiness(registry, "claude-code")).toMatchObject({ status: "unavailable", substrate: "claude-code" });

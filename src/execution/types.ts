@@ -24,8 +24,11 @@ export interface ExecutionProbeOptions {
 export interface ExecutionCapabilities {
   substrate: ProjectionSubstrate;
   available: boolean;
-  hostVersion?: string;
+  /** Version reported by the selected substrate executable. */
+  substrateVersion?: string;
   executorVersion: string;
+  /** Capabilities the executor can prove it supports for this invocation. */
+  supportedCapabilities: string[];
   streaming: boolean;
   cancellation: "hard" | "best-effort" | "unsupported";
   approvals: "native" | "soma" | "advisory" | "unsupported";
@@ -40,7 +43,6 @@ export interface PreparedExecution {
   executionId: string;
   request: SomaExecutionRequest;
   capabilitySnapshot: ExecutionCapabilities;
-  redactedInvocation: string;
 }
 
 /** Options for consuming one already-prepared execution. */
@@ -51,14 +53,14 @@ export interface ExecuteOptions {
 /** Stable failures emitted by the core execution boundary. */
 export type SomaExecutionFailureCode =
   | "invalid-request"
-  | "host-unavailable"
-  | "host-version-unsupported"
+  | "substrate-unavailable"
+  | "substrate-version-unsupported"
   | "projection-stale"
   | "capability-unsupported"
   | "policy-denied"
   | "approval-required"
   | "timeout"
-  | "host-exit"
+  | "substrate-exit"
   | "malformed-output"
   | "artifact-escape"
   | "writeback-failed"

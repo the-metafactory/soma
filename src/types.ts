@@ -2422,6 +2422,29 @@ export interface SomaLifecycleResult {
   writes?: string[];
 }
 
+/**
+ * @deprecated Use {@link SomaExecutionRequest}; retained for source
+ * compatibility while adapters remain projection-only.
+ */
+export interface SomaTask {
+  id: string;
+  substrate: ProjectionSubstrate;
+  prompt: string;
+  cwd?: string;
+}
+
+/**
+ * @deprecated Use {@link SomaExecutionResult}; retained for source
+ * compatibility while adapters remain projection-only.
+ */
+export interface SomaRunResult {
+  taskId: string;
+  substrate: ProjectionSubstrate;
+  status: "completed" | "failed" | "cancelled";
+  summary: string;
+  artifacts?: string[];
+}
+
 export interface SomaAdapter {
   name: ProjectionSubstrate;
   detect(): Promise<boolean>;

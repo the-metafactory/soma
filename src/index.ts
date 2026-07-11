@@ -175,6 +175,10 @@ export type {
   PaiPackNormalizationReport,
   PaiPackNormalizationWarning,
   SomaSkillManifest,
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- intentional migration alias re-export (DD-15)
+  SomaRunResult,
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- intentional migration alias re-export (DD-15)
+  SomaTask,
   WrittenProjection,
 } from "./types";
 
@@ -190,6 +194,8 @@ export type {
   SubstrateExecutor,
 } from "./execution/types";
 export { runSubstrateExecution } from "./execution/kernel";
+export { outputFromText } from "./execution/command-output";
+export type { CommandOutput } from "./execution/command-output";
 export type { ExecutionKernelOptions, SubstrateExecutionRun } from "./execution/kernel";
 export { SubstrateExecutionAlgorithmLoopExecutor } from "./execution/algorithm-loop-executor";
 export type { SubstrateExecutionAlgorithmLoopExecutorOptions } from "./execution/algorithm-loop-executor";
@@ -239,6 +245,7 @@ export {
   recordAlgorithmObservation,
   setAlgorithmPlan,
   updateAlgorithmPlanStep,
+  VerificationGateError,
   verifyAlgorithmCriterion,
 } from "./algorithm";
 export {

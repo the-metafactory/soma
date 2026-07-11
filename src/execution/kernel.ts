@@ -10,6 +10,11 @@ import type {
 } from "./types";
 
 export interface ExecutionKernelOptions {
+  /**
+   * Root authorized by the trusted kernel caller. The request's cwd must stay
+   * inside this directory; a request cannot broaden its own filesystem scope.
+   */
+  authorizedWorkspaceRoot?: string;
   signal?: AbortSignal;
 }
 
@@ -26,19 +31,23 @@ interface NormalizedFailure {
 
 const FAILURE_CODES = new Set<SomaExecutionFailureCode>([
   "invalid-request",
-  "host-unavailable",
-  "host-version-unsupported",
+  "substrate-unavailable",
+  "substrate-version-unsupported",
   "projection-stale",
   "capability-unsupported",
   "policy-denied",
   "approval-required",
   "timeout",
-  "host-exit",
+  "substrate-exit",
   "malformed-output",
   "artifact-escape",
   "writeback-failed",
   "internal",
 ]);
+const MAX_RETAINED_EVENTS = 256;
+const MAX_RETAINED_ARTIFACTS = 128;
+const MAX_EVENT_SUMMARY_LENGTH = 4_096;
+const MAX_ARTIFACT_PATH_LENGTH = 4_096;
 
 function now(): string {
   return new Date().toISOString();
@@ -64,19 +73,23 @@ function invalidEvent(event: unknown): string | undefined {
     return "Execution event has an invalid shape.";
   }
   if (Number.isNaN(Date.parse(event.timestamp))) return "Execution event timestamp is invalid.";
+  if (event.executionId.length > 256) return "Execution event id is too long.";
   if (!["execution.started", "execution.progress", "execution.artifact", "execution.policy", "execution.completed", "execution.failed", "execution.cancelled"].includes(event.kind)) {
     return "Execution event kind is invalid.";
   }
   if (["execution.progress", "execution.completed", "execution.cancelled"].includes(event.kind) && typeof event.summary !== "string") {
     return "Execution event summary is invalid.";
   }
-  if (event.kind === "execution.artifact" && (typeof event.path !== "string" || !["created", "modified", "deleted"].includes(String(event.change)))) {
+  if (["execution.progress", "execution.completed", "execution.cancelled"].includes(event.kind) && typeof event.summary === "string" && event.summary.length > MAX_EVENT_SUMMARY_LENGTH) {
+    return "Execution event summary is too long.";
+  }
+  if (event.kind === "execution.artifact" && (typeof event.path !== "string" || event.path.length > MAX_ARTIFACT_PATH_LENGTH || !["created", "modified", "deleted"].includes(String(event.change)))) {
     return "Execution artifact event is invalid.";
   }
   if (event.kind === "execution.policy" && !["allow", "ask", "deny", "alert"].includes(String(event.decision))) {
     return "Execution policy event is invalid.";
   }
-  if (event.kind === "execution.failed" && (typeof event.code !== "string" || !FAILURE_CODES.has(event.code as SomaExecutionFailureCode) || typeof event.summary !== "string" || typeof event.retryable !== "boolean")) {
+  if (event.kind === "execution.failed" && (typeof event.code !== "string" || !FAILURE_CODES.has(event.code as SomaExecutionFailureCode) || typeof event.summary !== "string" || event.summary.length > MAX_EVENT_SUMMARY_LENGTH || typeof event.retryable !== "boolean")) {
     return "Execution failure event is invalid.";
   }
   return undefined;
@@ -109,6 +122,22 @@ function resultFor(
   };
 }
 
+function unavailableCapabilities(substrate: SomaExecutionRequest["substrate"]): ExecutionCapabilities {
+  return {
+    substrate,
+    available: false,
+    executorVersion: "unavailable",
+    supportedCapabilities: [],
+    streaming: false,
+    cancellation: "unsupported",
+    approvals: "unsupported",
+    sandbox: "none",
+    sessionLifecycle: [],
+    artifactReporting: false,
+    limitations: [],
+  };
+}
+
 function abortableNext<T>(next: Promise<IteratorResult<T>>, signal: AbortSignal): Promise<{ kind: "next"; value: IteratorResult<T> } | { kind: "aborted" } | { kind: "error"; error: unknown }> {
   if (signal.aborted) return Promise.resolve({ kind: "aborted" });
   return new Promise((resolveResult) => {
@@ -131,7 +160,7 @@ function abortableNext<T>(next: Promise<IteratorResult<T>>, signal: AbortSignal)
 
 /**
  * Runs one already-registered executor without invoking a process or writing
- * durable state. Executors own host details; this kernel validates the common
+ * durable state. Executors own substrate details; this kernel validates the common
  * event boundary and returns only bounded result metadata.
  */
 export async function runSubstrateExecution(
@@ -141,12 +170,14 @@ export async function runSubstrateExecution(
 ): Promise<SubstrateExecutionRun> {
   const beganAt = now();
   const events: SomaExecutionEvent[] = [];
+  let eventHistoryTruncated = false;
   const controller = new AbortController();
   const timeout = { triggered: false };
   const abort = () => {
     controller.abort();
   };
-  options.signal?.addEventListener("abort", abort, { once: true });
+  if (options.signal?.aborted) controller.abort();
+  else options.signal?.addEventListener("abort", abort, { once: true });
   const timer = request.timeoutMs === undefined ? undefined : setTimeout(() => {
     timeout.triggered = true;
     controller.abort();
@@ -160,38 +191,67 @@ export async function runSubstrateExecution(
     cancelled = true;
     await executor.cancel(executionId);
   };
-  const finish = (event: SomaExecutionEvent, result: SomaExecutionResult, appendEvent = true): SubstrateExecutionRun => {
-    if (appendEvent) events.push(event);
+  const appendEvent = (event: SomaExecutionEvent): void => {
+    if (terminal(event)) {
+      events.push(event);
+      return;
+    }
+    // Reserve one slot for a truncation marker and one for the terminal event.
+    if (events.length < MAX_RETAINED_EVENTS - 2) {
+      events.push(event);
+      return;
+    }
+    if (!eventHistoryTruncated) {
+      eventHistoryTruncated = true;
+      events.push({
+        kind: "execution.progress",
+        executionId,
+        timestamp: now(),
+        summary: "Execution event history was truncated.",
+      });
+    }
+  };
+  const finish = (event: SomaExecutionEvent, result: SomaExecutionResult, appendEventToHistory = true): SubstrateExecutionRun => {
+    if (appendEventToHistory) appendEvent(event);
     if (timer !== undefined) clearTimeout(timer);
     options.signal?.removeEventListener("abort", abort);
     return { events, result };
   };
   const fail = (failure: NormalizedFailure): SubstrateExecutionRun => {
-    const activeCapabilities = capabilities ?? {
-      substrate: request.substrate,
-      available: false,
-      executorVersion: "unavailable",
-      streaming: false,
-      cancellation: "unsupported" as const,
-      approvals: "unsupported" as const,
-      sandbox: "none" as const,
-      sessionLifecycle: [],
-      artifactReporting: false,
-      limitations: [],
-    };
+    const activeCapabilities = capabilities ?? unavailableCapabilities(request.substrate);
     const event = failedEvent(executionId, failure);
     return finish(event, resultFor(request, executionId, activeCapabilities, "failed", failure.summary, [], beganAt));
   };
 
   try {
-    if (!isAbsolute(request.cwd) || request.timeoutMs !== undefined && (!Number.isFinite(request.timeoutMs) || request.timeoutMs <= 0)) {
+    const isAborted = () => controller.signal.aborted;
+    if (isAborted()) {
+      const summary = "Execution was cancelled before preflight.";
+      const event: SomaExecutionEvent = { kind: "execution.cancelled", executionId, timestamp: now(), summary };
+      return finish(event, resultFor(request, executionId, unavailableCapabilities(request.substrate), "cancelled", summary, [], beganAt));
+    }
+    const workspaceRoot = options.authorizedWorkspaceRoot;
+    if (
+      !isAbsolute(request.cwd)
+      || typeof workspaceRoot !== "string"
+      || !isAbsolute(workspaceRoot)
+      || !isInsidePath(resolve(request.cwd), resolve(workspaceRoot))
+      || request.timeoutMs !== undefined && (!Number.isFinite(request.timeoutMs) || request.timeoutMs <= 0)
+      || !Array.isArray(request.requiredCapabilities)
+      || request.requiredCapabilities.some((capability) => typeof capability !== "string" || capability.length === 0)
+    ) {
       return fail({ code: "invalid-request", summary: "Execution request is invalid.", retryable: false });
     }
-    capabilities = await executor.probe({ cwd: request.cwd, signal: controller.signal });
-    if (capabilities.substrate !== request.substrate || executor.substrate !== request.substrate) {
+    const probedCapabilities = await executor.probe({ cwd: request.cwd, signal: controller.signal });
+    capabilities = probedCapabilities;
+    if (probedCapabilities.substrate !== request.substrate || executor.substrate !== request.substrate) {
       return fail({ code: "invalid-request", summary: "Executor substrate does not match the request.", retryable: false });
     }
-    if (!capabilities.available) return fail({ code: "host-unavailable", summary: "Substrate host is unavailable.", retryable: true });
+    if (!probedCapabilities.available) return fail({ code: "substrate-unavailable", summary: "Substrate is unavailable.", retryable: true });
+    const unsupportedCapabilities = request.requiredCapabilities.filter((capability) => !probedCapabilities.supportedCapabilities.includes(capability));
+    if (unsupportedCapabilities.length > 0) {
+      return fail({ code: "capability-unsupported", summary: `Required capabilities are unavailable: ${unsupportedCapabilities.join(", ")}.`, retryable: false });
+    }
 
     const prepared = await executor.prepare(request);
     executionId = prepared.executionId;
@@ -199,7 +259,7 @@ export async function runSubstrateExecution(
       return fail({ code: "invalid-request", summary: "Prepared execution does not match the request.", retryable: false });
     }
     capabilities = prepared.capabilitySnapshot;
-    if (controller.signal.aborted) {
+    if (isAborted()) {
       await cancel();
       const summary = timeout.triggered ? "Execution timed out." : "Execution was cancelled.";
       if (timeout.triggered) return fail({ code: "timeout", summary, retryable: true });
@@ -209,6 +269,7 @@ export async function runSubstrateExecution(
 
     const iterator = executor.execute(prepared, { signal: controller.signal })[Symbol.asyncIterator]();
     const artifacts: string[] = [];
+    let artifactsTruncated = false;
     let startedAt: string | undefined;
     let terminalEvent: SomaExecutionEvent | undefined;
     for (;;) {
@@ -244,9 +305,14 @@ export async function runSubstrateExecution(
       if (event.kind === "execution.artifact") {
         const artifact = resolve(request.cwd, event.path);
         if (!isInsidePath(artifact, resolve(request.cwd))) return fail({ code: "artifact-escape", summary: "Execution artifact escapes the request cwd.", retryable: false });
-        artifacts.push(artifact);
+        if (artifacts.length < MAX_RETAINED_ARTIFACTS) {
+          artifacts.push(artifact);
+        } else if (!artifactsTruncated) {
+          artifactsTruncated = true;
+          appendEvent({ kind: "execution.progress", executionId, timestamp: now(), summary: "Execution artifact history was truncated." });
+        }
       }
-      events.push(event);
+      appendEvent(event);
       if (terminal(event)) terminalEvent = event;
     }
 

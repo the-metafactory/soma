@@ -8,6 +8,8 @@ import {
   type SomaAdapter,
   type SomaExecutionEvent,
   type SomaExecutionRequest,
+  type SomaRunResult,
+  type SomaTask,
   type SubstrateExecutor,
 } from "../src/index";
 
@@ -52,6 +54,14 @@ test("adapter contract is structurally usable", async () => {
   expect("run" in adapter).toBe(false);
 });
 
+test("deprecated adapter task/result aliases remain source-compatible", () => {
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- verifies DD-15 compatibility aliases remain exported
+  const task: SomaTask = { id: "task-1", substrate: "custom", prompt: "Migrate to execution contracts" };
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- verifies DD-15 compatibility aliases remain exported
+  const result: SomaRunResult = { taskId: task.id, substrate: task.substrate, status: "completed", summary: "migrated" };
+  expect(result.taskId).toBe(task.id);
+});
+
 test("execution has a separate public contract", () => {
   const request: SomaExecutionRequest = {
     taskId: "task-1",
@@ -65,6 +75,7 @@ test("execution has a separate public contract", () => {
     substrate: "custom",
     available: true,
     executorVersion: "test",
+    supportedCapabilities: ["memory-recall"],
     streaming: true,
     cancellation: "hard",
     approvals: "native",
@@ -77,7 +88,6 @@ test("execution has a separate public contract", () => {
     executionId: "execution-1",
     request,
     capabilitySnapshot: capabilities,
-    redactedInvocation: "custom executor",
   };
   const event: SomaExecutionEvent = {
     kind: "execution.completed",

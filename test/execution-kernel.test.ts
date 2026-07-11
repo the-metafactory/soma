@@ -28,6 +28,7 @@ function capabilities(overrides: Partial<ExecutionCapabilities> = {}): Execution
     substrate: "codex",
     available: true,
     executorVersion: "test",
+    supportedCapabilities: [],
     streaming: true,
     cancellation: "hard",
     approvals: "native",
@@ -68,7 +69,6 @@ function fakeExecutor(options: {
         executionId: "execution-1",
         request: input,
         capabilitySnapshot: options.capabilities ?? capabilities(),
-        redactedInvocation: "fake executor",
       };
     },
     execute() {
@@ -82,12 +82,16 @@ function fakeExecutor(options: {
   };
 }
 
+function run(executor: SubstrateExecutor, input: SomaExecutionRequest, options: Omit<Parameters<typeof runSubstrateExecution>[2], "authorizedWorkspaceRoot"> = {}) {
+  return runSubstrateExecution(executor, input, { authorizedWorkspaceRoot: "/tmp", ...options });
+}
+
 const started: SomaExecutionEvent = { kind: "execution.started", executionId: "execution-1", timestamp };
 const completed: SomaExecutionEvent = { kind: "execution.completed", executionId: "execution-1", timestamp, summary: "done" };
 
 test("runs probe, prepare, and execute in order, then reduces a valid event stream", async () => {
   const calls: string[] = [];
-  const result = await runSubstrateExecution(
+  const result = await run(
     fakeExecutor({
       calls,
       events: events(
@@ -105,25 +109,46 @@ test("runs probe, prepare, and execute in order, then reduces a valid event stre
   expect(result.events.map((event) => event.kind)).toEqual(["execution.started", "execution.progress", "execution.artifact", "execution.completed"]);
 });
 
-test("normalizes unavailable hosts and typed preparation refusals", async () => {
-  const unavailable = await runSubstrateExecution(fakeExecutor({ capabilities: capabilities({ available: false }) }), request());
-  expect(unavailable.result).toMatchObject({ status: "failed", summary: "Substrate host is unavailable." });
+test("normalizes unavailable substrates and typed preparation refusals", async () => {
+  const unavailable = await run(fakeExecutor({ capabilities: capabilities({ available: false }) }), request());
+  expect(unavailable.result).toMatchObject({ status: "failed", summary: "Substrate is unavailable." });
   expect(unavailable.events).toHaveLength(1);
-  expect(unavailable.events[0]).toMatchObject({ kind: "execution.failed", code: "host-unavailable" });
+  expect(unavailable.events[0]).toMatchObject({ kind: "execution.failed", code: "substrate-unavailable" });
 
   const refusal = Object.assign(new Error("memory-recall is unavailable"), { code: "capability-unsupported", summary: "memory-recall is unavailable", retryable: false });
-  const refused = await runSubstrateExecution(
-    fakeExecutor({ prepareError: refusal }),
+  const refused = await run(
+    fakeExecutor({ capabilities: capabilities({ supportedCapabilities: ["memory-recall"] }), prepareError: refusal }),
     request({ requiredCapabilities: ["memory-recall"] }),
   );
   expect(refused.events[0]).toMatchObject({ kind: "execution.failed", code: "capability-unsupported", summary: "memory-recall is unavailable" });
 });
 
+test("fails closed before preparation for unauthorized workspaces and unsupported capabilities", async () => {
+  const unauthorizedCalls: string[] = [];
+  const unauthorized = await run(fakeExecutor({ calls: unauthorizedCalls }), request({ cwd: "/private" }));
+  expect(unauthorized.events[0]).toMatchObject({ kind: "execution.failed", code: "invalid-request" });
+  expect(unauthorizedCalls).toEqual([]);
+
+  const capabilityCalls: string[] = [];
+  const unsupported = await run(fakeExecutor({ calls: capabilityCalls }), request({ requiredCapabilities: ["memory-recall"] }));
+  expect(unsupported.events[0]).toMatchObject({ kind: "execution.failed", code: "capability-unsupported" });
+  expect(capabilityCalls).toEqual(["probe"]);
+});
+
+test("returns an already-aborted request without probing or preparing", async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const calls: string[] = [];
+  const cancelled = await run(fakeExecutor({ calls }), request(), { signal: controller.signal });
+  expect(cancelled.events).toEqual([expect.objectContaining({ kind: "execution.cancelled", summary: "Execution was cancelled before preflight." })]);
+  expect(calls).toEqual([]);
+});
+
 test("rejects malformed streams and normalizes executor exceptions without leaking raw errors", async () => {
-  const malformed = await runSubstrateExecution(fakeExecutor({ events: events(completed) }), request());
+  const malformed = await run(fakeExecutor({ events: events(completed) }), request());
   expect(malformed.events[0]).toMatchObject({ kind: "execution.failed", code: "malformed-output" });
 
-  const postTerminal = await runSubstrateExecution(
+  const postTerminal = await run(
     fakeExecutor({ events: events(started, completed, { kind: "execution.progress", executionId: "execution-1", timestamp, summary: "too late" }) }),
     request(),
   );
@@ -134,7 +159,7 @@ test("rejects malformed streams and normalizes executor exceptions without leaki
   executor.execute = () => {
     throw new Error("secret token must not escape");
   };
-  const failed = await runSubstrateExecution(executor, request());
+  const failed = await run(executor, request());
   expect(failed.events.at(-1)).toMatchObject({ kind: "execution.failed", code: "internal" });
   expect(JSON.stringify(failed)).not.toContain("secret token");
 });
@@ -148,7 +173,7 @@ test("times out and cancels without consuming a later terminal event", async () 
       yield completed;
     },
   };
-  const result = await runSubstrateExecution(fakeExecutor({ calls, events: slow }), request({ timeoutMs: 5 }));
+  const result = await run(fakeExecutor({ calls, events: slow }), request({ timeoutMs: 5 }));
 
   expect(calls).toContain("cancel");
   expect(result.events.at(-1)).toMatchObject({ kind: "execution.failed", code: "timeout" });
@@ -165,17 +190,36 @@ test("cancels an externally aborted execution and rejects artifact escapes", asy
     },
   };
   setTimeout(() => controller.abort(), 5);
-  const cancelled = await runSubstrateExecution(fakeExecutor({ events: delayed }), request(), { signal: controller.signal });
+  const cancelled = await run(fakeExecutor({ events: delayed }), request(), { signal: controller.signal });
   expect(cancelled.events.at(-1)).toMatchObject({ kind: "execution.cancelled" });
 
-  const escaped = await runSubstrateExecution(
+  const escaped = await run(
     fakeExecutor({ events: events(started, { kind: "execution.artifact", executionId: "execution-1", timestamp, path: "/tmp/escaped.md", change: "created" }) }),
     request(),
   );
   expect(escaped.events.at(-1)).toMatchObject({ kind: "execution.failed", code: "artifact-escape" });
 });
 
-test("kernel is host-free and does not import a memory write surface", () => {
+test("caps retained event history while preserving a truncation marker and terminal event", async () => {
+  const progress = Array.from({ length: 300 }, (_, index): SomaExecutionEvent => ({ kind: "execution.progress", executionId: "execution-1", timestamp, summary: `progress ${index}` }));
+  const bounded = await run(fakeExecutor({ events: events(started, ...progress, completed) }), request());
+  expect(bounded.result).toMatchObject({ status: "completed", summary: "done" });
+  expect(bounded.events).toHaveLength(256);
+  expect(bounded.events.at(-2)).toMatchObject({ kind: "execution.progress", summary: "Execution event history was truncated." });
+  expect(bounded.events.at(-1)).toMatchObject({ kind: "execution.completed" });
+});
+
+test("bounds retained artifact paths and rejects oversized event payloads", async () => {
+  const artifacts = Array.from({ length: 140 }, (_, index): SomaExecutionEvent => ({ kind: "execution.artifact", executionId: "execution-1", timestamp, path: `/tmp/soma-execution-fixture/${index}.md`, change: "modified" }));
+  const bounded = await run(fakeExecutor({ events: events(started, ...artifacts, completed) }), request());
+  expect(bounded.result.artifacts).toHaveLength(128);
+  expect(bounded.events.some((event) => event.kind === "execution.progress" && event.summary === "Execution artifact history was truncated.")).toBe(true);
+
+  const oversized = await run(fakeExecutor({ events: events(started, { kind: "execution.progress", executionId: "execution-1", timestamp, summary: "x".repeat(4_097) }) }), request());
+  expect(oversized.events.at(-1)).toMatchObject({ kind: "execution.failed", code: "malformed-output", summary: "Execution event summary is too long." });
+});
+
+test("kernel is substrate-neutral and does not import a memory write surface", () => {
   const source = readFileSync(join(import.meta.dirname, "..", "src", "execution", "kernel.ts"), "utf8");
   expect(source).not.toContain("memory-write");
   expect(source).not.toMatch(/from\s+["'][^"']*memory/);
