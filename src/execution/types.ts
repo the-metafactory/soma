@@ -14,7 +14,7 @@ export interface SomaExecutionRequest {
   timeoutMs?: number;
 }
 
-/** A runtime probe request. Providers may add executor-local options later. */
+/** A substrate capability probe request. Providers may add executor-local options later. */
 export interface ExecutionProbeOptions {
   cwd?: string;
   signal?: AbortSignal;

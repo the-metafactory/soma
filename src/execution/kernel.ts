@@ -312,6 +312,10 @@ export async function runSubstrateExecution(
       if (outcome.value.done) break;
 
       const event = outcome.value.value;
+      if (terminalEvent !== undefined) {
+        events.pop();
+        return fail({ code: "malformed-output", summary: "Execution stream emitted an event after termination.", retryable: false });
+      }
       const shapeError = invalidEvent(event);
       if (shapeError !== undefined || event.executionId !== executionId) {
         return fail({ code: "malformed-output", summary: shapeError ?? "Execution event id does not match the prepared execution.", retryable: false });
@@ -322,10 +326,6 @@ export async function runSubstrateExecution(
       if (event.kind === "execution.started") {
         if (startedAt !== undefined) return fail({ code: "malformed-output", summary: "Execution stream has multiple start events.", retryable: false });
         startedAt = event.timestamp;
-      }
-      if (terminalEvent !== undefined) {
-        events.pop();
-        return fail({ code: "malformed-output", summary: "Execution stream emitted an event after termination.", retryable: false });
       }
       if (event.kind === "execution.artifact") {
         const artifact = resolve(request.cwd, event.path);
