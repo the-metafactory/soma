@@ -213,16 +213,22 @@ function appendSomaPolicyGuardHookGroups(settings: JsonObject, substrateHome: st
   return preTool || prompt;
 }
 
-// Collect every command in the guard's two events that references the guard
-// hook script, regardless of the bun path it was written with. This makes
-// uninstall robust to a settings entry recorded with a different bun path than
-// the one in the installed config (otherwise the files are removed but a stale
-// command keeps invoking a now-missing hook).
-function installedPolicyGuardCommands(settings: JsonObject, substrateHome: string): Set<string> {
-  const scriptPath = resolve(substrateHome, SOMA_CLAUDE_POLICY_GUARD_RELATIVE_PATH);
+// Collect every recorded command, across the given `events`, that references
+// `scriptPath` — regardless of the bun path it was written with. Shared by the
+// policy-guard, pre-compact, and feedback-capture uninstall paths (Sage review,
+// PR #455) so the discovery traversal lives in ONE place instead of three
+// near-identical copies. This robustness matters because a settings entry may
+// have been recorded with a different bun path than the installed config's;
+// without it the hook files get removed but a stale command keeps invoking a
+// now-missing hook.
+function installedCommandsReferencingScript(
+  settings: JsonObject,
+  events: readonly string[],
+  scriptPath: string,
+): Set<string> {
   const found = new Set<string>();
   if (!isObject(settings.hooks)) return found;
-  for (const event of ["PreToolUse", "UserPromptSubmit"]) {
+  for (const event of events) {
     const groups = settings.hooks[event];
     if (!Array.isArray(groups)) continue;
     for (const group of groups) {
@@ -232,6 +238,14 @@ function installedPolicyGuardCommands(settings: JsonObject, substrateHome: strin
     }
   }
   return found;
+}
+
+function installedPolicyGuardCommands(settings: JsonObject, substrateHome: string): Set<string> {
+  return installedCommandsReferencingScript(
+    settings,
+    ["PreToolUse", "UserPromptSubmit"],
+    resolve(substrateHome, SOMA_CLAUDE_POLICY_GUARD_RELATIVE_PATH),
+  );
 }
 
 function removeSomaPolicyGuardFromSettings(settings: JsonObject, substrateHome: string, bunPath: string): boolean {
@@ -290,23 +304,12 @@ function appendSomaPreCompactHookGroups(settings: JsonObject, substrateHome: str
   return capture || resurface;
 }
 
-// Like installedPolicyGuardCommands: collect every command in the two events
-// that references the handover script regardless of the bun path it was
-// recorded with, so uninstall is robust to a drifted bun path.
 function installedPreCompactCommands(settings: JsonObject, substrateHome: string): Set<string> {
-  const scriptPath = resolve(substrateHome, SOMA_CLAUDE_PRECOMPACT_RELATIVE_PATH);
-  const found = new Set<string>();
-  if (!isObject(settings.hooks)) return found;
-  for (const event of ["PreCompact", "UserPromptSubmit"]) {
-    const groups = settings.hooks[event];
-    if (!Array.isArray(groups)) continue;
-    for (const group of groups) {
-      for (const command of groupCommands(group)) {
-        if (command.includes(scriptPath)) found.add(command);
-      }
-    }
-  }
-  return found;
+  return installedCommandsReferencingScript(
+    settings,
+    ["PreCompact", "UserPromptSubmit"],
+    resolve(substrateHome, SOMA_CLAUDE_PRECOMPACT_RELATIVE_PATH),
+  );
 }
 
 function removeSomaPreCompactFromSettings(settings: JsonObject, substrateHome: string, bunPath: string): boolean {
@@ -340,21 +343,12 @@ function appendSomaFeedbackCaptureHookGroup(settings: JsonObject, substrateHome:
   });
 }
 
-// Like installedPreCompactCommands: collect every recorded command that
-// references the feedback script regardless of the bun path it was recorded
-// with, so uninstall survives a drifted bun path.
 function installedFeedbackCaptureCommands(settings: JsonObject, substrateHome: string): Set<string> {
-  const scriptPath = resolve(substrateHome, SOMA_CLAUDE_FEEDBACK_RELATIVE_PATH);
-  const found = new Set<string>();
-  if (!isObject(settings.hooks)) return found;
-  const groups = settings.hooks.UserPromptSubmit;
-  if (!Array.isArray(groups)) return found;
-  for (const group of groups) {
-    for (const command of groupCommands(group)) {
-      if (command.includes(scriptPath)) found.add(command);
-    }
-  }
-  return found;
+  return installedCommandsReferencingScript(
+    settings,
+    ["UserPromptSubmit"],
+    resolve(substrateHome, SOMA_CLAUDE_FEEDBACK_RELATIVE_PATH),
+  );
 }
 
 function removeSomaFeedbackCaptureFromSettings(settings: JsonObject, substrateHome: string, bunPath: string): boolean {

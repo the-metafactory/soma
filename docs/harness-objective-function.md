@@ -1,5 +1,7 @@
 # Harness Objective Function
 
+> **On the word "harness."** Here it means the *measurement harness* — the eval scaffold and north-star metrics that observe how well the running assistant performs — in the ordinary "test harness" sense already used across `docs/architecture.md` and elsewhere. This is **not** the `CONTEXT.md`-forbidden use of `harness` as a synonym for **substrate** (the medium Soma inhabits: claude-code, codex, …). The substrate stays "substrate" everywhere in identity/purpose/policy/adapter vocabulary; this document is about the apparatus that *measures* the system, not the medium it runs on.
+
 *What "better" means for this harness. 2026-07-10, derived from the run corpus, event stream, memory tree, and the principal's purpose and retrospective notes. The metric definitions are reviewable in `scripts/harness-eval.ts` and its baseline.*
 
 ## The definition
