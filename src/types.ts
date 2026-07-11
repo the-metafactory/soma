@@ -3053,9 +3053,10 @@ export interface SomaMemoryAuditResult {
 // invariant is unchanged. #425 adds exactly one observability side effect: every
 // call appends a `memory.recall` journal event (query terms, returned note ids,
 // result count, unresolved-link count) so retrieval can finally be measured; see
-// `memory-recall.ts`'s module docstring for the full contract. Distinct from the
-// legacy line-grep `searchSomaMemory`, which walks the pre-note memory tree
-// (WORK/KNOWLEDGE/…) and still appends no event.
+// `memory-recall.ts`'s module docstring for the full contract. The legacy
+// line-grep `searchSomaMemory` (which walks the pre-note memory tree
+// WORK/KNOWLEDGE/…) also appends a `memory.recall` event now, tagged
+// `via: "search"` — but only when the query has searchable terms.
 export interface SomaMemoryRecallOptions {
   homeDir?: string;
   somaHome?: string;

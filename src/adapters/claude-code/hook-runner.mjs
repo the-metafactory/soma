@@ -141,12 +141,21 @@ function writebackToolCounterPath() {
   return join(hookDir(), "soma-claude-code-writeback-tool-counter");
 }
 
-// Deterministic 1-in-N sampler. The hook is a fresh process per tool call, so a
-// persisted counter (not Math.random) is what makes sampling reproducible and
-// replayable — exactly every Nth tool writeback is emitted. Emits on the first
-// call so low-volume sessions and the install smoke test still see one event.
-// Fails OPEN (emits) on any counter read/write error so a broken counter never
-// silently drops all tool telemetry.
+// Counter-based 1-in-N sampler. The hook is a fresh process per tool call, so a
+// persisted file counter (not Math.random) is what carries state across calls
+// and keeps sampling roughly reproducible. Caveats, by design not accident:
+//   - The counter is process-hosted at a single path, so it is GLOBAL across
+//     sessions/projects on this machine, not per-session. "Emits on the first
+//     call" therefore means the first call machine-wide after the counter is
+//     reset/absent, not the first call of every session.
+//   - PostToolUse hooks can run as parallel processes with no lock (unlike the
+//     flush lock), so the read-modify-write races: concurrent calls can lose an
+//     increment or torn-read to NaN. That only perturbs the sampling RATIO — it
+//     never affects correctness — so a lock isn't worth the contention.
+//   - Fails OPEN (emits) on any counter read/write error, so a broken counter
+//     over-emits rather than silently dropping all tool telemetry.
+// Single-process behaviour is exact: emits at counter 1, N+1, 2N+1, … (the first
+// call included, which the install smoke test relies on).
 function shouldSampleToolWriteback() {
   const path = writebackToolCounterPath();
   try {

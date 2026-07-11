@@ -55,8 +55,14 @@ const LEAD_CLAUSE_MARKER = /\bUSE WHEN:?\s+|\bNOT FOR:?\s+|\bSKIP:\s+/;
  */
 const USE_WHEN_MARKER = /\bUSE WHEN:?\s+/;
 
-/** Where a USE WHEN clause ends: the first anti-trigger tail, if any. */
-const USE_WHEN_TAIL = /\bNOT FOR:?\s+|\bSKIP:\s+/;
+// Where a USE WHEN clause ends: the first anti-trigger tail. Includes the bare
+// `NOT` (e.g. "… Do NOT trigger on X") as well as `NOT FOR`/`SKIP:`, so an
+// anti-trigger that follows the USE WHEN list is NOT swept into the derived
+// triggers — extractAntiTriggers surfaces it as the `not:` line instead, and
+// double-emitting it in both places would be wrong. Kept in sync with the tail
+// alternatives of ANTI_TRIGGER_MARKER (declared below; duplicated rather than
+// referenced to avoid a temporal-dead-zone dependency on declaration order).
+const USE_WHEN_TAIL = /\bNOT FOR:?\s+|\bSKIP:\s+|\bNOT\s+/;
 
 /**
  * Anti-trigger markers, ordered so the regex engine prefers the more
@@ -95,8 +101,11 @@ export function extractAntiTriggers(description: string): string | undefined {
  * signal was deleted, not relocated. Splitting the clause on commas recovers the
  * trigger phrases skills already write comma-separated (e.g. `USE WHEN review
  * PR, code review, security review`). Runs from the USE WHEN marker to the next
- * anti-trigger tail (`NOT FOR`/`SKIP`, surfaced separately as `not:`) or the end
- * of the description. Returns `[]` when there is no USE WHEN clause.
+ * anti-trigger tail (`NOT FOR`/`SKIP:`/bare `NOT`, all surfaced separately as
+ * `not:`) or the end of the description, so anti-triggers never leak into — or
+ * duplicate onto — the triggers line. Returns `[]` when there is no USE WHEN
+ * clause. (Comma lists inside parentheses still shatter — a known cosmetic limit
+ * accepted by soma#371; the pieces remain routing keywords.)
  */
 export function extractUseWhenTriggers(description: string): string[] {
   const match = USE_WHEN_MARKER.exec(description);

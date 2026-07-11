@@ -115,9 +115,12 @@ export async function searchSomaMemory(options: SomaMemorySearchOptions): Promis
   const limit = options.limit ?? 8;
 
   if (terms.length === 0) {
-    const emptyResult: SomaMemorySearchResult = { query: options.query, somaHome, matches: [] };
-    await appendSearchRecallEvent(somaHome, options, terms, emptyResult);
-    return emptyResult;
+    // No searchable terms → nothing was consulted, so NO memory.recall event.
+    // memory_loop_closure counts recalls as deliberate consultation and is very
+    // sensitive; a zero-term "search" (all stopwords) is not a read and must not
+    // inflate it. (recallMemory deliberately DOES emit on its empty path — it
+    // feeds a distinct empty-recall-rate metric; search has no such consumer.)
+    return { query: options.query, somaHome, matches: [] };
   }
 
   const roots = SEARCH_ROOTS.map((root) => join(somaHome, root));

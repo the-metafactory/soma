@@ -531,6 +531,18 @@ test("search appends one observational memory.recall event (read-path instrument
   });
 });
 
+test("search with no searchable terms emits NO memory.recall event (nothing was consulted)", async () => {
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    // All tokens are sub-3-char → zero terms → not a real consultation, so it
+    // must not mint a read event that would inflate memory_loop_closure.
+    const result = await searchSomaMemory({ homeDir, query: "an to of", substrate: "claude-code" });
+    expect(result.matches).toEqual([]);
+    const events = parseEvents(await readFile(somaMemoryEventsPath(somaHome), "utf8").catch(() => ""));
+    expect(events.filter((e) => e.kind === "memory.recall")).toHaveLength(0);
+  });
+});
+
 test("searches migrated PAI artifact roots without exposing root constants", async () => {
   await withTempHome(async (homeDir) => {
     const { somaHome } = await bootstrapSomaHome({ homeDir });

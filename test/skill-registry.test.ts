@@ -82,6 +82,17 @@ describe("extractUseWhenTriggers", () => {
     expect(extractUseWhenTriggers(description)).toEqual(["scrape URL", "crawl site"]);
   });
 
+  test("stops at a bare NOT anti-trigger — it never leaks into or duplicates the triggers", () => {
+    // "USE WHEN <list>. Do NOT trigger on X" must not sweep the anti-trigger
+    // clause into triggers (it belongs on the `not:` line, via extractAntiTriggers).
+    const description = "Router. USE WHEN spec-driven, specflow. Do NOT trigger on bare spec.";
+    const triggers = extractUseWhenTriggers(description);
+    expect(triggers).toContain("spec-driven");
+    expect(triggers.some((t) => /\bNOT\b|bare spec/.test(t))).toBe(false); // anti-trigger not swept in
+    // And the anti-trigger IS still surfaced separately as the `not:` clause.
+    expect(extractAntiTriggers(description)).toContain("NOT trigger on bare spec");
+  });
+
   test("returns [] when there is no USE WHEN clause", () => {
     expect(extractUseWhenTriggers("Static visual content via Flux.")).toEqual([]);
   });
