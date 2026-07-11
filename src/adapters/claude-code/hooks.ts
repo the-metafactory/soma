@@ -598,62 +598,72 @@ export async function patchClaudeCodeSomaHookSettings(substrateHome: string, bun
   return writeJsonIfChanged(settingsPath, settings, before);
 }
 
-export async function patchClaudeCodeModeClassifierSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
+// Shared settings read/mutate/write plumbing for the hook-group patchers (Sage
+// review, PR #455). Every soma hook install/uninstall does the same three
+// steps — resolve settings.json, read it with its raw bytes, write only if the
+// mutator changed something — differing ONLY in the per-hook mutator. Routing
+// them through these two helpers keeps that policy (including the "no write on a
+// no-op, but always materialize an absent settings file" rule) in one place.
+//
+// `patch`: the mutator appends/toggles groups and returns whether it changed
+// anything; a no-op on an already-present settings file writes nothing.
+// `unpatch`: the remover strips groups and returns whether it removed anything;
+// an absent (empty) settings file is left untouched.
+async function patchClaudeCodeHookSettings(
+  substrateHome: string,
+  mutate: (settings: JsonObject) => boolean,
+): Promise<string[]> {
   const settingsPath = resolve(substrateHome, SOMA_CLAUDE_SETTINGS_RELATIVE_PATH);
   const { before, settings } = await readSettingsWithRaw(settingsPath);
-  const disabledPai = disablePaiModeClassifierHooks(settings);
-  const appendedSoma = appendSomaModeClassifierHookGroup(settings, substrateHome, bunPath);
-  const changed = disabledPai || appendedSoma;
+  const changed = mutate(settings);
   if (!changed && before.trim().length > 0) return [];
   return writeJsonIfChanged(settingsPath, settings, before);
 }
 
-export async function patchClaudeCodePolicyGuardSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
-  const settingsPath = resolve(substrateHome, SOMA_CLAUDE_SETTINGS_RELATIVE_PATH);
-  const { before, settings } = await readSettingsWithRaw(settingsPath);
-  const changed = appendSomaPolicyGuardHookGroups(settings, substrateHome, bunPath);
-  if (!changed && before.trim().length > 0) return [];
-  return writeJsonIfChanged(settingsPath, settings, before);
-}
-
-export async function unpatchClaudeCodePolicyGuardSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
+async function unpatchClaudeCodeHookSettings(
+  substrateHome: string,
+  remove: (settings: JsonObject) => boolean,
+): Promise<string[]> {
   const settingsPath = resolve(substrateHome, SOMA_CLAUDE_SETTINGS_RELATIVE_PATH);
   const { before, settings } = await readSettingsWithRaw(settingsPath);
   if (before.trim().length === 0) return [];
-  if (!removeSomaPolicyGuardFromSettings(settings, substrateHome, bunPath)) return [];
+  if (!remove(settings)) return [];
   return writeJsonIfChanged(settingsPath, settings, before);
 }
 
-export async function patchClaudeCodePreCompactSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
-  const settingsPath = resolve(substrateHome, SOMA_CLAUDE_SETTINGS_RELATIVE_PATH);
-  const { before, settings } = await readSettingsWithRaw(settingsPath);
-  const changed = appendSomaPreCompactHookGroups(settings, substrateHome, bunPath);
-  if (!changed && before.trim().length > 0) return [];
-  return writeJsonIfChanged(settingsPath, settings, before);
+export function patchClaudeCodeModeClassifierSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
+  return patchClaudeCodeHookSettings(substrateHome, (settings) => {
+    // Both effects must run (not short-circuit) so a settings file that still
+    // carries PAI classifier hooks gets them disabled even when Soma's group
+    // is already present.
+    const disabledPai = disablePaiModeClassifierHooks(settings);
+    const appendedSoma = appendSomaModeClassifierHookGroup(settings, substrateHome, bunPath);
+    return disabledPai || appendedSoma;
+  });
 }
 
-export async function unpatchClaudeCodePreCompactSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
-  const settingsPath = resolve(substrateHome, SOMA_CLAUDE_SETTINGS_RELATIVE_PATH);
-  const { before, settings } = await readSettingsWithRaw(settingsPath);
-  if (before.trim().length === 0) return [];
-  if (!removeSomaPreCompactFromSettings(settings, substrateHome, bunPath)) return [];
-  return writeJsonIfChanged(settingsPath, settings, before);
+export function patchClaudeCodePolicyGuardSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
+  return patchClaudeCodeHookSettings(substrateHome, (settings) => appendSomaPolicyGuardHookGroups(settings, substrateHome, bunPath));
 }
 
-export async function patchClaudeCodeFeedbackCaptureSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
-  const settingsPath = resolve(substrateHome, SOMA_CLAUDE_SETTINGS_RELATIVE_PATH);
-  const { before, settings } = await readSettingsWithRaw(settingsPath);
-  const changed = appendSomaFeedbackCaptureHookGroup(settings, substrateHome, bunPath);
-  if (!changed && before.trim().length > 0) return [];
-  return writeJsonIfChanged(settingsPath, settings, before);
+export function unpatchClaudeCodePolicyGuardSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
+  return unpatchClaudeCodeHookSettings(substrateHome, (settings) => removeSomaPolicyGuardFromSettings(settings, substrateHome, bunPath));
 }
 
-export async function unpatchClaudeCodeFeedbackCaptureSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
-  const settingsPath = resolve(substrateHome, SOMA_CLAUDE_SETTINGS_RELATIVE_PATH);
-  const { before, settings } = await readSettingsWithRaw(settingsPath);
-  if (before.trim().length === 0) return [];
-  if (!removeSomaFeedbackCaptureFromSettings(settings, substrateHome, bunPath)) return [];
-  return writeJsonIfChanged(settingsPath, settings, before);
+export function patchClaudeCodePreCompactSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
+  return patchClaudeCodeHookSettings(substrateHome, (settings) => appendSomaPreCompactHookGroups(settings, substrateHome, bunPath));
+}
+
+export function unpatchClaudeCodePreCompactSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
+  return unpatchClaudeCodeHookSettings(substrateHome, (settings) => removeSomaPreCompactFromSettings(settings, substrateHome, bunPath));
+}
+
+export function patchClaudeCodeFeedbackCaptureSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
+  return patchClaudeCodeHookSettings(substrateHome, (settings) => appendSomaFeedbackCaptureHookGroup(settings, substrateHome, bunPath));
+}
+
+export function unpatchClaudeCodeFeedbackCaptureSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
+  return unpatchClaudeCodeHookSettings(substrateHome, (settings) => removeSomaFeedbackCaptureFromSettings(settings, substrateHome, bunPath));
 }
 
 // The status line is a top-level `statusLine` key, not a hooks[] entry — it

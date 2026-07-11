@@ -55,15 +55,6 @@ const LEAD_CLAUSE_MARKER = /\bUSE WHEN:?\s+|\bNOT FOR:?\s+|\bSKIP:\s+/;
  */
 const USE_WHEN_MARKER = /\bUSE WHEN:?\s+/;
 
-// Where a USE WHEN clause ends: the first anti-trigger tail. Includes the bare
-// `NOT` (e.g. "… Do NOT trigger on X") as well as `NOT FOR`/`SKIP:`, so an
-// anti-trigger that follows the USE WHEN list is NOT swept into the derived
-// triggers — extractAntiTriggers surfaces it as the `not:` line instead, and
-// double-emitting it in both places would be wrong. Kept in sync with the tail
-// alternatives of ANTI_TRIGGER_MARKER (declared below; duplicated rather than
-// referenced to avoid a temporal-dead-zone dependency on declaration order).
-const USE_WHEN_TAIL = /\bNOT FOR:?\s+|\bSKIP:\s+|\bNOT\s+/;
-
 /**
  * Anti-trigger markers, ordered so the regex engine prefers the more
  * specific alternative when both start at the same index (`NOT FOR` is
@@ -73,6 +64,15 @@ const USE_WHEN_TAIL = /\bNOT FOR:?\s+|\bSKIP:\s+|\bNOT\s+/;
  * "cannot") is lowercase and never matches.
  */
 const ANTI_TRIGGER_MARKER = /\bNOT FOR:?\s+|\bSKIP:\s+|\bNOT\s+/;
+
+// Where a USE WHEN clause ends: the first anti-trigger tail. This IS the
+// anti-trigger marker set — an anti-trigger that follows the USE WHEN list must
+// NOT be swept into the derived triggers (extractAntiTriggers surfaces it as the
+// `not:` line instead; double-emitting it in both places would be wrong). Reuses
+// ANTI_TRIGGER_MARKER (declared just above) rather than restating the pattern,
+// so a new anti-trigger marker is added in exactly one place. Safe to share the
+// object: both call sites use non-global `.exec`, which never carries lastIndex.
+const USE_WHEN_TAIL = ANTI_TRIGGER_MARKER;
 
 /**
  * Extract an anti-trigger clause from a skill's description, best-effort.

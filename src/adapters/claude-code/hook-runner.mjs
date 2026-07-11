@@ -148,23 +148,39 @@ function fnv1a32(str) {
   return hash >>> 0;
 }
 
+// A per-call sampling key. Identity (session/source/tool/paths) alone is NOT
+// enough — successive edits to the SAME file in a session would then share one
+// key and one keep/drop decision, so a whole high-volume edit stream would be
+// entirely kept or entirely dropped rather than 1-in-N sampled (Sage review,
+// PR #455). tool_input carries the per-call payload (Edit's old/new strings,
+// Write's body, MultiEdit's edits), which differs between successive edits — so
+// a BOUNDED signature of it (length + head + tail, to avoid hashing a whole
+// large file) makes each distinct call hash independently. Byte-identical calls
+// still collide, which is fine — they carry no new information.
+function toolCallSampleKey(input, source) {
+  const sessionId = input && typeof input.session_id === "string" ? input.session_id : "";
+  const toolName = input && typeof input.tool_name === "string" ? input.tool_name : "";
+  let payload = "";
+  try {
+    payload = input && typeof input.tool_input === "object" ? JSON.stringify(input.tool_input) : "";
+  } catch {
+    payload = "";
+  }
+  const signature = `${payload.length}:${payload.slice(0, 512)}:${payload.slice(-256)}`;
+  return `${sessionId}|${source}|${toolName}|${artifactPaths(input).join(",")}|${signature}`;
+}
+
 // Stateless 1-in-N sampler for the high-volume `writeback.claude_code.tool`
 // event (Sage review, PR #455): the earlier version read+wrote a counter file on
 // EVERY tool call — two blocking FS ops even for the ~90% of calls it then
-// dropped. This derives the keep/drop decision from a hash of the call's own
-// identity instead, so a skipped call touches no disk at all, and there is no
-// shared counter to race across parallel hook processes. Deterministic and
-// replayable (same call → same decision), which is why it is a hash and not
-// Math.random. The rate is statistical (~1/N over distinct calls), not an exact
-// stride — acceptable, since the counter version was already only approximate
-// under concurrency. Same-file re-edits within a session share a key and thus a
-// decision; that is fine for sampling. An identity-less call (no session/tool/
-// path) hashes a constant key — a negligible corner for real tool writebacks.
+// dropped. This derives the keep/drop decision from a hash of the call itself
+// (see toolCallSampleKey), so a skipped call touches no disk at all, there is no
+// shared counter to race across parallel hook processes, and each distinct call
+// is sampled independently. Deterministic and replayable (same call → same
+// decision), which is why it is a hash and not Math.random. The rate is
+// statistical (~1/N over distinct calls), not an exact stride.
 function shouldSampleToolWriteback(input, source) {
-  const sessionId = input && typeof input.session_id === "string" ? input.session_id : "";
-  const toolName = input && typeof input.tool_name === "string" ? input.tool_name : "";
-  const key = `${sessionId}|${source}|${toolName}|${artifactPaths(input).join(",")}`;
-  return fnv1a32(key) % WRITEBACK_TOOL_SAMPLE_RATE === 0;
+  return fnv1a32(toolCallSampleKey(input, source)) % WRITEBACK_TOOL_SAMPLE_RATE === 0;
 }
 
 // Match shared Soma VSA files, legacy PAI VSA files during migration, OR a
