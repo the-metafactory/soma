@@ -4,6 +4,7 @@ import {
   MockSubstrateExecutor,
   REQUIRED_EXECUTION_CONFORMANCE_SCENARIOS,
   isKnownSubstrate,
+  isKnownExecutionSubstrate,
   runExecutionConformance,
   type ExecutionConformanceScenario,
 } from "../src/index";
@@ -40,6 +41,7 @@ function terminalEvents(kind: "execution.completed" | "execution.failed" = "exec
 test("registry distinguishes registered, projection-only, and unknown substrates", () => {
   expect(isKnownSubstrate("codex")).toBe(true);
   expect(isKnownSubstrate("not-a-substrate")).toBe(false);
+  expect(isKnownExecutionSubstrate("anthropic-cowork")).toBe(true);
   const registry = new ExecutorRegistry();
   expect(registry.resolve("cursor")).toEqual({ status: "unsupported", reason: "projection-only", substrate: "cursor" });
   expect(registry.resolve("not-a-substrate")).toEqual({ status: "unsupported", reason: "unknown-substrate", substrate: "not-a-substrate" });
@@ -48,6 +50,9 @@ test("registry distinguishes registered, projection-only, and unknown substrates
   expect(() => registry.register({ executor: mock, conformanceScenarios: REQUIRED_EXECUTION_CONFORMANCE_SCENARIOS.slice(1) })).toThrow("missing required conformance scenarios");
   registry.register({ executor: mock, conformanceScenarios: REQUIRED_EXECUTION_CONFORMANCE_SCENARIOS });
   expect(registry.resolve("codex")).toMatchObject({ status: "ready", executor: mock });
+  const cowork = new MockSubstrateExecutor("anthropic-cowork", {});
+  registry.register({ executor: cowork, conformanceScenarios: REQUIRED_EXECUTION_CONFORMANCE_SCENARIOS });
+  expect(registry.resolve("anthropic-cowork")).toMatchObject({ status: "ready", executor: cowork });
 });
 
 test("deterministic mock executes every shared conformance scenario through the pure kernel", async () => {

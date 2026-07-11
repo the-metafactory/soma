@@ -3,7 +3,7 @@ import { boundedJsonlSummaries, collectProbeOutput, type CommandOutput } from ".
 import { RequestScopedExecutionLifecycle } from "./request-lifecycle";
 import { REQUIRED_EXECUTION_CONFORMANCE_SCENARIOS } from "./conformance";
 import type { RegisteredSubstrateExecutor } from "./registry";
-import type { ExecuteOptions, ExecutionCapabilities, ExecutionProbeOptions, PreparedExecution, SomaExecutionEvent, SomaExecutionRequest, SubstrateExecutor } from "./types";
+import type { CancelOptions, ExecuteOptions, ExecutionCapabilities, ExecutionProbeOptions, PrepareOptions, PreparedExecution, SomaExecutionEvent, SomaExecutionRequest, SubstrateExecutor } from "./types";
 
 export interface CodexCommandResult { exitCode: number; stdout: CommandOutput; stderr: string }
 export interface CodexCommandRunner { run(args: string[], options?: { cwd?: string; input?: string; signal?: AbortSignal }): Promise<CodexCommandResult> }
@@ -32,8 +32,8 @@ export class CodexExecutor implements SubstrateExecutor {
       && /(?:^|\s)-(?:\s|$)/m.test(helpOutput);
     return { substrate: "codex", available, substrateVersion: versionOutput.trim() || undefined, executorVersion: "soma-codex-e3", supportedCapabilities: [], streaming: true, cancellation: "best-effort", approvals: "native", sandbox: "native", sessionLifecycle: [], artifactReporting: false, limitations: available ? ["JSONL is reduced from a bounded chunked stream; artifact parsing is deferred."] : ["Codex exec noninteractive flags are unavailable."] };
   }
-  async prepare(request: SomaExecutionRequest, options?: ExecuteOptions): Promise<PreparedExecution> {
-    const capabilities = await this.probe({ cwd: request.cwd, signal: options?.signal });
+  async prepare(request: SomaExecutionRequest, options?: PrepareOptions): Promise<PreparedExecution> {
+    const capabilities = options?.capabilitySnapshot ?? await this.probe({ cwd: request.cwd, signal: options?.signal });
     if (!capabilities.available) throw Object.assign(new Error("Codex is unavailable."), { code: "substrate-unavailable", summary: "Codex is unavailable.", retryable: true });
     const executionId = `codex-${request.taskId}-${randomUUID()}`;
     return this.lifecycle.prepare(executionId, request, capabilities, this.options.temporaryRoot, "soma-codex-execution-");
@@ -68,8 +68,8 @@ export class CodexExecutor implements SubstrateExecutor {
     if (result.exitCode !== 0) yield { kind: "execution.failed", executionId: prepared.executionId, timestamp: new Date().toISOString(), code: "substrate-exit", summary: "Codex exited unsuccessfully.", retryable: false };
     else yield { kind: "execution.completed", executionId: prepared.executionId, timestamp: new Date().toISOString(), summary: "Codex execution completed." };
   }
-  async cancel(executionId: string): Promise<void> {
-    await this.lifecycle.cancel(executionId);
+  async cancel(executionId: string, options?: CancelOptions): Promise<void> {
+    await this.lifecycle.cancel(executionId, options);
   }
 }
 

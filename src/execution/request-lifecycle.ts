@@ -42,10 +42,11 @@ export class RequestScopedExecutionLifecycle {
     };
   }
 
-  async cancel(executionId: string): Promise<void> {
+  async cancel(executionId: string, options?: { release?: boolean }): Promise<void> {
     this.cancellations.add(executionId);
     this.activeControllers.get(executionId)?.abort();
     await this.cleanup(executionId);
+    if (options?.release === true) this.cancellations.delete(executionId);
   }
 
   private async cleanup(executionId: string): Promise<void> {

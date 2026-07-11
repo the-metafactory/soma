@@ -743,7 +743,7 @@ export async function installClaudeCodeSomaHooks(context: {
     : [];
   const feedbackCaptureFiles = claudeCodeHookEnabled(context.options, "feedbackCapture")
     ? await installClaudeCodeFeedbackCaptureHook(context, config, bunPath)
-    : [];
+    : await unpatchClaudeCodeFeedbackCaptureSettings(context.substrateHome, bunPath);
   // Status line is also default-on; opt out with `statusLine: false`.
   const statusLineFiles = claudeCodeHookEnabled(context.options, "statusLine")
     ? await installClaudeCodeStatusLine(context)
@@ -988,7 +988,7 @@ function renderClaudeCodeFeedbackCaptureHook(): string {
       cwdExpression: "config.trustedSomaRepo",
       somaHomeExpression: "config.somaHome",
       substrate: "claude-code",
-      source: "user-prompt-submit",
+      source: "principal-prompt-submit",
       failureComment: "Feedback capture is best-effort and must never block the prompt.",
     }),
     "",

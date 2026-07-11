@@ -50,6 +50,16 @@ export interface ExecuteOptions {
   signal?: AbortSignal;
 }
 
+/** Preflight facts passed from the kernel to avoid duplicate substrate probes. */
+export interface PrepareOptions extends ExecuteOptions {
+  capabilitySnapshot?: ExecutionCapabilities;
+}
+
+/** Lets the kernel release request-scoped cancellation state when execution ends. */
+export interface CancelOptions {
+  release?: boolean;
+}
+
 /** Stable failures emitted by the core execution boundary. */
 export type SomaExecutionFailureCode =
   | "invalid-request"
@@ -95,7 +105,7 @@ export interface SomaExecutionResult {
 export interface SubstrateExecutor {
   substrate: ProjectionSubstrate;
   probe(options?: ExecutionProbeOptions): Promise<ExecutionCapabilities>;
-  prepare(request: SomaExecutionRequest, options?: ExecuteOptions): Promise<PreparedExecution>;
+  prepare(request: SomaExecutionRequest, options?: PrepareOptions): Promise<PreparedExecution>;
   execute(prepared: PreparedExecution, options?: ExecuteOptions): AsyncIterable<SomaExecutionEvent>;
-  cancel(executionId: string): Promise<void>;
+  cancel(executionId: string, options?: CancelOptions): Promise<void>;
 }

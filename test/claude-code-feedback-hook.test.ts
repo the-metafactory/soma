@@ -67,6 +67,13 @@ describe("claude-code feedback capture hook", () => {
     expect(raw).not.toContain("soma-feedback-capture");
   });
 
+  test("disabling feedback capture removes a previously installed settings command", async () => {
+    const substrateHome = tempHome();
+    await installInto(substrateHome);
+    await installInto(substrateHome, { feedbackCapture: false });
+    expect(readFileSync(resolve(substrateHome, "settings.json"), "utf8")).not.toContain("soma-feedback-capture");
+  });
+
   test("uninstall removes the hook files and the settings entry", async () => {
     const substrateHome = tempHome();
     await installInto(substrateHome);

@@ -3,7 +3,7 @@ import { boundedJsonlSummaries, collectProbeOutput, type CommandOutput } from ".
 import { RequestScopedExecutionLifecycle } from "./request-lifecycle";
 import { REQUIRED_EXECUTION_CONFORMANCE_SCENARIOS } from "./conformance";
 import type { RegisteredSubstrateExecutor } from "./registry";
-import type { ExecuteOptions, ExecutionCapabilities, ExecutionProbeOptions, PreparedExecution, SomaExecutionEvent, SomaExecutionRequest, SubstrateExecutor } from "./types";
+import type { CancelOptions, ExecuteOptions, ExecutionCapabilities, ExecutionProbeOptions, PrepareOptions, PreparedExecution, SomaExecutionEvent, SomaExecutionRequest, SubstrateExecutor } from "./types";
 
 export interface ClaudeCodeCommandResult { exitCode: number; stdout: CommandOutput; stderr: string }
 export interface ClaudeCodeCommandRunner { run(args: string[], options?: { cwd?: string; input?: string; signal?: AbortSignal }): Promise<ClaudeCodeCommandResult> }
@@ -36,8 +36,8 @@ export class ClaudeCodeExecutor implements SubstrateExecutor {
     };
   }
 
-  async prepare(request: SomaExecutionRequest, options?: ExecuteOptions): Promise<PreparedExecution> {
-    const capabilities = await this.probe({ cwd: request.cwd, signal: options?.signal });
+  async prepare(request: SomaExecutionRequest, options?: PrepareOptions): Promise<PreparedExecution> {
+    const capabilities = options?.capabilitySnapshot ?? await this.probe({ cwd: request.cwd, signal: options?.signal });
     if (!capabilities.available) throw Object.assign(new Error("Claude Code is unavailable."), { code: "substrate-unavailable", summary: "Claude Code is unavailable.", retryable: true });
     const executionId = `claude-code-${request.taskId}-${randomUUID()}`;
     return this.lifecycle.prepare(executionId, request, capabilities, this.options.temporaryRoot, "soma-claude-code-execution-");
@@ -71,8 +71,8 @@ export class ClaudeCodeExecutor implements SubstrateExecutor {
     else yield { kind: "execution.completed", executionId: prepared.executionId, timestamp: new Date().toISOString(), summary: "Claude Code execution completed." };
   }
 
-  async cancel(executionId: string): Promise<void> {
-    await this.lifecycle.cancel(executionId);
+  async cancel(executionId: string, options?: CancelOptions): Promise<void> {
+    await this.lifecycle.cancel(executionId, options);
   }
 }
 

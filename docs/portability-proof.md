@@ -57,4 +57,4 @@ This is intentionally not a live behavioral equivalence test. Running the same
 task inside real Codex, Pi.dev, Claude Code, and Cursor sessions is a V2+
 runtime harness because it needs installed hosts, model execution, and
 substrate-specific authentication. It will use separate executor contracts;
-projection-only substrates remain fully supported without a runtime executor.
+projection-only substrates remain fully supported without a `SubstrateExecutor`.

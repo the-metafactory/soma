@@ -207,7 +207,7 @@ export async function runSubstrateExecution(
   const cancel = async () => {
     if (cancelled) return;
     cancelled = true;
-    await executor.cancel(executionId);
+    await executor.cancel(executionId, { release: true });
   };
   const appendEvent = (event: SomaExecutionEvent): void => {
     if (terminal(event)) {
@@ -277,7 +277,7 @@ export async function runSubstrateExecution(
       return fail({ code: "capability-unsupported", summary: `Required capabilities are unavailable: ${unsupportedCapabilities.join(", ")}.`, retryable: false });
     }
 
-    const prepared = await executor.prepare(request, { signal: controller.signal });
+    const prepared = await executor.prepare(request, { signal: controller.signal, capabilitySnapshot: probedCapabilities });
     executionId = prepared.executionId;
     if (!matchesRequest(prepared.request, request) || prepared.capabilitySnapshot.substrate !== request.substrate) {
       return fail({ code: "invalid-request", summary: "Prepared execution does not match the request.", retryable: false });

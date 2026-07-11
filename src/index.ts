@@ -184,6 +184,8 @@ export type {
 
 export type {
   ExecuteOptions,
+  CancelOptions,
+  PrepareOptions,
   ExecutionCapabilities,
   ExecutionProbeOptions,
   PreparedExecution,
@@ -203,7 +205,7 @@ export { MockSubstrateExecutor } from "./execution/mock-executor";
 export type { MockExecutionScript } from "./execution/mock-executor";
 export { REQUIRED_EXECUTION_CONFORMANCE_SCENARIOS, runExecutionConformance } from "./execution/conformance";
 export type { ExecutionConformanceReport, ExecutionConformanceResult, ExecutionConformanceScenario, ExecutionConformanceScenarioId } from "./execution/conformance";
-export { ExecutorRegistry, isKnownSubstrate, KNOWN_SUBSTRATES } from "./execution/registry";
+export { ExecutorRegistry, isKnownExecutionSubstrate, isKnownSubstrate, KNOWN_EXECUTION_SUBSTRATES, KNOWN_SUBSTRATES } from "./execution/registry";
 export type { ExecutorRegistryResolution, RegisteredSubstrateExecutor } from "./execution/registry";
 export { diagnoseExecutionReadiness } from "./adapters/doctor";
 export type { ExecutionReadiness } from "./adapters/doctor";
