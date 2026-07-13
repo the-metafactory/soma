@@ -493,6 +493,13 @@ export {
   runSomaLifecycleSessionStart,
   writeAlgorithmWorkIndex,
 } from "./lifecycle";
+export { repairProjectedArtifacts } from "./projection-self-repair";
+export type {
+  ProjectedArtifact,
+  ProjectionRepairFinding,
+  ProjectionRepairFindingKind,
+  ProjectionRepairResult,
+} from "./projection-self-repair";
 export { captureSomaFeedback, classifySomaFeedback, maybeSomaFeedbackPrompt } from "./feedback";
 export { appendSomaMemoryEvent, searchSomaMemory, somaMemoryEventsPath } from "./memory";
 export { MemoryNoteError, parseMemoryNote, serializeMemoryNote } from "./memory-note";

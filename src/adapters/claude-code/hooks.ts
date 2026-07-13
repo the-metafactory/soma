@@ -1059,8 +1059,14 @@ function renderClaudeCodeFeedbackCaptureHook(): string {
 // (backslash FIRST so we don't double-escape the escapes we add) so the shell
 // reads them literally. A function replacer also avoids `$`-pattern corruption
 // from String.replace's special `$&`/`$1` handling on the replacement side.
-function renderClaudeCodeStatusLineScript(somaHome: string): string {
-  const source = readFileSync(new URL("./statusline.sh", import.meta.url), "utf8");
+let statusLineTemplateCache: string | undefined;
+
+export function renderClaudeCodeStatusLineScript(somaHome: string): string {
+  // Cache the static template: this renderer is called on the SessionStart
+  // projection self-repair path (#460) as a drift oracle, so avoid a blocking
+  // fs read on every healthy session start. The asset never changes at runtime.
+  statusLineTemplateCache ??= readFileSync(new URL("./statusline.sh", import.meta.url), "utf8");
+  const source = statusLineTemplateCache;
   const escaped = somaHome.replace(/[\\"$`]/g, "\\$&");
   const rendered = source.replace("__SOMA_HOME__", () => escaped);
   if (rendered === source) throw new Error("Claude Code status line asset is missing the SOMA_HOME placeholder.");
