@@ -1,6 +1,6 @@
 ---
 name: the-algorithm
-description: "Use when work should run through the Algorithm: current-state to ideal-state, VSA/ISC creation or refinement, effort tiers, seven-phase execution, verification-first planning, euphoric-surprise goals, substantial build/design/refactor/migration work, or explicit Algorithm requests."
+description: "Use when work should run through the Algorithm: current-state to ideal-state, VSA/ISC creation or refinement, effort tiers, seven-phase execution, verification-first planning, substantial build/design/refactor/migration work, or explicit Algorithm requests."
 metadata:
   short-description: Soma Algorithm execution doctrine
 ---
@@ -15,9 +15,6 @@ Prefer the Soma Algorithm harness over freeform execution when it is available. 
 
 - Start with `Workflows/RunAlgorithm.md`.
 - Read `references/algorithm.md` when doctrine detail matters.
-- Read `references/capabilities.md` before selecting thinking or delegation capabilities.
-- Read `references/mode-detection.md` when effort tier, fast-path, ideate, optimize, or research mode is ambiguous.
-- Read `references/parameter-schema.md` for ideate and optimize parameter handling.
 - Treat Claude-specific hooks, voice curls, and Claude Code sub-agents as source history, not portable requirements.
 
 ## Triggers
@@ -28,5 +25,4 @@ Prefer the Soma Algorithm harness over freeform execution when it is available. 
 - ISC
 - verification criteria
 - current state to ideal state
-- euphoric surprise
 - substantial build/design/refactor/migration work
