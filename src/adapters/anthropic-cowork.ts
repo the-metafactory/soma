@@ -5,6 +5,7 @@ import type { Projection, ProjectionInput, SomaAdapter } from "../types";
 import { activeVsaBundleFile, activeVsaProjectionPath } from "../adapter-active-vsa";
 import {
   SOMA_POLICY_PROJECTION_HEADING,
+  SELF_HEALING_DOCTRINE_ADVISORY,
   SOMA_SKILLS_HEADING,
   renderAssistantCore,
   renderPolicyProjection,
@@ -129,6 +130,7 @@ function renderPolicy(): string {
       "Verification reporting",
       "Policy inspection before capture ingestion outside Cowork",
       "Organization-managed Cowork controls outside Soma",
+      ...SELF_HEALING_DOCTRINE_ADVISORY,
     ],
   );
 }

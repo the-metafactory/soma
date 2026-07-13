@@ -24,6 +24,7 @@ import {
   renderPolicyProjection,
   renderSkills,
   renderSubstrateInstructions,
+  SELF_HEALING_DOCTRINE_ADVISORY,
   withProvenance,
 } from "../shared";
 import { readGrokHookAsset } from "./hooks/assets";
@@ -344,6 +345,7 @@ function renderGrokPolicy(): string {
       "Assistant behavior instructions",
       "Verification reporting",
       "Private context handling",
+      ...SELF_HEALING_DOCTRINE_ADVISORY,
     ],
   );
 }

@@ -3,7 +3,7 @@ import { renderFeedbackHookHelper } from "../shared/feedback-helper";
 import { renderPathGuardExtension } from "./path-guard";
 import { renderSomaAlgorithmExtension } from "./extensions/soma-algorithm";
 import { buildPiDevPortableSkillFiles } from "./skill-projection";
-import { projectableSkills, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills, withProvenance } from "../shared";
+import { projectableSkills, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills, SELF_HEALING_DOCTRINE_ADVISORY, withProvenance } from "../shared";
 import { activeVsaBundleFile } from "../../adapter-active-vsa";
 import { SOMA_VERSION } from "../../version";
 
@@ -497,6 +497,7 @@ export function projectPiDev(input: ProjectionInput): Projection {
           "Model-provider behavior",
           "Host permission prompts",
           "Verification reporting",
+          ...SELF_HEALING_DOCTRINE_ADVISORY,
         ]),
       },
       {
@@ -558,6 +559,7 @@ export function projectPiDevHome(input: ProjectionInput, somaHome: string): Proj
             "Model-provider behavior",
             "Host permission prompts",
             "Verification reporting",
+            ...SELF_HEALING_DOCTRINE_ADVISORY,
           ]),
         ),
       },
