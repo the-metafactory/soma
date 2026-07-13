@@ -80,7 +80,7 @@ principal-gated design work last.
 - **Acceptance:** doctrine appears in the claude-code projection; drift test
   asserts single-source (no per-adapter duplication); `bun test` + `tsc` green.
 - **Coordinates with:** #314 (verification policy — same machinery; if #314 lands
-  first, host the doctrine there).
+  first, place the doctrine there).
 
 ### Phase 2 — Projection self-repair  (#460)  [AUTONOMOUS]
 
