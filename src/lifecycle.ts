@@ -401,52 +401,11 @@ export async function runSomaLifecycleSessionStart(options: SomaLifecycleOptions
     });
   }
 
-  // #460: deterministic projection self-repair. Additive, best-effort, and
-  // non-blocking like the memory reproject above: restore a lost exec bit on a
-  // direct-exec projected script (containment-guarded to the substrate home)
-  // and REPORT content drift vs a fresh render. The provider is looked up by
-  // substrate (dependency-inverted; core imports no adapter); a substrate with
-  // no registered provider no-ops. Only claude-code registers one today. A
-  // clean projection emits no event; anything healed/found/refused — or a
-  // failure — logs one observability event, never halting the session.
-  let projectionRepairFiles: string[] = [];
-  try {
-    const repairProvider = projectionRepairProviders.get(startup.substrate);
-    if (repairProvider) {
-      const { substrateHome, artifacts } = repairProvider({ homeDir: options.homeDir, somaHome: startup.somaHome });
-      const repair = await repairProjectedArtifacts({ substrateHome, artifacts });
-      projectionRepairFiles = repair.healed;
-      if (repair.healed.length > 0 || repair.drifted.length > 0 || repair.skipped.length > 0) {
-        await appendSomaMemoryEvent(startup.somaHome, {
-          substrate: startup.substrate,
-          kind: "lifecycle.session_start.projection-repair",
-          summary:
-            `Projection self-repair: ${repair.healed.length} exec-bit restored, ` +
-            `${repair.drifted.length} drifted, ${repair.skipped.length} refused.`,
-          timestamp: startup.timestamp,
-          metadata: {
-            sessionId: startup.sessionId,
-            substrate: startup.substrate,
-            healed: repair.healed,
-            drifted: repair.drifted,
-            skipped: repair.skipped,
-          },
-        });
-      }
-    }
-  } catch (error: unknown) {
-    await appendSomaMemoryEvent(startup.somaHome, {
-      substrate: startup.substrate,
-      kind: "lifecycle.session_start.projection-repair-failed",
-      summary: "Session started; projection self-repair failed.",
-      timestamp: startup.timestamp,
-      metadata: {
-        sessionId: startup.sessionId,
-        substrate: startup.substrate,
-        error: lifecycleErrorMessage(error, startup.somaHome, options.homeDir),
-      },
-    });
-  }
+  // #460: deterministic projection self-repair — best-effort, non-blocking, and
+  // dependency-inverted (looked up by substrate; core imports no adapter). All of
+  // it, including failure reporting, is guarded inside the helper so it can never
+  // halt session start. See repairProjectionAtSessionStart.
+  const projectionRepairFiles = await repairProjectionAtSessionStart(startup, options);
 
   await appendSomaMemoryEvent(startup.somaHome, {
     substrate: startup.substrate,
@@ -842,6 +801,62 @@ const projectionRepairProviders = new Map<SubstrateId, ProjectionRepairProvider>
 /** Register a substrate's projection self-repair provider (see the type doc). */
 export function registerProjectionRepairProvider(substrate: SubstrateId, provider: ProjectionRepairProvider): void {
   projectionRepairProviders.set(substrate, provider);
+}
+
+/**
+ * The #460 projection self-repair step, extracted from runSomaLifecycleSessionStart.
+ * Best-effort and non-blocking: look up the substrate's repair provider
+ * (dependency-inverted; core imports no adapter), repair, and return the healed
+ * file list. EVERY event write — including the failure report — is guarded, so a
+ * throwing append can never halt session start.
+ */
+async function repairProjectionAtSessionStart(
+  startup: SomaStartupContext,
+  options: SomaLifecycleOptions,
+): Promise<string[]> {
+  const repairProvider = projectionRepairProviders.get(startup.substrate);
+  if (!repairProvider) return [];
+  try {
+    const { substrateHome, artifacts } = repairProvider({ homeDir: options.homeDir, somaHome: startup.somaHome });
+    const repair = await repairProjectedArtifacts({ substrateHome, artifacts });
+    if (repair.healed.length > 0 || repair.drifted.length > 0 || repair.skipped.length > 0) {
+      await appendSomaMemoryEvent(startup.somaHome, {
+        substrate: startup.substrate,
+        kind: "lifecycle.session_start.projection-repair",
+        summary:
+          `Projection self-repair: ${repair.healed.length} exec-bit restored, ` +
+          `${repair.drifted.length} drifted, ${repair.skipped.length} refused.`,
+        timestamp: startup.timestamp,
+        metadata: {
+          sessionId: startup.sessionId,
+          substrate: startup.substrate,
+          healed: repair.healed,
+          drifted: repair.drifted,
+          skipped: repair.skipped,
+        },
+      });
+    }
+    return repair.healed;
+  } catch (error: unknown) {
+    // Report the failure — but GUARD the report itself. If the event write throws,
+    // swallow it: even failure reporting must never halt session start.
+    try {
+      await appendSomaMemoryEvent(startup.somaHome, {
+        substrate: startup.substrate,
+        kind: "lifecycle.session_start.projection-repair-failed",
+        summary: "Session started; projection self-repair failed.",
+        timestamp: startup.timestamp,
+        metadata: {
+          sessionId: startup.sessionId,
+          substrate: startup.substrate,
+          error: lifecycleErrorMessage(error, startup.somaHome, options.homeDir),
+        },
+      });
+    } catch {
+      // best-effort: never halt the session.
+    }
+    return [];
+  }
 }
 
 export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions = {}): Promise<SomaLifecycleResult> {

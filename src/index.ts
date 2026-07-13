@@ -500,7 +500,6 @@ export type {
   ProjectionRepairFindingKind,
   ProjectionRepairResult,
 } from "./projection-self-repair";
-export { claudeCodeProjectionRepairArtifacts } from "./adapters/claude-code/projection-self-repair";
 export { captureSomaFeedback, classifySomaFeedback, maybeSomaFeedbackPrompt } from "./feedback";
 export { appendSomaMemoryEvent, searchSomaMemory, somaMemoryEventsPath } from "./memory";
 export { MemoryNoteError, parseMemoryNote, serializeMemoryNote } from "./memory-note";

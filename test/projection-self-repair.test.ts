@@ -12,11 +12,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 import {
-  claudeCodeProjectionRepairArtifacts,
   installSomaForClaudeCode,
   repairProjectedArtifacts,
   runSomaLifecycleSessionStart,
 } from "../src/index";
+// Direct adapter import (not re-exported from the root — it's an adapter-internal
+// descriptor): also loads the module's registerProjectionRepairProvider side effect.
+import { claudeCodeProjectionRepairArtifacts } from "../src/adapters/claude-code/projection-self-repair";
 
 const STATUSLINE_REL = ".claude/hooks/soma/soma-statusline.sh";
 

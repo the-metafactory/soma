@@ -1,5 +1,6 @@
+import { constants } from "node:fs";
 import { createHash } from "node:crypto";
-import { chmod, readFile, realpath, stat } from "node:fs/promises";
+import { open, readFile, realpath } from "node:fs/promises";
 import { isInsidePath } from "./path-utils";
 
 /**
@@ -109,16 +110,33 @@ export async function repairProjectedArtifacts(input: {
     }
 
     if (artifact.directExec) {
-      const info = await stat(real);
-      if ((info.mode & OWNER_EXEC) === 0) {
-        await chmod(real, info.mode | ALL_EXEC);
-        result.healed.push(artifact.path);
-        result.findings.push({
-          kind: "exec-bit-restored",
-          severity: "info",
-          path: artifact.path,
-          message: `Restored the exec bit on a direct-exec projected script: ${artifact.path}.`,
-        });
+      // Operate on an opened HANDLE (fstat + fchmod), not the pathname, so the
+      // mode change binds to the exact inode we containment-checked — a symlink
+      // swapped in after the realpath check cannot redirect the chmod. O_NOFOLLOW
+      // additionally refuses a final-component symlink substituted post-realpath
+      // (real's final component is an already-resolved non-symlink), closing the
+      // check→mutate race.
+      let handle;
+      try {
+        handle = await open(real, constants.O_RDONLY | constants.O_NOFOLLOW);
+      } catch {
+        // Vanished or replaced by a symlink between realpath and open — refuse.
+        continue;
+      }
+      try {
+        const info = await handle.stat();
+        if ((info.mode & OWNER_EXEC) === 0) {
+          await handle.chmod(info.mode | ALL_EXEC);
+          result.healed.push(artifact.path);
+          result.findings.push({
+            kind: "exec-bit-restored",
+            severity: "info",
+            path: artifact.path,
+            message: `Restored the exec bit on a direct-exec projected script: ${artifact.path}.`,
+          });
+        }
+      } finally {
+        await handle.close();
       }
     }
 
