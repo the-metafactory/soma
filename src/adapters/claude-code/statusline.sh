@@ -1,6 +1,6 @@
 #!/bin/bash
 # ─────────────────────────────────────────────────────────────────────────────
-# Soma status line — one compact line, fast (bash+jq+git, no network, no bun).
+# Soma status line — one compact line, fast (bash + jq-or-python + git, no net).
 # Layout:  ⚙E3 task · model · dir ⎇branch● · ctx 38% · 5h 12%⟳2h14 · 7d 41%⟳3d1h
 # Reads Claude Code's stdin JSON + Soma STATE files. Soma state, git, and the
 # usage windows drop when their data is absent; dir and context always render
@@ -31,16 +31,98 @@ sep() { printf '%s · %s' "$SEP" "$RESET"; }
 # which until_str already handles). Portable to bash 3.2 (no mapfile -d).
 input=$(cat)
 US=$'\037'
-IFS="$US" read -r cwd sid model ctx r5 r5r r7 r7r < <(printf '%s' "$input" | jq -j --arg sep "$US" '
-  [ (.workspace.current_dir // .cwd // "."),
-    (.session_id // ""),
-    (.model.display_name // ""),
-    (.context_window.used_percentage // 0 | floor | tostring),
-    (.rate_limits.five_hour.used_percentage // "" | tostring),
-    (.rate_limits.five_hour.resets_at // "" | tostring),
-    (.rate_limits.seven_day.used_percentage // "" | tostring),
-    (.rate_limits.seven_day.resets_at // "" | tostring)
-  ] | join($sep)' 2>/dev/null)
+
+# ── JSON engine (OS/dependency agnostic) ─────────────────────────────────────
+# The rich fields come from Claude Code's stdin JSON. Prefer jq (fast,
+# injection-proof); fall back to python3/python — near-universal on Linux AND
+# macOS, where jq usually is NOT installed by default — so a host without jq
+# still renders mode/model/ctx/windows instead of collapsing to a bare dir+ctx
+# line. With neither engine, the JSON-derived segments drop and dir/git/ctx
+# still render. EVERY engine reads JSON as DATA (stdin / file), never eval'd, so
+# a crafted field cannot inject (see the BLOCKER injection test).
+if   command -v jq      >/dev/null 2>&1; then JSON_ENGINE=jq
+elif command -v python3 >/dev/null 2>&1; then JSON_ENGINE=python3
+elif command -v python  >/dev/null 2>&1; then JSON_ENGINE=python
+else JSON_ENGINE=""; fi
+
+# sl_extract_main — read stdin JSON, print the 8 US-joined top-level fields.
+sl_extract_main() {
+  case "$JSON_ENGINE" in
+    jq)
+      jq -j --arg sep "$US" '
+        [ (.workspace.current_dir // .cwd // "."),
+          (.session_id // ""),
+          (.model.display_name // ""),
+          (.context_window.used_percentage // 0 | floor | tostring),
+          (.rate_limits.five_hour.used_percentage // "" | tostring),
+          (.rate_limits.five_hour.resets_at // "" | tostring),
+          (.rate_limits.seven_day.used_percentage // "" | tostring),
+          (.rate_limits.seven_day.resets_at // "" | tostring)
+        ] | join($sep)' 2>/dev/null ;;
+    python3|python)
+      "$JSON_ENGINE" -c '
+import sys, json, math
+sep = sys.argv[1]
+try: d = json.load(sys.stdin)
+except Exception: d = {}
+def get(path, default=""):
+    o = d
+    for k in path.split("."):
+        if isinstance(o, dict) and o.get(k) is not None: o = o[k]
+        else: return default
+    return o
+def ctxfloor(v):
+    try: return str(int(math.floor(float(v))))
+    except Exception: return "0"
+cwd = get("workspace.current_dir", None) or get("cwd", None) or "."
+fields = [
+    str(cwd),
+    str(get("session_id")),
+    str(get("model.display_name")),
+    ctxfloor(get("context_window.used_percentage", 0)),
+    str(get("rate_limits.five_hour.used_percentage")),
+    str(get("rate_limits.five_hour.resets_at")),
+    str(get("rate_limits.seven_day.used_percentage")),
+    str(get("rate_limits.seven_day.resets_at")),
+]
+sys.stdout.write(sep.join(fields))
+' "$US" 2>/dev/null ;;
+  esac
+}
+
+# sl_extract_pair FILE KEY_A KEY_B — two top-level string keys → US-joined.
+sl_extract_pair() {
+  case "$JSON_ENGINE" in
+    jq) jq -j --arg sep "$US" --arg a "$2" --arg b "$3" '[(.[$a] // ""), (.[$b] // "")] | join($sep)' "$1" 2>/dev/null ;;
+    python3|python)
+      "$JSON_ENGINE" -c '
+import sys, json
+try: d = json.load(open(sys.argv[1]))
+except Exception: d = {}
+sys.stdout.write(sys.argv[4].join([str(d.get(sys.argv[2]) or ""), str(d.get(sys.argv[3]) or "")]))
+' "$1" "$2" "$3" "$US" 2>/dev/null ;;
+  esac
+}
+
+# sl_extract_scalar FILE KEY… — first present top-level key as a scalar.
+sl_extract_scalar() {
+  local f="$1"; shift
+  case "$JSON_ENGINE" in
+    jq) jq -r --arg a "$1" --arg b "$2" '.[$a] // .[$b] // ""' "$f" 2>/dev/null ;;
+    python3|python)
+      "$JSON_ENGINE" -c '
+import sys, json
+try: d = json.load(open(sys.argv[1]))
+except Exception: d = {}
+v = ""
+for k in sys.argv[2:]:
+    if d.get(k) is not None: v = d[k]; break
+sys.stdout.write(str(v))
+' "$f" "$@" 2>/dev/null ;;
+  esac
+}
+
+IFS="$US" read -r cwd sid model ctx r5 r5r r7 r7r < <(printf '%s' "$input" | sl_extract_main)
 cwd="${cwd:-.}"
 ctx="${ctx:-0}"
 
@@ -53,8 +135,9 @@ until_str() {
   if [[ "$ts" =~ ^[0-9]+$ ]]; then
     target="$ts"; [ "${#ts}" -ge 13 ] && target=$((ts/1000))   # epoch (seconds, or ms)
   else
-    target=$(date -j -u -f "%Y-%m-%dT%H:%M:%S" "${ts:0:19}" +%s 2>/dev/null \
-          || date -u -d "${ts:0:19}Z" +%s 2>/dev/null) || return
+    # GNU date (Linux) first, then BSD/macOS `date -j` — whichever the host has.
+    target=$(date -u -d "${ts:0:19}Z" +%s 2>/dev/null \
+          || date -j -u -f "%Y-%m-%dT%H:%M:%S" "${ts:0:19}" +%s 2>/dev/null) || return
   fi
   now=$(date +%s); d=$((target - now))
   [ "$d" -le 0 ] && { printf 'now'; return; }
@@ -100,16 +183,16 @@ out=""
 if [ -n "$sid" ] && [[ "$sid" =~ ^[A-Za-z0-9._-]+$ ]]; then
   smode=""; seff=""
   modefile="$STATE_DIR/statusline-mode-$sid.json"
-  # Only spawn jq when the per-session state file exists (it won't before the
-  # first classifier write, or after cleanup) — keeps the hot path fork-free then.
+  # Only spawn the JSON engine when the per-session state file exists (it won't
+  # before the first classifier write, or after cleanup) — hot path fork-free then.
   if [ -r "$modefile" ]; then
-    IFS="$US" read -r smode seff < <(jq -j --arg sep "$US" '[(.mode // ""), (.effort // "")] | join($sep)' "$modefile" 2>/dev/null)
+    IFS="$US" read -r smode seff < <(sl_extract_pair "$modefile" mode effort)
   fi
 
   task=""
   cw=$(ls -t "$STATE_DIR"/current-work-"$sid"-*.json 2>/dev/null | head -1)
   if [ -n "$cw" ]; then
-    task=$(jq -r '.task // .slug // ""' "$cw" 2>/dev/null)
+    task=$(sl_extract_scalar "$cw" task slug)
     task="${task:0:22}"
   fi
 
