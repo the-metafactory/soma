@@ -6,6 +6,16 @@ import { rewriteSubstrateProjectionContent } from "../../substrate-projection-re
 import { renderSkillRegistryEntry } from "./skill-registry";
 
 export { renderAlgorithmRenderingContract } from "./algorithm-rendering-contract";
+// SelfHealing doctrine (soma#459): single source of the self-healing advisory
+// lines adapters merge into their policy projection. See ../../policy/self-healing-doctrine.
+export {
+  SELF_HEALING_DOCTRINE_ADVISORY,
+  SELF_HEALING_DOCTRINE_PREAMBLE,
+  SELF_HEALING_DOCTRINE_TITLE,
+  SELF_HEALING_ROUTES,
+  renderSelfHealingRoute,
+} from "../../policy/self-healing-doctrine";
+export type { SelfHealingRoute } from "../../policy/self-healing-doctrine";
 export {
   OVERLAY_BEGIN,
   OVERLAY_END,

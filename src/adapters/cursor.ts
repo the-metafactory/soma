@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import type { SomaAdapter, Projection, ProjectionInput } from "../types";
 import { activeVsaBundleFile } from "../adapter-active-vsa";
-import { buildPortableSkillFiles, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills, withProvenance } from "./shared";
+import { buildPortableSkillFiles, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills, SELF_HEALING_DOCTRINE_ADVISORY, withProvenance } from "./shared";
 
 export const CURSOR_RULES_PATH = ".cursorrules";
 export const CURSOR_RULES_BLOCK_BEGIN = "<!-- SOMA_CURSOR_BEGIN -->";
@@ -142,6 +142,7 @@ function renderCursorPolicy(): string {
       "MCP permission prompts when configured",
       "Verification reporting",
       "Private context handling",
+      ...SELF_HEALING_DOCTRINE_ADVISORY,
     ],
   );
 }

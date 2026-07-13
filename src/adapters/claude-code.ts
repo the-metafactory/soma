@@ -1,5 +1,5 @@
 import type { SomaAdapter, Projection, ProjectionInput } from "../types";
-import { buildPortableSkillFiles, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills, withProvenance } from "./shared";
+import { buildPortableSkillFiles, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills, SELF_HEALING_DOCTRINE_ADVISORY, withProvenance } from "./shared";
 import { activeVsaBundleFile } from "../adapter-active-vsa";
 
 // Every `skills/<name>/` file claude-code's home projection emits is a portable
@@ -89,6 +89,7 @@ export function projectClaudeCode(input: ProjectionInput): Projection {
         content: renderPolicyProjection("claude-code", ["Hooks when installed", "Claude Code permission prompts"], [
           "Prompt-level behavior constraints",
           "Verification reporting when hooks are absent",
+          ...SELF_HEALING_DOCTRINE_ADVISORY,
         ]),
       },
       // Active-VSA projection (#37). OMITTED when no active VSA — AC-2.
@@ -173,6 +174,7 @@ function renderClaudePolicy(): string {
       "Prompt-level behavior constraints",
       "Verification reporting when hooks are absent",
       "Treat the active VSA as the verification contract",
+      ...SELF_HEALING_DOCTRINE_ADVISORY,
     ],
   );
 }
