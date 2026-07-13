@@ -3,7 +3,7 @@
  *
  * A deterministic SessionStart pass that (1) restores the exec bit on a
  * projected direct-exec script that lost it, containment-guarded to the
- * substrate home, and (2) reports content drift vs a fresh render. These tests
+ * substrate home, and (2) reports content drift vs a fresh projection. These tests
  * exercise the portable core against the claude-code reference surface (the
  * statusline — the one projection Claude Code execs directly via its shebang).
  */
@@ -50,7 +50,7 @@ test("restores the exec bit on a projected direct-exec script that lost it", asy
     expect(result.healed).toEqual([scriptPath]);
     expect((await stat(scriptPath)).mode & 0o111).not.toBe(0);
     expect(result.findings.some((f) => f.kind === "exec-bit-restored" && f.path === scriptPath)).toBe(true);
-    // Only the mode changed — the bytes still match the fresh render.
+    // Only the mode changed — the bytes still match the fresh projection.
     expect(result.drifted).toEqual([]);
   });
 });

@@ -17,7 +17,7 @@ import { isInsidePath } from "./path-utils";
  *    real path escapes the substrate home (e.g. a symlink pointing outside) is
  *    refused, never chmod'd.
  * 2. drift report — flag an artifact whose on-disk bytes no longer match a
- *    fresh render, by checksum. Reported only; nothing is rewritten here.
+ *    fresh projection, by checksum. Reported only; nothing is rewritten here.
  *
  * A healthy projection produces an empty result (no healed/drifted/skipped, no
  * findings).
@@ -34,7 +34,7 @@ export interface ProjectedArtifact {
    */
   directExec: boolean;
   /**
-   * Fresh in-memory render of the file's expected bytes, when the artifact is a
+   * Fresh in-memory projection of the file's expected bytes, when the artifact is a
    * pure function of its projection inputs. Present ⇒ eligible for drift
    * detection; absent ⇒ exec-bit repair only.
    */
@@ -53,7 +53,7 @@ export interface ProjectionRepairFinding {
 export interface ProjectionRepairResult {
   /** Paths whose exec bit was restored (files modified). */
   healed: string[];
-  /** Paths whose on-disk bytes drifted from the fresh render (reported, not changed). */
+  /** Paths whose on-disk bytes drifted from the fresh projection (reported, not changed). */
   drifted: string[];
   /** Paths refused because they resolve outside the substrate home (never touched). */
   skipped: string[];
@@ -130,7 +130,7 @@ export async function repairProjectedArtifacts(input: {
           kind: "content-drift",
           severity: "warning",
           path: artifact.path,
-          message: `Projected artifact drifted from its fresh render: ${artifact.path}. Run \`soma reproject\` to restore.`,
+          message: `Projected artifact drifted from its fresh projection: ${artifact.path}. Run \`soma reproject\` to restore.`,
         });
       }
     }
