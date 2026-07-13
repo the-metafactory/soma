@@ -111,11 +111,12 @@ export async function repairProjectedArtifacts(input: {
 
     if (artifact.directExec) {
       // Operate on an opened HANDLE (fstat + fchmod), not the pathname, so the
-      // mode change binds to the exact inode we containment-checked — a symlink
-      // swapped in after the realpath check cannot redirect the chmod. O_NOFOLLOW
-      // additionally refuses a final-component symlink substituted post-realpath
-      // (real's final component is an already-resolved non-symlink), closing the
-      // check→mutate race.
+      // mode change binds to the inode we open here rather than re-resolving the
+      // path at chmod time. O_NOFOLLOW refuses a final-component symlink
+      // substituted after the realpath check. This NARROWS the check→mutate race
+      // (it does not fully close it — a parent-component swap between realpath and
+      // open would need per-component openat(2), out of scope for a single-user
+      // substrate home); the realpath containment check above is the primary guard.
       let handle;
       try {
         handle = await open(real, constants.O_RDONLY | constants.O_NOFOLLOW);

@@ -31,6 +31,20 @@ async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> 
   }
 }
 
+interface MemoryEvent {
+  kind: string;
+  metadata: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+/** Parse the Soma memory event log written under a temp home. */
+async function readMemoryEvents(homeDir: string): Promise<MemoryEvent[]> {
+  return (await readFile(join(homeDir, ".soma/memory/STATE/events.jsonl"), "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as MemoryEvent);
+}
+
 function claudeArtifacts(homeDir: string): { substrateHome: string; artifacts: ReturnType<typeof claudeCodeProjectionRepairArtifacts> } {
   const substrateHome = join(homeDir, ".claude");
   return {
@@ -129,10 +143,7 @@ test("session start heals a chmod-644'd statusline and logs an observability eve
     expect((await stat(scriptPath)).mode & 0o111).not.toBe(0);
     expect(start.files).toContain(scriptPath);
 
-    const events = (await readFile(join(homeDir, ".soma/memory/STATE/events.jsonl"), "utf8"))
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line));
+    const events = await readMemoryEvents(homeDir);
     const repair = events.find((event) => event.kind === "lifecycle.session_start.projection-repair");
     expect(repair).toBeDefined();
     expect(repair?.metadata.healed).toContain(scriptPath);
@@ -151,10 +162,7 @@ test("session start emits no projection-repair event when the projection is heal
       timestamp: "2026-07-13T10:00:00.000Z",
     });
 
-    const events = (await readFile(join(homeDir, ".soma/memory/STATE/events.jsonl"), "utf8"))
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line));
+    const events = await readMemoryEvents(homeDir);
     expect(events.some((event) => event.kind.startsWith("lifecycle.session_start.projection-repair"))).toBe(false);
   });
 });
