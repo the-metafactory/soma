@@ -55,9 +55,11 @@ test("SelfHealing doctrine projects into every wired substrate's policy", () => 
 });
 
 test("SelfHealing doctrine originates from the single source module (drift guard)", () => {
-  // (b) The projected lines are the module's — not an adapter's hand-copy. Each
-  // routing line is derived from SELF_HEALING_ROUTES via renderSelfHealingRoute,
-  // so an adapter that restated the rule text with any drift would fail here.
+  // (b) Drift guard: each routing line is rendered from SELF_HEALING_ROUTES via
+  // renderSelfHealingRoute, and that exact rendered text must appear in every
+  // substrate's projection — so a change to the module, or an adapter that
+  // altered the rendered text, fails here. (This enforces no-drift; a verbatim
+  // copy of the identical bytes would still pass — the module stays the source.)
   for (const route of SELF_HEALING_ROUTES) {
     const line = renderSelfHealingRoute(route);
     for (const { name, content } of SUBSTRATE_POLICIES) {
@@ -65,8 +67,8 @@ test("SelfHealing doctrine originates from the single source module (drift guard
     }
   }
 
-  // The whole doctrine block is byte-identical across every substrate — one
-  // source, N projections, zero per-adapter duplication of the rule text.
+  // The whole doctrine block appears byte-identical in every substrate's
+  // projection — so a per-adapter edit to the block's text (drift) fails.
   const block = SELF_HEALING_DOCTRINE_ADVISORY.map((line) => `- ${line}`).join("\n");
   for (const { name, content } of SUBSTRATE_POLICIES) {
     expect(content, `${name} does not contain the single-source doctrine block`).toContain(block);

@@ -2,8 +2,9 @@
 
 > **Canonical source:** `src/adapters/shared/self-healing-doctrine.ts`
 > (`SELF_HEALING_ROUTES` + `SELF_HEALING_DOCTRINE_ADVISORY`). That module is what
-> Soma projects, and a drift test asserts every substrate's policy is
-> byte-derived from it. This file is a human-readable companion — it explains the
+> Soma projects, and a drift test asserts every substrate's projected policy
+> contains the exact block this module renders (so a change to the module, or an
+> adapter that altered the text, fails). This file is a human-readable companion — it explains the
 > doctrine but does **not** restate the projected lines, so there is no second
 > copy to keep in sync.
 
