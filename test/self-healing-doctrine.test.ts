@@ -15,7 +15,7 @@ import {
   SELF_HEALING_DOCTRINE_TITLE,
   SELF_HEALING_ROUTES,
   renderSelfHealingRoute,
-} from "../src/adapters/shared/self-healing-doctrine";
+} from "../src/policy/self-healing-doctrine";
 import { portableProjectionInput } from "./fixtures";
 
 /**

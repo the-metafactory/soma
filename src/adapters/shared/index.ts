@@ -7,15 +7,15 @@ import { renderSkillRegistryEntry } from "./skill-registry";
 
 export { renderAlgorithmRenderingContract } from "./algorithm-rendering-contract";
 // SelfHealing doctrine (soma#459): single source of the self-healing advisory
-// lines adapters merge into their policy projection. See ./self-healing-doctrine.
+// lines adapters merge into their policy projection. See ../../policy/self-healing-doctrine.
 export {
   SELF_HEALING_DOCTRINE_ADVISORY,
   SELF_HEALING_DOCTRINE_PREAMBLE,
   SELF_HEALING_DOCTRINE_TITLE,
   SELF_HEALING_ROUTES,
   renderSelfHealingRoute,
-} from "./self-healing-doctrine";
-export type { SelfHealingRoute } from "./self-healing-doctrine";
+} from "../../policy/self-healing-doctrine";
+export type { SelfHealingRoute } from "../../policy/self-healing-doctrine";
 export {
   OVERLAY_BEGIN,
   OVERLAY_END,
