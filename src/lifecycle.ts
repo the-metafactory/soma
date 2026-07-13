@@ -7,6 +7,9 @@ import { listAlgorithmRunSummaries, listAlgorithmRuns, readAlgorithmRunById, wri
 import { appendAlgorithmProvenance } from "./algorithm-provenance";
 import { appendSomaMemoryEvent } from "./memory";
 import { reprojectSubstrateMemoryProjection } from "./memory-projection-reproject";
+import { repairProjectedArtifacts } from "./projection-self-repair";
+import { claudeCodeProjectionRepairArtifacts } from "./adapters/claude-code/projection-self-repair";
+import { installSpecFor } from "./install-spec-registry";
 import { loadSomaProfile } from "./soma-home";
 import { normalizeSomaWorkRegistryArtifacts, upsertSomaCurrentWorkPointer } from "./work-registry";
 import { SECTION_NAME_MAP, getCriteria, getGoal } from "./vsa-accessors";
@@ -400,6 +403,54 @@ export async function runSomaLifecycleSessionStart(options: SomaLifecycleOptions
     });
   }
 
+  // #460: deterministic projection self-repair. Additive, best-effort, and
+  // non-blocking like the memory reproject above: restore a lost exec bit on a
+  // direct-exec projected script (containment-guarded to the substrate home)
+  // and REPORT content drift vs a fresh render. Only claude-code has a repair
+  // surface today; other substrates yield an empty artifact list and no-op. A
+  // clean projection emits no event; anything healed/found/refused — or a
+  // failure — logs one observability event, never halting the session.
+  let projectionRepairFiles: string[] = [];
+  try {
+    if (startup.substrate === "claude-code") {
+      const substrateHome = resolve(options.homeDir ?? homedir(), installSpecFor("claude-code").defaultHome);
+      const repair = await repairProjectedArtifacts({
+        substrateHome,
+        artifacts: claudeCodeProjectionRepairArtifacts({ substrateHome, somaHome: startup.somaHome }),
+      });
+      projectionRepairFiles = repair.healed;
+      if (repair.healed.length > 0 || repair.drifted.length > 0 || repair.skipped.length > 0) {
+        await appendSomaMemoryEvent(startup.somaHome, {
+          substrate: startup.substrate,
+          kind: "lifecycle.session_start.projection-repair",
+          summary:
+            `Projection self-repair: ${repair.healed.length} exec-bit restored, ` +
+            `${repair.drifted.length} drifted, ${repair.skipped.length} refused.`,
+          timestamp: startup.timestamp,
+          metadata: {
+            sessionId: startup.sessionId,
+            substrate: startup.substrate,
+            healed: repair.healed,
+            drifted: repair.drifted,
+            skipped: repair.skipped,
+          },
+        });
+      }
+    }
+  } catch (error: unknown) {
+    await appendSomaMemoryEvent(startup.somaHome, {
+      substrate: startup.substrate,
+      kind: "lifecycle.session_start.projection-repair-failed",
+      summary: "Session started; projection self-repair failed.",
+      timestamp: startup.timestamp,
+      metadata: {
+        sessionId: startup.sessionId,
+        substrate: startup.substrate,
+        error: lifecycleErrorMessage(error, startup.somaHome, options.homeDir),
+      },
+    });
+  }
+
   await appendSomaMemoryEvent(startup.somaHome, {
     substrate: startup.substrate,
     kind: "lifecycle.session_start",
@@ -416,7 +467,7 @@ export async function runSomaLifecycleSessionStart(options: SomaLifecycleOptions
     event: "session_start",
     somaHome: startup.somaHome,
     timestamp: startup.timestamp,
-    files: Array.from(new Set([...registryFiles, eventsPath, ...(memoryProjectedFile ? [memoryProjectedFile] : [])])),
+    files: Array.from(new Set([...registryFiles, eventsPath, ...(memoryProjectedFile ? [memoryProjectedFile] : []), ...projectionRepairFiles])),
     context: startup.context,
     activeVsa: active === null ? null : { slug: active.slug, phase: active.isa.frontmatter.phase },
   };

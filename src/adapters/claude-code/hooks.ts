@@ -1059,7 +1059,7 @@ function renderClaudeCodeFeedbackCaptureHook(): string {
 // (backslash FIRST so we don't double-escape the escapes we add) so the shell
 // reads them literally. A function replacer also avoids `$`-pattern corruption
 // from String.replace's special `$&`/`$1` handling on the replacement side.
-function renderClaudeCodeStatusLineScript(somaHome: string): string {
+export function renderClaudeCodeStatusLineScript(somaHome: string): string {
   const source = readFileSync(new URL("./statusline.sh", import.meta.url), "utf8");
   const escaped = somaHome.replace(/[\\"$`]/g, "\\$&");
   const rendered = source.replace("__SOMA_HOME__", () => escaped);
