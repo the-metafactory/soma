@@ -12,6 +12,9 @@ import { parseSubstrate } from "./substrate";
 // imports the adapter). Side-effect import; the symbol itself is not used here.
 import "../adapters/claude-code/session-digest";
 import "../adapters/codex/session-digest";
+// Registers claude-code's projection self-repair provider (soma#460) — same
+// dependency inversion; core looks it up by substrate and never imports it.
+import "../adapters/claude-code/projection-self-repair";
 
 export interface ParsedLifecycleArgs {
   command: "lifecycle";

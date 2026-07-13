@@ -7,9 +7,7 @@ import { listAlgorithmRunSummaries, listAlgorithmRuns, readAlgorithmRunById, wri
 import { appendAlgorithmProvenance } from "./algorithm-provenance";
 import { appendSomaMemoryEvent } from "./memory";
 import { reprojectSubstrateMemoryProjection } from "./memory-projection-reproject";
-import { repairProjectedArtifacts } from "./projection-self-repair";
-import { claudeCodeProjectionRepairArtifacts } from "./adapters/claude-code/projection-self-repair";
-import { installSpecFor } from "./install-spec-registry";
+import { repairProjectedArtifacts, type ProjectedArtifact } from "./projection-self-repair";
 import { loadSomaProfile } from "./soma-home";
 import { normalizeSomaWorkRegistryArtifacts, upsertSomaCurrentWorkPointer } from "./work-registry";
 import { SECTION_NAME_MAP, getCriteria, getGoal } from "./vsa-accessors";
@@ -406,18 +404,17 @@ export async function runSomaLifecycleSessionStart(options: SomaLifecycleOptions
   // #460: deterministic projection self-repair. Additive, best-effort, and
   // non-blocking like the memory reproject above: restore a lost exec bit on a
   // direct-exec projected script (containment-guarded to the substrate home)
-  // and REPORT content drift vs a fresh render. Only claude-code has a repair
-  // surface today; other substrates yield an empty artifact list and no-op. A
+  // and REPORT content drift vs a fresh render. The provider is looked up by
+  // substrate (dependency-inverted; core imports no adapter); a substrate with
+  // no registered provider no-ops. Only claude-code registers one today. A
   // clean projection emits no event; anything healed/found/refused — or a
   // failure — logs one observability event, never halting the session.
   let projectionRepairFiles: string[] = [];
   try {
-    if (startup.substrate === "claude-code") {
-      const substrateHome = resolve(options.homeDir ?? homedir(), installSpecFor("claude-code").defaultHome);
-      const repair = await repairProjectedArtifacts({
-        substrateHome,
-        artifacts: claudeCodeProjectionRepairArtifacts({ substrateHome, somaHome: startup.somaHome }),
-      });
+    const repairProvider = projectionRepairProviders.get(startup.substrate);
+    if (repairProvider) {
+      const { substrateHome, artifacts } = repairProvider({ homeDir: options.homeDir, somaHome: startup.somaHome });
+      const repair = await repairProjectedArtifacts({ substrateHome, artifacts });
       projectionRepairFiles = repair.healed;
       if (repair.healed.length > 0 || repair.drifted.length > 0 || repair.skipped.length > 0) {
         await appendSomaMemoryEvent(startup.somaHome, {
@@ -826,6 +823,25 @@ const sessionEndTranscriptHandlers = new Map<SubstrateId, SessionEndTranscriptHa
 /** Register a substrate's SessionEnd transcript-digest fallback (see the type doc). */
 export function registerSessionEndTranscriptHandler(substrate: SubstrateId, handler: SessionEndTranscriptHandler): void {
   sessionEndTranscriptHandlers.set(substrate, handler);
+}
+
+/**
+ * A substrate-registered projection self-repair provider (soma#460). Same
+ * dependency INVERSION as the transcript handler above: core owns the neutral
+ * SessionStart repair step and looks the provider up by substrate, so core never
+ * imports an adapter. The provider resolves its own substrate home and returns
+ * the artifact descriptors to repair.
+ */
+export type ProjectionRepairProvider = (input: {
+  homeDir?: string;
+  somaHome: string;
+}) => { substrateHome: string; artifacts: readonly ProjectedArtifact[] };
+
+const projectionRepairProviders = new Map<SubstrateId, ProjectionRepairProvider>();
+
+/** Register a substrate's projection self-repair provider (see the type doc). */
+export function registerProjectionRepairProvider(substrate: SubstrateId, provider: ProjectionRepairProvider): void {
+  projectionRepairProviders.set(substrate, provider);
 }
 
 export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions = {}): Promise<SomaLifecycleResult> {

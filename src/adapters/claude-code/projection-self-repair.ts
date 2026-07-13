@@ -1,4 +1,7 @@
+import { homedir } from "node:os";
 import { resolve } from "node:path";
+import { installSpecFor } from "../../install-spec-registry";
+import { registerProjectionRepairProvider } from "../../lifecycle";
 import { SOMA_CLAUDE_STATUSLINE_RELATIVE_PATH, renderClaudeCodeStatusLineScript } from "./hooks";
 import type { ProjectedArtifact } from "../../projection-self-repair";
 
@@ -29,3 +32,14 @@ export function claudeCodeProjectionRepairArtifacts(input: {
     },
   ];
 }
+
+/**
+ * Register claude-code's projection self-repair provider (soma#460). The core
+ * SessionStart step looks this up by substrate, so core imports no adapter (the
+ * same dependency inversion as the SessionEnd transcript handler). Loaded for
+ * its side effect via `src/cli/lifecycle.ts`.
+ */
+registerProjectionRepairProvider("claude-code", ({ homeDir, somaHome }) => {
+  const substrateHome = resolve(homeDir ?? homedir(), installSpecFor("claude-code").defaultHome);
+  return { substrateHome, artifacts: claudeCodeProjectionRepairArtifacts({ substrateHome, somaHome }) };
+});
