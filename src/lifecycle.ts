@@ -415,12 +415,12 @@ export async function runSomaLifecycleSessionStart(options: SomaLifecycleOptions
   // so it never halts session start and needs no dependency-inverted provider (its
   // sources are core, not adapter-owned). When the trees are empty it returns "",
   // and we inject nothing (clean no-op). The digest rides the SAME SessionStart
-  // context channel as the startup context: it is appended to `context`, which the
-  // lifecycle CLI prints. Adapters that surface that stdout (codex/grok, as
-  // `additionalContext` / a projected startup-context file) pick it up; the
-  // claude-code SessionStart hook currently runs the lifecycle detached and
-  // discards stdout, so it does NOT surface this live yet (a pre-existing gap,
-  // tracked as a follow-up — see the PR).
+  // context channel as the startup context: it is appended to `context` (the
+  // lifecycle return, which this file's tests assert). WHETHER a given substrate
+  // then surfaces that context to the model is the substrate hook's concern, not
+  // this core path — and it is NOT uniform: the claude-code SessionStart hook
+  // currently runs the lifecycle detached and discards stdout, so it does not
+  // surface this live yet (a pre-existing gap, tracked as a follow-up — see the PR).
   const learningReadback = await buildLearningReadback({
     somaHome: startup.somaHome,
     now: new Date(startup.timestamp),

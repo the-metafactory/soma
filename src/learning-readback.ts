@@ -31,7 +31,7 @@
  * Distinct from #403 (per-prompt memory-NOTE recall): this is the LEARNING/wisdom
  * tree assembled once at session start.
  */
-import { readFile, readdir } from "node:fs/promises";
+import { open, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { listRecentAlgorithmRuns } from "./algorithm-store";
 import { buildReflectionDigest, type ReflectionForDigest } from "./algorithm-reflection-digest";
@@ -119,6 +119,30 @@ function sanitizeUntrusted(text: string, maxLen = 200): string {
 function inWindow(timestamp: string, cutoff: Date): boolean {
   const when = new Date(timestamp);
   return !Number.isNaN(when.getTime()) && when >= cutoff;
+}
+
+/**
+ * Read at most the last `maxBytes` of a file — a bounded TAIL read, not a
+ * whole-file load — dropping a partial leading line when the window starts
+ * mid-file. Used for the append-only ratings log so session-start cost doesn't
+ * grow with all history.
+ */
+async function readFileTail(path: string, maxBytes: number): Promise<string> {
+  const handle = await open(path, "r");
+  try {
+    const { size } = await handle.stat();
+    const start = size > maxBytes ? size - maxBytes : 0;
+    const length = size - start;
+    if (length === 0) return "";
+    const buffer = Buffer.alloc(length);
+    await handle.read(buffer, 0, length, start);
+    const text = buffer.toString("utf8");
+    if (start === 0) return text;
+    const firstNewline = text.indexOf("\n");
+    return firstNewline >= 0 ? text.slice(firstNewline + 1) : "";
+  } finally {
+    await handle.close();
+  }
 }
 
 /**
@@ -304,19 +328,15 @@ export async function buildLearningReadback(options: LearningReadbackOptions): P
     const maxChars = options.maxChars ?? DEFAULT_MAX_CHARS;
     const paths = createPaths({ somaHome: options.somaHome });
 
-    const ratingsRaw = await readFile(paths.ratings(), "utf8").catch(() => "");
+    // Bounded TAIL read: ratings.jsonl is append-only + chronological, so the
+    // current + prior windows sit at the end. Read only the last N bytes (this
+    // bounds both read memory AND parse), not the whole unbounded log. 256 KiB is
+    // ~2.5k rating lines — far more than any two-window count.
+    const ratingsRaw = await readFileTail(paths.ratings(), 256 * 1024).catch(() => "");
     let ratings: Rating[] = [];
     if (ratingsRaw.trim().length > 0) {
       try {
-        // Bound the parse to the recent tail: ratings.jsonl is append-only and
-        // chronological, so the current + prior windows sit near the end. Parsing
-        // all history would grow startup cost with the whole rating log; the tail
-        // cap far exceeds any realistic two-window count. (Streaming the file
-        // rather than reading it whole would also bound the read memory — follow-up.)
-        const lines = ratingsRaw.trim().split("\n");
-        const RATINGS_TAIL = 5000;
-        const tail = lines.length > RATINGS_TAIL ? lines.slice(-RATINGS_TAIL) : lines;
-        ratings = parseRatingsJsonl(tail.join("\n"));
+        ratings = parseRatingsJsonl(ratingsRaw);
       } catch {
         ratings = [];
       }
