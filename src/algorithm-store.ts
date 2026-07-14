@@ -253,53 +253,51 @@ export function summarizeAlgorithmRun(run: AlgorithmRun, path: string): Algorith
   };
 }
 
-export async function listAlgorithmRuns(options: AlgorithmStoreOptions = {}): Promise<{ path: string; run: AlgorithmRun }[]> {
-  const runsDir = resolveAlgorithmRunsDir(options);
+/**
+ * Shared run-listing plumbing: discover `<id>.json` run files under `runsDir`,
+ * optionally keep only those an async `accept(path)` predicate admits, read the
+ * survivors, and return them newest-first by updatedAt. Any change to run-file
+ * discovery / read / sort semantics lives here once.
+ */
+async function loadRunsFromDir(
+  runsDir: string,
+  accept?: (path: string) => Promise<boolean>,
+): Promise<{ path: string; run: AlgorithmRun }[]> {
   const entries = await readdir(runsDir, { withFileTypes: true }).catch(() => []);
-  const runs = await Promise.all(
-    entries
-      .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
-      .map(async (entry) => {
-        const path = join(runsDir, entry.name);
-        return {
-          path,
-          run: await readAlgorithmRun(path),
-        };
-      }),
-  );
-
+  const jsonPaths = entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+    .map((entry) => join(runsDir, entry.name));
+  const kept = accept
+    ? (await Promise.all(jsonPaths.map(async (path) => ((await accept(path)) ? path : undefined)))).filter(
+        (path): path is string => path !== undefined,
+      )
+    : jsonPaths;
+  const runs = await Promise.all(kept.map(async (path) => ({ path, run: await readAlgorithmRun(path) })));
   return runs.sort((a, b) => b.run.updatedAt.localeCompare(a.run.updatedAt));
+}
+
+export async function listAlgorithmRuns(options: AlgorithmStoreOptions = {}): Promise<{ path: string; run: AlgorithmRun }[]> {
+  return loadRunsFromDir(resolveAlgorithmRunsDir(options));
 }
 
 /**
  * Like {@link listAlgorithmRuns} but bounded to runs last modified on/after `since`,
  * using file mtime as a cheap recency PREFILTER (a stat, not a read) so hot-path
  * callers (e.g. the SessionStart learning readback) don't pay full-history read
- * I/O. mtime approximates last-write: a run whose file has not been written since
- * `since` cannot carry in-window content, so it is skipped without being read. The
- * prefilter only ever over-includes (never drops a run written in-window), so a
- * precise per-item timestamp filter downstream stays correct.
+ * I/O. This is a HEURISTIC: it assumes mtime tracks last-write (true for normal
+ * append/rewrite paths — false if a file is touched/copied with a preserved or
+ * reset mtime). It is designed to over-include rather than drop — the precise
+ * per-item timestamp filter downstream is authoritative — but a run whose mtime
+ * was pushed older than its content would be skipped, so callers that require a
+ * hard guarantee should use {@link listAlgorithmRuns} + filter instead.
  */
 export async function listRecentAlgorithmRuns(
   options: AlgorithmStoreOptions & { since: Date },
 ): Promise<{ path: string; run: AlgorithmRun }[]> {
-  const runsDir = resolveAlgorithmRunsDir(options);
-  const entries = await readdir(runsDir, { withFileTypes: true }).catch(() => []);
-  const recentPaths = await Promise.all(
-    entries
-      .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
-      .map(async (entry) => {
-        const path = join(runsDir, entry.name);
-        const info = await stat(path).catch(() => undefined);
-        return info !== undefined && info.mtime >= options.since ? path : undefined;
-      }),
-  );
-  const runs = await Promise.all(
-    recentPaths
-      .filter((path): path is string => path !== undefined)
-      .map(async (path) => ({ path, run: await readAlgorithmRun(path) })),
-  );
-  return runs.sort((a, b) => b.run.updatedAt.localeCompare(a.run.updatedAt));
+  return loadRunsFromDir(resolveAlgorithmRunsDir(options), async (path) => {
+    const info = await stat(path).catch(() => undefined);
+    return info !== undefined && info.mtime >= options.since;
+  });
 }
 
 export async function listAlgorithmRunSummaries(options: AlgorithmStoreOptions = {}): Promise<AlgorithmRunSummary[]> {

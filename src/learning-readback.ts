@@ -110,7 +110,10 @@ function sanitizeUntrusted(text: string, maxLen = 200): string {
     .replace(/\s+/g, " ")
     .replace(/^[#>*`|-]+\s*/, "")
     .trim();
-  return oneLine.length > maxLen ? `${oneLine.slice(0, maxLen)}…` : oneLine;
+  const capped = oneLine.length > maxLen ? `${oneLine.slice(0, maxLen)}…` : oneLine;
+  // Return an inert JSON string literal (quoted, with any inner quotes escaped),
+  // so an embedded directive reads as data, not a heading/command, once surfaced.
+  return JSON.stringify(capped);
 }
 
 function inWindow(timestamp: string, cutoff: Date): boolean {
@@ -120,9 +123,10 @@ function inWindow(timestamp: string, cutoff: Date): boolean {
 
 /**
  * Recent failures from `memory/LEARNING/FAILURES/<month>/<slug>/sentiment.json`.
- * Only real subdirectories are descended into — `Dirent.isDirectory()` is false
- * for symlinks, so a symlinked entry cannot redirect the walk outside the
- * FAILURES tree (containment defence-in-depth on top of createPaths' root guard).
+ * Child entries are descended only when `Dirent.isDirectory()` is true (false for
+ * a symlink), so a symlinked month/slug cannot redirect the per-child walk. This
+ * is per-child only — the FAILURES root itself is not independently lstat'd here;
+ * it is trusted via createPaths' somaHome root guard.
  */
 async function readRecentFailures(root: string, cutoff: Date, limit: number): Promise<RecentFailure[]> {
   const failuresRoot = join(root, "FAILURES");
@@ -304,7 +308,15 @@ export async function buildLearningReadback(options: LearningReadbackOptions): P
     let ratings: Rating[] = [];
     if (ratingsRaw.trim().length > 0) {
       try {
-        ratings = parseRatingsJsonl(ratingsRaw);
+        // Bound the parse to the recent tail: ratings.jsonl is append-only and
+        // chronological, so the current + prior windows sit near the end. Parsing
+        // all history would grow startup cost with the whole rating log; the tail
+        // cap far exceeds any realistic two-window count. (Streaming the file
+        // rather than reading it whole would also bound the read memory — follow-up.)
+        const lines = ratingsRaw.trim().split("\n");
+        const RATINGS_TAIL = 5000;
+        const tail = lines.length > RATINGS_TAIL ? lines.slice(-RATINGS_TAIL) : lines;
+        ratings = parseRatingsJsonl(tail.join("\n"));
       } catch {
         ratings = [];
       }
