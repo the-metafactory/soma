@@ -79,6 +79,20 @@ async function snapshotTree(root: string): Promise<Record<string, string>> {
   return snapshot;
 }
 
+interface MemoryEvent {
+  kind: string;
+  metadata: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+/** Parse the Soma memory event log written under a temp home. */
+async function readEvents(somaHome: string): Promise<MemoryEvent[]> {
+  return (await readFile(join(somaHome, "memory/STATE/events.jsonl"), "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as MemoryEvent);
+}
+
 test("assembles the expected digest from seeded LEARNING/wisdom/ratings/reflection fixtures", async () => {
   await withTempHome(async (_homeDir, somaHome) => {
     await seedFailure(somaHome, {
@@ -224,10 +238,7 @@ test("wiring: the digest reaches the SessionStart context output", async () => {
     expect(start.context).toContain("## Learning Readback");
     expect(start.context).toContain("readback-reached-session-start");
 
-    const events = (await readFile(join(somaHome, "memory/STATE/events.jsonl"), "utf8"))
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line));
+    const events = await readEvents(somaHome);
     const sessionStart = events.find((event) => event.kind === "lifecycle.session_start");
     expect(sessionStart?.metadata.learningReadbackChars).toBeGreaterThan(0);
   });
@@ -246,10 +257,7 @@ test("wiring no-op: SessionStart injects no readback when the trees are empty", 
 
     expect(start.context).not.toContain("## Learning Readback");
 
-    const events = (await readFile(join(somaHome, "memory/STATE/events.jsonl"), "utf8"))
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line));
+    const events = await readEvents(somaHome);
     const sessionStart = events.find((event) => event.kind === "lifecycle.session_start");
     expect(sessionStart?.metadata.learningReadbackChars).toBe(0);
   });

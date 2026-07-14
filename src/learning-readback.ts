@@ -33,7 +33,7 @@
  */
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { listAlgorithmRuns } from "./algorithm-store";
+import { listRecentAlgorithmRuns } from "./algorithm-store";
 import { buildReflectionDigest, type ReflectionForDigest } from "./algorithm-reflection-digest";
 import { createPaths } from "./paths";
 import { parseRatingsJsonl } from "./tools/learning/pattern-synthesis";
@@ -142,34 +142,41 @@ async function readRecentFailures(root: string, cutoff: Date, limit: number): Pr
     }
   }
 
-  // Read the (bounded) candidates' sentiment.json in parallel, not serially.
-  const parsed = await Promise.all(
-    candidates.map(async ({ dir, name }): Promise<RecentFailure | undefined> => {
-      const raw = await readFile(join(dir, "sentiment.json"), "utf8").catch(() => "");
-      if (!raw) return undefined;
-      let value: unknown;
-      try {
-        value = JSON.parse(raw);
-      } catch {
-        return undefined;
-      }
-      if (!isRecord(value)) return undefined;
-      const capturedAt = typeof value.captured_at === "string" ? value.captured_at : undefined;
-      if (capturedAt === undefined || !inWindow(capturedAt, cutoff)) return undefined;
-      const summaryRaw = typeof value.summary === "string" ? value.summary.trim() : "";
-      return {
-        capturedAt,
-        summary: summaryRaw.length > 0 ? summaryRaw : name,
-        ...(typeof value.rating === "number" ? { rating: value.rating } : {}),
-      };
-    }),
-  );
+  // Newest-first by slug name (`<date>-<time>_...`) so we can STOP after `limit`
+  // in-window failures rather than reading a busy month's entire backlog. Read in
+  // small concurrent batches — not one giant parallel burst, not fully serial.
+  candidates.sort((a, b) => b.name.localeCompare(a.name));
+  const failures: RecentFailure[] = [];
+  const BATCH = 8;
+  for (let start = 0; start < candidates.length && failures.length < limit; start += BATCH) {
+    const batch = await Promise.all(
+      candidates.slice(start, start + BATCH).map(async ({ dir, name }): Promise<RecentFailure | undefined> => {
+        const raw = await readFile(join(dir, "sentiment.json"), "utf8").catch(() => "");
+        if (!raw) return undefined;
+        let value: unknown;
+        try {
+          value = JSON.parse(raw);
+        } catch {
+          return undefined;
+        }
+        if (!isRecord(value)) return undefined;
+        const capturedAt = typeof value.captured_at === "string" ? value.captured_at : undefined;
+        if (capturedAt === undefined || !inWindow(capturedAt, cutoff)) return undefined;
+        const summaryRaw = typeof value.summary === "string" ? value.summary.trim() : "";
+        return {
+          capturedAt,
+          summary: summaryRaw.length > 0 ? summaryRaw : name,
+          ...(typeof value.rating === "number" ? { rating: value.rating } : {}),
+        };
+      }),
+    );
+    for (const failure of batch) {
+      if (failure !== undefined) failures.push(failure);
+    }
+  }
 
-  // Newest first — sort on the authoritative captured_at, not the file name.
-  return parsed
-    .filter((failure): failure is RecentFailure => failure !== undefined)
-    .sort((a, b) => b.capturedAt.localeCompare(a.capturedAt))
-    .slice(0, limit);
+  // Sort on the authoritative captured_at (name order only approximates it).
+  return failures.sort((a, b) => b.capturedAt.localeCompare(a.capturedAt)).slice(0, limit);
 }
 
 /** All ratings whose timestamp falls inside the freshness window. */
@@ -222,12 +229,13 @@ async function readVerifiedPrinciples(root: string, minConfidence: number, limit
  * --digest` cannot drift.
  */
 async function readTopReflections(somaHome: string, cutoff: Date, limit: number): Promise<string[]> {
-  // listAlgorithmRuns returns runs newest-first (by updatedAt); a run's updatedAt
-  // is >= its reflection timestamps, so once a run is older than the window every
-  // later run is too — stop collecting there instead of scanning all history.
-  // (The listing itself still reads all run files; a bounded recent-runs store API
-  // would cap that I/O too and is the proper follow-up — tracked in the PR.)
-  const runs = await listAlgorithmRuns({ somaHome }).catch(() => [] as Awaited<ReturnType<typeof listAlgorithmRuns>>);
+  // listRecentAlgorithmRuns bounds the READ to runs modified within the window
+  // (an mtime prefilter — no full-history read I/O), returned newest-first. A
+  // run's updatedAt is >= its reflection timestamps, so the early-break below
+  // skips anything older still.
+  const runs = await listRecentAlgorithmRuns({ somaHome, since: cutoff }).catch(
+    () => [] as Awaited<ReturnType<typeof listRecentAlgorithmRuns>>,
+  );
   const collected: ReflectionForDigest[] = [];
   for (const { run } of runs) {
     if (new Date(run.updatedAt) < cutoff) break;
@@ -241,7 +249,9 @@ async function readTopReflections(somaHome: string, cutoff: Date, limit: number)
     .slice(0, limit)
     .map((entry) => {
       const gateNote = entry.gate ? `gate-miss ×${entry.gateMissCount}` : "no gate yet";
-      return `${entry.label} — ${gateNote}, ${entry.signalCount} signal(s) across ${entry.runCount} run(s)`;
+      // Reflection labels are captured from prior sessions — sanitize like the
+      // other untrusted sources before this reaches SessionStart context.
+      return `${sanitizeUntrusted(entry.label)} — ${gateNote}, ${entry.signalCount} signal(s) across ${entry.runCount} run(s)`;
     });
 }
 
@@ -300,14 +310,21 @@ export async function buildLearningReadback(options: LearningReadbackOptions): P
       }
     }
 
+    // Per-source isolation: one source throwing must not discard the others'
+    // valid signal (the outer catch is only the last resort). Each read is
+    // already internally guarded; the .catch here makes that a hard guarantee.
     const [failures, principles, reflections] = await Promise.all([
-      readRecentFailures(paths.learning(), cutoff, options.maxFailures ?? DEFAULT_MAX_FAILURES),
+      readRecentFailures(paths.learning(), cutoff, options.maxFailures ?? DEFAULT_MAX_FAILURES).catch(
+        () => [] as RecentFailure[],
+      ),
       readVerifiedPrinciples(
         paths.wisdom(),
         options.minPrincipleConfidence ?? DEFAULT_MIN_PRINCIPLE_CONFIDENCE,
         options.maxPrinciples ?? DEFAULT_MAX_PRINCIPLES,
+      ).catch(() => [] as VerifiedPrinciple[]),
+      readTopReflections(options.somaHome, cutoff, options.maxReflections ?? DEFAULT_MAX_REFLECTIONS).catch(
+        () => [] as string[],
       ),
-      readTopReflections(options.somaHome, cutoff, options.maxReflections ?? DEFAULT_MAX_REFLECTIONS),
     ]);
 
     const lowRatings = windowRatings(ratings, cutoff)

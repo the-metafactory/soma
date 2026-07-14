@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type {
@@ -268,6 +268,37 @@ export async function listAlgorithmRuns(options: AlgorithmStoreOptions = {}): Pr
       }),
   );
 
+  return runs.sort((a, b) => b.run.updatedAt.localeCompare(a.run.updatedAt));
+}
+
+/**
+ * Like {@link listAlgorithmRuns} but bounded to runs last modified on/after `since`,
+ * using file mtime as a cheap recency PREFILTER (a stat, not a read) so hot-path
+ * callers (e.g. the SessionStart learning readback) don't pay full-history read
+ * I/O. mtime approximates last-write: a run whose file has not been written since
+ * `since` cannot carry in-window content, so it is skipped without being read. The
+ * prefilter only ever over-includes (never drops a run written in-window), so a
+ * precise per-item timestamp filter downstream stays correct.
+ */
+export async function listRecentAlgorithmRuns(
+  options: AlgorithmStoreOptions & { since: Date },
+): Promise<{ path: string; run: AlgorithmRun }[]> {
+  const runsDir = resolveAlgorithmRunsDir(options);
+  const entries = await readdir(runsDir, { withFileTypes: true }).catch(() => []);
+  const recentPaths = await Promise.all(
+    entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+      .map(async (entry) => {
+        const path = join(runsDir, entry.name);
+        const info = await stat(path).catch(() => undefined);
+        return info !== undefined && info.mtime >= options.since ? path : undefined;
+      }),
+  );
+  const runs = await Promise.all(
+    recentPaths
+      .filter((path): path is string => path !== undefined)
+      .map(async (path) => ({ path, run: await readAlgorithmRun(path) })),
+  );
   return runs.sort((a, b) => b.run.updatedAt.localeCompare(a.run.updatedAt));
 }
 
