@@ -111,6 +111,7 @@ memory/
   KNOWLEDGE/
   LEARNING/
   RELATIONSHIP/
+  WISDOM/          # verified cross-frame principles + frames (`soma wisdom …`); read at session start by the learning readback (#458)
   STATE/           # events.jsonl lives here
   semantic/<id>.md   # memory-note subsystem (M0–M7): durable facts   (dedup-gated)
   procedural/<id>.md #   playbooks / how-to                            (dedup-gated)

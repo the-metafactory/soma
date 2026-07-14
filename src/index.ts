@@ -493,6 +493,8 @@ export {
   runSomaLifecycleSessionStart,
   writeAlgorithmWorkIndex,
 } from "./lifecycle";
+export { buildLearningReadback } from "./learning-readback";
+export type { LearningReadbackOptions } from "./learning-readback";
 export { repairProjectedArtifacts } from "./projection-self-repair";
 export type {
   ProjectedArtifact,

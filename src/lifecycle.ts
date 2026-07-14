@@ -5,6 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { listAlgorithmRunSummaries, listAlgorithmRuns, readAlgorithmRunById, writeAlgorithmRun } from "./algorithm-store";
 import { appendAlgorithmProvenance } from "./algorithm-provenance";
+import { buildLearningReadback } from "./learning-readback";
 import { appendSomaMemoryEvent } from "./memory";
 import { reprojectSubstrateMemoryProjection } from "./memory-projection-reproject";
 import { repairProjectedArtifacts, type ProjectedArtifact } from "./projection-self-repair";
@@ -407,6 +408,25 @@ export async function runSomaLifecycleSessionStart(options: SomaLifecycleOptions
   // halt session start. See repairProjectionAtSessionStart.
   const projectionRepairFiles = await repairProjectionAtSessionStart(startup, options);
 
+  // #458: deterministic session-start learning readback. It READS soma's own
+  // LEARNING/wisdom/ratings/reflection trees (all substrate-neutral, under
+  // somaHome) and assembles a bounded, freshness-windowed digest — mutating
+  // nothing. buildLearningReadback is itself fail-open (returns "" on any error),
+  // so it never halts session start and needs no dependency-inverted provider (its
+  // sources are core, not adapter-owned). When the trees are empty it returns "",
+  // and we inject nothing (clean no-op). The digest rides the SAME SessionStart
+  // context channel as the startup context: it is appended to `context` (the
+  // lifecycle return, which this file's tests assert). WHETHER a given substrate
+  // then surfaces that context to the model is the substrate hook's concern, not
+  // this core path — and it is NOT uniform: the claude-code SessionStart hook
+  // currently runs the lifecycle detached and discards stdout, so it does not
+  // surface this live yet (a pre-existing gap, tracked as a follow-up — see the PR).
+  const learningReadback = await buildLearningReadback({
+    somaHome: startup.somaHome,
+    now: new Date(startup.timestamp),
+  });
+  const context = learningReadback.length > 0 ? `${startup.context}\n\n${learningReadback}` : startup.context;
+
   await appendSomaMemoryEvent(startup.somaHome, {
     substrate: startup.substrate,
     kind: "lifecycle.session_start",
@@ -416,6 +436,10 @@ export async function runSomaLifecycleSessionStart(options: SomaLifecycleOptions
       sessionId: startup.sessionId,
       activeRuns: startup.activeRuns.map((run) => run.id),
       activeVsaSlug: active?.slug ?? null,
+      // Observability only — records the digest SIZE, not its content, and writes
+      // no new artifact (this event.jsonl append happens at session start
+      // regardless). 0 when the readback was a clean no-op.
+      learningReadbackChars: learningReadback.length,
     },
   });
 
@@ -424,7 +448,7 @@ export async function runSomaLifecycleSessionStart(options: SomaLifecycleOptions
     somaHome: startup.somaHome,
     timestamp: startup.timestamp,
     files: Array.from(new Set([...registryFiles, eventsPath, ...(memoryProjectedFile ? [memoryProjectedFile] : []), ...projectionRepairFiles])),
-    context: startup.context,
+    context,
     activeVsa: active === null ? null : { slug: active.slug, phase: active.isa.frontmatter.phase },
   };
 }
