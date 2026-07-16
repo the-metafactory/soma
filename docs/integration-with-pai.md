@@ -1,5 +1,7 @@
 # Migrating from PAI to Soma
 
+> **See also:** [Reference runbook: untangling a live PAI install into Soma](pai-to-soma-untangling-runbook.md) — the field companion to this document: operation ordering, verification gates, and the traps observed on a real live installation (staged homes, reproject-after-migration, skill projection).
+
 This walkthrough takes a Personal AI Infrastructure (PAI) install and
 projects it into a substrate-portable Soma store at `~/.soma/`. It is
 the principal-facing companion to the four-issue canonical migration
