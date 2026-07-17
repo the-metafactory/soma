@@ -18,7 +18,7 @@ Use this workflow to execute the portable Algorithm inside any substrate.
 ## Seven Phases
 
 1. OBSERVE: restate intent, identify current state, choose VSA home, draft problem/goal/criteria.
-2. THINK: refine assumptions, split vague criteria, select thinking capabilities from the closed list.
+2. THINK: refine assumptions, split vague criteria, select thinking capabilities.
 3. PLAN: map criteria to implementation steps, capabilities, dependencies, and verification probes.
 4. BUILD: create or modify artifacts while updating criteria when reality sharpens the ideal state.
 5. EXECUTE: run the concrete steps and keep criteria state current.
@@ -63,10 +63,6 @@ Prefer `algorithm batch` when recording routine decision/change/step/verify/lear
 - E3 Advanced: substantial multi-file or multi-step work; include project-grade sections.
 - E4 Deep: architecture/doctrine/cross-cutting work; all twelve VSA sections.
 - E5 Comprehensive: long-running comprehensive work; all twelve sections plus interview/refinement before build.
-
-## Closed Thinking Capability Names
-
-When naming thinking capabilities, use names verbatim from `references/capabilities.md`. Do not invent synonyms.
 
 ## Substrate Adaptation
 
