@@ -13,6 +13,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [0.14.0] - 2026-07-26
+
+### Added
+- **Portable substrate executors + execution kernel hardening (#454)** — substrate
+  membership centralised, kernel admission and output bounds hardened, prepared-request
+  values validated, preflight work cancellable, and probe/terminal failures normalised
+  so a failed probe reports as a failure rather than an ambiguous result.
+- **SelfHealing doctrine across all substrates (#459, #464)** — a uniform policy for
+  what a substrate repairs on its own versus what it escalates.
+- **Projection self-repair at session start (#460, #465)** — a drifted or partially
+  written projection is detected and repaired when a session begins, instead of being
+  discovered later as confusing behaviour.
+- **Session-start readback of the learning signal (#458, #466)** — what was learned is
+  read back at session start rather than only written.
+- **Loop-closure T1–T6 + Sage-review hardening (#455)**.
+
+### Changed
+- **Statusline made OS- and dependency-agnostic (#457)** — no longer assumes a
+  particular platform or installed tooling.
+
+### Fixed
+- **Runtime policy: match signal, not presence (#472)** — three detector rules fired on
+  the mere *appearance* of a token rather than on evidence of intent, blocking ordinary
+  correct work. `env-egress` matched the English words `set`/`export`/`env` anywhere in
+  prose (so "the same set" was denied) and now requires shell **command position** on
+  quote-stripped text; the secret-egress rule now requires an attached value (`=`/`:`)
+  or a variable reference rather than a bare topic word; and the prompt heuristics now
+  weigh **polarity**, so a sentence *refusing* to do the unsafe thing ("never disable
+  the guard") is no longer flagged harder than one requesting it.
+
+  Both directions are pinned by tests — every attack shape still fires, and the
+  legitimate shapes no longer do. The motivating argument is that **a noisy control is a
+  disabled control**: a detector with a bad false-positive rate does not degrade to
+  "annoying", it degrades to *bypassed*, and usually silently. The general rule is
+  written up in `compass/standards/detector-precision.md`.
+
 ## [0.13.0] - 2026-07-09
 
 ### Added
