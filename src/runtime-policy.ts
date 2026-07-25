@@ -69,6 +69,53 @@ const DEFAULT_PERMISSION_SENSITIVE_PATH_PATTERNS = [
 
 const INLINE_INTERPRETER_PATTERN = /\b(?:python|python3|node|ruby|perl|bun)\s+-(?:c|e)\b/u;
 
+/**
+ * Signal, not presence.
+ *
+ * These heuristics used to fire on the mere APPEARANCE of a keyword, which
+ * cannot distinguish talking ABOUT security from ASKING to defeat it. Measured
+ * on real security-engineering prose, 4 of 10 legitimate sentences tripped
+ * `security-disable-request` — including "I did not bypass the hook", "never
+ * disable the guard", and "do not remove the policy check". That profile is
+ * self-defeating: it fires hardest on sentences stating the CORRECT stance, so
+ * the more carefully the work is done, the more it is blocked.
+ *
+ * Two narrowings, applied together:
+ *   - POLARITY: a negator shortly before the verb inverts the meaning.
+ *   - FORM: only the bare imperative/infinitive is a request. Inflected forms
+ *     ("disables", "was disabled", "the disabled branch", "bypassing") are
+ *     descriptions of a system, not instructions to the assistant.
+ *
+ * Both keep every attack phrasing flagged — see the regression tests.
+ */
+const NEGATION_WINDOW = 40;
+const NEGATOR_PATTERN =
+  /\b(?:not|never|n't|without|refus\w*|declin\w*|avoid\w*|cannot|instead of|rather than)\b/u;
+
+/** True when `verb` at `index` is negated by something shortly before it. */
+function isNegated(text: string, index: number): boolean {
+  return NEGATOR_PATTERN.test(text.slice(Math.max(0, index - NEGATION_WINDOW), index));
+}
+
+/**
+ * Match `verbPattern` (bare forms only) followed by `targetPattern` within
+ * `window` chars, rejecting negated occurrences. Returns false when the phrase
+ * is a description or a refusal rather than a request.
+ */
+function hasUnnegatedRequest(
+  normalized: string,
+  verbPattern: RegExp,
+  targetPattern: RegExp,
+  window = 60,
+): boolean {
+  const verb = new RegExp(verbPattern.source, "gu");
+  for (let m = verb.exec(normalized); m !== null; m = verb.exec(normalized)) {
+    if (isNegated(normalized, m.index)) continue;
+    if (targetPattern.test(normalized.slice(m.index, m.index + m[0].length + window))) return true;
+  }
+  return false;
+}
+
 const COMMON_SECURITY_CONFIG_KEYS = [
   "hooks",
   "permissions",
@@ -111,13 +158,25 @@ function inspectPrompt(prompt: string): RuntimePolicyFinding[] {
   const findings: RuntimePolicyFinding[] = [];
   const normalized = prompt.toLowerCase();
 
-  if (/\b(disable|turn off|bypass|remove)\b.{0,60}\b(soma\s+)?(security|policy|guard|hook)s?\b/u.test(normalized)) {
+  if (
+    hasUnnegatedRequest(
+      normalized,
+      /\b(?:disable|turn off|bypass|remove)\b/u,
+      /\b(?:soma\s+)?(?:security|policy|guard|hook)s?\b/u,
+    )
+  ) {
     findings.push(finding("security-disable-request", "high", "Prompt asks to disable or bypass Soma runtime policy.", PROMPT_INSPECTOR_ID));
   }
   if (/\b(ignore|override)\s+(all\s+)?(previous|prior|system|developer)\s+instructions\b/u.test(normalized)) {
     findings.push(finding("instruction-override", "high", "Prompt attempts to override higher-priority instructions.", PROMPT_INSPECTOR_ID));
   }
-  if (/\b(reveal|print|dump|exfiltrate|leak|steal)\b.{0,60}\b(private memory|secret|token|credential|private key)\b/u.test(normalized)) {
+  if (
+    hasUnnegatedRequest(
+      normalized,
+      /\b(?:reveal|print|dump|exfiltrate|leak|steal)\b/u,
+      /\b(?:private memory|secret|token|credential|private key)s?\b/u,
+    )
+  ) {
     findings.push(finding("data-exfiltration-intent", "high", "Prompt requests private memory or credential disclosure.", PROMPT_INSPECTOR_ID));
   }
   if (/\b(jailbreak|do anything now|roleplay as|pretend to be unrestricted)\b/u.test(normalized)) {
@@ -298,8 +357,30 @@ function inspectToolCall(options: RuntimePolicyInspectOptions): RuntimePolicyFin
   const config = commandConfig(options);
   const normalized = command.toLowerCase();
   const hasOutboundIntent = commandHasOutboundIntent(command, config);
-  const hasEnvDump = /\b(printenv|env|export|set)\b/u.test(normalized);
-  const hasCredentialTerm = /\b(secret|token|credential|api[_-]?key|private[_ -]?key|password)\b/u.test(normalized);
+  // `printenv`/`env`/`export`/`set` are COMMANDS — they only dump the
+  // environment in command position (start, or after | ; && || $( ` newline).
+  // Matching the bare word anywhere flagged ordinary English: a Discord post
+  // containing "the same set" or "we export the data" scored as env-egress.
+  // Quoted literals are stripped first, because a command name inside quotes is
+  // an argument being passed, never a command being run.
+  const unquoted = normalized.replace(/'[^']*'/gu, " '' ").replace(/"[^"]*"/gu, ' "" ');
+  const hasEnvDump = /(?:^|[|;&]|\$\(|`|\n)\s*(?:printenv|env|export|set)\b/u.test(unquoted);
+  // A credential term is only egress when a VALUE is attached to it
+  // (`token=…`, `"password":…`, `api_key: …`). Naming the word is not egress —
+  // "the credential-egress policy blocked it" and a fixture path named
+  // `/tmp/x/secret/y` both used to trip this. Quoted content is still scanned,
+  // because a real payload (`curl -d '{"password":"…"}'`) lives inside quotes.
+  //
+  // Two shapes attach a VALUE to a credential term, and both count:
+  //   1. an assignment / key   — `token=…`, `"password":…`, `api_key: …`
+  //   2. a variable reference  — `$SECRET_TOKEN`, `${API_KEY}`, `%TOKEN%`
+  // Shape 2 is not optional: `echo $SECRET_TOKEN | rclone rcat remote:x` is
+  // real egress and the existing regression test rightly demands it be caught.
+  // Prose says "secret"; neither shape appears in prose.
+  const CREDENTIAL_TERM = String.raw`(?:secret|token|credential|api[_-]?key|private[_ -]?key|password)s?`;
+  const hasCredentialTerm =
+    new RegExp(String.raw`\b${CREDENTIAL_TERM}\b["']?\s*[:=]`, "u").test(normalized) ||
+    new RegExp(String.raw`[$%]\{?[a-z0-9_]*${CREDENTIAL_TERM}[a-z0-9_]*\}?`, "u").test(normalized);
 
   findings.push(...inspectConfiguredPatternRules(command, config));
   findings.push(...inspectSegmentedCommand(command, options, somaHome, config));
