@@ -166,13 +166,18 @@ test("session-start records the lifecycle event even when current-work pointer w
   });
 });
 
-test("pi.dev home projection refreshes the current-work pointer at session and prompt boundaries", () => {
+test("pi.dev home projection refreshes the current-work pointer at session boundaries", () => {
   const projection = projectPiDevHome(portableProjectionInput, "/tmp/soma-home");
   const extension = projection.files.find((file) => file.path === "agent/extensions/soma.ts")?.content ?? "";
 
-  expect(extension).toContain('runSomaLifecycle("session-start", sessionId)');
+  expect(extension).toContain('runSomaLifecycleAsync("session-start", sessionId)');
   expect(extension).toContain('pi.on("session_start"');
   expect(extension).toContain('pi.on("before_agent_start"');
-  expect(extension).toContain("const startupContext = refreshStartupContext(sessionId(ctx));");
-  expect(extension).toContain('runSomaLifecycle("session-end", sessionId)');
+  expect(extension).toContain('runSomaLifecycleAsync("session-end", sessionId)');
+
+  // soma#475: the per-PROMPT refresh is deliberately gone. before_agent_start
+  // used to re-run the whole session-start lifecycle on every message (1-3s of
+  // blocking I/O); it now reads the value cached at session_start.
+  expect(extension).not.toContain("const startupContext = refreshStartupContext(sessionId(ctx));");
+  expect(extension).toContain("cachedStartupContext = await refreshStartupContext(sessionId(ctx));");
 });
