@@ -283,7 +283,7 @@ explicit writeback gates with deterministic merge rules.
 **Discussion:** `/grill-with-docs` session 2026-05-28, checked against
 `~/work/PAI/Releases/v5.0.0`.
 
-### DD-16: Soma adopts a typed work-graph primitive; the tracker is its authoritative store
+### DD-16: Soma adopts a typed work graph primitive; the tracker is its authoritative store
 
 **Status:** Decided (2026-08-02)
 
@@ -295,13 +295,16 @@ the model inside node interiors (runtime owns topology); scaffolding that
 survives model upgrades is verification, environment, and data plumbing;
 Soma's own telemetry shows determinism paid off exactly where it read facts
 the agent couldn't author and hurt as unconsumed ceremony (2026-07 event-log
-mining: hollow-pass rate 0.23% where gates read external facts, 89% of events
-had no reader —
-[r4](https://github.com/the-metafactory/soma/blob/research/graph-of-work/Plans/research/graph-of-work/r4-soma-internal-telemetry.md));
+mining, both arms: hollow-pass rate 0.23% where gates read external facts,
+versus ceremony gates with zero consumption — the loop ran 0×, capability
+selection was theater, 89% of events had no reader —
+[r4](https://github.com/the-metafactory/soma/blob/1ed2b8a057c9dc47388b979bdb72e0cb74d2e644/Plans/research/graph-of-work/r4-soma-internal-telemetry.md));
 and of the five inventoried in-stack hosts, none offers dependency edges,
 claim semantics, tamper-resistant receipts, and an unforgeable HITL gate at
 once
-([r5](https://github.com/the-metafactory/soma/blob/research/graph-of-work/Plans/research/graph-of-work/r5-execution-host-inventory.md)).
+([r5](https://github.com/the-metafactory/soma/blob/1ed2b8a057c9dc47388b979bdb72e0cb74d2e644/Plans/research/graph-of-work/r5-execution-host-inventory.md)).
+(Evidence links are commit-pinned; the `research/graph-of-work` branch is the
+corpus home and should be retained or archived, not deleted.)
 
 Three candidates surfaced (#484):
 - **(a) New typed primitive in core** — nodes + blocking edges, checkpoint-gated.
@@ -321,11 +324,13 @@ with soma-home exists. Core enforces only the autonomy axis
 (`auto`/`propose`/`approve`, floor-clamped, tighten-free / loosen-most-gated,
 #485); work-kinds stay consumer doctrine. First host: issue tracker + Claude
 Code harness with a machine-account identity split (#486). The execution
-story's *mechanics* (frontier/claim/close over tracker issues, proposal-comment
-ratification verified via the reactions API) were validated by an end-to-end
-walk of the map itself (#492); the identity split itself is **not yet built** —
-the walk ran under the principal's shared credentials in explicitly degraded
-mode, so it validates the story, not the split. The primitive merges only together
+story's *mechanics* (frontier/claim/close over tracker issues; the
+proposal-comment receipt flow with reaction authorship read from the API) were
+exercised by an end-to-end walk of the map itself (#492). Two claims the walk
+could **not** make: the identity split is not yet built, and with proposer and
+ratifier the same identity, ratification was exercised as a workflow, not
+validated as a gate — both wait on the machine account. The walk ran in
+explicitly degraded mode and validates the story, not the split. The primitive merges only together
 with its first consumer, the **orienteer** skill (#487). Full spec:
 `docs/work-graph.md`.
 
@@ -342,10 +347,14 @@ with its first consumer, the **orienteer** skill (#487). Full spec:
   only for callers going through `soma graph close` (bypass is visible, not
   prevented), but the typed contract is the precondition for the phase-2
   auditor that closes that gap — (c) has no path to it at all.
-- Alternative hosts: soma-native walker daemon (HITL gate needs a
-  principal-held signing channel that doesn't exist), cortex (no dependency
-  edges on the wire — right federation path later, wrong first consumer),
-  blackboard (agent-writable SQLite fails every gate-reality property).
+- Alternative hosts: soma-native walker daemon — its HITL gate needs a
+  principal-held signing channel that doesn't exist *and has no cheap path to
+  exist* (the tracker host has the same gap today but closes it with one
+  machine account, spec §5.1; a local signing channel would be new
+  infrastructure), and local enforcement risks the agent-writable-tree
+  anti-pattern; cortex (no dependency edges on the wire — right federation
+  path later, wrong first consumer); blackboard (agent-writable SQLite fails
+  every gate-reality property).
 
 **Implications:**
 - `docs/algorithm-execution-modes.md` FeatureRegistry rule updated to the

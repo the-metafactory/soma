@@ -168,4 +168,7 @@ extend `AlgorithmPlanStep` and the Algorithm CLI surface rather than adding a
 parallel registry. *Cross-session* effort topology is a different scope and
 belongs to the work graph (`docs/work-graph.md`): a plan step may carry an
 optional `nodeId` reference to a work-graph node and then derives its status
-from that node — one work item never has two authoritative homes.
+from that node — one work item never has two authoritative homes. The
+invariant is enforced at the runner, not assumed: `updateAlgorithmPlanStep`
+must refuse a direct status write on a bridged step (see
+`docs/work-graph.md` §2.7).

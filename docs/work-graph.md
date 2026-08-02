@@ -70,7 +70,13 @@ type Probe =
   | { type: "url"; target: string; expectStatus: number }
   | { type: "git"; ref: string; expect: "exists"; repo?: string }
   | { type: "git"; ref: string; expect: "merged-into"; target: string; repo?: string }
-  | { type: "artifact"; path: string; atRef?: string; repo?: string }; // file exists at ref
+  | { type: "artifact"; path: string; expect: "exists"; atRef?: string; repo?: string };
+
+interface NodeBudget {          // deterministic circuit breaker (§3.3)
+  tokens?: number;
+  agentInvocations?: number;
+  wallClockMin?: number;
+}
 ```
 
 Probe lifecycle follows the algorithm-runner P1 lesson: evidence is typed
@@ -85,12 +91,20 @@ No other edge types in v1 (ceremony guard — no consumer exists for them).
 ### 2.4 Frontier and claim
 
 - **Frontier** = open ∧ unassigned ∧ all blockers closed. The frontier verb
-  confirms every search hit by direct fetch before reporting it — tracker
-  search indexes lag (#492 correction 3).
-- **Claim** = assignee set to the executing identity, written **before any
-  work**. GitHub offers no compare-and-swap, so the claim verb re-reads
-  assignees after writing and backs off if it lost the race (#492
-  correction 2).
+  confirms every search hit by direct fetch before reporting it, removing
+  false positives from lagging tracker search indexes (#492 correction 3).
+  False *negatives* — nodes a lagging index omits entirely — are not
+  recoverable this way: the frontier is advisory and may return short,
+  self-healing on a later tick. Correctness never rests on frontier
+  completeness; it rests on the claim and close gates.
+- **Claim** = the executing identity becoming the node's **sole** assignee,
+  written **before any work**. GitHub offers no compare-and-swap, so the
+  claim verb re-reads assignees after writing; if the re-read shows more than
+  one assignee, the deterministic tie-break applies — the assignee whose
+  login sorts first lexicographically holds the claim, every other claimant
+  removes itself (#492 correction 2). All racers compute the same rule over
+  the same eventual assignee set, so the race converges to one holder without
+  coordination.
 
 ### 2.5 GraphStore seam
 
@@ -144,7 +158,10 @@ phase 1; the phase-2 auditor (§5) makes it detected.
 
 `planSteps[]` stays the within-run execution checklist. A plan step may carry
 an optional `nodeId` reference and then **derives its status from the node** —
-one work item never has two authoritative homes. The FeatureRegistry rule in
+one work item never has two authoritative homes. This is a contract on the
+Algorithm runner, not just prose: `updateAlgorithmPlanStep` MUST refuse a
+direct status write on a bridged step (status arrives only by re-deriving
+from the node). The FeatureRegistry rule in
 `docs/algorithm-execution-modes.md` is correspondingly narrowed to "no
 parallel work registry **at the same scope**" (#484).
 
