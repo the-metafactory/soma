@@ -183,7 +183,8 @@ test("builds pi.dev home projection bundle for default availability", () => {
   expect(projection.bundle.files.find((file) => file.path === "agent/extensions/soma.ts")?.content).toContain("session_shutdown");
   expect(projection.bundle.files.find((file) => file.path === "agent/extensions/soma.ts")?.content).toContain("resources_discover");
   expect(projection.bundle.files.find((file) => file.path === "agent/extensions/soma.ts")?.content).toContain("soma_context");
-  expect(projection.bundle.files.find((file) => file.path === "agent/extensions/soma.ts")?.content).toContain("runSomaClassification");
+  // soma#475: classification is projected in-process, not shelled out.
+  expect(projection.bundle.files.find((file) => file.path === "agent/extensions/soma.ts")?.content).toContain("classifyAlgorithmPrompt");
   expect(projection.bundle.files.find((file) => file.path === "agent/extensions/soma.ts")?.content).toContain("Soma: ${label}");
   expect(projection.bundle.files.find((file) => file.path === "agent/extensions/soma.ts")?.content).not.toContain("Operating requirement");
   expect(projection.bundle.files.find((file) => file.path === "agent/extensions/soma.ts")?.content).toContain("soma_memory_promote");
@@ -542,7 +543,8 @@ test("installs pi.dev home projection into a substrate home", async () => {
     expect(extension).toContain("soma_context");
     expect(extension).toContain("startup_context");
     expect(extension).toContain("algorithm_work_index");
-    expect(extension).toContain("runSomaClassification");
+    // soma#475: classification is projected in-process, not shelled out.
+    expect(extension).toContain("classifyAlgorithmPrompt");
     expect(extension).toContain("Soma: ${label}");
     expect(extension).not.toContain("Operating requirement");
     expect(extension).toContain("soma_memory_promote");

@@ -1563,7 +1563,8 @@ test("installs soma source home and pi.dev home projection", async () => {
     expect(extension).toContain("startup_context");
     expect(extension).toContain("Soma: ${label}");
     expect(extension).not.toContain("Operating requirement");
-    expect(extension).toContain("runSomaClassification");
+    // soma#475: classification is projected in-process, not shelled out.
+    expect(extension).toContain("classifyAlgorithmPrompt");
     expect(extension).toContain("captureSomaFeedback");
     expect(extension).toContain("--stdin");
     expect(extension).toContain('spawn("bun"');
