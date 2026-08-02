@@ -39,9 +39,11 @@ interface WorkGraphNodeBase {
                          // assigned by the store — never caller-supplied
   title: string;
   kind?: string;         // free-form doctrine tag (e.g. research, grilling);
-                         // consumers interpret it, the runtime never does —
-                         // but stores it normalized: trimmed, lowercased,
-                         // non-empty (else rejected)
+                         // consumers interpret the VALUE, the runtime never
+                         // does — but createNode validation normalizes it:
+                         // absent kind is accepted; a present kind is stored
+                         // trimmed + lowercased, and rejected if it trims
+                         // to empty
   checkpointId?: string; // the checkpoint whose completion gate closes this
                          // node; may attach after creation, but close REFUSES
                          // while it is absent — required-by-close invariant
@@ -56,9 +58,12 @@ interface NodeBudget {   // deterministic circuit breaker (§3.3)
 
 type WorkGraphNode =
   | (WorkGraphNodeBase & { autonomy: "auto"; probes: [Probe, ...Probe[]] })
-    // non-empty by type; creation additionally REJECTS an `auto` node whose
-    // probes array is empty — zero probes would mean zero machine-checkable
-    // evidence at close (§1 clause 1)
+    // the tuple type only guards TS literal-construction sites; the
+    // AUTHORITATIVE barrier is createNode's validation at the store
+    // boundary, which rejects an `auto` node with zero probes regardless
+    // of caller typing (JSON/store-returned data is never trusted by cast)
+    // — zero probes would mean zero machine-checkable evidence at close
+    // (§1 clause 1)
   | (WorkGraphNodeBase & { autonomy: "propose" | "approve"; probes?: Probe[] });
 ```
 
@@ -78,18 +83,21 @@ a machine-checkable expectation:
 ```ts
 type Probe =
   | { type: "command"; run: string; cwd?: string; timeoutSec: number; expectExit: number }
-    // timeout expiry IS probe failure — a hanging command never blocks close
+    // the probe runner MUST treat timeout expiry as probe failure (spec
+    // obligation on the future runner, not a shipped property) so a
+    // hanging command cannot block the close path
   | { type: "url"; target: string; expectStatus: number }
   | { type: "git"; ref: string; expect: "exists"; repo?: string }
   | { type: "git"; ref: string; expect: "merged-into"; into: string; repo?: string }
   | { type: "artifact"; path: string; expect: "exists"; atRef?: string; repo?: string };
 
-interface ProbeResult {          // stored with the node's checkpoint record (§5)
-  probe: Probe;
-  state: "specified" | "probed"; // the P1 evidence-typing distinction
-  observed?: string;             // recorded output (exit code, status, sha…)
-  at?: string;                   // ISO timestamp of execution
-}
+type ProbeResult =               // stored with the node's checkpoint record (§5)
+  | { probe: Probe; state: "specified" }              // declared, not yet run
+  | { probe: Probe; state: "probed";                  // run — output REQUIRED:
+      observed: string;          // for command: exit code + bounded stdout/
+                                 // stderr tail; for url: status; for git/
+                                 // artifact: resolved sha / path presence
+      at: string };              // ISO timestamp of execution
 ```
 
 Probe lifecycle follows the algorithm-runner P1 lesson — self-declared
