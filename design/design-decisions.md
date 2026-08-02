@@ -294,9 +294,14 @@ practice. Five research tickets (#478–#482) established: the field quarantines
 the model inside node interiors (runtime owns topology); scaffolding that
 survives model upgrades is verification, environment, and data plumbing;
 Soma's own telemetry shows determinism paid off exactly where it read facts
-the agent couldn't author and hurt as unconsumed ceremony; and no existing
-host offers dependency edges, claim semantics, tamper-resistant receipts, and
-an unforgeable HITL gate at once.
+the agent couldn't author and hurt as unconsumed ceremony (2026-07 event-log
+mining: hollow-pass rate 0.23% where gates read external facts, 89% of events
+had no reader —
+[r4](https://github.com/the-metafactory/soma/blob/research/graph-of-work/Plans/research/graph-of-work/r4-soma-internal-telemetry.md));
+and of the five inventoried in-stack hosts, none offers dependency edges,
+claim semantics, tamper-resistant receipts, and an unforgeable HITL gate at
+once
+([r5](https://github.com/the-metafactory/soma/blob/research/graph-of-work/Plans/research/graph-of-work/r5-execution-host-inventory.md)).
 
 Three candidates surfaced (#484):
 - **(a) New typed primitive in core** — nodes + blocking edges, checkpoint-gated.
@@ -315,8 +320,12 @@ authoritative store for topology, claims, and status (#491); no sync contract
 with soma-home exists. Core enforces only the autonomy axis
 (`auto`/`propose`/`approve`, floor-clamped, tighten-free / loosen-most-gated,
 #485); work-kinds stay consumer doctrine. First host: issue tracker + Claude
-Code harness with a machine-account identity split (#486), validated by an
-end-to-end walk of the map itself (#492). The primitive merges only together
+Code harness with a machine-account identity split (#486). The execution
+story's *mechanics* (frontier/claim/close over tracker issues, proposal-comment
+ratification verified via the reactions API) were validated by an end-to-end
+walk of the map itself (#492); the identity split itself is **not yet built** —
+the walk ran under the principal's shared credentials in explicitly degraded
+mode, so it validates the story, not the split. The primitive merges only together
 with its first consumer, the **orienteer** skill (#487). Full spec:
 `docs/work-graph.md`.
 
@@ -328,8 +337,11 @@ with its first consumer, the **orienteer** skill (#487). Full spec:
   "no parallel work registry *at the same scope*" — a plan step may reference
   a `nodeId` and derives its status from the node.
 - (c) — #483 clause 2 legislates in graph-mutation terms (additive vs
-  consuming) and needs a typed home; prompt-only convention cannot enforce
-  claim semantics or refuse a hollow close.
+  consuming) and needs a typed home; prompt-only convention can *never*
+  enforce claim semantics or refuse a hollow close. Phase 1 of (a) enforces
+  only for callers going through `soma graph close` (bypass is visible, not
+  prevented), but the typed contract is the precondition for the phase-2
+  auditor that closes that gap — (c) has no path to it at all.
 - Alternative hosts: soma-native walker daemon (HITL gate needs a
   principal-held signing channel that doesn't exist), cortex (no dependency
   edges on the wire — right federation path later, wrong first consumer),
@@ -344,7 +356,9 @@ with its first consumer, the **orienteer** skill (#487). Full spec:
 - The wayfinder fork is renamed **orienteer** and bundled at
   `src/skills/orienteer/`; upstream changes arrive by manual cherry-pick.
 - "Don't integrate" was an acceptable end of the route and was not taken —
-  the map's own walk (#492) is the existence proof for the execution story.
+  the map's own walk (#492) is the existence proof for the execution story's
+  mechanics under degraded identity; the typed contracts and the identity
+  split remain to be implemented (spec status: pre-implementation).
 
 **Discussion:** Wayfinder map
 [#477](https://github.com/the-metafactory/soma/issues/477), decision tickets

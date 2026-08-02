@@ -686,7 +686,7 @@ A bounded structured event that records substrate activity for monitoring and co
 
 The typed primitive for cross-session effort topology: **nodes** of work joined by **blocking edges**, stored authoritatively on an issue tracker, walked by agent sessions, and closed only through an attached [[checkpoint]]'s completion gate.
 
-A node carries an **autonomy class** (`auto` / `propose` / `approve`) that the runtime enforces at close time, and optionally a free-form `kind` tag that only consumers (e.g. the orienteer skill) interpret. The **frontier** is the set of open, unclaimed nodes whose blockers are all closed; a **claim** is the executing identity becoming the node's assignee before any work. The graph contributes topology + claims and no verification machinery — [[checkpoint]] keeps the verification monopoly.
+A node carries an **autonomy class** (`auto` / `propose` / `approve`) that the runtime enforces at close time — phase 1 only for closes going through the installed `soma graph` verbs (raw tracker writes are visible but unprevented until the phase-2 auditor lands) — and optionally a free-form `kind` tag that only consumers (e.g. the orienteer skill) interpret. The **frontier** is the set of open, unclaimed nodes whose blockers are all closed; a **claim** is the executing identity becoming the node's assignee before any work. The graph contributes topology + claims and no verification machinery — [[checkpoint]] keeps the verification monopoly.
 
 Exposed as `soma graph` verbs over a typed `GraphStore` seam. Spec: `docs/work-graph.md`; stance: DD-16.
 

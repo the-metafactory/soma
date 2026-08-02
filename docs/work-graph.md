@@ -34,16 +34,21 @@ Corollary: prefer **derived** state over declared state.
 ### 2.1 Node
 
 ```ts
-interface WorkGraphNode {
-  id: string;            // backend-native identity (GitHub: issue number)
+interface WorkGraphNodeBase {
+  id: string;            // backend-native identity (GitHub: issue number),
+                         // assigned by the store — never caller-supplied
   title: string;
-  autonomy: "auto" | "propose" | "approve";  // enforced by the runtime
   kind?: string;         // free-form doctrine tag (e.g. research, grilling);
                          // consumers interpret it, the runtime never does
-  probes?: Probe[];      // REQUIRED for autonomy: "auto" — declared at creation
-  checkpointId?: string; // the checkpoint whose completion gate closes this node
+  checkpointId?: string; // the checkpoint whose completion gate closes this
+                         // node; may attach after creation, but close REFUSES
+                         // while it is absent — required-by-close invariant
   budget?: NodeBudget;   // optional deterministic circuit breaker
 }
+
+type WorkGraphNode =
+  | (WorkGraphNodeBase & { autonomy: "auto"; probes: Probe[] })  // probes required at creation
+  | (WorkGraphNodeBase & { autonomy: "propose" | "approve"; probes?: Probe[] });
 ```
 
 - `autonomy` is the only classification the runtime enforces (#485). The
@@ -63,8 +68,9 @@ a machine-checkable expectation:
 type Probe =
   | { type: "command"; run: string; expectExit: number }
   | { type: "url"; target: string; expectStatus: number }
-  | { type: "git"; ref: string; repo?: string }        // ref exists / is merged
-  | { type: "artifact"; path: string; repo?: string }; // file exists at ref
+  | { type: "git"; ref: string; expect: "exists"; repo?: string }
+  | { type: "git"; ref: string; expect: "merged-into"; target: string; repo?: string }
+  | { type: "artifact"; path: string; atRef?: string; repo?: string }; // file exists at ref
 ```
 
 Probe lifecycle follows the algorithm-runner P1 lesson: evidence is typed
@@ -93,11 +99,12 @@ computation, claim semantics, close gating) from store I/O (#491):
 
 ```ts
 interface GraphStore {
-  attestation: "verifiable" | "unverified";  // can receipts be independently attested?
-  createNode(spec: WorkGraphNode): Promise<NodeRef>;
+  attestation: "verifiable" | "unverified";  // backend capability: CAN receipts
+                                             // be independently attested here?
+  createNode(spec: Omit<WorkGraphNode, "id">): Promise<NodeRef>; // store assigns id
   addBlockingEdge(blocker: NodeRef, blocked: NodeRef): Promise<void>;
   readNode(ref: NodeRef): Promise<NodeState>;
-  listCandidateFrontier(map: MapRef): Promise<NodeRef[]>; // hits re-confirmed by readNode
+  listCandidateFrontier(root: NodeRef): Promise<NodeRef[]>; // hits re-confirmed by readNode
   claim(ref: NodeRef, identity: string): Promise<ClaimResult>; // re-reads after write
   postComment(ref: NodeRef, body: string): Promise<CommentRef>;
   readCommentReactions(ref: CommentRef): Promise<Reaction[]>;  // author from API, not body text
@@ -109,11 +116,16 @@ interface GraphStore {
   topology, claims, and status. Soma-home holds at most a disposable derived
   cache and `nodeId` *references* (DD-5/DD-6 pointers); **no sync contract
   exists** (#491).
-- **Per-map backend binding:** a map records its backend at creation and lives
-  there forever; moving is a one-way export into a fresh map.
-- Day-one backend: **GitHub** (attestation: `verifiable`). A second backend
-  lands only with its first real consumer; a backend that cannot attest
-  receipts runs visibly degraded (`attestation: "unverified"`).
+- **Per-graph backend binding:** a graph records its backend at creation and
+  lives there forever; moving is a one-way export into a fresh graph.
+  (Orienteer doctrine calls a graph instance a *map*; the seam does not.)
+- Day-one backend: **GitHub** (attestation capability: `verifiable` — the
+  backend can attest reaction/comment authorship via its API). Backend
+  capability is necessary, not sufficient: a *receipt* is marked verified
+  only when the backend attests **and** credential separation exists (§3.2);
+  until then every HITL receipt carries `attestation: "unverified"` even on
+  a verifiable backend. A second backend lands only with its first real
+  consumer; a backend that cannot attest at all runs degraded permanently.
 
 ### 2.6 CLI verbs
 
@@ -126,7 +138,7 @@ soma graph close <node>            # runs declared probes; refuses a hollow clos
 
 `close` enforcement lives in the **installed** soma binary, never the dev tree
 (#483 clause 5). Bypass via raw `gh` remains visible-but-unprevented in
-phase 1; the phase-2 auditor (§6) makes it detected.
+phase 1; the phase-2 auditor (§5) makes it detected.
 
 ### 2.7 planSteps bridge
 
