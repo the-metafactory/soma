@@ -13,6 +13,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [0.14.1] - 2026-08-02
+
+### Fixed
+- **pi-dev message-path freeze (#475, #489)** — `before_agent_start` ran two blocking
+  `spawnSync` calls on every message: a full `soma lifecycle session-start` plus
+  `soma algorithm classify`. Entering a message froze Pi.dev until both returned.
+  The message path now spawns nothing.
+
+  The larger finding: **classification never needed a subprocess.**
+  `classifyAlgorithmPrompt` is pure and synchronous — regex matching, zero I/O — so
+  the entire cost attributed to it was bun cold start (~210ms measured) spawned to
+  run a regex. The classifier is now projected into the generated extension and
+  called locally, which keeps classification correct for the *current* prompt on
+  every message including the first, with no cache and no deferral.
+
+- **`session-end` lifecycle records were being lost** — `captureSessionEnd` was
+  fire-and-forget on `session_shutdown`, so the process exited and killed the child
+  mid-write. It is now awaited with a bounded timeout.
+
+### Changed
+- **Startup context is computed once per session** and reused by `before_agent_start`
+  instead of re-running the whole session-start lifecycle per message.
+- **Work-index refreshes are deferred and coalesced** behind an in-flight guard.
+  `spawnSync` previously serialised them; an unguarded async fan-out would let a
+  tool-heavy turn race dozens of concurrent writers on `algorithm-work-index.json`.
+- **Classifier pattern set extracted to `ALGORITHM_CLASSIFIER_CONTRACT`**
+  (`src/algorithm-classifier.ts`), serialised into the projected copy by the new
+  `src/adapters/shared/algorithm-classifier-source.ts` rather than retyped — the same
+  share-the-data-generate-the-logic idiom as `feedback-helper.ts`. Classification
+  behaviour is unchanged; a behavioural-equivalence test pins the projected copy to
+  the runtime function.
+
+### Added
+- `test/pi-dev-blocking-calls.test.ts` — pins the pi-dev message path as
+  subprocess-free, alongside a transpile check of the generated extension.
+- `test/pi-dev-classifier-projection.test.ts` — drift guard comparing the projected
+  classifier against the runtime one across a branch-covering prompt corpus.
+
 ## [0.14.0] - 2026-07-26
 
 ### Added
