@@ -330,9 +330,9 @@ exercised by an end-to-end walk of the map itself (#492). Two claims the walk
 could **not** make: the identity split is not yet built, and with proposer and
 ratifier the same identity, ratification was exercised as a workflow, not
 validated as a gate — both wait on the machine account. The walk ran in
-explicitly degraded mode and validates the story, not the split. The primitive merges only together
-with its first consumer, the **orienteer** skill (#487). Full spec:
-`docs/work-graph.md`.
+explicitly degraded mode and validates the story, not the split. The
+primitive merges only together with its first consumer, the **orienteer**
+skill (#487). Full spec: `docs/work-graph.md`.
 
 **Rejected:**
 - (b) — ADR 0001 demoted the Algorithm apparatus to an optional workflow pack
@@ -343,10 +343,13 @@ with its first consumer, the **orienteer** skill (#487). Full spec:
   a `nodeId` and derives its status from the node.
 - (c) — #483 clause 2 legislates in graph-mutation terms (additive vs
   consuming) and needs a typed home; prompt-only convention can *never*
-  enforce claim semantics or refuse a hollow close. Phase 1 of (a) enforces
-  only for callers going through `soma graph close` (bypass is visible, not
-  prevented), but the typed contract is the precondition for the phase-2
-  auditor that closes that gap — (c) has no path to it at all.
+  refuse a hollow close, nor even detect one. (a) is honest about its own
+  limit: phase 1 refuses hollow closes only for callers going through
+  `soma graph close` (bypass is visible, not prevented), and the phase-2
+  auditor **detects and reverts** bypassed closes after the fact — it cannot
+  prevent them either. The discriminator against (c) is refusal on the verb
+  path plus detection-and-revert off it, not total prevention; (c) offers
+  neither.
 - Alternative hosts: soma-native walker daemon — its HITL gate needs a
   principal-held signing channel that doesn't exist *and has no cheap path to
   exist* (the tracker host has the same gap today but closes it with one
@@ -366,10 +369,16 @@ with its first consumer, the **orienteer** skill (#487). Full spec:
   `src/skills/orienteer/` when the primitive merges with its first consumer
   (#487) — not yet present in the tree; upstream changes then arrive by
   manual cherry-pick.
-- "Don't integrate" was an acceptable end of the route and was not taken —
-  the map's own walk (#492) is the existence proof for the execution story's
-  mechanics under degraded identity; the typed contracts and the identity
-  split remain to be implemented (spec status: pre-implementation).
+- "Don't integrate" was an acceptable end of the route and was not taken.
+  The integration case rests on the research corpus, not on the adoption
+  having gone well: r1–r3 (field practice and the scaffolding evidence), r4
+  (Soma's own gates paid off where they read external facts and cost as
+  unread ceremony — the no-go branch keeps that ceremony imbalance), and r5
+  (no in-stack host already provides the needed properties, so "just use an
+  existing host" was not the cheaper alternative). #492's walk then showed
+  the chosen story executes — an existence check on the winner, not the
+  argument against the no-go. The typed contracts and the identity split
+  remain to be implemented (spec status: pre-implementation).
 
 **Discussion:** Wayfinder map
 [#477](https://github.com/the-metafactory/soma/issues/477), decision tickets

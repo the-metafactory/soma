@@ -55,7 +55,10 @@ interface NodeBudget {   // deterministic circuit breaker (§3.3)
 }
 
 type WorkGraphNode =
-  | (WorkGraphNodeBase & { autonomy: "auto"; probes: Probe[] })  // probes required at creation
+  | (WorkGraphNodeBase & { autonomy: "auto"; probes: [Probe, ...Probe[]] })
+    // non-empty by type; creation additionally REJECTS an `auto` node whose
+    // probes array is empty — zero probes would mean zero machine-checkable
+    // evidence at close (§1 clause 1)
   | (WorkGraphNodeBase & { autonomy: "propose" | "approve"; probes?: Probe[] });
 ```
 
@@ -74,24 +77,38 @@ a machine-checkable expectation:
 
 ```ts
 type Probe =
-  | { type: "command"; run: string; expectExit: number }
+  | { type: "command"; run: string; cwd?: string; timeoutSec: number; expectExit: number }
+    // timeout expiry IS probe failure — a hanging command never blocks close
   | { type: "url"; target: string; expectStatus: number }
   | { type: "git"; ref: string; expect: "exists"; repo?: string }
   | { type: "git"; ref: string; expect: "merged-into"; into: string; repo?: string }
   | { type: "artifact"; path: string; expect: "exists"; atRef?: string; repo?: string };
+
+interface ProbeResult {          // stored with the node's checkpoint record (§5)
+  probe: Probe;
+  state: "specified" | "probed"; // the P1 evidence-typing distinction
+  observed?: string;             // recorded output (exit code, status, sha…)
+  at?: string;                   // ISO timestamp of execution
+}
 ```
 
-Probe lifecycle follows the algorithm-runner P1 lesson (tautological
-verification was the top failure across 188 real runs; see the telemetry
-mining in
+Probe lifecycle follows the algorithm-runner P1 lesson — self-declared
+verification is hollow; the fix is typing evidence by whether it was
+*specified up front* and then *actually probed* (see the telemetry mining in
 [r4](https://github.com/the-metafactory/soma/blob/1ed2b8a057c9dc47388b979bdb72e0cb74d2e644/Plans/research/graph-of-work/r4-soma-internal-telemetry.md)):
 evidence is typed `specified` at node creation and flips to `probed` only
-when the runtime has executed the probe and recorded its output.
+when the runtime has executed the probe and recorded its output
+(`ProbeResult` above).
 
 ### 2.3 Edge
 
 Blocking only: `blocks(a, b)` means `b` is not frontier until `a` is closed.
 No other edge types in v1 (ceremony guard — no consumer exists for them).
+
+The graph is a **DAG**: `addBlockingEdge` performs the structural validation
+§1 clause 2 requires and **rejects any edge that would close a cycle**
+(`blocks(a,b)` + `blocks(b,a)` would silently remove both nodes from the
+frontier forever — no claim, no close, no error).
 
 ### 2.4 Frontier and claim
 
@@ -102,6 +119,12 @@ No other edge types in v1 (ceremony guard — no consumer exists for them).
   recoverable this way: the frontier is advisory and may return short,
   self-healing on a later tick. Correctness never rests on frontier
   completeness; it rests on the claim and close gates.
+  **Known fail-open path (phase 1):** frontier derives "blockers closed"
+  purely from tracker status, so a blocker hand-closed via raw tracker writes
+  (bypassing `soma graph close`) releases its dependents without any
+  checkpoint gate having run. This is the §2.6 bypass propagated one hop —
+  accepted in phase 1, detected by the phase-2 auditor, which reopens the
+  hollow-closed blocker and thereby re-blocks the dependents.
 - **Claim** = the executing identity becoming the node's **sole** assignee,
   written **before any work**. GitHub offers no compare-and-swap, so the
   claim verb re-reads assignees after writing; if the re-read shows more than
