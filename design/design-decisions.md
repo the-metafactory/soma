@@ -362,8 +362,10 @@ with its first consumer, the **orienteer** skill (#487). Full spec:
 - HITL receipts run visibly degraded (`attestation: unverified`) until the
   GitHub machine account exists; the phase-2 scheduled tick and Actions
   auditor are gated on it.
-- The wayfinder fork is renamed **orienteer** and bundled at
-  `src/skills/orienteer/`; upstream changes arrive by manual cherry-pick.
+- The wayfinder fork will be renamed **orienteer** and bundled at
+  `src/skills/orienteer/` when the primitive merges with its first consumer
+  (#487) — not yet present in the tree; upstream changes then arrive by
+  manual cherry-pick.
 - "Don't integrate" was an acceptable end of the route and was not taken —
   the map's own walk (#492) is the existence proof for the execution story's
   mechanics under degraded identity; the typed contracts and the identity

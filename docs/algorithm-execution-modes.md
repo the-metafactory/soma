@@ -169,6 +169,8 @@ parallel registry. *Cross-session* effort topology is a different scope and
 belongs to the work graph (`docs/work-graph.md`): a plan step may carry an
 optional `nodeId` reference to a work-graph node and then derives its status
 from that node — one work item never has two authoritative homes. The
-invariant is enforced at the runner, not assumed: `updateAlgorithmPlanStep`
+work-graph spec (pre-implementation) makes this a runner obligation rather
+than an assumption: when the `nodeId` bridge lands, `updateAlgorithmPlanStep`
 must refuse a direct status write on a bridged step (see
-`docs/work-graph.md` §2.7).
+`docs/work-graph.md` §2.7). Until that lands, `planSteps[]` has no bridge and
+this section's within-run rule is the whole story.

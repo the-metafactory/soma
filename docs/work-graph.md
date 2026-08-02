@@ -39,11 +39,19 @@ interface WorkGraphNodeBase {
                          // assigned by the store — never caller-supplied
   title: string;
   kind?: string;         // free-form doctrine tag (e.g. research, grilling);
-                         // consumers interpret it, the runtime never does
+                         // consumers interpret it, the runtime never does —
+                         // but stores it normalized: trimmed, lowercased,
+                         // non-empty (else rejected)
   checkpointId?: string; // the checkpoint whose completion gate closes this
                          // node; may attach after creation, but close REFUSES
                          // while it is absent — required-by-close invariant
   budget?: NodeBudget;   // optional deterministic circuit breaker
+}
+
+interface NodeBudget {   // deterministic circuit breaker (§3.3)
+  tokens?: number;
+  agentInvocations?: number;
+  wallClockMin?: number;
 }
 
 type WorkGraphNode =
@@ -69,19 +77,16 @@ type Probe =
   | { type: "command"; run: string; expectExit: number }
   | { type: "url"; target: string; expectStatus: number }
   | { type: "git"; ref: string; expect: "exists"; repo?: string }
-  | { type: "git"; ref: string; expect: "merged-into"; target: string; repo?: string }
+  | { type: "git"; ref: string; expect: "merged-into"; into: string; repo?: string }
   | { type: "artifact"; path: string; expect: "exists"; atRef?: string; repo?: string };
-
-interface NodeBudget {          // deterministic circuit breaker (§3.3)
-  tokens?: number;
-  agentInvocations?: number;
-  wallClockMin?: number;
-}
 ```
 
-Probe lifecycle follows the algorithm-runner P1 lesson: evidence is typed
-`specified` at node creation and flips to `probed` only when the runtime has
-executed the probe and recorded its output.
+Probe lifecycle follows the algorithm-runner P1 lesson (tautological
+verification was the top failure across 188 real runs; see the telemetry
+mining in
+[r4](https://github.com/the-metafactory/soma/blob/1ed2b8a057c9dc47388b979bdb72e0cb74d2e644/Plans/research/graph-of-work/r4-soma-internal-telemetry.md)):
+evidence is typed `specified` at node creation and flips to `probed` only
+when the runtime has executed the probe and recorded its output.
 
 ### 2.3 Edge
 
