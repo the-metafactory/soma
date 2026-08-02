@@ -352,9 +352,10 @@ skill (#487). Full spec: `docs/work-graph.md`.
   neither.
 - Alternative hosts: soma-native walker daemon — its HITL gate needs a
   principal-held signing channel that doesn't exist *and has no cheap path to
-  exist* (the tracker host has the same gap today but closes it with one
-  machine account, spec §5.1; a local signing channel would be new
-  infrastructure), and local enforcement risks the agent-writable-tree
+  exist* (the tracker host has the same gap today, but its close is an
+  ordinary GitHub machine-account provisioning task — spec §5.1 — while a
+  local signing channel would be new infrastructure to design and build),
+  and local enforcement risks the agent-writable-tree
   anti-pattern; cortex (no dependency edges on the wire — right federation
   path later, wrong first consumer); blackboard (agent-writable SQLite fails
   every gate-reality property).

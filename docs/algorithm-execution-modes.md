@@ -171,6 +171,7 @@ optional `nodeId` reference to a work-graph node and then derives its status
 from that node — one work item never has two authoritative homes. The
 work-graph spec (pre-implementation) makes this a runner obligation rather
 than an assumption: when the `nodeId` bridge lands, `updateAlgorithmPlanStep`
-must refuse a direct status write on a bridged step (see
-`docs/work-graph.md` §2.7). Until that lands, `planSteps[]` has no bridge and
+must refuse a direct status write on a bridged step, and the read side
+re-derives status from the node via `GraphStore.readNode` /
+`soma graph node <id>` (see `docs/work-graph.md` §2.7, "planSteps bridge"). Until that lands, `planSteps[]` has no bridge and
 this section's within-run rule is the whole story.

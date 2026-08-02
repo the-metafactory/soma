@@ -39,8 +39,8 @@ interface WorkGraphNodeBase {
                          // assigned by the store — never caller-supplied
   title: string;
   kind?: string;         // free-form doctrine tag (e.g. research, grilling);
-                         // consumers interpret the VALUE, the runtime never
-                         // does — but createNode validation normalizes it:
+                         // the runtime never interprets its MEANING but
+                         // normalizes its FORM in createNode validation:
                          // absent kind is accepted; a present kind is stored
                          // trimmed + lowercased, and rejected if it trims
                          // to empty
@@ -87,13 +87,17 @@ type Probe =
     // obligation on the future runner, not a shipped property) so a
     // hanging command cannot block the close path
   | { type: "url"; target: string; expectStatus: number }
-  | { type: "git"; ref: string; expect: "exists"; repo?: string }
-  | { type: "git"; ref: string; expect: "merged-into"; into: string; repo?: string }
-  | { type: "artifact"; path: string; expect: "exists"; atRef?: string; repo?: string };
+  | { type: "git-ref-exists"; ref: string; repo?: string }
+  | { type: "git-merged-into"; ref: string; into: string; repo?: string }
+  | { type: "artifact-exists"; path: string; atRef?: string; repo?: string };
+// `type` alone is the runner's dispatch key — one switch, no nested
+// discriminants.
 
 type ProbeResult =               // stored with the node's checkpoint record (§5)
   | { probe: Probe; state: "specified" }              // declared, not yet run
-  | { probe: Probe; state: "probed";                  // run — output REQUIRED:
+  | { probe: Probe; state: "probed";                  // run — REQUIRED fields:
+      outcome: "pass" | "fail"; // ran-and-passed vs ran-and-failed — close
+                                 // requires every probe probed AND passed
       observed: string;          // for command: exit code + bounded stdout/
                                  // stderr tail; for url: status; for git/
                                  // artifact: resolved sha / path presence
@@ -180,9 +184,10 @@ interface GraphStore {
 ### 2.6 CLI verbs
 
 ```bash
-soma graph frontier <map>          # open, unassigned, unblocked — confirmed by direct fetch
-soma graph claim <node>            # assign, re-read, back off on race
-soma graph add <map> ...           # create node (+ edges) — additive, structurally validated
+soma graph frontier <root>         # open, unassigned, unblocked — confirmed by direct fetch
+soma graph node <id>               # read one node (GraphStore.readNode) — the bridge's read path
+soma graph claim <node>            # assign, re-read, tie-break on race
+soma graph add <root> ...          # create node (+ edges) — additive, structurally validated
 soma graph close <node>            # runs declared probes; refuses a hollow close
 ```
 
@@ -196,8 +201,9 @@ phase 1; the phase-2 auditor (§5) makes it detected.
 an optional `nodeId` reference and then **derives its status from the node** —
 one work item never has two authoritative homes. This is a contract on the
 Algorithm runner, not just prose: `updateAlgorithmPlanStep` MUST refuse a
-direct status write on a bridged step (status arrives only by re-deriving
-from the node). The FeatureRegistry rule in
+direct status write on a bridged step — status arrives only by re-deriving
+from the node, read via `GraphStore.readNode` (surfaced as
+`soma graph node <id>` for CLI callers). The FeatureRegistry rule in
 `docs/algorithm-execution-modes.md` is correspondingly narrowed to "no
 parallel work registry **at the same scope**" (#484).
 
