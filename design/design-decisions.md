@@ -283,6 +283,73 @@ explicit writeback gates with deterministic merge rules.
 **Discussion:** `/grill-with-docs` session 2026-05-28, checked against
 `~/work/PAI/Releases/v5.0.0`.
 
+### DD-16: Soma adopts a typed work-graph primitive; the tracker is its authoritative store
+
+**Status:** Decided (2026-08-02)
+
+**Context:** Wayfinder map #477 asked whether Soma adopts a graph-of-work
+primitive — reconciling deterministic Algorithm contracts with
+bitter-lesson-style agent freedom and the emerging graph-based agentic-work
+practice. Five research tickets (#478–#482) established: the field quarantines
+the model inside node interiors (runtime owns topology); scaffolding that
+survives model upgrades is verification, environment, and data plumbing;
+Soma's own telemetry shows determinism paid off exactly where it read facts
+the agent couldn't author and hurt as unconsumed ceremony; and no existing
+host offers dependency edges, claim semantics, tamper-resistant receipts, and
+an unforgeable HITL gate at once.
+
+Three candidates surfaced (#484):
+- **(a) New typed primitive in core** — nodes + blocking edges, checkpoint-gated.
+- **(b) Extend `planSteps[]`** with dependency edges and cross-run scope.
+- **(c) Doctrine only** — keep graph practice in skills (wayfinder), no typed contract.
+
+**Decision:** **(a)** — Soma core gets a **work graph**: nodes (autonomy class
++ free `kind` tag) joined by blocking edges, exposed as `soma graph` verbs
+over a typed `GraphStore` seam. The five-clause determinism dividing line
+(#483) is normative: gates read facts the agent cannot author; graph writes
+split additive vs consuming; every gate names its consumer; models inform,
+never decide; enforcement sits out of the agent's reach. Nodes close only
+through an attached [[checkpoint]] completion gate — the graph contributes
+topology + claims and zero verification machinery. The tracker is the *sole*
+authoritative store for topology, claims, and status (#491); no sync contract
+with soma-home exists. Core enforces only the autonomy axis
+(`auto`/`propose`/`approve`, floor-clamped, tighten-free / loosen-most-gated,
+#485); work-kinds stay consumer doctrine. First host: issue tracker + Claude
+Code harness with a machine-account identity split (#486), validated by an
+end-to-end walk of the map itself (#492). The primitive merges only together
+with its first consumer, the **orienteer** skill (#487). Full spec:
+`docs/work-graph.md`.
+
+**Rejected:**
+- (b) — ADR 0001 demoted the Algorithm apparatus to an optional workflow pack
+  over checkpoints; the portable coordination bone cannot live inside
+  `AlgorithmPlanStep`, and wayfinder (the flagship case) runs with no
+  Algorithm run in sight. The FeatureRegistry rule is narrowed, not violated:
+  "no parallel work registry *at the same scope*" — a plan step may reference
+  a `nodeId` and derives its status from the node.
+- (c) — #483 clause 2 legislates in graph-mutation terms (additive vs
+  consuming) and needs a typed home; prompt-only convention cannot enforce
+  claim semantics or refuse a hollow close.
+- Alternative hosts: soma-native walker daemon (HITL gate needs a
+  principal-held signing channel that doesn't exist), cortex (no dependency
+  edges on the wire — right federation path later, wrong first consumer),
+  blackboard (agent-writable SQLite fails every gate-reality property).
+
+**Implications:**
+- `docs/algorithm-execution-modes.md` FeatureRegistry rule updated to the
+  same-scope form (this commit).
+- HITL receipts run visibly degraded (`attestation: unverified`) until the
+  GitHub machine account exists; the phase-2 scheduled tick and Actions
+  auditor are gated on it.
+- The wayfinder fork is renamed **orienteer** and bundled at
+  `src/skills/orienteer/`; upstream changes arrive by manual cherry-pick.
+- "Don't integrate" was an acceptable end of the route and was not taken —
+  the map's own walk (#492) is the existence proof for the execution story.
+
+**Discussion:** Wayfinder map
+[#477](https://github.com/the-metafactory/soma/issues/477), decision tickets
+#483–#487, #491, #492; grilled with the principal 2026-08-02.
+
 ## 6. Policy & Security
 
 ### DD-7: Soma owns inbound-content security; scanners provide evidence

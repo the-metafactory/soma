@@ -682,6 +682,25 @@ A bounded structured event that records substrate activity for monitoring and co
 
 ---
 
+## work graph
+
+The typed primitive for cross-session effort topology: **nodes** of work joined by **blocking edges**, stored authoritatively on an issue tracker, walked by agent sessions, and closed only through an attached [[checkpoint]]'s completion gate.
+
+A node carries an **autonomy class** (`auto` / `propose` / `approve`) that the runtime enforces at close time, and optionally a free-form `kind` tag that only consumers (e.g. the orienteer skill) interpret. The **frontier** is the set of open, unclaimed nodes whose blockers are all closed; a **claim** is the executing identity becoming the node's assignee before any work. The graph contributes topology + claims and no verification machinery — [[checkpoint]] keeps the verification monopoly.
+
+Exposed as `soma graph` verbs over a typed `GraphStore` seam. Spec: `docs/work-graph.md`; stance: DD-16.
+
+**Not synonyms:**
+- `task graph` / `DAG` / `workflow` / `pipeline` — execution-engine vocabulary implying a runtime that schedules and runs nodes. The work graph is coordination state; sessions execute.
+- `plan` / `planSteps` — the within-run execution checklist of an Algorithm run. A plan step may *reference* a node (`nodeId`) and derive status from it; the scopes never merge.
+- `map` — orienteer doctrine for one graph instance rooted at a tracker map issue. Fine in skill prose, not the primitive's name.
+- `work registry` — the flat canonical record of active/historical work (DD-5). The registry records *that* work exists; the graph records *what blocks what*.
+- `graph-of-work` — the wayfinder map #477 working label, retired at DD-16.
+
+**Why:** Matches Soma's descriptive glossary register (checkpoint, compartment, presence) and the `soma graph` verb surface; **orienteer** names the practice of walking one, the work graph names the structure. Locked in the #488 grilling, 2026-08-02.
+
+---
+
 ## eager, indexed, on-demand (loading tiers)
 
 Three adjectives describing how a piece of a [[project|projection]] enters the LLM's [[context]] window at session start.
