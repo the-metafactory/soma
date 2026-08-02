@@ -283,6 +283,108 @@ explicit writeback gates with deterministic merge rules.
 **Discussion:** `/grill-with-docs` session 2026-05-28, checked against
 `~/work/PAI/Releases/v5.0.0`.
 
+### DD-16: Soma adopts a typed work graph primitive; the tracker is its authoritative store
+
+**Status:** Decided (2026-08-02)
+
+**Context:** Wayfinder map #477 asked whether Soma adopts a graph-of-work
+primitive — reconciling deterministic Algorithm contracts with
+bitter-lesson-style agent freedom and the emerging graph-based agentic-work
+practice. Five research tickets (#478–#482) established: the field quarantines
+the model inside node interiors (runtime owns topology); scaffolding that
+survives model upgrades is verification, environment, and data plumbing;
+Soma's own telemetry shows determinism paid off exactly where it read facts
+the agent couldn't author and hurt as unconsumed ceremony (2026-07 event-log
+mining, both arms: hollow-pass rate 0.23% where gates read external facts,
+versus ceremony gates with zero consumption — the loop ran 0×, capability
+selection was theater, 89% of events had no reader —
+[r4](https://github.com/the-metafactory/soma/blob/1ed2b8a057c9dc47388b979bdb72e0cb74d2e644/Plans/research/graph-of-work/r4-soma-internal-telemetry.md));
+and of the five inventoried in-stack hosts, none offers dependency edges,
+claim semantics, tamper-resistant receipts, and an unforgeable HITL gate at
+once
+([r5](https://github.com/the-metafactory/soma/blob/1ed2b8a057c9dc47388b979bdb72e0cb74d2e644/Plans/research/graph-of-work/r5-execution-host-inventory.md)).
+(Evidence links are commit-pinned; the `research/graph-of-work` branch is the
+corpus home and should be retained or archived, not deleted.)
+
+Three candidates surfaced (#484):
+- **(a) New typed primitive in core** — nodes + blocking edges, checkpoint-gated.
+- **(b) Extend `planSteps[]`** with dependency edges and cross-run scope.
+- **(c) Doctrine only** — keep graph practice in skills (wayfinder), no typed contract.
+
+**Decision:** **(a)** — Soma core gets a **work graph**: nodes (autonomy class
++ free `kind` tag) joined by blocking edges, exposed as `soma graph` verbs
+over a typed `GraphStore` seam. The five-clause determinism dividing line
+(#483) is normative: gates read facts the agent cannot author; graph writes
+split additive vs consuming; every gate names its consumer; models inform,
+never decide; enforcement sits out of the agent's reach. Nodes close only
+through an attached [[checkpoint]] completion gate — the graph contributes
+topology + claims and zero verification machinery. The tracker is the *sole*
+authoritative store for topology, claims, and status (#491); no sync contract
+with soma-home exists. Core enforces only the autonomy axis
+(`auto`/`propose`/`approve`, floor-clamped, tighten-free / loosen-most-gated,
+#485); work-kinds stay consumer doctrine. First host: issue tracker + Claude
+Code harness with a machine-account identity split (#486). The execution
+story's *mechanics* (frontier/claim/close over tracker issues; the
+proposal-comment receipt flow with reaction authorship read from the API) were
+exercised by an end-to-end walk of the map itself (#492). Two claims the walk
+could **not** make: the identity split is not yet built, and with proposer and
+ratifier the same identity, ratification was exercised as a workflow, not
+validated as a gate — both wait on the machine account. The walk ran in
+explicitly degraded mode and validates the story, not the split. The
+primitive merges only together with its first consumer, the **orienteer**
+skill (#487). Full spec: `docs/work-graph.md`.
+
+**Rejected:**
+- (b) — ADR 0001 demoted the Algorithm apparatus to an optional workflow pack
+  over checkpoints; the portable coordination bone cannot live inside
+  `AlgorithmPlanStep`, and wayfinder (the flagship case) runs with no
+  Algorithm run in sight. The FeatureRegistry rule is narrowed, not violated:
+  "no parallel work registry *at the same scope*" — a plan step may reference
+  a `nodeId` and derives its status from the node.
+- (c) — #483 clause 2 legislates in graph-mutation terms (additive vs
+  consuming) and needs a typed home; prompt-only convention can *never*
+  refuse a hollow close, nor even detect one. (a) is honest about its own
+  limit: phase 1 refuses hollow closes only for callers going through
+  `soma graph close` (bypass is visible, not prevented), and the phase-2
+  auditor **detects and reverts** bypassed closes after the fact — it cannot
+  prevent them either. The discriminator against (c) is refusal on the verb
+  path plus detection-and-revert off it, not total prevention; (c) offers
+  neither.
+- Alternative hosts: soma-native walker daemon — its HITL gate needs a
+  principal-held signing channel that doesn't exist *and has no cheap path to
+  exist* (the tracker host has the same gap today, but its close is an
+  ordinary GitHub machine-account provisioning task — spec §5.1 — while a
+  local signing channel would be new infrastructure to design and build),
+  and local enforcement risks the agent-writable-tree
+  anti-pattern; cortex (no dependency edges on the wire — right federation
+  path later, wrong first consumer); blackboard (agent-writable SQLite fails
+  every gate-reality property).
+
+**Implications:**
+- `docs/algorithm-execution-modes.md` FeatureRegistry rule updated to the
+  same-scope form (this commit).
+- HITL receipts run visibly degraded (`attestation: unverified`) until the
+  GitHub machine account exists; the phase-2 scheduled tick and Actions
+  auditor are gated on it.
+- The wayfinder fork will be renamed **orienteer** and bundled at
+  `src/skills/orienteer/` when the primitive merges with its first consumer
+  (#487) — not yet present in the tree; upstream changes then arrive by
+  manual cherry-pick.
+- "Don't integrate" was an acceptable end of the route and was not taken.
+  The integration case rests on the research corpus, not on the adoption
+  having gone well: r1–r3 (field practice and the scaffolding evidence), r4
+  (Soma's own gates paid off where they read external facts and cost as
+  unread ceremony — the no-go branch keeps that ceremony imbalance), and r5
+  (no in-stack host already provides the needed properties, so "just use an
+  existing host" was not the cheaper alternative). #492's walk then showed
+  the chosen story executes — an existence check on the winner, not the
+  argument against the no-go. The typed contracts and the identity split
+  remain to be implemented (spec status: pre-implementation).
+
+**Discussion:** Wayfinder map
+[#477](https://github.com/the-metafactory/soma/issues/477), decision tickets
+#483–#487, #491, #492; grilled with the principal 2026-08-02.
+
 ## 6. Policy & Security
 
 ### DD-7: Soma owns inbound-content security; scanners provide evidence

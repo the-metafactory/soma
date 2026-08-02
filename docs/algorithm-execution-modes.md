@@ -162,7 +162,16 @@ semantics in typed Algorithm structures:
   run state instead of maintaining a separate queue.
 
 This preserves a single source of truth for plan state, criterion status,
-verification evidence, blockers, and handoff context. If future work needs
-richer feature metadata such as explicit dependency edges or owner fields,
+verification evidence, blockers, and handoff context. The rule is **no
+parallel work registry at the same scope** (narrowed by DD-16): within a run,
 extend `AlgorithmPlanStep` and the Algorithm CLI surface rather than adding a
-parallel registry.
+parallel registry. *Cross-session* effort topology is a different scope and
+belongs to the work graph (`docs/work-graph.md`): a plan step may carry an
+optional `nodeId` reference to a work-graph node and then derives its status
+from that node — one work item never has two authoritative homes. The
+work-graph spec (pre-implementation) makes this a runner obligation rather
+than an assumption: when the `nodeId` bridge lands, `updateAlgorithmPlanStep`
+must refuse a direct status write on a bridged step, and the read side
+re-derives status from the node via `GraphStore.readNode` /
+`soma graph node <id>` (see `docs/work-graph.md` §2.7, "planSteps bridge"). Until that lands, `planSteps[]` has no bridge and
+this section's within-run rule is the whole story.
