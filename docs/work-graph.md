@@ -227,9 +227,80 @@ reaction on that specific comment ID — or a principal-authored comment, which
 wins when amending — verified via the API author field. A materially amended
 proposal is re-posted and needs fresh ratification (the replay-rebind lesson).
 
-**Degraded mode:** until credential separation exists, HITL receipts carry
-`attestation: "unverified"` — on **every** receipt written under shared
-credentials, visible state, never silent theater (#492 correction 4).
+#### Deriving `attestation` (#502)
+
+`attestation` is **derived at close time, never configured**. There is no flag,
+no policy field, no provisioning step that turns verification on: an adopter
+with real credential isolation gets `verified` automatically, one without gets
+honest `unverified` forever, and neither configures anything (§1 corollary —
+derived over declared). Soma ships the rule, not the provisioning recipe.
+
+`verified` asserts a **trust** claim — *a human the agent cannot impersonate
+ratified this* — not merely that two logins appear. All four must hold:
+
+1. **Backend attests** — `GraphStore.attestation === "verifiable"` (§2.5).
+2. **Confinement** — the close path finds no GitHub credential other than the
+   acting agent identity reachable from the session (`GH_TOKEN` unset →
+   `gh auth status`, `gh auth token`, OS keychain item). **Downgrade-only:**
+   reachability forces `unverified`; non-reachability never manufactures a
+   `verified` by itself.
+3. **Distinct authorship** — ratifier author ≠ proposal comment author, both
+   read from the API author field, never from body text.
+4. **Authorized ratifier** — the ratifier is the **author of the graph's root
+   node**, reached by walking native parent edges up from the closing node.
+   Deliberately not a configured binding: a configured one is agent-writable,
+   and once the gate keys on *which* human, a rewritable binding is a forgery
+   path — the agent may point it at an account it controls — not merely an
+   authorization question. Root unreachable, or root authored by the acting
+   agent identity → `unverified`.
+
+Any conjunct failing yields `unverified`. `attestation` is a **label, not a
+gate**: `close` proceeds either way. Refusing on `unverified` would deadlock
+the bootstrap — the nodes that establish credential separation are themselves
+`approve`-class, so they could never close.
+
+The receipt records the **facts, not just the verdict**: proposal comment id +
+author, ratifying comment/reaction id + author, root node id + author, backend
+capability, and the confinement check's probe set, result, and timestamp.
+Every input except the confinement result is re-derivable from the tracker
+indefinitely; the session's credential topology is not, so an unrecorded check
+leaves a future reader unable to tell *why* a receipt was unverified — wrong
+ratifier and reachable-keyring have different remediations. The phase-2 close
+auditor (§5) recomputes conjuncts 1, 3 and 4 from these fields — all
+tracker-derived, all beyond the agent's reach — and reopens on mismatch.
+Conjunct 2 is **not** recomputable: it is a session-asserted fact, and the
+auditor can confirm only that a check was recorded, never that its result was
+true.
+
+#### Honest limits
+
+- **Co-resident credentials are invisible at the tracker.** Distinct authorship
+  alone cannot separate "the principal reacted" from "the session reacted as
+  the principal". #496 is the worked example: clean, API-attested authorship
+  separation, correctly closed `unverified`. Conjunct 2 catches this at
+  runtime; the standing deployment invariant remains §5 — the principal's
+  credential never enters an agent session — tracked as its own node (#511).
+- **Conjunct 2 is a detector, not a defence.** It runs inside the environment
+  it judges, so §1 clause 5 does not hold for it. An agent that shims it fakes
+  confinement — and in exactly the deployment where the check would have
+  failed, the credential the session can reach is the credential that produces
+  the 👍. Conjuncts 3 and 4 then pass on a reaction the session made itself, so
+  a shimmed check yields a **fully forged `verified`**, not a mislabelled one.
+  The check earns its place by catching the honest-but-unisolated case
+  automatically — today's case, and every adopter's until they isolate — and
+  buys nothing against a session that sets out to subvert it. It is therefore
+  necessary and never sufficient: it may lower `attestation`, and it may not,
+  on its own, raise it.
+- **What `verified` rests on.** Its trusted base is two facts the runtime
+  cannot check: the §5 deployment invariant (#511) and an unshimmed installed
+  binary (§1 clause 5). Conjunct 2 establishes neither. Read `verified` as
+  *the four conjuncts held, under a deployment where that base is believed to
+  hold* — which is why the receipt records facts rather than a bare verdict:
+  where the base is later found not to have held, the recorded facts are what
+  a re-audit re-judges.
+- **Degraded mode:** whenever any conjunct fails, HITL receipts carry
+  `attestation: "unverified"` — on **every** such receipt, visible state, never
+  silent theater (#492 correction 4).
 
 ### 3.3 Budget circuit breaker
 
