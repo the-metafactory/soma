@@ -227,9 +227,63 @@ reaction on that specific comment ID — or a principal-authored comment, which
 wins when amending — verified via the API author field. A materially amended
 proposal is re-posted and needs fresh ratification (the replay-rebind lesson).
 
-**Degraded mode:** until credential separation exists, HITL receipts carry
-`attestation: "unverified"` — on **every** receipt written under shared
-credentials, visible state, never silent theater (#492 correction 4).
+#### Deriving `attestation` (#502)
+
+`attestation` is **derived at close time, never configured**. There is no flag,
+no policy field, no provisioning step that turns verification on: an adopter
+with real credential isolation gets `verified` automatically, one without gets
+honest `unverified` forever, and neither configures anything (§1 corollary —
+derived over declared). Soma ships the rule, not the provisioning recipe.
+
+`verified` asserts a **trust** claim — *a human the agent cannot impersonate
+ratified this* — not merely that two logins appear. All four must hold:
+
+1. **Backend attests** — `GraphStore.attestation === "verifiable"` (§2.5).
+2. **Confinement** — the close path finds no GitHub credential other than the
+   acting agent identity reachable from the session (`GH_TOKEN` unset →
+   `gh auth status`, `gh auth token`, OS keychain item). **Downgrade-only:**
+   reachability forces `unverified`; non-reachability never manufactures a
+   `verified` by itself.
+3. **Distinct authorship** — ratifier author ≠ proposal comment author, both
+   read from the API author field, never from body text.
+4. **Authorized ratifier** — the ratifier is the **author of the graph's root
+   node**, reached by walking native parent edges up from the closing node.
+   Deliberately not a configured binding: a configured one is agent-writable,
+   and once the gate keys on *which* human, a rewritable binding is a forgery
+   path — the agent may point it at an account it controls — not merely an
+   authorization question. Root unreachable, or root authored by the acting
+   agent identity → `unverified`.
+
+Any conjunct failing yields `unverified`. `attestation` is a **label, not a
+gate**: `close` proceeds either way. Refusing on `unverified` would deadlock
+the bootstrap — the nodes that establish credential separation are themselves
+`approve`-class, so they could never close.
+
+The receipt records the **facts, not just the verdict**: proposal comment id +
+author, ratifying comment/reaction id + author, root node id + author, backend
+capability, and the confinement check's probe set, result, and timestamp.
+Every input except the confinement result is re-derivable from the tracker
+indefinitely; the session's credential topology is not, so an unrecorded check
+leaves a future reader unable to tell *why* a receipt was unverified — wrong
+ratifier and reachable-keyring have different remediations. The phase-2 close
+auditor (§5) recomputes the verdict from these fields and reopens on mismatch.
+
+#### Honest limits
+
+- **Co-resident credentials are invisible at the tracker.** Distinct authorship
+  alone cannot separate "the principal reacted" from "the session reacted as
+  the principal". #496 is the worked example: clean, API-attested authorship
+  separation, correctly closed `unverified`. Conjunct 2 catches this at
+  runtime; the standing deployment invariant remains §5 — the principal's
+  credential never enters an agent session — tracked as its own node (#511).
+- **The confinement check runs inside the environment it judges**, so it is not
+  §1-clause-1-clean; a determined agent could shim it toward false confinement.
+  This is the residual §2.2 already accepts for `command` probes, and it is
+  bounded: a shim buys a mislabeled receipt, never a fabricated ratification,
+  because the agent still cannot produce the 👍.
+- **Degraded mode:** whenever any conjunct fails, HITL receipts carry
+  `attestation: "unverified"` — on **every** such receipt, visible state, never
+  silent theater (#492 correction 4).
 
 ### 3.3 Budget circuit breaker
 
