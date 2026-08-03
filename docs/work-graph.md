@@ -266,7 +266,11 @@ Every input except the confinement result is re-derivable from the tracker
 indefinitely; the session's credential topology is not, so an unrecorded check
 leaves a future reader unable to tell *why* a receipt was unverified — wrong
 ratifier and reachable-keyring have different remediations. The phase-2 close
-auditor (§5) recomputes the verdict from these fields and reopens on mismatch.
+auditor (§5) recomputes conjuncts 1, 3 and 4 from these fields — all
+tracker-derived, all beyond the agent's reach — and reopens on mismatch.
+Conjunct 2 is **not** recomputable: it is a session-asserted fact, and the
+auditor can confirm only that a check was recorded, never that its result was
+true.
 
 #### Honest limits
 
@@ -276,11 +280,24 @@ auditor (§5) recomputes the verdict from these fields and reopens on mismatch.
   separation, correctly closed `unverified`. Conjunct 2 catches this at
   runtime; the standing deployment invariant remains §5 — the principal's
   credential never enters an agent session — tracked as its own node (#511).
-- **The confinement check runs inside the environment it judges**, so it is not
-  §1-clause-1-clean; a determined agent could shim it toward false confinement.
-  This is the residual §2.2 already accepts for `command` probes, and it is
-  bounded: a shim buys a mislabeled receipt, never a fabricated ratification,
-  because the agent still cannot produce the 👍.
+- **Conjunct 2 is a detector, not a defence.** It runs inside the environment
+  it judges, so §1 clause 5 does not hold for it. An agent that shims it fakes
+  confinement — and in exactly the deployment where the check would have
+  failed, the credential the session can reach is the credential that produces
+  the 👍. Conjuncts 3 and 4 then pass on a reaction the session made itself, so
+  a shimmed check yields a **fully forged `verified`**, not a mislabelled one.
+  The check earns its place by catching the honest-but-unisolated case
+  automatically — today's case, and every adopter's until they isolate — and
+  buys nothing against a session that sets out to subvert it. It is therefore
+  necessary and never sufficient: it may lower `attestation`, and it may not,
+  on its own, raise it.
+- **What `verified` rests on.** Its trusted base is two facts the runtime
+  cannot check: the §5 deployment invariant (#511) and an unshimmed installed
+  binary (§1 clause 5). Conjunct 2 establishes neither. Read `verified` as
+  *the four conjuncts held, under a deployment where that base is believed to
+  hold* — which is why the receipt records facts rather than a bare verdict:
+  where the base is later found not to have held, the recorded facts are what
+  a re-audit re-judges.
 - **Degraded mode:** whenever any conjunct fails, HITL receipts carry
   `attestation: "unverified"` — on **every** such receipt, visible state, never
   silent theater (#492 correction 4).
