@@ -192,13 +192,15 @@ export async function runProbe(probe: Probe, options: ProbeRunnerOptions = {}): 
   const at = deps.now().toISOString();
 
   try {
+    // One directory, computed once, used by both the gate and the spawn. The
+    // registry's exact-match guarantee is only worth anything while "the cwd we
+    // authorised" and "the cwd we executed in" are the same value — two
+    // equivalent expressions would hold today and drift silently tomorrow.
+    const resolvedCwd = probe.type === "command" ? probeCwd(probe.cwd, baseCwd) : baseCwd;
+
     // The gate runs before dispatch, not inside the two gated cases, so a probe
     // type added later cannot slip past by forgetting to call it.
-    const authorization = authorizeProbe(
-      probe,
-      probe.type === "command" ? probeCwd(probe.cwd, baseCwd) : baseCwd,
-      options.registry,
-    );
+    const authorization = authorizeProbe(probe, resolvedCwd, options.registry);
     if (!authorization.allowed) {
       return probed(probe, "fail", authorization.reason, at);
     }
@@ -207,7 +209,7 @@ export async function runProbe(probe: Probe, options: ProbeRunnerOptions = {}): 
       case "command": {
         const outcome = await deps.runCommand({
           shell: probe.run,
-          cwd: probeCwd(probe.cwd, baseCwd),
+          cwd: resolvedCwd,
           timeoutSec: probe.timeoutSec,
         });
         const passed = !outcome.timedOut && outcome.exitCode === probe.expectExit;

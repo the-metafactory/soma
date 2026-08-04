@@ -626,6 +626,21 @@ test("close takes no flag that relocates the probe registry", async () => {
   expect(GRAPH_COMMAND_HELP.subcommands.close).not.toContain("--soma-home");
 });
 
+test("--propose refuses to publish a proposal on a node that cannot close", async () => {
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495"), author: "jcfischer" })
+    .seed("520", {
+      node: { id: "520", title: "no checkpoint", autonomy: "approve" },
+      parent: "495",
+      author: "ivy-agent",
+    });
+
+  const message = await failure(["graph", "close", "520", "--propose", "--body", "done", "--repo", REPO], store);
+
+  expect(message).toContain("no attached checkpoint");
+  expect(store.comments.size).toBe(0); // nothing published for a 👍 that could never be used
+});
+
 test("--propose refuses --dry-run rather than posting under a preview flag", () => {
   expect(() => parseGraphArgs(["graph", "close", "520", "--propose", "--body", "x", "--dry-run"])).toThrow(
     /cannot be combined with --dry-run/u,

@@ -670,6 +670,20 @@ async function runClose(
     if (body === undefined || body.trim().length === 0) {
       throw new SomaCliError("soma graph close --propose needs a non-empty --body or --body-file.", 1);
     }
+    // Posting is a write, and phase one must not publish a proposal that phase
+    // two will refuse: a node with no attached checkpoint cannot close at all,
+    // and no verb attaches one afterwards, so the 👍 it collects would be
+    // permanently unusable. Check what is checkable now — the probes have not
+    // run yet, so this is the checkpoint and nothing more.
+    if (state.node.checkpointId === undefined || state.node.checkpointId.length === 0) {
+      throw new SomaCliError(
+        [
+          `Node ${ref.id} has no attached checkpoint, so it cannot close — proposing would publish a comment nobody can act on.`,
+          `Attach one to the node block first; there is no verb that adds it after creation.`,
+        ].join("\n"),
+        1,
+      );
+    }
     const comment = await graph.postComment(ref, body);
     return [
       `Posted proposal comment ${comment.id} on node ${ref.id} (${repo}).`,

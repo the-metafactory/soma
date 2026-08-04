@@ -4,7 +4,12 @@ A node closes only through its attached checkpoint's completion gate, and
 `soma graph close` refuses a **hollow close**: no attached checkpoint, a
 declared probe that never ran, a probe that ran and failed, or no
 agent-external evidence entry carrying a pointer someone else can check. When it
-refuses, nothing reaches the tracker.
+refuses, no close is written.
+
+One write happens before any of that: `--propose` posts its comment (below). It
+checks that the node *has* a checkpoint first, so it cannot publish a proposal
+that can never be acted on — but the probes have not run at that point, so a
+proposal can still be posted for a close that later fails on its probes.
 
 ## Attach the checkpoint at creation
 
@@ -84,8 +89,21 @@ soma graph close <id> --proposal-comment <comment-id>
 ```
 
 The receipt is the ratification, read from the API's author field — never from
-body text. A 👎 from the graph root's author suppresses ratification outright. A
-materially amended proposal is re-posted and needs fresh ratification.
+body text. A 👎 from the graph root's author suppresses ratification outright.
+
+Two things the runtime does **not** do here, both of which are yours to hold:
+
+- **Any non-proposer's 👍 closes the node.** The ratifier is preferred to be the
+  graph root's author, but the fallback is the first other reaction — so on a
+  public tracker a stranger's thumb produces `approved` evidence and the node
+  closes. Only the `attestation` label records that it was not the right human.
+  Read root-author approval as the *thing you must obtain*, not as a condition
+  the verb enforces.
+- **Ratification binds to a comment id, not to its text.** Nothing hashes the
+  proposal body, so a proposal that is ratified and *then edited* still closes
+  on that 👍. "A materially amended proposal is re-posted and needs fresh
+  ratification" is doctrine you follow, not a property the runtime checks: if
+  the resolution changes materially, post a new comment and get a new 👍.
 
 ## Attestation
 
