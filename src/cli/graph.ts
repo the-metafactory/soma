@@ -50,6 +50,11 @@ import {
   type ConfinementResult,
 } from "../work-graph-attestation";
 import { createGitHubGraphStore } from "../work-graph-github";
+import {
+  isProbeRefusal,
+  loadProbeRegistry as defaultLoadProbeRegistry,
+  type ProbeRegistry,
+} from "../work-graph-probe-registry";
 import { allProbesPassed, runCommand, runProbes as defaultRunProbes } from "../work-graph-probes";
 import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";
@@ -67,7 +72,7 @@ export const GRAPH_COMMAND_HELP: { usage: string; subcommands: Record<GraphActio
     claim: "Usage: soma graph claim <id> [--identity <login>] [--repo <owner/name>] [--json]",
     add: "Usage: soma graph add <root> --title <text> --autonomy <auto|propose|approve> [--kind <k>] [--body <text>|--body-file <path>] [--checkpoint <id>] [--probe <json>]... [--blocked-by <id>]... [--budget-tokens <n>] [--budget-invocations <n>] [--budget-minutes <n>] [--repo <owner/name>] [--json]",
     close:
-      "Usage: soma graph close <id> [--propose --body <text>|--body-file <path>] [--proposal-comment <id>] [--checkpoint <id>] [--evidence <json>]... [--identity <login>] [--dry-run] [--repo <owner/name>]",
+      "Usage: soma graph close <id> [--propose --body <text>|--body-file <path>] [--proposal-comment <id>] [--checkpoint <id>] [--evidence <json>]... [--identity <login>] [--dry-run] [--repo <owner/name>] [--soma-home <dir>]",
   },
 };
 
@@ -121,6 +126,8 @@ export interface ParsedGraphCloseArgs {
     identity?: string;
     dryRun?: boolean;
     evidence: CloseEvidence[];
+    /** Where the probe registry lives when it is not `~/.soma` (§2.2). */
+    somaHome?: string;
   };
 }
 
@@ -310,6 +317,10 @@ function parseCloseArgs(target: string, rest: string[]): ParsedGraphCloseArgs {
         options.identity = readOption(rest, index, arg);
         index += 1;
         break;
+      case "--soma-home":
+        options.somaHome = readOption(rest, index, arg);
+        index += 1;
+        break;
       case "--evidence":
         options.evidence.push(parseEvidenceOption(readOption(rest, index, arg)));
         index += 1;
@@ -369,7 +380,13 @@ export interface GraphCliDeps {
   createStore: (repo: string) => GraphStore;
   resolveRepo: () => Promise<string>;
   resolveIdentity: () => Promise<string>;
-  runProbes: (probes: readonly Probe[]) => Promise<ProbeResult[]>;
+  /**
+   * The registry is loaded per close and handed to the runner rather than read
+   * inside it: one place decides which repo's declarations apply, and the
+   * refusal messages can name the document the adopter has to edit.
+   */
+  loadProbeRegistry: (repo: string, somaHome: string | undefined) => Promise<ProbeRegistry>;
+  runProbes: (probes: readonly Probe[], registry: ProbeRegistry) => Promise<ProbeResult[]>;
   checkConfinement: () => Promise<ConfinementResult>;
   /** An externally re-checkable anchor for probe evidence — the commit the probes ran against. */
   evidencePointer: () => Promise<string | undefined>;
@@ -395,7 +412,13 @@ export function parseRepoFromRemote(remote: string): string | undefined {
   return `${match[1]}/${match[2]}`;
 }
 
-async function defaultResolveRepo(): Promise<string> {
+/**
+ * Which repository backs this graph. Exported because the probe registry is
+ * scoped by repo identity, so `soma policy probes` has to resolve it the same
+ * way `soma graph` does — two answers to "which repo" would mean an adopter
+ * declaring commands under a key the close path never looks at.
+ */
+export async function resolveGraphRepo(): Promise<string> {
   const configured = process.env.SOMA_GRAPH_REPO;
   if (configured !== undefined && configured.trim().length > 0) return configured.trim();
 
@@ -421,9 +444,11 @@ async function defaultEvidencePointer(): Promise<string | undefined> {
 function defaultDeps(): GraphCliDeps {
   return {
     createStore: (repo) => createGitHubGraphStore({ repo }),
-    resolveRepo: defaultResolveRepo,
+    resolveRepo: resolveGraphRepo,
     resolveIdentity: async () => await gh(["api", "user", "--jq", ".login"]),
-    runProbes: async (probes) => await defaultRunProbes(probes),
+    loadProbeRegistry: async (repo, somaHome) =>
+      await defaultLoadProbeRegistry({ repo, ...(somaHome === undefined ? {} : { somaHome }) }),
+    runProbes: async (probes, registry) => await defaultRunProbes(probes, { registry }),
     checkConfinement: async () =>
       await defaultCheckConfinement({
         runCommand,
@@ -657,7 +682,26 @@ async function runClose(
 
   const identity = parsed.options.identity ?? (await deps.resolveIdentity());
   const probes = state.node.probes ?? [];
-  const probeResults = await deps.runProbes(probes);
+  const registry = await deps.loadProbeRegistry(repo, parsed.options.somaHome);
+  const probeResults = await deps.runProbes(probes, registry);
+  const refusals = probeResults.filter((result) => isProbeRefusal(result));
+
+  // A refused probe reaches `assertClosable` as "ran and failed", which is true
+  // but useless to act on. Surface it here instead, where the reason — and the
+  // exact entry to declare — is still in hand. A dry run keeps going: showing
+  // the whole receipt is the point of asking for one.
+  if (refusals.length > 0 && parsed.options.dryRun !== true) {
+    throw new SomaCliError(
+      [
+        `Close refused: ${refusals.length} of ${probeResults.length} declared probe(s) are not authorised on this machine.`,
+        "",
+        ...refusals.map((refusal) => (refusal.state === "probed" ? refusal.observed : "")),
+        "",
+        "Nothing was written. The registry is yours to edit — soma has no verb that widens it (§4: loosening is identity-bound).",
+      ].join("\n"),
+      1,
+    );
+  }
 
   const evidence: CloseEvidence[] = [...parsed.options.evidence];
   if (probes.length > 0 && allProbesPassed(probeResults)) {
@@ -731,6 +775,9 @@ async function runClose(
     return [
       `Dry run for node ${ref.id} (${repo}) — nothing written.`,
       `close ${verdict}`,
+      ...(refusals.length > 0
+        ? ["", `Probe registry: ${refusals.length} of ${probeResults.length} probe(s) refused (${registry.path}).`]
+        : []),
       "",
       renderCloseReceipt(receipt),
     ].join("\n");

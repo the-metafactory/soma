@@ -741,6 +741,22 @@ export {
   type ProbeRunnerOptions,
 } from "./work-graph-probes";
 export {
+  authorizeProbe,
+  isProbeRefusal,
+  loadProbeRegistry,
+  parseProbeRegistry,
+  probeRegistryPath,
+  PROBE_REFUSED_PREFIX,
+  PROBE_REGISTRY_RELATIVE_PATH,
+  PROBE_REGISTRY_VERSION,
+  type DeclaredCommand,
+  type LoadProbeRegistryOptions,
+  type ParseProbeRegistryInput,
+  type ProbeAuthorization,
+  type ProbeRegistry,
+  type ProbeRegistryHomeOptions,
+} from "./work-graph-probe-registry";
+export {
   checkConfinement,
   deriveAttestation,
   findGraphRoot,

@@ -9,6 +9,7 @@ import {
 } from "../src/cli/graph";
 import {
   WorkGraphError,
+  runProbes,
   type ClaimResult,
   type CloseReceipt,
   type CommentRef,
@@ -17,6 +18,7 @@ import {
   type NodeRef,
   type NodeState,
   type Probe,
+  type ProbeRegistry,
   type ProbeResult,
   type Reaction,
   type WorkGraphNode,
@@ -24,7 +26,17 @@ import {
 
 const REPO = "the-metafactory/soma";
 const AT = new Date("2026-08-04T09:00:00.000Z");
-const PROBE: Probe = { type: "command", run: "bun test", timeoutSec: 600, expectExit: 0 };
+const PROBE_RUN = "bun test";
+const PROBE: Probe = { type: "command", run: PROBE_RUN, timeoutSec: 600, expectExit: 0 };
+const REGISTRY_PATH = "/home/.soma/policy/probe-registry.json";
+/** What a machine that has authorised this repo's one probe looks like (§2.2). */
+const DECLARED: ProbeRegistry = {
+  status: "loaded",
+  repo: REPO,
+  path: REGISTRY_PATH,
+  commands: [{ run: PROBE_RUN, cwd: "/repo" }],
+  urlHosts: [],
+};
 
 interface SeedNode {
   node: WorkGraphNode;
@@ -113,6 +125,8 @@ function deps(store: FakeStore, overrides: Partial<GraphCliDeps> = {}): Partial<
     createStore: () => store,
     resolveRepo: async () => REPO,
     resolveIdentity: async () => "ivy-agent",
+    // Hermetic: the default would read the developer's own ~/.soma.
+    loadProbeRegistry: async () => DECLARED,
     runProbes: async (probes) =>
       probes.map<ProbeResult>((probe) => ({
         probe,
@@ -492,6 +506,109 @@ test("--dry-run names the refusal instead of throwing it away", async () => {
 
   expect(output).toContain("would be REFUSED");
   expect(store.closed).toHaveLength(0);
+});
+
+// --- the probe registry gate (DD-16 Amendment A, #526) ----------------------
+
+/** Wires the real runner behind the CLI so the registry actually gates something. */
+function realRunner(registry: ProbeRegistry, overrides: Partial<GraphCliDeps> = {}): Partial<GraphCliDeps> {
+  return {
+    loadProbeRegistry: async () => registry,
+    runProbes: async (probes, supplied) =>
+      await runProbes(probes, {
+        cwd: "/repo",
+        registry: supplied,
+        deps: {
+          runCommand: async () => ({ exitCode: 0, stdout: "640 pass", stderr: "", timedOut: false }),
+          now: () => AT,
+        },
+      }),
+    ...overrides,
+  };
+}
+
+test("close refuses an undeclared command probe and hands back the entry to add", async () => {
+  const store = autoGraph();
+  const message = await failure(
+    ["graph", "close", "520", "--repo", REPO],
+    store,
+    realRunner({ status: "loaded", repo: REPO, path: REGISTRY_PATH, commands: [], urlHosts: [] }),
+  );
+
+  expect(store.closed).toHaveLength(0);
+  expect(message).toContain("not authorised on this machine");
+  expect(message).toContain(PROBE_RUN);
+  expect(message).toContain(`{"run": "bun test", "cwd": "/repo"}`);
+  expect(message).toContain(REGISTRY_PATH);
+});
+
+test("close on a machine with no registry refuses rather than running tracker content", async () => {
+  const store = autoGraph();
+  const message = await failure(
+    ["graph", "close", "520", "--repo", REPO],
+    store,
+    realRunner({ status: "absent", repo: REPO, path: REGISTRY_PATH }),
+  );
+
+  expect(store.closed).toHaveLength(0);
+  expect(message).toContain("no registry exists at");
+});
+
+test("a declared command probe closes exactly as before — the gate is not a new hurdle", async () => {
+  const store = autoGraph();
+  const output = await run(["graph", "close", "520", "--repo", REPO], store, realRunner(DECLARED));
+
+  expect(store.closed).toHaveLength(1);
+  expect(output).toContain("Closed node 520");
+});
+
+test("--dry-run still renders the receipt when the registry refused a probe", async () => {
+  const store = autoGraph();
+  const output = await run(
+    ["graph", "close", "520", "--dry-run", "--repo", REPO],
+    store,
+    realRunner({ status: "absent", repo: REPO, path: REGISTRY_PATH }),
+  );
+
+  expect(store.closed).toHaveLength(0);
+  expect(output).toContain("would be REFUSED");
+  expect(output).toContain("1 of 1 probe(s) refused");
+  expect(output).toContain("## Close receipt");
+});
+
+test("the gate is uniform — a HITL node is refused on the same terms as an auto one", async () => {
+  const store = autoGraph().seed("520", {
+    node: { id: "520", title: "hitl", autonomy: "approve", checkpointId: "cp-520", probes: [PROBE] },
+    parent: "495",
+    author: "ivy-agent",
+  });
+
+  const message = await failure(
+    ["graph", "close", "520", "--repo", REPO],
+    store,
+    realRunner({ status: "absent", repo: REPO, path: REGISTRY_PATH }),
+  );
+
+  // Refused before the proposal path is even reached: the registry answers
+  // whose code this is, which is not an autonomy question.
+  expect(message).toContain("not authorised on this machine");
+  expect(message).not.toContain("--propose");
+  expect(store.closed).toHaveLength(0);
+});
+
+test("reading is not executing — node and frontier never consult the registry", async () => {
+  const store = autoGraph();
+  const explode = async (): Promise<never> => {
+    throw new Error("the read path must not consult the probe registry — a node is data");
+  };
+
+  const node = await run(["graph", "node", "520", "--repo", REPO], store, { loadProbeRegistry: explode });
+  expect(node).toContain("node: 520");
+  expect(node).toContain(PROBE_RUN); // the undeclared probe still reads back verbatim
+
+  const rooted = autoGraph().seed("495", { node: autoNode("495"), author: "jcfischer", children: ["520"] });
+  const frontier = await run(["graph", "frontier", "495", "--repo", REPO], rooted, { loadProbeRegistry: explode });
+  expect(frontier).toContain("- 520");
 });
 
 test("closing from the dev tree warns that the gate is not where §1 clause 5 puts it", async () => {

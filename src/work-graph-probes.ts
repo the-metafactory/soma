@@ -7,7 +7,7 @@
  * hollow, so evidence is typed by whether it was specified first and then
  * actually run, never by what a session says about it afterwards.
  *
- * Two rules the spec puts on the runner specifically:
+ * Three rules the spec puts on the runner specifically:
  *
  * - **Timeout expiry is probe failure**, never a hang and never a pass — a
  *   hanging command must not block the close path.
@@ -16,6 +16,10 @@
  *   with the reason in `observed`, so {@link assertClosable} refuses the close.
  *   Fail-closed: the one thing a runner may never do is let an unrun probe look
  *   like a passed one.
+ * - **A probe the registry refuses is a failure too** (DD-16 Amendment A,
+ *   #526) — same shape, same path, deliberately not a new outcome: "the
+ *   adopter never authorised this command" and "this command failed" are both
+ *   simply *not passed*, and the close gate already knows what to do with that.
  *
  * I/O sits behind {@link ProbeRunnerDeps} so the whole runner is testable
  * without a shell, a network, or a git tree.
@@ -23,6 +27,7 @@
 
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { authorizeProbe, type ProbeRegistry } from "./work-graph-probe-registry";
 import type { Probe, ProbeResult } from "./work-graph";
 
 /** How much of a command's output survives into the receipt (§2.2: a *bounded* tail). */
@@ -64,6 +69,14 @@ export interface ProbeRunnerDeps {
 export interface ProbeRunnerOptions {
   /** Default working directory for probes that do not name one. */
   cwd?: string;
+  /**
+   * The adopter's probe registry for the repo this graph lives in (§2.2, DD-16
+   * Amendment A). **Absent means refuse**: every `command` and `url` probe fails
+   * closed, which is the spec's rule for a machine carrying no declaration.
+   * Deliberately not defaulted to a permissive value — a gate you can forget to
+   * pass is not a gate.
+   */
+  registry?: ProbeRegistry;
   deps?: Partial<ProbeRunnerDeps>;
 }
 
@@ -179,6 +192,17 @@ export async function runProbe(probe: Probe, options: ProbeRunnerOptions = {}): 
   const at = deps.now().toISOString();
 
   try {
+    // The gate runs before dispatch, not inside the two gated cases, so a probe
+    // type added later cannot slip past by forgetting to call it.
+    const authorization = authorizeProbe(
+      probe,
+      probe.type === "command" ? probeCwd(probe.cwd, baseCwd) : baseCwd,
+      options.registry,
+    );
+    if (!authorization.allowed) {
+      return probed(probe, "fail", authorization.reason, at);
+    }
+
     switch (probe.type) {
       case "command": {
         const outcome = await deps.runCommand({
