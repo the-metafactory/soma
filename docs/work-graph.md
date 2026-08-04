@@ -148,8 +148,11 @@ The registry lives in **soma-home only, scoped by repo identity**, under the
 `soma policy` surface (§4 forbids a parallel policy registry). Not repo-local:
 §1 clause 5 keeps enforcement off the tree it guards, and a committed registry
 is writable by any agent holding Write. Concretely
-`~/.soma/policy/probe-registry.json` (override with `soma graph close
---soma-home`):
+`~/.soma/policy/probe-registry.json` — and **the close path takes no flag that
+moves it**. A caller-selectable registry path is the same hole the home
+placement closes: point it at a file you just wrote and the exact-match
+authorises itself. An adopter whose soma home is not `~/.soma` configures that
+for the environment, never per invocation.
 
 ```json
 {

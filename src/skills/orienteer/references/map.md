@@ -85,10 +85,16 @@ resolving a node are linked from the issue, not pasted in.
 Two vocabularies live on a node, and confusing them is the most common mistake.
 
 **`autonomy`** — `auto` / `propose` / `approve`. The **only** classification the
-runtime enforces. It is declared over a projected policy floor and clamped
-never-below-floor at creation, and it decides what evidence closes the node. An
-`auto` node with zero probes is refused at creation: zero probes means zero
-machine-checkable evidence at close.
+runtime enforces, and it decides what evidence closes the node. An `auto` node
+with zero probes is refused at creation: zero probes means zero machine-checkable
+evidence at close.
+
+Choose it honestly, because **nothing checks your choice yet**. The spec has
+`autonomy` declared over a projected policy floor and clamped never-below-floor
+at creation (`docs/work-graph.md` §4); that clamp is not implemented — the
+runtime validates the literal value and nothing more. Until it lands, declaring
+`auto` on work that belongs behind a human is a self-imposed rule, not an
+enforced one.
 
 **`kind`** — `research` / `prototype` / `grilling` / `task`. **Orienteer's own
 vocabulary.** The runtime normalises its form (trimmed, lowercased, non-empty)

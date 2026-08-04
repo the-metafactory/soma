@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { SomaCliError } from "../src/cli/errors";
 import {
+  GRAPH_COMMAND_HELP,
   parseGraphArgs,
   parseRepoFromRemote,
   runGraphCli,
@@ -574,6 +575,61 @@ test("--dry-run still renders the receipt when the registry refused a probe", as
   expect(output).toContain("would be REFUSED");
   expect(output).toContain("1 of 1 probe(s) refused");
   expect(output).toContain("## Close receipt");
+});
+
+test("--evidence cannot supply the kind that closes the node", async () => {
+  // The hole this closes: assertClosable counts any admissible-kind entry with a
+  // pointer and cannot tell derived from hand-written, so without a boundary
+  // check a caller closes an approve-class node with no proposal and no human.
+  const hitl = new FakeStore()
+    .seed("495", { node: autoNode("495"), author: "jcfischer" })
+    .seed("520", {
+      node: { id: "520", title: "hitl", autonomy: "approve", checkpointId: "cp-520" },
+      parent: "495",
+      author: "ivy-agent",
+    });
+
+  const forged = await failure(
+    ["graph", "close", "520", "--repo", REPO, "--evidence", '{"kind":"approved","summary":"looks fine","pointer":"trust me"}'],
+    hitl,
+  );
+  expect(forged).toContain("--evidence cannot carry `approved`");
+  expect(forged).toContain("ratified proposal comment");
+  expect(hitl.closed).toHaveLength(0);
+
+  // Same rule on the AFK side: `probed`/`tested` are what a passed probe earns.
+  const afk = autoGraph();
+  const selfReport = await failure(
+    ["graph", "close", "520", "--repo", REPO, "--evidence", '{"kind":"tested","summary":"ran it myself","pointer":"HEAD"}'],
+    afk,
+  );
+  expect(selfReport).toContain("--evidence cannot carry");
+  expect(afk.closed).toHaveLength(0);
+
+  // Informational kinds still pass through.
+  const informed = autoGraph();
+  await run(
+    ["graph", "close", "520", "--repo", REPO, "--evidence", '{"kind":"judged","summary":"sage reviewed","pointer":"pr#1"}'],
+    informed,
+  );
+  expect(informed.closed[0].receipt.evidence.some((entry) => entry.kind === "judged")).toBe(true);
+});
+
+test("close takes no flag that relocates the probe registry", async () => {
+  // A caller-selectable registry path is the hole the soma-home placement closes:
+  // point it at a file you just wrote and the exact-match authorises itself.
+  const store = autoGraph();
+  const message = await failure(["graph", "close", "520", "--repo", REPO, "--soma-home", "/tmp/mine"], store);
+
+  expect(message).toContain("Unknown option: --soma-home");
+  expect(store.closed).toHaveLength(0);
+  expect(GRAPH_COMMAND_HELP.subcommands.close).not.toContain("--soma-home");
+});
+
+test("--propose refuses --dry-run rather than posting under a preview flag", () => {
+  expect(() => parseGraphArgs(["graph", "close", "520", "--propose", "--body", "x", "--dry-run"])).toThrow(
+    /cannot be combined with --dry-run/u,
+  );
 });
 
 test("the gate is uniform — a HITL node is refused on the same terms as an auto one", async () => {

@@ -30,6 +30,7 @@
 import {
   WorkGraph,
   WorkGraphError,
+  agentExternalEvidenceKinds,
   assertClosable,
   renderCloseReceipt,
   type CloseEvidence,
@@ -72,7 +73,7 @@ export const GRAPH_COMMAND_HELP: { usage: string; subcommands: Record<GraphActio
     claim: "Usage: soma graph claim <id> [--identity <login>] [--repo <owner/name>] [--json]",
     add: "Usage: soma graph add <root> --title <text> --autonomy <auto|propose|approve> [--kind <k>] [--body <text>|--body-file <path>] [--checkpoint <id>] [--probe <json>]... [--blocked-by <id>]... [--budget-tokens <n>] [--budget-invocations <n>] [--budget-minutes <n>] [--repo <owner/name>] [--json]",
     close:
-      "Usage: soma graph close <id> [--propose --body <text>|--body-file <path>] [--proposal-comment <id>] [--checkpoint <id>] [--evidence <json>]... [--identity <login>] [--dry-run] [--repo <owner/name>] [--soma-home <dir>]",
+      "Usage: soma graph close <id> [--propose --body <text>|--body-file <path>] [--proposal-comment <id>] [--checkpoint <id>] [--evidence <json>]... [--identity <login>] [--dry-run] [--repo <owner/name>]",
   },
 };
 
@@ -126,8 +127,6 @@ export interface ParsedGraphCloseArgs {
     identity?: string;
     dryRun?: boolean;
     evidence: CloseEvidence[];
-    /** Where the probe registry lives when it is not `~/.soma` (§2.2). */
-    somaHome?: string;
   };
 }
 
@@ -317,10 +316,6 @@ function parseCloseArgs(target: string, rest: string[]): ParsedGraphCloseArgs {
         options.identity = readOption(rest, index, arg);
         index += 1;
         break;
-      case "--soma-home":
-        options.somaHome = readOption(rest, index, arg);
-        index += 1;
-        break;
       case "--evidence":
         options.evidence.push(parseEvidenceOption(readOption(rest, index, arg)));
         index += 1;
@@ -335,6 +330,14 @@ function parseCloseArgs(target: string, rest: string[]): ParsedGraphCloseArgs {
 
   if (options.propose === true && options.body === undefined && options.bodyFile === undefined) {
     throw new Error("soma graph close --propose needs --body or --body-file.");
+  }
+  // `--propose` posts a public comment and returns before the dry-run branch is
+  // ever reached, so the two together would write exactly what `--dry-run`
+  // promises not to. Refuse the combination rather than silently honouring one.
+  if (options.propose === true && options.dryRun === true) {
+    throw new Error(
+      "soma graph close --propose cannot be combined with --dry-run: proposing posts a comment, which is a write.",
+    );
   }
 
   return { command: "graph", action: "close", target, options };
@@ -384,8 +387,14 @@ export interface GraphCliDeps {
    * The registry is loaded per close and handed to the runner rather than read
    * inside it: one place decides which repo's declarations apply, and the
    * refusal messages can name the document the adopter has to edit.
+   *
+   * Takes the repo and **nothing else**. There is deliberately no caller-supplied
+   * path: the registry's location is the one thing the closing session may not
+   * choose, or it authorises itself by pointing at a file it just wrote. An
+   * adopter whose soma home is not `~/.soma` configures that for the environment,
+   * never per invocation.
    */
-  loadProbeRegistry: (repo: string, somaHome: string | undefined) => Promise<ProbeRegistry>;
+  loadProbeRegistry: (repo: string) => Promise<ProbeRegistry>;
   runProbes: (probes: readonly Probe[], registry: ProbeRegistry) => Promise<ProbeResult[]>;
   checkConfinement: () => Promise<ConfinementResult>;
   /** An externally re-checkable anchor for probe evidence — the commit the probes ran against. */
@@ -446,8 +455,7 @@ function defaultDeps(): GraphCliDeps {
     createStore: (repo) => createGitHubGraphStore({ repo }),
     resolveRepo: resolveGraphRepo,
     resolveIdentity: async () => await gh(["api", "user", "--jq", ".login"]),
-    loadProbeRegistry: async (repo, somaHome) =>
-      await defaultLoadProbeRegistry({ repo, ...(somaHome === undefined ? {} : { somaHome }) }),
+    loadProbeRegistry: async (repo) => await defaultLoadProbeRegistry({ repo }),
     runProbes: async (probes, registry) => await defaultRunProbes(probes, { registry }),
     checkConfinement: async () =>
       await defaultCheckConfinement({
@@ -680,9 +688,34 @@ async function runClose(
     );
   }
 
+  // `assertClosable` counts any admissible-kind entry carrying a pointer, and it
+  // cannot tell one the runtime derived from one the caller typed — a receipt is
+  // just a receipt by the time it gets there. So the distinction has to be
+  // enforced where it still exists: here, at the boundary where caller-supplied
+  // and derived evidence are still separate values. Without this, `--evidence
+  // '{"kind":"approved",…}'` closes an approve-class node with no proposal and no
+  // human, which is §3.2 defeated by a flag.
+  const reserved = agentExternalEvidenceKinds(state.node.autonomy);
+  const usurping = parsed.options.evidence.filter((entry) => reserved.includes(entry.kind));
+  if (usurping.length > 0) {
+    throw new SomaCliError(
+      [
+        `--evidence cannot carry ${reserved.map((kind) => `\`${kind}\``).join(" or ")} on a ${state.node.autonomy}-class node.`,
+        `Those kinds are what closes it, so the runtime derives them — ${
+          state.node.autonomy === "auto"
+            ? "from probes that ran and passed (§3.1)"
+            : "from a ratified proposal comment (§3.2)"
+        } — and a hand-written one would be exactly the self-declared verification the gate exists to refuse.`,
+        `Refused: ${usurping.map((entry) => `${entry.kind} — ${entry.summary}`).join("; ")}`,
+        `Use --evidence for informational kinds (${EVIDENCE_KINDS.filter((kind) => !reserved.includes(kind)).join(", ")}).`,
+      ].join("\n"),
+      1,
+    );
+  }
+
   const identity = parsed.options.identity ?? (await deps.resolveIdentity());
   const probes = state.node.probes ?? [];
-  const registry = await deps.loadProbeRegistry(repo, parsed.options.somaHome);
+  const registry = await deps.loadProbeRegistry(repo);
   const probeResults = await deps.runProbes(probes, registry);
   const refusals = probeResults.filter((result) => isProbeRefusal(result));
 
