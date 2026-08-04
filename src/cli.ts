@@ -119,6 +119,12 @@ import {
   runPreCompactCli,
   type ParsedPreCompactArgs,
 } from "./cli/precompact";
+import {
+  GRAPH_COMMAND_HELP,
+  parseGraphArgs,
+  runGraphCli,
+  type ParsedGraphArgs,
+} from "./cli/graph";
 
 export { SomaCliError } from "./cli/errors";
 
@@ -153,6 +159,7 @@ type ParsedArgs =
   | ParsedImportArgs
   | ParsedMigrateArgs
   | ParsedAlgorithmArgs
+  | ParsedGraphArgs
   | ParsedLifecycleArgs
   | ParsedMemoryArgs
   | ParsedTelemetryArgs
@@ -172,6 +179,7 @@ const TOP_LEVEL_COMMANDS = [
   "doctor",
   "export",
   "feedback",
+  "graph",
   "history",
   "import",
   "inference",
@@ -205,6 +213,7 @@ const TOP_LEVEL_COMMANDS = [
 
 const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string, string> }> = {
   algorithm: ALGORITHM_COMMAND_HELP,
+  graph: GRAPH_COMMAND_HELP,
   memory: MEMORY_COMMAND_HELP,
   telemetry: TELEMETRY_COMMAND_HELP,
   stats: STATS_COMMAND_HELP,
@@ -296,6 +305,10 @@ function parseArgs(args: string[]): ParsedArgs {
 
   if (args[0] === "algorithm") {
     return parseAlgorithmArgs(args);
+  }
+
+  if (args[0] === "graph") {
+    return parseGraphArgs(args);
   }
 
   if (args[0] === "policy") {
@@ -502,6 +515,10 @@ export async function runSomaCli(args: string[]): Promise<string> {
 
   if (parsed.command === "algorithm") {
     return runAlgorithmCli(parsed);
+  }
+
+  if (parsed.command === "graph") {
+    return runGraphCli(parsed);
   }
 
   if (parsed.command === "vsa") {

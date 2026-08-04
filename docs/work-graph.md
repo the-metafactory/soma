@@ -112,6 +112,106 @@ evidence is typed `specified` at node creation and flips to `probed` only
 when the runtime has executed the probe and recorded its output
 (`ProbeResult` above).
 
+Runner semantics settled while implementing #498:
+
+- `repo` on the git and artifact probes is a **local working-tree path**
+  (relative to the runner's cwd), not `owner/name` — `artifact-exists`'s
+  `path` + `atRef` pair resolves as `git cat-file -e <atRef>:<path>`, which
+  needs a checkout rather than an API.
+- **A probe that cannot run is a failed probe, never a skipped one.** Runner
+  errors (network refused, git absent, bad path) record `outcome: "fail"` with
+  the reason in `observed`, so the close refuses. The one thing a runner may
+  not do is let an unrun probe read as a passed one.
+- Git probes execute as argv, never through a shell, so a ref name cannot
+  inject.
+
+#### Probe registry (DD-16 Amendment A)
+
+**Status: enforced** ([#526](https://github.com/the-metafactory/soma/issues/526)),
+in `src/work-graph-probe-registry.ts` — the gate — and `src/work-graph-probes.ts`,
+which consults it before dispatch so a probe type added later cannot inherit
+"ungated" by omission.
+
+Probe declarations are **tracker content**, so they may parameterise a probe but
+may never introduce executable code or a network destination. The tracker is a
+parameter of `soma graph` — adopters point it at their own repos — so Soma
+cannot know its visibility, collaborator set, or issue policy, and no rule may
+depend on knowing who is trusted there.
+
+| Probe type | Gate |
+| --- | --- |
+| `command` | Refused unless the exact `run` **and** `cwd` pair is declared in the local probe registry for this repo. `cwd` is part of the match: a declared command run in an attacker-chosen directory is a different command. |
+| `url` | Refused unless the target host is in the declared host set. Ungated, this is a blind SSRF oracle — the request issues from the closing machine and the receipt publishes the observed status to a possibly world-readable tracker. |
+| `git-ref-exists`, `git-merged-into`, `artifact-exists` | Ungated — argv, no shell, no egress, bounded to existence checks in a local tree. |
+
+The registry lives in **soma-home only, scoped by repo identity**, under the
+`soma policy` surface (§4 forbids a parallel policy registry). Not repo-local:
+§1 clause 5 keeps enforcement off the tree it guards, and a committed registry
+is writable by any agent holding Write. Concretely
+`~/.soma/policy/probe-registry.json` — and **the close path takes no flag that
+moves it**. A caller-selectable registry path is the same hole the home
+placement closes: point it at a file you just wrote and the exact-match
+authorises itself. An adopter whose soma home is not `~/.soma` configures that
+for the environment, never per invocation.
+
+```json
+{
+  "version": 1,
+  "repos": {
+    "the-metafactory/soma": {
+      "commands": [{ "run": "bun test", "cwd": "/Users/you/work/soma" }],
+      "urlHosts": ["status.example.com"]
+    }
+  }
+}
+```
+
+Declaration rules, all deny-by-default:
+
+- `cwd` is matched as the **resolved absolute directory** the runner would
+  execute in, not the literal `cwd` field on the node — that field is
+  tracker-supplied and resolves against the closing session's cwd. Declared
+  paths must be absolute (`~` expands); a relative declaration would authorise a
+  different directory per invocation, which is the substitution the `cwd` match
+  exists to prevent.
+- `run` matches **byte for byte**. No trimming, no normalisation.
+- `urlHosts` are bare hostnames — no scheme, port, path, or wildcard. A declared
+  host authorises any port on it; a non-http(s) target is refused outright,
+  since a `file:` or `data:` URL has no host for a host set to authorise.
+- Repository keys are compared case-insensitively. The **whole document** is
+  validated, not just the entry being read: in an authorisation list a
+  silently-ignored typo is what makes an adopter believe something is declared
+  when it is not.
+- Adding an entry is a **loosening** mutation (§4), so it stays identity-bound
+  and fail-closed: the adopter edits the document. `soma policy probes
+  [--repo <owner/name>]` shows what is declared and where; soma ships no verb
+  that writes it, because a gate the agent can widen is not a gate.
+
+The rule is **uniform** — same for every autonomy class and for the phase-2
+headless tick (§5). A machine with no declaration refuses those closes;
+fail-closed. Refusal is a **failed probe** (`outcome: "fail"`, reason in
+`observed`), not an exception and not a skip, so `assertClosable` refuses the
+close through the path it already owns; `soma graph close` additionally reports
+the refusal ahead of that generic failure, naming the exact `run`/`cwd` to
+declare. **Reading is not executing:** `soma graph node` and
+`soma graph frontier` read any node regardless, because a node is data. Only the
+close path gates.
+
+Exact match yields DD-7's *exact-bytes* property for the two fields it covers:
+editing a probe's `run` or `cwd` on the tracker breaks its match and the close
+refuses, with no scanner involved. It does **not** extend to the rest of the
+probe. `expectExit` and `timeoutSec` remain tracker content the gate never reads
+— which is the residual DD-16 Amendment A already records ("an attacker who can
+write a node body … can set `timeoutSec` and `expectExit` freely"). Concretely:
+flipping a declared `bun test` from `expectExit: 0` to `expectExit: 1` makes a
+*failing* suite record as a passed probe. The registry bounds **whose code
+runs**, not what counts as success; widening it to the whole probe would be a new
+decision, not an implementation detail of this one.
+
+**Migration:** existing nodes carrying undeclared `command` probes are
+unclosable by machine until their command is declared. Intended — the refusal is
+specific and copy-pasteable, and no node silently changes meaning.
+
 ### 2.3 Edge
 
 Blocking only: `blocks(a, b)` means `b` is not frontier until `a` is closed.
@@ -193,7 +293,25 @@ soma graph close <node>            # runs declared probes; refuses a hollow clos
 
 `close` enforcement lives in the **installed** soma binary, never the dev tree
 (#483 clause 5). Bypass via raw `gh` remains visible-but-unprevented in
-phase 1; the phase-2 auditor (§5) makes it detected.
+phase 1; the phase-2 auditor (§5) makes it detected. A close run from a dev
+tree warns on stderr rather than refusing — refusing would make the primitive
+undevelopable, and the warning keeps the gap visible state rather than silent.
+
+HITL closes are two-phase, inside the same verb rather than a sixth one:
+`close --propose` posts the proposal comment and stops; `close
+--proposal-comment <id>` reads its reactions and derives the receipt. Two seam
+addenda fell out of implementing it (#498), both the same class as the
+`CreateNodeSpec` addendum on #497:
+
+- `GraphStore.readComment` — conjunct 3 needs the *proposal's* author from the
+  API, and the two phases are separate process invocations, so the author must
+  come back from the backend rather than ride on the command line where it
+  would be caller-authored.
+- The parent edge is read over **GraphQL**. `GET /repos/{repo}/issues/{n}`
+  carries no `parent` key (only the child direction, `/sub_issues`, is in
+  REST), so a REST-only read resolves every node as its own root — which
+  silently degrades conjunct 4 from "the graph root's author may ratify" into
+  "a ticket's own author may ratify its close".
 
 ### 2.7 planSteps bridge
 
@@ -322,6 +440,16 @@ scheduler (r3 evidence, folded from #485 fog).
   — free after structural validation, the agent may self-tighten. Loosening is
   a consuming mutation on the gate itself — the most-gated write there is:
   identity-bound `approved` evidence, fail-closed.
+- The **probe registry** (§2.2, DD-16 Amendment A) is a typed document on this
+  same surface — declared `command` literals (`run` + `cwd`) and `url` hosts,
+  scoped by repo identity, held in soma-home
+  (`~/.soma/policy/probe-registry.json`, read by `soma policy probes`). It is an
+  authorisation list, not configuration: adding an entry is the adopter saying
+  "I allow this command on this machine", so it follows the same
+  asymmetric-mutation rule as the autonomy floors — tightening is additive,
+  loosening is identity-bound and fail-closed. In practice that means the write
+  is the adopter's hand: `soma policy probes` reads, and there is no verb that
+  adds an entry.
 - Graph-mutation events are an inspection surface beside `governance_event`.
   Enforcement sits where mutations are applied (installed binary now, auditor
   in phase 2) and never executes from the tree it guards.
@@ -344,7 +472,11 @@ sessions are the node executors, soma supplies the verbs.
     `auto`-class frontier nodes headlessly. Each claim is announced to Discord
     with a **60s 👎 veto window**; silence proceeds; terminal states never
     auto-resume (operator verbs only). No autonomous ticking under the
-    principal's credentials, ever.
+    principal's credentials, ever. The tick runs `command` and `url` probes
+    under the **same** registry gate as an interactive session (§2.2) — the
+    registry answers *whose code this is*, and headlessness changes who is
+    watching, not what is authorised. A tick machine with no registry refuses
+    those closes rather than running them.
 - **Close audit (phase 2):** a GitHub Actions auditor fires on issue-close,
   re-verifies structurally checkable evidence from the close receipt's
   pointers (commit SHAs, CI run URLs, comment IDs, probe outputs), and reopens

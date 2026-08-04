@@ -98,9 +98,27 @@ function isNegated(text: string, index: number): boolean {
 }
 
 /**
+ * A blank line ends the thought. Proximity is a proxy for "these words are
+ * about each other", and that proxy dies at a paragraph break: two adjacent
+ * blocks can be about entirely different things.
+ *
+ * The case that forced this: soma's own `CONTEXT.md` ends a paragraph with the
+ * noun "…hides bypass paths." and opens the next section with the heading
+ * "## Inbound security config". Sixty characters apart, zero relationship — and
+ * the resulting `security-disable-request` denied every prompt carrying that
+ * file, which is how sage's Architecture and ContextDrift lenses came to fail on
+ * every review round for months while reporting it as a model contract
+ * deviation.
+ *
+ * A single newline is NOT a boundary: prose wraps, and "please bypass\nthe
+ * security guard" is one sentence and one request.
+ */
+const BLOCK_BOUNDARY = /\n[ \t]*\n/u;
+
+/**
  * Match `verbPattern` (bare forms only) followed by `targetPattern` within
- * `window` chars, rejecting negated occurrences. Returns false when the phrase
- * is a description or a refusal rather than a request.
+ * `window` chars **of the same block**, rejecting negated occurrences. Returns
+ * false when the phrase is a description or a refusal rather than a request.
  */
 function hasUnnegatedRequest(
   normalized: string,
@@ -111,7 +129,10 @@ function hasUnnegatedRequest(
   const verb = new RegExp(verbPattern.source, "gu");
   for (let m = verb.exec(normalized); m !== null; m = verb.exec(normalized)) {
     if (isNegated(normalized, m.index)) continue;
-    if (targetPattern.test(normalized.slice(m.index, m.index + m[0].length + window))) return true;
+    const lookahead = normalized.slice(m.index, m.index + m[0].length + window);
+    const boundary = lookahead.search(BLOCK_BOUNDARY);
+    const sameBlock = boundary === -1 ? lookahead : lookahead.slice(0, boundary);
+    if (targetPattern.test(sameBlock)) return true;
   }
   return false;
 }

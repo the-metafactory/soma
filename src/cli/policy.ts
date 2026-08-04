@@ -10,6 +10,8 @@ import type {
   SomaPolicyCheckOptions,
   SomaPolicyCheckResult,
 } from "../types";
+import { loadProbeRegistry, type ProbeRegistry } from "../work-graph-probe-registry";
+import { resolveGraphRepo } from "./graph";
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
 
@@ -49,7 +51,20 @@ export interface ParsedPolicyGuardArgs {
   json: boolean;
 }
 
-export type ParsedPolicyArgs = ParsedPolicyCheckArgs | ParsedPolicyScanArgs | ParsedPolicyPromoteArgs | ParsedPolicyInspectArgs | ParsedPolicyGuardArgs;
+export interface ParsedPolicyProbesArgs {
+  command: "policy";
+  action: "probes";
+  options: { repo?: string; homeDir?: string; somaHome?: string };
+  json: boolean;
+}
+
+export type ParsedPolicyArgs =
+  | ParsedPolicyCheckArgs
+  | ParsedPolicyScanArgs
+  | ParsedPolicyPromoteArgs
+  | ParsedPolicyInspectArgs
+  | ParsedPolicyGuardArgs
+  | ParsedPolicyProbesArgs;
 
 const POLICY_CHECK_USAGE =
   "Usage: soma policy check --action write --destination <path> [--content <text>|--content-env <name>] [--source <path>] [--substrate <id>] [--record <all|deny|none>] [--json]";
@@ -61,15 +76,18 @@ const POLICY_INSPECT_USAGE =
   "Usage: soma policy inspect --surface <prompt|tool_call|permission_request|config_change|governance_event> [--prompt <text>|--prompt-env <name>] [--tool-name <name> --tool-input-env <name>] [--permission-request-env <name>] [--config-change-env <name>] [--substrate <id>] [--record <all|deny|none>] [--json]";
 const POLICY_GUARD_USAGE =
   "Usage: soma policy guard --substrate <id> --tool-name <name> --tool-input-env <name> [--cwd <dir>] [--soma-home <dir>] [--home-dir <dir>] [--private-root <dir>]… [--record <all|deny|none>] [--json]";
+const POLICY_PROBES_USAGE =
+  "Usage: soma policy probes [--repo <owner/name>] [--soma-home <dir>] [--home-dir <dir>] [--json]";
 
 export const POLICY_COMMAND_HELP: { usage: string; subcommands: Record<ParsedPolicyArgs["action"], string> } = {
-  usage: [POLICY_CHECK_USAGE, POLICY_SCAN_USAGE, POLICY_PROMOTE_USAGE, POLICY_INSPECT_USAGE, POLICY_GUARD_USAGE].join("\n"),
+  usage: [POLICY_CHECK_USAGE, POLICY_SCAN_USAGE, POLICY_PROMOTE_USAGE, POLICY_INSPECT_USAGE, POLICY_GUARD_USAGE, POLICY_PROBES_USAGE].join("\n"),
   subcommands: {
     check: POLICY_CHECK_USAGE,
     scan: POLICY_SCAN_USAGE,
     promote: POLICY_PROMOTE_USAGE,
     inspect: POLICY_INSPECT_USAGE,
     guard: POLICY_GUARD_USAGE,
+    probes: POLICY_PROBES_USAGE,
   },
 };
 
@@ -84,6 +102,7 @@ export function parsePolicyArgs(args: string[]): ParsedPolicyArgs {
   if (action === "promote") return parsePolicyPromoteArgs(command, action, rest);
   if (action === "inspect") return parsePolicyInspectArgs(command, action, rest);
   if (action === "guard") return parsePolicyGuardArgs(command, action, rest);
+  if (action === "probes") return parsePolicyProbesArgs(command, action, rest);
   if (action !== "check") throw new Error(POLICY_COMMAND_HELP.usage);
 
   const options: Partial<SomaPolicyCheckOptions> = {};
@@ -264,7 +283,47 @@ function parsePolicyGuardArgs(command: "policy", action: "guard", rest: string[]
   return { command, action, options: options as ToolCallPolicyGuardOptions, json };
 }
 
+function parsePolicyProbesArgs(command: "policy", action: "probes", rest: string[]): ParsedPolicyProbesArgs {
+  const options: ParsedPolicyProbesArgs["options"] = {};
+  let json = false;
+
+  for (let index = 0; index < rest.length; index += 1) {
+    const arg = rest[index];
+    switch (arg) {
+      case "--repo":
+        options.repo = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--home-dir":
+        options.homeDir = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--soma-home":
+        options.somaHome = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--json":
+        json = true;
+        break;
+      default:
+        throw new Error(`Unknown option: ${arg}`);
+    }
+  }
+
+  return { command, action, options, json };
+}
+
 export async function runPolicyCli(parsed: ParsedPolicyArgs): Promise<string> {
+  if (parsed.action === "probes") {
+    const repo = parsed.options.repo ?? (await resolveGraphRepo());
+    const registry = await loadProbeRegistry({
+      repo,
+      ...(parsed.options.homeDir === undefined ? {} : { homeDir: parsed.options.homeDir }),
+      ...(parsed.options.somaHome === undefined ? {} : { somaHome: parsed.options.somaHome }),
+    });
+    return parsed.json ? `${JSON.stringify(registry, null, 2)}\n` : formatProbeRegistry(registry);
+  }
+
   if (parsed.action === "guard") {
     const result = await evaluateToolCallPolicyGuard(parsed.options);
     return parsed.json ? `${JSON.stringify(result, null, 2)}\n` : `${result.decision}: ${result.reason}\n`;
@@ -306,6 +365,49 @@ export async function runPolicyCli(parsed: ParsedPolicyArgs): Promise<string> {
 
   const result = await checkSomaPolicy(parsed.options);
   return parsed.json ? `${JSON.stringify(result, null, 2)}\n` : formatPolicyCheckResult(result);
+}
+
+/**
+ * The registry is read-only from the CLI on purpose. Adding an entry is a
+ * *loosening* mutation on the gate itself (§4), so it stays identity-bound and
+ * fail-closed: the adopter edits the document. A `soma policy probes --allow`
+ * would hand the agent a verb for widening the list that constrains it.
+ */
+function formatProbeRegistry(registry: ProbeRegistry): string {
+  const header = [
+    "Soma probe registry (DD-16 Amendment A)",
+    `repo: ${registry.repo}`,
+    `path: ${registry.path}`,
+  ];
+
+  if (registry.status === "absent") {
+    return [
+      ...header,
+      "status: absent",
+      "",
+      "Every `command` and `url` probe refuses on this machine until the document exists.",
+      "`git-ref-exists`, `git-merged-into` and `artifact-exists` are ungated and keep working.",
+    ].join("\n");
+  }
+
+  if (registry.status === "invalid") {
+    return [...header, "status: invalid", `reason: it ${registry.reason}`, "", "Every `command` and `url` probe refuses until the document parses."].join("\n");
+  }
+
+  return [
+    ...header,
+    "status: loaded",
+    "",
+    "Declared commands:",
+    ...(registry.commands.length > 0
+      ? registry.commands.map((entry) => `- \`${entry.run}\` in ${entry.cwd}`)
+      : ["- none — every `command` probe refuses"]),
+    "",
+    "Declared url hosts:",
+    ...(registry.urlHosts.length > 0 ? registry.urlHosts.map((host) => `- ${host}`) : ["- none — every `url` probe refuses"]),
+    "",
+    "Adding an entry is a loosening mutation (§4) — edit the document yourself; soma ships no verb that writes it.",
+  ].join("\n");
 }
 
 function formatPolicyCheckResult(result: SomaPolicyCheckResult): string {

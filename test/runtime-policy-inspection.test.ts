@@ -809,6 +809,29 @@ test("prompt heuristics do not fire on negated or descriptive security prose", a
   });
 });
 
+test("proximity does not reach across a block boundary into an unrelated heading", async () => {
+  await withTempHome(async (homeDir) => {
+    await bootstrapSomaHome({ homeDir });
+
+    // Verbatim from soma's own CONTEXT.md, which cost sage's Architecture and
+    // ContextDrift lenses every review round for months: the noun "bypass" ends
+    // one paragraph, and the 60-char window reached over `---` into the NEXT
+    // SECTION'S heading to find "security". Two unrelated blocks, one finding.
+    const contextMd = "Collapsing them hides bypass paths.\n\n---\n\n## Inbound security config\n";
+    expect(await promptFindingKinds(homeDir, contextMd)).not.toContain("security-disable-request");
+
+    // Same tokens, same distance, no block break — still a request, still flagged.
+    expect(await promptFindingKinds(homeDir, "bypass paths in the security config")).toContain(
+      "security-disable-request",
+    );
+
+    // A blank line is the boundary; a plain line wrap is not.
+    expect(await promptFindingKinds(homeDir, "please bypass\nthe security guard")).toContain(
+      "security-disable-request",
+    );
+  });
+});
+
 test("command inspection keys on shell semantics, not English words", async () => {
   await withTempHome(async (homeDir) => {
     await bootstrapSomaHome({ homeDir });

@@ -680,4 +680,91 @@ export {
 } from "./vsa-reconcile";
 export { type CompletenessGap, type CompletenessReport } from "./vsa-schema";
 
+// Work graph (#497, DD-16): typed cross-session effort topology. The contract
+// layer and the store seam are public; backends are imported by name.
+export {
+  WorkGraph,
+  WorkGraphError,
+  agentExternalEvidenceKinds,
+  assertClosable,
+  normalizeKind,
+  parseNodeSpec,
+  parseProbe,
+  renderCloseReceipt,
+  resolveClaimRace,
+  toNode,
+  type AttestationCapability,
+  type AttestationFacts,
+  type AttestationState,
+  type BlockingRef,
+  type ConfinementProbeRecord,
+  type ClaimResult,
+  type CloseEvidence,
+  type CloseReceipt,
+  type CommentRef,
+  type CreateNodeSpec,
+  type GraphStore,
+  type NodeBudget,
+  type NodeRef,
+  type NodeState,
+  type NodeStatus,
+  type Probe,
+  type ProbeResult,
+  type ProbeType,
+  type Reaction,
+  type WorkGraphAutonomy,
+  type WorkGraphErrorCode,
+  type WorkGraphEvidenceKind,
+  type WorkGraphNode,
+  type WorkGraphNodeBase,
+} from "./work-graph";
+export {
+  createGhCliTransport,
+  createGitHubGraphStore,
+  decodeNodeBlock,
+  encodeNodeBlock,
+  type DecodedBody,
+  type GhCliTransportOptions,
+  type GitHubApiRequest,
+  type GitHubApiTransport,
+  type GitHubGraphStoreOptions,
+} from "./work-graph-github";
+export {
+  allProbesPassed,
+  boundObserved,
+  runCommand,
+  runProbe,
+  runProbes,
+  type CommandOutcome,
+  type CommandRequest,
+  type ProbeRunnerDeps,
+  type ProbeRunnerOptions,
+} from "./work-graph-probes";
+export {
+  authorizeProbe,
+  isProbeRefusal,
+  loadProbeRegistry,
+  parseProbeRegistry,
+  probeRegistryPath,
+  PROBE_REFUSED_PREFIX,
+  PROBE_REGISTRY_RELATIVE_PATH,
+  PROBE_REGISTRY_VERSION,
+  type DeclaredCommand,
+  type LoadProbeRegistryOptions,
+  type ParseProbeRegistryInput,
+  type ProbeAuthorization,
+  type ProbeRegistry,
+  type ProbeRegistryHomeOptions,
+} from "./work-graph-probe-registry";
+export {
+  checkConfinement,
+  deriveAttestation,
+  findGraphRoot,
+  parseAuthStatusLogins,
+  type AttestationInputs,
+  type AttestationOutcome,
+  type ConfinementDeps,
+  type ConfinementResult,
+} from "./work-graph-attestation";
+
 export { SOMA_VERSION } from "./version";

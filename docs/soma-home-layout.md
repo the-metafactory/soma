@@ -25,9 +25,16 @@ re-projection rewrites.
 ├── isa/                    # Verification State Artifacts, one <slug>.md per project/task
 │   └── .templates/         # VSA scaffolding templates
 ├── policy/                 # substrate policy declarations
+│   └── probe-registry.json # work-graph probe authorisations (see docs/work-graph.md §2.2)
 ├── imports/                # migration manifests and portability reports
 └── projections/            # cached generated projections (codex, claude-code, …)
 ```
+
+`policy/probe-registry.json` is **not** created by `soma init`: it authorises
+`command` and `url` probes to run on this machine, and its absence is the
+fail-closed default — those probes refuse until an adopter writes it by hand. See
+[`work-graph.md` §2.2](work-graph.md) for the format, or run `soma policy probes`
+to see the current state.
 
 On a fresh machine the profile files start as a **starter profile**
 (`status: starter-profile` in `principal.md`). Replace them with your own
