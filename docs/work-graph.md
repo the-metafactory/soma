@@ -112,6 +112,20 @@ evidence is typed `specified` at node creation and flips to `probed` only
 when the runtime has executed the probe and recorded its output
 (`ProbeResult` above).
 
+Runner semantics settled while implementing #498:
+
+- `repo` on the git and artifact probes is a **local working-tree path**
+  (relative to the runner's cwd), not `owner/name` — `artifact-exists`'s
+  `path` + `atRef` pair resolves as `git cat-file -e <atRef>:<path>`, which
+  needs a checkout rather than an API.
+- **A probe that cannot run is a failed probe, never a skipped one.** Runner
+  errors (network refused, git absent, bad path) record `outcome: "fail"` with
+  the reason in `observed`, so the close refuses. The one thing a runner may
+  not do is let an unrun probe read as a passed one.
+- Git probes execute as argv, never through a shell, so a ref name cannot
+  inject. `command` probes are shell strings by definition — see the trust
+  question that opens on #524.
+
 ### 2.3 Edge
 
 Blocking only: `blocks(a, b)` means `b` is not frontier until `a` is closed.
@@ -193,7 +207,25 @@ soma graph close <node>            # runs declared probes; refuses a hollow clos
 
 `close` enforcement lives in the **installed** soma binary, never the dev tree
 (#483 clause 5). Bypass via raw `gh` remains visible-but-unprevented in
-phase 1; the phase-2 auditor (§5) makes it detected.
+phase 1; the phase-2 auditor (§5) makes it detected. A close run from a dev
+tree warns on stderr rather than refusing — refusing would make the primitive
+undevelopable, and the warning keeps the gap visible state rather than silent.
+
+HITL closes are two-phase, inside the same verb rather than a sixth one:
+`close --propose` posts the proposal comment and stops; `close
+--proposal-comment <id>` reads its reactions and derives the receipt. Two seam
+addenda fell out of implementing it (#498), both the same class as the
+`CreateNodeSpec` addendum on #497:
+
+- `GraphStore.readComment` — conjunct 3 needs the *proposal's* author from the
+  API, and the two phases are separate process invocations, so the author must
+  come back from the backend rather than ride on the command line where it
+  would be caller-authored.
+- The parent edge is read over **GraphQL**. `GET /repos/{repo}/issues/{n}`
+  carries no `parent` key (only the child direction, `/sub_issues`, is in
+  REST), so a REST-only read resolves every node as its own root — which
+  silently degrades conjunct 4 from "the graph root's author may ratify" into
+  "a ticket's own author may ratify its close".
 
 ### 2.7 planSteps bridge
 

@@ -278,6 +278,10 @@ class FakeStore implements GraphStore {
     return { id: `comment-${ref.id}-${body.length}`, nodeId: ref.id };
   }
 
+  async readComment(ref: CommentRef): Promise<CommentRef> {
+    return { ...ref, author: "ivy-agent" };
+  }
+
   async readCommentReactions(): Promise<never[]> {
     return [];
   }

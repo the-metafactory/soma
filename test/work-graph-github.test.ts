@@ -23,7 +23,13 @@ function fakeTransport(responses: Record<string, unknown>): { transport: GitHubA
   const transport: GitHubApiTransport = async (request) => {
     const key = `${request.method} ${request.path}`;
     calls.push({ ...request, key });
-    if (!(key in responses)) throw new Error(`unstubbed request: ${key}`);
+    if (!(key in responses)) {
+      // `readNode` always asks GraphQL for the parent edge (REST omits it), so
+      // default to "no parent" and let a test stub it only when that edge is
+      // what it is testing.
+      if (key === "POST graphql") return { data: { repository: { issue: { parent: null } } } };
+      throw new Error(`unstubbed request: ${key}`);
+    }
     return responses[key];
   };
   return { transport, calls };
@@ -99,6 +105,31 @@ test("readNode types the node from the block and reports blockers with their sta
     { id: "495", status: "closed" },
     { id: "502", status: "open" },
   ]);
+});
+
+test("the parent edge comes from GraphQL, because the REST issue payload has no parent key", async () => {
+  const { transport, calls } = fakeTransport({
+    [`GET repos/${REPO}/issues/497`]: issuePayload(),
+    [`GET repos/${REPO}/issues/497/dependencies/blocked_by`]: [],
+    "POST graphql": { data: { repository: { issue: { parent: { number: 495 } } } } },
+  });
+
+  const state = await createGitHubGraphStore({ repo: REPO, transport }).readNode({ id: "497" });
+
+  expect(state.parent).toEqual({ id: "495" });
+  const graphql = calls.find((call) => call.key === "POST graphql");
+  expect(graphql?.body?.variables).toEqual({ owner: "the-metafactory", name: "soma", number: 497 });
+});
+
+test("an unreadable parent is undefined, never an assumed root — §3.2 conjunct 4 downgrades on it", async () => {
+  const { transport } = fakeTransport({
+    [`GET repos/${REPO}/issues/497`]: issuePayload(),
+    [`GET repos/${REPO}/issues/497/dependencies/blocked_by`]: [],
+    "POST graphql": { errors: [{ message: "field unavailable" }] },
+  });
+
+  const state = await createGitHubGraphStore({ repo: REPO, transport }).readNode({ id: "497" });
+  expect(state.parent).toBeUndefined();
 });
 
 test("a hand-authored issue reads as the most-gated class, never as auto", async () => {

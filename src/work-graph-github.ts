@@ -283,6 +283,7 @@ class GitHubGraphStore implements GraphStore {
 
   async readNode(ref: NodeRef): Promise<NodeState> {
     const issue = await this.fetchIssue(ref);
+    const parentNumber = issue.parentNumber ?? (await this.fetchParentNumber(issue.number));
     const blockers = asArray(
       await this.transport({
         method: "GET",
@@ -299,7 +300,7 @@ class GitHubGraphStore implements GraphStore {
       assignees: issue.assignees,
       blockedBy: blockers.map((blocker) => ({ id: String(blocker.number), status: blocker.status })),
       author: issue.author,
-      ...(issue.parentNumber === undefined ? {} : { parent: { id: String(issue.parentNumber) } }),
+      ...(parentNumber === undefined ? {} : { parent: { id: String(parentNumber) } }),
       ...(text.length === 0 ? {} : { body: text }),
       ...(issue.url === undefined ? {} : { url: issue.url }),
       typed,
@@ -362,6 +363,20 @@ class GitHubGraphStore implements GraphStore {
     };
   }
 
+  /** Re-read a comment for its API author field — the proposal half of §3.2 conjunct 3. */
+  async readComment(ref: CommentRef): Promise<CommentRef> {
+    const comment = readComment(
+      await this.transport({ method: "GET", path: `repos/${this.repo}/issues/comments/${ref.id}` }),
+      "readComment",
+    );
+    return {
+      id: String(comment.id),
+      nodeId: ref.nodeId,
+      author: comment.author,
+      ...(comment.url === undefined ? {} : { url: comment.url }),
+    };
+  }
+
   /** Authors come from the API author field — the whole point of reading reactions here (§3.2 conjunct 3). */
   async readCommentReactions(ref: CommentRef): Promise<Reaction[]> {
     const reactions = asArray(
@@ -392,6 +407,39 @@ class GitHubGraphStore implements GraphStore {
       path: `repos/${this.repo}/issues/${ref.id}`,
       body: { state: "closed", state_reason: "completed" },
     });
+  }
+
+  /**
+   * The sub-issue *parent* edge, which the REST issue payload does not carry —
+   * `GET repos/{repo}/issues/{n}` has no `parent` key at all, while the child
+   * direction (`/sub_issues`) does. Only GraphQL exposes it.
+   *
+   * This matters well beyond display: §3.2 conjunct 4 derives the authorized
+   * ratifier by walking parent edges to the graph root. With no parent, every
+   * node resolves to itself as root, and "the root's author may ratify" quietly
+   * degrades into "a ticket's own author may ratify its close" — an
+   * authorization bypass, not a cosmetic gap.
+   *
+   * A missing or unreadable parent returns undefined, which the caller reads as
+   * "root unreachable" and downgrades on. Never an assumed root.
+   */
+  private async fetchParentNumber(issueNumber: number): Promise<number | undefined> {
+    const [owner, name] = this.repo.split("/");
+    const response = await this.transport({
+      method: "POST",
+      path: "graphql",
+      body: {
+        query:
+          "query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){parent{number}}}}",
+        variables: { owner, name, number: issueNumber },
+      },
+    });
+
+    const data = (response as { data?: { repository?: { issue?: { parent?: { number?: unknown } | null } | null } | null } } | null)
+      ?.data;
+    const parent = data?.repository?.issue?.parent;
+    const number = parent?.number;
+    return typeof number === "number" ? number : undefined;
   }
 
   private async fetchIssue(ref: NodeRef): Promise<GitHubIssue> {

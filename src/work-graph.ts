@@ -207,16 +207,30 @@ export type AttestationCapability = "verifiable" | "unverified";
  * Populated by the verb layer, which owns the derivation rule (#498, gated on
  * #502). The contract layer stores and renders it.
  */
+/** One line of the confinement check's probe set (§3.2: probe set, result, and timestamp — not just a verdict). */
+export interface ConfinementProbeRecord {
+  name: string;
+  observed: string;
+}
+
 export interface AttestationFacts {
   backendCapability: AttestationCapability;
   confinement?: {
     checked: boolean;
     reachableIdentities: readonly string[];
     at: string;
+    probes?: readonly ConfinementProbeRecord[];
   };
   proposal?: { commentId: string; author: string };
   ratification?: { kind: "reaction" | "comment"; id: string; author: string };
   root?: { nodeId: string; author: string };
+  /**
+   * Why the verdict came out as it did, one line per failed conjunct — empty on
+   * `verified`. The facts above are what a re-audit re-judges; these say which
+   * remediation the reader needs, since a wrong ratifier and a reachable keyring
+   * look identical in the verdict and are fixed differently.
+   */
+  reasons?: readonly string[];
 }
 
 export interface CloseReceipt {
@@ -252,6 +266,15 @@ export interface GraphStore {
   /** Assigns, then re-reads (no compare-and-swap exists on GitHub) and applies {@link resolveClaimRace}. */
   claim(ref: NodeRef, identity: string): Promise<ClaimResult>;
   postComment(ref: NodeRef, body: string): Promise<CommentRef>;
+  /**
+   * Re-read a comment for its API author field. The HITL close path needs the
+   * *proposal's* author to evaluate §3.2 conjunct 3, and the two-phase close
+   * spans two process invocations — so the author has to come back from the
+   * backend rather than be carried on the command line, where it would be
+   * caller-authored and therefore exactly the evidence class the conjunct
+   * rejects. (Seam addendum, same class as `CreateNodeSpec.body`/`parent` on #497.)
+   */
+  readComment(ref: CommentRef): Promise<CommentRef>;
   readCommentReactions(ref: CommentRef): Promise<Reaction[]>;
   close(ref: NodeRef, receipt: CloseReceipt): Promise<void>;
 }
@@ -721,6 +744,10 @@ export class WorkGraph {
 
   async postComment(ref: NodeRef, body: string): Promise<CommentRef> {
     return await this.store.postComment(ref, body);
+  }
+
+  async readComment(ref: CommentRef): Promise<CommentRef> {
+    return await this.store.readComment(ref);
   }
 
   async readCommentReactions(ref: CommentRef): Promise<Reaction[]> {

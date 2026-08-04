@@ -697,6 +697,7 @@ export {
   type AttestationFacts,
   type AttestationState,
   type BlockingRef,
+  type ConfinementProbeRecord,
   type ClaimResult,
   type CloseEvidence,
   type CloseReceipt,
@@ -728,5 +729,26 @@ export {
   type GitHubApiTransport,
   type GitHubGraphStoreOptions,
 } from "./work-graph-github";
+export {
+  allProbesPassed,
+  boundObserved,
+  runCommand,
+  runProbe,
+  runProbes,
+  type CommandOutcome,
+  type CommandRequest,
+  type ProbeRunnerDeps,
+  type ProbeRunnerOptions,
+} from "./work-graph-probes";
+export {
+  checkConfinement,
+  deriveAttestation,
+  findGraphRoot,
+  parseAuthStatusLogins,
+  type AttestationInputs,
+  type AttestationOutcome,
+  type ConfinementDeps,
+  type ConfinementResult,
+} from "./work-graph-attestation";
 
 export { SOMA_VERSION } from "./version";
