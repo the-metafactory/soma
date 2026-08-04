@@ -123,8 +123,40 @@ Runner semantics settled while implementing #498:
   the reason in `observed`, so the close refuses. The one thing a runner may
   not do is let an unrun probe read as a passed one.
 - Git probes execute as argv, never through a shell, so a ref name cannot
-  inject. `command` probes are shell strings by definition — see the trust
-  question that opens on #524.
+  inject.
+
+#### Probe registry (DD-16 Amendment A)
+
+**Status: specified, not yet enforced.** The runner shipped by #498 executes
+`command` and `url` probes ungated. The gate below lands with
+[#526](https://github.com/the-metafactory/soma/issues/526), which blocks the
+ships-with-consumer merge (#499) so this section cannot reach `main` unenforced.
+
+Probe declarations are **tracker content**, so they may parameterise a probe but
+may never introduce executable code or a network destination. The tracker is a
+parameter of `soma graph` — adopters point it at their own repos — so Soma
+cannot know its visibility, collaborator set, or issue policy, and no rule may
+depend on knowing who is trusted there.
+
+| Probe type | Gate |
+| --- | --- |
+| `command` | Refused unless the exact `run` **and** `cwd` pair is declared in the local probe registry for this repo. `cwd` is part of the match: a declared command run in an attacker-chosen directory is a different command. |
+| `url` | Refused unless the target host is in the declared host set. Ungated, this is a blind SSRF oracle — the request issues from the closing machine and the receipt publishes the observed status to a possibly world-readable tracker. |
+| `git-ref-exists`, `git-merged-into`, `artifact-exists` | Ungated — argv, no shell, no egress, bounded to existence checks in a local tree. |
+
+The registry lives in **soma-home only, scoped by repo identity**, under the
+`soma policy` surface (§4 forbids a parallel policy registry). Not repo-local:
+§1 clause 5 keeps enforcement off the tree it guards, and a committed registry
+is writable by any agent holding Write.
+
+The rule is **uniform** — same for every autonomy class and for the phase-2
+headless tick (§5). A machine with no declaration refuses those closes;
+fail-closed. **Reading is not executing:** `soma graph node` and
+`soma graph frontier` read any node regardless, because a node is data. Only the
+close path gates.
+
+Exact match also yields DD-7's *exact-bytes* property without a scanner: editing
+a probe on the tracker breaks its match and the close refuses.
 
 ### 2.3 Edge
 
@@ -354,6 +386,12 @@ scheduler (r3 evidence, folded from #485 fog).
   — free after structural validation, the agent may self-tighten. Loosening is
   a consuming mutation on the gate itself — the most-gated write there is:
   identity-bound `approved` evidence, fail-closed.
+- The **probe registry** (§2.2, DD-16 Amendment A) is a typed document on this
+  same surface — declared `command` literals (`run` + `cwd`) and `url` hosts,
+  scoped by repo identity, held in soma-home. It is an authorisation list, not
+  configuration: adding an entry is the adopter saying "I allow this command on
+  this machine", so it follows the same asymmetric-mutation rule as the autonomy
+  floors — tightening is additive, loosening is identity-bound and fail-closed.
 - Graph-mutation events are an inspection surface beside `governance_event`.
   Enforcement sits where mutations are applied (installed binary now, auditor
   in phase 2) and never executes from the tree it guards.
@@ -376,7 +414,11 @@ sessions are the node executors, soma supplies the verbs.
     `auto`-class frontier nodes headlessly. Each claim is announced to Discord
     with a **60s 👎 veto window**; silence proceeds; terminal states never
     auto-resume (operator verbs only). No autonomous ticking under the
-    principal's credentials, ever.
+    principal's credentials, ever. The tick runs `command` and `url` probes
+    under the **same** registry gate as an interactive session (§2.2) — the
+    registry answers *whose code this is*, and headlessness changes who is
+    watching, not what is authorised. A tick machine with no registry refuses
+    those closes rather than running them.
 - **Close audit (phase 2):** a GitHub Actions auditor fires on issue-close,
   re-verifies structurally checkable evidence from the close receipt's
   pointers (commit SHAs, CI run URLs, comment IDs, probe outputs), and reopens

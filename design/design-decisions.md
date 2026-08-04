@@ -385,6 +385,131 @@ skill (#487). Full spec: `docs/work-graph.md`.
 [#477](https://github.com/the-metafactory/soma/issues/477), decision tickets
 #483–#487, #491, #492; grilled with the principal 2026-08-02.
 
+#### DD-16 Amendment A: tracker content may parameterise a probe, never introduce code
+
+**Status:** Decided (2026-08-04), amends DD-16.
+
+**Context:** #498 shipped the `soma graph` verbs and the probe runner, and in
+doing so made a latent tension operational. A `command` probe is a shell string
+that lives in the node block — **tracker content** — and `soma graph close`
+executes it on the closing machine. Clause 1 of the determinism dividing line
+says a gate is deterministic iff it reads facts the agent cannot author; a
+`command` probe is agent-authored content that the gate then *runs*. The P1
+safeguard (evidence is `specified` up front and only later `probed`) defends
+against a session inventing a passing result after the fact. It does not defend
+against a session — or anyone else with issue-write — specifying
+`run: "curl … | sh"` at creation and having the close path execute it later,
+under a different identity.
+
+The decisive framing came from the principal: **the tracker is a parameter, not
+a known store.** `soma graph` takes `--repo` / `SOMA_GRAPH_REPO` and, like the
+wayfinder skill it descends from, runs against whatever repo the adopter points
+it at. Soma therefore cannot know that repo's visibility, collaborator set, or
+issue-creation policy. (The soma repo is itself public with two forks, so any
+GitHub account can author a node block today — but the argument does not rest on
+that, and must not: a rule justified by *this* repo's collaborator list is a rule
+that breaks on the next adopter's.) Only two rule shapes survive that
+constraint: **self-relative** rules, which need no knowledge of who is trusted,
+and **content-structural** rules, which deny the capability outright.
+
+Candidates:
+- **(a) Unrestricted**, compensated by confinement (sandbox execution).
+- **(b) Pattern allowlist** in runtime policy.
+- **(c) Named probe registry** — the node declares a name; the name→command
+  mapping lives locally.
+- **(d) Hash-bound ratification**, mirroring DD-7's inbound-content model.
+- **(e) Drop the `command` variant** entirely.
+
+**Decision:** **(c), in its literal-match form.** Tracker content may
+parameterise a probe but may never introduce executable code or a network
+destination.
+
+- **`command`** — the probe keeps its literal `run` string in the node block,
+  and the runner refuses to execute it unless that exact `run` **and `cwd`**
+  pair is declared in the adopter's local probe registry for this repo.
+  Deny-by-default exact match. `cwd` is part of the match and not incidental: a
+  declared `bun test` executed in an attacker-chosen directory is a different
+  command.
+- **`url`** — the target host must appear in the declared host set. Without
+  this, a `url` probe is a blind SSRF oracle: it issues a request from the
+  closing machine to a tracker-supplied address, and the receipt publishes the
+  observed status back to the tracker, which may be world-readable.
+- **`git-ref-exists`, `git-merged-into`, `artifact-exists`** — ungated. They
+  execute as argv with no shell, cause no egress, and their effect is bounded to
+  existence checks in a local tree.
+
+The registry lives in **soma-home only, scoped by repo identity**, under the
+existing `soma policy` inspection surface — §4 already forbids a parallel policy
+registry. Home rather than repo-local because clause 5 puts enforcement out of
+the agent's reach and off the tree it guards: a committed `.soma/probes.json`
+sits inside the guarded tree and is writable by any agent holding Write (#510).
+
+The rule is **uniform** across autonomy classes and applies equally to the
+phase-2 headless tick. The registry already answers *whose code is this* — the
+adopter's — and headlessness changes who is watching, not what is authorised. A
+machine with no declaration refuses those closes; fail-closed. Reading is
+unaffected: `soma graph node` and `frontier` still read any node, because a node
+is data. Only execution gates.
+
+**Rejected:**
+- (a) — confinement is blast-radius management, not authorisation, and answers
+  no part of "whose code is this". macOS offers no cheap reliable sandbox
+  primitive, and a probe that cannot reach the network or the real tree usually
+  cannot prove what it was written to prove. Retained as possible
+  defence-in-depth, not as the gate.
+- (b) — `docs/runtime-command-inspection.md` states Soma v0 "keeps explicit
+  allow as the absence of findings" and defers bypass-style trust lists; an
+  allowlist over arbitrary shell strings also requires the shell parsing that
+  same doc explicitly disclaims. Exact-match on a literal the adopter wrote is
+  not a pattern allowlist and does not reopen this.
+- (d) — maximum consistency with DD-7, and probes would stay self-describing,
+  but it puts a human decision in front of every distinct new command. That
+  places a human in the AFK path, which is the one thing the `auto` class exists
+  to avoid. Exact-match recovers DD-7's *exact-bytes* property anyway — editing
+  the probe on the tracker breaks the match — without needing a scanner or a
+  ratification step.
+- (e) — safest, and nothing would run a shell. Rejected because no remaining
+  probe type can express "the test suite passed", which is the most useful close
+  evidence there is; the `auto` class would lose its principal evidence source.
+- **Name-only registry** (the form (c) was first proposed in) — cleanest
+  separation, since tracker content could not even *look* like code. Rejected
+  because the node would no longer show what closing it executes: a human
+  reading the issue would have to consult a machine-local file, and only the
+  receipt, written afterwards, would record the resolved command. The literal
+  form keeps the tracker self-describing and gets exact-bytes semantics as a
+  side effect.
+
+**Implications:**
+- `docs/work-graph.md` §2.2, §4 and §5 updated (this commit). Spec status for
+  the probe runner moves from "shipped unrestricted" to "registry-gated".
+- Implementation is **not** in this amendment. #524 records the decision; the
+  implementation ticket inherits the blocking edge on #499, so the
+  ships-with-consumer merge stays gated until the gate exists rather than
+  shipping the behaviour this amendment rejects.
+- Existing nodes carrying undeclared `command` probes become unclosable by
+  machine until their command is declared. This is the intended migration: the
+  refusal is specific and actionable, and no node silently changes meaning.
+
+**Residual limits — recorded rather than solved:**
+- An attacker who can write a node body can still choose *which* of the
+  adopter's declared commands runs, and can set `timeoutSec` and `expectExit`
+  freely. Exact-match bounds the blast radius to commands the adopter authored;
+  it gives no control over which one fires, or when.
+- The whole construction rests on the registry being unreachable from the agent.
+  That is #511's invariant, not this amendment's, and the same honest limit
+  §3.2 already records for conjunct 2 applies here: a check that runs inside the
+  environment it judges can be shimmed by a session that sets out to do so.
+- Argument order matters for the ungated types: they are ungated because they
+  are argv and read-only *today*. Adding a probe type that writes, or that
+  passes tracker content to a shell, would reopen this decision rather than
+  inherit it.
+
+**Discussion:** Ticket
+[#524](https://github.com/the-metafactory/soma/issues/524) on map
+[#495](https://github.com/the-metafactory/soma/issues/495); grilled with the
+principal 2026-08-04. Related: DD-7 (inbound content untrusted until a
+hash-bound decision exists), `docs/runtime-command-inspection.md`.
+
 ## 6. Policy & Security
 
 ### DD-7: Soma owns inbound-content security; scanners provide evidence
