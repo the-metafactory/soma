@@ -197,8 +197,16 @@ declare. **Reading is not executing:** `soma graph node` and
 `soma graph frontier` read any node regardless, because a node is data. Only the
 close path gates.
 
-Exact match also yields DD-7's *exact-bytes* property without a scanner: editing
-a probe on the tracker breaks its match and the close refuses.
+Exact match yields DD-7's *exact-bytes* property for the two fields it covers:
+editing a probe's `run` or `cwd` on the tracker breaks its match and the close
+refuses, with no scanner involved. It does **not** extend to the rest of the
+probe. `expectExit` and `timeoutSec` remain tracker content the gate never reads
+— which is the residual DD-16 Amendment A already records ("an attacker who can
+write a node body … can set `timeoutSec` and `expectExit` freely"). Concretely:
+flipping a declared `bun test` from `expectExit: 0` to `expectExit: 1` makes a
+*failing* suite record as a passed probe. The registry bounds **whose code
+runs**, not what counts as success; widening it to the whole probe would be a new
+decision, not an implementation detail of this one.
 
 **Migration:** existing nodes carrying undeclared `command` probes are
 unclosable by machine until their command is declared. Intended — the refusal is

@@ -36,6 +36,9 @@ const OBSERVED_TAIL_LIMIT = 1_200;
 /** Git probes carry no `timeoutSec` of their own; local plumbing that outruns this is broken, not slow. */
 const GIT_TIMEOUT_SEC = 60;
 
+/** Nor do `url` probes (§2.2 fixes their shape), and an unbounded fetch would hang the close. */
+const URL_TIMEOUT_SEC = 30;
+
 export interface CommandOutcome {
   /** Null when the process was killed before reporting a code (timeout, signal). */
   exitCode: number | null;
@@ -137,8 +140,19 @@ async function runSpawned(argv: string[], request: CommandRequest): Promise<Comm
   }
 }
 
+/**
+ * `url` probes carry no `timeoutSec` of their own — §2.2 fixes the shape as
+ * `{ target, expectStatus }` — so the bound lives here. Without it "timeout
+ * expiry is failure, never a hang" would simply be false for this variant: a
+ * server that accepts the connection and never answers would block the close
+ * indefinitely. An aborted fetch throws, and {@link runProbe} turns a throw into
+ * a failed probe, so the fail-closed path is the one already in place.
+ */
 async function defaultFetchStatus(target: string): Promise<number> {
-  const response = await fetch(target, { redirect: "manual" });
+  const response = await fetch(target, {
+    redirect: "manual",
+    signal: AbortSignal.timeout(URL_TIMEOUT_SEC * 1_000),
+  });
   return response.status;
 }
 

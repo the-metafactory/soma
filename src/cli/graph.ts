@@ -397,7 +397,17 @@ export interface GraphCliDeps {
   loadProbeRegistry: (repo: string) => Promise<ProbeRegistry>;
   runProbes: (probes: readonly Probe[], registry: ProbeRegistry) => Promise<ProbeResult[]>;
   checkConfinement: () => Promise<ConfinementResult>;
-  /** An externally re-checkable anchor for probe evidence — the commit the probes ran against. */
+  /**
+   * An anchor for probe evidence — the commit the probes ran against.
+   *
+   * "Externally checkable" is the bar `assertClosable` states, and this clears it
+   * only partly: the default reads `git rev-parse HEAD` in the CLI's own cwd, so
+   * it names a commit that may be unpushed, and that is the *runner's* tree
+   * rather than any tree a probe chose via `repo`. A reader can re-derive what it
+   * points at; they cannot always fetch it. Recorded rather than papered over —
+   * making it strictly external (refuse an unpushed sha) is a change to what
+   * closes an `auto` node, which is a decision, not a default.
+   */
   evidencePointer: () => Promise<string | undefined>;
   readTextFile: (path: string) => Promise<string>;
   now: () => Date;
