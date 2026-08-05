@@ -116,10 +116,21 @@ export interface NodeRef {
  *   orienteer rule "scaffold nodes attach below their spawning ticket" (#492)
  *   both need it, and `listCandidateFrontier(root)` needs the membership edge
  *   it writes.
+ * - `labels` — **write-only decoration.** Caller-supplied, so a list view is
+ *   readable without opening every issue. Nothing derives them from the node:
+ *   they are a second, independent input that happens to describe the same
+ *   thing, and keeping them in step is the caller's discipline.
+ *
+ *   What the runtime *does* guarantee is the half that matters: they are never
+ *   read back. `readNode` takes `kind` and `autonomy` from the typed block
+ *   alone, so a mistyped or stale label can mislead a human and can never change
+ *   what a verb decides. That is what keeps a second input from becoming a
+ *   second authority. A backend with no index concept ignores them.
  */
 export type CreateNodeSpec = DistributiveOmit<WorkGraphNode, "id"> & {
   body?: string;
   parent?: NodeRef;
+  labels?: readonly string[];
 };
 
 /** A blocker as seen from the blocked node — status included so the frontier needs no second fetch. */
@@ -441,6 +452,30 @@ function parseProbes(value: unknown): Probe[] {
 }
 
 /**
+ * Labels are presentation, so validation only checks form — non-empty strings,
+ * deduplicated, order preserved. There is no vocabulary here on purpose: the
+ * runtime never interprets a label, exactly as it never interprets `kind`.
+ */
+function parseLabels(value: unknown): string[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    throw new WorkGraphError("invalid-node", `"labels" must be an array of strings`);
+  }
+  const seen = new Set<string>();
+  const labels: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "string" || entry.trim().length === 0) {
+      throw new WorkGraphError("invalid-node", `"labels" entries must be non-empty strings`);
+    }
+    const label = entry.trim();
+    if (seen.has(label)) continue;
+    seen.add(label);
+    labels.push(label);
+  }
+  return labels;
+}
+
+/**
  * Validate an untrusted node spec at the store boundary. This — not the TS
  * tuple type — is what makes an `auto` node without probes impossible (§2.1).
  */
@@ -460,6 +495,7 @@ export function parseNodeSpec(input: unknown): CreateNodeSpec {
     ? undefined
     : requireString(asRecord(record.parent, "invalid-node", "node spec: parent"), "id", "invalid-node", "node spec: parent");
   const probes = parseProbes(record.probes);
+  const labels = parseLabels(record.labels);
 
   const base = {
     title,
@@ -468,6 +504,7 @@ export function parseNodeSpec(input: unknown): CreateNodeSpec {
     ...(budget === undefined ? {} : { budget }),
     ...(body === undefined ? {} : { body }),
     ...(parentId === undefined ? {} : { parent: { id: parentId } }),
+    ...(labels.length === 0 ? {} : { labels }),
   };
 
   if (autonomy === "auto") {
@@ -483,13 +520,16 @@ export function parseNodeSpec(input: unknown): CreateNodeSpec {
   return { ...base, autonomy, ...(probes.length === 0 ? {} : { probes }) };
 }
 
-/** Attach a store-assigned id to a validated spec, yielding the node proper. */
+/**
+ * Attach a store-assigned id to a validated spec, yielding the node proper.
+ *
+ * `body`, `parent` and `labels` are creation inputs, not node state: the body
+ * lives on the issue, the parent is an edge, and a label is a caller-supplied
+ * index entry the runtime never reads back. A node carrying them would be a
+ * second home for facts that already have one.
+ */
 export function toNode(id: string, spec: CreateNodeSpec): WorkGraphNode {
-  if (spec.autonomy === "auto") {
-    const { body: _body, parent: _parent, ...rest } = spec;
-    return { ...rest, id };
-  }
-  const { body: _body, parent: _parent, ...rest } = spec;
+  const { body: _body, parent: _parent, labels: _labels, ...rest } = spec;
   return { ...rest, id };
 }
 

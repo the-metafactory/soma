@@ -7,6 +7,7 @@ import {
   parseProbe,
   renderCloseReceipt,
   resolveClaimRace,
+  toNode,
   type ClaimResult,
   type CloseReceipt,
   type CommentRef,
@@ -63,6 +64,25 @@ test("kind is normalized in form and never interpreted in meaning", () => {
   expect(parseNodeSpec({ title: "t", autonomy: "approve", kind: "wholly-invented-kind" }).kind).toBe("wholly-invented-kind");
   expect(parseNodeSpec({ title: "t", autonomy: "approve" }).kind).toBeUndefined();
   expect(codeOf(() => parseNodeSpec({ title: "t", autonomy: "approve", kind: "   " }))).toBe("invalid-node");
+});
+
+test("labels are validated as form only, and never become node state", () => {
+  const spec = parseNodeSpec({
+    title: "t",
+    autonomy: "propose",
+    kind: "grilling",
+    labels: ["orienteer:grilling", "orienteer:grilling", " orienteer:map "],
+  });
+  // Deduplicated and trimmed; no vocabulary is enforced, exactly as for `kind`.
+  expect(spec.labels).toEqual(["orienteer:grilling", "orienteer:map"]);
+
+  // Creation input, not node state: one authoritative home for `kind`, and the
+  // label is a derived view of it that no verb ever reads back.
+  expect("labels" in toNode("520", spec)).toBe(false);
+
+  expect(codeOf(() => parseNodeSpec({ title: "t", autonomy: "propose", labels: "grilling" }))).toBe("invalid-node");
+  expect(codeOf(() => parseNodeSpec({ title: "t", autonomy: "propose", labels: [""] }))).toBe("invalid-node");
+  expect(codeOf(() => parseNodeSpec({ title: "t", autonomy: "propose", labels: [7] }))).toBe("invalid-node");
 });
 
 test("ids are store-assigned, so a caller-supplied one is refused", () => {

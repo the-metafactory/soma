@@ -71,7 +71,7 @@ export const GRAPH_COMMAND_HELP: { usage: string; subcommands: Record<GraphActio
     frontier: "Usage: soma graph frontier <root> [--repo <owner/name>] [--json]",
     node: "Usage: soma graph node <id> [--repo <owner/name>] [--json]",
     claim: "Usage: soma graph claim <id> [--identity <login>] [--repo <owner/name>] [--json]",
-    add: "Usage: soma graph add <root> --title <text> --autonomy <auto|propose|approve> [--kind <k>] [--body <text>|--body-file <path>] [--checkpoint <id>] [--probe <json>]... [--blocked-by <id>]... [--budget-tokens <n>] [--budget-invocations <n>] [--budget-minutes <n>] [--repo <owner/name>] [--json]",
+    add: "Usage: soma graph add <root> --title <text> --autonomy <auto|propose|approve> [--kind <k>] [--label <name>]... [--body <text>|--body-file <path>] [--checkpoint <id>] [--probe <json>]... [--blocked-by <id>]... [--budget-tokens <n>] [--budget-invocations <n>] [--budget-minutes <n>] [--repo <owner/name>] [--json]",
     close:
       "Usage: soma graph close <id> [--propose --body <text>|--body-file <path>] [--proposal-comment <id>] [--checkpoint <id>] [--evidence <json>]... [--identity <login>] [--dry-run] [--repo <owner/name>]",
   },
@@ -209,6 +209,7 @@ function requireTarget(action: GraphAction, target: string | undefined): string 
 function parseAddArgs(target: string, rest: string[]): ParsedGraphAddArgs {
   const options: ParsedGraphAddArgs["options"] = { spec: {}, blockedBy: [] };
   const probes: unknown[] = [];
+  const labels: string[] = [];
   const budget: Record<string, number> = {};
 
   for (let index = 0; index < rest.length; index += 1) {
@@ -252,6 +253,10 @@ function parseAddArgs(target: string, rest: string[]): ParsedGraphAddArgs {
         options.blockedBy.push(readOption(rest, index, arg));
         index += 1;
         break;
+      case "--label":
+        labels.push(readOption(rest, index, arg));
+        index += 1;
+        break;
       case "--budget-tokens":
         budget.tokens = readPositiveInteger(rest, index, arg);
         index += 1;
@@ -270,6 +275,7 @@ function parseAddArgs(target: string, rest: string[]): ParsedGraphAddArgs {
   }
 
   if (probes.length > 0) options.spec.probes = probes;
+  if (labels.length > 0) options.spec.labels = labels;
   if (Object.keys(budget).length > 0) options.spec.budget = budget;
   if (options.spec.title === undefined) {
     throw new Error("soma graph add is missing required option: --title.");

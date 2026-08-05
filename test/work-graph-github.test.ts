@@ -189,6 +189,59 @@ test("createNode writes the block into the body and attaches to the parent by da
   expect(calls[1]?.body).toEqual({ sub_issue_id: 999 });
 });
 
+test("createNode writes labels through, deduplicated and trimmed", async () => {
+  const { transport, calls } = fakeTransport({
+    [`POST repos/${REPO}/issues`]: issuePayload({ number: 514, id: 1000 }),
+  });
+
+  const spec = parseNodeSpec({
+    title: "labelled",
+    autonomy: "propose",
+    kind: "grilling",
+    body: "## Question\n\nwhich?",
+    labels: ["orienteer:grilling", "orienteer:grilling", " orienteer:map "],
+  });
+  await createGitHubGraphStore({ repo: REPO, transport }).createNode(spec);
+
+  // The whole POST body, not just the labels key — the transport contract is
+  // what a reader trusts, so pin all of it rather than the part that changed.
+  expect(calls[0]?.body).toEqual({
+    title: "labelled",
+    body: `## Question\n\nwhich?\n\n${encodeNodeBlock(spec)}`,
+    labels: ["orienteer:grilling", "orienteer:map"],
+  });
+});
+
+test("a node created without labels sends no labels key at all", async () => {
+  const { transport, calls } = fakeTransport({
+    [`POST repos/${REPO}/issues`]: issuePayload({ number: 515, id: 1001 }),
+  });
+
+  await createGitHubGraphStore({ repo: REPO, transport }).createNode(
+    parseNodeSpec({ title: "bare", autonomy: "propose" }),
+  );
+
+  expect(calls[0]?.body).not.toHaveProperty("labels");
+});
+
+test("a label on the tracker cannot change what a verb decides", async () => {
+  // The whole safety argument for labels: they are a derived view. An issue
+  // labelled `orienteer:task` whose block says `grilling` reports grilling.
+  const { transport } = fakeTransport({
+    [`GET repos/${REPO}/issues/520`]: issuePayload({
+      number: 520,
+      id: 1,
+      body: `## Question\n\n<!-- soma:work-graph-node\n{"autonomy":"approve","kind":"grilling"}\n-->`,
+      labels: [{ name: "orienteer:task" }],
+    }),
+    [`GET repos/${REPO}/issues/520/dependencies/blocked_by`]: [],
+  });
+
+  const state = await createGitHubGraphStore({ repo: REPO, transport }).readNode({ id: "520" });
+  expect(state.node.kind).toBe("grilling");
+  expect(state.node.autonomy).toBe("approve");
+});
+
 test("addBlockingEdge resolves the blocker's database id and writes the native dependency", async () => {
   const { transport, calls } = fakeTransport({
     [`GET repos/${REPO}/issues/497`]: issuePayload({ number: 497, id: 5043603420 }),

@@ -3,8 +3,8 @@
 ## The map
 
 The map is the **root node** of the effort — one issue, whose children are its
-nodes. Find it by id: an `orienteer:map` label is optional human decoration for
-browsing the tracker, never read by a verb.
+nodes. Find it by id, or by its `orienteer:map` label (see
+[Labels](#labels-the-human-index)).
 
 The map is an **index**, not a store. It lists the decisions made and points at
 the nodes that hold their detail; a decision lives in exactly one place — its
@@ -62,6 +62,7 @@ lines:
 soma graph add <root> \
   --title "…" --autonomy propose --kind grilling \
   --checkpoint <id> --body-file <path> \
+  --label orienteer:grilling \
   --blocked-by <id> --blocked-by <id>
 ```
 
@@ -79,6 +80,41 @@ lost race rather than assuming it won.
 
 The answer isn't part of the body — it's recorded on close. Assets created while
 resolving a node are linked from the issue, not pasted in.
+
+## Labels: the human index
+
+**Always label a node you create.** `--label orienteer:<kind>` on every node,
+`orienteer:map` on the root.
+
+No pre-step is needed on GitHub: creating an issue with a label that does not
+exist **creates the label**. The hazard runs the other way — a typo does not
+fail, it silently adds a junk label to the repo's vocabulary. Read back what you
+created rather than assuming the spelling took.
+
+Labels are **write-only decoration, never a second source of truth**. Nothing
+derives them: you supply the label, and the runtime neither generates it from
+`kind` nor ever reads it back. `soma graph node` derives `kind` and `autonomy`
+from the typed block alone, so a label that is mistyped, edited, stale, or
+missing misleads a reader and never changes what a verb decides. Keeping label
+and `kind` in step is your discipline, not an invariant the runtime holds.
+
+They earn their place by making a list view readable at a glance. The node block
+is an HTML comment: it does not render in the tracker UI and never appears in a
+default `gh issue list`, so without labels a ten-node map is ten
+indistinguishable rows, the root included, and you open each one to learn what it
+is.
+
+The block is not *unreachable* — `gh issue list --search` matches body text, and
+`--json body` returns it, so a scripted reader can recover `kind` from unlabelled
+or legacy nodes. Labels buy the glance, not the only access path.
+
+That glance is the job: `gh issue list --label orienteer:map` finds every map in
+a repo, and scanning the list tells you which nodes are conversations and which
+are fact-finding.
+
+Suggested vocabulary — `orienteer:map` for the root, then one of
+`orienteer:grilling`, `orienteer:research`, `orienteer:prototype`,
+`orienteer:task` matching the node's `kind`.
 
 ## What the runtime enforces, and what is yours
 
