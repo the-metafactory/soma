@@ -524,8 +524,9 @@ export function parseNodeSpec(input: unknown): CreateNodeSpec {
  * Attach a store-assigned id to a validated spec, yielding the node proper.
  *
  * `body`, `parent` and `labels` are creation inputs, not node state: the body
- * lives on the issue, the parent is an edge, and labels are a derived view. A
- * node carrying them would be a second home for facts that already have one.
+ * lives on the issue, the parent is an edge, and a label is a caller-supplied
+ * index entry the runtime never reads back. A node carrying them would be a
+ * second home for facts that already have one.
  */
 export function toNode(id: string, spec: CreateNodeSpec): WorkGraphNode {
   const { body: _body, parent: _parent, labels: _labels, ...rest } = spec;
