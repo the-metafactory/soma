@@ -3,8 +3,8 @@
 ## The map
 
 The map is the **root node** of the effort — one issue, whose children are its
-nodes. Find it by id: an `orienteer:map` label is optional human decoration for
-browsing the tracker, never read by a verb.
+nodes. Find it by id, or by its `orienteer:map` label (see
+[Labels](#labels-the-human-index)).
 
 The map is an **index**, not a store. It lists the decisions made and points at
 the nodes that hold their detail; a decision lives in exactly one place — its
@@ -62,6 +62,7 @@ lines:
 soma graph add <root> \
   --title "…" --autonomy propose --kind grilling \
   --checkpoint <id> --body-file <path> \
+  --label orienteer:grilling \
   --blocked-by <id> --blocked-by <id>
 ```
 
@@ -79,6 +80,29 @@ lost race rather than assuming it won.
 
 The answer isn't part of the body — it's recorded on close. Assets created while
 resolving a node are linked from the issue, not pasted in.
+
+## Labels: the human index
+
+**Always label a node you create.** `--label orienteer:<kind>` on every node,
+`orienteer:map` on the root. Create the labels in the repo first if they do not
+exist; the create call fails on an unknown label.
+
+Labels are a **projection of the node block, never a second source of truth**.
+No verb reads one: `soma graph node` derives `kind` and `autonomy` from the
+typed block alone, so a label that is edited, stale, or missing misleads a
+reader and never changes what a verb decides.
+
+They earn their place by being the only thing that makes a list view readable.
+The node block is an HTML comment — invisible in `gh issue list`, in the tracker
+UI, in search. Without labels a ten-node map is ten indistinguishable rows, the
+root included, and the human has to open each one to learn what it is. That is
+the whole job: `gh issue list --label orienteer:map` finds every map in a repo,
+and a glance at the list tells you which nodes are conversations and which are
+fact-finding.
+
+Suggested vocabulary — `orienteer:map` for the root, then one of
+`orienteer:grilling`, `orienteer:research`, `orienteer:prototype`,
+`orienteer:task` matching the node's `kind`.
 
 ## What the runtime enforces, and what is yours
 

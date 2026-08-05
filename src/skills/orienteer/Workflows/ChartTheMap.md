@@ -26,7 +26,8 @@ the user how they'd like to proceed.
 
 The map is the root node: an issue whose body carries Destination and Notes
 filled in, Decisions-so-far empty, and the fog sketched into **Not yet
-specified**. The body template is in `references/map.md`.
+specified**. The body template is in `references/map.md`. Label it
+`orienteer:map` — that label is how anyone finds this map again.
 
 Put in **Notes** what every later session needs before choosing a node: the
 domain, the skills to consult, standing preferences, and any override of the
@@ -38,9 +39,15 @@ plan-don't-do default.
 soma graph add <root> \
   --title "…" --autonomy <auto|propose|approve> --kind <research|prototype|grilling|task> \
   --checkpoint <id> --body-file <path> \
+  --label orienteer:<kind> \
   [--probe '{"type":"command","run":"…","timeoutSec":600,"expectExit":0}'] \
   [--blocked-by <id>]…
 ```
+
+Create the `orienteer:*` labels in the repo before the first `add` — the create
+call fails on a label that does not exist. Labels are a derived view of the node
+block, not a second source of truth (`references/map.md`), but skipping them
+leaves the human with a list of indistinguishable rows.
 
 Ids don't exist until create returns, so wire the edges you can and make a
 second pass for the rest. Wiring sorts the nodes into the frontier and the

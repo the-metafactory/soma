@@ -258,7 +258,19 @@ class GitHubGraphStore implements GraphStore {
   async createNode(spec: CreateNodeSpec): Promise<NodeRef> {
     const body = [spec.body ?? "", encodeNodeBlock(spec)].filter((part) => part.length > 0).join("\n\n");
     const created = readIssue(
-      await this.transport({ method: "POST", path: `repos/${this.repo}/issues`, body: { title: spec.title, body } }),
+      await this.transport({
+        method: "POST",
+        path: `repos/${this.repo}/issues`,
+        body: {
+          title: spec.title,
+          body,
+          // Write-only: GitHub's own index over the issue list. Never read back
+          // — `readNode` derives `kind` and `autonomy` from the typed block, so
+          // a label edited on the tracker changes what a human sees and nothing
+          // a verb decides.
+          ...(spec.labels === undefined || spec.labels.length === 0 ? {} : { labels: [...spec.labels] }),
+        },
+      }),
       "createNode",
     );
     if (spec.parent !== undefined) {

@@ -189,6 +189,45 @@ test("createNode writes the block into the body and attaches to the parent by da
   expect(calls[1]?.body).toEqual({ sub_issue_id: 999 });
 });
 
+test("createNode writes labels through, and readNode never reads them back", async () => {
+  const { transport, calls } = fakeTransport({
+    [`POST repos/${REPO}/issues`]: issuePayload({ number: 514, id: 1000 }),
+  });
+
+  await createGitHubGraphStore({ repo: REPO, transport }).createNode(
+    parseNodeSpec({
+      title: "labelled",
+      autonomy: "propose",
+      kind: "grilling",
+      labels: ["orienteer:grilling", "orienteer:grilling", " orienteer:map "],
+    }),
+  );
+
+  // Deduplicated and trimmed at the boundary, order preserved.
+  expect((calls[0]?.body as { labels: string[] }).labels).toEqual([
+    "orienteer:grilling",
+    "orienteer:map",
+  ]);
+});
+
+test("a label on the tracker cannot change what a verb decides", async () => {
+  // The whole safety argument for labels: they are a derived view. An issue
+  // labelled `orienteer:task` whose block says `grilling` reports grilling.
+  const { transport } = fakeTransport({
+    [`GET repos/${REPO}/issues/520`]: issuePayload({
+      number: 520,
+      id: 1,
+      body: `## Question\n\n<!-- soma:work-graph-node\n{"autonomy":"approve","kind":"grilling"}\n-->`,
+      labels: [{ name: "orienteer:task" }],
+    }),
+    [`GET repos/${REPO}/issues/520/dependencies/blocked_by`]: [],
+  });
+
+  const state = await createGitHubGraphStore({ repo: REPO, transport }).readNode({ id: "520" });
+  expect(state.node.kind).toBe("grilling");
+  expect(state.node.autonomy).toBe("approve");
+});
+
 test("addBlockingEdge resolves the blocker's database id and writes the native dependency", async () => {
   const { transport, calls } = fakeTransport({
     [`GET repos/${REPO}/issues/497`]: issuePayload({ number: 497, id: 5043603420 }),
