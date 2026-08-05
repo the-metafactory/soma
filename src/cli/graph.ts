@@ -688,6 +688,8 @@ export function selectRatification(
   reactions: readonly Reaction[],
   proposalAuthor: string,
   rootAuthor: string | undefined,
+  /** True only when the confinement probe ran AND found exactly one reachable identity. */
+  sessionIsSingleCredential = false,
 ): { kind: "reaction"; id: string; author: string } | undefined {
   if (
     rootAuthor !== undefined &&
@@ -706,18 +708,23 @@ export function selectRatification(
     return { kind: "reaction", id: preferred.id, author: preferred.author };
   }
 
-  // Self-ratification is bound to the graph root's author, not offered to any
-  // proposer. Without that bound the fallback fires on ANY deployment: on a
-  // multi-account repo a contributor who reacts to their own proposal before
-  // anyone else looks would close an `approve`-gated node unilaterally, with the
-  // two-party rule enforced by nothing but a string in a receipt.
+  // Self-ratification requires the SESSION to be genuinely single-credential,
+  // established by the confinement probe rather than by anything on the tracker.
   //
-  // Root-authorship is the right bound because it is *derived*, not declared —
-  // no flag, no config, nothing an adopter can get wrong or an agent can widen
-  // (§1 corollary). It says exactly what the single-credential case needs: the
-  // person who owns this map is approving their own proposal on it. A stranger
-  // proposing and thumbing their own work is not that, and still gets nothing.
-  if (rootAuthor === undefined || proposalAuthor !== rootAuthor) return undefined;
+  // An earlier attempt bound it to the graph root's author instead. That was
+  // self-conferred and therefore worthless: `findGraphRoot` returns the node
+  // itself when it has no parent, so anyone who opens a parentless node is its
+  // own root author, and a contributor on a multi-account repo could propose,
+  // thumb their own proposal, and close an `approve`-gated node alone — the
+  // exact harm the bound was added to prevent.
+  //
+  // "How many credentials can this session reach" is not attacker-chosen. It is
+  // the same probe §3.2 conjunct 2 uses, and inherits that conjunct's recorded
+  // limit — it runs inside the environment it judges, so it detects the honest
+  // case and does not defend against a session that sets out to shim it. That is
+  // a weaker claim than the tracker-side conjuncts and strictly stronger than a
+  // bound the proposer confers on themselves.
+  if (!sessionIsSingleCredential) return undefined;
 
   // `.at(0)` rather than `[0]`: it is typed `Reaction | undefined`, so the guard
   // below is a real check rather than one the type system thinks is dead.
@@ -835,6 +842,12 @@ async function runClose(
 
   const root = await findGraphRoot(ref, async (nodeRef) => await graph.readNode(nodeRef));
 
+  // Hoisted above the ratification path: whether the session can reach a second
+  // credential decides whether a self-👍 counts, so it has to be known first.
+  // Fails closed — an unrun probe is not evidence of isolation.
+  const confinement = await deps.checkConfinement();
+  const singleCredential = confinement.checked && confinement.reachableIdentities.length === 1;
+
   let proposal: { commentId: string; author: string } | undefined;
   let ratification: { kind: "reaction" | "comment"; id: string; author: string } | undefined;
 
@@ -853,7 +866,7 @@ async function runClose(
     const proposalRef: CommentRef = await graph.readComment({ id: commentId, nodeId: ref.id });
     proposal = { commentId: proposalRef.id, author: proposalRef.author ?? "" };
     const reactions = await graph.readCommentReactions(proposalRef);
-    ratification = selectRatification(reactions, proposal.author, root?.author);
+    ratification = selectRatification(reactions, proposal.author, root?.author, singleCredential);
     if (ratification !== undefined) {
       evidence.push({
         kind: "approved",
@@ -863,7 +876,6 @@ async function runClose(
     }
   }
 
-  const confinement = await deps.checkConfinement();
   const { attestation, facts } = deriveAttestation({
     backendCapability: store.attestation,
     actingIdentity: identity,

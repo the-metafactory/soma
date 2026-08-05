@@ -482,19 +482,19 @@ test("selectRatification prefers the root author, then any other non-proposer", 
   expect(selectRatification(reactions, "jcfischer", undefined)?.author).toBe("ivy-agent");
 });
 
-test("self-ratification is bound to the graph root's author, not offered to any proposer", () => {
-  // Without this bound the fallback fires on every deployment: a contributor on
-  // a multi-account repo who thumbs their own proposal first would close an
-  // approve-gated node alone, with the two-party rule enforced by nothing but a
-  // string in a receipt.
+test("self-ratification requires a single-credential session, not a self-conferred role", () => {
+  // The bound cannot come from anything the proposer controls. An earlier
+  // attempt used graph-root authorship, which `findGraphRoot` confers on anyone
+  // who opens a parentless node — so a contributor on a multi-account repo could
+  // propose, thumb their own proposal, and close an approve-gated node alone.
   const own: Reaction[] = [{ id: "r1", content: "+1", author: "contributor" }];
 
-  // Proposer is not the root author — refused outright.
-  expect(selectRatification(own, "contributor", "jcfischer")).toBeUndefined();
-  // No root author known — refused; the bound cannot be checked, so it fails closed.
-  expect(selectRatification(own, "contributor", undefined)).toBeUndefined();
-  // Proposer IS the root author — the single-credential case the fallback exists for.
-  expect(selectRatification(own, "contributor", "contributor")?.author).toBe("contributor");
+  // Multi-credential session — refused however the tracker looks.
+  expect(selectRatification(own, "contributor", "contributor", false)).toBeUndefined();
+  // Root-authorship alone buys nothing now.
+  expect(selectRatification(own, "contributor", "contributor")).toBeUndefined();
+  // Genuinely one reachable identity — the case the fallback exists for.
+  expect(selectRatification(own, "contributor", "jcfischer", true)?.author).toBe("contributor");
 });
 
 test("a distinct author outranks self-ratification even when the root author proposed", () => {
@@ -512,7 +512,7 @@ test("selectRatification falls back to the proposer's own 👍 when it is the on
   // Single-credential adopter: one identity owns the map AND posts the proposal,
   // so every 👍 available is a self-ratification. It ratifies —
   // deriveAttestation is what records that it was one credential, not two.
-  expect(selectRatification([{ id: "r1", content: "+1", author: "ivy-agent" }], "ivy-agent", "ivy-agent")).toEqual({
+  expect(selectRatification([{ id: "r1", content: "+1", author: "ivy-agent" }], "ivy-agent", "ivy-agent", true)).toEqual({
     kind: "reaction",
     id: "r1",
     author: "ivy-agent",
@@ -526,6 +526,7 @@ test("selectRatification falls back to the proposer's own 👍 when it is the on
       ],
       "jcfischer",
       "jcfischer",
+      true,
     ),
   ).toBeUndefined();
 });

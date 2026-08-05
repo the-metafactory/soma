@@ -93,14 +93,19 @@ body text. A 👎 from the graph root's author suppresses ratification outright.
 
 Two things the runtime does **not** do here, both of which are yours to hold:
 
-- **Any 👍 closes the node — including the proposer's own.** The ratifier is
-  preferred to be the graph root's author, then any other non-proposer, and only
-  last the proposer themselves. So on a public tracker a stranger's thumb
-  produces `approved` evidence and the node closes; and on a single-credential
-  deployment — where the agent posts the proposal *as* the principal — the
-  principal's own 👍 ratifies too. Only the `attestation` label records that it
-  was not the right human, or not a second credential at all. Read root-author
-  approval as the *thing you must obtain*, not as a condition the verb enforces.
+- **Any 👍 from someone other than the proposer closes the node.** The graph
+  root's author is preferred, but the fallback is the first other reaction — so
+  on a public tracker a stranger's thumb produces `approved` evidence and the
+  node closes. Only the `attestation` label records that it was not the right
+  human. Read root-author approval as the *thing you must obtain*, not as a
+  condition the verb enforces.
+- **The proposer's own 👍 counts only on a single-credential session.** When the
+  confinement probe finds exactly one reachable identity — the agent posts the
+  proposal *as* the principal, so no second identity exists to ratify with — the
+  proposer's own thumb ratifies. Anywhere else it is refused and the node stays
+  open, so do not expect a self-👍 to close anything on a shared repo. The bound
+  is the session's credential topology, never a role on the tracker: a role the
+  proposer confers on themselves would bound nothing.
 - **Ratification binds to a comment id, not to its text.** Nothing hashes the
   proposal body, so a proposal that is ratified and *then edited* still closes
   on that 👍. "A materially amended proposal is re-posted and needs fresh
