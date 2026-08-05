@@ -649,6 +649,18 @@ async function runAdd(
  * explicit refusal, so no ratification is taken from that comment at all —
  * otherwise a third party's 👍 could carry a close over the one person whose
  * approval conjunct 4 actually asks for.
+ *
+ * Preference order: the root author's 👍, then any other non-proposer's, then —
+ * last — the proposer's own. That last fallback exists because an adopter with a
+ * single credential has no second identity to ratify with: the agent posts the
+ * proposal as them, so every 👍 they leave is a self-ratification. Refusing it
+ * outright made `propose`-class nodes unclosable on such a deployment, which is
+ * a *gate*, and §3.2 is explicit that attestation is a label. The receipt stays
+ * honest without the gate: `deriveAttestation` already carries the
+ * "proposal and ratification share an author — one credential, not two"
+ * conjunct, so a self-ratified close is recorded `unverified`, naming the reason.
+ * Isolating credentials still upgrades the receipt; it is no longer the price of
+ * closing a node at all.
  */
 export function selectRatification(
   reactions: readonly Reaction[],
@@ -662,13 +674,19 @@ export function selectRatification(
     return undefined;
   }
 
-  const approvals = reactions
-    .filter((reaction) => reaction.content === "+1" && reaction.author !== proposalAuthor)
-    .sort((left, right) => (left.author < right.author ? -1 : left.author > right.author ? 1 : 0));
+  const byAuthor = (left: Reaction, right: Reaction): number =>
+    left.author < right.author ? -1 : left.author > right.author ? 1 : 0;
+  const thumbsUp = reactions.filter((reaction) => reaction.content === "+1");
 
-  if (approvals.length === 0) return undefined;
-  const preferred = approvals.find((reaction) => reaction.author === rootAuthor) ?? approvals[0];
-  return { kind: "reaction", id: preferred.id, author: preferred.author };
+  const approvals = thumbsUp.filter((reaction) => reaction.author !== proposalAuthor).sort(byAuthor);
+  if (approvals.length > 0) {
+    const preferred = approvals.find((reaction) => reaction.author === rootAuthor) ?? approvals[0];
+    return { kind: "reaction", id: preferred.id, author: preferred.author };
+  }
+
+  const selfApproval = thumbsUp.filter((reaction) => reaction.author === proposalAuthor).sort(byAuthor)[0];
+  if (selfApproval === undefined) return undefined;
+  return { kind: "reaction", id: selfApproval.id, author: selfApproval.author };
 }
 
 async function runClose(

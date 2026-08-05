@@ -345,6 +345,16 @@ reaction on that specific comment ID — or a principal-authored comment, which
 wins when amending — verified via the API author field. A materially amended
 proposal is re-posted and needs fresh ratification (the replay-rebind lesson).
 
+**Selecting the ratifier.** A 👎 from the root node's author suppresses
+ratification outright. Otherwise the 👍 is taken in preference order: the root
+author, then any other non-proposer, then — last — the proposer's own. That
+final fallback keeps the "label, not a gate" promise below honest for a
+single-credential adopter: the agent posts proposals *as* the principal, so
+every 👍 available is a self-ratification, and discarding it made `propose`-class
+nodes unclosable rather than merely unverified. Conjunct 3 still fires, so the
+receipt records `unverified` and names the reason — credential isolation
+upgrades the receipt, it is not the price of closing a node.
+
 #### Deriving `attestation` (#502)
 
 `attestation` is **derived at close time, never configured**. There is no flag,

@@ -469,7 +469,7 @@ test("a 👎 from the root author blocks ratification, so the close is refused",
   expect(store.closed).toHaveLength(0);
 });
 
-test("selectRatification prefers the root author and ignores the proposer's own reaction", () => {
+test("selectRatification prefers the root author, then any other non-proposer", () => {
   const reactions: Reaction[] = [
     { id: "r1", content: "+1", author: "ivy-agent" },
     { id: "r2", content: "+1", author: "mellanon" },
@@ -478,7 +478,46 @@ test("selectRatification prefers the root author and ignores the proposer's own 
 
   expect(selectRatification(reactions, "ivy-agent", "jcfischer")?.author).toBe("jcfischer");
   expect(selectRatification(reactions, "ivy-agent", undefined)?.author).toBe("jcfischer");
-  expect(selectRatification([{ id: "r1", content: "+1", author: "ivy-agent" }], "ivy-agent", "jcfischer")).toBeUndefined();
+  // The proposer's own 👍 never outranks a second credential.
+  expect(selectRatification(reactions, "jcfischer", undefined)?.author).toBe("ivy-agent");
+});
+
+test("selectRatification falls back to the proposer's own 👍 when it is the only one", () => {
+  // Single-credential adopter: the agent proposes as them, so every 👍 is a
+  // self-ratification. It ratifies — deriveAttestation is what records that it
+  // was one credential, not two.
+  expect(selectRatification([{ id: "r1", content: "+1", author: "ivy-agent" }], "ivy-agent", "jcfischer")).toEqual({
+    kind: "reaction",
+    id: "r1",
+    author: "ivy-agent",
+  });
+  // A 👎 from the root author still suppresses it outright.
+  expect(
+    selectRatification(
+      [
+        { id: "r1", content: "+1", author: "jcfischer" },
+        { id: "r2", content: "-1", author: "jcfischer" },
+      ],
+      "jcfischer",
+      "jcfischer",
+    ),
+  ).toBeUndefined();
+});
+
+test("a self-ratified proposal closes, but only ever as unverified", async () => {
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495"), author: "jcfischer" })
+    .seed("530", { node: { id: "530", title: "hitl", autonomy: "approve", checkpointId: "cp-530" }, parent: "495" });
+
+  await run(["graph", "close", "530", "--propose", "--body", "x", "--repo", REPO], store);
+  store.reactions.set("c1", [{ id: "r1", content: "+1", author: "ivy-agent" }]);
+
+  await run(["graph", "close", "530", "--proposal-comment", "c1", "--repo", REPO], store);
+
+  expect(store.closed).toHaveLength(1);
+  expect(store.closed[0].receipt.attestation).toBe("unverified");
+  expect(store.closed[0].receipt.attestationFacts?.reasons?.join(" ")).toContain("share an author");
+  expect(store.closed[0].receipt.evidence.some((entry) => entry.kind === "approved")).toBe(true);
 });
 
 test("--dry-run previews the verdict and the receipt without writing either", async () => {
