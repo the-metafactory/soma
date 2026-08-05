@@ -469,7 +469,7 @@ test("a 👎 from the root author blocks ratification, so the close is refused",
   expect(store.closed).toHaveLength(0);
 });
 
-test("selectRatification prefers the root author, then any other non-proposer", () => {
+test("selectRatification prefers the root author and ignores the proposer's own reaction", () => {
   const reactions: Reaction[] = [
     { id: "r1", content: "+1", author: "ivy-agent" },
     { id: "r2", content: "+1", author: "mellanon" },
@@ -478,76 +478,7 @@ test("selectRatification prefers the root author, then any other non-proposer", 
 
   expect(selectRatification(reactions, "ivy-agent", "jcfischer")?.author).toBe("jcfischer");
   expect(selectRatification(reactions, "ivy-agent", undefined)?.author).toBe("jcfischer");
-  // The proposer's own 👍 never outranks a second credential.
-  expect(selectRatification(reactions, "jcfischer", undefined)?.author).toBe("ivy-agent");
-});
-
-test("self-ratification requires a single-credential session, not a self-conferred role", () => {
-  // The bound cannot come from anything the proposer controls. An earlier
-  // attempt used graph-root authorship, which `findGraphRoot` confers on anyone
-  // who opens a parentless node — so a contributor on a multi-account repo could
-  // propose, thumb their own proposal, and close an approve-gated node alone.
-  const own: Reaction[] = [{ id: "r1", content: "+1", author: "contributor" }];
-
-  // Multi-credential session — refused however the tracker looks.
-  expect(selectRatification(own, "contributor", "contributor", false)).toBeUndefined();
-  // Root-authorship alone buys nothing now.
-  expect(selectRatification(own, "contributor", "contributor")).toBeUndefined();
-  // Genuinely one reachable identity — the case the fallback exists for.
-  expect(selectRatification(own, "contributor", "jcfischer", true)?.author).toBe("contributor");
-});
-
-test("a distinct author outranks self-ratification even when the root author proposed", () => {
-  // Deliberate, and the opposite of what an earlier draft of the docs claimed:
-  // neither reaction satisfies both conjuncts, and distinct authorship is the
-  // one that means a second human actually looked.
-  const reactions: Reaction[] = [
-    { id: "r1", content: "+1", author: "jcfischer" },
-    { id: "r2", content: "+1", author: "passer-by" },
-  ];
-  expect(selectRatification(reactions, "jcfischer", "jcfischer")?.author).toBe("passer-by");
-});
-
-test("selectRatification falls back to the proposer's own 👍 when it is the only one", () => {
-  // Single-credential adopter: one identity owns the map AND posts the proposal,
-  // so every 👍 available is a self-ratification. It ratifies —
-  // deriveAttestation is what records that it was one credential, not two.
-  expect(selectRatification([{ id: "r1", content: "+1", author: "ivy-agent" }], "ivy-agent", "ivy-agent", true)).toEqual({
-    kind: "reaction",
-    id: "r1",
-    author: "ivy-agent",
-  });
-  // A 👎 from the root author still suppresses it outright.
-  expect(
-    selectRatification(
-      [
-        { id: "r1", content: "+1", author: "jcfischer" },
-        { id: "r2", content: "-1", author: "jcfischer" },
-      ],
-      "jcfischer",
-      "jcfischer",
-      true,
-    ),
-  ).toBeUndefined();
-});
-
-test("a self-ratified proposal closes, but only ever as unverified", async () => {
-  // The root is authored by the same identity that posts the proposal — the
-  // single-credential deployment. Seeded deliberately: with a different root
-  // author this is the multi-party case, and the fallback refuses it.
-  const store = new FakeStore()
-    .seed("495", { node: autoNode("495"), author: "ivy-agent" })
-    .seed("530", { node: { id: "530", title: "hitl", autonomy: "approve", checkpointId: "cp-530" }, parent: "495" });
-
-  await run(["graph", "close", "530", "--propose", "--body", "x", "--repo", REPO], store);
-  store.reactions.set("c1", [{ id: "r1", content: "+1", author: "ivy-agent" }]);
-
-  await run(["graph", "close", "530", "--proposal-comment", "c1", "--repo", REPO], store);
-
-  expect(store.closed).toHaveLength(1);
-  expect(store.closed[0].receipt.attestation).toBe("unverified");
-  expect(store.closed[0].receipt.attestationFacts?.reasons?.join(" ")).toContain("share an author");
-  expect(store.closed[0].receipt.evidence.some((entry) => entry.kind === "approved")).toBe(true);
+  expect(selectRatification([{ id: "r1", content: "+1", author: "ivy-agent" }], "ivy-agent", "jcfischer")).toBeUndefined();
 });
 
 test("--dry-run previews the verdict and the receipt without writing either", async () => {

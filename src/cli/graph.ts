@@ -649,47 +649,11 @@ async function runAdd(
  * explicit refusal, so no ratification is taken from that comment at all —
  * otherwise a third party's 👍 could carry a close over the one person whose
  * approval conjunct 4 actually asks for.
- *
- * Preference order, stated as the code actually behaves:
- *
- *   1. any 👍 whose author is not the proposer — the root author's if present,
- *      otherwise the first by author order;
- *   2. failing that, and **only when the proposer is the graph root's author**,
- *      that person's own 👍.
- *
- * Note what rule 1 means when the root author *is* the proposer, which is the
- * single-credential case this fallback exists for: a passing stranger's 👍
- * outranks the principal's own. That looks backwards and is deliberate. Neither
- * reaction can satisfy both conjuncts — the stranger fails conjunct 4 (wrong
- * person), the principal fails conjunct 3 (one credential) — and of the two,
- * distinct authorship is the one that means a second human actually looked. An
- * earlier draft of this comment promised "root author first" unconditionally,
- * which was simply untrue here.
- *
- * Rule 2 exists because an adopter with a single credential has no second
- * identity to ratify with: the agent posts the proposal as them, so every 👍
- * they can leave is a self-ratification. Refusing it outright did not make those
- * closes unverified — it made them impossible, which turns attestation into a
- * *gate*, and §3.2 is explicit that it is a label.
- *
- * The comment-ratification path §3.2 also specifies ("or a principal-authored
- * comment, which wins when amending") is **not** an escape from this today: it
- * is unimplemented — there is no `kind: "comment"` variant anywhere — and it is
- * tracked as its own open node (#525). If it lands, this fallback should be
- * re-argued against it rather than kept by inertia.
- *
- * The receipt stays honest either way: `deriveAttestation` carries the
- * "proposal and ratification share an author — one credential, not two"
- * conjunct, so a self-ratified close is recorded `unverified`, naming the
- * reason. Isolating credentials upgrades the receipt; it is no longer the price
- * of closing a node at all.
  */
 export function selectRatification(
   reactions: readonly Reaction[],
   proposalAuthor: string,
   rootAuthor: string | undefined,
-  /** True only when the confinement probe ran AND found exactly one reachable identity. */
-  sessionIsSingleCredential = false,
 ): { kind: "reaction"; id: string; author: string } | undefined {
   if (
     rootAuthor !== undefined &&
@@ -698,39 +662,13 @@ export function selectRatification(
     return undefined;
   }
 
-  const byAuthor = (left: Reaction, right: Reaction): number =>
-    left.author < right.author ? -1 : left.author > right.author ? 1 : 0;
-  const thumbsUp = reactions.filter((reaction) => reaction.content === "+1");
+  const approvals = reactions
+    .filter((reaction) => reaction.content === "+1" && reaction.author !== proposalAuthor)
+    .sort((left, right) => (left.author < right.author ? -1 : left.author > right.author ? 1 : 0));
 
-  const approvals = thumbsUp.filter((reaction) => reaction.author !== proposalAuthor).sort(byAuthor);
-  if (approvals.length > 0) {
-    const preferred = approvals.find((reaction) => reaction.author === rootAuthor) ?? approvals[0];
-    return { kind: "reaction", id: preferred.id, author: preferred.author };
-  }
-
-  // Self-ratification requires the SESSION to be genuinely single-credential,
-  // established by the confinement probe rather than by anything on the tracker.
-  //
-  // An earlier attempt bound it to the graph root's author instead. That was
-  // self-conferred and therefore worthless: `findGraphRoot` returns the node
-  // itself when it has no parent, so anyone who opens a parentless node is its
-  // own root author, and a contributor on a multi-account repo could propose,
-  // thumb their own proposal, and close an `approve`-gated node alone — the
-  // exact harm the bound was added to prevent.
-  //
-  // "How many credentials can this session reach" is not attacker-chosen. It is
-  // the same probe §3.2 conjunct 2 uses, and inherits that conjunct's recorded
-  // limit — it runs inside the environment it judges, so it detects the honest
-  // case and does not defend against a session that sets out to shim it. That is
-  // a weaker claim than the tracker-side conjuncts and strictly stronger than a
-  // bound the proposer confers on themselves.
-  if (!sessionIsSingleCredential) return undefined;
-
-  // `.at(0)` rather than `[0]`: it is typed `Reaction | undefined`, so the guard
-  // below is a real check rather than one the type system thinks is dead.
-  const selfApproval = thumbsUp.filter((reaction) => reaction.author === proposalAuthor).sort(byAuthor).at(0);
-  if (selfApproval === undefined) return undefined;
-  return { kind: "reaction", id: selfApproval.id, author: selfApproval.author };
+  if (approvals.length === 0) return undefined;
+  const preferred = approvals.find((reaction) => reaction.author === rootAuthor) ?? approvals[0];
+  return { kind: "reaction", id: preferred.id, author: preferred.author };
 }
 
 async function runClose(
@@ -842,12 +780,6 @@ async function runClose(
 
   const root = await findGraphRoot(ref, async (nodeRef) => await graph.readNode(nodeRef));
 
-  // Hoisted above the ratification path: whether the session can reach a second
-  // credential decides whether a self-👍 counts, so it has to be known first.
-  // Fails closed — an unrun probe is not evidence of isolation.
-  const confinement = await deps.checkConfinement();
-  const singleCredential = confinement.checked && confinement.reachableIdentities.length === 1;
-
   let proposal: { commentId: string; author: string } | undefined;
   let ratification: { kind: "reaction" | "comment"; id: string; author: string } | undefined;
 
@@ -866,7 +798,7 @@ async function runClose(
     const proposalRef: CommentRef = await graph.readComment({ id: commentId, nodeId: ref.id });
     proposal = { commentId: proposalRef.id, author: proposalRef.author ?? "" };
     const reactions = await graph.readCommentReactions(proposalRef);
-    ratification = selectRatification(reactions, proposal.author, root?.author, singleCredential);
+    ratification = selectRatification(reactions, proposal.author, root?.author);
     if (ratification !== undefined) {
       evidence.push({
         kind: "approved",
@@ -876,6 +808,7 @@ async function runClose(
     }
   }
 
+  const confinement = await deps.checkConfinement();
   const { attestation, facts } = deriveAttestation({
     backendCapability: store.attestation,
     actingIdentity: identity,
