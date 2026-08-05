@@ -650,17 +650,39 @@ async function runAdd(
  * otherwise a third party's 👍 could carry a close over the one person whose
  * approval conjunct 4 actually asks for.
  *
- * Preference order: the root author's 👍, then any other non-proposer's, then —
- * last — the proposer's own. That last fallback exists because an adopter with a
- * single credential has no second identity to ratify with: the agent posts the
- * proposal as them, so every 👍 they leave is a self-ratification. Refusing it
- * outright made `propose`-class nodes unclosable on such a deployment, which is
- * a *gate*, and §3.2 is explicit that attestation is a label. The receipt stays
- * honest without the gate: `deriveAttestation` already carries the
+ * Preference order, stated as the code actually behaves:
+ *
+ *   1. any 👍 whose author is not the proposer — the root author's if present,
+ *      otherwise the first by author order;
+ *   2. failing that, and **only when the proposer is the graph root's author**,
+ *      that person's own 👍.
+ *
+ * Note what rule 1 means when the root author *is* the proposer, which is the
+ * single-credential case this fallback exists for: a passing stranger's 👍
+ * outranks the principal's own. That looks backwards and is deliberate. Neither
+ * reaction can satisfy both conjuncts — the stranger fails conjunct 4 (wrong
+ * person), the principal fails conjunct 3 (one credential) — and of the two,
+ * distinct authorship is the one that means a second human actually looked. An
+ * earlier draft of this comment promised "root author first" unconditionally,
+ * which was simply untrue here.
+ *
+ * Rule 2 exists because an adopter with a single credential has no second
+ * identity to ratify with: the agent posts the proposal as them, so every 👍
+ * they can leave is a self-ratification. Refusing it outright did not make those
+ * closes unverified — it made them impossible, which turns attestation into a
+ * *gate*, and §3.2 is explicit that it is a label.
+ *
+ * The comment-ratification path §3.2 also specifies ("or a principal-authored
+ * comment, which wins when amending") is **not** an escape from this today: it
+ * is unimplemented — there is no `kind: "comment"` variant anywhere — and it is
+ * tracked as its own open node (#525). If it lands, this fallback should be
+ * re-argued against it rather than kept by inertia.
+ *
+ * The receipt stays honest either way: `deriveAttestation` carries the
  * "proposal and ratification share an author — one credential, not two"
- * conjunct, so a self-ratified close is recorded `unverified`, naming the reason.
- * Isolating credentials still upgrades the receipt; it is no longer the price of
- * closing a node at all.
+ * conjunct, so a self-ratified close is recorded `unverified`, naming the
+ * reason. Isolating credentials upgrades the receipt; it is no longer the price
+ * of closing a node at all.
  */
 export function selectRatification(
   reactions: readonly Reaction[],
@@ -684,7 +706,22 @@ export function selectRatification(
     return { kind: "reaction", id: preferred.id, author: preferred.author };
   }
 
-  const selfApproval = thumbsUp.filter((reaction) => reaction.author === proposalAuthor).sort(byAuthor)[0];
+  // Self-ratification is bound to the graph root's author, not offered to any
+  // proposer. Without that bound the fallback fires on ANY deployment: on a
+  // multi-account repo a contributor who reacts to their own proposal before
+  // anyone else looks would close an `approve`-gated node unilaterally, with the
+  // two-party rule enforced by nothing but a string in a receipt.
+  //
+  // Root-authorship is the right bound because it is *derived*, not declared —
+  // no flag, no config, nothing an adopter can get wrong or an agent can widen
+  // (§1 corollary). It says exactly what the single-credential case needs: the
+  // person who owns this map is approving their own proposal on it. A stranger
+  // proposing and thumbing their own work is not that, and still gets nothing.
+  if (rootAuthor === undefined || proposalAuthor !== rootAuthor) return undefined;
+
+  // `.at(0)` rather than `[0]`: it is typed `Reaction | undefined`, so the guard
+  // below is a real check rather than one the type system thinks is dead.
+  const selfApproval = thumbsUp.filter((reaction) => reaction.author === proposalAuthor).sort(byAuthor).at(0);
   if (selfApproval === undefined) return undefined;
   return { kind: "reaction", id: selfApproval.id, author: selfApproval.author };
 }

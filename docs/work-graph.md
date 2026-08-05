@@ -346,14 +346,35 @@ wins when amending — verified via the API author field. A materially amended
 proposal is re-posted and needs fresh ratification (the replay-rebind lesson).
 
 **Selecting the ratifier.** A 👎 from the root node's author suppresses
-ratification outright. Otherwise the 👍 is taken in preference order: the root
-author, then any other non-proposer, then — last — the proposer's own. That
-final fallback keeps the "label, not a gate" promise below honest for a
-single-credential adopter: the agent posts proposals *as* the principal, so
-every 👍 available is a self-ratification, and discarding it made `propose`-class
-nodes unclosable rather than merely unverified. Conjunct 3 still fires, so the
-receipt records `unverified` and names the reason — credential isolation
-upgrades the receipt, it is not the price of closing a node.
+ratification outright. Otherwise:
+
+1. Any 👍 whose author is **not** the proposer — the root author's if present,
+   else the first by author order.
+2. Failing that, and **only when the proposer is the graph root's author**, that
+   person's own 👍.
+
+Rule 2 is bound to root-authorship rather than offered to any proposer, and the
+bound is *derived* rather than declared — no flag, no config, nothing an agent
+can widen (§1 corollary). Unbounded, it would fire on every deployment: on a
+multi-account repo a contributor who reacts to their own proposal first would
+close an `approve`-gated node alone, leaving the two-party rule enforced by
+nothing but a string in a receipt.
+
+It exists because a single-credential adopter has no second identity to ratify
+with — the agent posts proposals *as* the principal, so every available 👍 is a
+self-ratification. Discarding it did not make those closes unverified; it made
+them impossible, which turns attestation into a *gate* when §3.2 says label. The
+comment-ratification path named above is not an escape today: it is
+unimplemented and tracked at
+[#525](https://github.com/the-metafactory/soma/issues/525). If it lands, rule 2
+should be re-argued against it.
+
+Note what rule 1 means when the root author *is* the proposer: a passing
+stranger's 👍 outranks the principal's own. Deliberate — neither satisfies both
+conjuncts, and distinct authorship is the one that means a second human looked.
+Conjunct 3 fires on a self-ratified close either way, so the receipt records
+`unverified` and names the reason: credential isolation upgrades the receipt, it
+is not the price of closing a node.
 
 #### Deriving `attestation` (#502)
 
