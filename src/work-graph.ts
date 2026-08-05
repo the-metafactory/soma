@@ -116,12 +116,16 @@ export interface NodeRef {
  *   orienteer rule "scaffold nodes attach below their spawning ticket" (#492)
  *   both need it, and `listCandidateFrontier(root)` needs the membership edge
  *   it writes.
- * - `labels` — **write-only presentation.** A projection of the node block into
- *   whatever index the backend gives humans, so a list view is readable without
- *   opening every issue. Deliberately never read back: `readNode` derives `kind`
- *   and `autonomy` from the typed block alone, so a hand-edited or stale label
- *   misleads a reader and never a verb — one authoritative home, one derived
- *   view. A backend without an index concept ignores them.
+ * - `labels` — **write-only decoration.** Caller-supplied, so a list view is
+ *   readable without opening every issue. Nothing derives them from the node:
+ *   they are a second, independent input that happens to describe the same
+ *   thing, and keeping them in step is the caller's discipline.
+ *
+ *   What the runtime *does* guarantee is the half that matters: they are never
+ *   read back. `readNode` takes `kind` and `autonomy` from the typed block
+ *   alone, so a mistyped or stale label can mislead a human and can never change
+ *   what a verb decides. That is what keeps a second input from becoming a
+ *   second authority. A backend with no index concept ignores them.
  */
 export type CreateNodeSpec = DistributiveOmit<WorkGraphNode, "id"> & {
   body?: string;

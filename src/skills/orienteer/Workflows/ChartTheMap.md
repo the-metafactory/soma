@@ -44,10 +44,11 @@ soma graph add <root> \
   [--blocked-by <id>]…
 ```
 
-Create the `orienteer:*` labels in the repo before the first `add` — the create
-call fails on a label that does not exist. Labels are a derived view of the node
-block, not a second source of truth (`references/map.md`), but skipping them
-leaves the human with a list of indistinguishable rows.
+On GitHub an unknown label is created by the call rather than rejected by it, so
+there is no pre-step — but a typo silently adds a junk label instead of failing,
+so check what you wrote. Labels are write-only decoration, not a second source of
+truth (`references/map.md`); skipping them leaves the human with a list of
+indistinguishable rows.
 
 Ids don't exist until create returns, so wire the edges you can and make a
 second pass for the rest. Wiring sorts the nodes into the frontier and the

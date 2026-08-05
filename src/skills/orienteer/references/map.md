@@ -84,13 +84,19 @@ resolving a node are linked from the issue, not pasted in.
 ## Labels: the human index
 
 **Always label a node you create.** `--label orienteer:<kind>` on every node,
-`orienteer:map` on the root. Create the labels in the repo first if they do not
-exist; the create call fails on an unknown label.
+`orienteer:map` on the root.
 
-Labels are a **projection of the node block, never a second source of truth**.
-No verb reads one: `soma graph node` derives `kind` and `autonomy` from the
-typed block alone, so a label that is edited, stale, or missing misleads a
-reader and never changes what a verb decides.
+No pre-step is needed on GitHub: creating an issue with a label that does not
+exist **creates the label**. The hazard runs the other way — a typo does not
+fail, it silently adds a junk label to the repo's vocabulary. Read back what you
+created rather than assuming the spelling took.
+
+Labels are **write-only decoration, never a second source of truth**. Nothing
+derives them: you supply the label, and the runtime neither generates it from
+`kind` nor ever reads it back. `soma graph node` derives `kind` and `autonomy`
+from the typed block alone, so a label that is mistyped, edited, stale, or
+missing misleads a reader and never changes what a verb decides. Keeping label
+and `kind` in step is your discipline, not an invariant the runtime holds.
 
 They earn their place by being the only thing that makes a list view readable.
 The node block is an HTML comment — invisible in `gh issue list`, in the tracker

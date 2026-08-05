@@ -189,25 +189,39 @@ test("createNode writes the block into the body and attaches to the parent by da
   expect(calls[1]?.body).toEqual({ sub_issue_id: 999 });
 });
 
-test("createNode writes labels through, and readNode never reads them back", async () => {
+test("createNode writes labels through, deduplicated and trimmed", async () => {
   const { transport, calls } = fakeTransport({
     [`POST repos/${REPO}/issues`]: issuePayload({ number: 514, id: 1000 }),
   });
 
+  const spec = parseNodeSpec({
+    title: "labelled",
+    autonomy: "propose",
+    kind: "grilling",
+    body: "## Question\n\nwhich?",
+    labels: ["orienteer:grilling", "orienteer:grilling", " orienteer:map "],
+  });
+  await createGitHubGraphStore({ repo: REPO, transport }).createNode(spec);
+
+  // The whole POST body, not just the labels key — the transport contract is
+  // what a reader trusts, so pin all of it rather than the part that changed.
+  expect(calls[0]?.body).toEqual({
+    title: "labelled",
+    body: `## Question\n\nwhich?\n\n${encodeNodeBlock(spec)}`,
+    labels: ["orienteer:grilling", "orienteer:map"],
+  });
+});
+
+test("a node created without labels sends no labels key at all", async () => {
+  const { transport, calls } = fakeTransport({
+    [`POST repos/${REPO}/issues`]: issuePayload({ number: 515, id: 1001 }),
+  });
+
   await createGitHubGraphStore({ repo: REPO, transport }).createNode(
-    parseNodeSpec({
-      title: "labelled",
-      autonomy: "propose",
-      kind: "grilling",
-      labels: ["orienteer:grilling", "orienteer:grilling", " orienteer:map "],
-    }),
+    parseNodeSpec({ title: "bare", autonomy: "propose" }),
   );
 
-  // Deduplicated and trimmed at the boundary, order preserved.
-  expect((calls[0]?.body as { labels: string[] }).labels).toEqual([
-    "orienteer:grilling",
-    "orienteer:map",
-  ]);
+  expect(calls[0]?.body).not.toHaveProperty("labels");
 });
 
 test("a label on the tracker cannot change what a verb decides", async () => {
