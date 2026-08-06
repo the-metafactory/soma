@@ -185,6 +185,7 @@ export const grokInstallSpec: SubstrateInstallSpec<"grok"> = {
   // runtime and does not block.
   validator: validateGrokInstallRuntime,
   skillsLoaderDir: skillsLoaderUnder(),
+  skillsLoading: "on-demand",
   vsaSkillProjection: {
     // Lands the versioned VSA skill at `~/.grok/skills/VSA` (same shape
     // as Codex's `vsaSkillUnder()` → `~/.codex/skills/VSA`).

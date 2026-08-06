@@ -58,6 +58,7 @@ export const claudeCodeInstallSpec: SubstrateInstallSpec<"claude-code"> = {
       : []),
   ],
   skillsLoaderDir: skillsLoaderUnder(),
+  skillsLoading: "on-demand",
   vsaSkillProjection: {
     destinationDir: vsaSkillUnder(),
     // soma#329: before reprojecting VSA, prune a sibling renamed-away "ISA" skill

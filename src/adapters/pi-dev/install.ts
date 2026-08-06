@@ -42,6 +42,7 @@ export const piDevInstallSpec: SubstrateInstallSpec<"pi-dev"> = {
   // Owned (Soma-exclusive) dir — see ownedSubtrees JSDoc. (agent/extensions + agent/skills shared.)
   ownedSubtrees: ["agent/soma"],
   skillsLoaderDir: skillsLoaderUnder("agent"),
+  skillsLoading: "eager",
   vsaSkillProjection: {
     destinationDir: piDevVsaSkillDestinationDir,
     skillNameOverride: PI_DEV_VSA_SKILL_ID,

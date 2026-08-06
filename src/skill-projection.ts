@@ -1,11 +1,12 @@
-import { lstat, mkdir, readFile, readlink, rm, stat, symlink } from "node:fs/promises";
+import { lstat, mkdir, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { renderSkills, stripProvenance } from "./adapters/shared";
+import { isSkillStub, renderSkills, renderSkillStub, stripProvenance } from "./adapters/shared";
 import { buildSubstrateHomeProjection } from "./home-projection";
 import type { InstallSubstrate } from "./install-spec";
 import { installSpecFor } from "./install-spec-registry";
 import { writeProjection } from "./projection";
+import { extractSkillFrontmatter, SKILL_MD } from "./skill-frontmatter";
 import { loadSomaHome } from "./soma-home";
 import type { ProjectionInput, SomaHomeProjectionOptions } from "./types";
 
@@ -58,7 +59,19 @@ export interface UnprojectSkillOptions {
   force?: boolean;
 }
 
-export type SkillLinkStatus = "linked" | "unchanged" | "replaced" | "removed" | "absent" | "preserved";
+/**
+ * `stubbed` is the eager-loader counterpart of `linked` (soma#542): the slot was
+ * created, but as a generated frontmatter-only dir rather than a symlink to the
+ * body. `replaced`/`unchanged` carry the same meaning for both shapes.
+ */
+export type SkillLinkStatus =
+  | "linked"
+  | "stubbed"
+  | "unchanged"
+  | "replaced"
+  | "removed"
+  | "absent"
+  | "preserved";
 
 export interface SkillLink {
   scope: "registry" | "substrate";
@@ -84,7 +97,19 @@ export interface SkillProjectionResult extends LinkedSkillResult {
 export interface SkillProjectionPlan {
   skill: string;
   skillDir: string;
-  links: { scope: "registry" | "substrate"; substrate?: InstallSubstrate; path: string; target: string }[];
+  links: {
+    scope: "registry" | "substrate";
+    substrate?: InstallSubstrate;
+    path: string;
+    target: string;
+    /**
+     * What apply will actually write at `path` (soma#542). The registry slot is
+     * always a symlink; a substrate slot follows its adapter's `skillsLoading`.
+     * Carried in the plan so a dry run cannot claim a link where apply writes a
+     * stub.
+     */
+    kind: "symlink" | "stub";
+  }[];
   catalogRefresh: InstallSubstrate[];
 }
 
@@ -200,6 +225,67 @@ async function ensureSymlink(
 }
 
 /**
+ * Materialise a skill into an EAGER substrate's loader slot as a generated
+ * frontmatter-only stub instead of a symlink (soma#542).
+ *
+ * A symlink cannot be a partial view of its target, so an eager loader — one
+ * that reads every projected SKILL.md at session start — would pull the whole
+ * body into context. The stub carries the frontmatter (so the loader still lists
+ * and routes the skill) plus a pointer to the body under the Soma registry.
+ *
+ * The data-loss guard matches {@link ensureSymlink}, one shape down: a stub IS a
+ * real directory, so "not a symlink" can no longer stand in for "not ours".
+ * Ownership is decided by the stub marker instead — a dir whose SKILL.md carries
+ * it is a previous projection and is replaced; anything else is user data and
+ * needs `force`.
+ */
+async function ensureSkillStub(
+  stubDir: string,
+  skillDir: string,
+  substrate: InstallSubstrate,
+  force: boolean,
+): Promise<"stubbed" | "unchanged" | "replaced"> {
+  const bodyPath = join(skillDir, SKILL_MD);
+  const frontmatter = extractSkillFrontmatter(await readFile(bodyPath, "utf8"));
+  if (frontmatter === undefined) {
+    throw new SkillProjectionError(
+      `Cannot stub ${skillDir} for ${substrate}: ${SKILL_MD} has no YAML frontmatter to project.`,
+    );
+  }
+  const stub = renderSkillStub({ frontmatter, bodyPath, substrate });
+  const stubPath = join(stubDir, SKILL_MD);
+
+  let existed = false;
+  try {
+    const entry = await lstat(stubDir);
+    existed = true;
+    // A symlink in the slot is ours to replace, same rule as ensureSymlink — it
+    // is what an on-demand projection of this same skill would have left here.
+    if (!entry.isSymbolicLink()) {
+      const current = await readFile(stubPath, "utf8").catch(() => undefined);
+      if (current !== undefined && isSkillStub(current)) {
+        // Ours. Byte-identical means the source frontmatter has not moved, so
+        // reprojection is a no-op rather than a rewrite.
+        if (current === stub) return "unchanged";
+      } else if (!force) {
+        throw new SkillProjectionError(
+          `Refusing to replace non-stub path at ${stubDir} (not a Soma-generated skill stub). ` +
+            `Pass force to overwrite it.`,
+        );
+      }
+    }
+    await rm(stubDir, { recursive: true, force: true });
+  } catch (error) {
+    if (error instanceof SkillProjectionError) throw error;
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+
+  await mkdir(stubDir, { recursive: true });
+  await writeFile(stubPath, stub, "utf8");
+  return existed ? "replaced" : "stubbed";
+}
+
+/**
  * Find the catalog file (SKILLS.md) within a substrate bundle without hard-coding
  * its per-substrate path: it is the file whose content equals `renderSkills(input)`.
  * Header-tolerant so it still matches when an adapter wraps the file in a
@@ -291,9 +377,16 @@ async function linkSkill(
       links.push({ scope: "registry", path: slots.registry, target: skillDir, status });
     }
 
-    // 2. Loader symlink in each substrate.
+    // 2. Loader entry in each substrate. An on-demand loader gets a symlink to
+    //    the body; an eager one gets a generated frontmatter-only stub, because
+    //    linking there would put every body in context at session start
+    //    (soma#542). Rollback below treats both shapes identically — the created
+    //    path is removed either way.
     for (const { substrate, path } of slots.substrates) {
-      const status = await ensureSymlink(path, skillDir, force);
+      const status =
+        installSpecFor(substrate).skillsLoading === "eager"
+          ? await ensureSkillStub(path, skillDir, substrate, force)
+          : await ensureSymlink(path, skillDir, force);
       if (status !== "unchanged") created.push(path);
       links.push({ scope: "substrate", substrate, path, target: skillDir, status });
     }
@@ -346,10 +439,13 @@ export async function planProjectSkill(options: ProjectSkillOptions): Promise<Sk
   const slots = skillSlots(name, somaHome, options.substrates, options);
   const links: SkillProjectionPlan["links"] = [];
   if (dirname(skillDir) !== resolve(registrySkillsDir(somaHome))) {
-    links.push({ scope: "registry", path: slots.registry, target: skillDir });
+    links.push({ scope: "registry", path: slots.registry, target: skillDir, kind: "symlink" });
   }
   for (const { substrate, path } of slots.substrates) {
-    links.push({ scope: "substrate", substrate, path, target: skillDir });
+    // Same branch apply takes in linkSkill, so plan and apply cannot disagree
+    // on the shape written into a substrate slot.
+    const kind = installSpecFor(substrate).skillsLoading === "eager" ? "stub" : "symlink";
+    links.push({ scope: "substrate", substrate, path, target: skillDir, kind });
   }
 
   return { skill: name, skillDir, links, catalogRefresh: [...options.substrates] };
@@ -391,13 +487,16 @@ export async function planUnprojectSkill(options: UnprojectSkillOptions): Promis
 
   const links: SkillProjectionPlan["links"] = [];
   for (const { substrate, path } of slots.substrates) {
-    links.push({ scope: "substrate", substrate, path, target: "" });
+    // `kind` describes the shape occupying the slot, which on unproject is the
+    // shape this substrate projects (soma#542).
+    const kind = installSpecFor(substrate).skillsLoading === "eager" ? "stub" : "symlink";
+    links.push({ scope: "substrate", substrate, path, target: "", kind });
   }
   // List the registry only when it would actually be removed — a symlink Soma
   // owns, or (with --force) a real dir. An authored real dir left intact must
   // not appear as a removal.
   if (await registryWouldBeRemoved(slots.registry, force)) {
-    links.push({ scope: "registry", path: slots.registry, target: "" });
+    links.push({ scope: "registry", path: slots.registry, target: "", kind: "symlink" });
   }
 
   return { skill: name, skillDir, links, catalogRefresh: [...options.substrates] };
@@ -458,10 +557,16 @@ async function removeLink(linkPath: string, force: boolean): Promise<"removed" |
     return "absent";
   }
   if (!stat.isSymbolicLink() && !force) {
-    // A real dir we did not create (not our symlink) — don't recurse-delete it.
-    throw new SkillProjectionError(
-      `Refusing to remove non-symlink path at ${linkPath} (not a Soma-created symlink). Pass force to override.`,
-    );
+    // A real dir. On an eager substrate that is how Soma projects a skill, so
+    // check the stub marker before refusing (soma#542) — otherwise unproject
+    // would demand --force to remove a directory Soma itself just generated.
+    const stub = await readFile(join(linkPath, SKILL_MD), "utf8").catch(() => undefined);
+    if (stub === undefined || !isSkillStub(stub)) {
+      // A real dir we did not create — don't recurse-delete it.
+      throw new SkillProjectionError(
+        `Refusing to remove non-symlink path at ${linkPath} (not a Soma-created symlink or stub). Pass force to override.`,
+      );
+    }
   }
   await rm(linkPath, { recursive: true, force: true });
   return "removed";
