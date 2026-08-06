@@ -1,6 +1,6 @@
 ## The Algorithm 6.3.0
 
-> Change history, migration recipes, and rollback steps live in `references/changelog.md` (read on demand). This file is doctrine only — what the Algorithm does this run.
+> This file is doctrine only — what the Algorithm does this run. Change history, migration recipes, and rollback steps are not shipped with the skill; they live with the Algorithm's version archive outside it.
 
 ### Doctrine — Read This First, Internalize It
 
@@ -12,7 +12,7 @@
 
 **The ISA has twelve sections (NEW v6.2.0).** Order is fixed: `## Problem`, `## Vision`, `## Out of Scope`, `## Principles`, `## Constraints`, `## Goal`, `## Criteria`, `## Test Strategy`, `## Features`, `## Decisions`, `## Changelog`, `## Verification`. Required sections per tier are HARD-gated (see Tier Completeness Gate below). Empty sections never appear — Bitter Pill discipline preserved. Three-guardrail taxonomy: **Principles** bind the *thinking* (substrate-independent, Deutsch reach), **Constraints** bind the *solution space* (immovable architectural mandates), **Out of Scope** binds the *vision* (anti-vision — what is *not* included, declared upfront), **Anti-criteria** bind the *test surface* (granular `Anti:` ISCs derived from Out of Scope and regression-prevention concerns). The first three are author-stated; anti-criteria are derived probes.
 
-**The ISA Skill (NEW v6.2.0)** at `~/.claude/skills/ISA/` owns the canonical template, the six workflows that generate and refine ISAs (Scaffold, Interview, CheckCompleteness, Reconcile, Seed, Append), and the example library. The Algorithm OBSERVE phase invokes `Skill("ISA", "scaffold from prompt at tier T")` to produce a populated ISA at the canonical location. PLAN may invoke `Skill("ISA", "extract feature X as ephemeral file")` for Ralph Loop / Maestro work. LEARN routes Decisions / Changelog / Verification entries through `Skill("ISA", "append ...")` so the Deutsch conjecture/refutation/learning Changelog format doesn't degrade.
+**The ISA Skill (NEW v6.2.0)** — bundled as the `VSA` skill since the ISA→VSA rename (soma#329), and projected into every substrate, so invoke it by name rather than by path — owns the canonical template, the six workflows that generate and refine ISAs (Scaffold, Interview, CheckCompleteness, Reconcile, Seed, Append), and the example library. The Algorithm OBSERVE phase invokes `Skill("VSA", "scaffold from prompt at tier T")` to produce a populated ISA at the canonical location. PLAN may invoke `Skill("VSA", "extract feature X as ephemeral file")` for Ralph Loop / Maestro work. LEARN routes Decisions / Changelog / Verification entries through `Skill("VSA", "append ...")` so the Deutsch conjecture/refutation/learning Changelog format doesn't degrade.
 
 **The ISA is a living articulation.** OBSERVE captures the best initial framing; through pursuit — feedback, tool returns, capability outputs, ISC failures, new signal — the Goal sharpens, ISCs split or merge, the articulation tightens. Refinements are logged in `## Decisions` with a `refined:` prefix; structural learnings land in `## Changelog` in conjecture/refutation/learning format; git history of the ISA file is the trail.
 
@@ -58,7 +58,7 @@ The closed list (verbatim names — copy/paste into `🏹 CAPABILITIES SELECTED`
 - **WorldThreatModel** — 11-horizon stress-test
 - **Fabric patterns** — `Skill("Fabric", "<pattern>")` (extract_wisdom, etc.)
 - **ContextSearch** — 2-phase prior PAI work search
-- **ISA** — `Skill("ISA", "<verb> ...")` (counts when invoked for analytical purpose, not just for boilerplate scaffolding)
+- **ISA** — `Skill("VSA", "<verb> ...")` (counts when invoked for analytical purpose, not just for boilerplate scaffolding)
 
 If a name does not appear in this list verbatim, it is a phantom. Nothing external enforces that — the audit gate below is a self-check you run before printing the selection line, not a mechanism that rejects on your behalf. New thinking capabilities are added by editing `references/capabilities.md` and bumping the Algorithm minor version — never by ad-hoc invention at run time.
 
@@ -161,13 +161,13 @@ The format is identical for both. Project ISAs grow continuously across many tas
 The `CheckCompleteness` workflow enforces this gate. A miss blocks `phase: complete`.
 
 **ISA Skill invocation pattern (NEW v6.2.0):**
-- OBSERVE: `Skill("ISA", "scaffold from prompt: <user message> at tier <tier>")` — returns populated ISA at canonical location.
-- OBSERVE end: `Skill("ISA", "check completeness of <isa-path> at tier <tier>")` — pass/fail before THINK.
-- PLAN: `Skill("ISA", "extract feature <name> as ephemeral file")` — for isolated-context feature work.
-- EXECUTE / VERIFY / LEARN: `Skill("ISA", "append <type> to <isa-path>: <content>")` — canonical writer for Decisions / Changelog / Verification.
-- LEARN: `Skill("ISA", "reconcile <ephemeral> → <master>")` — deterministic merge after ephemeral feature work.
+- OBSERVE: `Skill("VSA", "scaffold from prompt: <user message> at tier <tier>")` — returns populated ISA at canonical location.
+- OBSERVE end: `Skill("VSA", "check completeness of <isa-path> at tier <tier>")` — pass/fail before THINK.
+- PLAN: `Skill("VSA", "extract feature <name> as ephemeral file")` — for isolated-context feature work.
+- EXECUTE / VERIFY / LEARN: `Skill("VSA", "append <type> to <isa-path>: <content>")` — canonical writer for Decisions / Changelog / Verification.
+- LEARN: `Skill("VSA", "reconcile <ephemeral> → <master>")` — deterministic merge after ephemeral feature work.
 
-**v6.2.x deferred:** parser updates so `ISASync.hook.ts`, `CheckpointPerISC.hook.ts`, and `hooks/lib/isa-utils.ts` automatically discover `<project>/ISA.md` alongside `MEMORY/WORK/` paths and parse the twelve-section frame; Pulse rendering for two homes; project-ISA seeding migration; `~/.claude/skills/ISA/Tools/*.ts` CLI implementations. Until then, the model uses Read/Edit/Write tools and invokes the ISA skill workflows directly.
+**v6.2.x deferred:** parser updates so `ISASync.hook.ts`, `CheckpointPerISC.hook.ts`, and `hooks/lib/isa-utils.ts` automatically discover `<project>/ISA.md` alongside `MEMORY/WORK/` paths and parse the twelve-section frame; Pulse rendering for two homes; project-ISA seeding migration; the VSA skill's `Tools/*.ts` CLI implementations. Until then, the model uses Read/Edit/Write tools and invokes the skill's workflows directly.
 
 ### ISC Quality System
 
@@ -234,7 +234,7 @@ Modes (ideate, optimize) accept tunable parameters. Full schema and presets: `re
 
 **ISA stub** (immediately after voice):
 1. Determine ISA home: project ISA at `<project>/ISA.md` if task targets existing project; task ISA at `MEMORY/WORK/{slug}/ISA.md` for ad-hoc work
-2. **Invoke `Skill("ISA", "scaffold from prompt: <user message> at tier <tier>")`** — returns the populated ISA at canonical location with required sections per tier (NEW v6.2.0; replaces inline ISA construction)
+2. **Invoke `Skill("VSA", "scaffold from prompt: <user message> at tier <tier>")`** — returns the populated ISA at canonical location with required sections per tier (NEW v6.2.0; replaces inline ISA construction)
 3. For task ISAs the skill creates `~/.claude/PAI/MEMORY/WORK/{slug}/`; for project ISAs the skill reads existing `<project>/ISA.md` if present, or seeds it via the Seed workflow
 4. Skill output is the path; Algorithm reads/edits it via Read/Edit tools through subsequent phases
 
@@ -333,7 +333,7 @@ This line anchors the entire Algorithm run.
 |------|------|
 | **Granularity** | Every ISC has a nameable single-tool probe. If you cannot say which tool returns yes/no, the ISC is not yet atomic — split. |
 | **Tier ISC floor (E2+, soft)** | Total ISC count meets the tier floor (E2 ≥16, E3 ≥32, E4 ≥128, E5 ≥256). |
-| **Tier completeness gate (HARD, v6.2.0)** | Required sections per tier are all populated (E1 Goal+Criteria; E2+ adds; E4 all twelve; E5 + Interview ran). Invoke `Skill("ISA", "check completeness")`. |
+| **Tier completeness gate (HARD, v6.2.0)** | Required sections per tier are all populated (E1 Goal+Criteria; E2+ adds; E4 all twelve; E5 + Interview ran). Invoke `Skill("VSA", "check completeness")`. |
 | **Thinking floor (HARD)** | Thinking-capability count meets the tier hard floor (E1 0-1, E2 ≥2, E3 ≥4, E4 ≥6, E5 ≥8). **Cannot be relaxed via show-your-math.** Names MUST come from the v6.3.0 closed enumeration verbatim. |
 | **Capability-Name Audit (HARD, v6.3.0)** | Each thinking name in `🏹 CAPABILITIES SELECTED` appears verbatim in the closed enumeration. Phantom names (anything outside the list) do NOT count toward the floor and are a CRITICAL FAILURE. |
 | **Delegation floor (soft)** | Delegation-capability count meets the tier soft floor (E2 ≥1, E3 ≥2, E4 ≥2, E5 ≥4). Overridable with "show your math" in `## Decisions`. |
@@ -356,7 +356,7 @@ rg -i "TOPIC" ~/.claude/PAI/MEMORY/KNOWLEDGE/ --type md -l
 ☑️ PREREQUISITES CHECK: [blockers — incorporate preflight findings]
 ```
 
-**ISC REFINEMENT:** Re-apply Splitting Test. Add criteria for premortem failure modes. Update ISA via `Skill("ISA")` or direct Edit. ID-stability rule applies.
+**ISC REFINEMENT:** Re-apply Splitting Test. Add criteria for premortem failure modes. Update ISA via `Skill("VSA")` or direct Edit. ID-stability rule applies.
 
 ---
 
@@ -409,7 +409,7 @@ Default-**OFF** for: sequential chains, single-file surgical edits.
  🚀 [Launch pattern]
 ```
 
-📐 EPHEMERAL FEATURE GATE (NEW v6.2.0): If a feature in `## Features` is to be worked in an isolated context (Ralph Loop, Maestro, parallel Forge instances), invoke `Skill("ISA", "extract feature <name> as ephemeral file")` to produce a derived view at `MEMORY/WORK/{slug}/_ephemeral/<feature>.md`. The ephemeral file is read-extended-then-reconciled, never hand-edited as policy. Reconcile back via `Skill("ISA", "reconcile <ephemeral> → <master>")` at LEARN.
+📐 EPHEMERAL FEATURE GATE (NEW v6.2.0): If a feature in `## Features` is to be worked in an isolated context (Ralph Loop, Maestro, parallel Forge instances), invoke `Skill("VSA", "extract feature <name> as ephemeral file")` to produce a derived view at `MEMORY/WORK/{slug}/_ephemeral/<feature>.md`. The ephemeral file is read-extended-then-reconciled, never hand-edited as policy. Reconcile back via `Skill("VSA", "reconcile <ephemeral> → <master>")` at LEARN.
 
 📐 ASYNC PRIMITIVE GATE: One-shot command → `Bash(run_in_background)`. Event stream → `Monitor`. AI work → `Agent(run_in_background)`.
 
@@ -429,7 +429,7 @@ Default-**OFF** for: sequential chains, single-file surgical edits.
 
 #### 🩻 Root-Cause-at-Ingestion Checkpoint
 
-Before committing to ANY fix that modifies output-side behavior, answer in ISA `## Decisions` (use `Skill("ISA", "append decision ...")` for canonical entry):
+Before committing to ANY fix that modifies output-side behavior, answer in ISA `## Decisions` (use `Skill("VSA", "append decision ...")` for canonical entry):
 
 1. **Where does this bad state enter the system?** Name the ingestion point.
 2. **If I fix it at the ingestion point instead of here, do 3 similar bugs disappear?** If yes → move the fix upstream.
@@ -439,7 +439,7 @@ Before committing to ANY fix that modifies output-side behavior, answer in ISA `
 
 **FIRST ACTION:** Voice `"Entering the Execute phase."`, Edit ISA `phase: execute, updated: {timestamp}`.
 
-Execute the work. As each criterion passes, IMMEDIATELY edit ISA: `- [ ]` → `- [x]`, update `progress:`. Append Verification entries via `Skill("ISA", "append verification ...")` for canonical format (NEW v6.2.0).
+Execute the work. As each criterion passes, IMMEDIATELY edit ISA: `- [ ]` → `- [x]`, update `progress:`. Append Verification entries via `Skill("VSA", "append verification ...")` for canonical format (NEW v6.2.0).
 
 ### 🧪 INLINE VERIFICATION MANDATE
 
@@ -461,7 +461,7 @@ Evidence in ISA `## Verification`:
 ISC-N: [probe type] — [one-line evidence, quoted command output or file content]
 ```
 
-Use `Skill("ISA", "append verification to <isa-path>: ISC-N <probe-type> <evidence>")` to ensure canonical format.
+Use `Skill("VSA", "append verification to <isa-path>: ISC-N <probe-type> <evidence>")` to ensure canonical format.
 
 **Forbidden language**: "should work", "should be", "expected to", "the change is in place" (without Read/Grep), "done" (without tool evidence), "no errors" (without the actual log).
 
@@ -542,11 +542,11 @@ Agent({
  Coverage: N/N passed (N tool-verified, N inspection)
 ```
 
-- Mark each `[x]` if not already. Use `Skill("ISA", "append verification ...")` for canonical entries.
+- Mark each `[x]` if not already. Use `Skill("VSA", "append verification ...")` for canonical entries.
 - **Capability invocation check:** Confirm each selected capability was invoked. Flag any phantom.
 - **Thinking floor check (HARD):** Confirm the tier thinking floor was met. Under-floor is a doctrine violation, not a relaxable choice.
 - **Delegation floor check (soft):** Under-floor must have a "show your math" justification in `## Decisions`.
-- **Tier completeness gate:** Confirm required sections per tier are all populated. Invoke `Skill("ISA", "check completeness")` if uncertain.
+- **Tier completeness gate:** Confirm required sections per tier are all populated. Invoke `Skill("VSA", "check completeness")` if uncertain.
 - **Doctrine compliance check:** Did Rule 1/2/2a/3 fire as appropriate?
 - **Deliverable Compliance check:** Output `📦 DELIVERABLE COMPLIANCE:` checking each D1..DN.
 
@@ -575,9 +575,9 @@ Agent({
  🧠 [Did the Verification Doctrine fire? Did it catch anything?]
 ```
 
-**Changelog entry (NEW v6.2.0):** If structural understanding evolved during this run — a conjecture refuted, a learning crystallized, an ISC added/changed/dropped as a result — append a Changelog entry via `Skill("ISA", "append changelog ...")` in the canonical conjecture/refutation/learning format. The Append workflow refuses to write a partial C/R/L; all four pieces (`conjectured`, `refuted_by`, `learned`, `criterion_now`) are required.
+**Changelog entry (NEW v6.2.0):** If structural understanding evolved during this run — a conjecture refuted, a learning crystallized, an ISC added/changed/dropped as a result — append a Changelog entry via `Skill("VSA", "append changelog ...")` in the canonical conjecture/refutation/learning format. The Append workflow refuses to write a partial C/R/L; all four pieces (`conjectured`, `refuted_by`, `learned`, `criterion_now`) are required.
 
-**Reconcile (NEW v6.2.0):** If this run worked against an ephemeral feature file, invoke `Skill("ISA", "reconcile <ephemeral> → <master>")` before setting `phase: complete`. Deterministic merge keyed on stable ISC IDs.
+**Reconcile (NEW v6.2.0):** If this run worked against an ephemeral feature file, invoke `Skill("VSA", "reconcile <ephemeral> → <master>")` before setting `phase: complete`. Deterministic merge keyed on stable ISC IDs.
 
 ### 🗂️ Learning Router
 
@@ -640,13 +640,13 @@ echo '{"timestamp":"[ISO-8601]","effort_level":"[tier]","effort_source":"[auto|g
 - **No phantom capabilities** — every selected capability MUST be invoked via tool. Text-only is dishonest.
 - **Thinking floor (HARD)** — meet the tier thinking floor (E2 ≥2, E3 ≥4, E4 ≥6, E5 ≥8). Cannot be relaxed via show-your-math. Names MUST come verbatim from the v6.3.0 closed enumeration (IterativeDepth, ApertureOscillation, FeedbackMemoryConsult, Advisor, ReReadCheck, FirstPrinciples, SystemsThinking, RootCauseAnalysis, Council, RedTeam, Science, BeCreative, Ideate, BitterPillEngineering, Evals, WorldThreatModel, Fabric patterns, ContextSearch, ISA). Inventing generic thinking labels is a phantom capability and a CRITICAL FAILURE.
 - **Delegation floor (soft)** — meet the tier delegation floor or document "show your math" in `## Decisions` naming what the un-selected delegation would have done.
-- **Tier completeness gate (HARD, NEW v6.2.0)** — required ISA sections per tier are all populated before `phase: complete`. Invoke `Skill("ISA", "check completeness")` to confirm.
+- **Tier completeness gate (HARD, NEW v6.2.0)** — required ISA sections per tier are all populated before `phase: complete`. Invoke `Skill("VSA", "check completeness")` to confirm.
 - **ISA is YOUR responsibility** — no hook writes to it. You edit it via the ISA skill workflows or direct Edit/Write. ID-stability rule applies (never re-number on edit).
 - **ISC quality** — granularity (one binary tool probe each) is the pre-THINK exit condition.
 - **Verification Doctrine** — Rules 1/2/2a/3 are mandatory where they apply. Rule 2a (Cato) is E4/E5 only.
 - **No silent stalls** — no hung agents, no blocking processes.
 - **The ISA IS the test harness** — for complex projects, ISCs cover application logic, perf, security, RBAC, build, deploy. Don't invent acceptance.yaml/acceptance.ts; the ISA already covers this.
-- **Append routing for canonical format (NEW v6.2.0)** — Decisions, Changelog, Verification entries go through `Skill("ISA", "append ...")` to preserve canonical shape. The Changelog conjecture/refutation/learning format is non-negotiable; partial entries are refused by Append.
+- **Append routing for canonical format (NEW v6.2.0)** — Decisions, Changelog, Verification entries go through `Skill("VSA", "append ...")` to preserve canonical shape. The Changelog conjecture/refutation/learning format is non-negotiable; partial entries are refused by Append.
 
 ## Context Recovery
 

@@ -27,7 +27,7 @@ When detected:
 
 1. Set `mode: ideate` in ISA frontmatter
 2. Load `references/ideate-loop.md`
-3. Map effort tier to `time_scale` per ideate-loop.md
+3. Map effort tier to `time_scale` per references/ideate-loop.md
 
 ## Optimize Mode
 

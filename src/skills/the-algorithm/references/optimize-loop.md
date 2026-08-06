@@ -63,7 +63,7 @@ Runs during the Algorithm's BUILD phase, before the loop begins.
 ```
 TARGET ANALYSIS:
   1. Read target path(s) — single file or directory
-  2. Detect target type using rules from target-types.md:
+  2. Detect target type using rules from references/target-types.md:
      - skill: has SKILL.md
      - prompt: standalone .md/.txt with prompt content
      - agent: agent definition .md with frontmatter
@@ -73,7 +73,7 @@ TARGET ANALYSIS:
      - metric_command provided → metric mode
      - eval_mode: eval set → eval mode
      - Otherwise: code/function → metric, skill/prompt/agent → eval
-  4. Read target comprehensively per target-types.md "What to read" section
+  4. Read target comprehensively per references/target-types.md "What to read" section
   5. If eval mode:
      a. Extract purpose, inputs, outputs, constraints, edge cases
      b. Auto-generate eval criteria (see below)
@@ -93,10 +93,10 @@ TARGET ANALYSIS:
 
 **Auto-ISC Generation (eval mode only):**
 
-1. Read target comprehensively per target-types.md
-2. Draft 3-6 binary eval criteria using the per-type ISC generation template from target-types.md as a starting point, customized to the specific target's content
+1. Read target comprehensively per references/target-types.md
+2. Draft 3-6 binary eval criteria using the per-type ISC generation template from references/target-types.md as a starting point, customized to the specific target's content
 3. Draft 1-2 anti-criteria based on common failure modes
-4. Apply the 3-question test (from eval-guide.md) to each criterion:
+4. Apply the 3-question test (from references/eval-guide.md) to each criterion:
    - Would two judges agree on this judgment?
    - Could the target game this without genuinely improving?
    - Does the user actually care about this?
@@ -149,7 +149,7 @@ LOOP:
        add_example | remove_over_optimization | simplify | constrain_scope
 
      - Prefer elimination/simplify experiments early, addition experiments late
-     - See eval-guide.md "Mutation Taxonomy" for good vs bad mutation guidance
+     - See references/eval-guide.md "Mutation Taxonomy" for good vs bad mutation guidance
 
   3. IMPLEMENT
      - Metric mode:
@@ -168,7 +168,7 @@ LOOP:
 
      - EVAL MODE:
        - For each test input (3-5 inputs):
-         - Run target with test input (per target-types.md "How to run" section)
+         - Run target with test input (per references/target-types.md "How to run" section)
          - Capture output
        - For each output x each eval criterion:
          - Judge: "Given this output, does it satisfy: [criterion]? Answer YES or NO."
