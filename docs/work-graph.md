@@ -360,6 +360,26 @@ What remains:
   a refused one; and it needs the root author to resolve, so where the root walk
   fails nothing refuses, silently.
 
+- **A 👍 reaction is the only ratification (#525).** Literally that reaction —
+  matched on `+1`, so no other emoji ratifies, and (per the rule above) any
+  non-proposer's counts, with *whose* it is affecting `attestation` rather than
+  admissibility.
+  This section once admitted a second form — a principal-authored *comment*,
+  winning over the 👍 when amending — and the seam carried a `"comment"`
+  ratification kind nothing produced. It is withdrawn, not unimplemented: with
+  ratification demoted from gate to label, deriving approval from free prose
+  would let a root-author reply of "hold on, not this" produce `verified` on the
+  one field the phase-2 auditor recomputes. A 👍 is a deliberate, unambiguous
+  gesture; prose is not.
+
+  The amendment rule it served is **caller discipline, not a structural
+  guarantee**. Ratification is read from the comment id passed to
+  `--proposal-comment`, so an amended proposal inherits nothing *when the new id
+  is the one passed*; passing the superseded id ratifies from the superseded
+  proposal, and nothing in the runtime rejects it. Same class of limit as the
+  refusal one named above — nothing binds a new proposal to a refused one — and
+  it has the same root: no verb binds a proposal to the one it supersedes.
+
 - **The receipt distinguishes the two cases.** A ratified close records the
   proposal and ratifier; a bare one records their absence in
   `attestationFacts.reasons` ("no proposal comment recorded", "no ratification

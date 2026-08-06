@@ -711,6 +711,7 @@ export {
   type Probe,
   type ProbeResult,
   type ProbeType,
+  type Ratification,
   type Reaction,
   type WorkGraphAutonomy,
   type WorkGraphErrorCode,

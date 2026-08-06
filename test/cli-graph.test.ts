@@ -375,7 +375,9 @@ test("an auto receipt is honestly unverified — no human ratified it", async ()
 
   const receipt = store.closed[0].receipt;
   expect(receipt.attestation).toBe("unverified");
-  expect(receipt.attestationFacts?.reasons?.join(" ")).toContain("no ratification found");
+  expect(receipt.attestationFacts?.reasons ?? []).toContain(
+    "no ratification found — nothing was attested by a second credential",
+  );
 });
 
 test("a bare `close` on a HITL node works — no proposal, no ratification", async () => {
@@ -533,6 +535,52 @@ test("the veto is one close deep — a fresh proposal carries no refusal", async
   expect(store.closed).toHaveLength(1);
 });
 
+test("an amended proposal inherits no ratification — the replay-rebind invariant", async () => {
+  // §3.2's amendment rule: a materially amended proposal is re-posted and needs
+  // FRESH ratification. #525 was going to enforce it; #549 removed the gate it
+  // would have served, so nothing enforces it now — it is CALLER DISCIPLINE, and
+  // this test pins the half the runtime does supply: ratification is read from
+  // the comment id passed, so the new proposal starts unratified. Pass the
+  // superseded id instead and the old 👍 still ratifies; nothing rejects that.
+  //
+  // Both arms run against the SAME seeded 👍, because asserting the amended
+  // close is unratified proves nothing on its own: it follows from c2 carrying
+  // no reactions, and would read identically if the 👍 on c1 had never been
+  // admissible. Arm A establishes that this exact reaction, in this exact
+  // store, does derive a ratified `verified` receipt. Arm B then shows the
+  // amended close declining to reach it. The discrimination is between the two
+  // arms; neither carries it alone.
+  const seeded = () =>
+    new FakeStore()
+      .seed("495", { node: autoNode("495"), author: "jcfischer" })
+      .seed("530", { node: { id: "530", title: "hitl", autonomy: "approve", checkpointId: "cp-530" }, parent: "495" });
+
+  // Arm A — the ratification is live and sufficient.
+  const ratified = seeded();
+  await run(["graph", "close", "530", "--propose", "--body", "the resolution", "--repo", REPO], ratified);
+  ratified.reactions.set("c1", [{ id: "r1", content: "+1", author: "jcfischer" }]);
+  await run(["graph", "close", "530", "--proposal-comment", "c1", "--repo", REPO], ratified);
+
+  expect(ratified.closed[0].receipt.attestationFacts?.ratification?.id).toBe("r1");
+  expect(ratified.closed[0].receipt.attestation).toBe("verified");
+
+  // Arm B — same proposal, same 👍, then amended. The 👍 stays on c1, live and
+  // unretracted; the close against the amended comment must not reach it.
+  const amended = seeded();
+  await run(["graph", "close", "530", "--propose", "--body", "the resolution", "--repo", REPO], amended);
+  amended.reactions.set("c1", [{ id: "r1", content: "+1", author: "jcfischer" }]);
+  await run(["graph", "close", "530", "--propose", "--body", "the AMENDED resolution", "--repo", REPO], amended);
+  await run(["graph", "close", "530", "--proposal-comment", "c2", "--repo", REPO], amended);
+
+  const receipt = amended.closed[0].receipt;
+  expect(amended.reactions.get("c1")).toHaveLength(1); // still there — not consumed, not retracted
+  expect(receipt.attestationFacts?.proposal?.commentId).toBe("c2");
+  expect(receipt.attestationFacts?.ratification).toBeUndefined();
+  expect(receipt.evidence.some((entry) => entry.kind === "approved")).toBe(false);
+  expect(receipt.attestation).toBe("unverified");
+  expect(receipt.attestationFacts?.reasons?.join(" ")).toContain("no ratification found");
+});
+
 test("without a 👎, a HITL node closes on the session's say-so", async () => {
   const store = new FakeStore()
     .seed("495", { node: autoNode("495"), author: "jcfischer" })
@@ -545,6 +593,28 @@ test("without a 👎, a HITL node closes on the session's say-so", async () => {
   expect(store.closed).toHaveLength(1);
   // The receipt still records what it always did; the label is unchanged.
   expect(store.closed[0].receipt.attestation).toBe("unverified");
+});
+
+test("only 👍 ratifies — every other reaction is inert", () => {
+  // §3.2 states this as an absolute ("matched on `+1`, so no other emoji
+  // ratifies"), and until now nothing exercised it: every test seeded `+1`.
+  // A spec absolute with no probe behind it is the claim this repo keeps
+  // learning not to make.
+  const enthusiasm: Reaction[] = [
+    { id: "r1", content: "heart", author: "jcfischer" },
+    { id: "r2", content: "hooray", author: "jcfischer" },
+    { id: "r3", content: "rocket", author: "jcfischer" },
+    { id: "r4", content: "eyes", author: "jcfischer" },
+  ];
+  expect(selectRatification(enthusiasm, "ivy-agent", "jcfischer")).toBeUndefined();
+
+  // And the companion half of the same sentence: whose 👍 it is decides
+  // `attestation`, not admissibility — a non-proposer stranger still ratifies.
+  expect(selectRatification([{ id: "r5", content: "+1", author: "a-stranger" }], "ivy-agent", "jcfischer")).toEqual({
+    kind: "reaction",
+    id: "r5",
+    author: "a-stranger",
+  });
 });
 
 test("selectRatification prefers the root author and ignores the proposer's own reaction", () => {
