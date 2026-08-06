@@ -370,10 +370,17 @@ What remains:
 only single-operator ones, and that is deliberate rather than incidental: "how
 many people are watching" is not derivable — two attempts to derive it failed
 review (#532) — so a rule conditioned on it would be a rule conditioned on a
-guess. What a multi-party deployment gets instead is the receipt: proposal,
-ratifier, root authorship and confinement are all still recorded, so an
-unratified close is *visible* rather than *prevented*, and a reviewer or the
-phase-2 auditor can act on it after the fact.
+guess. What a multi-party deployment gets instead is a receipt that **records the
+absence**. On a bare close no proposal is read, so there is no ratifier to name —
+and `attestationFacts.reasons` says exactly that: *"no proposal comment
+recorded"*, *"no ratification found"*, alongside the root authorship and
+confinement facts. An unratified close is therefore *visible* rather than
+*prevented*, and a reviewer or the phase-2 auditor can act on it after the fact.
+
+Naming this precisely matters: an earlier draft claimed the receipt carried
+"proposal, ratifier, root authorship and confinement", which is what a *ratified*
+close records. On the default path the first two are absent, and their absence —
+not their presence — is the audit signal.
 
 That is a real trade. A team wanting closes gated on a second party's approval
 does not get that from this primitive today; they get an auditable record that

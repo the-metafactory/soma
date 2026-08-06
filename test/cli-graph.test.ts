@@ -390,9 +390,15 @@ test("a bare `close` on a HITL node works — no proposal, no ratification", asy
 
   expect(store.closed).toHaveLength(1);
   expect(output).toContain("Closed node 530");
-  // No proposal was read, so the receipt names none — and says so honestly.
-  expect(store.closed[0].receipt.attestation).toBe("unverified");
-  expect(store.closed[0].receipt.attestationFacts?.proposal).toBeUndefined();
+  // No proposal was read, so the receipt names none — and RECORDS THE ABSENCE.
+  // That record is the whole after-the-fact audit story for a multi-party
+  // deployment, so it is pinned here rather than left to prose.
+  const receipt = store.closed[0].receipt;
+  expect(receipt.attestation).toBe("unverified");
+  expect(receipt.attestationFacts?.proposal).toBeUndefined();
+  const reasons = receipt.attestationFacts?.reasons?.join(" ") ?? "";
+  expect(reasons).toContain("no proposal comment recorded");
+  expect(reasons).toContain("no ratification found");
 });
 
 test("--propose posts the proposal comment and closes nothing", async () => {
