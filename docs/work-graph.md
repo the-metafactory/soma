@@ -364,10 +364,12 @@ What remains:
   reactions through the receipt and binding superseded proposals, which is
   machinery this primitive does not want.
 
-- **The receipt is unchanged.** Proposal, ratifier, root authorship, confinement
-  and `attestation` are all still recorded, so a reader can tell a ratified close
-  from an unratified one. What changed is that an unratified close is *possible*,
-  not that it is *approved*.
+- **The receipt still distinguishes the two cases.** A ratified close records the
+  proposal and ratifier; a bare one records their *absence*, in
+  `attestationFacts.reasons` ("no proposal comment recorded", "no ratification
+  found"), alongside root authorship, confinement and `attestation`. Either way a
+  reader can tell which happened. What changed is that an unratified close is
+  *possible*, not that it is *approved*.
 
 **On multi-party deployments.** The gate is removed for *every* deployment, not
 only single-operator ones, and that is deliberate rather than incidental: "how
@@ -385,10 +387,10 @@ phase-2 auditor. Justifying the removal by appealing to an auditor that does not
 exist would be the same move this change is undoing: a gate defended by a
 consumer nobody can point at.
 
-Naming this precisely matters: an earlier draft claimed the receipt carried
-"proposal, ratifier, root authorship and confinement", which is what a *ratified*
-close records. On the default path the first two are absent, and their absence —
-not their presence — is the audit signal.
+Their absence — not their presence — is the audit signal on the default path.
+Stated twice in this section on purpose: an earlier revision asserted the
+ratified-close field list as if it applied to every close, and a correction that
+is appended rather than *applied* leaves a document saying both things.
 
 That is a real trade. A team wanting closes gated on a second party's approval
 does not get that from this primitive today; they get an auditable record that

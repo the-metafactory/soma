@@ -645,10 +645,14 @@ export function assertClosable(node: WorkGraphNode, receipt: CloseReceipt): void
   // The removal is UNCONDITIONAL, not scoped to single-operator deployments, and
   // that is the deliberate part. "How many people are watching" is not derivable
   // — two attempts to derive it failed review — so conditioning the gate on it
-  // would condition it on a guess. A multi-party deployment instead gets the
-  // receipt: proposal, ratifier, root authorship and confinement are all still
-  // recorded, so an unratified close is visible rather than prevented. If a
-  // consumer appears who needs it gated, it returns as an opt-in naming them.
+  // would condition it on a guess. A multi-party deployment instead gets a
+  // receipt that RECORDS THE ABSENCE: on a bare close no proposal is read, so
+  // there is no ratifier to name, and `attestationFacts.reasons` says exactly
+  // that — "no proposal comment recorded", "no ratification found". Their
+  // absence is the audit signal, not their presence. An unratified close is
+  // therefore visible rather than prevented, and a person reading the node can
+  // act on it. If a consumer appears who needs it gated, it returns as an
+  // opt-in naming them.
   //
   // The receipt still records everything it recorded before — proposal, ratifier,
   // root authorship, confinement, `attestation`. Nothing is hidden; a reader can
