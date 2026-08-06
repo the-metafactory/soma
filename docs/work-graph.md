@@ -350,17 +350,35 @@ What remains:
   proposal and `close --proposal-comment <id>` reads its reactions, for when a
   second opinion is genuinely wanted. Ratification is admissible evidence; its
   absence is not a defect.
-- **An explicit refusal still stops the close.** A 👎 from the graph root's
-  author refuses it. Dropping "must be approved" is not "may close over being
-  refused".
+- **An explicit refusal stops the close — within the proposal flow.** When
+  `--proposal-comment` is supplied, a 👎 from the graph root's author on that
+  comment refuses the close, naming who refused. Dropping "must be approved" is
+  not "may close over being refused".
+
+  Scope, stated precisely because the earlier draft overstated it: a refusal
+  lives *on a proposal*, so a bare `close` reads no reactions and cannot be
+  refused by one. Someone who was 👎'd and then closes without the flag is not
+  stopped by the runtime. That is a real limit, and the honest one for a
+  primitive whose gate is the human running it — the alternative is hunting prior
+  comments on every close, which is the machinery this change exists to remove.
 - **The receipt is unchanged.** Proposal, ratifier, root authorship, confinement
   and `attestation` are all still recorded, so a reader can tell a ratified close
   from an unratified one. What changed is that an unratified close is *possible*,
   not that it is *approved*.
 
-Where a receipt genuinely must be attestable — a headless phase-2 tick, a
-multi-party deployment — the machinery below still derives it. It is a label on
-the record, never a gate on the close.
+**On multi-party deployments.** The gate is removed for *every* deployment, not
+only single-operator ones, and that is deliberate rather than incidental: "how
+many people are watching" is not derivable — two attempts to derive it failed
+review (#532) — so a rule conditioned on it would be a rule conditioned on a
+guess. What a multi-party deployment gets instead is the receipt: proposal,
+ratifier, root authorship and confinement are all still recorded, so an
+unratified close is *visible* rather than *prevented*, and a reviewer or the
+phase-2 auditor can act on it after the fact.
+
+That is a real trade. A team wanting closes gated on a second party's approval
+does not get that from this primitive today; they get an auditable record that
+one did not happen. If such a consumer appears, the gate returns as an opt-in
+naming them — which is what §1 clause 3 asks of any gate.
 
 #### Deriving `attestation` (#502)
 

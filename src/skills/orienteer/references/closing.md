@@ -101,10 +101,14 @@ It is a tool, not a toll. An earlier version required that 👍 before any
 the map: there was nobody else to ratify, so the rule did not verify closes, it
 prevented them.
 
-**One reaction still stops a close.** A 👎 from the graph root's author is an
-explicit refusal, and the close refuses with it — dropping "you must be approved"
-does not mean "you may close over being refused". Address it and post a new
-proposal.
+**One reaction still stops a close — if you use the flow.** A 👎 from the graph
+root's author on a proposal refuses the close when you pass
+`--proposal-comment`: dropping "you must be approved" does not mean "you may
+close over being refused". Address it and post a new proposal.
+
+A bare `close` reads no reactions, so it cannot be refused by one. That is not a
+loophole to use — if someone 👎'd your proposal, closing around it produces a
+receipt that records no refusal ever happened.
 
 Two things worth knowing when you do use the proposal flow:
 

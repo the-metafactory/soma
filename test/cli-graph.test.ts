@@ -378,15 +378,21 @@ test("an auto receipt is honestly unverified — no human ratified it", async ()
   expect(receipt.attestationFacts?.reasons?.join(" ")).toContain("no ratification found");
 });
 
-test("a HITL node refuses to close on a self-report and says how to propose", async () => {
+test("a bare `close` on a HITL node works — no proposal, no ratification", async () => {
+  // The exact command closing.md documents, and the exact shape #499 was stuck
+  // in. Relaxing `assertClosable` alone did not fix it: this CLI branch still
+  // refused, which is the layer #499 actually hit.
   const store = new FakeStore()
     .seed("495", { node: autoNode("495"), author: "jcfischer" })
     .seed("530", { node: { id: "530", title: "hitl", autonomy: "approve", checkpointId: "cp-530" }, parent: "495" });
 
-  const message = await failure(["graph", "close", "530", "--repo", REPO], store);
-  expect(message).toContain("closes on a ratified proposal");
-  expect(message).toContain("--propose");
-  expect(store.closed).toHaveLength(0);
+  const output = await run(["graph", "close", "530", "--repo", REPO], store);
+
+  expect(store.closed).toHaveLength(1);
+  expect(output).toContain("Closed node 530");
+  // No proposal was read, so the receipt names none — and says so honestly.
+  expect(store.closed[0].receipt.attestation).toBe("unverified");
+  expect(store.closed[0].receipt.attestationFacts?.proposal).toBeUndefined();
 });
 
 test("--propose posts the proposal comment and closes nothing", async () => {

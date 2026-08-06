@@ -783,18 +783,11 @@ async function runClose(
   let proposal: { commentId: string; author: string } | undefined;
   let ratification: { kind: "reaction" | "comment"; id: string; author: string } | undefined;
 
-  if (state.node.autonomy !== "auto") {
-    const commentId = parsed.options.proposalComment;
-    if (commentId === undefined) {
-      throw new SomaCliError(
-        [
-          `Node ${ref.id} is ${state.node.autonomy}-class: it closes on a ratified proposal, not on a self-report (§3.2).`,
-          `Post one with:  soma graph close ${ref.id} --propose --body-file <path>`,
-          `Then close with: soma graph close ${ref.id} --proposal-comment <id>`,
-        ].join("\n"),
-        1,
-      );
-    }
+  // A proposal comment is optional now: a HITL node closes on the session's
+  // say-so (§3.2). When one IS supplied, its reactions still carry weight —
+  // a ratification as admissible evidence, and a root-author 👎 as a refusal.
+  const commentId = parsed.options.proposalComment;
+  if (state.node.autonomy !== "auto" && commentId !== undefined) {
     const proposalRef: CommentRef = await graph.readComment({ id: commentId, nodeId: ref.id });
     proposal = { commentId: proposalRef.id, author: proposalRef.author ?? "" };
     const reactions = await graph.readCommentReactions(proposalRef);

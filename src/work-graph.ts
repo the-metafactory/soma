@@ -636,11 +636,19 @@ export function assertClosable(node: WorkGraphNode, receipt: CloseReceipt): void
   // HITL nodes close on the session's say-so. Requiring a ratified proposal here
   // was the original rule, and it was wrong for what this primitive is: a way to
   // structure work whose route is unclear, walked by a human who is *present*.
-  // A gate naming no consumer is ceremony (§1 clause 3), and on a
-  // single-operator deployment the ratification gate named none — there was
-  // nobody else to ratify, so it did not verify the close, it only prevented it.
-  // #499 is the worked example: a finished, merged, evidenced piece of work that
-  // the gate refused, and the refusal protected no one.
+  // A gate naming no consumer is ceremony (§1 clause 3), and where one person
+  // walks a map the ratification gate named none — nobody else could ratify, so
+  // it did not verify the close, it only prevented it. #499 is the worked
+  // example: finished, merged, evidenced work that the gate refused, protecting
+  // no one.
+  //
+  // The removal is UNCONDITIONAL, not scoped to single-operator deployments, and
+  // that is the deliberate part. "How many people are watching" is not derivable
+  // — two attempts to derive it failed review — so conditioning the gate on it
+  // would condition it on a guess. A multi-party deployment instead gets the
+  // receipt: proposal, ratifier, root authorship and confinement are all still
+  // recorded, so an unratified close is visible rather than prevented. If a
+  // consumer appears who needs it gated, it returns as an opt-in naming them.
   //
   // The receipt still records everything it recorded before — proposal, ratifier,
   // root authorship, confinement, `attestation`. Nothing is hidden; a reader can
