@@ -41,6 +41,7 @@ import {
   type NodeState,
   type Probe,
   type ProbeResult,
+  type Ratification,
   type Reaction,
   type WorkGraphEvidenceKind,
 } from "../work-graph";
@@ -781,7 +782,7 @@ async function runClose(
   const root = await findGraphRoot(ref, async (nodeRef) => await graph.readNode(nodeRef));
 
   let proposal: { commentId: string; author: string } | undefined;
-  let ratification: { kind: "reaction"; id: string; author: string } | undefined;
+  let ratification: Ratification | undefined;
 
   // A proposal comment is optional now: a HITL node closes on the session's
   // say-so (§3.2). When one IS supplied, its reactions still carry weight —

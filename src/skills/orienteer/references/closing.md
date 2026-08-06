@@ -114,7 +114,7 @@ So the honest reading is that being refused is *recorded*, not *prevented*. If
 you close around a 👎, the receipt shows a close with no refusal in it, and the
 person who said no finds out by reading the node.
 
-Two things worth knowing when you do use the proposal flow:
+Three things worth knowing when you do use the proposal flow:
 
 - **Any non-proposer's 👍 is taken as the ratification**, root author preferred.
   On a public tracker that includes a stranger's. Only `attestation` records
@@ -126,13 +126,14 @@ Two things worth knowing when you do use the proposal flow:
   binds a proposal to the one it supersedes, so a close pointed at the old id
   still ratifies from the old 👍.
 - **A 👍 is the only ratification** — that reaction specifically, matched on
-  `+1`; no other emoji counts. Replying "yes, go ahead" ratifies nothing, and the
-  receipt will read *no ratification found*. An older §3.2 also admitted a
-  principal-authored comment, outranking the 👍 when amending, and #525 was to
-  implement it. It was dropped instead: once ratification stopped gating a HITL
-  close (#549) and became a label feeding `attestation`, reading approval out of
-  free prose would let a reply of "hold on, not this" derive `verified`. React,
-  don't reply.
+  `+1`; no other emoji counts, and per the first bullet *whose* 👍 it is affects
+  `attestation`, not whether it ratifies. Replying "yes, go ahead" ratifies
+  nothing, and the receipt will read *no ratification found*. The HITL section of
+  the spec once admitted a principal-authored comment too, outranking the 👍 when
+  amending, and #525 was to implement it. It was dropped instead: once
+  ratification stopped gating a HITL close (#549) and became a label feeding
+  `attestation`, reading approval out of free prose would let a reply of "hold
+  on, not this" derive `verified`. React, don't reply.
 
 ## Attestation
 

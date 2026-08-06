@@ -224,6 +224,26 @@ export interface ConfinementProbeRecord {
   observed: string;
 }
 
+/**
+ * A ratification recorded on a close receipt.
+ *
+ * `kind` is deliberately a one-variant discriminant rather than an omitted
+ * field. A receipt is a published artifact re-read years later, and *how* this
+ * was ratified is part of what it records; a bare `{id, author}` would leave a
+ * future reader to infer the mechanism from an id shape. Nothing branches on it
+ * today, and nothing should need to.
+ *
+ * Named rather than spelled inline at each use: dropping the withdrawn
+ * `"comment"` member (#525) took a three-file edit, and the next shape change
+ * would have taken another.
+ */
+export interface Ratification {
+  /** A reaction, and only ever a reaction — the HITL receipts section of `docs/work-graph.md` has why (#525, #549). */
+  kind: "reaction";
+  id: string;
+  author: string;
+}
+
 export interface AttestationFacts {
   backendCapability: AttestationCapability;
   confinement?: {
@@ -233,17 +253,7 @@ export interface AttestationFacts {
     probes?: readonly ConfinementProbeRecord[];
   };
   proposal?: { commentId: string; author: string };
-  /**
-   * A reaction, and only ever a reaction — §3.2 has the argument for why the
-   * comment path was withdrawn (#525).
-   *
-   * `kind` is deliberately a one-variant discriminant rather than an omitted
-   * field. A receipt is a published artifact re-read years later, and *how* this
-   * was ratified is part of what it records; a bare `{id, author}` would leave a
-   * future reader to infer the mechanism from an id shape. Nothing branches on
-   * it today, and nothing should need to.
-   */
-  ratification?: { kind: "reaction"; id: string; author: string };
+  ratification?: Ratification;
   root?: { nodeId: string; author: string };
   /**
    * Why the verdict came out as it did, one line per failed conjunct — empty on

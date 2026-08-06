@@ -28,6 +28,7 @@ import type {
   ConfinementProbeRecord,
   NodeRef,
   NodeState,
+  Ratification,
 } from "./work-graph";
 import type { CommandOutcome, CommandRequest } from "./work-graph-probes";
 
@@ -133,8 +134,7 @@ export interface AttestationInputs {
   actingIdentity: string;
   confinement?: ConfinementResult;
   proposal?: { commentId: string; author: string };
-  /** Reactions only — see {@link AttestationFacts.ratification} for why the comment path is not here. */
-  ratification?: { kind: "reaction"; id: string; author: string };
+  ratification?: Ratification;
   root?: { nodeId: string; author: string };
 }
 
