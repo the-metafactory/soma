@@ -68,6 +68,7 @@ export const codexInstallSpec: SubstrateInstallSpec<"codex"> = {
   // Owned (Soma-exclusive) dir — see ownedSubtrees JSDoc. (hooks/ + skills/ are shared.)
   ownedSubtrees: ["memories/soma"],
   skillsLoaderDir: skillsLoaderUnder(),
+  skillsLoading: "on-demand",
   vsaSkillProjection: {
     destinationDir: vsaSkillUnder(),
     // soma#329: before reprojecting VSA, prune a sibling renamed-away "ISA" skill

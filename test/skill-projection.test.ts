@@ -335,3 +335,142 @@ describe("soma install --skills", () => {
     });
   });
 });
+
+/**
+ * soma#542 — eager substrates get a generated frontmatter-only stub instead of a
+ * symlink, because their loader reads every projected SKILL.md at session start.
+ * pi-dev is the only eager adapter today; claude-code stands in for on-demand.
+ */
+describe("eager skill loading (soma#542)", () => {
+  const piLoader = (homeDir: string, name: string) => join(homeDir, ".pi", "agent", "skills", name);
+
+  test("writes a frontmatter-only stub, not a symlink, into an eager loader", async () => {
+    await withTempHome(async (homeDir) => {
+      const skillDir = await writeSourceSkill(homeDir, "MyTool");
+
+      const result = await projectSkill({ skillDir, substrates: ["pi-dev"], homeDir });
+
+      const stubDir = piLoader(homeDir, "MyTool");
+      expect((await lstat(stubDir)).isSymbolicLink()).toBe(false);
+      expect((await lstat(stubDir)).isDirectory()).toBe(true);
+
+      const stub = await readFile(join(stubDir, "SKILL.md"), "utf8");
+      // Frontmatter survives verbatim, so the loader can still list and route it.
+      expect(stub.startsWith("---\nname: MyTool\ndescription: \"A test skill.\"\n---")).toBe(true);
+      // ...and the body is a pointer, not the body. It names the REGISTRY slot,
+      // not the source dir: a substrate reader refuses paths outside the Soma
+      // home, and the source may be projected from anywhere.
+      expect(stub).toContain(join(homeDir, ".soma", "skills", "MyTool", "SKILL.md"));
+      expect(stub).not.toContain(resolve(skillDir, "SKILL.md"));
+      expect(stub).toContain("soma:skill-stub");
+      expect(stub).not.toContain("# MyTool");
+
+      expect(result.links.find((link) => link.substrate === "pi-dev")?.status).toBe("stubbed");
+    });
+  });
+
+  test("the registry slot stays a symlink to the real body", async () => {
+    await withTempHome(async (homeDir) => {
+      const skillDir = await writeSourceSkill(homeDir, "MyTool");
+      await projectSkill({ skillDir, substrates: ["pi-dev"], homeDir });
+
+      const registry = join(homeDir, ".soma", "skills", "MyTool");
+      expect((await lstat(registry)).isSymbolicLink()).toBe(true);
+      expect(await readlinkAbs(registry)).toBe(resolve(skillDir));
+    });
+  });
+
+  test("an on-demand substrate still gets a symlink in the same run", async () => {
+    await withTempHome(async (homeDir) => {
+      const skillDir = await writeSourceSkill(homeDir, "MyTool");
+
+      await projectSkill({ skillDir, substrates: ["claude-code", "pi-dev"], homeDir });
+
+      expect((await lstat(join(homeDir, ".claude", "skills", "MyTool"))).isSymbolicLink()).toBe(true);
+      expect((await lstat(piLoader(homeDir, "MyTool"))).isSymbolicLink()).toBe(false);
+    });
+  });
+
+  test("reprojection is byte-idempotent and reports unchanged", async () => {
+    await withTempHome(async (homeDir) => {
+      const skillDir = await writeSourceSkill(homeDir, "MyTool");
+      await projectSkill({ skillDir, substrates: ["pi-dev"], homeDir });
+      const first = await readFile(join(piLoader(homeDir, "MyTool"), "SKILL.md"), "utf8");
+
+      const again = await projectSkill({ skillDir, substrates: ["pi-dev"], homeDir });
+
+      expect(again.links.find((link) => link.substrate === "pi-dev")?.status).toBe("unchanged");
+      expect(await readFile(join(piLoader(homeDir, "MyTool"), "SKILL.md"), "utf8")).toBe(first);
+    });
+  });
+
+  test("replaces its own stub when the source frontmatter changes", async () => {
+    await withTempHome(async (homeDir) => {
+      const skillDir = await writeSourceSkill(homeDir, "MyTool");
+      await projectSkill({ skillDir, substrates: ["pi-dev"], homeDir });
+
+      await writeFile(
+        join(skillDir, "SKILL.md"),
+        `---\nname: MyTool\ndescription: "Now with triggers."\n---\n\n# MyTool\n`,
+        "utf8",
+      );
+      const again = await projectSkill({ skillDir, substrates: ["pi-dev"], homeDir });
+
+      expect(again.links.find((link) => link.substrate === "pi-dev")?.status).toBe("replaced");
+      expect(await readFile(join(piLoader(homeDir, "MyTool"), "SKILL.md"), "utf8")).toContain("Now with triggers.");
+    });
+  });
+
+  test("refuses to overwrite a real non-stub dir without force, and overwrites with it", async () => {
+    await withTempHome(async (homeDir) => {
+      const skillDir = await writeSourceSkill(homeDir, "MyTool");
+      const stubDir = piLoader(homeDir, "MyTool");
+      await mkdir(stubDir, { recursive: true });
+      await writeFile(join(stubDir, "SKILL.md"), "---\nname: MyTool\n---\n\nHand-authored.\n", "utf8");
+
+      await expect(projectSkill({ skillDir, substrates: ["pi-dev"], homeDir })).rejects.toThrow(
+        /not a Soma-generated skill stub/,
+      );
+      expect(await readFile(join(stubDir, "SKILL.md"), "utf8")).toContain("Hand-authored.");
+
+      await projectSkill({ skillDir, substrates: ["pi-dev"], homeDir, force: true });
+      expect(await readFile(join(stubDir, "SKILL.md"), "utf8")).toContain("soma:skill-stub");
+    });
+  });
+
+  test("unproject removes a Soma stub without --force", async () => {
+    await withTempHome(async (homeDir) => {
+      const skillDir = await writeSourceSkill(homeDir, "MyTool");
+      await projectSkill({ skillDir, substrates: ["pi-dev"], homeDir });
+
+      const result = await unprojectSkill({ skill: "MyTool", substrates: ["pi-dev"], homeDir });
+
+      expect(result.links.find((link) => link.substrate === "pi-dev")?.status).toBe("removed");
+      await expect(lstat(piLoader(homeDir, "MyTool"))).rejects.toThrow();
+    });
+  });
+
+  test("unproject still refuses a real dir that is not a Soma stub", async () => {
+    await withTempHome(async (homeDir) => {
+      const skillDir = await writeSourceSkill(homeDir, "MyTool");
+      await projectSkill({ skillDir, substrates: ["pi-dev"], homeDir });
+      await writeFile(join(piLoader(homeDir, "MyTool"), "SKILL.md"), "---\nname: MyTool\n---\n\nMine now.\n", "utf8");
+
+      await expect(unprojectSkill({ skill: "MyTool", substrates: ["pi-dev"], homeDir })).rejects.toThrow(
+        /not a Soma-created symlink or stub/,
+      );
+    });
+  });
+
+  test("the plan names the shape apply will write", async () => {
+    await withTempHome(async (homeDir) => {
+      const skillDir = await writeSourceSkill(homeDir, "MyTool");
+
+      const plan = await planProjectSkill({ skillDir, substrates: ["claude-code", "pi-dev"], homeDir });
+
+      expect(plan.links.find((link) => link.substrate === "pi-dev")?.kind).toBe("stub");
+      expect(plan.links.find((link) => link.substrate === "claude-code")?.kind).toBe("symlink");
+      expect(plan.links.find((link) => link.scope === "registry")?.kind).toBe("symlink");
+    });
+  });
+});

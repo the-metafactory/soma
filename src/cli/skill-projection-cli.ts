@@ -152,7 +152,13 @@ function formatPlan(verb: string, plan: SkillProjectionPlan, marker: string): st
     `skill: ${plan.skill}`,
     "",
     "Links:",
-    ...plan.links.map((link) => `- ${link.scope === "registry" ? "registry" : link.substrate} ${marker} ${link.path}`),
+    ...plan.links.map(
+      (link) =>
+        `- ${link.scope === "registry" ? "registry" : link.substrate} ${marker} ${link.path}` +
+        // Name the shape only when it is not the symlink default, so existing
+        // on-demand output is unchanged (soma#542).
+        (link.kind === "stub" ? " (stub: frontmatter only)" : ""),
+    ),
     "",
     `Catalog refresh: ${plan.catalogRefresh.join(", ")}`,
     "",

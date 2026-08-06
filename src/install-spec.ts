@@ -42,6 +42,25 @@ export function skillsLoaderUnder(...pathSegments: string[]): (substrateHome: st
   return (substrateHome) => resolve(substrateHome, ...pathSegments, "skills");
 }
 
+/**
+ * How a substrate's skill loader pulls a projected skill into model context.
+ *
+ * - `on-demand` — the loader keeps a skill's body out of context until the skill
+ *   is invoked (Claude Code's Skill tool; Codex's route-time load). Bodies are
+ *   projected as symlinks: the loader reads the real file only when it needs it.
+ * - `eager` — the loader reads every projected `SKILL.md` at session start.
+ *   Symlinking N bodies there costs N bodies of context before the first turn
+ *   (~200K tokens across the current 114-skill home), so projection writes a
+ *   frontmatter-only stub instead and the substrate resolves the body on trigger.
+ *
+ * soma#542: this is a property of the substrate's *loader*, not of any skill,
+ * which is why it lives on the adapter spec and not in skill frontmatter. A
+ * `scope`-style field per skill would encode one substrate's limitation into
+ * every portable skill file, and would need re-curating whenever a substrate
+ * changed its loader.
+ */
+export type SkillsLoadingMode = "on-demand" | "eager";
+
 export type InstallValidator = (substrateRoot: string) => Promise<void>;
 
 export interface UninstallContext {
@@ -105,6 +124,13 @@ export interface SubstrateInstallSpec<S extends InstallSubstrate = InstallSubstr
    * does not derive loader paths from the VSA skill destination.
    */
   skillsLoaderDir(substrateHome: string): string;
+  /**
+   * Whether this substrate's loader keeps skill bodies out of context until a
+   * skill is invoked. Drives how `project-skill` materialises a skill into
+   * {@link SubstrateInstallSpec.skillsLoaderDir}: `on-demand` symlinks the body,
+   * `eager` writes a frontmatter-only stub pointing at it (soma#542).
+   */
+  skillsLoading: SkillsLoadingMode;
   validator?: InstallValidator;
   lifecycleProjection?: LifecycleProjectionSpec;
   postProjection?: readonly InstallPostProjectionStep[];

@@ -57,6 +57,7 @@ export const cursorInstallSpec: SubstrateInstallSpec<"cursor"> = {
   // obsoleteHomeFiles for TELOS.md/ACTIVE_ISA.md under .cursor/rules/soma.
   ownedSubtrees: [".cursor/rules/soma"],
   skillsLoaderDir: skillsLoaderUnder(".cursor/rules/soma"),
+  skillsLoading: "on-demand",
   vsaSkillProjection: {
     destinationDir: vsaSkillUnder(".cursor/rules/soma"),
   },
