@@ -1,6 +1,7 @@
 import { diagnoseClaudeCodeInstallArtifactDrift } from "./claude-code/doctor";
 import { diagnoseContentCompareDrift } from "./content-compare-doctor";
 import { diagnoseGrokProjectionDrift } from "./grok/doctor";
+import { diagnoseSkillStubDrift } from "./skill-stub-doctor";
 import type { ExecutorRegistry } from "../execution/registry";
 import type { ExecutionCapabilities } from "../execution/types";
 import type { SomaDoctorFinding, SubstrateId } from "../types";
@@ -84,6 +85,14 @@ export async function diagnoseProjectionDrift(options: {
   // outright (they only ever approximated what content-compare now checks
   // directly) and is the FIRST drift diagnosis cursor/pi-dev have ever had.
 
+  // soma#542: stub integrity is orthogonal to content-compare — a stub pointing
+  // at a deleted body still matches its own renderer byte for byte — so it runs
+  // for every substrate and returns nothing for the on-demand ones.
+  const stubFindings = await diagnoseSkillStubDrift({
+    substrate: options.substrate,
+    homeDir: options.homeDir,
+  });
+
   if (options.substrate === "claude-code") {
     // Install-artifact checks (hook files on disk, settings.json wiring) are
     // NOT part of the projected `rules/soma/*` bundle content-compare diffs,
@@ -92,7 +101,7 @@ export async function diagnoseProjectionDrift(options: {
       diagnoseContentCompareDrift(options),
       diagnoseClaudeCodeInstallArtifactDrift(options),
     ]);
-    return [...contentFindings, ...artifactFindings];
+    return [...contentFindings, ...artifactFindings, ...stubFindings];
   }
   if (options.substrate === "grok") {
     // grok ADDITIONALLY keeps its `grok inspect --json` oracle-based checks
@@ -108,7 +117,7 @@ export async function diagnoseProjectionDrift(options: {
       diagnoseContentCompareDrift(options),
       diagnoseGrokProjectionDrift({ homeDir: options.homeDir }),
     ]);
-    return [...contentFindings, ...grokFindings];
+    return [...contentFindings, ...grokFindings, ...stubFindings];
   }
-  return diagnoseContentCompareDrift(options);
+  return [...(await diagnoseContentCompareDrift(options)), ...stubFindings];
 }

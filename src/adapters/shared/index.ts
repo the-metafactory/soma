@@ -34,7 +34,13 @@ export { renderSkillRegistryEntry } from "./skill-registry";
 
 // The eager-loader stub renderer (soma#542). Distinct from the registry entry
 // above: that one renders a catalog LINE, this one renders a whole SKILL.md.
-export { isSkillStub, renderSkillStub, SKILL_STUB_MARKER, type SkillStubOptions } from "./skill-stub";
+export {
+  isSkillStub,
+  parseSkillStubBodyPath,
+  renderSkillStub,
+  SKILL_STUB_MARKER,
+  type SkillStubOptions,
+} from "./skill-stub";
 
 /**
  * The portable skills a home projection should emit files for. `skills.md`
