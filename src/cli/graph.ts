@@ -786,8 +786,15 @@ async function runClose(
   // A proposal comment is optional now: a HITL node closes on the session's
   // say-so (§3.2). When one IS supplied, its reactions still carry weight —
   // a ratification as admissible evidence, and a root-author 👎 as a refusal.
+  //
+  // Keyed on the comment id alone, deliberately. `assertClosable` no longer
+  // distinguishes `propose` from `approve` from anything else non-`auto`, so a
+  // CLI-side autonomy test would be the only place in the system still drawing a
+  // line the core does not — a distinction living in one consumer is worse than
+  // no distinction at all. Supplying a proposal on an `auto` node is unusual
+  // rather than wrong: its reactions are read on the same terms.
   const commentId = parsed.options.proposalComment;
-  if (state.node.autonomy !== "auto" && commentId !== undefined) {
+  if (commentId !== undefined) {
     const proposalRef: CommentRef = await graph.readComment({ id: commentId, nodeId: ref.id });
     proposal = { commentId: proposalRef.id, author: proposalRef.author ?? "" };
     const reactions = await graph.readCommentReactions(proposalRef);

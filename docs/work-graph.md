@@ -373,9 +373,14 @@ What remains:
 
 **On multi-party deployments.** The gate is removed for *every* deployment, not
 only single-operator ones, and that is deliberate rather than incidental: "how
-many people are watching" is not derivable — two attempts to derive it failed
-review (#532) — so a rule conditioned on it would be a rule conditioned on a
-guess. What a multi-party deployment gets instead is a receipt that **records the
+many people are watching" is not derivable, so a rule conditioned on it would be
+a rule conditioned on a guess. Two attempts were made and both failed review;
+neither survives in a merged commit, so they are cited where they actually live:
+**graph-root authorship** (self-conferred — `findGraphRoot` returns the node
+itself when it has no parent) and **one reachable credential** (universal — true
+of any solo-token contributor), both on branch `feat/self-ratification` at
+`b8acfe4`, with the reasoning in the closing comment of
+[#548](https://github.com/the-metafactory/soma/pull/548). What a multi-party deployment gets instead is a receipt that **records the
 absence**. On a bare close no proposal is read, so there is no ratifier to name —
 and `attestationFacts.reasons` says exactly that: *"no proposal comment
 recorded"*, *"no ratification found"*, alongside the root authorship and
