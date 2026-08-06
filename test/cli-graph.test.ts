@@ -486,6 +486,26 @@ test("a 👎 from the root author blocks ratification, so the close is refused",
   expect(store.closed).toHaveLength(0);
 });
 
+test("the veto is one close deep — a fresh proposal carries no refusal", async () => {
+  // Pins a documented LIMIT rather than a guarantee. The docs call the veto a
+  // speed bump and say re-proposing closes cleanly; that claim is executable
+  // here so it cannot quietly become false in either direction.
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495"), author: "jcfischer" })
+    .seed("530", { node: { id: "530", title: "hitl", autonomy: "approve", checkpointId: "cp-530" }, parent: "495" });
+
+  await run(["graph", "close", "530", "--propose", "--body", "x", "--repo", REPO], store);
+  store.reactions.set("c1", [{ id: "r1", content: "-1", author: "jcfischer" }]);
+  expect(await failure(["graph", "close", "530", "--proposal-comment", "c1", "--repo", REPO], store)).toContain(
+    "was refused",
+  );
+
+  // Re-propose: a new comment id, no reactions on it, and the close proceeds.
+  await run(["graph", "close", "530", "--propose", "--body", "x", "--repo", REPO], store);
+  await run(["graph", "close", "530", "--proposal-comment", "c2", "--repo", REPO], store);
+  expect(store.closed).toHaveLength(1);
+});
+
 test("without a 👎, a HITL node closes on the session's say-so", async () => {
   const store = new FakeStore()
     .seed("495", { node: autoNode("495"), author: "jcfischer" })

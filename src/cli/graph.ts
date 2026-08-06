@@ -792,10 +792,15 @@ async function runClose(
     proposal = { commentId: proposalRef.id, author: proposalRef.author ?? "" };
     const reactions = await graph.readCommentReactions(proposalRef);
 
-    // Ratification is no longer required, but an explicit refusal is still
-    // honoured. Dropping "you must be approved" must not become "you may ignore
-    // being refused" — a 👎 from the map's owner is the one reaction that
-    // unambiguously means *no*, and it is cheap to respect.
+    // Ratification is no longer required; an explicit refusal is still surfaced.
+    //
+    // Deliberately a speed bump, not a control, and it lives here in the CLI
+    // rather than in `assertClosable` because it is not a contract rule. It
+    // catches the honest case — you were told no and closed anyway by reflex —
+    // and it stops nobody who means to proceed: a fresh `--propose` mints a new
+    // comment with no reactions, and passing that id closes cleanly. Binding
+    // proposals to superseded ones, or threading reactions through the receipt
+    // so the core could enforce it, is machinery this primitive does not want.
     const vetoed = reactions.some(
       (reaction) => reaction.content === "-1" && root?.author !== undefined && reaction.author === root.author,
     );
@@ -803,7 +808,7 @@ async function runClose(
       throw new SomaCliError(
         [
           `Node ${ref.id} was refused: ${root?.author ?? "the graph root's author"} left a 👎 on proposal comment ${proposal.commentId}.`,
-          `Address it and post a new proposal rather than closing over the refusal.`,
+          `Nothing here can stop you closing anyway — this is a reminder, not a gate.`,
         ].join("\n"),
         1,
       );

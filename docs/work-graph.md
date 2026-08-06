@@ -350,17 +350,20 @@ What remains:
   proposal and `close --proposal-comment <id>` reads its reactions, for when a
   second opinion is genuinely wanted. Ratification is admissible evidence; its
   absence is not a defect.
-- **An explicit refusal stops the close — within the proposal flow.** When
-  `--proposal-comment` is supplied, a 👎 from the graph root's author on that
-  comment refuses the close, naming who refused. Dropping "must be approved" is
-  not "may close over being refused".
+- **An explicit refusal is surfaced, not enforced.** When `--proposal-comment` is
+  supplied, a 👎 from the graph root's author on that comment refuses *that*
+  close, naming who refused.
 
-  Scope, stated precisely because the earlier draft overstated it: a refusal
-  lives *on a proposal*, so a bare `close` reads no reactions and cannot be
-  refused by one. Someone who was 👎'd and then closes without the flag is not
-  stopped by the runtime. That is a real limit, and the honest one for a
-  primitive whose gate is the human running it — the alternative is hunting prior
-  comments on every close, which is the machinery this change exists to remove.
+  It is a speed bump and the spec says so rather than overselling it. Three
+  limits, all deliberate: it lives in the CLI, not in `assertClosable`, so a
+  non-CLI consumer of the seam gets none of it; a bare `close` reads no reactions
+  and cannot be refused by one; and nothing binds a new proposal to a refused
+  one, so `--propose` on an unchanged body mints a fresh comment that closes
+  cleanly. It catches the honest case — told no, closed anyway by reflex — and
+  stops nobody who means to proceed. Making it real would mean threading
+  reactions through the receipt and binding superseded proposals, which is
+  machinery this primitive does not want.
+
 - **The receipt is unchanged.** Proposal, ratifier, root authorship, confinement
   and `attestation` are all still recorded, so a reader can tell a ratified close
   from an unratified one. What changed is that an unratified close is *possible*,
@@ -375,7 +378,12 @@ absence**. On a bare close no proposal is read, so there is no ratifier to name 
 and `attestationFacts.reasons` says exactly that: *"no proposal comment
 recorded"*, *"no ratification found"*, alongside the root authorship and
 confinement facts. An unratified close is therefore *visible* rather than
-*prevented*, and a reviewer or the phase-2 auditor can act on it after the fact.
+*prevented*, and a person reading the node can act on it after the fact.
+
+The consumer named here is a **human reading the record**, deliberately — not the
+phase-2 auditor. Justifying the removal by appealing to an auditor that does not
+exist would be the same move this change is undoing: a gate defended by a
+consumer nobody can point at.
 
 Naming this precisely matters: an earlier draft claimed the receipt carried
 "proposal, ratifier, root authorship and confinement", which is what a *ratified*
