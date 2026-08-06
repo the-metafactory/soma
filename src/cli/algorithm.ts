@@ -19,6 +19,7 @@ import {
   removeAlgorithmCapabilitySelection,
   renderReflectionDigest,
   runSomaLifecycleAlgorithmUpdated,
+  requirePlanStep,
   setAlgorithmPlan,
   selectAlgorithmCapability,
   syncBridgedPlanStep,
@@ -483,14 +484,21 @@ export function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
         options.stepId = readOption(rest, index, arg);
         index += 1;
         break;
+      // Scoped to `step`, matching the `--status` arm below. Unguarded, every
+      // algorithm subcommand silently accepted the graph-bridge flags — two
+      // conventions in one switch, so the next flag's correct shape is a guess
+      // (Sage, PR #555).
       case "--node":
+        if (action !== "step") throw new Error("--node is only valid for step.");
         options.stepNodeId = readOption(rest, index, arg);
         index += 1;
         break;
       case "--sync":
+        if (action !== "step") throw new Error("--sync is only valid for step.");
         options.stepSync = true;
         break;
       case "--repo":
+        if (action !== "step") throw new Error("--repo is only valid for step.");
         options.repo = readOption(rest, index, arg);
         index += 1;
         break;
@@ -776,14 +784,51 @@ export interface AlgorithmCliDeps {
 async function resolveBridgedNodeId(options: AlgorithmCliOptions, stepId: string): Promise<string> {
   const id = requireAlgorithmId(options);
   const { run } = await readAlgorithmRunById(id, { homeDir: options.homeDir, somaHome: options.somaHome });
-  const step = run.planSteps.find((candidate) => candidate.id === stepId);
+  // Shared lookup, not a third copy of `findIndex` + its message (Sage, PR #555).
+  const { step } = requirePlanStep(run, stepId);
 
-  if (step === undefined) throw new Error(`Algorithm plan step not found: ${stepId}`);
   if (step.nodeId === undefined) {
     throw new Error(`Algorithm plan step ${stepId} is not bridged to a work-graph node. Bridge it with --node <node-id>.`);
   }
 
   return step.nodeId;
+}
+
+/**
+ * `soma algorithm step` — three shapes: a direct status write on a run-owned
+ * step, `--node` to bridge one to a work-graph node, and `--sync` to re-derive an
+ * already-bridged one (§2.7). Its own function rather than a fifth inline branch
+ * in the dispatcher's if-chain.
+ */
+async function runStepAction(options: AlgorithmCliOptions, deps: AlgorithmCliDeps): Promise<string> {
+  if (!options.stepId) throw new Error("--step-id is required.");
+  const stepId = options.stepId;
+  const bind = options.stepNodeId !== undefined;
+  const sync = options.stepSync === true;
+
+  if (bind && sync) throw new Error("--node already derives the status; pass one of --node or --sync.");
+
+  if (bind || sync) {
+    // Naming a collision beats silently preferring one side of it. `--status` is
+    // the write §2.7 refuses outright; `--evidence` is subtler and was being
+    // accepted and then discarded, since the derived pointer always overwrites it
+    // (Sage, PR #555) — the same silent preference this refusal exists to reject.
+    if (options.stepStatus !== undefined) {
+      throw new Error("--status cannot be combined with --node or --sync: a bridged step's status derives from its node.");
+    }
+    if (options.evidence !== undefined) {
+      throw new Error(
+        "--evidence cannot be combined with --node or --sync: a bridged step's evidence is the derived pointer to its node.",
+      );
+    }
+    const nodeId = options.stepNodeId ?? (await resolveBridgedNodeId(options, stepId));
+    const state = await deps.readNode(nodeId, { repo: options.repo });
+    return updateAndReportAlgorithmRun(options, (run) => syncBridgedPlanStep(run, stepId, state, { bind }));
+  }
+
+  if (!options.stepStatus) throw new Error("--status is required (or use --node/--sync for a bridged step).");
+  const stepStatus = options.stepStatus;
+  return updateAndReportAlgorithmRun(options, (run) => updateAlgorithmPlanStep(run, stepId, stepStatus, options.evidence));
 }
 
 export async function runAlgorithmCli(
@@ -918,28 +963,7 @@ export async function runAlgorithmCli(
   }
 
   if (parsed.action === "step") {
-    if (!options.stepId) throw new Error("--step-id is required.");
-    const stepId = options.stepId;
-    const bind = options.stepNodeId !== undefined;
-    const sync = options.stepSync === true;
-
-    if (bind && sync) throw new Error("--node already derives the status; pass one of --node or --sync.");
-
-    if (bind || sync) {
-      if (options.stepStatus !== undefined) {
-        // Naming the collision beats silently preferring one: --status on a
-        // bridged step is the exact write §2.7 refuses, so an argv that asks for
-        // both is asking for a forged status.
-        throw new Error("--status cannot be combined with --node or --sync: a bridged step's status derives from its node.");
-      }
-      const nodeId = options.stepNodeId ?? (await resolveBridgedNodeId(options, stepId));
-      const state = await deps.readNode(nodeId, { repo: options.repo });
-      return updateAndReportAlgorithmRun(options, (run) => syncBridgedPlanStep(run, stepId, state, { bind }));
-    }
-
-    if (!options.stepStatus) throw new Error("--step-id and --status are required.");
-    const stepStatus = options.stepStatus;
-    return updateAndReportAlgorithmRun(options, (run) => updateAlgorithmPlanStep(run, stepId, stepStatus, options.evidence));
+    return runStepAction(options, deps);
   }
 
   if (parsed.action === "verify") {

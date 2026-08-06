@@ -3,10 +3,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  advanceAlgorithmRun,
   applyAlgorithmBatch,
   createAlgorithmRun,
   deriveBridgedPlanStepStatus,
-  markUnbridgedPlanStepsDone,
+  getRunPhase,
   readAlgorithmRunById,
   setAlgorithmPlan,
   syncBridgedPlanStep,
@@ -14,6 +15,9 @@ import {
   writeAlgorithmRun,
 } from "../src/index";
 import type { AlgorithmRun, BridgedNodeReport } from "../src/index";
+// Not on the public barrel — its one production consumer imports it here too.
+import { markUnbridgedPlanStepsDone } from "../src/algorithm";
+import type { NodeState } from "../src/work-graph";
 import { parseAlgorithmArgs, runAlgorithmCli } from "../src/cli/algorithm";
 
 // docs/work-graph.md §2.7 — planSteps bridge. A bridged step's status is the
@@ -40,7 +44,35 @@ function freshRun(): AlgorithmRun {
 }
 
 function report(overrides: Partial<BridgedNodeReport> = {}): BridgedNodeReport {
-  return { ref: { id: "501" }, status: "open", ...overrides };
+  return { ref: { id: "501" }, status: "open", blockedBy: [], ...overrides };
+}
+
+/**
+ * A FULL `NodeState` — every field a real `readNode` returns, not the three the
+ * derivation happens to touch. `BridgedNodeReport` is `Pick`ed from `NodeState`,
+ * and this is what proves the two still line up: if the graph adds a required
+ * field to the picked set, or the report's shape drifts, this stops compiling.
+ * The hand-built `report()` fixtures cannot catch that (Sage, PR #555).
+ */
+function realNodeState(overrides: Partial<NodeState> = {}): NodeState {
+  return {
+    ref: { id: "501" },
+    node: {
+      id: "501",
+      title: "planSteps nodeId bridge (spec §2.7)",
+      autonomy: "auto",
+      kind: "task",
+      checkpointId: "cp-501",
+      probes: [{ type: "git-ref-exists", ref: "main" }],
+    },
+    status: "open",
+    assignees: ["jcfischer"],
+    blockedBy: [],
+    author: "jcfischer",
+    parent: { id: "495" },
+    typed: true,
+    ...overrides,
+  };
 }
 
 function stepOf(run: AlgorithmRun, id: string) {
@@ -155,7 +187,85 @@ test("syncing an unknown step is refused", () => {
   );
 });
 
+test("`bind` does not license re-homing an already-bridged step", () => {
+  const bridged = syncBridgedPlanStep(freshRun(), "P1", report(), { bind: true }, "2026-08-06T10:02:00.000Z");
+
+  // Without this, `bind: true` made the mismatch refusal unreachable from the one
+  // caller that always sets it — a typo'd `--node` moved the step silently.
+  expect(() =>
+    syncBridgedPlanStep(bridged, "P1", report({ ref: { id: "502" }, status: "closed" }), { bind: true }),
+  ).toThrow(/already bridged to work-graph node 501; refusing to re-home it to 502/u);
+  expect(stepOf(bridged, "P1").nodeId).toBe("501");
+  expect(stepOf(bridged, "P1").status).toBe("open");
+});
+
+test("re-binding a step to the SAME node is a plain re-derive, not a re-home", () => {
+  let run = syncBridgedPlanStep(freshRun(), "P1", report(), { bind: true }, "2026-08-06T10:02:00.000Z");
+  run = syncBridgedPlanStep(run, "P1", report({ status: "closed" }), { bind: true }, "2026-08-06T10:03:00.000Z");
+
+  expect(stepOf(run, "P1").status).toBe("done");
+});
+
+// --- the other write paths -------------------------------------------------
+
+test("setAlgorithmPlan refuses to AUTHOR a bridged step — bridging is not a planning act", () => {
+  const run = createAlgorithmRun({
+    id: "bridge-run",
+    timestamp: "2026-08-06T10:00:00.000Z",
+    prompt: "Bridge a plan step to a work-graph node",
+    intent: "Status derives from the node.",
+    currentState: "planSteps own their status outright.",
+    goal: "A bridged step defers to its node.",
+    criteria: [{ id: "C1", text: "Direct status writes on a bridged step are refused." }],
+  });
+
+  // This was the third write path: `setAlgorithmPlan` replaces planSteps[]
+  // wholesale with caller-authored status, so it could mint a bridged step whose
+  // `done` never came from a node — while the docs claimed one write path.
+  expect(() =>
+    setAlgorithmPlan(run, [{ id: "P1", text: "Bridged work", criteriaIds: ["C1"], status: "done", nodeId: "501" }]),
+  ).toThrow(/cannot be bridged to work-graph node 501 by setAlgorithmPlan/u);
+});
+
+test("a real NodeState is accepted verbatim as a BridgedNodeReport", () => {
+  // The type claims `NodeState` satisfies it; this is the claim being exercised
+  // with a value rather than restated in a comment.
+  const state = realNodeState({ status: "closed" });
+  const run = syncBridgedPlanStep(freshRun(), "P1", state, { bind: true }, "2026-08-06T10:02:00.000Z");
+
+  expect(stepOf(run, "P1")).toMatchObject({ nodeId: "501", status: "done" });
+  expect(deriveBridgedPlanStepStatus(realNodeState({ blockedBy: [{ id: "499", status: "open" }] }))).toBe("blocked");
+  expect(deriveBridgedPlanStepStatus(realNodeState())).toBe("open");
+});
+
 // --- the other write path: the VSA sync's bulk flip ------------------------
+
+test("an OPEN bridged step really does hold the run short of the VERIFY gate", () => {
+  // The skip's advertised cost — "leaves the run short of the VERIFY gate until
+  // its node closes" — was asserted in a comment and verified nowhere. If the
+  // gate read criteria alone, the cost would not exist and the skip would be
+  // silent (Sage, PR #555). Walk the run to EXECUTE and try to advance.
+  let run = freshRun();
+  run = syncBridgedPlanStep(run, "P1", report({ status: "open" }), { bind: true }, "2026-08-06T10:02:00.000Z");
+  run = updateAlgorithmPlanStep(run, "P2", "done", "run-owned, finished", "2026-08-06T10:03:00.000Z");
+  run = {
+    ...run,
+    observations: [
+      { timestamp: "2026-08-06T10:04:00.000Z", claim: "the gate fires", evidence: "this test", evidenceKind: "tested" },
+    ],
+    capabilities: ["sequential-analysis"],
+    changelog: [{ timestamp: "2026-08-06T10:06:00.000Z", phase: "build", text: "bridged the step" }],
+  };
+  while (getRunPhase(run) !== "execute") {
+    run = advanceAlgorithmRun(run, "2026-08-06T10:07:00.000Z");
+  }
+
+  expect(() => advanceAlgorithmRun(run, "2026-08-06T10:08:00.000Z")).toThrow(/every plan step is done or blocked/u);
+
+  // …and closing the node releases it. The cost is real and it is bounded.
+  const closed = syncBridgedPlanStep(run, "P1", report({ status: "closed" }), {}, "2026-08-06T10:09:00.000Z");
+  expect(getRunPhase(advanceAlgorithmRun(closed, "2026-08-06T10:10:00.000Z"))).toBe("verify");
+});
 
 test("the VERIFY sweep skips bridged steps rather than forging `done`", () => {
   const run = syncBridgedPlanStep(freshRun(), "P1", report({ status: "open" }), { bind: true }, "2026-08-06T10:02:00.000Z");
@@ -270,7 +380,7 @@ test("`step --sync` on an unbridged step is refused before any read", async () =
   });
 });
 
-test("`--status` combined with `--node` or `--sync` is refused rather than silently preferring one", async () => {
+test("`--status` or `--evidence` combined with `--node`/`--sync` is refused rather than silently preferring one", async () => {
   await withTempHome(async (homeDir) => {
     await writeAlgorithmRun(freshRun(), { homeDir });
     const deps = { readNode: async (nodeId: string) => report({ ref: { id: nodeId } }) };
@@ -280,8 +390,37 @@ test("`--status` combined with `--node` or `--sync` is refused rather than silen
       runAlgorithmCli(parseAlgorithmArgs([...base, "--node", "501", "--status", "done"]), deps),
     ).rejects.toThrow(/--status cannot be combined with --node or --sync/u);
 
+    // --evidence was accepted and then silently discarded by the derived pointer.
+    await expect(
+      runAlgorithmCli(parseAlgorithmArgs([...base, "--node", "501", "--evidence", "I checked"]), deps),
+    ).rejects.toThrow(/--evidence cannot be combined with --node or --sync/u);
+
     await expect(runAlgorithmCli(parseAlgorithmArgs([...base, "--node", "501", "--sync"]), deps)).rejects.toThrow(
       /pass one of --node or --sync/u,
     );
+  });
+});
+
+test("the bridge flags are scoped to `step` — they do not widen every subcommand", () => {
+  for (const flags of [["--node", "501"], ["--sync"], ["--repo", "the-metafactory/soma"]]) {
+    expect(() => parseAlgorithmArgs(["algorithm", "decision", "--id", "r", "--text", "t", ...flags])).toThrow(
+      /is only valid for step/u,
+    );
+  }
+  // …and still parse on `step` itself.
+  expect(() =>
+    parseAlgorithmArgs(["algorithm", "step", "--id", "r", "--step-id", "P1", "--node", "501", "--repo", "o/n"]),
+  ).not.toThrow();
+});
+
+test("the `--status`-required message names the flag that is actually missing", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeAlgorithmRun(freshRun(), { homeDir });
+    await expect(
+      runAlgorithmCli(
+        parseAlgorithmArgs(["algorithm", "step", "--home-dir", homeDir, "--id", "bridge-run", "--step-id", "P1"]),
+        { readNode: async (nodeId: string) => report({ ref: { id: nodeId } }) },
+      ),
+    ).rejects.toThrow("--status is required (or use --node/--sync for a bridged step).");
   });
 });

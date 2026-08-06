@@ -325,19 +325,35 @@ from the node, read via `GraphStore.readNode` (surfaced as
 `docs/algorithm-execution-modes.md` is correspondingly narrowed to "no
 parallel work registry **at the same scope**" (#484).
 
-**Implemented** (#501). Two additions the spec left open, both forced by the
-implementation:
+**Implemented** (#501). The spec named one write path to refuse; the run had
+**three**, and the exhaustiveness had to be established rather than asserted
+(Sage caught the claim standing on an enumeration of two):
+
+- `updateAlgorithmPlanStep` — the per-step write. **Refuses** on a bridged step.
+  `applyAlgorithmBatch`'s `step` operation routes through it, so it is covered by
+  construction rather than by a second check.
+- `setAlgorithmPlan` — replaces `planSteps[]` wholesale with caller-authored
+  status. **Refuses** any incoming step carrying a `nodeId`: bridging is not a
+  planning act, so a bridged step cannot be *authored* into existence with a
+  status that never came from its node.
+- The VSA sync's VERIFY sweep — flipped every open step to `done` from the VSA's
+  phase alone. A whole-run map has no single step to refuse for, so
+  `markUnbridgedPlanStepsDone` **skips** bridged steps instead of throwing.
+
+So `syncBridgedPlanStep` is the one write path for a bridged step's status
+because the other two refuse to produce one, not because they were not looked at.
 
 - **Binding is a derivation.** `syncBridgedPlanStep(run, stepId, report, {bind})`
-  is the one write path for a bridged step's status, and it is also how a step
-  first acquires its `nodeId` — attaching the reference without deriving would
-  leave the step bridged while still reporting its stale hand-written status.
-- **The whole-run sweep skips.** `updateAlgorithmPlanStep` was not the only path
-  that wrote a step's status: the VSA sync's VERIFY sweep flipped every open step
-  to `done` from the VSA's phase alone. It is a whole-run map with no single step
-  to refuse for, so `markUnbridgedPlanStepsDone` **skips** bridged steps instead
-  of throwing. A refusal that covers one call site and not the other is not a
-  contract — it is a speed bump.
+  is also how a step first acquires its `nodeId` — attaching the reference
+  without deriving would leave the step bridged while still reporting its stale
+  hand-written status, which is worse than two homes: it is none. `bind` does not
+  license **re-homing**, either; an already-bridged step refuses a different node,
+  or the one caller that always passes `bind` would make the mismatch check
+  unreachable and a typo'd `--node` would move a step silently.
+- **`BridgedNodeReport` is `Pick`ed from `NodeState`**, not re-declared to match
+  it. Hand-written, its `blockedBy?` was optional where `NodeState`'s is
+  required — a report missing the field type-checked and derived `open` where the
+  node was `blocked`, a fail-open `tsc` could not see.
 
 `status` on a bridged step is therefore a **cache** of the node's reported state,
 and the derived `evidence` names the node and the derivation moment: a derived

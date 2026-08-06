@@ -246,7 +246,7 @@ export {
   recordAlgorithmMetaReflection,
   recordAlgorithmObservation,
   deriveBridgedPlanStepStatus,
-  markUnbridgedPlanStepsDone,
+  requirePlanStep,
   setAlgorithmPlan,
   syncBridgedPlanStep,
   updateAlgorithmPlanStep,
@@ -254,6 +254,13 @@ export {
   verifyAlgorithmCriterion,
 } from "./algorithm";
 export type { BridgedNodeReport } from "./algorithm";
+// The planSteps bridge's READ half (§2.7). Exported beside the write half on
+// purpose: a consumer that can reach `syncBridgedPlanStep` but not the reader has
+// to re-implement repo resolution, becoming the second reader the bridge forbids
+// (Sage, PR #555). `markUnbridgedPlanStepsDone` is deliberately NOT here — its one
+// production consumer imports it directly from `./algorithm`.
+export { parseRepoFromRemote, readNodeForBridge, resolveGraphRepo } from "./work-graph-bridge";
+export type { ReadNodeForBridgeOptions } from "./work-graph-bridge";
 export {
   assertAlgorithmCapabilitiesSatisfied,
   getAlgorithmCapabilityDefinition,

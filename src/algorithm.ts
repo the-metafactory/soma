@@ -18,6 +18,9 @@ import {
   removeAlgorithmCapabilitySelection,
   selectAlgorithmCapability,
 } from "./algorithm-capabilities";
+// Type-only, so this stays a compile-time relationship and adds no runtime
+// dependency on the graph from this pure module — see {@link BridgedNodeReport}.
+import type { NodeState } from "./work-graph";
 import { classifyAlgorithmPrompt } from "./algorithm-classifier";
 import { compactSmarterRun } from "./algorithm-reflection-digest";
 import {
@@ -214,6 +217,19 @@ export function setAlgorithmPlan(run: AlgorithmRun, planSteps: AlgorithmPlanStep
 
   for (const step of planSteps) {
     assertNonEmpty(step.text, `plan step ${step.id} text`);
+
+    // §2.7: this call replaces `planSteps[]` wholesale with caller-authored
+    // status, so accepting a `nodeId` here would author a bridged step whose
+    // status never came from its node — the two-homes defect through the plan
+    // call rather than the step call. Bridging goes through
+    // `syncBridgedPlanStep`, where binding and deriving are one act. Without
+    // this, "syncBridgedPlanStep is the one write path" was an assertion with a
+    // second path sitting next to it (Sage, PR #555).
+    if (step.nodeId !== undefined) {
+      throw new Error(
+        `Algorithm plan step ${step.id} cannot be bridged to work-graph node ${step.nodeId} by setAlgorithmPlan: a bridged step's status must be derived from its node. Plan the step unbridged, then bridge it with syncBridgedPlanStep.`,
+      );
+    }
 
     if (step.criteriaIds.length === 0) {
       throw new Error(`Algorithm plan step ${step.id} must map to at least one criterion.`);
@@ -602,6 +618,21 @@ export function advanceAlgorithmRunUntil(
   return next;
 }
 
+/**
+ * Look one plan step up, or refuse. Exported so the CLI resolves a step the same
+ * way the core does — three copies of this `findIndex` plus its message had
+ * drifted apart across two modules (Sage, PR #555).
+ */
+export function requirePlanStep(run: AlgorithmRun, stepId: string): { step: AlgorithmPlanStep; index: number } {
+  const index = run.planSteps.findIndex((step) => step.id === stepId);
+
+  if (index === -1) {
+    throw new Error(`Algorithm plan step not found: ${stepId}`);
+  }
+
+  return { step: run.planSteps[index], index };
+}
+
 export function updateAlgorithmPlanStep(
   run: AlgorithmRun,
   stepId: string,
@@ -609,13 +640,7 @@ export function updateAlgorithmPlanStep(
   evidence?: string,
   timestamp = new Date().toISOString(),
 ): AlgorithmRun {
-  const stepIndex = run.planSteps.findIndex((step) => step.id === stepId);
-
-  if (stepIndex === -1) {
-    throw new Error(`Algorithm plan step not found: ${stepId}`);
-  }
-
-  const step = run.planSteps[stepIndex];
+  const { step, index: stepIndex } = requirePlanStep(run, stepId);
 
   // §2.7: a bridged step's status lives on the node. Accepting a direct write
   // here is exactly the two-authoritative-homes failure the bridge exists to
@@ -668,16 +693,19 @@ export function markUnbridgedPlanStepsDone(
 }
 
 /**
- * The node state the bridge derives from — a structural subset of the work
- * graph's `NodeState`, so a real `NodeState` satisfies it without
- * `src/algorithm.ts` (pure, no I/O) depending on the graph module. The reader is
- * the caller's: `GraphStore.readNode`, or `soma graph node <id> --json`.
+ * The node state the bridge derives from — **`Pick`ed from the real
+ * `NodeState`** rather than re-declared to match it. Written by hand it was a
+ * claim ("a structural subset, so a real `NodeState` satisfies it") that the
+ * compiler did not check, and its `blockedBy?` was optional where `NodeState`'s
+ * is required: a report missing the field type-checked and silently derived
+ * `open` where the node was `blocked` — a fail-OPEN that `tsc` could not see
+ * (Sage, PR #555). Deriving the type makes divergence a compile error.
+ *
+ * The import is type-only, so this pure module still takes no runtime dependency
+ * on the graph. The reader is the caller's: {@link readNodeForBridge},
+ * `GraphStore.readNode`, or `soma graph node <id> --json`.
  */
-export interface BridgedNodeReport {
-  ref: { id: string };
-  status: "open" | "closed";
-  blockedBy?: readonly { id: string; status: "open" | "closed" }[];
-}
+export type BridgedNodeReport = Pick<NodeState, "ref" | "status" | "blockedBy">;
 
 /**
  * Map a node's reported state onto a plan-step status. `closed` is the only
@@ -686,7 +714,7 @@ export interface BridgedNodeReport {
  */
 export function deriveBridgedPlanStepStatus(report: BridgedNodeReport): AlgorithmPlanStep["status"] {
   if (report.status === "closed") return "done";
-  return (report.blockedBy ?? []).some((blocker) => blocker.status === "open") ? "blocked" : "open";
+  return report.blockedBy.some((blocker) => blocker.status === "open") ? "blocked" : "open";
 }
 
 /**
@@ -698,7 +726,10 @@ export function deriveBridgedPlanStepStatus(report: BridgedNodeReport): Algorith
  * Refuses when the report describes a different node than the step is bridged
  * to: syncing step A from node B's state would write a status with no relation
  * to the step's authoritative home, which is the same defect as a direct write
- * wearing a derivation's clothes.
+ * wearing a derivation's clothes. `bind` does NOT license that — re-homing an
+ * already-bridged step is refused too, or `bind` would make the mismatch check
+ * unreachable from the one caller that always sets it, and a typo'd `--node`
+ * would silently move a step to an unrelated node (Sage, PR #555).
  */
 export function syncBridgedPlanStep(
   run: AlgorithmRun,
@@ -707,13 +738,14 @@ export function syncBridgedPlanStep(
   options: { bind?: boolean } = {},
   timestamp = new Date().toISOString(),
 ): AlgorithmRun {
-  const stepIndex = run.planSteps.findIndex((step) => step.id === stepId);
+  const { step, index: stepIndex } = requirePlanStep(run, stepId);
 
-  if (stepIndex === -1) {
-    throw new Error(`Algorithm plan step not found: ${stepId}`);
+  if (options.bind === true && step.nodeId !== undefined && step.nodeId !== report.ref.id) {
+    throw new Error(
+      `Algorithm plan step ${stepId} is already bridged to work-graph node ${step.nodeId}; refusing to re-home it to ${report.ref.id}. Re-plan the step to move it.`,
+    );
   }
 
-  const step = run.planSteps[stepIndex];
   const nodeId = options.bind === true ? report.ref.id : step.nodeId;
 
   if (nodeId === undefined) {

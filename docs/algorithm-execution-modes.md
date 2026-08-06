@@ -186,9 +186,11 @@ soma algorithm step --id <run> --step-id <step> --status done       # refused wh
 `--node` binds *and* derives in one act, so a step is never bridged while still
 carrying its stale hand-written status. The derived `evidence` names the node and
 the moment, because a derived status that reads like a written one is the defect
-with the gate removed. Two write paths had to be closed, not one: the per-step
-call refuses, and the VSA sync's whole-run VERIFY sweep
-(`markUnbridgedPlanStepsDone`) *skips* bridged steps — it has no single step to
-refuse for, and the `done` it writes comes from the VSA's phase alone. The
-visible cost is the honest one: an open bridged step leaves the run short of the
-VERIFY gate until its node closes.
+with the gate removed. **Three** write paths had to be closed, not one:
+`updateAlgorithmPlanStep` refuses (and `applyAlgorithmBatch` routes through it),
+`setAlgorithmPlan` refuses a step that arrives carrying a `nodeId`, and the VSA
+sync's whole-run VERIFY sweep (`markUnbridgedPlanStepsDone`) *skips* bridged steps
+— it has no single step to refuse for, and the `done` it writes comes from the
+VSA's phase alone. The visible cost is the honest one: an open bridged step leaves
+the run short of the VERIFY gate (`advanceAlgorithmRun` requires every plan step
+`done` or `blocked`) until its node closes.

@@ -58,8 +58,15 @@ import {
   type ProbeRegistry,
 } from "../work-graph-probe-registry";
 import { allProbesPassed, runCommand, runProbes as defaultRunProbes } from "../work-graph-probes";
+import { parseRepoFromRemote, readNodeForBridge, resolveGraphRepo } from "../work-graph-bridge";
 import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";
+
+// Moved to `src/work-graph-bridge.ts` (core) so a library/MCP/daemon consumer can
+// read a node and resolve a repo without importing from `src/cli/` — a seam only
+// the CLI can reach forces exactly the second reader the bridge forbids (Sage,
+// PR #555). Re-exported here for the existing importers.
+export { parseRepoFromRemote, readNodeForBridge, resolveGraphRepo };
 
 const GRAPH_ACTIONS = ["frontier", "node", "claim", "add", "close"] as const;
 type GraphAction = (typeof GRAPH_ACTIONS)[number];
@@ -431,34 +438,9 @@ async function gh(args: string[]): Promise<string> {
   return outcome.stdout.trim();
 }
 
-/** `owner/name` out of any of the URL shapes a GitHub remote takes. */
-export function parseRepoFromRemote(remote: string): string | undefined {
-  const match = /github\.com[/:]([^/\s]+)\/([^/\s]+?)(?:\.git)?$/u.exec(remote.trim());
-  if (match === null) return undefined;
-  return `${match[1]}/${match[2]}`;
-}
-
-/**
- * Which repository backs this graph. Exported because the probe registry is
- * scoped by repo identity, so `soma policy probes` has to resolve it the same
- * way `soma graph` does — two answers to "which repo" would mean an adopter
- * declaring commands under a key the close path never looks at.
- */
-export async function resolveGraphRepo(): Promise<string> {
-  const configured = process.env.SOMA_GRAPH_REPO;
-  if (configured !== undefined && configured.trim().length > 0) return configured.trim();
-
-  const remote = await runCommand({ argv: ["git", "remote", "get-url", "origin"], timeoutSec: 30 });
-  if (remote.exitCode === 0) {
-    const parsed = parseRepoFromRemote(remote.stdout);
-    if (parsed !== undefined) return parsed;
-  }
-
-  throw new SomaCliError(
-    "Cannot tell which repository backs this graph. Pass --repo <owner/name> or set SOMA_GRAPH_REPO.",
-    1,
-  );
-}
+// `parseRepoFromRemote` and `resolveGraphRepo` moved to `src/work-graph-bridge.ts`
+// (core) so non-CLI consumers resolve a repo the same way — re-exported here for
+// the existing importers.
 
 async function defaultEvidencePointer(): Promise<string | undefined> {
   const head = await runCommand({ argv: ["git", "rev-parse", "HEAD"], timeoutSec: 30 });
@@ -880,23 +862,6 @@ async function runClose(
     "",
     "Receipt posted to the tracker.",
   ].join("\n");
-}
-
-/**
- * Read one node for the planSteps bridge (§2.7). Exported so
- * `soma algorithm step --sync` reaches the graph through the *same* seam and the
- * *same* repo resolution `soma graph` uses — a second reader would be a second
- * answer to "which node backs this step", which is the two-homes defect wearing
- * a different hat.
- */
-export async function readNodeForBridge(
-  nodeId: string,
-  options: { repo?: string } = {},
-  overrides: Partial<GraphCliDeps> = {},
-): Promise<NodeState> {
-  const deps: GraphCliDeps = { ...defaultDeps(), ...overrides };
-  const repo = options.repo ?? (await deps.resolveRepo());
-  return await new WorkGraph(deps.createStore(repo)).readNode({ id: nodeId });
 }
 
 export async function runGraphCli(parsed: ParsedGraphArgs, overrides: Partial<GraphCliDeps> = {}): Promise<string> {
