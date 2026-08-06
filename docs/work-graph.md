@@ -354,12 +354,14 @@ What remains:
   supplied, a 👎 from the graph root's author on that comment refuses *that*
   close, naming who refused.
 
-  It is a speed bump and the spec says so rather than overselling it. Three
-  limits, all deliberate: it lives in the CLI, not in `assertClosable`, so a
-  non-CLI consumer of the seam gets none of it; a bare `close` reads no reactions
-  and cannot be refused by one; and nothing binds a new proposal to a refused
-  one, so `--propose` on an unchanged body mints a fresh comment that closes
-  cleanly. It catches the honest case — told no, closed anyway by reflex — and
+  It is a speed bump and the spec says so rather than overselling it. Its limits,
+  all deliberate: it lives in the CLI, not in `assertClosable`, so a non-CLI
+  consumer of the seam gets none of it; a bare `close` reads no reactions and
+  cannot be refused by one; nothing binds a new proposal to a refused one, so
+  `--propose` on an unchanged body mints a fresh comment that closes cleanly; and
+  the predicate needs the root author to resolve, so where the root walk fails
+  nothing refuses — **silently**. Not a closed list: it is a reminder, and
+  anything that treats it as a control will be disappointed somewhere else too. It catches the honest case — told no, closed anyway by reflex — and
   stops nobody who means to proceed. Making it real would mean threading
   reactions through the receipt and binding superseded proposals, which is
   machinery this primitive does not want.

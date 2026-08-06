@@ -486,6 +486,33 @@ test("a 👎 from the root author blocks ratification, so the close is refused",
   expect(store.closed).toHaveLength(0);
 });
 
+test("a proposal comment on an auto node is read on the same terms", async () => {
+  // Keying the block on the comment id alone (rather than on autonomy) made
+  // `--proposal-comment` take effect for `auto` nodes too. That is a real
+  // behaviour change and it is pinned here rather than asserted in a comment:
+  // a root-author 👎 refuses an auto close, because an explicit human "no"
+  // should not depend on the node's class.
+  const store = autoGraph();
+  await run(["graph", "close", "520", "--propose", "--body", "x", "--repo", REPO], store);
+  store.reactions.set("c1", [{ id: "r1", content: "-1", author: "jcfischer" }]);
+
+  expect(await failure(["graph", "close", "520", "--proposal-comment", "c1", "--repo", REPO], store)).toContain(
+    "was refused",
+  );
+  expect(store.closed).toHaveLength(0);
+
+  // And with a ratification instead, the auto close proceeds — its probe-derived
+  // evidence is what gates it, with the approval recorded alongside.
+  const ratified = autoGraph();
+  await run(["graph", "close", "520", "--propose", "--body", "x", "--repo", REPO], ratified);
+  ratified.reactions.set("c1", [{ id: "r1", content: "+1", author: "jcfischer" }]);
+  await run(["graph", "close", "520", "--proposal-comment", "c1", "--repo", REPO], ratified);
+
+  expect(ratified.closed).toHaveLength(1);
+  expect(ratified.closed[0].receipt.evidence.some((e) => e.kind === "approved")).toBe(true);
+  expect(ratified.closed[0].receipt.evidence.some((e) => e.kind === "probed")).toBe(true);
+});
+
 test("the veto is one close deep — a fresh proposal carries no refusal", async () => {
   // Pins a documented LIMIT rather than a guarantee. The docs call the veto a
   // speed bump and say re-proposing closes cleanly; that claim is executable
