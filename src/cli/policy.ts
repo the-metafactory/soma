@@ -11,7 +11,7 @@ import type {
   SomaPolicyCheckResult,
 } from "../types";
 import { loadProbeRegistry, type ProbeRegistry } from "../work-graph-probe-registry";
-import { resolveGraphRepo } from "./graph";
+import { resolveGraphRepo } from "../work-graph-bridge";
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
 

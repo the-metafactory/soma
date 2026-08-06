@@ -58,15 +58,13 @@ import {
   type ProbeRegistry,
 } from "../work-graph-probe-registry";
 import { allProbesPassed, runCommand, runProbes as defaultRunProbes } from "../work-graph-probes";
-import { parseRepoFromRemote, readNodeForBridge, resolveGraphRepo } from "../work-graph-bridge";
+// Repo resolution and the bridge's node read live in `../work-graph-bridge` (core),
+// not here: a seam only `src/cli/` can import forces a library/MCP/daemon consumer
+// to re-implement it, becoming the second reader §2.7 forbids. No re-export — the
+// other importers point at core directly, so there is one path to each symbol.
+import { resolveGraphRepo } from "../work-graph-bridge";
 import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";
-
-// Moved to `src/work-graph-bridge.ts` (core) so a library/MCP/daemon consumer can
-// read a node and resolve a repo without importing from `src/cli/` — a seam only
-// the CLI can reach forces exactly the second reader the bridge forbids (Sage,
-// PR #555). Re-exported here for the existing importers.
-export { parseRepoFromRemote, readNodeForBridge, resolveGraphRepo };
 
 const GRAPH_ACTIONS = ["frontier", "node", "claim", "add", "close"] as const;
 type GraphAction = (typeof GRAPH_ACTIONS)[number];
@@ -437,10 +435,6 @@ async function gh(args: string[]): Promise<string> {
   }
   return outcome.stdout.trim();
 }
-
-// `parseRepoFromRemote` and `resolveGraphRepo` moved to `src/work-graph-bridge.ts`
-// (core) so non-CLI consumers resolve a repo the same way — re-exported here for
-// the existing importers.
 
 async function defaultEvidencePointer(): Promise<string | undefined> {
   const head = await runCommand({ argv: ["git", "rev-parse", "HEAD"], timeoutSec: 30 });

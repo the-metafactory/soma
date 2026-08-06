@@ -18,9 +18,10 @@ import {
   removeAlgorithmCapabilitySelection,
   selectAlgorithmCapability,
 } from "./algorithm-capabilities";
-// Type-only, so this stays a compile-time relationship and adds no runtime
-// dependency on the graph from this pure module — see {@link BridgedNodeReport}.
-import type { NodeState } from "./work-graph";
+// The narrow report type the graph publishes for §2.7 — declared THERE, so the
+// graph owns the shape it publishes and this module names a contract rather than
+// a `NodeState`. Type-only: no runtime dependency on the graph from this pure module.
+import type { BridgedNodeReport } from "./work-graph";
 import { classifyAlgorithmPrompt } from "./algorithm-classifier";
 import { compactSmarterRun } from "./algorithm-reflection-digest";
 import {
@@ -218,16 +219,28 @@ export function setAlgorithmPlan(run: AlgorithmRun, planSteps: AlgorithmPlanStep
   for (const step of planSteps) {
     assertNonEmpty(step.text, `plan step ${step.id} text`);
 
-    // §2.7: this call replaces `planSteps[]` wholesale with caller-authored
-    // status, so accepting a `nodeId` here would author a bridged step whose
-    // status never came from its node — the two-homes defect through the plan
-    // call rather than the step call. Bridging goes through
-    // `syncBridgedPlanStep`, where binding and deriving are one act. Without
-    // this, "syncBridgedPlanStep is the one write path" was an assertion with a
-    // second path sitting next to it (Sage, PR #555).
+    // §2.7, incoming direction: this call replaces `planSteps[]` wholesale with
+    // caller-authored status, so accepting a `nodeId` here would author a bridged
+    // step whose status never came from its node. Bridging goes through
+    // `syncBridgedPlanStep`, where binding and deriving are one act.
     if (step.nodeId !== undefined) {
       throw new Error(
         `Algorithm plan step ${step.id} cannot be bridged to work-graph node ${step.nodeId} by setAlgorithmPlan: a bridged step's status must be derived from its node. Plan the step unbridged, then bridge it with syncBridgedPlanStep.`,
+      );
+    }
+
+    // …and the OUTGOING direction, which the incoming check alone left open: an
+    // unbridged step reusing a bridged step's id silently DROPS the bridge, after
+    // which `updateAlgorithmPlanStep` accepts a hand-written `done` on what a
+    // reader still believes is node-derived. Refuse it.
+    //
+    // Dropping the step from the plan entirely is NOT this defect and stays
+    // legal: the step ceases to exist, so nothing claims a node backs it. What is
+    // refused is the same id surviving with its authority quietly removed.
+    const existing = run.planSteps.find((current) => current.id === step.id);
+    if (existing?.nodeId !== undefined) {
+      throw new Error(
+        `Algorithm plan step ${step.id} is bridged to work-graph node ${existing.nodeId}; setAlgorithmPlan cannot un-bridge it. Drop the step from the plan to remove it.`,
       );
     }
 
@@ -620,8 +633,7 @@ export function advanceAlgorithmRunUntil(
 
 /**
  * Look one plan step up, or refuse. Exported so the CLI resolves a step the same
- * way the core does — three copies of this `findIndex` plus its message had
- * drifted apart across two modules (Sage, PR #555).
+ * way the core does, rather than keeping its own copy of this lookup and message.
  */
 export function requirePlanStep(run: AlgorithmRun, stepId: string): { step: AlgorithmPlanStep; index: number } {
   const index = run.planSteps.findIndex((step) => step.id === stepId);
@@ -692,20 +704,7 @@ export function markUnbridgedPlanStepsDone(
   );
 }
 
-/**
- * The node state the bridge derives from — **`Pick`ed from the real
- * `NodeState`** rather than re-declared to match it. Written by hand it was a
- * claim ("a structural subset, so a real `NodeState` satisfies it") that the
- * compiler did not check, and its `blockedBy?` was optional where `NodeState`'s
- * is required: a report missing the field type-checked and silently derived
- * `open` where the node was `blocked` — a fail-OPEN that `tsc` could not see
- * (Sage, PR #555). Deriving the type makes divergence a compile error.
- *
- * The import is type-only, so this pure module still takes no runtime dependency
- * on the graph. The reader is the caller's: {@link readNodeForBridge},
- * `GraphStore.readNode`, or `soma graph node <id> --json`.
- */
-export type BridgedNodeReport = Pick<NodeState, "ref" | "status" | "blockedBy">;
+export type { BridgedNodeReport };
 
 /**
  * Map a node's reported state onto a plan-step status. `closed` is the only
@@ -727,9 +726,9 @@ export function deriveBridgedPlanStepStatus(report: BridgedNodeReport): Algorith
  * to: syncing step A from node B's state would write a status with no relation
  * to the step's authoritative home, which is the same defect as a direct write
  * wearing a derivation's clothes. `bind` does NOT license that — re-homing an
- * already-bridged step is refused too, or `bind` would make the mismatch check
- * unreachable from the one caller that always sets it, and a typo'd `--node`
- * would silently move a step to an unrelated node (Sage, PR #555).
+ * already-bridged step is refused too, or the mismatch check would be unreachable
+ * from the one caller that always sets `bind`, and a typo'd node id would move a
+ * step silently.
  */
 export function syncBridgedPlanStep(
   run: AlgorithmRun,

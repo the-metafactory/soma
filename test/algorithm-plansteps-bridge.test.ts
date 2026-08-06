@@ -17,7 +17,8 @@ import {
 import type { AlgorithmRun, BridgedNodeReport } from "../src/index";
 // Not on the public barrel — its one production consumer imports it here too.
 import { markUnbridgedPlanStepsDone } from "../src/algorithm";
-import type { NodeState } from "../src/work-graph";
+import type { GraphStore, NodeRef, NodeState } from "../src/work-graph";
+import { readNodeForBridge } from "../src/work-graph-bridge";
 import { parseAlgorithmArgs, runAlgorithmCli } from "../src/cli/algorithm";
 
 // docs/work-graph.md §2.7 — planSteps bridge. A bridged step's status is the
@@ -72,6 +73,26 @@ function realNodeState(overrides: Partial<NodeState> = {}): NodeState {
     parent: { id: "495" },
     typed: true,
     ...overrides,
+  };
+}
+
+/**
+ * A `GraphStore` whose only real method is `readNode` — injected at the STORE
+ * seam so `WorkGraph.readNode` (the contract layer) actually runs, which is what
+ * the CLI tests' reader injection skips past.
+ */
+function stubStore(readNode: (ref: NodeRef) => NodeState): GraphStore {
+  return {
+    attestation: "unverified",
+    createNode: async () => ({ id: "unused" }),
+    addBlockingEdge: async () => {},
+    readNode: async (ref) => readNode(ref),
+    listCandidateFrontier: async () => [],
+    claim: async () => ({ held: true, identity: "jcfischer", holder: null, assignees: [] }),
+    postComment: async () => ({ id: "c1", nodeId: "501" }),
+    readComment: async () => ({ id: "c1", nodeId: "501" }),
+    readCommentReactions: async () => [],
+    close: async () => {},
   };
 }
 
@@ -219,12 +240,35 @@ test("setAlgorithmPlan refuses to AUTHOR a bridged step — bridging is not a pl
     criteria: [{ id: "C1", text: "Direct status writes on a bridged step are refused." }],
   });
 
-  // This was the third write path: `setAlgorithmPlan` replaces planSteps[]
-  // wholesale with caller-authored status, so it could mint a bridged step whose
-  // `done` never came from a node — while the docs claimed one write path.
+  // The third write path: `setAlgorithmPlan` replaces planSteps[] wholesale with
+  // caller-authored status, so it could mint a bridged step whose `done` never
+  // came from a node.
   expect(() =>
     setAlgorithmPlan(run, [{ id: "P1", text: "Bridged work", criteriaIds: ["C1"], status: "done", nodeId: "501" }]),
   ).toThrow(/cannot be bridged to work-graph node 501 by setAlgorithmPlan/u);
+});
+
+test("setAlgorithmPlan refuses to UN-bridge a step by reusing its id without the nodeId", () => {
+  const bridged = syncBridgedPlanStep(freshRun(), "P1", report(), { bind: true }, "2026-08-06T10:02:00.000Z");
+
+  // The incoming-only guard left this open: an unbridged step reusing a bridged
+  // id dropped the bridge silently, after which a hand-written `done` was
+  // accepted on a step a reader still believed was node-derived.
+  expect(() =>
+    setAlgorithmPlan(bridged, [
+      { id: "P1", text: "Bridged work", criteriaIds: ["C1"], status: "done" },
+      { id: "P2", text: "Run-owned work", criteriaIds: ["C1"], status: "open" },
+    ]),
+  ).toThrow(/bridged to work-graph node 501; setAlgorithmPlan cannot un-bridge it/u);
+
+  // Dropping the step is a different act and stays legal — the step ceases to
+  // exist, so nothing claims a node backs it.
+  const replanned = setAlgorithmPlan(
+    bridged,
+    [{ id: "P2", text: "Run-owned work", criteriaIds: ["C1"], status: "open" }],
+    "2026-08-06T10:03:00.000Z",
+  );
+  expect(replanned.planSteps.map((step) => step.id)).toEqual(["P2"]);
 });
 
 test("a real NodeState is accepted verbatim as a BridgedNodeReport", () => {
@@ -276,6 +320,42 @@ test("the VERIFY sweep skips bridged steps rather than forging `done`", () => {
     evidence: "derived from work-graph node 501 (open) at 2026-08-06T10:02:00.000Z",
   });
   expect(swept.find((step) => step.id === "P2")).toMatchObject({ status: "done", evidence: "synced from VSA" });
+});
+
+// --- the reader itself ----------------------------------------------------
+
+test("readNodeForBridge returns a report the derivation accepts, through the real WorkGraph", async () => {
+  // The reader had no test of its own: the CLI tests inject past it, so nothing
+  // showed a `GraphStore` response surviving `WorkGraph.readNode` as a conformant
+  // `BridgedNodeReport`. Inject at the STORE seam instead of at the reader, so the
+  // contract layer actually runs.
+  const calls: string[] = [];
+  const store = stubStore((ref) => {
+    calls.push(ref.id);
+    return realNodeState({ ref, status: "open", blockedBy: [{ id: "499", status: "open" }] });
+  });
+
+  const state = await readNodeForBridge("501", { repo: "the-metafactory/soma", createStore: () => store });
+
+  expect(calls).toEqual(["501"]);
+  // The returned NodeState is passed straight to the derivation — no adaptation
+  // step, which is the whole claim of `Pick`ing the report type from `NodeState`.
+  expect(deriveBridgedPlanStepStatus(state)).toBe("blocked");
+  const run = syncBridgedPlanStep(freshRun(), "P1", state, { bind: true }, "2026-08-06T10:02:00.000Z");
+  expect(stepOf(run, "P1")).toMatchObject({ nodeId: "501", status: "blocked" });
+});
+
+test("readNodeForBridge resolves the repo when none is passed", async () => {
+  const repos: string[] = [];
+  await readNodeForBridge("501", {
+    resolveRepo: async () => "the-metafactory/soma",
+    createStore: (repo: string) => {
+      repos.push(repo);
+      return stubStore((ref) => realNodeState({ ref }));
+    },
+  });
+
+  expect(repos).toEqual(["the-metafactory/soma"]);
 });
 
 // --- the CLI surface ------------------------------------------------------
@@ -357,6 +437,41 @@ test("`step --sync` re-derives from the step's OWN node — the node id comes of
 
     expect(reads).toEqual(["501"]);
     expect(output).toContain("[done] P1");
+  });
+});
+
+test("a concurrent re-bind between the two reads fails CLOSED, not silently", async () => {
+  await withTempHome(async (homeDir) => {
+    // `--sync` reads the run to learn which node the step defers to, then
+    // `updateAndReportAlgorithmRun` reads it again to mutate. A concurrent write
+    // between the two could bind against a stale nodeId — but the mutator derives
+    // `nodeId` from the FRESH run and `syncBridgedPlanStep` refuses a report that
+    // names a different node, so the race is caught rather than absorbed. Simulate
+    // it by rewriting the run inside the injected read.
+    await writeAlgorithmRun(
+      syncBridgedPlanStep(freshRun(), "P1", report(), { bind: true }, "2026-08-06T10:02:00.000Z"),
+      { homeDir },
+    );
+
+    await expect(
+      runAlgorithmCli(
+        parseAlgorithmArgs(["algorithm", "step", "--home-dir", homeDir, "--id", "bridge-run", "--step-id", "P1", "--sync"]),
+        {
+          readNode: async (nodeId: string) => {
+            // Someone re-plans the step onto node 777 while we hold node 501's state.
+            await writeAlgorithmRun(
+              syncBridgedPlanStep(freshRun(), "P1", report({ ref: { id: "777" } }), { bind: true }, "2026-08-06T10:03:00.000Z"),
+              { homeDir },
+            );
+            return report({ ref: { id: nodeId }, status: "closed" });
+          },
+        },
+      ),
+    ).rejects.toThrow(/bridged to work-graph node 777, but the reported node is 501/u);
+
+    // The stale `closed` was NOT written.
+    const { run } = await readAlgorithmRunById("bridge-run", { homeDir });
+    expect(stepOf(run, "P1")).toMatchObject({ nodeId: "777", status: "open" });
   });
 });
 

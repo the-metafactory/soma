@@ -8,7 +8,7 @@
  * this step", and a seam only the CLI can import forces a library, MCP or daemon
  * consumer — every one of which can already reach the *write* half through
  * `src/index.ts` — to re-implement repo resolution and become exactly that second
- * reader (Sage, PR #555).
+ * reader.
  */
 import { WorkGraph } from "./work-graph";
 import type { GraphStore, NodeState } from "./work-graph";

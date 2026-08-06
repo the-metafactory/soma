@@ -325,23 +325,39 @@ from the node, read via `GraphStore.readNode` (surfaced as
 `docs/algorithm-execution-modes.md` is correspondingly narrowed to "no
 parallel work registry **at the same scope**" (#484).
 
-**Implemented** (#501). The spec named one write path to refuse; the run had
-**three**, and the exhaustiveness had to be established rather than asserted
-(Sage caught the claim standing on an enumeration of two):
+**Implemented** (#501). The spec named one write path to refuse. The run has
+three *mutation helpers* that can reach a step's status, and each is handled — but
+be precise about what that buys, because the first version of this section claimed
+exhaustiveness on the strength of a hand-made list that had missed one:
+
+> The invariant is enforced at the **mutation layer, not in the type.** Nothing
+> stops a caller from constructing an `AlgorithmRun` literal with a bridged step
+> and a hand-written `done` and handing it to `writeAlgorithmRun` — which is on the
+> public barrel and takes a whole run. A list of guarded functions cannot rule that
+> out, and no count of entries makes it exhaustive; only moving `status` out of the
+> bridged step's shape could, and that is a larger change than #501.
+
+So: a bridged step's status cannot be forged *through the helpers a run is
+normally mutated by*, and the three below are those helpers.
 
 - `updateAlgorithmPlanStep` — the per-step write. **Refuses** on a bridged step.
   `applyAlgorithmBatch`'s `step` operation routes through it, so it is covered by
   construction rather than by a second check.
 - `setAlgorithmPlan` — replaces `planSteps[]` wholesale with caller-authored
-  status. **Refuses** any incoming step carrying a `nodeId`: bridging is not a
-  planning act, so a bridged step cannot be *authored* into existence with a
-  status that never came from its node.
+  status. **Refuses in both directions**, which took two passes to get right:
+  - an *incoming* step carrying a `nodeId`, since bridging is not a planning act
+    and a bridged step must not be authored into existence with a status that
+    never came from its node; and
+  - an incoming step reusing an *existing bridged* step's id, which silently
+    dropped the bridge and left `updateAlgorithmPlanStep` willing to accept a
+    hand-written `done` on a step a reader still believed was node-derived.
+
+  Dropping the step from the plan entirely stays legal: the step ceases to exist,
+  so nothing claims a node backs it. What is refused is the id surviving with its
+  authority quietly removed.
 - The VSA sync's VERIFY sweep — flipped every open step to `done` from the VSA's
   phase alone. A whole-run map has no single step to refuse for, so
   `markUnbridgedPlanStepsDone` **skips** bridged steps instead of throwing.
-
-So `syncBridgedPlanStep` is the one write path for a bridged step's status
-because the other two refuse to produce one, not because they were not looked at.
 
 - **Binding is a derivation.** `syncBridgedPlanStep(run, stepId, report, {bind})`
   is also how a step first acquires its `nodeId` — attaching the reference

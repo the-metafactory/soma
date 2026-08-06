@@ -44,7 +44,7 @@ import { defaultEvidenceKind, getCriteria, getGoal } from "../vsa-accessors";
 import { getRunPhase } from "../algorithm-lifecycle";
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
-import { readNodeForBridge } from "./graph";
+import { readNodeForBridge } from "../work-graph-bridge";
 import type {
   AlgorithmBatchOperation,
   AlgorithmEffortTier,
@@ -98,9 +98,9 @@ export const ALGORITHM_COMMAND_HELP: { usage: string; subcommands: Record<Algori
     decision: "Usage: soma algorithm decision --id <run-id> --text <text> [--home-dir <dir>] [--soma-home <dir>]",
     change: "Usage: soma algorithm change --id <run-id> --text <text> [--home-dir <dir>] [--soma-home <dir>]",
     step:
-      "Usage: soma algorithm step --id <run-id> --step-id <id> (--status <open|done|blocked> [--evidence <text>] | --node <node-id> | --sync) [--repo <owner/name>]. " +
+      "Usage: soma algorithm step --id <run-id> --step-id <id> (--status <open|done|blocked> [--evidence <text>] | (--node <node-id> | --sync) [--repo <owner/name>]). " +
       "--node bridges the step to a work-graph node and derives its status from it; --sync re-derives an already-bridged step. " +
-      "--status is refused on a bridged step: the node is its one authoritative home (docs/work-graph.md §2.7).",
+      "The bridged arm takes NEITHER --status nor --evidence — both are derived from the node, which is the step's one authoritative home (docs/work-graph.md §2.7).",
     verify: "Usage: soma algorithm verify --id <run-id> --criterion-id <id> --status <passed|failed|dropped|deferred-probe> --evidence <text> [--evidence-kind <specified|probed|tested>] [--substrate <id>]",
     learn: "Usage: soma algorithm learn --id <run-id> --text <text> [--substrate <id>] [--home-dir <dir>] [--soma-home <dir>]",
     reflect:
@@ -484,10 +484,9 @@ export function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
         options.stepId = readOption(rest, index, arg);
         index += 1;
         break;
-      // Scoped to `step`, matching the `--status` arm below. Unguarded, every
-      // algorithm subcommand silently accepted the graph-bridge flags — two
-      // conventions in one switch, so the next flag's correct shape is a guess
-      // (Sage, PR #555).
+      // Scoped to `step`, matching the `--status` arm below: an unguarded arm
+      // accepts the flag on every algorithm subcommand, and two conventions in one
+      // switch make the next flag's correct shape a guess.
       case "--node":
         if (action !== "step") throw new Error("--node is only valid for step.");
         options.stepNodeId = readOption(rest, index, arg);
@@ -784,7 +783,7 @@ export interface AlgorithmCliDeps {
 async function resolveBridgedNodeId(options: AlgorithmCliOptions, stepId: string): Promise<string> {
   const id = requireAlgorithmId(options);
   const { run } = await readAlgorithmRunById(id, { homeDir: options.homeDir, somaHome: options.somaHome });
-  // Shared lookup, not a third copy of `findIndex` + its message (Sage, PR #555).
+  // The core's lookup, not a third copy of it and its message.
   const { step } = requirePlanStep(run, stepId);
 
   if (step.nodeId === undefined) {
@@ -810,9 +809,8 @@ async function runStepAction(options: AlgorithmCliOptions, deps: AlgorithmCliDep
 
   if (bind || sync) {
     // Naming a collision beats silently preferring one side of it. `--status` is
-    // the write §2.7 refuses outright; `--evidence` is subtler and was being
-    // accepted and then discarded, since the derived pointer always overwrites it
-    // (Sage, PR #555) — the same silent preference this refusal exists to reject.
+    // the write §2.7 refuses outright; `--evidence` is subtler — the derived
+    // pointer always overwrites it, so accepting it would discard it in silence.
     if (options.stepStatus !== undefined) {
       throw new Error("--status cannot be combined with --node or --sync: a bridged step's status derives from its node.");
     }
