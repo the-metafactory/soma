@@ -331,8 +331,8 @@ be precise about what that buys, because the first version of this section claim
 exhaustiveness on the strength of a hand-made list that had missed one:
 
 > The invariant is enforced at the **mutation layer, not in the type**, and the
-> mutation layer is a set of speed bumps rather than a seal. Two holes, both
-> demonstrated rather than theorised:
+> mutation layer is a set of speed bumps rather than a seal. Two holes — the
+> second demonstrated by a test, the first following from the signature:
 >
 > - `writeAlgorithmRun` is on the public barrel and takes a whole run, so a caller
 >   can construct an `AlgorithmRun` literal with a bridged step and a hand-written
@@ -366,6 +366,12 @@ step no longer claims a node backs it.
   Dropping the step from the plan entirely stays legal: the step ceases to exist,
   so nothing claims a node backs it. What is refused is the id surviving with its
   authority quietly removed.
+
+  Note what that costs, since it is easy to read this section as stricter than it
+  is: **dropping the step also clears the VERIFY gate**, because a removed step
+  gates nothing. The "open bridged step holds the run short of VERIFY" property
+  below is therefore a cost a caller can decline, not a lock — and the removal is
+  neither refused nor recorded.
 - The VSA sync's VERIFY sweep — flipped every open step to `done` from the VSA's
   phase alone. A whole-run map has no single step to refuse for, so
   `markUnbridgedPlanStepsDone` **skips** bridged steps instead of throwing.
