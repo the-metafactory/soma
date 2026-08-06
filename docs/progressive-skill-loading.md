@@ -133,8 +133,14 @@ optional workspace overlays. It is safe to project into substrate homes because
 it is small and descriptive.
 
 The registry is **the** stub contract. Substrates consume it; they do not define
-their own. Its entry shape is owned by `renderSkillRegistryEntry()` and its size
-is bounded by `SKILL_REGISTRY_LINE_BUDGET`.
+their own. Its entry shape is owned by `renderSkillRegistryEntry()`.
+
+`SKILL_REGISTRY_LINE_BUDGET` (300) is a **design target, not a runtime cap**.
+`renderSkills()` emits every skill, so the real catalog can cross it as skills
+accumulate; the constant is asserted in `test/skill-registry.test.ts` against
+synthetic fixtures, not against the shipped catalog. It measured ~122 lines at
+~104 skills and 201 lines at 114, so the budget needs watching rather than
+assuming.
 
 ### Skill Loader
 
@@ -163,11 +169,11 @@ loads bodies on demand — its session receives the registry plus a name and
 description listing, not 18,644 lines. Pi does not. Same registry, same
 symlinks, different loader. Nothing about any skill changed.
 
-Add one field to the install spec, beside the loader root it already owns
-(`src/install-spec.ts:107`, soma#356):
+Add one field to `SubstrateInstallSpec` (`src/install-spec.ts:79`), beside the
+loader root it already owns (`:107`, soma#356):
 
 ```ts
-interface InstallSpec {
+interface SubstrateInstallSpec<S extends InstallSubstrate = InstallSubstrate> {
   skillsLoaderDir(substrateHome: string): string;
   skillsLoading: "on-demand" | "eager";   // NEW
 }
@@ -190,10 +196,24 @@ Bodies project as symlinks today (`ensureSymlink()`, `skill-projection.ts:163`):
 one body in `~/.soma/skills/<name>`, N loader entries. A symlink cannot be a
 partial view of its target.
 
-So for `skillsLoading: "eager"`, the adapter must **generate** a stub file into
-the loader dir instead of linking. The stub is rendered from the same source as
-the registry entry, so the two can never drift. The registry entry already
-carries the resolve path, so trigger-time promotion has its target.
+So for `skillsLoading: "eager"`, projection must **generate** a stub into the
+loader dir instead of linking.
+
+A stub is a **directory**, not a catalog line. An eager substrate's loader scans
+`skillsLoaderDir(home)/<name>/` and reads `SKILL.md` from inside it — pi-dev
+resolves that to `~/.pi/agent/skills/<name>/` (`skillsLoaderUnder("agent")`,
+`src/adapters/pi-dev/install.ts:44`). So the stub is:
+
+```text
+<skillsLoaderDir>/<name>/SKILL.md   frontmatter only + a pointer to the body
+```
+
+The pointer resolves to the registry path `~/.soma/skills/<name>/SKILL.md`, which
+is what trigger-time promotion reads.
+
+Stub and registry entry are two renderers over the same `SomaSkill` frontmatter,
+so they cannot drift on content — but they are not the same artifact, and
+`renderSkillRegistryEntry()` is not the stub renderer.
 
 This is the concrete form of the original spec's "substrates without native file
 loading" rule. It moves from prose to a typed adapter obligation.
@@ -308,7 +328,7 @@ router and ship first.
 1. **Deduplicate the kernel projection.** Collapse `PROFILE.md` / `PURPOSE.md`
    into `CONTEXT.md`, and move `README.md` out of the loaded `rules/` path.
    ~21% of always-on context. No new types. (DD-E)
-2. **Add `skillsLoading` to `InstallSpec`.** Set every current adapter to
+2. **Add `skillsLoading` to `SubstrateInstallSpec`.** Set every current adapter to
    `on-demand` except `pi-dev`. (DD-A)
 3. **Generate stubs for eager substrates** from the registry renderer instead of
    symlinking bodies. (DD-B)
