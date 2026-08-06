@@ -633,34 +633,11 @@ export function assertClosable(node: WorkGraphNode, receipt: CloseReceipt): void
   // Evidence is required of `auto` nodes only, and there it costs nothing: the
   // `probed` entry is derived from probes that already ran and passed.
   //
-  // HITL nodes close on the session's say-so. Requiring a ratified proposal here
-  // was the original rule, and it was wrong for what this primitive is: a way to
-  // structure work whose route is unclear, walked by a human who is *present*.
-  // A gate naming no consumer is ceremony (§1 clause 3), and where one person
-  // walks a map the ratification gate named none — nobody else could ratify, so
-  // it did not verify the close, it only prevented it. #499 is the worked
-  // example: finished, merged, evidenced work that the gate refused, protecting
-  // no one.
-  //
-  // The removal is UNCONDITIONAL, not scoped to single-operator deployments, and
-  // that is the deliberate part. "How many people are watching" is not derivable
-  // — two attempts to derive it failed review — so conditioning the gate on it
-  // would condition it on a guess. A multi-party deployment instead gets a
-  // receipt that RECORDS THE ABSENCE: on a bare close no proposal is read, so
-  // there is no ratifier to name, and `attestationFacts.reasons` says exactly
-  // that — "no proposal comment recorded", "no ratification found". Their
-  // absence is the audit signal, not their presence. An unratified close is
-  // therefore visible rather than prevented, and a person reading the node can
-  // act on it. If a consumer appears who needs it gated, it returns as an
-  // opt-in naming them.
-  //
-  // The receipt still records everything it recorded before — proposal, ratifier,
-  // root authorship, confinement, `attestation`. Nothing is hidden; a reader can
-  // still tell a ratified close from an unratified one. What changed is that an
-  // unratified close is now *possible*, not *approved*.
-  //
-  // The two-phase `--propose` flow remains for when a second opinion is wanted.
-  // It is a tool, no longer a toll.
+  // HITL nodes close on the session's say-so, unconditionally — not scoped to
+  // single-operator deployments. The receipt still distinguishes the two cases:
+  // a bare close records the absence of a proposal and ratification in
+  // `attestationFacts.reasons`, so an unratified close is visible rather than
+  // prevented. See §3.2.
   if (node.autonomy !== "auto") return;
 
   const admissible = agentExternalEvidenceKinds(node.autonomy);

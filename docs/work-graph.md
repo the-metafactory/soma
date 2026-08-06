@@ -350,59 +350,24 @@ What remains:
   proposal and `close --proposal-comment <id>` reads its reactions, for when a
   second opinion is genuinely wanted. Ratification is admissible evidence; its
   absence is not a defect.
-- **An explicit refusal is surfaced, not enforced.** When `--proposal-comment` is
-  supplied, a 👎 from the graph root's author on that comment refuses *that*
-  close, naming who refused.
+- **An explicit refusal is surfaced, not enforced.** With `--proposal-comment`, a
+  👎 from the graph root's author on that comment refuses that close, naming who
+  refused.
 
-  It is a speed bump and the spec says so rather than overselling it. Its limits,
-  all deliberate: it lives in the CLI, not in `assertClosable`, so a non-CLI
-  consumer of the seam gets none of it; a bare `close` reads no reactions and
-  cannot be refused by one; nothing binds a new proposal to a refused one, so
-  `--propose` on an unchanged body mints a fresh comment that closes cleanly; and
-  the predicate needs the root author to resolve, so where the root walk fails
-  nothing refuses — **silently**. Not a closed list: it is a reminder, and
-  anything that treats it as a control will be disappointed somewhere else too. It catches the honest case — told no, closed anyway by reflex — and
-  stops nobody who means to proceed. Making it real would mean threading
-  reactions through the receipt and binding superseded proposals, which is
-  machinery this primitive does not want.
+  A reminder, not a control, and its limits are not a closed list: it lives in
+  the CLI rather than `assertClosable`, so a non-CLI consumer of the seam gets
+  none of it; a bare `close` reads no reactions; nothing binds a new proposal to
+  a refused one; and it needs the root author to resolve, so where the root walk
+  fails nothing refuses, silently.
 
-- **The receipt still distinguishes the two cases.** A ratified close records the
-  proposal and ratifier; a bare one records their *absence*, in
+- **The receipt distinguishes the two cases.** A ratified close records the
+  proposal and ratifier; a bare one records their absence in
   `attestationFacts.reasons` ("no proposal comment recorded", "no ratification
-  found"), alongside root authorship, confinement and `attestation`. Either way a
-  reader can tell which happened. What changed is that an unratified close is
-  *possible*, not that it is *approved*.
+  found"), alongside root authorship, confinement and `attestation`.
 
-**On multi-party deployments.** The gate is removed for *every* deployment, not
-only single-operator ones, and that is deliberate rather than incidental: "how
-many people are watching" is not derivable, so a rule conditioned on it would be
-a rule conditioned on a guess. Two attempts were made and both failed review;
-neither survives in a merged commit, so they are cited where they actually live:
-**graph-root authorship** (self-conferred — `findGraphRoot` returns the node
-itself when it has no parent) and **one reachable credential** (universal — true
-of any solo-token contributor), both on branch `feat/self-ratification` at
-`b8acfe4`, with the reasoning in the closing comment of
-[#548](https://github.com/the-metafactory/soma/pull/548). What a multi-party deployment gets instead is a receipt that **records the
-absence**. On a bare close no proposal is read, so there is no ratifier to name —
-and `attestationFacts.reasons` says exactly that: *"no proposal comment
-recorded"*, *"no ratification found"*, alongside the root authorship and
-confinement facts. An unratified close is therefore *visible* rather than
-*prevented*, and a person reading the node can act on it after the fact.
-
-The consumer named here is a **human reading the record**, deliberately — not the
-phase-2 auditor. Justifying the removal by appealing to an auditor that does not
-exist would be the same move this change is undoing: a gate defended by a
-consumer nobody can point at.
-
-Their absence — not their presence — is the audit signal on the default path.
-Stated twice in this section on purpose: an earlier revision asserted the
-ratified-close field list as if it applied to every close, and a correction that
-is appended rather than *applied* leaves a document saying both things.
-
-That is a real trade. A team wanting closes gated on a second party's approval
-does not get that from this primitive today; they get an auditable record that
-one did not happen. If such a consumer appears, the gate returns as an opt-in
-naming them — which is what §1 clause 3 asks of any gate.
+The removal is unconditional — it is not scoped to single-operator deployments.
+A deployment wanting closes gated on a second party's approval does not get that
+from this primitive; it gets a record of whether one happened.
 
 #### Deriving `attestation` (#502)
 

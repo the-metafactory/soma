@@ -103,11 +103,12 @@ prevented them.
 
 **A 👎 is surfaced, not enforced.** If you pass `--proposal-comment` and the
 graph root's author left a 👎 on it, the close refuses and names them — provided
-the root author could be resolved at all. Where the root walk fails, no reaction
-matches and nothing refuses, silently. Treat it
-as a reminder: it catches you closing by reflex after being told no, and it stops
-nothing else. A bare `close` reads no reactions at all, and re-proposing produces
-a fresh comment that closes cleanly — nothing binds it to the refused one.
+the root author resolves at all; where the root walk fails, nothing refuses and
+nobody is named.
+
+Treat it as a reminder: it catches you closing by reflex after being told no, and
+stops nothing else. A bare `close` reads no reactions, and re-proposing produces a
+fresh comment that closes cleanly — nothing binds it to the refused one.
 
 So the honest reading is that being refused is *recorded*, not *prevented*. If
 you close around a 👎, the receipt shows a close with no refusal in it, and the
