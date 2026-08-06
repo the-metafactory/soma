@@ -1,6 +1,7 @@
 # Progressive Skill Loading
 
-**Status:** Revised spec. Registry tier shipped; router and manifest tiers unbuilt.
+**Status:** Registry tier and the eager-substrate path shipped (#550, #551, #552).
+Router and manifest tiers unbuilt.
 **Date:** 2026-08-06
 
 Progressive skill loading keeps Soma's capability surface broad without putting
@@ -77,11 +78,15 @@ re-specify shipped work:
 | Trigger / anti-trigger extraction | **Shipped** | `extractUseWhenTriggers()`, `extractAntiTriggers()`, `skill-registry.ts:85,110` |
 | Catalog auto-refresh on projection | **Shipped** | `refreshSkillCatalogs()`, `src/skill-projection.ts:316` |
 | Per-substrate loader root | **Shipped** | `skillsLoaderDir()`, `src/install-spec.ts:107`, 6 adapters |
-| Body projection | **Shipped as symlink** | `ensureSymlink()`, `src/skill-projection.ts:163` |
+| Body projection (on-demand) | **Shipped as symlink** | `ensureSymlink()`, `src/skill-projection.ts` |
+| `skillsLoading` capability | **Shipped** (#550) | `SkillsLoadingMode`, `src/install-spec.ts`; 6 adapters |
+| Stub generation for eager loaders | **Shipped** (#550) | `ensureSkillStub()`, `src/skill-projection.ts`; `renderSkillStub()`, `src/adapters/shared/skill-stub.ts` |
+| Trigger-time promotion (pi-dev) | **Shipped** (#551) | `soma_context action=skill_body`, `src/adapters/pi-dev/adapter.ts` |
+| Stub-integrity drift check | **Shipped** (#552) | `diagnoseSkillStubDrift()`, `src/adapters/skill-stub-doctor.ts` |
 | `SomaSkillManifest` | **Typed, not materialized** | `src/types.ts:958`; **0** `soma-skill.json` files on disk |
 | `SkillRoute` | **Not built** | 0 occurrences in `src/` |
 | `estimatedTokens` / budget reporting | **Not built** | 0 occurrences in `src/` |
-| `defaultLoad` tiering | **Not built** | 0 occurrences in `src/` |
+| `defaultLoad` tiering | **Not built** | no occurrences in `src/` (the two `defaultLoadProbeRegistry` hits in `src/cli/graph.ts` are an unrelated import alias) |
 
 The registry tier is done. On this machine it renders 201 lines for 114 skills,
 inside the 300-line budget, with name, short description, `triggers:`, `not:`,
@@ -229,6 +234,22 @@ that costs more than the body being loaded. This constraint is not optional and
 is not visible from the skill side, which is a second reason DD-A belongs in the
 install spec.
 
+**On pi-dev this was already satisfied before the rule was written.** An earlier
+revision of this section implied promotion delivery was an open design problem
+there. It was not: `soma_context` returns `{ content: [{ type: "text", … }] }`
+and has no route to the system prompt — that is `before_agent_start`'s return
+shape, a different hook. #551 therefore added ergonomics (`action: skill_body`
+taking a skill name) on top of a mechanism that already had the property.
+
+The rule still earns its place, for two reasons. It is a **constraint on future
+adapters**, where the cheap-looking implementation — appending the body to the
+system prompt — is the expensive one. And on pi-dev it is now pinned rather than
+incidental: a test counts every `return {` inside the tool's `execute` against
+every `return { content: [{ type: "text"`, so an edit that introduces a
+differently-shaped exit fails.
+
+State it as a property to preserve, not as work to schedule.
+
 ### DD-D: Derive routing metadata from frontmatter; defer `soma-skill.json`
 
 The original spec made `soma-skill.json` the source of truth for routing
@@ -322,33 +343,47 @@ substrate-specific context. They do not own skill semantics.
 
 ## Migration Plan
 
-Ordered by cost against measured benefit. Steps 1 and 2 are independent of the
-router and ship first.
+Ordered by cost against measured benefit.
 
-1. **Deduplicate the kernel projection.** Collapse `PROFILE.md` / `PURPOSE.md`
-   into `CONTEXT.md`, and move `README.md` out of the loaded `rules/` path.
-   ~21% of always-on context. No new types. (DD-E)
-2. **Add `skillsLoading` to `SubstrateInstallSpec`.** Set every current adapter to
-   `on-demand` except `pi-dev`. (DD-A)
-3. **Generate stubs for eager substrates** from the registry renderer instead of
-   symlinking bodies. (DD-B)
-4. **Instrument.** Report kernel, registry, and body tokens per substrate
-   projection. This is the baseline every later claim is measured against, so it
-   precedes the router rather than following it.
-5. **Add the deterministic router** — lexical trigger scoring, anti-trigger
-   gates, substrate gates, budget gates — with its labelled query set. (DD-F)
-6. **Record** selected skills and loaded paths in Algorithm or session state.
-7. **Revisit `soma-skill.json` and kernel `scope` gating** only if steps 4–6
-   surface a routing decision that frontmatter cannot express. (DD-D, DD-E)
+- [x] **Add `skillsLoading` to `SubstrateInstallSpec`.** Every adapter
+      `on-demand` except `pi-dev`. (DD-A, #550)
+- [x] **Generate stubs for eager substrates** instead of symlinking bodies.
+      (DD-B, #550)
+- [x] **Trigger-time promotion on pi-dev** — `soma_context action=skill_body`,
+      plus the stub protocol in the projected kernel skill. (DD-C, #551)
+- [x] **Stub-integrity drift check** — a projected stub whose body no longer
+      resolves is an error, not silence. (#552)
+- [ ] **Deduplicate the kernel projection.** Collapse `PROFILE.md` /
+      `PURPOSE.md` into `CONTEXT.md`, and move `README.md` out of the loaded
+      `rules/` path. ~21% of always-on context. No new types, and independent of
+      everything else here. (DD-E)
+- [ ] **Instrument.** Report kernel, registry, and body tokens per substrate
+      projection. The baseline every later claim is measured against, so it
+      precedes the router rather than following it.
+- [ ] **Add the deterministic router** — lexical trigger scoring, anti-trigger
+      gates, substrate gates, budget gates — with its labelled query set. (DD-F)
+- [ ] **Record** selected skills and loaded paths in Algorithm or session state.
+- [ ] **Revisit `soma-skill.json` and kernel `scope` gating** only if the three
+      items above surface a routing decision frontmatter cannot express.
+      (DD-D, DD-E)
+
+The eager-substrate half is done: pi-dev no longer pays ~200K tokens of skill
+bodies at session start, and the body it does load arrives on demand. What
+remains is the *selection* problem — which skill to promote — and that is what
+the router and its instrumentation are for.
 
 ## Verification Criteria
 
 - A substrate startup projection generates without including full bodies for
   unrelated skills.
 - An eager substrate's loader dir contains generated stubs, and the registry
-  entry resolves to the real body path.
+  entry resolves to the real body path. *(Met — #550; the end-to-end case uses a
+  skill sourced from outside the Soma home, where source path and registry slot
+  differ.)*
 - Promotion of a skill body on an eager substrate does not modify the system
-  prompt.
+  prompt. *(Met — #551, pinned by a test over the tool's return shapes.)*
+- A stub whose body no longer resolves is reported, not silently followed.
+  *(Met — #552.)*
 - A task that names or clearly triggers a skill loads that skill entrypoint.
 - A task with no matching skill keeps only kernel and registry context.
 - Anti-triggers prevent lexically similar but irrelevant skills from loading.
