@@ -45,6 +45,7 @@ import { getCriteria, getDecisions, getGoal, isClosedCriterion } from "./vsa-acc
 import { _promoteAlgorithmRunMemoryWithCallback } from "./memory-promotion";
 import type {
   AlgorithmPhase,
+  AlgorithmPlanStep,
   AlgorithmRun,
   VerificationStateArtifact,
   Checkpoint,
@@ -195,7 +196,21 @@ function phaseIndex(phase: AlgorithmPhase): number {
  * is passed/dropped, so we never try to advance past VERIFY when criteria are
  * still open — even if the VSA claims `learn`/`complete`.
  */
-function reachableTargetPhase(target: AlgorithmPhase, criteria: readonly Checkpoint[]): AlgorithmPhase {
+function reachableTargetPhase(
+  target: AlgorithmPhase,
+  criteria: readonly Checkpoint[],
+  planSteps: readonly AlgorithmPlanStep[] = [],
+): AlgorithmPhase {
+  // An open BRIDGED step is un-sweepable by design (§2.7) — only its node closing
+  // moves it — so the VERIFY gate cannot be satisfied here. Cap at EXECUTE rather
+  // than let `advanceRunToPhase` throw: the throw unwinds to the outer
+  // failure-isolation catch, which no-ops the WHOLE sync and discards the criteria
+  // reconciliation done before the advance. Same shape as the LEARN cap below —
+  // stop at the un-passable gate, keep the work that already succeeded.
+  const bridgedOpen = planSteps.some((step) => step.nodeId !== undefined && step.status === "open");
+  if (bridgedOpen && phaseIndex(target === "complete" ? "learn" : target) > phaseIndex("execute")) {
+    return "execute";
+  }
   // Mirror the LEARN integrity gate via the shared rule so the two cannot drift:
   // a `passed` criterion verified by specification only (e.g. a pass fabricated
   // from a frontmatter progress counter) cannot clear LEARN, so sync caps such a
@@ -512,7 +527,7 @@ async function syncAlgorithmRunFromVsaInner(
   const reconciledCriteria = getCriteria(run.vsa);
 
   // 2. Advance forward to (a reachable cap of) the VSA's declared phase. Never backward.
-  const targetPhase = reachableTargetPhase(isa.frontmatter.phase, reconciledCriteria);
+  const targetPhase = reachableTargetPhase(isa.frontmatter.phase, reconciledCriteria, run.planSteps);
   if (phaseIndex(getRunPhase(run)) < phaseIndex(targetPhase)) {
     run = advanceRunToPhase(run, targetPhase, timestamp, options.substrate);
   }

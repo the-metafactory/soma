@@ -229,18 +229,21 @@ export function setAlgorithmPlan(run: AlgorithmRun, planSteps: AlgorithmPlanStep
       );
     }
 
-    // …and the OUTGOING direction, which the incoming check alone left open: an
-    // unbridged step reusing a bridged step's id silently DROPS the bridge, after
-    // which `updateAlgorithmPlanStep` accepts a hand-written `done` on what a
-    // reader still believes is node-derived. Refuse it.
+    // …and the outgoing direction: an unbridged step reusing a bridged step's id
+    // drops the bridge in place, after which `updateAlgorithmPlanStep` accepts a
+    // hand-written `done` on what a reader still believes is node-derived.
     //
-    // Dropping the step from the plan entirely is NOT this defect and stays
-    // legal: the step ceases to exist, so nothing claims a node backs it. What is
-    // refused is the same id surviving with its authority quietly removed.
+    // This is a SPEED BUMP, not a seal, and the distinction is load-bearing:
+    // removing the step in one call and re-adding it unbridged in the next
+    // reproduces the same end state, and nothing here can see across two calls.
+    // What it buys is that un-bridging cannot happen *incidentally* — a re-plan
+    // that happens to omit a `nodeId` is caught, rather than quietly demoting a
+    // step's authority. Deliberately unbridging still works, and the end state is
+    // honest: the step no longer claims a node backs it.
     const existing = run.planSteps.find((current) => current.id === step.id);
     if (existing?.nodeId !== undefined) {
       throw new Error(
-        `Algorithm plan step ${step.id} is bridged to work-graph node ${existing.nodeId}; setAlgorithmPlan cannot un-bridge it. Drop the step from the plan to remove it.`,
+        `Algorithm plan step ${step.id} is bridged to work-graph node ${existing.nodeId}; setAlgorithmPlan cannot un-bridge it in place. A bridged step cannot be re-planned at all — omit it to remove it, then plan it afresh if you want it run-owned.`,
       );
     }
 

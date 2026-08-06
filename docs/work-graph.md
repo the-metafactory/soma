@@ -330,15 +330,26 @@ three *mutation helpers* that can reach a step's status, and each is handled —
 be precise about what that buys, because the first version of this section claimed
 exhaustiveness on the strength of a hand-made list that had missed one:
 
-> The invariant is enforced at the **mutation layer, not in the type.** Nothing
-> stops a caller from constructing an `AlgorithmRun` literal with a bridged step
-> and a hand-written `done` and handing it to `writeAlgorithmRun` — which is on the
-> public barrel and takes a whole run. A list of guarded functions cannot rule that
-> out, and no count of entries makes it exhaustive; only moving `status` out of the
-> bridged step's shape could, and that is a larger change than #501.
+> The invariant is enforced at the **mutation layer, not in the type**, and the
+> mutation layer is a set of speed bumps rather than a seal. Two holes, both
+> demonstrated rather than theorised:
+>
+> - `writeAlgorithmRun` is on the public barrel and takes a whole run, so a caller
+>   can construct an `AlgorithmRun` literal with a bridged step and a hand-written
+>   `done` and persist it.
+> - `setAlgorithmPlan`'s un-bridge refusal is **per-call**. Removing the step in
+>   one call and re-adding it unbridged in the next reproduces the end state the
+>   single-call refusal rejects; nothing sees across two calls.
+>
+> Only moving `status` out of a bridged step's shape would actually close these,
+> and that is a larger change than #501.
 
-So: a bridged step's status cannot be forged *through the helpers a run is
-normally mutated by*, and the three below are those helpers.
+So the accurate claim is narrower than "one write path": a bridged step's status
+cannot be forged **incidentally**. A re-plan that happens to omit a `nodeId`, a
+VSA sweep that flushes every open step, a routine `--status done` — each is caught,
+so a step's authority is never demoted as a side effect of something else. A caller
+who sets out to un-bridge a step can still do it, and the end state is honest: the
+step no longer claims a node backs it.
 
 - `updateAlgorithmPlanStep` — the per-step write. **Refuses** on a bridged step.
   `applyAlgorithmBatch`'s `step` operation routes through it, so it is covered by

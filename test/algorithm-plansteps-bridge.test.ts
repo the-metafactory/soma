@@ -271,6 +271,33 @@ test("setAlgorithmPlan refuses to UN-bridge a step by reusing its id without the
   expect(replanned.planSteps.map((step) => step.id)).toEqual(["P2"]);
 });
 
+test("the un-bridge refusal is a speed bump, not a seal — remove-then-re-add reaches the same end state", () => {
+  // Pinning the LIMIT, not the guarantee. The refusal is per-call and nothing
+  // sees across two, so this sequence works — and the docs and the `status`
+  // docblock must keep saying so. If a future change closes it, this test fails
+  // and the claim gets upgraded deliberately rather than by accident.
+  const bridged = syncBridgedPlanStep(freshRun(), "P1", report(), { bind: true }, "2026-08-06T10:02:00.000Z");
+
+  const removed = setAlgorithmPlan(
+    bridged,
+    [{ id: "P2", text: "Run-owned work", criteriaIds: ["C1"], status: "open" }],
+    "2026-08-06T10:03:00.000Z",
+  );
+  const readded = setAlgorithmPlan(
+    removed,
+    [
+      { id: "P1", text: "Bridged work", criteriaIds: ["C1"], status: "open" },
+      { id: "P2", text: "Run-owned work", criteriaIds: ["C1"], status: "open" },
+    ],
+    "2026-08-06T10:04:00.000Z",
+  );
+
+  expect(stepOf(readded, "P1").nodeId).toBeUndefined();
+  // …and the step is now genuinely run-owned, so a direct write is correct.
+  const written = updateAlgorithmPlanStep(readded, "P1", "done", "run owns it now", "2026-08-06T10:05:00.000Z");
+  expect(stepOf(written, "P1").status).toBe("done");
+});
+
 test("a real NodeState is accepted verbatim as a BridgedNodeReport", () => {
   // The type claims `NodeState` satisfies it; this is the claim being exercised
   // with a value rather than restated in a comment.
