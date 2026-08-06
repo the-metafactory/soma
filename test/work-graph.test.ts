@@ -199,17 +199,27 @@ test("an auto node closes on probed evidence with a pointer and every probe pass
   expect(() => { assertClosable(AUTO_NODE, receipt()); }).not.toThrow();
 });
 
-test("a HITL node needs approved evidence — probed evidence is not a ratification", () => {
+test("a HITL node closes without a ratification — the human walking it is present", () => {
+  // The original rule required `approved` evidence here. It named no consumer on
+  // a single-operator deployment: there was nobody else to ratify, so it did not
+  // verify the close, it only prevented it (#499). Dropped deliberately.
   const hitl: WorkGraphNode = { id: "511", title: "credential confinement", autonomy: "approve", checkpointId: "cp-511" };
-  const probedOnly = receipt({ checkpointId: "cp-511", probeResults: [] });
-  expect(codeOf(() => { assertClosable(hitl, probedOnly); })).toBe("close-refused");
+  expect(() => { assertClosable(hitl, receipt({ checkpointId: "cp-511", probeResults: [] })); }).not.toThrow();
 
+  // A ratification is still admissible when one exists — it is a tool, not a toll.
   const ratified = receipt({
     checkpointId: "cp-511",
     probeResults: [],
     evidence: [{ kind: "approved", summary: "👍 by jcfischer", pointer: "https://example.test/#issuecomment-1" }],
   });
   expect(() => { assertClosable(hitl, ratified); }).not.toThrow();
+});
+
+test("an auto node still needs evidence its probes actually produced", () => {
+  // The gate that survives: machine-checkable, free (the entry is derived from
+  // probes that ran), and it names a real consumer — nobody watched this close.
+  const bare = receipt({ evidence: [] });
+  expect(codeOf(() => { assertClosable(AUTO_NODE, bare); })).toBe("close-refused");
 });
 
 test("an unverified attestation still closes — gating on it would deadlock the bootstrap", () => {

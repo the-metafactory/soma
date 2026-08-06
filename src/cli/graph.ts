@@ -783,21 +783,44 @@ async function runClose(
   let proposal: { commentId: string; author: string } | undefined;
   let ratification: { kind: "reaction" | "comment"; id: string; author: string } | undefined;
 
-  if (state.node.autonomy !== "auto") {
-    const commentId = parsed.options.proposalComment;
-    if (commentId === undefined) {
+  // A proposal comment is optional now: a HITL node closes on the session's
+  // say-so (§3.2). When one IS supplied, its reactions still carry weight —
+  // a ratification as admissible evidence, and a root-author 👎 as a refusal.
+  //
+  // Keyed on the comment id alone, deliberately. `assertClosable` no longer
+  // distinguishes `propose` from `approve` from anything else non-`auto`, so a
+  // CLI-side autonomy test would be the only place in the system still drawing a
+  // line the core does not — a distinction living in one consumer is worse than
+  // no distinction at all. Supplying a proposal on an `auto` node is unusual
+  // rather than wrong: its reactions are read on the same terms.
+  const commentId = parsed.options.proposalComment;
+  if (commentId !== undefined) {
+    const proposalRef: CommentRef = await graph.readComment({ id: commentId, nodeId: ref.id });
+    proposal = { commentId: proposalRef.id, author: proposalRef.author ?? "" };
+    const reactions = await graph.readCommentReactions(proposalRef);
+
+    // Ratification is no longer required; an explicit refusal is still surfaced.
+    //
+    // Deliberately a speed bump, not a control, and it lives here in the CLI
+    // rather than in `assertClosable` because it is not a contract rule. It
+    // catches the honest case — you were told no and closed anyway by reflex —
+    // and it stops nobody who means to proceed: a fresh `--propose` mints a new
+    // comment with no reactions, and passing that id closes cleanly. Binding
+    // proposals to superseded ones, or threading reactions through the receipt
+    // so the core could enforce it, is machinery this primitive does not want.
+    const vetoed = reactions.some(
+      (reaction) => reaction.content === "-1" && root?.author !== undefined && reaction.author === root.author,
+    );
+    if (vetoed) {
       throw new SomaCliError(
         [
-          `Node ${ref.id} is ${state.node.autonomy}-class: it closes on a ratified proposal, not on a self-report (§3.2).`,
-          `Post one with:  soma graph close ${ref.id} --propose --body-file <path>`,
-          `Then close with: soma graph close ${ref.id} --proposal-comment <id>`,
+          `Node ${ref.id} was refused: ${root?.author ?? "the graph root's author"} left a 👎 on proposal comment ${proposal.commentId}.`,
+          `Nothing here can stop you closing anyway — this is a reminder, not a gate.`,
         ].join("\n"),
         1,
       );
     }
-    const proposalRef: CommentRef = await graph.readComment({ id: commentId, nodeId: ref.id });
-    proposal = { commentId: proposalRef.id, author: proposalRef.author ?? "" };
-    const reactions = await graph.readCommentReactions(proposalRef);
+
     ratification = selectRatification(reactions, proposal.author, root?.author);
     if (ratification !== undefined) {
       evidence.push({

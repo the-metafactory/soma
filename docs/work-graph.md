@@ -338,12 +338,36 @@ quality ratifies when a downstream HITL node consumes the artifact (#485).
 
 ### 3.2 HITL (`propose` / `approve`)
 
-`approved` evidence is an attestation verifiable as coming from **a credential
-the agent does not hold**. Concretely (#486): the executing bot posts the
-resolution as a **proposal comment**; the receipt is the principal's 👍
-reaction on that specific comment ID — or a principal-authored comment, which
-wins when amending — verified via the API author field. A materially amended
-proposal is re-posted and needs fresh ratification (the replay-rebind lesson).
+A HITL node **closes on the closing session's say-so**. The human in the loop is
+the person running the session; requiring a second party to ratify named no
+consumer where one person walks the map, and the rule did not verify those closes
+— it prevented them (#499 is the worked example: finished, merged, evidenced work
+that the gate refused, protecting nobody).
+
+What remains:
+
+- **The proposal flow is available, not required.** `close --propose` posts a
+  proposal and `close --proposal-comment <id>` reads its reactions, for when a
+  second opinion is genuinely wanted. Ratification is admissible evidence; its
+  absence is not a defect.
+- **An explicit refusal is surfaced, not enforced.** With `--proposal-comment`, a
+  👎 from the graph root's author on that comment refuses that close, naming who
+  refused.
+
+  A reminder, not a control, and its limits are not a closed list: it lives in
+  the CLI rather than `assertClosable`, so a non-CLI consumer of the seam gets
+  none of it; a bare `close` reads no reactions; nothing binds a new proposal to
+  a refused one; and it needs the root author to resolve, so where the root walk
+  fails nothing refuses, silently.
+
+- **The receipt distinguishes the two cases.** A ratified close records the
+  proposal and ratifier; a bare one records their absence in
+  `attestationFacts.reasons` ("no proposal comment recorded", "no ratification
+  found"), alongside root authorship, confinement and `attestation`.
+
+The removal is unconditional — it is not scoped to single-operator deployments.
+A deployment wanting closes gated on a second party's approval does not get that
+from this primitive; it gets a record of whether one happened.
 
 #### Deriving `attestation` (#502)
 

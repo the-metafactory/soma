@@ -378,15 +378,27 @@ test("an auto receipt is honestly unverified — no human ratified it", async ()
   expect(receipt.attestationFacts?.reasons?.join(" ")).toContain("no ratification found");
 });
 
-test("a HITL node refuses to close on a self-report and says how to propose", async () => {
+test("a bare `close` on a HITL node works — no proposal, no ratification", async () => {
+  // The exact command closing.md documents, and the exact shape #499 was stuck
+  // in. Relaxing `assertClosable` alone did not fix it: this CLI branch still
+  // refused, which is the layer #499 actually hit.
   const store = new FakeStore()
     .seed("495", { node: autoNode("495"), author: "jcfischer" })
     .seed("530", { node: { id: "530", title: "hitl", autonomy: "approve", checkpointId: "cp-530" }, parent: "495" });
 
-  const message = await failure(["graph", "close", "530", "--repo", REPO], store);
-  expect(message).toContain("closes on a ratified proposal");
-  expect(message).toContain("--propose");
-  expect(store.closed).toHaveLength(0);
+  const output = await run(["graph", "close", "530", "--repo", REPO], store);
+
+  expect(store.closed).toHaveLength(1);
+  expect(output).toContain("Closed node 530");
+  // No proposal was read, so the receipt names none — and RECORDS THE ABSENCE.
+  // That record is the whole after-the-fact audit story for a multi-party
+  // deployment, so it is pinned here rather than left to prose.
+  const receipt = store.closed[0].receipt;
+  expect(receipt.attestation).toBe("unverified");
+  expect(receipt.attestationFacts?.proposal).toBeUndefined();
+  const reasons = receipt.attestationFacts?.reasons?.join(" ") ?? "";
+  expect(reasons).toContain("no proposal comment recorded");
+  expect(reasons).toContain("no ratification found");
 });
 
 test("--propose posts the proposal comment and closes nothing", async () => {
@@ -464,9 +476,75 @@ test("a 👎 from the root author blocks ratification, so the close is refused",
     { id: "r2", content: "+1", author: "mellanon" },
   ]);
 
+  // Ratification is no longer required, but an explicit refusal is still
+  // honoured: dropping "you must be approved" must not become "you may ignore
+  // being refused". A 👎 from the map's owner is the one reaction that
+  // unambiguously means no — even with a second account's 👍 present.
   const message = await failure(["graph", "close", "530", "--proposal-comment", "c1", "--repo", REPO], store);
-  expect(message).toContain("needs at least one approved evidence");
+  expect(message).toContain("was refused");
+  expect(message).toContain("jcfischer");
   expect(store.closed).toHaveLength(0);
+});
+
+test("a proposal comment on an auto node is read on the same terms", async () => {
+  // Keying the block on the comment id alone (rather than on autonomy) made
+  // `--proposal-comment` take effect for `auto` nodes too. That is a real
+  // behaviour change and it is pinned here rather than asserted in a comment:
+  // a root-author 👎 refuses an auto close, because an explicit human "no"
+  // should not depend on the node's class.
+  const store = autoGraph();
+  await run(["graph", "close", "520", "--propose", "--body", "x", "--repo", REPO], store);
+  store.reactions.set("c1", [{ id: "r1", content: "-1", author: "jcfischer" }]);
+
+  expect(await failure(["graph", "close", "520", "--proposal-comment", "c1", "--repo", REPO], store)).toContain(
+    "was refused",
+  );
+  expect(store.closed).toHaveLength(0);
+
+  // And with a ratification instead, the auto close proceeds — its probe-derived
+  // evidence is what gates it, with the approval recorded alongside.
+  const ratified = autoGraph();
+  await run(["graph", "close", "520", "--propose", "--body", "x", "--repo", REPO], ratified);
+  ratified.reactions.set("c1", [{ id: "r1", content: "+1", author: "jcfischer" }]);
+  await run(["graph", "close", "520", "--proposal-comment", "c1", "--repo", REPO], ratified);
+
+  expect(ratified.closed).toHaveLength(1);
+  expect(ratified.closed[0].receipt.evidence.some((e) => e.kind === "approved")).toBe(true);
+  expect(ratified.closed[0].receipt.evidence.some((e) => e.kind === "probed")).toBe(true);
+});
+
+test("the veto is one close deep — a fresh proposal carries no refusal", async () => {
+  // Pins a documented LIMIT rather than a guarantee. The docs call the veto a
+  // speed bump and say re-proposing closes cleanly; that claim is executable
+  // here so it cannot quietly become false in either direction.
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495"), author: "jcfischer" })
+    .seed("530", { node: { id: "530", title: "hitl", autonomy: "approve", checkpointId: "cp-530" }, parent: "495" });
+
+  await run(["graph", "close", "530", "--propose", "--body", "x", "--repo", REPO], store);
+  store.reactions.set("c1", [{ id: "r1", content: "-1", author: "jcfischer" }]);
+  expect(await failure(["graph", "close", "530", "--proposal-comment", "c1", "--repo", REPO], store)).toContain(
+    "was refused",
+  );
+
+  // Re-propose: a new comment id, no reactions on it, and the close proceeds.
+  await run(["graph", "close", "530", "--propose", "--body", "x", "--repo", REPO], store);
+  await run(["graph", "close", "530", "--proposal-comment", "c2", "--repo", REPO], store);
+  expect(store.closed).toHaveLength(1);
+});
+
+test("without a 👎, a HITL node closes on the session's say-so", async () => {
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495"), author: "jcfischer" })
+    .seed("530", { node: { id: "530", title: "hitl", autonomy: "approve", checkpointId: "cp-530" }, parent: "495" });
+
+  await run(["graph", "close", "530", "--propose", "--body", "x", "--repo", REPO], store);
+  // No reactions at all — the #499 case, which used to be unclosable.
+  await run(["graph", "close", "530", "--proposal-comment", "c1", "--repo", REPO], store);
+
+  expect(store.closed).toHaveLength(1);
+  // The receipt still records what it always did; the label is unchanged.
+  expect(store.closed[0].receipt.attestation).toBe("unverified");
 });
 
 test("selectRatification prefers the root author and ignores the proposer's own reaction", () => {

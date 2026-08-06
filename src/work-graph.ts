@@ -630,6 +630,16 @@ export function assertClosable(node: WorkGraphNode, receipt: CloseReceipt): void
     }
   }
 
+  // Evidence is required of `auto` nodes only, and there it costs nothing: the
+  // `probed` entry is derived from probes that already ran and passed.
+  //
+  // HITL nodes close on the session's say-so, unconditionally — not scoped to
+  // single-operator deployments. The receipt still distinguishes the two cases:
+  // a bare close records the absence of a proposal and ratification in
+  // `attestationFacts.reasons`, so an unratified close is visible rather than
+  // prevented. See §3.2.
+  if (node.autonomy !== "auto") return;
+
   const admissible = agentExternalEvidenceKinds(node.autonomy);
   const external = receipt.evidence.filter(
     (entry) => admissible.includes(entry.kind) && entry.summary.trim().length > 0 && (entry.pointer ?? "").trim().length > 0,
