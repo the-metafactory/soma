@@ -93,12 +93,26 @@ body text. A 👎 from the graph root's author suppresses ratification outright.
 
 Two things the runtime does **not** do here, both of which are yours to hold:
 
-- **Any non-proposer's 👍 closes the node.** The ratifier is preferred to be the
-  graph root's author, but the fallback is the first other reaction — so on a
-  public tracker a stranger's thumb produces `approved` evidence and the node
-  closes. Only the `attestation` label records that it was not the right human.
-  Read root-author approval as the *thing you must obtain*, not as a condition
-  the verb enforces.
+- **Any non-proposer's 👍 closes the node.** The graph root's author is
+  preferred, but the fallback is the first other reaction — so on a public
+  tracker a stranger's thumb produces `approved` evidence and the node closes.
+  Only the `attestation` label records that it was not the right human. Read
+  root-author approval as the *thing you must obtain*, not as a condition the
+  verb enforces.
+- **A self-👍 ratifies only where soma-home declares one operator.** On a
+  machine run by one person the agent posts the proposal under their login, so
+  no second account exists to ratify and the close would refuse forever. That is
+  a gate, and §3.2 says attestation is a label — so the adopter declares the
+  posture once, in `~/.soma/policy/graph-posture.json`, and their own 👍 then
+  ratifies. Read it with `soma policy posture`; soma ships no verb that writes
+  it, because declaring it loosens a gate (§4).
+
+  Such a close is recorded **`self-attested`** — never `verified`, and
+  deliberately not `unverified` either: `unverified` means *we do not know who
+  approved this*, and here it is known exactly. Undeclared, the refusal stands
+  and **there is no hand override**: closing a node past a refusal by other means
+  produces a receipt that claims a ratification the graph never saw.
+
 - **Ratification binds to a comment id, not to its text.** Nothing hashes the
   proposal body, so a proposal that is ratified and *then edited* still closes
   on that 👍. "A materially amended proposal is re-posted and needs fresh

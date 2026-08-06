@@ -204,7 +204,24 @@ export interface CloseEvidence {
   pointer?: string;
 }
 
-export type AttestationState = "verified" | "unverified";
+/**
+ * What a receipt claims about who approved it.
+ *
+ * - `verified` — all four conjuncts of §3.2 held: a human the agent cannot
+ *   impersonate ratified this.
+ * - `self-attested` — the machine **declares one operator**
+ *   (`policy/graph-posture.json`) and the proposer ratified their own proposal.
+ *   Distinct from `unverified` on purpose: `unverified` means *we do not know
+ *   who approved this*, and here we know exactly — the sole operator did, and
+ *   said so in advance. It is a weaker claim than `verified` and a more precise
+ *   one than `unverified`, and it never becomes `verified` by any route.
+ * - `unverified` — anything else: a reachable second credential, the wrong
+ *   ratifier, no ratification at all.
+ *
+ * None of the three is a gate. `close` proceeds on all of them (§3.2), and the
+ * receipt carries the facts either way.
+ */
+export type AttestationState = "verified" | "self-attested" | "unverified";
 
 /** Backend capability (§2.5): CAN receipts be independently attested here? Necessary, never sufficient. */
 export type AttestationCapability = "verifiable" | "unverified";

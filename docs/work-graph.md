@@ -345,6 +345,20 @@ reaction on that specific comment ID — or a principal-authored comment, which
 wins when amending — verified via the API author field. A materially amended
 proposal is re-posted and needs fresh ratification (the replay-rebind lesson).
 
+**Selecting the ratifier.** A 👎 from the root node's author suppresses
+ratification outright. Otherwise any 👍 from someone other than the proposer
+ratifies — the root author's if present, else the first by author order.
+
+A proposer's own 👍 ratifies in exactly one case: soma-home declares
+`singleOperator` (`policy/graph-posture.json`, read by `soma policy posture`).
+That declaration is **per home, not per repo** — the claim is about who sits at
+this machine, and it does not change with the repository a map lives in — and it
+is *declared* rather than derived because the condition is not observable. Two
+derivations were tried and both failed: graph-root authorship is self-conferred
+(`findGraphRoot` returns the node itself when it has no parent), and a single
+reachable credential describes every solo-token contributor. Absent, unparsable,
+or `false` ⇒ the self-👍 ratifies nothing and the close refuses.
+
 #### Deriving `attestation` (#502)
 
 `attestation` is **derived at close time, never configured**. There is no flag,
@@ -372,7 +386,14 @@ ratified this* — not merely that two logins appear. All four must hold:
    authorization question. Root unreachable, or root authored by the acting
    agent identity → `unverified`.
 
-Any conjunct failing yields `unverified`. `attestation` is a **label, not a
+Any conjunct failing yields `unverified` — with one named exception. Where
+soma-home declares one operator, the backend can attest, and the sole operator
+ratified their own proposal on their own map, the receipt reads
+**`self-attested`**. That is a third state, not a softening of the second:
+`unverified` means *we do not know who approved this*, and conflates a reachable
+second credential, a wrong ratifier, and no ratification at all. A declared solo
+close is none of those — it is known exactly, and weaker than `verified` in a way
+the label states. It never becomes `verified` by any route. `attestation` is a **label, not a
 gate**: `close` proceeds either way. Refusing on `unverified` would deadlock
 the bootstrap — the nodes that establish credential separation are themselves
 `approve`-class, so they could never close.

@@ -135,6 +135,12 @@ export interface AttestationInputs {
   proposal?: { commentId: string; author: string };
   ratification?: { kind: "reaction" | "comment"; id: string; author: string };
   root?: { nodeId: string; author: string };
+  /**
+   * True when soma-home declares this machine has one operator
+   * (`policy/graph-posture.json`). Never derived — see `work-graph-posture.ts`
+   * for why the two attempts to derive it failed.
+   */
+  singleOperatorDeclared?: boolean;
 }
 
 export interface AttestationOutcome {
@@ -207,7 +213,38 @@ export function deriveAttestation(inputs: AttestationInputs): AttestationOutcome
     ...(reasons.length === 0 ? {} : { reasons }),
   };
 
-  return { attestation: reasons.length === 0 ? "verified" : "unverified", facts };
+  if (reasons.length === 0) return { attestation: "verified", facts };
+
+  // A declared single-operator machine, where that operator ratified their own
+  // proposal on their own map, is a *known* state rather than an unknown one.
+  // `unverified` conflates "a second credential was reachable", "the wrong
+  // person approved" and "nobody approved at all" — none of which happened here,
+  // and reporting them alike loses the distinction a reader needs.
+  //
+  // Stated as what must hold, not as "which reasons are absent". Two of the
+  // reasons above are *expected* on such a machine and must not disqualify it:
+  // the operator's own keyring is reachable (there is no second human whose
+  // credential conjunct 2 could be protecting against), and the operator authored
+  // the map (there is nobody else to have authored it). Keying on their absence
+  // would mean this label never fires on the deployment it exists for.
+  //
+  // What must still hold is everything that would signal a *different* failure:
+  // a backend that can attest at all, a proposal that exists, a ratification
+  // that exists, and a ratifier who is both the proposer and the map's owner —
+  // i.e. the declared operator, not a passer-by.
+  //
+  // This never becomes `verified` by any route. One person approving their own
+  // work is a weaker claim than §3.2's four conjuncts, and the label says so.
+  const selfAttested =
+    inputs.singleOperatorDeclared === true &&
+    inputs.backendCapability === "verifiable" &&
+    proposer !== undefined &&
+    ratifier !== undefined &&
+    proposer === ratifier &&
+    ratifier === root?.author;
+  if (selfAttested) return { attestation: "self-attested", facts };
+
+  return { attestation: "unverified", facts };
 }
 
 /**

@@ -741,6 +741,18 @@ export {
   type ProbeRunnerOptions,
 } from "./work-graph-probes";
 export {
+  declaresSingleOperator,
+  graphPosturePath,
+  loadGraphPosture,
+  parseGraphPosture,
+  renderStarterPosture,
+  GRAPH_POSTURE_RELATIVE_PATH,
+  GRAPH_POSTURE_VERSION,
+  type GraphPosture,
+  type GraphPostureHomeOptions,
+  type LoadGraphPostureOptions,
+} from "./work-graph-posture";
+export {
   authorizeProbe,
   isProbeRefusal,
   loadProbeRegistry,

@@ -57,6 +57,11 @@ import {
   type ProbeRegistry,
 } from "../work-graph-probe-registry";
 import { allProbesPassed, runCommand, runProbes as defaultRunProbes } from "../work-graph-probes";
+import {
+  declaresSingleOperator,
+  loadGraphPosture as defaultLoadGraphPosture,
+  type GraphPosture,
+} from "../work-graph-posture";
 import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";
 
@@ -401,6 +406,12 @@ export interface GraphCliDeps {
    * never per invocation.
    */
   loadProbeRegistry: (repo: string) => Promise<ProbeRegistry>;
+  /**
+   * Whether soma-home declares one operator on this machine (§3.2). Per home,
+   * not per repo — the claim is about who sits here, and that does not change
+   * with the repository a map lives in.
+   */
+  loadGraphPosture: () => Promise<GraphPosture>;
   runProbes: (probes: readonly Probe[], registry: ProbeRegistry) => Promise<ProbeResult[]>;
   checkConfinement: () => Promise<ConfinementResult>;
   /**
@@ -472,6 +483,7 @@ function defaultDeps(): GraphCliDeps {
     resolveRepo: resolveGraphRepo,
     resolveIdentity: async () => await gh(["api", "user", "--jq", ".login"]),
     loadProbeRegistry: async (repo) => await defaultLoadProbeRegistry({ repo }),
+    loadGraphPosture: async () => await defaultLoadGraphPosture(),
     runProbes: async (probes, registry) => await defaultRunProbes(probes, { registry }),
     checkConfinement: async () =>
       await defaultCheckConfinement({
@@ -654,6 +666,8 @@ export function selectRatification(
   reactions: readonly Reaction[],
   proposalAuthor: string,
   rootAuthor: string | undefined,
+  /** Set only from the soma-home declaration; never derived (see work-graph-posture.ts). */
+  singleOperatorDeclared = false,
 ): { kind: "reaction"; id: string; author: string } | undefined {
   if (
     rootAuthor !== undefined &&
@@ -662,13 +676,24 @@ export function selectRatification(
     return undefined;
   }
 
-  const approvals = reactions
-    .filter((reaction) => reaction.content === "+1" && reaction.author !== proposalAuthor)
-    .sort((left, right) => (left.author < right.author ? -1 : left.author > right.author ? 1 : 0));
+  const byAuthor = (left: Reaction, right: Reaction): number =>
+    left.author < right.author ? -1 : left.author > right.author ? 1 : 0;
+  const thumbsUp = reactions.filter((reaction) => reaction.content === "+1");
 
-  if (approvals.length === 0) return undefined;
-  const preferred = approvals.find((reaction) => reaction.author === rootAuthor) ?? approvals[0];
-  return { kind: "reaction", id: preferred.id, author: preferred.author };
+  const approvals = thumbsUp.filter((reaction) => reaction.author !== proposalAuthor).sort(byAuthor);
+  if (approvals.length > 0) {
+    const preferred = approvals.find((reaction) => reaction.author === rootAuthor) ?? approvals[0];
+    return { kind: "reaction", id: preferred.id, author: preferred.author };
+  }
+
+  // Last resort, and only on a machine that DECLARED one operator. Absent the
+  // declaration this returns nothing and the close refuses — the correct answer
+  // everywhere else, because a proposer thumbing their own work is not a second
+  // human looking at it.
+  if (!singleOperatorDeclared) return undefined;
+  const selfApproval = thumbsUp.filter((reaction) => reaction.author === proposalAuthor).sort(byAuthor).at(0);
+  if (selfApproval === undefined) return undefined;
+  return { kind: "reaction", id: selfApproval.id, author: selfApproval.author };
 }
 
 async function runClose(
@@ -780,6 +805,11 @@ async function runClose(
 
   const root = await findGraphRoot(ref, async (nodeRef) => await graph.readNode(nodeRef));
 
+  // Read before the ratification path: whether this machine declares one
+  // operator decides whether a self-👍 counts, and it feeds the receipt.
+  const posture = await deps.loadGraphPosture();
+  const singleOperator = declaresSingleOperator(posture);
+
   let proposal: { commentId: string; author: string } | undefined;
   let ratification: { kind: "reaction" | "comment"; id: string; author: string } | undefined;
 
@@ -798,7 +828,7 @@ async function runClose(
     const proposalRef: CommentRef = await graph.readComment({ id: commentId, nodeId: ref.id });
     proposal = { commentId: proposalRef.id, author: proposalRef.author ?? "" };
     const reactions = await graph.readCommentReactions(proposalRef);
-    ratification = selectRatification(reactions, proposal.author, root?.author);
+    ratification = selectRatification(reactions, proposal.author, root?.author, singleOperator);
     if (ratification !== undefined) {
       evidence.push({
         kind: "approved",
@@ -816,6 +846,7 @@ async function runClose(
     ...(proposal === undefined ? {} : { proposal }),
     ...(ratification === undefined ? {} : { ratification }),
     ...(root === undefined ? {} : { root }),
+    singleOperatorDeclared: singleOperator,
   });
 
   const receipt: CloseReceipt = {

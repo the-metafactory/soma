@@ -11,6 +11,7 @@ import type {
   SomaPolicyCheckResult,
 } from "../types";
 import { loadProbeRegistry, type ProbeRegistry } from "../work-graph-probe-registry";
+import { loadGraphPosture, renderStarterPosture, type GraphPosture } from "../work-graph-posture";
 import { resolveGraphRepo } from "./graph";
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
@@ -58,7 +59,15 @@ export interface ParsedPolicyProbesArgs {
   json: boolean;
 }
 
+export interface ParsedPolicyPostureArgs {
+  command: "policy";
+  action: "posture";
+  options: { homeDir?: string; somaHome?: string };
+  json: boolean;
+}
+
 export type ParsedPolicyArgs =
+  | ParsedPolicyPostureArgs
   | ParsedPolicyCheckArgs
   | ParsedPolicyScanArgs
   | ParsedPolicyPromoteArgs
@@ -76,11 +85,12 @@ const POLICY_INSPECT_USAGE =
   "Usage: soma policy inspect --surface <prompt|tool_call|permission_request|config_change|governance_event> [--prompt <text>|--prompt-env <name>] [--tool-name <name> --tool-input-env <name>] [--permission-request-env <name>] [--config-change-env <name>] [--substrate <id>] [--record <all|deny|none>] [--json]";
 const POLICY_GUARD_USAGE =
   "Usage: soma policy guard --substrate <id> --tool-name <name> --tool-input-env <name> [--cwd <dir>] [--soma-home <dir>] [--home-dir <dir>] [--private-root <dir>]… [--record <all|deny|none>] [--json]";
+const POLICY_POSTURE_USAGE = "Usage: soma policy posture [--soma-home <dir>] [--home-dir <dir>] [--json]";
 const POLICY_PROBES_USAGE =
   "Usage: soma policy probes [--repo <owner/name>] [--soma-home <dir>] [--home-dir <dir>] [--json]";
 
 export const POLICY_COMMAND_HELP: { usage: string; subcommands: Record<ParsedPolicyArgs["action"], string> } = {
-  usage: [POLICY_CHECK_USAGE, POLICY_SCAN_USAGE, POLICY_PROMOTE_USAGE, POLICY_INSPECT_USAGE, POLICY_GUARD_USAGE, POLICY_PROBES_USAGE].join("\n"),
+  usage: [POLICY_CHECK_USAGE, POLICY_SCAN_USAGE, POLICY_PROMOTE_USAGE, POLICY_INSPECT_USAGE, POLICY_GUARD_USAGE, POLICY_PROBES_USAGE, POLICY_POSTURE_USAGE].join("\n"),
   subcommands: {
     check: POLICY_CHECK_USAGE,
     scan: POLICY_SCAN_USAGE,
@@ -88,6 +98,7 @@ export const POLICY_COMMAND_HELP: { usage: string; subcommands: Record<ParsedPol
     inspect: POLICY_INSPECT_USAGE,
     guard: POLICY_GUARD_USAGE,
     probes: POLICY_PROBES_USAGE,
+    posture: POLICY_POSTURE_USAGE,
   },
 };
 
@@ -103,6 +114,7 @@ export function parsePolicyArgs(args: string[]): ParsedPolicyArgs {
   if (action === "inspect") return parsePolicyInspectArgs(command, action, rest);
   if (action === "guard") return parsePolicyGuardArgs(command, action, rest);
   if (action === "probes") return parsePolicyProbesArgs(command, action, rest);
+  if (action === "posture") return parsePolicyPostureArgs(command, action, rest);
   if (action !== "check") throw new Error(POLICY_COMMAND_HELP.usage);
 
   const options: Partial<SomaPolicyCheckOptions> = {};
@@ -313,7 +325,39 @@ function parsePolicyProbesArgs(command: "policy", action: "probes", rest: string
   return { command, action, options, json };
 }
 
+function parsePolicyPostureArgs(command: "policy", action: "posture", rest: string[]): ParsedPolicyPostureArgs {
+  const options: ParsedPolicyPostureArgs["options"] = {};
+  let json = false;
+  for (let index = 0; index < rest.length; index += 1) {
+    const arg = rest[index];
+    switch (arg) {
+      case "--home-dir":
+        options.homeDir = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--soma-home":
+        options.somaHome = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--json":
+        json = true;
+        break;
+      default:
+        throw new Error(POLICY_POSTURE_USAGE);
+    }
+  }
+  return { command, action, options, json };
+}
+
 export async function runPolicyCli(parsed: ParsedPolicyArgs): Promise<string> {
+  if (parsed.action === "posture") {
+    const posture = await loadGraphPosture({
+      ...(parsed.options.homeDir === undefined ? {} : { homeDir: parsed.options.homeDir }),
+      ...(parsed.options.somaHome === undefined ? {} : { somaHome: parsed.options.somaHome }),
+    });
+    return parsed.json ? `${JSON.stringify(posture, null, 2)}\n` : formatGraphPosture(posture);
+  }
+
   if (parsed.action === "probes") {
     const repo = parsed.options.repo ?? (await resolveGraphRepo());
     const registry = await loadProbeRegistry({
@@ -373,6 +417,39 @@ export async function runPolicyCli(parsed: ParsedPolicyArgs): Promise<string> {
  * fail-closed: the adopter edits the document. A `soma policy probes --allow`
  * would hand the agent a verb for widening the list that constrains it.
  */
+/**
+ * Read-only, like `policy probes` and for the same reason: declaring one operator
+ * loosens a gate, so §4 keeps the write in the adopter's hand. Soma ships no verb
+ * that writes this file.
+ */
+function formatGraphPosture(posture: GraphPosture): string {
+  const header = ["Soma work-graph operator posture", `path: ${posture.path}`];
+  if (posture.status === "absent") {
+    return [
+      ...header,
+      "status: absent — this machine declares nothing",
+      "",
+      "A HITL node cannot close where the proposer is the only account available to",
+      "ratify: `soma graph close` refuses, because a self-👍 is not a second human.",
+      "If one person operates this machine, declare it by creating that file:",
+      "",
+      renderStarterPosture(),
+    ].join("\n");
+  }
+  if (posture.status === "invalid") {
+    return [...header, "status: invalid", `reason: it ${posture.reason}`, "", "Nothing is declared until the document parses."].join("\n");
+  }
+  return [
+    ...header,
+    `status: declared`,
+    `singleOperator: ${posture.singleOperator}`,
+    "",
+    posture.singleOperator
+      ? "The sole operator's own 👍 ratifies their proposal, and such a close is recorded\n`self-attested` — never `verified`."
+      : "Declared multi-operator: a self-👍 ratifies nothing, exactly as if undeclared.",
+  ].join("\n");
+}
+
 function formatProbeRegistry(registry: ProbeRegistry): string {
   const header = [
     "Soma probe registry (DD-16 Amendment A)",
