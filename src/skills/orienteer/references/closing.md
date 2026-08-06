@@ -80,30 +80,40 @@ downstream HITL node consumes the artifact.
 
 ## HITL close (`propose` / `approve`)
 
-Two phases, one verb:
+A HITL node **closes when you close it**. There is no ratification requirement:
+you are the human in the loop, and you are present.
+
+```bash
+soma graph close <id>
+```
+
+The two-phase flow remains for when a second opinion is actually wanted — a
+decision you want someone else to sign off, or a record of who agreed:
 
 ```bash
 soma graph close <id> --propose --body-file <path>   # posts the proposal, closes nothing
-#  … the principal reacts 👍 on that comment …
+#  … someone reacts 👍 on that comment …
 soma graph close <id> --proposal-comment <comment-id>
 ```
 
-The receipt is the ratification, read from the API's author field — never from
-body text. A 👎 from the graph root's author suppresses ratification outright.
+It is a tool, not a toll. An earlier version required that 👍 before any
+`approve`-class node could close, which named no consumer when one person walks
+the map: there was nobody else to ratify, so the rule did not verify closes, it
+prevented them.
 
-Two things the runtime does **not** do here, both of which are yours to hold:
+**One reaction still stops a close.** A 👎 from the graph root's author is an
+explicit refusal, and the close refuses with it — dropping "you must be approved"
+does not mean "you may close over being refused". Address it and post a new
+proposal.
 
-- **Any non-proposer's 👍 closes the node.** The ratifier is preferred to be the
-  graph root's author, but the fallback is the first other reaction — so on a
-  public tracker a stranger's thumb produces `approved` evidence and the node
-  closes. Only the `attestation` label records that it was not the right human.
-  Read root-author approval as the *thing you must obtain*, not as a condition
-  the verb enforces.
+Two things worth knowing when you do use the proposal flow:
+
+- **Any non-proposer's 👍 is taken as the ratification**, root author preferred.
+  On a public tracker that includes a stranger's. Only `attestation` records
+  that it was not the right human.
 - **Ratification binds to a comment id, not to its text.** Nothing hashes the
-  proposal body, so a proposal that is ratified and *then edited* still closes
-  on that 👍. "A materially amended proposal is re-posted and needs fresh
-  ratification" is doctrine you follow, not a property the runtime checks: if
-  the resolution changes materially, post a new comment and get a new 👍.
+  proposal body, so a proposal that is ratified and *then edited* still closes on
+  that 👍. If the resolution changes materially, post a new comment.
 
 ## Attestation
 

@@ -630,6 +630,27 @@ export function assertClosable(node: WorkGraphNode, receipt: CloseReceipt): void
     }
   }
 
+  // Evidence is required of `auto` nodes only, and there it costs nothing: the
+  // `probed` entry is derived from probes that already ran and passed.
+  //
+  // HITL nodes close on the session's say-so. Requiring a ratified proposal here
+  // was the original rule, and it was wrong for what this primitive is: a way to
+  // structure work whose route is unclear, walked by a human who is *present*.
+  // A gate naming no consumer is ceremony (§1 clause 3), and on a
+  // single-operator deployment the ratification gate named none — there was
+  // nobody else to ratify, so it did not verify the close, it only prevented it.
+  // #499 is the worked example: a finished, merged, evidenced piece of work that
+  // the gate refused, and the refusal protected no one.
+  //
+  // The receipt still records everything it recorded before — proposal, ratifier,
+  // root authorship, confinement, `attestation`. Nothing is hidden; a reader can
+  // still tell a ratified close from an unratified one. What changed is that an
+  // unratified close is now *possible*, not *approved*.
+  //
+  // The two-phase `--propose` flow remains for when a second opinion is wanted.
+  // It is a tool, no longer a toll.
+  if (node.autonomy !== "auto") return;
+
   const admissible = agentExternalEvidenceKinds(node.autonomy);
   const external = receipt.evidence.filter(
     (entry) => admissible.includes(entry.kind) && entry.summary.trim().length > 0 && (entry.pointer ?? "").trim().length > 0,

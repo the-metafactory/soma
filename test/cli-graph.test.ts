@@ -464,9 +464,28 @@ test("a 👎 from the root author blocks ratification, so the close is refused",
     { id: "r2", content: "+1", author: "mellanon" },
   ]);
 
+  // Ratification is no longer required, but an explicit refusal is still
+  // honoured: dropping "you must be approved" must not become "you may ignore
+  // being refused". A 👎 from the map's owner is the one reaction that
+  // unambiguously means no — even with a second account's 👍 present.
   const message = await failure(["graph", "close", "530", "--proposal-comment", "c1", "--repo", REPO], store);
-  expect(message).toContain("needs at least one approved evidence");
+  expect(message).toContain("was refused");
+  expect(message).toContain("jcfischer");
   expect(store.closed).toHaveLength(0);
+});
+
+test("without a 👎, a HITL node closes on the session's say-so", async () => {
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495"), author: "jcfischer" })
+    .seed("530", { node: { id: "530", title: "hitl", autonomy: "approve", checkpointId: "cp-530" }, parent: "495" });
+
+  await run(["graph", "close", "530", "--propose", "--body", "x", "--repo", REPO], store);
+  // No reactions at all — the #499 case, which used to be unclosable.
+  await run(["graph", "close", "530", "--proposal-comment", "c1", "--repo", REPO], store);
+
+  expect(store.closed).toHaveLength(1);
+  // The receipt still records what it always did; the label is unchanged.
+  expect(store.closed[0].receipt.attestation).toBe("unverified");
 });
 
 test("selectRatification prefers the root author and ignores the proposer's own reaction", () => {

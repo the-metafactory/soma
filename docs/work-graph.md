@@ -338,12 +338,29 @@ quality ratifies when a downstream HITL node consumes the artifact (#485).
 
 ### 3.2 HITL (`propose` / `approve`)
 
-`approved` evidence is an attestation verifiable as coming from **a credential
-the agent does not hold**. Concretely (#486): the executing bot posts the
-resolution as a **proposal comment**; the receipt is the principal's 👍
-reaction on that specific comment ID — or a principal-authored comment, which
-wins when amending — verified via the API author field. A materially amended
-proposal is re-posted and needs fresh ratification (the replay-rebind lesson).
+A HITL node **closes on the closing session's say-so**. The human in the loop is
+the person running the session; requiring a second party to ratify named no
+consumer where one person walks the map, and the rule did not verify those closes
+— it prevented them (#499 is the worked example: finished, merged, evidenced work
+that the gate refused, protecting nobody).
+
+What remains:
+
+- **The proposal flow is available, not required.** `close --propose` posts a
+  proposal and `close --proposal-comment <id>` reads its reactions, for when a
+  second opinion is genuinely wanted. Ratification is admissible evidence; its
+  absence is not a defect.
+- **An explicit refusal still stops the close.** A 👎 from the graph root's
+  author refuses it. Dropping "must be approved" is not "may close over being
+  refused".
+- **The receipt is unchanged.** Proposal, ratifier, root authorship, confinement
+  and `attestation` are all still recorded, so a reader can tell a ratified close
+  from an unratified one. What changed is that an unratified close is *possible*,
+  not that it is *approved*.
+
+Where a receipt genuinely must be attestable — a headless phase-2 tick, a
+multi-party deployment — the machinery below still derives it. It is a label on
+the record, never a gate on the close.
 
 #### Deriving `attestation` (#502)
 

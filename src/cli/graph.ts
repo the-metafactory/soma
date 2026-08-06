@@ -798,6 +798,24 @@ async function runClose(
     const proposalRef: CommentRef = await graph.readComment({ id: commentId, nodeId: ref.id });
     proposal = { commentId: proposalRef.id, author: proposalRef.author ?? "" };
     const reactions = await graph.readCommentReactions(proposalRef);
+
+    // Ratification is no longer required, but an explicit refusal is still
+    // honoured. Dropping "you must be approved" must not become "you may ignore
+    // being refused" — a 👎 from the map's owner is the one reaction that
+    // unambiguously means *no*, and it is cheap to respect.
+    const vetoed = reactions.some(
+      (reaction) => reaction.content === "-1" && root?.author !== undefined && reaction.author === root.author,
+    );
+    if (vetoed) {
+      throw new SomaCliError(
+        [
+          `Node ${ref.id} was refused: ${root?.author ?? "the graph root's author"} left a 👎 on proposal comment ${proposal.commentId}.`,
+          `Address it and post a new proposal rather than closing over the refusal.`,
+        ].join("\n"),
+        1,
+      );
+    }
+
     ratification = selectRatification(reactions, proposal.author, root?.author);
     if (ratification !== undefined) {
       evidence.push({
