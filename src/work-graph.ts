@@ -233,7 +233,17 @@ export interface AttestationFacts {
     probes?: readonly ConfinementProbeRecord[];
   };
   proposal?: { commentId: string; author: string };
-  ratification?: { kind: "reaction" | "comment"; id: string; author: string };
+  /**
+   * A reaction, and only ever a reaction (#525). The older §3.2 admitted a second
+   * kind — a principal-authored *comment*, winning over a 👍 when amending — and
+   * this union carried a `"comment"` member for it that nothing ever produced.
+   * The clause did not survive #549: ratification stopped gating a HITL close and
+   * became a label feeding `attestation`, and inferring approval from free prose
+   * would let a root-author reply of "hold on, not this" derive `verified`. A 👍
+   * is a deliberate, unambiguous gesture; prose is not. Narrowed rather than left
+   * as a member with no producer, which reads as a path the system has.
+   */
+  ratification?: { kind: "reaction"; id: string; author: string };
   root?: { nodeId: string; author: string };
   /**
    * Why the verdict came out as it did, one line per failed conjunct — empty on

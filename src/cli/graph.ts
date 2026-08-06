@@ -781,7 +781,7 @@ async function runClose(
   const root = await findGraphRoot(ref, async (nodeRef) => await graph.readNode(nodeRef));
 
   let proposal: { commentId: string; author: string } | undefined;
-  let ratification: { kind: "reaction" | "comment"; id: string; author: string } | undefined;
+  let ratification: { kind: "reaction"; id: string; author: string } | undefined;
 
   // A proposal comment is optional now: a HITL node closes on the session's
   // say-so (§3.2). When one IS supplied, its reactions still carry weight —

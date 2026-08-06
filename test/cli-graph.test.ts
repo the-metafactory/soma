@@ -533,6 +533,33 @@ test("the veto is one close deep — a fresh proposal carries no refusal", async
   expect(store.closed).toHaveLength(1);
 });
 
+test("an amended proposal inherits no ratification — the replay-rebind invariant", async () => {
+  // §3.2's amendment rule: a materially amended proposal is re-posted and needs
+  // FRESH ratification. Today that holds structurally rather than by a rule —
+  // ratification is read from the comment id passed, and a re-`--propose` mints
+  // an id with no reactions — so it is asserted only in `closing.md` prose and
+  // nothing would catch it becoming false. #525 was going to add a rule; #549
+  // removed the gate it would have served, leaving the invariant worth pinning
+  // and the rule not worth writing. This is the pin.
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495"), author: "jcfischer" })
+    .seed("530", { node: { id: "530", title: "hitl", autonomy: "approve", checkpointId: "cp-530" }, parent: "495" });
+
+  await run(["graph", "close", "530", "--propose", "--body", "the resolution", "--repo", REPO], store);
+  store.reactions.set("c1", [{ id: "r1", content: "+1", author: "jcfischer" }]);
+
+  // The proposal is amended: a new comment, and the old 👍 stays on the old one.
+  await run(["graph", "close", "530", "--propose", "--body", "the AMENDED resolution", "--repo", REPO], store);
+  await run(["graph", "close", "530", "--proposal-comment", "c2", "--repo", REPO], store);
+
+  const receipt = store.closed[0].receipt;
+  expect(receipt.attestationFacts?.proposal?.commentId).toBe("c2");
+  expect(receipt.attestationFacts?.ratification).toBeUndefined();
+  expect(receipt.evidence.some((entry) => entry.kind === "approved")).toBe(false);
+  expect(receipt.attestation).toBe("unverified");
+  expect(receipt.attestationFacts?.reasons?.join(" ")).toContain("no ratification found");
+});
+
 test("without a 👎, a HITL node closes on the session's say-so", async () => {
   const store = new FakeStore()
     .seed("495", { node: autoNode("495"), author: "jcfischer" })

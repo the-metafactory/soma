@@ -133,7 +133,8 @@ export interface AttestationInputs {
   actingIdentity: string;
   confinement?: ConfinementResult;
   proposal?: { commentId: string; author: string };
-  ratification?: { kind: "reaction" | "comment"; id: string; author: string };
+  /** Reactions only — see {@link AttestationFacts.ratification} for why the comment path is not here. */
+  ratification?: { kind: "reaction"; id: string; author: string };
   root?: { nodeId: string; author: string };
 }
 

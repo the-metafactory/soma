@@ -121,7 +121,15 @@ Two things worth knowing when you do use the proposal flow:
   that it was not the right human.
 - **Ratification binds to a comment id, not to its text.** Nothing hashes the
   proposal body, so a proposal that is ratified and *then edited* still closes on
-  that 👍. If the resolution changes materially, post a new comment.
+  that 👍. If the resolution changes materially, post a new comment — the new one
+  carries no reactions, so it needs fresh ratification and inherits nothing.
+- **A 👍 is the only ratification.** Replying "yes, go ahead" ratifies nothing;
+  the receipt will read *no ratification found*. An older §3.2 also admitted a
+  principal-authored comment, outranking the 👍 when amending, and #525 was to
+  implement it. It was dropped instead: once ratification stopped gating a HITL
+  close (#549) and became a label feeding `attestation`, reading approval out of
+  free prose would let a reply of "hold on, not this" derive `verified`. React,
+  don't reply.
 
 ## Attestation
 
