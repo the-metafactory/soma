@@ -1748,6 +1748,10 @@ export type SomaDoctorFindingId =
   | "claude-skills-not-migrated"
   | "pai-not-migrated"
   | SomaDoctorProjectionFindingId
+  // soma#542: eager-loader stub integrity. Not a projection-drift id — the
+  // stub's own bytes are correct; what rots is the body it points at.
+  | "skill-stub-dangling"
+  | "skill-stub-unreadable"
   | "claude-code-hook-missing"
   | "claude-code-settings-missing"
   | "grok-hook-missing"

@@ -39,6 +39,14 @@ export interface SkillStubOptions {
   substrate: string;
 }
 
+/**
+ * The line that carries the pointer. Written by {@link renderSkillStub} and read
+ * back by {@link parseSkillStubBodyPath}, so the one thing a stub is FOR has a
+ * single definition — the doctor must resolve exactly the path the agent will.
+ */
+const BODY_LINE_PREFIX = "Full instructions: ";
+const BODY_LINE = /^Full instructions: `(.+)`$/m;
+
 export function renderSkillStub(options: SkillStubOptions): string {
   return [
     "---",
@@ -50,7 +58,7 @@ export function renderSkillStub(options: SkillStubOptions): string {
     "",
     "## Body not loaded",
     "",
-    `Full instructions: \`${options.bodyPath}\``,
+    `${BODY_LINE_PREFIX}\`${options.bodyPath}\``,
     "",
     "Read that file before acting on this skill. This projection carries",
     "frontmatter only, so the loader can list and route the skill without",
@@ -62,4 +70,14 @@ export function renderSkillStub(options: SkillStubOptions): string {
 /** True when `content` is a Soma-generated skill stub. */
 export function isSkillStub(content: string): boolean {
   return content.includes(SKILL_STUB_MARKER);
+}
+
+/**
+ * The body path a stub points at, or undefined when the pointer line is absent
+ * or malformed. A stub whose marker is present but whose pointer cannot be read
+ * is a distinct failure from one whose pointer simply does not resolve, and the
+ * doctor reports them separately.
+ */
+export function parseSkillStubBodyPath(content: string): string | undefined {
+  return BODY_LINE.exec(content)?.[1];
 }
