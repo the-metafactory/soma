@@ -1,6 +1,6 @@
 ## The Algorithm 6.3.0
 
-> Change history, migration recipes, and rollback steps live in `changelog.md` (read on demand). This file is doctrine only — what the Algorithm does this run.
+> Change history, migration recipes, and rollback steps live in `references/changelog.md` (read on demand). This file is doctrine only — what the Algorithm does this run.
 
 ### Doctrine — Read This First, Internalize It
 
@@ -36,7 +36,7 @@
 
 **1. Thinking-capability floor (HARD, v6.1.0 — CLOSED ENUMERATION as of v6.3.0).** At E2+, the count of *thinking* capabilities is a **hard floor** — it cannot be relaxed via show-your-math. Difficult work earns thinking depth, full stop.
 
-**The thinking-capability vocabulary is a CLOSED ENUMERATION.** Selection MUST come verbatim from this list — the same names that appear in `capabilities.md` § Thinking & Analysis Capabilities. Inventing generic labels ("decomposition", "edge-case enumeration", "tradeoff analysis", "deep reasoning", "structured thinking", anything else not in this list) is a **PHANTOM thinking capability** and counts as a CRITICAL FAILURE — it does NOT contribute to the tier floor regardless of how the rest of the response is written.
+**The thinking-capability vocabulary is a CLOSED ENUMERATION.** Selection MUST come verbatim from this list — the same names that appear in `references/capabilities.md` § Thinking & Analysis Capabilities. Inventing generic labels ("decomposition", "edge-case enumeration", "tradeoff analysis", "deep reasoning", "structured thinking", anything else not in this list) is a **PHANTOM thinking capability** and counts as a CRITICAL FAILURE — it does NOT contribute to the tier floor regardless of how the rest of the response is written.
 
 The closed list (verbatim names — copy/paste into `🏹 CAPABILITIES SELECTED`):
 
@@ -60,7 +60,7 @@ The closed list (verbatim names — copy/paste into `🏹 CAPABILITIES SELECTED`
 - **ContextSearch** — 2-phase prior PAI work search
 - **ISA** — `Skill("ISA", "<verb> ...")` (counts when invoked for analytical purpose, not just for boilerplate scaffolding)
 
-If a name does not appear in this list verbatim, it is a phantom and is rejected by the audit gate. New thinking capabilities are added by editing `capabilities.md` and bumping the Algorithm minor version — never by ad-hoc invention at run time.
+If a name does not appear in this list verbatim, it is a phantom. Nothing external enforces that — the audit gate below is a self-check you run before printing the selection line, not a mechanism that rejects on your behalf. New thinking capabilities are added by editing `references/capabilities.md` and bumping the Algorithm minor version — never by ad-hoc invention at run time.
 
 **Capability-Name Audit Gate (NEW v6.3.0, fires at OBSERVE→THINK boundary):** before printing `🏹 CAPABILITIES SELECTED`, verify each thinking name appears verbatim in the closed list above. Any miss is a phantom — split, replace from the list, or remove. The output line for each thinking capability MUST start with the literal closed-list name (bold), not a paraphrase. Example correct: `🏹 **FirstPrinciples** → THINK | …`. Example REJECTED: `🏹 First-principles decomposition → THINK | …`.
 
@@ -127,7 +127,7 @@ The ISA is the single source of truth for the thing being articulated. The AI wr
 
 The format is identical for both. Project ISAs grow continuously across many tasks; task ISAs are created at OBSERVE and archived at `phase: complete`.
 
-**Frontmatter:** `task`, `slug`, `effort`, `phase`, `progress`, `mode`, `started`, `updated`. Optional: `iteration`, `algorithm_config`. Project ISAs additionally have `project: <name>` and may omit `slug`. Full spec: `PAI/DOCUMENTATION/IsaFormat.md`.
+**Frontmatter:** `task`, `slug`, `effort`, `phase`, `progress`, `mode`, `started`, `updated`. Optional: `iteration`, `algorithm_config`. Project ISAs additionally have `project: <name>` and may omit `slug`. The ISA Skill owns the canonical format — ask it for the full spec rather than a file this skill does not ship.
 
 **Twelve-section body (v6.2.0, fixed order, empty sections never appear):**
 
@@ -216,7 +216,7 @@ These aren't "in addition to" the ISA — they ARE the ISA. The ISA is the test 
 
 ### Tunable Parameters
 
-Modes (ideate, optimize) accept tunable parameters. Full schema and presets: `PAI/ALGORITHM/parameter-schema.md`. Parameters stored in ISA `algorithm_config:` frontmatter.
+Modes (ideate, optimize) accept tunable parameters. Full schema and presets: `references/parameter-schema.md`. Parameters stored in ISA `algorithm_config:` frontmatter.
 
 ---
 
@@ -256,7 +256,7 @@ This line anchors the entire Algorithm run.
 
 **NEXT:** Voice `"Entering the Observe phase."`, then Edit ISA `updated: {timestamp}`.
 
-**Mode detection:** Load `PAI/ALGORITHM/mode-detection.md` to check for ideate, optimize, research, or fast-path modes.
+**Mode detection:** Load `references/mode-detection.md` to check for ideate, optimize, research, or fast-path modes.
 
 **Reverse engineer the request:**
 
@@ -309,7 +309,7 @@ This line anchors the entire Algorithm run.
 
 `💪🏼 EFFORT LEVEL: [tier] | [source: explicit /eN | classifier | context-override | auto] | [8 word reasoning]`
 
-**Select capabilities:** Load `PAI/ALGORITHM/capabilities.md`.
+**Select capabilities:** Load `references/capabilities.md`.
 
 > **Select what the task genuinely needs within the tier time budget.** Naming a capability is a binding commitment to invoke it via `Skill` or `Agent` tool — text-only is dishonest and counts as a CRITICAL FAILURE. **The thinking floor for the chosen tier is HARD — non-relaxable.** The delegation floor is soft and relaxable with show-your-math justification in `## Decisions`.
 
