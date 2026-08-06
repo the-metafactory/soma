@@ -357,8 +357,11 @@ describe("eager skill loading (soma#542)", () => {
       const stub = await readFile(join(stubDir, "SKILL.md"), "utf8");
       // Frontmatter survives verbatim, so the loader can still list and route it.
       expect(stub.startsWith("---\nname: MyTool\ndescription: \"A test skill.\"\n---")).toBe(true);
-      // ...and the body is a pointer, not the body.
-      expect(stub).toContain(resolve(skillDir, "SKILL.md"));
+      // ...and the body is a pointer, not the body. It names the REGISTRY slot,
+      // not the source dir: a substrate reader refuses paths outside the Soma
+      // home, and the source may be projected from anywhere.
+      expect(stub).toContain(join(homeDir, ".soma", "skills", "MyTool", "SKILL.md"));
+      expect(stub).not.toContain(resolve(skillDir, "SKILL.md"));
       expect(stub).toContain("soma:skill-stub");
       expect(stub).not.toContain("# MyTool");
 

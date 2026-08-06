@@ -238,15 +238,24 @@ async function ensureSymlink(
  * Ownership is decided by the stub marker instead — a dir whose SKILL.md carries
  * it is a previous projection and is replaced; anything else is user data and
  * needs `force`.
+ *
+ * The pointer names the REGISTRY slot (`~/.soma/skills/<name>/SKILL.md`), not
+ * `skillDir`. A skill may be projected from anywhere — an arc pack, a repo
+ * checkout — and the substrate's own reader refuses paths outside the Soma home
+ * (pi-dev's `soma_context action=source_file` guards on `SOMA_HOME`), so a
+ * pointer at the raw source would be unresolvable by the very tool that has to
+ * follow it. The registry symlink created in step 1 of `linkSkill` is what makes
+ * that path valid.
  */
 async function ensureSkillStub(
   stubDir: string,
   skillDir: string,
+  registryDir: string,
   substrate: InstallSubstrate,
   force: boolean,
 ): Promise<"stubbed" | "unchanged" | "replaced"> {
-  const bodyPath = join(skillDir, SKILL_MD);
-  const frontmatter = extractSkillFrontmatter(await readFile(bodyPath, "utf8"));
+  const bodyPath = join(registryDir, SKILL_MD);
+  const frontmatter = extractSkillFrontmatter(await readFile(join(skillDir, SKILL_MD), "utf8"));
   if (frontmatter === undefined) {
     throw new SkillProjectionError(
       `Cannot stub ${skillDir} for ${substrate}: ${SKILL_MD} has no YAML frontmatter to project.`,
@@ -385,7 +394,7 @@ async function linkSkill(
     for (const { substrate, path } of slots.substrates) {
       const status =
         installSpecFor(substrate).skillsLoading === "eager"
-          ? await ensureSkillStub(path, skillDir, substrate, force)
+          ? await ensureSkillStub(path, skillDir, slots.registry, substrate, force)
           : await ensureSymlink(path, skillDir, force);
       if (status !== "unchanged") created.push(path);
       links.push({ scope: "substrate", substrate, path, target: skillDir, status });
