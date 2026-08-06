@@ -121,10 +121,13 @@ Two things worth knowing when you do use the proposal flow:
   that it was not the right human.
 - **Ratification binds to a comment id, not to its text.** Nothing hashes the
   proposal body, so a proposal that is ratified and *then edited* still closes on
-  that 👍. If the resolution changes materially, post a new comment — the new one
-  carries no reactions, so it needs fresh ratification and inherits nothing.
-- **A 👍 is the only ratification.** Replying "yes, go ahead" ratifies nothing;
-  the receipt will read *no ratification found*. An older §3.2 also admitted a
+  that 👍. If the resolution changes materially, post a new comment — and then
+  **pass the new id**. Amending is your discipline, not the runtime's: nothing
+  binds a proposal to the one it supersedes, so a close pointed at the old id
+  still ratifies from the old 👍.
+- **A 👍 is the only ratification** — that reaction specifically, matched on
+  `+1`; no other emoji counts. Replying "yes, go ahead" ratifies nothing, and the
+  receipt will read *no ratification found*. An older §3.2 also admitted a
   principal-authored comment, outranking the 👍 when amending, and #525 was to
   implement it. It was dropped instead: once ratification stopped gating a HITL
   close (#549) and became a label feeding `attestation`, reading approval out of

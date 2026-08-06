@@ -535,24 +535,42 @@ test("the veto is one close deep — a fresh proposal carries no refusal", async
 
 test("an amended proposal inherits no ratification — the replay-rebind invariant", async () => {
   // §3.2's amendment rule: a materially amended proposal is re-posted and needs
-  // FRESH ratification. Today that holds structurally rather than by a rule —
-  // ratification is read from the comment id passed, and a re-`--propose` mints
-  // an id with no reactions — so it is asserted only in `closing.md` prose and
-  // nothing would catch it becoming false. #525 was going to add a rule; #549
-  // removed the gate it would have served, leaving the invariant worth pinning
-  // and the rule not worth writing. This is the pin.
-  const store = new FakeStore()
-    .seed("495", { node: autoNode("495"), author: "jcfischer" })
-    .seed("530", { node: { id: "530", title: "hitl", autonomy: "approve", checkpointId: "cp-530" }, parent: "495" });
+  // FRESH ratification. #525 was going to enforce it; #549 removed the gate it
+  // would have served, leaving an invariant that holds by construction —
+  // ratification is read from the comment id passed — and was asserted only in
+  // `closing.md` prose.
+  //
+  // Both arms run against the SAME seeded 👍, because asserting the amended
+  // close is unratified proves nothing on its own: it follows from c2 carrying
+  // no reactions, and would read identically if the 👍 on c1 had never been
+  // admissible. Arm A establishes that this exact reaction, in this exact
+  // store, does derive a ratified `verified` receipt. Arm B then shows the
+  // amended close declining to reach it. The discrimination is between the two
+  // arms; neither carries it alone.
+  const seeded = () =>
+    new FakeStore()
+      .seed("495", { node: autoNode("495"), author: "jcfischer" })
+      .seed("530", { node: { id: "530", title: "hitl", autonomy: "approve", checkpointId: "cp-530" }, parent: "495" });
 
-  await run(["graph", "close", "530", "--propose", "--body", "the resolution", "--repo", REPO], store);
-  store.reactions.set("c1", [{ id: "r1", content: "+1", author: "jcfischer" }]);
+  // Arm A — the ratification is live and sufficient.
+  const ratified = seeded();
+  await run(["graph", "close", "530", "--propose", "--body", "the resolution", "--repo", REPO], ratified);
+  ratified.reactions.set("c1", [{ id: "r1", content: "+1", author: "jcfischer" }]);
+  await run(["graph", "close", "530", "--proposal-comment", "c1", "--repo", REPO], ratified);
 
-  // The proposal is amended: a new comment, and the old 👍 stays on the old one.
-  await run(["graph", "close", "530", "--propose", "--body", "the AMENDED resolution", "--repo", REPO], store);
-  await run(["graph", "close", "530", "--proposal-comment", "c2", "--repo", REPO], store);
+  expect(ratified.closed[0].receipt.attestationFacts?.ratification?.id).toBe("r1");
+  expect(ratified.closed[0].receipt.attestation).toBe("verified");
 
-  const receipt = store.closed[0].receipt;
+  // Arm B — same proposal, same 👍, then amended. The 👍 stays on c1, live and
+  // unretracted; the close against the amended comment must not reach it.
+  const amended = seeded();
+  await run(["graph", "close", "530", "--propose", "--body", "the resolution", "--repo", REPO], amended);
+  amended.reactions.set("c1", [{ id: "r1", content: "+1", author: "jcfischer" }]);
+  await run(["graph", "close", "530", "--propose", "--body", "the AMENDED resolution", "--repo", REPO], amended);
+  await run(["graph", "close", "530", "--proposal-comment", "c2", "--repo", REPO], amended);
+
+  const receipt = amended.closed[0].receipt;
+  expect(amended.reactions.get("c1")).toHaveLength(1); // still there — not consumed, not retracted
   expect(receipt.attestationFacts?.proposal?.commentId).toBe("c2");
   expect(receipt.attestationFacts?.ratification).toBeUndefined();
   expect(receipt.evidence.some((entry) => entry.kind === "approved")).toBe(false);

@@ -234,14 +234,14 @@ export interface AttestationFacts {
   };
   proposal?: { commentId: string; author: string };
   /**
-   * A reaction, and only ever a reaction (#525). The older §3.2 admitted a second
-   * kind — a principal-authored *comment*, winning over a 👍 when amending — and
-   * this union carried a `"comment"` member for it that nothing ever produced.
-   * The clause did not survive #549: ratification stopped gating a HITL close and
-   * became a label feeding `attestation`, and inferring approval from free prose
-   * would let a root-author reply of "hold on, not this" derive `verified`. A 👍
-   * is a deliberate, unambiguous gesture; prose is not. Narrowed rather than left
-   * as a member with no producer, which reads as a path the system has.
+   * A reaction, and only ever a reaction — §3.2 has the argument for why the
+   * comment path was withdrawn (#525).
+   *
+   * `kind` is deliberately a one-variant discriminant rather than an omitted
+   * field. A receipt is a published artifact re-read years later, and *how* this
+   * was ratified is part of what it records; a bare `{id, author}` would leave a
+   * future reader to infer the mechanism from an id shape. Nothing branches on
+   * it today, and nothing should need to.
    */
   ratification?: { kind: "reaction"; id: string; author: string };
   root?: { nodeId: string; author: string };
