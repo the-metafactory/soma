@@ -882,6 +882,23 @@ async function runClose(
   ].join("\n");
 }
 
+/**
+ * Read one node for the planSteps bridge (§2.7). Exported so
+ * `soma algorithm step --sync` reaches the graph through the *same* seam and the
+ * *same* repo resolution `soma graph` uses — a second reader would be a second
+ * answer to "which node backs this step", which is the two-homes defect wearing
+ * a different hat.
+ */
+export async function readNodeForBridge(
+  nodeId: string,
+  options: { repo?: string } = {},
+  overrides: Partial<GraphCliDeps> = {},
+): Promise<NodeState> {
+  const deps: GraphCliDeps = { ...defaultDeps(), ...overrides };
+  const repo = options.repo ?? (await deps.resolveRepo());
+  return await new WorkGraph(deps.createStore(repo)).readNode({ id: nodeId });
+}
+
 export async function runGraphCli(parsed: ParsedGraphArgs, overrides: Partial<GraphCliDeps> = {}): Promise<string> {
   const deps: GraphCliDeps = { ...defaultDeps(), ...overrides };
   const repo = parsed.options.repo ?? (await deps.resolveRepo());

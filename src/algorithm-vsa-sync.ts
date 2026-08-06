@@ -25,6 +25,7 @@ import {
   createAlgorithmRun,
   hasCurrentStateProbe,
   learnGateViolations,
+  markUnbridgedPlanStepsDone,
   nextAlgorithmPhase,
   recordAlgorithmChange,
   recordAlgorithmLearning,
@@ -262,12 +263,8 @@ function prepareAndAdvance(run: AlgorithmRun, target: AlgorithmPhase, timestamp:
       }
       break;
     case "verify":
-      next = {
-        ...next,
-        planSteps: next.planSteps.map((step) =>
-          step.status === "open" ? { ...step, status: "done" as const, evidence: step.evidence ?? "synced from VSA" } : step,
-        ),
-      };
+      // Skips bridged steps — see `markUnbridgedPlanStepsDone` (§2.7).
+      next = { ...next, planSteps: markUnbridgedPlanStepsDone(next.planSteps, "synced from VSA") };
       break;
     default:
       break;

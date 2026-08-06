@@ -245,11 +245,15 @@ export {
   recordAlgorithmLearning,
   recordAlgorithmMetaReflection,
   recordAlgorithmObservation,
+  deriveBridgedPlanStepStatus,
+  markUnbridgedPlanStepsDone,
   setAlgorithmPlan,
+  syncBridgedPlanStep,
   updateAlgorithmPlanStep,
   VerificationGateError,
   verifyAlgorithmCriterion,
 } from "./algorithm";
+export type { BridgedNodeReport } from "./algorithm";
 export {
   assertAlgorithmCapabilitiesSatisfied,
   getAlgorithmCapabilityDefinition,

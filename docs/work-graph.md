@@ -325,6 +325,25 @@ from the node, read via `GraphStore.readNode` (surfaced as
 `docs/algorithm-execution-modes.md` is correspondingly narrowed to "no
 parallel work registry **at the same scope**" (#484).
 
+**Implemented** (#501). Two additions the spec left open, both forced by the
+implementation:
+
+- **Binding is a derivation.** `syncBridgedPlanStep(run, stepId, report, {bind})`
+  is the one write path for a bridged step's status, and it is also how a step
+  first acquires its `nodeId` — attaching the reference without deriving would
+  leave the step bridged while still reporting its stale hand-written status.
+- **The whole-run sweep skips.** `updateAlgorithmPlanStep` was not the only path
+  that wrote a step's status: the VSA sync's VERIFY sweep flipped every open step
+  to `done` from the VSA's phase alone. It is a whole-run map with no single step
+  to refuse for, so `markUnbridgedPlanStepsDone` **skips** bridged steps instead
+  of throwing. A refusal that covers one call site and not the other is not a
+  contract — it is a speed bump.
+
+`status` on a bridged step is therefore a **cache** of the node's reported state,
+and the derived `evidence` names the node and the derivation moment: a derived
+status that is indistinguishable from a written one has the gate's shape without
+its effect.
+
 ## 3. Receipts by autonomy class
 
 ### 3.1 AFK (`auto`)

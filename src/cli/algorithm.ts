@@ -21,12 +21,13 @@ import {
   runSomaLifecycleAlgorithmUpdated,
   setAlgorithmPlan,
   selectAlgorithmCapability,
+  syncBridgedPlanStep,
   updateAlgorithmPlanStep,
   verifyAlgorithmCriterion,
   writeAlgorithmRun,
   appendSomaMemoryEvent,
 } from "../index";
-import type { ReflectionForDigest } from "../index";
+import type { BridgedNodeReport, ReflectionForDigest } from "../index";
 // VerificationGateError is a CLI-only classification detail — imported straight
 // from its defining module, deliberately NOT re-exported through the public
 // barrel (Sage review, PR #455): keeping it off ../index leaves the internal
@@ -42,6 +43,7 @@ import { defaultEvidenceKind, getCriteria, getGoal } from "../vsa-accessors";
 import { getRunPhase } from "../algorithm-lifecycle";
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
+import { readNodeForBridge } from "./graph";
 import type {
   AlgorithmBatchOperation,
   AlgorithmEffortTier,
@@ -94,7 +96,10 @@ export const ALGORITHM_COMMAND_HELP: { usage: string; subcommands: Record<Algori
       "Usage: soma algorithm observe --id <run-id> --claim <text> --evidence <text> [--evidence-kind <probed|tested|specified>] [--substrate <id>] [--home-dir <dir>] [--soma-home <dir>] (kind defaults to specified; assert probed/tested to clear the OBSERVE floor)",
     decision: "Usage: soma algorithm decision --id <run-id> --text <text> [--home-dir <dir>] [--soma-home <dir>]",
     change: "Usage: soma algorithm change --id <run-id> --text <text> [--home-dir <dir>] [--soma-home <dir>]",
-    step: "Usage: soma algorithm step --id <run-id> --step-id <id> --status <open|done|blocked> [--evidence <text>]",
+    step:
+      "Usage: soma algorithm step --id <run-id> --step-id <id> (--status <open|done|blocked> [--evidence <text>] | --node <node-id> | --sync) [--repo <owner/name>]. " +
+      "--node bridges the step to a work-graph node and derives its status from it; --sync re-derives an already-bridged step. " +
+      "--status is refused on a bridged step: the node is its one authoritative home (docs/work-graph.md §2.7).",
     verify: "Usage: soma algorithm verify --id <run-id> --criterion-id <id> --status <passed|failed|dropped|deferred-probe> --evidence <text> [--evidence-kind <specified|probed|tested>] [--substrate <id>]",
     learn: "Usage: soma algorithm learn --id <run-id> --text <text> [--substrate <id>] [--home-dir <dir>] [--soma-home <dir>]",
     reflect:
@@ -129,6 +134,12 @@ interface AlgorithmCliOptions {
   claim?: string;
   stepId?: string;
   stepStatus?: AlgorithmPlanStep["status"];
+  /** Work-graph node to bridge the step to (§2.7). */
+  stepNodeId?: string;
+  /** Re-derive an already-bridged step's status from its node. */
+  stepSync?: boolean;
+  /** Which repository backs the graph, when the bridge cannot infer it. */
+  repo?: string;
   criterionId?: string;
   criterionStatus?: "passed" | "failed" | "dropped" | "deferred-probe";
   evidence?: string;
@@ -472,6 +483,17 @@ export function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
         options.stepId = readOption(rest, index, arg);
         index += 1;
         break;
+      case "--node":
+        options.stepNodeId = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--sync":
+        options.stepSync = true;
+        break;
+      case "--repo":
+        options.repo = readOption(rest, index, arg);
+        index += 1;
+        break;
       case "--status":
         if (action === "step") {
           options.stepStatus = parseStepStatus(readOption(rest, index, arg));
@@ -623,7 +645,15 @@ function formatAlgorithmRun(run: AlgorithmRun, path: string): string {
     ...getCriteria(run.vsa).map((criterion) => `- [${criterion.status}] ${criterion.id}: ${criterion.text}${criterion.verification ? ` | ${criterion.verification}` : ""}`),
     "",
     "Plan:",
-    ...(run.planSteps.length > 0 ? run.planSteps.map((step) => `- [${step.status}] ${step.id}: ${step.text} (${step.criteriaIds.join(",")})`) : ["- none"]),
+    ...(run.planSteps.length > 0
+      ? run.planSteps.map(
+          (step) =>
+            `- [${step.status}] ${step.id}: ${step.text} (${step.criteriaIds.join(",")})` +
+            // Naming the node makes the status's authority visible: without it a
+            // derived status reads exactly like a hand-written one.
+            (step.nodeId === undefined ? "" : ` → node ${step.nodeId}`),
+        )
+      : ["- none"]),
     "",
     "Capabilities:",
     ...((run.capabilitySelections ?? []).length > 0
@@ -733,8 +763,35 @@ async function updateAndReportAlgorithmRun(
   return formatAlgorithmRun(written.run, written.path);
 }
 
-export async function runAlgorithmCli(parsed: ParsedAlgorithmArgs): Promise<string> {
+/**
+ * The bridge's read path (§2.7), injectable so the planSteps tests can exercise
+ * the contract without a tracker. Production resolves to `readNodeForBridge`,
+ * which is `soma graph node <id>`'s own seam.
+ */
+export interface AlgorithmCliDeps {
+  readNode: (nodeId: string, options: { repo?: string }) => Promise<BridgedNodeReport>;
+}
+
+/** Which node an already-bridged step defers to — read off the run, not argv. */
+async function resolveBridgedNodeId(options: AlgorithmCliOptions, stepId: string): Promise<string> {
+  const id = requireAlgorithmId(options);
+  const { run } = await readAlgorithmRunById(id, { homeDir: options.homeDir, somaHome: options.somaHome });
+  const step = run.planSteps.find((candidate) => candidate.id === stepId);
+
+  if (step === undefined) throw new Error(`Algorithm plan step not found: ${stepId}`);
+  if (step.nodeId === undefined) {
+    throw new Error(`Algorithm plan step ${stepId} is not bridged to a work-graph node. Bridge it with --node <node-id>.`);
+  }
+
+  return step.nodeId;
+}
+
+export async function runAlgorithmCli(
+  parsed: ParsedAlgorithmArgs,
+  overrides: Partial<AlgorithmCliDeps> = {},
+): Promise<string> {
   const options = parsed.options;
+  const deps: AlgorithmCliDeps = { readNode: async (nodeId, opts) => await readNodeForBridge(nodeId, opts), ...overrides };
 
   if (parsed.action === "classify") {
     if (!options.prompt) throw new Error("--prompt is required.");
@@ -861,8 +918,26 @@ export async function runAlgorithmCli(parsed: ParsedAlgorithmArgs): Promise<stri
   }
 
   if (parsed.action === "step") {
-    if (!options.stepId || !options.stepStatus) throw new Error("--step-id and --status are required.");
+    if (!options.stepId) throw new Error("--step-id is required.");
     const stepId = options.stepId;
+    const bind = options.stepNodeId !== undefined;
+    const sync = options.stepSync === true;
+
+    if (bind && sync) throw new Error("--node already derives the status; pass one of --node or --sync.");
+
+    if (bind || sync) {
+      if (options.stepStatus !== undefined) {
+        // Naming the collision beats silently preferring one: --status on a
+        // bridged step is the exact write §2.7 refuses, so an argv that asks for
+        // both is asking for a forged status.
+        throw new Error("--status cannot be combined with --node or --sync: a bridged step's status derives from its node.");
+      }
+      const nodeId = options.stepNodeId ?? (await resolveBridgedNodeId(options, stepId));
+      const state = await deps.readNode(nodeId, { repo: options.repo });
+      return updateAndReportAlgorithmRun(options, (run) => syncBridgedPlanStep(run, stepId, state, { bind }));
+    }
+
+    if (!options.stepStatus) throw new Error("--step-id and --status are required.");
     const stepStatus = options.stepStatus;
     return updateAndReportAlgorithmRun(options, (run) => updateAlgorithmPlanStep(run, stepId, stepStatus, options.evidence));
   }

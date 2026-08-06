@@ -169,9 +169,26 @@ parallel registry. *Cross-session* effort topology is a different scope and
 belongs to the work graph (`docs/work-graph.md`): a plan step may carry an
 optional `nodeId` reference to a work-graph node and then derives its status
 from that node — one work item never has two authoritative homes. The
-work-graph spec (pre-implementation) makes this a runner obligation rather
-than an assumption: when the `nodeId` bridge lands, `updateAlgorithmPlanStep`
-must refuse a direct status write on a bridged step, and the read side
-re-derives status from the node via `GraphStore.readNode` /
-`soma graph node <id>` (see `docs/work-graph.md` §2.7, "planSteps bridge"). Until that lands, `planSteps[]` has no bridge and
-this section's within-run rule is the whole story.
+work-graph spec makes this a runner obligation rather than an assumption, and
+**the bridge is implemented** (#501): `updateAlgorithmPlanStep` refuses a direct
+status write on a bridged step, and status arrives only by re-deriving from the
+node via `GraphStore.readNode` / `soma graph node <id> --json` (see
+`docs/work-graph.md` §2.7, "planSteps bridge").
+
+The CLI surface:
+
+```bash
+soma algorithm step --id <run> --step-id <step> --node <node-id>   # bridge + derive
+soma algorithm step --id <run> --step-id <step> --sync             # re-derive
+soma algorithm step --id <run> --step-id <step> --status done       # refused when bridged
+```
+
+`--node` binds *and* derives in one act, so a step is never bridged while still
+carrying its stale hand-written status. The derived `evidence` names the node and
+the moment, because a derived status that reads like a written one is the defect
+with the gate removed. Two write paths had to be closed, not one: the per-step
+call refuses, and the VSA sync's whole-run VERIFY sweep
+(`markUnbridgedPlanStepsDone`) *skips* bridged steps — it has no single step to
+refuse for, and the `done` it writes comes from the VSA's phase alone. The
+visible cost is the honest one: an open bridged step leaves the run short of the
+VERIFY gate until its node closes.
