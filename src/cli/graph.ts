@@ -655,7 +655,7 @@ export function selectRatification(
   reactions: readonly Reaction[],
   proposalAuthor: string,
   rootAuthor: string | undefined,
-): { kind: "reaction"; id: string; author: string } | undefined {
+): Ratification | undefined {
   if (
     rootAuthor !== undefined &&
     reactions.some((reaction) => reaction.content === "-1" && reaction.author === rootAuthor)
