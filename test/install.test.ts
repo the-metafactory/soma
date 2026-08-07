@@ -143,12 +143,14 @@ test("installs soma source home and codex home projection", async () => {
     expect(result.substrate).toBe("codex");
     expect(result.somaHome.somaHome).toBe(join(homeDir, ".soma"));
     expect(result.substrateHome.rootDir).toBe(join(homeDir, ".codex"));
-    // 21 static + 14 bundled-skill projections (Memory ×5, the-algorithm
-    // Workflows ×1, the portable the-algorithm/SKILL.md that the static
+    // 21 static + 22 bundled-skill projections (Memory ×5, the-algorithm
+    // Workflows ×1 and its eight references — algorithm, capabilities,
+    // eval-guide, ideate-loop, mode-detection, optimize-loop, parameter-schema,
+    // target-types — the portable the-algorithm/SKILL.md that the static
     // rendering contract overwrites — double-written by design, grok/codex —
     // migrate-pai-purpose/SKILL.md ×1, and orienteer ×6: SKILL.md, two
     // Workflows, three references).
-    expect(result.substrateHome.files).toHaveLength(35);
+    expect(result.substrateHome.files).toHaveLength(43);
 
     const telos = await readFile(join(homeDir, ".soma/profile/purpose.md"), "utf8");
     const rules = await readFile(join(homeDir, ".codex/rules/soma.rules"), "utf8");
@@ -1549,9 +1551,10 @@ test("installs soma source home and pi.dev home projection", async () => {
     expect(result.substrateHome.rootDir).toBe(join(homeDir, ".pi"));
     // #43 — Algorithm phase renderer extension shipped alongside
     // existing soma.ts + soma-path-guard.ts; brings the count to 13.
-    // + 14 bundled-skill projections (the-algorithm ×2, Memory ×5,
-    // migrate-pai-purpose ×1, orienteer ×6) = 27.
-    expect(result.substrateHome.files).toHaveLength(27);
+    // + 22 bundled-skill projections (the-algorithm ×10 — SKILL.md, Workflows,
+    // and eight references — Memory ×5, migrate-pai-purpose ×1,
+    // orienteer ×6) = 35.
+    expect(result.substrateHome.files).toHaveLength(35);
 
     const extension = await readFile(join(homeDir, ".pi/agent/extensions/soma.ts"), "utf8");
     const algorithmExtension = await readFile(join(homeDir, ".pi/agent/extensions/soma-algorithm.ts"), "utf8");
