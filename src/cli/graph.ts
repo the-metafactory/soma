@@ -58,6 +58,11 @@ import {
   type ProbeRegistry,
 } from "../work-graph-probe-registry";
 import { allProbesPassed, runCommand, runProbes as defaultRunProbes } from "../work-graph-probes";
+// Repo resolution and the bridge's node read live in `../work-graph-bridge` (core),
+// not here: a seam only `src/cli/` can import forces a library/MCP/daemon consumer
+// to re-implement it, becoming the second reader §2.7 forbids. No re-export — the
+// other importers point at core directly, so there is one path to each symbol.
+import { resolveGraphRepo } from "../work-graph-bridge";
 import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";
 
@@ -429,35 +434,6 @@ async function gh(args: string[]): Promise<string> {
     throw new SomaCliError(`gh ${args.join(" ")} failed (exit ${outcome.exitCode}): ${outcome.stderr.trim()}`, 1);
   }
   return outcome.stdout.trim();
-}
-
-/** `owner/name` out of any of the URL shapes a GitHub remote takes. */
-export function parseRepoFromRemote(remote: string): string | undefined {
-  const match = /github\.com[/:]([^/\s]+)\/([^/\s]+?)(?:\.git)?$/u.exec(remote.trim());
-  if (match === null) return undefined;
-  return `${match[1]}/${match[2]}`;
-}
-
-/**
- * Which repository backs this graph. Exported because the probe registry is
- * scoped by repo identity, so `soma policy probes` has to resolve it the same
- * way `soma graph` does — two answers to "which repo" would mean an adopter
- * declaring commands under a key the close path never looks at.
- */
-export async function resolveGraphRepo(): Promise<string> {
-  const configured = process.env.SOMA_GRAPH_REPO;
-  if (configured !== undefined && configured.trim().length > 0) return configured.trim();
-
-  const remote = await runCommand({ argv: ["git", "remote", "get-url", "origin"], timeoutSec: 30 });
-  if (remote.exitCode === 0) {
-    const parsed = parseRepoFromRemote(remote.stdout);
-    if (parsed !== undefined) return parsed;
-  }
-
-  throw new SomaCliError(
-    "Cannot tell which repository backs this graph. Pass --repo <owner/name> or set SOMA_GRAPH_REPO.",
-    1,
-  );
 }
 
 async function defaultEvidencePointer(): Promise<string | undefined> {

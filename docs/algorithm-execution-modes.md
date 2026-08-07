@@ -169,9 +169,39 @@ parallel registry. *Cross-session* effort topology is a different scope and
 belongs to the work graph (`docs/work-graph.md`): a plan step may carry an
 optional `nodeId` reference to a work-graph node and then derives its status
 from that node — one work item never has two authoritative homes. The
-work-graph spec (pre-implementation) makes this a runner obligation rather
-than an assumption: when the `nodeId` bridge lands, `updateAlgorithmPlanStep`
-must refuse a direct status write on a bridged step, and the read side
-re-derives status from the node via `GraphStore.readNode` /
-`soma graph node <id>` (see `docs/work-graph.md` §2.7, "planSteps bridge"). Until that lands, `planSteps[]` has no bridge and
-this section's within-run rule is the whole story.
+work-graph spec makes this a runner obligation rather than an assumption, and
+**the bridge is implemented** (#501): `updateAlgorithmPlanStep` refuses a direct
+status write on a bridged step, and the intended way for status to arrive is
+re-derivation from the node via `GraphStore.readNode` /
+`soma graph node <id> --json`.
+
+Read "intended", not "only". The refusals live in the mutation helpers, not in
+the type, so a caller can still route around them deliberately —
+`docs/work-graph.md` §2.7 names each hole. What the helpers guarantee is that a
+bridged step's authority is never dropped *incidentally*.
+
+The CLI surface:
+
+```bash
+soma algorithm step --id <run> --step-id <step> --node <node-id>   # bridge + derive
+soma algorithm step --id <run> --step-id <step> --sync             # re-derive
+soma algorithm step --id <run> --step-id <step> --status done       # refused when bridged
+```
+
+`--node` binds *and* derives in one act, so a step is never bridged while still
+carrying its stale hand-written status. The derived `evidence` names the node and
+the moment, because a derived status that reads like a written one is the defect
+with the gate removed. **Three** mutation helpers reach a step's status, and each
+is handled — `updateAlgorithmPlanStep` refuses (and `applyAlgorithmBatch` routes
+through it), `setAlgorithmPlan` refuses in both directions, and the VSA sync's
+whole-run VERIFY sweep (`markUnbridgedPlanStepsDone`) *skips* bridged steps, since
+it has no single step to refuse for and the `done` it writes comes from the VSA's
+phase alone. `docs/work-graph.md` §2.7 is the authority on that enumeration and on
+what it does not cover; this section does not restate it.
+
+The cost is real but **not a lock**: an open bridged step leaves the run short of
+the VERIFY gate (`advanceAlgorithmRun` requires every plan step `done` or
+`blocked`) until its node closes — and a `setAlgorithmPlan` that omits the step
+clears the gate immediately, since a removed step gates nothing. Removal is a
+deliberate act and the end state is honest, but it is not refused and leaves no
+trace that a node-backed step was dropped.

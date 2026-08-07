@@ -220,12 +220,38 @@ export interface AlgorithmPromptClassification {
   reason: string;
 }
 
+/**
+ * A within-run execution checklist item. `planSteps[]` stays the run's own
+ * checklist; a step may additionally be **bridged** to a work-graph node via
+ * {@link AlgorithmPlanStep.nodeId}, and a bridged step's `status` stops being
+ * caller-authored (`docs/work-graph.md` §2.7).
+ */
 export interface AlgorithmPlanStep {
   id: string;
   text: string;
   criteriaIds: string[];
+  /**
+   * Caller-authored on an unbridged step. On a bridged step it is a **cache of
+   * the node's reported state**: `syncBridgedPlanStep` is the intended writer,
+   * and `updateAlgorithmPlanStep` / `setAlgorithmPlan` refuse a direct write,
+   * because one work item never has two authoritative homes (§2.7).
+   *
+   * Read that as a speed bump, not a seal. The refusals live in the mutation
+   * helpers, not in this type — a caller who builds an `AlgorithmRun` literal and
+   * calls `writeAlgorithmRun`, or who removes and re-adds a step across two
+   * `setAlgorithmPlan` calls, can still persist a hand-written status on a step
+   * that was bridged. What the helpers guarantee is that it cannot happen
+   * *incidentally*. See `docs/work-graph.md` §2.7 for the full boundary.
+   */
   status: "open" | "done" | "blocked";
   evidence?: string;
+  /**
+   * Work-graph node this step defers to. Present ⇒ the node is the single
+   * authoritative home for the step's status, and `status`/`evidence` here are
+   * re-derived from `GraphStore.readNode` (surfaced to CLI callers as
+   * `soma graph node <id> --json`). Absent ⇒ the run owns the status outright.
+   */
+  nodeId?: string;
 }
 
 export interface AlgorithmLogEntry {

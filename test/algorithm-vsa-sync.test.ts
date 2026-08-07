@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, spyOn, test } from "bun:test";
 import { syncAlgorithmRunFromVsa } from "../src/algorithm-vsa-sync";
-import { readAlgorithmRunById } from "../src/algorithm-store";
+import { readAlgorithmRunById, writeAlgorithmRun } from "../src/algorithm-store";
+import { syncBridgedPlanStep } from "../src/algorithm";
 import { getCriteria } from "../src/vsa-accessors";
 import { getRunPhase } from "../src/algorithm-lifecycle";
 
@@ -527,5 +528,75 @@ test("CLI: soma algorithm sync-from-isa wires through and reports a summary", as
     expect(text).toContain("demo-cli");
     expect(text).toContain("phase: think");
     expect(text).toContain("created");
+  });
+});
+
+test("an open BRIDGED plan step caps the sync at EXECUTE instead of discarding the whole sync", async () => {
+  await withSomaHome(async (somaHome, dir) => {
+    // Regression (PR #555): the §2.7 sweep leaves a bridged open step `open`, which
+    // the VERIFY gate refuses. Unguarded, that throw unwound to the outer
+    // failure-isolation catch and no-op'd the ENTIRE sync — silently discarding the
+    // criteria reconciliation that had already succeeded. Cap, don't throw.
+    const vsaPath = await writeVsaFile(
+      dir,
+      "bridged-cap",
+      vsaMarkdown({
+        slug: "bridged-cap",
+        phase: "build",
+        goal: "A bridged step caps the advance",
+        criteria: [{ id: "ISC-1", text: "the sync still reconciles", done: false }],
+      }),
+    );
+
+    const first = await syncAlgorithmRunFromVsa({
+      vsaPath,
+      substrate: "claude-code",
+      somaHome,
+      timestamp: "2026-08-06T10:00:00.000Z",
+    });
+    expect(first.created).toBe(true);
+
+    // The synthetic BUILD plan step exists; bridge it to an OPEN work-graph node.
+    const { run: created } = await readAlgorithmRunById(first.runId!, { somaHome });
+    const stepId = created.planSteps[0].id;
+    expect(getCriteria(created.vsa).find((c) => c.id === "ISC-1")?.status).toBe("open");
+    await writeAlgorithmRun(
+      syncBridgedPlanStep(
+        created,
+        stepId,
+        { ref: { id: "501" }, status: "open", blockedBy: [] },
+        { bind: true },
+        "2026-08-06T10:01:00.000Z",
+      ),
+      { somaHome },
+    );
+
+    // Re-sync with ISC-1 now checked and the VSA declaring `verify`: there is real
+    // reconciliation work to lose if the advance throws instead of capping.
+    const rewritten = await writeVsaFile(
+      dir,
+      "bridged-cap",
+      vsaMarkdown({
+        slug: "bridged-cap",
+        phase: "verify",
+        progress: "1/1",
+        goal: "A bridged step caps the advance",
+        criteria: [{ id: "ISC-1", text: "the sync still reconciles", done: true }],
+      }),
+    );
+
+    await syncAlgorithmRunFromVsa({
+      vsaPath: rewritten,
+      substrate: "claude-code",
+      somaHome,
+      timestamp: "2026-08-06T10:02:00.000Z",
+    });
+
+    const { run } = await readAlgorithmRunById(first.runId!, { somaHome });
+    // The sync did NOT no-op: the criterion reconciled to passed.
+    expect(getCriteria(run.vsa).find((c) => c.id === "ISC-1")?.status).toBe("passed");
+    // …and it stopped at the gate the bridged step blocks, rather than throwing past it.
+    expect(getRunPhase(run)).toBe("execute");
+    expect(run.planSteps.find((step) => step.id === stepId)?.status).toBe("open");
   });
 });

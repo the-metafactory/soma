@@ -3,11 +3,11 @@ import { SomaCliError } from "../src/cli/errors";
 import {
   GRAPH_COMMAND_HELP,
   parseGraphArgs,
-  parseRepoFromRemote,
   runGraphCli,
   selectRatification,
   type GraphCliDeps,
 } from "../src/cli/graph";
+import { parseRepoFromRemote } from "../src/work-graph-bridge";
 import {
   WorkGraphError,
   runProbes,

@@ -245,11 +245,26 @@ export {
   recordAlgorithmLearning,
   recordAlgorithmMetaReflection,
   recordAlgorithmObservation,
+  deriveBridgedPlanStepStatus,
+  requirePlanStep,
   setAlgorithmPlan,
+  syncBridgedPlanStep,
   updateAlgorithmPlanStep,
   VerificationGateError,
   verifyAlgorithmCriterion,
 } from "./algorithm";
+export type { BridgedNodeReport } from "./algorithm";
+// The planSteps bridge's READ half (§2.7), beside the write half on purpose: a
+// consumer that can reach `syncBridgedPlanStep` but not the reader must
+// re-implement repo resolution, becoming the second reader the bridge forbids.
+//
+// Only the reader. `resolveGraphRepo` and `parseRepoFromRemote` stay off the
+// barrel — a remote-URL regex is not part of the bridge contract, and putting
+// them here would drag a GitHub-shaped transport concern into the import graph of
+// every consumer of the pure algorithm functions. Same reasoning excludes
+// `markUnbridgedPlanStepsDone`: one production consumer, which imports it directly.
+export { readNodeForBridge } from "./work-graph-bridge";
+export type { ReadNodeForBridgeOptions } from "./work-graph-bridge";
 export {
   assertAlgorithmCapabilitiesSatisfied,
   getAlgorithmCapabilityDefinition,

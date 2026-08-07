@@ -325,6 +325,74 @@ from the node, read via `GraphStore.readNode` (surfaced as
 `docs/algorithm-execution-modes.md` is correspondingly narrowed to "no
 parallel work registry **at the same scope**" (#484).
 
+**Implemented** (#501). The spec named one write path to refuse. The run has
+three *mutation helpers* that can reach a step's status, and each is handled — but
+be precise about what that buys, because the first version of this section claimed
+exhaustiveness on the strength of a hand-made list that had missed one:
+
+> The invariant is enforced at the **mutation layer, not in the type**, and the
+> mutation layer is a set of speed bumps rather than a seal. Two holes — the
+> second demonstrated by a test, the first following from the signature:
+>
+> - `writeAlgorithmRun` is on the public barrel and takes a whole run, so a caller
+>   can construct an `AlgorithmRun` literal with a bridged step and a hand-written
+>   `done` and persist it.
+> - `setAlgorithmPlan`'s un-bridge refusal is **per-call**. Removing the step in
+>   one call and re-adding it unbridged in the next reproduces the end state the
+>   single-call refusal rejects; nothing sees across two calls.
+>
+> Only moving `status` out of a bridged step's shape would actually close these,
+> and that is a larger change than #501.
+
+So the accurate claim is narrower than "one write path": a bridged step's status
+cannot be forged **incidentally**. A re-plan that happens to omit a `nodeId`, a
+VSA sweep that flushes every open step, a routine `--status done` — each is caught,
+so a step's authority is never demoted as a side effect of something else. A caller
+who sets out to un-bridge a step can still do it, and the end state is honest: the
+step no longer claims a node backs it.
+
+- `updateAlgorithmPlanStep` — the per-step write. **Refuses** on a bridged step.
+  `applyAlgorithmBatch`'s `step` operation routes through it, so it is covered by
+  construction rather than by a second check.
+- `setAlgorithmPlan` — replaces `planSteps[]` wholesale with caller-authored
+  status. **Refuses in both directions**, which took two passes to get right:
+  - an *incoming* step carrying a `nodeId`, since bridging is not a planning act
+    and a bridged step must not be authored into existence with a status that
+    never came from its node; and
+  - an incoming step reusing an *existing bridged* step's id, which silently
+    dropped the bridge and left `updateAlgorithmPlanStep` willing to accept a
+    hand-written `done` on a step a reader still believed was node-derived.
+
+  Dropping the step from the plan entirely stays legal: the step ceases to exist,
+  so nothing claims a node backs it. What is refused is the id surviving with its
+  authority quietly removed.
+
+  Note what that costs, since it is easy to read this section as stricter than it
+  is: **dropping the step also clears the VERIFY gate**, because a removed step
+  gates nothing. The "open bridged step holds the run short of VERIFY" property
+  below is therefore a cost a caller can decline, not a lock — and the removal is
+  neither refused nor recorded.
+- The VSA sync's VERIFY sweep — flipped every open step to `done` from the VSA's
+  phase alone. A whole-run map has no single step to refuse for, so
+  `markUnbridgedPlanStepsDone` **skips** bridged steps instead of throwing.
+
+- **Binding is a derivation.** `syncBridgedPlanStep(run, stepId, report, {bind})`
+  is also how a step first acquires its `nodeId` — attaching the reference
+  without deriving would leave the step bridged while still reporting its stale
+  hand-written status, which is worse than two homes: it is none. `bind` does not
+  license **re-homing**, either; an already-bridged step refuses a different node,
+  or the one caller that always passes `bind` would make the mismatch check
+  unreachable and a typo'd `--node` would move a step silently.
+- **`BridgedNodeReport` is `Pick`ed from `NodeState`**, not re-declared to match
+  it. Hand-written, its `blockedBy?` was optional where `NodeState`'s is
+  required — a report missing the field type-checked and derived `open` where the
+  node was `blocked`, a fail-open `tsc` could not see.
+
+`status` on a bridged step is therefore a **cache** of the node's reported state,
+and the derived `evidence` names the node and the derivation moment: a derived
+status that is indistinguishable from a written one has the gate's shape without
+its effect.
+
 ## 3. Receipts by autonomy class
 
 ### 3.1 AFK (`auto`)

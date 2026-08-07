@@ -18,6 +18,10 @@ import {
   removeAlgorithmCapabilitySelection,
   selectAlgorithmCapability,
 } from "./algorithm-capabilities";
+// The narrow report type the graph publishes for §2.7 — declared THERE, so the
+// graph owns the shape it publishes and this module names a contract rather than
+// a `NodeState`. Type-only: no runtime dependency on the graph from this pure module.
+import type { BridgedNodeReport } from "./work-graph";
 import { classifyAlgorithmPrompt } from "./algorithm-classifier";
 import { compactSmarterRun } from "./algorithm-reflection-digest";
 import {
@@ -214,6 +218,34 @@ export function setAlgorithmPlan(run: AlgorithmRun, planSteps: AlgorithmPlanStep
 
   for (const step of planSteps) {
     assertNonEmpty(step.text, `plan step ${step.id} text`);
+
+    // §2.7, incoming direction: this call replaces `planSteps[]` wholesale with
+    // caller-authored status, so accepting a `nodeId` here would author a bridged
+    // step whose status never came from its node. Bridging goes through
+    // `syncBridgedPlanStep`, where binding and deriving are one act.
+    if (step.nodeId !== undefined) {
+      throw new Error(
+        `Algorithm plan step ${step.id} cannot be bridged to work-graph node ${step.nodeId} by setAlgorithmPlan: a bridged step's status must be derived from its node. Plan the step unbridged, then bridge it with syncBridgedPlanStep.`,
+      );
+    }
+
+    // …and the outgoing direction: an unbridged step reusing a bridged step's id
+    // drops the bridge in place, after which `updateAlgorithmPlanStep` accepts a
+    // hand-written `done` on what a reader still believes is node-derived.
+    //
+    // This is a SPEED BUMP, not a seal, and the distinction is load-bearing:
+    // removing the step in one call and re-adding it unbridged in the next
+    // reproduces the same end state, and nothing here can see across two calls.
+    // What it buys is that un-bridging cannot happen *incidentally* — a re-plan
+    // that happens to omit a `nodeId` is caught, rather than quietly demoting a
+    // step's authority. Deliberately unbridging still works, and the end state is
+    // honest: the step no longer claims a node backs it.
+    const existing = run.planSteps.find((current) => current.id === step.id);
+    if (existing?.nodeId !== undefined) {
+      throw new Error(
+        `Algorithm plan step ${step.id} is bridged to work-graph node ${existing.nodeId}; setAlgorithmPlan cannot un-bridge it in place. A bridged step cannot be re-planned at all — omit it to remove it, then plan it afresh if you want it run-owned.`,
+      );
+    }
 
     if (step.criteriaIds.length === 0) {
       throw new Error(`Algorithm plan step ${step.id} must map to at least one criterion.`);
@@ -602,6 +634,20 @@ export function advanceAlgorithmRunUntil(
   return next;
 }
 
+/**
+ * Look one plan step up, or refuse. Exported so the CLI resolves a step the same
+ * way the core does, rather than keeping its own copy of this lookup and message.
+ */
+export function requirePlanStep(run: AlgorithmRun, stepId: string): { step: AlgorithmPlanStep; index: number } {
+  const index = run.planSteps.findIndex((step) => step.id === stepId);
+
+  if (index === -1) {
+    throw new Error(`Algorithm plan step not found: ${stepId}`);
+  }
+
+  return { step: run.planSteps[index], index };
+}
+
 export function updateAlgorithmPlanStep(
   run: AlgorithmRun,
   stepId: string,
@@ -609,20 +655,125 @@ export function updateAlgorithmPlanStep(
   evidence?: string,
   timestamp = new Date().toISOString(),
 ): AlgorithmRun {
-  const stepIndex = run.planSteps.findIndex((step) => step.id === stepId);
+  const { step, index: stepIndex } = requirePlanStep(run, stepId);
 
-  if (stepIndex === -1) {
-    throw new Error(`Algorithm plan step not found: ${stepId}`);
+  // §2.7: a bridged step's status lives on the node. Accepting a direct write
+  // here is exactly the two-authoritative-homes failure the bridge exists to
+  // prevent — and it would fail SILENTLY, since the forged status is
+  // indistinguishable from a derived one once written.
+  if (step.nodeId !== undefined) {
+    throw new Error(
+      `Algorithm plan step ${stepId} is bridged to work-graph node ${step.nodeId}: its status derives from the node, not from a direct write. ` +
+        `Read the node (soma graph node ${step.nodeId} --json) and re-derive via syncBridgedPlanStep.`,
+    );
   }
 
-  const planSteps = run.planSteps.map((step, index) =>
+  const planSteps = run.planSteps.map((current, index) =>
     index === stepIndex
       ? {
-          ...step,
+          ...current,
           status,
           evidence,
         }
+      : current,
+  );
+
+  return {
+    ...run,
+    updatedAt: timestamp,
+    planSteps,
+  };
+}
+
+/**
+ * Sweep every *unbridged* open step to `done` — the whole-run flush the VSA sync
+ * performs when a VSA is already past VERIFY.
+ *
+ * Bridged steps are skipped, not refused. This is a whole-run map with no single
+ * step to refuse for, and the status it writes comes from the VSA's phase alone,
+ * so applying it to a bridged step would forge a derived status — the exact
+ * write {@link updateAlgorithmPlanStep} refuses one step at a time. The visible
+ * cost is the honest one: an open bridged step leaves the run short of the
+ * VERIFY gate until its node closes.
+ */
+export function markUnbridgedPlanStepsDone(
+  planSteps: readonly AlgorithmPlanStep[],
+  evidence: string,
+): AlgorithmPlanStep[] {
+  return planSteps.map((step) =>
+    step.status === "open" && step.nodeId === undefined
+      ? { ...step, status: "done" as const, evidence: step.evidence ?? evidence }
       : step,
+  );
+}
+
+export type { BridgedNodeReport };
+
+/**
+ * Map a node's reported state onto a plan-step status. `closed` is the only
+ * `done`; an open node with an open blocker is `blocked`, which is what makes
+ * the run's checklist show graph topology rather than restate it.
+ */
+export function deriveBridgedPlanStepStatus(report: BridgedNodeReport): AlgorithmPlanStep["status"] {
+  if (report.status === "closed") return "done";
+  return report.blockedBy.some((blocker) => blocker.status === "open") ? "blocked" : "open";
+}
+
+/**
+ * Re-derive a bridged step's status from its node — the ONLY write path for a
+ * bridged step's status (§2.7). Also the path that first binds a step to a node:
+ * pass `bind` to attach `nodeId`, so a step can never be bridged and left
+ * carrying its stale hand-written status.
+ *
+ * Refuses when the report describes a different node than the step is bridged
+ * to: syncing step A from node B's state would write a status with no relation
+ * to the step's authoritative home, which is the same defect as a direct write
+ * wearing a derivation's clothes. `bind` does NOT license that — re-homing an
+ * already-bridged step is refused too, or the mismatch check would be unreachable
+ * from the one caller that always sets `bind`, and a typo'd node id would move a
+ * step silently.
+ */
+export function syncBridgedPlanStep(
+  run: AlgorithmRun,
+  stepId: string,
+  report: BridgedNodeReport,
+  options: { bind?: boolean } = {},
+  timestamp = new Date().toISOString(),
+): AlgorithmRun {
+  const { step, index: stepIndex } = requirePlanStep(run, stepId);
+
+  if (options.bind === true && step.nodeId !== undefined && step.nodeId !== report.ref.id) {
+    throw new Error(
+      `Algorithm plan step ${stepId} is already bridged to work-graph node ${step.nodeId}; refusing to re-home it to ${report.ref.id}. Re-plan the step to move it.`,
+    );
+  }
+
+  const nodeId = options.bind === true ? report.ref.id : step.nodeId;
+
+  if (nodeId === undefined) {
+    throw new Error(
+      `Algorithm plan step ${stepId} is not bridged to a work-graph node. Bind it to one first, or set its status directly with updateAlgorithmPlanStep.`,
+    );
+  }
+
+  if (nodeId !== report.ref.id) {
+    throw new Error(
+      `Algorithm plan step ${stepId} is bridged to work-graph node ${nodeId}, but the reported node is ${report.ref.id}.`,
+    );
+  }
+
+  const status = deriveBridgedPlanStepStatus(report);
+  const planSteps = run.planSteps.map((current, index) =>
+    index === stepIndex
+      ? {
+          ...current,
+          nodeId,
+          status,
+          // Derived, never caller-asserted — the pointer names the authority and
+          // the moment, so a reader can tell a fresh derivation from a stale one.
+          evidence: `derived from work-graph node ${nodeId} (${report.status}) at ${timestamp}`,
+        }
+      : current,
   );
 
   return {

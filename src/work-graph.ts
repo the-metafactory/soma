@@ -163,6 +163,22 @@ export interface NodeState {
 }
 
 /**
+ * The narrow slice of {@link NodeState} a **status derivation** needs — what the
+ * graph publishes to the planSteps bridge (§2.7).
+ *
+ * It lives here, with the graph, because the graph owns the shape it publishes:
+ * declaring it in `src/algorithm.ts` would point the run module at the graph
+ * module and invert §2.7's dependency direction, in which a plan step *references*
+ * a node and the two scopes never merge.
+ *
+ * `Pick`ed rather than re-declared: written by hand it was a claim the compiler
+ * did not check, and its `blockedBy?` was optional where `NodeState`'s is
+ * required — so a report missing the field type-checked and derived `open` on a
+ * `blocked` node.
+ */
+export type BridgedNodeReport = Pick<NodeState, "ref" | "status" | "blockedBy">;
+
+/**
  * Outcome of a claim attempt after the store's post-write re-read (§2.4).
  * `held` is the question every caller actually asks; `holder` names the winner
  * when it is someone else.
