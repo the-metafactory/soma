@@ -75,34 +75,45 @@ async function backupCustomisedCapabilityTable(destDir: string, sourceFile: stri
   ]);
   if (existing === undefined || incoming === undefined || existing === incoming) return undefined;
 
-  // Named by a short hash of what is being saved. That gives dedup and
-  // collision-freedom in one step: identical content lands on the same name and
-  // is skipped, different content gets its own file, and no backup is ever
-  // overwritten. A numbered series would have to be walked with a filesystem
-  // round trip per prior backup on every install (Sage review); this is one
-  // stat regardless of how many upgrades an installation has seen.
-  const digest = createHash("sha256").update(existing, "utf8").digest("hex").slice(0, 8);
-  const backup = join(references, `capabilities.pre-upgrade.${digest}.md`);
-  // Confirm by CONTENT, not by the name alone (Sage review): eight hex
-  // characters can collide, and treating a colliding name as "already saved"
-  // would drop the newer table — the exact loss this exists to prevent. On a
-  // collision, fall through to the numbered escape below.
-  const held = await readFile(backup, "utf8").catch(() => undefined);
-  if (held?.endsWith(existing) === true) return undefined;
+  // Build the payload FIRST, then compare stored backups against it exactly
+  // (Sage review). Matching on `endsWith(existing)` treated any backup merely
+  // ending with this table as already-saved, and then skipped the save — losing
+  // the table this exists to keep. An exact comparison has no such edge.
+  const payload = "<!--\n"
+    + "  Saved by `soma install` before overwriting capabilities.md (soma#574).\n"
+    + "  NOTHING reads this file. It exists so an upgrade cannot destroy rows you\n"
+    + "  added to the bundled table back when that was where rows went.\n"
+    + "\n"
+    + "  To keep any of them, copy those rows into `capabilities.local.md` — that\n"
+    + "  file is yours, install never touches it, and it is read BEFORE the bundled\n"
+    + "  table so your row wins on a name collision. Copy only what you added:\n"
+    + "  everything else here is a previous release's defaults, and reinstating\n"
+    + "  those would undo the upgrade.\n"
+    + "-->\n\n"
+    + existing;
 
-  let target: string | undefined = held === undefined ? backup : undefined;
-  for (let attempt = 2; target === undefined && attempt < 100; attempt += 1) {
-    const candidate = join(references, `capabilities.pre-upgrade.${digest}.${attempt}.md`);
-    const other = await readFile(candidate, "utf8").catch(() => undefined);
-    if (other === undefined) target = candidate;
-    else if (other.endsWith(existing)) return undefined;
+  // Named by a short hash of the content, so an unchanged table lands on the
+  // same name and costs one stat rather than a walk of every prior backup.
+  // Eight hex characters can collide, so the name is a hint and the content is
+  // the decision.
+  const digest = createHash("sha256").update(existing, "utf8").digest("hex").slice(0, 8);
+
+  let target: string | undefined;
+  for (let attempt = 1; target === undefined && attempt < 100; attempt += 1) {
+    const candidate = join(
+      references,
+      attempt === 1 ? `capabilities.pre-upgrade.${digest}.md` : `capabilities.pre-upgrade.${digest}.${attempt}.md`,
+    );
+    const held = await readFile(candidate, "utf8").catch(() => undefined);
+    if (held === undefined) target = candidate;
+    else if (held === payload) return undefined;
   }
 
-  // No free slot: refuse rather than write. Falling back to the colliding name
-  // would overwrite a backup that is still the only copy of someone's table
-  // (Sage review) — failing the install loudly is the lesser harm, and 98
-  // distinct tables colliding on one digest means something is wrong that a
-  // silent overwrite would bury.
+  // No free slot: refuse rather than write. Falling back to a colliding name
+  // would overwrite a backup that may be the only copy of someone's table —
+  // failing the install loudly is the lesser harm, and 99 distinct tables
+  // colliding on one digest means something is wrong that a silent overwrite
+  // would bury.
   if (target === undefined) {
     throw new Error(
       `Cannot back up ${bundled}: every candidate name for digest ${digest} is taken. `
@@ -110,22 +121,8 @@ async function backupCustomisedCapabilityTable(destDir: string, sourceFile: stri
     );
   }
 
-  await writeFile(
-    target,
-    "<!--\n"
-      + "  Saved by `soma install` before overwriting capabilities.md (soma#574).\n"
-      + "  NOTHING reads this file. It exists so an upgrade cannot destroy rows you\n"
-      + "  added to the bundled table back when that was where rows went.\n"
-      + "\n"
-      + "  To keep any of them, copy those rows into `capabilities.local.md` — that\n"
-      + "  file is yours, install never touches it, and it is read BEFORE the bundled\n"
-      + "  table so your row wins on a name collision. Copy only what you added:\n"
-      + "  everything else here is a previous release's defaults, and reinstating\n"
-      + "  those would undo the upgrade.\n"
-      + "-->\n\n"
-      + existing,
-    "utf8",
-  );
+  await writeFile(target, payload, "utf8");
+
   return target;
 }
 
