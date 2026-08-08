@@ -92,8 +92,19 @@ class FakeStore implements GraphStore {
     };
   }
 
-  async listCandidateFrontier(root: NodeRef): Promise<NodeRef[]> {
-    return (this.nodes.get(root.id)?.children ?? []).map((id) => ({ id }));
+  async readSubtree(root: NodeRef): Promise<NodeState[]> {
+    const states: NodeState[] = [];
+    const seen = new Set<string>([root.id]);
+    const walk = async (parent: NodeRef): Promise<void> => {
+      for (const id of this.nodes.get(parent.id)?.children ?? []) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        states.push({ ...(await this.readNode({ id })), parent });
+        await walk({ id });
+      }
+    };
+    await walk(root);
+    return states;
   }
 
   async claim(_ref: NodeRef, identity: string): Promise<ClaimResult> {

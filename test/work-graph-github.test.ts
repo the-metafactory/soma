@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+  WorkGraph,
   WorkGraphError,
   createGitHubGraphStore,
   decodeNodeBlock,
@@ -254,19 +255,20 @@ test("addBlockingEdge resolves the blocker's database id and writes the native d
   expect(calls[1]?.body).toEqual({ issue_id: 5043603420 });
 });
 
-// --- listCandidateFrontier: the membership subtree (#557) -------------------
+// --- readSubtree: the membership subtree, confirmed (#557, #576) ------------
 //
 // These pin behaviour a direct-children fixture cannot reach, so it is worth
 // recording how they were shown to bite. Each mutation below was applied to
 // `src/work-graph-github.ts` by hand and reverted; there is no committed
 // harness, so treat this as a reproduction recipe rather than a standing gate:
 //
-//   1. `listCandidateFrontier`: prune closed subtrees instead of descending —
-//      replace the emit-then-recurse pair in `visit` with an early
-//      `if (node.status !== "open") return;`.        → 3 of these fail
+//   1. `readSubtree`: prune closed subtrees instead of descending — return
+//      early from `visit` when the node is closed.     → 3 of these fail
 //   2. `completeChildren`: drop the `childrenTruncated` check and always
-//      return `node.children`.                       → 2 of these fail
-//   3. `visit`: remove the `seen` guard.             → does not terminate
+//      return `node.children`.                         → 2 of these fail
+//   3. `visit`: remove the `seen` guard.               → does not terminate
+//   4. `readSubtree`: ignore `stateTruncated` and trust the short page.
+//                                                      → 1 of these fails
 //
 // Mutation 3 is why the cycle case asserts at all: a `seen` set over a shape
 // GitHub currently guarantees to be a tree reads like dead code until you take
@@ -286,18 +288,58 @@ function counted(totalCount: number) {
   return { totalCount };
 }
 
-function gql(number: number, state: "OPEN" | "CLOSED", subIssues: unknown = counted(0)) {
-  return { number, state, subIssues };
+/**
+ * One node as the walk query returns it — every field of `NODE_FIELDS`, since
+ * the whole point of #576 is that the walk carries a complete `NodeState`.
+ */
+function gql(
+  number: number,
+  state: "OPEN" | "CLOSED",
+  subIssues: unknown = counted(0),
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    number,
+    state,
+    title: `node ${number}`,
+    body: "",
+    url: `https://github.com/${REPO}/issues/${number}`,
+    databaseId: 5_000_000 + number,
+    author: { login: "jcfischer" },
+    assignees: { totalCount: 0, nodes: [] },
+    blockedBy: { totalCount: 0, nodes: [] },
+    subIssues,
+    ...overrides,
+  };
 }
+
+const ids = (states: { ref: { id: string } }[]) => states.map((state) => state.ref.id);
 
 /**
  * Serves the walk query by `variables.number` (and by cursor where a test pages),
- * so one fake can answer the re-rooted follow-ups the walk issues.
+ * so one fake can answer the re-rooted follow-ups the walk issues. REST paths
+ * fall through to `rest`, which is how the `readNode` repair path is stubbed.
  */
-function subtreeTransport(pages: Record<string, unknown>): { transport: GitHubApiTransport; keys: string[] } {
+function subtreeTransport(
+  pages: Record<string, unknown>,
+  rest: Record<string, unknown> = {},
+): { transport: GitHubApiTransport; keys: string[] } {
   const keys: string[] = [];
   const transport: GitHubApiTransport = async (request) => {
+    if (request.path !== "graphql") {
+      const key = `${request.method} ${request.path}`;
+      keys.push(key);
+      if (!(key in rest)) throw new Error(`unstubbed rest request: ${key}`);
+      return rest[key];
+    }
+    const query = String((request.body?.query as string) ?? "");
     const variables = (request.body?.variables ?? {}) as { number?: number; after?: string | null };
+    // `readNode`'s parent lookup shares the graphql path; it is the only query
+    // that does not select subIssues.
+    if (!query.includes("subIssues")) {
+      keys.push(`parent:${variables.number}`);
+      return { data: { repository: { issue: { parent: null } } } };
+    }
     const key = variables.after == null ? String(variables.number) : `${variables.number}@${variables.after}`;
     keys.push(key);
     if (!(key in pages)) throw new Error(`unstubbed subtree request: ${key}`);
@@ -306,9 +348,11 @@ function subtreeTransport(pages: Record<string, unknown>): { transport: GitHubAp
   return { transport, keys };
 }
 
-test("the walk descends into closed nodes, reports only the open ones, and orders them depth-first", async () => {
+test("the walk descends into closed nodes and reports the whole subtree depth-first", async () => {
   // #501 and #510 are closed and each carries open scaffold — the case a
   // one-level walk lost twice over, and the common one, not the exotic one.
+  // Closed nodes are *reported* now, not filtered here: §2.4 is the contract
+  // layer's predicate, and a store that pre-filters is deciding it instead.
   const { transport } = subtreeTransport({
     "495": gql(
       495,
@@ -321,19 +365,81 @@ test("the walk descends into closed nodes, reports only the open ones, and order
     ),
   });
 
-  const candidates = await createGitHubGraphStore({ repo: REPO, transport }).listCandidateFrontier({ id: "495" });
+  const subtree = await createGitHubGraphStore({ repo: REPO, transport }).readSubtree({ id: "495" });
 
   // Pre-order: each node is followed by its own scaffold, so provenance reads
   // off the listing itself.
-  expect(candidates).toEqual([{ id: "497" }, { id: "556" }, { id: "560" }]);
+  expect(ids(subtree)).toEqual(["497", "501", "556", "510", "560", "561"]);
 });
 
-test("the root itself is never a candidate, however it is stated", async () => {
+test("every node arrives confirmed, with the parent the walk arrived on", async () => {
+  // The whole of #576: no second read is needed because the walk already holds
+  // status, assignees, blockers, author and the typed block. `parent` is free —
+  // it is the edge we traversed.
+  const { transport, keys } = subtreeTransport({
+    "495": gql(
+      495,
+      "OPEN",
+      conn([
+        gql(501, "CLOSED", conn([
+          gql(556, "OPEN", counted(0), {
+            body: typedBody({ autonomy: "approve", kind: "grilling" }, "the question"),
+            assignees: { totalCount: 1, nodes: [{ login: "ivy-agent" }] },
+            blockedBy: { totalCount: 1, nodes: [{ number: 499, state: "CLOSED" }] },
+          }),
+        ])),
+      ]),
+    ),
+  });
+
+  const subtree = await createGitHubGraphStore({ repo: REPO, transport }).readSubtree({ id: "495" });
+  const scaffold = subtree.find((state) => state.ref.id === "556");
+
+  expect(scaffold?.parent).toEqual({ id: "501" });
+  expect(scaffold?.assignees).toEqual(["ivy-agent"]);
+  expect(scaffold?.blockedBy).toEqual([{ id: "499", status: "closed" }]);
+  expect(scaffold?.author).toBe("jcfischer");
+  expect(scaffold?.typed).toBe(true);
+  expect(scaffold?.node.kind).toBe("grilling");
+  expect(scaffold?.body).toBe("the question");
+  // One query. That is the property, and counting calls is the only assertion
+  // that actually holds it.
+  expect(keys).toEqual(["495"]);
+});
+
+test("a short assignees or blockedBy page is repaired by a direct read, never trusted", async () => {
+  // A short `assignees` page makes a claimed node look unclaimed and a short
+  // `blockedBy` page makes a blocked node look takeable — false *positives*,
+  // and with the second read gone nothing downstream would catch them.
+  const { transport, keys } = subtreeTransport(
+    {
+      "495": gql(
+        495,
+        "OPEN",
+        conn([gql(497, "OPEN", counted(0), { assignees: { totalCount: 40, nodes: [{ login: "a" }] } })]),
+      ),
+    },
+    {
+      [`GET repos/${REPO}/issues/497`]: issuePayload({ number: 497, assignees: [{ login: "a" }, { login: "b" }] }),
+      [`GET repos/${REPO}/issues/497/dependencies/blocked_by`]: [],
+    },
+  );
+
+  const subtree = await createGitHubGraphStore({ repo: REPO, transport }).readSubtree({ id: "495" });
+
+  expect(subtree[0]?.assignees).toEqual(["a", "b"]);
+  expect(keys).toEqual([
+    "495",
+    `GET repos/${REPO}/issues/497`,
+    "parent:497",
+    `GET repos/${REPO}/issues/497/dependencies/blocked_by`,
+  ]);
+});
+
+test("the root itself is never in its own subtree, however it is stated", async () => {
   const { transport } = subtreeTransport({ "495": gql(495, "OPEN", conn([gql(497, "OPEN")])) });
 
-  expect(await createGitHubGraphStore({ repo: REPO, transport }).listCandidateFrontier({ id: "495" })).toEqual([
-    { id: "497" },
-  ]);
+  expect(ids(await createGitHubGraphStore({ repo: REPO, transport }).readSubtree({ id: "495" }))).toEqual(["497"]);
 });
 
 test("a node deeper than the query reaches is re-rooted, not silently dropped", async () => {
@@ -343,9 +449,9 @@ test("a node deeper than the query reaches is re-rooted, not silently dropped", 
     "564": gql(564, "CLOSED", conn([gql(999, "OPEN")])),
   });
 
-  const candidates = await createGitHubGraphStore({ repo: REPO, transport }).listCandidateFrontier({ id: "495" });
+  const subtree = await createGitHubGraphStore({ repo: REPO, transport }).readSubtree({ id: "495" });
 
-  expect(candidates).toEqual([{ id: "999" }]);
+  expect(ids(subtree)).toEqual(["557", "564", "999"]);
   expect(keys).toEqual(["495", "564"]);
 });
 
@@ -357,9 +463,9 @@ test("a level that hit its page size is completed by re-rooting, where the child
     "501": gql(501, "CLOSED", conn([gql(556, "OPEN"), gql(560, "OPEN")])),
   });
 
-  const candidates = await createGitHubGraphStore({ repo: REPO, transport }).listCandidateFrontier({ id: "495" });
+  const subtree = await createGitHubGraphStore({ repo: REPO, transport }).readSubtree({ id: "495" });
 
-  expect(candidates).toEqual([{ id: "556" }, { id: "560" }]);
+  expect(ids(subtree)).toEqual(["501", "556", "560"]);
   expect(keys).toEqual(["495", "501"]);
 });
 
@@ -369,9 +475,9 @@ test("the root's children are cursor-paged to completion", async () => {
     "495@Y3Vy": gql(495, "OPEN", conn([gql(511, "OPEN")], { totalCount: 2 })),
   });
 
-  const candidates = await createGitHubGraphStore({ repo: REPO, transport }).listCandidateFrontier({ id: "495" });
+  const subtree = await createGitHubGraphStore({ repo: REPO, transport }).readSubtree({ id: "495" });
 
-  expect(candidates).toEqual([{ id: "497" }, { id: "511" }]);
+  expect(ids(subtree)).toEqual(["497", "511"]);
   expect(keys).toEqual(["495", "495@Y3Vy"]);
 });
 
@@ -380,7 +486,7 @@ test("more pages with no cursor to fetch them refuses, rather than reading short
     "495": gql(495, "OPEN", conn([gql(497, "OPEN")], { totalCount: 2, hasNextPage: true })),
   });
 
-  expect(createGitHubGraphStore({ repo: REPO, transport }).listCandidateFrontier({ id: "495" })).rejects.toThrow(
+  expect(createGitHubGraphStore({ repo: REPO, transport }).readSubtree({ id: "495" })).rejects.toThrow(
     /more children but no cursor/,
   );
 });
@@ -392,7 +498,7 @@ test("an unreadable hasNextPage refuses instead of passing for a last page", asy
     "495": gql(495, "OPEN", { totalCount: 1, pageInfo: {}, nodes: [gql(497, "OPEN")] }),
   });
 
-  expect(createGitHubGraphStore({ repo: REPO, transport }).listCandidateFrontier({ id: "495" })).rejects.toThrow(
+  expect(createGitHubGraphStore({ repo: REPO, transport }).readSubtree({ id: "495" })).rejects.toThrow(
     /no usable hasNextPage/,
   );
 });
@@ -405,7 +511,7 @@ test("a repeated pagination cursor refuses instead of looping forever", async ()
     "495@same": gql(495, "OPEN", conn([gql(511, "OPEN")], { totalCount: 9, hasNextPage: true, endCursor: "same" })),
   });
 
-  expect(createGitHubGraphStore({ repo: REPO, transport }).listCandidateFrontier({ id: "495" })).rejects.toThrow(
+  expect(createGitHubGraphStore({ repo: REPO, transport }).readSubtree({ id: "495" })).rejects.toThrow(
     /repeated a pagination cursor/,
   );
 });
@@ -417,7 +523,7 @@ test("a page run that does not add up to totalCount refuses", async () => {
     "495": gql(495, "OPEN", conn([gql(497, "OPEN")], { totalCount: 2 })),
   });
 
-  expect(createGitHubGraphStore({ repo: REPO, transport }).listCandidateFrontier({ id: "495" })).rejects.toThrow(
+  expect(createGitHubGraphStore({ repo: REPO, transport }).readSubtree({ id: "495" })).rejects.toThrow(
     /reported 2 children but paging returned 1/,
   );
 });
@@ -427,19 +533,47 @@ test("a node reachable twice is reported once, and a cycle terminates", async ()
     "495": gql(495, "OPEN", conn([gql(497, "OPEN", conn([gql(511, "OPEN")])), gql(511, "OPEN", conn([gql(497, "OPEN")]))])),
   });
 
-  expect(await createGitHubGraphStore({ repo: REPO, transport }).listCandidateFrontier({ id: "495" })).toEqual([
-    { id: "497" },
-    { id: "511" },
+  expect(ids(await createGitHubGraphStore({ repo: REPO, transport }).readSubtree({ id: "495" }))).toEqual([
+    "497",
+    "511",
   ]);
 });
 
 test("a non-numeric node ref is refused before any request goes out", async () => {
   const { transport, keys } = subtreeTransport({});
 
-  expect(createGitHubGraphStore({ repo: REPO, transport }).listCandidateFrontier({ id: "root" })).rejects.toThrow(
+  expect(createGitHubGraphStore({ repo: REPO, transport }).readSubtree({ id: "root" })).rejects.toThrow(
     /not an issue number/,
   );
   expect(keys).toEqual([]);
+});
+
+test("the frontier is one backend call over the whole subtree", async () => {
+  // The #530 target, stated as the only assertion that can hold it. Before
+  // #576 this shape cost 1 + 3N spawns at ~600ms each; the count is the unit
+  // that actually costs, and a wall-clock assertion would measure the network.
+  const { transport, keys } = subtreeTransport({
+    "495": gql(
+      495,
+      "OPEN",
+      conn([
+        gql(527, "OPEN"),
+        gql(501, "CLOSED", conn([gql(556, "OPEN")])),
+        gql(510, "CLOSED", conn([
+          gql(560, "OPEN"),
+          gql(561, "OPEN", counted(0), { assignees: { totalCount: 1, nodes: [{ login: "jcfischer" }] } }),
+          gql(562, "OPEN", counted(0), { blockedBy: { totalCount: 1, nodes: [{ number: 560, state: "OPEN" }] } }),
+        ])),
+      ]),
+    ),
+  });
+
+  const graph = new WorkGraph(createGitHubGraphStore({ repo: REPO, transport }));
+  const frontier = await graph.frontier({ id: "495" });
+
+  // 561 withheld as claimed, 562 as blocked, 501/510 as closed.
+  expect(ids(frontier)).toEqual(["527", "556", "560"]);
+  expect(keys).toEqual(["495"]);
 });
 
 // --- claim ------------------------------------------------------------------

@@ -309,9 +309,8 @@ export interface GraphStore {
   addBlockingEdge(blocker: NodeRef, blocked: NodeRef): Promise<void>;
   readNode(ref: NodeRef): Promise<NodeState>;
   /**
-   * Every open node in the root's membership **subtree**, at any depth, in
-   * depth-first pre-order — candidates only, re-confirmed by
-   * {@link WorkGraph.frontier} via direct fetch.
+   * Every node in the root's membership **subtree**, at any depth, in
+   * depth-first pre-order, each reported at its **current** state.
    *
    * **The subtree, not the direct children** (#557). Depth records where a node
    * came from; it never decides whether the frontier reports it. Doctrine puts
@@ -320,18 +319,31 @@ export interface GraphStore {
    * closes and the scaffold becomes takeable. Gating is what a blocking edge
    * means and past-the-destination is what a close means; neither is a depth.
    *
-   * Two obligations on an implementation:
+   * **This read confirms** (#576). §2.4 once required {@link WorkGraph.frontier}
+   * to re-fetch every candidate, a rule written when discovery was assumed to be
+   * a lagging search index. Where discovery is already a live read of the
+   * authoritative store, the second read buys nothing and costs coherence: N
+   * sequential fetches report a state smeared across however long they take,
+   * where one traversal is a single observation. A backend that *does* discover
+   * through a stale index still owes the second read — internally, before
+   * returning — because the obligation attaches to the staleness, not to the
+   * ceremony.
    *
-   * - **Descend into closed nodes; never report them.** Pruning a closed *node*
-   *   and pruning its *subtree* are different acts, and scaffold below a closed
-   *   parent is the common case, not the exotic one.
+   * Three obligations on an implementation:
+   *
+   * - **Report closed nodes too, and descend through them.** Filtering is the
+   *   contract layer's job. Pruning a closed *node* and pruning its *subtree*
+   *   are different acts, and scaffold below a closed parent is the common case.
    * - **Never truncate in silence.** A subtree larger than one request returns
-   *   must be detected and completed. §2.4 can recover a false positive by
-   *   direct fetch and cannot recover a false negative, so a short list that
-   *   reads complete is the one failure this seam must not produce.
+   *   must be detected and completed. A false negative is the direction §2.4
+   *   cannot recover, so a short list that reads complete is the one failure
+   *   this seam must not produce.
+   * - **Every returned state must be whole.** A short `assignees` or `blockedBy`
+   *   read would make a claimed node look unclaimed or a blocked node look
+   *   takeable — now false *positives*, since nothing re-checks downstream.
    *
-   * Pre-order puts each node's scaffold immediately after it, which is what
-   * makes provenance legible in the listing itself.
+   * `parent` is expected on every node but the root's own children, where it is
+   * the root: a walk knows the edge it arrived on, so reporting it costs nothing.
    *
    * A backend whose membership relation is only ever one level deep still
    * implements this honestly — its subtree of `root` *is* `root`'s members, and
@@ -340,7 +352,7 @@ export interface GraphStore {
    * so a store that cannot express membership at all cannot implement this
    * seam, and a flat dump is a wrong answer rather than a degenerate one.
    */
-  listCandidateFrontier(root: NodeRef): Promise<NodeRef[]>;
+  readSubtree(root: NodeRef): Promise<NodeState[]>;
   /** Assigns, then re-reads (no compare-and-swap exists on GitHub) and applies {@link resolveClaimRace}. */
   claim(ref: NodeRef, identity: string): Promise<ClaimResult>;
   postComment(ref: NodeRef, body: string): Promise<CommentRef>;
@@ -787,26 +799,64 @@ export class WorkGraph {
    * forever — no claim, no close, no error (§2.3).
    */
   async addBlockingEdge(blocker: NodeRef, blocked: NodeRef): Promise<void> {
-    if (blocker.id === blocked.id) {
-      throw new WorkGraphError("invalid-edge", `node ${blocker.id} cannot block itself`);
+    await this.addBlockingEdges([blocker], blocked);
+  }
+
+  /**
+   * Write several blocking edges onto one node, sharing a single reading of the
+   * ancestors across all of them.
+   *
+   * Called once per edge, the cycle check re-walked overlapping ancestors from
+   * scratch every time — `soma graph add` with five blockers read the same
+   * nodes five times over (#530 finding 4). The shared map lives for exactly
+   * this call, which is what keeps it from being a cache: it cannot outlive the
+   * write it is validating, so no staleness window opens.
+   *
+   * Edges are written in order and the first failure throws, leaving the ones
+   * before it written — the caller reports what landed, since a node left
+   * silently under-blocked is worse than a partial write that says so.
+   *
+   * The writes interleaved with the reads cannot invalidate them. Each write
+   * mutates exactly one node's blocker list — `blocked`'s — and no successful
+   * walk ever reads `blocked`: the search returns as soon as it *sees* the
+   * target id in some node's blockers, so the target is never enqueued, and a
+   * walk that does see it throws rather than continuing. So every node in the
+   * map is one the writes do not touch.
+   */
+  async addBlockingEdges(
+    blockers: readonly NodeRef[],
+    blocked: NodeRef,
+    /** Called as each edge lands, so a caller can report a partial write precisely. */
+    onWritten?: (blocker: NodeRef) => void,
+  ): Promise<void> {
+    const reading = new Map<string, NodeState>();
+    for (const blocker of blockers) {
+      if (blocker.id === blocked.id) {
+        throw new WorkGraphError("invalid-edge", `node ${blocker.id} cannot block itself`);
+      }
+      if (await this.reaches(blocker, blocked.id, reading)) {
+        throw new WorkGraphError(
+          "cycle",
+          `blocks(${blocker.id}, ${blocked.id}) would close a cycle — ${blocked.id} already blocks ${blocker.id} transitively`,
+        );
+      }
+      await this.store.addBlockingEdge(blocker, blocked);
+      onWritten?.(blocker);
     }
-    if (await this.reaches(blocker, blocked.id)) {
-      throw new WorkGraphError(
-        "cycle",
-        `blocks(${blocker.id}, ${blocked.id}) would close a cycle — ${blocked.id} already blocks ${blocker.id} transitively`,
-      );
-    }
-    await this.store.addBlockingEdge(blocker, blocked);
   }
 
   /** Walk blockers upward from `start`, looking for `targetId`. Visited-guarded against pre-existing cycles. */
-  private async reaches(start: NodeRef, targetId: string): Promise<boolean> {
+  private async reaches(start: NodeRef, targetId: string, reading: Map<string, NodeState>): Promise<boolean> {
     const seen = new Set<string>([start.id]);
     const queue: NodeRef[] = [start];
     // The array iterator re-reads `length` each step, so nodes pushed below are
     // visited in this same loop — a breadth-first walk over a growing queue.
     for (const current of queue) {
-      const state = await this.store.readNode(current);
+      let state = reading.get(current.id);
+      if (state === undefined) {
+        state = await this.store.readNode(current);
+        reading.set(current.id, state);
+      }
       for (const blocker of state.blockedBy) {
         if (blocker.id === targetId) return true;
         if (seen.has(blocker.id)) continue;
@@ -818,12 +868,20 @@ export class WorkGraph {
   }
 
   /**
-   * Frontier = open ∧ unassigned ∧ all blockers closed (§2.4). Every candidate
-   * is confirmed by direct fetch, removing false positives from lagging tracker
-   * search indexes. False *negatives* are not recoverable this way — the
-   * frontier is advisory and may return short, self-healing on a later tick.
-   * Correctness rests on the claim and close gates, never on frontier
-   * completeness.
+   * Frontier = open ∧ unassigned ∧ all blockers closed (§2.4), over the root's
+   * whole membership subtree.
+   *
+   * **A pure filter over one read** (#576). {@link GraphStore.readSubtree} is
+   * required to report live state, so it confirms; re-fetching each survivor
+   * afterwards is what the seam contract now forbids paying for. It also read
+   * *worse* than it sounded: N sequential fetches describe a subtree as it was
+   * across however long they took, so on the real map the old two-phase read
+   * blended observations up to ten seconds apart, where one traversal is a
+   * single observation.
+   *
+   * False *negatives* remain unrecoverable — the frontier is advisory and may
+   * return short, self-healing on a later tick. Correctness rests on the claim
+   * and close gates, never on frontier completeness.
    *
    * Known fail-open path (phase 1): "blockers closed" derives purely from
    * tracker status, so a blocker hand-closed via raw tracker writes releases
@@ -831,13 +889,12 @@ export class WorkGraph {
    * and, until the phase-2 auditor is built, undetected as well as unprevented.
    */
   async frontier(root: NodeRef): Promise<NodeState[]> {
-    const candidates = await this.store.listCandidateFrontier(root);
+    const subtree = await this.store.readSubtree(root);
     const confirmed: NodeState[] = [];
     const seen = new Set<string>();
-    for (const candidate of candidates) {
-      if (seen.has(candidate.id)) continue;
-      seen.add(candidate.id);
-      const state = await this.store.readNode(candidate);
+    for (const state of subtree) {
+      if (seen.has(state.ref.id)) continue;
+      seen.add(state.ref.id);
       if (state.status !== "open") continue;
       if (state.assignees.length > 0) continue;
       if (state.blockedBy.some((blocker) => blocker.status !== "closed")) continue;

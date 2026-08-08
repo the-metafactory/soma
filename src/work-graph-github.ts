@@ -180,22 +180,53 @@ function readIssue(value: unknown, context: string): GitHubIssue {
  * that outgrows them is *detected* (see {@link SubtreeNode.childrenTruncated})
  * and completed by a follow-up query, so no shape of graph can read short.
  *
- * GitHub costs a nested connection as the product of the `first` values along
- * its path and rejects a query scoring over 500,000. These multiply out to
- * 50 + 1 500 + 30 000 + 30 000 = 61 550, counting the bottom-row probe.
+ * ## The node budget — do the multiplication, do not eyeball it
  *
- * **Recompute before adding a level.** The headroom is nothing like the
- * 61 550 : 500 000 ratio suggests, because each level multiplies everything
- * below it: a fourth 20-wide level would score 1 231 550, and the widest that
- * still fits is 7. Depth is far more expensive here than width, which is the
- * argument for leaving this shallow and letting re-rooting handle the tail.
+ * GitHub scores a nested query as the product of the `first` values along each
+ * path and rejects anything over **500 000**. Every node here now carries three
+ * connections of its own ({@link NODE_FIELDS}), so each level costs
+ * `running × (1 + 1 + ASSIGNEE_PAGE + BLOCKER_PAGE)`:
+ *
+ * ```
+ *   50 × 32                    =    1 600
+ *   50×25   = 1 250,  × 32     =   40 000
+ *   50×25×10 = 12 500, × 32    =  400 000
+ *   bottom-row totalCount probe=   12 500
+ *                                ---------
+ *                         total    454 100   (91% of the ceiling)
+ * ```
+ *
+ * That is why level 3 is **10** and not 20: at 15 the query scores 660 350 and
+ * GitHub refuses it outright. Three separate claims about this budget have now
+ * had to be corrected on review — it is not a place where intuition works, and
+ * **any new field with a connection re-opens the whole sum.**
  */
-const SUBTREE_PAGE_SIZES = [50, 30, 20] as const;
+const SUBTREE_PAGE_SIZES = [50, 25, 10] as const;
 
-/** A node in the walk: identity, status, and whether its children arrived whole. */
+/** Per-node connection widths. Short reads on either are detected — see {@link SubtreeNode.stateTruncated}. */
+const ASSIGNEE_PAGE = 10;
+const BLOCKER_PAGE = 20;
+
+/**
+ * Everything {@link NodeState} carries, for one node (#576).
+ *
+ * The frontier used to re-read each candidate through `readNode` — three `gh`
+ * spawns apiece at ~600ms each, which was the entire cost of the read path.
+ * Selecting the same fields inside the walk collapses that to nothing: the
+ * subtree arrives already confirmed. `parent` is deliberately absent, because
+ * the walk *knows* it — a node's parent is whoever it was reached from, so
+ * asking the API would be paying for an answer already in hand.
+ *
+ * **Every connection here carries `totalCount`.** A short `assignees` page
+ * would make a claimed node look unclaimed and a short `blockedBy` page would
+ * make a blocked node look takeable — both are false *positives* on the
+ * frontier, which is the direction §2.4 says a reader cannot detect for itself.
+ */
+const NODE_FIELDS = `number title state body url databaseId author{login} assignees(first:${ASSIGNEE_PAGE}){totalCount nodes{login}} blockedBy(first:${BLOCKER_PAGE}){totalCount nodes{number state}}`;
+
+/** A node in the walk: its confirmed state, its children, and what arrived short. */
 interface SubtreeNode {
-  number: number;
-  status: NodeStatus;
+  state: NodeState;
   children: SubtreeNode[];
   /**
    * The children in hand are not all of them — the level hit its page size, or
@@ -203,6 +234,13 @@ interface SubtreeNode {
    * the walk must ask again rather than report what it happens to hold.
    */
   childrenTruncated: boolean;
+  /**
+   * `assignees` or `blockedBy` came back short, so this node's *state* is not
+   * trustworthy even though its identity is. Repaired by a direct `readNode`,
+   * whose REST paths paginate — the one place the old two-phase read is still
+   * the right tool.
+   */
+  stateTruncated: boolean;
 }
 
 /**
@@ -216,7 +254,7 @@ interface SubtreeNode {
 function subtreeSelection(level: number): string {
   const size = SUBTREE_PAGE_SIZES[level];
   if (size === undefined) return "subIssues(first:1){totalCount}";
-  return `subIssues(first:${size}){totalCount nodes{number state ${subtreeSelection(level + 1)}}}`;
+  return `subIssues(first:${size}){totalCount nodes{${NODE_FIELDS} ${subtreeSelection(level + 1)}}}`;
 }
 
 /**
@@ -230,7 +268,7 @@ function subtreeSelection(level: number): string {
  * by re-rooting is not an optimisation, it is the mechanism. Every re-root
  * strictly descends, so the recursion is bounded by the depth of the tree.
  */
-const SUBTREE_QUERY = `query($owner:String!,$name:String!,$number:Int!,$after:String){repository(owner:$owner,name:$name){issue(number:$number){number state subIssues(first:${SUBTREE_PAGE_SIZES[0]},after:$after){totalCount pageInfo{hasNextPage endCursor} nodes{number state ${subtreeSelection(1)}}}}}}`;
+const SUBTREE_QUERY = `query($owner:String!,$name:String!,$number:Int!,$after:String){repository(owner:$owner,name:$name){issue(number:$number){${NODE_FIELDS} subIssues(first:${SUBTREE_PAGE_SIZES[0]},after:$after){totalCount pageInfo{hasNextPage endCursor} nodes{${NODE_FIELDS} ${subtreeSelection(1)}}}}}}`;
 
 /**
  * GraphQL states are upper-case, and `state` also carries CLOSED-as-not-planned.
@@ -240,6 +278,62 @@ const SUBTREE_QUERY = `query($owner:String!,$name:String!,$number:Int!,$after:St
  */
 function readGraphQLStatus(record: Record<string, unknown>): NodeStatus {
   return record.state === "OPEN" ? "open" : "closed";
+}
+
+/** A connection read as `{totalCount, nodes}`, with the shortfall reported rather than swallowed. */
+function readCountedNodes(
+  value: unknown,
+  context: string,
+): { entries: unknown[]; truncated: boolean } {
+  const record = asRecord(value, context);
+  const totalCount = readNumber(record, "totalCount", context);
+  const entries = asArray(record.nodes, context);
+  return { entries, truncated: totalCount > entries.length };
+}
+
+/**
+ * A walk node's own state — everything `readNode` would have returned except
+ * `parent`, which the walk supplies from the edge it arrived on.
+ */
+function readSubtreeState(record: Record<string, unknown>): { state: NodeState; truncated: boolean } {
+  const context = "subtree walk";
+  const number = readNumber(record, "number", context);
+  const assignees = readCountedNodes(record.assignees, context);
+  const blockers = readCountedNodes(record.blockedBy, context);
+
+  // `nodeFromIssue` is the one parser for the typed block, and reusing it here
+  // is what keeps a node read through the walk identical to the same node read
+  // through `readNode`. Two parsers would be two answers.
+  const issue: GitHubIssue = {
+    number,
+    id: typeof record.databaseId === "number" ? record.databaseId : 0,
+    title: typeof record.title === "string" ? record.title : "",
+    body: typeof record.body === "string" ? record.body : "",
+    status: readGraphQLStatus(record),
+    author: readLogin(record.author),
+    assignees: assignees.entries.map((entry) => readLogin(entry)).filter((login) => login.length > 0),
+    ...(typeof record.url === "string" ? { url: record.url } : {}),
+  };
+  const { node, typed, parseError, text } = nodeFromIssue(issue);
+
+  return {
+    truncated: assignees.truncated || blockers.truncated,
+    state: {
+      ref: { id: String(number) },
+      node,
+      status: issue.status,
+      assignees: issue.assignees,
+      blockedBy: blockers.entries.map((entry) => {
+        const blocker = asRecord(entry, context);
+        return { id: String(readNumber(blocker, "number", context)), status: readGraphQLStatus(blocker) };
+      }),
+      author: issue.author,
+      ...(text.length === 0 ? {} : { body: text }),
+      ...(issue.url === undefined ? {} : { url: issue.url }),
+      typed,
+      ...(parseError === undefined ? {} : { parseError }),
+    },
+  };
 }
 
 function readSubtreeNode(value: unknown): SubtreeNode {
@@ -255,12 +349,13 @@ function readSubtreeNode(value: unknown): SubtreeNode {
   const children = Array.isArray(counted?.nodes)
     ? (counted.nodes as unknown[]).map((entry) => readSubtreeNode(entry))
     : undefined;
+  const { state, truncated } = readSubtreeState(record);
 
   return {
-    number: readNumber(record, "number", context),
-    status: readGraphQLStatus(record),
+    state,
     children: children ?? [],
     childrenTruncated: children === undefined ? totalCount > 0 : totalCount > children.length,
+    stateTruncated: truncated,
   };
 }
 
@@ -430,31 +525,38 @@ class GitHubGraphStore implements GraphStore {
    * page run that does not add up refuses outright. Either way a subtree wider
    * or deeper than one query fetched is never silently dropped.
    *
-   * Closed nodes are traversed and omitted from the result; the contract layer
-   * re-confirms every survivor by direct fetch.
+   * Each node arrives **confirmed** — {@link NODE_FIELDS} selects everything
+   * `readNode` would have returned, so the contract layer filters in memory
+   * instead of re-reading (#576). The one exception is a node whose `assignees`
+   * or `blockedBy` page came back short: its state is repaired by a direct
+   * `readNode`, whose REST paths paginate.
    */
-  async listCandidateFrontier(root: NodeRef): Promise<NodeRef[]> {
+  async readSubtree(root: NodeRef): Promise<NodeState[]> {
     const rootNumber = Number(root.id);
     if (!Number.isInteger(rootNumber)) {
-      throw new WorkGraphError("backend", `listCandidateFrontier: ${root.id} is not an issue number`);
+      throw new WorkGraphError("backend", `readSubtree: ${root.id} is not an issue number`);
     }
 
-    const open: NodeRef[] = [];
+    const states: NodeState[] = [];
     // Guards the result against a node reachable by two paths, and the walk
     // against a cycle. Sub-issues are a tree today; the seam promises nothing.
     const seen = new Set<number>([rootNumber]);
 
-    const visit = async (node: SubtreeNode): Promise<void> => {
-      if (seen.has(node.number)) return;
-      seen.add(node.number);
-      // Traverse closed nodes, report only open ones: scaffold outlives the node
-      // that spawned it, so below-a-closed-parent is the common case.
-      if (node.status === "open") open.push({ id: String(node.number) });
-      for (const child of await this.completeChildren(node)) await visit(child);
+    const visit = async (node: SubtreeNode, parent: NodeRef): Promise<void> => {
+      const number = Number(node.state.ref.id);
+      if (seen.has(number)) return;
+      seen.add(number);
+      // The walk knows the parent — it is whoever we arrived from — so the
+      // membership edge costs nothing to report. Traverse closed nodes and
+      // report them too: `readSubtree` states what the subtree holds, and §2.4
+      // filtering is the contract layer's job, not the store's.
+      states.push(node.stateTruncated ? await this.readNode(node.state.ref) : { ...node.state, parent });
+      for (const child of await this.completeChildren(node)) await visit(child, node.state.ref);
     };
 
-    for (const child of await this.completeChildren(await this.fetchSubtree(rootNumber))) await visit(child);
-    return open;
+    const rootNode = await this.fetchSubtree(rootNumber);
+    for (const child of await this.completeChildren(rootNode)) await visit(child, root);
+    return states;
   }
 
   /**
@@ -464,7 +566,7 @@ class GitHubGraphStore implements GraphStore {
    */
   private async completeChildren(node: SubtreeNode): Promise<SubtreeNode[]> {
     if (!node.childrenTruncated) return node.children;
-    return (await this.fetchSubtree(node.number)).children;
+    return (await this.fetchSubtree(Number(node.state.ref.id))).children;
   }
 
   /**
@@ -481,7 +583,7 @@ class GitHubGraphStore implements GraphStore {
     const context = "subtree walk";
     const [owner, name] = this.repo.split("/");
     const children: SubtreeNode[] = [];
-    let status: NodeStatus = "closed";
+    let self: { state: NodeState; truncated: boolean } | undefined;
     let after: string | null = null;
     let totalCount = 0;
     // A backend that keeps saying "there is more" while handing back a cursor
@@ -503,7 +605,7 @@ class GitHubGraphStore implements GraphStore {
       }
 
       const record = asRecord(issue, context);
-      status = readGraphQLStatus(record);
+      self = readSubtreeState(record);
       const connection = asRecord(record.subIssues, context);
       totalCount = readNumber(connection, "totalCount", context);
       for (const entry of asArray(connection.nodes, context)) children.push(readSubtreeNode(entry));
@@ -537,7 +639,9 @@ class GitHubGraphStore implements GraphStore {
       );
     }
 
-    return { number: issueNumber, status, children, childrenTruncated: false };
+    // `self` is assigned on the first pass and the loop always runs once.
+    if (self === undefined) throw new WorkGraphError("backend", `${context}: issue ${issueNumber} returned no state`);
+    return { state: self.state, children, childrenTruncated: false, stateTruncated: self.truncated };
   }
 
   /**
