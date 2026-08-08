@@ -384,9 +384,16 @@ export function describeProbeTree(tree: ProbeTree, home: string | undefined = pr
  */
 function collapseHome(dir: string, home: string | undefined): string {
   if (home === undefined || home.length === 0) return dir;
-  const root = home.endsWith("/") ? home.slice(0, -1) : home;
-  if (dir === root) return "~";
-  return dir.startsWith(`${root}/`) ? `~${dir.slice(root.length)}` : dir;
+  // Separator-agnostic: the runner has a `win32` branch, so a probe directory
+  // can arrive backslash-separated, and a boundary check that only knows `/`
+  // would silently publish the full path on the platform it was meant to
+  // protect. Compared on a normalised copy; the returned string keeps the
+  // caller's own separators.
+  const slash = (path: string): string => path.replace(/\\/gu, "/");
+  const root = slash(home).replace(/\/+$/u, "");
+  const candidate = slash(dir);
+  if (candidate === root) return "~";
+  return candidate.startsWith(`${root}/`) ? `~${dir.slice(root.length)}` : dir;
 }
 
 /**

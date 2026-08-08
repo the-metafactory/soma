@@ -1042,6 +1042,12 @@ test("a published tree path drops the home prefix but keeps what distinguishes c
   expect(describeProbeTree({ ...tree, dir: home }, home)).toContain("in ~ ");
   // A prefix that is not a path boundary is not a home match.
   expect(describeProbeTree({ ...tree, dir: "/Users/someone-else/x" }, home)).toContain("in /Users/someone-else/x ");
+  // The runner has a win32 branch, so a backslash-separated directory can reach
+  // here — and a `/`-only boundary check would publish the full path on exactly
+  // the platform this is protecting.
+  expect(describeProbeTree({ ...tree, dir: String.raw`C:\Users\someone\work\x` }, String.raw`C:\Users\someone`)).toContain(
+    String.raw`in ~\work\x `,
+  );
 });
 
 test("parseProbeTreeStatus reads HEAD and dirt out of one git call", () => {

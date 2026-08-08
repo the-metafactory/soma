@@ -128,15 +128,16 @@ Runner semantics settled while implementing #498:
 - Git probes execute as argv, never through a shell, so a ref name cannot
   inject.
 - **The probe directory is stated once, and recorded** ([#579](https://github.com/the-metafactory/soma/issues/579),
-  [#580](https://github.com/the-metafactory/soma/issues/580)). A `command` probe
-  runs in the directory the close was invoked from, resolved **once** and passed
-  to the runner and the registry match. The receipt then records **every
-  directory the declared probes actually resolve to** — each with its HEAD as of
-  *before* the probes ran and whether it was dirty — on the probe section and on
-  the derived `probed` evidence pointer. Every directory, not the base one: a
-  probe may name its own `cwd`/`repo`, and an absolute one leaves the base
-  entirely, so a receipt describing the base would be describing a tree nothing
-  ran in. Each `ProbeResult` carries its own directory for the same reason, and a
+  [#580](https://github.com/the-metafactory/soma/issues/580)). The close
+  resolves **one** base directory — the one it was invoked from — and passes it
+  to the runner and the registry match. A probe that names no `cwd`/`repo` runs
+  there; one that does resolves it against that base, so a relative value lands
+  under it and an absolute value replaces it outright. The receipt then records
+  **every directory the declared probes actually resolve to** — each with its
+  HEAD as of *before* the probes ran and whether it was dirty — on the probe
+  section and on the derived `probed` evidence pointer. Every directory, not the
+  base one: describing a base that an absolute `cwd` bypassed would be describing
+  a tree nothing ran in. Each `ProbeResult` carries its own directory, and a
   probe line names it whenever more than one tree is in play. A tree with **no
   readable HEAD** anchors nothing and withholds the `probed` evidence for the
   whole set — one unanchored tree beside `n/n passed` is the same overstatement
