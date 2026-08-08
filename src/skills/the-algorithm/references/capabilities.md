@@ -33,7 +33,7 @@ Two capabilities are compiled in and need no declaration anywhere: `ReReadCheck`
 principal-added files alone. So a row you add **to this file will be overwritten**,
 and a row you add to a sibling `capabilities.local.md` will not. That file is
 where your own capabilities live — the ones bound to your models, your
-sub-agents, your commands, your skill library.
+Claude Code sub-agents or Grok subagents, your commands, your skill library.
 
 It uses exactly the format below and is read **before** this table, so a local
 row of the same name wins. Retarget `Advisor` at your own second-opinion tool,
@@ -63,7 +63,7 @@ table in the file is parsed, not just the first. Two shapes are accepted:
   | Cell contains | Kind | Notes |
   |---|---|---|
   | `Skill("Name")` | `skill` | Must resolve to a skill under `<soma-home>/skills`, matched case- and punctuation-insensitively against its frontmatter name **or** its directory name. If it does not resolve, the row is dropped as unsupported. |
-  | `Agent(…)` | `agent` | Target is `subagent_type="…"` when present, else the capability's own name. Substrate-specific — see below. |
+  | `Agent(…)` | `agent` (the `AlgorithmCapabilityKind` literal — qualified everywhere else per CONTEXT.md) | Target is `subagent_type="…"` when present, else the capability's own name. Substrate-specific — see below. |
   | `inline doctrine` or `no external tool` | `inline` | The whole cell becomes the instruction. |
   | `Bash(…)` or a leading `bun ` | `command` | The whole cell becomes the command. |
   | anything else | — | Dropped as unsupported. |
@@ -87,7 +87,8 @@ Keep the **shipped** table portable, and put anything substrate-bound in your
   machines that have it.
 - `inline doctrine` rows are portable by construction: they name a discipline,
   not a tool.
-- `Agent(…)` rows bind to a substrate that can spawn sub-agents. Two can; the
+- `Agent(…)` rows bind to a substrate that can spawn a short-lived worker of
+  its own — a Claude Code sub-agent, a Grok subagent via `spawn_subagent`. Two can; the
   rest either cannot or have no adapter that says so. `SKILL.md` is explicit
   that Claude Code sub-agents are source history, **not** a portable
   requirement — so a shipped row must not depend on one.
@@ -102,7 +103,6 @@ Keep the **shipped** table portable, and put anything substrate-bound in your
 | MapTheWork | PLAN | More work than one session can hold, and the route to the destination is unclear — not merely the work. Produces decision nodes on the work graph, resolved one at a time. | `Skill("orienteer")` | E3+ |
 | ReproduceFirst | OBSERVE, VERIFY | A bug report, a regression, "it broke". Reproduce the failure before diagnosing it; a fix for a failure you never saw is a conjecture. | *(inline doctrine — no external tool)* | E1+ |
 | IntentEcho | OBSERVE | Every run, before anything else. Restate the request in one sentence; if you cannot restate it accurately, re-read it rather than proceed. | *(inline doctrine — no external tool)* | E1+ |
-| ClaimScopeSweep | VERIFY | Any `done` / `complete` / `clean` / `deployed` claim involving a changed value. Probe the scope of the CLAIM, not the scope of the EDIT: grep the old value repo-wide for stragglers and the new value to confirm it landed everywhere. "All N done" needs N probes. | *(inline doctrine — no external tool)* | E1+ |
 
 ## Binding Commitment
 

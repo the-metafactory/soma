@@ -8,7 +8,7 @@
 
 **The ISA is one primitive with five identities.** It is simultaneously: (1) the **ideal state articulation** (Deutsch hard-to-vary explanation), (2) the **test harness** (ISCs ARE the tests, with named probes), (3) the **build verification** (passing the ISCs verifies what was built), (4) the **done condition** (task complete when all ISCs pass), and (5) the **system of record** for the thing being articulated. Don't invent parallel artifacts (acceptance.yaml, acceptance.ts, separate test specs) — the ISA already covers this surface. For complex apps, the ISA naturally has many more ISCs because the ideal state of a complex app includes API behavior, performance budgets, security model, RBAC/visibility, auth flow, and data-integrity invariants alongside the task-specific deliverables.
 
-**The unit is the thing being articulated, not the task.** For a thing with persistent identity (an application, a CLI tool, a library, a security system, a content pipeline, this Algorithm itself), the ISA lives WITH the thing — `<project>/ISA.md` in its repo — and is the system of record for it. Tasks operate against it: read it at OBSERVE, modify/extend it during BUILD/EXECUTE, commit refinements at LEARN. Iteration on the project IS iteration on the ISA. For ad-hoc work that doesn't belong to a persistent thing (one-shot system tasks, this very session), the `<soma-home>/memory/WORK/{slug}/ISA.md` pattern stays — that's the ISA of a one-shot effort.
+**The unit is the thing being articulated, not the task.** For a thing with persistent identity (an application, a CLI tool, a library, a security system, a content pipeline, this Algorithm itself), the ISA lives WITH the thing — `<project>/VSA.md` in its repo — and is the system of record for it. Tasks operate against it: read it at OBSERVE, modify/extend it during BUILD/EXECUTE, commit refinements at LEARN. Iteration on the project IS iteration on the ISA. For ad-hoc work that doesn't belong to a persistent thing (one-shot system tasks, this very session), the `<soma-home>/memory/WORK/{slug}/VSA.md` pattern stays — that's the ISA of a one-shot effort.
 
 **The ISA has twelve sections (NEW v6.2.0).** Order is fixed: `## Problem`, `## Vision`, `## Out of Scope`, `## Principles`, `## Constraints`, `## Goal`, `## Criteria`, `## Test Strategy`, `## Features`, `## Decisions`, `## Changelog`, `## Verification`. Required sections per tier are HARD-gated (see Tier Completeness Gate below). Empty sections never appear — Bitter Pill discipline preserved. Three-guardrail taxonomy: **Principles** bind the *thinking* (substrate-independent, Deutsch reach), **Constraints** bind the *solution space* (immovable architectural mandates), **Out of Scope** binds the *vision* (anti-vision — what is *not* included, declared upfront), **Anti-criteria** bind the *test surface* (granular `Anti:` ISCs derived from Out of Scope and regression-prevention concerns). The first three are author-stated; anti-criteria are derived probes.
 
@@ -58,7 +58,7 @@ The closed list (verbatim names — copy/paste into `🏹 CAPABILITIES SELECTED`
 - **WorldThreatModel** — 11-horizon stress-test
 - **Fabric patterns** — `Skill("Fabric", "<pattern>")` (extract_wisdom, etc.)
 - **ContextSearch** — 2-phase prior-work search
-- **ISA** — `Skill("VSA", "<verb> ...")` (counts when invoked for analytical purpose, not just for boilerplate scaffolding)
+- **VSA** — `Skill("VSA", "<verb> ...")` (counts when invoked for analytical purpose, not just for boilerplate scaffolding)
 
 If a name does not appear in this list verbatim, it is a phantom. Nothing external enforces that — the audit gate below is a self-check you run before printing the selection line, not a mechanism that rejects on your behalf. New thinking capabilities are added by editing `references/capabilities.md` and bumping the Algorithm minor version — never by ad-hoc invention at run time.
 
@@ -122,8 +122,8 @@ A substrate may layer richer signalling on top — a notification surface, a voi
 The ISA is the single source of truth for the thing being articulated. The AI writes ALL content directly via the ISA skill workflows. Hooks only read.
 
 **Two ISA homes:**
-- **Project ISAs** (v6.0.0+): `<project>/ISA.md` — for any thing with persistent identity. The ISA lives in the project's repo as system of record. Iteration on the project IS iteration on this ISA.
-- **Task ISAs**: `<soma-home>/memory/WORK/{slug}/ISA.md` — for ad-hoc work that doesn't belong to a persistent thing. One-shot tasks, system-design sessions, ephemeral investigations.
+- **Project ISAs** (v6.0.0+): `<project>/VSA.md` — for any thing with persistent identity. The ISA lives in the project's repo as system of record. Iteration on the project IS iteration on this ISA.
+- **Task ISAs**: `<soma-home>/memory/WORK/{slug}/VSA.md` — for ad-hoc work that doesn't belong to a persistent thing. One-shot tasks, system-design sessions, ephemeral investigations.
 
 The format is identical for both. Project ISAs grow continuously across many tasks; task ISAs are created at OBSERVE and archived at `phase: complete`.
 
@@ -156,7 +156,7 @@ The format is identical for both. Project ISAs grow continuously across many tas
 | **E4** | All twelve |
 | **E5** | All twelve + active Interview workflow run before BUILD |
 
-**Project ISA override:** any `<project>/ISA.md` requires E3+ structure regardless of the active task's tier. The project file is the long-lived source of truth; one transient E1 task must not downgrade it.
+**Project ISA override:** any `<project>/VSA.md` requires E3+ structure regardless of the active task's tier. The project file is the long-lived source of truth; one transient E1 task must not downgrade it.
 
 The `CheckCompleteness` workflow enforces this gate. A miss blocks `phase: complete`.
 
@@ -233,9 +233,9 @@ Modes (ideate, optimize) accept tunable parameters. Full schema and presets: `re
 **Announce entry** (first action after loading this file): `"Entering the Algorithm"`
 
 **VSA stub** (immediately after the entry announcement):
-1. Determine ISA home: project ISA at `<project>/ISA.md` if task targets existing project; task ISA at `<soma-home>/memory/WORK/{slug}/ISA.md` for ad-hoc work
+1. Determine ISA home: project ISA at `<project>/VSA.md` if task targets existing project; task ISA at `<soma-home>/memory/WORK/{slug}/VSA.md` for ad-hoc work
 2. **Invoke `Skill("VSA", "scaffold from prompt: <user message> at tier <tier>")`** — returns the populated ISA at canonical location with required sections per tier (NEW v6.2.0; replaces inline ISA construction)
-3. For task ISAs the skill creates `<soma-home>/memory/WORK/{slug}/`; for project ISAs the skill reads existing `<project>/ISA.md` if present, or seeds it via the Seed workflow
+3. For task ISAs the skill creates `<soma-home>/memory/WORK/{slug}/`; for project ISAs the skill reads existing `<project>/VSA.md` if present, or seeds it via the Seed workflow
 4. Skill output is the path; Algorithm reads/edits it via Read/Edit tools through subsequent phases
 
 **E1 fast-path exception:** at E1, the Algorithm may inline-write the minimal Goal+Criteria ISA without invoking the skill, to preserve the <90s budget. The skill invocation is mandatory at E2+.
@@ -303,7 +303,7 @@ This line anchors the entire Algorithm run.
 
 **Set effort level (v6.3.0 — classifier-driven):**
 1. Check for explicit E-level override (`/e1`-`/e5` or `E1`-`E5`, case-insensitive). If found: use that tier, set `effort_source: explicit`.
-2. **Take mode and tier from the classifier** — injected as context where the substrate classifies ahead of the executor, otherwise `<prefix> algorithm classify --prompt "..."`. If mode is `algorithm`, use the returned tier verbatim, set `effort_source: classifier`.
+2. **Take mode and tier from the classifier** — injected as context where the substrate classifies ahead of the executor, otherwise `<prefix> algorithm classify --prompt "..."`. If mode is `algorithm`, use the returned tier verbatim and record the **`source` the classifier returned** — a direct call reports `auto`; `classifier` is for a host that classified ahead of you. Do not relabel one as the other: which of them produced the tier is the fact this field exists to keep.
 3. **Conversation-context override:** if the classifier returned MINIMAL/NATIVE but the conversation context makes the prompt clearly ALGORITHM-shaped (e.g., a single-word approval to a multi-step plan, a follow-up that depends on prior turns the classifier didn't see), escalate to the appropriate tier and log the mismatch in `## Decisions`. Set `effort_source: context-override`.
 4. Fallback (classifier output absent — should be rare): auto-detect based on task complexity, set `effort_source: auto`.
 
@@ -630,16 +630,20 @@ This is the one rule that cannot be satisfied portably: it needs a second vendor
 
 ```bash
 <prefix> algorithm reflect --id <run-id> \
-  --smarter-run "What would a smarter run have done differently?" \
-  --smarter-run "What signal was available earlier than it was used?" \
-  --smarter-run "Which gate would have caught this sooner?"
+  --missed-early-step "What should have happened earlier than it did?" \
+  --missed-verify-or-parallel "What verification or parallelism was skipped?" \
+  --highest-value-move "Which single change would most have improved this run?"
 ```
 
-Do not hand-write the gate flags. `algorithm reflect` computes `gatesFired`
-from run state using the same predicates the live gates enforce
-(`currentStateFloor`, `learnGateClean`, `completeness`) — a self-reported
-"the gate fired" is exactly the hollow claim the split exists to prevent. The
-`smarterRun` q-signals are yours; the gate flags are the harness's.
+At least one signal is required; `--satisfaction <0-10>` and
+`--within-budget` / `--over-budget` are optional.
+
+Do not hand-write the gate flags — there is no flag for them. `algorithm
+reflect` computes `gatesFired` from run state using the same predicates the
+live gates enforce (`currentStateFloor`, `learnGateClean`, `completeness`),
+because a self-reported "the gate fired" is exactly the hollow claim the
+computed/proposed split exists to prevent. The three signals above are yours;
+the gate flags are the harness's.
 
 `<prefix> algorithm reflections --id <run-id>` lists a run's reflections;
 `--digest` ranks the cross-run improvement backlog by gate-miss count.
@@ -670,7 +674,7 @@ If after compaction you don't know your state:
 3. Jump directly to current phase — don't re-run earlier phases
 
 **Cold-start recovery (new session on existing work):**
-1. For project work: read `<project>/ISA.md`
+1. For project work: read `<project>/VSA.md`
 2. For task work: read ISA from `<soma-home>/memory/WORK/`
 3. `<prefix> algorithm list` is the run registry; `<prefix> algorithm show --id <run-id>` returns a run's phase, criteria state, capabilities, and plan steps
 

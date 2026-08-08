@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
-import { listBundledSkills } from "../src/bundled-skills";
+import { installBundledSkillsIntoHome, listBundledSkills } from "../src/bundled-skills";
 import { loadSomaHomeAlgorithmCapabilityRegistry } from "../src/algorithm-capabilities";
 
 const SKILLS_ROOT = resolve(import.meta.dir, "..", "src", "skills");
@@ -84,6 +85,31 @@ describe("bundled skill references", () => {
       bundled.some((skill) => name.toLowerCase().includes(skill.toLowerCase())),
     );
     expect(staleBundledTargets).toEqual([]);
+  });
+
+  test("install overwrites a bundled skill file but preserves a principal-added sibling", async () => {
+    // The load-bearing guarantee behind capabilities.local.md (soma#574): the
+    // adopter's capability rows survive an install ONLY because this copy never
+    // deletes. It was asserted in a JSDoc comment and covered by nothing, so a
+    // later home-skills reconcile — the natural symmetry with
+    // reconcileOwnedSubtrees, which already exists for substrates — would wipe
+    // every adopter's table with no error and no obvious cause.
+    const homeDir = await mkdtemp(join(tmpdir(), "soma-bundled-preserve-"));
+    try {
+      const references = join(homeDir, ".soma", "skills", "the-algorithm", "references");
+      await mkdir(references, { recursive: true });
+      // A bundled file, locally edited: install must restore it.
+      await writeFile(join(references, "capabilities.md"), "LOCALLY EDITED BUNDLED FILE\n", "utf8");
+      // A principal-added sibling install does not ship: it must survive untouched.
+      await writeFile(join(references, "capabilities.local.md"), "PRINCIPAL ROWS\n", "utf8");
+
+      await installBundledSkillsIntoHome({ homeDir });
+
+      expect(await readFile(join(references, "capabilities.local.md"), "utf8")).toBe("PRINCIPAL ROWS\n");
+      expect(await readFile(join(references, "capabilities.md"), "utf8")).not.toBe("LOCALLY EDITED BUNDLED FILE\n");
+    } finally {
+      await rm(homeDir, { recursive: true, force: true });
+    }
   });
 
   test("no bundled skill instructs the agent toward a PAI-only path or an unsubstituted placeholder", async () => {

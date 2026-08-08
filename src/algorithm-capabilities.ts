@@ -393,7 +393,7 @@ function maybeRegisterSkillCapability(
 }
 
 /** The bundled capability table — overwritten byte-for-byte on every install. */
-export const CAPABILITY_REFERENCE_FILE = "capabilities.md";
+const CAPABILITY_REFERENCE_FILE = "capabilities.md";
 
 /**
  * The adopter's capability table (soma#574). `installBundledSkillsIntoHome`
@@ -403,7 +403,7 @@ export const CAPABILITY_REFERENCE_FILE = "capabilities.md";
  * a name collision, kept — so an adopter can narrow or retarget a shipped
  * capability without editing a file that will be replaced under them.
  */
-export const CAPABILITY_LOCAL_REFERENCE_FILE = "capabilities.local.md";
+const CAPABILITY_LOCAL_REFERENCE_FILE = "capabilities.local.md";
 
 function registerCapabilityTableRows(
   markdown: string,
