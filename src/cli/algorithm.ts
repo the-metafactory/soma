@@ -36,6 +36,7 @@ import type { BridgedNodeReport, ReflectionForDigest } from "../index";
 import { VerificationGateError } from "../algorithm";
 import { readFile } from "node:fs/promises";
 import { listAlgorithmCapabilityDefinitions, loadSomaHomeAlgorithmCapabilityRegistry, registerSomaHomeAlgorithmCapabilities } from "../algorithm-capabilities";
+import type { SomaHomeAlgorithmCapabilityRegistry } from "../algorithm-capabilities";
 import { defaultSomaHome } from "../paths";
 import { syncAlgorithmRunFromVsa, formatSyncResult } from "../algorithm-vsa-sync";
 import { algorithmTouchedBy } from "../algorithm-provenance";
@@ -622,10 +623,7 @@ function formatAlgorithmRunResult(result: { path: string; run: AlgorithmRun }): 
   ].join("\n");
 }
 
-function formatAlgorithmCapabilityRegistry(registry: {
-  definitions: { name: string; kind: string; phases: string[]; invoke: { target: string } }[];
-  unsupported: string[];
-}): string {
+function formatAlgorithmCapabilityRegistry(registry: SomaHomeAlgorithmCapabilityRegistry): string {
   const lines = [`Soma Algorithm capability registry — ${registry.definitions.length} resolved`, ""];
 
   for (const definition of [...registry.definitions].sort((a, b) => a.name.localeCompare(b.name))) {

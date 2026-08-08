@@ -14,6 +14,7 @@ import {
   recordAlgorithmLearning,
   recordAlgorithmObservation,
   registerAlgorithmCapabilityDefinition,
+  registerAlgorithmCapabilityDefinitions,
   applyAlgorithmBatch,
   removeAlgorithmCapabilitySelection,
   setAlgorithmPlan,
@@ -74,6 +75,31 @@ async function writeAlgorithmCapabilitiesReference(homeDir: string, somaHome = "
       "|------------|------|--------|",
       "| BuildCommand | EXECUTE | `bun run build` |",
       "| WrappedBuildCommand | EXECUTE | *bun run wrapped* |",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+}
+
+/**
+ * Write a capability table, owning the header and separator so a table-schema
+ * change lands in one place rather than in every setup block (Sage review).
+ * `file` selects the bundled table or the adopter's local overlay.
+ */
+async function writeCapabilityTable(
+  homeDir: string,
+  rows: string[],
+  file: "capabilities.md" | "capabilities.local.md" = "capabilities.local.md",
+  somaHome = ".soma",
+): Promise<void> {
+  const root = join(homeDir, somaHome, "skills", "the-algorithm", "references");
+  await mkdir(root, { recursive: true });
+  await writeFile(
+    join(root, file),
+    [
+      "| Capability | Phases | Trigger Signal | Invoke | Typical Cost |",
+      "|------------|--------|----------------|--------|--------------|",
+      ...rows,
       "",
     ].join("\n"),
     "utf8",
@@ -364,19 +390,12 @@ test("a capabilities.local.md row overrides the bundled table of the same name",
     await writeAlgorithmCapabilitiesReference(homeDir);
     await writeSkill(homeDir, "first-principles", "FirstPrinciples");
     await writeSkill(homeDir, "systems-thinking", "SystemsThinking");
-    await writeFile(
-      join(homeDir, ".soma", "skills", "the-algorithm", "references", "capabilities.local.md"),
-      [
-        "| Capability | Phases | Trigger Signal | Invoke | Typical Cost |",
-        "|------------|--------|----------------|--------|--------------|",
-        // Same name as a bundled row, retargeted at a different skill and phase.
-        '| FirstPrinciples | VERIFY | Retargeted locally | `Skill("SystemsThinking")` | E1+ |',
-        // A name the bundled table does not carry at all.
-        '| LocalOnly | PLAN | Adopter-specific capability | *(inline doctrine step - no external tool)* | E1+ |',
-        "",
-      ].join("\n"),
-      "utf8",
-    );
+    await writeCapabilityTable(homeDir, [
+      // Same name as a bundled row, retargeted at a different skill and phase.
+      '| FirstPrinciples | VERIFY | Retargeted locally | `Skill("SystemsThinking")` | E1+ |',
+      // A name the bundled table does not carry at all.
+      '| LocalOnly | PLAN | Adopter-specific capability | *(inline doctrine step - no external tool)* | E1+ |',
+    ]);
 
     const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir });
 
@@ -400,20 +419,11 @@ test("a Contract(...) row registers a contract-declared capability", async () =>
   // `adapter` kind already existed in the type but no table row could produce
   // it, so it was reachable only from a skill manifest.
   await withTempHome(async (homeDir) => {
-    const references = join(homeDir, ".soma", "skills", "the-algorithm", "references");
-    await mkdir(references, { recursive: true });
-    await writeFile(
-      join(references, "capabilities.local.md"),
-      [
-        "| Capability | Phases | Trigger Signal | Invoke | Typical Cost |",
-        "|------------|--------|----------------|--------|--------------|",
-        '| CrossFamilyAudit | VERIFY | Deep work before completion | `Contract("an audit by a model outside the family that produced the work")` | E4+ |',
-        // Contract text mentioning a sub-agent must not be misread as an Agent( row.
-        '| SecondOpinion | THINK | Commitment boundary | `Contract("ask a sub-agent or a second model that did not produce the work")` | E3+ |',
-        "",
-      ].join("\n"),
-      "utf8",
-    );
+    await writeCapabilityTable(homeDir, [
+      '| CrossFamilyAudit | VERIFY | Deep work before completion | `Contract("an audit by a model outside the family that produced the work")` | E4+ |',
+      // Contract text mentioning a sub-agent must not be misread as an Agent( row.
+      '| SecondOpinion | THINK | Commitment boundary | `Contract("ask a sub-agent or a second model that did not produce the work")` | E3+ |',
+    ]);
 
     const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir });
 
@@ -430,32 +440,50 @@ test("a Contract(...) row registers a contract-declared capability", async () =>
   });
 });
 
+test("an unbound contract capability cannot be invoked on written evidence", async () => {
+  // Sage blocker (soma#574): invocation asks only for non-empty evidence, so
+  // before this refusal a run could select CrossFamilyAudit, perform no audit,
+  // write "audited — no findings", and COMPLETE. A fabricated cross-family audit
+  // read exactly like a real one, and the contract row became a way to buy
+  // tier-floor credit for work nobody did.
+  await withTempHome(async (homeDir) => {
+    await writeCapabilityTable(homeDir, [
+      '| CrossFamilyAudit | VERIFY | Deep work before completion | `Contract("an audit by a model outside the family that produced the work")` | E4+ |',
+    ]);
+    const { definitions } = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir });
+
+    let run = createAlgorithmRun({
+      id: "unbound-contract",
+      timestamp: "2026-08-08T10:00:00.000Z",
+      prompt: "Audit this",
+      intent: "Exercise the unbound-contract refusal.",
+      currentState: "No cross-family model is reachable.",
+      goal: "An unbound contract cannot be talked past.",
+      criteria: [{ id: "C1", text: "Invocation refuses." }],
+    });
+    run = registerAlgorithmCapabilityDefinitions(run, definitions, "2026-08-08T10:00:01.000Z");
+    run = selectAlgorithmCapability(run, { name: "CrossFamilyAudit", phase: "verify" }, "2026-08-08T10:00:02.000Z");
+
+    expect(() =>
+      recordAlgorithmCapabilityInvocation(
+        run,
+        { name: "CrossFamilyAudit", evidence: "audited — no findings" },
+        "2026-08-08T10:00:03.000Z",
+      ),
+    ).toThrow(/no binding on this machine/);
+  });
+});
+
 test("a local binding replaces a contract declaration with a concrete invocation", async () => {
   // The point of the adapter kind: ship the contract, let whoever can satisfy it
   // bind the mechanism. The local table is read first, so a same-named binding wins.
   await withTempHome(async (homeDir) => {
-    const references = join(homeDir, ".soma", "skills", "the-algorithm", "references");
-    await mkdir(references, { recursive: true });
-    await writeFile(
-      join(references, "capabilities.md"),
-      [
-        "| Capability | Phases | Trigger Signal | Invoke | Typical Cost |",
-        "|------------|--------|----------------|--------|--------------|",
-        '| Advisor | THINK | Commitment boundary | `Contract("a second opinion from something that did not produce the work")` | E3+ |',
-        "",
-      ].join("\n"),
-      "utf8",
-    );
-    await writeFile(
-      join(references, "capabilities.local.md"),
-      [
-        "| Capability | Phases | Trigger Signal | Invoke | Typical Cost |",
-        "|------------|--------|----------------|--------|--------------|",
-        '| Advisor | VERIFY | My own second opinion | `Bash("advisor --mode second-opinion")` | E3+ |',
-        "",
-      ].join("\n"),
-      "utf8",
-    );
+    await writeCapabilityTable(homeDir, [
+      '| Advisor | THINK | Commitment boundary | `Contract("a second opinion from something that did not produce the work")` | E3+ |',
+    ], "capabilities.md");
+    await writeCapabilityTable(homeDir, [
+      '| Advisor | VERIFY | My own second opinion | `Bash("advisor --mode second-opinion")` | E3+ |',
+    ]);
 
     const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir });
 
@@ -472,16 +500,9 @@ test("an unresolvable local row disables the capability rather than falling back
   await withTempHome(async (homeDir) => {
     await writeAlgorithmCapabilitiesReference(homeDir);
     await writeSkill(homeDir, "first-principles", "FirstPrinciples");
-    await writeFile(
-      join(homeDir, ".soma", "skills", "the-algorithm", "references", "capabilities.local.md"),
-      [
-        "| Capability | Phases | Trigger Signal | Invoke | Typical Cost |",
-        "|------------|--------|----------------|--------|--------------|",
-        '| FirstPrinciples | THINK | Points at a skill this home lacks | `Skill("NotInstalled")` | E2+ |',
-        "",
-      ].join("\n"),
-      "utf8",
-    );
+    await writeCapabilityTable(homeDir, [
+      '| FirstPrinciples | THINK | Points at a skill this home lacks | `Skill("NotInstalled")` | E2+ |',
+    ]);
 
     const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir });
 

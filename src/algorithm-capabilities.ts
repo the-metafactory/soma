@@ -720,6 +720,27 @@ export function recordAlgorithmCapabilityInvocation(
     throw new Error(`Algorithm capability must be selected before invocation: ${name}`);
   }
 
+  // A resolved kind of `adapter` means the capability was DECLARED by contract
+  // and never BOUND: binding happens by overriding the name in
+  // `capabilities.local.md`, and a bound row resolves to skill/agent/command/
+  // inline instead. So `adapter` here is precisely "nothing on this machine can
+  // run this".
+  //
+  // Without this refusal the doctrine's claim was false (Sage review, soma#574):
+  // invocation asks only for non-empty evidence, so a run could select
+  // CrossFamilyAudit, perform no audit, record "audited" as evidence, and
+  // COMPLETE — a fabricated second opinion passing as a real one. That is the
+  // hollow pass the VerificationGate refuses for criteria; capabilities need the
+  // same floor, or the contract row becomes a way to buy tier-floor credit for
+  // work nobody did.
+  if (definition.kind === "adapter") {
+    throw new Error(
+      `Algorithm capability "${name}" is a contract with no binding on this machine, so it cannot be invoked. `
+        + `Bind it by adding a row of the same name to <soma-home>/skills/the-algorithm/references/capabilities.local.md `
+        + `with a concrete Skill("…"), Agent(…), or Bash(…) cell — or remove the selection and record the gap in ## Decisions.`,
+    );
+  }
+
   const invocation: AlgorithmCapabilityInvocation = {
     timestamp,
     substrate: input.substrate ?? run.substrate ?? "custom",

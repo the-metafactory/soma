@@ -115,14 +115,29 @@ bind the mechanism.
 concrete `Agent(…)`, `Skill("…")`, or `Bash(…)` cell. The local table is read
 first, so your binding replaces the declaration.
 
-**Unbound, a contract capability is still selectable, and that is deliberate.**
-It cannot be invoked, and `algorithm advance` refuses COMPLETE for any selected
-capability that was never invoked — so an unbound contract fails the run at the
-gate, loudly, naming itself. The alternative (hiding it) would let a tier floor
-be satisfied by a capability that does nothing, which is the phantom this
-doctrine exists to prevent. If you cannot satisfy the contract, do not select
-it: record in `## Decisions` that the capability was unavailable. An absent
-second opinion is a fact worth keeping, not an inconvenience to route around.
+**Unbound, a contract capability is selectable but not invocable.** Two gates,
+in that order:
+
+1. `algorithm invoke` **refuses** a capability whose resolved kind is still
+   `adapter` — that kind means the contract was declared and never bound, so
+   nothing on this machine can run it. The refusal names the fix.
+2. `algorithm advance` refuses COMPLETE for any selected capability that was
+   never invoked.
+
+Together: selecting a contract you cannot satisfy fails the run, loudly, naming
+itself. It cannot be talked past with evidence — the first gate rejects the
+invocation before evidence is considered.
+
+That matters because the alternative is worse than a broken run. Evidence is
+free text; without the first gate, a run could select `CrossFamilyAudit`,
+perform no audit, write "audited — no findings", and complete. A fabricated
+second opinion reads exactly like a real one. Contract rows would then be a way
+to buy tier-floor credit for work nobody did, which is the phantom capability
+this doctrine exists to prevent.
+
+If you cannot satisfy the contract, do not select it: record in `## Decisions`
+that the capability was unavailable. An absent second opinion is a fact worth
+keeping, not an inconvenience to route around.
 
 `<prefix> algorithm capabilities --list` marks every contract row that still
 needs a binding on this machine.

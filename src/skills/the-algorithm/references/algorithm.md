@@ -52,7 +52,7 @@ Inventing generic labels ("decomposition", "edge-case enumeration", "tradeoff an
 
 Nothing rejects a phantom on your behalf at selection time — this gate is a self-check. What the harness *does* enforce is the other end: `algorithm advance` refuses COMPLETE for any selected capability that was never invoked, so a name you cannot back with an invocation fails the run rather than quietly padding a floor.
 
-**Adapter capabilities.** Some rows (`Advisor`, `CrossFamilyCoder`, `CrossFamilyAudit`) declare a *contract* rather than an invocation, because no substrate expresses them portably. They are real capabilities and count toward a floor — but only if you bind them locally and actually invoke them. `--list` marks any that still need a binding on this machine. If you cannot satisfy the contract, do not select it: record the gap in `## Decisions`. An unavailable second opinion is a fact worth keeping.
+**Contract capabilities.** Some rows (`Advisor`, `CrossFamilyCoder`, `CrossFamilyAudit`) declare a *contract* rather than an invocation, because no substrate expresses them portably. They are real capabilities and count toward a floor — but only if you bind them locally and actually invoke them. `algorithm invoke` REFUSES an unbound contract, so a selected one you cannot satisfy fails the run rather than passing on written evidence. `--list` marks any that still need a binding on this machine. If you cannot satisfy the contract, do not select it: record the gap in `## Decisions`. An unavailable second opinion is a fact worth keeping.
 
 **2. Delegation-capability floor (SOFT, v6.1.0).** Delegation capabilities (sub-agents, agent teams, isolated worktrees, out-of-family model calls, research fan-out — whatever the registry offers) remain show-your-math relaxable — sometimes the work is genuinely single-author and delegation adds noise.
 
@@ -293,7 +293,7 @@ This line anchors the entire Algorithm run.
 
 **Set effort level (v6.3.0 — classifier-driven):**
 1. Check for explicit E-level override (`/e1`-`/e5` or `E1`-`E5`, case-insensitive). If found: use that tier, set `effort_source: explicit`.
-2. **Take mode and tier from the classifier** — injected as context where the substrate classifies ahead of the executor, otherwise `<prefix> algorithm classify --prompt "..."`. If mode is `algorithm`, use the returned tier verbatim and record the **`source` the classifier returned** — a direct call reports `auto`; `classifier` is for a host that classified ahead of you. Do not relabel one as the other: which of them produced the tier is the fact this field exists to keep.
+2. **Take mode and tier from the classifier** — injected as context where the substrate classifies ahead of the executor, otherwise `<prefix> algorithm classify --prompt "..."`. If mode is `algorithm`, use the returned tier verbatim and record **the `source` the classifier returned, unchanged**: `auto`, `explicit`, or `fail-safe`. A hook that classifies ahead of you forwards that same value, so an injected classification is not a different provenance — it is the same classifier, run earlier. Do not substitute a source of your own. (`AlgorithmEffortSource` also admits `classifier` and `context-override`; nothing in the codebase currently emits `classifier`, so writing it by hand would invent provenance rather than record it. `context-override` is the one value you assert yourself, at step 3.)
 3. **Conversation-context override:** if the classifier returned MINIMAL/NATIVE but the conversation context makes the prompt clearly ALGORITHM-shaped (e.g., a single-word approval to a multi-step plan, a follow-up that depends on prior turns the classifier didn't see), escalate to the appropriate tier and log the mismatch in `## Decisions`. Set `effort_source: context-override`.
 4. Fallback (classifier output absent — should be rare): auto-detect based on task complexity, set `effort_source: auto`.
 
@@ -499,7 +499,7 @@ On **multi-step VSAs** (Extended+ effort, multi-file edits, architecture changes
 2. **When stuck or diverging** — if the same problem resists two distinct attempts
 3. **Once after producing a durable deliverable** — before setting `phase: complete` in LEARN
 
-The moments are the doctrine; the mechanism is the substrate's. Select the **`Advisor`** capability — an adapter row declaring the contract "a second opinion from something that did not produce the work" — and bind it in `capabilities.local.md` to whatever your substrate offers. Ask a specific question ("this decision point" / "any gaps before declaring done?"), not "review this".
+The moments are the doctrine; the mechanism is the substrate's. Select the **`Advisor`** capability — a contract row declaring "a second opinion from something that did not produce the work" — and bind it in `capabilities.local.md` to whatever your substrate offers. Ask a specific question ("this decision point" / "any gaps before declaring done?"), not "review this".
 
 Where nothing can satisfy the contract, say so in `## Decisions` rather than skipping the moment silently — and do not select the capability, because a selected capability that is never invoked fails the run at COMPLETE. A commitment made without review is a fact worth recording.
 
@@ -507,7 +507,7 @@ Where nothing can satisfy the contract, say so in `## Decisions` rather than ski
 
 At **Deep (E4)** and **Comprehensive (E5)**, before setting `phase: complete`, get an audit from a model **outside the family that did the work** — compare the artifacts against the criteria and surface the blind spots a same-family reviewer shares with the author.
 
-Select the **`CrossFamilyAudit`** capability. It is an adapter row — a contract, not a command — because this is the one rule no substrate satisfies portably: it needs a second vendor reachable from where you run. Bind it locally where you can; where you cannot, record the gap in `## Decisions` and proceed without selecting it. Do not fabricate the audit, and do not let a same-family reviewer stand in — that is the blind spot, not the check.
+Select the **`CrossFamilyAudit`** capability. It is a contract row, not a command, because this is the one rule no substrate satisfies portably: it needs a second vendor reachable from where you run. Bind it locally where you can; where you cannot, record the gap in `## Decisions` and proceed without selecting it. Do not fabricate the audit, and do not let a same-family reviewer stand in — that is the blind spot, not the check.
 
 | Audit verdict | Action |
 |--------------|--------|
