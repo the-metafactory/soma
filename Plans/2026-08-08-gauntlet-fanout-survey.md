@@ -47,28 +47,43 @@ grok and claude-code are the two substrates where it is real today.
 
 ## What Soma says about delegation today
 
-Almost nothing portable, and what exists is in the wrong place.
+> **Correction (2026-08-08).** This section first said
+> `references/capabilities.md` was missing from the repo bundle. That was read
+> off a stale local `main` (`337e2b9`); `db2ec92` (#462) had already landed on
+> `origin/main` and ships all eight reference files. The file **is** shipped —
+> which makes the finding stronger, not weaker.
 
-`src/skills/the-algorithm/SKILL.md:18` instructs the agent to "Read
-`references/capabilities.md` before selecting thinking or delegation
-capabilities." **That file is not in the repo.** The bundled skill is `SKILL.md`
-plus `Workflows/RunAlgorithm.md`; nothing else. (Same for the other three
-references it names — see the packaging-cost findings.)
+Soma's delegation vocabulary is Claude-shaped, and it ships to every adopter.
 
-The file does exist in the principal's home
-(`~/.soma/skills/the-algorithm/references/capabilities.md`, PAI-era), and its
-"Delegation & Infrastructure Capabilities" table is **entirely Claude-shaped**:
-`Agent(subagent_type=…)`, `isolation: "worktree"`, Agent Teams, Custom Agents,
-`Skill("Delegation")`, slash commands, `{{PRINCIPAL_NAME}}` placeholders. It is
-a PAI artifact, not a portable contract.
+`references/capabilities.md` is not prose. `loadSomaHomeAlgorithmCapabilityRegistry`
+(`src/algorithm-capabilities.ts:395-466`) parses its table into the capability
+registry a run selects from. Loading the shipped bundle as a soma home yields
+**11 definitions and 33 unsupported rows**. Among the 11 that register:
 
-That is the current state: Soma's only written delegation vocabulary is
-Claude-specific, unshipped, and reachable only on machines that carry the PAI
-import. Meanwhile `src/skills/the-algorithm/SKILL.md:21` tells the agent to
-"Treat Claude-specific hooks, voice curls, and Claude Code sub-agents as source
-history, not portable requirements" — i.e. the doctrine already refuses to make
-sub-agents portable, and the one doc that would define an alternative is missing
-from the bundle.
+| Capability | Kind | Target |
+|---|---|---|
+| `Forge` | agent | `Agent(subagent_type="Forge")` |
+| `Anvil` | agent | `Agent(subagent_type="Anvil")` |
+| `Claude Code Guide` | agent | `Agent(subagent_type="claude-code-guide")` |
+| `Advisor` | command | `bun ~/.claude/PAI/TOOLS/Inference.ts --mode advisor …` |
+| `FeedbackMemoryConsult` | command | `Bash('rg -l "KEYWORDS" ~/.claude/projects/…')` |
+
+Three bind a capability to Claude Code sub-agents; two shell into paths under
+`~/.claude/`. The other 33 rows — `Skill("RedTeam")`, `Skill("Research")`,
+`Skill("SystemsThinking")`, Agent Teams, Background Agents, Mass Parallelism,
+Session Branching, Worktree Isolation, and a set of slash commands — resolve to
+nothing on a machine that is not the author's, and **`unsupported` is never
+surfaced by any CLI verb**. A fresh adopter gets a registry two-thirds inert
+with no signal that anything was dropped.
+
+Meanwhile `src/skills/the-algorithm/SKILL.md` tells the agent to "Treat
+Claude-specific hooks, voice curls, and Claude Code sub-agents as source
+history, not portable requirements." The doctrine refuses to make sub-agents
+portable; the shipped table makes three of them selectable capabilities anyway.
+
+The same table also carried the pre-#329 `ISA Skill` row — dead because the
+parser was migrated (`stripCapabilityLabel` special-cases `"VSA Skill" → "VSA"`)
+and the file it parses was not. Fixed on `fix/vsa-canonical-pointers`.
 
 ## The one portable hook that already exists
 
@@ -112,8 +127,14 @@ The degradation story is the whole point: a loop whose only hard requirement is
 "the judge did not write the work" runs on all eight substrates. A loop that
 requires concurrent isolated builders runs on two.
 
-## Loose end worth its own node
+## Loose end worth its own issue
 
-`the-algorithm`'s four dangling reference pointers are a shipped defect
-independent of this map — a fresh Soma install gets a skill instructing the agent
-to read files that do not exist. Flagged here, not fixed.
+**Superseded.** This section originally reported `the-algorithm`'s four dangling
+reference pointers. They do not exist on real `main` — see the correction above;
+#573 was filed off the same stale checkout and is closed as invalid.
+
+What stands in its place is the real loose end: the shipped capability table
+declares Claude-only agents and `~/.claude/` command paths as portable
+capabilities, and two-thirds of its rows silently drop to `unsupported` on any
+machine but the author's, with no verb that reports it. That is a portability
+question for the map's contract node, and a candidate issue in its own right.
