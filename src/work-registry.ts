@@ -199,6 +199,7 @@ async function writeJson(path: string, value: unknown): Promise<void> {
 const DEFAULT_WORK_REGISTRY_LOCK_TIMEOUT_MS = 30_000;
 const STALE_WORK_REGISTRY_LOCK_MS = 30_000;
 const WORK_REGISTRY_LOCK_OWNER_FILE = "owner.json";
+const WORK_REGISTRY_LOCK_RECLAIM_SUFFIX = ".reclaim";
 
 function resolveWorkRegistryLockTimeout(timeoutMs: number | undefined): number {
   if (timeoutMs === undefined) return DEFAULT_WORK_REGISTRY_LOCK_TIMEOUT_MS;
@@ -238,6 +239,35 @@ async function isReclaimableWorkRegistryLock(lockPath: string): Promise<boolean>
   }
 }
 
+async function reclaimStaleWorkRegistryLock(lockPath: string): Promise<boolean> {
+  const reclaimPath = `${lockPath}${WORK_REGISTRY_LOCK_RECLAIM_SUFFIX}`;
+  try {
+    await mkdir(reclaimPath);
+  } catch (error: unknown) {
+    if (error instanceof Error && "code" in error && error.code === "EEXIST") return false;
+    throw error;
+  }
+
+  try {
+    if (!(await isReclaimableWorkRegistryLock(lockPath))) return false;
+
+    // The reclaim guard serializes stale-lock inspection and rename. Once moved,
+    // later writers may acquire a fresh lock at `lockPath`; only this retired
+    // directory is removed, so a fresh owner cannot be deleted by a reclaimer.
+    const retiredPath = `${lockPath}.stale-${process.pid}-${shortHash(`${lockPath}:${Date.now()}:${Math.random()}`)}`;
+    try {
+      await rename(lockPath, retiredPath);
+    } catch (error: unknown) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
+      throw error;
+    }
+    await rm(retiredPath, { recursive: true, force: true });
+    return true;
+  } finally {
+    await rm(reclaimPath, { recursive: true, force: true });
+  }
+}
+
 async function withRegistryFileLock<T>(
   registryPath: string,
   fn: () => Promise<T>,
@@ -259,10 +289,7 @@ async function withRegistryFileLock<T>(
       break;
     } catch (error: unknown) {
       if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
-      if (await isReclaimableWorkRegistryLock(lockPath)) {
-        await rm(lockPath, { recursive: true, force: true });
-        continue;
-      }
+      if (await reclaimStaleWorkRegistryLock(lockPath)) continue;
       if (Date.now() - started > timeout) {
         throw new Error(`Timed out waiting for work registry lock at ${lockPath}`, { cause: error });
       }
