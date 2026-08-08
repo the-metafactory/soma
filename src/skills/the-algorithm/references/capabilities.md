@@ -13,7 +13,7 @@ not an error.
 Four sources, merged in this order, the first definition of a name winning:
 
 1. **`capabilities.local.md`, the adopter's own table** (see below). First, so a
-   local row wins over everything else — the machine's owner has the last word.
+   local row wins over everything else — the principal has the last word.
 2. **Skills declaring `algorithmCapability` in their manifest** — the skill
    author's phase and trigger metadata, preferred over the shipped table.
 3. **The table in this file.**
@@ -51,7 +51,9 @@ row of the same name wins. Retarget `Advisor` at your own second-opinion tool,
 or narrow `VSA` to fewer phases, without editing a file that will be replaced
 under you.
 
-Nothing generates it. If it does not exist, only the shipped table applies.
+Nothing generates it. Its absence costs you only the overrides it would have
+carried: manifest-declared capabilities, every installed skill under its own
+name, the shipped table, and the two compiled-ins all still resolve.
 
 ## The row format
 
@@ -138,6 +140,12 @@ in that order:
 Together: selecting a contract you cannot satisfy fails the run, loudly, naming
 itself. It cannot be talked past with evidence — the first gate rejects the
 invocation before evidence is considered.
+
+Note the limit. Once you *have* bound a contract, invocation is self-attested
+like every other kind: `algorithm invoke` records the evidence you give it and
+does not execute the declared target. The machine check covers boundness, not
+performance. Binding `CrossFamilyAudit` and then writing "audited" without
+running the audit defeats it — and is exactly the phantom the doctrine forbids.
 
 That matters because the alternative is worse than a broken run. Evidence is
 free text; without the first gate, a run could select `CrossFamilyAudit`,

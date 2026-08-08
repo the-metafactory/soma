@@ -440,7 +440,7 @@ test("a Contract(...) row registers a contract-declared capability", async () =>
   });
 });
 
-test("refreshing a run prunes a definition the home now reports unresolvable", async () => {
+test("refreshing a run replaces the home-derived definitions, dropping broken and deleted rows", async () => {
   // Sage review: registration only ADDS or overrides by name, so a run persisted
   // before an override went bad kept the old definition — visibly `unsupported`
   // in the registry and quietly still selectable on the run.
@@ -462,14 +462,34 @@ test("refreshing a run prunes a definition the home now reports unresolvable", a
     run = await registerSomaHomeAlgorithmCapabilities(run, { homeDir }, "2026-08-08T10:00:01.000Z");
     expect(run.capabilityDefinitions?.some((definition) => definition.name === "FirstPrinciples")).toBe(true);
 
-    // The adopter retargets it at something this home does not have.
+    // (a) Retargeted at something this home does not have — reported `unsupported`.
     await writeCapabilityTable(homeDir, [
       '| FirstPrinciples | THINK | Now broken | `Skill("NotInstalled")` | E1+ |',
+      '| Keeper | THINK | Still fine | `Skill("FirstPrinciples")` | E1+ |',
     ]);
     run = await registerSomaHomeAlgorithmCapabilities(run, { homeDir }, "2026-08-08T10:00:02.000Z");
-
     expect(run.capabilityDefinitions?.some((definition) => definition.name === "FirstPrinciples")).toBe(false);
     expect(() => selectAlgorithmCapability(run, { name: "FirstPrinciples" }, "2026-08-08T10:00:03.000Z")).toThrow();
+
+    // (b) A table-only capability, simply DELETED — reported nowhere at all, and
+    // the case that slipped through before: neither resolved nor unsupported, so
+    // the persisted definition survived while `--list` no longer showed it.
+    // `Keeper` is table-only on purpose: a row naming a skill would be
+    // re-registered by the every-remaining-skill pass, which is correct and
+    // would hide the bug.
+    await writeCapabilityTable(homeDir, [
+      '| Keeper | THINK | Still fine | `Skill("FirstPrinciples")` | E1+ |',
+      '| TableOnly | PLAN | Exists only as a row | *(inline doctrine — no external tool)* | E1+ |',
+    ]);
+    run = await registerSomaHomeAlgorithmCapabilities(run, { homeDir }, "2026-08-08T10:00:04.000Z");
+    expect(run.capabilityDefinitions?.some((definition) => definition.name === "TableOnly")).toBe(true);
+
+    await writeCapabilityTable(homeDir, [
+      '| Keeper | THINK | Still fine | `Skill("FirstPrinciples")` | E1+ |',
+    ]);
+    run = await registerSomaHomeAlgorithmCapabilities(run, { homeDir }, "2026-08-08T10:00:05.000Z");
+    expect(run.capabilityDefinitions?.some((definition) => definition.name === "Keeper")).toBe(true);
+    expect(run.capabilityDefinitions?.some((definition) => definition.name === "TableOnly")).toBe(false);
   });
 });
 

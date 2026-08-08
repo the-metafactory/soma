@@ -557,23 +557,28 @@ export async function registerSomaHomeAlgorithmCapabilities(
     return run;
   }
 
-  // Registration only ever ADDS or overrides by name, so a run persisted before
-  // an override went unresolvable kept its old definition and stayed selectable
-  // — visibly `unsupported` in the registry and quietly invocable on the run
-  // (Sage review). Drop persisted definitions the home now reports as
-  // unresolvable before registering the current set. Compiled-in defaults are
-  // untouched: they are not persisted definitions, and `definitionsForRun`
+  // A refresh REPLACES the home-derived set rather than merging into it. Adding
+  // and overriding by name left two ways for a run to keep a capability the home
+  // no longer offers (both Sage review): a row retargeted at something absent
+  // (reported `unsupported`) and a row simply deleted (reported nowhere at all).
+  // Either way the persisted definition stayed selectable while
+  // `capabilities --list` no longer showed it — a closed vocabulary with a
+  // second, invisible half.
+  //
+  // Replacing is sound because the home registry is the only producer of run
+  // definitions in practice: `registerSomaHomeAlgorithmCapabilities` is the sole
+  // in-tree caller of `registerAlgorithmCapabilityDefinitions`. Compiled-in
+  // defaults are unaffected — they are never persisted, and `definitionsForRun`
   // supplies them regardless.
-  const disabled = new Set(unsupported);
-  const pruned = disabled.size === 0
-    ? run
-    : { ...run, capabilityDefinitions: (run.capabilityDefinitions ?? []).filter((definition) => !disabled.has(definition.name)) };
-
+  //
+  // Guarded on a non-empty resolve: an unreadable or empty soma home must not
+  // silently strip a run of everything it had.
   if (definitions.length === 0) {
-    return pruned;
+    return run;
   }
 
-  return registerAlgorithmCapabilityDefinitions(pruned, definitions, timestamp);
+  const withoutHomeDefinitions = { ...run, capabilityDefinitions: [] };
+  return registerAlgorithmCapabilityDefinitions(withoutHomeDefinitions, definitions, timestamp);
 }
 
 export function listAlgorithmCapabilityDefinitions(): AlgorithmCapabilityDefinition[] {

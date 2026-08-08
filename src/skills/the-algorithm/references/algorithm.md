@@ -44,7 +44,7 @@
 
 The registry is closed to YOU — a capability name cannot be minted while composing a response, only read from what is already installed. It is per-machine because what an assistant can actually do differs by installation: adding a skill or a local row changes the vocabulary, and that is a deliberate act on the machine, not something a run may do to itself mid-answer. Both halves matter. A fixed list in doctrine would either name capabilities a given machine lacks — inviting the agent to claim work it cannot do — or exclude everything an adopter added, making their own skills unselectable. Neither is a closed vocabulary; both are a wrong one.
 
-Four sources feed it, resolved in this order, first definition of a name winning: the adopter's `references/capabilities.local.md`; skill manifests declaring `algorithmCapability`; the shipped `references/capabilities.md`; then every remaining installed skill, under its own name. The adopter's table is first so a local row wins over everything — the machine's owner has the last word on what their machine can do. The two compiled-in capabilities (`ReReadCheck`, `sequential-analysis`) need no declaration. Extending the vocabulary means adding a row to the local table — never an ad-hoc name in a response.
+Four sources feed it, resolved in this order, first definition of a name winning: the adopter's `references/capabilities.local.md`; skill manifests declaring `algorithmCapability`; the shipped `references/capabilities.md`; then every remaining installed skill, under its own name. The adopter's table is first so a local row wins over everything — the principal has the last word on what their machine can do. The two compiled-in capabilities (`ReReadCheck`, `sequential-analysis`) need no declaration. Extending the vocabulary means adding a row to the local table — never an ad-hoc name in a response.
 
 Inventing generic labels ("decomposition", "edge-case enumeration", "tradeoff analysis", "deep reasoning", "structured thinking") is a **PHANTOM capability** and counts as a CRITICAL FAILURE. It does not contribute to the tier floor regardless of how the rest of the response is written.
 
@@ -297,7 +297,7 @@ This line anchors the entire Algorithm run.
 3. **Conversation-context override:** if the classifier returned MINIMAL/NATIVE but the conversation context makes the prompt clearly ALGORITHM-shaped (e.g., a single-word approval to a multi-step plan, a follow-up that depends on prior turns the classifier didn't see), escalate to the appropriate tier and log the mismatch in `## Decisions`. Set `effort_source: context-override`.
 4. Fallback (classifier output absent — should be rare): auto-detect based on task complexity, set `effort_source: auto`.
 
-`💪🏼 EFFORT LEVEL: [tier] | [source: explicit /eN | classifier | context-override | auto] | [8 word reasoning]`
+`💪🏼 EFFORT LEVEL: [tier] | [source: explicit | auto | fail-safe | context-override] | [8 word reasoning]`
 
 **Select capabilities:** Load `references/capabilities.md`.
 
