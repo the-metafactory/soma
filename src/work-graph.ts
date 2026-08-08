@@ -827,8 +827,8 @@ export class WorkGraph {
    *
    * Known fail-open path (phase 1): "blockers closed" derives purely from
    * tracker status, so a blocker hand-closed via raw tracker writes releases
-   * its dependents without any checkpoint gate having run. Accepted in phase 1,
-   * detected by the phase-2 auditor.
+   * its dependents without any checkpoint gate having run. Accepted in phase 1
+   * and, until the phase-2 auditor is built, undetected as well as unprevented.
    */
   async frontier(root: NodeRef): Promise<NodeState[]> {
     const candidates = await this.store.listCandidateFrontier(root);

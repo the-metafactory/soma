@@ -214,8 +214,25 @@ specific and copy-pasteable, and no node silently changes meaning.
 
 ### 2.3 Edge
 
-Blocking only: `blocks(a, b)` means `b` is not frontier until `a` is closed.
-No other edge types in v1 (ceremony guard — no consumer exists for them).
+Two edge kinds, and only two. They answer different questions, and the
+ceremony guard is satisfied because each has a consumer that the other cannot
+serve:
+
+- **`blocks(a, b)`** — `b` is not frontier until `a` is closed. This is the
+  gate, and the only relation that withholds work.
+- **`memberOf(child, parent)`** — the child belongs to the parent: a step on a
+  map, or scaffold thrown off the node whose work produced it. This is what
+  `listCandidateFrontier(root)` walks (§2.4), what `CreateNodeSpec.parent`
+  writes, and what the root walk behind §3.2 conjunct 4 follows. It records
+  provenance and **never gates**: depth confers nothing, and a node three
+  levels down is exactly as takeable as a direct child (#557).
+
+Membership was present from #497 — `CreateNodeSpec.parent` had no other
+purpose — but this section said "blocking only" until #564. Stating one
+relation while shipping two is what let depth quietly acquire a gating role it
+was never given.
+
+No third kind without a consumer that neither of these serves.
 
 The graph is a **DAG**: `addBlockingEdge` performs the structural validation
 §1 clause 2 requires and **rejects any edge that would close a cycle**
