@@ -301,27 +301,32 @@ function inlineInvocationTarget(value: string): string | undefined {
 }
 
 /**
- * `Adapter("<contract>")` — a capability declared by its CONTRACT rather than by
- * a concrete invocation, for work no single substrate can express portably: a
- * second opinion, a coder from another model family, a cross-family audit
- * (soma#574).
+ * `Contract("<what must be achieved>")` — a capability declared by its contract
+ * rather than by a concrete invocation, for work no single substrate expresses
+ * portably: a second opinion, a coder from another model family, a cross-family
+ * audit (soma#574).
  *
- * The `adapter` kind already existed in `AlgorithmCapabilityKind` but no table
- * row could produce it, so it was reachable only from a skill manifest. This is
- * the row form.
+ * NAMING (Sage review): the row syntax is `Contract(…)`, never `Adapter(…)`.
+ * CONTEXT.md §adapter locks `adapter` to the actor that performs a projection,
+ * one per substrate, and puts optional invocation on `SubstrateExecutor`
+ * "never to an adapter". A public row syntax spelled `Adapter(` would overload
+ * that term with a second meaning at exactly the boundary the glossary exists
+ * to keep clear. The stored `kind` is still `"adapter"` — that member predates
+ * this change and lives in the exported `AlgorithmCapabilityKind` union, so
+ * renaming it is a public-API change, tracked separately rather than smuggled
+ * in here.
  *
- * An adapter capability is DECLARED here and BOUND by whoever can satisfy it —
- * a same-named row in `capabilities.local.md`, which is read first and wins.
- * Unbound, it is still selectable and still counts toward a tier floor, and
- * that is deliberate rather than an oversight: `assertAlgorithmCapabilitiesSatisfied`
- * refuses COMPLETE for any selected capability that was never invoked, so an
- * unbound adapter fails the run loudly at the gate instead of quietly passing
- * as a phantom.
+ * A contract capability is DECLARED in the shipped table and BOUND by whoever
+ * can satisfy it — a same-named row in `capabilities.local.md`, which is read
+ * first and wins. Unbound, it stays selectable and still counts toward a tier
+ * floor, deliberately: `assertAlgorithmCapabilitiesSatisfied` refuses COMPLETE
+ * for any selected capability never invoked, so it fails the run loudly at the
+ * gate instead of quietly padding a floor as a phantom.
  */
 function adapterInvocationTarget(value: string): string | undefined {
   // `??` cannot stand in for the emptiness check: a whitespace-only contract
   // trims to "", which is not nullish but is not a contract either.
-  const contract = /Adapter\("([^"]+)"/.exec(value)?.[1]?.trim();
+  const contract = /Contract\("([^"]+)"/.exec(value)?.[1]?.trim();
   return contract !== undefined && contract.length > 0 ? contract : undefined;
 }
 
@@ -452,7 +457,7 @@ function registerCapabilityTableRows(
     const agentTarget = agentInvocationTarget(invokeCell, name);
     const commandTarget = commandInvocationTarget(invokeCell);
     const inlineTarget = inlineInvocationTarget(invokeCell);
-    // Checked before `agent`: `Adapter("spawn a sub-agent …")` must not be read
+    // Checked before `agent`: `Contract("spawn a sub-agent …")` must not be read
     // as an Agent( row by the substring match below.
     const adapterTarget = adapterInvocationTarget(invokeCell);
 

@@ -35,7 +35,7 @@ import type { BridgedNodeReport, ReflectionForDigest } from "../index";
 // error shape free to change without a public-API break.
 import { VerificationGateError } from "../algorithm";
 import { readFile } from "node:fs/promises";
-import { loadSomaHomeAlgorithmCapabilityRegistry, registerSomaHomeAlgorithmCapabilities } from "../algorithm-capabilities";
+import { listAlgorithmCapabilityDefinitions, loadSomaHomeAlgorithmCapabilityRegistry, registerSomaHomeAlgorithmCapabilities } from "../algorithm-capabilities";
 import { defaultSomaHome } from "../paths";
 import { syncAlgorithmRunFromVsa, formatSyncResult } from "../algorithm-vsa-sync";
 import { algorithmTouchedBy } from "../algorithm-provenance";
@@ -917,11 +917,20 @@ export async function runAlgorithmCli(
     // likewise computed and never surfaced, so a row that resolved to nothing
     // was indistinguishable from a row nobody wrote.
     if (options.listCapabilities === true) {
-      const registry = await loadSomaHomeAlgorithmCapabilityRegistry({
+      const resolved = await loadSomaHomeAlgorithmCapabilityRegistry({
         homeDir: options.homeDir,
         somaHome: options.somaHome,
         substrate: options.substrate,
       });
+      // The home registry is only part of what a run can select: `definitionsForRun`
+      // merges the compiled-in defaults underneath it. Listing the home half alone
+      // would omit ReReadCheck — which doctrine calls mandatory at EVERY tier —
+      // from the very output the agent is told to select verbatim from (Sage
+      // review). Same precedence as definitionsForRun: defaults first, home
+      // definitions override by name.
+      const byName = new Map(listAlgorithmCapabilityDefinitions().map((definition) => [definition.name, definition]));
+      for (const definition of resolved.definitions) byName.set(definition.name, definition);
+      const registry = { definitions: [...byName.values()], unsupported: resolved.unsupported };
       if (options.json === true) {
         return JSON.stringify(registry, null, 2);
       }

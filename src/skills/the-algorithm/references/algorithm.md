@@ -42,7 +42,7 @@
 <prefix> algorithm capabilities --list [--substrate <id>]
 ```
 
-The registry is closed because nothing may be added to it at run time; it is per-machine because what an assistant can actually do differs by installation. Both halves matter. A fixed list in doctrine would either name capabilities a given machine lacks — inviting the agent to claim work it cannot do — or exclude everything an adopter added, making their own skills unselectable. Neither is a closed vocabulary; both are a wrong one.
+The registry is closed to YOU — a capability name cannot be minted while composing a response, only read from what is already installed. It is per-machine because what an assistant can actually do differs by installation: adding a skill or a local row changes the vocabulary, and that is a deliberate act on the machine, not something a run may do to itself mid-answer. Both halves matter. A fixed list in doctrine would either name capabilities a given machine lacks — inviting the agent to claim work it cannot do — or exclude everything an adopter added, making their own skills unselectable. Neither is a closed vocabulary; both are a wrong one.
 
 Four sources feed it, resolved in this order, first definition of a name winning: skill manifests declaring `algorithmCapability`; the adopter's `references/capabilities.local.md`; the shipped `references/capabilities.md`; then every remaining installed skill, under its own name. The two compiled-in capabilities (`ReReadCheck`, `sequential-analysis`) need no declaration. Extending the vocabulary means adding a row to the local table — never an ad-hoc name in a response.
 
@@ -66,7 +66,7 @@ Nothing rejects a phantom on your behalf at selection time — this gate is a se
 <prefix> algorithm classify --prompt "..." [--json]
 ```
 
-It returns `mode`, `effort` (when `mode` is `algorithm`), `source`, and a one-sentence `reason`. `algorithm new` runs the same classifier when `--effort` is omitted. The contract is data, not a model call — `ALGORITHM_CLASSIFIER_CONTRACT` holds the pattern set so substrate adapters project the classifier into generated extension code and classify identically rather than each inventing their own regexes.
+It returns `mode`, `effort` (when `mode` is `algorithm`), `source`, and a one-sentence `reason`. `algorithm new` runs the same classifier when `--effort` is omitted. The contract is data, not a model call — `ALGORITHM_CLASSIFIER_CONTRACT` holds the pattern set as sources so a substrate adapter can project the classifier into generated extension code instead of inventing its own regexes. Sharing the data makes identical classification possible; it does not by itself prove it. Only the pi-dev projection has an enforced equivalence test today (`test/pi-dev-classifier-projection.test.ts`), so treat parity as verified there and as an intention elsewhere.
 
 Where a substrate can classify before the executor sees the prompt (a Claude Code `UserPromptSubmit` hook, for example), it injects the result as context and the executor honours it. Where it cannot, the executor calls the verb. Same contract either way — the injection is an optimisation, not the mechanism.
 

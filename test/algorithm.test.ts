@@ -394,7 +394,7 @@ test("a capabilities.local.md row overrides the bundled table of the same name",
   });
 });
 
-test("an Adapter(...) row registers a contract-declared capability", async () => {
+test("a Contract(...) row registers a contract-declared capability", async () => {
   // soma#574: some capabilities are doctrine everywhere and invocable nowhere in
   // particular (a second opinion, a coder from another model family). The
   // `adapter` kind already existed in the type but no table row could produce
@@ -407,9 +407,9 @@ test("an Adapter(...) row registers a contract-declared capability", async () =>
       [
         "| Capability | Phases | Trigger Signal | Invoke | Typical Cost |",
         "|------------|--------|----------------|--------|--------------|",
-        '| CrossFamilyAudit | VERIFY | Deep work before completion | `Adapter("an audit by a model outside the family that produced the work")` | E4+ |',
+        '| CrossFamilyAudit | VERIFY | Deep work before completion | `Contract("an audit by a model outside the family that produced the work")` | E4+ |',
         // Contract text mentioning a sub-agent must not be misread as an Agent( row.
-        '| SecondOpinion | THINK | Commitment boundary | `Adapter("ask a sub-agent or a second model that did not produce the work")` | E3+ |',
+        '| SecondOpinion | THINK | Commitment boundary | `Contract("ask a sub-agent or a second model that did not produce the work")` | E3+ |',
         "",
       ].join("\n"),
       "utf8",
@@ -430,7 +430,7 @@ test("an Adapter(...) row registers a contract-declared capability", async () =>
   });
 });
 
-test("a local binding replaces an adapter declaration with a concrete invocation", async () => {
+test("a local binding replaces a contract declaration with a concrete invocation", async () => {
   // The point of the adapter kind: ship the contract, let whoever can satisfy it
   // bind the mechanism. The local table is read first, so a same-named binding wins.
   await withTempHome(async (homeDir) => {
@@ -441,7 +441,7 @@ test("a local binding replaces an adapter declaration with a concrete invocation
       [
         "| Capability | Phases | Trigger Signal | Invoke | Typical Cost |",
         "|------------|--------|----------------|--------|--------------|",
-        '| Advisor | THINK | Commitment boundary | `Adapter("a second opinion from something that did not produce the work")` | E3+ |',
+        '| Advisor | THINK | Commitment boundary | `Contract("a second opinion from something that did not produce the work")` | E3+ |',
         "",
       ].join("\n"),
       "utf8",
