@@ -684,6 +684,12 @@ function registerResolvedHomeCapabilities(
   const nextDefinitions = new Map((run.capabilityDefinitions ?? []).map((existing) => [existing.name, existing]));
   for (const definition of definitions) {
     validateCapabilityDefinition(definition);
+    // A retained `caller` binding OUTRANKS the home row of the same name (Sage
+    // review). Without this, a caller who bound `Advisor` to something real had
+    // it replaced by the bundled unbound contract on the next CLI refresh — the
+    // registration silently undone by a command that only meant to re-read the
+    // home.
+    if (nextDefinitions.get(definition.name)?.origin === "caller") continue;
     nextDefinitions.set(definition.name, { ...cloneCapabilityDefinition(definition), origin: "soma-home" });
   }
 
@@ -724,9 +730,12 @@ export function registerAlgorithmCapabilityDefinitions(
     // capability that is selectable and permanently uninvokable, with a real
     // target sitting unused (Sage review). Unreachable from here by
     // construction now that `origin` is forced, so this is a plain refusal.
-    if (clone.kind === "contract") {
+    // Both fields: a definition declaring `kind: "skill"` with
+    // `invoke.contract: "contract"` would select fine and then be refused at
+    // every invocation (Sage review).
+    if (clone.kind === "contract" || clone.invoke.contract === "contract") {
       throw new Error(
-        `Algorithm capability "${clone.name}" cannot be registered with kind "contract": that kind is minted only by a `
+        `Algorithm capability "${clone.name}" cannot be registered as a contract: that state is minted only by a `
           + `Contract("…") row in a capability table, and marks a capability nothing on this machine can run. `
           + `Register the concrete kind you can actually invoke.`,
       );

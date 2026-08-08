@@ -111,7 +111,17 @@ At Algorithm entry and every phase transition, print the phase header. That head
 
 A substrate may layer richer signalling on top — a notification surface, a voice endpoint, a status line, a tab title. Where one exists, announce through it as well; where none does, the header alone satisfies this. Do not make the run's progress depend on a channel a substrate may not have, and never let a subagent announce on the primary's behalf.
 
-**Phase tracking is single-source: the harness run.** `<prefix> algorithm advance` moves the phase and is the deterministic gate. What it actually refuses, per transition: OBSERVE→THINK without a current-state probe recorded as `probed`/`tested`; →PLAN with **no capability selected at all**; →BUILD without a criterion-mapped plan; →EXECUTE without recorded build changes; →VERIFY while a plan step is still open; →LEARN while any criterion is unresolved or passed on specification-only evidence; →COMPLETE without a learning entry, or with a selected capability that was never invoked or removed.
+**Phase tracking is single-source: the harness run.** `<prefix> algorithm advance` moves the phase and is the deterministic gate. What it actually refuses, per transition:
+
+| Into | Refused when |
+|---|---|
+| THINK | there are no criteria, **or** no observation carries `probed`/`tested` current-state evidence |
+| PLAN | **no capability is selected at all** — one is enough, whatever the tier |
+| BUILD | the plan has no criterion-mapped steps |
+| EXECUTE | the changelog is empty (any entry satisfies it; nothing checks what changed) |
+| VERIFY | a plan step is still open — every one must be done or blocked |
+| LEARN | a criterion is unresolved, or passed on specification-only evidence |
+| COMPLETE | a selected capability was never invoked or removed, or there is no learning entry |
 
 Read that list for what it does NOT contain. **The tier floors are not gated.** PLAN needs one capability, not E2's two or E5's eight; nothing counts thinking versus delegation; nothing requires `ReReadCheck`. A run with a single capability can reach COMPLETE at any tier. The floors are doctrine you hold yourself to, and the reason they are stated as hard is precisely that no gate will catch you.
 
@@ -246,7 +256,7 @@ Modes (ideate, optimize) accept tunable parameters. Full schema and presets: `re
 
 ### 🎯 INTENT ECHO (MANDATORY FIRST ACTION)
 
-Before the VSA, before mode detection — restate the user's request in ONE sentence. If you cannot restate it accurately, re-read the user's message.
+Before the VSA, before mode detection — restate the principal's request in ONE sentence. If you cannot restate it accurately, re-read their message.
 
 **OUTPUT:** `🎯 INTENT: [one-sentence restatement of what user actually asked for]`
 
@@ -639,11 +649,17 @@ At least one signal is required; `--satisfaction <0-10>` and
 `--within-budget` / `--over-budget` are optional.
 
 Do not hand-write the gate flags — there is no flag for them. `algorithm
-reflect` computes `gatesFired` from run state using the same predicates the
-live gates enforce (`currentStateFloor`, `learnGateClean`, `completeness`),
-because a self-reported "the gate fired" is exactly the hollow claim the
-computed/proposed split exists to prevent. The three signals above are yours;
-the gate flags are the harness's.
+reflect` computes `gatesFired` from run state, because a self-reported "the gate
+fired" is exactly the hollow claim the computed/proposed split exists to
+prevent. The three signals above are yours; the flags are the harness's.
+
+Read the flags as *related to* the gates, not identical with them.
+`currentStateFloor` is the THINK probe requirement. `learnGateClean` is the LEARN
+gate **plus** a criteria-exist condition the gate itself does not impose.
+`completeness` — every criterion closed — is not a gate at all; COMPLETE checks
+capability satisfaction and a learning entry. So a flag can read as a miss where
+no transition would actually have been refused. That is deliberate for a
+reflection signal, and worth knowing before treating one as proof.
 
 `<prefix> algorithm reflections --id <run-id>` lists a run's reflections;
 `--digest` ranks the cross-run improvement backlog by gate-miss count.

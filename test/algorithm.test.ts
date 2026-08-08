@@ -649,6 +649,44 @@ test("a manifest-declared adapter capability is invocable; only a Contract row i
   });
 });
 
+test("a home refresh does not overwrite a caller's binding of the same name", async () => {
+  // Sage review: keptForeign preserved the caller definition, then the home rows
+  // were set by name straight over it — so a caller who bound Advisor to
+  // something real had it replaced by the bundled unbound contract on the next
+  // CLI refresh, undone by a command that only meant to re-read the home.
+  await withTempHome(async (homeDir) => {
+    await writeSkill(homeDir, "first-principles", "FirstPrinciples");
+    await writeCapabilityTable(homeDir, [
+      '| Advisor | VERIFY | Shipped declaration | `Contract("a second opinion")` | E3+ |',
+    ]);
+
+    let run = createAlgorithmRun({
+      id: "caller-binding-wins",
+      timestamp: "2026-08-08T14:00:00.000Z",
+      prompt: "Bind Advisor, then refresh",
+      intent: "Exercise caller precedence on refresh.",
+      currentState: "A caller bound Advisor to a real skill.",
+      goal: "The refresh leaves it alone.",
+      criteria: [{ id: "C1", text: "Binding survives." }],
+    });
+    run = registerAlgorithmCapabilityDefinition(run, {
+      name: "Advisor",
+      kind: "skill",
+      phases: ["verify"],
+      triggerSignals: ["my own second opinion"],
+      invoke: { contract: "skill", target: "FirstPrinciples" },
+    });
+
+    run = await registerSomaHomeAlgorithmCapabilities(run, { homeDir }, "2026-08-08T14:00:01.000Z");
+
+    expect(run.capabilityDefinitions?.find((definition) => definition.name === "Advisor")).toMatchObject({
+      kind: "skill",
+      origin: "caller",
+      invoke: { target: "FirstPrinciples" },
+    });
+  });
+});
+
 test("only a Contract row may mint the contract kind", async () => {
   // Sage review: `contract` means "declared, nothing behind it", and invoke
   // refuses on exactly that. A manifest or a caller reaching for the kind would
