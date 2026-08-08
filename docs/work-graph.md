@@ -256,8 +256,10 @@ frontier forever — no claim, no close, no error).
   purely from tracker status, so a blocker hand-closed via raw tracker writes
   (bypassing `soma graph close`) releases its dependents without any
   checkpoint gate having run. This is the §2.6 bypass propagated one hop —
-  accepted in phase 1, detected by the phase-2 auditor, which reopens the
-  hollow-closed blocker and thereby re-blocks the dependents.
+  accepted in phase 1 and, until the phase-2 auditor is built, undetected as
+  well as unprevented. That auditor is the design's answer — it reopens the
+  hollow-closed blocker and thereby re-blocks the dependents — and it does not
+  exist yet.
 - **Claim** = the executing identity becoming the node's **sole** assignee,
   written **before any work**. GitHub offers no compare-and-swap, so the
   claim verb re-reads assignees after writing; if the re-read shows more than
@@ -315,7 +317,8 @@ soma graph close <node>            # runs declared probes; refuses a hollow clos
 
 `close` enforcement lives in the **installed** soma binary, never the dev tree
 (#483 clause 5). Bypass via raw `gh` remains visible-but-unprevented in
-phase 1; the phase-2 auditor (§5) makes it detected. A close run from a dev
+phase 1; the phase-2 auditor (§5) is designed to make it detected and is not
+built. A close run from a dev
 tree warns on stderr rather than refusing — refusing would make the primitive
 undevelopable, and the warning keeps the gap visible state rather than silent.
 
