@@ -959,6 +959,7 @@ test("installed codex session-end hook reclaims a stale work registry lock", asy
     await installSomaForCodex({ homeDir });
     const lockPath = `${somaWorkRegistryPaths({ homeDir }).work}.lock`;
     await mkdir(lockPath, { recursive: true });
+    await writeFile(join(lockPath, "owner.json"), `${JSON.stringify({ pid: 999_999 })}\n`);
     const stale = new Date(Date.now() - 60_000);
     await utimes(lockPath, stale, stale);
 

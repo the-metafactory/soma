@@ -225,28 +225,41 @@ async function isReclaimableWorkRegistryLock(lockPath: string): Promise<boolean>
 
     try {
       const owner = JSON.parse(await readFile(join(lockPath, WORK_REGISTRY_LOCK_OWNER_FILE), "utf8")) as unknown;
-      if (isPlainRecord(owner) && typeof owner.pid === "number" && Number.isSafeInteger(owner.pid) && owner.pid > 0) {
-        return !isProcessAlive(owner.pid);
-      }
+      return isPlainRecord(owner) && typeof owner.pid === "number" && Number.isSafeInteger(owner.pid) && owner.pid > 0
+        ? !isProcessAlive(owner.pid)
+        : false;
     } catch {
-      // Legacy locks have no owner record. Once old enough, they are safe to reclaim.
+      // An ownerless pre-metadata lock may still be held by an older process.
+      return false;
     }
-
-    return true;
   } catch (error: unknown) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
     throw error;
   }
 }
 
+async function acquireReclaimGuard(reclaimPath: string): Promise<boolean> {
+  for (;;) {
+    try {
+      await mkdir(reclaimPath);
+      try {
+        await writeFile(join(reclaimPath, WORK_REGISTRY_LOCK_OWNER_FILE), `${JSON.stringify({ pid: process.pid })}\n`, "utf8");
+      } catch (error) {
+        await rm(reclaimPath, { recursive: true, force: true });
+        throw error;
+      }
+      return true;
+    } catch (error: unknown) {
+      if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
+      if (!(await isReclaimableWorkRegistryLock(reclaimPath))) return false;
+      await rm(reclaimPath, { recursive: true, force: true });
+    }
+  }
+}
+
 async function reclaimStaleWorkRegistryLock(lockPath: string): Promise<boolean> {
   const reclaimPath = `${lockPath}${WORK_REGISTRY_LOCK_RECLAIM_SUFFIX}`;
-  try {
-    await mkdir(reclaimPath);
-  } catch (error: unknown) {
-    if (error instanceof Error && "code" in error && error.code === "EEXIST") return false;
-    throw error;
-  }
+  if (!(await acquireReclaimGuard(reclaimPath))) return false;
 
   try {
     if (!(await isReclaimableWorkRegistryLock(lockPath))) return false;
