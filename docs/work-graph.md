@@ -247,9 +247,12 @@ frontier forever — no claim, no close, no error).
   decides whether it is reported: gating is what a blocking edge means, and
   past-the-destination is what a close means. A one-level walk made scaffold
   invisible precisely when its spawning node closed and it became takeable,
-  which is why the walk descends **into** closed nodes while never reporting
-  them. An implementation that cannot carry a whole subtree in one request must
-  detect the shortfall and complete it; truncating in silence is forbidden.
+  which is why the walk descends **into** closed nodes. The store *reports*
+  them — `readSubtree` returns the whole subtree and the frontier predicate is
+  applied above it, because filtering is the contract layer's job and a store
+  that pre-filters is deciding §2.4 instead of serving it. An implementation
+  that cannot carry a whole subtree in one request must detect the shortfall
+  and complete it; truncating in silence is forbidden.
   **Discovery must be a live read of the authoritative store, and when it is,
   it confirms** (#576, superseding #492 correction 3). The original rule
   required the verb to re-fetch every candidate, and it was written for a
