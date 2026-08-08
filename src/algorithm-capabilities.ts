@@ -327,7 +327,7 @@ function inlineInvocationTarget(value: string): string | undefined {
 function contractInvocationTarget(value: string): string | undefined {
   // `??` cannot stand in for the emptiness check: a whitespace-only contract
   // trims to "", which is not nullish but is not a contract either.
-  const contract = /Contract\("([^"]+)"/.exec(value)?.[1]?.trim();
+  const contract = /Contract\("([^"]+)"\s*\)/.exec(value)?.[1]?.trim();
   return contract !== undefined && contract.length > 0 ? contract : undefined;
 }
 
@@ -599,7 +599,7 @@ export async function registerSomaHomeAlgorithmCapabilities(
 
   return definitions.length === 0
     ? withoutHomeDefinitions
-    : registerAlgorithmCapabilityDefinitions(withoutHomeDefinitions, definitions, timestamp);
+    : registerResolvedHomeCapabilities(withoutHomeDefinitions, definitions, timestamp);
 }
 
 export function listAlgorithmCapabilityDefinitions(): AlgorithmCapabilityDefinition[] {
@@ -671,6 +671,30 @@ export function registerAlgorithmCapabilityDefinition(
   return registerAlgorithmCapabilityDefinitions(run, [definition], timestamp);
 }
 
+/**
+ * Register definitions the SOMA HOME resolved, stamping `soma-home` provenance.
+ * Deliberately not exported: `origin` decides what a later refresh may replace
+ * and whether a `contract` kind is legitimate, so only this module may assert
+ * it (Sage review — a public field is a claim, not a proof).
+ */
+function registerResolvedHomeCapabilities(
+  run: AlgorithmRun,
+  definitions: AlgorithmCapabilityDefinition[],
+  timestamp: string,
+): AlgorithmRun {
+  const nextDefinitions = new Map((run.capabilityDefinitions ?? []).map((existing) => [existing.name, existing]));
+  for (const definition of definitions) {
+    validateCapabilityDefinition(definition);
+    nextDefinitions.set(definition.name, { ...cloneCapabilityDefinition(definition), origin: "soma-home" });
+  }
+
+  return {
+    ...run,
+    updatedAt: timestamp,
+    capabilityDefinitions: Array.from(nextDefinitions.values()),
+  };
+}
+
 export function registerAlgorithmCapabilityDefinitions(
   run: AlgorithmRun,
   definitions: AlgorithmCapabilityDefinition[],
@@ -688,14 +712,20 @@ export function registerAlgorithmCapabilityDefinitions(
     // caller lands here unmarked. A refresh replaces its own rows and leaves
     // `caller` rows alone (soma#574).
     const clone = cloneCapabilityDefinition(definition);
-    const origin = clone.origin ?? "caller";
+    // Provenance is OURS to assign, never the caller's to declare (Sage review).
+    // `origin` is a public field, so an incoming "soma-home" is an untrusted
+    // claim — and the contract guard below treats that value as privileged.
+    // Overwrite it unconditionally: this is the public entry point, so whatever
+    // arrives here IS from a caller. The home path stamps its own through
+    // `registerResolvedHomeCapabilities`, which is not exported.
+    const origin = "caller" as const;
     // `contract` means "declared, nothing behind it", and `algorithm invoke`
     // refuses it on exactly that basis. Only the `Contract("…")` parser may mint
     // one — a manifest or a direct caller reaching for the kind would produce a
     // capability that is selectable and permanently uninvokable, with a real
-    // target sitting unused (Sage review). Refuse it here so the invariant holds
-    // by construction rather than by convention.
-    if (clone.kind === "contract" && origin !== "soma-home") {
+    // target sitting unused (Sage review). Unreachable from here by
+    // construction now that `origin` is forced, so this is a plain refusal.
+    if (clone.kind === "contract") {
       throw new Error(
         `Algorithm capability "${clone.name}" cannot be registered with kind "contract": that kind is minted only by a `
           + `Contract("…") row in a capability table, and marks a capability nothing on this machine can run. `

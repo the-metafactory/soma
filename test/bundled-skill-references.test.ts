@@ -121,6 +121,32 @@ describe("bundled skill references", () => {
     }
   });
 
+  test("install preserves an edited capability table as the overlay, once", async () => {
+    // soma#574: the capability table is the one bundled file adopters were
+    // expected to edit, and this install now overwrites it every run. Without
+    // this migration their rows vanish on upgrade with no warning and no copy.
+    const homeDir = await mkdtemp(join(tmpdir(), "soma-capability-migrate-"));
+    try {
+      const references = join(homeDir, ".soma", "skills", "the-algorithm", "references");
+      await mkdir(references, { recursive: true });
+      await writeFile(join(references, "capabilities.md"), "| Capability |\n|---|\n| MyOwnRow |\n", "utf8");
+
+      await installBundledSkillsIntoHome({ homeDir });
+
+      const overlay = await readFile(join(references, "capabilities.local.md"), "utf8");
+      expect(overlay).toContain("MyOwnRow");
+      // And the bundled copy was still replaced with the shipped one.
+      expect(await readFile(join(references, "capabilities.md"), "utf8")).toContain("Algorithm Capabilities Reference");
+
+      // Idempotent: a second install must not clobber the overlay it just made.
+      await writeFile(join(references, "capabilities.local.md"), "| Capability |\n|---|\n| EditedSince |\n", "utf8");
+      await installBundledSkillsIntoHome({ homeDir });
+      expect(await readFile(join(references, "capabilities.local.md"), "utf8")).toContain("EditedSince");
+    } finally {
+      await rm(homeDir, { recursive: true, force: true });
+    }
+  });
+
   test("no bundled skill instructs the agent toward a PAI-only path or an unsubstituted placeholder", async () => {
     // These accumulate silently because they keep WORKING on the machine that
     // authored them: `~/.claude/PAI/TOOLS/…` resolves there, and a `{{DA_NAME}}`

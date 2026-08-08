@@ -587,8 +587,6 @@ test("an unbound contract capability cannot be invoked on written evidence", asy
     await writeCapabilityTable(homeDir, [
       '| CrossFamilyAudit | VERIFY | Deep work before completion | `Contract("an audit by a model outside the family that produced the work")` | E4+ |',
     ]);
-    const { definitions } = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir });
-
     let run = createAlgorithmRun({
       id: "unbound-contract",
       timestamp: "2026-08-08T10:00:00.000Z",
@@ -598,7 +596,9 @@ test("an unbound contract capability cannot be invoked on written evidence", asy
       goal: "An unbound contract cannot be talked past.",
       criteria: [{ id: "C1", text: "Invocation refuses." }],
     });
-    run = registerAlgorithmCapabilityDefinitions(run, definitions, "2026-08-08T10:00:01.000Z");
+    // Through the home refresh, which is the only path allowed to mint a
+    // contract-kind definition — the public register path refuses one.
+    run = await registerSomaHomeAlgorithmCapabilities(run, { homeDir }, "2026-08-08T10:00:01.000Z");
     run = selectAlgorithmCapability(run, { name: "CrossFamilyAudit", phase: "verify" }, "2026-08-08T10:00:02.000Z");
 
     expect(() =>
