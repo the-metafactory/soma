@@ -137,9 +137,17 @@ in that order:
 2. `algorithm advance` refuses COMPLETE for any selected capability that was
    never invoked.
 
-Together: selecting a contract you cannot satisfy fails the run, loudly, naming
-itself. It cannot be talked past with evidence — the first gate rejects the
-invocation before evidence is considered.
+Together: a selected contract you cannot satisfy fails the run rather than
+passing quietly, and it cannot be talked past with *evidence* — the first gate
+rejects the invocation before any evidence is read.
+
+There is one legitimate way out, and it is not a loophole:
+`algorithm remove-capability --reason <text>` withdraws the selection, and
+COMPLETE accepts a `removed` selection. The reason you must supply IS the record
+this doctrine asks for — say the capability was unavailable and why. What the
+machine cannot check is whether that reason is honest, so removing a contract
+you could have satisfied, to dodge the work, defeats the gate exactly as a
+fabricated invocation would.
 
 Note the limit. Once you *have* bound a contract, invocation is self-attested
 like every other kind: `algorithm invoke` records the evidence you give it and

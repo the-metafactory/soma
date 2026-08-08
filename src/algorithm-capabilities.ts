@@ -565,26 +565,19 @@ export async function registerSomaHomeAlgorithmCapabilities(
   // `capabilities --list` no longer showed it — a closed vocabulary with a
   // second, invisible half.
   //
-  // Replacing is sound because the home registry is the only producer of run
-  // definitions in practice: `registerSomaHomeAlgorithmCapabilities` is the sole
-  // in-tree caller of `registerAlgorithmCapabilityDefinitions`. Compiled-in
-  // defaults are unaffected — they are never persisted, and `definitionsForRun`
-  // supplies them regardless.
-  //
-  // Guarded so an unreadable or empty soma home cannot silently strip a run of
-  // everything it had. `unsupported` breaks the tie (Sage review): a home that
-  // resolved NOTHING and reported nothing is absent, and the run is left alone;
-  // a home that resolved nothing but reported unresolvable rows was read and
-  // has an answer — every capability is disabled — and withholding the prune
-  // there would keep exactly the stale definitions this replace exists to drop.
-  if (definitions.length === 0 && unsupported.length === 0) {
-    return run;
-  }
+  // Scoped by `origin` rather than clearing everything (Sage review): a blanket
+  // clear also destroyed definitions a public caller had registered directly
+  // through `registerAlgorithmCapabilityDefinition`, which no home refresh has
+  // any business owning. Only what a previous refresh put there is replaced.
+  // Compiled-in defaults are unaffected — never persisted, and
+  // `definitionsForRun` supplies them regardless.
+  const homeDefinitions = definitions.map((definition) => ({ ...definition, origin: "soma-home" as const }));
+  const keptForeign = (run.capabilityDefinitions ?? []).filter((definition) => definition.origin !== "soma-home");
+  const withoutHomeDefinitions = { ...run, capabilityDefinitions: keptForeign };
 
-  const withoutHomeDefinitions = { ...run, capabilityDefinitions: [] };
-  return definitions.length === 0
+  return homeDefinitions.length === 0
     ? withoutHomeDefinitions
-    : registerAlgorithmCapabilityDefinitions(withoutHomeDefinitions, definitions, timestamp);
+    : registerAlgorithmCapabilityDefinitions(withoutHomeDefinitions, homeDefinitions, timestamp);
 }
 
 export function listAlgorithmCapabilityDefinitions(): AlgorithmCapabilityDefinition[] {

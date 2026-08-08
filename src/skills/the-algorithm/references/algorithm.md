@@ -92,7 +92,7 @@ Where a substrate can classify before the executor sees the prompt (a Claude Cod
 2. Otherwise honour the classifier verbatim, `source: auto`.
 3. **Conversation-context override:** the classifier sees one prompt in isolation; the executor sees the thread. A "yes" answering a multi-step proposal, or a "do it" approving an architecture change, classifies as `minimal` on its own text. Escalate, and log the mismatch in `## Decisions` as `source: context-override`.
 
-**Fail-safe.** An empty prompt returns `algorithm` at **E3** with `source: fail-safe`. Unclassifiable input fails toward more rigour, never less — under-escalation is the failure mode this design exists to prevent.
+**Fail-safe.** An *empty* prompt returns `algorithm` at **E3** with `source: fail-safe`. That is the only fail-safe: a non-empty prompt that reaches `algorithm` but matches no tier rule gets **E1** with `source: auto`, which is the low end, not the high one. So do not read a general "unclassifiable input escalates" guarantee into this. Under-escalation is the failure mode the design worries about, and the classifier only guards the empty case; noticing that an E1 classification understates the work in front of you is yours to do, via the context override at step 3.
 
 **Carry the source through.** A tier that was explicitly asked for and a tier that was guessed are different facts, and only the second is worth re-examining when the work turns out larger than it looked.
 

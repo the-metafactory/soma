@@ -517,13 +517,30 @@ test("a refresh that resolves nothing still disables, but an absent home leaves 
     run = await registerSomaHomeAlgorithmCapabilities(run, { homeDir }, "2026-08-08T11:00:01.000Z");
     expect(run.capabilityDefinitions?.some((definition) => definition.name === "TableOnly")).toBe(true);
 
+    // A definition a public caller registered directly is not the home's to
+    // replace: only what a previous refresh put there carries origin "soma-home".
+    run = registerAlgorithmCapabilityDefinition(run, {
+      name: "CallerRegistered",
+      kind: "inline",
+      phases: ["think"],
+      triggerSignals: ["registered directly, not from the home"],
+      invoke: { contract: "inline", target: "inline doctrine step" },
+    });
+    await writeCapabilityTable(homeDir, [
+      '| Different | PLAN | The table changed entirely | *(inline doctrine — no external tool)* | E1+ |',
+    ]);
+    run = await registerSomaHomeAlgorithmCapabilities(run, { homeDir }, "2026-08-08T11:00:03.000Z");
+    expect(run.capabilityDefinitions?.some((definition) => definition.name === "CallerRegistered")).toBe(true);
+    expect(run.capabilityDefinitions?.some((definition) => definition.name === "TableOnly")).toBe(false);
+
     // An absent home resolves nothing and reports nothing: leave the run intact.
     const untouched = await registerSomaHomeAlgorithmCapabilities(
       run,
       { homeDir, somaHome: ".soma-does-not-exist" },
-      "2026-08-08T11:00:02.000Z",
+      "2026-08-08T11:00:04.000Z",
     );
-    expect(untouched.capabilityDefinitions?.some((definition) => definition.name === "TableOnly")).toBe(true);
+    expect(untouched.capabilityDefinitions?.some((definition) => definition.name === "Different")).toBe(true);
+    expect(untouched.capabilityDefinitions?.some((definition) => definition.name === "CallerRegistered")).toBe(true);
   });
 });
 

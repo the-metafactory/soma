@@ -362,6 +362,15 @@ export interface AlgorithmCapabilityDefinition {
     contract: AlgorithmCapabilityContract;
     target: string;
   };
+  /**
+   * Set on definitions resolved from the soma home (soma#574). A refresh
+   * REPLACES the home-derived set — a row retargeted at something missing, or
+   * deleted outright, must stop being selectable — and this marks which
+   * definitions that replace owns. Definitions registered directly through
+   * `registerAlgorithmCapabilityDefinition(s)` carry no origin and survive a
+   * refresh untouched. Optional: absent means "not from the home".
+   */
+  origin?: "soma-home";
 }
 
 export interface SomaSkillAlgorithmCapabilityManifest {
