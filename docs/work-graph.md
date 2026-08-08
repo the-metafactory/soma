@@ -1,6 +1,6 @@
 # Work graph — typed contracts and execution story
 
-**Status:** Spec, pre-implementation (locked by DD-16, wayfinder map #477)
+**Status:** Phase 1 implemented and on `main` (§2-§4, via map #495); §5 phase 2 unbuilt. Locked by DD-16, wayfinder map #477
 **Date:** 2026-08-02
 
 The **work graph** is Soma's typed primitive for cross-session effort

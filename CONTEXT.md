@@ -684,17 +684,24 @@ A bounded structured event that records substrate activity for monitoring and co
 
 ## work graph
 
-The typed primitive for cross-session effort topology: **nodes** of work joined by **blocking edges**, stored authoritatively on an issue tracker, walked by agent sessions, and closed only through an attached [[checkpoint]]'s completion gate.
+The typed primitive for cross-session effort topology: **nodes** of work joined by two distinct edge kinds, stored authoritatively on an issue tracker, walked by agent sessions, and closed only through an attached [[checkpoint]]'s completion gate.
 
-A node carries an **autonomy class** (`auto` / `propose` / `approve`) and optionally a free-form `kind` tag that only consumers (e.g. the orienteer skill) interpret. The spec obligates the runtime to enforce the autonomy class at close time; that enforcement is **not yet built** — it arrives with the `soma graph` verbs, covers only closes going through them, and raw tracker writes are never prevented: the phase-2 auditor detects and reverts them after the fact. The **frontier** is the set of open, unclaimed nodes whose blockers are all closed; a **claim** is the executing identity becoming the node's assignee before any work. The graph contributes topology + claims and no verification machinery — [[checkpoint]] keeps the verification monopoly.
+**Two relations, and conflating them is the classic error:**
 
-Exposed as `soma graph` verbs over a typed `GraphStore` seam. Spec: `docs/work-graph.md` (status: pre-implementation); stance: DD-16.
+- A **blocking edge** says *this must close before that is takeable*. It gates. The frontier reads it.
+- A **membership edge** says *this node belongs to that one* — a child of a map, or scaffold thrown off the node whose work produced it. It is the parent/child relation, and a root's **membership subtree** is everything reachable through it. It records provenance and **never gates**.
+
+The frontier is computed *over* a root's membership subtree and *gated by* blocking edges. Membership scopes the question, blocking answers it. Depth within the subtree carries no authority: a node three levels down is exactly as takeable as a direct child (#557), so the way to keep work off the frontier is to close it, block it, or claim it — never to bury it.
+
+A node carries an **autonomy class** (`auto` / `propose` / `approve`) and optionally a free-form `kind` tag that only consumers (e.g. the orienteer skill) interpret. The runtime enforces the autonomy class at close time — built and on `main` with the `soma graph` verbs (#499). It covers only closes going through them; raw tracker writes are never prevented, and the phase-2 auditor detects and reverts them after the fact. The **frontier** is the set of open, unclaimed nodes whose blockers are all closed, taken over the whole membership subtree of the root it is asked about; a **claim** is the executing identity becoming the node's assignee before any work. The graph contributes topology + claims and no verification machinery — [[checkpoint]] keeps the verification monopoly.
+
+Exposed as `soma graph` verbs over a typed `GraphStore` seam. Spec: `docs/work-graph.md` (phase 1 implemented; the §5 phase-2 tick and auditor are not); stance: DD-16.
 
 **Not synonyms:**
 - `task graph` / `DAG` / `workflow` / `pipeline` — execution-engine vocabulary implying a runtime that schedules and runs nodes. The work graph is coordination state; sessions execute.
 - `plan` / `planSteps` — the within-run execution checklist of an Algorithm run. A plan step may *reference* a node (`nodeId`) and derive status from it; the scopes never merge.
 - `map` — orienteer doctrine for one graph instance rooted at a tracker map issue. Fine in skill prose, not the primitive's name.
-- `work registry` — the flat canonical record of active/historical work (DD-5). The registry records *that* work exists; the graph records *what blocks what*.
+- `work registry` — the flat canonical record of active/historical work (DD-5). The registry records *that* work exists; the graph records *what blocks what* and *what belongs to what*.
 - `graph-of-work` — the wayfinder map #477 working label, retired at DD-16.
 
 **Why:** Matches Soma's descriptive glossary register (checkpoint, compartment, presence) and the `soma graph` verb surface; **orienteer** names the practice of walking one, the work graph names the structure. Locked in the #488 grilling, 2026-08-02.
