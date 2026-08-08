@@ -18,6 +18,7 @@ import {
   type Probe,
   type WorkGraphNode,
 } from "../src/index";
+import { walkFakeSubtree } from "./fixtures/work-graph-fixtures";
 
 const PASSING_PROBE: Probe = { type: "command", run: "bun test", timeoutSec: 600, expectExit: 0 };
 
@@ -295,8 +296,9 @@ class FakeStore implements GraphStore {
     };
   }
 
-  async listCandidateFrontier(root: NodeRef): Promise<NodeRef[]> {
-    return (this.children.get(root.id) ?? []).map((id) => ({ id }));
+  /** Depth-first pre-order over the membership subtree, each node already confirmed (#576). */
+  async readSubtree(root: NodeRef): Promise<NodeState[]> {
+    return walkFakeSubtree(root, (id) => this.children.get(id) ?? [], (ref) => this.readNode(ref));
   }
 
   async claim(ref: NodeRef, identity: string): Promise<ClaimResult> {

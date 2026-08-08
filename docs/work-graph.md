@@ -222,7 +222,7 @@ serve:
   gate, and the only relation that withholds work.
 - **`memberOf(child, parent)`** — the child belongs to the parent: a step on a
   map, or scaffold thrown off the node whose work produced it. This is what
-  `listCandidateFrontier(root)` walks (§2.4), what `CreateNodeSpec.parent`
+  `readSubtree(root)` walks (§2.4), what `CreateNodeSpec.parent`
   writes, and what the root walk behind §3.2 conjunct 4 follows. It records
   provenance and **never gates**: depth confers nothing, and a node three
   levels down is exactly as takeable as a direct child (#557).
@@ -247,16 +247,36 @@ frontier forever — no claim, no close, no error).
   decides whether it is reported: gating is what a blocking edge means, and
   past-the-destination is what a close means. A one-level walk made scaffold
   invisible precisely when its spawning node closed and it became takeable,
-  which is why the walk descends **into** closed nodes while never reporting
-  them. An implementation that cannot carry a whole subtree in one request must
-  detect the shortfall and complete it; truncating in silence is forbidden.
-  The frontier verb confirms every candidate by direct fetch before reporting
-  it (#492 correction 3), which removes **false positives about a node's
-  state** — closed, claimed, or still blocked — whatever produced the
-  candidate. It does *not* revalidate membership: the fetch re-reads the node,
-  not its ancestry, so a candidate the discovery step wrongly placed in this
-  subtree is reported as if it belonged. Discovery is the only witness for
-  membership. False *negatives* are not
+  which is why the walk descends **into** closed nodes. The store *reports*
+  them — `readSubtree` returns the whole subtree and the frontier predicate is
+  applied above it, because filtering is the contract layer's job and a store
+  that pre-filters is deciding §2.4 instead of serving it. An implementation
+  that cannot carry a whole subtree in one request must detect the shortfall
+  and complete it; truncating in silence is forbidden.
+  **Discovery must be a live read of the authoritative store, and when it is,
+  it confirms** (#576, superseding #492 correction 3). The original rule
+  required the verb to re-fetch every candidate, and it was written for a
+  discovery step assumed to be a lagging *search index* — the fetch existed to
+  drop hits the index had gone stale on. Where discovery already reads the
+  store directly, the second read buys nothing and costs coherence: N
+  sequential fetches describe the subtree as it was across however long they
+  took, so the measured GitHub path blended observations up to ten seconds
+  apart. A traversal is **not** automatically one observation — pagination and
+  re-rooting are extra calls, and a subtree that needs them is still blended.
+  The honest claim is narrower and still decisive: a traversal is one
+  observation for a graph that fits a single request, and never more than the
+  old shape otherwise — equal where a subtree pages or re-roots and yields no
+  candidates, far fewer whenever it yields any. A backend that *does*
+  discover through a stale index still owes the second read — internally,
+  before returning — because the obligation attaches to the staleness, not to
+  the ceremony.
+
+  Two consequences worth stating, because nothing downstream re-checks. Every
+  returned state must be **whole**: a short read of assignees or blockers would
+  make a claimed node look unclaimed or a blocked node look takeable. And
+  membership is never revalidated — it never was, since the old fetch re-read
+  the node and not its ancestry, so discovery has always been the only witness
+  for whether a node belongs to this subtree. False *negatives* are not
   recoverable this way, so the frontier is advisory and may return short,
   self-healing on a later tick. Correctness never rests on frontier
   completeness; it rests on the claim and close gates.
@@ -298,8 +318,8 @@ interface GraphStore {
   createNode(spec: Omit<WorkGraphNode, "id">): Promise<NodeRef>; // store assigns id
   addBlockingEdge(blocker: NodeRef, blocked: NodeRef): Promise<void>;
   readNode(ref: NodeRef): Promise<NodeState>;
-  listCandidateFrontier(root: NodeRef): Promise<NodeRef[]>; // whole subtree, pre-order;
-                                                            // hits re-confirmed by readNode
+  readSubtree(root: NodeRef): Promise<NodeState[]>;         // whole subtree, pre-order,
+                                                            // already confirmed (#576)
   claim(ref: NodeRef, identity: string): Promise<ClaimResult>; // re-reads after write
   postComment(ref: NodeRef, body: string): Promise<CommentRef>;
   readCommentReactions(ref: CommentRef): Promise<Reaction[]>;  // author from API, not body text
@@ -325,7 +345,9 @@ interface GraphStore {
 ### 2.6 CLI verbs
 
 ```bash
-soma graph frontier <root>         # open, unassigned, unblocked — confirmed by direct fetch
+soma graph frontier <root>         # open, unassigned, unblocked, over the whole
+                                   # membership subtree; GraphStore.readSubtree
+                                   # confirms (§2.4)
 soma graph node <id>               # read one node (GraphStore.readNode) — the bridge's read path
 soma graph claim <node>            # assign, re-read, tie-break on race
 soma graph add <root> ...          # create node (+ edges) — additive, structurally validated

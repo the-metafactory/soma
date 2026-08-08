@@ -24,6 +24,7 @@ import {
   type Reaction,
   type WorkGraphNode,
 } from "../src/index";
+import { walkFakeSubtree } from "./fixtures/work-graph-fixtures";
 
 const REPO = "the-metafactory/soma";
 const AT = new Date("2026-08-04T09:00:00.000Z");
@@ -92,8 +93,8 @@ class FakeStore implements GraphStore {
     };
   }
 
-  async listCandidateFrontier(root: NodeRef): Promise<NodeRef[]> {
-    return (this.nodes.get(root.id)?.children ?? []).map((id) => ({ id }));
+  async readSubtree(root: NodeRef): Promise<NodeState[]> {
+    return walkFakeSubtree(root, (id) => this.nodes.get(id)?.children ?? [], (ref) => this.readNode(ref));
   }
 
   async claim(_ref: NodeRef, identity: string): Promise<ClaimResult> {

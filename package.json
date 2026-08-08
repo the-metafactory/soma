@@ -13,7 +13,8 @@
     "test": "bun test",
     "test:portability": "bun test test/portability-ci.test.ts",
     "check-skill-version": "bun scripts/check-skill-version.ts",
-    "check-release-privacy": "bun scripts/check-release-privacy.ts"
+    "check-release-privacy": "bun scripts/check-release-privacy.ts",
+    "measure-graph-read-path": "bun scripts/measure-graph-read-path.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
