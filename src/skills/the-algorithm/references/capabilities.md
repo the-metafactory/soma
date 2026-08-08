@@ -12,9 +12,10 @@ not an error.
 
 Four sources, merged in this order, the first definition of a name winning:
 
-1. **Skills declaring `algorithmCapability` in their manifest** — phases and
-   trigger signals come from that metadata.
-2. **`capabilities.local.md`, the adopter's own table** (see below).
+1. **`capabilities.local.md`, the adopter's own table** (see below). First, so a
+   local row wins over everything else — the machine's owner has the last word.
+2. **Skills declaring `algorithmCapability` in their manifest** — the skill
+   author's phase and trigger metadata, preferred over the shipped table.
 3. **The table in this file.**
 4. **Every remaining skill under `<soma-home>/skills`, automatically** —
    registered under its own name, admissible in all seven phases, with trigger
@@ -25,7 +26,13 @@ exists to *narrow* a capability — to say which phases it belongs to and what
 signal should trigger it — or to register something that is not a skill at all.
 
 Two capabilities are compiled in and need no declaration anywhere: `ReReadCheck`
-(inline; verify, learn) and `sequential-analysis` (inline; think, plan).
+(inline; verify, learn) and `sequential-analysis` (inline; think, plan). They sit
+underneath all four sources, so a row of the same name retargets them — but an
+*unresolvable* local row does not disable them. Both are `inline`: they name a
+discipline and need no tool, so there is nothing an installation can lack, and
+`ReReadCheck` is mandatory at every tier. A mistyped row must not remove a floor
+by accident. The disables-on-unresolvable rule governs table-declared
+capabilities, whose targets can genuinely be absent.
 
 ## The adopter's table: `capabilities.local.md`
 

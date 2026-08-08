@@ -35,7 +35,7 @@ import type { BridgedNodeReport, ReflectionForDigest } from "../index";
 // error shape free to change without a public-API break.
 import { VerificationGateError } from "../algorithm";
 import { readFile } from "node:fs/promises";
-import { listAlgorithmCapabilityDefinitions, loadSomaHomeAlgorithmCapabilityRegistry, registerSomaHomeAlgorithmCapabilities } from "../algorithm-capabilities";
+import { loadSomaHomeAlgorithmCapabilityRegistry, mergedAlgorithmCapabilityRegistry, registerSomaHomeAlgorithmCapabilities } from "../algorithm-capabilities";
 import type { SomaHomeAlgorithmCapabilityRegistry } from "../algorithm-capabilities";
 import { defaultSomaHome } from "../paths";
 import { syncAlgorithmRunFromVsa, formatSyncResult } from "../algorithm-vsa-sync";
@@ -920,15 +920,11 @@ export async function runAlgorithmCli(
         somaHome: options.somaHome,
         substrate: options.substrate,
       });
-      // The home registry is only part of what a run can select: `definitionsForRun`
-      // merges the compiled-in defaults underneath it. Listing the home half alone
-      // would omit ReReadCheck — which doctrine calls mandatory at EVERY tier —
-      // from the very output the agent is told to select verbatim from (Sage
-      // review). Same precedence as definitionsForRun: defaults first, home
-      // definitions override by name.
-      const byName = new Map(listAlgorithmCapabilityDefinitions().map((definition) => [definition.name, definition]));
-      for (const definition of resolved.definitions) byName.set(definition.name, definition);
-      const registry = { definitions: [...byName.values()], unsupported: resolved.unsupported };
+      // The home registry is only part of what a run can select: the compiled-in
+      // defaults sit underneath it. Listing the home half alone would omit
+      // ReReadCheck — which doctrine calls mandatory at EVERY tier — from the
+      // very output the agent is told to select verbatim from (Sage review).
+      const registry = mergedAlgorithmCapabilityRegistry(resolved);
       if (options.json === true) {
         return JSON.stringify(registry, null, 2);
       }

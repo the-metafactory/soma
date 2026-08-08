@@ -440,6 +440,39 @@ test("a Contract(...) row registers a contract-declared capability", async () =>
   });
 });
 
+test("a local row overrides a manifest-declared capability", async () => {
+  // Sage review: the local table used to sit BEHIND the manifest pass, so an
+  // adopter could not retarget a manifest-backed capability — the manifest
+  // silently stayed active while the docs promised "a local row of the same
+  // name wins". An override that does not always override is worse than none,
+  // because it is trusted.
+  await withTempHome(async (homeDir) => {
+    await writeSkill(homeDir, "first-principles", "FirstPrinciples");
+    await writeSkill(homeDir, "systems-thinking", "SystemsThinking");
+    await writeSkillManifest(homeDir, "first-principles", {
+      schema: "soma.skill.v1",
+      name: "FirstPrinciples",
+      description: "Manifest-backed skill.",
+      entrypoint: "SKILL.md",
+      references: [],
+      workflows: [],
+      tools: [],
+      triggers: ["manifest trigger"],
+      algorithmCapability: { kind: "skill", phases: ["think"] },
+    });
+    await writeCapabilityTable(homeDir, [
+      '| FirstPrinciples | VERIFY | Retargeted by the adopter | `Skill("SystemsThinking")` | E1+ |',
+    ]);
+
+    const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir });
+
+    expect(registry.definitions.find((definition) => definition.name === "FirstPrinciples")).toMatchObject({
+      phases: ["verify"],
+      invoke: { target: "SystemsThinking" },
+    });
+  });
+});
+
 test("an unbound contract capability cannot be invoked on written evidence", async () => {
   // Sage blocker (soma#574): invocation asks only for non-empty evidence, so
   // before this refusal a run could select CrossFamilyAudit, perform no audit,

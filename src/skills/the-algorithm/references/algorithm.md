@@ -44,7 +44,7 @@
 
 The registry is closed to YOU — a capability name cannot be minted while composing a response, only read from what is already installed. It is per-machine because what an assistant can actually do differs by installation: adding a skill or a local row changes the vocabulary, and that is a deliberate act on the machine, not something a run may do to itself mid-answer. Both halves matter. A fixed list in doctrine would either name capabilities a given machine lacks — inviting the agent to claim work it cannot do — or exclude everything an adopter added, making their own skills unselectable. Neither is a closed vocabulary; both are a wrong one.
 
-Four sources feed it, resolved in this order, first definition of a name winning: skill manifests declaring `algorithmCapability`; the adopter's `references/capabilities.local.md`; the shipped `references/capabilities.md`; then every remaining installed skill, under its own name. The two compiled-in capabilities (`ReReadCheck`, `sequential-analysis`) need no declaration. Extending the vocabulary means adding a row to the local table — never an ad-hoc name in a response.
+Four sources feed it, resolved in this order, first definition of a name winning: the adopter's `references/capabilities.local.md`; skill manifests declaring `algorithmCapability`; the shipped `references/capabilities.md`; then every remaining installed skill, under its own name. The adopter's table is first so a local row wins over everything — the machine's owner has the last word on what their machine can do. The two compiled-in capabilities (`ReReadCheck`, `sequential-analysis`) need no declaration. Extending the vocabulary means adding a row to the local table — never an ad-hoc name in a response.
 
 Inventing generic labels ("decomposition", "edge-case enumeration", "tradeoff analysis", "deep reasoning", "structured thinking") is a **PHANTOM capability** and counts as a CRITICAL FAILURE. It does not contribute to the tier floor regardless of how the rest of the response is written.
 
@@ -54,7 +54,7 @@ Nothing rejects a phantom on your behalf at selection time — this gate is a se
 
 **Contract capabilities.** Some rows (`Advisor`, `CrossFamilyCoder`, `CrossFamilyAudit`) declare a *contract* rather than an invocation, because no substrate expresses them portably. They are real capabilities and count toward a floor — but only if you bind them locally and actually invoke them. `algorithm invoke` REFUSES an unbound contract, so a selected one you cannot satisfy fails the run rather than passing on written evidence. `--list` marks any that still need a binding on this machine. If you cannot satisfy the contract, do not select it: record the gap in `## Decisions`. An unavailable second opinion is a fact worth keeping.
 
-**2. Delegation-capability floor (SOFT, v6.1.0).** Delegation capabilities (sub-agents, agent teams, isolated worktrees, out-of-family model calls, research fan-out — whatever the registry offers) remain show-your-math relaxable — sometimes the work is genuinely single-author and delegation adds noise.
+**2. Delegation-capability floor (SOFT, v6.1.0).** Delegation capabilities (delegated workers — a Claude Code sub-agent, a Grok subagent, an isolated worktree, an out-of-family model call, a research fan-out — whatever the registry offers) remain show-your-math relaxable — sometimes the work is genuinely single-author and delegation adds noise.
 
 **Tier intent.** Users must feel a dramatic speed range across tiers. E1 is the fast lane — under 90 seconds, doctrine is light, capability floor stays at 0-1 to preserve fast-path. E2 is structured-but-quick. E3 is substantial middle-tier work. E4/E5 are where full doctrine — second opinions, the cross-family audit, deeper verification — earns its cost. Never let ceremony eat the budget; the only acceptable reason to spend a tier's time is the work itself.
 
@@ -326,7 +326,7 @@ The principal naming a capability outright overrides the tier: invoke it regardl
 | **Granularity** | Every ISC has a nameable single-tool probe. If you cannot say which tool returns yes/no, the ISC is not yet atomic — split. |
 | **Tier ISC floor (E2+, soft)** | Total ISC count meets the tier floor (E2 ≥16, E3 ≥32, E4 ≥128, E5 ≥256). |
 | **Tier completeness gate (HARD, v6.2.0)** | Required sections per tier are all populated (E1 Goal+Criteria; E2+ adds; E4 all twelve; E5 + Interview ran). Invoke `Skill("VSA", "check completeness")`. |
-| **Thinking floor (HARD)** | Thinking-capability count meets the tier hard floor (E1 0-1, E2 ≥2, E3 ≥4, E4 ≥6, E5 ≥8). **Cannot be relaxed via show-your-math.** Names MUST come from the v6.3.0 closed enumeration verbatim. |
+| **Thinking floor (HARD)** | Thinking-capability count meets the tier hard floor (E1 0-1, E2 ≥2, E3 ≥4, E4 ≥6, E5 ≥8). **Cannot be relaxed via show-your-math.** Names MUST come verbatim from the registry (`algorithm capabilities --list`). |
 | **Capability-Name Audit (HARD, v6.3.0)** | Each thinking name in `🏹 CAPABILITIES SELECTED` appears verbatim in the closed enumeration. Phantom names (anything outside the list) do NOT count toward the floor and are a CRITICAL FAILURE. |
 | **Delegation floor (soft)** | Delegation-capability count meets the tier soft floor (E2 ≥1, E3 ≥2, E4 ≥2, E5 ≥4). Overridable with "show your math" in `## Decisions`. |
 
@@ -644,7 +644,7 @@ the gate flags are the harness's.
 
 - **No freeform output** — every response uses the SUMMARY output format above.
 - **No phantom capabilities** — every selected capability MUST be invoked via tool. Text-only is dishonest.
-- **Thinking floor (HARD)** — meet the tier thinking floor (E2 ≥2, E3 ≥4, E4 ≥6, E5 ≥8). Cannot be relaxed via show-your-math. Names MUST come verbatim from the v6.3.0 closed enumeration (IterativeDepth, ApertureOscillation, FeedbackMemoryConsult, Advisor, ReReadCheck, FirstPrinciples, SystemsThinking, RootCauseAnalysis, Council, RedTeam, Science, BeCreative, Ideate, BitterPillEngineering, Evals, WorldThreatModel, Fabric patterns, ContextSearch, ISA). Inventing generic thinking labels is a phantom capability and a CRITICAL FAILURE.
+- **Thinking floor (HARD)** — meet the tier thinking floor (E2 ≥2, E3 ≥4, E4 ≥6, E5 ≥8). Cannot be relaxed via show-your-math. Names MUST come verbatim from the registry resolved on THIS machine — read it with `algorithm capabilities --list`, never from a list memorised here. Inventing generic thinking labels is a phantom capability and a CRITICAL FAILURE.
 - **Delegation floor (soft)** — meet the tier delegation floor or document "show your math" in `## Decisions` naming what the un-selected delegation would have done.
 - **Tier completeness gate (HARD, NEW v6.2.0)** — required ISA sections per tier are all populated before `phase: complete`. Invoke `Skill("VSA", "check completeness")` to confirm.
 - **ISA is YOUR responsibility** — no hook writes to it. You edit it via the ISA skill workflows or direct Edit/Write. ID-stability rule applies (never re-number on edit).

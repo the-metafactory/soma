@@ -513,18 +513,30 @@ export async function loadSomaHomeAlgorithmCapabilityRegistry(
   const definitions = new Map<string, AlgorithmCapabilityDefinition>();
   const unsupported = new Set<string>();
 
+  // Resolution order, first definition of a name winning. Every pass skips a
+  // name already registered or already marked unsupported.
+  //
+  // 1. The ADOPTER's table. First, so "a local row of the same name wins" is
+  //    true without qualification (Sage review). It previously sat behind the
+  //    manifest pass, which meant a manifest-declared capability could not be
+  //    retargeted locally and silently stayed active — an override that does not
+  //    always override is worse than none, because it is trusted.
+  //    A local row that cannot resolve lands in `unsupported`, which also blocks
+  //    the bundled row of the same name: an adopter who retargets a capability
+  //    at a skill they do not have has disabled it, and should see that rather
+  //    than silently fall back to the shipped definition.
+  registerCapabilityTableRows(localMarkdown, definitions, unsupported, availableSkills, options.substrate);
+
+  // 2. Skills declaring `algorithmCapability` in their manifest — the skill
+  //    author's own phase/trigger metadata, preferred over the bundled table.
   for (const skill of availableSkills.skills) {
     maybeRegisterSkillCapability(definitions, unsupported, skill, options.substrate, { requireManifestCapability: true });
   }
 
-  // Local first: rows are kept on a name collision, and the row loop skips a
-  // name already registered. A local row that cannot resolve still lands in
-  // `unsupported`, which also blocks the bundled row of the same name — an
-  // adopter who retargets a capability at a skill they do not have has
-  // disabled it, and should see that rather than silently fall back.
-  registerCapabilityTableRows(localMarkdown, definitions, unsupported, availableSkills, options.substrate);
+  // 3. The shipped table.
   registerCapabilityTableRows(markdown, definitions, unsupported, availableSkills, options.substrate);
 
+  // 4. Every remaining skill, under its own name, admissible in all phases.
   for (const skill of availableSkills.skills) {
     maybeRegisterSkillCapability(definitions, unsupported, skill, options.substrate, { requireManifestCapability: false });
   }
@@ -550,6 +562,29 @@ export async function registerSomaHomeAlgorithmCapabilities(
 
 export function listAlgorithmCapabilityDefinitions(): AlgorithmCapabilityDefinition[] {
   return DEFAULT_CAPABILITY_REGISTRY.map(cloneCapabilityDefinition);
+}
+
+/**
+ * Everything a run may select: the compiled-in defaults, overridden by name by
+ * whatever the soma home resolved. One helper so the `--list` view and run
+ * resolution cannot drift apart on precedence (Sage review) — the same
+ * defaults-then-override order `definitionsForRun` applies.
+ *
+ * The two compiled-in capabilities (`ReReadCheck`, `sequential-analysis`) are
+ * always present and are NOT suppressed by an unresolvable local row of the
+ * same name. Both are `inline` — they name a discipline and need no tool, so
+ * there is nothing an installation can lack — and `ReReadCheck` is doctrine-
+ * mandatory at every tier. Letting a mistyped local row silently disable it
+ * would remove a floor by accident, which is the opposite of what the
+ * local-row-disables rule is for. That rule governs table-declared
+ * capabilities, whose targets can genuinely be absent.
+ */
+export function mergedAlgorithmCapabilityRegistry(
+  resolved: SomaHomeAlgorithmCapabilityRegistry,
+): SomaHomeAlgorithmCapabilityRegistry {
+  const byName = new Map(listAlgorithmCapabilityDefinitions().map((definition) => [definition.name, definition]));
+  for (const definition of resolved.definitions) byName.set(definition.name, definition);
+  return { definitions: [...byName.values()], unsupported: [...resolved.unsupported] };
 }
 
 function definitionsForRun(run: Pick<AlgorithmRun, "capabilityDefinitions">): AlgorithmCapabilityDefinition[] {
