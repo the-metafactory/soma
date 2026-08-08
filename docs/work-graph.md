@@ -1,6 +1,6 @@
 # Work graph — typed contracts and execution story
 
-**Status:** Spec, pre-implementation (locked by DD-16, wayfinder map #477)
+**Status:** Phase 1 implemented and on `main` (§2-§4, via map #495); §5 phase 2 unbuilt. Locked by DD-16, wayfinder map #477
 **Date:** 2026-08-02
 
 The **work graph** is Soma's typed primitive for cross-session effort
@@ -214,8 +214,25 @@ specific and copy-pasteable, and no node silently changes meaning.
 
 ### 2.3 Edge
 
-Blocking only: `blocks(a, b)` means `b` is not frontier until `a` is closed.
-No other edge types in v1 (ceremony guard — no consumer exists for them).
+Two edge kinds, and only two. They answer different questions, and the
+ceremony guard is satisfied because each has a consumer that the other cannot
+serve:
+
+- **`blocks(a, b)`** — `b` is not frontier until `a` is closed. This is the
+  gate, and the only relation that withholds work.
+- **`memberOf(child, parent)`** — the child belongs to the parent: a step on a
+  map, or scaffold thrown off the node whose work produced it. This is what
+  `listCandidateFrontier(root)` walks (§2.4), what `CreateNodeSpec.parent`
+  writes, and what the root walk behind §3.2 conjunct 4 follows. It records
+  provenance and **never gates**: depth confers nothing, and a node three
+  levels down is exactly as takeable as a direct child (#557).
+
+Membership was present from #497 — `CreateNodeSpec.parent` had no other
+purpose — but this section said "blocking only" until #564. Stating one
+relation while shipping two is what let depth quietly acquire a gating role it
+was never given.
+
+No third kind without a consumer that neither of these serves.
 
 The graph is a **DAG**: `addBlockingEdge` performs the structural validation
 §1 clause 2 requires and **rejects any edge that would close a cycle**
@@ -224,19 +241,42 @@ frontier forever — no claim, no close, no error).
 
 ### 2.4 Frontier and claim
 
-- **Frontier** = open ∧ unassigned ∧ all blockers closed. The frontier verb
-  confirms every search hit by direct fetch before reporting it, removing
-  false positives from lagging tracker search indexes (#492 correction 3).
-  False *negatives* — nodes a lagging index omits entirely — are not
-  recoverable this way: the frontier is advisory and may return short,
+- **Frontier** = open ∧ unassigned ∧ all blockers closed, over the root's
+  entire **membership subtree** — every descendant, at any depth, reported in
+  depth-first pre-order (#557). Depth records where a node came from and never
+  decides whether it is reported: gating is what a blocking edge means, and
+  past-the-destination is what a close means. A one-level walk made scaffold
+  invisible precisely when its spawning node closed and it became takeable,
+  which is why the walk descends **into** closed nodes while never reporting
+  them. An implementation that cannot carry a whole subtree in one request must
+  detect the shortfall and complete it; truncating in silence is forbidden.
+  The frontier verb confirms every candidate by direct fetch before reporting
+  it (#492 correction 3), which removes **false positives about a node's
+  state** — closed, claimed, or still blocked — whatever produced the
+  candidate. It does *not* revalidate membership: the fetch re-reads the node,
+  not its ancestry, so a candidate the discovery step wrongly placed in this
+  subtree is reported as if it belonged. Discovery is the only witness for
+  membership. False *negatives* are not
+  recoverable this way, so the frontier is advisory and may return short,
   self-healing on a later tick. Correctness never rests on frontier
   completeness; it rests on the claim and close gates.
+
+  What can *produce* a false negative is backend-specific, and saying so
+  matters because the two have different fixes. A store that discovers by
+  search loses nodes its index has not caught up with. The GitHub backend does
+  not search at all — it walks native sub-issue edges (#557) — so its false
+  negatives come from **missing membership edges**: a node nobody attached is
+  not in anyone's subtree, and no amount of confirmation will conjure it. A
+  short read caused by the *walk* rather than by the graph is a defect, not a
+  caveat, which is why truncation must refuse or recover.
   **Known fail-open path (phase 1):** frontier derives "blockers closed"
   purely from tracker status, so a blocker hand-closed via raw tracker writes
   (bypassing `soma graph close`) releases its dependents without any
   checkpoint gate having run. This is the §2.6 bypass propagated one hop —
-  accepted in phase 1, detected by the phase-2 auditor, which reopens the
-  hollow-closed blocker and thereby re-blocks the dependents.
+  accepted in phase 1 and, until the phase-2 auditor is built, undetected as
+  well as unprevented. That auditor is the design's answer — it reopens the
+  hollow-closed blocker and thereby re-blocks the dependents — and it does not
+  exist yet.
 - **Claim** = the executing identity becoming the node's **sole** assignee,
   written **before any work**. GitHub offers no compare-and-swap, so the
   claim verb re-reads assignees after writing; if the re-read shows more than
@@ -258,7 +298,8 @@ interface GraphStore {
   createNode(spec: Omit<WorkGraphNode, "id">): Promise<NodeRef>; // store assigns id
   addBlockingEdge(blocker: NodeRef, blocked: NodeRef): Promise<void>;
   readNode(ref: NodeRef): Promise<NodeState>;
-  listCandidateFrontier(root: NodeRef): Promise<NodeRef[]>; // hits re-confirmed by readNode
+  listCandidateFrontier(root: NodeRef): Promise<NodeRef[]>; // whole subtree, pre-order;
+                                                            // hits re-confirmed by readNode
   claim(ref: NodeRef, identity: string): Promise<ClaimResult>; // re-reads after write
   postComment(ref: NodeRef, body: string): Promise<CommentRef>;
   readCommentReactions(ref: CommentRef): Promise<Reaction[]>;  // author from API, not body text
@@ -293,7 +334,8 @@ soma graph close <node>            # runs declared probes; refuses a hollow clos
 
 `close` enforcement lives in the **installed** soma binary, never the dev tree
 (#483 clause 5). Bypass via raw `gh` remains visible-but-unprevented in
-phase 1; the phase-2 auditor (§5) makes it detected. A close run from a dev
+phase 1; the phase-2 auditor (§5) is designed to make it detected and is not
+built. A close run from a dev
 tree warns on stderr rather than refusing — refusing would make the primitive
 undevelopable, and the warning keeps the gap visible state rather than silent.
 

@@ -308,7 +308,38 @@ export interface GraphStore {
   createNode(spec: CreateNodeSpec): Promise<NodeRef>;
   addBlockingEdge(blocker: NodeRef, blocked: NodeRef): Promise<void>;
   readNode(ref: NodeRef): Promise<NodeState>;
-  /** Candidates only — hits are re-confirmed by {@link WorkGraph.frontier} via direct fetch. */
+  /**
+   * Every open node in the root's membership **subtree**, at any depth, in
+   * depth-first pre-order — candidates only, re-confirmed by
+   * {@link WorkGraph.frontier} via direct fetch.
+   *
+   * **The subtree, not the direct children** (#557). Depth records where a node
+   * came from; it never decides whether the frontier reports it. Doctrine puts
+   * scaffold below its spawning node, and a one-level walk turned that into
+   * invisibility — worse, into invisibility that arrives exactly when the parent
+   * closes and the scaffold becomes takeable. Gating is what a blocking edge
+   * means and past-the-destination is what a close means; neither is a depth.
+   *
+   * Two obligations on an implementation:
+   *
+   * - **Descend into closed nodes; never report them.** Pruning a closed *node*
+   *   and pruning its *subtree* are different acts, and scaffold below a closed
+   *   parent is the common case, not the exotic one.
+   * - **Never truncate in silence.** A subtree larger than one request returns
+   *   must be detected and completed. §2.4 can recover a false positive by
+   *   direct fetch and cannot recover a false negative, so a short list that
+   *   reads complete is the one failure this seam must not produce.
+   *
+   * Pre-order puts each node's scaffold immediately after it, which is what
+   * makes provenance legible in the listing itself.
+   *
+   * A backend whose membership relation is only ever one level deep still
+   * implements this honestly — its subtree of `root` *is* `root`'s members, and
+   * pre-order over a single level is their order. What no backend may do is
+   * return everything it holds: the result is scoped to the root's membership,
+   * so a store that cannot express membership at all cannot implement this
+   * seam, and a flat dump is a wrong answer rather than a degenerate one.
+   */
   listCandidateFrontier(root: NodeRef): Promise<NodeRef[]>;
   /** Assigns, then re-reads (no compare-and-swap exists on GitHub) and applies {@link resolveClaimRace}. */
   claim(ref: NodeRef, identity: string): Promise<ClaimResult>;
@@ -796,8 +827,8 @@ export class WorkGraph {
    *
    * Known fail-open path (phase 1): "blockers closed" derives purely from
    * tracker status, so a blocker hand-closed via raw tracker writes releases
-   * its dependents without any checkpoint gate having run. Accepted in phase 1,
-   * detected by the phase-2 auditor.
+   * its dependents without any checkpoint gate having run. Accepted in phase 1
+   * and, until the phase-2 auditor is built, undetected as well as unprevented.
    */
   async frontier(root: NodeRef): Promise<NodeState[]> {
     const candidates = await this.store.listCandidateFrontier(root);

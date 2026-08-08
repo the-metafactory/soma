@@ -172,6 +172,98 @@ function readIssue(value: unknown, context: string): GitHubIssue {
   };
 }
 
+// --- the membership subtree (#557) ------------------------------------------
+
+/**
+ * One entry per nested `subIssues` level in the walk query; the value is that
+ * level's page size. Depth and width are round-trip tuning only — a subtree
+ * that outgrows them is *detected* (see {@link SubtreeNode.childrenTruncated})
+ * and completed by a follow-up query, so no shape of graph can read short.
+ *
+ * GitHub costs a nested connection as the product of the `first` values along
+ * its path and rejects a query scoring over 500,000. These multiply out to
+ * 50 + 1 500 + 30 000 + 30 000 = 61 550, counting the bottom-row probe.
+ *
+ * **Recompute before adding a level.** The headroom is nothing like the
+ * 61 550 : 500 000 ratio suggests, because each level multiplies everything
+ * below it: a fourth 20-wide level would score 1 231 550, and the widest that
+ * still fits is 7. Depth is far more expensive here than width, which is the
+ * argument for leaving this shallow and letting re-rooting handle the tail.
+ */
+const SUBTREE_PAGE_SIZES = [50, 30, 20] as const;
+
+/** A node in the walk: identity, status, and whether its children arrived whole. */
+interface SubtreeNode {
+  number: number;
+  status: NodeStatus;
+  children: SubtreeNode[];
+  /**
+   * The children in hand are not all of them — the level hit its page size, or
+   * this node sits on the bottom row where only a count was fetched. Either way
+   * the walk must ask again rather than report what it happens to hold.
+   */
+  childrenTruncated: boolean;
+}
+
+/**
+ * The nested `subIssues` selection for one level and everything below it.
+ *
+ * The bottom row is a `totalCount`-only probe: it costs one node per parent and
+ * answers the only question that matters there — *is there more?* Without it a
+ * leaf and an unfetched subtree are indistinguishable, which is the silent
+ * truncation this walk exists to avoid.
+ */
+function subtreeSelection(level: number): string {
+  const size = SUBTREE_PAGE_SIZES[level];
+  if (size === undefined) return "subIssues(first:1){totalCount}";
+  return `subIssues(first:${size}){totalCount nodes{number state ${subtreeSelection(level + 1)}}}`;
+}
+
+/**
+ * The walk query. Only the **top** connection takes a cursor, and that
+ * asymmetry is what makes the walk terminate correctly.
+ *
+ * A node whose children did not all arrive is re-fetched *as the root of its
+ * own query*, where its children become the top connection and are therefore
+ * paged to completion. Re-fetching it in place would be useless — the same
+ * query with the same page size returns the same truncated set — so completion
+ * by re-rooting is not an optimisation, it is the mechanism. Every re-root
+ * strictly descends, so the recursion is bounded by the depth of the tree.
+ */
+const SUBTREE_QUERY = `query($owner:String!,$name:String!,$number:Int!,$after:String){repository(owner:$owner,name:$name){issue(number:$number){number state subIssues(first:${SUBTREE_PAGE_SIZES[0]},after:$after){totalCount pageInfo{hasNextPage endCursor} nodes{number state ${subtreeSelection(1)}}}}}}`;
+
+/**
+ * GraphQL states are upper-case, and `state` also carries CLOSED-as-not-planned.
+ * Anything that is not literally OPEN is closed to the walk — a policy worth
+ * stating once, since the walk reads status at two levels and a drift between
+ * them would silently change which nodes get reported.
+ */
+function readGraphQLStatus(record: Record<string, unknown>): NodeStatus {
+  return record.state === "OPEN" ? "open" : "closed";
+}
+
+function readSubtreeNode(value: unknown): SubtreeNode {
+  const context = "subtree walk";
+  const record = asRecord(value, context);
+  const connection = record.subIssues;
+
+  // The bottom row selects `totalCount` without `nodes`, so "no nodes key" is a
+  // depth limit rather than a childless node — and both must recurse when the
+  // count says there is something down there.
+  const counted = connection === undefined || connection === null ? undefined : asRecord(connection, context);
+  const totalCount = counted === undefined ? 0 : readNumber(counted, "totalCount", context);
+  const children = Array.isArray(counted?.nodes)
+    ? (counted.nodes as unknown[]).map((entry) => readSubtreeNode(entry))
+    : undefined;
+
+  return {
+    number: readNumber(record, "number", context),
+    status: readGraphQLStatus(record),
+    children: children ?? [],
+    childrenTruncated: children === undefined ? totalCount > 0 : totalCount > children.length,
+  };
+}
+
 function readComment(value: unknown, context: string): GitHubComment {
   const record = asRecord(value, context);
   return {
@@ -322,15 +414,130 @@ class GitHubGraphStore implements GraphStore {
 
   /**
    * Membership comes from native sub-issue edges — the same relationship the
-   * tracker UI renders. Closed children are dropped here as a cheap pre-filter;
-   * the contract layer re-confirms every survivor by direct fetch.
+   * tracker UI renders — walked **transitively** (#557).
+   *
+   * GraphQL rather than recursive REST, because the walk must descend into
+   * *closed* nodes to reach the scaffold beneath them: a REST walk costs one
+   * request per visited node and therefore scales with the map's closed
+   * history, which only grows, so a map would get slower as it succeeded.
+   * Nested `subIssues` returns {@link SUBTREE_PAGE_SIZES}`.length` levels per
+   * round trip instead.
+   *
+   * `totalCount` at every level is what keeps that honest rather than merely
+   * cheap, and the two levels answer a shortfall differently. **Below the top**
+   * it is recoverable: the node is flagged truncated and completed by a
+   * follow-up query. **At the top** there is nothing left to recover with, so a
+   * page run that does not add up refuses outright. Either way a subtree wider
+   * or deeper than one query fetched is never silently dropped.
+   *
+   * Closed nodes are traversed and omitted from the result; the contract layer
+   * re-confirms every survivor by direct fetch.
    */
   async listCandidateFrontier(root: NodeRef): Promise<NodeRef[]> {
-    const children = asArray(
-      await this.transport({ method: "GET", path: `repos/${this.repo}/issues/${root.id}/sub_issues`, paginate: true }),
-      "listCandidateFrontier",
-    ).map((entry) => readIssue(entry, "listCandidateFrontier"));
-    return children.filter((child) => child.status === "open").map((child) => ({ id: String(child.number) }));
+    const rootNumber = Number(root.id);
+    if (!Number.isInteger(rootNumber)) {
+      throw new WorkGraphError("backend", `listCandidateFrontier: ${root.id} is not an issue number`);
+    }
+
+    const open: NodeRef[] = [];
+    // Guards the result against a node reachable by two paths, and the walk
+    // against a cycle. Sub-issues are a tree today; the seam promises nothing.
+    const seen = new Set<number>([rootNumber]);
+
+    const visit = async (node: SubtreeNode): Promise<void> => {
+      if (seen.has(node.number)) return;
+      seen.add(node.number);
+      // Traverse closed nodes, report only open ones: scaffold outlives the node
+      // that spawned it, so below-a-closed-parent is the common case.
+      if (node.status === "open") open.push({ id: String(node.number) });
+      for (const child of await this.completeChildren(node)) await visit(child);
+    };
+
+    for (const child of await this.completeChildren(await this.fetchSubtree(rootNumber))) await visit(child);
+    return open;
+  }
+
+  /**
+   * A node's children, whole. If the enclosing query could not carry them all —
+   * it hit a page size, or bottomed out at the depth probe — the node is
+   * re-fetched as its own root, where {@link fetchSubtree} pages them.
+   */
+  private async completeChildren(node: SubtreeNode): Promise<SubtreeNode[]> {
+    if (!node.childrenTruncated) return node.children;
+    return (await this.fetchSubtree(node.number)).children;
+  }
+
+  /**
+   * The subtree below `issueNumber`: children **complete** (cursor-paged),
+   * deeper levels as far as {@link SUBTREE_QUERY} reaches and flagged where
+   * they stop.
+   *
+   * Every exit from the paging loop is checked, because this is the one place
+   * a short read cannot be caught later: deeper levels announce their own
+   * shortfall through {@link SubtreeNode.childrenTruncated}, but a top level
+   * that quietly ends is indistinguishable from a complete one.
+   */
+  private async fetchSubtree(issueNumber: number): Promise<SubtreeNode> {
+    const context = "subtree walk";
+    const [owner, name] = this.repo.split("/");
+    const children: SubtreeNode[] = [];
+    let status: NodeStatus = "closed";
+    let after: string | null = null;
+    let totalCount = 0;
+    // A backend that keeps saying "there is more" while handing back a cursor
+    // it already gave would spin here forever, accumulating children — and
+    // never reach the count check below, which is what would otherwise catch a
+    // bad page run. Progress has to be asserted, not assumed.
+    const cursors = new Set<string>();
+
+    for (;;) {
+      const response = await this.transport({
+        method: "POST",
+        path: "graphql",
+        body: { query: SUBTREE_QUERY, variables: { owner, name, number: issueNumber, after } },
+      });
+      const issue = (response as { data?: { repository?: { issue?: unknown } | null } } | null)?.data?.repository
+        ?.issue;
+      if (issue === undefined || issue === null) {
+        throw new WorkGraphError("backend", `${context}: issue ${issueNumber} not found in ${this.repo}`);
+      }
+
+      const record = asRecord(issue, context);
+      status = readGraphQLStatus(record);
+      const connection = asRecord(record.subIssues, context);
+      totalCount = readNumber(connection, "totalCount", context);
+      for (const entry of asArray(connection.nodes, context)) children.push(readSubtreeNode(entry));
+
+      const pageInfo = asRecord(connection.pageInfo, context);
+      if (pageInfo.hasNextPage === false) break;
+      // Anything other than a literal `false` is an answer we cannot read, and
+      // treating it as "that was the last page" is precisely the silent
+      // truncation §2.4 cannot recover. Refuse instead.
+      if (pageInfo.hasNextPage !== true) {
+        throw new WorkGraphError("backend", `${context}: issue ${issueNumber} reported no usable hasNextPage`);
+      }
+      if (typeof pageInfo.endCursor !== "string") {
+        throw new WorkGraphError("backend", `${context}: issue ${issueNumber} has more children but no cursor`);
+      }
+      if (cursors.has(pageInfo.endCursor)) {
+        throw new WorkGraphError("backend", `${context}: issue ${issueNumber} repeated a pagination cursor`);
+      }
+      cursors.add(pageInfo.endCursor);
+      after = pageInfo.endCursor;
+    }
+
+    // The connection said how many children exist; paging must have produced
+    // exactly that many. A mismatch means either a short page run or a
+    // concurrent edit, and in both cases the honest answer is that this list
+    // cannot be vouched for — the caller can retry.
+    if (children.length !== totalCount) {
+      throw new WorkGraphError(
+        "backend",
+        `${context}: issue ${issueNumber} reported ${totalCount} children but paging returned ${children.length}`,
+      );
+    }
+
+    return { number: issueNumber, status, children, childrenTruncated: false };
   }
 
   /**
