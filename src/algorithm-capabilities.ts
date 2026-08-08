@@ -435,9 +435,9 @@ const CAPABILITY_REFERENCE_FILE = "capabilities.md";
  * The adopter's capability table (soma#574). `installBundledSkillsIntoHome`
  * rewrites every bundled file on each run but leaves principal-added files under
  * a skill dir alone, so this sibling is the ONLY place in the skill dir where a
- * principal's own rows survive an install. Read after the bundled table and, on
- * a name collision, kept — so an adopter can narrow or retarget a shipped
- * capability without editing a file that will be replaced under them.
+ * principal's own rows survive an install. Read BEFORE the bundled table, so a
+ * local row wins on any name collision — an adopter can narrow or retarget a
+ * shipped capability without editing a file that will be replaced under them.
  */
 const CAPABILITY_LOCAL_REFERENCE_FILE = "capabilities.local.md";
 
