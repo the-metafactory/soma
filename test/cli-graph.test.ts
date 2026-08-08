@@ -10,9 +10,12 @@ import {
   type GraphCliDeps,
 } from "../src/cli/graph";
 import { parseRepoFromRemote } from "../src/work-graph-bridge";
+// Receipt-rendering helpers are deliberately not on the public barrel (sage on
+// #584): they are internals of `renderCloseReceipt`, so the test reaches for
+// them where they live.
+import { describeProbeTree } from "../src/work-graph";
 import {
   WorkGraphError,
-  describeProbeTree,
   renderCloseReceipt,
   runProbes,
   type ClaimResult,
@@ -946,6 +949,55 @@ test("a url-only close records no tree, and anchors on the targets it actually c
   expect(receipt.probeTrees).toBeUndefined();
   expect(receipt.evidence.find((entry) => entry.kind === "probed")?.pointer).toBe(`targets: ${target}`);
   expect(renderCloseReceipt(receipt)).not.toContain("Ran in");
+});
+
+test("a mixed close anchors on both halves — trees and targets", async () => {
+  // Sage on #584 round 7: naming only the trees would put `n/n passed` beside a
+  // pointer that silently drops the host checks, which is the same partial
+  // accounting the all-or-nothing tree rule refuses.
+  const target = "https://status.example.test/health";
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495"), author: "jcfischer" })
+    .seed("520", {
+      node: autoNode("520", { probes: [PROBE, { type: "url", target, expectStatus: 200 }] }),
+      parent: "495",
+      author: "ivy-agent",
+    });
+
+  await run(["graph", "close", "520", "--repo", REPO], store);
+
+  const pointer = store.closed[0].receipt.evidence.find((entry) => entry.kind === "probed")?.pointer;
+  expect(pointer).toContain("HEAD abc1234 in /repo");
+  expect(pointer).toContain(`targets: ${target}`);
+});
+
+test("pre-flight tree reads are bounded, however many directories the tracker names", async () => {
+  // The directory list is tracker content. Unbounded, a node body declaring a
+  // hundred probes with a hundred `cwd`s fans out a hundred git processes on the
+  // closing machine before the registry has refused any of them.
+  const dirs = Array.from({ length: 12 }, (_unused, index) => `/tree-${index}`);
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495"), author: "jcfischer" })
+    .seed("520", {
+      node: autoNode("520", { probes: dirs.map((dir) => ({ ...PROBE, cwd: dir })) }),
+      parent: "495",
+      author: "ivy-agent",
+    });
+
+  let inFlight = 0;
+  let peak = 0;
+  await run(["graph", "close", "520", "--repo", REPO], store, {
+    describeProbeTree: async (dir) => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await Promise.resolve();
+      inFlight -= 1;
+      return { dir, head: "abc1234", dirty: false };
+    },
+  });
+
+  expect(store.closed[0].receipt.probeTrees?.map((tree) => tree.dir)).toEqual(dirs);
+  expect(peak).toBeLessThanOrEqual(4);
 });
 
 test("a relative probe directory is resolved before it is recorded or compared", async () => {

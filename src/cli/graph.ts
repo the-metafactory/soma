@@ -505,13 +505,38 @@ export function parseProbeTreeStatus(dir: string, stdout: string): ProbeTree {
  * honest anchor for it — the targets are, since a reader re-runs the request.
  */
 function probeEvidencePointer(probes: readonly Probe[], trees: readonly ProbeTree[]): string | undefined {
-  if (trees.length > 0) {
-    return trees.every((tree) => tree.head !== undefined)
-      ? trees.map((tree) => describeProbeTree(tree)).join("; ")
-      : undefined;
-  }
+  if (trees.length > 0 && !trees.every((tree) => tree.head !== undefined)) return undefined;
   const targets = probes.flatMap((probe) => (probe.type === "url" ? [probe.target] : []));
-  return targets.length === 0 ? undefined : `targets: ${targets.join(", ")}`;
+  // Both halves, always — a mixed close that named only its trees would say
+  // `n/n passed` beside a pointer that silently drops the host checks, which is
+  // the same partial accounting the all-or-nothing rule above refuses.
+  const parts = [
+    ...trees.map((tree) => describeProbeTree(tree)),
+    ...(targets.length === 0 ? [] : [`targets: ${targets.join(", ")}`]),
+  ];
+  return parts.length === 0 ? undefined : parts.join("; ");
+}
+
+/** How many pre-flight tree reads may be in flight at once. Small: they are git spawns, and the list is tracker content. */
+const PROBE_TREE_READ_CONCURRENCY = 4;
+
+/**
+ * `Promise.all` with a ceiling, preserving input order.
+ *
+ * Local rather than a dependency: this is the only fan-out in the close path,
+ * and its whole job is to keep a tracker-sized list from becoming a
+ * machine-sized process count.
+ */
+async function mapBounded<T, R>(items: readonly T[], limit: number, run: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array<R>(items.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    for (let index = next++; index < items.length; index = next++) {
+      results[index] = await run(items[index]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
 }
 
 /**
@@ -540,10 +565,14 @@ async function prepareProbeTrees(
   // string equality between the two.
   const probeDir = resolve(deps.probeCwd());
   const probeDirs = [...new Set(probes.flatMap((probe) => probeDirectory(probe, probeDir) ?? []))];
-  // Concurrent, unlike the probes themselves: these are read-only status calls
-  // on distinct directories, so none can see another's side effects — the reason
-  // `runProbes` is sequential does not apply.
-  const probeTrees = await Promise.all(probeDirs.map(async (dir) => await deps.describeProbeTree(dir)));
+  // Concurrent, unlike the probes themselves — these are read-only reads of
+  // distinct directories, so the reason `runProbes` is sequential (probes share
+  // a tree and see each other's side effects) does not apply — but **bounded**,
+  // because the directory list is tracker content: a node body declaring a
+  // hundred probes with a hundred distinct `cwd`s would otherwise fan out a
+  // hundred `git status` processes on the closing machine before the registry
+  // has refused a single one of them.
+  const probeTrees = await mapBounded(probeDirs, PROBE_TREE_READ_CONCURRENCY, deps.describeProbeTree);
   return { probeDir, probeTrees };
 }
 
