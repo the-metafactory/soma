@@ -91,6 +91,18 @@ function capabilityStatusText(status: AlgorithmCapabilitySelectionStatus): strin
   return status === "selected" ? "selected but not invoked" : status;
 }
 
+/**
+ * True for a capability declared by contract with nothing behind it. Both fields
+ * are checked so a definition claiming `kind: "skill"` with
+ * `invoke.contract: "contract"` cannot slip past, and so the narrowing is
+ * visible to the type system — an invocation record can never carry the
+ * `contract` contract. One predicate rather than two copies (Sage review): a
+ * future change to how a contract is represented has a single place to land.
+ */
+function isUnboundContractCapability(definition: AlgorithmCapabilityDefinition): boolean {
+  return definition.kind === "contract" || definition.invoke.contract === "contract";
+}
+
 function cloneCapabilityDefinition(definition: AlgorithmCapabilityDefinition): AlgorithmCapabilityDefinition {
   return {
     ...definition,
@@ -730,10 +742,7 @@ export function registerAlgorithmCapabilityDefinitions(
     // capability that is selectable and permanently uninvokable, with a real
     // target sitting unused (Sage review). Unreachable from here by
     // construction now that `origin` is forced, so this is a plain refusal.
-    // Both fields: a definition declaring `kind: "skill"` with
-    // `invoke.contract: "contract"` would select fine and then be refused at
-    // every invocation (Sage review).
-    if (clone.kind === "contract" || clone.invoke.contract === "contract") {
+    if (isUnboundContractCapability(clone)) {
       throw new Error(
         `Algorithm capability "${clone.name}" cannot be registered as a contract: that state is minted only by a `
           + `Contract("…") row in a capability table, and marks a capability nothing on this machine can run. `
@@ -882,10 +891,10 @@ export function recordAlgorithmCapabilityInvocation(
   // hollow pass the VerificationGate refuses for criteria; capabilities need the
   // same floor, or the contract row becomes a way to buy tier-floor credit for
   // work nobody did.
-  // Both halves checked so the narrowing is visible to the type system too:
-  // an invocation record cannot carry the `contract` contract (see
-  // AlgorithmCapabilityInvocationContract), and this is why.
-  if (definition.kind === "contract" || definition.invoke.contract === "contract") {
+  // The second clause duplicates the predicate on purpose: a boolean-returning
+  // helper cannot narrow `invoke.contract`, and the narrowing is what lets the
+  // invocation record below be typed as never carrying the `contract` contract.
+  if (isUnboundContractCapability(definition) || definition.invoke.contract === "contract") {
     throw new Error(
       `Algorithm capability "${name}" is a contract with no binding on this machine, so it cannot be invoked. `
         + `Bind it by adding a row of the same name to <soma-home>/skills/the-algorithm/references/capabilities.local.md `

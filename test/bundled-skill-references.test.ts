@@ -143,10 +143,20 @@ describe("bundled skill references", () => {
       // And the bundled copy was replaced with the shipped one.
       expect(await readFile(join(references, "capabilities.md"), "utf8")).toContain("Algorithm Capabilities Reference");
 
-      // Idempotent: a second install must not overwrite the backup it just made.
-      await writeFile(join(references, "capabilities.pre-upgrade.md"), "EDITED SINCE\n", "utf8");
+      // A second install with nothing new saves nothing: the backup it made is
+      // untouched and no numbered sibling appears.
       await installBundledSkillsIntoHome({ homeDir });
-      expect(await readFile(join(references, "capabilities.pre-upgrade.md"), "utf8")).toBe("EDITED SINCE\n");
+      expect(await readFile(join(references, "capabilities.pre-upgrade.md"), "utf8")).toContain("MyOwnRow");
+      await expect(readFile(join(references, "capabilities.pre-upgrade.2.md"), "utf8")).rejects.toThrow();
+
+      // But an adopter who kept editing capabilities.md — not yet having learned
+      // that rows moved — must not lose those edits on the NEXT upgrade. Skipping
+      // whenever any backup existed silently overwrote them (Sage review).
+      await writeFile(join(references, "capabilities.md"), "| Capability |\n|---|\n| SecondRoundRow |\n", "utf8");
+      await installBundledSkillsIntoHome({ homeDir });
+      expect(await readFile(join(references, "capabilities.pre-upgrade.2.md"), "utf8")).toContain("SecondRoundRow");
+      // …and the first backup is still intact.
+      expect(await readFile(join(references, "capabilities.pre-upgrade.md"), "utf8")).toContain("MyOwnRow");
     } finally {
       await rm(homeDir, { recursive: true, force: true });
     }

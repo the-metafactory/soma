@@ -69,12 +69,20 @@ export interface InstallBundledSkillsOptions {
  * only place the "is this mine or last release's?" question can actually be
  * answered.
  *
- * Skipped when the content already matches the incoming bundle, and never
- * overwrites an existing backup.
+ * Skipped only when there is nothing new to save: the home copy already matches
+ * the incoming bundle, or some existing backup already holds exactly this
+ * content. Otherwise a NUMBERED sibling is written and no backup is ever
+ * overwritten.
+ *
+ * The numbering matters (Sage review). Skipping whenever any backup existed
+ * made the promise false from the second upgrade onward: an adopter who kept
+ * editing `capabilities.md` — not yet having learned that rows moved — had
+ * those later edits overwritten with nothing kept, which is the silent loss
+ * this function exists to prevent.
  */
 async function backupCustomisedCapabilityTable(destDir: string, sourceFile: string): Promise<string | undefined> {
-  const bundled = join(destDir, "references", "capabilities.md");
-  const backup = join(destDir, "references", "capabilities.pre-upgrade.md");
+  const references = join(destDir, "references");
+  const bundled = join(references, "capabilities.md");
 
   const [existing, incoming] = await Promise.all([
     readFile(bundled, "utf8").catch(() => undefined),
@@ -82,8 +90,16 @@ async function backupCustomisedCapabilityTable(destDir: string, sourceFile: stri
   ]);
   if (existing === undefined || incoming === undefined || existing === incoming) return undefined;
 
-  const backupExists = await readFile(backup, "utf8").then(() => true).catch(() => false);
-  if (backupExists) return undefined;
+  // Walk the numbered series: stop at the first free slot, but bail out early if
+  // one of them already holds this exact content — re-saving an unchanged table
+  // on every upgrade would bury the interesting ones.
+  let backup = join(references, "capabilities.pre-upgrade.md");
+  for (let attempt = 2; ; attempt += 1) {
+    const held = await readFile(backup, "utf8").catch(() => undefined);
+    if (held === undefined) break;
+    if (held.endsWith(existing)) return undefined;
+    backup = join(references, `capabilities.pre-upgrade.${attempt}.md`);
+  }
 
   await writeFile(
     backup,
