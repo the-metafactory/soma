@@ -23,6 +23,7 @@ import {
   resolveClaimRace,
   toNode,
   type AttestationCapability,
+  type BlockingRef,
   type ClaimResult,
   type CloseReceipt,
   type CommentRef,
@@ -224,11 +225,19 @@ const BLOCKER_PAGE = 20;
  *
  * **The trade, stated:** this hydrates every node traversed, including the
  * closed history the frontier will discard, and `body` dominates the payload —
- * 57KB for map #495's 21-node subtree. The alternative is a narrow traversal
- * plus a second hydrating call for the survivors, which is two round trips
- * always. At the measured size one trip wins outright (1 069ms against
- * 9 606ms), and there is no map yet where it does not. Revisit when payload
- * rather than round trips is what a real map is paying.
+ * 57KB for map #495's 21-node subtree.
+ *
+ * The alternative is a narrow traversal plus a second call hydrating only the
+ * survivors: one round trip when the frontier is empty, two whenever it is not,
+ * against one either way here. The narrow pass cannot be very narrow, since the
+ * predicate needs `state`, `assignees` and `blockedBy` — what one pass
+ * over-fetches is `title`, `url` and `body` for discarded nodes.
+ *
+ * Measured on map #495, one pass costs 929ms where the old shape cost 9 606ms.
+ * That is one map, and the honest limit of the claim: this scales with *closed*
+ * history, which only grows, so a much larger map pays more payload for the same
+ * few frontier nodes. Nothing here establishes where that crosses over — revisit
+ * when payload rather than round trips is what a real map is paying.
  */
 const NODE_FIELDS = `number title state body url databaseId author{login} assignees(first:${ASSIGNEE_PAGE}){totalCount nodes{login}} blockedBy(first:${BLOCKER_PAGE}){totalCount nodes{number state}}`;
 
@@ -300,6 +309,36 @@ function readCountedNodes(
 }
 
 /**
+ * The one place a {@link NodeState} is assembled.
+ *
+ * Both read paths land here — `readNode` over REST and the subtree walk over
+ * GraphQL — so a field added to `NodeState` has a single production site. Each
+ * caller's job is only to decode its own wire shape into a {@link GitHubIssue}
+ * plus blockers; the same argument as reusing `nodeFromIssue` for the typed
+ * block, one level up: two assemblers would be two answers.
+ */
+function toNodeState(
+  issue: GitHubIssue,
+  blockedBy: readonly BlockingRef[],
+  parent?: NodeRef,
+): NodeState {
+  const { node, typed, parseError, text } = nodeFromIssue(issue);
+  return {
+    ref: { id: String(issue.number) },
+    node,
+    status: issue.status,
+    assignees: issue.assignees,
+    blockedBy,
+    author: issue.author,
+    ...(parent === undefined ? {} : { parent }),
+    ...(text.length === 0 ? {} : { body: text }),
+    ...(issue.url === undefined ? {} : { url: issue.url }),
+    typed,
+    ...(parseError === undefined ? {} : { parseError }),
+  };
+}
+
+/**
  * A walk node's own state — everything `readNode` would have returned except
  * `parent`, which the walk supplies from the edge it arrived on.
  */
@@ -309,9 +348,6 @@ function readSubtreeState(record: Record<string, unknown>): { state: NodeState; 
   const assignees = readCountedNodes(record.assignees, context);
   const blockers = readCountedNodes(record.blockedBy, context);
 
-  // `nodeFromIssue` is the one parser for the typed block, and reusing it here
-  // is what keeps a node read through the walk identical to the same node read
-  // through `readNode`. Two parsers would be two answers.
   const issue: GitHubIssue = {
     number,
     id: typeof record.databaseId === "number" ? record.databaseId : 0,
@@ -322,25 +358,16 @@ function readSubtreeState(record: Record<string, unknown>): { state: NodeState; 
     assignees: assignees.entries.map((entry) => readLogin(entry)).filter((login) => login.length > 0),
     ...(typeof record.url === "string" ? { url: record.url } : {}),
   };
-  const { node, typed, parseError, text } = nodeFromIssue(issue);
 
   return {
     truncated: assignees.truncated || blockers.truncated,
-    state: {
-      ref: { id: String(number) },
-      node,
-      status: issue.status,
-      assignees: issue.assignees,
-      blockedBy: blockers.entries.map((entry) => {
+    state: toNodeState(
+      issue,
+      blockers.entries.map((entry) => {
         const blocker = asRecord(entry, context);
         return { id: String(readNumber(blocker, "number", context)), status: readGraphQLStatus(blocker) };
       }),
-      author: issue.author,
-      ...(text.length === 0 ? {} : { body: text }),
-      ...(issue.url === undefined ? {} : { url: issue.url }),
-      typed,
-      ...(parseError === undefined ? {} : { parseError }),
-    },
+    ),
   };
 }
 
@@ -499,20 +526,11 @@ class GitHubGraphStore implements GraphStore {
       }),
       "readNode blocked_by",
     ).map((entry) => readIssue(entry, "readNode blocked_by"));
-    const { node, typed, parseError, text } = nodeFromIssue(issue);
-    return {
-      ref: { id: String(issue.number) },
-      node,
-      status: issue.status,
-      assignees: issue.assignees,
-      blockedBy: blockers.map((blocker) => ({ id: String(blocker.number), status: blocker.status })),
-      author: issue.author,
-      ...(parentNumber === undefined ? {} : { parent: { id: String(parentNumber) } }),
-      ...(text.length === 0 ? {} : { body: text }),
-      ...(issue.url === undefined ? {} : { url: issue.url }),
-      typed,
-      ...(parseError === undefined ? {} : { parseError }),
-    };
+    return toNodeState(
+      issue,
+      blockers.map((blocker) => ({ id: String(blocker.number), status: blocker.status })),
+      parentNumber === undefined ? undefined : { id: String(parentNumber) },
+    );
   }
 
   /**

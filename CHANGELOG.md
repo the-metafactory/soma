@@ -10,6 +10,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 ### Changed
+- **BREAKING — `GraphStore.listCandidateFrontier` is replaced by `readSubtree` (#576).**
+  The seam returned candidate `NodeRef`s that `WorkGraph.frontier` then re-fetched one
+  by one; it now returns `NodeState[]` for the root's whole membership subtree, already
+  confirmed, and the frontier is a filter over that single read. Any external
+  `GraphStore` implementation must be updated — the new method must report **live**
+  state (a backend discovering through a stale index owes itself a second read
+  internally), must report closed nodes and descend through them, must never truncate
+  in silence, and must return each node whole: a short read of assignees or blockers
+  now produces a false positive that nothing downstream catches.
+
+  Measured on the reference backend: `soma graph frontier` on a 21-node subtree went
+  from 16 `gh` invocations / 9 606ms to 1 / 929ms.
+
+  This also amends spec §2.4, superseding #492 correction 3: confirm-by-direct-fetch
+  was written for a discovery step assumed to be a lagging search index, and where
+  discovery already reads the authoritative store, that read confirms.
 
 ### Fixed
 
