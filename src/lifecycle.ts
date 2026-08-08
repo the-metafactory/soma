@@ -718,6 +718,9 @@ async function writeSessionEndWorkRegistry(input: {
       progress: "1/1",
       status: "complete",
       timestamp: input.timestamp,
+      ...(input.options.workRegistryLockTimeoutMs !== undefined
+        ? { workRegistryLockTimeoutMs: input.options.workRegistryLockTimeoutMs }
+        : {}),
       ...(input.options.cwd !== undefined ? { signals: { cwd: input.options.cwd } } : {}),
       artifacts,
       learningSources: {

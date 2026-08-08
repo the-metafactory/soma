@@ -954,7 +954,7 @@ test("installed codex session-start hook returns concise visible context", async
   });
 });
 
-test("installed codex session-end hook stays successful when the work registry lock is orphaned", async () => {
+test("installed codex session-end hook reclaims a stale work registry lock", async () => {
   await withTempHome(async (homeDir) => {
     await installSomaForCodex({ homeDir });
     const lockPath = `${somaWorkRegistryPaths({ homeDir }).work}.lock`;
@@ -964,11 +964,13 @@ test("installed codex session-end hook stays successful when the work registry l
 
     const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
     const result = runCodexHook(hook, "session-end", homeDir, { session_id: "codex-orphaned-lock", cwd: homeDir });
+    const work = await readFile(join(homeDir, ".soma", "memory", "STATE", "work.json"), "utf8");
     const events = await readFile(join(homeDir, ".soma", "memory", "STATE", "events.jsonl"), "utf8");
 
     expect(result.status).toBe(0);
     expect(result.output.systemMessage).toBe("Soma lifecycle session-end handled.");
-    expect(events).toContain("lifecycle.session_end.registry-write-failed");
+    expect(work).toContain("codex-orphaned-lock");
+    expect(events).not.toContain("lifecycle.session_end.registry-write-failed");
   });
 });
 
@@ -985,7 +987,7 @@ test("installed codex session-end hook points failures at the durable event log"
 
     expect(result.status).toBe(0);
     expect(result.output.systemMessage).toBe(
-      `Soma lifecycle hook failed for session-end; inspect ${join(homeDir, ".soma/memory/STATE/events.jsonl")} for failure details.`,
+      `Soma lifecycle hook failed for session-end (command error ENOENT); inspect ${join(homeDir, ".soma/memory/STATE/events.jsonl")} for recorded Soma events.`,
     );
   });
 });
