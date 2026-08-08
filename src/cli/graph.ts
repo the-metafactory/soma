@@ -35,6 +35,7 @@ import {
   agentExternalEvidenceKinds,
   assertClosable,
   describeProbeTree,
+  probeRanOutsideTree,
   renderCloseReceipt,
   type CloseEvidence,
   type CloseReceipt,
@@ -478,6 +479,29 @@ export function parseProbeTreeStatus(dir: string, stdout: string): ProbeTree {
   return { dir, ...(head === undefined ? {} : { head }), dirty };
 }
 
+/**
+ * The externally checkable pointer for `probed` evidence.
+ *
+ * The tree, not just its HEAD — a bare sha re-creates the #579 reading, where a
+ * receipt names a commit and stays silent about which checkout it came from.
+ *
+ * Two cases withhold it, and on an `auto` node withholding means the close is
+ * refused for want of evidence:
+ *
+ * - **No readable HEAD.** A directory with no commit anchors nothing, and
+ *   loosening what closes an `auto` node is a decision, not a side effect of
+ *   moving where the sha is read. This is the pre-#580 behaviour, kept.
+ * - **No probes at all.** Likewise unchanged.
+ *
+ * A `url`-only run has no tree, and the closing process's HEAD was never an
+ * honest anchor for it — the targets are, since a reader re-runs the request.
+ */
+function probeEvidencePointer(probes: readonly Probe[], tree: ProbeTree | undefined): string | undefined {
+  if (tree !== undefined) return tree.head === undefined ? undefined : describeProbeTree(tree);
+  const targets = probes.flatMap((probe) => (probe.type === "url" ? [probe.target] : []));
+  return targets.length === 0 ? undefined : `targets: ${targets.join(", ")}`;
+}
+
 async function defaultDescribeProbeTree(dir: string): Promise<ProbeTree> {
   const status = await runCommand({
     argv: ["git", "-C", dir, "status", "--porcelain=v2", "--branch"],
@@ -773,14 +797,24 @@ async function runClose(
   // Resolved once, then handed to the runner, the registry match, and the
   // receipt. One value, three readers — the #579 defect was three readers and
   // no value.
-  const probeDir = deps.probeCwd();
+  //
+  // Resolved here as well as in the runner: a relative value would authorise and
+  // execute as its absolute form while the receipt recorded the relative one,
+  // and every "did this probe run outside the tree?" comparison downstream is
+  // string equality between the two.
+  const probeDir = resolve(deps.probeCwd());
 
   // Described **before** the probes run, not after. The receipt's job is to name
   // the tree that was tested, and a probe is free to write to it — `bun test`
   // that leaves a fixture behind would otherwise make the receipt report dirt
   // the probes caused rather than dirt they ran against. The cost is one git
   // spawn on a path that is about to spend up to `timeoutSec` per probe.
-  const probeTree = probes.length > 0 ? await deps.describeProbeTree(probeDir) : undefined;
+  //
+  // Skipped entirely when nothing runs in a directory: a `url`-only close tests
+  // a host, and a receipt naming a checkout it never read would be the mislabel
+  // this whole change exists to remove.
+  const treeBound = probes.some((probe) => probe.type !== "url");
+  const probeTree = treeBound ? await deps.describeProbeTree(probeDir) : undefined;
 
   const probeResults = await deps.runProbes(probes, registry, probeDir);
   const refusals = probeResults.filter((result) => isProbeRefusal(result));
@@ -803,26 +837,18 @@ async function runClose(
   }
 
   const evidence: CloseEvidence[] = [...parsed.options.evidence];
-  // `head === undefined` withholds the entry, which on an `auto` node means the
-  // close is refused for want of evidence — the behaviour before #580, kept
-  // deliberately. A pointer naming a directory and no commit is not something a
-  // reader can re-derive anything from, and loosening what closes an `auto` node
-  // is a decision, not a side effect of moving where the sha is read.
-  if (probeTree?.head !== undefined && allProbesPassed(probeResults)) {
+  const anchor = probeEvidencePointer(probes, probeTree);
+  if (anchor !== undefined && allProbesPassed(probeResults)) {
     // A probe that named its own `cwd`/`repo` ran somewhere the pointer does not
     // describe. Counting those in the summary keeps the entry from claiming the
     // whole run happened in the tree it points at.
-    const elsewhere = probeResults.filter(
-      (result) => result.state === "probed" && result.cwd !== undefined && result.cwd !== probeTree.dir,
-    ).length;
+    const elsewhere = probeResults.filter((result) => probeRanOutsideTree(result, probeTree)).length;
     evidence.push({
       kind: "probed",
       summary:
         `${probeResults.length}/${probeResults.length} declared probes ran and passed` +
         (elsewhere > 0 ? `, ${elsewhere} of them in another tree (see the probe lines)` : ""),
-      // The tree, not just its HEAD. A sha alone re-creates the #579 reading
-      // where a receipt names a commit and stays silent about the checkout.
-      pointer: describeProbeTree(probeTree),
+      pointer: anchor,
     });
   }
 

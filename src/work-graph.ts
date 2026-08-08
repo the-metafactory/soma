@@ -336,6 +336,18 @@ export interface CloseReceipt {
  * evidence pointer and in the rendered probe section, so the pointer and the
  * prose can never disagree about which tree was tested.
  */
+/**
+ * Did this probe run somewhere other than the receipt's probe tree?
+ *
+ * One predicate, two readers — the close path counts these into the `probed`
+ * evidence summary and {@link renderCloseReceipt} marks the lines. Two spellings
+ * of "elsewhere" would eventually disagree, and the disagreement would read as a
+ * receipt contradicting itself.
+ */
+export function probeRanOutsideTree(result: ProbeResult, tree: ProbeTree | undefined): boolean {
+  return result.state === "probed" && result.cwd !== undefined && result.cwd !== tree?.dir;
+}
+
 export function describeProbeTree(tree: ProbeTree): string {
   const head = tree.head === undefined ? "no HEAD" : `HEAD ${tree.head}`;
   const state = tree.dirty === undefined ? "not a git tree" : tree.dirty ? "dirty" : "clean";
@@ -810,9 +822,7 @@ export function renderCloseReceipt(receipt: CloseReceipt): string {
       // heading is the #579 mislabel one level down, so the line says where it
       // actually ran whenever that differs.
       const elsewhere =
-        result.state === "probed" && result.cwd !== undefined && result.cwd !== receipt.probeTree?.dir
-          ? ` [in ${result.cwd}]`
-          : "";
+        probeRanOutsideTree(result, receipt.probeTree) && result.state === "probed" ? ` [in ${result.cwd}]` : "";
       lines.push(
         result.state === "probed"
           ? `- \`${probeKey(result.probe)}\`${elsewhere} — **${result.outcome}** at ${result.at}: ${result.observed}`

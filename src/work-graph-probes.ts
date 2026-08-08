@@ -236,12 +236,19 @@ export async function runProbe(probe: Probe, options: ProbeRunnerOptions): Promi
   // would be a fact about nothing.
   const ranIn = probe.type === "url" ? undefined : resolvedCwd;
 
+  // Every result carries the same probe, timestamp, and directory; only the
+  // outcome and the observation differ. Binding them once keeps a branch from
+  // quietly omitting one — which is how `cwd` would go missing on the path that
+  // needs it most.
+  const finish = (outcome: "pass" | "fail", observed: string): ProbeResult =>
+    probed(probe, outcome, observed, at, ranIn);
+
   try {
     // The gate runs before dispatch, not inside the two gated cases, so a probe
     // type added later cannot slip past by forgetting to call it.
     const authorization = authorizeProbe(probe, resolvedCwd, options.registry);
     if (!authorization.allowed) {
-      return probed(probe, "fail", authorization.reason, at, ranIn);
+      return finish("fail", authorization.reason);
     }
 
     switch (probe.type) {
@@ -253,65 +260,47 @@ export async function runProbe(probe: Probe, options: ProbeRunnerOptions): Promi
         });
         const passed = !outcome.timedOut && outcome.exitCode === probe.expectExit;
         const observed = describeCommand(outcome, probe.timeoutSec);
-        return probed(probe, passed ? "pass" : "fail", passed ? observed : `${observed} (expected exit ${probe.expectExit})`, at, ranIn);
+        return finish(passed ? "pass" : "fail", passed ? observed : `${observed} (expected exit ${probe.expectExit})`);
       }
 
       case "url": {
         const status = await deps.fetchStatus(probe.target);
         const passed = status === probe.expectStatus;
-        return probed(probe, passed ? "pass" : "fail", `status ${status}${passed ? "" : ` (expected ${probe.expectStatus})`}`, at, ranIn);
+        return finish(passed ? "pass" : "fail", `status ${status}${passed ? "" : ` (expected ${probe.expectStatus})`}`);
       }
 
       case "git-ref-exists": {
         const outcome = await runGit(deps, resolvedCwd, ["rev-parse", "--verify", "--quiet", `${probe.ref}^{commit}`]);
         const sha = outcome.stdout.trim();
         const passed = outcome.exitCode === 0 && sha.length > 0;
-        return probed(
-          probe,
-          passed ? "pass" : "fail",
-          passed ? `${probe.ref} → ${sha}` : `${probe.ref} does not resolve in ${resolvedCwd}`,
-          at,
-          ranIn,
-        );
+        return finish(passed ? "pass" : "fail", passed ? `${probe.ref} → ${sha}` : `${probe.ref} does not resolve in ${resolvedCwd}`);
       }
 
       case "git-merged-into": {
         const resolvedRef = await runGit(deps, resolvedCwd, ["rev-parse", "--verify", "--quiet", `${probe.ref}^{commit}`]);
         const sha = resolvedRef.stdout.trim();
         if (resolvedRef.exitCode !== 0 || sha.length === 0) {
-          return probed(probe, "fail", `${probe.ref} does not resolve in ${resolvedCwd}`, at, ranIn);
+          return finish("fail", `${probe.ref} does not resolve in ${resolvedCwd}`);
         }
         const ancestor = await runGit(deps, resolvedCwd, ["merge-base", "--is-ancestor", probe.ref, probe.into]);
         const passed = ancestor.exitCode === 0;
-        return probed(
-          probe,
-          passed ? "pass" : "fail",
-          `${probe.ref} (${sha}) ${passed ? "is" : "is not"} an ancestor of ${probe.into}`,
-          at,
-          ranIn,
-        );
+        return finish(passed ? "pass" : "fail", `${probe.ref} (${sha}) ${passed ? "is" : "is not"} an ancestor of ${probe.into}`);
       }
 
       case "artifact-exists": {
         if (probe.atRef === undefined) {
           const full = resolve(resolvedCwd, probe.path);
           const passed = deps.pathExists(full);
-          return probed(probe, passed ? "pass" : "fail", `${full} ${passed ? "exists" : "is absent"}`, at, ranIn);
+          return finish(passed ? "pass" : "fail", `${full} ${passed ? "exists" : "is absent"}`);
         }
         const outcome = await runGit(deps, resolvedCwd, ["cat-file", "-e", `${probe.atRef}:${probe.path}`]);
         const passed = outcome.exitCode === 0;
-        return probed(
-          probe,
-          passed ? "pass" : "fail",
-          `${probe.path} ${passed ? "present" : "absent"} at ${probe.atRef}`,
-          at,
-          ranIn,
-        );
+        return finish(passed ? "pass" : "fail", `${probe.path} ${passed ? "present" : "absent"} at ${probe.atRef}`);
       }
     }
   } catch (error) {
     // Fail-closed: an unrunnable probe is a failed probe, never a skipped one.
-    return probed(probe, "fail", `probe runner error: ${error instanceof Error ? error.message : String(error)}`, at, ranIn);
+    return finish("fail", `probe runner error: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 

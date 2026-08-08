@@ -145,6 +145,9 @@ Runner semantics settled while implementing #498:
   know which commit a node claims — #579 named it and left it out of scope.
   A **dirty** probe tree is likewise *recorded, never refused*: it is a fact
   about the evidence, and refusing it would change what closes an `auto` node.
+  A close whose probes are **all `url`** records no tree at all — it tested a
+  host, not a checkout — and its `probed` evidence points at the targets, which
+  is the thing a reader can re-check.
 
 #### Probe registry (DD-16 Amendment A)
 

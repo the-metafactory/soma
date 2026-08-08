@@ -706,6 +706,7 @@ export {
   normalizeKind,
   parseNodeSpec,
   parseProbe,
+  probeRanOutsideTree,
   renderCloseReceipt,
   resolveClaimRace,
   toNode,

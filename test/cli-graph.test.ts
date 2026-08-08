@@ -868,6 +868,56 @@ test("the probe tree is read before the probes run, not after they have written 
   expect(order).toEqual(["describe", "probes"]);
 });
 
+test("a url-only close records no tree, and anchors on the targets it actually checked", async () => {
+  // Sage on #584 round 2: a `url` probe runs against a host. Rendering "Ran in
+  // HEAD … " over it would name a checkout the close never read — the same
+  // mislabel, pointing the other way.
+  const target = "https://status.example.test/health";
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495"), author: "jcfischer" })
+    .seed("520", {
+      node: autoNode("520", { probes: [{ type: "url", target, expectStatus: 200 }] }),
+      parent: "495",
+      author: "ivy-agent",
+    });
+
+  let described = 0;
+  await run(["graph", "close", "520", "--repo", REPO], store, {
+    describeProbeTree: async (dir) => {
+      described += 1;
+      return { dir, head: "abc1234", dirty: false };
+    },
+  });
+
+  const receipt = store.closed[0].receipt;
+  expect(described).toBe(0);
+  expect(receipt.probeTree).toBeUndefined();
+  expect(receipt.evidence.find((entry) => entry.kind === "probed")?.pointer).toBe(`targets: ${target}`);
+  expect(renderCloseReceipt(receipt)).not.toContain("Ran in");
+});
+
+test("a relative probe directory is resolved before it is recorded or compared", async () => {
+  // The runner resolves its cwd; if the receipt kept the relative spelling, every
+  // "did this run outside the tree?" comparison is between two spellings of the
+  // same directory and every probe reads as elsewhere.
+  const store = autoGraph();
+  await run(["graph", "close", "520", "--repo", REPO], store, {
+    probeCwd: () => ".",
+    loadProbeRegistry: async () => declaredIn(process.cwd()),
+    runProbes: async (probes, registry, cwd) =>
+      await runProbes(probes, {
+        cwd,
+        registry,
+        deps: { runCommand: async () => ({ exitCode: 0, stdout: "", stderr: "", timedOut: false }), now: () => AT },
+      }),
+    describeProbeTree: async (dir) => ({ dir, head: "abc1234", dirty: false }),
+  });
+
+  const receipt = store.closed[0].receipt;
+  expect(receipt.probeTree?.dir).toBe(process.cwd());
+  expect(renderCloseReceipt(receipt)).not.toContain("[in ");
+});
+
 test("a dirty probe tree is recorded, never refused (#579)", async () => {
   const store = autoGraph();
   const output = await run(["graph", "close", "520", "--repo", REPO], store, {
