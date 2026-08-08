@@ -39,7 +39,7 @@ function parseArgs(argv: readonly string[]): { repo?: string; root: string; node
 }
 
 /** Wraps the real transport so every call is attributed and timed. */
-function instrument(repo: string): { transport: ReturnType<typeof createGhCliTransport>; calls: Call[] } {
+function instrument(): { transport: ReturnType<typeof createGhCliTransport>; calls: Call[] } {
   const inner = createGhCliTransport();
   const calls: Call[] = [];
   const transport = async (request: GitHubApiRequest): Promise<unknown> => {
@@ -57,7 +57,6 @@ function instrument(repo: string): { transport: ReturnType<typeof createGhCliTra
       calls.push({ label, ms: performance.now() - started });
     }
   };
-  void repo;
   return { transport, calls };
 }
 
@@ -83,7 +82,7 @@ async function main(): Promise<void> {
   const repo = args.repo ?? "the-metafactory/soma";
 
   {
-    const { transport, calls } = instrument(repo);
+    const { transport, calls } = instrument();
     const graph = new WorkGraph(createGitHubGraphStore({ repo, transport }));
     const started = performance.now();
     const frontier = await graph.frontier({ id: args.root });
@@ -91,7 +90,7 @@ async function main(): Promise<void> {
   }
 
   if (args.node !== undefined) {
-    const { transport, calls } = instrument(repo);
+    const { transport, calls } = instrument();
     const graph = new WorkGraph(createGitHubGraphStore({ repo, transport }));
     const started = performance.now();
     await graph.readNode({ id: args.node });

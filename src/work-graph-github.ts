@@ -181,26 +181,36 @@ function readIssue(value: unknown, context: string): GitHubIssue {
  * that outgrows them is *detected* (see {@link SubtreeNode.childrenTruncated})
  * and completed by a follow-up query, so no shape of graph can read short.
  *
- * ## The node budget — do the multiplication, do not eyeball it
+ * ## The node budget — measured, not modelled
  *
  * GitHub scores a nested query as the product of the `first` values along each
- * path and rejects anything over **500 000**. Every node here now carries three
- * connections of its own ({@link NODE_FIELDS}), so each level costs
- * `running × (1 + 1 + ASSIGNEE_PAGE + BLOCKER_PAGE)`:
+ * path and rejects anything over **500 000**. Reproduce any figure below by
+ * sending the query: the `MAX_NODE_LIMIT_EXCEEDED` error states the score.
+ *
+ * A node costs `1 + ASSIGNEE_PAGE + BLOCKER_PAGE` = **31** — its own slot plus
+ * its two connections. `author{login}` is free (an object, not a connection),
+ * which is where a hand-built model of this went wrong. With the running
+ * product `r` at each level:
  *
  * ```
- *   50 × 32                    =    1 600
- *   50×25   = 1 250,  × 32     =   40 000
- *   50×25×10 = 12 500, × 32    =  400 000
- *   bottom-row totalCount probe=   12 500
- *                                ---------
- *                         total    454 100   (91% of the ceiling)
+ *   L1   r=50            50 × 31       =    1 550
+ *   L2   r=1 250      1 250 × 31       =   38 750
+ *   L3   r=12 500    12 500 × 31       =  387 500
+ *   bottom-row totalCount probe        =   12 500
+ *   the root's own two connections     =       30
+ *                                        ---------
+ *                                total    440 330   (88% of the ceiling)
  * ```
  *
- * That is why level 3 is **10** and not 20: at 15 the query scores 660 350 and
- * GitHub refuses it outright. Three separate claims about this budget have now
- * had to be corrected on review — it is not a place where intuition works, and
- * **any new field with a connection re-opens the whole sum.**
+ * For a level-3 width `w` that is `40 330 + 40 000w`, so **11 is the widest
+ * that fits** (480 330) and 10 is what we run, leaving a little headroom.
+ * GitHub confirms both directions: w=12 is refused at **520 330** and w=15 at
+ * **640 330**, and the formula predicts both exactly.
+ *
+ * Four separate claims about this budget have now been corrected on review,
+ * including the arithmetic this comment replaces. Intuition does not work here
+ * and neither did the model — **send the query.** Any new field with a
+ * connection re-opens the whole sum.
  */
 const SUBTREE_PAGE_SIZES = [50, 25, 10] as const;
 
