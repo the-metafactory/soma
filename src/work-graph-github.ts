@@ -484,6 +484,11 @@ class GitHubGraphStore implements GraphStore {
     let status: NodeStatus = "closed";
     let after: string | null = null;
     let totalCount = 0;
+    // A backend that keeps saying "there is more" while handing back a cursor
+    // it already gave would spin here forever, accumulating children — and
+    // never reach the count check below, which is what would otherwise catch a
+    // bad page run. Progress has to be asserted, not assumed.
+    const cursors = new Set<string>();
 
     for (;;) {
       const response = await this.transport({
@@ -514,6 +519,10 @@ class GitHubGraphStore implements GraphStore {
       if (typeof pageInfo.endCursor !== "string") {
         throw new WorkGraphError("backend", `${context}: issue ${issueNumber} has more children but no cursor`);
       }
+      if (cursors.has(pageInfo.endCursor)) {
+        throw new WorkGraphError("backend", `${context}: issue ${issueNumber} repeated a pagination cursor`);
+      }
+      cursors.add(pageInfo.endCursor);
       after = pageInfo.endCursor;
     }
 

@@ -397,6 +397,19 @@ test("an unreadable hasNextPage refuses instead of passing for a last page", asy
   );
 });
 
+test("a repeated pagination cursor refuses instead of looping forever", async () => {
+  // Without the progress check this never terminates, so it never reaches the
+  // totalCount check that would otherwise catch the bad page run.
+  const { transport } = subtreeTransport({
+    "495": gql(495, "OPEN", conn([gql(497, "OPEN")], { totalCount: 9, hasNextPage: true, endCursor: "same" })),
+    "495@same": gql(495, "OPEN", conn([gql(511, "OPEN")], { totalCount: 9, hasNextPage: true, endCursor: "same" })),
+  });
+
+  expect(createGitHubGraphStore({ repo: REPO, transport }).listCandidateFrontier({ id: "495" })).rejects.toThrow(
+    /repeated a pagination cursor/,
+  );
+});
+
 test("a page run that does not add up to totalCount refuses", async () => {
   // Nothing is left to recover with at the top level: the count is the only
   // witness that the walk saw every child.
