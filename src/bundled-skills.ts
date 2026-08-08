@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { defaultSomaHome } from "./paths";
 import { defaultSomaRepoPath } from "./repo-path";
@@ -41,8 +41,16 @@ export interface InstallBundledSkillsOptions {
  * still in the bundled copy would otherwise lose them the first time this
  * install overwrites it.
  *
- * So the prior content is copied aside — to `capabilities.pre-upgrade.md`,
- * which NOTHING reads — before the overwrite. Deliberately not into the
+ * So the prior content is copied aside — to a `capabilities.pre-upgrade.*.md`
+ * sibling, which NOTHING reads — before the overwrite.
+ *
+ * This is a PRE-OVERWRITE BACKUP, not a migration, and the distinction decides
+ * where it runs (Sage review). CONTEXT.md §Lifecycle verbs reserves migration
+ * for `upgrade`; `reproject` merely re-emits. But reproject re-emits by
+ * OVERWRITING this file too, so gating the backup on upgrade would leave
+ * reproject destroying an adopter's rows with no copy — trading a vocabulary
+ * violation for data loss. Migration would mean MOVING rows into the overlay,
+ * which this deliberately does not do. Deliberately not into the
  * overlay (Sage review): the overlay is read first and wins, so promoting an
  * older bundled table there would reinstate whatever it contained, including
  * the PAI-era rows this change exists to replace. An upgrade cannot tell an
@@ -104,7 +112,19 @@ async function backupCustomisedCapabilityTable(destDir: string, sourceFile: stri
       references,
       attempt === 1 ? `capabilities.pre-upgrade.${digest}.md` : `capabilities.pre-upgrade.${digest}.${attempt}.md`,
     );
-    const held = await readFile(candidate, "utf8").catch(() => undefined);
+    // lstat before readFile: a DANGLING symlink reads as absent, and writing to
+    // it would follow the link and create or clobber whatever it points at — a
+    // writable skill directory could pre-place one at this predictable name
+    // (Sage review). Any symlink here is refused outright; a backup slot is
+    // never legitimately one.
+    const link = await lstat(candidate).catch(() => undefined);
+    if (link?.isSymbolicLink() === true) {
+      throw new Error(
+        `Refusing to back up ${bundled}: ${candidate} is a symlink. Backup slots must be regular files; `
+          + `remove it and re-run.`,
+      );
+    }
+    const held = link === undefined ? undefined : await readFile(candidate, "utf8").catch(() => undefined);
     if (held === undefined) target = candidate;
     else if (held === payload) return undefined;
   }

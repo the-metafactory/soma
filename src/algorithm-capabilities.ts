@@ -14,6 +14,7 @@ import type {
   SubstrateId,
 } from "./types";
 import { ALGORITHM_CAPABILITY_KINDS } from "./types";
+import { isEnoent } from "./fs-errors";
 import { getRunPhase } from "./algorithm-lifecycle";
 import { appendAlgorithmProvenance } from "./algorithm-provenance";
 
@@ -523,9 +524,21 @@ export async function loadSomaHomeAlgorithmCapabilityRegistry(
 ): Promise<SomaHomeAlgorithmCapabilityRegistry> {
   const somaHome = resolveSomaHome(options);
   const referenceDir = join(somaHome, "skills", "the-algorithm", "references");
+  // Absence is expected; anything else is not. Swallowing every read error let a
+  // permission or I/O failure look like "no overlay", silently re-enabling a
+  // bundled capability the local table existed to override or disable — the
+  // adopter's override failing open, invisibly (Sage review).
+  const readTable = async (file: string): Promise<string> => {
+    try {
+      return await readFile(join(referenceDir, file), "utf8");
+    } catch (error) {
+      if (isEnoent(error)) return "";
+      throw error;
+    }
+  };
   const [localMarkdown, markdown] = await Promise.all([
-    readFile(join(referenceDir, CAPABILITY_LOCAL_REFERENCE_FILE), "utf8").catch(() => ""),
-    readFile(join(referenceDir, CAPABILITY_REFERENCE_FILE), "utf8").catch(() => ""),
+    readTable(CAPABILITY_LOCAL_REFERENCE_FILE),
+    readTable(CAPABILITY_REFERENCE_FILE),
   ]);
   const availableSkills = await loadAvailableSkills(somaHome);
   const definitions = new Map<string, AlgorithmCapabilityDefinition>();
