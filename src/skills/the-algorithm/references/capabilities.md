@@ -76,7 +76,7 @@ table in the file is parsed, not just the first. Two shapes are accepted:
   | Cell contains | Kind | Notes |
   |---|---|---|
   | `Skill("Name")` | `skill` | Must resolve to a skill under `<soma-home>/skills`, matched case- and punctuation-insensitively against its frontmatter name **or** its directory name. If it does not resolve, the row is dropped as unsupported. |
-  | `Contract("<what must be achieved>")` | `adapter` | Declares a capability by its **contract** instead of an invocation. Checked first, so a contract mentioning a sub-agent is not misread as an `Agent(` row. The row syntax is `Contract(` and never `Adapter(` — CONTEXT.md §adapter locks that word to the actor that performs a projection; the stored kind string predates this and is tracked for a rename separately. See "Capabilities no substrate can express" below. |
+  | `Contract("<what must be achieved>")` | `contract` | Declares a capability by its **contract** instead of an invocation. Checked first, so a contract mentioning a sub-agent is not misread as an `Agent(` row. Both the row syntax and the stored kind are `contract`, never `adapter` — CONTEXT.md §adapter locks that word to the actor that performs a projection, and putting a declared contract under it collided with that boundary in public capability state. See "Capabilities no substrate can express" below. |
   | `Agent(…)` | `agent` (the `AlgorithmCapabilityKind` literal — qualified everywhere else per CONTEXT.md) | Target is `subagent_type="…"` when present, else the capability's own name. Substrate-specific — see below. |
   | `inline doctrine` or `no external tool` | `inline` | The whole cell becomes the instruction. |
   | `Bash(…)` or a leading `bun ` | `command` | The whole cell becomes the command. |
@@ -138,8 +138,9 @@ first, so your binding replaces the declaration.
 in that order:
 
 1. `algorithm invoke` **refuses** a capability whose resolved kind is still
-   `adapter` — that kind means the contract was declared and never bound, so
-   nothing on this machine can run it. The refusal names the fix.
+   `contract` — declared, never bound, so nothing on this machine can run it.
+   The refusal names the fix. (A skill manifest may separately declare the
+   `adapter` kind; that targets a real skill and stays invocable.)
 2. `algorithm advance` refuses COMPLETE for any selected capability that was
    never invoked.
 

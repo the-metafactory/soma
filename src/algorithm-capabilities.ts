@@ -17,7 +17,7 @@ import { getRunPhase } from "./algorithm-lifecycle";
 import { appendAlgorithmProvenance } from "./algorithm-provenance";
 
 const CORE_PHASES: AlgorithmPhase[] = ["observe", "think", "plan", "build", "execute", "verify", "learn"];
-const CAPABILITY_INVOKE_KINDS = ["skill", "inline", "agent", "command", "adapter"] as const;
+const CAPABILITY_INVOKE_KINDS = ["skill", "inline", "agent", "command", "adapter", "contract"] as const;
 
 const DEFAULT_CAPABILITY_REGISTRY: AlgorithmCapabilityDefinition[] = [
   {
@@ -462,10 +462,7 @@ function registerCapabilityTableRows(
     const adapterTarget = adapterInvocationTarget(invokeCell);
 
     if (adapterTarget) {
-      definitions.set(name, {
-        ...buildCapabilityDefinition(name, "adapter", phases, triggerSignals, adapterTarget),
-        unbound: true,
-      });
+      definitions.set(name, buildCapabilityDefinition(name, "contract", phases, triggerSignals, adapterTarget));
       continue;
     }
 
@@ -519,8 +516,9 @@ export async function loadSomaHomeAlgorithmCapabilityRegistry(
   // Resolution order, first definition of a name winning. Every pass skips a
   // name already registered or already marked unsupported.
   //
-  // 1. The ADOPTER's table. First, so "a local row of the same name wins" is
-  //    true without qualification (Sage review). It previously sat behind the
+  // 1. The ADOPTER's table, read BEFORE the bundled table and winning on any
+  //    name collision. First, so "a local row of the same name wins" is true
+  //    without qualification (Sage review). It previously sat behind the
   //    manifest pass, which meant a manifest-declared capability could not be
   //    retargeted locally and silently stayed active — an override that does not
   //    always override is worse than none, because it is trusted.
@@ -798,12 +796,17 @@ export function recordAlgorithmCapabilityInvocation(
     throw new Error(`Algorithm capability must be selected before invocation: ${name}`);
   }
 
-  // `unbound` marks a `Contract("…")` row: DECLARED by contract, never BOUND.
-  // Binding happens by overriding the name in `capabilities.local.md`, and the
-  // binding row resolves without this flag. Keyed on the flag rather than on
-  // `kind === "adapter"` (Sage review): a skill manifest may declare that kind
-  // too, and such a definition targets a real skill and IS invocable — refusing
-  // on kind alone rejected valid capabilities.
+  // A `contract` kind means DECLARED by contract, never BOUND. Binding happens
+  // by overriding the name in `capabilities.local.md`, and the binding row
+  // resolves to skill/agent/command/inline instead — so `contract` at invoke
+  // time is precisely "nothing on this machine can run this".
+  //
+  // `contract` is its own kind rather than a flag on `adapter` (Sage review).
+  // CONTEXT.md §adapter reserves that word for the actor that performs a
+  // projection and puts invocation on SubstrateExecutor, "never to an adapter";
+  // persisting a declared contract as an adapter pushed that collision into
+  // public capability state. `adapter` remains a valid kind a skill manifest may
+  // declare, and such a definition targets a real skill and stays invocable.
   //
   // Without this refusal the doctrine's claim was false (Sage review, soma#574):
   // invocation asks only for non-empty evidence, so a run could select
@@ -812,7 +815,7 @@ export function recordAlgorithmCapabilityInvocation(
   // hollow pass the VerificationGate refuses for criteria; capabilities need the
   // same floor, or the contract row becomes a way to buy tier-floor credit for
   // work nobody did.
-  if (definition.unbound === true) {
+  if (definition.kind === "contract") {
     throw new Error(
       `Algorithm capability "${name}" is a contract with no binding on this machine, so it cannot be invoked. `
         + `Bind it by adding a row of the same name to <soma-home>/skills/the-algorithm/references/capabilities.local.md `

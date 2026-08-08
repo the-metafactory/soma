@@ -428,12 +428,12 @@ test("a Contract(...) row registers a contract-declared capability", async () =>
     const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir });
 
     expect(registry.definitions.find((definition) => definition.name === "CrossFamilyAudit")).toMatchObject({
-      kind: "adapter",
+      kind: "contract",
       phases: ["verify"],
-      invoke: { contract: "adapter", target: "an audit by a model outside the family that produced the work" },
+      invoke: { contract: "contract", target: "an audit by a model outside the family that produced the work" },
     });
     expect(registry.definitions.find((definition) => definition.name === "SecondOpinion")).toMatchObject({
-      kind: "adapter",
+      kind: "contract",
       invoke: { target: "ask a sub-agent or a second model that did not produce the work" },
     });
     expect(registry.unsupported).toEqual([]);
@@ -1116,7 +1116,7 @@ test("rejects malformed adapter capability definitions", () => {
   expect(() =>
     registerAlgorithmCapabilityDefinition(run, {
       name: "MalformedCapability",
-      kind: "adapter",
+      kind: "contract",
       phases: ["think"],
       invoke: { contract: "adapter", target: "adapter.malformed" },
     } as Parameters<typeof registerAlgorithmCapabilityDefinition>[1]),

@@ -627,12 +627,11 @@ function formatAlgorithmCapabilityRegistry(registry: SomaHomeAlgorithmCapability
   const lines = [`Soma Algorithm capability registry — ${registry.definitions.length} resolved`, ""];
 
   for (const definition of [...registry.definitions].sort((a, b) => a.name.localeCompare(b.name))) {
-    // Flag the unbound CONTRACT rows so "resolved" is not read as "invocable
-    // here". Keyed on `unbound`, not on `kind === "adapter"` (Sage review): a
-    // skill manifest may declare that kind for a capability that targets a real
-    // skill and invokes fine, and flagging it would contradict what `algorithm
-    // invoke` actually does.
-    const suffix = definition.unbound === true ? "  ← needs a local binding" : "";
+    // Flag CONTRACT rows so "resolved" is not read as "invocable here". Keyed on
+    // the `contract` kind, not on `adapter` (Sage review): a skill manifest may
+    // declare `adapter` for a capability that targets a real skill and invokes
+    // fine, and flagging it would contradict what `algorithm invoke` does.
+    const suffix = definition.kind === "contract" ? "  ← needs a local binding" : "";
     lines.push(`- ${definition.name} [${definition.kind}] ${definition.phases.join(",")} → ${definition.invoke.target}${suffix}`);
   }
 

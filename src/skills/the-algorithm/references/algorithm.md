@@ -63,8 +63,14 @@ Nothing rejects a phantom on your behalf at selection time — this gate is a se
 **Mode and tier come from the harness classifier, not from the executor's judgment.** Run it directly:
 
 ```bash
-<prefix> algorithm classify --prompt "..." [--json]
+<prefix> algorithm classify --prompt '<the prompt>' [--json]
 ```
+
+**Pass the prompt as one argument, and do not build that command by pasting the
+prompt into a double-quoted string.** A prompt is untrusted text: `$(…)`,
+backticks and a stray `"` are shell syntax, and a classify call assembled by
+string interpolation runs them. Single-quote it, escaping any embedded single
+quote, or hand it to the process as an argv element and skip the shell.
 
 It returns `mode`, `effort` (when `mode` is `algorithm`), `source`, and a one-sentence `reason`. `algorithm new` runs the same classifier when `--effort` is omitted. The contract is data, not a model call — `ALGORITHM_CLASSIFIER_CONTRACT` holds the pattern set as sources so a substrate adapter can project the classifier into generated extension code instead of inventing its own regexes. Sharing the data makes identical classification possible; it does not by itself prove it. Only the pi-dev projection has an enforced equivalence test today (`test/pi-dev-classifier-projection.test.ts`), so treat parity as verified there and as an intention elsewhere.
 
@@ -297,7 +303,7 @@ This line anchors the entire Algorithm run.
 
 **Set effort level (v6.3.0 — classifier-driven):**
 1. Check for explicit E-level override (`/e1`-`/e5` or `E1`-`E5`, case-insensitive). If found: use that tier, set `effort_source: explicit`.
-2. **Take mode and tier from the classifier** — injected as context where the substrate classifies ahead of the executor, otherwise `<prefix> algorithm classify --prompt "..."`. If mode is `algorithm`, use the returned tier verbatim and record **the `source` the classifier returned, unchanged**: `auto`, `explicit`, or `fail-safe`. A hook that classifies ahead of you forwards that same value, so an injected classification is not a different provenance — it is the same classifier, run earlier. Do not substitute a source of your own. (`AlgorithmEffortSource` also admits `classifier` and `context-override`; nothing in the codebase currently emits `classifier`, so writing it by hand would invent provenance rather than record it. `context-override` is the one value you assert yourself, at step 3.)
+2. **Take mode and tier from the classifier** — injected as context where the substrate classifies ahead of the executor, otherwise `<prefix> algorithm classify --prompt '<the prompt>'`. If mode is `algorithm`, use the returned tier verbatim and record **the `source` the classifier returned, unchanged**: `auto`, `explicit`, or `fail-safe`. A hook that classifies ahead of you forwards that same value, so an injected classification is not a different provenance — it is the same classifier, run earlier. Do not substitute a source of your own. (`AlgorithmEffortSource` also admits `classifier` and `context-override`; nothing in the codebase currently emits `classifier`, so writing it by hand would invent provenance rather than record it. `context-override` is the one value you assert yourself, at step 3.)
 3. **Conversation-context override:** if the classifier returned MINIMAL/NATIVE but the conversation context makes the prompt clearly ALGORITHM-shaped (e.g., a single-word approval to a multi-step plan, a follow-up that depends on prior turns the classifier didn't see), escalate to the appropriate tier and log the mismatch in `## Decisions`. Set `effort_source: context-override`.
 4. Fallback (classifier output absent — should be rare): auto-detect based on task complexity, set `effort_source: auto`.
 
