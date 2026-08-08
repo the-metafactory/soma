@@ -224,33 +224,19 @@ export function deriveAttestation(inputs: AttestationInputs): AttestationOutcome
 export async function findGraphRoot(
   start: NodeRef,
   readNode: (ref: NodeRef) => Promise<NodeState>,
-  /**
-   * The state of `start`, when the caller has already read it. The close path
-   * had: `runClose` reads the node, then this walk re-read the very same node
-   * as its first step (#530 finding 3). Passing it is deliberately *not* a
-   * cache — one value, for one call, that cannot outlive the invocation and so
-   * opens no staleness window.
-   */
-  known?: NodeState,
 ): Promise<{ nodeId: string; author: string } | undefined> {
   const seen = new Set<string>();
   let current: NodeRef = start;
-  let seed = known;
 
   for (let depth = 0; depth < MAX_ROOT_WALK; depth += 1) {
     if (seen.has(current.id)) return undefined;
     seen.add(current.id);
 
     let state: NodeState;
-    if (seed !== undefined && seed.ref.id === current.id) {
-      state = seed;
-      seed = undefined;
-    } else {
-      try {
-        state = await readNode(current);
-      } catch {
-        return undefined;
-      }
+    try {
+      state = await readNode(current);
+    } catch {
+      return undefined;
     }
 
     if (state.parent === undefined) {

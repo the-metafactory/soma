@@ -798,65 +798,40 @@ export class WorkGraph {
    * because `blocks(a,b)` + `blocks(b,a)` removes both nodes from the frontier
    * forever — no claim, no close, no error (§2.3).
    */
-  async addBlockingEdge(blocker: NodeRef, blocked: NodeRef): Promise<void> {
-    await this.addBlockingEdges([blocker], blocked);
-  }
-
   /**
-   * Write several blocking edges onto one node, sharing a single reading of the
-   * ancestors across all of them.
+   * #530 finding 4 wanted the ancestor reading shared across the several edges
+   * of one `soma graph add`, since the cycle check re-walks overlapping
+   * ancestors once per edge. It was built and **reverted on review of #578**.
    *
-   * Called once per edge, the cycle check re-walked overlapping ancestors from
-   * scratch every time — `soma graph add` with five blockers read the same
-   * nodes five times over (#530 finding 4). The shared map lives for exactly
-   * this call, which is what keeps it from being a cache: it cannot outlive the
-   * write it is validating, so no staleness window opens.
-   *
-   * Edges are written in order and the first failure throws, leaving the ones
-   * before it written — the caller reports what landed, since a node left
-   * silently under-blocked is worse than a partial write that says so.
-   *
-   * The writes interleaved with the reads cannot invalidate them. Each write
-   * mutates exactly one node's blocker list — `blocked`'s — and no successful
-   * walk ever reads `blocked`: the search returns as soon as it *sees* the
-   * target id in some node's blockers, so the target is never enqueued, and a
-   * walk that does see it throws rather than continuing. So every node in the
-   * map is one the writes do not touch.
+   * The check is already best-effort against a concurrent writer — GitHub has
+   * no compare-and-swap, so read-then-write is never atomic — but sharing a
+   * reading across edges widens that window from one check to the whole batch,
+   * and a stale ancestor is exactly how a path to `blocked` goes unseen and the
+   * cycle this rejects gets written. The saving is real only for an `add` with
+   * three or more blockers whose ancestries overlap, which is rare; a
+   * structural-validation gate is the wrong place to spend correctness on it.
    */
-  async addBlockingEdges(
-    blockers: readonly NodeRef[],
-    blocked: NodeRef,
-    /** Called as each edge lands, so a caller can report a partial write precisely. */
-    onWritten?: (blocker: NodeRef) => void,
-  ): Promise<void> {
-    const reading = new Map<string, NodeState>();
-    for (const blocker of blockers) {
-      if (blocker.id === blocked.id) {
-        throw new WorkGraphError("invalid-edge", `node ${blocker.id} cannot block itself`);
-      }
-      if (await this.reaches(blocker, blocked.id, reading)) {
-        throw new WorkGraphError(
-          "cycle",
-          `blocks(${blocker.id}, ${blocked.id}) would close a cycle — ${blocked.id} already blocks ${blocker.id} transitively`,
-        );
-      }
-      await this.store.addBlockingEdge(blocker, blocked);
-      onWritten?.(blocker);
+  async addBlockingEdge(blocker: NodeRef, blocked: NodeRef): Promise<void> {
+    if (blocker.id === blocked.id) {
+      throw new WorkGraphError("invalid-edge", `node ${blocker.id} cannot block itself`);
     }
+    if (await this.reaches(blocker, blocked.id)) {
+      throw new WorkGraphError(
+        "cycle",
+        `blocks(${blocker.id}, ${blocked.id}) would close a cycle — ${blocked.id} already blocks ${blocker.id} transitively`,
+      );
+    }
+    await this.store.addBlockingEdge(blocker, blocked);
   }
 
   /** Walk blockers upward from `start`, looking for `targetId`. Visited-guarded against pre-existing cycles. */
-  private async reaches(start: NodeRef, targetId: string, reading: Map<string, NodeState>): Promise<boolean> {
+  private async reaches(start: NodeRef, targetId: string): Promise<boolean> {
     const seen = new Set<string>([start.id]);
     const queue: NodeRef[] = [start];
     // The array iterator re-reads `length` each step, so nodes pushed below are
     // visited in this same loop — a breadth-first walk over a growing queue.
     for (const current of queue) {
-      let state = reading.get(current.id);
-      if (state === undefined) {
-        state = await this.store.readNode(current);
-        reading.set(current.id, state);
-      }
+      const state = await this.store.readNode(current);
       for (const blocker of state.blockedBy) {
         if (blocker.id === targetId) return true;
         if (seen.has(blocker.id)) continue;
@@ -871,13 +846,15 @@ export class WorkGraph {
    * Frontier = open ∧ unassigned ∧ all blockers closed (§2.4), over the root's
    * whole membership subtree.
    *
-   * **A pure filter over one read** (#576). {@link GraphStore.readSubtree} is
-   * required to report live state, so it confirms; re-fetching each survivor
+   * **A pure filter over the subtree read** (#576). {@link GraphStore.readSubtree}
+   * is required to report live state, so it confirms; re-fetching each survivor
    * afterwards is what the seam contract now forbids paying for. It also read
    * *worse* than it sounded: N sequential fetches describe a subtree as it was
    * across however long they took, so on the real map the old two-phase read
-   * blended observations up to ten seconds apart, where one traversal is a
-   * single observation.
+   * blended observations up to ten seconds apart. A traversal is not
+   * automatically one observation either — pagination and re-rooting are extra
+   * calls — but it is one for a graph that fits a single request, and strictly
+   * fewer and closer-spaced observations otherwise.
    *
    * False *negatives* remain unrecoverable — the frontier is advisory and may
    * return short, self-healing on a later tick. Correctness rests on the claim

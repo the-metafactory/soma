@@ -221,6 +221,14 @@ const BLOCKER_PAGE = 20;
  * would make a claimed node look unclaimed and a short `blockedBy` page would
  * make a blocked node look takeable — both are false *positives* on the
  * frontier, which is the direction §2.4 says a reader cannot detect for itself.
+ *
+ * **The trade, stated:** this hydrates every node traversed, including the
+ * closed history the frontier will discard, and `body` dominates the payload —
+ * 57KB for map #495's 21-node subtree. The alternative is a narrow traversal
+ * plus a second hydrating call for the survivors, which is two round trips
+ * always. At the measured size one trip wins outright (1 069ms against
+ * 9 606ms), and there is no map yet where it does not. Revisit when payload
+ * rather than round trips is what a real map is paying.
  */
 const NODE_FIELDS = `number title state body url databaseId author{login} assignees(first:${ASSIGNEE_PAGE}){totalCount nodes{login}} blockedBy(first:${BLOCKER_PAGE}){totalCount nodes{number state}}`;
 

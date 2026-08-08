@@ -593,33 +593,23 @@ async function runAdd(
   // under-blocked, so the failure has to name what did land — silently
   // surfacing a node on the frontier that should have been blocked is worse
   // than an error that says so.
-  // One call rather than one per edge, so the cycle check reads each ancestor
-  // once for the whole batch instead of once per blocker (#530 finding 4).
-  // Written edges are reported as they land, which is what lets the failure
-  // message stay exactly as specific as it was when this was a loop.
-  const written: string[] = [];
-  try {
-    await graph.addBlockingEdges(
-      parsed.options.blockedBy.map((id) => ({ id })),
-      created,
-      (blocker) => written.push(blocker.id),
-    );
-  } catch (error) {
-    // Blockers are attempted in order, so the one that failed is the first not
-    // yet written — an index, not a string match against the message.
-    const blockerId = parsed.options.blockedBy[written.length] ?? "unknown";
-    const edges = written.map((id) => `${created.id} blocked by ${id}`);
-    throw new SomaCliError(
-      [
-        `Created node ${created.id} under ${parsed.target}, then failed to add "blocked by ${blockerId}":`,
-        error instanceof Error ? error.message : String(error),
-        edges.length > 0 ? `Edges already written: ${edges.join("; ")}` : "No blocking edges were written.",
-        `Node ${created.id} is on the frontier until its remaining blockers are wired.`,
-      ].join("\n"),
-      1,
-    );
+  const edges: string[] = [];
+  for (const blockerId of parsed.options.blockedBy) {
+    try {
+      await graph.addBlockingEdge({ id: blockerId }, created);
+    } catch (error) {
+      throw new SomaCliError(
+        [
+          `Created node ${created.id} under ${parsed.target}, then failed to add "blocked by ${blockerId}":`,
+          error instanceof Error ? error.message : String(error),
+          edges.length > 0 ? `Edges already written: ${edges.join("; ")}` : "No blocking edges were written.",
+          `Node ${created.id} is on the frontier until its remaining blockers are wired.`,
+        ].join("\n"),
+        1,
+      );
+    }
+    edges.push(`${created.id} blocked by ${blockerId}`);
   }
-  const edges = written.map((id) => `${created.id} blocked by ${id}`);
 
   if (parsed.options.json === true) {
     return JSON.stringify({ repo, node: created.id, parent: parsed.target, blockedBy: parsed.options.blockedBy }, null, 2);
@@ -765,7 +755,14 @@ async function runClose(
     }
   }
 
-  const root = await findGraphRoot(ref, async (nodeRef) => await graph.readNode(nodeRef), state);
+  // Deliberately NOT seeded with the `state` read at the top of this function
+  // (#530 finding 3, reverted on review of #578). Probes run in between and may
+  // take minutes — `command` probes are declared with timeouts up to 900s — so
+  // a re-parent during the close would derive the root, its author, and the
+  // whole attestation from a graph that no longer exists. The saved spawn is
+  // ~600ms; what it buys is a read taken *after* the work, which is the only
+  // reading that describes what is being closed.
+  const root = await findGraphRoot(ref, async (nodeRef) => await graph.readNode(nodeRef));
 
   let proposal: { commentId: string; author: string } | undefined;
   let ratification: Ratification | undefined;

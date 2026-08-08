@@ -258,7 +258,11 @@ frontier forever — no claim, no close, no error).
   store directly, the second read buys nothing and costs coherence: N
   sequential fetches describe the subtree as it was across however long they
   took, so the measured GitHub path blended observations up to ten seconds
-  apart, where one traversal is a single observation. A backend that *does*
+  apart. A traversal is **not** automatically one observation — pagination and
+  re-rooting are extra calls, and a subtree that needs them is still blended.
+  The honest claim is narrower and still decisive: a traversal is one
+  observation for a graph that fits a single request, and strictly fewer and
+  more tightly spaced observations otherwise. A backend that *does*
   discover through a stale index still owes the second read — internally,
   before returning — because the obligation attaches to the staleness, not to
   the ceremony.
