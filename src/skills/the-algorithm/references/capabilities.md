@@ -17,9 +17,13 @@ Four sources, merged in this order, the first definition of a name winning:
 2. **Skills declaring `algorithmCapability` in their manifest** — the skill
    author's phase and trigger metadata, preferred over the shipped table.
 3. **The table in this file.**
-4. **Every remaining skill under `<soma-home>/skills`, automatically** —
-   registered under its own name, admissible in all seven phases, with trigger
-   signals from its `## Triggers` bullets, falling back to its description.
+4. **Every remaining skill under `<soma-home>/skills`** — registered under its
+   own name, admissible in all seven phases, with trigger signals from its
+   `## Triggers` bullets, falling back to its description. **Except** when a
+   substrate is named (`--substrate <id>`) and the skill's manifest declares a
+   `substrates` list that excludes it: that skill is marked unsupported rather
+   than registered. A skill in the catalogue is not automatically selectable
+   from every substrate.
 
 Because of (4), **you do not need to list a skill here to select it.** A row
 exists to *narrow* a capability — to say which phases it belongs to and what

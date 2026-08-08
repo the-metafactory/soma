@@ -552,12 +552,28 @@ export async function registerSomaHomeAlgorithmCapabilities(
   options: SomaHomeAlgorithmCapabilityOptions = {},
   timestamp = run.updatedAt,
 ): Promise<AlgorithmRun> {
-  const { definitions } = await loadSomaHomeAlgorithmCapabilityRegistry(options);
-  if (definitions.length === 0) {
+  const { definitions, unsupported } = await loadSomaHomeAlgorithmCapabilityRegistry(options);
+  if (definitions.length === 0 && unsupported.length === 0) {
     return run;
   }
 
-  return registerAlgorithmCapabilityDefinitions(run, definitions, timestamp);
+  // Registration only ever ADDS or overrides by name, so a run persisted before
+  // an override went unresolvable kept its old definition and stayed selectable
+  // — visibly `unsupported` in the registry and quietly invocable on the run
+  // (Sage review). Drop persisted definitions the home now reports as
+  // unresolvable before registering the current set. Compiled-in defaults are
+  // untouched: they are not persisted definitions, and `definitionsForRun`
+  // supplies them regardless.
+  const disabled = new Set(unsupported);
+  const pruned = disabled.size === 0
+    ? run
+    : { ...run, capabilityDefinitions: (run.capabilityDefinitions ?? []).filter((definition) => !disabled.has(definition.name)) };
+
+  if (definitions.length === 0) {
+    return pruned;
+  }
+
+  return registerAlgorithmCapabilityDefinitions(pruned, definitions, timestamp);
 }
 
 export function listAlgorithmCapabilityDefinitions(): AlgorithmCapabilityDefinition[] {
@@ -584,7 +600,14 @@ export function mergedAlgorithmCapabilityRegistry(
 ): SomaHomeAlgorithmCapabilityRegistry {
   const byName = new Map(listAlgorithmCapabilityDefinitions().map((definition) => [definition.name, definition]));
   for (const definition of resolved.definitions) byName.set(definition.name, definition);
-  return { definitions: [...byName.values()], unsupported: [...resolved.unsupported] };
+  return {
+    definitions: [...byName.values()],
+    // Disjoint by construction (Sage review): a name that ended up resolvable —
+    // because a compiled-in default backs it — is available, full stop. Leaving
+    // it in both arrays would give consumers two contradictory answers to "can I
+    // select this?", and the honest one is the definition.
+    unsupported: resolved.unsupported.filter((name) => !byName.has(name)),
+  };
 }
 
 function definitionsForRun(run: Pick<AlgorithmRun, "capabilityDefinitions">): AlgorithmCapabilityDefinition[] {

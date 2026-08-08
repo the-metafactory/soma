@@ -23,7 +23,7 @@ import {
   verifyAlgorithmCriterion,
   writeAlgorithmRun,
 } from "../src/index";
-import { loadSomaHomeAlgorithmCapabilityRegistry } from "../src/algorithm-capabilities";
+import { loadSomaHomeAlgorithmCapabilityRegistry, registerSomaHomeAlgorithmCapabilities } from "../src/algorithm-capabilities";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-algorithm-"));
@@ -437,6 +437,39 @@ test("a Contract(...) row registers a contract-declared capability", async () =>
       invoke: { target: "ask a sub-agent or a second model that did not produce the work" },
     });
     expect(registry.unsupported).toEqual([]);
+  });
+});
+
+test("refreshing a run prunes a definition the home now reports unresolvable", async () => {
+  // Sage review: registration only ADDS or overrides by name, so a run persisted
+  // before an override went bad kept the old definition — visibly `unsupported`
+  // in the registry and quietly still selectable on the run.
+  await withTempHome(async (homeDir) => {
+    await writeSkill(homeDir, "first-principles", "FirstPrinciples");
+    await writeCapabilityTable(homeDir, [
+      '| FirstPrinciples | THINK | Was fine | `Skill("FirstPrinciples")` | E1+ |',
+    ]);
+
+    let run = createAlgorithmRun({
+      id: "stale-definition",
+      timestamp: "2026-08-08T10:00:00.000Z",
+      prompt: "Persist a capability, then break it",
+      intent: "Exercise the prune.",
+      currentState: "The row resolves.",
+      goal: "A broken override removes the persisted definition.",
+      criteria: [{ id: "C1", text: "Definition is pruned." }],
+    });
+    run = await registerSomaHomeAlgorithmCapabilities(run, { homeDir }, "2026-08-08T10:00:01.000Z");
+    expect(run.capabilityDefinitions?.some((definition) => definition.name === "FirstPrinciples")).toBe(true);
+
+    // The adopter retargets it at something this home does not have.
+    await writeCapabilityTable(homeDir, [
+      '| FirstPrinciples | THINK | Now broken | `Skill("NotInstalled")` | E1+ |',
+    ]);
+    run = await registerSomaHomeAlgorithmCapabilities(run, { homeDir }, "2026-08-08T10:00:02.000Z");
+
+    expect(run.capabilityDefinitions?.some((definition) => definition.name === "FirstPrinciples")).toBe(false);
+    expect(() => selectAlgorithmCapability(run, { name: "FirstPrinciples" }, "2026-08-08T10:00:03.000Z")).toThrow();
   });
 });
 
