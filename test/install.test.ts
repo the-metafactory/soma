@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { isAbsolute, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -951,6 +951,24 @@ test("installed codex session-start hook returns concise visible context", async
       substrate: "codex",
       status: "active",
     });
+  });
+});
+
+test("installed codex session-end hook stays successful when the work registry lock is orphaned", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const lockPath = `${somaWorkRegistryPaths({ homeDir }).work}.lock`;
+    await mkdir(lockPath, { recursive: true });
+    const stale = new Date(Date.now() - 60_000);
+    await utimes(lockPath, stale, stale);
+
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const result = runCodexHook(hook, "session-end", homeDir, { session_id: "codex-orphaned-lock", cwd: homeDir });
+    const events = await readFile(join(homeDir, ".soma", "memory", "STATE", "events.jsonl"), "utf8");
+
+    expect(result.status).toBe(0);
+    expect(result.output.systemMessage).toBe("Soma lifecycle session-end handled.");
+    expect(events).toContain("lifecycle.session_end.registry-write-failed");
   });
 });
 

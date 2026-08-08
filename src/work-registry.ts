@@ -194,6 +194,11 @@ async function writeJson(path: string, value: unknown): Promise<void> {
   await rename(tmp, path);
 }
 
+// Work-registry mutations are local read/modify/write operations. Keep lock
+// acquisition below substrate lifecycle-hook deadlines so contention remains a
+// best-effort writeback failure instead of turning session end into a timeout.
+const WORK_REGISTRY_LOCK_TIMEOUT_MS = 1_000;
+
 async function withRegistryFileLock<T>(registryPath: string, fn: () => Promise<T>): Promise<T> {
   await mkdir(dirname(registryPath), { recursive: true });
   const lockPath = `${registryPath}.lock`;
@@ -205,7 +210,7 @@ async function withRegistryFileLock<T>(registryPath: string, fn: () => Promise<T
       break;
     } catch (error: unknown) {
       if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
-      if (Date.now() - started > 30_000) {
+      if (Date.now() - started > WORK_REGISTRY_LOCK_TIMEOUT_MS) {
         throw new Error(`Timed out waiting for work registry lock at ${lockPath}`, { cause: error });
       }
       await sleep(10);
