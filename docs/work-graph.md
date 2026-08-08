@@ -261,8 +261,9 @@ frontier forever — no claim, no close, no error).
   apart. A traversal is **not** automatically one observation — pagination and
   re-rooting are extra calls, and a subtree that needs them is still blended.
   The honest claim is narrower and still decisive: a traversal is one
-  observation for a graph that fits a single request, and strictly fewer and
-  more tightly spaced observations otherwise. A backend that *does*
+  observation for a graph that fits a single request, and never more than the
+  old shape otherwise — equal where a subtree pages or re-roots and yields no
+  candidates, far fewer whenever it yields any. A backend that *does*
   discover through a stale index still owes the second read — internally,
   before returning — because the obligation attaches to the staleness, not to
   the ceremony.

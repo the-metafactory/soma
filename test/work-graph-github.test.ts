@@ -428,6 +428,10 @@ test("a short assignees or blockedBy page is repaired by a direct read, never tr
   const subtree = await createGitHubGraphStore({ repo: REPO, transport }).readSubtree({ id: "495" });
 
   expect(subtree[0]?.assignees).toEqual(["a", "b"]);
+  // The repair must not cost the membership edge: `readNode` resolves a parent
+  // of its own (here the fake says none), and the walk's answer is the one the
+  // seam promised.
+  expect(subtree[0]?.parent).toEqual({ id: "495" });
   expect(keys).toEqual([
     "495",
     `GET repos/${REPO}/issues/497`,

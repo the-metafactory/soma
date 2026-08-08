@@ -114,7 +114,7 @@ export interface NodeRef {
  *   question in the ticket body; without it a created node is a bare title.
  * - `parent` — where the node attaches. `soma graph add <root>` (§2.6) and the
  *   orienteer rule "scaffold nodes attach below their spawning ticket" (#492)
- *   both need it, and `listCandidateFrontier(root)` needs the membership edge
+ *   both need it, and `readSubtree(root)` needs the membership edge
  *   it writes.
  * - `labels` — **write-only decoration.** Caller-supplied, so a list view is
  *   readable without opening every issue. Nothing derives them from the node:
@@ -853,8 +853,9 @@ export class WorkGraph {
    * across however long they took, so on the real map the old two-phase read
    * blended observations up to ten seconds apart. A traversal is not
    * automatically one observation either — pagination and re-rooting are extra
-   * calls — but it is one for a graph that fits a single request, and strictly
-   * fewer and closer-spaced observations otherwise.
+   * calls — but it is one for a graph that fits a single request, and never more
+   * than the old shape otherwise: equal where a subtree pages and yields no
+   * candidates, far fewer whenever it yields any.
    *
    * False *negatives* remain unrecoverable — the frontier is advisory and may
    * return short, self-healing on a later tick. Correctness rests on the claim

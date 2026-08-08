@@ -558,7 +558,13 @@ class GitHubGraphStore implements GraphStore {
       // membership edge costs nothing to report. Traverse closed nodes and
       // report them too: `readSubtree` states what the subtree holds, and §2.4
       // filtering is the contract layer's job, not the store's.
-      states.push(node.stateTruncated ? await this.readNode(node.state.ref) : { ...node.state, parent });
+      // `parent` is the walk's answer either way. On the repair path `readNode`
+      // resolves a parent of its own, and letting that win would make the two
+      // able to disagree about the edge we are standing on — the seam promises
+      // the edge it arrived by, not whatever a second lookup reports.
+      states.push(
+        node.stateTruncated ? { ...(await this.readNode(node.state.ref)), parent } : { ...node.state, parent },
+      );
       for (const child of await this.completeChildren(node)) await visit(child, node.state.ref);
     };
 
