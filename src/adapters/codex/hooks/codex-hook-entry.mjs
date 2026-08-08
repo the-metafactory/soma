@@ -418,7 +418,7 @@ function handleLifecycleEvent(config, event, input) {
     const eventLog = join(config.somaHome, "memory", "STATE", "events.jsonl");
     emitAndExit({
       continue: true,
-      systemMessage: `Soma lifecycle hook failed for ${event} (${lifecycleFailureDetail(result)}); inspect ${eventLog} for recorded Soma events.`,
+      systemMessage: `Soma lifecycle hook failed for ${event} (${lifecycleFailureDetail(result)}); inspect ${eventLog} for Soma context.`,
     });
   }
 

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { hostname } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { createPaths, type SomaPathsOptions } from "./paths";
@@ -225,7 +226,7 @@ async function isReclaimableWorkRegistryLock(lockPath: string): Promise<boolean>
 
     try {
       const owner = JSON.parse(await readFile(join(lockPath, WORK_REGISTRY_LOCK_OWNER_FILE), "utf8")) as unknown;
-      return isPlainRecord(owner) && typeof owner.pid === "number" && Number.isSafeInteger(owner.pid) && owner.pid > 0
+      return isPlainRecord(owner) && owner.hostname === hostname() && typeof owner.pid === "number" && Number.isSafeInteger(owner.pid) && owner.pid > 0
         ? !isProcessAlive(owner.pid)
         : false;
     } catch {
@@ -243,7 +244,7 @@ async function acquireReclaimGuard(reclaimPath: string): Promise<boolean> {
     try {
       await mkdir(reclaimPath);
       try {
-        await writeFile(join(reclaimPath, WORK_REGISTRY_LOCK_OWNER_FILE), `${JSON.stringify({ pid: process.pid })}\n`, "utf8");
+        await writeFile(join(reclaimPath, WORK_REGISTRY_LOCK_OWNER_FILE), `${JSON.stringify({ pid: process.pid, hostname: hostname() })}\n`, "utf8");
       } catch (error) {
         await rm(reclaimPath, { recursive: true, force: true });
         throw error;
@@ -298,7 +299,7 @@ async function withRegistryFileLock<T>(
       try {
         await writeFile(
           join(lockPath, WORK_REGISTRY_LOCK_OWNER_FILE),
-          `${JSON.stringify({ pid: process.pid, acquiredAt: new Date().toISOString() })}\n`,
+          `${JSON.stringify({ pid: process.pid, hostname: hostname(), acquiredAt: new Date().toISOString() })}\n`,
           "utf8",
         );
       } catch (error) {
