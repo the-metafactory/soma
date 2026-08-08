@@ -20,8 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in silence, and must return each node whole: a short read of assignees or blockers
   now produces a false positive that nothing downstream catches.
 
-  Measured on the reference backend: `soma graph frontier` on a 21-node subtree went
-  from 16 `gh` invocations / 9 606ms to 1 / 929ms.
+  On the reference backend, `soma graph frontier` over a 21-node subtree went from
+  **16 `gh` invocations to 1**. Reproduce with `bun run measure-graph-read-path --
+  --root <node-id>`, added in this change: it counts and times every backend call a
+  verb makes. Spawn count is the claim; the wall-clock that came with it (9 606ms →
+  ~920ms, against `the-metafactory/soma#495`) depends on the network and the tracker,
+  so treat it as one observation rather than a figure to hold the release to.
 
   This also amends spec §2.4, superseding #492 correction 3: confirm-by-direct-fetch
   was written for a discovery step assumed to be a lagging search index, and where
