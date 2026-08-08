@@ -972,6 +972,24 @@ test("installed codex session-end hook stays successful when the work registry l
   });
 });
 
+test("installed codex session-end hook points failures at the durable event log", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const configPath = join(homeDir, ".codex/hooks/soma-lifecycle.config.json");
+    const config = JSON.parse(await readFile(configPath, "utf8")) as { bunPath: string };
+    config.bunPath = join(homeDir, "missing-bun");
+    await writeFile(configPath, `${JSON.stringify(config)}\n`);
+
+    const result = runCodexHook(hook, "session-end", homeDir, { session_id: "codex-lifecycle-failure" });
+
+    expect(result.status).toBe(0);
+    expect(result.output.systemMessage).toBe(
+      `Soma lifecycle hook failed for session-end; inspect ${join(homeDir, ".soma/memory/STATE/events.jsonl")} for failure details.`,
+    );
+  });
+});
+
 test("installed codex session-end hook resolves transcript and writes one digest", async () => {
   await withTempHome(async (homeDir) => {
     await installSomaForCodex({ homeDir });

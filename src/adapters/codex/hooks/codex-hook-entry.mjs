@@ -404,7 +404,11 @@ function handleLifecycleEvent(config, event, input) {
       });
     }
 
-    emitAndExit({ continue: true, systemMessage: `Soma lifecycle hook failed for ${event}; read projected Soma context when needed.` });
+    const eventLog = join(config.somaHome, "memory", "STATE", "events.jsonl");
+    emitAndExit({
+      continue: true,
+      systemMessage: `Soma lifecycle hook failed for ${event}; inspect ${eventLog} for failure details.`,
+    });
   }
 
   if (event === "session-start") {
