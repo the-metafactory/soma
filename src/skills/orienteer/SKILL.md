@@ -81,8 +81,10 @@ defaults to the origin remote of the working tree.
   this.
 - **Scaffold nodes attach below their spawning node, never to the map.** The
   map's children are the route; work thrown off by one step is an
-  implementation detail of that step, and hanging it off the map makes the
-  frontier report work the effort does not gate on.
+  implementation detail of that step, and the edge records which one. This is
+  **provenance, not concealment** — the frontier walks the whole subtree, so
+  placement never hides a node (#557). Work you don't want taken is closed as
+  out of scope, or blocked; there is no third way.
 
 ## References
 

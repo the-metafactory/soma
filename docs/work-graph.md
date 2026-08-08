@@ -224,11 +224,19 @@ frontier forever — no claim, no close, no error).
 
 ### 2.4 Frontier and claim
 
-- **Frontier** = open ∧ unassigned ∧ all blockers closed. The frontier verb
-  confirms every search hit by direct fetch before reporting it, removing
-  false positives from lagging tracker search indexes (#492 correction 3).
-  False *negatives* — nodes a lagging index omits entirely — are not
-  recoverable this way: the frontier is advisory and may return short,
+- **Frontier** = open ∧ unassigned ∧ all blockers closed, over the root's
+  entire **membership subtree** — every descendant, at any depth, reported in
+  depth-first pre-order (#557). Depth records where a node came from and never
+  decides whether it is reported: gating is what a blocking edge means, and
+  past-the-destination is what a close means. A one-level walk made scaffold
+  invisible precisely when its spawning node closed and it became takeable,
+  which is why the walk descends **into** closed nodes while never reporting
+  them. An implementation that cannot carry a whole subtree in one request must
+  detect the shortfall and complete it; truncating in silence is forbidden.
+  The frontier verb confirms every search hit by direct fetch before reporting
+  it, removing false positives from lagging tracker search indexes (#492
+  correction 3). False *negatives* — nodes a lagging index omits entirely — are
+  not recoverable this way: the frontier is advisory and may return short,
   self-healing on a later tick. Correctness never rests on frontier
   completeness; it rests on the claim and close gates.
   **Known fail-open path (phase 1):** frontier derives "blockers closed"
@@ -258,7 +266,8 @@ interface GraphStore {
   createNode(spec: Omit<WorkGraphNode, "id">): Promise<NodeRef>; // store assigns id
   addBlockingEdge(blocker: NodeRef, blocked: NodeRef): Promise<void>;
   readNode(ref: NodeRef): Promise<NodeState>;
-  listCandidateFrontier(root: NodeRef): Promise<NodeRef[]>; // hits re-confirmed by readNode
+  listCandidateFrontier(root: NodeRef): Promise<NodeRef[]>; // whole subtree, pre-order;
+                                                            // hits re-confirmed by readNode
   claim(ref: NodeRef, identity: string): Promise<ClaimResult>; // re-reads after write
   postComment(ref: NodeRef, body: string): Promise<CommentRef>;
   readCommentReactions(ref: CommentRef): Promise<Reaction[]>;  // author from API, not body text

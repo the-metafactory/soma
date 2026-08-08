@@ -72,5 +72,16 @@ soma graph add <the-node-you-are-resolving> --title "…" --autonomy auto …
 ```
 
 The map's children are the route. A scaffold node is an implementation detail of
-one step on it, and hanging it off the map makes `soma graph frontier` report
-work the effort does not actually gate on.
+one step on it, and the edge is what records which step — provenance, readable
+later by anyone asking where a question came from.
+
+**Placement does not hide it.** `soma graph frontier` walks the whole subtree, so
+scaffold is takeable wherever it hangs (#557). Depth once doubled as a way to
+keep the frontier clear of work the effort did not gate on; that was the wrong
+carrier, and it failed in the one direction §2.4 cannot recover — scaffold went
+invisible exactly when its spawning node closed and it became takeable.
+
+So there is no burying a question. Work you do not want taken is either **past
+the destination** — close it, one line under Out of scope — or **waiting on
+something**, which is a blocking edge. If it is neither, and nobody has claimed
+it, the frontier is right to offer it.
