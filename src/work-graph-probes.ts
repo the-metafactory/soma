@@ -70,8 +70,18 @@ export interface ProbeRunnerDeps {
 }
 
 export interface ProbeRunnerOptions {
-  /** Default working directory for probes that do not name one. */
-  cwd?: string;
+  /**
+   * Working directory for probes that do not name one, and the base every
+   * probe-relative `cwd`/`repo` resolves against.
+   *
+   * **Required, and deliberately so** (#580). It used to fall through to
+   * `process.cwd()`, which made the tree a probe ran in a property of however
+   * the binary happened to be launched — under a launcher that `cd`s, an
+   * entirely different checkout than the one being closed (#579). A caller now
+   * has to state the tree it means, so a wrong one is a value someone passed
+   * rather than a value nobody chose.
+   */
+  cwd: string;
   /**
    * The adopter's probe registry for the repo this graph lives in (§2.2, DD-16
    * Amendment A). **Absent means refuse**: every `command` and `url` probe fails
@@ -165,8 +175,14 @@ function resolveDeps(options: ProbeRunnerOptions): ProbeRunnerDeps {
   };
 }
 
-function probed(probe: Probe, outcome: "pass" | "fail", observed: string, at: string): ProbeResult {
-  return { probe, state: "probed", outcome, observed, at };
+function probed(
+  probe: Probe,
+  outcome: "pass" | "fail",
+  observed: string,
+  at: string,
+  cwd?: string,
+): ProbeResult {
+  return { probe, state: "probed", outcome, observed, at, ...(cwd === undefined ? {} : { cwd }) };
 }
 
 /** Command outcome → the `observed` string §2.2 asks for: exit code plus a bounded output tail. */
@@ -196,27 +212,62 @@ function probeCwd(probeRepo: string | undefined, fallbackCwd: string): string {
 }
 
 /**
+ * Where this probe will run, resolved against `baseCwd` — `undefined` for `url`,
+ * which runs against a host and no tree.
+ *
+ * Exported because the close path needs the answer *before* the run, to describe
+ * each tree as it stood going in. Deriving it there independently would be two
+ * expressions of one rule, and the pair drifting is #579 exactly: the receipt
+ * describing one directory while the probe used another.
+ */
+export function probeDirectory(probe: Probe, baseCwd: string): string | undefined {
+  const base = resolve(baseCwd);
+  switch (probe.type) {
+    case "url":
+      return undefined;
+    case "command":
+      return probeCwd(probe.cwd, base);
+    default:
+      return probeCwd(probe.repo, base);
+  }
+}
+
+/**
  * Run one probe. Always resolves to a `probed` result — pass or fail — because a
  * probe that throws is a probe that did not pass, and the close gate needs that
  * as data, not as an exception to interpret.
  */
-export async function runProbe(probe: Probe, options: ProbeRunnerOptions = {}): Promise<ProbeResult> {
+export async function runProbe(probe: Probe, options: ProbeRunnerOptions): Promise<ProbeResult> {
   const deps = resolveDeps(options);
-  const baseCwd = options.cwd ?? process.cwd();
+  const baseCwd = resolve(options.cwd);
   const at = deps.now().toISOString();
 
-  try {
-    // One directory, computed once, used by both the gate and the spawn. The
-    // registry's exact-match guarantee is only worth anything while "the cwd we
-    // authorised" and "the cwd we executed in" are the same value — two
-    // equivalent expressions would hold today and drift silently tomorrow.
-    const resolvedCwd = probe.type === "command" ? probeCwd(probe.cwd, baseCwd) : baseCwd;
+  // One directory per probe, computed once, used by the gate, the spawn, the
+  // result, and — through the same exported rule — the receipt. The registry's
+  // exact-match guarantee is only worth anything while "the cwd we authorised",
+  // "the cwd we executed in", and "the cwd we recorded" are the same value;
+  // equivalent expressions would hold today and drift silently tomorrow, which
+  // is how #579 happened.
+  //
+  // `ranIn` is undefined for `url`: it runs against a host, so recording a
+  // directory for it would be a fact about nothing. The gate and the (unused)
+  // spawn base still need *some* directory, hence the fallback.
+  const ranIn = probeDirectory(probe, baseCwd);
+  const resolvedCwd = ranIn ?? baseCwd;
 
+  // Every result carries the same probe, timestamp, and directory; only the
+  // outcome and the observation differ. Binding them once keeps a branch from
+  // quietly omitting one — which is how `cwd` would go missing on the path that
+  // needs it most.
+  const finish = (outcome: "pass" | "fail", observed: string): ProbeResult =>
+    probed(probe, outcome, observed, at, ranIn);
+
+  try {
     // The gate runs before dispatch, not inside the two gated cases, so a probe
     // type added later cannot slip past by forgetting to call it.
     const authorization = authorizeProbe(probe, resolvedCwd, options.registry);
     if (!authorization.allowed) {
-      return probed(probe, "fail", authorization.reason, at);
+      return finish("fail", authorization.reason);
     }
 
     switch (probe.type) {
@@ -228,60 +279,47 @@ export async function runProbe(probe: Probe, options: ProbeRunnerOptions = {}): 
         });
         const passed = !outcome.timedOut && outcome.exitCode === probe.expectExit;
         const observed = describeCommand(outcome, probe.timeoutSec);
-        return probed(probe, passed ? "pass" : "fail", passed ? observed : `${observed} (expected exit ${probe.expectExit})`, at);
+        return finish(passed ? "pass" : "fail", passed ? observed : `${observed} (expected exit ${probe.expectExit})`);
       }
 
       case "url": {
         const status = await deps.fetchStatus(probe.target);
         const passed = status === probe.expectStatus;
-        return probed(probe, passed ? "pass" : "fail", `status ${status}${passed ? "" : ` (expected ${probe.expectStatus})`}`, at);
+        return finish(passed ? "pass" : "fail", `status ${status}${passed ? "" : ` (expected ${probe.expectStatus})`}`);
       }
 
       case "git-ref-exists": {
-        const cwd = probeCwd(probe.repo, baseCwd);
-        const outcome = await runGit(deps, cwd, ["rev-parse", "--verify", "--quiet", `${probe.ref}^{commit}`]);
+        const outcome = await runGit(deps, resolvedCwd, ["rev-parse", "--verify", "--quiet", `${probe.ref}^{commit}`]);
         const sha = outcome.stdout.trim();
         const passed = outcome.exitCode === 0 && sha.length > 0;
-        return probed(probe, passed ? "pass" : "fail", passed ? `${probe.ref} → ${sha}` : `${probe.ref} does not resolve in ${cwd}`, at);
+        return finish(passed ? "pass" : "fail", passed ? `${probe.ref} → ${sha}` : `${probe.ref} does not resolve in ${resolvedCwd}`);
       }
 
       case "git-merged-into": {
-        const cwd = probeCwd(probe.repo, baseCwd);
-        const resolved = await runGit(deps, cwd, ["rev-parse", "--verify", "--quiet", `${probe.ref}^{commit}`]);
-        const sha = resolved.stdout.trim();
-        if (resolved.exitCode !== 0 || sha.length === 0) {
-          return probed(probe, "fail", `${probe.ref} does not resolve in ${cwd}`, at);
+        const resolvedRef = await runGit(deps, resolvedCwd, ["rev-parse", "--verify", "--quiet", `${probe.ref}^{commit}`]);
+        const sha = resolvedRef.stdout.trim();
+        if (resolvedRef.exitCode !== 0 || sha.length === 0) {
+          return finish("fail", `${probe.ref} does not resolve in ${resolvedCwd}`);
         }
-        const ancestor = await runGit(deps, cwd, ["merge-base", "--is-ancestor", probe.ref, probe.into]);
+        const ancestor = await runGit(deps, resolvedCwd, ["merge-base", "--is-ancestor", probe.ref, probe.into]);
         const passed = ancestor.exitCode === 0;
-        return probed(
-          probe,
-          passed ? "pass" : "fail",
-          `${probe.ref} (${sha}) ${passed ? "is" : "is not"} an ancestor of ${probe.into}`,
-          at,
-        );
+        return finish(passed ? "pass" : "fail", `${probe.ref} (${sha}) ${passed ? "is" : "is not"} an ancestor of ${probe.into}`);
       }
 
       case "artifact-exists": {
-        const cwd = probeCwd(probe.repo, baseCwd);
         if (probe.atRef === undefined) {
-          const full = resolve(cwd, probe.path);
+          const full = resolve(resolvedCwd, probe.path);
           const passed = deps.pathExists(full);
-          return probed(probe, passed ? "pass" : "fail", `${full} ${passed ? "exists" : "is absent"}`, at);
+          return finish(passed ? "pass" : "fail", `${full} ${passed ? "exists" : "is absent"}`);
         }
-        const outcome = await runGit(deps, cwd, ["cat-file", "-e", `${probe.atRef}:${probe.path}`]);
+        const outcome = await runGit(deps, resolvedCwd, ["cat-file", "-e", `${probe.atRef}:${probe.path}`]);
         const passed = outcome.exitCode === 0;
-        return probed(
-          probe,
-          passed ? "pass" : "fail",
-          `${probe.path} ${passed ? "present" : "absent"} at ${probe.atRef}`,
-          at,
-        );
+        return finish(passed ? "pass" : "fail", `${probe.path} ${passed ? "present" : "absent"} at ${probe.atRef}`);
       }
     }
   } catch (error) {
     // Fail-closed: an unrunnable probe is a failed probe, never a skipped one.
-    return probed(probe, "fail", `probe runner error: ${error instanceof Error ? error.message : String(error)}`, at);
+    return finish("fail", `probe runner error: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
@@ -292,7 +330,7 @@ export async function runProbe(probe: Probe, options: ProbeRunnerOptions = {}): 
  */
 export async function runProbes(
   probes: readonly Probe[],
-  options: ProbeRunnerOptions = {},
+  options: ProbeRunnerOptions,
 ): Promise<ProbeResult[]> {
   const results: ProbeResult[] = [];
   for (const probe of probes) {

@@ -725,6 +725,7 @@ export {
   type NodeStatus,
   type Probe,
   type ProbeResult,
+  type ProbeTree,
   type ProbeType,
   type Ratification,
   type Reaction,

@@ -101,7 +101,10 @@ type ProbeResult =               // stored with the node's checkpoint record (§
       observed: string;          // for command: exit code + bounded stdout/
                                  // stderr tail; for url: status; for git/
                                  // artifact: resolved sha / path presence
-      at: string };              // ISO timestamp of execution
+      at: string;                // ISO timestamp of execution
+      cwd?: string };            // resolved directory this probe was
+                                 // dispatched to — where it ran, or was
+                                 // refused for; absent for `url` (a host)
 ```
 
 Probe lifecycle follows the algorithm-runner P1 lesson — self-declared
@@ -124,6 +127,44 @@ Runner semantics settled while implementing #498:
   not do is let an unrun probe read as a passed one.
 - Git probes execute as argv, never through a shell, so a ref name cannot
   inject.
+- **The probe directory is stated once, and recorded** ([#579](https://github.com/the-metafactory/soma/issues/579),
+  [#580](https://github.com/the-metafactory/soma/issues/580)). The close
+  resolves **one** base directory — the one it was invoked from — and passes it
+  to the runner and the registry match. A probe that names no `cwd`/`repo` runs
+  there; one that does resolves it against that base, so a relative value lands
+  under it and an absolute value replaces it outright. The receipt then records
+  **every directory the declared probes actually resolve to** — each with its
+  HEAD as of *before* the probes ran and whether it was dirty — on the probe
+  section and on the derived `probed` evidence pointer. Every directory, not the
+  base one: describing a base that an absolute `cwd` bypassed would be describing
+  a tree nothing ran in. Each `ProbeResult` carries its own directory, and a
+  probe line names it whenever more than one tree is in play. A tree with **no
+  readable HEAD** anchors nothing and withholds the `probed` evidence for the
+  whole set — one unanchored tree beside `n/n passed` is the same overstatement
+  in miniature. The failure this closes: with the directory read wherever it was
+  wanted, a launcher that `cd`s made probes execute in the install tree, so
+  `bun test` passed against a commit that did not contain the work and the
+  receipt said only `HEAD <sha>` — a true fact about the wrong tree.
+  **This is detection, not prevention.** The stated value still originates as the
+  process's cwd, so a launcher that `cd`s still moves it; what the receipt buys
+  is that the substituted tree is now named rather than silent. Refusing a probe
+  tree that does not contain the work is the preventive version, and it needs to
+  know which commit a node claims — #579 named it and left it out of scope.
+  A **dirty** probe tree is likewise *recorded, never refused*: it is a fact
+  about the evidence, and refusing it would change what closes an `auto` node.
+  A close whose probes are **all `url`** records no tree at all — it tested a
+  host, not a checkout — and its `probed` evidence points at the targets, which
+  is the thing a reader can re-check.
+  Two constraints on that pre-flight read, both because the directory is
+  **tracker-supplied** and the read happens *before* the registry has refused
+  anything: it runs with `core.fsmonitor` overridden, since that config value is
+  a program path in the target repo's own `.git/config` and `git status` would
+  execute it (`core.pager` is pinned alongside it as belt-and-braces — porcelain
+  output is not paged, so it is not a hole today); and the published path has the
+  home prefix collapsed to `~`, because a
+  receipt goes to a tracker whose visibility soma cannot know, and the account
+  name is the one part of the path that does not help a reader tell one checkout
+  from another.
 
 #### Probe registry (DD-16 Amendment A)
 

@@ -65,6 +65,21 @@ export type ProbeResult =
       observed: string;
       /** ISO timestamp of execution. */
       at: string;
+      /**
+       * The resolved absolute directory this probe was dispatched to (#580) —
+       * where it ran, or where it *would* have: the value is fixed before the
+       * registry gate, so a refused probe reports the directory it was refused
+       * for. That is the directory the adopter has to declare, which is what a
+       * reader of a refusal needs.
+       *
+       * Per result, not per close, because a probe may name its own `cwd`/`repo`
+       * and land in a different tree than the close's base — an absolute `cwd`
+       * escapes it entirely. Without this, a probe that ran elsewhere would be
+       * reported under a tree it never touched: the #579 mislabel one level down.
+       *
+       * Absent for `url`, which runs against a host and no tree.
+       */
+      cwd?: string;
     };
 
 export interface WorkGraphNodeBase {
@@ -280,6 +295,34 @@ export interface AttestationFacts {
   reasons?: readonly string[];
 }
 
+/**
+ * The tree the probes actually ran in (#579, #580).
+ *
+ * A probe result is only evidence about the thing being closed if it was
+ * produced in the thing being closed. That directory used to be ambient — the
+ * CLI's process cwd, which the installer's symlink could make some entirely
+ * unrelated checkout — and nothing in the receipt said which one it was, so a
+ * `bun test` that passed against an ancestor commit read exactly like one that
+ * passed against the work. Recording the resolved directory, its HEAD, and
+ * whether it was dirty makes a wrong tree *visible* rather than silent.
+ *
+ * Recorded, never gated: a dirty tree is a fact about the evidence, and #579
+ * decided explicitly that it does not refuse the close.
+ */
+export interface ProbeTree {
+  /**
+   * Resolved absolute directory. One of these is recorded per directory the
+   * declared probes **actually resolve to** — never the base a probe might have
+   * ignored by naming its own absolute `cwd`/`repo`, since a receipt describing
+   * a tree nothing ran in is the #579 mislabel wearing a new hat.
+   */
+  dir: string;
+  /** HEAD of that directory **as of before the probes ran**, when it is a git tree with a commit. */
+  head?: string;
+  /** `git status` non-empty there, again before the run — probes may write. Absent when it is not a readable git tree. */
+  dirty?: boolean;
+}
+
 export interface CloseReceipt {
   /** Must match the node's attached checkpoint — one work item, one completion gate. */
   checkpointId: string;
@@ -288,8 +331,69 @@ export interface CloseReceipt {
   at: string;
   evidence: readonly CloseEvidence[];
   probeResults: readonly ProbeResult[];
+  /**
+   * Every distinct tree the declared probes ran in, described as of *before*
+   * the run. Empty or absent when nothing directory-bound ran — no probes at
+   * all, or `url` probes only, which test a host and no checkout.
+   */
+  probeTrees?: readonly ProbeTree[];
   attestation: AttestationState;
   attestationFacts?: AttestationFacts;
+}
+
+/**
+ * Does a probe line need to name its own directory?
+ *
+ * Only when the trees above it leave it ambiguous: with exactly one recorded
+ * tree that the probe ran in, the heading already said it. More than one tree,
+ * or a probe that ran in none of them, and the line has to be explicit.
+ *
+ * One predicate, two readers — the close path and {@link renderCloseReceipt} —
+ * because two spellings of "elsewhere" would drift into a receipt that
+ * contradicts itself.
+ */
+export function probeRanOutsideTree(result: ProbeResult, trees: readonly ProbeTree[] | undefined): boolean {
+  if (result.state !== "probed" || result.cwd === undefined) return false;
+  const recorded = trees ?? [];
+  return recorded.length !== 1 || recorded[0].dir !== result.cwd;
+}
+
+/**
+ * How a probe tree reads in a receipt — one string, used both as the `probed`
+ * evidence pointer and in the rendered probe section, so the pointer and the
+ * prose can never disagree about which tree was tested.
+ */
+export function describeProbeTree(tree: ProbeTree, home: string | undefined = process.env.HOME): string {
+  const head = tree.head === undefined ? "no HEAD" : `HEAD ${tree.head}`;
+  const state = tree.dirty === undefined ? "not a git tree" : tree.dirty ? "dirty" : "clean";
+  return `${head} in ${collapseHome(tree.dir, home)} (${state})`;
+}
+
+/**
+ * `/Users/someone/work/x` → `~/work/x` for anything that gets **published**.
+ *
+ * A receipt is posted to a tracker whose visibility soma cannot know (§2.2 says
+ * the same of probe declarations), and the point of naming the tree is to make
+ * a reader able to tell one checkout from another — which the path below `~`
+ * already does. The home prefix adds only the local account name, so it is the
+ * part to drop. `ProbeTree.dir` itself stays absolute: it is what the runner
+ * compares against, and a display convention must not become a comparison one.
+ *
+ * `home` is a parameter with an ambient default rather than a bare env read, so
+ * the rendering stays a function of its inputs when a caller says so.
+ */
+function collapseHome(dir: string, home: string | undefined): string {
+  if (home === undefined || home.length === 0) return dir;
+  // Separator-agnostic: the runner has a `win32` branch, so a probe directory
+  // can arrive backslash-separated, and a boundary check that only knows `/`
+  // would silently publish the full path on the platform it was meant to
+  // protect. Compared on a normalised copy; the returned string keeps the
+  // caller's own separators.
+  const slash = (path: string): string => path.replace(/\\/gu, "/");
+  const root = slash(home).replace(/\/+$/u, "");
+  const candidate = slash(dir);
+  if (candidate === root) return "~";
+  return candidate.startsWith(`${root}/`) ? `~${dir.slice(root.length)}` : dir;
 }
 
 /**
@@ -749,10 +853,26 @@ export function renderCloseReceipt(receipt: CloseReceipt): string {
   }
   if (receipt.probeResults.length > 0) {
     lines.push(``, `### Probes`, ``);
+    // Named before the results, not after: a reader who does not know which
+    // tree produced them cannot judge a single line below (#579).
+    const trees = receipt.probeTrees ?? [];
+    if (trees.length === 1) {
+      lines.push(`Ran in ${describeProbeTree(trees[0])}.`, ``);
+    } else if (trees.length > 1) {
+      lines.push(`Ran across ${trees.length} trees:`, ``, ...trees.map((tree) => `- ${describeProbeTree(tree)}`), ``);
+    }
     for (const result of receipt.probeResults) {
+      // A probe carrying its own `cwd`/`repo` — an absolute one especially —
+      // lands in a tree of its own. Reporting it under a single heading is the
+      // #579 mislabel one level down, so the line says where it actually ran
+      // whenever the heading does not settle it.
+      const elsewhere =
+        probeRanOutsideTree(result, receipt.probeTrees) && result.state === "probed"
+          ? ` [in ${collapseHome(result.cwd ?? "", process.env.HOME)}]`
+          : "";
       lines.push(
         result.state === "probed"
-          ? `- \`${probeKey(result.probe)}\` — **${result.outcome}** at ${result.at}: ${result.observed}`
+          ? `- \`${probeKey(result.probe)}\`${elsewhere} — **${result.outcome}** at ${result.at}: ${result.observed}`
           : `- \`${probeKey(result.probe)}\` — specified, not run`,
       );
     }
