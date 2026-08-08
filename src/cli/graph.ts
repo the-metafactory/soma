@@ -515,16 +515,52 @@ function probeEvidencePointer(probes: readonly Probe[], trees: readonly ProbeTre
 }
 
 /**
+ * Everything the close needs to know about *where* before it runs anything: the
+ * one base directory, and a description of every tree the declared probes will
+ * actually touch.
+ *
+ * **Before the probes**, deliberately. The receipt's job is to name the trees
+ * that were tested, and a probe is free to write to one — `bun test` leaving a
+ * fixture behind would otherwise make the receipt report dirt the probes caused
+ * rather than dirt they ran against.
+ *
+ * **Every directory they resolve to, not the base.** A probe naming its own
+ * absolute `cwd`/`repo` ignores the base entirely, so describing the base would
+ * describe a tree nothing ran in — the #579 mislabel one indirection along.
+ * Usually one directory, so usually one git spawn; none at all for a `url`-only
+ * close, which tests a host and no checkout.
+ */
+async function prepareProbeTrees(
+  probes: readonly Probe[],
+  deps: GraphCliDeps,
+): Promise<{ probeDir: string; probeTrees: ProbeTree[] }> {
+  // Resolved here as well as in the runner: a relative value would authorise and
+  // execute as its absolute form while the receipt recorded the relative one,
+  // and every "did this probe run outside the tree?" comparison downstream is
+  // string equality between the two.
+  const probeDir = resolve(deps.probeCwd());
+  const probeDirs = [...new Set(probes.flatMap((probe) => probeDirectory(probe, probeDir) ?? []))];
+  // Concurrent, unlike the probes themselves: these are read-only status calls
+  // on distinct directories, so none can see another's side effects — the reason
+  // `runProbes` is sequential does not apply.
+  const probeTrees = await Promise.all(probeDirs.map(async (dir) => await deps.describeProbeTree(dir)));
+  return { probeDir, probeTrees };
+}
+
+/**
  * Config a *target repository* must not get to choose while we read it.
  *
  * This status call runs in a directory a **node body** can name, via a probe's
  * `cwd`/`repo`, and it runs before the registry has refused anything. `git
  * status` honours `core.fsmonitor`, which is a program path in the target
- * repo's own `.git/config` — so without these overrides, tracker content picks
- * a local repository and the pre-flight read executes its hook on a probe the
- * gate was about to refuse. Command-line `-c` beats repo config, and the
- * bracketing is deliberate: the pager is not reachable from `--porcelain`, but
- * it is the other config knob in `git status`'s reach that names a program.
+ * repo's own `.git/config` — so without that override, tracker content picks a
+ * local repository and the pre-flight read executes its hook on a probe the gate
+ * was about to refuse. Command-line `-c` beats repo config.
+ *
+ * `core.fsmonitor` is the reachable vector; `core.pager` is belt-and-braces, and
+ * named as such: `--porcelain` output is not paged, so the pager is not a hole
+ * here today — it is simply the other knob in `git status`'s reach that names a
+ * program, and pinning it costs nothing.
  */
 const GIT_READ_ONLY_CONFIG = ["-c", "core.fsmonitor=false", "-c", "core.pager=cat"] as const;
 
@@ -534,11 +570,18 @@ export function probeTreeStatusArgv(dir: string): string[] {
 }
 
 async function defaultDescribeProbeTree(dir: string): Promise<ProbeTree> {
-  const status = await runCommand({ argv: probeTreeStatusArgv(dir), timeoutSec: 30 });
-  // Not a git tree (or git is unreachable): the directory is still the honest
-  // answer to "where did the probes run", and the absent `dirty` says the rest.
-  if (status.exitCode !== 0) return { dir };
-  return parseProbeTreeStatus(dir, status.stdout);
+  // Not a git tree, no git on PATH, directory gone — all the same answer, and a
+  // throw is one of them: `Bun.spawn` raises rather than exiting non-zero when
+  // the binary is missing, and an unreadable tree must not abort a close that
+  // has not run its probes yet. The directory is still the honest answer to
+  // "where did this go", and the absent `dirty` says the rest.
+  try {
+    const status = await runCommand({ argv: probeTreeStatusArgv(dir), timeoutSec: 30 });
+    if (status.exitCode !== 0) return { dir };
+    return parseProbeTreeStatus(dir, status.stdout);
+  } catch {
+    return { dir };
+  }
 }
 
 function defaultDeps(): GraphCliDeps {
@@ -822,33 +865,7 @@ async function runClose(
   const identity = parsed.options.identity ?? (await deps.resolveIdentity());
   const probes = state.node.probes ?? [];
   const registry = await deps.loadProbeRegistry(repo);
-  // Resolved once, then handed to the runner, the registry match, and the
-  // receipt. One value, three readers — the #579 defect was three readers and
-  // no value.
-  //
-  // Resolved here as well as in the runner: a relative value would authorise and
-  // execute as its absolute form while the receipt recorded the relative one,
-  // and every "did this probe run outside the tree?" comparison downstream is
-  // string equality between the two.
-  const probeDir = resolve(deps.probeCwd());
-
-  // Described **before** the probes run, not after. The receipt's job is to name
-  // the trees that were tested, and a probe is free to write to one — `bun test`
-  // that leaves a fixture behind would otherwise make the receipt report dirt
-  // the probes caused rather than dirt they ran against.
-  //
-  // Every directory the probes **actually resolve to**, not the base: a probe
-  // naming its own absolute `cwd`/`repo` ignores the base entirely, and a
-  // receipt describing a tree nothing ran in is the mislabel this change exists
-  // to remove. Usually one directory, so usually one git spawn — and none at all
-  // for a `url`-only close, which tests a host and no checkout.
-  const probeDirs = [
-    ...new Set(probes.flatMap((probe) => probeDirectory(probe, probeDir) ?? [])),
-  ];
-  // Concurrent, unlike the probes themselves: these are read-only status calls
-  // on distinct directories, so none can see another's side effects — the reason
-  // `runProbes` is sequential does not apply.
-  const probeTrees = await Promise.all(probeDirs.map(async (dir) => await deps.describeProbeTree(dir)));
+  const { probeDir, probeTrees } = await prepareProbeTrees(probes, deps);
 
   const probeResults = await deps.runProbes(probes, registry, probeDir);
   const refusals = probeResults.filter((result) => isProbeRefusal(result));

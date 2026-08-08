@@ -157,9 +157,11 @@ Runner semantics settled while implementing #498:
   is the thing a reader can re-check.
   Two constraints on that pre-flight read, both because the directory is
   **tracker-supplied** and the read happens *before* the registry has refused
-  anything: it runs with `core.fsmonitor` and `core.pager` overridden, since
-  `git status` would otherwise execute a program named by the target repo's own
-  config; and the published path has the home prefix collapsed to `~`, because a
+  anything: it runs with `core.fsmonitor` overridden, since that config value is
+  a program path in the target repo's own `.git/config` and `git status` would
+  execute it (`core.pager` is pinned alongside it as belt-and-braces — porcelain
+  output is not paged, so it is not a hole today); and the published path has the
+  home prefix collapsed to `~`, because a
   receipt goes to a tracker whose visibility soma cannot know, and the account
   name is the one part of the path that does not help a reader tell one checkout
   from another.

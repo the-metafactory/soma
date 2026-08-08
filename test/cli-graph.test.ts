@@ -670,8 +670,18 @@ test("--dry-run names the refusal instead of throwing it away", async () => {
 
 // --- the probe registry gate (DD-16 Amendment A, #526) ----------------------
 
-/** Wires the real runner behind the CLI so the registry actually gates something. */
-function realRunner(registry: ProbeRegistry, overrides: Partial<GraphCliDeps> = {}): Partial<GraphCliDeps> {
+/**
+ * Wires the real runner behind the CLI so the registry actually gates something,
+ * and so the directory the CLI resolved is the one probes are dispatched to.
+ *
+ * `spawned` collects each spawn's cwd for the tests that assert on *where* a
+ * probe ran rather than on what the gate said.
+ */
+function realRunner(
+  registry: ProbeRegistry,
+  overrides: Partial<GraphCliDeps> = {},
+  spawned?: string[],
+): Partial<GraphCliDeps> {
   return {
     loadProbeRegistry: async () => registry,
     // Takes the cwd the CLI resolved rather than naming one of its own: the
@@ -681,7 +691,10 @@ function realRunner(registry: ProbeRegistry, overrides: Partial<GraphCliDeps> = 
         cwd,
         registry: supplied,
         deps: {
-          runCommand: async () => ({ exitCode: 0, stdout: "640 pass", stderr: "", timedOut: false }),
+          runCommand: async (request) => {
+            spawned?.push(request.cwd ?? "<inherited>");
+            return { exitCode: 0, stdout: "640 pass", stderr: "", timedOut: false };
+          },
           now: () => AT,
         },
       }),
@@ -754,23 +767,15 @@ test("probes run in the stated directory, not the process's — and the receipt 
 
   const spawned: string[] = [];
   const store = autoGraph();
-  const output = await run(["graph", "close", "520", "--repo", REPO], store, {
-    probeCwd: () => stated,
-    loadProbeRegistry: async () => declaredIn(stated),
-    runProbes: async (probes, registry, cwd) =>
-      await runProbes(probes, {
-        cwd,
-        registry,
-        deps: {
-          runCommand: async (request) => {
-            spawned.push(request.cwd ?? "<inherited>");
-            return { exitCode: 0, stdout: "", stderr: "", timedOut: false };
-          },
-          now: () => AT,
-        },
-      }),
-    describeProbeTree: async (dir) => ({ dir, head: "f00dcafe", dirty: false }),
-  });
+  const output = await run(
+    ["graph", "close", "520", "--repo", REPO],
+    store,
+    realRunner(
+      declaredIn(stated),
+      { probeCwd: () => stated, describeProbeTree: async (dir) => ({ dir, head: "f00dcafe", dirty: false }) },
+      spawned,
+    ),
+  );
 
   expect(output).toContain("Closed node 520");
   // Where it actually ran …
@@ -786,16 +791,11 @@ test("the registry match follows the stated tree, so a declaration for another c
   // by a directory the caller never chose. Authorisation has to track the value
   // the runner is handed, not whatever tree happens to hold a declaration.
   const store = autoGraph();
-  const message = await failure(["graph", "close", "520", "--repo", REPO], store, {
-    probeCwd: () => "/work/tree-under-review",
-    loadProbeRegistry: async () => declaredIn("/install/tree"),
-    runProbes: async (probes, registry, cwd) =>
-      await runProbes(probes, {
-        cwd,
-        registry,
-        deps: { runCommand: async () => ({ exitCode: 0, stdout: "", stderr: "", timedOut: false }), now: () => AT },
-      }),
-  });
+  const message = await failure(
+    ["graph", "close", "520", "--repo", REPO],
+    store,
+    realRunner(declaredIn("/install/tree"), { probeCwd: () => "/work/tree-under-review" }),
+  );
 
   expect(store.closed).toHaveLength(0);
   expect(message).toContain("not authorised on this machine");
@@ -815,8 +815,10 @@ test("every tree the probes ran in is described, and each line says which one", 
       author: "ivy-agent",
     });
 
-  await run(["graph", "close", "520", "--repo", REPO], store, {
-    loadProbeRegistry: async () => ({
+  await run(
+    ["graph", "close", "520", "--repo", REPO],
+    store,
+    realRunner({
       status: "loaded",
       repo: REPO,
       path: REGISTRY_PATH,
@@ -826,13 +828,7 @@ test("every tree the probes ran in is described, and each line says which one", 
       ],
       urlHosts: [],
     }),
-    runProbes: async (probes, registry, cwd) =>
-      await runProbes(probes, {
-        cwd,
-        registry,
-        deps: { runCommand: async () => ({ exitCode: 0, stdout: "", stderr: "", timedOut: false }), now: () => AT },
-      }),
-  });
+  );
 
   const receipt = store.closed[0].receipt;
   expect(receipt.probeResults.map((result) => (result.state === "probed" ? result.cwd : undefined))).toEqual([
@@ -861,19 +857,16 @@ test("a base tree no probe ran in is never described, let alone used as the anch
     .seed("520", { node: autoNode("520", { probes: [{ ...PROBE, cwd: only }] }), parent: "495", author: "ivy-agent" });
 
   const described: string[] = [];
-  await run(["graph", "close", "520", "--repo", REPO], store, {
-    loadProbeRegistry: async () => declaredIn(only),
-    runProbes: async (probes, registry, cwd) =>
-      await runProbes(probes, {
-        cwd,
-        registry,
-        deps: { runCommand: async () => ({ exitCode: 0, stdout: "", stderr: "", timedOut: false }), now: () => AT },
-      }),
-    describeProbeTree: async (dir) => {
-      described.push(dir);
-      return { dir, head: "f00dcafe", dirty: false };
-    },
-  });
+  await run(
+    ["graph", "close", "520", "--repo", REPO],
+    store,
+    realRunner(declaredIn(only), {
+      describeProbeTree: async (dir) => {
+        described.push(dir);
+        return { dir, head: "f00dcafe", dirty: false };
+      },
+    }),
+  );
 
   expect(described).toEqual([only]);
   expect(store.closed[0].receipt.probeTrees?.map((tree) => tree.dir)).toEqual([only]);
@@ -960,17 +953,14 @@ test("a relative probe directory is resolved before it is recorded or compared",
   // "did this run outside the tree?" comparison is between two spellings of the
   // same directory and every probe reads as elsewhere.
   const store = autoGraph();
-  await run(["graph", "close", "520", "--repo", REPO], store, {
-    probeCwd: () => ".",
-    loadProbeRegistry: async () => declaredIn(process.cwd()),
-    runProbes: async (probes, registry, cwd) =>
-      await runProbes(probes, {
-        cwd,
-        registry,
-        deps: { runCommand: async () => ({ exitCode: 0, stdout: "", stderr: "", timedOut: false }), now: () => AT },
-      }),
-    describeProbeTree: async (dir) => ({ dir, head: "abc1234", dirty: false }),
-  });
+  await run(
+    ["graph", "close", "520", "--repo", REPO],
+    store,
+    realRunner(declaredIn(process.cwd()), {
+      probeCwd: () => ".",
+      describeProbeTree: async (dir) => ({ dir, head: "abc1234", dirty: false }),
+    }),
+  );
 
   const receipt = store.closed[0].receipt;
   expect(receipt.probeTrees?.[0]?.dir).toBe(process.cwd());
