@@ -331,8 +331,14 @@ export interface GraphStore {
    *   reads complete is the one failure this seam must not produce.
    *
    * Pre-order puts each node's scaffold immediately after it, which is what
-   * makes provenance legible in the listing itself. A backend with no nesting
-   * concept returns its flat set and is trivially conformant.
+   * makes provenance legible in the listing itself.
+   *
+   * A backend whose membership relation is only ever one level deep still
+   * implements this honestly — its subtree of `root` *is* `root`'s members, and
+   * pre-order over a single level is their order. What no backend may do is
+   * return everything it holds: the result is scoped to the root's membership,
+   * so a store that cannot express membership at all cannot implement this
+   * seam, and a flat dump is a wrong answer rather than a degenerate one.
    */
   listCandidateFrontier(root: NodeRef): Promise<NodeRef[]>;
   /** Assigns, then re-reads (no compare-and-swap exists on GitHub) and applies {@link resolveClaimRace}. */
