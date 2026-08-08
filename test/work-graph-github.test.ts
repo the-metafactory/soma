@@ -255,6 +255,22 @@ test("addBlockingEdge resolves the blocker's database id and writes the native d
 });
 
 // --- listCandidateFrontier: the membership subtree (#557) -------------------
+//
+// These pin behaviour a direct-children fixture cannot reach, so it is worth
+// recording how they were shown to bite. Each mutation below was applied to
+// `src/work-graph-github.ts` by hand and reverted; there is no committed
+// harness, so treat this as a reproduction recipe rather than a standing gate:
+//
+//   1. `listCandidateFrontier`: prune closed subtrees instead of descending —
+//      replace the emit-then-recurse pair in `visit` with an early
+//      `if (node.status !== "open") return;`.        → 3 of these fail
+//   2. `completeChildren`: drop the `childrenTruncated` check and always
+//      return `node.children`.                       → 2 of these fail
+//   3. `visit`: remove the `seen` guard.             → does not terminate
+//
+// Mutation 3 is why the cycle case asserts at all: a `seen` set over a shape
+// GitHub currently guarantees to be a tree reads like dead code until you take
+// it out.
 
 /** A `subIssues` connection as GraphQL returns it. */
 function conn(nodes: unknown[], overrides: { totalCount?: number; hasNextPage?: boolean; endCursor?: string } = {}) {

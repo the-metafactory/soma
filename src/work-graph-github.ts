@@ -182,8 +182,13 @@ function readIssue(value: unknown, context: string): GitHubIssue {
  *
  * GitHub costs a nested connection as the product of the `first` values along
  * its path and rejects a query scoring over 500,000. These multiply out to
- * 50 + 1 500 + 30 000 + 30 000 = 61 550, which leaves the ceiling far enough
- * away that a future level can be added without recomputing it.
+ * 50 + 1 500 + 30 000 + 30 000 = 61 550, counting the bottom-row probe.
+ *
+ * **Recompute before adding a level.** The headroom is nothing like the
+ * 61 550 : 500 000 ratio suggests, because each level multiplies everything
+ * below it: a fourth 20-wide level would score 1 231 550, and the widest that
+ * still fits is 7. Depth is far more expensive here than width, which is the
+ * argument for leaving this shallow and letting re-rooting handle the tail.
  */
 const SUBTREE_PAGE_SIZES = [50, 30, 20] as const;
 
@@ -227,6 +232,16 @@ function subtreeSelection(level: number): string {
  */
 const SUBTREE_QUERY = `query($owner:String!,$name:String!,$number:Int!,$after:String){repository(owner:$owner,name:$name){issue(number:$number){number state subIssues(first:${SUBTREE_PAGE_SIZES[0]},after:$after){totalCount pageInfo{hasNextPage endCursor} nodes{number state ${subtreeSelection(1)}}}}}}`;
 
+/**
+ * GraphQL states are upper-case, and `state` also carries CLOSED-as-not-planned.
+ * Anything that is not literally OPEN is closed to the walk — a policy worth
+ * stating once, since the walk reads status at two levels and a drift between
+ * them would silently change which nodes get reported.
+ */
+function readGraphQLStatus(record: Record<string, unknown>): NodeStatus {
+  return record.state === "OPEN" ? "open" : "closed";
+}
+
 function readSubtreeNode(value: unknown): SubtreeNode {
   const context = "subtree walk";
   const record = asRecord(value, context);
@@ -243,9 +258,7 @@ function readSubtreeNode(value: unknown): SubtreeNode {
 
   return {
     number: readNumber(record, "number", context),
-    // GraphQL states are upper-case, and `state` also carries CLOSED-as-
-    // not-planned; anything that is not literally OPEN is closed to the walk.
-    status: record.state === "OPEN" ? "open" : "closed",
+    status: readGraphQLStatus(record),
     children: children ?? [],
     childrenTruncated: children === undefined ? totalCount > 0 : totalCount > children.length,
   };
@@ -475,7 +488,7 @@ class GitHubGraphStore implements GraphStore {
       }
 
       const record = asRecord(issue, context);
-      status = record.state === "OPEN" ? "open" : "closed";
+      status = readGraphQLStatus(record);
       const connection = asRecord(record.subIssues, context);
       for (const entry of asArray(connection.nodes, context)) children.push(readSubtreeNode(entry));
 
