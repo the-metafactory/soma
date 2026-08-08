@@ -1,11 +1,24 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { pathToFileURL } from "node:url";
 import { expect, test } from "bun:test";
 import { bootstrapSomaHome, checkSomaPolicy, evaluateSomaPolicy, somaMemoryEventsPath } from "../src/index";
 import { somaPolicyPrivateMarkers } from "../src/policy";
 import { hasSomaPolicyPrivateMarker as hasSomaPolicyPrivateMarkerTs, renderPolicyMarkerMjs } from "../src/policy-marker";
-import { hasSomaPolicyPrivateMarker as hasSomaPolicyPrivateMarkerJs } from "../src/adapters/codex/hooks/policy-marker.mjs";
+
+// policy-marker.mjs wird von hooks/assets.ts als Text eingebettet, damit die
+// kompilierte Binary projizieren kann (soma#531). Derselbe Pfad zusaetzlich als
+// Modul importiert kollidiert in bun's Modulregistry, darum aus einer Kopie laden:
+// gleiche Bytes, anderer aufgeloester Pfad.
+const policyMarkerDir = await mkdtemp(join(tmpdir(), "soma-policy-marker-"));
+await copyFile(
+  new URL("../src/adapters/codex/hooks/policy-marker.mjs", import.meta.url),
+  join(policyMarkerDir, "policy-marker.mjs"),
+);
+const { hasSomaPolicyPrivateMarker: hasSomaPolicyPrivateMarkerJs } = (await import(
+  pathToFileURL(join(policyMarkerDir, "policy-marker.mjs")).href
+)) as { hasSomaPolicyPrivateMarker: (content: string | undefined, marker: string) => boolean };
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-policy-"));

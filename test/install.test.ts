@@ -1,13 +1,13 @@
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { isAbsolute, join, resolve } from "node:path";
 import { hostname, tmpdir } from "node:os";
+import { pathToFileURL } from "node:url";
 import { expect, test } from "bun:test";
 import { bootstrapSomaHome, experimentalAnthropicCowork, installSomaForClaudeCode, installSomaForCodex, installSomaForCursor, installSomaForPiDev, planSomaForCodexInstall, planSomaForPiDevInstall, somaWorkRegistryPaths } from "../src/index";
 import { codexInstallSpec } from "../src/adapters/codex/install";
 import { ANTHROPIC_COWORK_ACTIVE_VSA_MARKER, isAnthropicCoworkSkillProjectionPath } from "../src/adapters/anthropic-cowork";
 import { removeLegacyPiDevVsaSkillProjection } from "../src/adapters/pi-dev/skill-projection";
-import { renderStartupContextSummary } from "../src/adapters/codex/hooks/codex-hook-entry.mjs";
 import {
   SOMA_MEMORY_CATEGORIES,
   SOMA_PAI_BOUND_MEMORY_CATEGORIES,
@@ -28,9 +28,22 @@ const {
 // maintainability finding).
 const SOMA_CANONICAL_MEMORY_DIRS = SOMA_MEMORY_CATEGORIES;
 const SOMA_PAI_BOUND_MEMORY_DIRS = SOMA_PAI_BOUND_MEMORY_CATEGORIES;
+// codex-hook-entry.mjs wird von hooks/assets.ts als Text eingebettet, damit die
+// kompilierte Binary projizieren kann (soma#531). Ein zusaetzlicher Modul-Import
+// desselben Pfades kollidiert in bun's Modulregistry — der Text-Import gewinnt und
+// das Modul haette keine benannten Exporte. Darum aus einer Kopie laden: gleiche
+// Bytes, anderer aufgeloester Pfad. Testet zudem genau das, was ausgeliefert wird.
+const hookEntryDir = await mkdtemp(join(tmpdir(), "soma-hook-entry-"));
+for (const asset of ["codex-hook-entry.mjs", "codex-policy-hook.mjs", "codex-policy-targets.mjs", "policy-marker.mjs"]) {
+  await copyFile(new URL(`../src/adapters/codex/hooks/${asset}`, import.meta.url), join(hookEntryDir, asset));
+}
+const { renderStartupContextSummary } = (await import(
+  pathToFileURL(join(hookEntryDir, "codex-hook-entry.mjs")).href
+)) as { renderStartupContextSummary: (context: string | undefined) => string };
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-install-"));
+
 
   try {
     return await fn(homeDir);

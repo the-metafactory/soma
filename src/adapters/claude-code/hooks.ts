@@ -1,10 +1,26 @@
-import { readFileSync } from "node:fs";
 import { chmod, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { resolveBunExecutable } from "../../bun-probe";
 import { isEnoent } from "../../fs-errors";
 import { renderFeedbackHookHelper } from "../shared/feedback-helper";
 import { isClaudeCodeInstallOptions } from "./install-options";
+
+// Hook assets are inlined at bundle time (`with { type: "text" }`) so the
+// compiled binary can project them; a runtime readFileSync against
+// import.meta.url resolves to /$bunfs/root inside a single-file bundle and
+// throws ENOENT (soma#531). tsc has no notion of text imports, hence the
+// suppressions; a blanket `declare module "*.mjs"` is not safe here because
+// grok imports one of its .mjs assets as a real module.
+// @ts-expect-error text import: inlined by bun, unknown to tsc
+import hookRunnerSource from "./hook-runner.mjs" with { type: "text" };
+// @ts-expect-error text import: inlined by bun, unknown to tsc
+import modeClassifierSource from "./mode-classifier-hook.mjs" with { type: "text" };
+// @ts-expect-error text import: inlined by bun, unknown to tsc
+import policyGuardSource from "./policy-guard-hook.mjs" with { type: "text" };
+// @ts-expect-error text import: inlined by bun, unknown to tsc
+import preCompactSource from "./precompact-hook.mjs" with { type: "text" };
+// @ts-expect-error text import: inlined by bun, unknown to tsc
+import statusLineSource from "./statusline.sh" with { type: "text" };
 
 /**
  * soma#369: adapter-owned session hooks (mode classifier, policy guard) are
@@ -950,22 +966,22 @@ async function readInstalledClaudeCodeHookConfigBunPath(substrateHome: string, r
 
 function renderClaudeCodeSomaHook(): string {
   const runnerHandlers = Object.fromEntries(SOMA_CLAUDE_HOOK_EVENTS.map((event) => [event.commandEvent, event.runner]));
-  const source = readFileSync(new URL("./hook-runner.mjs", import.meta.url), "utf8");
+  const source = hookRunnerSource as string;
   const rendered = source.replace("__SOMA_CLAUDE_HOOK_EVENT_HANDLERS__", JSON.stringify(runnerHandlers, null, 2));
   if (rendered === source) throw new Error("Claude Code hook runner asset is missing the handler placeholder.");
   return rendered;
 }
 
 function renderClaudeCodeModeClassifierHook(): string {
-  return readFileSync(new URL("./mode-classifier-hook.mjs", import.meta.url), "utf8");
+  return modeClassifierSource as string;
 }
 
 function renderClaudeCodePolicyGuardHook(): string {
-  return readFileSync(new URL("./policy-guard-hook.mjs", import.meta.url), "utf8");
+  return policyGuardSource as string;
 }
 
 function renderClaudeCodePreCompactHook(): string {
-  return readFileSync(new URL("./precompact-hook.mjs", import.meta.url), "utf8");
+  return preCompactSource as string;
 }
 
 // Generated (not a static asset) so the trigger regex stays single-sourced
@@ -1065,7 +1081,7 @@ export function renderClaudeCodeStatusLineScript(somaHome: string): string {
   // Cache the static template: this renderer is called on the SessionStart
   // projection self-repair path (#460) as a drift oracle, so avoid a blocking
   // fs read on every healthy session start. The asset never changes at runtime.
-  statusLineTemplateCache ??= readFileSync(new URL("./statusline.sh", import.meta.url), "utf8");
+  statusLineTemplateCache ??= statusLineSource as string;
   const source = statusLineTemplateCache;
   const escaped = somaHome.replace(/[\\"$`]/g, "\\$&");
   const rendered = source.replace("__SOMA_HOME__", () => escaped);
