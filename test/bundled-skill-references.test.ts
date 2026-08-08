@@ -16,6 +16,14 @@ const SKILLS_ROOT = resolve(import.meta.dir, "..", "src", "skills");
  */
 const POINTER = /`((?:references|Workflows|Examples)\/[A-Za-z0-9._-]+\.md)`/g;
 
+/**
+ * Pointers to files the bundle deliberately does NOT ship. `capabilities.local.md`
+ * is the adopter's own capability table (soma#574): install must never create or
+ * overwrite it, so shipping one would defeat its purpose. The docs still have to
+ * name it, or nobody learns it exists.
+ */
+const UNSHIPPED_BY_DESIGN = new Set(["references/capabilities.local.md"]);
+
 async function walkMarkdown(root: string): Promise<string[]> {
   const out: string[] = [];
   for (const entry of await readdir(root, { withFileTypes: true })) {
@@ -41,6 +49,7 @@ describe("bundled skill references", () => {
       for (const file of await walkMarkdown(skillRoot)) {
         for (const match of (await readFile(file, "utf8")).matchAll(POINTER)) {
           const pointer = match[1];
+          if (UNSHIPPED_BY_DESIGN.has(pointer)) continue;
           if (!(await exists(join(skillRoot, pointer)))) {
             dangling.push(`${skill}/${relative(skillRoot, file)}  ->  ${pointer}`);
           }

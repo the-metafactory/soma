@@ -36,33 +36,23 @@
 
 **1. Thinking-capability floor (HARD, v6.1.0 — CLOSED ENUMERATION as of v6.3.0).** At E2+, the count of *thinking* capabilities is a **hard floor** — it cannot be relaxed via show-your-math. Difficult work earns thinking depth, full stop.
 
-**The thinking-capability vocabulary is a CLOSED ENUMERATION.** Selection MUST come verbatim from this list — the same names that appear in `references/capabilities.md` § Thinking & Analysis Capabilities. Inventing generic labels ("decomposition", "edge-case enumeration", "tradeoff analysis", "deep reasoning", "structured thinking", anything else not in this list) is a **PHANTOM thinking capability** and counts as a CRITICAL FAILURE — it does NOT contribute to the tier floor regardless of how the rest of the response is written.
+**The capability vocabulary is CLOSED, and it is resolved per machine.** Selection MUST come verbatim from the **registry** — not from a list memorised in this file, and never from a label invented at run time. Read the registry:
 
-The closed list (verbatim names — copy/paste into `🏹 CAPABILITIES SELECTED`):
+```bash
+<prefix> algorithm capabilities --list [--substrate <id>]
+```
 
-- **IterativeDepth** — multi-angle exploration; default at Extended+ when budget allows
-- **ApertureOscillation** — tactical/strategic scope oscillation
-- **FeedbackMemoryConsult** — grep prior `feedback_*.md` for matching mistakes
-- **Advisor** — commitment-boundary second opinion from a capability the registry provides
-- **ReReadCheck** — final gate, re-read user's last message verbatim
-- **FirstPrinciples** — physics-style deconstruct/challenge/rebuild
-- **SystemsThinking** — Iceberg, causal loops, Meadows leverage points
-- **RootCauseAnalysis** — 5 Whys, Fishbone, Apollo, Swiss Cheese
-- **Council** — multi-agent debate with visible transcripts
-- **RedTeam** — 32-agent adversarial stress-test
-- **Science** — hypothesis-plural falsifiable experiments
-- **BeCreative** — Verbalized Sampling divergent ideation
-- **Ideate** — 9-phase evolutionary idea generation
-- **BitterPillEngineering** — over-prompting audit
-- **Evals** — code/model/human grader scoring
-- **WorldThreatModel** — 11-horizon stress-test
-- **Fabric patterns** — `Skill("Fabric", "<pattern>")` (extract_wisdom, etc.)
-- **ContextSearch** — 2-phase prior-work search
-- **VSA** — `Skill("VSA", "<verb> ...")` (counts when invoked for analytical purpose, not just for boilerplate scaffolding)
+The registry is closed because nothing may be added to it at run time; it is per-machine because what an assistant can actually do differs by installation. Both halves matter. A fixed list in doctrine would either name capabilities a given machine lacks — inviting the agent to claim work it cannot do — or exclude everything an adopter added, making their own skills unselectable. Neither is a closed vocabulary; both are a wrong one.
 
-If a name does not appear in this list verbatim, it is a phantom. Nothing external enforces that — the audit gate below is a self-check you run before printing the selection line, not a mechanism that rejects on your behalf. New thinking capabilities are added by editing `references/capabilities.md` and bumping the Algorithm minor version — never by ad-hoc invention at run time.
+Four sources feed it, resolved in this order, first definition of a name winning: skill manifests declaring `algorithmCapability`; the adopter's `references/capabilities.local.md`; the shipped `references/capabilities.md`; then every remaining installed skill, under its own name. The two compiled-in capabilities (`ReReadCheck`, `sequential-analysis`) need no declaration. Extending the vocabulary means adding a row to the local table — never an ad-hoc name in a response.
 
-**Capability-Name Audit Gate (NEW v6.3.0, fires at OBSERVE→THINK boundary):** before printing `🏹 CAPABILITIES SELECTED`, verify each thinking name appears verbatim in the closed list above. Any miss is a phantom — split, replace from the list, or remove. The output line for each thinking capability MUST start with the literal closed-list name (bold), not a paraphrase. Example correct: `🏹 **FirstPrinciples** → THINK | …`. Example REJECTED: `🏹 First-principles decomposition → THINK | …`.
+Inventing generic labels ("decomposition", "edge-case enumeration", "tradeoff analysis", "deep reasoning", "structured thinking") is a **PHANTOM capability** and counts as a CRITICAL FAILURE. It does not contribute to the tier floor regardless of how the rest of the response is written.
+
+**Capability-Name Audit Gate (fires at OBSERVE→THINK boundary):** before printing `🏹 CAPABILITIES SELECTED`, verify each name against `algorithm capabilities --list`. Any miss is a phantom — replace it with a registry name or remove it. Each output line MUST start with the literal registry name (bold), not a paraphrase. Correct: `🏹 **FirstPrinciples** → THINK | …`. REJECTED: `🏹 First-principles decomposition → THINK | …`.
+
+Nothing rejects a phantom on your behalf at selection time — this gate is a self-check. What the harness *does* enforce is the other end: `algorithm advance` refuses COMPLETE for any selected capability that was never invoked, so a name you cannot back with an invocation fails the run rather than quietly padding a floor.
+
+**Adapter capabilities.** Some rows (`Advisor`, `CrossFamilyCoder`, `CrossFamilyAudit`) declare a *contract* rather than an invocation, because no substrate expresses them portably. They are real capabilities and count toward a floor — but only if you bind them locally and actually invoke them. `--list` marks any that still need a binding on this machine. If you cannot satisfy the contract, do not select it: record the gap in `## Decisions`. An unavailable second opinion is a fact worth keeping.
 
 **2. Delegation-capability floor (SOFT, v6.1.0).** Delegation capabilities (sub-agents, agent teams, isolated worktrees, out-of-family model calls, research fan-out — whatever the registry offers) remain show-your-math relaxable — sometimes the work is genuinely single-author and delegation adds noise.
 
@@ -509,15 +499,15 @@ On **multi-step VSAs** (Extended+ effort, multi-file edits, architecture changes
 2. **When stuck or diverging** — if the same problem resists two distinct attempts
 3. **Once after producing a durable deliverable** — before setting `phase: complete` in LEARN
 
-The moments are the doctrine; the mechanism is the substrate's. Use whatever second-opinion capability the registry offers — a registered `Advisor`-class capability, a sub-agent, a second model invoked through a command capability. Ask it a specific question ("this decision point" / "any gaps before declaring done?"), not "review this".
+The moments are the doctrine; the mechanism is the substrate's. Select the **`Advisor`** capability — an adapter row declaring the contract "a second opinion from something that did not produce the work" — and bind it in `capabilities.local.md` to whatever your substrate offers. Ask a specific question ("this decision point" / "any gaps before declaring done?"), not "review this".
 
-Where the substrate provides no second opinion at all, say so in `## Decisions` rather than skipping the moment silently. A commitment made without review is a fact worth recording.
+Where nothing can satisfy the contract, say so in `## Decisions` rather than skipping the moment silently — and do not select the capability, because a selected capability that is never invoked fails the run at COMPLETE. A commitment made without review is a fact worth recording.
 
 #### Rule 2a — Cross-Family Audit (E4/E5, where available)
 
 At **Deep (E4)** and **Comprehensive (E5)**, before setting `phase: complete`, get an audit from a model **outside the family that did the work** — compare the artifacts against the criteria and surface the blind spots a same-family reviewer shares with the author.
 
-This is the one rule that cannot be satisfied portably: it needs a second vendor reachable from the substrate. Where the registry offers such a capability, invoke it; where it does not, record the gap in `## Decisions` and proceed. Do not fabricate the audit, and do not let a same-family reviewer stand in for it — that is the blind spot, not the check.
+Select the **`CrossFamilyAudit`** capability. It is an adapter row — a contract, not a command — because this is the one rule no substrate satisfies portably: it needs a second vendor reachable from where you run. Bind it locally where you can; where you cannot, record the gap in `## Decisions` and proceed without selecting it. Do not fabricate the audit, and do not let a same-family reviewer stand in — that is the blind spot, not the check.
 
 | Audit verdict | Action |
 |--------------|--------|

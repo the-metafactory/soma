@@ -63,6 +63,7 @@ table in the file is parsed, not just the first. Two shapes are accepted:
   | Cell contains | Kind | Notes |
   |---|---|---|
   | `Skill("Name")` | `skill` | Must resolve to a skill under `<soma-home>/skills`, matched case- and punctuation-insensitively against its frontmatter name **or** its directory name. If it does not resolve, the row is dropped as unsupported. |
+  | `Adapter("<contract>")` | `adapter` | Declares a capability by its **contract** instead of an invocation. Checked first, so a contract mentioning a sub-agent is not misread as an `Agent(` row. See "Capabilities no substrate can express" below. |
   | `Agent(…)` | `agent` (the `AlgorithmCapabilityKind` literal — qualified everywhere else per CONTEXT.md) | Target is `subagent_type="…"` when present, else the capability's own name. Substrate-specific — see below. |
   | `inline doctrine` or `no external tool` | `inline` | The whole cell becomes the instruction. |
   | `Bash(…)` or a leading `bun ` | `command` | The whole cell becomes the command. |
@@ -94,6 +95,38 @@ Keep the **shipped** table portable, and put anything substrate-bound in your
   requirement — so a shipped row must not depend on one.
 - `Bash(…)` / `bun …` rows bind to a filesystem layout. Local table only.
 
+## Capabilities no substrate can express: the `adapter` kind
+
+Some capabilities are doctrine everywhere and invocable nowhere in particular. A
+second opinion at a commitment boundary, a coder from a different model family,
+an audit by a model that did not write the work — the *discipline* is portable,
+the *mechanism* is whatever you happen to have.
+
+Shipping them as `Agent(…)` or `Bash(…)` binds Soma to one person's toolchain.
+Dropping them loses real doctrine. `Adapter("<contract>")` is the third option:
+declare the capability by what it must achieve, and let whoever can satisfy it
+bind the mechanism.
+
+```
+| CrossFamilyAudit | VERIFY | … | `Adapter("audit by a model outside the family that produced the work")` | E4+ |
+```
+
+**Binding one.** Add a row of the same name to `capabilities.local.md` with a
+concrete `Agent(…)`, `Skill("…")`, or `Bash(…)` cell. The local table is read
+first, so your binding replaces the declaration.
+
+**Unbound, an adapter capability is still selectable, and that is deliberate.**
+It cannot be invoked, and `algorithm advance` refuses COMPLETE for any selected
+capability that was never invoked — so an unbound adapter fails the run at the
+gate, loudly, naming itself. The alternative (hiding it) would let a tier floor
+be satisfied by a capability that does nothing, which is the phantom this
+doctrine exists to prevent. If you cannot satisfy the contract, do not select
+it: record in `## Decisions` that the capability was unavailable. An absent
+second opinion is a fact worth keeping, not an inconvenience to route around.
+
+`<prefix> algorithm capabilities --list` marks every adapter row that still
+needs a binding on this machine.
+
 ## Capability table
 
 | Capability | Phase | Trigger Signal | Invoke | Typical Cost |
@@ -103,6 +136,9 @@ Keep the **shipped** table portable, and put anything substrate-bound in your
 | MapTheWork | PLAN | More work than one session can hold, and the route to the destination is unclear — not merely the work. Produces decision nodes on the work graph, resolved one at a time. | `Skill("orienteer")` | E3+ |
 | ReproduceFirst | OBSERVE, VERIFY | A bug report, a regression, "it broke". Reproduce the failure before diagnosing it; a fix for a failure you never saw is a conjecture. | *(inline doctrine — no external tool)* | E1+ |
 | IntentEcho | OBSERVE | Every run, before anything else. Restate the request in one sentence; if you cannot restate it accurately, re-read it rather than proceed. | *(inline doctrine — no external tool)* | E1+ |
+| Advisor | THINK, VERIFY | Commitment boundaries on multi-step work: before committing to an approach, when the same problem resists two distinct attempts, and once after a durable deliverable before declaring done. Ask a specific question, not "review this". | `Adapter("a second opinion from something that did not produce the work")` | E3+ |
+| CrossFamilyCoder | EXECUTE | Substantial implementation where same-family blind spots compound — E3+ coding routed through one model family only. Family diversity is the point, not a particular vendor. | `Adapter("a code-producing capability from a different model family")` | E3+ |
+| CrossFamilyAudit | VERIFY | Deep and Comprehensive work, before completion: compare the artifacts against the criteria and surface what a same-family reviewer shares with the author. Cannot be satisfied by a reviewer of the same family — that is the blind spot, not the check. | `Adapter("an audit by a model outside the family that produced the work")` | E4+ |
 
 ## Binding Commitment
 

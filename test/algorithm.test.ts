@@ -394,6 +394,78 @@ test("a capabilities.local.md row overrides the bundled table of the same name",
   });
 });
 
+test("an Adapter(...) row registers a contract-declared capability", async () => {
+  // soma#574: some capabilities are doctrine everywhere and invocable nowhere in
+  // particular (a second opinion, a coder from another model family). The
+  // `adapter` kind already existed in the type but no table row could produce
+  // it, so it was reachable only from a skill manifest.
+  await withTempHome(async (homeDir) => {
+    const references = join(homeDir, ".soma", "skills", "the-algorithm", "references");
+    await mkdir(references, { recursive: true });
+    await writeFile(
+      join(references, "capabilities.local.md"),
+      [
+        "| Capability | Phases | Trigger Signal | Invoke | Typical Cost |",
+        "|------------|--------|----------------|--------|--------------|",
+        '| CrossFamilyAudit | VERIFY | Deep work before completion | `Adapter("an audit by a model outside the family that produced the work")` | E4+ |',
+        // Contract text mentioning a sub-agent must not be misread as an Agent( row.
+        '| SecondOpinion | THINK | Commitment boundary | `Adapter("ask a sub-agent or a second model that did not produce the work")` | E3+ |',
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir });
+
+    expect(registry.definitions.find((definition) => definition.name === "CrossFamilyAudit")).toMatchObject({
+      kind: "adapter",
+      phases: ["verify"],
+      invoke: { contract: "adapter", target: "an audit by a model outside the family that produced the work" },
+    });
+    expect(registry.definitions.find((definition) => definition.name === "SecondOpinion")).toMatchObject({
+      kind: "adapter",
+      invoke: { target: "ask a sub-agent or a second model that did not produce the work" },
+    });
+    expect(registry.unsupported).toEqual([]);
+  });
+});
+
+test("a local binding replaces an adapter declaration with a concrete invocation", async () => {
+  // The point of the adapter kind: ship the contract, let whoever can satisfy it
+  // bind the mechanism. The local table is read first, so a same-named binding wins.
+  await withTempHome(async (homeDir) => {
+    const references = join(homeDir, ".soma", "skills", "the-algorithm", "references");
+    await mkdir(references, { recursive: true });
+    await writeFile(
+      join(references, "capabilities.md"),
+      [
+        "| Capability | Phases | Trigger Signal | Invoke | Typical Cost |",
+        "|------------|--------|----------------|--------|--------------|",
+        '| Advisor | THINK | Commitment boundary | `Adapter("a second opinion from something that did not produce the work")` | E3+ |',
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    await writeFile(
+      join(references, "capabilities.local.md"),
+      [
+        "| Capability | Phases | Trigger Signal | Invoke | Typical Cost |",
+        "|------------|--------|----------------|--------|--------------|",
+        '| Advisor | VERIFY | My own second opinion | `Bash("advisor --mode second-opinion")` | E3+ |',
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir });
+
+    expect(registry.definitions.find((definition) => definition.name === "Advisor")).toMatchObject({
+      kind: "command",
+      phases: ["verify"],
+    });
+  });
+});
+
 test("an unresolvable local row disables the capability rather than falling back to the bundled row", async () => {
   // Retargeting a capability at a skill you do not have is a mistake worth
   // seeing. Silently serving the shipped row instead would hide it.

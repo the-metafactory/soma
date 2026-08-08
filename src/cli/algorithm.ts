@@ -35,7 +35,7 @@ import type { BridgedNodeReport, ReflectionForDigest } from "../index";
 // error shape free to change without a public-API break.
 import { VerificationGateError } from "../algorithm";
 import { readFile } from "node:fs/promises";
-import { registerSomaHomeAlgorithmCapabilities } from "../algorithm-capabilities";
+import { loadSomaHomeAlgorithmCapabilityRegistry, registerSomaHomeAlgorithmCapabilities } from "../algorithm-capabilities";
 import { defaultSomaHome } from "../paths";
 import { syncAlgorithmRunFromVsa, formatSyncResult } from "../algorithm-vsa-sync";
 import { algorithmTouchedBy } from "../algorithm-provenance";
@@ -89,7 +89,7 @@ export const ALGORITHM_COMMAND_HELP: { usage: string; subcommands: Record<Algori
     batch: "Usage: soma algorithm batch --id <run-id> --op <kind:...> [--op <kind:...>] [--substrate <id>]",
     list: "Usage: soma algorithm list [--home-dir <dir>] [--soma-home <dir>]",
     show: "Usage: soma algorithm show --id <run-id> [--home-dir <dir>] [--soma-home <dir>]",
-    capabilities: "Usage: soma algorithm capabilities --id <run-id> --capability <name> [--phase <phase>] [--reason <text>] [--home-dir <dir>] [--soma-home <dir>]",
+    capabilities: "Usage: soma algorithm capabilities (--list [--substrate <id>] [--json] | --id <run-id> --capability <name> [--phase <phase>] [--reason <text>]) [--home-dir <dir>] [--soma-home <dir>]. --list shows the resolved registry (the closed vocabulary for THIS machine) plus any rows that resolved to nothing.",
     invoke: "Usage: soma algorithm invoke --id <run-id> --capability <name> --evidence <text> [--substrate <id>] [--home-dir <dir>] [--soma-home <dir>]",
     "remove-capability": "Usage: soma algorithm remove-capability --id <run-id> --capability <name> --reason <text> [--home-dir <dir>] [--soma-home <dir>]",
     plan: "Usage: soma algorithm plan --id <run-id> --step <id:criteria:text> [--home-dir <dir>] [--soma-home <dir>]",
@@ -149,6 +149,7 @@ interface AlgorithmCliOptions {
   untilPhase?: AlgorithmPhase;
   batchOperations?: AlgorithmBatchOperation[];
   json?: boolean;
+  listCapabilities?: boolean;
   vsaPath?: string;
   promoteOnComplete?: boolean;
   principalAuthority?: boolean;
@@ -531,6 +532,9 @@ export function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
         batchOperations.push(...parseBatchOperationsJson(readOption(rest, index, arg)));
         index += 1;
         break;
+      case "--list":
+        options.listCapabilities = true;
+        break;
       case "--json":
         options.json = true;
         break;
@@ -616,6 +620,33 @@ function formatAlgorithmRunResult(result: { path: string; run: AlgorithmRun }): 
     `effort: ${result.run.effort}`,
     `path: ${result.path}`,
   ].join("\n");
+}
+
+function formatAlgorithmCapabilityRegistry(registry: {
+  definitions: { name: string; kind: string; phases: string[]; invoke: { target: string } }[];
+  unsupported: string[];
+}): string {
+  const lines = [`Soma Algorithm capability registry — ${registry.definitions.length} resolved`, ""];
+
+  for (const definition of [...registry.definitions].sort((a, b) => a.name.localeCompare(b.name))) {
+    // An adapter capability is declared by contract and bound by whoever can
+    // satisfy it; flag it so "resolved" is not read as "invocable here".
+    const suffix = definition.kind === "adapter" ? "  ← needs a local binding" : "";
+    lines.push(`- ${definition.name} [${definition.kind}] ${definition.phases.join(",")} → ${definition.invoke.target}${suffix}`);
+  }
+
+  if (registry.unsupported.length > 0) {
+    lines.push(
+      "",
+      `Unsupported — ${registry.unsupported.length} row(s) resolved to nothing and were dropped:`,
+      ...registry.unsupported.map((name) => `- ${name}`),
+      "",
+      "A dropped row is not selectable. Usual causes: a Skill(\"…\") target this home",
+      "does not have, or an invoke cell in none of the recognised shapes.",
+    );
+  }
+
+  return lines.join("\n");
 }
 
 function formatAlgorithmClassification(prompt: string): string {
@@ -878,8 +909,26 @@ export async function runAlgorithmCli(
 
   if (parsed.action === "capabilities") {
     const capabilities = options.capabilities ?? [];
+    // soma#574: the capability vocabulary is closed but PER-MACHINE — it resolves
+    // from the bundled table, the adopter's capabilities.local.md, skill
+    // manifests, and every installed skill. Doctrine tells the agent to select
+    // names verbatim from that registry and treat anything else as a phantom,
+    // which was unactionable while no verb could show it. `unsupported` was
+    // likewise computed and never surfaced, so a row that resolved to nothing
+    // was indistinguishable from a row nobody wrote.
+    if (options.listCapabilities === true) {
+      const registry = await loadSomaHomeAlgorithmCapabilityRegistry({
+        homeDir: options.homeDir,
+        somaHome: options.somaHome,
+        substrate: options.substrate,
+      });
+      if (options.json === true) {
+        return JSON.stringify(registry, null, 2);
+      }
+      return formatAlgorithmCapabilityRegistry(registry);
+    }
     if (capabilities.length === 0) {
-      throw new Error("--capability is required.");
+      throw new Error("--capability is required (or --list to show the resolved registry).");
     }
     if (capabilities.length > 1 && options.capabilityReason) {
       throw new Error("--reason can only be used with one --capability at a time.");

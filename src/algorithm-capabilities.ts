@@ -300,6 +300,31 @@ function inlineInvocationTarget(value: string): string | undefined {
   return undefined;
 }
 
+/**
+ * `Adapter("<contract>")` — a capability declared by its CONTRACT rather than by
+ * a concrete invocation, for work no single substrate can express portably: a
+ * second opinion, a coder from another model family, a cross-family audit
+ * (soma#574).
+ *
+ * The `adapter` kind already existed in `AlgorithmCapabilityKind` but no table
+ * row could produce it, so it was reachable only from a skill manifest. This is
+ * the row form.
+ *
+ * An adapter capability is DECLARED here and BOUND by whoever can satisfy it —
+ * a same-named row in `capabilities.local.md`, which is read first and wins.
+ * Unbound, it is still selectable and still counts toward a tier floor, and
+ * that is deliberate rather than an oversight: `assertAlgorithmCapabilitiesSatisfied`
+ * refuses COMPLETE for any selected capability that was never invoked, so an
+ * unbound adapter fails the run loudly at the gate instead of quietly passing
+ * as a phantom.
+ */
+function adapterInvocationTarget(value: string): string | undefined {
+  // `??` cannot stand in for the emptiness check: a whitespace-only contract
+  // trims to "", which is not nullish but is not a contract either.
+  const contract = /Adapter\("([^"]+)"/.exec(value)?.[1]?.trim();
+  return contract !== undefined && contract.length > 0 ? contract : undefined;
+}
+
 function buildCapabilityDefinition(
   name: string,
   kind: AlgorithmCapabilityDefinition["kind"],
@@ -427,6 +452,14 @@ function registerCapabilityTableRows(
     const agentTarget = agentInvocationTarget(invokeCell, name);
     const commandTarget = commandInvocationTarget(invokeCell);
     const inlineTarget = inlineInvocationTarget(invokeCell);
+    // Checked before `agent`: `Adapter("spawn a sub-agent …")` must not be read
+    // as an Agent( row by the substring match below.
+    const adapterTarget = adapterInvocationTarget(invokeCell);
+
+    if (adapterTarget) {
+      definitions.set(name, buildCapabilityDefinition(name, "adapter", phases, triggerSignals, adapterTarget));
+      continue;
+    }
 
     if (skillTarget) {
       const targetSkill = availableSkills.byKey.get(normalizeCapabilityKey(skillTarget));
