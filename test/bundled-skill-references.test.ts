@@ -85,4 +85,42 @@ describe("bundled skill references", () => {
     );
     expect(staleBundledTargets).toEqual([]);
   });
+
+  test("no bundled skill instructs the agent toward a PAI-only path or an unsubstituted placeholder", async () => {
+    // These accumulate silently because they keep WORKING on the machine that
+    // authored them: `~/.claude/PAI/TOOLS/…` resolves there, and a `{{DA_NAME}}`
+    // reads as a name to whoever already knows what it stands for. On a fresh
+    // install the path is absent and the placeholder ships as literal text.
+    // Nothing substitutes these at projection time — rewriteSubstrateProjectionContent
+    // returns claude-code's copy verbatim and does no templating for anyone else.
+    // soma#574.
+    const FORBIDDEN: { pattern: RegExp; why: string }[] = [
+      { pattern: /~\/\.claude\//g, why: "Claude-home path in a portable skill" },
+      { pattern: /\bPAI\/(?:TOOLS|MEMORY|ALGORITHM|DOCUMENTATION)\b/g, why: "PAI tree path" },
+      // Identity placeholders only. `{{SHA}}` / `{{VERSION}}` and friends are
+      // sample values inside example documents — a generic `{{[A-Z_]+}}` would
+      // flag those and train everyone to ignore this test.
+      { pattern: /\{\{(?:DA_NAME|PRINCIPAL_NAME|ASSISTANT_NAME|HARNESS_USER_DIR)\}\}/g, why: "unsubstituted identity placeholder" },
+    ];
+
+    // `migrate-pai-purpose` exists to migrate a principal OFF PAI. Naming
+    // `~/.claude/…` is its subject matter, not residue.
+    const EXEMPT = new Set(["migrate-pai-purpose"]);
+
+    const found: string[] = [];
+    for (const skill of await listBundledSkills()) {
+      if (EXEMPT.has(skill)) continue;
+      const skillRoot = join(SKILLS_ROOT, skill);
+      for (const file of await walkMarkdown(skillRoot)) {
+        const body = await readFile(file, "utf8");
+        for (const { pattern, why } of FORBIDDEN) {
+          for (const match of body.matchAll(pattern)) {
+            found.push(`${skill}/${relative(skillRoot, file)}: ${why} — ${match[0]}`);
+          }
+        }
+      }
+    }
+
+    expect(found).toEqual([]);
+  });
 });

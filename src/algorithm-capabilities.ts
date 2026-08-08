@@ -392,20 +392,26 @@ function maybeRegisterSkillCapability(
   definitions.set(definition.name, definition);
 }
 
-export async function loadSomaHomeAlgorithmCapabilityRegistry(
-  options: SomaHomeAlgorithmCapabilityOptions = {},
-): Promise<SomaHomeAlgorithmCapabilityRegistry> {
-  const somaHome = resolveSomaHome(options);
-  const referencePath = join(somaHome, "skills", "the-algorithm", "references", "capabilities.md");
-  const markdown = await readFile(referencePath, "utf8").catch(() => "");
-  const availableSkills = await loadAvailableSkills(somaHome);
-  const definitions = new Map<string, AlgorithmCapabilityDefinition>();
-  const unsupported = new Set<string>();
+/** The bundled capability table — overwritten byte-for-byte on every install. */
+export const CAPABILITY_REFERENCE_FILE = "capabilities.md";
 
-  for (const skill of availableSkills.skills) {
-    maybeRegisterSkillCapability(definitions, unsupported, skill, options.substrate, { requireManifestCapability: true });
-  }
+/**
+ * The adopter's capability table (soma#574). `installBundledSkillsIntoHome`
+ * rewrites every bundled file on each run but leaves principal-added files under
+ * a skill dir alone, so this sibling is the ONLY place in the skill dir where a
+ * principal's own rows survive an install. Read after the bundled table and, on
+ * a name collision, kept — so an adopter can narrow or retarget a shipped
+ * capability without editing a file that will be replaced under them.
+ */
+export const CAPABILITY_LOCAL_REFERENCE_FILE = "capabilities.local.md";
 
+function registerCapabilityTableRows(
+  markdown: string,
+  definitions: Map<string, AlgorithmCapabilityDefinition>,
+  unsupported: Set<string>,
+  availableSkills: Awaited<ReturnType<typeof loadAvailableSkills>>,
+  substrate: SubstrateId | undefined,
+): void {
   for (const row of markdown ? parseMarkdownTableRows(markdown) : []) {
     const name = stripCapabilityLabel(row[0] ?? "");
     const phaseCell = row[1] ?? "";
@@ -428,7 +434,7 @@ export async function loadSomaHomeAlgorithmCapabilityRegistry(
         unsupported.add(name);
         continue;
       }
-      if (!isSubstrateSupported(targetSkill.manifest, options.substrate)) {
+      if (!isSubstrateSupported(targetSkill.manifest, substrate)) {
         unsupported.add(name);
         continue;
       }
@@ -454,6 +460,32 @@ export async function loadSomaHomeAlgorithmCapabilityRegistry(
 
     unsupported.add(name);
   }
+}
+
+export async function loadSomaHomeAlgorithmCapabilityRegistry(
+  options: SomaHomeAlgorithmCapabilityOptions = {},
+): Promise<SomaHomeAlgorithmCapabilityRegistry> {
+  const somaHome = resolveSomaHome(options);
+  const referenceDir = join(somaHome, "skills", "the-algorithm", "references");
+  const [localMarkdown, markdown] = await Promise.all([
+    readFile(join(referenceDir, CAPABILITY_LOCAL_REFERENCE_FILE), "utf8").catch(() => ""),
+    readFile(join(referenceDir, CAPABILITY_REFERENCE_FILE), "utf8").catch(() => ""),
+  ]);
+  const availableSkills = await loadAvailableSkills(somaHome);
+  const definitions = new Map<string, AlgorithmCapabilityDefinition>();
+  const unsupported = new Set<string>();
+
+  for (const skill of availableSkills.skills) {
+    maybeRegisterSkillCapability(definitions, unsupported, skill, options.substrate, { requireManifestCapability: true });
+  }
+
+  // Local first: rows are kept on a name collision, and the row loop skips a
+  // name already registered. A local row that cannot resolve still lands in
+  // `unsupported`, which also blocks the bundled row of the same name — an
+  // adopter who retargets a capability at a skill they do not have has
+  // disabled it, and should see that rather than silently fall back.
+  registerCapabilityTableRows(localMarkdown, definitions, unsupported, availableSkills, options.substrate);
+  registerCapabilityTableRows(markdown, definitions, unsupported, availableSkills, options.substrate);
 
   for (const skill of availableSkills.skills) {
     maybeRegisterSkillCapability(definitions, unsupported, skill, options.substrate, { requireManifestCapability: false });

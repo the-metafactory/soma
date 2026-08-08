@@ -356,6 +356,68 @@ test("loads migrated PAI Algorithm skill capabilities from Soma home", async () 
   });
 });
 
+test("a capabilities.local.md row overrides the bundled table of the same name", async () => {
+  // soma#574: install rewrites the bundled capabilities.md on every run but
+  // leaves principal-added files alone, so the sibling .local.md is the only
+  // place an adopter's rows survive. Read first, so a local row wins.
+  await withTempHome(async (homeDir) => {
+    await writeAlgorithmCapabilitiesReference(homeDir);
+    await writeSkill(homeDir, "first-principles", "FirstPrinciples");
+    await writeSkill(homeDir, "systems-thinking", "SystemsThinking");
+    await writeFile(
+      join(homeDir, ".soma", "skills", "the-algorithm", "references", "capabilities.local.md"),
+      [
+        "| Capability | Phases | Trigger Signal | Invoke | Typical Cost |",
+        "|------------|--------|----------------|--------|--------------|",
+        // Same name as a bundled row, retargeted at a different skill and phase.
+        '| FirstPrinciples | VERIFY | Retargeted locally | `Skill("SystemsThinking")` | E1+ |',
+        // A name the bundled table does not carry at all.
+        '| LocalOnly | PLAN | Adopter-specific capability | *(inline doctrine step - no external tool)* | E1+ |',
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir });
+
+    expect(registry.definitions.find((definition) => definition.name === "FirstPrinciples")).toMatchObject({
+      kind: "skill",
+      phases: ["verify"],
+      invoke: { contract: "skill", target: "SystemsThinking" },
+    });
+    expect(registry.definitions.find((definition) => definition.name === "LocalOnly")).toMatchObject({
+      kind: "inline",
+      phases: ["plan"],
+    });
+    // The bundled table still supplies everything the local one does not name.
+    expect(registry.definitions.find((definition) => definition.name === "Forge")).toMatchObject({ kind: "agent" });
+  });
+});
+
+test("an unresolvable local row disables the capability rather than falling back to the bundled row", async () => {
+  // Retargeting a capability at a skill you do not have is a mistake worth
+  // seeing. Silently serving the shipped row instead would hide it.
+  await withTempHome(async (homeDir) => {
+    await writeAlgorithmCapabilitiesReference(homeDir);
+    await writeSkill(homeDir, "first-principles", "FirstPrinciples");
+    await writeFile(
+      join(homeDir, ".soma", "skills", "the-algorithm", "references", "capabilities.local.md"),
+      [
+        "| Capability | Phases | Trigger Signal | Invoke | Typical Cost |",
+        "|------------|--------|----------------|--------|--------------|",
+        '| FirstPrinciples | THINK | Points at a skill this home lacks | `Skill("NotInstalled")` | E2+ |',
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir });
+
+    expect(registry.unsupported).toContain("FirstPrinciples");
+    expect(registry.definitions.find((definition) => definition.name === "FirstPrinciples")).toBeUndefined();
+  });
+});
+
 test("prefers explicit skill manifest Algorithm capability metadata", async () => {
   await withTempHome(async (homeDir) => {
     await writeAlgorithmCapabilitiesReference(homeDir);

@@ -8,7 +8,7 @@
 
 **The ISA is one primitive with five identities.** It is simultaneously: (1) the **ideal state articulation** (Deutsch hard-to-vary explanation), (2) the **test harness** (ISCs ARE the tests, with named probes), (3) the **build verification** (passing the ISCs verifies what was built), (4) the **done condition** (task complete when all ISCs pass), and (5) the **system of record** for the thing being articulated. Don't invent parallel artifacts (acceptance.yaml, acceptance.ts, separate test specs) — the ISA already covers this surface. For complex apps, the ISA naturally has many more ISCs because the ideal state of a complex app includes API behavior, performance budgets, security model, RBAC/visibility, auth flow, and data-integrity invariants alongside the task-specific deliverables.
 
-**The unit is the thing being articulated, not the task.** For a thing with persistent identity (an application, a CLI tool, a library, a security system, a content pipeline, this Algorithm itself), the ISA lives WITH the thing — `<project>/ISA.md` in its repo — and is the system of record for it. Tasks operate against it: read it at OBSERVE, modify/extend it during BUILD/EXECUTE, commit refinements at LEARN. Iteration on the project IS iteration on the ISA. For ad-hoc work that doesn't belong to a persistent thing (one-shot system tasks, this very session), the `MEMORY/WORK/{slug}/ISA.md` pattern stays — that's the ISA of a one-shot effort.
+**The unit is the thing being articulated, not the task.** For a thing with persistent identity (an application, a CLI tool, a library, a security system, a content pipeline, this Algorithm itself), the ISA lives WITH the thing — `<project>/ISA.md` in its repo — and is the system of record for it. Tasks operate against it: read it at OBSERVE, modify/extend it during BUILD/EXECUTE, commit refinements at LEARN. Iteration on the project IS iteration on the ISA. For ad-hoc work that doesn't belong to a persistent thing (one-shot system tasks, this very session), the `<soma-home>/memory/WORK/{slug}/ISA.md` pattern stays — that's the ISA of a one-shot effort.
 
 **The ISA has twelve sections (NEW v6.2.0).** Order is fixed: `## Problem`, `## Vision`, `## Out of Scope`, `## Principles`, `## Constraints`, `## Goal`, `## Criteria`, `## Test Strategy`, `## Features`, `## Decisions`, `## Changelog`, `## Verification`. Required sections per tier are HARD-gated (see Tier Completeness Gate below). Empty sections never appear — Bitter Pill discipline preserved. Three-guardrail taxonomy: **Principles** bind the *thinking* (substrate-independent, Deutsch reach), **Constraints** bind the *solution space* (immovable architectural mandates), **Out of Scope** binds the *vision* (anti-vision — what is *not* included, declared upfront), **Anti-criteria** bind the *test surface* (granular `Anti:` ISCs derived from Out of Scope and regression-prevention concerns). The first three are author-stated; anti-criteria are derived probes.
 
@@ -43,7 +43,7 @@ The closed list (verbatim names — copy/paste into `🏹 CAPABILITIES SELECTED`
 - **IterativeDepth** — multi-angle exploration; default at Extended+ when budget allows
 - **ApertureOscillation** — tactical/strategic scope oscillation
 - **FeedbackMemoryConsult** — grep prior `feedback_*.md` for matching mistakes
-- **Advisor** — commitment-boundary second-opinion via `Inference.ts --mode advisor`
+- **Advisor** — commitment-boundary second opinion from a capability the registry provides
 - **ReReadCheck** — final gate, re-read user's last message verbatim
 - **FirstPrinciples** — physics-style deconstruct/challenge/rebuild
 - **SystemsThinking** — Iceberg, causal loops, Meadows leverage points
@@ -57,65 +57,65 @@ The closed list (verbatim names — copy/paste into `🏹 CAPABILITIES SELECTED`
 - **Evals** — code/model/human grader scoring
 - **WorldThreatModel** — 11-horizon stress-test
 - **Fabric patterns** — `Skill("Fabric", "<pattern>")` (extract_wisdom, etc.)
-- **ContextSearch** — 2-phase prior PAI work search
+- **ContextSearch** — 2-phase prior-work search
 - **ISA** — `Skill("VSA", "<verb> ...")` (counts when invoked for analytical purpose, not just for boilerplate scaffolding)
 
 If a name does not appear in this list verbatim, it is a phantom. Nothing external enforces that — the audit gate below is a self-check you run before printing the selection line, not a mechanism that rejects on your behalf. New thinking capabilities are added by editing `references/capabilities.md` and bumping the Algorithm minor version — never by ad-hoc invention at run time.
 
 **Capability-Name Audit Gate (NEW v6.3.0, fires at OBSERVE→THINK boundary):** before printing `🏹 CAPABILITIES SELECTED`, verify each thinking name appears verbatim in the closed list above. Any miss is a phantom — split, replace from the list, or remove. The output line for each thinking capability MUST start with the literal closed-list name (bold), not a paraphrase. Example correct: `🏹 **FirstPrinciples** → THINK | …`. Example REJECTED: `🏹 First-principles decomposition → THINK | …`.
 
-**2. Delegation-capability floor (SOFT, v6.1.0).** Delegation capabilities (Forge, Anvil, Cato, Agent Teams, Custom Agents, Background Agents, Worktree Isolation, Research, etc.) remain show-your-math relaxable — sometimes the work is genuinely single-author and delegation adds noise.
+**2. Delegation-capability floor (SOFT, v6.1.0).** Delegation capabilities (sub-agents, agent teams, isolated worktrees, out-of-family model calls, research fan-out — whatever the registry offers) remain show-your-math relaxable — sometimes the work is genuinely single-author and delegation adds noise.
 
-**Tier intent.** Users must feel a dramatic speed range across tiers. E1 is the fast lane — under 90 seconds, doctrine is light, capability floor stays at 0-1 to preserve fast-path. E2 is structured-but-quick. E3 is substantial middle-tier work. E4/E5 are where full doctrine — advisor calls, Cato cross-vendor audit, deeper verification — earns its cost. Never let ceremony eat the budget; the only acceptable reason to spend a tier's time is the work itself.
+**Tier intent.** Users must feel a dramatic speed range across tiers. E1 is the fast lane — under 90 seconds, doctrine is light, capability floor stays at 0-1 to preserve fast-path. E2 is structured-but-quick. E3 is substantial middle-tier work. E4/E5 are where full doctrine — second opinions, the cross-family audit, deeper verification — earns its cost. Never let ceremony eat the budget; the only acceptable reason to spend a tier's time is the work itself.
 
 ### Mode Classification (v6.3.0)
 
-**Mode and tier are decided by a Sonnet classifier at UserPromptSubmit, not by the executor.** `hooks/PromptProcessing.hook.ts` runs on every top-level prompt, calls Sonnet via the same subscription-billed `claude` subprocess pattern Inference.ts uses, and writes a single line into additionalContext:
+**Mode and tier come from the harness classifier, not from the executor's judgment.** Run it directly:
 
-```
-MODE: MINIMAL | NATIVE | ALGORITHM   (always present)
-TIER: E1 | E2 | E3 | E4 | E5         (present iff MODE=ALGORITHM)
-REASON: <one sentence>
-SOURCE: classifier | fail-safe
+```bash
+<prefix> algorithm classify --prompt "..." [--json]
 ```
 
-The executor reads this directly. **No regex fallback. No model judgment.** If `MODE` is MINIMAL or NATIVE, the executor uses the corresponding format from CLAUDE.md and stops. If `MODE` is ALGORITHM, the executor enters the Algorithm at the named `TIER`.
+It returns `mode`, `effort` (when `mode` is `algorithm`), `source`, and a one-sentence `reason`. `algorithm new` runs the same classifier when `--effort` is omitted. The contract is data, not a model call — `ALGORITHM_CLASSIFIER_CONTRACT` holds the pattern set so substrate adapters project the classifier into generated extension code and classify identically rather than each inventing their own regexes.
 
-**Classifier rules (encoded in the hook's system prompt):**
+Where a substrate can classify before the executor sees the prompt (a Claude Code `UserPromptSubmit` hook, for example), it injects the result as context and the executor honours it. Where it cannot, the executor calls the verb. Same contract either way — the injection is an optimisation, not the mechanism.
 
-- **MINIMAL** — greetings, ratings, single-token acknowledgments.
-- **NATIVE** — single fact lookup OR single-line edit on a named file OR one command run, AND no new artifact created, AND no multi-step plan.
-- **ALGORITHM** — everything else. Includes any build/create/make/implement/design/refactor/migrate/integrate request, anything touching multiple files, anything ambiguous, anything affecting doctrine/system-prompt/hooks/CLAUDE.md/Algorithm/ISA, anything spanning multiple projects, any meta-question about the system itself.
-- **Tier (ALGORITHM only)** — E1 trivial (~<90s), E2 single-domain (~3min), E3 multi-file substantial (~10min), E4 cross-cutting/doctrine/architecture (~30min), E5 comprehensive (>2h). Bias higher when in doubt.
+**The three modes** — `AlgorithmMode` is exactly these, no more:
+
+- **`minimal`** — a bare acknowledgement, matched against a fixed list ("ok", "thanks", "looks good", "do it", …) after lowercasing, stripping `.!?,'"`, and collapsing whitespace. Exact match only.
+- **`native`** — ordinary work the substrate handles directly, matched on status questions, `what/who/when/where is|are`, `how does|do|did`, run-a-command asks, read/show/inspect asks, and one-line typo/rename fixes — **and only when the prompt is under 180 characters.** The ceiling is load-bearing: a long prompt that merely contains a native phrase is not native.
+- **`algorithm`** — everything else, and the fall-through. Failing to match an algorithm-shaped pattern does not route work to `native`; only a positive native match does.
+
+**Effort tiers**, first match wins on the lowercased prompt, defaulting to E1:
+
+| Tier | Matches on |
+|------|-----------|
+| E5 | comprehensive, no time pressure, exhaustive, full migration, whole system |
+| E4 | deep, architecture, doctrine, cross-cutting, security model, policy enforcement |
+| E3 | substantial, multi-file, multiple files, migration, port, adapter, daemon, framework, bootstrap, refactor |
+| E2 | thorough, quality, structured, workflow, harness, criteria, verify, test(s), clear reasoning, implication(s), purpose-aligned, surprising, strategy |
+| E1 | (default) |
 
 **Override hierarchy (executor side):**
 
-1. Explicit `/e1`–`/e5` in the prompt forces tier (and forces ALGORITHM mode if MINIMAL/NATIVE was returned).
-2. Otherwise honor classifier output verbatim.
-3. **Conversation-context override:** if the classifier returns MINIMAL/NATIVE on a prompt that the conversation context makes clearly ALGORITHM-shaped (e.g., "yes" answering a multi-step proposal, "do it" approving an architecture change), the executor escalates to the appropriate tier and notes the mismatch in `## Decisions`. The classifier sees the prompt in isolation; the executor sees the thread.
+1. Explicit `/e1`–`/e5` or `E1`–`E5` as a standalone token forces the tier and forces `algorithm` mode. Recorded as `source: explicit` — an override, not a hint.
+2. Otherwise honour the classifier verbatim, `source: auto`.
+3. **Conversation-context override:** the classifier sees one prompt in isolation; the executor sees the thread. A "yes" answering a multi-step proposal, or a "do it" approving an architecture change, classifies as `minimal` on its own text. Escalate, and log the mismatch in `## Decisions` as `source: context-override`.
 
-**Fail-safe.** Any classifier error path — timeout (25s), non-zero exit, unparseable JSON — defaults to ALGORITHM E3 with `SOURCE: fail-safe` in REASON. Conservative-by-default: under-escalation is the failure mode this system was built to prevent.
+**Fail-safe.** An empty prompt returns `algorithm` at **E3** with `source: fail-safe`. Unclassifiable input fails toward more rigour, never less — under-escalation is the failure mode this design exists to prevent.
 
-**Telemetry.** Every classification is logged to `MEMORY/OBSERVABILITY/mode-classifier.jsonl` with prompt excerpt, mode, tier, reason, source, and latency. Audit weekly: classifier-vs-fail-safe ratio, average latency, downstream override rate.
+**Carry the source through.** A tier that was explicitly asked for and a tier that was guessed are different facts, and only the second is worth re-examining when the work turns out larger than it looked.
 
-**Coverage.** The classifier fires on `UserPromptSubmit` — top-level prompts only. Subagent prompts inherit whatever the primary picked. Sonnet latency adds ~3-8s per prompt; this is the deliberate cost of better judgment than regex could provide.
+### Phase Announcements
 
-### Voice Announcements
-
-At Algorithm entry and every phase transition, announce via direct inline curl. **Voice is audio-only** — the dashboard's `phase` and `phaseHistory` are driven by ISA frontmatter edits.
-
-```bash
-curl -s -X POST http://localhost:31337/notify \
-  -H "Content-Type: application/json" \
-  -d '{"message": "MESSAGE", "voice_id": "fTtv3eikoepIosk8dTZ5", "voice_enabled": true}'
-```
+At Algorithm entry and every phase transition, print the phase header. That header is the portable announcement — every substrate can render text.
 
 **Algorithm entry:** `"Entering the Algorithm"` — before OBSERVE.
-**Phase transitions:** `"Entering the PHASE_NAME phase."` — first action at each phase.
+**Phase transitions:** the `━━━ PHASE ━━━ N/7` line, as the first output of each phase.
 
-**Only the primary agent** may execute voice curls. Subagents skip voice.
+A substrate may layer richer signalling on top — a notification surface, a voice endpoint, a status line, a tab title. Where one exists, announce through it as well; where none does, the header alone satisfies this. Do not make the run's progress depend on a channel a substrate may not have, and never let a subagent announce on the primary's behalf.
 
-**Phase tracking is single-source:** when you Edit the ISA frontmatter `phase: <new>`, `ISASync.hook.ts` (PostToolUse Edit/Write) syncs to `work.json` AND updates the kitty tab via `setPhaseTab()`.
+**Phase tracking is single-source: the harness run.** `<prefix> algorithm advance` moves the phase and is the deterministic gate — it refuses the transition when required capabilities, plan steps, build changes, verification, or learning are missing. The VSA's `phase:` frontmatter mirrors that state for a human reader; it does not drive it. Edit both, but read the run.
 
 ### ISA as System of Record (revised v6.2.0)
 
@@ -123,7 +123,7 @@ The ISA is the single source of truth for the thing being articulated. The AI wr
 
 **Two ISA homes:**
 - **Project ISAs** (v6.0.0+): `<project>/ISA.md` — for any thing with persistent identity. The ISA lives in the project's repo as system of record. Iteration on the project IS iteration on this ISA.
-- **Task ISAs**: `MEMORY/WORK/{slug}/ISA.md` — for ad-hoc work that doesn't belong to a persistent thing. One-shot tasks, system-design sessions, ephemeral investigations.
+- **Task ISAs**: `<soma-home>/memory/WORK/{slug}/ISA.md` — for ad-hoc work that doesn't belong to a persistent thing. One-shot tasks, system-design sessions, ephemeral investigations.
 
 The format is identical for both. Project ISAs grow continuously across many tasks; task ISAs are created at OBSERVE and archived at `phase: complete`.
 
@@ -167,7 +167,7 @@ The `CheckCompleteness` workflow enforces this gate. A miss blocks `phase: compl
 - EXECUTE / VERIFY / LEARN: `Skill("VSA", "append <type> to <isa-path>: <content>")` — canonical writer for Decisions / Changelog / Verification.
 - LEARN: `Skill("VSA", "reconcile <ephemeral> → <master>")` — deterministic merge after ephemeral feature work.
 
-**v6.2.x deferred:** parser updates so `ISASync.hook.ts`, `CheckpointPerISC.hook.ts`, and `hooks/lib/isa-utils.ts` automatically discover `<project>/ISA.md` alongside `MEMORY/WORK/` paths and parse the twelve-section frame; Pulse rendering for two homes; project-ISA seeding migration; the VSA skill's `Tools/*.ts` CLI implementations. Until then, the model uses Read/Edit/Write tools and invokes the skill's workflows directly.
+**Writing the VSA:** the model uses its substrate's read/edit/write tools and invokes the skill's workflows directly. There is no hook that parses or rewrites the file on your behalf — what the run knows is what you recorded through `<prefix> algorithm`.
 
 ### ISC Quality System
 
@@ -226,27 +226,27 @@ Modes (ideate, optimize) accept tunable parameters. Full schema and presets: `re
 
 **Entry banner was already printed by CLAUDE.md.** The user has seen:
 ```
-♻︎ Entering the PAI ALGORITHM… (v6.2.0) ═════════════
+♻︎ Entering the Algorithm… ═════════════
 🗒️ TASK: [8 word description]
 ```
 
-**Voice** (FIRST action after loading this file): `"Entering the Algorithm"`
+**Announce entry** (first action after loading this file): `"Entering the Algorithm"`
 
-**ISA stub** (immediately after voice):
-1. Determine ISA home: project ISA at `<project>/ISA.md` if task targets existing project; task ISA at `MEMORY/WORK/{slug}/ISA.md` for ad-hoc work
+**VSA stub** (immediately after the entry announcement):
+1. Determine ISA home: project ISA at `<project>/ISA.md` if task targets existing project; task ISA at `<soma-home>/memory/WORK/{slug}/ISA.md` for ad-hoc work
 2. **Invoke `Skill("VSA", "scaffold from prompt: <user message> at tier <tier>")`** — returns the populated ISA at canonical location with required sections per tier (NEW v6.2.0; replaces inline ISA construction)
-3. For task ISAs the skill creates `~/.claude/PAI/MEMORY/WORK/{slug}/`; for project ISAs the skill reads existing `<project>/ISA.md` if present, or seeds it via the Seed workflow
+3. For task ISAs the skill creates `<soma-home>/memory/WORK/{slug}/`; for project ISAs the skill reads existing `<project>/ISA.md` if present, or seeds it via the Seed workflow
 4. Skill output is the path; Algorithm reads/edits it via Read/Edit tools through subsequent phases
 
 **E1 fast-path exception:** at E1, the Algorithm may inline-write the minimal Goal+Criteria ISA without invoking the skill, to preserve the <90s budget. The skill invocation is mandatory at E2+.
 
-**Phase header** (MANDATORY at each transition): Output the phase line FIRST, before voice curl and ISA edit.
+**Phase header** (MANDATORY at each transition): Output the phase line FIRST, before any other announcement or VSA edit.
 
 ━━━ 👁️ OBSERVE ━━━ 1/7
 
 ### 🎯 INTENT ECHO (MANDATORY FIRST ACTION)
 
-Before voice, before ISA, before mode detection — restate the user's request in ONE sentence. If you cannot restate it accurately, re-read the user's message.
+Before the VSA, before mode detection — restate the user's request in ONE sentence. If you cannot restate it accurately, re-read the user's message.
 
 **OUTPUT:** `🎯 INTENT: [one-sentence restatement of what user actually asked for]`
 
@@ -254,7 +254,7 @@ This line anchors the entire Algorithm run.
 
 ---
 
-**NEXT:** Voice `"Entering the Observe phase."`, then Edit ISA `updated: {timestamp}`.
+**NEXT:** print the OBSERVE header, then set `updated: {timestamp}` in the VSA frontmatter.
 
 **Mode detection:** Load `references/mode-detection.md` to check for ideate, optimize, research, or fast-path modes.
 
@@ -274,7 +274,7 @@ This line anchors the entire Algorithm run.
 |------|---------|------|
 | **A: Diagnostic** | Bug-fix, "X broken", debugging | Confirm system is observable. Reproduce failure before reading code. |
 | **B: Deploy/API** | Deploy, API, infrastructure | Confirm all credentials, CLI tools, service access exist. |
-| **C: External service** | Cloudflare, Stripe, Telegram, any external API | Load PAI skill context. Check documented gotchas. |
+| **C: External service** | Cloudflare, Stripe, Telegram, any external API | Load the relevant skill context. Check documented gotchas. |
 | **D: Research** | Errors, API failures, unfamiliar library behavior | Search external docs before local code archaeology. |
 
 ```
@@ -303,7 +303,7 @@ This line anchors the entire Algorithm run.
 
 **Set effort level (v6.3.0 — classifier-driven):**
 1. Check for explicit E-level override (`/e1`-`/e5` or `E1`-`E5`, case-insensitive). If found: use that tier, set `effort_source: explicit`.
-2. **Read `MODE` and `TIER` from additionalContext** (written by `PromptProcessing.hook.ts`). If `MODE: ALGORITHM`, use `TIER` verbatim, set `effort_source: classifier`.
+2. **Take mode and tier from the classifier** — injected as context where the substrate classifies ahead of the executor, otherwise `<prefix> algorithm classify --prompt "..."`. If mode is `algorithm`, use the returned tier verbatim, set `effort_source: classifier`.
 3. **Conversation-context override:** if the classifier returned MINIMAL/NATIVE but the conversation context makes the prompt clearly ALGORITHM-shaped (e.g., a single-word approval to a multi-step plan, a follow-up that depends on prior turns the classifier didn't see), escalate to the appropriate tier and log the mismatch in `## Decisions`. Set `effort_source: context-override`.
 4. Fallback (classifier output absent — should be rare): auto-detect based on task complexity, set `effort_source: auto`.
 
@@ -320,10 +320,12 @@ This line anchors the entire Algorithm run.
 ```
 
 **Auto-include bindings:**
-- **ISA Skill** — invoked at OBSERVE for E2+ (E1 inline-write OK), at PLAN for ephemeral feature extraction, at LEARN for canonical Decisions/Changelog/Verification append, at LEARN for Reconcile after ephemeral work.
-- **Forge** (GPT-5.4 via `codex exec`) — auto-include at E3/E4/E5 for any coding task. Always invoke when {{PRINCIPAL_NAME}} names "Forge".
-- **Anvil** (Kimi K2.6) — invoke at E3/E4/E5 when whole-project context materially affects correctness. Always invoke when {{PRINCIPAL_NAME}} names "Anvil".
-- **Cato** (GPT-5.4 via `codex exec --sandbox read-only`) — MANDATORY at E4/E5 in VERIFY.
+- **VSA Skill** — invoked at OBSERVE for E2+ (E1 inline-write OK), at PLAN for ephemeral feature extraction, at LEARN for canonical Decisions/Changelog/Verification append, at LEARN for Reconcile after ephemeral work.
+- **A code-producing capability of a different model family** — auto-include at E3/E4/E5 for any coding task, where the registry offers one. The point is family diversity on hard implementation work, not a particular vendor.
+- **A whole-project-context capability** — at E3/E4/E5 when context breadth materially affects correctness (architecture-fitting refactors, system-wide migrations, multi-module redesigns).
+- **A cross-family auditor** — at E4/E5 in VERIFY, per Rule 2a.
+
+The principal naming a capability outright overrides the tier: invoke it regardless of what the floor would have selected.
 
 **Build the ISC criteria.** The ISA skill's Scaffold workflow produces an initial draft. Refine each criterion with the Splitting Test. Set `progress: 0/N`. Verify required sections per tier are populated. **Anti-criteria reminder:** before completing OBSERVE, ask yourself: have I included at least one anti-criterion? What MUST NOT happen for this work to count as done?
 
@@ -342,13 +344,15 @@ Anti-criteria ≥1 and Antecedent ≥1-when-experiential are required. ID-stabil
 
 ━━━ 🧠 THINK ━━━ 2/7
 
-**FIRST ACTION:** Voice `"Entering the Think phase."`, Edit ISA `phase: think, updated: {timestamp}`.
+**FIRST ACTION:** `<prefix> algorithm advance --id <run-id>` — the deterministic gate into Think; it refuses the transition when the previous phase left obligations unmet. Then mirror `phase: think, updated: {timestamp}` into the VSA frontmatter.
 
-**Knowledge check (on-demand):** If the task topic has likely prior work, search `MEMORY/KNOWLEDGE/` for relevant notes.
+**Knowledge check (on-demand):** If the task topic has likely prior work, recall it before conjecturing.
 
 ```bash
-rg -i "TOPIC" ~/.claude/PAI/MEMORY/KNOWLEDGE/ --type md -l
+<prefix> memory recall --query "TOPIC"
 ```
+
+Prefer the verb over grepping the tree: recall is note-aware, and each call records a `memory.recall` event that feeds the retrieval-quality probe in `<prefix> memory audit`. A grep leaves no trace, so a corpus that never answers anything looks identical to one that always does.
 
 ```
 🎲 RISKIEST ASSUMPTIONS: [items the work depends on being true]
@@ -368,7 +372,7 @@ rg -i "TOPIC" ~/.claude/PAI/MEMORY/KNOWLEDGE/ --type md -l
 
 ━━━ 📋 PLAN ━━━ 3/7
 
-**FIRST ACTION:** Voice `"Entering the Plan phase."`, Edit ISA `phase: plan, updated: {timestamp}`. EnterPlanMode if Advanced+.
+**FIRST ACTION:** `<prefix> algorithm advance --id <run-id>` — the deterministic gate into Plan; it refuses the transition when the previous phase left obligations unmet. Then mirror `phase: plan, updated: {timestamp}` into the VSA frontmatter. EnterPlanMode if Advanced+.
 
 ```
 📐 PLANNING:
@@ -409,7 +413,7 @@ Default-**OFF** for: sequential chains, single-file surgical edits.
  🚀 [Launch pattern]
 ```
 
-📐 EPHEMERAL FEATURE GATE (NEW v6.2.0): If a feature in `## Features` is to be worked in an isolated context (Ralph Loop, Maestro, parallel Forge instances), invoke `Skill("VSA", "extract feature <name> as ephemeral file")` to produce a derived view at `MEMORY/WORK/{slug}/_ephemeral/<feature>.md`. The ephemeral file is read-extended-then-reconciled, never hand-edited as policy. Reconcile back via `Skill("VSA", "reconcile <ephemeral> → <master>")` at LEARN.
+📐 EPHEMERAL FEATURE GATE (NEW v6.2.0): If a feature in `## Features` is to be worked in an isolated context (a Ralph Loop, a Maestro worker, parallel coding-agent instances), invoke `Skill("VSA", "extract feature <name> as ephemeral file")` to produce a derived view at `<soma-home>/memory/WORK/{slug}/_ephemeral/<feature>.md`. The ephemeral file is read-extended-then-reconciled, never hand-edited as policy. Reconcile back via `Skill("VSA", "reconcile <ephemeral> → <master>")` at LEARN.
 
 📐 ASYNC PRIMITIVE GATE: One-shot command → `Bash(run_in_background)`. Event stream → `Monitor`. AI work → `Agent(run_in_background)`.
 
@@ -423,7 +427,7 @@ Default-**OFF** for: sequential chains, single-file surgical edits.
 
 ━━━ 🔨 BUILD ━━━ 4/7
 
-**FIRST ACTION:** Voice `"Entering the Build phase."`, Edit ISA `phase: build, updated: {timestamp}`.
+**FIRST ACTION:** `<prefix> algorithm advance --id <run-id>` — the deterministic gate into Build; it refuses the transition when the previous phase left obligations unmet. Then mirror `phase: build, updated: {timestamp}` into the VSA frontmatter.
 
 **INVOKE each selected capability via tool call.** Every skill: `Skill` tool. Every agent: `Agent` tool. Text-only is NOT invocation.
 
@@ -437,7 +441,7 @@ Before committing to ANY fix that modifies output-side behavior, answer in ISA `
 
 ━━━ ⚡ EXECUTE ━━━ 5/7
 
-**FIRST ACTION:** Voice `"Entering the Execute phase."`, Edit ISA `phase: execute, updated: {timestamp}`.
+**FIRST ACTION:** `<prefix> algorithm advance --id <run-id>` — the deterministic gate into Execute; it refuses the transition when the previous phase left obligations unmet. Then mirror `phase: execute, updated: {timestamp}` into the VSA frontmatter.
 
 Execute the work. As each criterion passes, IMMEDIATELY edit ISA: `- [ ]` → `- [x]`, update `progress:`. Append Verification entries via `Skill("VSA", "append verification ...")` for canonical format (NEW v6.2.0).
 
@@ -467,11 +471,13 @@ Use `Skill("VSA", "append verification to <isa-path>: ISC-N <probe-type> <eviden
 
 ### 🪢 CHECKPOINTS (per-step durability)
 
-Every `[ ]`→`[x]` ISC transition fires `CheckpointPerISC.hook.ts`. For each repo in `~/.claude/checkpoint-repos.txt` with uncommitted changes, the hook auto-commits. Idempotent via sidecar `MEMORY/WORK/{slug}/.checkpoint-state.json`. (v6.2.x: hook will also fire on `<project>/ISA.md` edits once isa-utils discovery lands.)
+Record every `[ ]`→`[x]` transition against the run as it happens — `<prefix> algorithm verify --id <run-id> --criterion-id ISC-N --status passed --evidence "<probe output>"` — rather than batching them at the end. The run is the durable record; a criterion verified only in the conversation is lost at the next context boundary.
+
+Where a substrate offers a per-transition commit hook, wire it there; nothing in the Algorithm depends on one existing.
 
 ━━━ ✅ VERIFY ━━━ 6/7
 
-**FIRST ACTION:** Voice `"Entering the Verify phase."`, Edit ISA `phase: verify, updated: {timestamp}`.
+**FIRST ACTION:** `<prefix> algorithm advance --id <run-id>` — the deterministic gate into Verify; it refuses the transition when the previous phase left obligations unmet. Then mirror `phase: verify, updated: {timestamp}` into the VSA frontmatter.
 
 ### 🛡️ VERIFICATION DOCTRINE
 
@@ -495,42 +501,35 @@ Four rules govern every VERIFY pass.
 
 **Probe-impossible escape clause:** If a live probe is genuinely impossible at execution time, mark the criterion `[DEFERRED-VERIFY]` with a **required follow-up task ID**.
 
-#### Rule 2 — Commitment-Boundary Advisor Calls
+#### Rule 2 — Commitment-Boundary Second Opinions
 
-On **multi-step ISAs** (Extended+ effort, multi-file edits, architecture changes), call the advisor at:
+On **multi-step VSAs** (Extended+ effort, multi-file edits, architecture changes), seek a second opinion at three moments:
+
 1. **Before committing to an approach** — after PLAN, before BUILD begins on the main work
 2. **When stuck or diverging** — if the same problem resists two distinct attempts
 3. **Once after producing a durable deliverable** — before setting `phase: complete` in LEARN
 
-```bash
-bun ~/.claude/PAI/TOOLS/Inference.ts --mode advisor --auto-state \
-  "TASK: one-sentence description" \
-  "QUESTION: specific decision point or 'any gaps before declaring done?'"
-```
+The moments are the doctrine; the mechanism is the substrate's. Use whatever second-opinion capability the registry offers — a registered `Advisor`-class capability, a sub-agent, a second model invoked through a command capability. Ask it a specific question ("this decision point" / "any gaps before declaring done?"), not "review this".
 
-#### Rule 2a — Cross-Vendor Audit (Cato, E4/E5 only)
+Where the substrate provides no second opinion at all, say so in `## Decisions` rather than skipping the moment silently. A commitment made without review is a fact worth recording.
 
-**On Deep (E4) and Comprehensive (E5) ISAs only: after `advisor()` returns and before setting `phase: complete`, spawn Cato for a cross-vendor audit.**
+#### Rule 2a — Cross-Family Audit (E4/E5, where available)
 
-```typescript
-Agent({
-  subagent_type: "Cato",
-  description: "Cross-vendor audit of ISA",
-  prompt: `Audit ISA slug ${slug}. Compare artifacts against ISC criteria. Surface Anthropic-family blind spots.`
-})
-```
+At **Deep (E4)** and **Comprehensive (E5)**, before setting `phase: complete`, get an audit from a model **outside the family that did the work** — compare the artifacts against the criteria and surface the blind spots a same-family reviewer shares with the author.
 
-| Cato verdict | {{DA_NAME}} action |
-|--------------|-----------|
-| `pass` with no `critical` findings | Proceed to LEARN |
-| `concerns` | Surface findings to user, ask approve / iterate / defer |
-| `fail` OR any `critical` finding | Block `phase: complete`, enter Rule 3 |
+This is the one rule that cannot be satisfied portably: it needs a second vendor reachable from the substrate. Where the registry offers such a capability, invoke it; where it does not, record the gap in `## Decisions` and proceed. Do not fabricate the audit, and do not let a same-family reviewer stand in for it — that is the blind spot, not the check.
+
+| Audit verdict | Action |
+|--------------|--------|
+| `pass`, no `critical` findings | Proceed to LEARN |
+| `concerns` | Surface findings to the principal; ask approve / iterate / defer |
+| `fail`, or any `critical` finding | Block `phase: complete`, enter Rule 3 |
 
 #### Rule 3 — Conflict-Surfacing
 
-**If empirical results contradict advisor (or Cato) output, do NOT silently switch. Re-call the advisor with the conflict explicitly surfaced.**
+**If empirical results contradict a second opinion or an audit, do NOT silently switch.** Re-ask with the conflict explicitly surfaced — the disagreement is the signal, and resolving it quietly discards it.
 
-**Hard cap on conflict re-calls:** **Maximum TWO re-calls of the advisor on the same conflict.** After the second re-call, escalate to user.
+**Hard cap:** **Maximum TWO re-asks on the same conflict.** After the second, escalate to the principal — a third round is the loop, not the answer.
 
 ---
 
@@ -565,7 +564,7 @@ Agent({
 
 ━━━ 📚 LEARN ━━━ 7/7
 
-**FIRST ACTION:** Voice `"Entering the Learn phase."`, Edit ISA `phase: learn, updated: {timestamp}`. Then set `phase: complete`.
+**FIRST ACTION:** `<prefix> algorithm advance --id <run-id>` — the deterministic gate into Learn; it refuses the transition when the previous phase left obligations unmet. Then mirror `phase: learn, updated: {timestamp}` into the VSA frontmatter. Then set `phase: complete`.
 
 ```
 🧠 LEARNING:
@@ -596,17 +595,17 @@ Agent({
 
 | TYPE | Target surface | Gate |
 |------|----------------|------|
-| `knowledge` | `MEMORY/KNOWLEDGE/{People\|Companies\|Ideas\|Research}/<slug>.md` | **Inline write.** |
+| `knowledge` | `<soma-home>/memory/KNOWLEDGE/{People\|Companies\|Ideas\|Research}/<slug>.md` | **Inline write.** |
 | `rule` | `CLAUDE.md` Operational Rules section | **Inline append.** |
 | `gotcha` | The relevant skill's `SKILL.md` Gotchas section | **Inline append.** |
 | `state` | `USER/PROJECTS/PROJECTS.md` "Open Sessions to Resume" | **Inline append.** |
 | `business` | `USER/BUSINESS/<topic>.md` | **Inline write/append.** |
 | `identity` | `USER/PRINCIPAL_IDENTITY.md` / `USER/DA_IDENTITY.md` | **Surface to user.** |
-| `doctrine` | Algorithm `PAI/ALGORITHM/v<next>.md` | **Surface to user.** |
+| `doctrine` | the Algorithm doctrine in `references/algorithm.md` | **Surface to user.** |
 | `hook` | New/modified `hooks/*.hook.ts` + `settings.json` registration | **Surface to user.** |
 | `permission` | `settings.json` `permissions.deny` / `permissions.allow` | **Surface to user.** |
 
-**Documentation sync** — if this session modified PAI system files, propagate via `Skill("<your-release-skill>", "documentation update — I changed these system files: [comma-separated]")`.
+**Documentation sync** — if this session modified Soma system files, propagate via `Skill("<your-release-skill>", "documentation update — I changed these system files: [comma-separated]")`.
 
 ```
 📄 DOC SYNC: [N system files changed → invoked DocumentationUpdate | SKIP — no system files modified]
@@ -621,16 +620,29 @@ Agent({
 🔄 ITERATION on: [16 words of context — omit on first response, include on follow-ups]
 📃 CONTENT: [Up to 128 lines of the content, if there is any]
 🖊️ STORY: [4 8-word bullets in Paul Graham simplicity format for what the problem was, what we did, how it went, and what if anything is next]
-🗣️ {{DA_NAME}}: [8-16 word summary]
+🗣️ [assistant name]: [8-16 word summary]
 
 **After this block: nothing.**
 
 ---
 
-**WRITE REFLECTION JSONL** (Extended+ effort; skipped at E1):
+**RECORD THE META-REFLECTION** (Extended+ effort; skipped at E1) — how the Algorithm itself should have run, not what the work produced:
+
 ```bash
-echo '{"timestamp":"[ISO-8601]","effort_level":"[tier]","effort_source":"[auto|gate-floor|explicit]","task_description":"[TASK line]","criteria_count":[N],"criteria_passed":[N],"criteria_failed":[N],"prd_id":"[slug]","implied_sentiment":[1-10],"satisfaction_prediction":[1-10],"reflection_q1":"[Q1]","reflection_q2":"[Q2]","reflection_q3":"[Q3]","knowledge_flags":[N],"within_budget":[bool],"living_doc_refinements":[N],"doctrine_fired":{"live_probe":[bool],"advisor":[bool],"cato":[bool],"conflict":[bool],"thinking_floor_met":[bool],"completeness_gate_met":[bool]}}' >> ~/.claude/PAI/MEMORY/LEARNING/REFLECTIONS/algorithm-reflections.jsonl
+<prefix> algorithm reflect --id <run-id> \
+  --smarter-run "What would a smarter run have done differently?" \
+  --smarter-run "What signal was available earlier than it was used?" \
+  --smarter-run "Which gate would have caught this sooner?"
 ```
+
+Do not hand-write the gate flags. `algorithm reflect` computes `gatesFired`
+from run state using the same predicates the live gates enforce
+(`currentStateFloor`, `learnGateClean`, `completeness`) — a self-reported
+"the gate fired" is exactly the hollow claim the split exists to prevent. The
+`smarterRun` q-signals are yours; the gate flags are the harness's.
+
+`<prefix> algorithm reflections --id <run-id>` lists a run's reflections;
+`--digest` ranks the cross-run improvement backlog by gate-miss count.
 
 ---
 
@@ -643,7 +655,7 @@ echo '{"timestamp":"[ISO-8601]","effort_level":"[tier]","effort_source":"[auto|g
 - **Tier completeness gate (HARD, NEW v6.2.0)** — required ISA sections per tier are all populated before `phase: complete`. Invoke `Skill("VSA", "check completeness")` to confirm.
 - **ISA is YOUR responsibility** — no hook writes to it. You edit it via the ISA skill workflows or direct Edit/Write. ID-stability rule applies (never re-number on edit).
 - **ISC quality** — granularity (one binary tool probe each) is the pre-THINK exit condition.
-- **Verification Doctrine** — Rules 1/2/2a/3 are mandatory where they apply. Rule 2a (Cato) is E4/E5 only.
+- **Verification Doctrine** — Rules 1/2/2a/3 are mandatory where they apply. Rule 2a (cross-family audit) is E4/E5 only, and only where a second family is reachable.
 - **No silent stalls** — no hung agents, no blocking processes.
 - **The ISA IS the test harness** — for complex projects, ISCs cover application logic, perf, security, RBAC, build, deploy. Don't invent acceptance.yaml/acceptance.ts; the ISA already covers this.
 - **Append routing for canonical format (NEW v6.2.0)** — Decisions, Changelog, Verification entries go through `Skill("VSA", "append ...")` to preserve canonical shape. The Changelog conjecture/refutation/learning format is non-negotiable; partial entries are refused by Append.
@@ -659,15 +671,15 @@ If after compaction you don't know your state:
 
 **Cold-start recovery (new session on existing work):**
 1. For project work: read `<project>/ISA.md`
-2. For task work: read ISA from `~/.claude/PAI/MEMORY/WORK/`
-3. `~/.claude/PAI/MEMORY/STATE/work.json` has the session registry
+2. For task work: read ISA from `<soma-home>/memory/WORK/`
+3. `<prefix> algorithm list` is the run registry; `<prefix> algorithm show --id <run-id>` returns a run's phase, criteria state, capabilities, and plan steps
 
 ---
 
 ## FINAL OUTPUT FORMAT — NON-NEGOTIABLE
 
-Before you emit the closing of an Algorithm run, check yourself: **is the last thing on screen the `━━━ 📃 SUMMARY ━━━ 7/7` block, with `🔄 ITERATION`, `📃 CONTENT`, `🖊️ STORY`, `🗣️ {{DA_NAME}}` fields?**
+Before you emit the closing of an Algorithm run, check yourself: **is the last thing on screen the `━━━ 📃 SUMMARY ━━━ 7/7` block, with `🔄 ITERATION`, `📃 CONTENT`, `🖊️ STORY`, `🗣️` summary fields?**
 
-**Invariant:** Phase 7/7 = SUMMARY block. The response ends at `🗣️ {{DA_NAME}}: …`. Nothing follows.
+**Invariant:** Phase 7/7 = SUMMARY block. The response ends at the `🗣️` summary line. Nothing follows.
 
 Format violations outrank output length, output quality, and output detail.
