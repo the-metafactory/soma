@@ -233,12 +233,22 @@ frontier forever — no claim, no close, no error).
   which is why the walk descends **into** closed nodes while never reporting
   them. An implementation that cannot carry a whole subtree in one request must
   detect the shortfall and complete it; truncating in silence is forbidden.
-  The frontier verb confirms every search hit by direct fetch before reporting
-  it, removing false positives from lagging tracker search indexes (#492
-  correction 3). False *negatives* — nodes a lagging index omits entirely — are
-  not recoverable this way: the frontier is advisory and may return short,
+  The frontier verb confirms every candidate by direct fetch before reporting
+  it (#492 correction 3), which removes **false positives** whatever produced
+  the candidate — a stale search hit on a store that discovers by query, or a
+  membership edge that no longer means what it did. False *negatives* are not
+  recoverable this way, so the frontier is advisory and may return short,
   self-healing on a later tick. Correctness never rests on frontier
   completeness; it rests on the claim and close gates.
+
+  What can *produce* a false negative is backend-specific, and saying so
+  matters because the two have different fixes. A store that discovers by
+  search loses nodes its index has not caught up with. The GitHub backend does
+  not search at all — it walks native sub-issue edges (#557) — so its false
+  negatives come from **missing membership edges**: a node nobody attached is
+  not in anyone's subtree, and no amount of confirmation will conjure it. A
+  short read caused by the *walk* rather than by the graph is a defect, not a
+  caveat, which is why truncation must refuse or recover.
   **Known fail-open path (phase 1):** frontier derives "blockers closed"
   purely from tracker status, so a blocker hand-closed via raw tracker writes
   (bypassing `soma graph close`) releases its dependents without any
