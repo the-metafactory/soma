@@ -752,6 +752,7 @@ export {
   allProbesPassed,
   boundObserved,
   runCommand,
+  probeDirectory,
   runProbe,
   runProbes,
   type CommandOutcome,

@@ -212,6 +212,27 @@ function probeCwd(probeRepo: string | undefined, fallbackCwd: string): string {
 }
 
 /**
+ * Where this probe will run, resolved against `baseCwd` — `undefined` for `url`,
+ * which runs against a host and no tree.
+ *
+ * Exported because the close path needs the answer *before* the run, to describe
+ * each tree as it stood going in. Deriving it there independently would be two
+ * expressions of one rule, and the pair drifting is #579 exactly: the receipt
+ * describing one directory while the probe used another.
+ */
+export function probeDirectory(probe: Probe, baseCwd: string): string | undefined {
+  const base = resolve(baseCwd);
+  switch (probe.type) {
+    case "url":
+      return undefined;
+    case "command":
+      return probeCwd(probe.cwd, base);
+    default:
+      return probeCwd(probe.repo, base);
+  }
+}
+
+/**
  * Run one probe. Always resolves to a `probed` result — pass or fail — because a
  * probe that throws is a probe that did not pass, and the close gate needs that
  * as data, not as an exception to interpret.
@@ -221,20 +242,18 @@ export async function runProbe(probe: Probe, options: ProbeRunnerOptions): Promi
   const baseCwd = resolve(options.cwd);
   const at = deps.now().toISOString();
 
-  // One directory per probe, computed once, used by the gate, the spawn, and the
-  // result. The registry's exact-match guarantee is only worth anything while
-  // "the cwd we authorised", "the cwd we executed in", and "the cwd we recorded"
-  // are the same value — equivalent expressions would hold today and drift
-  // silently tomorrow, which is how #579 happened.
-  const resolvedCwd =
-    probe.type === "command"
-      ? probeCwd(probe.cwd, baseCwd)
-      : probe.type === "url"
-        ? baseCwd
-        : probeCwd(probe.repo, baseCwd);
-  // A `url` probe runs against a host, not a tree; recording a directory for it
-  // would be a fact about nothing.
-  const ranIn = probe.type === "url" ? undefined : resolvedCwd;
+  // One directory per probe, computed once, used by the gate, the spawn, the
+  // result, and — through the same exported rule — the receipt. The registry's
+  // exact-match guarantee is only worth anything while "the cwd we authorised",
+  // "the cwd we executed in", and "the cwd we recorded" are the same value;
+  // equivalent expressions would hold today and drift silently tomorrow, which
+  // is how #579 happened.
+  //
+  // `ranIn` is undefined for `url`: it runs against a host, so recording a
+  // directory for it would be a fact about nothing. The gate and the (unused)
+  // spawn base still need *some* directory, hence the fallback.
+  const ranIn = probeDirectory(probe, baseCwd);
+  const resolvedCwd = ranIn ?? baseCwd;
 
   // Every result carries the same probe, timestamp, and directory; only the
   // outcome and the observation differ. Binding them once keeps a branch from

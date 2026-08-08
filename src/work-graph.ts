@@ -306,9 +306,10 @@ export interface AttestationFacts {
  */
 export interface ProbeTree {
   /**
-   * Resolved absolute base directory of the run. A probe naming its own
-   * `cwd`/`repo` may have run elsewhere — {@link ProbeResult.cwd} is where each
-   * one actually ran.
+   * Resolved absolute directory. One of these is recorded per directory the
+   * declared probes **actually resolve to** — never the base a probe might have
+   * ignored by naming its own absolute `cwd`/`repo`, since a receipt describing
+   * a tree nothing ran in is the #579 mislabel wearing a new hat.
    */
   dir: string;
   /** HEAD of that directory **as of before the probes ran**, when it is a git tree with a commit. */
@@ -325,10 +326,31 @@ export interface CloseReceipt {
   at: string;
   evidence: readonly CloseEvidence[];
   probeResults: readonly ProbeResult[];
-  /** Where the probes ran. Absent when none were declared — nothing was tested, so no tree is claimed. */
-  probeTree?: ProbeTree;
+  /**
+   * Every distinct tree the declared probes ran in, described as of *before*
+   * the run. Empty or absent when nothing directory-bound ran — no probes at
+   * all, or `url` probes only, which test a host and no checkout.
+   */
+  probeTrees?: readonly ProbeTree[];
   attestation: AttestationState;
   attestationFacts?: AttestationFacts;
+}
+
+/**
+ * Does a probe line need to name its own directory?
+ *
+ * Only when the trees above it leave it ambiguous: with exactly one recorded
+ * tree that the probe ran in, the heading already said it. More than one tree,
+ * or a probe that ran in none of them, and the line has to be explicit.
+ *
+ * One predicate, two readers — the close path and {@link renderCloseReceipt} —
+ * because two spellings of "elsewhere" would drift into a receipt that
+ * contradicts itself.
+ */
+export function probeRanOutsideTree(result: ProbeResult, trees: readonly ProbeTree[] | undefined): boolean {
+  if (result.state !== "probed" || result.cwd === undefined) return false;
+  const recorded = trees ?? [];
+  return recorded.length !== 1 || recorded[0].dir !== result.cwd;
 }
 
 /**
@@ -336,18 +358,6 @@ export interface CloseReceipt {
  * evidence pointer and in the rendered probe section, so the pointer and the
  * prose can never disagree about which tree was tested.
  */
-/**
- * Did this probe run somewhere other than the receipt's probe tree?
- *
- * One predicate, two readers — the close path counts these into the `probed`
- * evidence summary and {@link renderCloseReceipt} marks the lines. Two spellings
- * of "elsewhere" would eventually disagree, and the disagreement would read as a
- * receipt contradicting itself.
- */
-export function probeRanOutsideTree(result: ProbeResult, tree: ProbeTree | undefined): boolean {
-  return result.state === "probed" && result.cwd !== undefined && result.cwd !== tree?.dir;
-}
-
 export function describeProbeTree(tree: ProbeTree): string {
   const head = tree.head === undefined ? "no HEAD" : `HEAD ${tree.head}`;
   const state = tree.dirty === undefined ? "not a git tree" : tree.dirty ? "dirty" : "clean";
@@ -813,16 +823,19 @@ export function renderCloseReceipt(receipt: CloseReceipt): string {
     lines.push(``, `### Probes`, ``);
     // Named before the results, not after: a reader who does not know which
     // tree produced them cannot judge a single line below (#579).
-    if (receipt.probeTree !== undefined) {
-      lines.push(`Ran in ${describeProbeTree(receipt.probeTree)}.`, ``);
+    const trees = receipt.probeTrees ?? [];
+    if (trees.length === 1) {
+      lines.push(`Ran in ${describeProbeTree(trees[0])}.`, ``);
+    } else if (trees.length > 1) {
+      lines.push(`Ran across ${trees.length} trees:`, ``, ...trees.map((tree) => `- ${describeProbeTree(tree)}`), ``);
     }
     for (const result of receipt.probeResults) {
       // A probe carrying its own `cwd`/`repo` — an absolute one especially —
-      // lands outside the tree named above. Reporting it silently under that
-      // heading is the #579 mislabel one level down, so the line says where it
-      // actually ran whenever that differs.
+      // lands in a tree of its own. Reporting it under a single heading is the
+      // #579 mislabel one level down, so the line says where it actually ran
+      // whenever the heading does not settle it.
       const elsewhere =
-        probeRanOutsideTree(result, receipt.probeTree) && result.state === "probed" ? ` [in ${result.cwd}]` : "";
+        probeRanOutsideTree(result, receipt.probeTrees) && result.state === "probed" ? ` [in ${result.cwd}]` : "";
       lines.push(
         result.state === "probed"
           ? `- \`${probeKey(result.probe)}\`${elsewhere} — **${result.outcome}** at ${result.at}: ${result.observed}`

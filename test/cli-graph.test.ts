@@ -347,7 +347,7 @@ test("an auto close runs the probes, derives probed evidence, and writes the rec
       (entry) => entry.kind === "probed" && entry.pointer === "HEAD abc1234 in /repo (clean)",
     ),
   ).toBe(true);
-  expect(receipt.probeTree).toEqual({ dir: "/repo", head: "abc1234", dirty: false });
+  expect(receipt.probeTrees).toEqual([{ dir: "/repo", head: "abc1234", dirty: false }]);
   expect(output).toContain("Closed node 520");
 });
 
@@ -775,7 +775,7 @@ test("probes run in the stated directory, not the process's — and the receipt 
   expect(spawned).toEqual([stated]);
   // … and what the receipt says about it — the two agreeing is the whole fix.
   const receipt = store.closed[0].receipt;
-  expect(receipt.probeTree).toEqual({ dir: stated, head: "f00dcafe", dirty: false });
+  expect(receipt.probeTrees).toEqual([{ dir: stated, head: "f00dcafe", dirty: false }]);
   expect(receipt.evidence.some((entry) => entry.kind === "probed" && entry.pointer?.includes(stated))).toBe(true);
 });
 
@@ -800,10 +800,10 @@ test("the registry match follows the stated tree, so a declaration for another c
   expect(message).toContain(`{"run": "bun test", "cwd": "/work/tree-under-review"}`);
 });
 
-test("a probe that ran in another tree says so — the base tree does not speak for it", async () => {
-  // Sage on #584: a `command` probe may carry its own absolute `cwd`, so the
-  // receipt's single probe tree would report it under a directory it never
-  // touched. That is #579's mislabel one level down.
+test("every tree the probes ran in is described, and each line says which one", async () => {
+  // Sage on #584: a `command` probe may carry its own absolute `cwd`, so one
+  // recorded tree would speak for a probe that never touched it — #579's
+  // mislabel one level down. Every directory the probes resolve to is described.
   const elsewhere = "/some/other/checkout";
   const store = new FakeStore()
     .seed("495", { node: autoNode("495"), author: "jcfischer" })
@@ -837,8 +837,65 @@ test("a probe that ran in another tree says so — the base tree does not speak 
     "/repo",
     elsewhere,
   ]);
-  expect(receipt.evidence.find((entry) => entry.kind === "probed")?.summary).toContain("1 of them in another tree");
-  expect(renderCloseReceipt(receipt)).toContain(`[in ${elsewhere}]`);
+  expect(receipt.probeTrees?.map((tree) => tree.dir)).toEqual(["/repo", elsewhere]);
+  const probed = receipt.evidence.find((entry) => entry.kind === "probed");
+  expect(probed?.summary).toContain("across 2 trees");
+  // Both trees in the pointer: one standing in for the other is the whole bug.
+  expect(probed?.pointer).toContain("/repo");
+  expect(probed?.pointer).toContain(elsewhere);
+  const rendered = renderCloseReceipt(receipt);
+  expect(rendered).toContain("Ran across 2 trees:");
+  expect(rendered).toContain(`[in ${elsewhere}]`);
+  expect(rendered).toContain(`[in /repo]`);
+});
+
+test("a base tree no probe ran in is never described, let alone used as the anchor", async () => {
+  // Sage on #584 round 3: with every probe naming an absolute `cwd`, describing
+  // the base would anchor the close on a HEAD nothing was tested against — and
+  // would paper over that tree's own missing HEAD.
+  const only = "/some/other/checkout";
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495"), author: "jcfischer" })
+    .seed("520", { node: autoNode("520", { probes: [{ ...PROBE, cwd: only }] }), parent: "495", author: "ivy-agent" });
+
+  const described: string[] = [];
+  await run(["graph", "close", "520", "--repo", REPO], store, {
+    loadProbeRegistry: async () => declaredIn(only),
+    runProbes: async (probes, registry, cwd) =>
+      await runProbes(probes, {
+        cwd,
+        registry,
+        deps: { runCommand: async () => ({ exitCode: 0, stdout: "", stderr: "", timedOut: false }), now: () => AT },
+      }),
+    describeProbeTree: async (dir) => {
+      described.push(dir);
+      return { dir, head: "f00dcafe", dirty: false };
+    },
+  });
+
+  expect(described).toEqual([only]);
+  expect(store.closed[0].receipt.probeTrees?.map((tree) => tree.dir)).toEqual([only]);
+  expect(store.closed[0].receipt.evidence.find((entry) => entry.kind === "probed")?.pointer).toContain(only);
+});
+
+test("one probe tree without a HEAD unanchors the whole set", async () => {
+  // `2/2 passed` beside a pointer that can only account for one of the trees is
+  // the overstatement this change exists to remove, so it withholds instead.
+  const other = "/some/other/checkout";
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495"), author: "jcfischer" })
+    .seed("520", {
+      node: autoNode("520", { probes: [PROBE, { ...PROBE, cwd: other }] }),
+      parent: "495",
+      author: "ivy-agent",
+    });
+
+  const message = await failure(["graph", "close", "520", "--repo", REPO], store, {
+    describeProbeTree: async (dir) => (dir === other ? { dir } : { dir, head: "abc1234", dirty: false }),
+  });
+
+  expect(store.closed).toHaveLength(0);
+  expect(message).toContain("needs at least one");
 });
 
 test("the probe tree is read before the probes run, not after they have written to it", async () => {
@@ -891,7 +948,7 @@ test("a url-only close records no tree, and anchors on the targets it actually c
 
   const receipt = store.closed[0].receipt;
   expect(described).toBe(0);
-  expect(receipt.probeTree).toBeUndefined();
+  expect(receipt.probeTrees).toBeUndefined();
   expect(receipt.evidence.find((entry) => entry.kind === "probed")?.pointer).toBe(`targets: ${target}`);
   expect(renderCloseReceipt(receipt)).not.toContain("Ran in");
 });
@@ -914,7 +971,7 @@ test("a relative probe directory is resolved before it is recorded or compared",
   });
 
   const receipt = store.closed[0].receipt;
-  expect(receipt.probeTree?.dir).toBe(process.cwd());
+  expect(receipt.probeTrees?.[0]?.dir).toBe(process.cwd());
   expect(renderCloseReceipt(receipt)).not.toContain("[in ");
 });
 
@@ -925,7 +982,7 @@ test("a dirty probe tree is recorded, never refused (#579)", async () => {
   });
 
   expect(output).toContain("Closed node 520");
-  expect(store.closed[0].receipt.probeTree?.dirty).toBe(true);
+  expect(store.closed[0].receipt.probeTrees?.[0]?.dirty).toBe(true);
   const pointer = store.closed[0].receipt.evidence.find((entry) => entry.kind === "probed")?.pointer;
   expect(pointer).toBe("HEAD abc1234 in /repo (dirty)");
 });

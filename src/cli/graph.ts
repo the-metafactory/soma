@@ -35,7 +35,6 @@ import {
   agentExternalEvidenceKinds,
   assertClosable,
   describeProbeTree,
-  probeRanOutsideTree,
   renderCloseReceipt,
   type CloseEvidence,
   type CloseReceipt,
@@ -62,7 +61,12 @@ import {
   loadProbeRegistry as defaultLoadProbeRegistry,
   type ProbeRegistry,
 } from "../work-graph-probe-registry";
-import { allProbesPassed, runCommand, runProbes as defaultRunProbes } from "../work-graph-probes";
+import {
+  allProbesPassed,
+  probeDirectory,
+  runCommand,
+  runProbes as defaultRunProbes,
+} from "../work-graph-probes";
 // Repo resolution and the bridge's node read live in `../work-graph-bridge` (core),
 // not here: a seam only `src/cli/` can import forces a library/MCP/daemon consumer
 // to re-implement it, becoming the second reader §2.7 forbids. No re-export — the
@@ -482,22 +486,28 @@ export function parseProbeTreeStatus(dir: string, stdout: string): ProbeTree {
 /**
  * The externally checkable pointer for `probed` evidence.
  *
- * The tree, not just its HEAD — a bare sha re-creates the #579 reading, where a
- * receipt names a commit and stays silent about which checkout it came from.
+ * The trees, not just their HEADs — a bare sha re-creates the #579 reading,
+ * where a receipt names a commit and stays silent about which checkout it came
+ * from. Every tree the probes ran in is named, so the pointer covers the whole
+ * run rather than one directory standing in for the rest.
  *
- * Two cases withhold it, and on an `auto` node withholding means the close is
- * refused for want of evidence:
+ * Withheld — and on an `auto` node, withholding means the close is refused for
+ * want of evidence:
  *
- * - **No readable HEAD.** A directory with no commit anchors nothing, and
- *   loosening what closes an `auto` node is a decision, not a side effect of
- *   moving where the sha is read. This is the pre-#580 behaviour, kept.
- * - **No probes at all.** Likewise unchanged.
+ * - **Any probe tree with no readable HEAD.** A directory with no commit anchors
+ *   nothing, and one unanchored tree makes the set unanchored: `2/2 passed` next
+ *   to a pointer that can only account for one of them is the overstatement this
+ *   whole change is about. Pre-#580 the CLI's own HEAD stood in for whatever the
+ *   probes used, which could not fail this way because it never described them.
+ * - **No probes at all.** Unchanged.
  *
  * A `url`-only run has no tree, and the closing process's HEAD was never an
  * honest anchor for it — the targets are, since a reader re-runs the request.
  */
-function probeEvidencePointer(probes: readonly Probe[], tree: ProbeTree | undefined): string | undefined {
-  if (tree !== undefined) return tree.head === undefined ? undefined : describeProbeTree(tree);
+function probeEvidencePointer(probes: readonly Probe[], trees: readonly ProbeTree[]): string | undefined {
+  if (trees.length > 0) {
+    return trees.every((tree) => tree.head !== undefined) ? trees.map(describeProbeTree).join("; ") : undefined;
+  }
   const targets = probes.flatMap((probe) => (probe.type === "url" ? [probe.target] : []));
   return targets.length === 0 ? undefined : `targets: ${targets.join(", ")}`;
 }
@@ -805,16 +815,22 @@ async function runClose(
   const probeDir = resolve(deps.probeCwd());
 
   // Described **before** the probes run, not after. The receipt's job is to name
-  // the tree that was tested, and a probe is free to write to it — `bun test`
+  // the trees that were tested, and a probe is free to write to one — `bun test`
   // that leaves a fixture behind would otherwise make the receipt report dirt
-  // the probes caused rather than dirt they ran against. The cost is one git
-  // spawn on a path that is about to spend up to `timeoutSec` per probe.
+  // the probes caused rather than dirt they ran against.
   //
-  // Skipped entirely when nothing runs in a directory: a `url`-only close tests
-  // a host, and a receipt naming a checkout it never read would be the mislabel
-  // this whole change exists to remove.
-  const treeBound = probes.some((probe) => probe.type !== "url");
-  const probeTree = treeBound ? await deps.describeProbeTree(probeDir) : undefined;
+  // Every directory the probes **actually resolve to**, not the base: a probe
+  // naming its own absolute `cwd`/`repo` ignores the base entirely, and a
+  // receipt describing a tree nothing ran in is the mislabel this change exists
+  // to remove. Usually one directory, so usually one git spawn — and none at all
+  // for a `url`-only close, which tests a host and no checkout.
+  const probeDirs = [
+    ...new Set(probes.flatMap((probe) => probeDirectory(probe, probeDir) ?? [])),
+  ];
+  const probeTrees: ProbeTree[] = [];
+  for (const dir of probeDirs) {
+    probeTrees.push(await deps.describeProbeTree(dir));
+  }
 
   const probeResults = await deps.runProbes(probes, registry, probeDir);
   const refusals = probeResults.filter((result) => isProbeRefusal(result));
@@ -837,17 +853,13 @@ async function runClose(
   }
 
   const evidence: CloseEvidence[] = [...parsed.options.evidence];
-  const anchor = probeEvidencePointer(probes, probeTree);
+  const anchor = probeEvidencePointer(probes, probeTrees);
   if (anchor !== undefined && allProbesPassed(probeResults)) {
-    // A probe that named its own `cwd`/`repo` ran somewhere the pointer does not
-    // describe. Counting those in the summary keeps the entry from claiming the
-    // whole run happened in the tree it points at.
-    const elsewhere = probeResults.filter((result) => probeRanOutsideTree(result, probeTree)).length;
     evidence.push({
       kind: "probed",
       summary:
         `${probeResults.length}/${probeResults.length} declared probes ran and passed` +
-        (elsewhere > 0 ? `, ${elsewhere} of them in another tree (see the probe lines)` : ""),
+        (probeTrees.length > 1 ? ` across ${probeTrees.length} trees` : ""),
       pointer: anchor,
     });
   }
@@ -928,7 +940,7 @@ async function runClose(
     at: deps.now().toISOString(),
     evidence,
     probeResults,
-    ...(probeTree === undefined ? {} : { probeTree }),
+    ...(probeTrees.length === 0 ? {} : { probeTrees }),
     attestation,
     attestationFacts: facts,
   };

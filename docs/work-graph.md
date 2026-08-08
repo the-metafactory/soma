@@ -129,12 +129,17 @@ Runner semantics settled while implementing #498:
 - **The probe directory is stated once, and recorded** ([#579](https://github.com/the-metafactory/soma/issues/579),
   [#580](https://github.com/the-metafactory/soma/issues/580)). A `command` probe
   runs in the directory the close was invoked from, resolved **once** and passed
-  to the runner, the registry match, and the receipt — which records that
-  absolute directory, its HEAD as of *before* the probes ran, and whether it was
-  dirty, on the probe section and on the derived `probed` evidence pointer. Each
-  `ProbeResult` additionally carries the directory that probe ran in, since a
-  probe naming its own `cwd`/`repo` resolves against the base and an absolute one
-  leaves it. The failure this closes: with the directory read wherever it was
+  to the runner and the registry match. The receipt then records **every
+  directory the declared probes actually resolve to** — each with its HEAD as of
+  *before* the probes ran and whether it was dirty — on the probe section and on
+  the derived `probed` evidence pointer. Every directory, not the base one: a
+  probe may name its own `cwd`/`repo`, and an absolute one leaves the base
+  entirely, so a receipt describing the base would be describing a tree nothing
+  ran in. Each `ProbeResult` carries its own directory for the same reason, and a
+  probe line names it whenever more than one tree is in play. A tree with **no
+  readable HEAD** anchors nothing and withholds the `probed` evidence for the
+  whole set — one unanchored tree beside `n/n passed` is the same overstatement
+  in miniature. The failure this closes: with the directory read wherever it was
   wanted, a launcher that `cd`s made probes execute in the install tree, so
   `bun test` passed against a commit that did not contain the work and the
   receipt said only `HEAD <sha>` — a true fact about the wrong tree.
