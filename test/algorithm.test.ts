@@ -649,6 +649,32 @@ test("a manifest-declared adapter capability is invocable; only a Contract row i
   });
 });
 
+test("only a Contract row may mint the contract kind", async () => {
+  // Sage review: `contract` means "declared, nothing behind it", and invoke
+  // refuses on exactly that. A manifest or a caller reaching for the kind would
+  // produce a capability that is selectable and permanently uninvokable with a
+  // real target sitting unused, so the invariant is enforced at registration.
+  const run = createAlgorithmRun({
+    id: "contract-kind-guard",
+    timestamp: "2026-08-08T13:00:00.000Z",
+    prompt: "Register a contract directly",
+    intent: "Exercise the mint guard.",
+    currentState: "A caller reaches for the contract kind.",
+    goal: "Registration refuses.",
+    criteria: [{ id: "C1", text: "Registration throws." }],
+  });
+
+  expect(() =>
+    registerAlgorithmCapabilityDefinition(run, {
+      name: "HandRolledContract",
+      kind: "contract",
+      phases: ["verify"],
+      triggerSignals: ["a caller inventing a contract"],
+      invoke: { contract: "contract", target: "something real, allegedly" },
+    }),
+  ).toThrow(/minted only by a Contract/);
+});
+
 test("a local binding replaces a contract declaration with a concrete invocation", async () => {
   // The point of the adapter kind: ship the contract, let whoever can satisfy it
   // bind the mechanism. The local table is read first, so a same-named binding wins.

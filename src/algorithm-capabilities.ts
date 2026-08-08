@@ -380,7 +380,11 @@ function skillManifestCapabilityDefinition(skill: AvailableSkill): AlgorithmCapa
   const metadata = isRecord(skill.manifest?.algorithmCapability)
     ? skill.manifest.algorithmCapability
     : undefined;
-  const kind = isCapabilityKind(metadata?.kind) ? metadata.kind : "skill";
+  // A manifest declaring `contract` would mint an uninvokable capability (see
+  // registerAlgorithmCapabilityDefinitions); fall back to `skill`, which is what
+  // a manifest-backed capability actually is.
+  const declaredKind = isCapabilityKind(metadata?.kind) ? metadata.kind : "skill";
+  const kind = declaredKind === "contract" ? "skill" : declaredKind;
   const phases = Array.isArray(metadata?.phases)
     ? metadata.phases.filter(isAlgorithmPhase)
     : [];
@@ -546,7 +550,14 @@ export async function loadSomaHomeAlgorithmCapabilityRegistry(
   }
 
   return {
-    definitions: Array.from(definitions.values()).map(cloneCapabilityDefinition),
+    // Stamped here, at the point of resolution, rather than by the refresh
+    // wrapper: anything that came out of the soma home carries the mark wherever
+    // it is later registered, which is what makes "only a Contract row may mint
+    // the contract kind" checkable at registration.
+    definitions: Array.from(definitions.values()).map((definition) => ({
+      ...cloneCapabilityDefinition(definition),
+      origin: "soma-home" as const,
+    })),
     unsupported: Array.from(unsupported).sort(),
   };
 }
@@ -583,13 +594,12 @@ export async function registerSomaHomeAlgorithmCapabilities(
   // direct caller's registration. Only the second loses data that cannot be
   // rebuilt, so absence is kept. A stale legacy row is replaced the moment a
   // same-named row resolves again.
-  const homeDefinitions = definitions.map((definition) => ({ ...definition, origin: "soma-home" as const }));
   const keptForeign = (run.capabilityDefinitions ?? []).filter((definition) => definition.origin !== "soma-home");
   const withoutHomeDefinitions = { ...run, capabilityDefinitions: keptForeign };
 
-  return homeDefinitions.length === 0
+  return definitions.length === 0
     ? withoutHomeDefinitions
-    : registerAlgorithmCapabilityDefinitions(withoutHomeDefinitions, homeDefinitions, timestamp);
+    : registerAlgorithmCapabilityDefinitions(withoutHomeDefinitions, definitions, timestamp);
 }
 
 export function listAlgorithmCapabilityDefinitions(): AlgorithmCapabilityDefinition[] {
@@ -678,7 +688,21 @@ export function registerAlgorithmCapabilityDefinitions(
     // caller lands here unmarked. A refresh replaces its own rows and leaves
     // `caller` rows alone (soma#574).
     const clone = cloneCapabilityDefinition(definition);
-    nextDefinitions.set(definition.name, { ...clone, origin: clone.origin ?? "caller" });
+    const origin = clone.origin ?? "caller";
+    // `contract` means "declared, nothing behind it", and `algorithm invoke`
+    // refuses it on exactly that basis. Only the `Contract("…")` parser may mint
+    // one — a manifest or a direct caller reaching for the kind would produce a
+    // capability that is selectable and permanently uninvokable, with a real
+    // target sitting unused (Sage review). Refuse it here so the invariant holds
+    // by construction rather than by convention.
+    if (clone.kind === "contract" && origin !== "soma-home") {
+      throw new Error(
+        `Algorithm capability "${clone.name}" cannot be registered with kind "contract": that kind is minted only by a `
+          + `Contract("…") row in a capability table, and marks a capability nothing on this machine can run. `
+          + `Register the concrete kind you can actually invoke.`,
+      );
+    }
+    nextDefinitions.set(definition.name, { ...clone, origin });
   }
 
   return {
