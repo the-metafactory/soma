@@ -90,15 +90,24 @@ async function backupCustomisedCapabilityTable(destDir: string, sourceFile: stri
   const held = await readFile(backup, "utf8").catch(() => undefined);
   if (held?.endsWith(existing) === true) return undefined;
 
-  let target = backup;
-  for (let attempt = 2; held !== undefined && attempt < 100; attempt += 1) {
+  let target: string | undefined = held === undefined ? backup : undefined;
+  for (let attempt = 2; target === undefined && attempt < 100; attempt += 1) {
     const candidate = join(references, `capabilities.pre-upgrade.${digest}.${attempt}.md`);
     const other = await readFile(candidate, "utf8").catch(() => undefined);
-    if (other === undefined) {
-      target = candidate;
-      break;
-    }
-    if (other.endsWith(existing)) return undefined;
+    if (other === undefined) target = candidate;
+    else if (other.endsWith(existing)) return undefined;
+  }
+
+  // No free slot: refuse rather than write. Falling back to the colliding name
+  // would overwrite a backup that is still the only copy of someone's table
+  // (Sage review) — failing the install loudly is the lesser harm, and 98
+  // distinct tables colliding on one digest means something is wrong that a
+  // silent overwrite would bury.
+  if (target === undefined) {
+    throw new Error(
+      `Cannot back up ${bundled}: every candidate name for digest ${digest} is taken. `
+        + `Move or remove some capabilities.pre-upgrade.${digest}*.md files and re-run.`,
+    );
   }
 
   await writeFile(
