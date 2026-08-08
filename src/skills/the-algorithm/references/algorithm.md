@@ -337,7 +337,7 @@ The principal naming a capability outright overrides the tier: invoke it regardl
 | **Tier ISC floor (E2+, soft)** | Total ISC count meets the tier floor (E2 ≥16, E3 ≥32, E4 ≥128, E5 ≥256). |
 | **Tier completeness gate (HARD, v6.2.0)** | Required sections per tier are all populated (E1 Goal+Criteria; E2+ adds; E4 all twelve; E5 + Interview ran). Invoke `Skill("VSA", "check completeness")`. |
 | **Thinking floor (HARD)** | Thinking-capability count meets the tier hard floor (E1 0-1, E2 ≥2, E3 ≥4, E4 ≥6, E5 ≥8). **Cannot be relaxed via show-your-math.** Names MUST come verbatim from the registry (`algorithm capabilities --list`). |
-| **Capability-Name Audit (HARD, v6.3.0)** | Each thinking name in `🏹 CAPABILITIES SELECTED` appears verbatim in the closed enumeration. Phantom names (anything outside the list) do NOT count toward the floor and are a CRITICAL FAILURE. |
+| **Capability-Name Audit (HARD)** | Each name in `🏹 CAPABILITIES SELECTED` appears verbatim in `algorithm capabilities --list` for THIS machine. Phantom names do NOT count toward the floor and are a CRITICAL FAILURE. |
 | **Delegation floor (soft)** | Delegation-capability count meets the tier soft floor (E2 ≥1, E3 ≥2, E4 ≥2, E5 ≥4). Overridable with "show your math" in `## Decisions`. |
 
 Anti-criteria ≥1 and Antecedent ≥1-when-experiential are required. ID-stability rule applies to all edits.

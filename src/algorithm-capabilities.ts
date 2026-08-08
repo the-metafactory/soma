@@ -13,11 +13,12 @@ import type {
   SomaSkillManifest,
   SubstrateId,
 } from "./types";
+import { ALGORITHM_CAPABILITY_KINDS } from "./types";
 import { getRunPhase } from "./algorithm-lifecycle";
 import { appendAlgorithmProvenance } from "./algorithm-provenance";
 
 const CORE_PHASES: AlgorithmPhase[] = ["observe", "think", "plan", "build", "execute", "verify", "learn"];
-const CAPABILITY_INVOKE_KINDS = ["skill", "inline", "agent", "command", "adapter", "contract"] as const;
+const CAPABILITY_INVOKE_KINDS = ALGORITHM_CAPABILITY_KINDS;
 
 const DEFAULT_CAPABILITY_REGISTRY: AlgorithmCapabilityDefinition[] = [
   {
@@ -323,7 +324,7 @@ function inlineInvocationTarget(value: string): string | undefined {
  * for any selected capability never invoked, so it fails the run loudly at the
  * gate instead of quietly padding a floor as a phantom.
  */
-function adapterInvocationTarget(value: string): string | undefined {
+function contractInvocationTarget(value: string): string | undefined {
   // `??` cannot stand in for the emptiness check: a whitespace-only contract
   // trims to "", which is not nullish but is not a contract either.
   const contract = /Contract\("([^"]+)"/.exec(value)?.[1]?.trim();
@@ -353,7 +354,9 @@ function isSubstrateSupported(manifest: SomaSkillManifest | undefined, substrate
   return manifest.substrates.includes(substrate);
 }
 
-function isCapabilityInvokeKind(value: unknown): value is AlgorithmCapabilityContract & AlgorithmCapabilityKind {
+// `AlgorithmCapabilityContract` is an alias of `AlgorithmCapabilityKind` now
+// that both derive from ALGORITHM_CAPABILITY_KINDS, so one is the guard.
+function isCapabilityInvokeKind(value: unknown): value is AlgorithmCapabilityKind {
   return typeof value === "string" && CAPABILITY_INVOKE_KINDS.includes(value as (typeof CAPABILITY_INVOKE_KINDS)[number]);
 }
 
@@ -459,10 +462,10 @@ function registerCapabilityTableRows(
     const inlineTarget = inlineInvocationTarget(invokeCell);
     // Checked before `agent`: `Contract("spawn a sub-agent …")` must not be read
     // as an Agent( row by the substring match below.
-    const adapterTarget = adapterInvocationTarget(invokeCell);
+    const contractTarget = contractInvocationTarget(invokeCell);
 
-    if (adapterTarget) {
-      definitions.set(name, buildCapabilityDefinition(name, "contract", phases, triggerSignals, adapterTarget));
+    if (contractTarget) {
+      definitions.set(name, buildCapabilityDefinition(name, "contract", phases, triggerSignals, contractTarget));
       continue;
     }
 
@@ -573,13 +576,15 @@ export async function registerSomaHomeAlgorithmCapabilities(
   // Compiled-in defaults are unaffected — never persisted, and
   // `definitionsForRun` supplies them regardless.
   //
-  // An ABSENT origin is treated as home-derived, not foreign (Sage review): runs
-  // persisted before this field existed carry no origin, and the home path was
-  // the only producer of run definitions then. Reading absence as foreign would
-  // make a legacy row undeletable — exactly the staleness this replace exists to
-  // end. Only `caller` is preserved, and that is stamped from now on.
+  // An ABSENT origin is PRESERVED, not guessed at (Sage review, twice — once for
+  // each way of guessing). Runs persisted before this field existed carry no
+  // origin and no way to recover their producer. Reading absence as foreign
+  // makes a legacy home row undeletable; reading it as home destroys a
+  // direct caller's registration. Only the second loses data that cannot be
+  // rebuilt, so absence is kept. A stale legacy row is replaced the moment a
+  // same-named row resolves again.
   const homeDefinitions = definitions.map((definition) => ({ ...definition, origin: "soma-home" as const }));
-  const keptForeign = (run.capabilityDefinitions ?? []).filter((definition) => definition.origin === "caller");
+  const keptForeign = (run.capabilityDefinitions ?? []).filter((definition) => definition.origin !== "soma-home");
   const withoutHomeDefinitions = { ...run, capabilityDefinitions: keptForeign };
 
   return homeDefinitions.length === 0

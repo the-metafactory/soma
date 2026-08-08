@@ -347,9 +347,16 @@ export interface AlgorithmProvenanceEntry {
   detail?: string;
 }
 
-export type AlgorithmCapabilityKind = "skill" | "inline" | "agent" | "command" | "adapter" | "contract";
+/**
+ * The one capability-kind vocabulary. `AlgorithmCapabilityKind`,
+ * `AlgorithmCapabilityContract` and the runtime membership check are all derived
+ * from this tuple, so a new kind is added in exactly one place (Sage review).
+ */
+export const ALGORITHM_CAPABILITY_KINDS = ["skill", "inline", "agent", "command", "adapter", "contract"] as const;
 
-export type AlgorithmCapabilityContract = "skill" | "inline" | "agent" | "command" | "adapter" | "contract";
+export type AlgorithmCapabilityKind = (typeof ALGORITHM_CAPABILITY_KINDS)[number];
+
+export type AlgorithmCapabilityContract = AlgorithmCapabilityKind;
 
 export type AlgorithmCapabilitySelectionStatus = "selected" | "invoked" | "removed" | "failed";
 
@@ -372,11 +379,14 @@ export interface AlgorithmCapabilityDefinition {
    * - `caller`     — registered directly through
    *                  `registerAlgorithmCapabilityDefinition(s)`; a refresh
    *                  leaves it alone.
-   * - absent       — persisted before this field existed. Treated as
-   *                  home-derived and replaced on the first refresh, because
-   *                  the home path was the only producer of run definitions in
-   *                  practice. Without that, a legacy row deleted from the
-   *                  table could never be dropped.
+   * - absent       — persisted before this field existed, so the producer is
+   *                  genuinely unknown. PRESERVED. Absence is not a deletion
+   *                  signal: reading it as foreign makes a legacy home row
+   *                  undeletable, reading it as home destroys a caller's
+   *                  registration, and only the second is unrecoverable. A
+   *                  stale legacy row is replaced the moment a same-named row
+   *                  resolves again; until then it lingers, which is the
+   *                  cheaper of the two mistakes.
    */
   origin?: "soma-home" | "caller";
 }

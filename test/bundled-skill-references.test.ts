@@ -136,6 +136,14 @@ describe("bundled skill references", () => {
       // sample values inside example documents — a generic `{{[A-Z_]+}}` would
       // flag those and train everyone to ignore this test.
       { pattern: /\{\{(?:DA_NAME|PRINCIPAL_NAME|ASSISTANT_NAME|HARNESS_USER_DIR)\}\}/g, why: "unsubstituted identity placeholder" },
+      // The specific personas the bundle used to mandate. A shipped skill must
+      // not name a particular external model as doctrine — that is what the
+      // Contract() rows exist to express portably. Named here rather than
+      // pattern-matched generically, because "a model name" has no shape; these
+      // three are the ones that were in the bundle and whose return is the
+      // regression worth catching (Sage review — the PR previously claimed this
+      // guard covered named models when it did not).
+      { pattern: /\b(?:Forge|Anvil|Cato)\b/g, why: "named external model in a portable skill" },
     ];
 
     // `migrate-pai-purpose` exists to migrate a principal OFF PAI, so naming a
