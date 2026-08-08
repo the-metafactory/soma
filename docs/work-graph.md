@@ -101,7 +101,9 @@ type ProbeResult =               // stored with the node's checkpoint record (§
       observed: string;          // for command: exit code + bounded stdout/
                                  // stderr tail; for url: status; for git/
                                  // artifact: resolved sha / path presence
-      at: string };              // ISO timestamp of execution
+      at: string;                // ISO timestamp of execution
+      cwd?: string };            // resolved directory this probe ran in —
+                                 // absent for `url`, which runs against a host
 ```
 
 Probe lifecycle follows the algorithm-runner P1 lesson — self-declared
@@ -124,19 +126,25 @@ Runner semantics settled while implementing #498:
   not do is let an unrun probe read as a passed one.
 - Git probes execute as argv, never through a shell, so a ref name cannot
   inject.
-- **The probe directory is stated, not inherited** ([#579](https://github.com/the-metafactory/soma/issues/579),
+- **The probe directory is stated once, and recorded** ([#579](https://github.com/the-metafactory/soma/issues/579),
   [#580](https://github.com/the-metafactory/soma/issues/580)). A `command` probe
   runs in the directory the close was invoked from, resolved **once** and passed
   to the runner, the registry match, and the receipt — which records that
-  absolute directory, its HEAD, and whether it was dirty, on the probe section
-  and on the derived `probed` evidence pointer. The failure this closes: with the
-  directory read wherever it was wanted, a launcher that `cd`s made probes
-  execute in the install tree, so `bun test` passed against a commit that did not
-  contain the work and the receipt said only `HEAD <sha>` — a true fact about the
-  wrong tree. A **dirty** probe tree is *recorded, never refused*: it is a fact
+  absolute directory, its HEAD as of *before* the probes ran, and whether it was
+  dirty, on the probe section and on the derived `probed` evidence pointer. Each
+  `ProbeResult` additionally carries the directory that probe ran in, since a
+  probe naming its own `cwd`/`repo` resolves against the base and an absolute one
+  leaves it. The failure this closes: with the directory read wherever it was
+  wanted, a launcher that `cd`s made probes execute in the install tree, so
+  `bun test` passed against a commit that did not contain the work and the
+  receipt said only `HEAD <sha>` — a true fact about the wrong tree.
+  **This is detection, not prevention.** The stated value still originates as the
+  process's cwd, so a launcher that `cd`s still moves it; what the receipt buys
+  is that the substituted tree is now named rather than silent. Refusing a probe
+  tree that does not contain the work is the preventive version, and it needs to
+  know which commit a node claims — #579 named it and left it out of scope.
+  A **dirty** probe tree is likewise *recorded, never refused*: it is a fact
   about the evidence, and refusing it would change what closes an `auto` node.
-  Probes that name a `repo`/`cwd` resolve against that same stated base, so they
-  move with it.
 
 #### Probe registry (DD-16 Amendment A)
 

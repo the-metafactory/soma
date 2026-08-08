@@ -417,11 +417,16 @@ export interface GraphCliDeps {
    * The directory the probes run in, resolved **once** per close and passed
    * everywhere it is needed — the runner, the registry match, and the receipt.
    *
-   * The session's cwd, which is what an author means by writing `bun test` on a
-   * node. It is a dep rather than a bare `process.cwd()` call at the use site
-   * because #579's failure was precisely that the value was read wherever it was
-   * wanted: two reads, one of them in a process the installer had `cd`ed
-   * elsewhere, and no way to test the disagreement.
+   * The default is still the process's cwd, and that is the honest limit of this
+   * fix: **soma cannot tell which tree you meant.** A launcher that `cd`s before
+   * `exec` still moves it, exactly as `~/bin/soma` did in #579 — which is why
+   * that launcher no longer carries a `cd`, and why nothing here can stop the
+   * next one that does. What changed is that the value is read *once* and
+   * *recorded*: a substituted tree now shows up in the receipt as a directory
+   * and a HEAD that are not the ones under review, where before it was silent.
+   * Detection, not prevention. Refusing a probe tree that does not contain the
+   * work is the prevention, and it needs to know which commit a node claims —
+   * #579 named it and left it out of scope.
    */
   probeCwd: () => string;
   /**
@@ -769,6 +774,14 @@ async function runClose(
   // receipt. One value, three readers — the #579 defect was three readers and
   // no value.
   const probeDir = deps.probeCwd();
+
+  // Described **before** the probes run, not after. The receipt's job is to name
+  // the tree that was tested, and a probe is free to write to it — `bun test`
+  // that leaves a fixture behind would otherwise make the receipt report dirt
+  // the probes caused rather than dirt they ran against. The cost is one git
+  // spawn on a path that is about to spend up to `timeoutSec` per probe.
+  const probeTree = probes.length > 0 ? await deps.describeProbeTree(probeDir) : undefined;
+
   const probeResults = await deps.runProbes(probes, registry, probeDir);
   const refusals = probeResults.filter((result) => isProbeRefusal(result));
 
@@ -789,10 +802,6 @@ async function runClose(
     );
   }
 
-  // Described whenever probes ran, pass or fail: a dry run that shows a failure
-  // is exactly when the reader most needs to know which tree produced it.
-  const probeTree = probes.length > 0 ? await deps.describeProbeTree(probeDir) : undefined;
-
   const evidence: CloseEvidence[] = [...parsed.options.evidence];
   // `head === undefined` withholds the entry, which on an `auto` node means the
   // close is refused for want of evidence — the behaviour before #580, kept
@@ -800,9 +809,17 @@ async function runClose(
   // reader can re-derive anything from, and loosening what closes an `auto` node
   // is a decision, not a side effect of moving where the sha is read.
   if (probeTree?.head !== undefined && allProbesPassed(probeResults)) {
+    // A probe that named its own `cwd`/`repo` ran somewhere the pointer does not
+    // describe. Counting those in the summary keeps the entry from claiming the
+    // whole run happened in the tree it points at.
+    const elsewhere = probeResults.filter(
+      (result) => result.state === "probed" && result.cwd !== undefined && result.cwd !== probeTree.dir,
+    ).length;
     evidence.push({
       kind: "probed",
-      summary: `${probeResults.length}/${probeResults.length} declared probes ran and passed`,
+      summary:
+        `${probeResults.length}/${probeResults.length} declared probes ran and passed` +
+        (elsewhere > 0 ? `, ${elsewhere} of them in another tree (see the probe lines)` : ""),
       // The tree, not just its HEAD. A sha alone re-creates the #579 reading
       // where a receipt names a commit and stays silent about the checkout.
       pointer: describeProbeTree(probeTree),

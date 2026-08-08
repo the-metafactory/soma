@@ -65,6 +65,16 @@ export type ProbeResult =
       observed: string;
       /** ISO timestamp of execution. */
       at: string;
+      /**
+       * The resolved absolute directory this probe ran in (#580).
+       *
+       * Per result, not per close, because a probe may name its own `cwd`/`repo`
+       * and land in a different tree than the close's base — an absolute `cwd`
+       * escapes it entirely. The receipt's {@link ProbeTree} describes the base;
+       * without this, a probe that ran elsewhere would be reported under it,
+       * which is the #579 mislabel one level down.
+       */
+      cwd?: string;
     };
 
 export interface WorkGraphNodeBase {
@@ -295,11 +305,15 @@ export interface AttestationFacts {
  * decided explicitly that it does not refuse the close.
  */
 export interface ProbeTree {
-  /** Resolved absolute directory the probes ran in. */
+  /**
+   * Resolved absolute base directory of the run. A probe naming its own
+   * `cwd`/`repo` may have run elsewhere — {@link ProbeResult.cwd} is where each
+   * one actually ran.
+   */
   dir: string;
-  /** HEAD of that directory, when it is a git tree with a commit. */
+  /** HEAD of that directory **as of before the probes ran**, when it is a git tree with a commit. */
   head?: string;
-  /** `git status` non-empty there. Absent when the directory is not a readable git tree. */
+  /** `git status` non-empty there, again before the run — probes may write. Absent when it is not a readable git tree. */
   dirty?: boolean;
 }
 
@@ -791,9 +805,17 @@ export function renderCloseReceipt(receipt: CloseReceipt): string {
       lines.push(`Ran in ${describeProbeTree(receipt.probeTree)}.`, ``);
     }
     for (const result of receipt.probeResults) {
+      // A probe carrying its own `cwd`/`repo` — an absolute one especially —
+      // lands outside the tree named above. Reporting it silently under that
+      // heading is the #579 mislabel one level down, so the line says where it
+      // actually ran whenever that differs.
+      const elsewhere =
+        result.state === "probed" && result.cwd !== undefined && result.cwd !== receipt.probeTree?.dir
+          ? ` [in ${result.cwd}]`
+          : "";
       lines.push(
         result.state === "probed"
-          ? `- \`${probeKey(result.probe)}\` — **${result.outcome}** at ${result.at}: ${result.observed}`
+          ? `- \`${probeKey(result.probe)}\`${elsewhere} — **${result.outcome}** at ${result.at}: ${result.observed}`
           : `- \`${probeKey(result.probe)}\` — specified, not run`,
       );
     }

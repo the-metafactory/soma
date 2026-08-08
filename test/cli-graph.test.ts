@@ -11,6 +11,7 @@ import {
 import { parseRepoFromRemote } from "../src/work-graph-bridge";
 import {
   WorkGraphError,
+  renderCloseReceipt,
   runProbes,
   type ClaimResult,
   type CloseReceipt,
@@ -797,6 +798,74 @@ test("the registry match follows the stated tree, so a declaration for another c
   expect(store.closed).toHaveLength(0);
   expect(message).toContain("not authorised on this machine");
   expect(message).toContain(`{"run": "bun test", "cwd": "/work/tree-under-review"}`);
+});
+
+test("a probe that ran in another tree says so — the base tree does not speak for it", async () => {
+  // Sage on #584: a `command` probe may carry its own absolute `cwd`, so the
+  // receipt's single probe tree would report it under a directory it never
+  // touched. That is #579's mislabel one level down.
+  const elsewhere = "/some/other/checkout";
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495"), author: "jcfischer" })
+    .seed("520", {
+      node: autoNode("520", { probes: [PROBE, { ...PROBE, cwd: elsewhere }] }),
+      parent: "495",
+      author: "ivy-agent",
+    });
+
+  await run(["graph", "close", "520", "--repo", REPO], store, {
+    loadProbeRegistry: async () => ({
+      status: "loaded",
+      repo: REPO,
+      path: REGISTRY_PATH,
+      commands: [
+        { run: PROBE_RUN, cwd: "/repo" },
+        { run: PROBE_RUN, cwd: elsewhere },
+      ],
+      urlHosts: [],
+    }),
+    runProbes: async (probes, registry, cwd) =>
+      await runProbes(probes, {
+        cwd,
+        registry,
+        deps: { runCommand: async () => ({ exitCode: 0, stdout: "", stderr: "", timedOut: false }), now: () => AT },
+      }),
+  });
+
+  const receipt = store.closed[0].receipt;
+  expect(receipt.probeResults.map((result) => (result.state === "probed" ? result.cwd : undefined))).toEqual([
+    "/repo",
+    elsewhere,
+  ]);
+  expect(receipt.evidence.find((entry) => entry.kind === "probed")?.summary).toContain("1 of them in another tree");
+  expect(renderCloseReceipt(receipt)).toContain(`[in ${elsewhere}]`);
+});
+
+test("the probe tree is read before the probes run, not after they have written to it", async () => {
+  // A probe is free to dirty the tree it tests — `bun test` leaving a fixture
+  // behind would otherwise make the receipt report dirt the probes caused
+  // rather than the state they ran against.
+  const order: string[] = [];
+  const store = autoGraph();
+  await run(["graph", "close", "520", "--repo", REPO], store, {
+    describeProbeTree: async (dir) => {
+      order.push("describe");
+      return { dir, head: "abc1234", dirty: false };
+    },
+    runProbes: async (probes) => {
+      order.push("probes");
+      return probes.map<ProbeResult>((probe) => ({
+        probe,
+        state: "probed",
+        outcome: "pass",
+        observed: "exit 0",
+        at: AT.toISOString(),
+        cwd: "/repo",
+      }));
+    },
+  });
+
+  expect(order).toEqual(["describe", "probes"]);
 });
 
 test("a dirty probe tree is recorded, never refused (#579)", async () => {
