@@ -876,6 +876,37 @@ test("a base tree no probe ran in is never described, let alone used as the anch
   expect(store.closed[0].receipt.evidence.find((entry) => entry.kind === "probed")?.pointer).toContain(only);
 });
 
+test("a probe tree outside the stated tree is never read, let alone described (#582)", async () => {
+  // The pre-flight spawns `git status` in a directory a **node body** names, and
+  // it runs before any gate has refused anything. An escaping `repo` would get
+  // that tree read and its HEAD published on the way to being refused, which is
+  // the disclosure containment exists to remove — so the uncontained directory
+  // is dropped before the read, not after it.
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495"), author: "jcfischer" })
+    .seed("520", {
+      node: autoNode("520", { probes: [{ type: "git-ref-exists", ref: "HEAD", repo: "/elsewhere" }] }),
+      parent: "495",
+      author: "ivy-agent",
+    });
+
+  const described: string[] = [];
+  const message = await failure(
+    ["graph", "close", "520", "--repo", REPO],
+    store,
+    realRunner(DECLARED, {
+      describeProbeTree: async (dir) => {
+        described.push(dir);
+        return { dir, head: "f00dcafe", dirty: false };
+      },
+    }),
+  );
+
+  expect(described).toEqual([]);
+  expect(message).toContain("ran and failed");
+  expect(store.closed).toHaveLength(0);
+});
+
 test("one probe tree without a HEAD unanchors the whole set", async () => {
   // `2/2 passed` beside a pointer that can only account for one of the trees is
   // the overstatement this change exists to remove, so it withholds instead.

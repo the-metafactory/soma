@@ -53,7 +53,9 @@ soma policy probes [--repo <owner/name>]
   absolute `cwd` are declared.
 - `url` — refused unless the target host is declared; non-http(s) targets are
   refused outright.
-- `git-ref-exists`, `git-merged-into`, `artifact-exists` — ungated.
+- `git-ref-exists`, `git-merged-into`, `artifact-exists` — ungated by the
+  registry, but **contained**: a `repo` or `path` that resolves outside the tree
+  the close runs in is a failed probe (#582). Keep them tree-relative.
 
 A refused probe is a failed probe, so the close refuses and names the exact
 entry to declare. There is deliberately no verb that adds one: widening the

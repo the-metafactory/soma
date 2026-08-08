@@ -183,7 +183,69 @@ depend on knowing who is trusted there.
 | --- | --- |
 | `command` | Refused unless the exact `run` **and** `cwd` pair is declared in the local probe registry for this repo. `cwd` is part of the match: a declared command run in an attacker-chosen directory is a different command. |
 | `url` | Refused unless the target host is in the declared host set. Ungated, this is a blind SSRF oracle — the request issues from the closing machine and the receipt publishes the observed status to a possibly world-readable tracker. |
-| `git-ref-exists`, `git-merged-into`, `artifact-exists` | Ungated — argv, no shell, no egress, bounded to existence checks in a local tree. |
+| `git-ref-exists`, `git-merged-into`, `artifact-exists` | Ungated by the registry — argv, no shell, no egress — and **contained to the stated probe tree** (below). |
+
+##### Containment of the ungated probes
+
+**Status: enforced**
+([#582](https://github.com/the-metafactory/soma/issues/582)), in
+`src/work-graph-probes.ts` beside the registry gate, before dispatch and with the
+same exhaustive switch — a probe type added later must not inherit "contained" by
+omission either.
+
+The row above previously read *"bounded to existence checks in a local tree"*.
+That clause was **false as written**, which is what
+[#529](https://github.com/the-metafactory/soma/issues/529) refuted: `repo` and
+`path` are tracker content resolved against the runner's base cwd with no bound,
+so a node body could name any directory on the closing machine. Verified live at
+`dfea720`: `artifact-exists path:"/etc/passwd"` passed, as did
+`path:"~/.ssh/id_rsa"` and `git-ref-exists repo:"../../.."`. The disclosure this
+creates is the *same* one cited as the reason `url` is gated — the receipt
+publishes the observed string to a possibly world-readable tracker — and it
+applies to a probe whose path the reader chose.
+
+The rule, now enforced:
+
+- **Contained** means the *resolved absolute* path is the probe tree (§2.2's
+  stated base cwd, [#580](https://github.com/the-metafactory/soma/issues/580)) or
+  a descendant of it. The comparison is a separator-aware prefix test, so
+  `/base-evil` is not a descendant of `/base`.
+- **Every path the probe touches**, not just its directory. Two resolutions
+  exist: `repo` → the probe directory, and `artifact-exists`'s `path` when no
+  `atRef` is given, which resolves against that directory. A check seeing only
+  the first is the defect, not the fix. With `atRef` the path is a
+  repository-relative object name handed to `git cat-file` and never touches the
+  filesystem, so only the directory is contained there.
+- **Escape is a failed probe**, never an exception and never a skip — same shape
+  as a registry refusal, refusing through the path `assertClosable` already owns.
+  The message names the resolved path *and* the tree, since the node's literal
+  field and the resolved path are different strings.
+- The pre-flight tree read (§2.2) skips uncontained directories **before**
+  spawning in them: it runs in a directory a node body names and before any gate
+  has refused anything.
+- **Lexical, not `realpath`.** A symlink inside the tree pointing out of it still
+  escapes. Resolving links would mean filesystem I/O in a predicate that runs
+  before the runner has decided to touch anything, and would still race the probe.
+- `command` and `url` are **not** contained, deliberately: a `command`'s resolved
+  `cwd` must already match an absolute directory the adopter declared in
+  soma-home, and a `url` names a host and no tree. Containment on top would
+  forbid the adopter's own declaration — the authority the three argv probes
+  never pass through.
+
+The exemption rests on **containment, not on `git` being inert**. #529 pointed
+five exec-capable config knobs (`core.fsmonitor`, `core.pager`,
+`core.alternateRefsCommand`, `core.sshCommand`, `core.editor`) at a marker script
+and none fired under the three verbs' exact argv on git 2.40.0. That is a
+negative result on a tested set, and on this map a tested-negative has four times
+looked identical to a proof (#557, #510, #561, #579). It is recorded as evidence,
+not as the justification.
+
+**Not covered, deliberately:** a registry `repoRoots` list for genuine cross-tree
+probes — #529 ruled it fog, since no cross-tree probe has a consumer and #579
+found the registry's existing worktree entries had never once been used. It
+graduates when a real one appears. Bounding the `observed` string is also out:
+against a chosen-path oracle the attacker already knows the path, so `pass`/`fail`
+is the whole answer, and containment removes the oracle rather than muffling it.
 
 The registry lives in **soma-home only, scoped by repo identity**, under the
 `soma policy` surface (§4 forbids a parallel policy registry). Not repo-local:

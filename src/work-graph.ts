@@ -382,7 +382,7 @@ export function describeProbeTree(tree: ProbeTree, home: string | undefined = pr
  * `home` is a parameter with an ambient default rather than a bare env read, so
  * the rendering stays a function of its inputs when a caller says so.
  */
-function collapseHome(dir: string, home: string | undefined): string {
+export function collapseHome(dir: string, home: string | undefined = process.env.HOME): string {
   if (home === undefined || home.length === 0) return dir;
   // Separator-agnostic: the runner has a `win32` branch, so a probe directory
   // can arrive backslash-separated, and a boundary check that only knows `/`

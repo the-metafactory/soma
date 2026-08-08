@@ -63,6 +63,7 @@ import {
 } from "../work-graph-probe-registry";
 import {
   allProbesPassed,
+  authorizeProbeTree,
   probeDirectory,
   runCommand,
   runProbes as defaultRunProbes,
@@ -564,7 +565,17 @@ async function prepareProbeTrees(
   // and every "did this probe run outside the tree?" comparison downstream is
   // string equality between the two.
   const probeDir = resolve(deps.probeCwd());
-  const probeDirs = [...new Set(probes.flatMap((probe) => probeDirectory(probe, probeDir) ?? []))];
+  // Uncontained directories are dropped before the read, not after (#582). This
+  // pre-flight spawns `git status` in a directory a **node body** names, and it
+  // runs before any gate has refused anything — so a probe whose `repo` escapes
+  // the stated tree would get that tree read, and its HEAD published in
+  // `probeTrees`, on the way to being refused. The refusal names the path; the
+  // receipt does not need to describe a tree nothing was allowed to touch.
+  const probeDirs = [
+    ...new Set(
+      probes.filter((probe) => authorizeProbeTree(probe, probeDir).allowed).flatMap((probe) => probeDirectory(probe, probeDir) ?? []),
+    ),
+  ];
   // Concurrent, unlike the probes themselves — these are read-only reads of
   // distinct directories, so the reason `runProbes` is sequential (probes share
   // a tree and see each other's side effects) does not apply — but **bounded**,

@@ -748,14 +748,19 @@ export {
 } from "./work-graph-github";
 export {
   allProbesPassed,
+  authorizeProbeTree,
   boundObserved,
+  probeDirectory,
+  resolvedProbePaths,
   runCommand,
   runProbe,
   runProbes,
+  PROBE_ESCAPED_PREFIX,
   type CommandOutcome,
   type CommandRequest,
   type ProbeRunnerDeps,
   type ProbeRunnerOptions,
+  type ResolvedProbePath,
 } from "./work-graph-probes";
 export {
   authorizeProbe,
