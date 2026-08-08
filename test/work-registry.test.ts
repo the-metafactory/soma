@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { expect, test } from "bun:test";
@@ -182,6 +182,34 @@ test("work registry upserts preserve concurrent sessions", async () => {
 
     const work = JSON.parse(await readFile(join(homeDir, ".soma/memory/STATE/work.json"), "utf8"));
     expect(Object.keys(work.sessions)).toHaveLength(12);
+  });
+});
+
+test("work registry reclaims one stale lock before concurrent upserts", async () => {
+  await withTempHome(async (homeDir) => {
+    const lockPath = `${somaWorkRegistryPaths({ homeDir }).work}.lock`;
+    await mkdir(lockPath, { recursive: true });
+    const stale = new Date(Date.now() - 60_000);
+    await utimes(lockPath, stale, stale);
+
+    await Promise.all(
+      ["session-one", "session-two"].map((sessionId) =>
+        upsertSomaWorkRegistryEntry({
+          homeDir,
+          sessionId,
+          sessionName: sessionId,
+          substrate: "codex",
+          workRegistryLockTimeoutMs: 1_000,
+        }),
+      ),
+    );
+
+    await expect(listSomaWorkRegistryEntries({ homeDir })).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ sessionUUID: "session-one" }),
+        expect.objectContaining({ sessionUUID: "session-two" }),
+      ]),
+    );
   });
 });
 
