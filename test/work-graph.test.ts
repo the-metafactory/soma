@@ -18,6 +18,7 @@ import {
   type Probe,
   type WorkGraphNode,
 } from "../src/index";
+import { walkFakeSubtree } from "./fixtures/work-graph-fixtures";
 
 const PASSING_PROBE: Probe = { type: "command", run: "bun test", timeoutSec: 600, expectExit: 0 };
 
@@ -297,18 +298,7 @@ class FakeStore implements GraphStore {
 
   /** Depth-first pre-order over the membership subtree, each node already confirmed (#576). */
   async readSubtree(root: NodeRef): Promise<NodeState[]> {
-    const states: NodeState[] = [];
-    const seen = new Set<string>([root.id]);
-    const walk = async (parent: NodeRef): Promise<void> => {
-      for (const id of this.children.get(parent.id) ?? []) {
-        if (seen.has(id)) continue;
-        seen.add(id);
-        states.push({ ...(await this.readNode({ id })), parent });
-        await walk({ id });
-      }
-    };
-    await walk(root);
-    return states;
+    return walkFakeSubtree(root, (id) => this.children.get(id) ?? [], (ref) => this.readNode(ref));
   }
 
   async claim(ref: NodeRef, identity: string): Promise<ClaimResult> {

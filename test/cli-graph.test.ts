@@ -24,6 +24,7 @@ import {
   type Reaction,
   type WorkGraphNode,
 } from "../src/index";
+import { walkFakeSubtree } from "./fixtures/work-graph-fixtures";
 
 const REPO = "the-metafactory/soma";
 const AT = new Date("2026-08-04T09:00:00.000Z");
@@ -93,18 +94,7 @@ class FakeStore implements GraphStore {
   }
 
   async readSubtree(root: NodeRef): Promise<NodeState[]> {
-    const states: NodeState[] = [];
-    const seen = new Set<string>([root.id]);
-    const walk = async (parent: NodeRef): Promise<void> => {
-      for (const id of this.nodes.get(parent.id)?.children ?? []) {
-        if (seen.has(id)) continue;
-        seen.add(id);
-        states.push({ ...(await this.readNode({ id })), parent });
-        await walk({ id });
-      }
-    };
-    await walk(root);
-    return states;
+    return walkFakeSubtree(root, (id) => this.nodes.get(id)?.children ?? [], (ref) => this.readNode(ref));
   }
 
   async claim(_ref: NodeRef, identity: string): Promise<ClaimResult> {
