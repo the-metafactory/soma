@@ -347,9 +347,30 @@ export interface AlgorithmProvenanceEntry {
   detail?: string;
 }
 
-export type AlgorithmCapabilityKind = "skill" | "inline" | "agent" | "command" | "adapter";
+/**
+ * The one capability-kind vocabulary. `AlgorithmCapabilityKind`,
+ * `AlgorithmCapabilityContract` and the runtime membership check are all derived
+ * from this tuple, so a new kind is added in exactly one place (Sage review).
+ */
+export const ALGORITHM_CAPABILITY_KINDS = ["skill", "inline", "agent", "command", "adapter", "contract"] as const;
 
-export type AlgorithmCapabilityContract = "skill" | "inline" | "agent" | "command" | "adapter";
+export type AlgorithmCapabilityKind = (typeof ALGORITHM_CAPABILITY_KINDS)[number];
+
+export type AlgorithmCapabilityContract = AlgorithmCapabilityKind;
+
+/**
+ * The kinds an ACTUALLY RECORDED invocation can carry — every kind except
+ * `contract` (Sage review). `contract` is a declaration-only state: it means a
+ * capability was declared by its contract and never bound, and
+ * `recordAlgorithmCapabilityInvocation` refuses it, so no invocation record can
+ * ever hold it. Narrowing here states that in the type instead of leaving every
+ * consumer to handle a case the code cannot produce.
+ *
+ * The DEFINITION's `invoke.contract` keeps the wide union: a contract-kind
+ * definition legitimately reports `contract` there, and forcing it to name an
+ * invocation kind it does not have would be a lie in the other direction.
+ */
+export type AlgorithmCapabilityInvocationContract = Exclude<AlgorithmCapabilityKind, "contract">;
 
 export type AlgorithmCapabilitySelectionStatus = "selected" | "invoked" | "removed" | "failed";
 
@@ -362,6 +383,26 @@ export interface AlgorithmCapabilityDefinition {
     contract: AlgorithmCapabilityContract;
     target: string;
   };
+  /**
+   * Who put this definition on the run (soma#574). A home refresh REPLACES the
+   * set it owns — a row retargeted at something missing, or deleted outright,
+   * must stop being selectable — so the replace needs to know what is its to
+   * drop.
+   *
+   * - `soma-home`  — resolved from the soma home; replaced on every refresh.
+   * - `caller`     — registered directly through
+   *                  `registerAlgorithmCapabilityDefinition(s)`; a refresh
+   *                  leaves it alone.
+   * - absent       — persisted before this field existed, so the producer is
+   *                  genuinely unknown. PRESERVED. Absence is not a deletion
+   *                  signal: reading it as foreign makes a legacy home row
+   *                  undeletable, reading it as home destroys a caller's
+   *                  registration, and only the second is unrecoverable. A
+   *                  stale legacy row is replaced the moment a same-named row
+   *                  resolves again; until then it lingers, which is the
+   *                  cheaper of the two mistakes.
+   */
+  origin?: "soma-home" | "caller";
 }
 
 export interface SomaSkillAlgorithmCapabilityManifest {
@@ -373,7 +414,7 @@ export interface SomaSkillAlgorithmCapabilityManifest {
 export interface AlgorithmCapabilityInvocation {
   timestamp: string;
   substrate: SubstrateId;
-  contract: AlgorithmCapabilityContract;
+  contract: AlgorithmCapabilityInvocationContract;
   target: string;
   evidence: string;
 }

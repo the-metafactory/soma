@@ -516,7 +516,7 @@ test("codex algorithm contract wins over imported portable skill body", async ()
     expect(algorithmSkill).toContain("Codex Rendering Contract");
     expect(algorithmSkill).toContain("Start with `Workflows/RunAlgorithm.md`");
     expect(algorithmSkill).toContain("When the Soma CLI is available");
-    expect(algorithmSkill).toContain("♻︎ Entering the PAI ALGORITHM… (Soma) ═════════════");
+    expect(algorithmSkill).toContain("♻︎ Entering the Algorithm… ═════════════");
     expect(algorithmSkill).not.toContain("This body should not replace the Codex rendering contract.");
     expect(workflow).toContain("Imported workflow");
   });

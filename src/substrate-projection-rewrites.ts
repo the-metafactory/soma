@@ -6,7 +6,13 @@ const SOMA_HOME = "~/" + ".soma";
 const RELATIVE_CLAUDE_HOME = "." + "claude";
 const MEMORY_ROOT_PREFIXES = [CLAUDE_HOME, `./${RELATIVE_CLAUDE_HOME}`, RELATIVE_CLAUDE_HOME] as const;
 const MEMORY_ROOT_SUFFIXES = ["PAI/MEMORY", "memory", "memories"] as const;
-const CLAUDE_ONLY_LINE = /\b(?:VSASync\.hook\.ts|VSA[- ]Tool(?![A-Za-z]))/i;
+// Lines naming a PAI-only hook or tool, dropped from every non-claude-code
+// projection. Both the pre-#329 (`ISA…`) and post-rename (`VSA…`) spellings are
+// matched on purpose: the rename migrated this regex but not the documents it
+// filters, so a `VSA`-only pattern silently stripped nothing from content that
+// still said `ISASync.hook.ts` (soma#574). Matching both is cheap; matching one
+// is a filter that reports success while doing nothing.
+const CLAUDE_ONLY_LINE = /\b(?:[IV]SASync\.hook\.ts|CheckpointPerISC\.hook\.ts|[IV]SA[- ]Tool(?![A-Za-z]))/i;
 
 function replaceAllLiteral(content: string, from: string, to: string): string {
   return content.split(from).join(to);
