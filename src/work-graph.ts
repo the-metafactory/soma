@@ -280,6 +280,29 @@ export interface AttestationFacts {
   reasons?: readonly string[];
 }
 
+/**
+ * The tree the probes actually ran in (#579, #580).
+ *
+ * A probe result is only evidence about the thing being closed if it was
+ * produced in the thing being closed. That directory used to be ambient — the
+ * CLI's process cwd, which the installer's symlink could make some entirely
+ * unrelated checkout — and nothing in the receipt said which one it was, so a
+ * `bun test` that passed against an ancestor commit read exactly like one that
+ * passed against the work. Recording the resolved directory, its HEAD, and
+ * whether it was dirty makes a wrong tree *visible* rather than silent.
+ *
+ * Recorded, never gated: a dirty tree is a fact about the evidence, and #579
+ * decided explicitly that it does not refuse the close.
+ */
+export interface ProbeTree {
+  /** Resolved absolute directory the probes ran in. */
+  dir: string;
+  /** HEAD of that directory, when it is a git tree with a commit. */
+  head?: string;
+  /** `git status` non-empty there. Absent when the directory is not a readable git tree. */
+  dirty?: boolean;
+}
+
 export interface CloseReceipt {
   /** Must match the node's attached checkpoint — one work item, one completion gate. */
   checkpointId: string;
@@ -288,8 +311,21 @@ export interface CloseReceipt {
   at: string;
   evidence: readonly CloseEvidence[];
   probeResults: readonly ProbeResult[];
+  /** Where the probes ran. Absent when none were declared — nothing was tested, so no tree is claimed. */
+  probeTree?: ProbeTree;
   attestation: AttestationState;
   attestationFacts?: AttestationFacts;
+}
+
+/**
+ * How a probe tree reads in a receipt — one string, used both as the `probed`
+ * evidence pointer and in the rendered probe section, so the pointer and the
+ * prose can never disagree about which tree was tested.
+ */
+export function describeProbeTree(tree: ProbeTree): string {
+  const head = tree.head === undefined ? "no HEAD" : `HEAD ${tree.head}`;
+  const state = tree.dirty === undefined ? "not a git tree" : tree.dirty ? "dirty" : "clean";
+  return `${head} in ${tree.dir} (${state})`;
 }
 
 /**
@@ -749,6 +785,11 @@ export function renderCloseReceipt(receipt: CloseReceipt): string {
   }
   if (receipt.probeResults.length > 0) {
     lines.push(``, `### Probes`, ``);
+    // Named before the results, not after: a reader who does not know which
+    // tree produced them cannot judge a single line below (#579).
+    if (receipt.probeTree !== undefined) {
+      lines.push(`Ran in ${describeProbeTree(receipt.probeTree)}.`, ``);
+    }
     for (const result of receipt.probeResults) {
       lines.push(
         result.state === "probed"

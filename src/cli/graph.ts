@@ -27,11 +27,14 @@
  * cannot substitute for either.
  */
 
+import { resolve } from "node:path";
+
 import {
   WorkGraph,
   WorkGraphError,
   agentExternalEvidenceKinds,
   assertClosable,
+  describeProbeTree,
   renderCloseReceipt,
   type CloseEvidence,
   type CloseReceipt,
@@ -41,6 +44,7 @@ import {
   type NodeState,
   type Probe,
   type ProbeResult,
+  type ProbeTree,
   type Ratification,
   type Reaction,
   type WorkGraphEvidenceKind,
@@ -407,20 +411,29 @@ export interface GraphCliDeps {
    * never per invocation.
    */
   loadProbeRegistry: (repo: string) => Promise<ProbeRegistry>;
-  runProbes: (probes: readonly Probe[], registry: ProbeRegistry) => Promise<ProbeResult[]>;
+  runProbes: (probes: readonly Probe[], registry: ProbeRegistry, cwd: string) => Promise<ProbeResult[]>;
   checkConfinement: () => Promise<ConfinementResult>;
   /**
-   * An anchor for probe evidence — the commit the probes ran against.
+   * The directory the probes run in, resolved **once** per close and passed
+   * everywhere it is needed — the runner, the registry match, and the receipt.
    *
-   * "Externally checkable" is the bar `assertClosable` states, and this clears it
-   * only partly: the default reads `git rev-parse HEAD` in the CLI's own cwd, so
-   * it names a commit that may be unpushed, and that is the *runner's* tree
-   * rather than any tree a probe chose via `repo`. A reader can re-derive what it
-   * points at; they cannot always fetch it. Recorded rather than papered over —
-   * making it strictly external (refuse an unpushed sha) is a change to what
-   * closes an `auto` node, which is a decision, not a default.
+   * The session's cwd, which is what an author means by writing `bun test` on a
+   * node. It is a dep rather than a bare `process.cwd()` call at the use site
+   * because #579's failure was precisely that the value was read wherever it was
+   * wanted: two reads, one of them in a process the installer had `cd`ed
+   * elsewhere, and no way to test the disagreement.
    */
-  evidencePointer: () => Promise<string | undefined>;
+  probeCwd: () => string;
+  /**
+   * Describe the tree the probes ran in: resolved directory, HEAD, dirty state.
+   *
+   * This is the anchor for probe evidence, and it clears "externally checkable"
+   * only partly: HEAD may be unpushed, and a dirty tree means the sha does not
+   * fully describe what was tested. Both are *recorded* rather than refused —
+   * #579 decided that explicitly, since making a dirty tree unclosable changes
+   * what closes an `auto` node, which is a decision, not a default.
+   */
+  describeProbeTree: (cwd: string) => Promise<ProbeTree>;
   readTextFile: (path: string) => Promise<string>;
   now: () => Date;
   warn: (message: string) => void;
@@ -436,11 +449,39 @@ async function gh(args: string[]): Promise<string> {
   return outcome.stdout.trim();
 }
 
-async function defaultEvidencePointer(): Promise<string | undefined> {
-  const head = await runCommand({ argv: ["git", "rev-parse", "HEAD"], timeoutSec: 30 });
-  if (head.exitCode !== 0) return undefined;
-  const sha = head.stdout.trim();
-  return sha.length === 0 ? undefined : `HEAD ${sha}`;
+/**
+ * HEAD and dirt in **one** spawn. `--porcelain=v2 --branch` reports
+ * `# branch.oid <sha>` alongside the working-tree entries, so the receipt gets
+ * both facts for the cost of one — #530 established the cost model here is
+ * per-spawn (~600ms), and a separate `rev-parse` plus `status` would double a
+ * per-close tax to learn two halves of one thing.
+ */
+export function parseProbeTreeStatus(dir: string, stdout: string): ProbeTree {
+  let head: string | undefined;
+  let dirty = false;
+  for (const line of stdout.split("\n")) {
+    if (line.startsWith("# branch.oid ")) {
+      const oid = line.slice("# branch.oid ".length).trim();
+      // `(initial)` on a repo with no commit yet — a tree with no HEAD to name.
+      if (oid.length > 0 && oid !== "(initial)") head = oid;
+      continue;
+    }
+    if (line.startsWith("#")) continue;
+    // Anything else is a changed, staged, unmerged, or untracked path.
+    if (line.trim().length > 0) dirty = true;
+  }
+  return { dir, ...(head === undefined ? {} : { head }), dirty };
+}
+
+async function defaultDescribeProbeTree(dir: string): Promise<ProbeTree> {
+  const status = await runCommand({
+    argv: ["git", "-C", dir, "status", "--porcelain=v2", "--branch"],
+    timeoutSec: 30,
+  });
+  // Not a git tree (or git is unreachable): the directory is still the honest
+  // answer to "where did the probes run", and the absent `dirty` says the rest.
+  if (status.exitCode !== 0) return { dir };
+  return parseProbeTreeStatus(dir, status.stdout);
 }
 
 function defaultDeps(): GraphCliDeps {
@@ -449,7 +490,7 @@ function defaultDeps(): GraphCliDeps {
     resolveRepo: resolveGraphRepo,
     resolveIdentity: async () => await gh(["api", "user", "--jq", ".login"]),
     loadProbeRegistry: async (repo) => await defaultLoadProbeRegistry({ repo }),
-    runProbes: async (probes, registry) => await defaultRunProbes(probes, { registry }),
+    runProbes: async (probes, registry, cwd) => await defaultRunProbes(probes, { registry, cwd }),
     checkConfinement: async () =>
       await defaultCheckConfinement({
         runCommand,
@@ -457,7 +498,8 @@ function defaultDeps(): GraphCliDeps {
         platform: process.platform,
         now: () => new Date(),
       }),
-    evidencePointer: defaultEvidencePointer,
+    probeCwd: () => resolve(process.cwd()),
+    describeProbeTree: defaultDescribeProbeTree,
     readTextFile: async (path) => await Bun.file(path).text(),
     now: () => new Date(),
     warn: (message) => process.stderr.write(`${message}\n`),
@@ -723,7 +765,11 @@ async function runClose(
   const identity = parsed.options.identity ?? (await deps.resolveIdentity());
   const probes = state.node.probes ?? [];
   const registry = await deps.loadProbeRegistry(repo);
-  const probeResults = await deps.runProbes(probes, registry);
+  // Resolved once, then handed to the runner, the registry match, and the
+  // receipt. One value, three readers — the #579 defect was three readers and
+  // no value.
+  const probeDir = deps.probeCwd();
+  const probeResults = await deps.runProbes(probes, registry, probeDir);
   const refusals = probeResults.filter((result) => isProbeRefusal(result));
 
   // A refused probe reaches `assertClosable` as "ran and failed", which is true
@@ -743,16 +789,24 @@ async function runClose(
     );
   }
 
+  // Described whenever probes ran, pass or fail: a dry run that shows a failure
+  // is exactly when the reader most needs to know which tree produced it.
+  const probeTree = probes.length > 0 ? await deps.describeProbeTree(probeDir) : undefined;
+
   const evidence: CloseEvidence[] = [...parsed.options.evidence];
-  if (probes.length > 0 && allProbesPassed(probeResults)) {
-    const pointer = await deps.evidencePointer();
-    if (pointer !== undefined) {
-      evidence.push({
-        kind: "probed",
-        summary: `${probeResults.length}/${probeResults.length} declared probes ran and passed`,
-        pointer,
-      });
-    }
+  // `head === undefined` withholds the entry, which on an `auto` node means the
+  // close is refused for want of evidence — the behaviour before #580, kept
+  // deliberately. A pointer naming a directory and no commit is not something a
+  // reader can re-derive anything from, and loosening what closes an `auto` node
+  // is a decision, not a side effect of moving where the sha is read.
+  if (probeTree?.head !== undefined && allProbesPassed(probeResults)) {
+    evidence.push({
+      kind: "probed",
+      summary: `${probeResults.length}/${probeResults.length} declared probes ran and passed`,
+      // The tree, not just its HEAD. A sha alone re-creates the #579 reading
+      // where a receipt names a commit and stays silent about the checkout.
+      pointer: describeProbeTree(probeTree),
+    });
   }
 
   // Deliberately NOT seeded with the `state` read at the top of this function
@@ -831,6 +885,7 @@ async function runClose(
     at: deps.now().toISOString(),
     evidence,
     probeResults,
+    ...(probeTree === undefined ? {} : { probeTree }),
     attestation,
     attestationFacts: facts,
   };

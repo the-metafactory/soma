@@ -124,6 +124,19 @@ Runner semantics settled while implementing #498:
   not do is let an unrun probe read as a passed one.
 - Git probes execute as argv, never through a shell, so a ref name cannot
   inject.
+- **The probe directory is stated, not inherited** ([#579](https://github.com/the-metafactory/soma/issues/579),
+  [#580](https://github.com/the-metafactory/soma/issues/580)). A `command` probe
+  runs in the directory the close was invoked from, resolved **once** and passed
+  to the runner, the registry match, and the receipt — which records that
+  absolute directory, its HEAD, and whether it was dirty, on the probe section
+  and on the derived `probed` evidence pointer. The failure this closes: with the
+  directory read wherever it was wanted, a launcher that `cd`s made probes
+  execute in the install tree, so `bun test` passed against a commit that did not
+  contain the work and the receipt said only `HEAD <sha>` — a true fact about the
+  wrong tree. A **dirty** probe tree is *recorded, never refused*: it is a fact
+  about the evidence, and refusing it would change what closes an `auto` node.
+  Probes that name a `repo`/`cwd` resolve against that same stated base, so they
+  move with it.
 
 #### Probe registry (DD-16 Amendment A)
 

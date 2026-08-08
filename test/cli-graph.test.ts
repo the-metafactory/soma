@@ -3,6 +3,7 @@ import { SomaCliError } from "../src/cli/errors";
 import {
   GRAPH_COMMAND_HELP,
   parseGraphArgs,
+  parseProbeTreeStatus,
   runGraphCli,
   selectRatification,
   type GraphCliDeps,
@@ -143,7 +144,8 @@ function deps(store: FakeStore, overrides: Partial<GraphCliDeps> = {}): Partial<
       at: AT.toISOString(),
       probes: [],
     }),
-    evidencePointer: async () => "HEAD abc1234",
+    probeCwd: () => "/repo",
+    describeProbeTree: async (dir) => ({ dir, head: "abc1234", dirty: false }),
     readTextFile: async () => "proposal body",
     now: () => AT,
     warn: () => undefined,
@@ -339,7 +341,12 @@ test("an auto close runs the probes, derives probed evidence, and writes the rec
   const receipt = store.closed[0].receipt;
   expect(receipt.checkpointId).toBe("cp-520");
   expect(receipt.probeResults).toHaveLength(1);
-  expect(receipt.evidence.some((entry) => entry.kind === "probed" && entry.pointer === "HEAD abc1234")).toBe(true);
+  expect(
+    receipt.evidence.some(
+      (entry) => entry.kind === "probed" && entry.pointer === "HEAD abc1234 in /repo (clean)",
+    ),
+  ).toBe(true);
+  expect(receipt.probeTree).toEqual({ dir: "/repo", head: "abc1234", dirty: false });
   expect(output).toContain("Closed node 520");
 });
 
@@ -664,9 +671,11 @@ test("--dry-run names the refusal instead of throwing it away", async () => {
 function realRunner(registry: ProbeRegistry, overrides: Partial<GraphCliDeps> = {}): Partial<GraphCliDeps> {
   return {
     loadProbeRegistry: async () => registry,
-    runProbes: async (probes, supplied) =>
+    // Takes the cwd the CLI resolved rather than naming one of its own: the
+    // thing under test in #580 is that one stated value reaches the runner.
+    runProbes: async (probes, supplied, cwd) =>
       await runProbes(probes, {
-        cwd: "/repo",
+        cwd,
         registry: supplied,
         deps: {
           runCommand: async () => ({ exitCode: 0, stdout: "640 pass", stderr: "", timedOut: false }),
@@ -724,6 +733,121 @@ test("--dry-run still renders the receipt when the registry refused a probe", as
   expect(output).toContain("would be REFUSED");
   expect(output).toContain("1 of 1 probe(s) refused");
   expect(output).toContain("## Close receipt");
+});
+
+// --- the probe tree is stated, not inherited (#579, #580) -------------------
+
+/** A registry that authorises the one probe in the tree the CLI states it will use. */
+function declaredIn(dir: string): ProbeRegistry {
+  return { status: "loaded", repo: REPO, path: REGISTRY_PATH, commands: [{ run: PROBE_RUN, cwd: dir }], urlHosts: [] };
+}
+
+test("probes run in the stated directory, not the process's — and the receipt names it", async () => {
+  // The test #579 needed and did not have. Asserting "probes run in the session
+  // cwd" passes on the broken code too, because on the developer's machine the
+  // two were the same directory; the only falsifiable version makes them differ.
+  const stated = "/work/tree-under-review";
+  expect(stated).not.toBe(process.cwd());
+
+  const spawned: string[] = [];
+  const store = autoGraph();
+  const output = await run(["graph", "close", "520", "--repo", REPO], store, {
+    probeCwd: () => stated,
+    loadProbeRegistry: async () => declaredIn(stated),
+    runProbes: async (probes, registry, cwd) =>
+      await runProbes(probes, {
+        cwd,
+        registry,
+        deps: {
+          runCommand: async (request) => {
+            spawned.push(request.cwd ?? "<inherited>");
+            return { exitCode: 0, stdout: "", stderr: "", timedOut: false };
+          },
+          now: () => AT,
+        },
+      }),
+    describeProbeTree: async (dir) => ({ dir, head: "f00dcafe", dirty: false }),
+  });
+
+  expect(output).toContain("Closed node 520");
+  // Where it actually ran …
+  expect(spawned).toEqual([stated]);
+  // … and what the receipt says about it — the two agreeing is the whole fix.
+  const receipt = store.closed[0].receipt;
+  expect(receipt.probeTree).toEqual({ dir: stated, head: "f00dcafe", dirty: false });
+  expect(receipt.evidence.some((entry) => entry.kind === "probed" && entry.pointer?.includes(stated))).toBe(true);
+});
+
+test("the registry match follows the stated tree, so a declaration for another checkout does not authorise", async () => {
+  // #579's second half: the install tree was declared, so the gate was satisfied
+  // by a directory the caller never chose. Authorisation has to track the value
+  // the runner is handed, not whatever tree happens to hold a declaration.
+  const store = autoGraph();
+  const message = await failure(["graph", "close", "520", "--repo", REPO], store, {
+    probeCwd: () => "/work/tree-under-review",
+    loadProbeRegistry: async () => declaredIn("/install/tree"),
+    runProbes: async (probes, registry, cwd) =>
+      await runProbes(probes, {
+        cwd,
+        registry,
+        deps: { runCommand: async () => ({ exitCode: 0, stdout: "", stderr: "", timedOut: false }), now: () => AT },
+      }),
+  });
+
+  expect(store.closed).toHaveLength(0);
+  expect(message).toContain("not authorised on this machine");
+  expect(message).toContain(`{"run": "bun test", "cwd": "/work/tree-under-review"}`);
+});
+
+test("a dirty probe tree is recorded, never refused (#579)", async () => {
+  const store = autoGraph();
+  const output = await run(["graph", "close", "520", "--repo", REPO], store, {
+    describeProbeTree: async (dir) => ({ dir, head: "abc1234", dirty: true }),
+  });
+
+  expect(output).toContain("Closed node 520");
+  expect(store.closed[0].receipt.probeTree?.dirty).toBe(true);
+  const pointer = store.closed[0].receipt.evidence.find((entry) => entry.kind === "probed")?.pointer;
+  expect(pointer).toBe("HEAD abc1234 in /repo (dirty)");
+});
+
+test("a tree with no readable HEAD anchors nothing, so an auto close still refuses", async () => {
+  // Unchanged from before #580 — moving where the sha is read must not widen
+  // what closes an `auto` node.
+  const store = autoGraph();
+  const message = await failure(["graph", "close", "520", "--repo", REPO], store, {
+    describeProbeTree: async (dir) => ({ dir }),
+  });
+
+  expect(store.closed).toHaveLength(0);
+  expect(message).toContain("needs at least one");
+});
+
+test("the rendered receipt names the probe tree next to the probe results", async () => {
+  const store = autoGraph();
+  const output = await run(["graph", "close", "520", "--dry-run", "--repo", REPO], store, {
+    describeProbeTree: async (dir) => ({ dir, head: "abc1234", dirty: true }),
+  });
+
+  expect(output).toContain("### Probes");
+  expect(output).toContain("Ran in HEAD abc1234 in /repo (dirty).");
+});
+
+test("parseProbeTreeStatus reads HEAD and dirt out of one git call", () => {
+  const clean = parseProbeTreeStatus("/repo", "# branch.oid abc1234\n# branch.head main\n");
+  expect(clean).toEqual({ dir: "/repo", head: "abc1234", dirty: false });
+
+  const dirty = parseProbeTreeStatus(
+    "/repo",
+    "# branch.oid abc1234\n# branch.head main\n1 .M N... 100644 100644 100644 aaa bbb src/x.ts\n? scratch.md\n",
+  );
+  expect(dirty).toEqual({ dir: "/repo", head: "abc1234", dirty: true });
+
+  // A repo with no commit yet has no HEAD to name — and no sha to invent.
+  expect(parseProbeTreeStatus("/repo", "# branch.oid (initial)\n# branch.head main\n")).toEqual({
+    dir: "/repo",
+    dirty: false,
+  });
 });
 
 test("--evidence cannot supply the kind that closes the node", async () => {

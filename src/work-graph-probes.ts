@@ -70,8 +70,18 @@ export interface ProbeRunnerDeps {
 }
 
 export interface ProbeRunnerOptions {
-  /** Default working directory for probes that do not name one. */
-  cwd?: string;
+  /**
+   * Working directory for probes that do not name one, and the base every
+   * probe-relative `cwd`/`repo` resolves against.
+   *
+   * **Required, and deliberately so** (#580). It used to fall through to
+   * `process.cwd()`, which made the tree a probe ran in a property of however
+   * the binary happened to be launched — under a launcher that `cd`s, an
+   * entirely different checkout than the one being closed (#579). A caller now
+   * has to state the tree it means, so a wrong one is a value someone passed
+   * rather than a value nobody chose.
+   */
+  cwd: string;
   /**
    * The adopter's probe registry for the repo this graph lives in (§2.2, DD-16
    * Amendment A). **Absent means refuse**: every `command` and `url` probe fails
@@ -200,9 +210,9 @@ function probeCwd(probeRepo: string | undefined, fallbackCwd: string): string {
  * probe that throws is a probe that did not pass, and the close gate needs that
  * as data, not as an exception to interpret.
  */
-export async function runProbe(probe: Probe, options: ProbeRunnerOptions = {}): Promise<ProbeResult> {
+export async function runProbe(probe: Probe, options: ProbeRunnerOptions): Promise<ProbeResult> {
   const deps = resolveDeps(options);
-  const baseCwd = options.cwd ?? process.cwd();
+  const baseCwd = resolve(options.cwd);
   const at = deps.now().toISOString();
 
   try {
@@ -292,7 +302,7 @@ export async function runProbe(probe: Probe, options: ProbeRunnerOptions = {}): 
  */
 export async function runProbes(
   probes: readonly Probe[],
-  options: ProbeRunnerOptions = {},
+  options: ProbeRunnerOptions,
 ): Promise<ProbeResult[]> {
   const results: ProbeResult[] = [];
   for (const probe of probes) {

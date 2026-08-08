@@ -101,6 +101,7 @@ test("a runner error is a failed probe, not an exception — fail-closed", async
   const probe: Probe = { type: "url", target: "https://example.test/health", expectStatus: 200 };
   const result = requireProbed(
     await runProbe(probe, {
+      cwd: "/repo",
       registry: ALL_DECLARED,
       deps: {
         fetchStatus: async () => {
