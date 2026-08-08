@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { defaultSomaHome } from "./paths";
@@ -74,7 +75,7 @@ export interface InstallBundledSkillsOptions {
  * content. Otherwise a NUMBERED sibling is written and no backup is ever
  * overwritten.
  *
- * The numbering matters (Sage review). Skipping whenever any backup existed
+ * Saving more than once matters (Sage review). Skipping whenever any backup existed
  * made the promise false from the second upgrade onward: an adopter who kept
  * editing `capabilities.md` — not yet having learned that rows moved — had
  * those later edits overwritten with nothing kept, which is the silent loss
@@ -90,16 +91,16 @@ async function backupCustomisedCapabilityTable(destDir: string, sourceFile: stri
   ]);
   if (existing === undefined || incoming === undefined || existing === incoming) return undefined;
 
-  // Walk the numbered series: stop at the first free slot, but bail out early if
-  // one of them already holds this exact content — re-saving an unchanged table
-  // on every upgrade would bury the interesting ones.
-  let backup = join(references, "capabilities.pre-upgrade.md");
-  for (let attempt = 2; ; attempt += 1) {
-    const held = await readFile(backup, "utf8").catch(() => undefined);
-    if (held === undefined) break;
-    if (held.endsWith(existing)) return undefined;
-    backup = join(references, `capabilities.pre-upgrade.${attempt}.md`);
-  }
+  // Named by a short hash of what is being saved. That gives dedup and
+  // collision-freedom in one step: identical content lands on the same name and
+  // is skipped, different content gets its own file, and no backup is ever
+  // overwritten. A numbered series would have to be walked with a filesystem
+  // round trip per prior backup on every install (Sage review); this is one
+  // stat regardless of how many upgrades an installation has seen.
+  const digest = createHash("sha256").update(existing, "utf8").digest("hex").slice(0, 8);
+  const backup = join(references, `capabilities.pre-upgrade.${digest}.md`);
+  const alreadySaved = await readFile(backup, "utf8").then(() => true).catch(() => false);
+  if (alreadySaved) return undefined;
 
   await writeFile(
     backup,

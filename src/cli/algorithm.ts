@@ -623,7 +623,10 @@ function formatAlgorithmRunResult(result: { path: string; run: AlgorithmRun }): 
   ].join("\n");
 }
 
-function formatAlgorithmCapabilityRegistry(registry: SomaHomeAlgorithmCapabilityRegistry): string {
+function formatAlgorithmCapabilityRegistry(
+  registry: SomaHomeAlgorithmCapabilityRegistry,
+  shadowed: readonly string[] = [],
+): string {
   const lines = [`Soma Algorithm capability registry — ${registry.definitions.length} resolved`, ""];
 
   for (const definition of [...registry.definitions].sort((a, b) => a.name.localeCompare(b.name))) {
@@ -633,6 +636,17 @@ function formatAlgorithmCapabilityRegistry(registry: SomaHomeAlgorithmCapability
     // fine, and flagging it would contradict what `algorithm invoke` does.
     const suffix = definition.kind === "contract" ? "  ← needs a local binding" : "";
     lines.push(`- ${definition.name} [${definition.kind}] ${definition.phases.join(",")} → ${definition.invoke.target}${suffix}`);
+  }
+
+  if (shadowed.length > 0) {
+    lines.push(
+      "",
+      `Row did not resolve, capability still available from a built-in — ${shadowed.length}:`,
+      ...shadowed.map((name) => `- ${name}`),
+      "",
+      "The capability above is usable, but NOT from the row you wrote: that row",
+      "resolved to nothing and a compiled-in definition is answering instead.",
+    );
   }
 
   if (registry.unsupported.length > 0) {
@@ -927,10 +941,18 @@ export async function runAlgorithmCli(
       // ReReadCheck — which doctrine calls mandatory at EVERY tier — from the
       // very output the agent is told to select verbatim from (Sage review).
       const registry = mergedAlgorithmCapabilityRegistry(resolved);
+      // `mergedAlgorithmCapabilityRegistry` keeps `definitions` and `unsupported`
+      // disjoint, so a broken row whose name a compiled-in also answers to drops
+      // out of both — the adopter sees a clean list and believes their override
+      // resolved (Sage review). Recover those here and report them separately:
+      // the capability IS available, but not from the row they wrote.
+      const shadowed = resolved.unsupported.filter((name) =>
+        registry.definitions.some((definition) => definition.name === name),
+      );
       if (options.json === true) {
         return JSON.stringify(registry, null, 2);
       }
-      return formatAlgorithmCapabilityRegistry(registry);
+      return formatAlgorithmCapabilityRegistry(registry, shadowed);
     }
     if (capabilities.length === 0) {
       throw new Error("--capability is required (or --list to show the resolved registry).");

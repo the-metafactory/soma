@@ -136,27 +136,32 @@ describe("bundled skill references", () => {
 
       await installBundledSkillsIntoHome({ homeDir });
 
-      // Kept, in a file nothing reads.
-      expect(await readFile(join(references, "capabilities.pre-upgrade.md"), "utf8")).toContain("MyOwnRow");
+      // Kept, in a content-addressed file nothing reads.
+      const backups = async () => (await readdir(references)).filter((f) => f.startsWith("capabilities.pre-upgrade."));
+      const first = await backups();
+      expect(first).toHaveLength(1);
+      expect(await readFile(join(references, first[0]), "utf8")).toContain("MyOwnRow");
       // NOT promoted to the overlay — that would win over the shipped table.
       await expect(readFile(join(references, "capabilities.local.md"), "utf8")).rejects.toThrow();
       // And the bundled copy was replaced with the shipped one.
       expect(await readFile(join(references, "capabilities.md"), "utf8")).toContain("Algorithm Capabilities Reference");
 
-      // A second install with nothing new saves nothing: the backup it made is
-      // untouched and no numbered sibling appears.
+      // A second install with nothing new saves nothing: same content, same
+      // content-addressed name, already there.
       await installBundledSkillsIntoHome({ homeDir });
-      expect(await readFile(join(references, "capabilities.pre-upgrade.md"), "utf8")).toContain("MyOwnRow");
-      await expect(readFile(join(references, "capabilities.pre-upgrade.2.md"), "utf8")).rejects.toThrow();
+      expect(await backups()).toEqual(first);
 
       // But an adopter who kept editing capabilities.md — not yet having learned
       // that rows moved — must not lose those edits on the NEXT upgrade. Skipping
       // whenever any backup existed silently overwrote them (Sage review).
       await writeFile(join(references, "capabilities.md"), "| Capability |\n|---|\n| SecondRoundRow |\n", "utf8");
       await installBundledSkillsIntoHome({ homeDir });
-      expect(await readFile(join(references, "capabilities.pre-upgrade.2.md"), "utf8")).toContain("SecondRoundRow");
-      // …and the first backup is still intact.
-      expect(await readFile(join(references, "capabilities.pre-upgrade.md"), "utf8")).toContain("MyOwnRow");
+      const second = await backups();
+      expect(second).toHaveLength(2);
+      const contents = await Promise.all(second.map((f) => readFile(join(references, f), "utf8")));
+      // Both rounds kept; neither overwrote the other.
+      expect(contents.some((c) => c.includes("MyOwnRow"))).toBe(true);
+      expect(contents.some((c) => c.includes("SecondRoundRow"))).toBe(true);
     } finally {
       await rm(homeDir, { recursive: true, force: true });
     }
