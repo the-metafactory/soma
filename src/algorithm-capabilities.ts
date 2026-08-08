@@ -307,22 +307,21 @@ function inlineInvocationTarget(value: string): string | undefined {
  * portably: a second opinion, a coder from another model family, a cross-family
  * audit (soma#574).
  *
- * NAMING (Sage review): the row syntax is `Contract(…)`, never `Adapter(…)`.
- * CONTEXT.md §adapter locks `adapter` to the actor that performs a projection,
- * one per substrate, and puts optional invocation on `SubstrateExecutor`
- * "never to an adapter". A public row syntax spelled `Adapter(` would overload
- * that term with a second meaning at exactly the boundary the glossary exists
- * to keep clear. The stored `kind` is still `"adapter"` — that member predates
- * this change and lives in the exported `AlgorithmCapabilityKind` union, so
- * renaming it is a public-API change, tracked separately rather than smuggled
- * in here.
+ * NAMING (Sage review): both the row syntax and the stored `kind` are
+ * `contract`, never `adapter`. CONTEXT.md §adapter locks that word to the actor
+ * that performs a projection, one per substrate, and puts optional invocation on
+ * `SubstrateExecutor` "never to an adapter" — so spelling either the syntax or
+ * the persisted kind `adapter` overloads the term at exactly the boundary the
+ * glossary exists to keep clear. `adapter` remains a kind a skill manifest may
+ * declare; such a definition targets a real skill and stays invocable.
  *
  * A contract capability is DECLARED in the shipped table and BOUND by whoever
  * can satisfy it — a same-named row in `capabilities.local.md`, which is read
  * first and wins. Unbound, it stays selectable and still counts toward a tier
- * floor, deliberately: `assertAlgorithmCapabilitiesSatisfied` refuses COMPLETE
- * for any selected capability never invoked, so it fails the run loudly at the
- * gate instead of quietly padding a floor as a phantom.
+ * floor, deliberately: `algorithm invoke` refuses it and
+ * `assertAlgorithmCapabilitiesSatisfied` refuses COMPLETE for any selected
+ * capability never invoked, so it fails the run loudly at the gate instead of
+ * quietly padding a floor as a phantom.
  */
 function contractInvocationTarget(value: string): string | undefined {
   // `??` cannot stand in for the emptiness check: a whitespace-only contract

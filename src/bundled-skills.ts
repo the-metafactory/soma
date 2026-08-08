@@ -53,20 +53,28 @@ export interface InstallBundledSkillsOptions {
  * The capability table is the one bundled file an adopter was previously
  * expected to EDIT, and soma#574 moves that role to a sibling
  * `capabilities.local.md` the install never touches. Anyone whose rows are
- * still in the bundled copy would lose them the first time this install
- * overwrites it — an irreversible loss of configuration they never agreed to
- * (Sage review).
+ * still in the bundled copy would otherwise lose them the first time this
+ * install overwrites it.
  *
- * So: before the first overwrite, if the home's copy differs from the bundled
- * source and no overlay exists yet, the existing content becomes the overlay.
- * It is preserved verbatim rather than filtered, because the loader reads the
- * overlay first and a row that duplicates a shipped one simply wins — the same
- * outcome the adopter had. Runs once by construction: afterwards the overlay
- * exists, so the branch is skipped.
+ * So the prior content is copied aside — to `capabilities.pre-upgrade.md`,
+ * which NOTHING reads — before the overwrite. Deliberately not into the
+ * overlay (Sage review): the overlay is read first and wins, so promoting an
+ * older bundled table there would reinstate whatever it contained, including
+ * the PAI-era rows this change exists to replace. An upgrade cannot tell an
+ * adopter's edits from last release's defaults, and guessing wrong in that
+ * direction silently undoes the upgrade for every existing install.
+ *
+ * A backup answers the real risk — irreversible loss — without touching
+ * precedence. Promoting anything from it is the principal's call, which is the
+ * only place the "is this mine or last release's?" question can actually be
+ * answered.
+ *
+ * Skipped when the content already matches the incoming bundle, and never
+ * overwrites an existing backup.
  */
-async function preserveCapabilityTableAsOverlay(destDir: string, sourceFile: string): Promise<string | undefined> {
+async function backupCustomisedCapabilityTable(destDir: string, sourceFile: string): Promise<string | undefined> {
   const bundled = join(destDir, "references", "capabilities.md");
-  const overlay = join(destDir, "references", "capabilities.local.md");
+  const backup = join(destDir, "references", "capabilities.pre-upgrade.md");
 
   const [existing, incoming] = await Promise.all([
     readFile(bundled, "utf8").catch(() => undefined),
@@ -74,28 +82,26 @@ async function preserveCapabilityTableAsOverlay(destDir: string, sourceFile: str
   ]);
   if (existing === undefined || incoming === undefined || existing === incoming) return undefined;
 
-  const overlayExists = await readFile(overlay, "utf8").then(() => true).catch(() => false);
-  if (overlayExists) return undefined;
+  const backupExists = await readFile(backup, "utf8").then(() => true).catch(() => false);
+  if (backupExists) return undefined;
 
   await writeFile(
-    overlay,
-    `<!--
-`
-      + `  Preserved by \`soma install\` (soma#574): these rows were in the bundled
-`
-      + `  capabilities.md, which install now overwrites on every run. This file is
-`
-      + `  yours — install never touches it — and it is read BEFORE the bundled
-`
-      + `  table, so a row here wins on any name collision.
-`
-      + `-->
-
-`
+    backup,
+    "<!--\n"
+      + "  Saved by `soma install` before overwriting capabilities.md (soma#574).\n"
+      + "  NOTHING reads this file. It exists so an upgrade cannot destroy rows you\n"
+      + "  added to the bundled table back when that was where rows went.\n"
+      + "\n"
+      + "  To keep any of them, copy those rows into `capabilities.local.md` — that\n"
+      + "  file is yours, install never touches it, and it is read BEFORE the bundled\n"
+      + "  table so your row wins on a name collision. Copy only what you added:\n"
+      + "  everything else here is a previous release's defaults, and reinstating\n"
+      + "  those would undo the upgrade.\n"
+      + "-->\n\n"
       + existing,
     "utf8",
   );
-  return overlay;
+  return backup;
 }
 
 export async function installBundledSkillsIntoHome(
@@ -110,11 +116,11 @@ export async function installBundledSkillsIntoHome(
     const sourceDir = join(somaRepoPath, SKILLS_SUBPATH, name);
     const destDir = join(somaHome, "skills", name);
     if (name === "the-algorithm") {
-      const preserved = await preserveCapabilityTableAsOverlay(
+      const backup = await backupCustomisedCapabilityTable(
         destDir,
         join(sourceDir, "references", "capabilities.md"),
       );
-      if (preserved !== undefined) written.push(preserved);
+      if (backup !== undefined) written.push(backup);
     }
     for await (const absSource of walkFiles(sourceDir)) {
       const dest = join(destDir, relative(sourceDir, absSource));

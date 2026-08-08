@@ -121,10 +121,13 @@ describe("bundled skill references", () => {
     }
   });
 
-  test("install preserves an edited capability table as the overlay, once", async () => {
+  test("install backs up a customised capability table without changing precedence", async () => {
     // soma#574: the capability table is the one bundled file adopters were
-    // expected to edit, and this install now overwrites it every run. Without
-    // this migration their rows vanish on upgrade with no warning and no copy.
+    // expected to edit, and this install now overwrites it every run. Their rows
+    // must not vanish — but the backup must NOT become the overlay (Sage
+    // review): the overlay wins, so promoting an older bundled table there would
+    // reinstate the PAI-era rows this change replaces, silently undoing the
+    // upgrade for every existing install.
     const homeDir = await mkdtemp(join(tmpdir(), "soma-capability-migrate-"));
     try {
       const references = join(homeDir, ".soma", "skills", "the-algorithm", "references");
@@ -133,15 +136,17 @@ describe("bundled skill references", () => {
 
       await installBundledSkillsIntoHome({ homeDir });
 
-      const overlay = await readFile(join(references, "capabilities.local.md"), "utf8");
-      expect(overlay).toContain("MyOwnRow");
-      // And the bundled copy was still replaced with the shipped one.
+      // Kept, in a file nothing reads.
+      expect(await readFile(join(references, "capabilities.pre-upgrade.md"), "utf8")).toContain("MyOwnRow");
+      // NOT promoted to the overlay — that would win over the shipped table.
+      await expect(readFile(join(references, "capabilities.local.md"), "utf8")).rejects.toThrow();
+      // And the bundled copy was replaced with the shipped one.
       expect(await readFile(join(references, "capabilities.md"), "utf8")).toContain("Algorithm Capabilities Reference");
 
-      // Idempotent: a second install must not clobber the overlay it just made.
-      await writeFile(join(references, "capabilities.local.md"), "| Capability |\n|---|\n| EditedSince |\n", "utf8");
+      // Idempotent: a second install must not overwrite the backup it just made.
+      await writeFile(join(references, "capabilities.pre-upgrade.md"), "EDITED SINCE\n", "utf8");
       await installBundledSkillsIntoHome({ homeDir });
-      expect(await readFile(join(references, "capabilities.local.md"), "utf8")).toContain("EditedSince");
+      expect(await readFile(join(references, "capabilities.pre-upgrade.md"), "utf8")).toBe("EDITED SINCE\n");
     } finally {
       await rm(homeDir, { recursive: true, force: true });
     }

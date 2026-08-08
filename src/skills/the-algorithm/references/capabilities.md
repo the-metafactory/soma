@@ -51,8 +51,15 @@ row of the same name wins. Retarget `Advisor` at your own second-opinion tool,
 or narrow `VSA` to fewer phases, without editing a file that will be replaced
 under you.
 
-Nothing generates it. Its absence costs you only the overrides it would have
-carried: manifest-declared capabilities, every installed skill under its own
+**Upgrading from when rows lived in the bundled table:** install saves the
+previous `capabilities.md` alongside as `capabilities.pre-upgrade.md` before
+overwriting it. Nothing reads that file — it exists so an upgrade cannot destroy
+what you wrote. Copy **only the rows you added** into `capabilities.local.md`;
+the rest of it is a previous release's defaults, and reinstating those would win
+over the shipped table and undo the upgrade.
+
+Nothing generates it — `soma install` never creates or touches it. Its absence
+costs you only the overrides it would have carried: manifest-declared capabilities, every installed skill under its own
 name, the shipped table, and the two compiled-ins all still resolve.
 
 ## The row format
