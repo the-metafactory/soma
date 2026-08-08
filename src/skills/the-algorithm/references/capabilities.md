@@ -28,7 +28,7 @@ Use these to enrich understanding BEFORE or DURING ISC writing. Select in the pr
 | WorldThreatModel | THINK | Long-term strategy stress-test, future-proofing | `Skill("WorldThreatModel")` | E5 |
 | Fabric patterns | any | Targeted transform via a specific Fabric pattern (extract_wisdom, summarize, etc.) | `Skill("Fabric")` | E1+ |
 | ContextSearch | OBSERVE | Prior PAI work, session recovery, cold-start | `Skill("ContextSearch")` | E1+ |
-| **ISA Skill** | **OBSERVE, PLAN, EXECUTE, VERIFY, LEARN** | **MANDATORY at E2+ for ISA scaffolding (`Skill("ISA", "scaffold from prompt at tier T")`), tier completeness checks (`Skill("ISA", "check completeness")`), ephemeral feature extraction at PLAN, canonical Decisions/Changelog/Verification entries via Append at any phase, and Reconcile after ephemeral feature work at LEARN. E1 may inline-write the minimal Goal+Criteria ISA to preserve <90s budget. The skill owns the canonical twelve-section template and refuses to write partial Deutsch C/R/L Changelog entries.** | `Skill("ISA", "<verb> <args>")` | E1+ |
+| **VSA Skill** | **OBSERVE, PLAN, EXECUTE, VERIFY, LEARN** | **MANDATORY at E2+ for VSA scaffolding (`Skill("VSA", "scaffold from prompt at tier T")`), tier completeness checks (`Skill("VSA", "check completeness")`), ephemeral feature extraction at PLAN, canonical Decisions/Changelog/Verification entries via Append at any phase, and Reconcile after ephemeral feature work at LEARN. E1 may inline-write the minimal Goal+Criteria VSA to preserve <90s budget. The skill owns the canonical twelve-section template and refuses to write partial Deutsch C/R/L Changelog entries.** | `Skill("VSA", "<verb> <args>")` | E1+ |
 
 ## Code Quality Capabilities
 

@@ -7,7 +7,7 @@ Do not load the whole `Examples/` directory by default.
 
 | File | Purpose |
 | --- | --- |
-| `Examples/canonical-isa.md` | Fully populated all-section reference. Read when you need tone, complete structure, or a high-fidelity template. |
+| `Examples/canonical-vsa.md` | Fully populated all-section reference. Read when you need tone, complete structure, or a high-fidelity template. |
 
 ## Code
 
