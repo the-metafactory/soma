@@ -277,19 +277,28 @@ async function withRegistryFileLock<T>(
   const lockPath = `${registryPath}.lock`;
   const started = Date.now();
   const timeout = resolveWorkRegistryLockTimeout(timeoutMs);
+  let nextReclaimAttemptAt = started;
 
   for (;;) {
     try {
       await mkdir(lockPath);
-      await writeFile(
-        join(lockPath, WORK_REGISTRY_LOCK_OWNER_FILE),
-        `${JSON.stringify({ pid: process.pid, acquiredAt: new Date().toISOString() })}\n`,
-        "utf8",
-      );
+      try {
+        await writeFile(
+          join(lockPath, WORK_REGISTRY_LOCK_OWNER_FILE),
+          `${JSON.stringify({ pid: process.pid, acquiredAt: new Date().toISOString() })}\n`,
+          "utf8",
+        );
+      } catch (error) {
+        await rm(lockPath, { recursive: true, force: true });
+        throw error;
+      }
       break;
     } catch (error: unknown) {
       if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
-      if (await reclaimStaleWorkRegistryLock(lockPath)) continue;
+      if (Date.now() >= nextReclaimAttemptAt) {
+        nextReclaimAttemptAt = Date.now() + 1_000;
+        if (await reclaimStaleWorkRegistryLock(lockPath)) continue;
+      }
       if (Date.now() - started > timeout) {
         throw new Error(`Timed out waiting for work registry lock at ${lockPath}`, { cause: error });
       }

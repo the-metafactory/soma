@@ -974,6 +974,23 @@ test("installed codex session-end hook reclaims a stale work registry lock", asy
   });
 });
 
+test("installed codex session-end hook records a failure when a live registry lock outlasts its deadline", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const lockPath = `${somaWorkRegistryPaths({ homeDir }).work}.lock`;
+    await mkdir(lockPath, { recursive: true });
+    await writeFile(join(lockPath, "owner.json"), `${JSON.stringify({ pid: process.pid })}\n`);
+
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const result = runCodexHook(hook, "session-end", homeDir, { session_id: "codex-live-lock", cwd: homeDir });
+    const events = await readFile(join(homeDir, ".soma", "memory", "STATE", "events.jsonl"), "utf8");
+
+    expect(result.status).toBe(0);
+    expect(result.output.systemMessage).toBe("Soma lifecycle session-end handled.");
+    expect(events).toContain("lifecycle.session_end.registry-write-failed");
+  });
+});
+
 test("installed codex session-end hook points failures at the durable event log", async () => {
   await withTempHome(async (homeDir) => {
     await installSomaForCodex({ homeDir });
