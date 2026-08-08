@@ -363,14 +363,22 @@ export interface AlgorithmCapabilityDefinition {
     target: string;
   };
   /**
-   * Set on definitions resolved from the soma home (soma#574). A refresh
-   * REPLACES the home-derived set — a row retargeted at something missing, or
-   * deleted outright, must stop being selectable — and this marks which
-   * definitions that replace owns. Definitions registered directly through
-   * `registerAlgorithmCapabilityDefinition(s)` carry no origin and survive a
-   * refresh untouched. Optional: absent means "not from the home".
+   * Who put this definition on the run (soma#574). A home refresh REPLACES the
+   * set it owns — a row retargeted at something missing, or deleted outright,
+   * must stop being selectable — so the replace needs to know what is its to
+   * drop.
+   *
+   * - `soma-home`  — resolved from the soma home; replaced on every refresh.
+   * - `caller`     — registered directly through
+   *                  `registerAlgorithmCapabilityDefinition(s)`; a refresh
+   *                  leaves it alone.
+   * - absent       — persisted before this field existed. Treated as
+   *                  home-derived and replaced on the first refresh, because
+   *                  the home path was the only producer of run definitions in
+   *                  practice. Without that, a legacy row deleted from the
+   *                  table could never be dropped.
    */
-  origin?: "soma-home";
+  origin?: "soma-home" | "caller";
 }
 
 export interface SomaSkillAlgorithmCapabilityManifest {

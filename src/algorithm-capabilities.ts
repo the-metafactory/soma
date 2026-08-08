@@ -571,8 +571,14 @@ export async function registerSomaHomeAlgorithmCapabilities(
   // any business owning. Only what a previous refresh put there is replaced.
   // Compiled-in defaults are unaffected — never persisted, and
   // `definitionsForRun` supplies them regardless.
+  //
+  // An ABSENT origin is treated as home-derived, not foreign (Sage review): runs
+  // persisted before this field existed carry no origin, and the home path was
+  // the only producer of run definitions then. Reading absence as foreign would
+  // make a legacy row undeletable — exactly the staleness this replace exists to
+  // end. Only `caller` is preserved, and that is stamped from now on.
   const homeDefinitions = definitions.map((definition) => ({ ...definition, origin: "soma-home" as const }));
-  const keptForeign = (run.capabilityDefinitions ?? []).filter((definition) => definition.origin !== "soma-home");
+  const keptForeign = (run.capabilityDefinitions ?? []).filter((definition) => definition.origin === "caller");
   const withoutHomeDefinitions = { ...run, capabilityDefinitions: keptForeign };
 
   return homeDefinitions.length === 0
@@ -599,11 +605,17 @@ export function listAlgorithmCapabilityDefinitions(): AlgorithmCapabilityDefinit
  * local-row-disables rule is for. That rule governs table-declared
  * capabilities, whose targets can genuinely be absent.
  */
+/** Compiled-in defaults, overridden by name. The single precedence rule. */
+function mergeCapabilityDefinitions(overrides: readonly AlgorithmCapabilityDefinition[]): AlgorithmCapabilityDefinition[] {
+  const byName = new Map(DEFAULT_CAPABILITY_REGISTRY.map((definition) => [definition.name, definition]));
+  for (const definition of overrides) byName.set(definition.name, definition);
+  return [...byName.values()];
+}
+
 export function mergedAlgorithmCapabilityRegistry(
   resolved: SomaHomeAlgorithmCapabilityRegistry,
 ): SomaHomeAlgorithmCapabilityRegistry {
-  const byName = new Map(listAlgorithmCapabilityDefinitions().map((definition) => [definition.name, definition]));
-  for (const definition of resolved.definitions) byName.set(definition.name, definition);
+  const byName = new Map(mergeCapabilityDefinitions(resolved.definitions).map((definition) => [definition.name, definition]));
   return {
     definitions: [...byName.values()],
     // Disjoint by construction (Sage review): a name that ended up resolvable —
@@ -615,13 +627,9 @@ export function mergedAlgorithmCapabilityRegistry(
 }
 
 function definitionsForRun(run: Pick<AlgorithmRun, "capabilityDefinitions">): AlgorithmCapabilityDefinition[] {
-  const byName = new Map<string, AlgorithmCapabilityDefinition>();
-  for (const definition of DEFAULT_CAPABILITY_REGISTRY) {
-    byName.set(definition.name, definition);
-  }
-  for (const definition of run.capabilityDefinitions ?? []) {
-    byName.set(definition.name, definition);
-  }
+  const byName = new Map(
+    mergeCapabilityDefinitions(run.capabilityDefinitions ?? []).map((definition) => [definition.name, definition]),
+  );
 
   return Array.from(byName.values()).map(cloneCapabilityDefinition);
 }
@@ -659,7 +667,12 @@ export function registerAlgorithmCapabilityDefinitions(
   const nextDefinitions = new Map((run.capabilityDefinitions ?? []).map((existing) => [existing.name, existing]));
   for (const definition of definitions) {
     validateCapabilityDefinition(definition);
-    nextDefinitions.set(definition.name, cloneCapabilityDefinition(definition));
+    // Default the provenance to `caller`: this is the public entry point, and a
+    // home refresh pre-stamps `soma-home` before calling in, so only a direct
+    // caller lands here unmarked. A refresh replaces its own rows and leaves
+    // `caller` rows alone (soma#574).
+    const clone = cloneCapabilityDefinition(definition);
+    nextDefinitions.set(definition.name, { ...clone, origin: clone.origin ?? "caller" });
   }
 
   return {
