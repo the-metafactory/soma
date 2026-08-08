@@ -424,10 +424,14 @@ class GitHubGraphStore implements GraphStore {
    * round trip instead.
    *
    * `totalCount` at every level is what keeps that honest rather than merely
-   * cheap: a subtree wider or deeper than one query fetched is *detected* and
-   * completed by a follow-up query, never silently dropped. Closed nodes are
-   * traversed and omitted from the result; the contract layer re-confirms every
-   * survivor by direct fetch.
+   * cheap, and the two levels answer a shortfall differently. **Below the top**
+   * it is recoverable: the node is flagged truncated and completed by a
+   * follow-up query. **At the top** there is nothing left to recover with, so a
+   * page run that does not add up refuses outright. Either way a subtree wider
+   * or deeper than one query fetched is never silently dropped.
+   *
+   * Closed nodes are traversed and omitted from the result; the contract layer
+   * re-confirms every survivor by direct fetch.
    */
   async listCandidateFrontier(root: NodeRef): Promise<NodeRef[]> {
     const rootNumber = Number(root.id);
@@ -467,6 +471,11 @@ class GitHubGraphStore implements GraphStore {
    * The subtree below `issueNumber`: children **complete** (cursor-paged),
    * deeper levels as far as {@link SUBTREE_QUERY} reaches and flagged where
    * they stop.
+   *
+   * Every exit from the paging loop is checked, because this is the one place
+   * a short read cannot be caught later: deeper levels announce their own
+   * shortfall through {@link SubtreeNode.childrenTruncated}, but a top level
+   * that quietly ends is indistinguishable from a complete one.
    */
   private async fetchSubtree(issueNumber: number): Promise<SubtreeNode> {
     const context = "subtree walk";
@@ -474,6 +483,7 @@ class GitHubGraphStore implements GraphStore {
     const children: SubtreeNode[] = [];
     let status: NodeStatus = "closed";
     let after: string | null = null;
+    let totalCount = 0;
 
     for (;;) {
       const response = await this.transport({
@@ -490,16 +500,32 @@ class GitHubGraphStore implements GraphStore {
       const record = asRecord(issue, context);
       status = readGraphQLStatus(record);
       const connection = asRecord(record.subIssues, context);
+      totalCount = readNumber(connection, "totalCount", context);
       for (const entry of asArray(connection.nodes, context)) children.push(readSubtreeNode(entry));
 
       const pageInfo = asRecord(connection.pageInfo, context);
-      if (pageInfo.hasNextPage !== true) break;
-      // More pages exist and we cannot ask for them: refusing beats returning a
-      // short list, which §2.4 has no way to recover.
+      if (pageInfo.hasNextPage === false) break;
+      // Anything other than a literal `false` is an answer we cannot read, and
+      // treating it as "that was the last page" is precisely the silent
+      // truncation §2.4 cannot recover. Refuse instead.
+      if (pageInfo.hasNextPage !== true) {
+        throw new WorkGraphError("backend", `${context}: issue ${issueNumber} reported no usable hasNextPage`);
+      }
       if (typeof pageInfo.endCursor !== "string") {
         throw new WorkGraphError("backend", `${context}: issue ${issueNumber} has more children but no cursor`);
       }
       after = pageInfo.endCursor;
+    }
+
+    // The connection said how many children exist; paging must have produced
+    // exactly that many. A mismatch means either a short page run or a
+    // concurrent edit, and in both cases the honest answer is that this list
+    // cannot be vouched for — the caller can retry.
+    if (children.length !== totalCount) {
+      throw new WorkGraphError(
+        "backend",
+        `${context}: issue ${issueNumber} reported ${totalCount} children but paging returned ${children.length}`,
+      );
     }
 
     return { number: issueNumber, status, children, childrenTruncated: false };

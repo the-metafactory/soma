@@ -385,6 +385,30 @@ test("more pages with no cursor to fetch them refuses, rather than reading short
   );
 });
 
+test("an unreadable hasNextPage refuses instead of passing for a last page", async () => {
+  // `!== true` would have read this as "that was the last page" and returned a
+  // short list — the one direction §2.4 cannot recover.
+  const { transport } = subtreeTransport({
+    "495": gql(495, "OPEN", { totalCount: 1, pageInfo: {}, nodes: [gql(497, "OPEN")] }),
+  });
+
+  expect(createGitHubGraphStore({ repo: REPO, transport }).listCandidateFrontier({ id: "495" })).rejects.toThrow(
+    /no usable hasNextPage/,
+  );
+});
+
+test("a page run that does not add up to totalCount refuses", async () => {
+  // Nothing is left to recover with at the top level: the count is the only
+  // witness that the walk saw every child.
+  const { transport } = subtreeTransport({
+    "495": gql(495, "OPEN", conn([gql(497, "OPEN")], { totalCount: 2 })),
+  });
+
+  expect(createGitHubGraphStore({ repo: REPO, transport }).listCandidateFrontier({ id: "495" })).rejects.toThrow(
+    /reported 2 children but paging returned 1/,
+  );
+});
+
 test("a node reachable twice is reported once, and a cycle terminates", async () => {
   const { transport } = subtreeTransport({
     "495": gql(495, "OPEN", conn([gql(497, "OPEN", conn([gql(511, "OPEN")])), gql(511, "OPEN", conn([gql(497, "OPEN")]))])),
