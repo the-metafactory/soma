@@ -321,9 +321,9 @@ This line anchors the entire Algorithm run.
 
 **Auto-include bindings:**
 - **VSA Skill** — invoked at OBSERVE for E2+ (E1 inline-write OK), at PLAN for ephemeral feature extraction, at LEARN for canonical Decisions/Changelog/Verification append, at LEARN for Reconcile after ephemeral work.
-- **A code-producing capability of a different model family** — auto-include at E3/E4/E5 for any coding task, where the registry offers one. The point is family diversity on hard implementation work, not a particular vendor.
+- **A code-producing capability of a different model family** — select it at E3/E4/E5 for any coding task, where the registry offers one. The point is family diversity on hard implementation work, not a particular vendor. "Auto-include" is doctrine, not automation: nothing selects it for you, and the phase gate asks only that *some* capability was selected, so an E3–E5 run completes perfectly happily without it. That is on you to notice.
 - **A whole-project-context capability** — at E3/E4/E5 when context breadth materially affects correctness (architecture-fitting refactors, system-wide migrations, multi-module redesigns).
-- **A cross-family auditor** — at E4/E5 in VERIFY, per Rule 2a.
+- **A cross-family auditor** — at E4/E5 in VERIFY, per Rule 2a. Same caveat: selected by you, gated by nobody.
 
 The principal naming a capability outright overrides the tier: invoke it regardless of what the floor would have selected.
 

@@ -73,10 +73,18 @@ table in the file is parsed, not just the first. Two shapes are accepted:
 | Capability | Trigger Signal | Invoke |                         ← 3 columns
 ```
 
+**Prefer the 5-column shape.** The 3-column one has no phase cell, and the
+parser reads the *trigger* cell for phases anyway — so a trigger mentioning
+"think" registers the capability at THINK rather than at the documented `plan`
+default. That is rarely what the row meant. Give the phases their own cell.
+
 - **Phase** — substring-matched against `observe`, `think`, `plan`, `build`,
   `execute`, `verify`, `learn`, `complete`. The literal `any` expands to all
-  seven core phases. Several phases in one cell all match. An unrecognised cell
-  falls back to `think` in the 5-column shape, `plan` in the 3-column shape.
+  seven core phases. Several phases in one cell all match. A cell naming none of
+  them falls back to `think` in the 5-column shape, `plan` in the 3-column one.
+  Substring, not word — a cell reading "rethink the plan" matches both THINK and
+  PLAN. In the 3-column shape this cell IS the trigger text, so its wording
+  decides the phases whether you meant it to or not.
 - **Trigger Signal** — free text, stored verbatim (emphasis stripped).
 - **Invoke** — decides the capability's *kind*, checked in this order:
 

@@ -358,6 +358,20 @@ export type AlgorithmCapabilityKind = (typeof ALGORITHM_CAPABILITY_KINDS)[number
 
 export type AlgorithmCapabilityContract = AlgorithmCapabilityKind;
 
+/**
+ * The kinds an ACTUALLY RECORDED invocation can carry — every kind except
+ * `contract` (Sage review). `contract` is a declaration-only state: it means a
+ * capability was declared by its contract and never bound, and
+ * `recordAlgorithmCapabilityInvocation` refuses it, so no invocation record can
+ * ever hold it. Narrowing here states that in the type instead of leaving every
+ * consumer to handle a case the code cannot produce.
+ *
+ * The DEFINITION's `invoke.contract` keeps the wide union: a contract-kind
+ * definition legitimately reports `contract` there, and forcing it to name an
+ * invocation kind it does not have would be a lie in the other direction.
+ */
+export type AlgorithmCapabilityInvocationContract = Exclude<AlgorithmCapabilityKind, "contract">;
+
 export type AlgorithmCapabilitySelectionStatus = "selected" | "invoked" | "removed" | "failed";
 
 export interface AlgorithmCapabilityDefinition {
@@ -400,7 +414,7 @@ export interface SomaSkillAlgorithmCapabilityManifest {
 export interface AlgorithmCapabilityInvocation {
   timestamp: string;
   substrate: SubstrateId;
-  contract: AlgorithmCapabilityContract;
+  contract: AlgorithmCapabilityInvocationContract;
   target: string;
   evidence: string;
 }

@@ -873,7 +873,10 @@ export function recordAlgorithmCapabilityInvocation(
   // hollow pass the VerificationGate refuses for criteria; capabilities need the
   // same floor, or the contract row becomes a way to buy tier-floor credit for
   // work nobody did.
-  if (definition.kind === "contract") {
+  // Both halves checked so the narrowing is visible to the type system too:
+  // an invocation record cannot carry the `contract` contract (see
+  // AlgorithmCapabilityInvocationContract), and this is why.
+  if (definition.kind === "contract" || definition.invoke.contract === "contract") {
     throw new Error(
       `Algorithm capability "${name}" is a contract with no binding on this machine, so it cannot be invoked. `
         + `Bind it by adding a row of the same name to <soma-home>/skills/the-algorithm/references/capabilities.local.md `
