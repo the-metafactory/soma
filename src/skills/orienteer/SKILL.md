@@ -83,8 +83,10 @@ defaults to the origin remote of the working tree.
   map's children are the route; work thrown off by one step is an
   implementation detail of that step, and the edge records which one. This is
   **provenance, not concealment** — the frontier walks the whole subtree, so
-  placement never hides a node (#557). Work you don't want taken is closed as
-  out of scope, or blocked; there is no third way.
+  placement never hides a node (#557). To keep work off the frontier, use one
+  of the three things the predicate actually reads: **close** it (past the
+  destination), **block** it (waiting on something), or **claim** it (yours,
+  in flight). Burying it is not among them.
 
 ## References
 

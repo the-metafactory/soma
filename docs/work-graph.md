@@ -234,9 +234,12 @@ frontier forever — no claim, no close, no error).
   them. An implementation that cannot carry a whole subtree in one request must
   detect the shortfall and complete it; truncating in silence is forbidden.
   The frontier verb confirms every candidate by direct fetch before reporting
-  it (#492 correction 3), which removes **false positives** whatever produced
-  the candidate — a stale search hit on a store that discovers by query, or a
-  membership edge that no longer means what it did. False *negatives* are not
+  it (#492 correction 3), which removes **false positives about a node's
+  state** — closed, claimed, or still blocked — whatever produced the
+  candidate. It does *not* revalidate membership: the fetch re-reads the node,
+  not its ancestry, so a candidate the discovery step wrongly placed in this
+  subtree is reported as if it belonged. Discovery is the only witness for
+  membership. False *negatives* are not
   recoverable this way, so the frontier is advisory and may return short,
   self-healing on a later tick. Correctness never rests on frontier
   completeness; it rests on the claim and close gates.
