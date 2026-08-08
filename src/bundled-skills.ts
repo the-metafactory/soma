@@ -35,22 +35,6 @@ export interface InstallBundledSkillsOptions {
 }
 
 /**
- * Copy every bundled skill (`src/skills/<name>`) EXCEPT VSA into
- * `<somaHome>/skills/<name>`, so they enter the Soma catalog (SKILLS.md) and
- * `profile.skills`, and therefore project to every substrate through the
- * generic portable-skill loop (`projectableSkills`).
- *
- * VSA is excluded here: it has a dedicated versioned, drift-tracking installer
- * (`installVsaSkillProjection`) and is filtered out of `projectableSkills`, so
- * copying it here would be redundant and could fight that installer's baseline.
- *
- * Source files are copied verbatim (byte-identical) and overwritten on every
- * run, so the operation is idempotent. Principal-added files under a skill dir
- * that are not in the bundled source are left untouched. Returns both the
- * written paths and `names` (every `src/skills/*` dir, VSA included) so the
- * caller can scope the portable-skill loop without re-scanning `src/skills`.
- */
-/**
  * The capability table is the one bundled file an adopter was previously
  * expected to EDIT, and soma#574 moves that role to a sibling
  * `capabilities.local.md` the install never touches. Anyone whose rows are
@@ -99,11 +83,26 @@ async function backupCustomisedCapabilityTable(destDir: string, sourceFile: stri
   // stat regardless of how many upgrades an installation has seen.
   const digest = createHash("sha256").update(existing, "utf8").digest("hex").slice(0, 8);
   const backup = join(references, `capabilities.pre-upgrade.${digest}.md`);
-  const alreadySaved = await readFile(backup, "utf8").then(() => true).catch(() => false);
-  if (alreadySaved) return undefined;
+  // Confirm by CONTENT, not by the name alone (Sage review): eight hex
+  // characters can collide, and treating a colliding name as "already saved"
+  // would drop the newer table — the exact loss this exists to prevent. On a
+  // collision, fall through to the numbered escape below.
+  const held = await readFile(backup, "utf8").catch(() => undefined);
+  if (held?.endsWith(existing) === true) return undefined;
+
+  let target = backup;
+  for (let attempt = 2; held !== undefined && attempt < 100; attempt += 1) {
+    const candidate = join(references, `capabilities.pre-upgrade.${digest}.${attempt}.md`);
+    const other = await readFile(candidate, "utf8").catch(() => undefined);
+    if (other === undefined) {
+      target = candidate;
+      break;
+    }
+    if (other.endsWith(existing)) return undefined;
+  }
 
   await writeFile(
-    backup,
+    target,
     "<!--\n"
       + "  Saved by `soma install` before overwriting capabilities.md (soma#574).\n"
       + "  NOTHING reads this file. It exists so an upgrade cannot destroy rows you\n"
@@ -118,9 +117,25 @@ async function backupCustomisedCapabilityTable(destDir: string, sourceFile: stri
       + existing,
     "utf8",
   );
-  return backup;
+  return target;
 }
 
+/**
+ * Copy every bundled skill (`src/skills/<name>`) EXCEPT VSA into
+ * `<somaHome>/skills/<name>`, so they enter the Soma catalog (SKILLS.md) and
+ * `profile.skills`, and therefore project to every substrate through the
+ * generic portable-skill loop (`projectableSkills`).
+ *
+ * VSA is excluded here: it has a dedicated versioned, drift-tracking installer
+ * (`installVsaSkillProjection`) and is filtered out of `projectableSkills`, so
+ * copying it here would be redundant and could fight that installer's baseline.
+ *
+ * Source files are copied verbatim (byte-identical) and overwritten on every
+ * run, so the operation is idempotent. Principal-added files under a skill dir
+ * that are not in the bundled source are left untouched. Returns both the
+ * written paths and `names` (every `src/skills/*` dir, VSA included) so the
+ * caller can scope the portable-skill loop without re-scanning `src/skills`.
+ */
 export async function installBundledSkillsIntoHome(
   options: InstallBundledSkillsOptions = {},
 ): Promise<{ names: string[]; written: string[] }> {
