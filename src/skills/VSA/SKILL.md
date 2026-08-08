@@ -82,11 +82,11 @@ taxonomy, ID-stability contract, and Algorithm relationship.
 | Section order, tier requirements, guardrail taxonomy, ID stability | `references/format.md` |
 | Failure modes and non-obvious operational traps | `references/gotchas.md` |
 | Example selection by tier and domain | `references/examples.md` |
-| Canonical full example | `Examples/canonical-isa.md` |
+| Canonical full example | `Examples/canonical-vsa.md` |
 | Minimal E1 example | `Examples/e1-minimal.md` |
 
 ## Example Selection
 
-Start with `Examples/canonical-isa.md` only when you need the full shape or
+Start with `Examples/canonical-vsa.md` only when you need the full shape or
 tone. Otherwise load `references/examples.md` and choose the closest small
 reference from that single map.
