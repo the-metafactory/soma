@@ -462,7 +462,10 @@ function registerCapabilityTableRows(
     const adapterTarget = adapterInvocationTarget(invokeCell);
 
     if (adapterTarget) {
-      definitions.set(name, buildCapabilityDefinition(name, "adapter", phases, triggerSignals, adapterTarget));
+      definitions.set(name, {
+        ...buildCapabilityDefinition(name, "adapter", phases, triggerSignals, adapterTarget),
+        unbound: true,
+      });
       continue;
     }
 
@@ -795,11 +798,12 @@ export function recordAlgorithmCapabilityInvocation(
     throw new Error(`Algorithm capability must be selected before invocation: ${name}`);
   }
 
-  // A resolved kind of `adapter` means the capability was DECLARED by contract
-  // and never BOUND: binding happens by overriding the name in
-  // `capabilities.local.md`, and a bound row resolves to skill/agent/command/
-  // inline instead. So `adapter` here is precisely "nothing on this machine can
-  // run this".
+  // `unbound` marks a `Contract("…")` row: DECLARED by contract, never BOUND.
+  // Binding happens by overriding the name in `capabilities.local.md`, and the
+  // binding row resolves without this flag. Keyed on the flag rather than on
+  // `kind === "adapter"` (Sage review): a skill manifest may declare that kind
+  // too, and such a definition targets a real skill and IS invocable — refusing
+  // on kind alone rejected valid capabilities.
   //
   // Without this refusal the doctrine's claim was false (Sage review, soma#574):
   // invocation asks only for non-empty evidence, so a run could select
@@ -808,7 +812,7 @@ export function recordAlgorithmCapabilityInvocation(
   // hollow pass the VerificationGate refuses for criteria; capabilities need the
   // same floor, or the contract row becomes a way to buy tier-floor credit for
   // work nobody did.
-  if (definition.kind === "adapter") {
+  if (definition.unbound === true) {
     throw new Error(
       `Algorithm capability "${name}" is a contract with no binding on this machine, so it cannot be invoked. `
         + `Bind it by adding a row of the same name to <soma-home>/skills/the-algorithm/references/capabilities.local.md `

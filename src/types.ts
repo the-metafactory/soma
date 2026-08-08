@@ -379,6 +379,18 @@ export interface AlgorithmCapabilityDefinition {
    *                  table could never be dropped.
    */
   origin?: "soma-home" | "caller";
+  /**
+   * True only for a `Contract("…")` table row: a capability declared by its
+   * contract with no mechanism behind it (soma#574). `algorithm invoke` refuses
+   * these, because nothing on this machine can run one.
+   *
+   * Distinct from `kind: "adapter"`, which a skill manifest may also declare —
+   * that definition targets a real skill and IS invocable, so refusing on kind
+   * alone rejected valid capabilities (Sage review). Binding a contract means
+   * overriding the name in `capabilities.local.md`, and the binding row
+   * resolves to a different kind without this flag.
+   */
+  unbound?: true;
 }
 
 export interface SomaSkillAlgorithmCapabilityManifest {

@@ -161,7 +161,7 @@ The `CheckCompleteness` workflow enforces this gate. A miss blocks `phase: compl
 - EXECUTE / VERIFY / LEARN: `Skill("VSA", "append <type> to <isa-path>: <content>")` — canonical writer for Decisions / Changelog / Verification.
 - LEARN: `Skill("VSA", "reconcile <ephemeral> → <master>")` — deterministic merge after ephemeral feature work.
 
-**Writing the VSA:** the model uses its substrate's read/edit/write tools and invokes the skill's workflows directly. There is no hook that parses or rewrites the file on your behalf — what the run knows is what you recorded through `<prefix> algorithm`.
+**Writing the VSA:** the model uses its substrate's read/edit/write tools and invokes the skill's workflows directly. Nothing rewrites the file on your behalf. Reading it is a different matter: a substrate may bridge edits back into the run — Claude Code's hook runner watches for an edited `VSA.md` and calls `algorithm sync-from-isa`, which parses it into run state. Where that bridge exists, an edit reaches the run; where it does not, only what you recorded through `<prefix> algorithm` is known. Record through the verbs and the answer is the same either way.
 
 ### ISC Quality System
 

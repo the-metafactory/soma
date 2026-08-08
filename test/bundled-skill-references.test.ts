@@ -138,17 +138,21 @@ describe("bundled skill references", () => {
       { pattern: /\{\{(?:DA_NAME|PRINCIPAL_NAME|ASSISTANT_NAME|HARNESS_USER_DIR)\}\}/g, why: "unsubstituted identity placeholder" },
     ];
 
-    // `migrate-pai-purpose` exists to migrate a principal OFF PAI. Naming
-    // `~/.claude/…` is its subject matter, not residue.
-    const EXEMPT = new Set(["migrate-pai-purpose"]);
+    // `migrate-pai-purpose` exists to migrate a principal OFF PAI, so naming a
+    // Claude-home path is its subject matter rather than residue. Scoped to that
+    // ONE pattern (Sage review): skipping the whole skill also skipped the PAI-
+    // tree and placeholder checks, so the test could not support the universal
+    // claim its name makes.
+    const EXEMPT: Record<string, string[]> = { "migrate-pai-purpose": ["Claude-home path in a portable skill"] };
 
     const found: string[] = [];
     for (const skill of await listBundledSkills()) {
-      if (EXEMPT.has(skill)) continue;
+      const exempt = new Set(EXEMPT[skill] ?? []);
       const skillRoot = join(SKILLS_ROOT, skill);
       for (const file of await walkMarkdown(skillRoot)) {
         const body = await readFile(file, "utf8");
         for (const { pattern, why } of FORBIDDEN) {
+          if (exempt.has(why)) continue;
           for (const match of body.matchAll(pattern)) {
             found.push(`${skill}/${relative(skillRoot, file)}: ${why} — ${match[0]}`);
           }

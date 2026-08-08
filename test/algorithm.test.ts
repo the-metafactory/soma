@@ -611,6 +611,44 @@ test("an unbound contract capability cannot be invoked on written evidence", asy
   });
 });
 
+test("a manifest-declared adapter capability is invocable; only a Contract row is refused", async () => {
+  // Sage review: refusing on `kind === "adapter"` also rejected manifest-declared
+  // adapter capabilities, which target a real skill and ARE invocable. The
+  // refusal keys on the `unbound` marker a Contract row carries instead.
+  await withTempHome(async (homeDir) => {
+    await writeSkill(homeDir, "bridge", "Bridge");
+    await writeSkillManifest(homeDir, "bridge", {
+      schema: "soma.skill.v1",
+      name: "Bridge",
+      description: "Manifest-declared adapter capability.",
+      entrypoint: "SKILL.md",
+      references: [],
+      workflows: [],
+      tools: [],
+      triggers: ["bridge"],
+      algorithmCapability: { kind: "adapter", phases: ["execute"] },
+    });
+    const { definitions } = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir });
+    expect(definitions.find((definition) => definition.name === "Bridge")).toMatchObject({ kind: "adapter" });
+
+    let run = createAlgorithmRun({
+      id: "manifest-adapter",
+      timestamp: "2026-08-08T12:00:00.000Z",
+      prompt: "Invoke a manifest adapter",
+      intent: "Exercise the unbound marker.",
+      currentState: "A manifest declares an adapter capability.",
+      goal: "It stays invocable.",
+      criteria: [{ id: "C1", text: "Invocation succeeds." }],
+    });
+    run = registerAlgorithmCapabilityDefinitions(run, definitions, "2026-08-08T12:00:01.000Z");
+    run = selectAlgorithmCapability(run, { name: "Bridge", phase: "execute" }, "2026-08-08T12:00:02.000Z");
+
+    expect(() =>
+      recordAlgorithmCapabilityInvocation(run, { name: "Bridge", evidence: "ran the bridge" }, "2026-08-08T12:00:03.000Z"),
+    ).not.toThrow();
+  });
+});
+
 test("a local binding replaces a contract declaration with a concrete invocation", async () => {
   // The point of the adapter kind: ship the contract, let whoever can satisfy it
   // bind the mechanism. The local table is read first, so a same-named binding wins.
