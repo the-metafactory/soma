@@ -13,11 +13,13 @@ import type {
   SomaSkillManifest,
   SubstrateId,
 } from "./types";
+import { ALGORITHM_CAPABILITY_KINDS } from "./types";
+import { isEnoent } from "./fs-errors";
 import { getRunPhase } from "./algorithm-lifecycle";
 import { appendAlgorithmProvenance } from "./algorithm-provenance";
 
 const CORE_PHASES: AlgorithmPhase[] = ["observe", "think", "plan", "build", "execute", "verify", "learn"];
-const CAPABILITY_INVOKE_KINDS = ["skill", "inline", "agent", "command", "adapter"] as const;
+const CAPABILITY_INVOKE_KINDS = ALGORITHM_CAPABILITY_KINDS;
 
 const DEFAULT_CAPABILITY_REGISTRY: AlgorithmCapabilityDefinition[] = [
   {
@@ -88,6 +90,18 @@ function findSelectionIndex(selections: AlgorithmCapabilitySelection[], name: st
 
 function capabilityStatusText(status: AlgorithmCapabilitySelectionStatus): string {
   return status === "selected" ? "selected but not invoked" : status;
+}
+
+/**
+ * True for a capability declared by contract with nothing behind it. Both fields
+ * are checked so a definition claiming `kind: "skill"` with
+ * `invoke.contract: "contract"` cannot slip past, and so the narrowing is
+ * visible to the type system — an invocation record can never carry the
+ * `contract` contract. One predicate rather than two copies (Sage review): a
+ * future change to how a contract is represented has a single place to land.
+ */
+function isUnboundContractCapability(definition: AlgorithmCapabilityDefinition): boolean {
+  return definition.kind === "contract" || definition.invoke.contract === "contract";
 }
 
 function cloneCapabilityDefinition(definition: AlgorithmCapabilityDefinition): AlgorithmCapabilityDefinition {
@@ -300,6 +314,35 @@ function inlineInvocationTarget(value: string): string | undefined {
   return undefined;
 }
 
+/**
+ * `Contract("<what must be achieved>")` — a capability declared by its contract
+ * rather than by a concrete invocation, for work no single substrate expresses
+ * portably: a second opinion, a coder from another model family, a cross-family
+ * audit (soma#574).
+ *
+ * NAMING (Sage review): both the row syntax and the stored `kind` are
+ * `contract`, never `adapter`. CONTEXT.md §adapter locks that word to the actor
+ * that performs a projection, one per substrate, and puts optional invocation on
+ * `SubstrateExecutor` "never to an adapter" — so spelling either the syntax or
+ * the persisted kind `adapter` overloads the term at exactly the boundary the
+ * glossary exists to keep clear. `adapter` remains a kind a skill manifest may
+ * declare; such a definition targets a real skill and stays invocable.
+ *
+ * A contract capability is DECLARED in the shipped table and BOUND by whoever
+ * can satisfy it — a same-named row in `capabilities.local.md`, which is read
+ * first and wins. Unbound, it stays selectable and still counts toward a tier
+ * floor, deliberately: `algorithm invoke` refuses it and
+ * `assertAlgorithmCapabilitiesSatisfied` refuses COMPLETE for any selected
+ * capability never invoked, so it fails the run loudly at the gate instead of
+ * quietly padding a floor as a phantom.
+ */
+function contractInvocationTarget(value: string): string | undefined {
+  // `??` cannot stand in for the emptiness check: a whitespace-only contract
+  // trims to "", which is not nullish but is not a contract either.
+  const contract = /Contract\("([^"]+)"\s*\)/.exec(value)?.[1]?.trim();
+  return contract !== undefined && contract.length > 0 ? contract : undefined;
+}
+
 function buildCapabilityDefinition(
   name: string,
   kind: AlgorithmCapabilityDefinition["kind"],
@@ -323,7 +366,9 @@ function isSubstrateSupported(manifest: SomaSkillManifest | undefined, substrate
   return manifest.substrates.includes(substrate);
 }
 
-function isCapabilityInvokeKind(value: unknown): value is AlgorithmCapabilityContract & AlgorithmCapabilityKind {
+// `AlgorithmCapabilityContract` is an alias of `AlgorithmCapabilityKind` now
+// that both derive from ALGORITHM_CAPABILITY_KINDS, so one is the guard.
+function isCapabilityInvokeKind(value: unknown): value is AlgorithmCapabilityKind {
   return typeof value === "string" && CAPABILITY_INVOKE_KINDS.includes(value as (typeof CAPABILITY_INVOKE_KINDS)[number]);
 }
 
@@ -347,7 +392,11 @@ function skillManifestCapabilityDefinition(skill: AvailableSkill): AlgorithmCapa
   const metadata = isRecord(skill.manifest?.algorithmCapability)
     ? skill.manifest.algorithmCapability
     : undefined;
-  const kind = isCapabilityKind(metadata?.kind) ? metadata.kind : "skill";
+  // A manifest declaring `contract` would mint an uninvokable capability (see
+  // registerAlgorithmCapabilityDefinitions); fall back to `skill`, which is what
+  // a manifest-backed capability actually is.
+  const declaredKind = isCapabilityKind(metadata?.kind) ? metadata.kind : "skill";
+  const kind = declaredKind === "contract" ? "skill" : declaredKind;
   const phases = Array.isArray(metadata?.phases)
     ? metadata.phases.filter(isAlgorithmPhase)
     : [];
@@ -392,20 +441,26 @@ function maybeRegisterSkillCapability(
   definitions.set(definition.name, definition);
 }
 
-export async function loadSomaHomeAlgorithmCapabilityRegistry(
-  options: SomaHomeAlgorithmCapabilityOptions = {},
-): Promise<SomaHomeAlgorithmCapabilityRegistry> {
-  const somaHome = resolveSomaHome(options);
-  const referencePath = join(somaHome, "skills", "the-algorithm", "references", "capabilities.md");
-  const markdown = await readFile(referencePath, "utf8").catch(() => "");
-  const availableSkills = await loadAvailableSkills(somaHome);
-  const definitions = new Map<string, AlgorithmCapabilityDefinition>();
-  const unsupported = new Set<string>();
+/** The bundled capability table — overwritten byte-for-byte on every install. */
+const CAPABILITY_REFERENCE_FILE = "capabilities.md";
 
-  for (const skill of availableSkills.skills) {
-    maybeRegisterSkillCapability(definitions, unsupported, skill, options.substrate, { requireManifestCapability: true });
-  }
+/**
+ * The adopter's capability table (soma#574). `installBundledSkillsIntoHome`
+ * rewrites every bundled file on each run but leaves principal-added files under
+ * a skill dir alone, so this sibling is the ONLY place in the skill dir where a
+ * principal's own rows survive an install. Read BEFORE the bundled table, so a
+ * local row wins on any name collision — an adopter can narrow or retarget a
+ * shipped capability without editing a file that will be replaced under them.
+ */
+const CAPABILITY_LOCAL_REFERENCE_FILE = "capabilities.local.md";
 
+function registerCapabilityTableRows(
+  markdown: string,
+  definitions: Map<string, AlgorithmCapabilityDefinition>,
+  unsupported: Set<string>,
+  availableSkills: Awaited<ReturnType<typeof loadAvailableSkills>>,
+  substrate: SubstrateId | undefined,
+): void {
   for (const row of markdown ? parseMarkdownTableRows(markdown) : []) {
     const name = stripCapabilityLabel(row[0] ?? "");
     const phaseCell = row[1] ?? "";
@@ -421,6 +476,14 @@ export async function loadSomaHomeAlgorithmCapabilityRegistry(
     const agentTarget = agentInvocationTarget(invokeCell, name);
     const commandTarget = commandInvocationTarget(invokeCell);
     const inlineTarget = inlineInvocationTarget(invokeCell);
+    // Checked before `agent`: `Contract("spawn a sub-agent …")` must not be read
+    // as an Agent( row by the substring match below.
+    const contractTarget = contractInvocationTarget(invokeCell);
+
+    if (contractTarget) {
+      definitions.set(name, buildCapabilityDefinition(name, "contract", phases, triggerSignals, contractTarget));
+      continue;
+    }
 
     if (skillTarget) {
       const targetSkill = availableSkills.byKey.get(normalizeCapabilityKey(skillTarget));
@@ -428,7 +491,7 @@ export async function loadSomaHomeAlgorithmCapabilityRegistry(
         unsupported.add(name);
         continue;
       }
-      if (!isSubstrateSupported(targetSkill.manifest, options.substrate)) {
+      if (!isSubstrateSupported(targetSkill.manifest, substrate)) {
         unsupported.add(name);
         continue;
       }
@@ -454,13 +517,71 @@ export async function loadSomaHomeAlgorithmCapabilityRegistry(
 
     unsupported.add(name);
   }
+}
 
+export async function loadSomaHomeAlgorithmCapabilityRegistry(
+  options: SomaHomeAlgorithmCapabilityOptions = {},
+): Promise<SomaHomeAlgorithmCapabilityRegistry> {
+  const somaHome = resolveSomaHome(options);
+  const referenceDir = join(somaHome, "skills", "the-algorithm", "references");
+  // Absence is expected; anything else is not. Swallowing every read error let a
+  // permission or I/O failure look like "no overlay", silently re-enabling a
+  // bundled capability the local table existed to override or disable — the
+  // adopter's override failing open, invisibly (Sage review).
+  const readTable = async (file: string): Promise<string> => {
+    try {
+      return await readFile(join(referenceDir, file), "utf8");
+    } catch (error) {
+      if (isEnoent(error)) return "";
+      throw error;
+    }
+  };
+  const [localMarkdown, markdown] = await Promise.all([
+    readTable(CAPABILITY_LOCAL_REFERENCE_FILE),
+    readTable(CAPABILITY_REFERENCE_FILE),
+  ]);
+  const availableSkills = await loadAvailableSkills(somaHome);
+  const definitions = new Map<string, AlgorithmCapabilityDefinition>();
+  const unsupported = new Set<string>();
+
+  // Resolution order, first definition of a name winning. Every pass skips a
+  // name already registered or already marked unsupported.
+  //
+  // 1. The ADOPTER's table, read BEFORE the bundled table and winning on any
+  //    name collision. First, so "a local row of the same name wins" is true
+  //    without qualification (Sage review). It previously sat behind the
+  //    manifest pass, which meant a manifest-declared capability could not be
+  //    retargeted locally and silently stayed active — an override that does not
+  //    always override is worse than none, because it is trusted.
+  //    A local row that cannot resolve lands in `unsupported`, which also blocks
+  //    the bundled row of the same name: an adopter who retargets a capability
+  //    at a skill they do not have has disabled it, and should see that rather
+  //    than silently fall back to the shipped definition.
+  registerCapabilityTableRows(localMarkdown, definitions, unsupported, availableSkills, options.substrate);
+
+  // 2. Skills declaring `algorithmCapability` in their manifest — the skill
+  //    author's own phase/trigger metadata, preferred over the bundled table.
+  for (const skill of availableSkills.skills) {
+    maybeRegisterSkillCapability(definitions, unsupported, skill, options.substrate, { requireManifestCapability: true });
+  }
+
+  // 3. The shipped table.
+  registerCapabilityTableRows(markdown, definitions, unsupported, availableSkills, options.substrate);
+
+  // 4. Every remaining skill, under its own name, admissible in all phases.
   for (const skill of availableSkills.skills) {
     maybeRegisterSkillCapability(definitions, unsupported, skill, options.substrate, { requireManifestCapability: false });
   }
 
   return {
-    definitions: Array.from(definitions.values()).map(cloneCapabilityDefinition),
+    // Stamped here, at the point of resolution, rather than by the refresh
+    // wrapper: anything that came out of the soma home carries the mark wherever
+    // it is later registered, which is what makes "only a Contract row may mint
+    // the contract kind" checkable at registration.
+    definitions: Array.from(definitions.values()).map((definition) => ({
+      ...cloneCapabilityDefinition(definition),
+      origin: "soma-home" as const,
+    })),
     unsupported: Array.from(unsupported).sort(),
   };
 }
@@ -470,26 +591,85 @@ export async function registerSomaHomeAlgorithmCapabilities(
   options: SomaHomeAlgorithmCapabilityOptions = {},
   timestamp = run.updatedAt,
 ): Promise<AlgorithmRun> {
-  const { definitions } = await loadSomaHomeAlgorithmCapabilityRegistry(options);
-  if (definitions.length === 0) {
+  const { definitions, unsupported } = await loadSomaHomeAlgorithmCapabilityRegistry(options);
+  if (definitions.length === 0 && unsupported.length === 0) {
     return run;
   }
 
-  return registerAlgorithmCapabilityDefinitions(run, definitions, timestamp);
+  // A refresh REPLACES the home-derived set rather than merging into it. Adding
+  // and overriding by name left two ways for a run to keep a capability the home
+  // no longer offers (both Sage review): a row retargeted at something absent
+  // (reported `unsupported`) and a row simply deleted (reported nowhere at all).
+  // Either way the persisted definition stayed selectable while
+  // `capabilities --list` no longer showed it — a closed vocabulary with a
+  // second, invisible half.
+  //
+  // Scoped by `origin` rather than clearing everything (Sage review): a blanket
+  // clear also destroyed definitions a public caller had registered directly
+  // through `registerAlgorithmCapabilityDefinition`, which no home refresh has
+  // any business owning. Only what a previous refresh put there is replaced.
+  // Compiled-in defaults are unaffected — never persisted, and
+  // `definitionsForRun` supplies them regardless.
+  //
+  // An ABSENT origin is PRESERVED, not guessed at (Sage review, twice — once for
+  // each way of guessing). Runs persisted before this field existed carry no
+  // origin and no way to recover their producer. Reading absence as foreign
+  // makes a legacy home row undeletable; reading it as home destroys a
+  // direct caller's registration. Only the second loses data that cannot be
+  // rebuilt, so absence is kept. A stale legacy row is replaced the moment a
+  // same-named row resolves again.
+  const keptForeign = (run.capabilityDefinitions ?? []).filter((definition) => definition.origin !== "soma-home");
+  const withoutHomeDefinitions = { ...run, capabilityDefinitions: keptForeign };
+
+  return definitions.length === 0
+    ? withoutHomeDefinitions
+    : registerResolvedHomeCapabilities(withoutHomeDefinitions, definitions, timestamp);
 }
 
 export function listAlgorithmCapabilityDefinitions(): AlgorithmCapabilityDefinition[] {
   return DEFAULT_CAPABILITY_REGISTRY.map(cloneCapabilityDefinition);
 }
 
+/**
+ * Everything a run may select: the compiled-in defaults, overridden by name by
+ * whatever the soma home resolved. One helper so the `--list` view and run
+ * resolution cannot drift apart on precedence (Sage review) — the same
+ * defaults-then-override order `definitionsForRun` applies.
+ *
+ * The two compiled-in capabilities (`ReReadCheck`, `sequential-analysis`) are
+ * always present and are NOT suppressed by an unresolvable local row of the
+ * same name. Both are `inline` — they name a discipline and need no tool, so
+ * there is nothing an installation can lack — and `ReReadCheck` is doctrine-
+ * mandatory at every tier. Letting a mistyped local row silently disable it
+ * would remove a floor by accident, which is the opposite of what the
+ * local-row-disables rule is for. That rule governs table-declared
+ * capabilities, whose targets can genuinely be absent.
+ */
+/** Compiled-in defaults, overridden by name. The single precedence rule. */
+function mergeCapabilityDefinitions(overrides: readonly AlgorithmCapabilityDefinition[]): AlgorithmCapabilityDefinition[] {
+  const byName = new Map(DEFAULT_CAPABILITY_REGISTRY.map((definition) => [definition.name, definition]));
+  for (const definition of overrides) byName.set(definition.name, definition);
+  return [...byName.values()];
+}
+
+export function mergedAlgorithmCapabilityRegistry(
+  resolved: SomaHomeAlgorithmCapabilityRegistry,
+): SomaHomeAlgorithmCapabilityRegistry {
+  const byName = new Map(mergeCapabilityDefinitions(resolved.definitions).map((definition) => [definition.name, definition]));
+  return {
+    definitions: [...byName.values()],
+    // Disjoint by construction (Sage review): a name that ended up resolvable —
+    // because a compiled-in default backs it — is available, full stop. Leaving
+    // it in both arrays would give consumers two contradictory answers to "can I
+    // select this?", and the honest one is the definition.
+    unsupported: resolved.unsupported.filter((name) => !byName.has(name)),
+  };
+}
+
 function definitionsForRun(run: Pick<AlgorithmRun, "capabilityDefinitions">): AlgorithmCapabilityDefinition[] {
-  const byName = new Map<string, AlgorithmCapabilityDefinition>();
-  for (const definition of DEFAULT_CAPABILITY_REGISTRY) {
-    byName.set(definition.name, definition);
-  }
-  for (const definition of run.capabilityDefinitions ?? []) {
-    byName.set(definition.name, definition);
-  }
+  const byName = new Map(
+    mergeCapabilityDefinitions(run.capabilityDefinitions ?? []).map((definition) => [definition.name, definition]),
+  );
 
   return Array.from(byName.values()).map(cloneCapabilityDefinition);
 }
@@ -515,6 +695,36 @@ export function registerAlgorithmCapabilityDefinition(
   return registerAlgorithmCapabilityDefinitions(run, [definition], timestamp);
 }
 
+/**
+ * Register definitions the SOMA HOME resolved, stamping `soma-home` provenance.
+ * Deliberately not exported: `origin` decides what a later refresh may replace
+ * and whether a `contract` kind is legitimate, so only this module may assert
+ * it (Sage review — a public field is a claim, not a proof).
+ */
+function registerResolvedHomeCapabilities(
+  run: AlgorithmRun,
+  definitions: AlgorithmCapabilityDefinition[],
+  timestamp: string,
+): AlgorithmRun {
+  const nextDefinitions = new Map((run.capabilityDefinitions ?? []).map((existing) => [existing.name, existing]));
+  for (const definition of definitions) {
+    validateCapabilityDefinition(definition);
+    // A retained `caller` binding OUTRANKS the home row of the same name (Sage
+    // review). Without this, a caller who bound `Advisor` to something real had
+    // it replaced by the bundled unbound contract on the next CLI refresh — the
+    // registration silently undone by a command that only meant to re-read the
+    // home.
+    if (nextDefinitions.get(definition.name)?.origin === "caller") continue;
+    nextDefinitions.set(definition.name, { ...cloneCapabilityDefinition(definition), origin: "soma-home" });
+  }
+
+  return {
+    ...run,
+    updatedAt: timestamp,
+    capabilityDefinitions: Array.from(nextDefinitions.values()),
+  };
+}
+
 export function registerAlgorithmCapabilityDefinitions(
   run: AlgorithmRun,
   definitions: AlgorithmCapabilityDefinition[],
@@ -527,7 +737,32 @@ export function registerAlgorithmCapabilityDefinitions(
   const nextDefinitions = new Map((run.capabilityDefinitions ?? []).map((existing) => [existing.name, existing]));
   for (const definition of definitions) {
     validateCapabilityDefinition(definition);
-    nextDefinitions.set(definition.name, cloneCapabilityDefinition(definition));
+    // Default the provenance to `caller`: this is the public entry point, and a
+    // home refresh pre-stamps `soma-home` before calling in, so only a direct
+    // caller lands here unmarked. A refresh replaces its own rows and leaves
+    // `caller` rows alone (soma#574).
+    const clone = cloneCapabilityDefinition(definition);
+    // Provenance is OURS to assign, never the caller's to declare (Sage review).
+    // `origin` is a public field, so an incoming "soma-home" is an untrusted
+    // claim — and the contract guard below treats that value as privileged.
+    // Overwrite it unconditionally: this is the public entry point, so whatever
+    // arrives here IS from a caller. The home path stamps its own through
+    // `registerResolvedHomeCapabilities`, which is not exported.
+    const origin = "caller" as const;
+    // `contract` means "declared, nothing behind it", and `algorithm invoke`
+    // refuses it on exactly that basis. Only the `Contract("…")` parser may mint
+    // one — a manifest or a direct caller reaching for the kind would produce a
+    // capability that is selectable and permanently uninvokable, with a real
+    // target sitting unused (Sage review). Unreachable from here by
+    // construction now that `origin` is forced, so this is a plain refusal.
+    if (isUnboundContractCapability(clone)) {
+      throw new Error(
+        `Algorithm capability "${clone.name}" cannot be registered as a contract: that state is minted only by a `
+          + `Contract("…") row in a capability table, and marks a capability nothing on this machine can run. `
+          + `Register the concrete kind you can actually invoke.`,
+      );
+    }
+    nextDefinitions.set(definition.name, { ...clone, origin });
   }
 
   return {
@@ -648,6 +883,36 @@ export function recordAlgorithmCapabilityInvocation(
 
   if (selectionIndex === -1) {
     throw new Error(`Algorithm capability must be selected before invocation: ${name}`);
+  }
+
+  // A `contract` kind means DECLARED by contract, never BOUND. Binding happens
+  // by overriding the name in `capabilities.local.md`, and the binding row
+  // resolves to skill/agent/command/inline instead — so `contract` at invoke
+  // time is precisely "nothing on this machine can run this".
+  //
+  // `contract` is its own kind rather than a flag on `adapter` (Sage review).
+  // CONTEXT.md §adapter reserves that word for the actor that performs a
+  // projection and puts invocation on SubstrateExecutor, "never to an adapter";
+  // persisting a declared contract as an adapter pushed that collision into
+  // public capability state. `adapter` remains a valid kind a skill manifest may
+  // declare, and such a definition targets a real skill and stays invocable.
+  //
+  // Without this refusal the doctrine's claim was false (Sage review, soma#574):
+  // invocation asks only for non-empty evidence, so a run could select
+  // CrossFamilyAudit, perform no audit, record "audited" as evidence, and
+  // COMPLETE — a fabricated second opinion passing as a real one. That is the
+  // hollow pass the VerificationGate refuses for criteria; capabilities need the
+  // same floor, or the contract row becomes a way to buy tier-floor credit for
+  // work nobody did.
+  // The second clause duplicates the predicate on purpose: a boolean-returning
+  // helper cannot narrow `invoke.contract`, and the narrowing is what lets the
+  // invocation record below be typed as never carrying the `contract` contract.
+  if (isUnboundContractCapability(definition) || definition.invoke.contract === "contract") {
+    throw new Error(
+      `Algorithm capability "${name}" is a contract with no binding on this machine, so it cannot be invoked. `
+        + `Bind it by adding a row of the same name to <soma-home>/skills/the-algorithm/references/capabilities.local.md `
+        + `with a concrete Skill("…"), Agent(…), or Bash(…) cell — or remove the selection and record the gap in ## Decisions.`,
+    );
   }
 
   const invocation: AlgorithmCapabilityInvocation = {

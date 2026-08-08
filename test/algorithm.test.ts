@@ -14,6 +14,7 @@ import {
   recordAlgorithmLearning,
   recordAlgorithmObservation,
   registerAlgorithmCapabilityDefinition,
+  registerAlgorithmCapabilityDefinitions,
   applyAlgorithmBatch,
   removeAlgorithmCapabilitySelection,
   setAlgorithmPlan,
@@ -22,7 +23,7 @@ import {
   verifyAlgorithmCriterion,
   writeAlgorithmRun,
 } from "../src/index";
-import { loadSomaHomeAlgorithmCapabilityRegistry } from "../src/algorithm-capabilities";
+import { loadSomaHomeAlgorithmCapabilityRegistry, registerSomaHomeAlgorithmCapabilities } from "../src/algorithm-capabilities";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-algorithm-"));
@@ -74,6 +75,31 @@ async function writeAlgorithmCapabilitiesReference(homeDir: string, somaHome = "
       "|------------|------|--------|",
       "| BuildCommand | EXECUTE | `bun run build` |",
       "| WrappedBuildCommand | EXECUTE | *bun run wrapped* |",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+}
+
+/**
+ * Write a capability table, owning the header and separator so a table-schema
+ * change lands in one place rather than in every setup block (Sage review).
+ * `file` selects the bundled table or the adopter's local overlay.
+ */
+async function writeCapabilityTable(
+  homeDir: string,
+  rows: string[],
+  file: "capabilities.md" | "capabilities.local.md" = "capabilities.local.md",
+  somaHome = ".soma",
+): Promise<void> {
+  const root = join(homeDir, somaHome, "skills", "the-algorithm", "references");
+  await mkdir(root, { recursive: true });
+  await writeFile(
+    join(root, file),
+    [
+      "| Capability | Phases | Trigger Signal | Invoke | Typical Cost |",
+      "|------------|--------|----------------|--------|--------------|",
+      ...rows,
       "",
     ].join("\n"),
     "utf8",
@@ -353,6 +379,374 @@ test("loads migrated PAI Algorithm skill capabilities from Soma home", async () 
     });
     expect(registry.definitions.some((definition) => definition.name === "MissingSkill")).toBe(false);
     expect(registry.unsupported).toContain("MissingSkill");
+  });
+});
+
+test("a capabilities.local.md row overrides the bundled table of the same name", async () => {
+  // soma#574: install rewrites the bundled capabilities.md on every run but
+  // leaves principal-added files alone, so the sibling .local.md is the only
+  // place an adopter's rows survive. Read first, so a local row wins.
+  await withTempHome(async (homeDir) => {
+    await writeAlgorithmCapabilitiesReference(homeDir);
+    await writeSkill(homeDir, "first-principles", "FirstPrinciples");
+    await writeSkill(homeDir, "systems-thinking", "SystemsThinking");
+    await writeCapabilityTable(homeDir, [
+      // Same name as a bundled row, retargeted at a different skill and phase.
+      '| FirstPrinciples | VERIFY | Retargeted locally | `Skill("SystemsThinking")` | E1+ |',
+      // A name the bundled table does not carry at all.
+      '| LocalOnly | PLAN | Adopter-specific capability | *(inline doctrine step - no external tool)* | E1+ |',
+    ]);
+
+    const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir });
+
+    expect(registry.definitions.find((definition) => definition.name === "FirstPrinciples")).toMatchObject({
+      kind: "skill",
+      phases: ["verify"],
+      invoke: { contract: "skill", target: "SystemsThinking" },
+    });
+    expect(registry.definitions.find((definition) => definition.name === "LocalOnly")).toMatchObject({
+      kind: "inline",
+      phases: ["plan"],
+    });
+    // The bundled table still supplies everything the local one does not name.
+    expect(registry.definitions.find((definition) => definition.name === "Forge")).toMatchObject({ kind: "agent" });
+  });
+});
+
+test("a Contract(...) row registers a contract-declared capability", async () => {
+  // soma#574: some capabilities are doctrine everywhere and invocable nowhere in
+  // particular (a second opinion, a coder from another model family). The
+  // `adapter` kind already existed in the type but no table row could produce
+  // it, so it was reachable only from a skill manifest.
+  await withTempHome(async (homeDir) => {
+    await writeCapabilityTable(homeDir, [
+      '| CrossFamilyAudit | VERIFY | Deep work before completion | `Contract("an audit by a model outside the family that produced the work")` | E4+ |',
+      // Contract text mentioning a sub-agent must not be misread as an Agent( row.
+      '| SecondOpinion | THINK | Commitment boundary | `Contract("ask a sub-agent or a second model that did not produce the work")` | E3+ |',
+    ]);
+
+    const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir });
+
+    expect(registry.definitions.find((definition) => definition.name === "CrossFamilyAudit")).toMatchObject({
+      kind: "contract",
+      phases: ["verify"],
+      invoke: { contract: "contract", target: "an audit by a model outside the family that produced the work" },
+    });
+    expect(registry.definitions.find((definition) => definition.name === "SecondOpinion")).toMatchObject({
+      kind: "contract",
+      invoke: { target: "ask a sub-agent or a second model that did not produce the work" },
+    });
+    expect(registry.unsupported).toEqual([]);
+  });
+});
+
+test("refreshing a run replaces the home-derived definitions, dropping broken and deleted rows", async () => {
+  // Sage review: registration only ADDS or overrides by name, so a run persisted
+  // before an override went bad kept the old definition — visibly `unsupported`
+  // in the registry and quietly still selectable on the run.
+  await withTempHome(async (homeDir) => {
+    await writeSkill(homeDir, "first-principles", "FirstPrinciples");
+    await writeCapabilityTable(homeDir, [
+      '| FirstPrinciples | THINK | Was fine | `Skill("FirstPrinciples")` | E1+ |',
+    ]);
+
+    let run = createAlgorithmRun({
+      id: "stale-definition",
+      timestamp: "2026-08-08T10:00:00.000Z",
+      prompt: "Persist a capability, then break it",
+      intent: "Exercise the prune.",
+      currentState: "The row resolves.",
+      goal: "A broken override removes the persisted definition.",
+      criteria: [{ id: "C1", text: "Definition is pruned." }],
+    });
+    run = await registerSomaHomeAlgorithmCapabilities(run, { homeDir }, "2026-08-08T10:00:01.000Z");
+    expect(run.capabilityDefinitions?.some((definition) => definition.name === "FirstPrinciples")).toBe(true);
+
+    // (a) Retargeted at something this home does not have — reported `unsupported`.
+    await writeCapabilityTable(homeDir, [
+      '| FirstPrinciples | THINK | Now broken | `Skill("NotInstalled")` | E1+ |',
+      '| Keeper | THINK | Still fine | `Skill("FirstPrinciples")` | E1+ |',
+    ]);
+    run = await registerSomaHomeAlgorithmCapabilities(run, { homeDir }, "2026-08-08T10:00:02.000Z");
+    expect(run.capabilityDefinitions?.some((definition) => definition.name === "FirstPrinciples")).toBe(false);
+    expect(() => selectAlgorithmCapability(run, { name: "FirstPrinciples" }, "2026-08-08T10:00:03.000Z")).toThrow();
+
+    // (b) A table-only capability, simply DELETED — reported nowhere at all, and
+    // the case that slipped through before: neither resolved nor unsupported, so
+    // the persisted definition survived while `--list` no longer showed it.
+    // `Keeper` is table-only on purpose: a row naming a skill would be
+    // re-registered by the every-remaining-skill pass, which is correct and
+    // would hide the bug.
+    await writeCapabilityTable(homeDir, [
+      '| Keeper | THINK | Still fine | `Skill("FirstPrinciples")` | E1+ |',
+      '| TableOnly | PLAN | Exists only as a row | *(inline doctrine — no external tool)* | E1+ |',
+    ]);
+    run = await registerSomaHomeAlgorithmCapabilities(run, { homeDir }, "2026-08-08T10:00:04.000Z");
+    expect(run.capabilityDefinitions?.some((definition) => definition.name === "TableOnly")).toBe(true);
+
+    await writeCapabilityTable(homeDir, [
+      '| Keeper | THINK | Still fine | `Skill("FirstPrinciples")` | E1+ |',
+    ]);
+    run = await registerSomaHomeAlgorithmCapabilities(run, { homeDir }, "2026-08-08T10:00:05.000Z");
+    expect(run.capabilityDefinitions?.some((definition) => definition.name === "Keeper")).toBe(true);
+    expect(run.capabilityDefinitions?.some((definition) => definition.name === "TableOnly")).toBe(false);
+  });
+});
+
+test("a refresh that resolves nothing still disables, but an absent home leaves the run alone", async () => {
+  // The tie-break on the replace guard (Sage review). Resolving nothing and
+  // reporting nothing means the home is absent; resolving nothing while
+  // reporting unresolvable rows means the home was read and every capability is
+  // disabled — withholding the prune there keeps exactly the stale definitions
+  // the replace exists to drop.
+  await withTempHome(async (homeDir) => {
+    await writeSkill(homeDir, "first-principles", "FirstPrinciples");
+    await writeCapabilityTable(homeDir, [
+      '| TableOnly | PLAN | Exists only as a row | *(inline doctrine — no external tool)* | E1+ |',
+    ]);
+
+    let run = createAlgorithmRun({
+      id: "empty-resolve",
+      timestamp: "2026-08-08T11:00:00.000Z",
+      prompt: "Resolve nothing",
+      intent: "Exercise the replace guard.",
+      currentState: "One table-only capability is registered.",
+      goal: "An all-unsupported refresh disables it.",
+      criteria: [{ id: "C1", text: "Definition is dropped." }],
+    });
+    run = await registerSomaHomeAlgorithmCapabilities(run, { homeDir }, "2026-08-08T11:00:01.000Z");
+    expect(run.capabilityDefinitions?.some((definition) => definition.name === "TableOnly")).toBe(true);
+
+    // A definition a public caller registered directly is not the home's to
+    // replace: only what a previous refresh put there carries origin "soma-home".
+    run = registerAlgorithmCapabilityDefinition(run, {
+      name: "CallerRegistered",
+      kind: "inline",
+      phases: ["think"],
+      triggerSignals: ["registered directly, not from the home"],
+      invoke: { contract: "inline", target: "inline doctrine step" },
+    });
+    await writeCapabilityTable(homeDir, [
+      '| Different | PLAN | The table changed entirely | *(inline doctrine — no external tool)* | E1+ |',
+    ]);
+    run = await registerSomaHomeAlgorithmCapabilities(run, { homeDir }, "2026-08-08T11:00:03.000Z");
+    expect(run.capabilityDefinitions?.some((definition) => definition.name === "CallerRegistered")).toBe(true);
+    expect(run.capabilityDefinitions?.some((definition) => definition.name === "TableOnly")).toBe(false);
+
+    // An absent home resolves nothing and reports nothing: leave the run intact.
+    const untouched = await registerSomaHomeAlgorithmCapabilities(
+      run,
+      { homeDir, somaHome: ".soma-does-not-exist" },
+      "2026-08-08T11:00:04.000Z",
+    );
+    expect(untouched.capabilityDefinitions?.some((definition) => definition.name === "Different")).toBe(true);
+    expect(untouched.capabilityDefinitions?.some((definition) => definition.name === "CallerRegistered")).toBe(true);
+  });
+});
+
+test("a local row overrides a manifest-declared capability", async () => {
+  // Sage review: the local table used to sit BEHIND the manifest pass, so an
+  // adopter could not retarget a manifest-backed capability — the manifest
+  // silently stayed active while the docs promised "a local row of the same
+  // name wins". An override that does not always override is worse than none,
+  // because it is trusted.
+  await withTempHome(async (homeDir) => {
+    await writeSkill(homeDir, "first-principles", "FirstPrinciples");
+    await writeSkill(homeDir, "systems-thinking", "SystemsThinking");
+    await writeSkillManifest(homeDir, "first-principles", {
+      schema: "soma.skill.v1",
+      name: "FirstPrinciples",
+      description: "Manifest-backed skill.",
+      entrypoint: "SKILL.md",
+      references: [],
+      workflows: [],
+      tools: [],
+      triggers: ["manifest trigger"],
+      algorithmCapability: { kind: "skill", phases: ["think"] },
+    });
+    await writeCapabilityTable(homeDir, [
+      '| FirstPrinciples | VERIFY | Retargeted by the adopter | `Skill("SystemsThinking")` | E1+ |',
+    ]);
+
+    const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir });
+
+    expect(registry.definitions.find((definition) => definition.name === "FirstPrinciples")).toMatchObject({
+      phases: ["verify"],
+      invoke: { target: "SystemsThinking" },
+    });
+  });
+});
+
+test("an unbound contract capability cannot be invoked on written evidence", async () => {
+  // Sage blocker (soma#574): invocation asks only for non-empty evidence, so
+  // before this refusal a run could select CrossFamilyAudit, perform no audit,
+  // write "audited — no findings", and COMPLETE. A fabricated cross-family audit
+  // read exactly like a real one, and the contract row became a way to buy
+  // tier-floor credit for work nobody did.
+  await withTempHome(async (homeDir) => {
+    await writeCapabilityTable(homeDir, [
+      '| CrossFamilyAudit | VERIFY | Deep work before completion | `Contract("an audit by a model outside the family that produced the work")` | E4+ |',
+    ]);
+    let run = createAlgorithmRun({
+      id: "unbound-contract",
+      timestamp: "2026-08-08T10:00:00.000Z",
+      prompt: "Audit this",
+      intent: "Exercise the unbound-contract refusal.",
+      currentState: "No cross-family model is reachable.",
+      goal: "An unbound contract cannot be talked past.",
+      criteria: [{ id: "C1", text: "Invocation refuses." }],
+    });
+    // Through the home refresh, which is the only path allowed to mint a
+    // contract-kind definition — the public register path refuses one.
+    run = await registerSomaHomeAlgorithmCapabilities(run, { homeDir }, "2026-08-08T10:00:01.000Z");
+    run = selectAlgorithmCapability(run, { name: "CrossFamilyAudit", phase: "verify" }, "2026-08-08T10:00:02.000Z");
+
+    expect(() =>
+      recordAlgorithmCapabilityInvocation(
+        run,
+        { name: "CrossFamilyAudit", evidence: "audited — no findings" },
+        "2026-08-08T10:00:03.000Z",
+      ),
+    ).toThrow(/no binding on this machine/);
+  });
+});
+
+test("a manifest-declared adapter capability is invocable; only a Contract row is refused", async () => {
+  // Sage review: refusing on `kind === "adapter"` also rejected manifest-declared
+  // adapter capabilities, which target a real skill and ARE invocable. The
+  // refusal keys on the `unbound` marker a Contract row carries instead.
+  await withTempHome(async (homeDir) => {
+    await writeSkill(homeDir, "bridge", "Bridge");
+    await writeSkillManifest(homeDir, "bridge", {
+      schema: "soma.skill.v1",
+      name: "Bridge",
+      description: "Manifest-declared adapter capability.",
+      entrypoint: "SKILL.md",
+      references: [],
+      workflows: [],
+      tools: [],
+      triggers: ["bridge"],
+      algorithmCapability: { kind: "adapter", phases: ["execute"] },
+    });
+    const { definitions } = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir });
+    expect(definitions.find((definition) => definition.name === "Bridge")).toMatchObject({ kind: "adapter" });
+
+    let run = createAlgorithmRun({
+      id: "manifest-adapter",
+      timestamp: "2026-08-08T12:00:00.000Z",
+      prompt: "Invoke a manifest adapter",
+      intent: "Exercise the unbound marker.",
+      currentState: "A manifest declares an adapter capability.",
+      goal: "It stays invocable.",
+      criteria: [{ id: "C1", text: "Invocation succeeds." }],
+    });
+    run = registerAlgorithmCapabilityDefinitions(run, definitions, "2026-08-08T12:00:01.000Z");
+    run = selectAlgorithmCapability(run, { name: "Bridge", phase: "execute" }, "2026-08-08T12:00:02.000Z");
+
+    expect(() =>
+      recordAlgorithmCapabilityInvocation(run, { name: "Bridge", evidence: "ran the bridge" }, "2026-08-08T12:00:03.000Z"),
+    ).not.toThrow();
+  });
+});
+
+test("a home refresh does not overwrite a caller's binding of the same name", async () => {
+  // Sage review: keptForeign preserved the caller definition, then the home rows
+  // were set by name straight over it — so a caller who bound Advisor to
+  // something real had it replaced by the bundled unbound contract on the next
+  // CLI refresh, undone by a command that only meant to re-read the home.
+  await withTempHome(async (homeDir) => {
+    await writeSkill(homeDir, "first-principles", "FirstPrinciples");
+    await writeCapabilityTable(homeDir, [
+      '| Advisor | VERIFY | Shipped declaration | `Contract("a second opinion")` | E3+ |',
+    ]);
+
+    let run = createAlgorithmRun({
+      id: "caller-binding-wins",
+      timestamp: "2026-08-08T14:00:00.000Z",
+      prompt: "Bind Advisor, then refresh",
+      intent: "Exercise caller precedence on refresh.",
+      currentState: "A caller bound Advisor to a real skill.",
+      goal: "The refresh leaves it alone.",
+      criteria: [{ id: "C1", text: "Binding survives." }],
+    });
+    run = registerAlgorithmCapabilityDefinition(run, {
+      name: "Advisor",
+      kind: "skill",
+      phases: ["verify"],
+      triggerSignals: ["my own second opinion"],
+      invoke: { contract: "skill", target: "FirstPrinciples" },
+    });
+
+    run = await registerSomaHomeAlgorithmCapabilities(run, { homeDir }, "2026-08-08T14:00:01.000Z");
+
+    expect(run.capabilityDefinitions?.find((definition) => definition.name === "Advisor")).toMatchObject({
+      kind: "skill",
+      origin: "caller",
+      invoke: { target: "FirstPrinciples" },
+    });
+  });
+});
+
+test("only a Contract row may mint the contract kind", async () => {
+  // Sage review: `contract` means "declared, nothing behind it", and invoke
+  // refuses on exactly that. A manifest or a caller reaching for the kind would
+  // produce a capability that is selectable and permanently uninvokable with a
+  // real target sitting unused, so the invariant is enforced at registration.
+  const run = createAlgorithmRun({
+    id: "contract-kind-guard",
+    timestamp: "2026-08-08T13:00:00.000Z",
+    prompt: "Register a contract directly",
+    intent: "Exercise the mint guard.",
+    currentState: "A caller reaches for the contract kind.",
+    goal: "Registration refuses.",
+    criteria: [{ id: "C1", text: "Registration throws." }],
+  });
+
+  expect(() =>
+    registerAlgorithmCapabilityDefinition(run, {
+      name: "HandRolledContract",
+      kind: "contract",
+      phases: ["verify"],
+      triggerSignals: ["a caller inventing a contract"],
+      invoke: { contract: "contract", target: "something real, allegedly" },
+    }),
+  ).toThrow(/minted only by a Contract/);
+});
+
+test("a local binding replaces a contract declaration with a concrete invocation", async () => {
+  // The point of the adapter kind: ship the contract, let whoever can satisfy it
+  // bind the mechanism. The local table is read first, so a same-named binding wins.
+  await withTempHome(async (homeDir) => {
+    await writeCapabilityTable(homeDir, [
+      '| Advisor | THINK | Commitment boundary | `Contract("a second opinion from something that did not produce the work")` | E3+ |',
+    ], "capabilities.md");
+    await writeCapabilityTable(homeDir, [
+      '| Advisor | VERIFY | My own second opinion | `Bash("advisor --mode second-opinion")` | E3+ |',
+    ]);
+
+    const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir });
+
+    expect(registry.definitions.find((definition) => definition.name === "Advisor")).toMatchObject({
+      kind: "command",
+      phases: ["verify"],
+    });
+  });
+});
+
+test("an unresolvable local row disables the capability rather than falling back to the bundled row", async () => {
+  // Retargeting a capability at a skill you do not have is a mistake worth
+  // seeing. Silently serving the shipped row instead would hide it.
+  await withTempHome(async (homeDir) => {
+    await writeAlgorithmCapabilitiesReference(homeDir);
+    await writeSkill(homeDir, "first-principles", "FirstPrinciples");
+    await writeCapabilityTable(homeDir, [
+      '| FirstPrinciples | THINK | Points at a skill this home lacks | `Skill("NotInstalled")` | E2+ |',
+    ]);
+
+    const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir });
+
+    expect(registry.unsupported).toContain("FirstPrinciples");
+    expect(registry.definitions.find((definition) => definition.name === "FirstPrinciples")).toBeUndefined();
   });
 });
 
@@ -786,7 +1180,7 @@ test("rejects malformed adapter capability definitions", () => {
   expect(() =>
     registerAlgorithmCapabilityDefinition(run, {
       name: "MalformedCapability",
-      kind: "adapter",
+      kind: "contract",
       phases: ["think"],
       invoke: { contract: "adapter", target: "adapter.malformed" },
     } as Parameters<typeof registerAlgorithmCapabilityDefinition>[1]),
