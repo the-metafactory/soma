@@ -76,6 +76,7 @@ function resolveSessionTranscript(config, input, sessionId) {
 }
 
 function runSomaLifecycle(config, event, input) {
+  const CODEX_SESSION_END_WORK_REGISTRY_LOCK_TIMEOUT_MS = 1_000;
   const sessionId = typeof input.session_id === "string" && input.session_id.trim().length > 0 ? input.session_id : undefined;
   const args = ["run", "soma", "lifecycle", event, "--soma-home", config.somaHome, "--substrate", "codex"];
   if (sessionId) {
@@ -87,6 +88,7 @@ function runSomaLifecycle(config, event, input) {
     args.push("--cwd", process.cwd());
   }
   if (event === "session-end" && sessionId) {
+    args.push("--work-registry-lock-timeout-ms", String(CODEX_SESSION_END_WORK_REGISTRY_LOCK_TIMEOUT_MS));
     const transcript = resolveSessionTranscript(config, input, sessionId);
     if (transcript) {
       args.push("--transcript", transcript);
@@ -94,6 +96,15 @@ function runSomaLifecycle(config, event, input) {
   }
 
   return runSomaCommand(config, args);
+}
+
+function lifecycleFailureDetail(result) {
+  if (typeof result?.error?.code === "string" && result.error.code.length > 0) {
+    return `command error ${result.error.code}`;
+  }
+  if (typeof result?.status === "number") return `exit status ${result.status}`;
+  if (typeof result?.signal === "string" && result.signal.length > 0) return `terminated by ${result.signal}`;
+  return "unknown child failure";
 }
 
 function runSomaClassification(config, prompt) {
@@ -404,7 +415,11 @@ function handleLifecycleEvent(config, event, input) {
       });
     }
 
-    emitAndExit({ continue: true, systemMessage: `Soma lifecycle hook failed for ${event}; read projected Soma context when needed.` });
+    const eventLog = join(config.somaHome, "memory", "STATE", "events.jsonl");
+    emitAndExit({
+      continue: true,
+      systemMessage: `Soma lifecycle hook failed for ${event} (${lifecycleFailureDetail(result)}); inspect ${eventLog} for Soma context.`,
+    });
   }
 
   if (event === "session-start") {

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { hostname } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { createPaths, type SomaPathsOptions } from "./paths";
@@ -58,6 +59,8 @@ export interface UpsertSomaWorkRegistryEntryOptions extends SomaPathsOptions {
   progress?: string;
   timestamp?: string;
   artifacts?: Record<string, string>;
+  /** Optional caller-owned deadline for acquiring the shared registry lock. */
+  workRegistryLockTimeoutMs?: number;
 }
 
 export interface UpsertSomaCurrentWorkPointerOptions extends UpsertSomaWorkRegistryEntryOptions {
@@ -194,18 +197,123 @@ async function writeJson(path: string, value: unknown): Promise<void> {
   await rename(tmp, path);
 }
 
-async function withRegistryFileLock<T>(registryPath: string, fn: () => Promise<T>): Promise<T> {
+const DEFAULT_WORK_REGISTRY_LOCK_TIMEOUT_MS = 30_000;
+const STALE_WORK_REGISTRY_LOCK_MS = 30_000;
+const WORK_REGISTRY_LOCK_OWNER_FILE = "owner.json";
+const WORK_REGISTRY_LOCK_RECLAIM_SUFFIX = ".reclaim";
+
+function resolveWorkRegistryLockTimeout(timeoutMs: number | undefined): number {
+  if (timeoutMs === undefined) return DEFAULT_WORK_REGISTRY_LOCK_TIMEOUT_MS;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+    throw new Error(`work registry lock timeout must be a positive integer, got ${timeoutMs}`);
+  }
+  return timeoutMs;
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error: unknown) {
+    return !(error instanceof Error && "code" in error && error.code === "ESRCH");
+  }
+}
+
+async function isReclaimableWorkRegistryLock(lockPath: string): Promise<boolean> {
+  try {
+    const lock = await stat(lockPath);
+    if (!lock.isDirectory() || Date.now() - lock.mtimeMs < STALE_WORK_REGISTRY_LOCK_MS) return false;
+
+    try {
+      const owner = JSON.parse(await readFile(join(lockPath, WORK_REGISTRY_LOCK_OWNER_FILE), "utf8")) as unknown;
+      return isPlainRecord(owner) && owner.hostname === hostname() && typeof owner.pid === "number" && Number.isSafeInteger(owner.pid) && owner.pid > 0
+        ? !isProcessAlive(owner.pid)
+        : false;
+    } catch {
+      // An ownerless pre-metadata lock may still be held by an older process.
+      return false;
+    }
+  } catch (error: unknown) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+async function acquireReclaimGuard(reclaimPath: string): Promise<boolean> {
+  for (;;) {
+    try {
+      await mkdir(reclaimPath);
+      try {
+        await writeFile(join(reclaimPath, WORK_REGISTRY_LOCK_OWNER_FILE), `${JSON.stringify({ pid: process.pid, hostname: hostname() })}\n`, "utf8");
+      } catch (error) {
+        await rm(reclaimPath, { recursive: true, force: true });
+        throw error;
+      }
+      return true;
+    } catch (error: unknown) {
+      if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
+      if (!(await isReclaimableWorkRegistryLock(reclaimPath))) return false;
+      await rm(reclaimPath, { recursive: true, force: true });
+    }
+  }
+}
+
+async function reclaimStaleWorkRegistryLock(lockPath: string): Promise<boolean> {
+  const reclaimPath = `${lockPath}${WORK_REGISTRY_LOCK_RECLAIM_SUFFIX}`;
+  if (!(await acquireReclaimGuard(reclaimPath))) return false;
+
+  try {
+    if (!(await isReclaimableWorkRegistryLock(lockPath))) return false;
+
+    // The reclaim guard serializes stale-lock inspection and rename. Once moved,
+    // later writers may acquire a fresh lock at `lockPath`; only this retired
+    // directory is removed, so a fresh owner cannot be deleted by a reclaimer.
+    const retiredPath = `${lockPath}.stale-${process.pid}-${shortHash(`${lockPath}:${Date.now()}:${Math.random()}`)}`;
+    try {
+      await rename(lockPath, retiredPath);
+    } catch (error: unknown) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
+      throw error;
+    }
+    await rm(retiredPath, { recursive: true, force: true });
+    return true;
+  } finally {
+    await rm(reclaimPath, { recursive: true, force: true });
+  }
+}
+
+async function withRegistryFileLock<T>(
+  registryPath: string,
+  fn: () => Promise<T>,
+  timeoutMs?: number,
+): Promise<T> {
   await mkdir(dirname(registryPath), { recursive: true });
   const lockPath = `${registryPath}.lock`;
   const started = Date.now();
+  const timeout = resolveWorkRegistryLockTimeout(timeoutMs);
+  let nextReclaimAttemptAt = started;
 
   for (;;) {
     try {
       await mkdir(lockPath);
+      try {
+        await writeFile(
+          join(lockPath, WORK_REGISTRY_LOCK_OWNER_FILE),
+          `${JSON.stringify({ pid: process.pid, hostname: hostname(), acquiredAt: new Date().toISOString() })}\n`,
+          "utf8",
+        );
+      } catch (error) {
+        await rm(lockPath, { recursive: true, force: true });
+        throw error;
+      }
       break;
     } catch (error: unknown) {
       if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
-      if (Date.now() - started > 30_000) {
+      if (Date.now() >= nextReclaimAttemptAt) {
+        nextReclaimAttemptAt = Date.now() + 1_000;
+        if (await reclaimStaleWorkRegistryLock(lockPath)) continue;
+      }
+      if (Date.now() - started > timeout) {
         throw new Error(`Timed out waiting for work registry lock at ${lockPath}`, { cause: error });
       }
       await sleep(10);
@@ -386,7 +494,11 @@ export async function listSomaWorkRegistryEntries(options: SomaPathsOptions = {}
 export async function upsertSomaWorkRegistryEntry(
   options: UpsertSomaWorkRegistryEntryOptions,
 ): Promise<UpsertSomaWorkRegistryEntryResult> {
-  return withRegistryFileLock(workRegistryPath(options), () => upsertSomaWorkRegistryEntryLocked(options));
+  return withRegistryFileLock(
+    workRegistryPath(options),
+    () => upsertSomaWorkRegistryEntryLocked(options),
+    options.workRegistryLockTimeoutMs,
+  );
 }
 
 async function upsertSomaWorkRegistryEntryLocked(
@@ -450,7 +562,11 @@ function buildCurrentWorkPointer(
 export async function upsertSomaCurrentWorkPointer(
   options: UpsertSomaCurrentWorkPointerOptions,
 ): Promise<UpsertSomaWorkRegistryEntryResult> {
-  return withRegistryFileLock(workRegistryPath(options), () => upsertSomaWorkRegistryEntryLocked(options));
+  return withRegistryFileLock(
+    workRegistryPath(options),
+    () => upsertSomaWorkRegistryEntryLocked(options),
+    options.workRegistryLockTimeoutMs,
+  );
 }
 
 export function somaWorkRegistryPaths(options: SomaPathsOptions = {}, sessionId?: string): {

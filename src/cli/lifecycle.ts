@@ -23,7 +23,7 @@ export interface ParsedLifecycleArgs {
 }
 
 const LIFECYCLE_USAGE =
-  "Usage: soma lifecycle <session-start|algorithm-updated|algorithm-observed|session-end> [--home-dir <dir>] [--soma-home <dir>] [--substrate <id>] [--session-id <id>] [--cwd <dir>] [--git-branch <branch>]";
+  "Usage: soma lifecycle <session-start|algorithm-updated|algorithm-observed|session-end> [--home-dir <dir>] [--soma-home <dir>] [--substrate <id>] [--session-id <id>] [--cwd <dir>] [--git-branch <branch>] [--work-registry-lock-timeout-ms <ms>]";
 
 export const LIFECYCLE_COMMAND_HELP: { usage: string; subcommands: Record<ParsedLifecycleArgs["event"], string> } = {
   usage: LIFECYCLE_USAGE,
@@ -72,6 +72,15 @@ export function parseLifecycleArgs(args: string[]): ParsedLifecycleArgs {
         options.gitBranch = readOption(rest, index, arg);
         index += 1;
         break;
+      case "--work-registry-lock-timeout-ms": {
+        const timeout = Number(readOption(rest, index, arg));
+        if (!Number.isSafeInteger(timeout) || timeout <= 0) {
+          throw new Error(`${arg} must be a positive integer`);
+        }
+        options.workRegistryLockTimeoutMs = timeout;
+        index += 1;
+        break;
+      }
       case "--transcript":
         options.transcriptPath = readOption(rest, index, arg);
         index += 1;

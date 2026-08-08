@@ -2457,6 +2457,8 @@ export interface SomaLifecycleOptions {
   cwd?: string;
   /** Git branch of `cwd`, when known. Detected from `cwd` when omitted. */
   gitBranch?: string;
+  /** Optional adapter-provided deadline for the session work-registry writeback. */
+  workRegistryLockTimeoutMs?: number;
   /**
    * On `session-end`: path to the substrate session transcript. When set (and the
    * substrate has a transcript adapter, e.g. claude-code), the handler attempts the

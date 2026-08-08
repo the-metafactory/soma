@@ -1,7 +1,7 @@
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { isAbsolute, join, resolve } from "node:path";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { bootstrapSomaHome, experimentalAnthropicCowork, installSomaForClaudeCode, installSomaForCodex, installSomaForCursor, installSomaForPiDev, planSomaForCodexInstall, planSomaForPiDevInstall, somaWorkRegistryPaths } from "../src/index";
 import { codexInstallSpec } from "../src/adapters/codex/install";
@@ -951,6 +951,62 @@ test("installed codex session-start hook returns concise visible context", async
       substrate: "codex",
       status: "active",
     });
+  });
+});
+
+test("installed codex session-end hook reclaims a stale work registry lock", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const lockPath = `${somaWorkRegistryPaths({ homeDir }).work}.lock`;
+    await mkdir(lockPath, { recursive: true });
+    await writeFile(join(lockPath, "owner.json"), `${JSON.stringify({ pid: 999_999, hostname: hostname() })}\n`);
+    const stale = new Date(Date.now() - 60_000);
+    await utimes(lockPath, stale, stale);
+
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const result = runCodexHook(hook, "session-end", homeDir, { session_id: "codex-orphaned-lock", cwd: homeDir });
+    const work = await readFile(join(homeDir, ".soma", "memory", "STATE", "work.json"), "utf8");
+    const events = await readFile(join(homeDir, ".soma", "memory", "STATE", "events.jsonl"), "utf8");
+
+    expect(result.status).toBe(0);
+    expect(result.output.systemMessage).toBe("Soma lifecycle session-end handled.");
+    expect(work).toContain("codex-orphaned-lock");
+    expect(events).not.toContain("lifecycle.session_end.registry-write-failed");
+  });
+});
+
+test("installed codex session-end hook records a failure when a live registry lock outlasts its deadline", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const lockPath = `${somaWorkRegistryPaths({ homeDir }).work}.lock`;
+    await mkdir(lockPath, { recursive: true });
+    await writeFile(join(lockPath, "owner.json"), `${JSON.stringify({ pid: process.pid, hostname: hostname() })}\n`);
+
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const result = runCodexHook(hook, "session-end", homeDir, { session_id: "codex-live-lock", cwd: homeDir });
+    const events = await readFile(join(homeDir, ".soma", "memory", "STATE", "events.jsonl"), "utf8");
+
+    expect(result.status).toBe(0);
+    expect(result.output.systemMessage).toBe("Soma lifecycle session-end handled.");
+    expect(events).toContain("lifecycle.session_end.registry-write-failed");
+  });
+});
+
+test("installed codex session-end hook points failures at the durable event log", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const configPath = join(homeDir, ".codex/hooks/soma-lifecycle.config.json");
+    const config = JSON.parse(await readFile(configPath, "utf8")) as { bunPath: string };
+    config.bunPath = join(homeDir, "missing-bun");
+    await writeFile(configPath, `${JSON.stringify(config)}\n`);
+
+    const result = runCodexHook(hook, "session-end", homeDir, { session_id: "codex-lifecycle-failure" });
+
+    expect(result.status).toBe(0);
+    expect(result.output.systemMessage).toBe(
+      `Soma lifecycle hook failed for session-end (command error ENOENT); inspect ${join(homeDir, ".soma/memory/STATE/events.jsonl")} for Soma context.`,
+    );
   });
 });
 
