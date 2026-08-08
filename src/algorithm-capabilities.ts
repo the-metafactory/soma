@@ -571,14 +571,20 @@ export async function registerSomaHomeAlgorithmCapabilities(
   // defaults are unaffected — they are never persisted, and `definitionsForRun`
   // supplies them regardless.
   //
-  // Guarded on a non-empty resolve: an unreadable or empty soma home must not
-  // silently strip a run of everything it had.
-  if (definitions.length === 0) {
+  // Guarded so an unreadable or empty soma home cannot silently strip a run of
+  // everything it had. `unsupported` breaks the tie (Sage review): a home that
+  // resolved NOTHING and reported nothing is absent, and the run is left alone;
+  // a home that resolved nothing but reported unresolvable rows was read and
+  // has an answer — every capability is disabled — and withholding the prune
+  // there would keep exactly the stale definitions this replace exists to drop.
+  if (definitions.length === 0 && unsupported.length === 0) {
     return run;
   }
 
   const withoutHomeDefinitions = { ...run, capabilityDefinitions: [] };
-  return registerAlgorithmCapabilityDefinitions(withoutHomeDefinitions, definitions, timestamp);
+  return definitions.length === 0
+    ? withoutHomeDefinitions
+    : registerAlgorithmCapabilityDefinitions(withoutHomeDefinitions, definitions, timestamp);
 }
 
 export function listAlgorithmCapabilityDefinitions(): AlgorithmCapabilityDefinition[] {

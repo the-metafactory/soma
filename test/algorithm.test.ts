@@ -493,6 +493,40 @@ test("refreshing a run replaces the home-derived definitions, dropping broken an
   });
 });
 
+test("a refresh that resolves nothing still disables, but an absent home leaves the run alone", async () => {
+  // The tie-break on the replace guard (Sage review). Resolving nothing and
+  // reporting nothing means the home is absent; resolving nothing while
+  // reporting unresolvable rows means the home was read and every capability is
+  // disabled — withholding the prune there keeps exactly the stale definitions
+  // the replace exists to drop.
+  await withTempHome(async (homeDir) => {
+    await writeSkill(homeDir, "first-principles", "FirstPrinciples");
+    await writeCapabilityTable(homeDir, [
+      '| TableOnly | PLAN | Exists only as a row | *(inline doctrine — no external tool)* | E1+ |',
+    ]);
+
+    let run = createAlgorithmRun({
+      id: "empty-resolve",
+      timestamp: "2026-08-08T11:00:00.000Z",
+      prompt: "Resolve nothing",
+      intent: "Exercise the replace guard.",
+      currentState: "One table-only capability is registered.",
+      goal: "An all-unsupported refresh disables it.",
+      criteria: [{ id: "C1", text: "Definition is dropped." }],
+    });
+    run = await registerSomaHomeAlgorithmCapabilities(run, { homeDir }, "2026-08-08T11:00:01.000Z");
+    expect(run.capabilityDefinitions?.some((definition) => definition.name === "TableOnly")).toBe(true);
+
+    // An absent home resolves nothing and reports nothing: leave the run intact.
+    const untouched = await registerSomaHomeAlgorithmCapabilities(
+      run,
+      { homeDir, somaHome: ".soma-does-not-exist" },
+      "2026-08-08T11:00:02.000Z",
+    );
+    expect(untouched.capabilityDefinitions?.some((definition) => definition.name === "TableOnly")).toBe(true);
+  });
+});
+
 test("a local row overrides a manifest-declared capability", async () => {
   // Sage review: the local table used to sit BEHIND the manifest pass, so an
   // adopter could not retarget a manifest-backed capability — the manifest
