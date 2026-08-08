@@ -846,16 +846,11 @@ export class WorkGraph {
    * Frontier = open ∧ unassigned ∧ all blockers closed (§2.4), over the root's
    * whole membership subtree.
    *
-   * **A pure filter over the subtree read** (#576). {@link GraphStore.readSubtree}
-   * is required to report live state, so it confirms; re-fetching each survivor
-   * afterwards is what the seam contract now forbids paying for. It also read
-   * *worse* than it sounded: N sequential fetches describe a subtree as it was
-   * across however long they took, so on the real map the old two-phase read
-   * blended observations up to ten seconds apart. A traversal is not
-   * automatically one observation either — pagination and re-rooting are extra
-   * calls — but it is one for a graph that fits a single request, and never more
-   * than the old shape otherwise: equal where a subtree pages and yields no
-   * candidates, far fewer whenever it yields any.
+   * **A pure filter over one read** (#576) — no re-fetch, because
+   * {@link GraphStore.readSubtree} is required to report live state and
+   * therefore confirms. That contract, and why the second read cost coherence
+   * rather than buying it, is stated once on the seam method; spec §2.4 is
+   * normative.
    *
    * False *negatives* remain unrecoverable — the frontier is advisory and may
    * return short, self-healing on a later tick. Correctness rests on the claim

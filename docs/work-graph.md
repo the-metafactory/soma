@@ -342,7 +342,9 @@ interface GraphStore {
 ### 2.6 CLI verbs
 
 ```bash
-soma graph frontier <root>         # open, unassigned, unblocked — confirmed by direct fetch
+soma graph frontier <root>         # open, unassigned, unblocked, over the whole
+                                   # membership subtree; GraphStore.readSubtree
+                                   # confirms (§2.4)
 soma graph node <id>               # read one node (GraphStore.readNode) — the bridge's read path
 soma graph claim <node>            # assign, re-read, tie-break on race
 soma graph add <root> ...          # create node (+ edges) — additive, structurally validated
