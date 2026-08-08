@@ -66,13 +66,18 @@ export type ProbeResult =
       /** ISO timestamp of execution. */
       at: string;
       /**
-       * The resolved absolute directory this probe ran in (#580).
+       * The resolved absolute directory this probe was dispatched to (#580) —
+       * where it ran, or where it *would* have: the value is fixed before the
+       * registry gate, so a refused probe reports the directory it was refused
+       * for. That is the directory the adopter has to declare, which is what a
+       * reader of a refusal needs.
        *
        * Per result, not per close, because a probe may name its own `cwd`/`repo`
        * and land in a different tree than the close's base — an absolute `cwd`
-       * escapes it entirely. The receipt's {@link ProbeTree} describes the base;
-       * without this, a probe that ran elsewhere would be reported under it,
-       * which is the #579 mislabel one level down.
+       * escapes it entirely. Without this, a probe that ran elsewhere would be
+       * reported under a tree it never touched: the #579 mislabel one level down.
+       *
+       * Absent for `url`, which runs against a host and no tree.
        */
       cwd?: string;
     };
@@ -358,10 +363,30 @@ export function probeRanOutsideTree(result: ProbeResult, trees: readonly ProbeTr
  * evidence pointer and in the rendered probe section, so the pointer and the
  * prose can never disagree about which tree was tested.
  */
-export function describeProbeTree(tree: ProbeTree): string {
+export function describeProbeTree(tree: ProbeTree, home: string | undefined = process.env.HOME): string {
   const head = tree.head === undefined ? "no HEAD" : `HEAD ${tree.head}`;
   const state = tree.dirty === undefined ? "not a git tree" : tree.dirty ? "dirty" : "clean";
-  return `${head} in ${tree.dir} (${state})`;
+  return `${head} in ${collapseHome(tree.dir, home)} (${state})`;
+}
+
+/**
+ * `/Users/someone/work/x` → `~/work/x` for anything that gets **published**.
+ *
+ * A receipt is posted to a tracker whose visibility soma cannot know (§2.2 says
+ * the same of probe declarations), and the point of naming the tree is to make
+ * a reader able to tell one checkout from another — which the path below `~`
+ * already does. The home prefix adds only the local account name, so it is the
+ * part to drop. `ProbeTree.dir` itself stays absolute: it is what the runner
+ * compares against, and a display convention must not become a comparison one.
+ *
+ * `home` is a parameter with an ambient default rather than a bare env read, so
+ * the rendering stays a function of its inputs when a caller says so.
+ */
+function collapseHome(dir: string, home: string | undefined): string {
+  if (home === undefined || home.length === 0) return dir;
+  const root = home.endsWith("/") ? home.slice(0, -1) : home;
+  if (dir === root) return "~";
+  return dir.startsWith(`${root}/`) ? `~${dir.slice(root.length)}` : dir;
 }
 
 /**
@@ -835,7 +860,9 @@ export function renderCloseReceipt(receipt: CloseReceipt): string {
       // #579 mislabel one level down, so the line says where it actually ran
       // whenever the heading does not settle it.
       const elsewhere =
-        probeRanOutsideTree(result, receipt.probeTrees) && result.state === "probed" ? ` [in ${result.cwd}]` : "";
+        probeRanOutsideTree(result, receipt.probeTrees) && result.state === "probed"
+          ? ` [in ${collapseHome(result.cwd ?? "", process.env.HOME)}]`
+          : "";
       lines.push(
         result.state === "probed"
           ? `- \`${probeKey(result.probe)}\`${elsewhere} — **${result.outcome}** at ${result.at}: ${result.observed}`

@@ -4,6 +4,7 @@ import {
   GRAPH_COMMAND_HELP,
   parseGraphArgs,
   parseProbeTreeStatus,
+  probeTreeStatusArgv,
   runGraphCli,
   selectRatification,
   type GraphCliDeps,
@@ -11,6 +12,7 @@ import {
 import { parseRepoFromRemote } from "../src/work-graph-bridge";
 import {
   WorkGraphError,
+  describeProbeTree,
   renderCloseReceipt,
   runProbes,
   type ClaimResult,
@@ -1007,6 +1009,39 @@ test("the rendered receipt names the probe tree next to the probe results", asyn
 
   expect(output).toContain("### Probes");
   expect(output).toContain("Ran in HEAD abc1234 in /repo (dirty).");
+});
+
+test("the pre-flight status call refuses the target repo's choice of program", () => {
+  // The directory comes from a node body, and this read happens before the
+  // registry has refused anything — so `core.fsmonitor`, a program path in the
+  // target repo's own config, would be tracker content reaching execution on a
+  // probe the gate was about to reject.
+  const argv = probeTreeStatusArgv("/some/other/checkout");
+
+  expect(argv).toEqual([
+    "git",
+    "-c",
+    "core.fsmonitor=false",
+    "-c",
+    "core.pager=cat",
+    "-C",
+    "/some/other/checkout",
+    "status",
+    "--porcelain=v2",
+    "--branch",
+  ]);
+});
+
+test("a published tree path drops the home prefix but keeps what distinguishes checkouts", () => {
+  const home = "/Users/someone";
+  const tree = { dir: `${home}/work/soma/.worktrees/x`, head: "abc1234", dirty: false };
+
+  expect(describeProbeTree(tree, home)).toBe("HEAD abc1234 in ~/work/soma/.worktrees/x (clean)");
+  // Outside home, and home itself: unchanged, and not mangled.
+  expect(describeProbeTree({ ...tree, dir: "/srv/build" }, home)).toContain("in /srv/build ");
+  expect(describeProbeTree({ ...tree, dir: home }, home)).toContain("in ~ ");
+  // A prefix that is not a path boundary is not a home match.
+  expect(describeProbeTree({ ...tree, dir: "/Users/someone-else/x" }, home)).toContain("in /Users/someone-else/x ");
 });
 
 test("parseProbeTreeStatus reads HEAD and dirt out of one git call", () => {

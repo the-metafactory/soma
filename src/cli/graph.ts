@@ -506,17 +506,35 @@ export function parseProbeTreeStatus(dir: string, stdout: string): ProbeTree {
  */
 function probeEvidencePointer(probes: readonly Probe[], trees: readonly ProbeTree[]): string | undefined {
   if (trees.length > 0) {
-    return trees.every((tree) => tree.head !== undefined) ? trees.map(describeProbeTree).join("; ") : undefined;
+    return trees.every((tree) => tree.head !== undefined)
+      ? trees.map((tree) => describeProbeTree(tree)).join("; ")
+      : undefined;
   }
   const targets = probes.flatMap((probe) => (probe.type === "url" ? [probe.target] : []));
   return targets.length === 0 ? undefined : `targets: ${targets.join(", ")}`;
 }
 
+/**
+ * Config a *target repository* must not get to choose while we read it.
+ *
+ * This status call runs in a directory a **node body** can name, via a probe's
+ * `cwd`/`repo`, and it runs before the registry has refused anything. `git
+ * status` honours `core.fsmonitor`, which is a program path in the target
+ * repo's own `.git/config` — so without these overrides, tracker content picks
+ * a local repository and the pre-flight read executes its hook on a probe the
+ * gate was about to refuse. Command-line `-c` beats repo config, and the
+ * bracketing is deliberate: the pager is not reachable from `--porcelain`, but
+ * it is the other config knob in `git status`'s reach that names a program.
+ */
+const GIT_READ_ONLY_CONFIG = ["-c", "core.fsmonitor=false", "-c", "core.pager=cat"] as const;
+
+/** Exported so the overrides above are a checked property, not a comment. */
+export function probeTreeStatusArgv(dir: string): string[] {
+  return ["git", ...GIT_READ_ONLY_CONFIG, "-C", dir, "status", "--porcelain=v2", "--branch"];
+}
+
 async function defaultDescribeProbeTree(dir: string): Promise<ProbeTree> {
-  const status = await runCommand({
-    argv: ["git", "-C", dir, "status", "--porcelain=v2", "--branch"],
-    timeoutSec: 30,
-  });
+  const status = await runCommand({ argv: probeTreeStatusArgv(dir), timeoutSec: 30 });
   // Not a git tree (or git is unreachable): the directory is still the honest
   // answer to "where did the probes run", and the absent `dirty` says the rest.
   if (status.exitCode !== 0) return { dir };
@@ -827,10 +845,10 @@ async function runClose(
   const probeDirs = [
     ...new Set(probes.flatMap((probe) => probeDirectory(probe, probeDir) ?? [])),
   ];
-  const probeTrees: ProbeTree[] = [];
-  for (const dir of probeDirs) {
-    probeTrees.push(await deps.describeProbeTree(dir));
-  }
+  // Concurrent, unlike the probes themselves: these are read-only status calls
+  // on distinct directories, so none can see another's side effects — the reason
+  // `runProbes` is sequential does not apply.
+  const probeTrees = await Promise.all(probeDirs.map(async (dir) => await deps.describeProbeTree(dir)));
 
   const probeResults = await deps.runProbes(probes, registry, probeDir);
   const refusals = probeResults.filter((result) => isProbeRefusal(result));

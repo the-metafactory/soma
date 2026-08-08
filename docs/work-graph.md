@@ -102,8 +102,9 @@ type ProbeResult =               // stored with the node's checkpoint record (§
                                  // stderr tail; for url: status; for git/
                                  // artifact: resolved sha / path presence
       at: string;                // ISO timestamp of execution
-      cwd?: string };            // resolved directory this probe ran in —
-                                 // absent for `url`, which runs against a host
+      cwd?: string };            // resolved directory this probe was
+                                 // dispatched to — where it ran, or was
+                                 // refused for; absent for `url` (a host)
 ```
 
 Probe lifecycle follows the algorithm-runner P1 lesson — self-declared
@@ -153,6 +154,14 @@ Runner semantics settled while implementing #498:
   A close whose probes are **all `url`** records no tree at all — it tested a
   host, not a checkout — and its `probed` evidence points at the targets, which
   is the thing a reader can re-check.
+  Two constraints on that pre-flight read, both because the directory is
+  **tracker-supplied** and the read happens *before* the registry has refused
+  anything: it runs with `core.fsmonitor` and `core.pager` overridden, since
+  `git status` would otherwise execute a program named by the target repo's own
+  config; and the published path has the home prefix collapsed to `~`, because a
+  receipt goes to a tracker whose visibility soma cannot know, and the account
+  name is the one part of the path that does not help a reader tell one checkout
+  from another.
 
 #### Probe registry (DD-16 Amendment A)
 
