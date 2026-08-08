@@ -101,11 +101,17 @@ Keep the **shipped** table portable, and put anything substrate-bound in your
   machines that have it.
 - `inline doctrine` rows are portable by construction: they name a discipline,
   not a tool.
-- `Agent(…)` rows bind to a substrate that can spawn a short-lived worker of
-  its own — a Claude Code sub-agent, a Grok subagent via `spawn_subagent`. Two can; the
-  rest either cannot or have no adapter that says so. `SKILL.md` is explicit
+- `Agent(…)` rows need a substrate that can spawn a short-lived worker of its
+  own — a Claude Code sub-agent, a Grok subagent via `spawn_subagent`. Two can;
+  the rest either cannot or have no adapter that says so. `SKILL.md` is explicit
   that Claude Code sub-agents are source history, **not** a portable
   requirement — so a shipped row must not depend on one.
+
+  **A local row is not scoped to a substrate.** It applies to every substrate
+  this soma home serves, so one home cannot yet hold a Claude Code binding and a
+  Codex binding for the same capability name — the last word wins for both. If
+  you run one home across substrates whose mechanisms differ, give the bindings
+  distinct names, and expect the shipped contract row to stay unbound. Tracked as #585.
 - `Bash(…)` / `bun …` rows bind to a filesystem layout. Local table only.
 
 ## Capabilities no substrate can express: contract rows
