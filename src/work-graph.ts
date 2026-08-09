@@ -853,7 +853,7 @@ export function assertClosable(node: WorkGraphNode, receipt: CloseReceipt): void
   // alternative, exempting HITL wholesale, would have let a `grilling` node whose
   // entire output is a decision close with no human-readable half while an `auto`
   // node that merely ran `bun test` was refused for the same omission.
-  if ((receipt.resolution ?? "").trim().length === 0 && receipt.attestationFacts?.proposal === undefined) {
+  if (resolutionText(receipt).length === 0 && receipt.attestationFacts?.proposal === undefined) {
     throw new WorkGraphError(
       "close-refused",
       `node ${node.id} closes without a resolution — the receipt carries no prose, and no proposal comment whose body would be it`,
@@ -882,9 +882,22 @@ export function assertClosable(node: WorkGraphNode, receipt: CloseReceipt): void
   }
 }
 
+/**
+ * The resolution prose, trimmed — `""` when there is none.
+ *
+ * One expression, two readers: the gate that requires it and the renderer that
+ * prints it. Two spellings of "is there prose here" would agree today and drift
+ * later into a receipt rendering a paragraph the gate did not count, or a gate
+ * counting whitespace the receipt renders as an empty heading (#582's lesson,
+ * one type along).
+ */
+function resolutionText(receipt: CloseReceipt): string {
+  return receipt.resolution?.trim() ?? "";
+}
+
 /** Render the receipt as the close comment body (§5: checkpoint id + evidence pointers on the tracker). */
 export function renderCloseReceipt(receipt: CloseReceipt): string {
-  const resolution = receipt.resolution?.trim() ?? "";
+  const resolution = resolutionText(receipt);
   const lines: string[] = [
     // The human half first — a later reader reads prose, not a probe table, and
     // burying it under the receipt would make the comment's first screen the half

@@ -1363,6 +1363,19 @@ test("an empty resolution file refuses — a blank paragraph satisfies nothing",
   expect(store.closed).toHaveLength(0);
 });
 
+test("an unreadable resolution file names the path, not an ENOENT stack", async () => {
+  const store = autoGraph();
+  const message = await failure(["graph", "close", "520", "--repo", REPO, ...RESOLUTION], store, {
+    readTextFile: async () => {
+      throw new Error("ENOENT: no such file or directory");
+    },
+  });
+
+  expect(message).toContain("resolution.md");
+  expect(message).toContain("could not be read");
+  expect(store.closed).toHaveLength(0);
+});
+
 test("--propose with --resolution-file refuses rather than posting the prose twice", () => {
   expect(() =>
     parseGraphArgs(["graph", "close", "520", "--propose", "--body", "x", ...RESOLUTION]),

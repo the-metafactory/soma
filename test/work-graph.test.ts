@@ -447,6 +447,24 @@ test("claiming a closed node is refused", async () => {
   expect(store.claims).toHaveLength(0);
 });
 
+test("the prose rule holds at the seam, not only in the CLI", async () => {
+  // #556's actual complaint was that resolution-posting lived in one CLI branch
+  // and nowhere else. A rule enforced only by `soma graph close` would reproduce
+  // that, so it is pinned here: a direct consumer of the contract is refused too.
+  const store = new FakeStore();
+  store.add("497", {
+    node: { id: "497", title: "seam", autonomy: "auto", checkpointId: "cp-497", probes: [PASSING_PROBE] },
+  });
+  const graph = new WorkGraph(store);
+
+  expect(await asyncCodeOf(() => graph.close({ id: "497" }, receipt({ resolution: undefined })))).toBe("close-refused");
+  expect(store.closed).toHaveLength(0);
+
+  await graph.close({ id: "497" }, receipt());
+  expect(store.closed).toHaveLength(1);
+  expect(store.closed[0].receipt.resolution).toContain("The seam ships");
+});
+
 test("close gates on the node as the store reports it, not on a caller-supplied copy", async () => {
   const store = new FakeStore();
   // The stored node is `auto` with a probe; a caller who omits the probe result

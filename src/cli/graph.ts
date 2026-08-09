@@ -921,7 +921,19 @@ async function runClose(
   // cost a re-run of nothing rather than a re-run of `bun test`.
   let resolution: string | undefined;
   if (parsed.options.resolutionFile !== undefined) {
-    resolution = (await deps.readTextFile(parsed.options.resolutionFile)).trim();
+    let raw: string;
+    try {
+      raw = await deps.readTextFile(parsed.options.resolutionFile);
+    } catch (error) {
+      // Named rather than raised raw: the flag is required on every close now, so
+      // a mistyped path is the most common way this verb will fail, and `ENOENT`
+      // with a stack is a worse answer than the path that was not there.
+      throw new SomaCliError(
+        `soma graph close --resolution-file ${parsed.options.resolutionFile} could not be read: ${error instanceof Error ? error.message : String(error)}`,
+        1,
+      );
+    }
+    resolution = raw.trim();
     if (resolution.length === 0) {
       throw new SomaCliError(
         `soma graph close --resolution-file ${parsed.options.resolutionFile} is empty — a resolution is prose, and a blank one satisfies nothing.`,
