@@ -172,7 +172,7 @@ Eval criteria and ISC guard rails serve different purposes:
 
 Guard rails in eval mode are the same as metric mode: things like "no crashes," "output is non-empty," "no PII in output."
 
-### PAI-Specific Guidance
+### Choosing Between Eval And Metric Mode
 
 **When to use eval mode vs metric mode:**
 - You have a `metric_command` that outputs a number → metric mode

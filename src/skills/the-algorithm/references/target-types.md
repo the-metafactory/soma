@@ -82,10 +82,10 @@ Read the target path and content to classify into one of five types:
 
 **How to run in sandbox:**
 1. Copy prompt file to `sandbox/`
-2. For each test input, send `prompt_content + test_input` to LLM via PAI Inference Tool
+2. For each test input, send `prompt_content + test_input` to the **`JudgeOutput`** capability (a contract row — bind it locally; `algorithm capabilities --list` shows whether it is bound here)
 3. Capture output text for judging
 
-**Sandbox strategy:** Copy prompt file(s) to `MEMORY/WORK/{slug}/sandbox/`. Simple file copy, no git needed.
+**Sandbox strategy:** Copy prompt file(s) to `<soma-home>/memory/WORK/{slug}/sandbox/`. Simple file copy, no git needed.
 
 ---
 

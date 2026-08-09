@@ -178,6 +178,14 @@ describe("bundled skill references", () => {
     const FORBIDDEN: { pattern: RegExp; why: string }[] = [
       { pattern: /~\/\.claude\//g, why: "Claude-home path in a portable skill" },
       { pattern: /\bPAI\/(?:TOOLS|MEMORY|ALGORITHM|DOCUMENTATION)\b/g, why: "PAI tree path" },
+      // Bare `PAI`, and the PAI tool path written RELATIVE. The narrow patterns
+      // above reported the bundle clean while three shipped references still
+      // carried a "### PAI-Specific Guidance" section and told the agent to
+      // "send to LLM via PAI Inference Tool (`bun TOOLS/Inference.ts`)" — a
+      // guard that matches the spellings you already removed and misses the
+      // ones you did not is worse than none, because it is believed.
+      { pattern: /\bPAI\b/g, why: "PAI named in a portable skill" },
+      { pattern: /\bTOOLS\/[A-Za-z0-9._-]+/g, why: "PAI tool path (relative)" },
       // Identity placeholders only. `{{SHA}}` / `{{VERSION}}` and friends are
       // sample values inside example documents — a generic `{{[A-Z_]+}}` would
       // flag those and train everyone to ignore this test.
@@ -197,7 +205,9 @@ describe("bundled skill references", () => {
     // ONE pattern (Sage review): skipping the whole skill also skipped the PAI-
     // tree and placeholder checks, so the test could not support the universal
     // claim its name makes.
-    const EXEMPT: Record<string, string[]> = { "migrate-pai-purpose": ["Claude-home path in a portable skill"] };
+    const EXEMPT: Record<string, string[]> = {
+      "migrate-pai-purpose": ["Claude-home path in a portable skill", "PAI named in a portable skill"],
+    };
 
     const found: string[] = [];
     for (const skill of await listBundledSkills()) {

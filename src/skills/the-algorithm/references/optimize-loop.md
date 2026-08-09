@@ -281,7 +281,7 @@ For each output, judge against each eval criterion:
 
    ANSWER:
    ```
-2. Send to LLM via PAI Inference Tool (`bun TOOLS/Inference.ts fast`)
+2. Send it to the **`JudgeOutput`** capability. It is a contract row — it names what must happen (a model scores the output against the stated criteria) and is bound locally to whatever you have; `algorithm capabilities --list` shows whether it is bound on this machine, and `algorithm invoke` refuses it while it is not.
 3. Parse response: starts with "YES" → pass, starts with "NO" → fail
 4. Any other response → retry once, then count as fail
 
