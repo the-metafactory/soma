@@ -3,12 +3,23 @@
 # commit SHA (never a tag/branch) so a moved tag cannot swap the gate or engine.
 # Bump via rollout-gate.ts, never by hand.
 #
-# WARN-ONLY BURN-IN: this standalone workflow is NOT enrolled in any required
-# status check, so a finding here never blocks a merge. require_denylist:false
-# degrades the same-repo path to tiers 1+2 + a warning instead of failing closed
-# when the denylist secret is absent. A principal flips enforcement later by
-# adding this check context to the repo ruleset (rollout-gate.ts --rulesets) —
-# deliberately NOT done here.
+# DIVERGED FROM THE GENERATOR — this header block only (soma#560, compass#156).
+# The generated text asserted "NOT enrolled in any required status check, so a
+# finding here never blocks a merge". Both clauses are false for this repo:
+# `gate / confidentiality-gate` is a required check on the protect-main ruleset
+# (soma#510), and a block-class finding exits 1, which a required check turns
+# into a blocked merge. The second clause is a false statement about a security
+# control's blast radius, which is why this is corrected by hand rather than
+# left for the generator. The next rollout-gate.ts bump WILL revert this block —
+# that revert is the signal compass#156 has not landed.
+#
+# WARN-ONLY CONFIG: require_denylist:false degrades the same-repo path to
+# tiers 1+2 + a warning instead of failing closed when the denylist secret is
+# absent. Warn-class findings do not fail the job; block-class findings do.
+#
+# Whether that failure blocks a MERGE is not stated here: enrollment lives in
+# the repo ruleset, not in this file, and can change without touching it.
+#   gh api repos/the-metafactory/soma/rulesets
 name: confidentiality-gate
 on:
   pull_request:
