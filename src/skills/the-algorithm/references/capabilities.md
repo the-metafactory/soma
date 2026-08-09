@@ -143,6 +143,7 @@ declare the capability by what it must achieve, and let whoever can satisfy it
 bind the mechanism.
 
 ```
+| JudgeOutput | VERIFY | Scoring text output against a rubric rather than a metric — optimize's eval mode, prompt/skill comparison, any "is this good?" that no command answers. The judge must not be the thing that produced the output. | `Contract("a model that scores text output against stated criteria")` | E3+ |
 | CrossFamilyAudit | VERIFY | … | `Contract("audit by a model outside the family that produced the work")` | E4+ |
 ```
 
@@ -203,6 +204,7 @@ needs a binding on this machine.
 | IntentEcho | OBSERVE | Every run, before anything else. Restate the request in one sentence; if you cannot restate it accurately, re-read it rather than proceed. | *(inline doctrine — no external tool)* | E1+ |
 | Advisor | THINK, VERIFY | Commitment boundaries on multi-step work: before committing to an approach, when the same problem resists two distinct attempts, and once after a durable deliverable before declaring done. Ask a specific question, not "review this". | `Contract("a second opinion from something that did not produce the work")` | E3+ |
 | CrossFamilyCoder | EXECUTE | Substantial implementation where same-family blind spots compound — E3+ coding routed through one model family only. Family diversity is the point, not a particular vendor. | `Contract("a code-producing capability from a different model family")` | E3+ |
+| JudgeOutput | VERIFY | Scoring text output against a rubric rather than a metric — optimize's eval mode, prompt/skill comparison, any "is this good?" that no command answers. The judge must not be the thing that produced the output. | `Contract("a model that scores text output against stated criteria")` | E3+ |
 | CrossFamilyAudit | VERIFY | Deep and Comprehensive work, before completion: compare the artifacts against the criteria and surface what a same-family reviewer shares with the author. Cannot be satisfied by a reviewer of the same family — that is the blind spot, not the check. | `Contract("an audit by a model outside the family that produced the work")` | E4+ |
 
 ## Binding Commitment
