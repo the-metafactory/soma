@@ -281,7 +281,7 @@ For each output, judge against each eval criterion:
 
    ANSWER:
    ```
-2. Send to LLM via PAI Inference Tool (`bun TOOLS/Inference.ts fast`)
+2. Send it to a model — whatever judging capability the registry offers on this machine (`algorithm capabilities --list`). A second-opinion or judge capability is the portable name for it; the mechanism is your substrate's.
 3. Parse response: starts with "YES" → pass, starts with "NO" → fail
 4. Any other response → retry once, then count as fail
 
