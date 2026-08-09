@@ -153,6 +153,10 @@ function receipt(overrides: Partial<CloseReceipt> = {}): CloseReceipt {
     checkpointId: "cp-497",
     closedBy: "ivy-agent",
     at: "2026-08-04T10:00:00.000Z",
+    // Every close carries prose (#556). Defaulted here so the tests that are
+    // about the other conjuncts stay about them; the ones about this conjunct
+    // override it away.
+    resolution: "The seam ships with its GitHub backend; the typed contracts hold.",
     evidence: [{ kind: "probed", summary: "bun test exit 0", pointer: "https://example.test/run/1" }],
     probeResults: [
       { probe: PASSING_PROBE, state: "probed", outcome: "pass", observed: "exit 0", at: "2026-08-04T09:59:00.000Z" },
@@ -238,6 +242,48 @@ test("the rendered receipt carries the checkpoint, the attestation and the evide
   expect(rendered).toContain("https://example.test/run/1");
   expect(rendered).toContain("**pass**");
   expect(rendered).toContain('"backendCapability": "verifiable"');
+});
+
+test("the rendered receipt puts the resolution above it — one comment, human half first", () => {
+  const rendered = renderCloseReceipt(receipt({ resolution: "The seam ships with its consumer." }));
+
+  expect(rendered.indexOf("## Resolution")).toBeLessThan(rendered.indexOf("## Close receipt"));
+  expect(rendered).toContain("The seam ships with its consumer.");
+  // A later reader reads prose, not a probe table; burying it would make the
+  // comment's first screen the half written for machines (#556).
+  expect(rendered.startsWith("## Resolution")).toBe(true);
+});
+
+test("a receipt with no resolution renders no empty heading", () => {
+  // The exempt case — a ratified proposal carries the prose — must not leave a
+  // bare `## Resolution` with nothing under it.
+  const rendered = renderCloseReceipt(receipt({ resolution: undefined }));
+  expect(rendered).not.toContain("## Resolution");
+  expect(rendered.startsWith("## Close receipt")).toBe(true);
+});
+
+test("a close with neither prose nor a proposal is refused, whatever its autonomy", () => {
+  const bare = receipt({ resolution: undefined });
+  expect(codeOf(() => { assertClosable(AUTO_NODE, bare); })).toBe("close-refused");
+
+  const hitl: WorkGraphNode = { id: "530", title: "hitl", autonomy: "approve", checkpointId: "cp-530" };
+  expect(codeOf(() => { assertClosable(hitl, receipt({ checkpointId: "cp-530", probeResults: [], resolution: undefined })); })).toBe(
+    "close-refused",
+  );
+
+  // Whitespace is not prose.
+  expect(codeOf(() => { assertClosable(AUTO_NODE, receipt({ resolution: "  \n " })); })).toBe("close-refused");
+});
+
+test("a recorded proposal exempts the close — its body already is the resolution", () => {
+  const ratified = receipt({
+    resolution: undefined,
+    attestationFacts: {
+      backendCapability: "verifiable",
+      proposal: { commentId: "c1", author: "ivy-agent" },
+    },
+  });
+  expect(() => { assertClosable(AUTO_NODE, ratified); }).not.toThrow();
 });
 
 // --- contract layer over a store -------------------------------------------

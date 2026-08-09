@@ -565,6 +565,55 @@ its effect.
 
 ## 3. Receipts by autonomy class
 
+### 3.0 Every close carries prose
+
+**Status: enforced**
+([#588](https://github.com/the-metafactory/soma/issues/588)), in
+`assertClosable` (contract) and `soma graph close` (surface).
+
+A close has two halves: the receipt, written for machines, and the **resolution**
+— why this node resolved the way it did, in prose. The second is the half a later
+reader actually reads. It was doctrine with no implementation until
+[#556](https://github.com/the-metafactory/soma/issues/556): `--body`/`--body-file`
+fed `--propose` only, so recording a resolution the documented way meant reaching
+past the verbs to `gh issue comment`, which made the one artefact humans consume
+the one artefact with no contract, no repo resolution and no backend abstraction.
+
+The rule:
+
+| Path | What satisfies it |
+| --- | --- |
+| `auto` close | `--resolution-file <path>` |
+| HITL **bare** close | `--resolution-file <path>` |
+| HITL `--propose` → `close --proposal-comment <id>` | the proposal body, already posted |
+
+One exemption, and only where prose demonstrably exists: the proposal body **is**
+the resolution, and requiring a second would post the same thing twice. A bare
+HITL close has no proposal — it is the normal single-operator route (§3.2) — so
+it carries prose like any other. Exempting HITL wholesale would let a `grilling`
+node whose entire output is a decision close with no human-readable half, while
+an `auto` node that merely ran `bun test` was refused for the same omission.
+
+**Folded into the receipt comment**, not posted beside it: `CloseReceipt.resolution`
+is rendered above the receipt, and the backend's `close` posts one comment from
+it. Posted separately, both orderings lose something — before the probes leaves
+an orphan resolution on a node whose close then refuses; after them leaves a
+receipt whose prose failed to post. Folded, neither state is reachable. The cost,
+accepted: prose cannot react to probe output, because it is written first.
+
+**This conjunct is a forcing function, not evidence.** The other three check
+facts a session could not fake — a checkpoint is attached, a probe ran, a pointer
+resolves. This one checks that *something was written*, and no machine can check
+that it says anything. Adopted knowingly. Stating it plainly is load-bearing: a
+conjunct described as verification when it is a prompt to write something is the
+self-declared verification DD-16 exists to refuse.
+
+The CLI refuses **before the probes run**, so a missing paragraph costs nothing
+rather than a 900-second `bun test`; the contract refuses on the receipt, so the
+rule holds for every consumer of the seam and not merely for the CLI. `--dry-run`
+renders the prose and writes nothing. `--propose` with `--resolution-file` is
+refused rather than silently preferring one.
+
 ### 3.1 AFK (`auto`)
 
 `soma graph close` runs the node's declared probes and requires **≥1

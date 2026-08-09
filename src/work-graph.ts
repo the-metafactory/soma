@@ -329,6 +329,23 @@ export interface CloseReceipt {
   closedBy: string;
   /** ISO timestamp. */
   at: string;
+  /**
+   * The **human-readable half** of the close: why this node resolved the way it
+   * did, in prose (#556).
+   *
+   * Carried on the receipt rather than posted as a comment of its own so that
+   * both halves land in **one write**. Posted separately, the two orderings each
+   * lose something: before the probes leaves an orphan resolution on a node whose
+   * close then refuses, after them leaves a receipt whose prose failed to post.
+   * Folded, neither state is reachable — which is what "two halves of one close"
+   * has to mean if it means anything.
+   *
+   * Optional on the *type*, required by {@link assertClosable} unless the receipt
+   * records a proposal, whose body already carries the prose. Optional here
+   * because the exemption exists; a required field would make the exempt case
+   * unrepresentable.
+   */
+  resolution?: string;
   evidence: readonly CloseEvidence[];
   probeResults: readonly ProbeResult[];
   /**
@@ -778,7 +795,21 @@ function probeKey(probe: Probe): string {
  *    declaration, `probed` is a fact (§2.2);
  * 3. at least one agent-external evidence entry carries a pointer someone else
  *    can check (§3.1) — what makes the receipt re-auditable by the phase-2
- *    auditor rather than a self-report.
+ *    auditor rather than a self-report;
+ * 4. the receipt carries a **resolution** — prose saying why the node resolved
+ *    as it did — unless it records a proposal, whose body already is that prose
+ *    (#556).
+ *
+ * Conjunct 4 is a different animal from 1–3, and the difference is worth stating
+ * rather than blurring: 1–3 check facts a session could not fake — a checkpoint
+ * is attached or it is not, a probe ran or it did not, a pointer resolves or it
+ * does not. Conjunct 4 checks only that *something was written*, and no machine
+ * can check that what was written says anything. It is a **forcing function, not
+ * evidence**. Adopted knowingly (#556), on the grounds that the human-readable
+ * half is the half a later reader actually reads, and leaving it to discipline
+ * left it absent. Read it as such — a conjunct described as verification when it
+ * is a prompt to write something would be exactly the self-declared verification
+ * DD-16 exists to refuse.
  *
  * `attestation` is deliberately **not** gated on: refusing on `unverified`
  * would deadlock the bootstrap, since the nodes that establish credential
@@ -813,6 +844,22 @@ export function assertClosable(node: WorkGraphNode, receipt: CloseReceipt): void
     }
   }
 
+  // Prose is required of **every** class, unlike the evidence rule below.
+  //
+  // The exemption is the two-phase HITL path and only it: `--propose` posted a
+  // body, that body *is* the resolution, and requiring a second one would post
+  // the same thing twice. A **bare** HITL close has no proposal — it is the
+  // normal single-operator route (§3.2) — so it needs prose like any other. The
+  // alternative, exempting HITL wholesale, would have let a `grilling` node whose
+  // entire output is a decision close with no human-readable half while an `auto`
+  // node that merely ran `bun test` was refused for the same omission.
+  if ((receipt.resolution ?? "").trim().length === 0 && receipt.attestationFacts?.proposal === undefined) {
+    throw new WorkGraphError(
+      "close-refused",
+      `node ${node.id} closes without a resolution — the receipt carries no prose, and no proposal comment whose body would be it`,
+    );
+  }
+
   // Evidence is required of `auto` nodes only, and there it costs nothing: the
   // `probed` entry is derived from probes that already ran and passed.
   //
@@ -837,7 +884,12 @@ export function assertClosable(node: WorkGraphNode, receipt: CloseReceipt): void
 
 /** Render the receipt as the close comment body (§5: checkpoint id + evidence pointers on the tracker). */
 export function renderCloseReceipt(receipt: CloseReceipt): string {
+  const resolution = receipt.resolution?.trim() ?? "";
   const lines: string[] = [
+    // The human half first — a later reader reads prose, not a probe table, and
+    // burying it under the receipt would make the comment's first screen the half
+    // written for machines.
+    ...(resolution.length === 0 ? [] : [`## Resolution`, ``, resolution, ``]),
     `## Close receipt`,
     ``,
     `- **checkpoint:** \`${receipt.checkpointId}\``,

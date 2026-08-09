@@ -28,7 +28,7 @@ soma graph frontier <root>     # what is takeable: open, unassigned, unblocked
 soma graph claim <id>          # claim ONE, before any work
 soma graph node <id>           # read it, and any node it references
 #  … resolve it …
-soma graph close <id>          # runs declared probes; refuses a hollow close
+soma graph close <id> --resolution-file <path>   # prose + probes; refuses a hollow close
 ```
 
 Then append a one-line gist to the map's **Decisions so far**, and graduate any
@@ -58,7 +58,7 @@ this doctrine tracker-agnostic by construction.
 | `soma graph node <id>` | read one node |
 | `soma graph claim <id>` | assign, re-read, tie-break on race |
 | `soma graph add <root> …` | create node (+ `--blocked-by` edges), structurally validated |
-| `soma graph close <id>` | run declared probes, derive the receipt, refuse a hollow close |
+| `soma graph close <id> --resolution-file <path>` | post the prose, run declared probes, derive the receipt, refuse a hollow close |
 
 `--repo <owner/name>` (or `SOMA_GRAPH_REPO`) picks the backing repository; it
 defaults to the origin remote of the working tree.
