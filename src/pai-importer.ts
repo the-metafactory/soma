@@ -159,7 +159,6 @@ function renderPrincipalProfile(source: string, sourcePath: string): string {
     timezone ? `- timezone: ${timezone}` : undefined,
     role ? `- role: ${role}` : undefined,
     focus ? `- focus: ${focus}` : undefined,
-    "- source: Claude PAI principal identity",
     "",
     "## Source",
     "",
@@ -195,7 +194,6 @@ function renderAssistantProfile(source: string, sourcePath: string): string {
     environment ? `- operating_environment: ${environment}` : undefined,
     "- first_person_voice: true",
     "- collaborator_model: peer",
-    "- source: Claude PAI DA identity",
     "",
     "## Source",
     "",
@@ -267,7 +265,7 @@ function renderBulletSection(title: string, items: string[]): string[] {
 }
 
 function renderPurposeProfile(sources: Record<string, string>): string {
-  const mission = firstSourceLine(sources, "mission", "Imported from Claude PAI TELOS mission.");
+  const mission = firstSourceLine(sources, "mission", "Mission not stated in the imported source.");
   const goals = sourceLines(sources, "goals");
   const principles = sourceLines(sources, "beliefs");
   const commitments = sourceLines(sources, "strategies");
@@ -285,7 +283,7 @@ function renderPurposeProfile(sources: Record<string, string>): string {
     "",
     "## Source",
     "",
-    "Migrated from Claude PAI TELOS files.",
+    "Migrated from the imported Claude life-OS files.",
     "Full source snapshots are kept under `profile/imports/claude/TELOS/`.",
     "",
     "### Imported Files",

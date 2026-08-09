@@ -148,7 +148,13 @@ test("imports PAI principal, Ivy identity, and telos into Soma", async () => {
     expect(context.profile.purpose.goals).toContain("Keep imported goals fixture-local.");
     expect(context.profile.purpose.principles).toContain("Tests should describe the imported fixture.");
     expect(context.profile.purpose.commitments).toContain("Verify projections after import.");
-    expect(principal).toContain("source: Claude PAI principal identity");
+    // The identity's provenance belongs in the non-projecting `## Source`
+    // section, NOT in `## Profile` — the traits block is what every substrate
+    // renders, so a `source: Claude PAI …` trait put the retired product name
+    // into every session's context on every substrate (the de-PAI decision:
+    // Soma replaces the name).
+    expect(principal).not.toContain("source: Claude PAI");
+    expect(principal).toContain("Migrated from `~/.claude/");
     expect(assistantSource).toContain("Ivy - Personal AI Assistant");
   });
 });
