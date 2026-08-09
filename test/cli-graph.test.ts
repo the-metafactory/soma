@@ -1363,6 +1363,55 @@ test("an empty resolution file refuses — a blank paragraph satisfies nothing",
   expect(store.closed).toHaveLength(0);
 });
 
+// --- the receipt has to fit in a tracker comment (#527/#592) ---------------
+
+test("a node whose worst-case receipt cannot fit refuses before any probe runs", async () => {
+  // GitHub caps a comment at 65,536 characters and the receipt POST happens
+  // AFTER every probe — so without this the wall sits at the far end of the
+  // expensive part. 60 probes at their failing-case size overruns the budget.
+  const many = Array.from({ length: 60 }, (_, i) => ({
+    type: "command" as const,
+    run: `check-${i}`,
+    timeoutSec: 60,
+    expectExit: 0,
+  }));
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495"), author: "jcfischer" })
+    .seed("520", { node: autoNode("520", { probes: many }), parent: "495", author: "ivy-agent" });
+
+  const probed: string[] = [];
+  const message = await failure(["graph", "close", "520", "--repo", REPO, ...RESOLUTION], store, {
+    runProbes: async () => {
+      probed.push("ran");
+      return [];
+    },
+  });
+
+  expect(message).toContain("too large for the tracker");
+  expect(message).toContain("60 declared probe(s)");
+  expect(probed).toEqual([]);
+  expect(store.closed).toHaveLength(0);
+});
+
+test("a long resolution pushes an otherwise-fitting node over, and the refusal says so", async () => {
+  // #588's prose rides the same comment as the receipt. Neither half is at fault
+  // alone; they overrun together, so the estimate counts both.
+  const store = autoGraph();
+  const message = await failure(["graph", "close", "520", "--repo", REPO, ...RESOLUTION], store, {
+    readTextFile: async () => "p".repeat(70_000),
+  });
+
+  expect(message).toContain("too large for the tracker");
+  expect(message).toContain("70,000 characters of resolution prose");
+  expect(store.closed).toHaveLength(0);
+});
+
+test("an ordinary close is nowhere near the budget", async () => {
+  const store = autoGraph();
+  const output = await run(["graph", "close", "520", "--repo", REPO, ...RESOLUTION], store);
+  expect(output).toContain("Closed node 520");
+});
+
 test("an unreadable resolution file names the path, not an ENOENT stack", async () => {
   const store = autoGraph();
   const message = await failure(["graph", "close", "520", "--repo", REPO, ...RESOLUTION], store, {

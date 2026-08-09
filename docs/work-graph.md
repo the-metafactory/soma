@@ -166,6 +166,63 @@ Runner semantics settled while implementing #498:
   name is the one part of the path that does not help a reader tell one checkout
   from another.
 
+#### Operational envelope
+
+**Status: enforced**
+([#592](https://github.com/the-metafactory/soma/issues/592)). What one close may
+consume, and what it leaves behind
+([#527](https://github.com/the-metafactory/soma/issues/527)). Four bounds; three
+refuse before anything runs, and the exception is named as such.
+
+- **`observed` is bounded by outcome, not by one number.** A *passing* command
+  keeps a 200-character tail, a *failing* one 1 200. The tail is where a failure
+  reason lives; a success has no reason to give. Measured before choosing:
+  `bun test` on this repo emits 16 918 characters, of which a 1 200-char tail
+  kept 7.1% — and that tail already *ended* with `2365 pass / 0 fail`. #527
+  suspected the shape was wrong (a tail cutting off the summary); it was not.
+  Only the size was, and only for the passing case, where a green probe spent
+  1 200 characters to say yes in a comment a human scrolls past. Rejected:
+  head+tail (the summary is in the tail), a per-probe `observedLimit` (tracker
+  content sizing a tracker comment), and one lowered limit for both (a cheaper
+  success bought with a less diagnosable failure).
+
+- **A close has a 15-minute wall-clock deadline** (`CLOSE_DEADLINE_SEC`), one
+  clock over the whole probe sequence, clamping each probe's own timeout to what
+  remains. Past it, the remaining probes are recorded as **failed** without
+  running — not skipped, since a probe that could not run is already a failed
+  probe. A probe killed by the deadline says so, because "outran its own timeout"
+  and "the close ran out of time" have different fixes.
+
+  **Runtime, not the declared sum**, deliberately: soma's own node declares
+  900 + 600 = 1 500s for work that finishes in 138s, so refusing on
+  Σ`timeoutSec` would punish an honest timeout rather than a slow probe. The
+  cost, stated because it is the exception to this section's rule: this refusal
+  arrives **after** the time is spent. Separate from §3.3's `budget`, a per-node
+  circuit breaker read at claim/execution time — this bounds one close.
+
+- **A close is atomic.** `runProbes` is sequential and the receipt is written
+  once, after every probe returns, so an interrupt at probe 2 of 3 leaves the
+  node open with **no record that anything ran** — the work is repeated on the
+  next attempt. That is the decided behaviour, not an oversight: recording a
+  partial run would add a second write path and a second receipt shape to save a
+  re-run, and a receipt describing a close that did not happen is worth less than
+  the re-run costs. Stated here so a reader knows the spent time bought nothing
+  *by design*.
+
+- **A receipt that cannot fit is refused before anything runs.** The tracker caps
+  a comment (GitHub: 65 536 characters) and the receipt is posted *after* every
+  probe has run, so an oversized one used to fail at the most expensive possible
+  moment. The close estimates the worst case up front — resolution prose, plus
+  the declared probe count at its **failing**-case size, plus a constant for the
+  attestation facts — and refuses above a 60 000 budget, naming the count. Worst
+  case means every probe failing: a close cannot know its outcomes before it
+  runs, and planning for the passing case would refuse nothing until the day
+  something breaks. **The prose counts** — §3.0 put an unbounded, human-written
+  `resolution` on the same comment, and a long resolution and fifty probe lines
+  overrun together with neither half at fault alone. Checked in exactly one
+  place: an exact check on the rendered receipt would fire after the work, which
+  is what this bound exists to avoid.
+
 #### Probe registry (DD-16 Amendment A)
 
 **Status: enforced** ([#526](https://github.com/the-metafactory/soma/issues/526)),

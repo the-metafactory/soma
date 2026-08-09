@@ -35,7 +35,10 @@ import {
   agentExternalEvidenceKinds,
   assertClosable,
   describeProbeTree,
+  estimateReceiptChars,
   renderCloseReceipt,
+  RECEIPT_COMMENT_BUDGET,
+  RECEIPT_COMMENT_LIMIT,
   type CloseEvidence,
   type CloseReceipt,
   type CommentRef,
@@ -940,6 +943,35 @@ async function runClose(
         1,
       );
     }
+  }
+
+  // Before the probes, because that is the whole point (#527). The receipt POST
+  // happens after every probe has run, so an oversized receipt used to fail at
+  // the most expensive possible moment — a 900-second `bun test` spent to learn
+  // the comment would not fit.
+  //
+  // Deliberately the only place this is checked: a second, exact check on the
+  // rendered receipt would fire *after* the work, which is the outcome this
+  // decision moved away from, and two spellings of one bound is a shape that has
+  // already bitten twice on this map (#582, #588). The residual case — an
+  // estimate that passes and a real receipt that does not — surfaces as the POST
+  // failure it always was.
+  const estimatedChars = estimateReceiptChars({
+    probeCount: (state.node.probes ?? []).length,
+    ...(resolution === undefined ? {} : { resolution }),
+  });
+  if (estimatedChars > RECEIPT_COMMENT_BUDGET) {
+    throw new SomaCliError(
+      [
+        `Close refused: node ${ref.id} would produce a receipt too large for the tracker.`,
+        "",
+        `Worst case ~${estimatedChars.toLocaleString("en-US")} characters against a budget of ${RECEIPT_COMMENT_BUDGET.toLocaleString("en-US")} (the tracker's hard cap is ${RECEIPT_COMMENT_LIMIT.toLocaleString("en-US")}).`,
+        `That is ${(state.node.probes ?? []).length} declared probe(s) at their failing-case size, plus ${(resolution ?? "").length.toLocaleString("en-US")} characters of resolution prose.`,
+        "",
+        "Split the node, or shorten the resolution. Nothing was written, and no probe ran.",
+      ].join("\n"),
+      1,
+    );
   }
 
   // Refused here as well as in `assertClosable`, and neither is redundant. The

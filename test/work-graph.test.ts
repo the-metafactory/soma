@@ -3,9 +3,12 @@ import {
   WorkGraph,
   WorkGraphError,
   assertClosable,
+  estimateReceiptChars,
   parseNodeSpec,
   parseProbe,
   renderCloseReceipt,
+  RECEIPT_COMMENT_BUDGET,
+  RECEIPT_COMMENT_LIMIT,
   resolveClaimRace,
   toNode,
   type ClaimResult,
@@ -284,6 +287,21 @@ test("a recorded proposal exempts the close — its body already is the resoluti
     },
   });
   expect(() => { assertClosable(AUTO_NODE, ratified); }).not.toThrow();
+});
+
+test("the receipt estimate counts the prose and the failing-case probe size", () => {
+  // Worst case is every probe FAILING: a close cannot know its outcomes before
+  // it runs, and planning for the passing case would refuse nothing until the
+  // day something breaks.
+  const bare = estimateReceiptChars({ probeCount: 0 });
+  const withProbes = estimateReceiptChars({ probeCount: 10 });
+  const withProse = estimateReceiptChars({ probeCount: 0, resolution: "x".repeat(1_000) });
+
+  expect(withProbes).toBeGreaterThan(bare);
+  expect(withProse).toBe(bare + 1_000);
+  // Two probes' worth of headroom below the hard cap, so the budget is a margin
+  // rather than a second name for the limit.
+  expect(RECEIPT_COMMENT_BUDGET).toBeLessThan(RECEIPT_COMMENT_LIMIT);
 });
 
 // --- contract layer over a store -------------------------------------------

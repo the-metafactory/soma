@@ -883,6 +883,47 @@ export function assertClosable(node: WorkGraphNode, receipt: CloseReceipt): void
 }
 
 /**
+ * What a tracker comment can hold. GitHub's hard cap is 65 536 characters; this
+ * is the budget a close is allowed to plan for, leaving room for the parts of a
+ * receipt that vary (#527).
+ *
+ * A backend property living at the contract layer, knowingly: `GraphStore` has
+ * no way to express "my comments cap at N", and inventing that capability for
+ * one number would be a seam change ahead of a second backend that disagrees.
+ * When #533's GitLab backend lands with a different limit, this is the constant
+ * that moves onto the store.
+ */
+export const RECEIPT_COMMENT_LIMIT = 65_536;
+export const RECEIPT_COMMENT_BUDGET = 60_000;
+
+/** Worst case for one probe line: the failing-case tail plus its markdown furniture. */
+const RECEIPT_PROBE_WORST_CASE = 1_500;
+
+/** Header, evidence entries, probe-tree lines and the attestation-facts JSON. */
+const RECEIPT_FIXED_OVERHEAD = 3_000;
+
+/**
+ * Worst-case size of the receipt a close is about to produce, computable
+ * **before any probe runs** (#527).
+ *
+ * The receipt POST happens after every probe has run, so an oversized receipt
+ * used to fail at the most expensive possible moment — which was the real answer
+ * to #527's "what stops a chatty probe from filling a tracker comment": nothing
+ * did. This is the estimate that moves the refusal to the cheap end.
+ *
+ * **Worst case means every probe failing**, since that is the receipt that has to
+ * fit — a close cannot know its outcomes before it runs, and planning for the
+ * passing case would refuse nothing until the day something breaks.
+ *
+ * The prose counts. #588 put an unbounded, human-written `resolution` on the
+ * receipt, riding the same comment; a long resolution and fifty probe lines
+ * overrun together, and neither half is at fault alone.
+ */
+export function estimateReceiptChars(input: { resolution?: string; probeCount: number }): number {
+  return (input.resolution ?? "").length + input.probeCount * RECEIPT_PROBE_WORST_CASE + RECEIPT_FIXED_OVERHEAD;
+}
+
+/**
  * The resolution prose, trimmed — `""` when there is none.
  *
  * One expression, two readers: the gate that requires it and the renderer that

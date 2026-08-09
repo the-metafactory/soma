@@ -35,14 +35,51 @@ import {
 } from "./work-graph-probe-registry";
 import { collapseHome, type Probe, type ProbeResult } from "./work-graph";
 
-/** How much of a command's output survives into the receipt (§2.2: a *bounded* tail). */
+/**
+ * How much of a *failing* command's output survives into the receipt (§2.2: a
+ * bounded tail). The tail is where a failure reason lives, so this is the one
+ * case worth paying for.
+ */
 const OBSERVED_TAIL_LIMIT = 1_200;
+
+/**
+ * How much of a *passing* command's output survives — far less, because a
+ * success has no reason to give (#527).
+ *
+ * Measured on this repo before choosing: `bun test` emits 16 918 characters, of
+ * which the 1 200-char tail kept 7.1% — and that tail *does* end with
+ * `2365 pass / 0 fail`, which corrected #527's premise that the summary was
+ * being cut off. The shape was right; the size was wrong, and only here. A green
+ * probe was spending 1 200 characters to say yes, in a comment a human scrolls
+ * past.
+ *
+ * 200 is enough for a summary line and its neighbours. A command whose success
+ * output is *only* meaningful beyond that has put its result somewhere a probe
+ * cannot see, which is a declaration problem rather than a bound problem.
+ */
+const OBSERVED_PASS_TAIL_LIMIT = 200;
 
 /** Git probes carry no `timeoutSec` of their own; local plumbing that outruns this is broken, not slow. */
 const GIT_TIMEOUT_SEC = 60;
 
 /** Nor do `url` probes (§2.2 fixes their shape), and an unbounded fetch would hang the close. */
 const URL_TIMEOUT_SEC = 30;
+
+/**
+ * The whole close's wall-clock ceiling (#527) — 15 minutes, ~6.5× this repo's
+ * measured close (132.0s `bun test` + 5.7s `bunx tsc --noEmit` = 138s).
+ *
+ * A **runtime** deadline, not a check on the declared `timeoutSec` sum, and the
+ * distinction is the decision: soma's own node declares 900 + 600 = 1 500s for
+ * work that finishes in 138s, so refusing on the declared sum would punish an
+ * honest timeout rather than a slow probe. The named cost of choosing runtime is
+ * that this is the one bound in §2.2 whose refusal arrives *after* the time is
+ * spent — every other one refuses before anything runs.
+ *
+ * Separate from §3.3's `budget`, which is a per-node circuit breaker read at
+ * claim/execution time. This bounds one close.
+ */
+export const CLOSE_DEADLINE_SEC = 900;
 
 export interface CommandOutcome {
   /** Null when the process was killed before reporting a code (timeout, signal). */
@@ -95,6 +132,18 @@ export interface ProbeRunnerOptions {
    * pass is not a gate.
    */
   registry?: ProbeRegistry;
+  /**
+   * Wall-clock left for the *whole close*, in seconds — set by {@link runProbes}
+   * as it walks the sequence, and used to clamp this probe's own timeout so a
+   * long-running command cannot outlive the deadline (#527).
+   *
+   * Absent means unclamped, which is what a single `runProbe` call outside a
+   * close sequence should get: the deadline is a property of a close, not of a
+   * probe.
+   */
+  remainingSec?: number;
+  /** Override the close deadline. Tests and callers that measure their own clock; defaults to {@link CLOSE_DEADLINE_SEC}. */
+  deadlineSec?: number;
   deps?: Partial<ProbeRunnerDeps>;
 }
 
@@ -190,21 +239,62 @@ function probed(
   return { probe, state: "probed", outcome, observed, at, ...(cwd === undefined ? {} : { cwd }) };
 }
 
-/** Command outcome → the `observed` string §2.2 asks for: exit code plus a bounded output tail. */
-function describeCommand(outcome: CommandOutcome, timeoutSec: number): string {
+/**
+ * Command outcome → the `observed` string §2.2 asks for: exit code plus a
+ * bounded output tail, bounded **by outcome** (#527).
+ *
+ * `passed` rather than a re-derivation of it: the caller already compared the
+ * exit code against the probe's `expectExit`, and a second comparison here would
+ * be a second definition of "did this pass" — the shape #582 and #588 both had
+ * to unpick.
+ */
+function describeCommand(
+  outcome: CommandOutcome,
+  timeoutSec: number,
+  passed: boolean,
+  clampedByDeadline = false,
+): string {
   if (outcome.timedOut) {
-    return `timed out after ${timeoutSec}s (killed)`;
+    // Which clock killed it matters to the reader: a probe that outran its own
+    // declared timeout is a slow probe, one cut short by the close deadline is a
+    // slow *close*, and the fixes are different.
+    return clampedByDeadline
+      ? `killed after ${timeoutSec}s — the close deadline left no more time`
+      : `timed out after ${timeoutSec}s (killed)`;
   }
-  const tail = boundObserved([outcome.stdout, outcome.stderr].filter((part) => part.trim().length > 0).join("\n"));
+  const limit = passed ? OBSERVED_PASS_TAIL_LIMIT : OBSERVED_TAIL_LIMIT;
+  const tail = boundObserved([outcome.stdout, outcome.stderr].filter((part) => part.trim().length > 0).join("\n"), limit);
   return tail.length === 0 ? `exit ${outcome.exitCode}` : `exit ${outcome.exitCode}: ${tail}`;
+}
+
+/**
+ * A probe may not outlive the close it belongs to (#527).
+ *
+ * Clamping the timeout is how the in-flight probe is killed when the deadline
+ * arrives mid-run: there is no signal to interrupt an awaited spawn from
+ * outside, and the spawn's own timeout already knows how to kill and report. A
+ * clamped probe that expires is a *failed* probe on the path §2.2 already owns —
+ * no new outcome, no skip.
+ *
+ * Rounded up, and floored at one second: a sub-second remainder that rounded to
+ * zero would spawn a process guaranteed to be killed before it could run, which
+ * is worse than letting it have the last second.
+ */
+function clampToDeadline(timeoutSec: number, remainingSec: number | undefined): number {
+  if (remainingSec === undefined) return timeoutSec;
+  return Math.max(1, Math.min(timeoutSec, Math.ceil(remainingSec)));
 }
 
 async function runGit(
   deps: ProbeRunnerDeps,
   cwd: string,
   args: readonly string[],
+  remainingSec?: number,
 ): Promise<CommandOutcome> {
-  return await deps.runCommand({ argv: ["git", "-C", cwd, ...args], timeoutSec: GIT_TIMEOUT_SEC });
+  return await deps.runCommand({
+    argv: ["git", "-C", cwd, ...args],
+    timeoutSec: clampToDeadline(GIT_TIMEOUT_SEC, remainingSec),
+  });
 }
 
 /**
@@ -437,13 +527,14 @@ export async function runProbe(probe: Probe, options: ProbeRunnerOptions): Promi
 
     switch (probe.type) {
       case "command": {
+        const timeoutSec = clampToDeadline(probe.timeoutSec, options.remainingSec);
         const outcome = await deps.runCommand({
           shell: probe.run,
           cwd: resolvedCwd,
-          timeoutSec: probe.timeoutSec,
+          timeoutSec,
         });
         const passed = !outcome.timedOut && outcome.exitCode === probe.expectExit;
-        const observed = describeCommand(outcome, probe.timeoutSec);
+        const observed = describeCommand(outcome, timeoutSec, passed, timeoutSec < probe.timeoutSec);
         return finish(passed ? "pass" : "fail", passed ? observed : `${observed} (expected exit ${probe.expectExit})`);
       }
 
@@ -454,19 +545,19 @@ export async function runProbe(probe: Probe, options: ProbeRunnerOptions): Promi
       }
 
       case "git-ref-exists": {
-        const outcome = await runGit(deps, resolvedCwd, ["rev-parse", "--verify", "--quiet", `${probe.ref}^{commit}`]);
+        const outcome = await runGit(deps, resolvedCwd, ["rev-parse", "--verify", "--quiet", `${probe.ref}^{commit}`], options.remainingSec);
         const sha = outcome.stdout.trim();
         const passed = outcome.exitCode === 0 && sha.length > 0;
         return finish(passed ? "pass" : "fail", passed ? `${probe.ref} → ${sha}` : `${probe.ref} does not resolve in ${resolvedCwd}`);
       }
 
       case "git-merged-into": {
-        const resolvedRef = await runGit(deps, resolvedCwd, ["rev-parse", "--verify", "--quiet", `${probe.ref}^{commit}`]);
+        const resolvedRef = await runGit(deps, resolvedCwd, ["rev-parse", "--verify", "--quiet", `${probe.ref}^{commit}`], options.remainingSec);
         const sha = resolvedRef.stdout.trim();
         if (resolvedRef.exitCode !== 0 || sha.length === 0) {
           return finish("fail", `${probe.ref} does not resolve in ${resolvedCwd}`);
         }
-        const ancestor = await runGit(deps, resolvedCwd, ["merge-base", "--is-ancestor", probe.ref, probe.into]);
+        const ancestor = await runGit(deps, resolvedCwd, ["merge-base", "--is-ancestor", probe.ref, probe.into], options.remainingSec);
         const passed = ancestor.exitCode === 0;
         return finish(passed ? "pass" : "fail", `${probe.ref} (${sha}) ${passed ? "is" : "is not"} an ancestor of ${probe.into}`);
       }
@@ -478,7 +569,7 @@ export async function runProbe(probe: Probe, options: ProbeRunnerOptions): Promi
           const passed = deps.pathExists(full);
           return finish(passed ? "pass" : "fail", `${full} ${passed ? "exists" : "is absent"}`);
         }
-        const outcome = await runGit(deps, resolvedCwd, ["cat-file", "-e", `${probe.atRef}:${probe.path}`]);
+        const outcome = await runGit(deps, resolvedCwd, ["cat-file", "-e", `${probe.atRef}:${probe.path}`], options.remainingSec);
         const passed = outcome.exitCode === 0;
         return finish(passed ? "pass" : "fail", `${probe.path} ${passed ? "present" : "absent"} at ${probe.atRef}`);
       }
@@ -490,17 +581,46 @@ export async function runProbe(probe: Probe, options: ProbeRunnerOptions): Promi
 }
 
 /**
- * Run every declared probe, in order. Sequential on purpose: probes are commands
- * against a shared working tree, and a parallel run would make their outcomes
- * depend on each other's side effects.
+ * Run every declared probe, in order, under one close deadline (#527).
+ *
+ * Sequential on purpose: probes are commands against a shared working tree, and
+ * a parallel run would make their outcomes depend on each other's side effects.
+ * The deadline rides that sequence — one clock, started at the first probe,
+ * clamping each probe's own timeout to what is left.
+ *
+ * Past the deadline, the remaining probes are recorded as **failed** without
+ * running. Not skipped: §2.2 has one rule for a probe that could not run, and
+ * this is that case. The close then refuses through {@link assertClosable}, which
+ * already knows what a failed probe means — no new outcome, no new gate.
  */
 export async function runProbes(
   probes: readonly Probe[],
   options: ProbeRunnerOptions,
 ): Promise<ProbeResult[]> {
+  const deps = resolveDeps(options);
+  const deadlineSec = options.deadlineSec ?? CLOSE_DEADLINE_SEC;
+  const startedMs = deps.now().getTime();
+
   const results: ProbeResult[] = [];
   for (const probe of probes) {
-    results.push(await runProbe(probe, options));
+    const elapsedSec = (deps.now().getTime() - startedMs) / 1_000;
+    const remainingSec = deadlineSec - elapsedSec;
+
+    if (remainingSec <= 0) {
+      // No `cwd` on this result: the probe ran nowhere, and naming a directory
+      // it never entered would be a true-looking fact about nothing (#579).
+      results.push(
+        probed(
+          probe,
+          "fail",
+          `close deadline of ${deadlineSec}s exceeded after ${elapsedSec.toFixed(1)}s — this probe did not run`,
+          deps.now().toISOString(),
+        ),
+      );
+      continue;
+    }
+
+    results.push(await runProbe(probe, { ...options, remainingSec }));
   }
   return results;
 }
