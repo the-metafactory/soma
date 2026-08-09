@@ -148,7 +148,12 @@ test("imports PAI principal, Ivy identity, and telos into Soma", async () => {
     expect(context.profile.purpose.goals).toContain("Keep imported goals fixture-local.");
     expect(context.profile.purpose.principles).toContain("Tests should describe the imported fixture.");
     expect(context.profile.purpose.commitments).toContain("Verify projections after import.");
-    expect(principal).toContain("source: Claude PAI principal identity");
+    // The identity's provenance belongs in the non-projecting `## Source`
+    // section, not in `## Profile`. Asserted on the profile here; the
+    // projection half is proven separately below, against a real adapter,
+    // rather than claimed in a comment (Sage review).
+    expect(principal).not.toContain("source: Claude PAI");
+    expect(principal).toContain("Migrated from `~/.claude/");
     expect(assistantSource).toContain("Ivy - Personal AI Assistant");
   });
 });
@@ -170,6 +175,37 @@ test("PAI import and Claude Code projection do not contain publisher starter tel
       expect(content).not.toContain("[REDACTED_PUBLISHER_TELOS_GOAL]");
       expect(content).not.toContain("[REDACTED_PUBLISHER_TELOS_GOAL]");
     }
+  });
+});
+
+test("the PAI name does not reach a projected profile, and provenance stays out of it", async () => {
+  // The de-PAI decision (handover 2026-07-06, reading (a)): Soma replaces the
+  // name. The leak was that `- source: Claude PAI …` sat in `## Profile`, and
+  // the traits block is what an adapter renders — so this asserts against a
+  // real projection rather than trusting the shape of the source file.
+  await withTempHome(async (homeDir) => {
+    await writePaiFixture(homeDir);
+    await runSomaCli(["import", "pai", "--apply", "--home-dir", homeDir]);
+    await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir]);
+
+    const profile = await readFile(join(homeDir, ".soma/profile/principal.md"), "utf8");
+    const projectedContext = await readFile(join(homeDir, ".claude/rules/soma/CONTEXT.md"), "utf8");
+    const projectedProfile = await readFile(join(homeDir, ".claude/rules/soma/PROFILE.md"), "utf8");
+
+    for (const projected of [projectedContext, projectedProfile]) {
+      expect(projected).not.toContain("Claude PAI");
+      // Provenance is deliberately absent from the projection: it lives in the
+      // profile's `## Source` section, which no adapter renders.
+      expect(projected).not.toContain("Migrated from");
+    }
+    // Prove the SECTION, not just the substring (Sage review): provenance must
+    // sit under `## Source`, and the `## Profile` block above it must be free of
+    // it — that boundary is the whole reason the projection stays clean.
+    const sourceHeadingAt = profile.indexOf("\n## Source\n");
+    expect(sourceHeadingAt).toBeGreaterThan(-1);
+    expect(profile.slice(sourceHeadingAt)).toContain("Migrated from `~/.claude/");
+    expect(profile.slice(0, sourceHeadingAt)).toContain("## Profile");
+    expect(profile.slice(0, sourceHeadingAt)).not.toContain("Migrated from");
   });
 });
 
