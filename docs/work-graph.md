@@ -200,6 +200,13 @@ refuse before anything runs, and the exception is named as such.
   arrives **after** the time is spent. Separate from §3.3's `budget`, a per-node
   circuit breaker read at claim/execution time — this bounds one close.
 
+  What it guarantees, precisely: no probe *starts* past the deadline, and
+  `command` and git spawns are clamped to what remains. Two bounded overruns
+  remain — a `url` probe keeps its own 30s timeout (its seam takes a target and
+  nothing else), and `git-merged-into`'s two commands share one remainder. Worst
+  case is the deadline plus 60s, not the deadline exactly, and closing that gap
+  costs a seam change to buy a minute on fifteen.
+
 - **A close is atomic.** `runProbes` is sequential and the receipt is written
   once, after every probe returns, so an interrupt at probe 2 of 3 leaves the
   node open with **no record that anything ran** — the work is repeated on the
@@ -219,9 +226,16 @@ refuse before anything runs, and the exception is named as such.
   runs, and planning for the passing case would refuse nothing until the day
   something breaks. **The prose counts** — §3.0 put an unbounded, human-written
   `resolution` on the same comment, and a long resolution and fifty probe lines
-  overrun together with neither half at fault alone. Checked in exactly one
-  place: an exact check on the rendered receipt would fire after the work, which
-  is what this bound exists to avoid.
+  overrun together with neither half at fault alone.
+
+  Checked in **exactly one place, the CLI close path**, and that placement is a
+  trade rather than an oversight. §3.0's prose conjunct sits in `assertClosable`
+  precisely so it reaches every consumer of the seam; this one cannot, because
+  the contract layer sees a receipt only *after* the probes have run, which is
+  the moment this bound exists to avoid. So a library consumer calling
+  `WorkGraph.close` directly gets no size bound, and learns the same way the CLI
+  used to: the comment POST fails. Two checks would also be two spellings of one
+  bound, a shape that has bitten twice on this map (#582, #588).
 
 #### Probe registry (DD-16 Amendment A)
 

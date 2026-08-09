@@ -78,6 +78,22 @@ const URL_TIMEOUT_SEC = 30;
  *
  * Separate from §3.3's `budget`, which is a per-node circuit breaker read at
  * claim/execution time. This bounds one close.
+ *
+ * **What it actually guarantees**, stated precisely because "a 15-minute
+ * deadline" is not quite it. No probe may *start* past the deadline, and a
+ * `command` or git spawn is clamped to what remains, so neither can outlive it.
+ * Two bounded overruns survive:
+ *
+ * - `url` probes run through {@link ProbeRunnerDeps.fetchStatus}, whose seam
+ *   takes a target and nothing else, so they keep their own
+ *   {@link URL_TIMEOUT_SEC}. Worst case: deadline + 30s.
+ * - `git-merged-into` issues two git commands, each clamped to the *same*
+ *   remainder computed at the probe's start. Worst case: deadline + one
+ *   {@link GIT_TIMEOUT_SEC}.
+ *
+ * Both are left rather than fixed: closing them means widening the `fetchStatus`
+ * seam and threading a live clock through every git call, to buy at most 60
+ * seconds on a 900-second bound. Named here so the number is not read as exact.
  */
 export const CLOSE_DEADLINE_SEC = 900;
 

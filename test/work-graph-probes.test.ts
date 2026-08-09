@@ -474,6 +474,24 @@ test("a probe's own timeout is clamped to what the deadline leaves, and says whi
   expect(only.state === "probed" ? only.observed : "").not.toContain("timed out after");
 });
 
+test("git probes are clamped too, so a probe cannot outlive the close it belongs to", async () => {
+  const seen: CommandRequest[] = [];
+  await runProbes([{ type: "git-ref-exists", ref: "HEAD" }], {
+    cwd: "/repo",
+    deadlineSec: 10,
+    deps: {
+      runCommand: async (request) => {
+        seen.push(request);
+        return { exitCode: 0, stdout: "cafef00d", stderr: "", timedOut: false };
+      },
+      now: () => AT,
+    },
+  });
+
+  // GIT_TIMEOUT_SEC is 60; the remainder is 10, and the smaller wins.
+  expect(seen[0].timeoutSec).toBe(10);
+});
+
 test("a close inside the deadline is untouched", async () => {
   const results = await runProbes([{ type: "command", run: "bun test", timeoutSec: 600, expectExit: 0 }], {
     cwd: "/repo",
