@@ -63,6 +63,8 @@ import {
 } from "../work-graph-probe-registry";
 import {
   allProbesPassed,
+  authorizeProbeTree,
+  isProbeEscape,
   probeDirectory,
   runCommand,
   runProbes as defaultRunProbes,
@@ -564,7 +566,17 @@ async function prepareProbeTrees(
   // and every "did this probe run outside the tree?" comparison downstream is
   // string equality between the two.
   const probeDir = resolve(deps.probeCwd());
-  const probeDirs = [...new Set(probes.flatMap((probe) => probeDirectory(probe, probeDir) ?? []))];
+  // Uncontained directories are dropped before the read, not after (#582). This
+  // pre-flight spawns `git status` in a directory a **node body** names, and it
+  // runs before any gate has refused anything — so a probe whose `repo` escapes
+  // the stated tree would get that tree read, and its HEAD published in
+  // `probeTrees`, on the way to being refused. The refusal names the path; the
+  // receipt does not need to describe a tree nothing was allowed to touch.
+  const probeDirs = [
+    ...new Set(
+      probes.filter((probe) => authorizeProbeTree(probe, probeDir).allowed).flatMap((probe) => probeDirectory(probe, probeDir) ?? []),
+    ),
+  ];
   // Concurrent, unlike the probes themselves — these are read-only reads of
   // distinct directories, so the reason `runProbes` is sequential (probes share
   // a tree and see each other's side effects) does not apply — but **bounded**,
@@ -898,22 +910,39 @@ async function runClose(
 
   const probeResults = await deps.runProbes(probes, registry, probeDir);
   const refusals = probeResults.filter((result) => isProbeRefusal(result));
+  const escapes = probeResults.filter((result) => isProbeEscape(result));
 
-  // A refused probe reaches `assertClosable` as "ran and failed", which is true
-  // but useless to act on. Surface it here instead, where the reason — and the
-  // exact entry to declare — is still in hand. A dry run keeps going: showing
-  // the whole receipt is the point of asking for one.
-  if (refusals.length > 0 && parsed.options.dryRun !== true) {
-    throw new SomaCliError(
-      [
-        `Close refused: ${refusals.length} of ${probeResults.length} declared probe(s) are not authorised on this machine.`,
+  // A refused or escaping probe reaches `assertClosable` as "ran and failed",
+  // which is true but useless to act on. Surface both here instead, where the
+  // reason is still in hand. A dry run keeps going: showing the whole receipt is
+  // the point of asking for one.
+  //
+  // Two sections, not one list: they have different fixes, and the trailer is the
+  // fix. Telling an adopter to edit their registry over a path that escaped the
+  // tree would send them to widen a gate that was never the one refusing (#582).
+  if (refusals.length + escapes.length > 0 && parsed.options.dryRun !== true) {
+    const observed = (result: ProbeResult): string => (result.state === "probed" ? result.observed : "");
+    const sections: string[] = [];
+    if (refusals.length > 0) {
+      sections.push(
+        `${refusals.length} of ${probeResults.length} declared probe(s) are not authorised on this machine.`,
         "",
-        ...refusals.map((refusal) => (refusal.state === "probed" ? refusal.observed : "")),
+        ...refusals.map(observed),
         "",
-        "Nothing was written. The registry is yours to edit — soma has no verb that widens it (§4: loosening is identity-bound).",
-      ].join("\n"),
-      1,
-    );
+        "The registry is yours to edit — soma has no verb that widens it (§4: loosening is identity-bound).",
+      );
+    }
+    if (escapes.length > 0) {
+      if (sections.length > 0) sections.push("");
+      sections.push(
+        `${escapes.length} of ${probeResults.length} declared probe(s) name a path outside the probe tree.`,
+        "",
+        ...escapes.map(observed),
+        "",
+        "Make the path tree-relative on the node. There is no declaration that widens this one: an ungated probe reads the tree being closed, and nothing else.",
+      );
+    }
+    throw new SomaCliError(["Close refused.", "", ...sections, "", "Nothing was written."].join("\n"), 1);
   }
 
   const evidence: CloseEvidence[] = [...parsed.options.evidence];

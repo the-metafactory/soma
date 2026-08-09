@@ -26,9 +26,14 @@
  */
 
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
-import { authorizeProbe, type ProbeRegistry } from "./work-graph-probe-registry";
-import type { Probe, ProbeResult } from "./work-graph";
+import { resolve, sep } from "node:path";
+import {
+  abbreviateTrackerEcho,
+  authorizeProbe,
+  type ProbeAuthorization,
+  type ProbeRegistry,
+} from "./work-graph-probe-registry";
+import { collapseHome, type Probe, type ProbeResult } from "./work-graph";
 
 /** How much of a command's output survives into the receipt (§2.2: a *bounded* tail). */
 const OBSERVED_TAIL_LIMIT = 1_200;
@@ -233,6 +238,158 @@ export function probeDirectory(probe: Probe, baseCwd: string): string | undefine
 }
 
 /**
+ * Every refusal `observed` string from the containment check opens with this, the
+ * way {@link PROBE_REFUSED_PREFIX} opens a registry refusal. Two prefixes, not
+ * one, because the two have different fixes: a registry refusal is answered by
+ * declaring something in soma-home, this one only by changing the node.
+ */
+export const PROBE_ESCAPED_PREFIX = "probe refused — outside the probe tree (DD-16 Amendment A):";
+
+/**
+ * Did this probe fail because its path escaped the tree, rather than because it
+ * ran and failed? The sibling of {@link isProbeRefusal}, and separate from it for
+ * the reason the prefixes are separate: a registry refusal is fixed by declaring
+ * something in soma-home, an escape only by changing the node, and a close path
+ * that told an adopter to edit their registry over an escape would be sending
+ * them to widen a gate that was never the one refusing.
+ */
+export function isProbeEscape(result: ProbeResult): boolean {
+  return result.state === "probed" && result.outcome === "fail" && result.observed.startsWith(PROBE_ESCAPED_PREFIX);
+}
+
+/**
+ * Is this probe type contained to the stated probe tree?
+ *
+ * Exhaustive with no `default`, for the reason #526 gave the gate the same
+ * shape: a probe type added later must not inherit "contained" by omission — it
+ * has to be classified here, or the build fails.
+ *
+ * `command` and `url` answer **false** because a stricter rule already holds
+ * them. A `command`'s resolved `cwd` must match an absolute directory the
+ * adopter declared in soma-home byte for byte, and a `url` names a host and no
+ * tree at all. Containment on top would forbid the adopter's own declaration —
+ * a registry entry pointing at a sibling checkout is that adopter's deliberate
+ * act, which is exactly the authority the three argv probes do not pass through.
+ */
+function containmentApplies(probe: Probe): boolean {
+  switch (probe.type) {
+    case "command":
+    case "url":
+      return false;
+    case "git-ref-exists":
+    case "git-merged-into":
+    case "artifact-exists":
+      return true;
+  }
+}
+
+/** One path a probe resolves, and the node field it came from. */
+export interface ResolvedProbePath {
+  /** The node field that produced it. */
+  field: "cwd" | "repo" | "path";
+  /** What the node declared, verbatim (bounded before it is echoed anywhere). */
+  value: string;
+  /** Absolute, resolved against the base. */
+  resolved: string;
+}
+
+/**
+ * Where an `artifact-exists` probe with no `atRef` looks on disk.
+ *
+ * One expression, two callers — the containment check and the runner's own
+ * branch. Deriving it twice is exactly the shape #579 was: two resolutions that
+ * agree today, and a receipt describing one path while the probe used another
+ * the day one of them changes.
+ */
+function artifactFilePath(path: string, directory: string): string {
+  return resolve(directory, path);
+}
+
+/**
+ * Every filesystem path an ungated probe is about to touch, resolved against the
+ * base, with the node field each one came from.
+ *
+ * **Two per probe, not one.** #529 asked whether `repo` is bounded; it is not the
+ * only escape. `artifact-exists` with no `atRef` resolves `path` against the
+ * probe directory itself, so an *absolute* `path` escapes with no `repo` at all
+ * — verified live at `dfea720`, where `path: "/etc/passwd"` passed. A
+ * containment check that saw only the directory would be the defect, not the fix.
+ *
+ * The directory half comes from {@link probeDirectory} rather than a second
+ * resolution of the same fields: "the directory we checked" and "the directory
+ * we ran in" have to be one value, which is #579's whole lesson.
+ */
+export function resolvedProbePaths(probe: Probe, baseCwd: string): ResolvedProbePath[] {
+  const directory = probeDirectory(probe, baseCwd);
+  if (directory === undefined) return [];
+  const field = probe.type === "command" ? "cwd" : "repo";
+  const declared = (probe.type === "command" ? probe.cwd : probe.type === "url" ? undefined : probe.repo) ?? ".";
+  const paths: ResolvedProbePath[] = [{ field, value: declared, resolved: directory }];
+  if (probe.type === "artifact-exists" && probe.atRef === undefined) {
+    // The `atRef` branch reads through `git cat-file <ref>:<path>`, where `path`
+    // is a repository-relative object name and never touches the filesystem —
+    // so the directory is the only thing to contain there.
+    paths.push({ field: "path", value: probe.path, resolved: artifactFilePath(probe.path, directory) });
+  }
+  return paths;
+}
+
+/**
+ * Is `candidate` the base tree or a descendant of it?
+ *
+ * Separator-aware on purpose: a bare `startsWith(base)` would call `/base-evil` a
+ * descendant of `/base`. Both sides arrive already resolved to absolute form.
+ *
+ * **Lexical, not `realpath`.** A symlink *inside* the tree that points outside it
+ * still escapes, and saying so is more honest than implying otherwise: resolving
+ * links would mean filesystem I/O in a predicate the runner calls before it has
+ * decided to touch anything, and the result would still race the probe itself.
+ */
+function isWithin(candidate: string, base: string): boolean {
+  if (candidate === base) return true;
+  return candidate.startsWith(base.endsWith(sep) ? base : `${base}${sep}`);
+}
+
+/**
+ * Containment: an ungated probe may read the stated probe tree (#580) or a
+ * descendant, and nothing else.
+ *
+ * DD-16 Amendment A ungates the three argv probes as "argv, no shell, no egress,
+ * bounded to existence checks in a local tree". Sage's review of #528 showed the
+ * last clause was false as written — `repo` and `path` are *tracker content*
+ * resolved against the runner's cwd with no bound, so a node body could probe
+ * any directory on the closing machine and read the answer back out of the close
+ * receipt (`~/.ssh/id_rsa exists`). This is that clause made true.
+ *
+ * An escape is a **failed probe**, never an exception and never a skip, so the
+ * close refuses through the path {@link assertClosable} already owns — the same
+ * shape a registry refusal takes, for the same reason.
+ *
+ * The message names the **resolved** path and the base tree, not just the field:
+ * the two differ, and #526's `cwd` lesson is that an adopter who cannot see
+ * which of the two the runtime meant cannot fix anything. Published paths are
+ * home-collapsed, since a refusal lands in a receipt on a tracker whose
+ * visibility soma cannot know.
+ */
+export function authorizeProbeTree(probe: Probe, baseCwd: string): ProbeAuthorization {
+  if (!containmentApplies(probe)) return { allowed: true };
+  const base = resolve(baseCwd);
+  for (const path of resolvedProbePaths(probe, base)) {
+    if (isWithin(path.resolved, base)) continue;
+    return {
+      allowed: false,
+      reason: [
+        `${PROBE_ESCAPED_PREFIX} \`${path.field}: ${JSON.stringify(abbreviateTrackerEcho(path.value))}\``,
+        `resolves to ${collapseHome(path.resolved)}, which is not ${collapseHome(base)} or a descendant of it.`,
+        `An ungated probe reads the stated probe tree and nothing else: its result is published to the tracker,`,
+        `so any directory it can reach is a directory it can disclose.`,
+      ].join("\n"),
+    };
+  }
+  return { allowed: true };
+}
+
+/**
  * Run one probe. Always resolves to a `probed` result — pass or fail — because a
  * probe that throws is a probe that did not pass, and the close gate needs that
  * as data, not as an exception to interpret.
@@ -263,8 +420,16 @@ export async function runProbe(probe: Probe, options: ProbeRunnerOptions): Promi
     probed(probe, outcome, observed, at, ranIn);
 
   try {
-    // The gate runs before dispatch, not inside the two gated cases, so a probe
-    // type added later cannot slip past by forgetting to call it.
+    // Both gates run before dispatch, not inside the cases they apply to, so a
+    // probe type added later cannot slip past either by forgetting to call it.
+    // They answer different questions — `authorizeProbe` asks whose code this is,
+    // `authorizeProbeTree` asks which tree it may read — and every probe passes
+    // through both.
+    const containment = authorizeProbeTree(probe, baseCwd);
+    if (!containment.allowed) {
+      return finish("fail", containment.reason);
+    }
+
     const authorization = authorizeProbe(probe, resolvedCwd, options.registry);
     if (!authorization.allowed) {
       return finish("fail", authorization.reason);
@@ -308,7 +473,8 @@ export async function runProbe(probe: Probe, options: ProbeRunnerOptions): Promi
 
       case "artifact-exists": {
         if (probe.atRef === undefined) {
-          const full = resolve(resolvedCwd, probe.path);
+          // Same expression the containment check used — see {@link artifactFilePath}.
+          const full = artifactFilePath(probe.path, resolvedCwd);
           const passed = deps.pathExists(full);
           return finish(passed ? "pass" : "fail", `${full} ${passed ? "exists" : "is absent"}`);
         }

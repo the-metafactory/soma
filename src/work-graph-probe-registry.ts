@@ -19,9 +19,15 @@
  *   probe is a blind SSRF oracle: the request issues from the closing machine
  *   and the receipt publishes the observed status back to a possibly
  *   world-readable tracker.
- * - **`git-ref-exists` / `git-merged-into` / `artifact-exists`** — ungated. They
- *   execute as argv with no shell, cause no egress, and are bounded to existence
- *   checks in a local tree.
+ * - **`git-ref-exists` / `git-merged-into` / `artifact-exists`** — ungated *by
+ *   this registry*. They execute as argv with no shell and cause no egress, and
+ *   the "local tree" half of that justification is enforced elsewhere: their
+ *   `repo`/`path` fields are tracker content that resolves against the runner's
+ *   base cwd, so an unconstrained one probes any directory on the closing
+ *   machine and publishes the answer (#529, #582). Containment lives in the
+ *   runner beside the call to {@link authorizeProbe} — see
+ *   `authorizeProbeTree` in `work-graph-probes.ts` — because it is a question
+ *   about *which tree*, which no per-repo declaration answers.
  *
  * The document lives in **soma-home, never the repo**: §1 clause 5 keeps
  * enforcement off the tree it guards, and a committed registry is writable by
@@ -474,6 +480,13 @@ function expandTilde(path: string, homeDir: string | undefined): string {
 function abbreviate(text: string, limit = ECHO_LIMIT): string {
   return text.length <= limit ? text : `${text.slice(0, limit)}… (truncated — copy the exact value from the node block)`;
 }
+
+/**
+ * The same bound, for the containment refusal in `work-graph-probes.ts`. Aliased
+ * rather than re-spelled: both refusals echo a field the node author wrote, and
+ * two limits would be two answers to one question.
+ */
+export { abbreviate as abbreviateTrackerEcho };
 
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

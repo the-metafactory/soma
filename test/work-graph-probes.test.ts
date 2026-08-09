@@ -1,16 +1,22 @@
 import { expect, test } from "bun:test";
 import {
   allProbesPassed,
+  assertClosable,
+  authorizeProbeTree,
   boundObserved,
   isProbeRefusal,
+  resolvedProbePaths,
   runProbe,
   runProbes,
+  PROBE_ESCAPED_PREFIX,
+  type CloseReceipt,
   type CommandOutcome,
   type CommandRequest,
   type DeclaredCommand,
   type Probe,
   type ProbeRegistry,
   type ProbeRunnerOptions,
+  type WorkGraphNode,
 } from "../src/index";
 
 const AT = new Date("2026-08-04T09:00:00.000Z");
@@ -377,4 +383,166 @@ test("observed output keeps the tail, where the failure reason lives", () => {
   const bounded = boundObserved(long, 20);
   expect(bounded).toContain("THE-REASON");
   expect(bounded.length).toBeLessThan(30);
+});
+
+// ---------------------------------------------------------------------------
+// Containment: the ungated probes read the stated tree and nothing else (#582)
+// ---------------------------------------------------------------------------
+//
+// DD-16 Amendment A ungated the three argv probes as "bounded to existence
+// checks in a local tree". That clause was false as written (#529): `repo` and
+// `path` are tracker content resolved against the runner's base cwd, and at
+// `dfea720` a node body could probe `/etc/passwd` or `~/.ssh/id_rsa` and read
+// the answer back out of its own close receipt.
+
+/** No registry needed: containment refuses before the gate, and these types are ungated anyway. */
+function contained(cwd = "/repo"): ProbeRunnerOptions {
+  return { cwd, deps: { pathExists: () => true, now: () => AT } };
+}
+
+const ESCAPES: { what: string; probe: Probe }[] = [
+  { what: "git-ref-exists via a relative repo", probe: { type: "git-ref-exists", ref: "HEAD", repo: "../.." } },
+  { what: "git-merged-into via a relative repo", probe: { type: "git-merged-into", ref: "x", into: "main", repo: "../.." } },
+  { what: "artifact-exists via a relative repo", probe: { type: "artifact-exists", path: "README.md", repo: "../.." } },
+  { what: "git-ref-exists via an absolute repo", probe: { type: "git-ref-exists", ref: "HEAD", repo: "/elsewhere" } },
+  { what: "git-merged-into via an absolute repo", probe: { type: "git-merged-into", ref: "x", into: "main", repo: "/elsewhere" } },
+  { what: "artifact-exists via an absolute repo", probe: { type: "artifact-exists", path: "README.md", repo: "/elsewhere" } },
+];
+
+test("every ungated probe type is refused when its repo escapes the stated tree", async () => {
+  for (const escape of ESCAPES) {
+    const result = requireProbed(await runProbe(escape.probe, contained()));
+    // The label rides in the assertion so a failing row says which one.
+    expect(`${escape.what}: ${result.outcome}`).toBe(`${escape.what}: fail`);
+    expect(result.observed).toContain(PROBE_ESCAPED_PREFIX);
+    // The base tree *and* the resolved path, because the node's literal field and
+    // the directory the runner would touch are different strings (#526's lesson).
+    expect(result.observed).toContain("/repo");
+  }
+});
+
+test("an absolute artifact-exists path escapes with no repo at all", async () => {
+  // #582's premise correction: #529 asked whether `repo` was bounded, and `path`
+  // resolves against the cwd too. A check that saw only the directory would pass
+  // this probe — as dfea720 did, live, against /etc/passwd.
+  const result = requireProbed(await runProbe({ type: "artifact-exists", path: "/etc/passwd" }, contained()));
+
+  expect(result.outcome).toBe("fail");
+  expect(result.observed).toContain(PROBE_ESCAPED_PREFIX);
+  expect(result.observed).toContain("/etc/passwd");
+});
+
+test("containment is separator-aware — /base-evil is not a descendant of /base", async () => {
+  const sibling = requireProbed(
+    await runProbe({ type: "git-ref-exists", ref: "HEAD", repo: "/base-evil" }, contained("/base")),
+  );
+  expect(sibling.outcome).toBe("fail");
+  expect(sibling.observed).toContain(PROBE_ESCAPED_PREFIX);
+});
+
+test("a contained probe still runs — the tree itself, and any descendant of it", async () => {
+  const seen: CommandRequest[] = [];
+  const options: ProbeRunnerOptions = {
+    cwd: "/repo",
+    deps: {
+      runCommand: async (request) => {
+        seen.push(request);
+        return { exitCode: 0, stdout: "cafef00d", stderr: "", timedOut: false };
+      },
+      pathExists: () => true,
+      now: () => AT,
+    },
+  };
+
+  const base = requireProbed(await runProbe({ type: "git-ref-exists", ref: "HEAD" }, options));
+  expect(base.outcome).toBe("pass");
+
+  const subdirectory = requireProbed(
+    await runProbe({ type: "git-ref-exists", ref: "HEAD", repo: "vendor/checkout" }, options),
+  );
+  expect(subdirectory.outcome).toBe("pass");
+  expect(seen[1].argv).toEqual([
+    "git",
+    "-C",
+    "/repo/vendor/checkout",
+    "rev-parse",
+    "--verify",
+    "--quiet",
+    "HEAD^{commit}",
+  ]);
+
+  const descendantPath = requireProbed(await runProbe({ type: "artifact-exists", path: "src/thing.ts" }, options));
+  expect(descendantPath.outcome).toBe("pass");
+});
+
+test("an atRef artifact-exists reads through git, so only its directory is contained", async () => {
+  // `path` there is a repository-relative object name handed to `git cat-file`,
+  // never a filesystem path — so an absolute-looking one is a lookup that fails,
+  // not an escape to refuse. Containment must not invent a second meaning for it.
+  const seen: CommandRequest[] = [];
+  const result = requireProbed(
+    await runProbe(
+      { type: "artifact-exists", path: "/etc/passwd", atRef: "main" },
+      {
+        cwd: "/repo",
+        deps: {
+          runCommand: async (request) => {
+            seen.push(request);
+            return { exitCode: 1, stdout: "", stderr: "", timedOut: false };
+          },
+          now: () => AT,
+        },
+      },
+    ),
+  );
+
+  expect(result.observed).not.toContain(PROBE_ESCAPED_PREFIX);
+  expect(seen[0].argv).toEqual(["git", "-C", "/repo", "cat-file", "-e", "main:/etc/passwd"]);
+  expect(result.outcome).toBe("fail");
+});
+
+test("an escape is a probed failure, so the close gate refuses through the path it already owns", async () => {
+  const probe: Probe = { type: "artifact-exists", path: "/etc/passwd" };
+  const result = await runProbe(probe, contained());
+  const node: WorkGraphNode = {
+    id: "582",
+    title: "containment",
+    autonomy: "auto",
+    checkpointId: "cp-x",
+    probes: [probe],
+  };
+  const receipt: CloseReceipt = {
+    checkpointId: "cp-x",
+    closedBy: "jcfischer",
+    at: AT.toISOString(),
+    evidence: [{ kind: "probed", summary: "1 probe", pointer: "https://example.test/#issuecomment-1" }],
+    probeResults: [result],
+    attestation: "unverified",
+  };
+
+  // Not a new outcome and not an exception: "the node named a tree it may not
+  // read" and "the command ran and failed" are both simply *not passed*.
+  expect(result.state).toBe("probed");
+  expect(() => {
+    assertClosable(node, receipt);
+  }).toThrow(/ran and failed/u);
+});
+
+test("containment does not apply to command and url — the registry is their stronger bound", () => {
+  // A declared `cwd` is an absolute directory the adopter wrote in soma-home,
+  // matched byte for byte. Containment on top would forbid that deliberate act,
+  // which is precisely the authority the three argv probes never pass through.
+  const command: Probe = { type: "command", run: "bun test", timeoutSec: 60, expectExit: 0, cwd: "/elsewhere" };
+  const url: Probe = { type: "url", target: "https://example.test/health", expectStatus: 200 };
+
+  expect(authorizeProbeTree(command, "/repo").allowed).toBe(true);
+  expect(authorizeProbeTree(url, "/repo").allowed).toBe(true);
+});
+
+test("resolvedProbePaths names every path a probe touches, and the field it came from", () => {
+  expect(resolvedProbePaths({ type: "artifact-exists", path: "docs/x.md", repo: "sub" }, "/repo")).toEqual([
+    { field: "repo", value: "sub", resolved: "/repo/sub" },
+    { field: "path", value: "docs/x.md", resolved: "/repo/sub/docs/x.md" },
+  ]);
+  expect(resolvedProbePaths({ type: "url", target: "https://example.test/", expectStatus: 200 }, "/repo")).toEqual([]);
 });
