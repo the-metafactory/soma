@@ -5,13 +5,6 @@ import { expect, test } from "bun:test";
 import { importPaiIdentity, loadSomaHome, planPaiImport } from "../src/index";
 import { runSomaCli } from "../src/cli";
 
-/** Split once on `marker`, asserting it is present. */
-function splitOnce(content: string, marker: string): [string, string] {
-  const at = content.indexOf(marker);
-  expect(at).toBeGreaterThan(-1);
-  return [content.slice(0, at), content.slice(at + marker.length)];
-}
-
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-pai-import-"));
 
@@ -208,10 +201,11 @@ test("the PAI name does not reach a projected profile, and provenance stays out 
     // Prove the SECTION, not just the substring (Sage review): provenance must
     // sit under `## Source`, and the `## Profile` block above it must be free of
     // it — that boundary is the whole reason the projection stays clean.
-    const [beforeSource, afterSource] = splitOnce(profile, "\n## Source\n");
-    expect(afterSource).toContain("Migrated from `~/.claude/");
-    expect(beforeSource).not.toContain("Migrated from");
-    expect(beforeSource).toContain("## Profile");
+    const sourceHeadingAt = profile.indexOf("\n## Source\n");
+    expect(sourceHeadingAt).toBeGreaterThan(-1);
+    expect(profile.slice(sourceHeadingAt)).toContain("Migrated from `~/.claude/");
+    expect(profile.slice(0, sourceHeadingAt)).toContain("## Profile");
+    expect(profile.slice(0, sourceHeadingAt)).not.toContain("Migrated from");
   });
 });
 
