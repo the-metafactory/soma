@@ -2,9 +2,9 @@
 
 A node closes only through its attached checkpoint's completion gate, and
 `soma graph close` refuses a **hollow close**: no attached checkpoint, a
-declared probe that never ran, a probe that ran and failed, or no
-agent-external evidence entry carrying a pointer someone else can check. When it
-refuses, no close is written.
+declared probe that never ran, a probe that ran and failed, no agent-external
+evidence entry carrying a pointer someone else can check, or no resolution prose.
+When it refuses, no close is written.
 
 One write happens before any of that: `--propose` posts its comment (below). It
 checks that the node *has* a checkpoint first, so it cannot publish a proposal
@@ -66,14 +66,32 @@ authorised, and expect a close on a fresh machine to refuse until it declares
 them. Reading is unaffected — `soma graph node` and `soma graph frontier` read
 any node regardless, because a node is data.
 
+## Every close carries prose
+
+Write the resolution to a file and pass it. It rides the receipt — one comment,
+your prose above the machine half — so there is no separate "post the resolution"
+step and no window where one half landed without the other:
+
+```bash
+soma graph close <id> --resolution-file <path>
+```
+
+A close with no prose is **refused**, before a single probe runs. The one
+exemption is a close naming `--proposal-comment`: that proposal's body already is
+the resolution, and a second copy would say the same thing twice.
+
+Say why it resolved as it did, not what you did. The receipt already lists what
+ran; the prose is the half a later reader actually reads, and no machine can
+check that it says anything — the gate only checks that you wrote something.
+
 ## AFK close (`auto`)
 
 Close directly. The verb runs the probes and derives the evidence from them;
 `--evidence` may add entries but never substitutes for a passed probe.
 
 ```bash
-soma graph close <id> --dry-run   # preview the verdict and receipt, write nothing
-soma graph close <id>
+soma graph close <id> --resolution-file <path> --dry-run   # preview, write nothing
+soma graph close <id> --resolution-file <path>
 ```
 
 The receipt proves *existence and probe passage, not quality* — sound because
@@ -83,10 +101,11 @@ downstream HITL node consumes the artifact.
 ## HITL close (`propose` / `approve`)
 
 A HITL node **closes when you close it**. There is no ratification requirement:
-you are the human in the loop, and you are present.
+you are the human in the loop, and you are present. It carries prose like any
+other close — a bare close has no proposal body to stand in for it:
 
 ```bash
-soma graph close <id>
+soma graph close <id> --resolution-file <path>
 ```
 
 The two-phase flow remains for when a second opinion is actually wanted — a
@@ -155,9 +174,9 @@ keyring, which have different fixes.
 
 ## Recording the resolution
 
-1. Post the answer as a **resolution comment** on the node — the human-readable
-   half; the close receipt is the machine-readable half.
-2. Close it with `soma graph close`.
-3. Append a one-line gist plus link to the map's **Decisions so far**.
-4. Graduate any fog the answer sharpened (`references/fog.md`), clearing each
+1. Write the answer to a file and close with it:
+   `soma graph close <id> --resolution-file <path>`. Posting and closing are one
+   act — the prose rides the receipt into a single comment.
+2. Append a one-line gist plus link to the map's **Decisions so far**.
+3. Graduate any fog the answer sharpened (`references/fog.md`), clearing each
    graduated patch from **Not yet specified** so it lives only as its new node.

@@ -47,12 +47,16 @@ node**, never to the map (`references/fog.md`).
 Read `references/closing.md` first — the close refuses a hollow one, and the
 refusal is easier to avoid than to fix.
 
-1. Post the answer as a **resolution comment** on the node.
-2. `soma graph close <id>` — add `--dry-run` first when you are unsure the
-   receipt will hold. For a HITL node this is the two-phase `--propose` →
-   ratification → `--proposal-comment` sequence.
-3. Append a one-line gist plus link to the map's **Decisions so far**. Enough to
+1. Write the answer to a file, then
+   `soma graph close <id> --resolution-file <path>` — one act: the prose rides
+   the receipt into a single comment. Add `--dry-run` first when you are unsure
+   the receipt will hold. A close with no prose is refused before any probe runs.
+2. Append a one-line gist plus link to the map's **Decisions so far**. Enough to
    judge relevance; the detail stays in the node.
+
+For a HITL node wanting a second opinion, the two-phase `--propose` →
+ratification → `--proposal-comment` sequence stands, and the proposal body is the
+resolution — do not pass both.
 
 ## 5. Advance the frontier
 

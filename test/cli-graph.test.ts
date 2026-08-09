@@ -160,6 +160,14 @@ function deps(store: FakeStore, overrides: Partial<GraphCliDeps> = {}): Partial<
   };
 }
 
+/**
+ * Every close carries prose (#556), so every close test that is not *about* that
+ * rule has to supply it. Spread in explicitly rather than injected by `run`: a
+ * helper that quietly satisfied the requirement would leave no test exercising
+ * the argv a walker actually types.
+ */
+const RESOLUTION = ["--resolution-file", "resolution.md"] as const;
+
 async function run(args: string[], store: FakeStore, overrides: Partial<GraphCliDeps> = {}): Promise<string> {
   return await runGraphCli(parseGraphArgs(args), deps(store, overrides));
 }
@@ -341,7 +349,7 @@ function autoGraph(): FakeStore {
 
 test("an auto close runs the probes, derives probed evidence, and writes the receipt", async () => {
   const store = autoGraph();
-  const output = await run(["graph", "close", "520", "--repo", REPO], store);
+  const output = await run(["graph", "close", "520", "--repo", REPO, ...RESOLUTION], store);
 
   expect(store.closed).toHaveLength(1);
   const receipt = store.closed[0].receipt;
@@ -358,7 +366,7 @@ test("an auto close runs the probes, derives probed evidence, and writes the rec
 
 test("a failing probe refuses the close — nothing reaches the tracker", async () => {
   const store = autoGraph();
-  const message = await failure(["graph", "close", "520", "--repo", REPO], store, {
+  const message = await failure(["graph", "close", "520", "--repo", REPO, ...RESOLUTION], store, {
     runProbes: async (probes) =>
       probes.map<ProbeResult>((probe) => ({
         probe,
@@ -378,14 +386,14 @@ test("a node with no attached checkpoint cannot be closed at all", async () => {
     node: { id: "520", title: "no checkpoint", autonomy: "auto", probes: [PROBE] },
   });
 
-  const message = await failure(["graph", "close", "520", "--repo", REPO], store);
+  const message = await failure(["graph", "close", "520", "--repo", REPO, ...RESOLUTION], store);
   expect(message).toContain("no attached checkpoint");
   expect(store.closed).toHaveLength(0);
 });
 
 test("an auto receipt is honestly unverified — no human ratified it", async () => {
   const store = autoGraph();
-  await run(["graph", "close", "520", "--repo", REPO], store);
+  await run(["graph", "close", "520", "--repo", REPO, ...RESOLUTION], store);
 
   const receipt = store.closed[0].receipt;
   expect(receipt.attestation).toBe("unverified");
@@ -402,7 +410,7 @@ test("a bare `close` on a HITL node works — no proposal, no ratification", asy
     .seed("495", { node: autoNode("495"), author: "jcfischer" })
     .seed("530", { node: { id: "530", title: "hitl", autonomy: "approve", checkpointId: "cp-530" }, parent: "495" });
 
-  const output = await run(["graph", "close", "530", "--repo", REPO], store);
+  const output = await run(["graph", "close", "530", "--repo", REPO, ...RESOLUTION], store);
 
   expect(store.closed).toHaveLength(1);
   expect(output).toContain("Closed node 530");
@@ -645,7 +653,7 @@ test("selectRatification prefers the root author and ignores the proposer's own 
 
 test("--dry-run previews the verdict and the receipt without writing either", async () => {
   const store = autoGraph();
-  const output = await run(["graph", "close", "520", "--dry-run", "--repo", REPO], store);
+  const output = await run(["graph", "close", "520", "--dry-run", "--repo", REPO, ...RESOLUTION], store);
 
   expect(store.closed).toHaveLength(0);
   expect(store.comments.size).toBe(0);
@@ -708,7 +716,7 @@ function realRunner(
 test("close refuses an undeclared command probe and hands back the entry to add", async () => {
   const store = autoGraph();
   const message = await failure(
-    ["graph", "close", "520", "--repo", REPO],
+    ["graph", "close", "520", "--repo", REPO, ...RESOLUTION],
     store,
     realRunner({ status: "loaded", repo: REPO, path: REGISTRY_PATH, commands: [], urlHosts: [] }),
   );
@@ -723,7 +731,7 @@ test("close refuses an undeclared command probe and hands back the entry to add"
 test("close on a machine with no registry refuses rather than running tracker content", async () => {
   const store = autoGraph();
   const message = await failure(
-    ["graph", "close", "520", "--repo", REPO],
+    ["graph", "close", "520", "--repo", REPO, ...RESOLUTION],
     store,
     realRunner({ status: "absent", repo: REPO, path: REGISTRY_PATH }),
   );
@@ -734,7 +742,7 @@ test("close on a machine with no registry refuses rather than running tracker co
 
 test("a declared command probe closes exactly as before — the gate is not a new hurdle", async () => {
   const store = autoGraph();
-  const output = await run(["graph", "close", "520", "--repo", REPO], store, realRunner(DECLARED));
+  const output = await run(["graph", "close", "520", "--repo", REPO, ...RESOLUTION], store, realRunner(DECLARED));
 
   expect(store.closed).toHaveLength(1);
   expect(output).toContain("Closed node 520");
@@ -771,7 +779,7 @@ test("probes run in the stated directory, not the process's — and the receipt 
   const spawned: string[] = [];
   const store = autoGraph();
   const output = await run(
-    ["graph", "close", "520", "--repo", REPO],
+    ["graph", "close", "520", "--repo", REPO, ...RESOLUTION],
     store,
     realRunner(
       declaredIn(stated),
@@ -795,7 +803,7 @@ test("the registry match follows the stated tree, so a declaration for another c
   // the runner is handed, not whatever tree happens to hold a declaration.
   const store = autoGraph();
   const message = await failure(
-    ["graph", "close", "520", "--repo", REPO],
+    ["graph", "close", "520", "--repo", REPO, ...RESOLUTION],
     store,
     realRunner(declaredIn("/install/tree"), { probeCwd: () => "/work/tree-under-review" }),
   );
@@ -819,7 +827,7 @@ test("every tree the probes ran in is described, and each line says which one", 
     });
 
   await run(
-    ["graph", "close", "520", "--repo", REPO],
+    ["graph", "close", "520", "--repo", REPO, ...RESOLUTION],
     store,
     realRunner({
       status: "loaded",
@@ -861,7 +869,7 @@ test("a base tree no probe ran in is never described, let alone used as the anch
 
   const described: string[] = [];
   await run(
-    ["graph", "close", "520", "--repo", REPO],
+    ["graph", "close", "520", "--repo", REPO, ...RESOLUTION],
     store,
     realRunner(declaredIn(only), {
       describeProbeTree: async (dir) => {
@@ -892,7 +900,7 @@ test("a probe tree outside the stated tree is never read, let alone described (#
 
   const described: string[] = [];
   const message = await failure(
-    ["graph", "close", "520", "--repo", REPO],
+    ["graph", "close", "520", "--repo", REPO, ...RESOLUTION],
     store,
     realRunner(DECLARED, {
       describeProbeTree: async (dir) => {
@@ -925,7 +933,7 @@ test("one probe tree without a HEAD unanchors the whole set", async () => {
       author: "ivy-agent",
     });
 
-  const message = await failure(["graph", "close", "520", "--repo", REPO], store, {
+  const message = await failure(["graph", "close", "520", "--repo", REPO, ...RESOLUTION], store, {
     describeProbeTree: async (dir) => (dir === other ? { dir } : { dir, head: "abc1234", dirty: false }),
   });
 
@@ -939,7 +947,7 @@ test("the probe tree is read before the probes run, not after they have written 
   // rather than the state they ran against.
   const order: string[] = [];
   const store = autoGraph();
-  await run(["graph", "close", "520", "--repo", REPO], store, {
+  await run(["graph", "close", "520", "--repo", REPO, ...RESOLUTION], store, {
     describeProbeTree: async (dir) => {
       order.push("describe");
       return { dir, head: "abc1234", dirty: false };
@@ -974,7 +982,7 @@ test("a url-only close records no tree, and anchors on the targets it actually c
     });
 
   let described = 0;
-  await run(["graph", "close", "520", "--repo", REPO], store, {
+  await run(["graph", "close", "520", "--repo", REPO, ...RESOLUTION], store, {
     describeProbeTree: async (dir) => {
       described += 1;
       return { dir, head: "abc1234", dirty: false };
@@ -1001,7 +1009,7 @@ test("a mixed close anchors on both halves — trees and targets", async () => {
       author: "ivy-agent",
     });
 
-  await run(["graph", "close", "520", "--repo", REPO], store);
+  await run(["graph", "close", "520", "--repo", REPO, ...RESOLUTION], store);
 
   const pointer = store.closed[0].receipt.evidence.find((entry) => entry.kind === "probed")?.pointer;
   expect(pointer).toContain("HEAD abc1234 in /repo");
@@ -1023,7 +1031,7 @@ test("pre-flight tree reads are bounded, however many directories the tracker na
 
   let inFlight = 0;
   let peak = 0;
-  await run(["graph", "close", "520", "--repo", REPO], store, {
+  await run(["graph", "close", "520", "--repo", REPO, ...RESOLUTION], store, {
     describeProbeTree: async (dir) => {
       inFlight += 1;
       peak = Math.max(peak, inFlight);
@@ -1043,7 +1051,7 @@ test("a relative probe directory is resolved before it is recorded or compared",
   // same directory and every probe reads as elsewhere.
   const store = autoGraph();
   await run(
-    ["graph", "close", "520", "--repo", REPO],
+    ["graph", "close", "520", "--repo", REPO, ...RESOLUTION],
     store,
     realRunner(declaredIn(process.cwd()), {
       probeCwd: () => ".",
@@ -1058,7 +1066,7 @@ test("a relative probe directory is resolved before it is recorded or compared",
 
 test("a dirty probe tree is recorded, never refused (#579)", async () => {
   const store = autoGraph();
-  const output = await run(["graph", "close", "520", "--repo", REPO], store, {
+  const output = await run(["graph", "close", "520", "--repo", REPO, ...RESOLUTION], store, {
     describeProbeTree: async (dir) => ({ dir, head: "abc1234", dirty: true }),
   });
 
@@ -1072,7 +1080,7 @@ test("a tree with no readable HEAD anchors nothing, so an auto close still refus
   // Unchanged from before #580 — moving where the sha is read must not widen
   // what closes an `auto` node.
   const store = autoGraph();
-  const message = await failure(["graph", "close", "520", "--repo", REPO], store, {
+  const message = await failure(["graph", "close", "520", "--repo", REPO, ...RESOLUTION], store, {
     describeProbeTree: async (dir) => ({ dir }),
   });
 
@@ -1159,7 +1167,7 @@ test("--evidence cannot supply the kind that closes the node", async () => {
     });
 
   const forged = await failure(
-    ["graph", "close", "520", "--repo", REPO, "--evidence", '{"kind":"approved","summary":"looks fine","pointer":"trust me"}'],
+    ["graph", "close", "520", "--repo", REPO, ...RESOLUTION, "--evidence", '{"kind":"approved","summary":"looks fine","pointer":"trust me"}'],
     hitl,
   );
   expect(forged).toContain("--evidence cannot carry `approved`");
@@ -1169,7 +1177,7 @@ test("--evidence cannot supply the kind that closes the node", async () => {
   // Same rule on the AFK side: `probed`/`tested` are what a passed probe earns.
   const afk = autoGraph();
   const selfReport = await failure(
-    ["graph", "close", "520", "--repo", REPO, "--evidence", '{"kind":"tested","summary":"ran it myself","pointer":"HEAD"}'],
+    ["graph", "close", "520", "--repo", REPO, ...RESOLUTION, "--evidence", '{"kind":"tested","summary":"ran it myself","pointer":"HEAD"}'],
     afk,
   );
   expect(selfReport).toContain("--evidence cannot carry");
@@ -1178,7 +1186,7 @@ test("--evidence cannot supply the kind that closes the node", async () => {
   // Informational kinds still pass through.
   const informed = autoGraph();
   await run(
-    ["graph", "close", "520", "--repo", REPO, "--evidence", '{"kind":"judged","summary":"sage reviewed","pointer":"pr#1"}'],
+    ["graph", "close", "520", "--repo", REPO, ...RESOLUTION, "--evidence", '{"kind":"judged","summary":"sage reviewed","pointer":"pr#1"}'],
     informed,
   );
   expect(informed.closed[0].receipt.evidence.some((entry) => entry.kind === "judged")).toBe(true);
@@ -1224,7 +1232,7 @@ test("the gate is uniform — a HITL node is refused on the same terms as an aut
   });
 
   const message = await failure(
-    ["graph", "close", "520", "--repo", REPO],
+    ["graph", "close", "520", "--repo", REPO, ...RESOLUTION],
     store,
     realRunner({ status: "absent", repo: REPO, path: REGISTRY_PATH }),
   );
@@ -1254,7 +1262,7 @@ test("reading is not executing — node and frontier never consult the registry"
 test("closing from the dev tree warns that the gate is not where §1 clause 5 puts it", async () => {
   const store = autoGraph();
   const warnings: string[] = [];
-  await run(["graph", "close", "520", "--repo", REPO], store, {
+  await run(["graph", "close", "520", "--repo", REPO, ...RESOLUTION], store, {
     fromDevTree: true,
     warn: (message) => warnings.push(message),
   });
@@ -1264,7 +1272,114 @@ test("closing from the dev tree warns that the gate is not where §1 clause 5 pu
 
 test("a closed node is not closed twice", async () => {
   const store = autoGraph().seed("520", { node: autoNode("520"), parent: "495", status: "closed" });
-  expect(await failure(["graph", "close", "520", "--repo", REPO], store)).toContain("already closed");
+  expect(await failure(["graph", "close", "520", "--repo", REPO, ...RESOLUTION], store)).toContain("already closed");
+});
+
+// --- every close carries prose (#556) --------------------------------------
+
+test("an auto close with no --resolution-file refuses, before a single probe runs", async () => {
+  const store = autoGraph();
+  const probed: string[] = [];
+  const message = await failure(["graph", "close", "520", "--repo", REPO], store, {
+    runProbes: async (probes) => {
+      probed.push("ran");
+      return probes.map<ProbeResult>((probe) => ({
+        probe,
+        state: "probed",
+        outcome: "pass",
+        observed: "exit 0",
+        at: AT.toISOString(),
+      }));
+    },
+  });
+
+  expect(message).toContain("has no resolution");
+  expect(message).toContain("--resolution-file");
+  // Before the probes, deliberately: a missing paragraph must not cost a
+  // 900-second `bun test` before the refusal arrives.
+  expect(probed).toEqual([]);
+  expect(store.closed).toHaveLength(0);
+  expect(store.comments.size).toBe(0);
+});
+
+test("a bare HITL close needs prose too — it has no proposal body to stand in", async () => {
+  // The hole #556 found: closing.md makes the bare close the normal
+  // single-operator route, so exempting HITL wholesale would let a grilling node
+  // — whose entire output IS a decision — close with no human-readable half.
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495"), author: "jcfischer" })
+    .seed("530", { node: { id: "530", title: "hitl", autonomy: "approve", checkpointId: "cp-530" }, parent: "495" });
+
+  expect(await failure(["graph", "close", "530", "--repo", REPO], store)).toContain("has no resolution");
+  expect(store.closed).toHaveLength(0);
+});
+
+test("a close naming a ratified proposal needs no --resolution-file — that body is the resolution", async () => {
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495"), author: "jcfischer" })
+    .seed("530", { node: { id: "530", title: "hitl", autonomy: "approve", checkpointId: "cp-530" }, parent: "495" });
+  await run(["graph", "close", "530", "--propose", "--body", "the resolution", "--repo", REPO], store);
+  store.reactions.set("c1", [{ id: "r1", content: "+1", author: "jcfischer" }]);
+
+  const output = await run(["graph", "close", "530", "--proposal-comment", "c1", "--repo", REPO], store);
+
+  expect(output).toContain("Closed node 530");
+  expect(store.closed).toHaveLength(1);
+});
+
+test("the resolution rides the receipt — no comment of its own is posted", async () => {
+  const store = autoGraph();
+  await run(["graph", "close", "520", "--repo", REPO, ...RESOLUTION], store, {
+    readTextFile: async () => "Containment holds: the resolved path must stay under the stated tree.",
+  });
+
+  // On the receipt, not beside it: the backend's `close` posts one comment from
+  // exactly this value, so there is no ordering in which one half lands without
+  // the other. (The rendered order is pinned in work-graph.test.ts.)
+  expect(store.closed[0].receipt.resolution).toContain("Containment holds");
+  expect(store.comments.size).toBe(0);
+});
+
+test("--dry-run renders the prose and writes nothing", async () => {
+  const store = autoGraph();
+  const output = await run(["graph", "close", "520", "--dry-run", "--repo", REPO, ...RESOLUTION], store, {
+    readTextFile: async () => "Why this closed.",
+  });
+
+  expect(output).toContain("would be ACCEPTED");
+  expect(output).toContain("## Resolution");
+  expect(output).toContain("Why this closed.");
+  expect(store.closed).toHaveLength(0);
+  expect(store.comments.size).toBe(0);
+});
+
+test("an empty resolution file refuses — a blank paragraph satisfies nothing", async () => {
+  const store = autoGraph();
+  const message = await failure(["graph", "close", "520", "--repo", REPO, ...RESOLUTION], store, {
+    readTextFile: async () => "   \n\n  ",
+  });
+
+  expect(message).toContain("is empty");
+  expect(store.closed).toHaveLength(0);
+});
+
+test("an unreadable resolution file names the path, not an ENOENT stack", async () => {
+  const store = autoGraph();
+  const message = await failure(["graph", "close", "520", "--repo", REPO, ...RESOLUTION], store, {
+    readTextFile: async () => {
+      throw new Error("ENOENT: no such file or directory");
+    },
+  });
+
+  expect(message).toContain("resolution.md");
+  expect(message).toContain("could not be read");
+  expect(store.closed).toHaveLength(0);
+});
+
+test("--propose with --resolution-file refuses rather than posting the prose twice", () => {
+  expect(() =>
+    parseGraphArgs(["graph", "close", "520", "--propose", "--body", "x", ...RESOLUTION]),
+  ).toThrow(/the proposal body is the resolution/u);
 });
 
 test("SomaCliError carries a non-zero exit for a lost claim", async () => {

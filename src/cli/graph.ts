@@ -90,7 +90,7 @@ export const GRAPH_COMMAND_HELP: { usage: string; subcommands: Record<GraphActio
     claim: "Usage: soma graph claim <id> [--identity <login>] [--repo <owner/name>] [--json]",
     add: "Usage: soma graph add <root> --title <text> --autonomy <auto|propose|approve> [--kind <k>] [--label <name>]... [--body <text>|--body-file <path>] [--checkpoint <id>] [--probe <json>]... [--blocked-by <id>]... [--budget-tokens <n>] [--budget-invocations <n>] [--budget-minutes <n>] [--repo <owner/name>] [--json]",
     close:
-      "Usage: soma graph close <id> [--propose --body <text>|--body-file <path>] [--proposal-comment <id>] [--checkpoint <id>] [--evidence <json>]... [--identity <login>] [--dry-run] [--repo <owner/name>]",
+      "Usage: soma graph close <id> --resolution-file <path> [--propose --body <text>|--body-file <path>] [--proposal-comment <id>] [--checkpoint <id>] [--evidence <json>]... [--identity <login>] [--dry-run] [--repo <owner/name>]",
   },
 };
 
@@ -139,6 +139,8 @@ export interface ParsedGraphCloseArgs {
     propose?: boolean;
     body?: string;
     bodyFile?: string;
+    /** Path to the resolution prose (#556). File-only: a resolution is a paragraph, not an argv string. */
+    resolutionFile?: string;
     proposalComment?: string;
     checkpointId?: string;
     identity?: string;
@@ -327,6 +329,10 @@ function parseCloseArgs(target: string, rest: string[]): ParsedGraphCloseArgs {
         options.bodyFile = readOption(rest, index, arg);
         index += 1;
         break;
+      case "--resolution-file":
+        options.resolutionFile = readOption(rest, index, arg);
+        index += 1;
+        break;
       case "--proposal-comment":
         options.proposalComment = readOption(rest, index, arg);
         index += 1;
@@ -360,6 +366,14 @@ function parseCloseArgs(target: string, rest: string[]): ParsedGraphCloseArgs {
   if (options.propose === true && options.dryRun === true) {
     throw new Error(
       "soma graph close --propose cannot be combined with --dry-run: proposing posts a comment, which is a write.",
+    );
+  }
+  // Refused rather than silently preferring one: `--propose`'s body already *is*
+  // the resolution (#556), so passing both asks for the same prose twice and the
+  // author cannot tell which copy the close will use.
+  if (options.propose === true && options.resolutionFile !== undefined) {
+    throw new Error(
+      "soma graph close --propose cannot be combined with --resolution-file: the proposal body is the resolution.",
     );
   }
 
@@ -903,6 +917,58 @@ async function runClose(
     );
   }
 
+  // Read before anything runs. The prose is the author's, so a typo'd path must
+  // cost a re-run of nothing rather than a re-run of `bun test`.
+  let resolution: string | undefined;
+  if (parsed.options.resolutionFile !== undefined) {
+    let raw: string;
+    try {
+      raw = await deps.readTextFile(parsed.options.resolutionFile);
+    } catch (error) {
+      // Named rather than raised raw: the flag is required on every close now, so
+      // a mistyped path is the most common way this verb will fail, and `ENOENT`
+      // with a stack is a worse answer than the path that was not there.
+      throw new SomaCliError(
+        `soma graph close --resolution-file ${parsed.options.resolutionFile} could not be read: ${error instanceof Error ? error.message : String(error)}`,
+        1,
+      );
+    }
+    resolution = raw.trim();
+    if (resolution.length === 0) {
+      throw new SomaCliError(
+        `soma graph close --resolution-file ${parsed.options.resolutionFile} is empty — a resolution is prose, and a blank one satisfies nothing.`,
+        1,
+      );
+    }
+  }
+
+  // Refused here as well as in `assertClosable`, and neither is redundant. The
+  // contract check is on the receipt, so it holds for every consumer of the
+  // primitive; this one runs *before* the probes, so a close missing its prose
+  // costs nothing instead of a 900-second `bun test` — and it can name the flag,
+  // which the core cannot: `assertClosable` knows nothing about a CLI.
+  //
+  // Not on a dry run: showing "would be REFUSED" is what a dry run is for.
+  if (
+    parsed.options.dryRun !== true &&
+    resolution === undefined &&
+    parsed.options.proposalComment === undefined
+  ) {
+    throw new SomaCliError(
+      [
+        `Close refused: node ${ref.id} has no resolution.`,
+        "",
+        "Every close carries prose — the human-readable half, above the receipt in one comment (#556).",
+        `  soma graph close ${ref.id} --resolution-file <path>`,
+        "",
+        "Exempt only when a proposal already carries it: a close naming --proposal-comment reuses that body.",
+        "",
+        "Nothing was written, and no probe ran.",
+      ].join("\n"),
+      1,
+    );
+  }
+
   const identity = parsed.options.identity ?? (await deps.resolveIdentity());
   const probes = state.node.probes ?? [];
   const registry = await deps.loadProbeRegistry(repo);
@@ -1031,6 +1097,7 @@ async function runClose(
     checkpointId: parsed.options.checkpointId ?? state.node.checkpointId ?? "",
     closedBy: identity,
     at: deps.now().toISOString(),
+    ...(resolution === undefined ? {} : { resolution }),
     evidence,
     probeResults,
     ...(probeTrees.length === 0 ? {} : { probeTrees }),
