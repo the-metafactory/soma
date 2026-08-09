@@ -219,7 +219,10 @@ The rule, now enforced:
 - **Escape is a failed probe**, never an exception and never a skip — same shape
   as a registry refusal, refusing through the path `assertClosable` already owns.
   The message names the resolved path *and* the tree, since the node's literal
-  field and the resolved path are different strings.
+  field and the resolved path are different strings. `soma graph close` surfaces
+  it ahead of that generic failure in its **own** section, separate from the
+  registry's: the fix is the node, and pointing an adopter at their registry over
+  an escape would send them to widen a gate that was never the one refusing.
 - The pre-flight tree read (§2.2) skips uncontained directories **before**
   spawning in them: it runs in a directory a node body names and before any gate
   has refused anything.

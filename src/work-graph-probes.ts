@@ -246,6 +246,18 @@ export function probeDirectory(probe: Probe, baseCwd: string): string | undefine
 export const PROBE_ESCAPED_PREFIX = "probe refused — outside the probe tree (DD-16 Amendment A):";
 
 /**
+ * Did this probe fail because its path escaped the tree, rather than because it
+ * ran and failed? The sibling of {@link isProbeRefusal}, and separate from it for
+ * the reason the prefixes are separate: a registry refusal is fixed by declaring
+ * something in soma-home, an escape only by changing the node, and a close path
+ * that told an adopter to edit their registry over an escape would be sending
+ * them to widen a gate that was never the one refusing.
+ */
+export function isProbeEscape(result: ProbeResult): boolean {
+  return result.state === "probed" && result.outcome === "fail" && result.observed.startsWith(PROBE_ESCAPED_PREFIX);
+}
+
+/**
  * Is this probe type contained to the stated probe tree?
  *
  * Exhaustive with no `default`, for the reason #526 gave the gate the same
@@ -271,6 +283,28 @@ function containmentApplies(probe: Probe): boolean {
   }
 }
 
+/** One path a probe resolves, and the node field it came from. */
+export interface ResolvedProbePath {
+  /** The node field that produced it. */
+  field: "cwd" | "repo" | "path";
+  /** What the node declared, verbatim (bounded before it is echoed anywhere). */
+  value: string;
+  /** Absolute, resolved against the base. */
+  resolved: string;
+}
+
+/**
+ * Where an `artifact-exists` probe with no `atRef` looks on disk.
+ *
+ * One expression, two callers — the containment check and the runner's own
+ * branch. Deriving it twice is exactly the shape #579 was: two resolutions that
+ * agree today, and a receipt describing one path while the probe used another
+ * the day one of them changes.
+ */
+function artifactFilePath(path: string, directory: string): string {
+  return resolve(directory, path);
+}
+
 /**
  * Every filesystem path an ungated probe is about to touch, resolved against the
  * base, with the node field each one came from.
@@ -285,15 +319,6 @@ function containmentApplies(probe: Probe): boolean {
  * resolution of the same fields: "the directory we checked" and "the directory
  * we ran in" have to be one value, which is #579's whole lesson.
  */
-export interface ResolvedProbePath {
-  /** The node field this path came from — `cwd`, `repo`, or `path`. */
-  field: string;
-  /** What the node declared, verbatim (bounded before it is echoed anywhere). */
-  value: string;
-  /** Absolute, resolved against the base. */
-  resolved: string;
-}
-
 export function resolvedProbePaths(probe: Probe, baseCwd: string): ResolvedProbePath[] {
   const directory = probeDirectory(probe, baseCwd);
   if (directory === undefined) return [];
@@ -304,7 +329,7 @@ export function resolvedProbePaths(probe: Probe, baseCwd: string): ResolvedProbe
     // The `atRef` branch reads through `git cat-file <ref>:<path>`, where `path`
     // is a repository-relative object name and never touches the filesystem —
     // so the directory is the only thing to contain there.
-    paths.push({ field: "path", value: probe.path, resolved: resolve(directory, probe.path) });
+    paths.push({ field: "path", value: probe.path, resolved: artifactFilePath(probe.path, directory) });
   }
   return paths;
 }
@@ -448,7 +473,8 @@ export async function runProbe(probe: Probe, options: ProbeRunnerOptions): Promi
 
       case "artifact-exists": {
         if (probe.atRef === undefined) {
-          const full = resolve(resolvedCwd, probe.path);
+          // Same expression the containment check used — see {@link artifactFilePath}.
+          const full = artifactFilePath(probe.path, resolvedCwd);
           const passed = deps.pathExists(full);
           return finish(passed ? "pass" : "fail", `${full} ${passed ? "exists" : "is absent"}`);
         }

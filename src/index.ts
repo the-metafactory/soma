@@ -750,6 +750,7 @@ export {
   allProbesPassed,
   authorizeProbeTree,
   boundObserved,
+  isProbeEscape,
   probeDirectory,
   resolvedProbePaths,
   runCommand,

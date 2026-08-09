@@ -903,8 +903,14 @@ test("a probe tree outside the stated tree is never read, let alone described (#
   );
 
   expect(described).toEqual([]);
-  expect(message).toContain("ran and failed");
   expect(store.closed).toHaveLength(0);
+  // Surfaced with its reason, not swallowed into assertClosable's generic "ran
+  // and failed" — the message names the path and the tree, and the fix is the
+  // node, never the registry.
+  expect(message).toContain("outside the probe tree");
+  expect(message).toContain("/elsewhere");
+  expect(message).toContain("Make the path tree-relative on the node");
+  expect(message).not.toContain("The registry is yours to edit");
 });
 
 test("one probe tree without a HEAD unanchors the whole set", async () => {
