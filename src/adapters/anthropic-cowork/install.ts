@@ -1,9 +1,9 @@
-import { homedir } from "node:os";
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { isEnoent } from "../../fs-errors";
 import { skillsLoaderUnder, type SubstrateInstallSpec, type UninstallContext } from "../../install-spec";
 import { projectVsaSkillBundleFiles } from "../../vsa-skill-installer";
+import { anthropicCoworkProjectionPrivateRoots } from "../private-roots";
 import {
   ANTHROPIC_COWORK_ACTIVE_VSA_PATH,
   ANTHROPIC_COWORK_ACTIVE_VSA_MARKER,
@@ -98,15 +98,7 @@ export const anthropicCoworkInstallSpec: SubstrateInstallSpec<"anthropic-cowork"
     destinationDir: (substrateHome) => resolve(substrateHome, "skills", "VSA"),
   },
   privateRoots: {
-    projection: (options) => {
-      const homeDir = resolve(options?.homeDir ?? homedir());
-      const substrateHome = resolve(options?.substrateHome ?? join(homeDir, ANTHROPIC_COWORK_DEFAULT_HOME));
-      return [
-        resolve(substrateHome, "soma"),
-        resolve(substrateHome, "capture"),
-        resolve(substrateHome, "skills/VSA"),
-      ];
-    },
+    projection: anthropicCoworkProjectionPrivateRoots,
   },
   uninstall: {
     kind: "implemented",

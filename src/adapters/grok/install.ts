@@ -2,7 +2,8 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { isEnoent } from "../../fs-errors";
-import { skillsLoaderUnder, vsaSkillUnder, type PrivateRootOptions, type SubstrateInstallSpec } from "../../install-spec";
+import { skillsLoaderUnder, vsaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
+import { GROK_DEFAULT_HOME, grokProjectionPrivateRoots } from "../private-roots";
 import {
   GROK_AGENT_MARKER,
   GROK_PERSONA_MARKER,
@@ -19,8 +20,6 @@ import {
 import { smokeTestInstalledGrokHookCommand } from "./hook-smoke";
 import { removeGrokPortableSkillProjection } from "./install-manifest";
 import { validateGrokInstallRuntime } from "./version";
-
-const GROK_DEFAULT_HOME = ".grok";
 
 /**
  * Static file set emitted by `projectGrokHome`, relative to `~/.grok` —
@@ -164,14 +163,6 @@ async function shouldRemoveGrokTarget(target: string): Promise<boolean> {
 export function isGrokPortableSkillProjectionPath(path: string): boolean {
   const name = /^skills\/([^/]+)\//.exec(path)?.[1];
   return name !== undefined && name !== "VSA" && !(GROK_PROJECTED_SKILL_NAMES as readonly string[]).includes(name);
-}
-
-export function grokProjectionPrivateRoots(options: PrivateRootOptions = {}): string[] {
-  if (options.substrate !== undefined && options.substrate !== "grok") return [];
-  const home = resolve(options.homeDir ?? homedir());
-  // The projected identity/context surface (Soma never writes into
-  // ~/.grok/memory/, so there is no separate memory private root).
-  return [join(home, GROK_DEFAULT_HOME, "skills", "soma")].map((path) => resolve(path));
 }
 
 export const grokInstallSpec: SubstrateInstallSpec<"grok"> = {

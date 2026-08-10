@@ -1,16 +1,14 @@
 /**
  * Single source of truth for the Soma version.
  *
- * Read from `package.json` at module load time. Every other module
- * (CLI banner, adapter projections, skill manifests) imports
- * `SOMA_VERSION` from here. Hardcoded version strings are forbidden
- * by lint convention — bump `package.json` and the rest follows.
+ * Imported statically from `package.json` so the value is inlined at bundle
+ * time. A runtime `readFileSync` of `../package.json` breaks under
+ * `bun build --compile`: inside the single-file bundle `import.meta.url`
+ * resolves to `/$bunfs/`, where no package.json exists (soma#531). Every
+ * other module (CLI banner, adapter projections, skill manifests) imports
+ * `SOMA_VERSION` from here. Hardcoded version strings stay forbidden — bump
+ * `package.json` and the rest follows.
  */
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import packageJson from "../package.json";
 
-const here = dirname(fileURLToPath(import.meta.url));
-const pkg = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8")) as { version: string };
-
-export const SOMA_VERSION: string = pkg.version;
+export const SOMA_VERSION: string = (packageJson as { version: string }).version;
