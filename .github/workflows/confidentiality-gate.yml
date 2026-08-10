@@ -3,7 +3,16 @@
 # commit SHA (never a tag/branch) so a moved tag cannot swap the gate or engine.
 # Bump via rollout-gate.ts, never by hand.
 #
-# DIVERGED FROM THE GENERATOR — this header block only (soma#560, compass#156).
+# DIVERGED FROM THE GENERATOR (2) — the pinned SHA below (soma#592, compass#157).
+# Bumped 8ed0ab2 (2026-07-02) → 94f76b1 (2026-07-17). The old pin predates
+# `isHexEmbedded` (landed 9b63de2, "suppress platform-snowflake matches embedded
+# in hex digests"), and the scan folds PR-range commit messages into
+# <pr-metadata> — so GitHub's generated `Merge <sha> into <sha>` blocked every PR
+# whose base SHA happened to contain a 17-20 digit run. A required check failing
+# at random is worse than one that is off: it teaches people to bypass it.
+# `uses:@<sha>` and `engine_sha` move together or the reusable fails closed.
+#
+# DIVERGED FROM THE GENERATOR (1) — this header block only (soma#560, compass#156).
 # The generated text asserted "NOT enrolled in any required status check, so a
 # finding here never blocks a merge". Both clauses are false for this repo:
 # `gate / confidentiality-gate` is a required check on the protect-main ruleset
@@ -32,14 +41,14 @@ permissions:
   contents: read
 jobs:
   gate:
-    uses: the-metafactory/metafactory-actions/.github/workflows/confidentiality-gate.yml@8ed0ab26f804aa98f74dcdcaf86917e09459f874
+    uses: the-metafactory/metafactory-actions/.github/workflows/confidentiality-gate.yml@94f76b1e191c430289ec2516746ef23623e9b7c4
     permissions:
       contents: read
     with:
       # engine_sha MUST equal the uses:@<sha> pin above so the engine stays
       # byte-matched to the gate (reusable contract M-8; a REQUIRED input —
       # the reusable fails closed without it).
-      engine_sha: 8ed0ab26f804aa98f74dcdcaf86917e09459f874
+      engine_sha: 94f76b1e191c430289ec2516746ef23623e9b7c4
       require_denylist: false
     secrets:
       # Explicit named secrets only — never `secrets: inherit` (that hands every
