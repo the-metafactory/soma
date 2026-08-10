@@ -386,6 +386,126 @@ test("observed output keeps the tail, where the failure reason lives", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Operational envelope (#527/#592)
+// ---------------------------------------------------------------------------
+
+test("a passing command records a short tail; a failing one keeps the long one", async () => {
+  // Measured motivation: `bun test` emits ~17k characters, of which the old
+  // 1 200-char tail kept 7.1% — all of it install logging on the way to a
+  // summary that was already there. A green probe does not need 1 200 characters
+  // to say yes; a red one needs every one of them to say why.
+  const noisy = `${"x".repeat(5_000)}\nRESULT LINE`;
+  const probe: Probe = { type: "command", run: "bun test", timeoutSec: 600, expectExit: 0 };
+
+  const pass = requireProbed(
+    await runProbe(probe, deps({ command: () => ({ exitCode: 0, stdout: noisy, stderr: "", timedOut: false }) })),
+  );
+  const fail = requireProbed(
+    await runProbe(probe, deps({ command: () => ({ exitCode: 1, stdout: noisy, stderr: "", timedOut: false }) })),
+  );
+
+  expect(pass.observed.length).toBeLessThan(300);
+  expect(fail.observed.length).toBeGreaterThan(1_000);
+  // Both keep the END of the output, which is where the summary and the reason
+  // both live — the size changes, the shape does not.
+  expect(pass.observed).toContain("RESULT LINE");
+  expect(fail.observed).toContain("RESULT LINE");
+});
+
+test("the close deadline stops the sequence, and the unrun probes are failed, not skipped", async () => {
+  // A clock that jumps 400s per read: probe 1 runs, then the deadline is past.
+  let tick = 0;
+  const probes: Probe[] = [
+    { type: "command", run: "first", timeoutSec: 600, expectExit: 0 },
+    { type: "command", run: "second", timeoutSec: 600, expectExit: 0 },
+    { type: "command", run: "third", timeoutSec: 600, expectExit: 0 },
+  ];
+  const ran: string[] = [];
+
+  const results = await runProbes(probes, {
+    cwd: "/repo",
+    registry: registry([
+      { run: "first", cwd: "/repo" },
+      { run: "second", cwd: "/repo" },
+      { run: "third", cwd: "/repo" },
+    ]),
+    deadlineSec: 500,
+    deps: {
+      runCommand: async (request) => {
+        ran.push(request.shell ?? "");
+        return { exitCode: 0, stdout: "ok", stderr: "", timedOut: false };
+      },
+      now: () => new Date(AT.getTime() + tick++ * 400_000),
+    },
+  });
+
+  expect(ran).toEqual(["first"]);
+  expect(results.map((r) => (r.state === "probed" ? r.outcome : "specified"))).toEqual(["pass", "fail", "fail"]);
+  const second = results[1];
+  expect(second.state === "probed" ? second.observed : "").toContain("close deadline of 500s exceeded");
+  expect(second.state === "probed" ? second.observed : "").toContain("did not run");
+  // No directory on a probe that ran nowhere — naming one would be a true-looking
+  // fact about nothing (#579).
+  expect(second.state === "probed" ? second.cwd : "unset").toBeUndefined();
+  // Failed, never skipped, so the existing close gate refuses without a new rule.
+  expect(allProbesPassed(results)).toBe(false);
+});
+
+test("a probe's own timeout is clamped to what the deadline leaves, and says which clock killed it", async () => {
+  const seen: CommandRequest[] = [];
+  const results = await runProbes([{ type: "command", run: "slow", timeoutSec: 600, expectExit: 0 }], {
+    cwd: "/repo",
+    registry: registry([{ run: "slow", cwd: "/repo" }]),
+    deadlineSec: 30,
+    deps: {
+      runCommand: async (request) => {
+        seen.push(request);
+        return { exitCode: null, stdout: "", stderr: "", timedOut: true };
+      },
+      now: () => AT,
+    },
+  });
+
+  expect(seen[0].timeoutSec).toBe(30);
+  const only = results[0];
+  expect(only.state === "probed" ? only.observed : "").toContain("the close deadline left no more time");
+  // A probe that outran its OWN timeout reads differently — same kill, different
+  // diagnosis, and the fixes are not the same.
+  expect(only.state === "probed" ? only.observed : "").not.toContain("timed out after");
+});
+
+test("git probes are clamped too, so a probe cannot outlive the close it belongs to", async () => {
+  const seen: CommandRequest[] = [];
+  await runProbes([{ type: "git-ref-exists", ref: "HEAD" }], {
+    cwd: "/repo",
+    deadlineSec: 10,
+    deps: {
+      runCommand: async (request) => {
+        seen.push(request);
+        return { exitCode: 0, stdout: "cafef00d", stderr: "", timedOut: false };
+      },
+      now: () => AT,
+    },
+  });
+
+  // GIT_TIMEOUT_SEC is 60; the remainder is 10, and the smaller wins.
+  expect(seen[0].timeoutSec).toBe(10);
+});
+
+test("a close inside the deadline is untouched", async () => {
+  const results = await runProbes([{ type: "command", run: "bun test", timeoutSec: 600, expectExit: 0 }], {
+    cwd: "/repo",
+    registry: ALL_DECLARED,
+    deps: {
+      runCommand: async () => ({ exitCode: 0, stdout: "640 pass", stderr: "", timedOut: false }),
+      now: () => AT,
+    },
+  });
+
+  expect(allProbesPassed(results)).toBe(true);
+});
+
+// ---------------------------------------------------------------------------
 // Containment: the ungated probes read the stated tree and nothing else (#582)
 // ---------------------------------------------------------------------------
 //
