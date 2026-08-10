@@ -48,11 +48,16 @@ Read `references/closing.md` first — the close refuses a hollow one, and the
 refusal is easier to avoid than to fix.
 
 1. Write the answer to a file, then
-   `soma graph close <id> --resolution-file <path>` — one act: the prose rides
-   the receipt into a single comment. Add `--dry-run` first when you are unsure
-   the receipt will hold. A close with no prose is refused before any probe runs.
-2. Append a one-line gist plus link to the map's **Decisions so far**. Enough to
-   judge relevance; the detail stays in the node.
+   `soma graph close <id> --resolution-file <path> --gist "<one line>"` — one
+   act: the prose rides the receipt into a single comment, and the gist is its
+   one-line form. Add `--dry-run` first when you are unsure the receipt will
+   hold. A close with no prose is refused before any probe runs. The gist should
+   let a map reader judge relevance without opening the node; the detail stays
+   in the resolution.
+2. `soma graph decisions <root> --write` — the map's decision index re-derives
+   from receipts. Never hand-edit the span between the decisions markers; if the
+   map predates them, add the two marker lines once and the verb owns the span
+   from then on.
 
 For a HITL node wanting a second opinion, the two-phase `--propose` →
 ratification → `--proposal-comment` sequence stands, and the proposal body is the

@@ -92,6 +92,9 @@ function stubStore(readNode: (ref: NodeRef) => NodeState): GraphStore {
     postComment: async () => ({ id: "c1", nodeId: "501" }),
     readComment: async () => ({ id: "c1", nodeId: "501" }),
     readCommentReactions: async () => [],
+    listComments: async () => [],
+    readRawBody: async () => "",
+    writeRawBody: async () => {},
     close: async () => {},
   };
 }

@@ -212,6 +212,21 @@ export interface CommentRef {
   url?: string;
 }
 
+/**
+ * A comment as the store reports it — with its body, unlike {@link CommentRef}.
+ *
+ * Exists for the read paths that must inspect what was actually posted: `audit`
+ * asks "does a close receipt exist on this closed node?" and `decisions` reads
+ * the gist out of it. Both questions are about tracker *content*, so a
+ * ref-shaped answer cannot serve them.
+ */
+export interface NodeComment {
+  id: string;
+  author: string;
+  body: string;
+  url?: string;
+}
+
 export interface Reaction {
   id: string;
   content: string;
@@ -346,6 +361,29 @@ export interface CloseReceipt {
    * unrepresentable.
    */
   resolution?: string;
+  /**
+   * One line for the map's decision index — the compressed form of
+   * {@link CloseReceipt.resolution}, written by the closer at close time.
+   *
+   * Stored on the receipt because the receipt is the only durable record a
+   * close leaves: `soma graph decisions` derives the map's index from receipts,
+   * and a gist living anywhere else would make the index a second authoritative
+   * home. Optional — a receipt without one still indexes, it just points at the
+   * node instead of summarising it.
+   */
+  gist?: string;
+  /**
+   * What closed this node — tool version and whether it ran from the dev tree
+   * or an install, plus the tool tree's commit when resolvable.
+   *
+   * Exists because "merged" and "enforced" are different dates (§1 clause 5
+   * puts enforcement in the installed binary): a gate shipped at noon binds
+   * nothing until the install refreshes, and before this stamp the only way to
+   * see which rules a receipt was produced under was to grep the installed
+   * tree. Descriptive, never gated on — a stale tool writing an honest stamp
+   * beats a stale tool refusing to say so.
+   */
+  closedWith?: string;
   evidence: readonly CloseEvidence[];
   probeResults: readonly ProbeResult[];
   /**
@@ -487,6 +525,22 @@ export interface GraphStore {
    */
   readComment(ref: CommentRef): Promise<CommentRef>;
   readCommentReactions(ref: CommentRef): Promise<Reaction[]>;
+  /**
+   * Every comment on a node, in posting order, bodies included. The read half of
+   * what {@link postComment} writes — `audit` needs it to tell a gated close
+   * from a tracker-side one (#588's auto-close), and `decisions` reads the gist
+   * out of the receipt it finds.
+   */
+  listComments(ref: NodeRef): Promise<NodeComment[]>;
+  /**
+   * The node's raw body, exactly as stored — node block included, nothing
+   * stripped. The write path's counterpart below splices a marked section, and a
+   * splice over a *decoded* body would re-write the node block from parsed
+   * state, silently normalising what it did not mean to touch.
+   */
+  readRawBody(ref: NodeRef): Promise<string>;
+  /** Replace the node's raw body wholesale. Callers splice; the store writes. */
+  writeRawBody(ref: NodeRef, body: string): Promise<void>;
   close(ref: NodeRef, receipt: CloseReceipt): Promise<void>;
 }
 
@@ -923,6 +977,54 @@ export function estimateReceiptChars(input: { resolution?: string; probeCount: n
   return (input.resolution ?? "").length + input.probeCount * RECEIPT_PROBE_WORST_CASE + RECEIPT_FIXED_OVERHEAD;
 }
 
+/** The marker a receipt comment always carries — what `audit` and `decisions` key on. */
+export const CLOSE_RECEIPT_MARKER = "## Close receipt";
+
+/** The gist line inside a rendered receipt. One renderer, one parser — pinned against each other in tests. */
+const RECEIPT_GIST_LINE = /^- \*\*gist:\*\* (.+)$/mu;
+
+export interface ReceiptScan {
+  /** Did any comment carry a close receipt? `false` on a closed node is the #588 auto-close signature. */
+  hasReceipt: boolean;
+  /** The gist from the LAST receipt found — a re-close supersedes, so the last word wins. */
+  gist?: string;
+}
+
+/**
+ * Look through a node's comments for its close receipt, and the gist inside it.
+ *
+ * Parsing rendered markdown is deliberate, not regrettable: the tracker is the
+ * sole authoritative store (#491), so the receipt comment IS the durable record
+ * — there is no side table to consult. The parse is pinned to
+ * {@link renderCloseReceipt}'s exact output in tests, so the pair drifts loudly.
+ */
+export function scanCommentsForReceipt(bodies: readonly string[]): ReceiptScan {
+  let found: string | undefined;
+  for (const body of bodies) {
+    if (body.includes(CLOSE_RECEIPT_MARKER)) found = body;
+  }
+  if (found === undefined) return { hasReceipt: false };
+  const gist = RECEIPT_GIST_LINE.exec(found)?.[1]?.trim();
+  return { hasReceipt: true, ...(gist === undefined || gist.length === 0 ? {} : { gist }) };
+}
+
+/** Markers bounding the derived decisions section in a map body. */
+export const DECISIONS_BEGIN = "<!-- soma:decisions:begin -->";
+export const DECISIONS_END = "<!-- soma:decisions:end -->";
+
+/**
+ * Replace the marked section of a body, keeping the markers. `undefined` when
+ * the markers are absent or malformed — the caller refuses rather than guessing
+ * where a decisions list belongs in prose it does not own.
+ */
+export function spliceSection(body: string, content: string): string | undefined {
+  const begin = body.indexOf(DECISIONS_BEGIN);
+  if (begin === -1) return undefined;
+  const end = body.indexOf(DECISIONS_END, begin + DECISIONS_BEGIN.length);
+  if (end === -1) return undefined;
+  return `${body.slice(0, begin + DECISIONS_BEGIN.length)}\n${content}\n${body.slice(end)}`;
+}
+
 /**
  * The resolution prose, trimmed — `""` when there is none.
  *
@@ -947,7 +1049,9 @@ export function renderCloseReceipt(receipt: CloseReceipt): string {
     `## Close receipt`,
     ``,
     `- **checkpoint:** \`${receipt.checkpointId}\``,
+    ...((receipt.gist ?? "").trim().length === 0 ? [] : [`- **gist:** ${(receipt.gist ?? "").trim()}`]),
     `- **closed by:** ${receipt.closedBy}`,
+    ...((receipt.closedWith ?? "").length === 0 ? [] : [`- **closed with:** ${receipt.closedWith}`]),
     `- **at:** ${receipt.at}`,
     `- **attestation:** \`${receipt.attestation}\``,
     ``,
@@ -1125,6 +1229,23 @@ export class WorkGraph {
 
   async readCommentReactions(ref: CommentRef): Promise<Reaction[]> {
     return await this.store.readCommentReactions(ref);
+  }
+
+  async listComments(ref: NodeRef): Promise<NodeComment[]> {
+    return await this.store.listComments(ref);
+  }
+
+  /** The raw subtree read `frontier` filters — exposed for the walks that need every node (audit, decisions). */
+  async readSubtree(root: NodeRef): Promise<NodeState[]> {
+    return await this.store.readSubtree(root);
+  }
+
+  async readRawBody(ref: NodeRef): Promise<string> {
+    return await this.store.readRawBody(ref);
+  }
+
+  async writeRawBody(ref: NodeRef, body: string): Promise<void> {
+    await this.store.writeRawBody(ref, body);
   }
 
   /**
