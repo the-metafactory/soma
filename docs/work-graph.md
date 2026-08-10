@@ -566,6 +566,11 @@ lives in exactly one place (its node's receipt, via `--gist`) and the map body
 carries a projection nobody edits by hand. The verb owns only the span between
 its markers, never the prose around it, and refuses when the markers are absent
 rather than guessing where an index belongs in prose it does not own.
+`--write` is a read-modify-write with no compare-and-swap (GitHub offers none
+for issue bodies): a concurrent hand edit to the *prose* can be clobbered by the
+re-write. Accepted — the map body is low-contention, the span is derived state
+that regenerating repairs, and the alternative is a lock the backend cannot
+express.
 
 HITL closes are two-phase, inside the same verb rather than a sixth one:
 `close --propose` posts the proposal comment and stops; `close

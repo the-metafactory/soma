@@ -172,6 +172,8 @@ function deps(store: FakeStore, overrides: Partial<GraphCliDeps> = {}): Partial<
     probeCwd: () => "/repo",
     describeProbeTree: async (dir) => ({ dir, head: "abc1234", dirty: false }),
     readTextFile: async () => "proposal body",
+    // Hermetic: the default shells out to git for the tool stamp.
+    describeTool: async () => "soma 0.0.0-test (dev tree)",
     now: () => AT,
     warn: () => undefined,
     fromDevTree: false,
