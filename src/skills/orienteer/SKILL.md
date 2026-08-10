@@ -26,13 +26,16 @@ Walking an existing map is the common case. Its root node id is the map:
 ```bash
 soma graph frontier <root>     # what is takeable: open, unassigned, unblocked
 soma graph claim <id>          # claim ONE, before any work
-soma graph node <id>           # read it, and any node it references
+soma graph node <id>           # read it (body included), and any node it references
 #  … resolve it …
-soma graph close <id> --resolution-file <path>   # prose + probes; refuses a hollow close
+soma graph close <id> --resolution-file <path> --gist "<one line>"
+soma graph decisions <root> --write   # re-derive the map's decision index from receipts
 ```
 
-Then append a one-line gist to the map's **Decisions so far**, and graduate any
-fog the answer sharpened. Read `Workflows/WalkTheMap.md` before step one.
+The gist rides the receipt and `decisions --write` projects every closed node's
+gist into the map body — the map's index is derived, never hand-edited. Then
+graduate any fog the answer sharpened. Read `Workflows/WalkTheMap.md` before
+step one.
 
 ## When to use
 
@@ -55,10 +58,12 @@ this doctrine tracker-agnostic by construction.
 | Verb | What it does |
 | --- | --- |
 | `soma graph frontier <root>` | open ∧ unassigned ∧ unblocked, confirmed by direct fetch |
-| `soma graph node <id>` | read one node |
+| `soma graph node <id>` | read one node, body included — never `gh issue view` |
 | `soma graph claim <id>` | assign, re-read, tie-break on race |
-| `soma graph add <root> …` | create node (+ `--blocked-by` edges), structurally validated |
-| `soma graph close <id> --resolution-file <path>` | post the prose, run declared probes, derive the receipt, refuse a hollow close |
+| `soma graph add <root> … --checkpoint <id>` | create node (+ `--blocked-by` edges), structurally validated; refuses without a checkpoint |
+| `soma graph close <id> --resolution-file <path> [--gist <line>]` | post the prose, run declared probes, derive the receipt, refuse a hollow close |
+| `soma graph audit <root>` | what the gates cannot see: closed-without-receipt, can-never-close, claimed-in-flight |
+| `soma graph decisions <root> [--write]` | the map's decision index, derived from receipts; `--write` splices it into the map body |
 
 `--repo <owner/name>` (or `SOMA_GRAPH_REPO`) picks the backing repository; it
 defaults to the origin remote of the working tree.

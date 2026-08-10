@@ -29,6 +29,10 @@
 
 import { resolve } from "node:path";
 
+import packageJson from "../../package.json";
+
+const SOMA_VERSION: string = packageJson.version;
+
 import {
   WorkGraph,
   WorkGraphError,
@@ -37,6 +41,10 @@ import {
   describeProbeTree,
   estimateReceiptChars,
   renderCloseReceipt,
+  scanCommentsForReceipt,
+  spliceSection,
+  DECISIONS_BEGIN,
+  DECISIONS_END,
   RECEIPT_COMMENT_BUDGET,
   RECEIPT_COMMENT_LIMIT,
   type CloseEvidence,
@@ -50,6 +58,7 @@ import {
   type ProbeTree,
   type Ratification,
   type Reaction,
+  type ReceiptScan,
   type WorkGraphEvidenceKind,
 } from "../work-graph";
 import {
@@ -80,20 +89,22 @@ import { resolveGraphRepo } from "../work-graph-bridge";
 import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";
 
-const GRAPH_ACTIONS = ["frontier", "node", "claim", "add", "close"] as const;
+const GRAPH_ACTIONS = ["frontier", "node", "claim", "add", "close", "audit", "decisions"] as const;
 type GraphAction = (typeof GRAPH_ACTIONS)[number];
 
 const EVIDENCE_KINDS: readonly WorkGraphEvidenceKind[] = ["specified", "probed", "tested", "judged", "approved"];
 
 export const GRAPH_COMMAND_HELP: { usage: string; subcommands: Record<GraphAction, string> } = {
-  usage: "Usage: soma graph <frontier|node|claim|add|close> ...",
+  usage: "Usage: soma graph <frontier|node|claim|add|close|audit|decisions> ...",
   subcommands: {
     frontier: "Usage: soma graph frontier <root> [--repo <owner/name>] [--json]",
     node: "Usage: soma graph node <id> [--repo <owner/name>] [--json]",
     claim: "Usage: soma graph claim <id> [--identity <login>] [--repo <owner/name>] [--json]",
-    add: "Usage: soma graph add <root> --title <text> --autonomy <auto|propose|approve> [--kind <k>] [--label <name>]... [--body <text>|--body-file <path>] [--checkpoint <id>] [--probe <json>]... [--blocked-by <id>]... [--budget-tokens <n>] [--budget-invocations <n>] [--budget-minutes <n>] [--repo <owner/name>] [--json]",
+    add: "Usage: soma graph add <root> --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--kind <k>] [--label <name>]... [--body <text>|--body-file <path>] [--probe <json>]... [--blocked-by <id>]... [--budget-tokens <n>] [--budget-invocations <n>] [--budget-minutes <n>] [--repo <owner/name>] [--json]",
     close:
-      "Usage: soma graph close <id> --resolution-file <path> [--propose --body <text>|--body-file <path>] [--proposal-comment <id>] [--checkpoint <id>] [--evidence <json>]... [--identity <login>] [--dry-run] [--repo <owner/name>]",
+      "Usage: soma graph close <id> --resolution-file <path> [--gist <one line>] [--propose --body <text>|--body-file <path>] [--proposal-comment <id>] [--checkpoint <id>] [--evidence <json>]... [--identity <login>] [--dry-run] [--repo <owner/name>]",
+    audit: "Usage: soma graph audit <root> [--repo <owner/name>] [--json]",
+    decisions: "Usage: soma graph decisions <root> [--write] [--repo <owner/name>] [--json]",
   },
 };
 
@@ -144,6 +155,8 @@ export interface ParsedGraphCloseArgs {
     bodyFile?: string;
     /** Path to the resolution prose (#556). File-only: a resolution is a paragraph, not an argv string. */
     resolutionFile?: string;
+    /** One line for the map's decision index, stored on the receipt. */
+    gist?: string;
     proposalComment?: string;
     checkpointId?: string;
     identity?: string;
@@ -152,12 +165,31 @@ export interface ParsedGraphCloseArgs {
   };
 }
 
+export interface ParsedGraphAuditArgs {
+  command: "graph";
+  action: "audit";
+  target: string;
+  options: GraphSharedOptions;
+}
+
+export interface ParsedGraphDecisionsArgs {
+  command: "graph";
+  action: "decisions";
+  target: string;
+  options: GraphSharedOptions & {
+    /** Splice the rendered list into the map body between the decisions markers. */
+    write?: boolean;
+  };
+}
+
 export type ParsedGraphArgs =
   | ParsedGraphFrontierArgs
   | ParsedGraphNodeArgs
   | ParsedGraphClaimArgs
   | ParsedGraphAddArgs
-  | ParsedGraphCloseArgs;
+  | ParsedGraphCloseArgs
+  | ParsedGraphAuditArgs
+  | ParsedGraphDecisionsArgs;
 
 // ---------------------------------------------------------------------------
 // Parsing
@@ -305,6 +337,16 @@ function parseAddArgs(target: string, rest: string[]): ParsedGraphAddArgs {
   if (options.spec.autonomy === undefined) {
     throw new Error("soma graph add is missing required option: --autonomy.");
   }
+  // Required at creation because no verb attaches one later: a node closes only
+  // through its checkpoint's completion gate, so a checkpoint-less node is a
+  // node that can never close — three of map #495's scaffold nodes shipped that
+  // way and every one needed its node block hand-edited on the tracker, which is
+  // exactly the raw write the verbs exist to prevent.
+  if (options.spec.checkpointId === undefined) {
+    throw new Error(
+      "soma graph add is missing required option: --checkpoint. A node without one can never close, and no verb attaches one later.",
+    );
+  }
 
   return { command: "graph", action: "add", target, options };
 }
@@ -336,6 +378,15 @@ function parseCloseArgs(target: string, rest: string[]): ParsedGraphCloseArgs {
         options.resolutionFile = readOption(rest, index, arg);
         index += 1;
         break;
+      case "--gist": {
+        const gist = readOption(rest, index, arg).trim();
+        if (gist.length === 0 || gist.includes("\n")) {
+          throw new Error("--gist must be one non-empty line — it is the map index's entry, not the resolution.");
+        }
+        options.gist = gist;
+        index += 1;
+        break;
+      }
       case "--proposal-comment":
         options.proposalComment = readOption(rest, index, arg);
         index += 1;
@@ -395,7 +446,7 @@ export function parseGraphArgs(args: string[]): ParsedGraphArgs {
   if (action === "add") return parseAddArgs(resolvedTarget, rest);
   if (action === "close") return parseCloseArgs(resolvedTarget, rest);
 
-  const options: GraphSharedOptions & { identity?: string } = {};
+  const options: GraphSharedOptions & { identity?: string; write?: boolean } = {};
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
     const shared = readShared(options, rest, index, arg);
@@ -408,10 +459,15 @@ export function parseGraphArgs(args: string[]): ParsedGraphArgs {
       index += 1;
       continue;
     }
+    if (arg === "--write" && action === "decisions") {
+      options.write = true;
+      continue;
+    }
     throw new Error(`Unknown option: ${arg}`);
   }
 
   if (action === "claim") return { command, action, target: resolvedTarget, options };
+  if (action === "decisions") return { command, action, target: resolvedTarget, options };
   return { command, action, target: resolvedTarget, options };
 }
 
@@ -464,6 +520,8 @@ export interface GraphCliDeps {
    */
   describeProbeTree: (cwd: string) => Promise<ProbeTree>;
   readTextFile: (path: string) => Promise<string>;
+  /** The receipt's `closedWith` stamp — version, source, best-effort commit. Injected so tests stay hermetic. */
+  describeTool: (fromDevTree: boolean) => Promise<string>;
   now: () => Date;
   warn: (message: string) => void;
   /** True when the running CLI is the dev tree rather than the installed binary (§1 clause 5). */
@@ -659,11 +717,39 @@ function defaultDeps(): GraphCliDeps {
     probeCwd: () => resolve(process.cwd()),
     describeProbeTree: defaultDescribeProbeTree,
     readTextFile: async (path) => await Bun.file(path).text(),
+    describeTool: defaultDescribeTool,
     now: () => new Date(),
     warn: (message) => process.stderr.write(`${message}\n`),
     // The dev tree ships `src/`; an installed soma does not run from one.
     fromDevTree: import.meta.url.includes("/src/cli/"),
   };
+}
+
+/**
+ * The `closedWith` stamp: version, source tree, and the tool tree's commit when
+ * it is a git checkout. Best-effort on the commit — an installed copy may not be
+ * a repository, and a receipt with `soma 0.x (installed)` still dates the
+ * enforcement it ran under, which is the point (#495 review: "merged" and
+ * "enforced" are different dates, and before this stamp the only way to tell
+ * which rules produced a receipt was to grep the installed tree).
+ */
+async function defaultDescribeTool(fromDevTree: boolean): Promise<string> {
+  const source = fromDevTree ? "dev tree" : "installed";
+  // src/cli/graph.ts → the tree root is two directories up.
+  const toolRoot = resolve(new URL(".", import.meta.url).pathname, "..", "..");
+  try {
+    const head = await runCommand({
+      argv: ["git", "-C", toolRoot, "rev-parse", "--short", "HEAD"],
+      timeoutSec: 10,
+    });
+    const sha = head.stdout.trim();
+    if (head.exitCode === 0 && /^[0-9a-f]{4,40}$/.test(sha)) {
+      return `soma ${SOMA_VERSION} @ ${sha} (${source})`;
+    }
+  } catch {
+    // Not a git tree, or git absent — the version and source still stamp.
+  }
+  return `soma ${SOMA_VERSION} (${source})`;
 }
 
 // ---------------------------------------------------------------------------
@@ -696,6 +782,10 @@ function renderNodeState(state: NodeState): string {
     ...(state.parseError === undefined ? [] : [`parse error: ${state.parseError}`]),
     ...describeProbes(node.probes),
     ...(state.url === undefined ? [] : [`url: ${state.url}`]),
+    // The body is the node — a walker reads the question before resolving it,
+    // and a verb that withheld it made `gh issue view` step one of every
+    // session, which is the reach-past-the-verbs the doctrine forbids.
+    ...(state.body === undefined || state.body.length === 0 ? [] : ["", state.body]),
   ].join("\n");
 }
 
@@ -1128,8 +1218,10 @@ async function runClose(
   const receipt: CloseReceipt = {
     checkpointId: parsed.options.checkpointId ?? state.node.checkpointId ?? "",
     closedBy: identity,
+    closedWith: await deps.describeTool(deps.fromDevTree),
     at: deps.now().toISOString(),
     ...(resolution === undefined ? {} : { resolution }),
+    ...(parsed.options.gist === undefined ? {} : { gist: parsed.options.gist }),
     evidence,
     probeResults,
     ...(probeTrees.length === 0 ? {} : { probeTrees }),
@@ -1167,6 +1259,166 @@ async function runClose(
   ].join("\n");
 }
 
+/** How many comment reads may be in flight during an audit or decisions walk. Same reasoning as the pre-flight tree reads. */
+const COMMENT_READ_CONCURRENCY = 4;
+
+interface ScannedNode {
+  state: NodeState;
+  scan: ReceiptScan;
+}
+
+/** Closed nodes of the subtree, receipts scanned, in the walk's order. Shared by audit and decisions. */
+async function scanClosedNodes(graph: WorkGraph, root: NodeRef): Promise<{ subtree: NodeState[]; closed: ScannedNode[] }> {
+  const subtree = await graph.readSubtree(root);
+  const closedStates = subtree.filter((state) => state.status === "closed");
+  const closed = await mapBounded(closedStates, COMMENT_READ_CONCURRENCY, async (state) => {
+    const comments = await graph.listComments(state.ref);
+    return { state, scan: scanCommentsForReceipt(comments.map((comment) => comment.body)) };
+  });
+  return { subtree, closed };
+}
+
+/**
+ * What the gates cannot see, reported rather than guessed at (#588's lesson):
+ *
+ * - **Closed with no receipt** — the tracker closed it, the gate never ran.
+ *   GitHub auto-closes a node two seconds after a PR saying `Implements #N`
+ *   merges, and `state: closed` is not evidence a close happened properly; only
+ *   a receipt is. This is the fail-open path §2.4 names, made visible.
+ * - **Open with no checkpoint** — a node that can never close. `add` now refuses
+ *   to create one, but hand-authored tickets and pre-rule nodes still exist.
+ * - **Open and claimed** — informational: in flight somewhere, or stale.
+ *
+ * Read-only, deliberately: an auditor that reopened nodes would be a second
+ * writer with its own race. It names; the human acts.
+ */
+async function runAudit(parsed: ParsedGraphAuditArgs, graph: WorkGraph, repo: string): Promise<string> {
+  const { subtree, closed } = await scanClosedNodes(graph, { id: parsed.target });
+
+  const unreceipted = closed.filter((entry) => !entry.scan.hasReceipt).map((entry) => entry.state);
+  const uncloseable = subtree.filter(
+    (state) => state.status === "open" && (state.node.checkpointId === undefined || state.node.checkpointId.length === 0),
+  );
+  const claimed = subtree.filter((state) => state.status === "open" && state.assignees.length > 0);
+
+  if (parsed.options.json === true) {
+    return JSON.stringify(
+      {
+        repo,
+        root: parsed.target,
+        nodes: subtree.length,
+        closedWithoutReceipt: unreceipted.map((state) => state.ref.id),
+        openWithoutCheckpoint: uncloseable.map((state) => state.ref.id),
+        openClaimed: claimed.map((state) => ({ id: state.ref.id, assignees: state.assignees })),
+      },
+      null,
+      2,
+    );
+  }
+
+  const clean = unreceipted.length === 0 && uncloseable.length === 0;
+  return [
+    `Work graph audit — root ${parsed.target} (${repo}), ${subtree.length} node(s)`,
+    "",
+    ...(unreceipted.length > 0
+      ? [
+          `Closed without a close receipt — the tracker closed these; no gate ran (§2.4 fail-open):`,
+          ...unreceipted.map((state) => nodeSummary(state)),
+          "",
+        ]
+      : []),
+    ...(uncloseable.length > 0
+      ? [
+          `Open with no checkpoint — cannot close until the node block is repaired:`,
+          ...uncloseable.map((state) => nodeSummary(state)),
+          "",
+        ]
+      : []),
+    ...(claimed.length > 0
+      ? [
+          `Open and claimed — in flight, or stale:`,
+          ...claimed.map((state) => `- ${state.ref.id} ${state.node.title} [${state.assignees.join(", ")}]`),
+          "",
+        ]
+      : []),
+    clean
+      ? `Clean: every closed node carries a receipt and every open node can close.`
+      : `The audit names; it does not repair. A receipt-less close is re-opened and re-closed through the verb, or ratified by hand with a comment saying why.`,
+  ].join("\n");
+}
+
+/** One derived index line: title, link, gist — the map entry a receipt earns. */
+function decisionLine(entry: ScannedNode): string {
+  const title = entry.state.node.title;
+  const target = entry.state.url ?? entry.state.ref.id;
+  const gist = entry.scan.hasReceipt
+    ? (entry.scan.gist ?? "no gist on the receipt — read the node")
+    : "closed without a receipt (see `soma graph audit`)";
+  return `- [${title}](${target}) — ${gist}`;
+}
+
+/**
+ * The map's decision index, derived from close receipts (#495 review finding 2).
+ *
+ * The map is an index, not a store — but until this verb the index was
+ * hand-maintained prose, kept honest by discipline alone, and the gists
+ * demonstrably drifted toward restating. Deriving it from receipts makes the
+ * invariant structural: a decision lives in exactly one place (its node's
+ * receipt), and the map body carries a projection nobody edits by hand.
+ *
+ * `--write` splices between the decisions markers in the map body, and refuses
+ * when they are absent: the verb owns the section, never the prose around it.
+ */
+async function runDecisions(parsed: ParsedGraphDecisionsArgs, graph: WorkGraph, repo: string): Promise<string> {
+  const root: NodeRef = { id: parsed.target };
+  const { closed } = await scanClosedNodes(graph, root);
+  const lines = closed.map((entry) => decisionLine(entry));
+  const rendered = lines.length > 0 ? lines.join("\n") : "- none yet";
+
+  if (parsed.options.write === true) {
+    const body = await graph.readRawBody(root);
+    const spliced = spliceSection(body, rendered);
+    if (spliced === undefined) {
+      throw new SomaCliError(
+        [
+          `Map ${parsed.target} has no decisions markers — nothing to write into.`,
+          `Add these two lines to the map body where the derived index should live:`,
+          DECISIONS_BEGIN,
+          DECISIONS_END,
+          `The verb owns the section between them and never touches the prose around it.`,
+        ].join("\n"),
+        1,
+      );
+    }
+    await graph.writeRawBody(root, spliced);
+    return [
+      `Wrote ${closed.length} decision line(s) into map ${parsed.target} (${repo}).`,
+      "",
+      rendered,
+    ].join("\n");
+  }
+
+  if (parsed.options.json === true) {
+    return JSON.stringify(
+      {
+        repo,
+        root: parsed.target,
+        decisions: closed.map((entry) => ({
+          id: entry.state.ref.id,
+          title: entry.state.node.title,
+          url: entry.state.url,
+          hasReceipt: entry.scan.hasReceipt,
+          gist: entry.scan.gist,
+        })),
+      },
+      null,
+      2,
+    );
+  }
+
+  return [`Decisions — root ${parsed.target} (${repo}), derived from close receipts`, "", rendered].join("\n");
+}
+
 export async function runGraphCli(parsed: ParsedGraphArgs, overrides: Partial<GraphCliDeps> = {}): Promise<string> {
   const deps: GraphCliDeps = { ...defaultDeps(), ...overrides };
   const repo = parsed.options.repo ?? (await deps.resolveRepo());
@@ -1184,5 +1436,9 @@ export async function runGraphCli(parsed: ParsedGraphArgs, overrides: Partial<Gr
       return await runAdd(parsed, graph, repo, deps);
     case "close":
       return await runClose(parsed, graph, store, repo, deps);
+    case "audit":
+      return await runAudit(parsed, graph, repo);
+    case "decisions":
+      return await runDecisions(parsed, graph, repo);
   }
 }

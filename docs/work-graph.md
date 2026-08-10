@@ -525,18 +525,47 @@ interface GraphStore {
 soma graph frontier <root>         # open, unassigned, unblocked, over the whole
                                    # membership subtree; GraphStore.readSubtree
                                    # confirms (§2.4)
-soma graph node <id>               # read one node (GraphStore.readNode) — the bridge's read path
+soma graph node <id>               # read one node, BODY INCLUDED — the walker's
+                                   # first read must not need the tracker's CLI
 soma graph claim <node>            # assign, re-read, tie-break on race
-soma graph add <root> ...          # create node (+ edges) — additive, structurally validated
-soma graph close <node>            # runs declared probes; refuses a hollow close
+soma graph add <root> ...          # create node (+ edges) — additive, structurally
+                                   # validated; --checkpoint is REQUIRED, since a
+                                   # node without one can never close and no verb
+                                   # attaches one later
+soma graph close <node>            # runs declared probes; refuses a hollow close;
+                                   # --gist records the map index's one-line entry
+soma graph audit <root>            # what the gates cannot see: closed nodes with
+                                   # no receipt (a tracker-side close — the gate
+                                   # never ran), open nodes that can never close,
+                                   # claimed nodes in flight. Read-only: it names,
+                                   # the human acts.
+soma graph decisions <root>        # the map's decision index, DERIVED from close
+                                   # receipts (gist + link per closed node);
+                                   # --write splices it into the map body between
+                                   # <!-- soma:decisions:begin/end --> markers and
+                                   # refuses when they are absent
 ```
 
 `close` enforcement lives in the **installed** soma binary, never the dev tree
 (#483 clause 5). Bypass via raw `gh` remains visible-but-unprevented in
-phase 1; the phase-2 auditor (§5) is designed to make it detected and is not
-built. A close run from a dev
+phase 1 — but no longer *undetected*: `audit` reports every closed node whose
+comments carry no close receipt, which is exactly the signature a tracker-side
+close leaves (including GitHub auto-closing a node when a PR that says
+`Implements #N` merges — observed live on #588, two seconds after the merge,
+`commit_id: null`). A close run from a dev
 tree warns on stderr rather than refusing — refusing would make the primitive
 undevelopable, and the warning keeps the gap visible state rather than silent.
+Every receipt also stamps `closedWith` — tool version, source tree, best-effort
+commit — because "merged" and "enforced" are different dates (§1 clause 5 puts
+enforcement in the install), and a receipt must say which rules produced it.
+
+The `decisions` verb exists because the map is an **index, not a store** — and
+until it, the index was hand-maintained prose kept honest by discipline alone,
+which demonstrably drifted toward restating. Derived from receipts, a decision
+lives in exactly one place (its node's receipt, via `--gist`) and the map body
+carries a projection nobody edits by hand. The verb owns only the span between
+its markers, never the prose around it, and refuses when the markers are absent
+rather than guessing where an index belongs in prose it does not own.
 
 HITL closes are two-phase, inside the same verb rather than a sixth one:
 `close --propose` posts the proposal comment and stops; `close

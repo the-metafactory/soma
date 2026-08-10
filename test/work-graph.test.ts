@@ -4,6 +4,10 @@ import {
   WorkGraphError,
   assertClosable,
   estimateReceiptChars,
+  scanCommentsForReceipt,
+  spliceSection,
+  DECISIONS_BEGIN,
+  DECISIONS_END,
   parseNodeSpec,
   parseProbe,
   renderCloseReceipt,
@@ -304,6 +308,35 @@ test("the receipt estimate counts the prose and the failing-case probe size", ()
   expect(RECEIPT_COMMENT_BUDGET).toBeLessThan(RECEIPT_COMMENT_LIMIT);
 });
 
+test("the last receipt wins the scan — a re-close supersedes (#588's reopen-and-close-properly)", () => {
+  const scan = scanCommentsForReceipt([
+    "just a discussion comment",
+    "## Close receipt\n\n- **gist:** the premature close",
+    "## Resolution\n\nredone\n\n## Close receipt\n\n- **gist:** the real close",
+  ]);
+  expect(scan.hasReceipt).toBe(true);
+  expect(scan.gist).toBe("the real close");
+
+  expect(scanCommentsForReceipt(["no receipt anywhere"]).hasReceipt).toBe(false);
+  // A receipt without a gist still counts as a receipt.
+  expect(scanCommentsForReceipt(["## Close receipt\n\n- **checkpoint:** `cp-x`"])).toEqual({ hasReceipt: true });
+});
+
+test("spliceSection replaces only the marked span, and refuses malformed markers", () => {
+  const body = `above\n${DECISIONS_BEGIN}\nold\n${DECISIONS_END}\nbelow`;
+  const spliced = spliceSection(body, "- new line");
+  expect(spliced).toContain("- new line");
+  expect(spliced).not.toContain("old");
+  expect(spliced).toContain("above");
+  expect(spliced).toContain("below");
+  // Idempotent: splicing again over its own output still finds the markers.
+  expect(spliceSection(spliced ?? "", "- newer")).toContain("- newer");
+
+  expect(spliceSection("no markers here", "x")).toBeUndefined();
+  // An end marker BEFORE the begin marker is malformed, not a zero-length span.
+  expect(spliceSection(`${DECISIONS_END}\n${DECISIONS_BEGIN}`, "x")).toBeUndefined();
+});
+
 // --- contract layer over a store -------------------------------------------
 
 interface FakeNode {
@@ -380,6 +413,18 @@ class FakeStore implements GraphStore {
 
   async readCommentReactions(): Promise<never[]> {
     return [];
+  }
+
+  async listComments(): Promise<never[]> {
+    return [];
+  }
+
+  async readRawBody(): Promise<string> {
+    return "";
+  }
+
+  async writeRawBody(): Promise<void> {
+    // Nothing stores raw bodies in this fake; the CLI tests exercise the splice.
   }
 
   async close(ref: NodeRef, closeReceipt: CloseReceipt): Promise<void> {

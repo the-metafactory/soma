@@ -18,11 +18,13 @@ import {
   WorkGraphError,
   renderCloseReceipt,
   runProbes,
+  scanCommentsForReceipt,
   type ClaimResult,
   type CloseReceipt,
   type CommentRef,
   type CreateNodeSpec,
   type GraphStore,
+  type NodeComment,
   type NodeRef,
   type NodeState,
   type Probe,
@@ -56,6 +58,7 @@ interface SeedNode {
   parent?: string;
   typed?: boolean;
   children?: string[];
+  rawBody?: string;
 }
 
 class FakeStore implements GraphStore {
@@ -124,6 +127,22 @@ class FakeStore implements GraphStore {
     return this.reactions.get(ref.id) ?? [];
   }
 
+  async listComments(ref: NodeRef): Promise<NodeComment[]> {
+    return [...this.comments.entries()]
+      .filter(([, comment]) => comment.nodeId === ref.id)
+      .map(([id, comment]) => ({ id, author: comment.author, body: comment.body }));
+  }
+
+  async readRawBody(ref: NodeRef): Promise<string> {
+    return this.nodes.get(ref.id)?.rawBody ?? "";
+  }
+
+  async writeRawBody(ref: NodeRef, body: string): Promise<void> {
+    const seed = this.nodes.get(ref.id);
+    if (seed === undefined) throw new WorkGraphError("backend", `no such node ${ref.id}`);
+    seed.rawBody = body;
+  }
+
   async close(ref: NodeRef, receipt: CloseReceipt): Promise<void> {
     this.closed.push({ ref, receipt });
   }
@@ -187,14 +206,25 @@ function autoNode(id: string, overrides: Partial<WorkGraphNode> = {}): WorkGraph
 
 // --- parsing ---------------------------------------------------------------
 
-test("the parser accepts exactly the five verbs of §2.6", () => {
-  for (const action of ["frontier", "node", "claim", "add", "close"]) {
+test("the parser accepts exactly the seven verbs of §2.6", () => {
+  for (const action of ["frontier", "node", "claim", "add", "close", "audit", "decisions"]) {
     const parsed = parseGraphArgs(
-      action === "add" ? ["graph", action, "495", "--title", "t", "--autonomy", "approve"] : ["graph", action, "495"],
+      action === "add"
+        ? ["graph", action, "495", "--title", "t", "--autonomy", "approve", "--checkpoint", "cp-t"]
+        : ["graph", action, "495"],
     );
     expect(parsed.action).toBe(action as never);
   }
-  expect(() => parseGraphArgs(["graph", "delete", "495"])).toThrow(/frontier\|node\|claim\|add\|close/u);
+  expect(() => parseGraphArgs(["graph", "delete", "495"])).toThrow(/frontier\|node\|claim\|add\|close\|audit\|decisions/u);
+});
+
+test("add refuses a node with no checkpoint — it could never close, and no verb attaches one later", () => {
+  // Three of map #495's scaffold nodes shipped checkpoint-less and every one
+  // needed its node block hand-edited on the tracker. The verb now refuses at
+  // the cheap end instead.
+  expect(() => parseGraphArgs(["graph", "add", "495", "--title", "t", "--autonomy", "approve"])).toThrow(
+    /--checkpoint.*never close/u,
+  );
 });
 
 test("a verb without a target is a usage error, not a request against node 'undefined'", () => {
@@ -331,7 +361,7 @@ test("add attaches the node under the root it was given and wires blocking edges
 test("add refuses an auto node with no probes — zero machine-checkable evidence at close", async () => {
   const store = new FakeStore().seed("495", { node: autoNode("495") });
   const message = await failure(
-    ["graph", "add", "495", "--title", "t", "--autonomy", "auto", "--repo", REPO],
+    ["graph", "add", "495", "--title", "t", "--autonomy", "auto", "--checkpoint", "cp-t", "--repo", REPO],
     store,
   );
 
@@ -1429,6 +1459,132 @@ test("--propose with --resolution-file refuses rather than posting the prose twi
   expect(() =>
     parseGraphArgs(["graph", "close", "520", "--propose", "--body", "x", ...RESOLUTION]),
   ).toThrow(/the proposal body is the resolution/u);
+});
+
+// --- node prints its body; audit and decisions read the graph (#495 review) --
+
+test("soma graph node prints the body — reading a node must not require the tracker's own CLI", async () => {
+  class BodyStore extends FakeStore {
+    override async readNode(ref: NodeRef): Promise<NodeState> {
+      const state = await super.readNode(ref);
+      return { ...state, body: "## The question\n\nDoes the verb show this?" };
+    }
+  }
+  const store = new BodyStore().seed("495", { node: autoNode("495") });
+
+  const output = await run(["graph", "node", "495", "--repo", REPO], store);
+
+  expect(output).toContain("## The question");
+  expect(output).toContain("Does the verb show this?");
+});
+
+test("audit flags a closed node with no receipt — the tracker closed it, the gate never ran", async () => {
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495"), children: ["520", "521", "522"] })
+    .seed("520", { node: autoNode("520"), status: "closed", parent: "495" })
+    .seed("521", { node: autoNode("521"), status: "closed", parent: "495" })
+    .seed("522", {
+      node: { id: "522", title: "no gate", autonomy: "approve" },
+      typed: false,
+      parent: "495",
+      assignees: ["ivy-agent"],
+    });
+  // 520 closed properly — its receipt comment is on the node. 521 was
+  // auto-closed by the tracker: closed, no receipt anywhere.
+  await store.postComment({ id: "520" }, `## Resolution\n\nfine\n\n## Close receipt\n\n- **checkpoint:** \`cp-520\``);
+
+  const output = await run(["graph", "audit", "495", "--repo", REPO], store);
+
+  expect(output).toContain("Closed without a close receipt");
+  expect(output).toContain("521");
+  expect(output).not.toMatch(/receipt[\s\S]*- 520 /u);
+  expect(output).toContain("Open with no checkpoint");
+  expect(output).toContain("522");
+  expect(output).toContain("Open and claimed");
+});
+
+test("a clean subtree audits clean", async () => {
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495"), children: ["520"] })
+    .seed("520", { node: autoNode("520"), status: "closed", parent: "495" });
+  await store.postComment({ id: "520" }, `## Close receipt\n\n- **checkpoint:** \`cp-520\``);
+
+  const output = await run(["graph", "audit", "495", "--repo", REPO], store);
+
+  expect(output).toContain("Clean");
+});
+
+test("decisions derives the index from receipts — gist when recorded, honest fallbacks otherwise", async () => {
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495"), children: ["520", "521", "522"] })
+    .seed("520", { node: autoNode("520", { title: "contain the probes" }), status: "closed", parent: "495" })
+    .seed("521", { node: autoNode("521", { title: "prose on every close" }), status: "closed", parent: "495" })
+    .seed("522", { node: autoNode("522", { title: "auto-closed by the tracker" }), status: "closed", parent: "495" });
+  await store.postComment(
+    { id: "520" },
+    `## Close receipt\n\n- **checkpoint:** \`cp-520\`\n- **gist:** resolved paths must stay under the stated tree\n- **closed by:** ivy-agent`,
+  );
+  await store.postComment({ id: "521" }, `## Close receipt\n\n- **checkpoint:** \`cp-521\``);
+
+  const output = await run(["graph", "decisions", "495", "--repo", REPO], store);
+
+  expect(output).toContain("[contain the probes]");
+  expect(output).toContain("resolved paths must stay under the stated tree");
+  expect(output).toContain("no gist on the receipt");
+  expect(output).toContain("closed without a receipt");
+});
+
+test("decisions --write splices between the markers and refuses without them", async () => {
+  const withMarkers = new FakeStore()
+    .seed("495", {
+      node: autoNode("495"),
+      children: ["520"],
+      rawBody: `# Map\n\nprose above\n\n<!-- soma:decisions:begin -->\nstale hand-written list\n<!-- soma:decisions:end -->\n\nprose below`,
+    })
+    .seed("520", { node: autoNode("520", { title: "a decision" }), status: "closed", parent: "495" });
+  await withMarkers.postComment({ id: "520" }, `## Close receipt\n\n- **gist:** the decided thing`);
+
+  await run(["graph", "decisions", "495", "--write", "--repo", REPO], withMarkers);
+  const body = await withMarkers.readRawBody({ id: "495" });
+
+  expect(body).toContain("the decided thing");
+  expect(body).not.toContain("stale hand-written list");
+  // The verb owns the section, never the prose around it.
+  expect(body).toContain("prose above");
+  expect(body).toContain("prose below");
+  expect(body).toContain("<!-- soma:decisions:begin -->");
+
+  const withoutMarkers = new FakeStore()
+    .seed("495", { node: autoNode("495"), children: [], rawBody: "# Map with no markers" })
+    .seed("520", { node: autoNode("520"), status: "closed", parent: "495" });
+  const message = await failure(["graph", "decisions", "495", "--write", "--repo", REPO], withoutMarkers);
+  expect(message).toContain("no decisions markers");
+  expect(await withoutMarkers.readRawBody({ id: "495" })).toBe("# Map with no markers");
+});
+
+test("the close stamps gist and tool into the receipt, and the renderer's gist line is what decisions parses", async () => {
+  const store = autoGraph();
+  await run(
+    ["graph", "close", "520", "--repo", REPO, ...RESOLUTION, "--gist", "one line for the index"],
+    store,
+    { describeTool: async () => "soma 9.9.9 @ abc1234 (dev tree)" },
+  );
+
+  const receipt = store.closed[0].receipt;
+  expect(receipt.gist).toBe("one line for the index");
+  expect(receipt.closedWith).toBe("soma 9.9.9 @ abc1234 (dev tree)");
+
+  // Round-trip: the rendered receipt is exactly what scanCommentsForReceipt
+  // reads. One renderer, one parser — this is the pin that keeps them together.
+  const scan = scanCommentsForReceipt([renderCloseReceipt(receipt)]);
+  expect(scan.hasReceipt).toBe(true);
+  expect(scan.gist).toBe("one line for the index");
+});
+
+test("--gist refuses multi-line text — it is the index entry, not the resolution", () => {
+  expect(() =>
+    parseGraphArgs(["graph", "close", "520", ...RESOLUTION, "--gist", "line one\nline two"]),
+  ).toThrow(/one non-empty line/u);
 });
 
 test("SomaCliError carries a non-zero exit for a lost claim", async () => {

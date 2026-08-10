@@ -13,9 +13,14 @@ proposal can still be posted for a close that later fails on its probes.
 
 ## Attach the checkpoint at creation
 
-Pass `--checkpoint <id>` to `soma graph add`. There is **no verb that attaches
-one later**, so a node created without it can only be repaired by hand-editing
-its node block on the tracker — and it cannot close until you do.
+`soma graph add` **refuses to create a node without `--checkpoint <id>`**. There
+is no verb that attaches one later, and a node without one can never close —
+three of map #495's scaffold nodes shipped that way, and every one needed its
+node block hand-edited on the tracker, which is exactly the raw write the verbs
+exist to prevent. The refusal moved that failure to the cheap end.
+
+A node from before this rule (or a hand-authored ticket) can still lack one;
+`soma graph audit <root>` lists them under *open with no checkpoint*.
 
 Pick an id that does not embed the node's own number: the number does not exist
 until after the create call returns.
@@ -175,8 +180,11 @@ keyring, which have different fixes.
 ## Recording the resolution
 
 1. Write the answer to a file and close with it:
-   `soma graph close <id> --resolution-file <path>`. Posting and closing are one
-   act — the prose rides the receipt into a single comment.
-2. Append a one-line gist plus link to the map's **Decisions so far**.
+   `soma graph close <id> --resolution-file <path> --gist "<one line>"`. Posting
+   and closing are one act — the prose rides the receipt into a single comment,
+   and the gist is the receipt's one-line form for the map index.
+2. `soma graph decisions <root> --write` — re-derive the map's decision index
+   from receipts. The map is an index, and the index is a projection: never
+   hand-edit the span between the decisions markers.
 3. Graduate any fog the answer sharpened (`references/fog.md`), clearing each
    graduated patch from **Not yet specified** so it lives only as its new node.

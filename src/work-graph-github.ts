@@ -29,6 +29,7 @@ import {
   type CommentRef,
   type CreateNodeSpec,
   type GraphStore,
+  type NodeComment,
   type NodeRef,
   type NodeState,
   type NodeStatus,
@@ -761,6 +762,39 @@ class GitHubGraphStore implements GraphStore {
         author: readLogin(record.user),
         ...(typeof createdAt === "string" ? { createdAt } : {}),
       };
+    });
+  }
+
+  /** Bodies included — the read half of {@link postComment}. Paginated: receipts are often the last comment. */
+  async listComments(ref: NodeRef): Promise<NodeComment[]> {
+    const comments = asArray(
+      await this.transport({
+        method: "GET",
+        path: `repos/${this.repo}/issues/${ref.id}/comments`,
+        paginate: true,
+      }),
+      "listComments",
+    );
+    return comments.map((entry) => {
+      const record = asRecord(entry, "listComments");
+      return {
+        id: String(readNumber(record, "id", "listComments")),
+        author: readLogin(record.user),
+        body: typeof record.body === "string" ? record.body : "",
+        ...(typeof record.html_url === "string" ? { url: record.html_url } : {}),
+      };
+    });
+  }
+
+  async readRawBody(ref: NodeRef): Promise<string> {
+    return (await this.fetchIssue(ref)).body;
+  }
+
+  async writeRawBody(ref: NodeRef, body: string): Promise<void> {
+    await this.transport({
+      method: "PATCH",
+      path: `repos/${this.repo}/issues/${ref.id}`,
+      body: { body },
     });
   }
 
