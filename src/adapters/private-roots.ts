@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import type { PrivateRootOptions } from "../install-spec";
+import type { InstallSubstrate, PrivateRootOptions } from "../install-spec";
 
 /**
  * Per-substrate default homes and private-root path builders, deliberately kept
@@ -32,35 +32,51 @@ export const GROK_DEFAULT_HOME = ".grok";
 export const PI_DEV_DEFAULT_HOME = ".pi";
 export const ANTHROPIC_COWORK_DEFAULT_HOME = ".anthropic-cowork";
 
-export function codexProjectionPrivateRoots(options: PrivateRootOptions = {}): string[] {
-  if (options.substrate !== undefined && options.substrate !== "codex") return [];
+/**
+ * The shared shape: a private root is `<homeDir>/<defaultHome>/<segments...>`,
+ * and a builder yields nothing when the caller has narrowed the query to a
+ * different substrate. `somaProjectionPrivateRoots` narrows by substrate too,
+ * but the self-filter is what makes each builder correct when called directly.
+ */
+function substrateRoots(
+  options: PrivateRootOptions,
+  substrate: InstallSubstrate,
+  defaultHome: string,
+  segments: readonly (readonly string[])[],
+): string[] {
+  if (options.substrate !== undefined && options.substrate !== substrate) return [];
   const home = resolve(options.homeDir ?? homedir());
-  return [join(home, CODEX_DEFAULT_HOME, "skills", "soma")].map((path) => resolve(path));
+  return segments.map((segment) => resolve(join(home, defaultHome, ...segment)));
+}
+
+export function codexProjectionPrivateRoots(options: PrivateRootOptions = {}): string[] {
+  return substrateRoots(options, "codex", CODEX_DEFAULT_HOME, [["skills", "soma"]]);
 }
 
 export function codexMemoryPrivateRoots(options: PrivateRootOptions = {}): string[] {
-  if (options.substrate !== undefined && options.substrate !== "codex") return [];
-  const home = resolve(options.homeDir ?? homedir());
-  return [join(home, CODEX_DEFAULT_HOME, "memories")].map((path) => resolve(path));
+  return substrateRoots(options, "codex", CODEX_DEFAULT_HOME, [["memories"]]);
 }
 
 export function grokProjectionPrivateRoots(options: PrivateRootOptions = {}): string[] {
-  if (options.substrate !== undefined && options.substrate !== "grok") return [];
-  const home = resolve(options.homeDir ?? homedir());
   // The projected identity/context surface (Soma never writes into
   // ~/.grok/memory/, so there is no separate memory private root).
-  return [join(home, GROK_DEFAULT_HOME, "skills", "soma")].map((path) => resolve(path));
+  return substrateRoots(options, "grok", GROK_DEFAULT_HOME, [["skills", "soma"]]);
 }
 
 export function piDevProjectionPrivateRoots(options: PrivateRootOptions = {}): string[] {
-  if (options.substrate !== undefined && options.substrate !== "pi-dev") return [];
-  const home = resolve(options.homeDir ?? homedir());
-  return [
-    join(home, PI_DEV_DEFAULT_HOME, "agent", "soma"),
-    join(home, PI_DEV_DEFAULT_HOME, "agent", "skills", "soma"),
-  ];
+  return substrateRoots(options, "pi-dev", PI_DEV_DEFAULT_HOME, [
+    ["agent", "soma"],
+    ["agent", "skills", "soma"],
+  ]);
 }
 
+/**
+ * Does NOT use `substrateRoots`, on purpose. Cowork roots hang off an explicit
+ * `substrateHome` when the caller supplies one — the default home is only the
+ * fallback — and this builder has never self-filtered on `options.substrate`;
+ * `somaProjectionPrivateRoots` does the narrowing for it. Folding it into the
+ * helper would silently change both behaviours.
+ */
 export function anthropicCoworkProjectionPrivateRoots(options: PrivateRootOptions = {}): string[] {
   const homeDir = resolve(options.homeDir ?? homedir());
   const substrateHome = resolve(options.substrateHome ?? join(homeDir, ANTHROPIC_COWORK_DEFAULT_HOME));
