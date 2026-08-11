@@ -1,7 +1,14 @@
 # Work graph — typed contracts and execution story
 
-**Status:** Phase 1 implemented and on `main` (§2-§4, via map #495); §5 phase 2 unbuilt. Locked by DD-16, wayfinder map #477
-**Date:** 2026-08-02
+**Status:** Phase 1 implemented, on `main`, and released in 0.15.0 (§2-§4). Map #495 closed 2026-08-11 through this spec's own gate — 27 nodes, receipt `unverified`. §5 phase 2 remains unbuilt. Locked by DD-16, wayfinder map #477
+**Date:** 2026-08-02, status refreshed 2026-08-11
+
+One destination clause of #495 did **not** land and is tracked rather than
+assumed: HITL receipts still read `unverified`, because a closing session
+reaches the principal's credential even though a distinct machine account
+exists (#511). Two decisions graduated out of the map on its close — what
+reconciles a node the tracker closed with no gate (#600), and what closes the
+gap between a merged conjunct and an enforcing install (#601).
 
 The **work graph** is Soma's typed primitive for cross-session effort
 topology: nodes of work joined by blocking edges, walked by agent sessions,

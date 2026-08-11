@@ -10,6 +10,83 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 ### Changed
+
+### Fixed
+
+## [0.15.0] - 2026-08-11
+
+The **work graph** release: a typed primitive for planning work that outlives a
+single agent session, walked with `soma graph` verbs, closed only through
+checkpoint gates that refuse a hollow close. Built and dogfooded on its own map
+(#495) from first spec to close — every decision below was resolved as a node on
+the graph it describes.
+
+### Added
+- **The work graph primitive, its verbs, and its trust gate (#484, #499, DD-16).**
+  Nodes of work joined by two relations — *membership* (a node belongs to a map)
+  and *blocking* (a node gates another) — with a typed `GraphStore` seam and a
+  GitHub backend where the tracker is the sole authoritative store. Five verbs:
+
+  ```bash
+  soma graph frontier <root>    # open, unassigned, unblocked nodes in the subtree
+  soma graph node <id>          # the node's state and body
+  soma graph claim <id>         # take it
+  soma graph add <root> …       # attach a node, --checkpoint required
+  soma graph close <id> …       # the gate: probes, prose, receipt
+  ```
+
+  A node carries an `autonomy` class (`auto` / `propose` / `approve`), an
+  uninterpreted `kind`, a checkpoint, and — for anything machine-closable —
+  probes. `assertClosable` is the hollow-close refusal: a node closes only
+  through its checkpoint, and an `auto` node with zero probes is unconstructible
+  rather than merely discouraged.
+
+- **`soma graph audit <root>` (#597)** reports what the gates structurally cannot
+  see: nodes closed with no receipt (the tracker closed them; no gate ran), open
+  nodes with no checkpoint (they can never close), and open-and-claimed nodes.
+  Read-only by design — an auditor that reopened nodes would be a second writer
+  with its own race.
+
+- **`soma graph decisions <root>` (#597)** collects the resolution prose of a
+  map's closed nodes into one document, so a finished map reads as a record
+  rather than as a list of closed tickets.
+
+- **Probe types and the registry gate (DD-16 Amendment A, #524, #526).** Probes
+  are `command`, `url`, `git-ref-exists`, `git-merged-into`, and
+  `artifact-exists`. Tracker content may *parameterise* a probe but may never
+  introduce executable code or a network destination: a `command` probe is
+  refused unless the exact `run` **and** `cwd` pair is declared in
+  `~/.soma/policy/probe-registry.json`, and a `url` probe unless its host is.
+  Inspect with `soma policy probes`; adding an entry is a loosening mutation and
+  stays the adopter's hand — Soma ships no verb that writes it.
+
+- **Close receipts with derived attestation (#502).** Every close posts a
+  receipt naming the checkpoint, the probes and what they observed, the probe
+  trees with their HEAD and dirty state, and an `attestation` of `verified` or
+  `unverified` **derived from authorship and reachable credentials**, never
+  declared. An unverified receipt lists its reasons rather than failing quietly.
+
+- **The `orienteer` skill**, bundled and projected with the primitive rather
+  than after it: doctrine for charting a map of decision nodes for work too big
+  for one session, and walking its frontier one node at a time.
+
+- **`planSteps` ↔ node bridge (#501).** An `AlgorithmPlanStep` may carry an
+  optional `nodeId`; a bridged step's `status` is then a cache of the node's
+  reported state, re-derived through `GraphStore.readNode` rather than authored
+  by the caller.
+
+- **Progressive skill loading on the adapter spec (#542).** `skillsLoading`
+  declares a substrate's loading mode as an install fact; eager substrates get
+  stubs, and Pi.dev gains a `skill_body` promotion action. `soma doctor` now
+  detects skill stubs whose body no longer resolves.
+
+- **`bun run measure-graph-read-path`** counts and times every backend call a
+  graph verb makes.
+
+- **[docs/pai-to-soma-untangling-runbook.md](docs/pai-to-soma-untangling-runbook.md) (#470)** —
+  reference runbook for untangling a live PAI install into Soma.
+
+### Changed
 - **BREAKING — `GraphStore.listCandidateFrontier` is replaced by `readSubtree` (#576).**
   The seam returned candidate `NodeRef`s that `WorkGraph.frontier` then re-fetched one
   by one; it now returns `NodeState[]` for the root's whole membership subtree, already
@@ -31,7 +108,76 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   was written for a discovery step assumed to be a lagging search index, and where
   discovery already reads the authoritative store, that read confirms.
 
+- **The frontier walks the whole subtree, at any depth (#564).** It was one level
+  deep, so scaffold nodes attached below their spawning ticket were invisible —
+  and because scaffold outlives its parent by construction, the invisible case was
+  the normal one. Discovery is nested GraphQL `subIssues` with re-rooting on
+  truncation; recursive REST would have scaled with a map's *closed* history,
+  making a map slower as it succeeded. Depth now records provenance and nothing
+  else: gating is what a blocking edge means.
+
+- **Every close carries prose (#588).** `--resolution-file` is required on an
+  `auto` close and on a bare HITL close, exempt only when `--proposal-comment`
+  names a proposal whose body already is the prose. It is folded into the receipt
+  comment, so no ordering exists in which one half lands without the other.
+  Documented as a **forcing function, not evidence** — no machine can check that
+  the prose says anything.
+
+- **The close has an operational envelope (#592).** `observed` output is bounded
+  by outcome (200 chars on pass, 1 200 on fail); a **runtime** 15-minute deadline
+  clamps a close and records unrun probes as failed rather than skipped; and an
+  oversized receipt is refused *before* any probe runs, counting the resolution
+  prose, since GitHub caps a comment at 65 536 characters and the receipt posts
+  after the expensive part.
+
+- **A HITL node closes on the session's say-so (#549).** Ratification is a label
+  on the receipt, not a gate: a node whose autonomy class puts a human in the loop
+  closes when that human closes it. A ratification is a **reaction** on a proposal
+  comment — a deliberate, unambiguous gesture — never inferred from prose.
+
+- **Labels are a write-only human index for a map (#532).** Topology comes from
+  native edges and `kind` from the node block; labels exist because a tracker list
+  view is unreadable without them. The runtime never interprets one.
+
+- **`soma graph add` refuses without `--checkpoint` (#597),** and `soma graph node`
+  prints the node body — the most frequent read in a walk was the one operation
+  with no verb.
+
+- **Skill loading mode belongs to the install spec, not skill frontmatter (#542).**
+
 ### Fixed
+- **Probes ran in whatever directory the close was invoked from (#579, #580).**
+  The probe directory was ambient, unstated and unprinted, so a wrapper with a
+  `cd` silently fixed every session's probes to the install tree. The close now
+  resolves **one** base directory and passes it to both the runner and the
+  registry match — `ProbeRunnerOptions.cwd` is required, so an ambient probe
+  directory is no longer expressible — and the receipt records every tree the
+  probes actually resolved to, with HEAD and dirty state. Dirty is **recorded,
+  never refused**. Named plainly as detection, not prevention.
+
+- **The ungated probes escaped the stated tree (#529, #582).** `artifact-exists`
+  resolves its `path` against the cwd, so an absolute path escaped with no `repo`
+  field at all — verified live, where `path: "/etc/passwd"` passed and echoed into
+  a world-readable receipt. Containment is now one predicate before dispatch: the
+  *resolved* absolute path must be the stated tree or a descendant, by a
+  separator-aware prefix test. Lexical, not `realpath` — a symlink inside the tree
+  pointing out still escapes, and that is written down rather than implied away.
+
+- **The confidentiality gate's generated header claimed it could not block a
+  merge (#560).** It could: `decideExit` returns 1 on any block-class finding
+  under `set -e`, and with the check required by a ruleset a finding does block.
+  The header now states only what the file controls and points at the ruleset,
+  instead of asserting a deployment fact from inside a generated source file.
+
+- **PAI naming leaked into projected artifacts (#577 and follow-ups).** The
+  Algorithm's shipped references, the bundled-skill pointers missed by the #329
+  ISA→VSA rename, and the importer's emitted names all still said PAI; the residue
+  guard missed the bare form. The `the-algorithm` skill now ships a closed,
+  executable reference set.
+
+- **Standalone-binary hook assets no longer break Pi.dev (#531).**
+
+- **The Codex work-registry lock wait is bounded (#583).**
 
 ## [0.14.1] - 2026-08-02
 
