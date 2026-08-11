@@ -347,6 +347,46 @@ already date-prefixed. Use the slug printed by the scaffold command for
 For parallel feature work, Soma can reconcile feature VSAs back into a master
 VSA by stable criterion IDs. See [docs/vsa-reconcile.md](docs/vsa-reconcile.md).
 
+### The work graph
+
+Some work is too big for one agent session and too foggy to plan in one sitting.
+The **work graph** is Soma's typed primitive for that case: nodes of work joined
+by *membership* (a node belongs to a map) and *blocking* (a node gates another),
+walked one node at a time, closed only through a checkpoint gate.
+
+```bash
+soma graph frontier <root>   # open, unassigned, unblocked nodes — anywhere in the subtree
+soma graph node <id>         # its state and body
+soma graph claim <id>        # take it
+soma graph add <root> --title "…" --autonomy approve --checkpoint <id>
+soma graph close <id> --resolution-file <path>
+soma graph audit <root>      # what the gates cannot see
+soma graph decisions <root>  # the map's resolutions, collected
+```
+
+The store is a seam; the shipping backend is your GitHub issue tracker, which
+stays the sole authoritative record — Soma keeps no parallel copy of the graph.
+
+**A node closes only through its gate.** Each carries an autonomy class
+(`auto` / `propose` / `approve`), a checkpoint, and — for anything machine-closable
+— probes: `command`, `url`, `git-ref-exists`, `git-merged-into`, `artifact-exists`.
+An `auto` node with zero probes cannot be constructed. The close runs the probes,
+requires human-readable prose, and posts a **receipt** naming the checkpoint, what
+each probe observed, the tree it ran in with its HEAD and dirty state, and an
+attestation of `verified` or `unverified` derived from authorship and reachable
+credentials rather than declared. An unverified receipt lists its reasons.
+
+Because tracker content is untrusted input, a `command` probe runs only if its
+exact command and directory are declared in your Soma home:
+
+```bash
+soma policy probes           # read the registry; Soma ships no verb that writes it
+```
+
+The **orienteer** skill is the doctrine for using this: chart a loose idea as a map
+of decision nodes, then resolve them one at a time until the route is clear.
+See [docs/work-graph.md](docs/work-graph.md) for the spec.
+
 ### Skills
 
 Skills are portable capability folders. A skill can include `SKILL.md`,
@@ -529,6 +569,11 @@ heuristic — across all 5 install substrates (codex, claude-code, cursor, grok,
 pi-dev), catching hand-edited, stale, or missing projection files with
 CI-friendly exit codes (0 clean, 1 drift, 2 error).
 
+The work graph is phase 1: the primitive, its verbs, and its close gates are on
+`main` and were dogfooded on their own map from spec to close. Phase 2 — a
+scheduled unattended tick that walks a frontier without a human present — is
+specified and deliberately unbuilt.
+
 Daemon mode and deeper Cortex/Myelin integration come after the file format,
 writeback gates, and adapter behavior are stable.
 
@@ -563,6 +608,7 @@ writeback boundaries as substrate sessions. See
 - [docs/home-replication.md](docs/home-replication.md), cross-machine Soma home replication
 - [docs/team-overlays.md](docs/team-overlays.md), read-only team overlays and shared-state boundaries
 - [docs/daemon-mode.md](docs/daemon-mode.md), daemon mode ownership and Myelin contract boundaries
+- [docs/work-graph.md](docs/work-graph.md), the work graph spec — node vocabulary, close gates, probes, and receipts
 - [docs/writeback-and-policy.md](docs/writeback-and-policy.md), projection, writeback, conflict, and policy semantics
 - [docs/portability-proof.md](docs/portability-proof.md), the first portability proof and evidence contract
 
