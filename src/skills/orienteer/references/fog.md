@@ -29,6 +29,11 @@ can answer it now.
 **Not yet specified** excludes what's already decided (Decisions so far), what's
 already a live node, and what's out of scope.
 
+It also excludes what is **simply true regardless of route** — no budget, a
+deadline, a runtime that cannot change. That is a **constraint**, not fog: fog is
+a question awaiting an answer, a constraint is a predicate every answer must
+respect. It belongs in the map's Constraints section (`references/map.md`).
+
 ### Graduating a patch
 
 When a resolution sharpens a patch, create its node(s) and **clear the patch

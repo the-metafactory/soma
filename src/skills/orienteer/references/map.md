@@ -24,8 +24,8 @@ before choosing a node.>
 
 ## Constraints
 
-<!-- see below: what is fixed regardless of route — every node's answer must
-     respect these -->
+<!-- see references/map.md: what is fixed regardless of route — every node's
+     answer must respect these; `- none identified` when there are none -->
 
 - <one line each: budget, time, tooling that cannot change, things that must not
   break, capabilities not available>
@@ -74,6 +74,10 @@ answer against it, and `decisions --write` does not project it. It binds the way
 the Destination binds — the agent reads it and honours it — so write constraints
 a reader can actually check an option against: "no budget for paid services" is
 checkable, "keep it cheap" is not.
+
+**No constraints is a real answer**, and a common one. Write `- none identified`
+rather than leaving the placeholder standing, so a later session can tell an
+unconstrained effort from a question nobody asked.
 
 Constraints live on the map and **only** on the map. A node never restates one:
 a constraint amended in one place would leave stale copies in every node that

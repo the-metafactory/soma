@@ -30,6 +30,12 @@ told:
 soma memory recall "budget capacity constraint deadline"   # read-only
 ```
 
+Vary the query to the effort — that one is a starting point, and whole-file term
+scoring returns near-misses beside the hits. Every result carries a verification
+banner with an age on it: **respect it**. A note records what was true when it
+was written, and a stale one proposed as a live constraint puts a predicate on
+every answer that may no longer hold.
+
 `~/.soma/profile/purpose.md` carries the same class under Commitments. Where
 there is no Soma home — orienteer runs in any repository — this pass is simply
 the question, asked.
@@ -39,6 +45,14 @@ candidate, not a fact about this effort: put it to the human and let them
 confirm, amend, or drop it. Silently assuming one is worse than never eliciting
 it, because the map then carries a predicate on every answer that nobody agreed
 to.
+
+**Propose the constraint, never the source.** That store holds a principal's
+private material — health, finances, relationships, whatever they have recorded
+— and a map body is an issue on a tracker, as public as the repository holding
+it. So translate before you ask: put *"no budget for paid services"* to the
+human, not the note you read it in, and never paste recall output into the map.
+They are confirming a constraint on this effort, not approving a disclosure, and
+should not have to catch one on your behalf.
 
 What survives goes in the map's **Constraints** section (`references/map.md`).
 

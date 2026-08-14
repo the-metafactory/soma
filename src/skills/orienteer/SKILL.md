@@ -103,7 +103,7 @@ Load only what the task routes to.
 | `Workflows/WalkTheMap.md` | Resolving a node on an existing map |
 | `references/map.md` | Writing the map body, or creating a node — anatomy, constraints, `autonomy` vs `kind`, the four work kinds |
 | `references/closing.md` | Closing a node — checkpoints, probes, the probe registry, AFK vs HITL receipts, attestation |
-| `references/fog.md` | Deciding whether something is fog, a node, or out of scope |
+| `references/fog.md` | Deciding whether something is fog, a node, or out of scope — or a constraint instead (`map.md`) |
 
 ## Lineage
 
