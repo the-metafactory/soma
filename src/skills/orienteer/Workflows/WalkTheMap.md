@@ -12,9 +12,15 @@ graph concurrently.
 soma graph node <root>
 ```
 
-Read its body: Destination, Notes, Decisions so far, Not yet specified, Out of
-scope. This is the low-resolution view — do **not** load every child. Orient to
-the destination before choosing anything, and honour whatever the Notes name.
+Read its body: Destination, Constraints, Notes, Decisions so far, Not yet
+specified, Out of scope. This is the low-resolution view — do **not** load every
+child. Orient to the destination before choosing anything, and honour whatever
+the Notes name.
+
+**Treat the Constraints as binding on the answer you are about to write**: an
+option that violates one is not on the table. Nothing checks this for you — no
+verb reads that section and the close gate does not test against it
+(`references/map.md`) — so it holds exactly as far as you read it.
 
 ## 2. Choose and claim
 
@@ -38,6 +44,12 @@ name. If in doubt, use `/grilling` and `/domain-modeling`.
 
 A HITL node (`propose` / `approve`) resolves only through live exchange with the
 human. Never stand in for their side of it.
+
+Where a constraint touches the options you are weighing, make that **dimension
+visible in them** — cost under a budget constraint, effort under a deadline — so
+the constraint is applied where the choice is offered rather than discovered
+after it. The node never restates the constraint itself: it lives on the map
+alone.
 
 If resolving this node throws off work of its own, attach that **below this
 node**, never to the map (`references/fog.md`).
@@ -72,6 +84,11 @@ resolution — do not pass both.
   destination — close it and record one line under **Out of scope**, not under
   Decisions so far.
 - **Update or delete** nodes the decision invalidated.
+- **Record a constraint the work surfaced** in the map's **Constraints**
+  section, never only in this node's resolution — a constraint buried in a
+  receipt is one no later session reads. If it invalidates decisions already
+  closed, say so plainly in your report rather than quietly working around it:
+  re-resolving them is hand work with no verb behind it yet.
 
 Then report: what closed, what it means for the frontier, and what is now
 takeable. Name things by their titles.

@@ -22,6 +22,14 @@ listed — they are open children, found by `soma graph frontier`.
 this effort is finding its way to. One or two lines; every session orients to it
 before choosing a node.>
 
+## Constraints
+
+<!-- see references/map.md: what is fixed regardless of route — every node's
+     answer must respect these; `- none identified` when there are none -->
+
+- <one line each: budget, time, tooling that cannot change, things that must not
+  break, capabilities not available>
+
 ## Notes
 
 <domain; skills every session should consult; standing preferences for this effort>
@@ -43,6 +51,40 @@ before choosing a node.>
 <!-- see references/fog.md: work ruled beyond the destination; closed, never
      graduates -->
 ```
+
+### Constraints
+
+A constraint is what is **fixed regardless of route**: no budget, a deadline, a
+runtime that cannot change, something that must not break, a capability not
+available. It sits with the destination because the two together fix the
+effort's shape — the destination says where this is going, the constraints say
+what the way there may not cost.
+
+The test is whether an **answer could violate it**. That is what separates it
+from the four sections around it:
+
+- not **fog** — it is not a question awaiting an answer,
+- not **out of scope** — it is not past the destination,
+- not a **decision** — nobody decided it, it is simply true,
+- not a **Note** — Notes orient *the session* (the domain, the skills to
+  consult, standing preferences); a constraint is a predicate on the *answers*.
+
+Nothing enforces it. No verb reads this section, the close gate does not test an
+answer against it, and `decisions --write` does not project it. It binds the way
+the Destination binds — the agent reads it and honours it — so write constraints
+a reader can actually check an option against: "no budget for paid services" is
+checkable, "keep it cheap" is not.
+
+**No constraints is a real answer**, and a common one. Write `- none identified`
+rather than leaving the placeholder standing, so a later session can tell an
+unconstrained effort from a question nobody asked.
+
+Constraints live on the map and **only** on the map. A node never restates one:
+a constraint amended in one place would leave stale copies in every node that
+had copied it, which is the two-authoritative-homes problem the index rule
+exists to prevent. What a node carries instead is the *dimension* — under a
+budget constraint, options come with their cost visible, so the constraint is
+applied where the choice is made rather than discovered after it.
 
 ## Nodes
 
