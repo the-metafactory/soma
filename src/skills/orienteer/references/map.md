@@ -37,9 +37,13 @@ before choosing a node.>
 ## Decisions so far
 
 <!-- the index — one line per closed node: enough to judge relevance, then zoom
-     the link for the detail the node holds -->
+     the link for the detail the node holds. `soma graph decisions --write` owns
+     the span between the markers and refuses without them: keep both lines, and
+     never hand-edit between them -->
 
+<!-- soma:decisions:begin -->
 - [<closed node title>](link) — <one-line gist of the answer>
+<!-- soma:decisions:end -->
 
 ## Not yet specified
 
