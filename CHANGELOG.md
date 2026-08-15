@@ -13,6 +13,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [0.16.0] - 2026-08-15
+
+An **orienteer** release, driven by external feedback on 0.15.0: an adopter
+charted a map, the map returned decisions that assumed a budget they did not
+have, and there was no way to feed the missing parameter back in. Their own
+words for it — *"a parameter my agents already know"* — name the gap precisely.
+Their agents knew; the map never asked.
+
+### Added
+- **A `## Constraints` section on the map, and a charting pass that asks for one
+  (#617, #619).** A constraint — no budget, a deadline, a runtime that cannot
+  change — was previously homeless: not fog (it is not a question awaiting an
+  answer), not out of scope (it is not past the destination), not a decision
+  (nobody decided it). It landed in Notes, which nothing checks an answer
+  against. It now sits beside the Destination, since the two together fix the
+  effort's shape, and the test for what belongs there is whether an *answer*
+  could violate it.
+
+  `ChartTheMap` step 1 now asks what is fixed regardless of route, and seeds the
+  question from the principal's own store (`soma memory recall`,
+  `profile/purpose.md`) rather than only the conversation in front of it —
+  degrading to simply asking where there is no Soma home, since orienteer runs
+  in any repository. `WalkTheMap` reads the section as binding on the answer
+  being written, and surfaces the *dimension* a constraint touches in the
+  options it offers, so cost appears where the choice is made.
+
+  Two limits stated rather than papered over. **Nothing enforces it**: no verb
+  reads the section, the close gate does not test against it, `decisions
+  --write` does not project it. It binds the way the Destination binds — by
+  being read. And **constraints live on the map alone**; a node never restates
+  one, or an amendment leaves stale copies behind.
+
+  What charting reads is private, and where it writes is not: the seeding pass
+  proposes *the constraint, never the source*, and never pastes recall output
+  into a map body that is as public as the repository holding it.
+
+### Fixed
+- **The map body template ships the `soma:decisions` markers (#621, #622).**
+  `soma graph decisions --write` refuses a body without them — deliberately,
+  since guessing where an index belongs in prose it does not own is worse than
+  refusing. The template did not carry them, so **every** map charted from it
+  failed its first write, on the first node anyone closed. The verb was right;
+  the template was wrong. It survived because the error prints the two lines to
+  add, so each walker hand-patched their own map and moved on.
+
+  `WalkTheMap`'s wording is corrected with it: *"if the map predates them"* read
+  as legacy handling when it in fact described every map. A regression guard now
+  runs the real `spliceSection` over the real template file — the two are one
+  contract living in two files, and each half was correct alone, which is why
+  nothing caught it.
+
+  Not adopted: injecting the markers at `soma graph add` time. It would append
+  them to a body whose shape it does not know — the same guess the splice
+  refuses to make.
+
 ## [0.15.0] - 2026-08-11
 
 The **work graph** release: a typed primitive for planning work that outlives a
