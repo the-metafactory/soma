@@ -572,7 +572,11 @@ which demonstrably drifted toward restating. Derived from receipts, a decision
 lives in exactly one place (its node's receipt, via `--gist`) and the map body
 carries a projection nobody edits by hand. The verb owns only the span between
 its markers, never the prose around it, and refuses when the markers are absent
-rather than guessing where an index belongs in prose it does not own.
+rather than guessing where an index belongs in prose it does not own. The
+orienteer body template ships both markers as of 0.16.0 (#621); until then it did
+not, so every map charted from it failed its first `--write` until someone
+hand-patched the body. The refusal now covers what it was meant to cover —
+hand-rolled bodies and maps charted before the fix.
 `--write` is a read-modify-write with no compare-and-swap (GitHub offers none
 for issue bodies): a concurrent hand edit to the *prose* can be clobbered by the
 re-write. Accepted — the map body is low-contention, the span is derived state

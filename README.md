@@ -384,7 +384,10 @@ soma policy probes           # read the registry; Soma ships no verb that writes
 ```
 
 The **orienteer** skill is the doctrine for using this: chart a loose idea as a map
-of decision nodes, then resolve them one at a time until the route is clear.
+of decision nodes, then resolve them one at a time until the route is clear. The
+map also records what is **fixed regardless of route** — budget, deadlines,
+tooling that cannot change — so every node's options are weighed against the
+constraints instead of discovering one after the decisions close.
 See [docs/work-graph.md](docs/work-graph.md) for the spec.
 
 ### Skills
