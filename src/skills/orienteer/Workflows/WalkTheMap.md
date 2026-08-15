@@ -67,9 +67,11 @@ refusal is easier to avoid than to fix.
    let a map reader judge relevance without opening the node; the detail stays
    in the resolution.
 2. `soma graph decisions <root> --write` — the map's decision index re-derives
-   from receipts. Never hand-edit the span between the decisions markers; if the
-   map predates them, add the two marker lines once and the verb owns the span
-   from then on.
+   from receipts. Never hand-edit the span between the decisions markers. The
+   body template carries them, so a map charted from it is writable; a map
+   charted before they were in the template — or from a hand-rolled body — has
+   none, and the verb refuses rather than guessing where the index belongs. Its
+   error prints the two lines: add them once, and it owns the span from then on.
 
 For a HITL node wanting a second opinion, the two-phase `--propose` →
 ratification → `--proposal-comment` sequence stands, and the proposal body is the

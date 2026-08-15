@@ -25,6 +25,7 @@ import {
   type Probe,
   type WorkGraphNode,
 } from "../src/index";
+import { readFile } from "node:fs/promises";
 import { walkFakeSubtree } from "./fixtures/work-graph-fixtures";
 
 const PASSING_PROBE: Probe = { type: "command", run: "bun test", timeoutSec: 600, expectExit: 0 };
@@ -335,6 +336,26 @@ test("spliceSection replaces only the marked span, and refuses malformed markers
   expect(spliceSection("no markers here", "x")).toBeUndefined();
   // An end marker BEFORE the begin marker is malformed, not a zero-length span.
   expect(spliceSection(`${DECISIONS_END}\n${DECISIONS_BEGIN}`, "x")).toBeUndefined();
+});
+
+// The map body template and the splice are one contract in two files: the
+// template is what a charted map is copied from, and `decisions --write`
+// refuses a body without the markers. Shipped without them (#621), every map
+// failed its first write — a defect no test could see, because each half was
+// correct alone. Assert the template against the real splice, not against a
+// copy of the marker strings.
+test("the orienteer map template is writable by spliceSection (#621)", async () => {
+  const template = await readFile(
+    new URL("../src/skills/orienteer/references/map.md", import.meta.url),
+    "utf8",
+  );
+  const spliced = spliceSection(template, "- [A closed node](link) — the gist");
+  expect(spliced).toBeDefined();
+  expect(spliced).toContain("- [A closed node](link) — the gist");
+  // The placeholder line lives inside the span, so the first write clears it.
+  expect(spliced).not.toContain("<closed node title>");
+  // …and the prose around the span is untouched.
+  expect(spliced).toContain("## Not yet specified");
 });
 
 // --- contract layer over a store -------------------------------------------
