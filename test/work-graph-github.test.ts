@@ -510,7 +510,7 @@ test("a GraphQL rate limit falls back to a whole REST subtree in depth-first ord
     if (key === "POST graphql") {
       throw new WorkGraphError(
         "backend",
-        "gh api POST graphql failed (exit 1): GraphQL: API rate limit exceeded for user ID 1.",
+        "gh api POST graphql failed (exit 1): gh: API rate limit already exceeded for user ID 1.",
       );
     }
     const responses: Record<string, unknown> = {
