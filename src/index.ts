@@ -722,6 +722,7 @@ export {
   type BlockingRef,
   type ConfinementProbeRecord,
   type ClaimResult,
+  type ReleaseResult,
   type CloseEvidence,
   type CloseReceipt,
   type CommentRef,

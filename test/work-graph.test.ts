@@ -16,6 +16,7 @@ import {
   resolveClaimRace,
   toNode,
   type ClaimResult,
+  type ReleaseResult,
   type CloseReceipt,
   type CommentRef,
   type CreateNodeSpec,
@@ -422,6 +423,11 @@ class FakeStore implements GraphStore {
   async claim(ref: NodeRef, identity: string): Promise<ClaimResult> {
     this.claims.push(`${ref.id}:${identity}`);
     return { held: true, identity, holder: identity, assignees: [identity] };
+  }
+
+  async release(ref: NodeRef, identity: string): Promise<ReleaseResult> {
+    this.claims.push(`release:${ref.id}:${identity}`);
+    return { released: true, identity, assignees: [] };
   }
 
   async postComment(ref: NodeRef, body: string): Promise<CommentRef> {

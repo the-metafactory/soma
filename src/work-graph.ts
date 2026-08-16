@@ -205,6 +205,18 @@ export interface ClaimResult {
   assignees: readonly string[];
 }
 
+/**
+ * Outcome of an identity-bound self-release (§2.4). `released` is whether the
+ * acting identity actually held the claim and was removed — a release of a
+ * claim you never held is a no-op, never an error, and can never remove a
+ * different identity (the verb only ever unassigns itself).
+ */
+export interface ReleaseResult {
+  released: boolean;
+  identity: string;
+  assignees: readonly string[];
+}
+
 export interface CommentRef {
   id: string;
   nodeId: string;
@@ -514,6 +526,13 @@ export interface GraphStore {
   readSubtree(root: NodeRef): Promise<NodeState[]>;
   /** Assigns, then re-reads (no compare-and-swap exists on GitHub) and applies {@link resolveClaimRace}. */
   claim(ref: NodeRef, identity: string): Promise<ClaimResult>;
+  /**
+   * Identity-bound self-release: removes the acting identity from the node's
+   * assignee set (the same DELETE the claim-race loser performs), so a walker
+   * can abandon its own claim without a raw tracker write. Never removes a
+   * different identity; releasing a claim you do not hold is a no-op.
+   */
+  release(ref: NodeRef, identity: string): Promise<ReleaseResult>;
   postComment(ref: NodeRef, body: string): Promise<CommentRef>;
   /**
    * Re-read a comment for its API author field. The HITL close path needs the
@@ -1217,6 +1236,19 @@ export class WorkGraph {
       throw new WorkGraphError("node-closed", `node ${ref.id} is closed — nothing to claim`);
     }
     return await this.store.claim(ref, identity);
+  }
+
+  /**
+   * Identity-bound self-release (§2.4). Refuses on a closed node, matching
+   * {@link claim}: a settled receipt is not the place to mutate the assignee
+   * set, and there is nothing to abandon on a closed node.
+   */
+  async release(ref: NodeRef, identity: string): Promise<ReleaseResult> {
+    const state = await this.store.readNode(ref);
+    if (state.status === "closed") {
+      throw new WorkGraphError("node-closed", `node ${ref.id} is closed — nothing to release`);
+    }
+    return await this.store.release(ref, identity);
   }
 
   async postComment(ref: NodeRef, body: string): Promise<CommentRef> {

@@ -89,17 +89,19 @@ import { resolveGraphRepo } from "../work-graph-bridge";
 import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";
 
-const GRAPH_ACTIONS = ["frontier", "node", "claim", "add", "close", "audit", "decisions"] as const;
+const GRAPH_ACTIONS = ["frontier", "node", "claim", "release", "add", "close", "audit", "decisions"] as const;
 type GraphAction = (typeof GRAPH_ACTIONS)[number];
 
 const EVIDENCE_KINDS: readonly WorkGraphEvidenceKind[] = ["specified", "probed", "tested", "judged", "approved"];
 
 export const GRAPH_COMMAND_HELP: { usage: string; subcommands: Record<GraphAction, string> } = {
-  usage: "Usage: soma graph <frontier|node|claim|add|close|audit|decisions> ...",
+  usage: "Usage: soma graph <frontier|node|claim|release|add|close|audit|decisions> ...",
   subcommands: {
     frontier: "Usage: soma graph frontier <root> [--repo <owner/name>] [--json]",
     node: "Usage: soma graph node <id> [--repo <owner/name>] [--json]",
     claim: "Usage: soma graph claim <id> [--identity <login>] [--repo <owner/name>] [--json]",
+    release:
+      "Usage: soma graph release <id> [--identity <login>] [--repo <owner/name>] [--json] — identity-bound self-release: abandon your own claim (only ever unassigns the acting identity)",
     add: "Usage: soma graph add <root> --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--kind <k>] [--label <name>]... [--body <text>|--body-file <path>] [--probe <json>]... [--blocked-by <id>]... [--budget-tokens <n>] [--budget-invocations <n>] [--budget-minutes <n>] [--repo <owner/name>] [--json]",
     close:
       "Usage: soma graph close <id> --resolution-file <path> [--gist <one line>] [--propose --body <text>|--body-file <path>] [--proposal-comment <id>] [--checkpoint <id>] [--evidence <json>]... [--identity <login>] [--dry-run] [--repo <owner/name>]",
@@ -130,6 +132,13 @@ export interface ParsedGraphNodeArgs {
 export interface ParsedGraphClaimArgs {
   command: "graph";
   action: "claim";
+  target: string;
+  options: GraphSharedOptions & { identity?: string };
+}
+
+export interface ParsedGraphReleaseArgs {
+  command: "graph";
+  action: "release";
   target: string;
   options: GraphSharedOptions & { identity?: string };
 }
@@ -186,6 +195,7 @@ export type ParsedGraphArgs =
   | ParsedGraphFrontierArgs
   | ParsedGraphNodeArgs
   | ParsedGraphClaimArgs
+  | ParsedGraphReleaseArgs
   | ParsedGraphAddArgs
   | ParsedGraphCloseArgs
   | ParsedGraphAuditArgs
@@ -454,7 +464,7 @@ export function parseGraphArgs(args: string[]): ParsedGraphArgs {
       index = shared;
       continue;
     }
-    if (arg === "--identity" && action === "claim") {
+    if (arg === "--identity" && (action === "claim" || action === "release")) {
       options.identity = readOption(rest, index, arg);
       index += 1;
       continue;
@@ -467,6 +477,7 @@ export function parseGraphArgs(args: string[]): ParsedGraphArgs {
   }
 
   if (action === "claim") return { command, action, target: resolvedTarget, options };
+  if (action === "release") return { command, action, target: resolvedTarget, options };
   if (action === "decisions") return { command, action, target: resolvedTarget, options };
   return { command, action, target: resolvedTarget, options };
 }
@@ -852,6 +863,32 @@ async function runClaim(
   return [
     `Claimed node ${parsed.target} as ${identity} (${repo}).`,
     `assignees: ${result.assignees.join(", ")}`,
+  ].join("\n");
+}
+
+async function runRelease(
+  parsed: ParsedGraphReleaseArgs,
+  graph: WorkGraph,
+  repo: string,
+  deps: GraphCliDeps,
+): Promise<string> {
+  const identity = parsed.options.identity ?? (await deps.resolveIdentity());
+  const result = await graph.release({ id: parsed.target }, identity);
+
+  if (parsed.options.json === true) {
+    return JSON.stringify({ repo, node: parsed.target, ...result }, null, 2);
+  }
+
+  if (!result.released) {
+    return [
+      `Node ${parsed.target} is not claimed by ${identity} — nothing to release.`,
+      `assignees: ${result.assignees.join(", ") || "—"}`,
+    ].join("\n");
+  }
+
+  return [
+    `Released node ${parsed.target} as ${identity} (${repo}).`,
+    `assignees: ${result.assignees.join(", ") || "—"}`,
   ].join("\n");
 }
 
@@ -1432,6 +1469,8 @@ export async function runGraphCli(parsed: ParsedGraphArgs, overrides: Partial<Gr
       return await runNode(parsed, graph, repo);
     case "claim":
       return await runClaim(parsed, graph, repo, deps);
+    case "release":
+      return await runRelease(parsed, graph, repo, deps);
     case "add":
       return await runAdd(parsed, graph, repo, deps);
     case "close":

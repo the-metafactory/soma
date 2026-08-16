@@ -89,6 +89,7 @@ function stubStore(readNode: (ref: NodeRef) => NodeState): GraphStore {
     readNode: async (ref) => readNode(ref),
     readSubtree: async () => [],
     claim: async () => ({ held: true, identity: "jcfischer", holder: null, assignees: [] }),
+    release: async () => ({ released: true, identity: "jcfischer", assignees: [] }),
     postComment: async () => ({ id: "c1", nodeId: "501" }),
     readComment: async () => ({ id: "c1", nodeId: "501" }),
     readCommentReactions: async () => [],

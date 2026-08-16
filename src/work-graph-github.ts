@@ -34,6 +34,7 @@ import {
   type NodeState,
   type NodeStatus,
   type Reaction,
+  type ReleaseResult,
   type WorkGraphNode,
 } from "./work-graph";
 
@@ -714,6 +715,32 @@ class GitHubGraphStore implements GraphStore {
       return { held, identity, holder, assignees: after.assignees.filter((login) => login !== identity) };
     }
     return { held, identity, holder, assignees: after.assignees };
+  }
+
+  /**
+   * Identity-bound self-release. The same DELETE the claim-race loser
+   * performs, promoted to a verb so a walker can abandon its own claim
+   * without a raw tracker write. It only ever unassigns the acting identity
+   * — a claim you do not hold is a no-op, never a release of someone else's.
+   */
+  async release(ref: NodeRef, identity: string): Promise<ReleaseResult> {
+    const before = await this.fetchIssue(ref);
+    if (before.status === "closed") {
+      throw new WorkGraphError("node-closed", `node ${ref.id} is closed — nothing to release`);
+    }
+    if (!before.assignees.includes(identity)) {
+      return { released: false, identity, assignees: before.assignees };
+    }
+    await this.transport({
+      method: "DELETE",
+      path: `repos/${this.repo}/issues/${ref.id}/assignees`,
+      body: { assignees: [identity] },
+    });
+    const after = await this.fetchIssue(ref);
+    // Filter the re-read defensively, matching the claim-race loser's branch:
+    // the DELETE just happened, so the identity is gone even if the re-read
+    // reflects a slightly earlier snapshot.
+    return { released: true, identity, assignees: after.assignees.filter((login) => login !== identity) };
   }
 
   async postComment(ref: NodeRef, body: string): Promise<CommentRef> {

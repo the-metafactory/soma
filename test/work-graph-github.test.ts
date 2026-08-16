@@ -631,6 +631,53 @@ test("claiming a closed issue is refused by the backend too", async () => {
   expect(calls).toHaveLength(1);
 });
 
+// --- release ----------------------------------------------------------------
+
+test("a self-release removes the acting identity from the assignee set", async () => {
+  const { transport, calls } = fakeTransport({
+    [`GET repos/${REPO}/issues/497`]: issuePayload({ assignees: [{ login: "ivy-agent" }] }),
+    [`DELETE repos/${REPO}/issues/497/assignees`]: {},
+  });
+
+  const result = await createGitHubGraphStore({ repo: REPO, transport }).release({ id: "497" }, "ivy-agent");
+
+  expect(result).toEqual({ released: true, identity: "ivy-agent", assignees: [] });
+  expect(calls.map((call) => call.key)).toEqual([
+    `GET repos/${REPO}/issues/497`,
+    `DELETE repos/${REPO}/issues/497/assignees`,
+    `GET repos/${REPO}/issues/497`,
+  ]);
+  expect(calls[1]?.body).toEqual({ assignees: ["ivy-agent"] });
+});
+
+test("releasing a claim you do not hold is a no-op — it never unassigns another identity", async () => {
+  const { transport, calls } = fakeTransport({
+    [`GET repos/${REPO}/issues/497`]: issuePayload({ assignees: [{ login: "Ada" }] }),
+  });
+
+  const result = await createGitHubGraphStore({ repo: REPO, transport }).release({ id: "497" }, "ivy-agent");
+
+  expect(result).toEqual({ released: false, identity: "ivy-agent", assignees: ["Ada"] });
+  expect(calls).toHaveLength(1);
+  expect(calls[0]?.key).toBe(`GET repos/${REPO}/issues/497`);
+});
+
+test("releasing a closed issue is refused by the backend too", async () => {
+  const { transport, calls } = fakeTransport({
+    [`GET repos/${REPO}/issues/497`]: issuePayload({ state: "closed" }),
+  });
+
+  let thrown: unknown;
+  try {
+    await createGitHubGraphStore({ repo: REPO, transport }).release({ id: "497" }, "ivy-agent");
+  } catch (error) {
+    thrown = error;
+  }
+  expect(thrown).toBeInstanceOf(WorkGraphError);
+  expect((thrown as WorkGraphError).code).toBe("node-closed");
+  expect(calls).toHaveLength(1);
+});
+
 // --- comments, reactions, close --------------------------------------------
 
 test("reaction authors come from the API author field, never from body text", async () => {
