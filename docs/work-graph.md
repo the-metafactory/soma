@@ -455,6 +455,16 @@ frontier forever — no claim, no close, no error).
   before returning — because the obligation attaches to the staleness, not to
   the ceremony.
 
+  The GitHub query has a separate **primary GraphQL point budget** in addition
+  to GitHub's 500,000-node validation ceiling. Its nested page sizes are
+  `20/3/3`: with `subIssues`, `assignees`, and `blockedBy` at each position,
+  GitHub's documented estimate is `3 × (1 + 20 + 60 + 180) / 100`, rounded to
+  **8 points per query**. The previous `50/25/10` shape was valid by node count
+  but predicted 414 points, enough to exhaust a 5,000-point hour in twelve
+  calls. Width and depth remain tuning rather than correctness limits because
+  `totalCount`, cursor paging, and re-rooting complete anything that does not
+  fit the first request.
+
   Two consequences worth stating, because nothing downstream re-checks. Every
   returned state must be **whole**: a short read of assignees or blockers would
   make a claimed node look unclaimed or a blocked node look takeable. And
@@ -604,11 +614,18 @@ addenda fell out of implementing it (#498), both the same class as the
   API, and the two phases are separate process invocations, so the author must
   come back from the backend rather than ride on the command line where it
   would be caller-authored.
-- The parent edge is read over **GraphQL**. `GET /repos/{repo}/issues/{n}`
-  carries no `parent` key (only the child direction, `/sub_issues`, is in
-  REST), so a REST-only read resolves every node as its own root — which
-  silently degrades conjunct 4 from "the graph root's author may ratify" into
-  "a ticket's own author may ratify its close".
+- The parent edge reads from GitHub's dedicated **REST** `GET
+  /repos/{repo}/issues/{n}/parent` endpoint. The ordinary issue response carries
+  no `parent` key, and treating it as authoritative would silently degrade
+  conjunct 4 from "the graph root's author may ratify" into "a ticket's own
+  author may ratify its close". Keeping this one-edge read out of GraphQL also
+  removes a separate quota dependency from every `readNode`. When a subtree's
+  normal GraphQL observation is rate-limited, the membership walk restarts
+  wholly through paginated REST `/sub_issues` reads, preserving depth-first
+  order and whole-state confirmation at the cost of one child-list request per
+  visited node plus blocker hydration. That fallback may blend observations
+  across more calls; it is availability after quota exhaustion, not the normal
+  coherence or latency path.
 
 ### 2.7 planSteps bridge
 

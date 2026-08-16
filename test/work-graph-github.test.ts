@@ -2,9 +2,13 @@ import { expect, test } from "bun:test";
 import {
   WorkGraph,
   WorkGraphError,
+  SUBTREE_QUERY_PRIMARY_RATE_POINTS,
   createGitHubGraphStore,
   decodeNodeBlock,
   encodeNodeBlock,
+  estimateSubtreeQueryPrimaryRatePoints,
+  ghApiArgs,
+  parseGhApiOutput,
   parseNodeSpec,
   type GitHubApiRequest,
   type GitHubApiTransport,
@@ -25,10 +29,11 @@ function fakeTransport(responses: Record<string, unknown>): { transport: GitHubA
     const key = `${request.method} ${request.path}`;
     calls.push({ ...request, key });
     if (!(key in responses)) {
-      // `readNode` always asks GraphQL for the parent edge (REST omits it), so
-      // default to "no parent" and let a test stub it only when that edge is
-      // what it is testing.
-      if (key === "POST graphql") return { data: { repository: { issue: { parent: null } } } };
+      // The ordinary issue payload omits the parent. Default the dedicated REST
+      // endpoint to 404 and let parent-specific tests stub another result.
+      if (request.path.endsWith("/parent")) {
+        throw new WorkGraphError("backend", `gh api GET ${request.path} failed (exit 1): HTTP 404: Not Found`);
+      }
       throw new Error(`unstubbed request: ${key}`);
     }
     return responses[key];
@@ -53,6 +58,39 @@ function issuePayload(overrides: Record<string, unknown> = {}): Record<string, u
 function typedBody(block: Record<string, unknown>, text = "## Task\n\nimplement the seam"): string {
   return `${text}\n\n<!-- soma:work-graph-node\n${JSON.stringify(block)}\n-->`;
 }
+
+// --- transport and query budgets -------------------------------------------
+
+test("paginated gh calls request slurped pages and flatten array responses", () => {
+  const request: GitHubApiRequest = { method: "GET", path: `repos/${REPO}/issues/495/sub_issues`, paginate: true };
+
+  expect(ghApiArgs(request)).toEqual([
+    "api",
+    "--method",
+    "GET",
+    `repos/${REPO}/issues/495/sub_issues`,
+    "--paginate",
+    "--slurp",
+  ]);
+  expect(parseGhApiOutput('[[{"number":501}],[{"number":510}]]', request)).toEqual([
+    { number: 501 },
+    { number: 510 },
+  ]);
+});
+
+test("non-paginated gh responses retain their JSON shape", () => {
+  const request: GitHubApiRequest = { method: "GET", path: `repos/${REPO}/issues/495` };
+  expect(parseGhApiOutput('[[{"number":501}],[{"number":510}]]', request)).toEqual([
+    [{ number: 501 }],
+    [{ number: 510 }],
+  ]);
+});
+
+test("the shipped subtree query stays inside its primary-rate budget", () => {
+  expect(SUBTREE_QUERY_PRIMARY_RATE_POINTS).toBe(8);
+  expect(SUBTREE_QUERY_PRIMARY_RATE_POINTS).toBeLessThanOrEqual(10);
+  expect(estimateSubtreeQueryPrimaryRatePoints([50, 25, 10])).toBe(414);
+});
 
 // --- the node block ---------------------------------------------------------
 
@@ -108,29 +146,51 @@ test("readNode types the node from the block and reports blockers with their sta
   ]);
 });
 
-test("the parent edge comes from GraphQL, because the REST issue payload has no parent key", async () => {
+test("the parent edge comes from the dedicated REST endpoint without spending GraphQL quota", async () => {
   const { transport, calls } = fakeTransport({
     [`GET repos/${REPO}/issues/497`]: issuePayload(),
+    [`GET repos/${REPO}/issues/497/parent`]: issuePayload({ number: 495, id: 5_000_495 }),
     [`GET repos/${REPO}/issues/497/dependencies/blocked_by`]: [],
-    "POST graphql": { data: { repository: { issue: { parent: { number: 495 } } } } },
   });
 
   const state = await createGitHubGraphStore({ repo: REPO, transport }).readNode({ id: "497" });
 
   expect(state.parent).toEqual({ id: "495" });
-  const graphql = calls.find((call) => call.key === "POST graphql");
-  expect(graphql?.body?.variables).toEqual({ owner: "the-metafactory", name: "soma", number: 497 });
+  expect(calls.map((call) => call.key)).toEqual([
+    `GET repos/${REPO}/issues/497`,
+    `GET repos/${REPO}/issues/497/parent`,
+    `GET repos/${REPO}/issues/497/dependencies/blocked_by`,
+  ]);
 });
 
-test("an unreadable parent is undefined, never an assumed root — §3.2 conjunct 4 downgrades on it", async () => {
-  const { transport } = fakeTransport({
-    [`GET repos/${REPO}/issues/497`]: issuePayload(),
-    [`GET repos/${REPO}/issues/497/dependencies/blocked_by`]: [],
-    "POST graphql": { errors: [{ message: "field unavailable" }] },
-  });
+for (const status of [404, 410]) {
+  test(`a REST parent ${status} is undefined, never an assumed root`, async () => {
+    const transport: GitHubApiTransport = async (request) => {
+      const key = `${request.method} ${request.path}`;
+      if (key === `GET repos/${REPO}/issues/497`) return issuePayload();
+      if (key === `GET repos/${REPO}/issues/497/parent`) {
+        throw new WorkGraphError("backend", `gh api GET ${request.path} failed (exit 1): HTTP ${status}`);
+      }
+      if (key === `GET repos/${REPO}/issues/497/dependencies/blocked_by`) return [];
+      throw new Error(`unstubbed request: ${key}`);
+    };
 
-  const state = await createGitHubGraphStore({ repo: REPO, transport }).readNode({ id: "497" });
-  expect(state.parent).toBeUndefined();
+    const state = await createGitHubGraphStore({ repo: REPO, transport }).readNode({ id: "497" });
+    expect(state.parent).toBeUndefined();
+  });
+}
+
+test("a non-missing REST parent error surfaces", async () => {
+  const transport: GitHubApiTransport = async (request) => {
+    const key = `${request.method} ${request.path}`;
+    if (key === `GET repos/${REPO}/issues/497`) return issuePayload();
+    if (key === `GET repos/${REPO}/issues/497/parent`) {
+      throw new WorkGraphError("backend", `gh api GET ${request.path} failed (exit 1): HTTP 500`);
+    }
+    throw new Error(`unstubbed request: ${key}`);
+  };
+
+  expect(createGitHubGraphStore({ repo: REPO, transport }).readNode({ id: "497" })).rejects.toThrow(/HTTP 500/);
 });
 
 test("a hand-authored issue reads as the most-gated class, never as auto", async () => {
@@ -329,17 +389,13 @@ function subtreeTransport(
     if (request.path !== "graphql") {
       const key = `${request.method} ${request.path}`;
       keys.push(key);
+      if (request.path.endsWith("/parent")) {
+        throw new WorkGraphError("backend", `gh api GET ${request.path} failed (exit 1): HTTP 404: Not Found`);
+      }
       if (!(key in rest)) throw new Error(`unstubbed rest request: ${key}`);
       return rest[key];
     }
-    const query = String((request.body?.query as string) ?? "");
     const variables = (request.body?.variables ?? {}) as { number?: number; after?: string | null };
-    // `readNode`'s parent lookup shares the graphql path; it is the only query
-    // that does not select subIssues.
-    if (!query.includes("subIssues")) {
-      keys.push(`parent:${variables.number}`);
-      return { data: { repository: { issue: { parent: null } } } };
-    }
     const key = variables.after == null ? String(variables.number) : `${variables.number}@${variables.after}`;
     keys.push(key);
     if (!(key in pages)) throw new Error(`unstubbed subtree request: ${key}`);
@@ -435,7 +491,7 @@ test("a short assignees or blockedBy page is repaired by a direct read, never tr
   expect(keys).toEqual([
     "495",
     `GET repos/${REPO}/issues/497`,
-    "parent:497",
+    `GET repos/${REPO}/issues/497/parent`,
     `GET repos/${REPO}/issues/497/dependencies/blocked_by`,
   ]);
 });
@@ -444,6 +500,83 @@ test("the root itself is never in its own subtree, however it is stated", async 
   const { transport } = subtreeTransport({ "495": gql(495, "OPEN", conn([gql(497, "OPEN")])) });
 
   expect(ids(await createGitHubGraphStore({ repo: REPO, transport }).readSubtree({ id: "495" }))).toEqual(["497"]);
+});
+
+test("a GraphQL rate limit falls back to a whole REST subtree in depth-first order", async () => {
+  const calls: string[] = [];
+  const transport: GitHubApiTransport = async (request) => {
+    const key = `${request.method} ${request.path}`;
+    calls.push(key);
+    if (key === "POST graphql") {
+      throw new WorkGraphError(
+        "backend",
+        "gh api POST graphql failed (exit 1): GraphQL: API rate limit exceeded for user ID 1.",
+      );
+    }
+    const responses: Record<string, unknown> = {
+      [`GET repos/${REPO}/issues/495/sub_issues?per_page=100`]: [
+        issuePayload({ number: 501, id: 5_000_501, state: "closed", title: "node 501" }),
+      ],
+      [`GET repos/${REPO}/issues/501/dependencies/blocked_by`]: [],
+      [`GET repos/${REPO}/issues/501/sub_issues?per_page=100`]: [
+        issuePayload({ number: 556, id: 5_000_556, state: "open", title: "node 556" }),
+      ],
+      [`GET repos/${REPO}/issues/556/dependencies/blocked_by`]: [
+        issuePayload({ number: 499, id: 5_000_499, state: "closed" }),
+      ],
+      [`GET repos/${REPO}/issues/556/sub_issues?per_page=100`]: [],
+    };
+    if (!(key in responses)) throw new Error(`unstubbed request: ${key}`);
+    return responses[key];
+  };
+
+  const subtree = await createGitHubGraphStore({ repo: REPO, transport }).readSubtree({ id: "495" });
+
+  expect(ids(subtree)).toEqual(["501", "556"]);
+  expect(subtree.map((state) => state.parent?.id)).toEqual(["495", "501"]);
+  expect(subtree[1]?.blockedBy).toEqual([{ id: "499", status: "closed" }]);
+  expect(calls).toEqual([
+    "POST graphql",
+    `GET repos/${REPO}/issues/495/sub_issues?per_page=100`,
+    `GET repos/${REPO}/issues/501/dependencies/blocked_by`,
+    `GET repos/${REPO}/issues/501/sub_issues?per_page=100`,
+    `GET repos/${REPO}/issues/556/dependencies/blocked_by`,
+    `GET repos/${REPO}/issues/556/sub_issues?per_page=100`,
+  ]);
+});
+
+test("REST subtree fallback deduplicates repeated and cyclic membership edges", async () => {
+  const transport: GitHubApiTransport = async (request) => {
+    const key = `${request.method} ${request.path}`;
+    if (key === "POST graphql") throw new WorkGraphError("backend", "GraphQL: API rate limit exceeded");
+    const responses: Record<string, unknown> = {
+      [`GET repos/${REPO}/issues/495/sub_issues?per_page=100`]: [
+        issuePayload({ number: 501, id: 5_000_501 }),
+        issuePayload({ number: 501, id: 5_000_501 }),
+      ],
+      [`GET repos/${REPO}/issues/501/dependencies/blocked_by`]: [],
+      [`GET repos/${REPO}/issues/501/sub_issues?per_page=100`]: [
+        issuePayload({ number: 495, id: 5_000_495 }),
+      ],
+    };
+    if (!(key in responses)) throw new Error(`unstubbed request: ${key}`);
+    return responses[key];
+  };
+
+  expect(ids(await createGitHubGraphStore({ repo: REPO, transport }).readSubtree({ id: "495" }))).toEqual(["501"]);
+});
+
+test("a non-rate-limit GraphQL subtree error never falls back", async () => {
+  const calls: string[] = [];
+  const transport: GitHubApiTransport = async (request) => {
+    calls.push(`${request.method} ${request.path}`);
+    throw new WorkGraphError("backend", "GraphQL: field unavailable");
+  };
+
+  expect(createGitHubGraphStore({ repo: REPO, transport }).readSubtree({ id: "495" })).rejects.toThrow(
+    /field unavailable/,
+  );
+  expect(calls).toEqual(["POST graphql"]);
 });
 
 test("a node deeper than the query reaches is re-rooted, not silently dropped", async () => {
