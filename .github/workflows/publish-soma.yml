@@ -38,6 +38,7 @@ jobs:
           SH
           chmod +x "${RUNNER_TEMP}/bin/arc"
           echo "${RUNNER_TEMP}/bin" >> "${GITHUB_PATH}"
+          echo "ARC_ROOT=${ARC_ROOT}" >> "${GITHUB_ENV}"
 
       - name: Configure Arc source
         env:
