@@ -489,6 +489,13 @@ frontier forever — no claim, no close, no error).
   removes itself (#492 correction 2). All racers compute the same rule over
   the same eventual assignee set, so the race converges to one holder without
   coordination.
+  **Self-release is a verb, not a raw write.** The claim-race loser's
+  self-removal — DELETE self from the assignee set — is promoted to
+  `soma graph release <node>`, the **identity-bound self-release**: a walker
+  abandons its own claim without a raw tracker write. It only ever unassigns
+  the acting identity — releasing a claim you do not hold is a no-op, never a
+  release of someone else's — and it refuses on a closed node, matching
+  `claim`.
 
 ### 2.5 GraphStore seam
 
@@ -535,6 +542,10 @@ soma graph frontier <root>         # open, unassigned, unblocked, over the whole
 soma graph node <id>               # read one node, BODY INCLUDED — the walker's
                                    # first read must not need the tracker's CLI
 soma graph claim <node>            # assign, re-read, tie-break on race
+soma graph release <node>          # identity-bound self-release: abandon your
+                                   # own claim (the claim-race loser's
+                                   # DELETE-self, promoted to a verb); only
+                                   # ever unassigns the acting identity
 soma graph add <root> ...          # create node (+ edges) — additive, structurally
                                    # validated; --checkpoint is REQUIRED, since a
                                    # node without one can never close and no verb

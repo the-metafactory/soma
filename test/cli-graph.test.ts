@@ -20,6 +20,7 @@ import {
   runProbes,
   scanCommentsForReceipt,
   type ClaimResult,
+  type ReleaseResult,
   type CloseReceipt,
   type CommentRef,
   type CreateNodeSpec,
@@ -70,6 +71,7 @@ class FakeStore implements GraphStore {
   readonly created: CreateNodeSpec[] = [];
   readonly edges: [string, string][] = [];
   claimResult: ClaimResult | undefined;
+  releaseResult: ReleaseResult | undefined;
   private nextId = 900;
 
   seed(id: string, seed: SeedNode): this {
@@ -109,6 +111,10 @@ class FakeStore implements GraphStore {
 
   async claim(_ref: NodeRef, identity: string): Promise<ClaimResult> {
     return this.claimResult ?? { held: true, identity, holder: identity, assignees: [identity] };
+  }
+
+  async release(_ref: NodeRef, identity: string): Promise<ReleaseResult> {
+    return this.releaseResult ?? { released: true, identity, assignees: [identity] };
   }
 
   async postComment(ref: NodeRef, body: string): Promise<CommentRef> {
@@ -208,8 +214,8 @@ function autoNode(id: string, overrides: Partial<WorkGraphNode> = {}): WorkGraph
 
 // --- parsing ---------------------------------------------------------------
 
-test("the parser accepts exactly the seven verbs of §2.6", () => {
-  for (const action of ["frontier", "node", "claim", "add", "close", "audit", "decisions"]) {
+test("the parser accepts exactly the verbs of §2.6, release included", () => {
+  for (const action of ["frontier", "node", "claim", "release", "add", "close", "audit", "decisions"]) {
     const parsed = parseGraphArgs(
       action === "add"
         ? ["graph", action, "495", "--title", "t", "--autonomy", "approve", "--checkpoint", "cp-t"]
@@ -217,7 +223,9 @@ test("the parser accepts exactly the seven verbs of §2.6", () => {
     );
     expect(parsed.action).toBe(action as never);
   }
-  expect(() => parseGraphArgs(["graph", "delete", "495"])).toThrow(/frontier\|node\|claim\|add\|close\|audit\|decisions/u);
+  expect(() => parseGraphArgs(["graph", "delete", "495"])).toThrow(
+    /frontier\|node\|claim\|release\|add\|close\|audit\|decisions/u,
+  );
 });
 
 test("add refuses a node with no checkpoint — it could never close, and no verb attaches one later", () => {
@@ -323,6 +331,31 @@ test("claim reports the holder and exits non-zero when the tie-break goes the ot
 test("claim refuses a closed node rather than reopening a settled race", async () => {
   const store = new FakeStore().seed("498", { node: autoNode("498"), status: "closed" });
   expect(await failure(["graph", "claim", "498", "--repo", REPO], store)).toContain("nothing to claim");
+});
+
+// --- release ------------------------------------------------------------------
+
+test("release abandons a held claim and reports the resulting assignee set", async () => {
+  const store = new FakeStore().seed("498", { node: autoNode("498") });
+  store.releaseResult = { released: true, identity: "ivy-agent", assignees: [] };
+
+  const output = await run(["graph", "release", "498", "--repo", REPO], store);
+  expect(output).toContain("Released node 498 as ivy-agent");
+  expect(output).toContain("assignees: —");
+});
+
+test("release of a claim you do not hold is a non-error no-op", async () => {
+  const store = new FakeStore().seed("498", { node: autoNode("498") });
+  store.releaseResult = { released: false, identity: "ivy-agent", assignees: ["Ada"] };
+
+  const output = await run(["graph", "release", "498", "--repo", REPO], store);
+  expect(output).toContain("is not claimed by ivy-agent");
+  expect(output).toContain("assignees: Ada");
+});
+
+test("release refuses a closed node", async () => {
+  const store = new FakeStore().seed("498", { node: autoNode("498"), status: "closed" });
+  expect(await failure(["graph", "release", "498", "--repo", REPO], store)).toContain("nothing to release");
 });
 
 // --- add --------------------------------------------------------------------
