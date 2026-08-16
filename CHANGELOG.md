@@ -13,6 +13,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [0.16.1] - 2026-08-16
+
+### Fixed
+
+- **Quota-safe GitHub work-graph reads (#625, #629, #630).** The normal
+  subtree query now has a deliberately bounded `20/3/3` fanout, with a tested
+  predicted primary-rate cost of 8 points instead of roughly 414 for the former
+  `50/25/10` shape. Parent edges use REST, and a recognizable GraphQL quota
+  error restarts the complete subtree observation through paginated REST reads
+  without mixing partial GraphQL state into the result. The fallback preserves
+  depth-first traversal, blocker hydration, and cycle protection; unrelated
+  GraphQL errors still surface.
+
+  Pagination now asks `gh api` to slurp pages before flattening them, so callers
+  receive one array across REST pages. The quota matcher also accepts the
+  alternate `rate limit already exceeded` wording, which is covered by the
+  backend regression suite.
+
 ## [0.16.0] - 2026-08-15
 
 An **orienteer** release, driven by external feedback on 0.15.0: an adopter
