@@ -118,7 +118,7 @@ function isGraphQLRateLimitError(error: unknown): boolean {
   return (
     error instanceof WorkGraphError &&
     error.code === "backend" &&
-    /(?:API\s+)?rate limit exceeded/i.test(error.message)
+    /(?:API\s+)?rate limit (?:already )?exceeded/i.test(error.message)
   );
 }
 
