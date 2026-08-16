@@ -57,6 +57,29 @@ export interface GhCliTransportOptions {
   cwd?: string;
 }
 
+/** Build the `gh api` argv once so pagination semantics are unit-testable. */
+export function ghApiArgs(request: GitHubApiRequest): string[] {
+  const args = ["api", "--method", request.method, request.path];
+  if (request.paginate === true) args.push("--paginate", "--slurp");
+  if (request.body !== undefined) args.push("--input", "-");
+  return args;
+}
+
+/** Decode one `gh api` response, flattening the page arrays emitted by `--slurp`. */
+export function parseGhApiOutput(stdout: string, request: GitHubApiRequest): unknown {
+  const trimmed = stdout.trim();
+  if (trimmed.length === 0) return null;
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (request.paginate === true && Array.isArray(parsed) && parsed.every((page) => Array.isArray(page))) {
+      return parsed.flat();
+    }
+    return parsed;
+  } catch {
+    throw new WorkGraphError("backend", `gh api ${request.method} ${request.path} returned unparseable JSON`);
+  }
+}
+
 /**
  * Default transport: shell out to `gh api`.
  *
@@ -68,9 +91,7 @@ export interface GhCliTransportOptions {
 export function createGhCliTransport(options: GhCliTransportOptions = {}): GitHubApiTransport {
   const binary = options.binary ?? "gh";
   return async (request: GitHubApiRequest): Promise<unknown> => {
-    const args = ["api", "--method", request.method, request.path];
-    if (request.paginate === true) args.push("--paginate");
-    if (request.body !== undefined) args.push("--input", "-");
+    const args = ghApiArgs(request);
 
     const proc = Bun.spawn([binary, ...args], {
       stdin: request.body === undefined ? "ignore" : new TextEncoder().encode(JSON.stringify(request.body)),
@@ -89,14 +110,24 @@ export function createGhCliTransport(options: GhCliTransportOptions = {}): GitHu
         `gh api ${request.method} ${request.path} failed (exit ${exitCode}): ${stderr.trim()}`,
       );
     }
-    const trimmed = stdout.trim();
-    if (trimmed.length === 0) return null;
-    try {
-      return JSON.parse(trimmed) as unknown;
-    } catch {
-      throw new WorkGraphError("backend", `gh api ${request.method} ${request.path} returned unparseable JSON`);
-    }
+    return parseGhApiOutput(stdout, request);
   };
+}
+
+function isGraphQLRateLimitError(error: unknown): boolean {
+  return (
+    error instanceof WorkGraphError &&
+    error.code === "backend" &&
+    /(?:API\s+)?rate limit exceeded/i.test(error.message)
+  );
+}
+
+function isMissingRestResource(error: unknown): boolean {
+  return (
+    error instanceof WorkGraphError &&
+    error.code === "backend" &&
+    /(?:HTTP\s+)?(?:404|410)\b|\bNot Found\b|\bGone\b/i.test(error.message)
+  );
 }
 
 export interface GitHubGraphStoreOptions {
@@ -183,38 +214,51 @@ function readIssue(value: unknown, context: string): GitHubIssue {
  * that outgrows them is *detected* (see {@link SubtreeNode.childrenTruncated})
  * and completed by a follow-up query, so no shape of graph can read short.
  *
- * ## The node budget — measured, not modelled
+ * ## Two independent budgets
  *
- * GitHub scores a nested query as the product of the `first` values along each
- * path and rejects anything over **500 000**. Reproduce any figure below by
- * sending the query: the `MAX_NODE_LIMIT_EXCEEDED` error states the score.
+ * GitHub rejects a query whose worst-case node count exceeds **500 000**, and
+ * separately charges its primary GraphQL quota from the connection expansion.
+ * A query can pass the former while rapidly exhausting the latter: the old
+ * `50/25/10` shape was valid at 440 330 nodes but predicted 414 primary points,
+ * allowing only twelve successful subtree calls in a 5 000-point hour.
  *
  * A node costs `1 + ASSIGNEE_PAGE + BLOCKER_PAGE` = **31** — its own slot plus
- * its two connections. `author{login}` is free (an object, not a connection),
- * which is where a hand-built model of this went wrong. With the running
- * product `r` at each level:
+ * its two connections — while the primary point estimate counts three
+ * connections per visited position: `subIssues`, `assignees`, and `blockedBy`.
+ * With the shipped `20/3/3` shape:
  *
  * ```
- *   L1   r=50            50 × 31       =    1 550
- *   L2   r=1 250      1 250 × 31       =   38 750
- *   L3   r=12 500    12 500 × 31       =  387 500
- *   bottom-row totalCount probe        =   12 500
- *   the root's own two connections     =       30
- *                                        ---------
- *                                total    440 330   (88% of the ceiling)
+ *   node limit = 20×31 + 60×31 + 180×31 + 180 + 30 = 8 270
+ *   primary connection requests = 3×(1 + 20 + 60 + 180) = 783
+ *   predicted primary points = round(783 / 100) = 8
  * ```
  *
- * For a level-3 width `w` that is `40 330 + 40 000w`, so **11 is the widest
- * that fits** (480 330) and 10 is what we run, leaving a little headroom.
- * GitHub confirms both directions: w=12 is refused at **520 330** and w=15 at
- * **640 330**, and the formula predicts both exactly.
- *
- * Four separate claims about this budget have now been corrected on review,
- * including the arithmetic this comment replaces. Intuition does not work here
- * and neither did the model — **send the query.** Any new field with a
- * connection re-opens the whole sum.
+ * Width and depth remain round-trip tuning, not correctness limits: short
+ * levels are detected and re-rooted below. Any new connection in NODE_FIELDS
+ * must update `NODE_CONNECTION_COUNT` and re-open both calculations.
  */
-const SUBTREE_PAGE_SIZES = [50, 25, 10] as const;
+const SUBTREE_PAGE_SIZES = [20, 3, 3] as const;
+const NODE_CONNECTION_COUNT = 2;
+const SUBTREE_PRIMARY_RATE_POINT_BUDGET = 10;
+
+/** GitHub's documented primary-cost estimate: unique connection requests / 100, rounded. */
+export function estimateSubtreeQueryPrimaryRatePoints(pageSizes: readonly number[]): number {
+  let positions = 1;
+  let connectionRequests = NODE_CONNECTION_COUNT + 1;
+  for (const size of pageSizes) {
+    if (!Number.isInteger(size) || size < 1) throw new TypeError("subtree page sizes must be positive integers");
+    positions *= size;
+    connectionRequests += positions * (NODE_CONNECTION_COUNT + 1);
+  }
+  return Math.max(1, Math.round(connectionRequests / 100));
+}
+
+export const SUBTREE_QUERY_PRIMARY_RATE_POINTS = estimateSubtreeQueryPrimaryRatePoints(SUBTREE_PAGE_SIZES);
+if (SUBTREE_QUERY_PRIMARY_RATE_POINTS > SUBTREE_PRIMARY_RATE_POINT_BUDGET) {
+  throw new Error(
+    `subtree GraphQL query predicts ${SUBTREE_QUERY_PRIMARY_RATE_POINTS} primary points, budget is ${SUBTREE_PRIMARY_RATE_POINT_BUDGET}`,
+  );
+}
 
 /** Per-node connection widths. Short reads on either are detected — see {@link SubtreeNode.stateTruncated}. */
 const ASSIGNEE_PAGE = 10;
@@ -281,7 +325,7 @@ interface SubtreeNode {
  * truncation this walk exists to avoid.
  */
 function subtreeSelection(level: number): string {
-  const size = SUBTREE_PAGE_SIZES[level];
+  const size = SUBTREE_PAGE_SIZES.at(level);
   if (size === undefined) return "subIssues(first:1){totalCount}";
   return `subIssues(first:${size}){totalCount nodes{${NODE_FIELDS} ${subtreeSelection(level + 1)}}}`;
 }
@@ -530,17 +574,9 @@ class GitHubGraphStore implements GraphStore {
   async readNode(ref: NodeRef): Promise<NodeState> {
     const issue = await this.fetchIssue(ref);
     const parentNumber = issue.parentNumber ?? (await this.fetchParentNumber(issue.number));
-    const blockers = asArray(
-      await this.transport({
-        method: "GET",
-        path: `repos/${this.repo}/issues/${ref.id}/dependencies/blocked_by`,
-        paginate: true,
-      }),
-      "readNode blocked_by",
-    ).map((entry) => readIssue(entry, "readNode blocked_by"));
     return toNodeState(
       issue,
-      blockers.map((blocker) => ({ id: String(blocker.number), status: blocker.status })),
+      await this.fetchBlockers(ref),
       parentNumber === undefined ? undefined : { id: String(parentNumber) },
     );
   }
@@ -549,12 +585,14 @@ class GitHubGraphStore implements GraphStore {
    * Membership comes from native sub-issue edges — the same relationship the
    * tracker UI renders — walked **transitively** (#557).
    *
-   * GraphQL rather than recursive REST, because the walk must descend into
+   * GraphQL on the normal path rather than recursive REST, because the walk must descend into
    * *closed* nodes to reach the scaffold beneath them: a REST walk costs one
    * request per visited node and therefore scales with the map's closed
    * history, which only grows, so a map would get slower as it succeeded.
    * Nested `subIssues` returns {@link SUBTREE_PAGE_SIZES}`.length` levels per
-   * round trip instead.
+   * round trip instead. If GitHub's separate GraphQL quota is exhausted, the
+   * same contract is reconstructed through the paginated REST sub-issues
+   * endpoint; slower is preferable to making every graph verb unavailable.
    *
    * `totalCount` at every level is what keeps that honest rather than merely
    * cheap, and the two levels answer a shortfall differently. **Below the top**
@@ -598,8 +636,53 @@ class GitHubGraphStore implements GraphStore {
       for (const child of await this.completeChildren(node)) await visit(child, node.state.ref);
     };
 
-    const rootNode = await this.fetchSubtree(rootNumber);
-    for (const child of await this.completeChildren(rootNode)) await visit(child, root);
+    try {
+      const rootNode = await this.fetchSubtree(rootNumber);
+      for (const child of await this.completeChildren(rootNode)) await visit(child, root);
+      return states;
+    } catch (error) {
+      if (!isGraphQLRateLimitError(error)) throw error;
+      // Start over rather than mixing observations if a re-rooted or paged
+      // GraphQL walk failed after contributing some states.
+      return this.readSubtreeRest(root);
+    }
+  }
+
+  /**
+   * Quota-exhaustion path for the membership walk.
+   *
+   * REST exposes only one level of sub-issues at a time, so this costs one
+   * child-list request per visited node plus one blocker request per returned
+   * node. That is deliberately a fallback, not the normal path. Pagination is
+   * still whole through the transport, closed nodes are traversed, and the
+   * result preserves the same depth-first pre-order and parent-edge contract
+   * as the nested GraphQL walk.
+   */
+  private async readSubtreeRest(root: NodeRef): Promise<NodeState[]> {
+    const states: NodeState[] = [];
+    const seen = new Set<string>([root.id]);
+
+    const visitChildren = async (parent: NodeRef): Promise<void> => {
+      const children = asArray(
+        await this.transport({
+          method: "GET",
+          path: `repos/${this.repo}/issues/${parent.id}/sub_issues?per_page=100`,
+          paginate: true,
+        }),
+        `REST subtree children of ${parent.id}`,
+      );
+
+      for (const entry of children) {
+        const issue = readIssue(entry, `REST subtree child of ${parent.id}`);
+        const ref = { id: String(issue.number) };
+        if (seen.has(ref.id)) continue;
+        seen.add(ref.id);
+        states.push(toNodeState(issue, await this.fetchBlockers(ref), parent));
+        await visitChildren(ref);
+      }
+    };
+
+    await visitChildren(root);
     return states;
   }
 
@@ -627,9 +710,9 @@ class GitHubGraphStore implements GraphStore {
     const context = "subtree walk";
     const [owner, name] = this.repo.split("/");
     const children: SubtreeNode[] = [];
-    let self: { state: NodeState; truncated: boolean } | undefined;
+    let self: { state: NodeState; truncated: boolean };
     let after: string | null = null;
-    let totalCount = 0;
+    let totalCount: number;
     // A backend that keeps saying "there is more" while handing back a cursor
     // it already gave would spin here forever, accumulating children — and
     // never reach the count check below, which is what would otherwise catch a
@@ -683,8 +766,6 @@ class GitHubGraphStore implements GraphStore {
       );
     }
 
-    // `self` is assigned on the first pass and the loop always runs once.
-    if (self === undefined) throw new WorkGraphError("backend", `${context}: issue ${issueNumber} returned no state`);
     return { state: self.state, children, childrenTruncated: false, stateTruncated: self.truncated };
   }
 
@@ -836,9 +917,9 @@ class GitHubGraphStore implements GraphStore {
   }
 
   /**
-   * The sub-issue *parent* edge, which the REST issue payload does not carry —
-   * `GET repos/{repo}/issues/{n}` has no `parent` key at all, while the child
-   * direction (`/sub_issues`) does. Only GraphQL exposes it.
+   * The sub-issue *parent* edge, which the ordinary REST issue payload does not
+   * carry. GitHub's dedicated REST `/parent` endpoint keeps this one-edge read
+   * out of the separate GraphQL quota entirely.
    *
    * This matters well beyond display: §3.2 conjunct 4 derives the authorized
    * ratifier by walking parent edges to the graph root. With no parent, every
@@ -850,22 +931,16 @@ class GitHubGraphStore implements GraphStore {
    * "root unreachable" and downgrades on. Never an assumed root.
    */
   private async fetchParentNumber(issueNumber: number): Promise<number | undefined> {
-    const [owner, name] = this.repo.split("/");
-    const response = await this.transport({
-      method: "POST",
-      path: "graphql",
-      body: {
-        query:
-          "query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){parent{number}}}}",
-        variables: { owner, name, number: issueNumber },
-      },
-    });
-
-    const data = (response as { data?: { repository?: { issue?: { parent?: { number?: unknown } | null } | null } | null } } | null)
-      ?.data;
-    const parent = data?.repository?.issue?.parent;
-    const number = parent?.number;
-    return typeof number === "number" ? number : undefined;
+    try {
+      const parent = readIssue(
+        await this.transport({ method: "GET", path: `repos/${this.repo}/issues/${issueNumber}/parent` }),
+        `parent of issue ${issueNumber}`,
+      );
+      return parent.number;
+    } catch (error) {
+      if (isMissingRestResource(error)) return undefined;
+      throw error;
+    }
   }
 
   private async fetchIssue(ref: NodeRef): Promise<GitHubIssue> {
@@ -873,6 +948,20 @@ class GitHubGraphStore implements GraphStore {
       await this.transport({ method: "GET", path: `repos/${this.repo}/issues/${ref.id}` }),
       `issue ${ref.id}`,
     );
+  }
+
+  private async fetchBlockers(ref: NodeRef): Promise<BlockingRef[]> {
+    return asArray(
+      await this.transport({
+        method: "GET",
+        path: `repos/${this.repo}/issues/${ref.id}/dependencies/blocked_by`,
+        paginate: true,
+      }),
+      `node ${ref.id} blocked_by`,
+    ).map((entry) => {
+      const blocker = readIssue(entry, `node ${ref.id} blocked_by`);
+      return { id: String(blocker.number), status: blocker.status };
+    });
   }
 }
 
