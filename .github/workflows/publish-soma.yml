@@ -52,26 +52,42 @@ jobs:
           # the sole source for both the bundle and publish steps below.
           ARC_CONFIG_DIR="${RUNNER_TEMP}/arc-config"
           mkdir -p "${ARC_CONFIG_DIR}"
-          cat > "${ARC_CONFIG_DIR}/sources.yaml" <<YAML
-          sources:
-            - name: prod
-              url: https://meta-factory.ai
-              tier: official
-              enabled: true
-              type: metafactory
-              token: "${METAFACTORY_TOKEN}"
-          YAML
+          (
+            cd "${ARC_ROOT}"
+            ARC_CONFIG_DIR="${ARC_CONFIG_DIR}" bun -e '
+              import YAML from "yaml";
+              const token = process.env.METAFACTORY_TOKEN;
+              const target = process.env.ARC_CONFIG_DIR + "/sources.yaml";
+              await Bun.write(target, YAML.stringify({
+                sources: [{
+                  name: "prod",
+                  url: "https://meta-factory.ai",
+                  tier: "official",
+                  enabled: true,
+                  type: "metafactory",
+                  token,
+                }],
+              }));
+            '
+          )
 
           # Pre-flight: confirm a non-empty token actually landed in the prod
           # source before bundling/publishing. Prints presence only — never
           # the token value. `arc publish` reports a bare "Not authenticated"
           # when source.token is falsy, which is opaque; fail here with a
           # clear message instead.
-          if grep -qE '^[[:space:]]+token: "..+"' "${ARC_CONFIG_DIR}/sources.yaml"; then
+          if (
+            cd "${ARC_ROOT}"
+            ARC_CONFIG_DIR="${ARC_CONFIG_DIR}" bun -e '
+              import YAML from "yaml";
+              const config = YAML.parse(await Bun.file(process.env.ARC_CONFIG_DIR + "/sources.yaml").text());
+              const token = config?.sources?.find((source) => source?.name === "prod")?.token;
+              if (typeof token !== "string" || token.length === 0) process.exit(1);
+            '
+          ); then
             echo "auth pre-flight: prod token present in sources.yaml"
           else
             echo "::error::METAFACTORY_TOKEN did not land as a non-empty prod token in sources.yaml"
-            sed -E 's/(token:).*/\1 <redacted>/' "${ARC_CONFIG_DIR}/sources.yaml"
             exit 1
           fi
 
