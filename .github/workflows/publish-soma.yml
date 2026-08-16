@@ -48,11 +48,9 @@ jobs:
             exit 1
           fi
 
-          # Arc 0.37+ stores its configuration under the XDG app directory.
-          # Keep this in sync with Arc's default ~/.config/metafactory/arc root
-          # so the publish process reads the configured token after its XDG
-          # migration runs.
-          ARC_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/metafactory/arc"
+          # Isolate Arc from its XDG migration. The explicit config root becomes
+          # the sole source for both the bundle and publish steps below.
+          ARC_CONFIG_DIR="${RUNNER_TEMP}/arc-config"
           mkdir -p "${ARC_CONFIG_DIR}"
           cat > "${ARC_CONFIG_DIR}/sources.yaml" <<YAML
           sources:
@@ -76,6 +74,8 @@ jobs:
             sed -E 's/(token:).*/\1 <redacted>/' "${ARC_CONFIG_DIR}/sources.yaml"
             exit 1
           fi
+
+          echo "ARC_CONFIG_ROOT=${ARC_CONFIG_DIR}" >> "${GITHUB_ENV}"
 
       - name: Bundle
         id: bundle
