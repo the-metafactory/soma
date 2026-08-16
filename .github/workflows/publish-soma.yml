@@ -48,8 +48,13 @@ jobs:
             exit 1
           fi
 
-          mkdir -p ~/.config/metafactory
-          cat > ~/.config/metafactory/sources.yaml <<YAML
+          # Arc 0.37+ stores its configuration under the XDG app directory.
+          # Keep this in sync with Arc's default ~/.config/metafactory/arc root
+          # so the publish process reads the configured token after its XDG
+          # migration runs.
+          ARC_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/metafactory/arc"
+          mkdir -p "${ARC_CONFIG_DIR}"
+          cat > "${ARC_CONFIG_DIR}/sources.yaml" <<YAML
           sources:
             - name: prod
               url: https://meta-factory.ai
@@ -64,11 +69,11 @@ jobs:
           # the token value. `arc publish` reports a bare "Not authenticated"
           # when source.token is falsy, which is opaque; fail here with a
           # clear message instead.
-          if grep -qE '^[[:space:]]+token: "..+"' ~/.config/metafactory/sources.yaml; then
+          if grep -qE '^[[:space:]]+token: "..+"' "${ARC_CONFIG_DIR}/sources.yaml"; then
             echo "auth pre-flight: prod token present in sources.yaml"
           else
             echo "::error::METAFACTORY_TOKEN did not land as a non-empty prod token in sources.yaml"
-            sed -E 's/(token:).*/\1 <redacted>/' ~/.config/metafactory/sources.yaml
+            sed -E 's/(token:).*/\1 <redacted>/' "${ARC_CONFIG_DIR}/sources.yaml"
             exit 1
           fi
 
