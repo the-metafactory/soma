@@ -9,7 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Communication contract (Identity compartment).** `~/.soma/profile/communication.md`
+- **Communication contract (Identity compartment).** Section structure and part
+  of the banned-phrase list are adapted (not copied) from
+  [disler/fixing-smartass-opus-5](https://github.com/disler/fixing-smartass-opus-5), MIT.
+  `~/.soma/profile/communication.md`
   governs how the assistant talks — positive/negative patterns, banned phrases,
   reference codes, aliases, and authored do/don't examples. `soma init` ships a
   generic starter; the file projects **verbatim** (no provenance header, no

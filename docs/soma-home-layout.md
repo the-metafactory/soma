@@ -40,8 +40,10 @@ Two principal-authored files govern conduct, and they are deliberately separate:
   and negative patterns, the banned-phrase list, reference codes, and aliases.
   It belongs to the Identity compartment, which owns voice and personality.
   `soma init` writes a generic starter; edit it directly. Soma projects the file
-  **verbatim** into every substrate and parses only two sections for itself,
-  `## Reference codes` and `## Aliases`.
+  **verbatim** into every substrate and parses only `## Reference codes` for
+  itself, to refuse a contract that claims a reserved letter. Everything else —
+  aliases, labels, examples — reaches the model through the verbatim content,
+  so there is nothing else for Soma to extract.
 - **`policy/behavior.md`** — the *behavioral policy*: scope discipline,
   verification, permission boundaries, external-content handling. It belongs to
   the Policy compartment. Its `## Heading` sections become advisory lines in

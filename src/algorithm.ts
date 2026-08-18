@@ -29,7 +29,7 @@ import {
   DECISION_REFERENCE_LETTER,
   ReservedReferenceLetterError,
   isReservedReferenceLetter,
-  parseReferenceCode,
+  requireReferenceCode,
 } from "./communication-contract";
 import { compactSmarterRun } from "./algorithm-reflection-digest";
 import {
@@ -316,15 +316,11 @@ export function recordAlgorithmReference(
 ): AlgorithmRun {
   assertNonEmpty(input.text, "reference text");
 
-  const parsed = parseReferenceCode(input.code);
-  if (parsed === undefined) {
-    throw new Error(`Algorithm reference code must be a letter followed by a positive ordinal (e.g. F1), got: ${input.code}`);
-  }
-  if (isReservedReferenceLetter(parsed.letter)) {
-    throw new ReservedReferenceLetterError(parsed.letter);
+  const { code, letter, ordinal } = requireReferenceCode(input.code);
+  if (isReservedReferenceLetter(letter)) {
+    throw new ReservedReferenceLetterError(letter);
   }
 
-  const code = `${parsed.letter}${parsed.ordinal}`;
   const existing = getAlgorithmReferences(run);
   if (existing.some((reference) => reference.code === code)) {
     throw new Error(`Algorithm reference ${code} already exists in run ${run.id} — codes are stable within a run.`);
@@ -332,8 +328,8 @@ export function recordAlgorithmReference(
 
   const reference: AlgorithmReference = {
     code,
-    letter: parsed.letter,
-    ordinal: parsed.ordinal,
+    letter,
+    ordinal,
     ...(input.label === undefined || input.label.trim() === "" ? {} : { label: input.label.trim() }),
     text: input.text.trim(),
     createdAt: timestamp,
@@ -346,7 +342,7 @@ export function recordAlgorithmReference(
     references: [...existing, reference],
   };
 
-  return parsed.letter === DECISION_REFERENCE_LETTER
+  return letter === DECISION_REFERENCE_LETTER
     ? recordAlgorithmDecision(withReference, `${code}: ${reference.text}`, timestamp)
     : withReference;
 }
@@ -362,12 +358,7 @@ export function resolveAlgorithmReference(
   input: { code: string; verdict: AlgorithmReferenceVerdict; note?: string },
   timestamp = new Date().toISOString(),
 ): AlgorithmRun {
-  const parsed = parseReferenceCode(input.code);
-  if (parsed === undefined) {
-    throw new Error(`Algorithm reference code must be a letter followed by a positive ordinal (e.g. F1), got: ${input.code}`);
-  }
-
-  const code = `${parsed.letter}${parsed.ordinal}`;
+  const { code, letter } = requireReferenceCode(input.code);
   const existing = getAlgorithmReferences(run);
   const target = existing.find((reference) => reference.code === code);
   if (target === undefined) {
@@ -395,7 +386,7 @@ export function resolveAlgorithmReference(
 
   // A resolved decision is itself a decision — record the verdict so the
   // decisions log carries the outcome, not only the proposal.
-  return parsed.letter === DECISION_REFERENCE_LETTER
+  return letter === DECISION_REFERENCE_LETTER
     ? recordAlgorithmDecision(
         withResolution,
         `${code} ${input.verdict}${note === undefined || note === "" ? "" : `: ${note}`}`,

@@ -46,6 +46,16 @@ function renderAssistantProfile(): string {
  *
  * Conduct rules (scope, permissions, evidence) belong in `policy/behavior.md`
  * and are NOT restated here — one rule, one home.
+ *
+ * PROVENANCE: the section structure (positive/negative patterns, banned
+ * phrases, reference codes, aliases, authored examples) and several of the
+ * banned phrases are adapted from `disler/fixing-smartass-opus-5`
+ * (https://github.com/disler/fixing-smartass-opus-5, MIT). Adapted, not copied:
+ * that project's "never add a co-author to a commit message" rule is
+ * deliberately absent (it contradicts this repo's trailer convention), its
+ * "no decorative headings" rule is relaxed here because the VSA and Algorithm
+ * rendering contracts are heading-dense by design, and `C`/`P` are reserved
+ * from the reference-code space for VSA criteria and plan steps.
  */
 function renderCommunicationContract(): string {
   return [
@@ -331,12 +341,16 @@ async function readCommunicationContract(paths: ReturnType<typeof createPaths>):
 
 export async function loadSomaProfile(somaHome: string): Promise<Omit<ProjectionInput["profile"], "skills">> {
   const paths = createPaths(somaHome);
-  const assistant = await readFile(paths.resolve("profile", "assistant.md"), "utf8");
-  const principal = await readFile(paths.resolve("profile", "principal.md"), "utf8");
-  const communication = await readCommunicationContract(paths);
-  // soma#329: the compartment is now `purpose`. Read the new `purpose.md`, but
-  // fall back to a legacy `telos.md` so homes created before the rename still load.
-  const purpose = await readPurposeProfile(paths);
+  // Four independent files. Serial awaits made them pay four round-trips on a
+  // path soma re-executes per subprocess invocation (sage #636 r2).
+  // soma#329: `readPurposeProfile` reads the renamed `purpose.md` and falls back
+  // to a legacy `telos.md`, so homes created before the rename still load.
+  const [assistant, principal, communication, purpose] = await Promise.all([
+    readFile(paths.resolve("profile", "assistant.md"), "utf8"),
+    readFile(paths.resolve("profile", "principal.md"), "utf8"),
+    readCommunicationContract(paths),
+    readPurposeProfile(paths),
+  ]);
 
   return {
     assistant: {
@@ -387,9 +401,13 @@ async function readBehaviorPolicy(paths: ReturnType<typeof createPaths>): Promis
 }
 
 export async function loadSomaHome(somaHome: string, options: LoadSomaHomeOptions = {}): Promise<ProjectionInput> {
-  const profile = await loadSomaProfile(somaHome);
-  const skills = options.includeSkills === false ? [] : await loadSomaSkills(somaHome);
-  const behavior = await readBehaviorPolicy(createPaths(somaHome));
+  // Independent of each other: the behavioral policy must not queue behind the
+  // skills directory walk (sage #636 r2).
+  const [profile, skills, behavior] = await Promise.all([
+    loadSomaProfile(somaHome),
+    options.includeSkills === false ? Promise.resolve<SomaSkill[]>([]) : loadSomaSkills(somaHome),
+    readBehaviorPolicy(createPaths(somaHome)),
+  ]);
 
   return {
     profile: {

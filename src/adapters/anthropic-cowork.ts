@@ -4,15 +4,15 @@ import { resolve } from "node:path";
 import type { Projection, ProjectionInput, SomaAdapter } from "../types";
 import { activeVsaBundleFile, activeVsaProjectionPath } from "../adapter-active-vsa";
 import {
-  SOMA_POLICY_PROJECTION_HEADING,
-  SELF_HEALING_DOCTRINE_ADVISORY,
-  SOMA_SKILLS_HEADING,
+  communicationContractFile,
   renderAssistantCore,
   renderPolicyProjection,
   renderSkills,
+  SELF_HEALING_DOCTRINE_ADVISORY,
+  SOMA_POLICY_PROJECTION_HEADING,
+  SOMA_SKILLS_HEADING,
 } from "./shared";
 import { behaviorPolicyAdvisory } from "../policy/behavior-policy";
-import { communicationContractFile } from "./shared";
 
 export const ANTHROPIC_COWORK_ENTRYPOINT_PATH = "SOMA.md";
 export const ANTHROPIC_COWORK_README_PATH = "soma/README.md";

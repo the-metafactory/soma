@@ -151,6 +151,8 @@ A short code (`F1`, `O2`, `D3`) labelling one finding, option, risk, question, a
 **Not synonyms:**
 - `criterion id` / `plan step id` — the reserved space. A reference code is conversational; those are VSA and plan structure.
 - `citation`, `footnote` — a reference code is addressable and writable, not a pointer to a source.
+- [[checkpoint]] **verdict** — a reference *verdict* (`kept`/`rejected`/`answered`/`done`/`dropped`) is an ungated conversational disposition: no evidence required, no completion gate, revisable at will. A checkpoint's verdict is evidence-gated verification. The words collide; the concepts do not, and `dropped` appearing in both spaces is coincidence, not shared meaning.
+- `soma graph close` — `soma algorithm resolve` records a disposition. Only a [[work graph]] node *closes*, and only through its attached checkpoint's completion gate.
 
 **Why:** without durable storage a reference code is display formatting. Storing it makes `keep D1` a write, which is the only version of the idea that survives past the current context window.
 

@@ -113,6 +113,9 @@ test("pi-dev appends the contract to the system prompt, and the extension still 
   // `undefined` is the empty sentinel, not "": a home with no contract yields
   // "", and an `||` fallback would re-read the missing file every turn.
   expect(extension?.content).toContain("let cachedCommunication: string | undefined;");
+  // sage #636 r2: the cache is SESSION-scoped, which only holds if session_start
+  // clears it. A module cache that merely warmed would never see a reproject.
+  expect(extension?.content).toContain("cachedCommunication = undefined;");
 
   // learning-pi-dev-generated-code-guards: this adapter emits TypeScript as
   // string literals, so a toContain assertion passes on syntactically broken
@@ -136,14 +139,17 @@ test("C and P stay reserved for the Algorithm's own code space", () => {
   );
 });
 
-test("reference codes and aliases parse out of the authored markdown", () => {
+test("only the declared reference letters are parsed — labels and aliases ride the verbatim projection", () => {
   const parsed = parseCommunicationContract(CONTRACT);
 
-  expect(parsed.referenceCodes.map((code) => code.letter)).toEqual(["F", "O", "D"]);
-  expect(parsed.referenceCodes[0].label).toBe("findings");
-  expect(parsed.aliases.map((alias) => alias.token)).toEqual(["scr", "foc"]);
-  expect(parsed.aliases[0].expansion).toBe("Simplify, compress, and repeat your response.");
+  expect(parsed.referenceCodes).toEqual(["F", "O", "D"]);
   expect(DECISION_REFERENCE_LETTER).toBe("D");
+  // sage #636 r2: labels and the `## Aliases` section reach the model through
+  // the verbatim content, so parsing them would add a representation with no
+  // reader. The content still carries them.
+  expect(parsed.content).toContain("- F: findings");
+  expect(parsed.content).toContain("- scr: Simplify, compress, and repeat your response.");
+  expect("aliases" in parsed).toBe(false);
 });
 
 test("reference codes split into letter and ordinal, and reject non-codes", () => {
@@ -164,8 +170,8 @@ test("soma init ships a starter contract that parses and reserves C/P", async ()
     const starter = await readFile(join(somaHome, "profile", "communication.md"), "utf8");
     const parsed = parseCommunicationContract(starter);
 
-    expect(parsed.referenceCodes.map((code) => code.letter)).toEqual(["F", "O", "R", "Q", "A", "D"]);
-    expect(parsed.aliases.map((alias) => alias.token)).toEqual(["scr", "eli", "foc", "ref"]);
+    expect(parsed.referenceCodes).toEqual(["F", "O", "R", "Q", "A", "D"]);
+    expect(starter).toContain("- scr: Simplify, compress, and repeat your response.");
     // The starter is a public template: no principal-specific voice in it.
     expect(starter).not.toContain("Jens-Christian");
 

@@ -15,27 +15,19 @@
  * (Same contract as the memory INDEX, which also projects byte-for-byte.)
  */
 
-/** A conversational reference-code family: the letter and what it labels. */
-export interface ReferenceCodeDefinition {
-  /** Single uppercase letter, e.g. `F`. */
-  readonly letter: string;
-  /** What codes in this family label, e.g. `findings`. */
-  readonly label: string;
-}
-
-/** A short token that expands into a full instruction when it appears alone. */
-export interface CommunicationAlias {
-  /** The alias token as typed, e.g. `scr`. */
-  readonly token: string;
-  /** The instruction the token expands to. */
-  readonly expansion: string;
-}
+import { splitMarkdownSections } from "./markdown-sections";
 
 export interface CommunicationContract {
   /** The authored file, verbatim. This is what projects. */
   readonly content: string;
-  readonly referenceCodes: readonly ReferenceCodeDefinition[];
-  readonly aliases: readonly CommunicationAlias[];
+  /**
+   * The uppercase letters declared under `## Reference codes`. Only the letters
+   * are kept: their labels, and the whole `## Aliases` section, reach the model
+   * through the verbatim projection, so parsing them would add a representation
+   * with no reader. The letters are parsed because the reserved-letter check
+   * has a real effect — it refuses a contract that claims `C` or `P`.
+   */
+  readonly referenceCodes: readonly string[];
 }
 
 /**
@@ -89,17 +81,22 @@ export function parseReferenceCode(code: string): { letter: string; ordinal: num
   return { letter: match[1].toUpperCase(), ordinal };
 }
 
-function sectionBody(markdown: string, heading: string): string[] {
-  const lines = markdown.split("\n");
-  const start = lines.findIndex((line) => line.trim().toLowerCase() === `## ${heading.toLowerCase()}`);
-  if (start === -1) return [];
-
-  const body: string[] = [];
-  for (const line of lines.slice(start + 1)) {
-    if (/^##\s/.test(line)) break;
-    body.push(line);
+/**
+ * Parse, validate, and normalize a reference code in one step: the form both
+ * `recordAlgorithmReference` and `resolveAlgorithmReference` need, kept here so
+ * the error wording lives in exactly one place.
+ */
+export function requireReferenceCode(raw: string): { code: string; letter: string; ordinal: number } {
+  const parsed = parseReferenceCode(raw);
+  if (parsed === undefined) {
+    throw new Error(`Algorithm reference code must be a letter followed by a positive ordinal (e.g. F1), got: ${raw}`);
   }
-  return body;
+  return { code: `${parsed.letter}${parsed.ordinal}`, ...parsed };
+}
+
+function sectionBody(markdown: string, heading: string): readonly string[] {
+  const wanted = heading.toLowerCase();
+  return splitMarkdownSections(markdown).find((section) => section.heading.toLowerCase() === wanted)?.lines ?? [];
 }
 
 /** `- key: value` bullets in a section, in source order. */
@@ -115,24 +112,19 @@ function keyedBullets(markdown: string, heading: string): { key: string; value: 
 
 /**
  * Parse the contract. Unknown sections are ignored — the file is the
- * principal's to shape, and Soma reads only the two sections it acts on.
+ * principal's to shape, and Soma reads only the one section it acts on.
  *
  * A reserved letter in `## Reference codes` throws rather than being skipped:
  * silently dropping it would leave the principal believing `C` was adopted.
  */
 export function parseCommunicationContract(markdown: string): CommunicationContract {
-  const referenceCodes: ReferenceCodeDefinition[] = [];
-  for (const { key, value } of keyedBullets(markdown, "Reference codes")) {
+  const referenceCodes: string[] = [];
+  for (const { key } of keyedBullets(markdown, "Reference codes")) {
     const letter = key.trim().toUpperCase();
     if (!/^[A-Z]$/.test(letter)) continue;
     if (isReservedReferenceLetter(letter)) throw new ReservedReferenceLetterError(letter);
-    referenceCodes.push({ letter, label: value });
+    referenceCodes.push(letter);
   }
 
-  const aliases = keyedBullets(markdown, "Aliases").map(({ key, value }) => ({
-    token: key.trim(),
-    expansion: value,
-  }));
-
-  return { content: markdown, referenceCodes, aliases };
+  return { content: markdown, referenceCodes };
 }

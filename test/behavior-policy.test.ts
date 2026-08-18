@@ -1,11 +1,17 @@
 import { expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   EMPTY_BEHAVIOR_POLICY,
   behaviorPolicyAdvisory,
   parseBehaviorPolicy,
 } from "../src/policy/behavior-policy";
+import type { BehaviorPolicySection } from "../src/policy/behavior-policy";
+
+/** Entry texts of one kind, in source order. `entries` is the only stored shape. */
+function textsOfKind(section: BehaviorPolicySection | undefined, kind: "rule" | "prose"): string[] {
+  return (section?.entries ?? []).filter((entry) => entry.kind === kind).map((entry) => entry.text);
+}
 
 const SAMPLE = `# Behavioral Policy (advisory)
 
@@ -32,23 +38,23 @@ test("wrapped bullets fold into one rule instead of truncating at the first line
   const { sections } = parseBehaviorPolicy(SAMPLE);
   const verification = sections.find((section) => section.heading === "Verification");
 
-  expect(verification?.rules).toHaveLength(2);
+  expect(textsOfKind(verification, "rule")).toHaveLength(2);
   // The regression this parser exists for: `sectionBullets` would have kept only
   // "Never assert without verification. After changes, verify before claiming"
   // and silently dropped the evidence requirement.
-  expect(verification?.rules[0]).toBe(
+  expect(textsOfKind(verification, "rule")[0]).toBe(
     'Never assert without verification. After changes, verify before claiming success — evidence required (tests, output, diffs). "Should work" is not done.',
   );
-  expect(verification?.rules[1]).toBe("Confidence requires source.");
+  expect(textsOfKind(verification, "rule")[1]).toBe("Confidence requires source.");
 });
 
 test("prose-only sections keep their rules", () => {
   const { sections } = parseBehaviorPolicy(SAMPLE);
   const permissions = sections.find((section) => section.heading === "Permission boundaries");
 
-  expect(permissions?.rules).toHaveLength(0);
-  expect(permissions?.prose).toHaveLength(1);
-  expect(permissions?.prose[0]).toContain("any irreversible operation.");
+  expect(textsOfKind(permissions, "rule")).toHaveLength(0);
+  expect(textsOfKind(permissions, "prose")).toHaveLength(1);
+  expect(textsOfKind(permissions, "prose")[0]).toContain("any irreversible operation.");
   expect(behaviorPolicyAdvisory({ sections })).toContain(
     "Permission boundaries: Ask before: deleting files or branches, deploying to production, pushing code, modifying .env, any irreversible operation.",
   );
@@ -76,8 +82,8 @@ test("mixed sections project in source order, prose and bullets interleaved", ()
     "Scope: Ask when unsure.",
   ]);
   // The convenience arrays stay filtered views of the same ordered sequence.
-  expect(mixed.sections[0].rules).toEqual(["Only change what was requested."]);
-  expect(mixed.sections[0].prose).toEqual(["Analysis is read-only.", "Ask when unsure."]);
+  expect(textsOfKind(mixed.sections[0], "rule")).toEqual(["Only change what was requested."]);
+  expect(textsOfKind(mixed.sections[0], "prose")).toEqual(["Analysis is read-only.", "Ask when unsure."]);
 });
 
 test("advisory lines carry their section heading", () => {
@@ -101,16 +107,17 @@ test("nested headings fold into their parent section rather than opening a sibli
 
   expect(sections).toHaveLength(1);
   expect(sections[0].heading).toBe("Scope");
-  expect(sections[0].rules).toEqual(["Read only."]);
-  expect(sections[0].prose).toEqual(["Analysis:"]);
+  expect(textsOfKind(sections[0], "rule")).toEqual(["Read only."]);
+  expect(textsOfKind(sections[0], "prose")).toEqual(["Analysis:"]);
   expect(sections[0].entries.map((entry) => entry.text)).toEqual(["Analysis:", "Read only."]);
 });
 
-test("the repo's shipped policy/behavior.md parses into rules", async () => {
-  const shipped = await readFile(join(import.meta.dir, "..", "policy", "self-healing.md"), "utf8");
-  // self-healing.md is the shape a behavior-style policy file takes in-repo;
-  // parsing it proves the parser handles real authored markdown, not only the
-  // synthetic sample above.
+test("real authored markdown parses — policy/self-healing.md as the stand-in", () => {
+  // The repo ships no `policy/behavior.md`: that file is principal-authored and
+  // lives in the Soma home. `policy/self-healing.md` is the closest in-repo
+  // sample of the same authored shape, so it stands in to prove the parser
+  // handles hand-written markdown and not only the synthetic sample above.
+  const shipped = readFileSync(join(import.meta.dir, "..", "policy", "self-healing.md"), "utf8");
   const { sections } = parseBehaviorPolicy(shipped);
   expect(sections.length).toBeGreaterThan(0);
 });

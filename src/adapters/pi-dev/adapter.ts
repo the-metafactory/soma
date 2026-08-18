@@ -4,11 +4,19 @@ import { renderFeedbackHookHelper } from "../shared/feedback-helper";
 import { renderPathGuardExtension } from "./path-guard";
 import { renderSomaAlgorithmExtension } from "./extensions/soma-algorithm";
 import { buildPiDevPortableSkillFiles } from "./skill-projection";
-import { projectableSkills, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills, SELF_HEALING_DOCTRINE_ADVISORY, withProvenance } from "../shared";
+import {
+  communicationContractFile,
+  projectableSkills,
+  renderAssistantCore,
+  renderMemoryLayout,
+  renderPolicyProjection,
+  renderSkills,
+  SELF_HEALING_DOCTRINE_ADVISORY,
+  withProvenance,
+} from "../shared";
 import { activeVsaBundleFile } from "../../adapter-active-vsa";
 import { SOMA_VERSION } from "../../version";
 import { behaviorPolicyAdvisory } from "../../policy/behavior-policy";
-import { communicationContractFile } from "../shared";
 
 export function isPiDevSkillProjectionPath(path: string): boolean {
   return path.startsWith("agent/skills/");
@@ -111,10 +119,13 @@ function renderHomeExtension(somaHome: string): string {
     "// re-ran the whole session-start lifecycle — the bulk of the 2-6s freeze.",
     "let cachedStartupContext = \"\";",
     "",
-    "// The communication contract is static for the life of a session — it only",
-    "// changes on reproject — so it is read once and reused. `undefined` (not \"\")",
-    "// is the empty sentinel: a home with no contract legitimately yields \"\", and",
-    "// an `||` fallback would re-read the missing file on every single turn.",
+    "// The communication contract changes only on reproject, so it is read once",
+    "// per SESSION rather than per turn — session_start clears the cache, which",
+    "// is what makes the scope real: a `soma install --apply` between sessions is",
+    "// picked up, a module-scoped cache that only ever warmed would never see it.",
+    "// `undefined` (not \"\") is the empty sentinel: a home with no contract",
+    "// legitimately yields \"\", and an `||` fallback would re-read the missing",
+    "// file on every single turn — the cost this cache exists to avoid.",
     "let cachedCommunication: string | undefined;",
     "",
     "function communicationContract(): string {",
@@ -362,6 +373,9 @@ function renderHomeExtension(somaHome: string): string {
     '\tpi.on("session_start", async (_event, ctx) => {',
     "\t\t// Compute the startup context ONCE per session; before_agent_start reuses it.",
     "\t\tcachedStartupContext = await refreshStartupContext(sessionId(ctx));",
+    "\t\t// Clear before warming: this is what scopes the contract cache to the",
+    "\t\t// session, so a reproject since the last session is actually picked up.",
+    "\t\tcachedCommunication = undefined;",
     "\t\tcommunicationContract();",
     "\t\tscheduleWorkIndexRefresh();",
     '\t\tctx.ui?.setStatus?.("soma", "Soma ready");',

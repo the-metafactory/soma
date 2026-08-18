@@ -102,13 +102,31 @@ test("batch records and resolves references in one call", () => {
   ]);
 });
 
-test("runs written before references existed load with an empty list", () => {
-  const legacy = loadAlgorithmRun({
-    ...newRun(),
-    references: undefined,
-  });
+test("a persisted pre-change run loads with an empty reference list", () => {
+  // sage #636 r2: a run built by today's createAlgorithmRun is not evidence
+  // about older payloads. This is a v2 on-disk shape — embedded VSA under the
+  // legacy `isa` key, no `references`, no `observations`, no `metaReflection` —
+  // the form actually sitting in memory/WORK/algorithm-runs from before this
+  // change. If `references` were required rather than store-defaulted, an old
+  // run would fail to load at all.
+  const current = newRun();
+  const { vsa, references: _unused, ...rest } = current;
+  void _unused;
+  const persistedV2: Record<string, unknown> = {
+    ...rest,
+    schemaVersion: 2,
+    isa: vsa,
+  };
+  delete persistedV2.observations;
+  delete persistedV2.metaReflection;
+  delete persistedV2.provenance;
+
+  const legacy = loadAlgorithmRun(persistedV2);
+
   // Additive optional field, defaulted by the store — no schemaVersion bump.
   expect(legacy.schemaVersion).toBe(3);
   expect(legacy.references).toEqual([]);
   expect(getAlgorithmReferences(legacy)).toEqual([]);
+  // The v2→v3 normalization still happened around it.
+  expect(legacy.vsa).toBeDefined();
 });

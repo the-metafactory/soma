@@ -91,18 +91,29 @@ test("no behavior policy means no invented rules", () => {
 });
 
 test("adapters do not restate behavior rules — the home file is the only source", () => {
-  // Drift guard: flipping one rule's text in the source must change every
-  // projection. If an adapter had hardcoded a copy, the old text would survive.
-  const edited = parseBehaviorPolicy(BEHAVIOR_MD.replace("Ask before deleting", "Ask first before deleting"));
+  // Drift guard. sage #636 r2: editing ONE rule only proves that rule is not
+  // hardcoded, while the shipped doc claims adapters never restate ANY rule. So
+  // every entry is mutated and every mutation checked — an adapter holding a
+  // hardcoded copy of any single rule now fails here.
+  const marker = "DRIFT-SENTINEL";
+  const edited = parseBehaviorPolicy(
+    BEHAVIOR_MD.split("\n")
+      .map((line) => (line.trim() === "" || line.startsWith("#") ? line : `${line} ${marker}`))
+      .join("\n"),
+  );
+  const editedAdvisory = behaviorPolicyAdvisory(edited);
   const editedInput: ProjectionInput = { ...portableProjectionInput, behavior: edited };
 
+  expect(editedAdvisory).toHaveLength(ADVISORY.length);
+  expect(editedAdvisory.every((line) => line.includes(marker))).toBe(true);
+
   for (const { name, content } of allPolicies(editedInput)) {
-    expect(content, `${name} kept a hardcoded copy of the old rule`).not.toContain(
-      "Permission boundaries: Ask before deleting files or branches.",
-    );
-    expect(content, `${name} did not pick up the edited rule`).toContain(
-      "Permission boundaries: Ask first before deleting files or branches.",
-    );
+    for (const original of ADVISORY) {
+      expect(content, `${name} kept a hardcoded copy of: ${original}`).not.toContain(`- ${original}\n`);
+    }
+    for (const line of editedAdvisory) {
+      expect(content, `${name} did not pick up the edited rule: ${line}`).toContain(`- ${line}`);
+    }
   }
 });
 

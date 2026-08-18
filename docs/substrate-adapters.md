@@ -393,12 +393,19 @@ turn, not fetched on demand.
 `src/policy/behavior-policy.ts` and merged into each adapter's
 `renderPolicyProjection` advisory list as `<Heading>: <rule>` lines, ahead of
 the shipped SelfHealing doctrine. Adapters never restate a rule — a drift test
-edits the source and asserts every projection follows.
+mutates *every* entry at the source and asserts each projection carries the
+mutated text and none of the originals.
 
-The parser folds wrapped bullets and renders prose sections as rules. Both
-behaviors are required, not cosmetic: `sectionBullets` keeps only lines starting
-with `- `, so a rule that wraps would reach the substrate missing its second
-half, and two of `behavior.md`'s sections state their rules as paragraphs.
+The parser folds wrapped bullets and renders prose sections as rules, in source
+order. All three behaviors are required, not cosmetic: `sectionBullets` keeps
+only lines starting with `- `, so a rule that wraps would reach the substrate
+missing its second half; two of `behavior.md`'s sections state their rules as
+paragraphs; and a section that opens with a paragraph before its bullets must
+not project with that paragraph moved to the end.
+
+Both parsers split sections through the shared `splitMarkdownSections`
+(`src/markdown-sections.ts`) and keep only their own fold, so the heading format
+is defined once.
 
 ## Adapter Contract
 

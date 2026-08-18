@@ -20,6 +20,8 @@
  * not cosmetic.
  */
 
+import { splitMarkdownSections } from "../markdown-sections";
+
 /**
  * One folded entry under a heading: a bullet, or a paragraph of prose. Both are
  * carried in one sequence because the two are the same thing semantically — a
@@ -42,10 +44,6 @@ export interface BehaviorPolicySection {
    * and a reordered rule list changes what it appears to say.
    */
   readonly entries: readonly BehaviorPolicyEntry[];
-  /** The bullet entries, in source order. Derived from {@link entries}. */
-  readonly rules: readonly string[];
-  /** The prose entries, in source order. Derived from {@link entries}. */
-  readonly prose: readonly string[];
 }
 
 /** The parsed `behavior.md`. Sections keep their source order. */
@@ -61,14 +59,6 @@ export const EMPTY_BEHAVIOR_POLICY: BehaviorPolicy = { sections: [] };
  * Compared case-insensitively against the heading text.
  */
 const NON_RULE_HEADINGS: ReadonlySet<string> = new Set(["provenance", "source", "about", "readme"]);
-
-function isHeading(line: string): boolean {
-  return /^#{1,6}\s/.test(line);
-}
-
-function headingText(line: string): string {
-  return line.replace(/^#{1,6}\s+/, "").trim();
-}
 
 function isBullet(line: string): boolean {
   return /^\s*[-*]\s+/.test(line);
@@ -128,54 +118,14 @@ function foldLines(lines: readonly string[]): BehaviorPolicyEntry[] {
  * (the document title and any preamble) is dropped: it is provenance, not rules.
  */
 export function parseBehaviorPolicy(markdown: string): BehaviorPolicy {
-  const lines = markdown.split("\n");
   const sections: BehaviorPolicySection[] = [];
 
-  let heading: string | undefined;
-  let buffer: string[] = [];
-
-  const flushSection = (): void => {
-    if (heading === undefined) return;
-    if (NON_RULE_HEADINGS.has(heading.toLowerCase())) {
-      heading = undefined;
-      buffer = [];
-      return;
-    }
-    const entries = foldLines(buffer);
-    if (entries.length > 0) {
-      sections.push({
-        heading,
-        entries,
-        rules: entries.filter((entry) => entry.kind === "rule").map((entry) => entry.text),
-        prose: entries.filter((entry) => entry.kind === "prose").map((entry) => entry.text),
-      });
-    }
-    heading = undefined;
-    buffer = [];
-  };
-
-  for (const line of lines) {
-    if (isHeading(line)) {
-      // A `# Title` at the top closes nothing and opens nothing; only `##`+
-      // levels delimit sections, so a nested `### ` heading folds into its
-      // parent section rather than starting a sibling.
-      if (/^#\s/.test(line)) {
-        flushSection();
-        continue;
-      }
-      if (/^##\s/.test(line)) {
-        flushSection();
-        heading = headingText(line);
-        continue;
-      }
-      if (heading !== undefined) buffer.push(headingText(line) + ":");
-      continue;
-    }
-
-    if (heading !== undefined) buffer.push(line);
+  for (const section of splitMarkdownSections(markdown)) {
+    if (NON_RULE_HEADINGS.has(section.heading.toLowerCase())) continue;
+    const entries = foldLines(section.lines);
+    if (entries.length > 0) sections.push({ heading: section.heading, entries });
   }
 
-  flushSection();
   return { sections };
 }
 

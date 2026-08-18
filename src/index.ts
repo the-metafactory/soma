@@ -270,10 +270,11 @@ export {
   isReservedReferenceLetter,
   parseCommunicationContract,
   parseReferenceCode,
+  requireReferenceCode,
 } from "./communication-contract";
-export type { CommunicationAlias, CommunicationContract, ReferenceCodeDefinition } from "./communication-contract";
+export type { CommunicationContract } from "./communication-contract";
 export { EMPTY_BEHAVIOR_POLICY, behaviorPolicyAdvisory, parseBehaviorPolicy } from "./policy/behavior-policy";
-export type { BehaviorPolicy, BehaviorPolicySection } from "./policy/behavior-policy";
+export type { BehaviorPolicy, BehaviorPolicyEntry, BehaviorPolicySection } from "./policy/behavior-policy";
 // The planSteps bridge's READ half (§2.7), beside the write half on purpose: a
 // consumer that can reach `syncBridgedPlanStep` but not the reader must
 // re-implement repo resolution, becoming the second reader the bridge forbids.
