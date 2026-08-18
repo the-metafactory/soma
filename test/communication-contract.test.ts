@@ -98,8 +98,21 @@ test("pi-dev appends the contract to the system prompt, and the extension still 
 
   // Pi's native equivalent of --append-system-prompt-file: the contract has to
   // be on every turn, so the generated extension reads it into the prompt.
-  expect(extension?.content).toContain("const communication = readOptional(`${PI_SOMA_HOME}/communication.md`)");
+  expect(extension?.content).toContain("cachedCommunication ??= readOptional(`${PI_SOMA_HOME}/communication.md`)");
   expect(extension?.content).toContain("${communication}");
+
+  // sage #636 r1: the contract is static for a session, so it must NOT add a
+  // synchronous file read to the message path — the per-prompt handler calls
+  // the cached accessor, and session_start warms it.
+  const messagePath = (extension?.content ?? "").slice(
+    (extension?.content ?? "").indexOf('pi.on("before_agent_start"'),
+    (extension?.content ?? "").indexOf("const somaPrompt"),
+  );
+  expect(messagePath).toContain("const communication = communicationContract();");
+  expect(messagePath).not.toContain("communication.md");
+  // `undefined` is the empty sentinel, not "": a home with no contract yields
+  // "", and an `||` fallback would re-read the missing file every turn.
+  expect(extension?.content).toContain("let cachedCommunication: string | undefined;");
 
   // learning-pi-dev-generated-code-guards: this adapter emits TypeScript as
   // string literals, so a toContain assertion passes on syntactically broken

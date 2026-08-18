@@ -20,17 +20,31 @@
  * not cosmetic.
  */
 
+/**
+ * One folded entry under a heading: a bullet, or a paragraph of prose. Both are
+ * carried in one sequence because the two are the same thing semantically — a
+ * principal-authored rule — and only differ in how the principal typed it.
+ */
+export interface BehaviorPolicyEntry {
+  readonly kind: "rule" | "prose";
+  /** The entry text, wrapped continuation lines folded into one string. */
+  readonly text: string;
+}
+
 /** One `## Heading` block of `behavior.md` and the rules beneath it. */
 export interface BehaviorPolicySection {
   /** The heading text, without the leading `## `. */
   readonly heading: string;
-  /** One entry per bullet, wrapped continuation lines folded into one string. */
-  readonly rules: readonly string[];
   /**
-   * Non-bullet prose under the heading, folded the same way. Kept separate from
-   * `rules` so a projection can render rules as list items without swallowing
-   * an explanatory paragraph into the middle of the list.
+   * Every entry under the heading, IN SOURCE ORDER. This ordering is the
+   * authoritative one: a section that opens with a paragraph and then lists
+   * bullets must project in that order, because the principal wrote it that way
+   * and a reordered rule list changes what it appears to say.
    */
+  readonly entries: readonly BehaviorPolicyEntry[];
+  /** The bullet entries, in source order. Derived from {@link entries}. */
+  readonly rules: readonly string[];
+  /** The prose entries, in source order. Derived from {@link entries}. */
   readonly prose: readonly string[];
 }
 
@@ -70,16 +84,15 @@ function bulletText(line: string): string {
  * line closes the current entry. Non-bullet lines at column zero accumulate as
  * prose.
  */
-function foldLines(lines: readonly string[]): { rules: string[]; prose: string[] } {
-  const rules: string[] = [];
-  const prose: string[] = [];
+function foldLines(lines: readonly string[]): BehaviorPolicyEntry[] {
+  const entries: BehaviorPolicyEntry[] = [];
   let current: string[] | undefined;
   let currentIsRule = false;
 
   const flush = (): void => {
     if (current === undefined) return;
     const text = current.join(" ").replace(/\s+/g, " ").trim();
-    if (text !== "") (currentIsRule ? rules : prose).push(text);
+    if (text !== "") entries.push({ kind: currentIsRule ? "rule" : "prose", text });
     current = undefined;
   };
 
@@ -107,7 +120,7 @@ function foldLines(lines: readonly string[]): { rules: string[]; prose: string[]
   }
 
   flush();
-  return { rules, prose };
+  return entries;
 }
 
 /**
@@ -128,8 +141,15 @@ export function parseBehaviorPolicy(markdown: string): BehaviorPolicy {
       buffer = [];
       return;
     }
-    const { rules, prose } = foldLines(buffer);
-    if (rules.length > 0 || prose.length > 0) sections.push({ heading, rules, prose });
+    const entries = foldLines(buffer);
+    if (entries.length > 0) {
+      sections.push({
+        heading,
+        entries,
+        rules: entries.filter((entry) => entry.kind === "rule").map((entry) => entry.text),
+        prose: entries.filter((entry) => entry.kind === "prose").map((entry) => entry.text),
+      });
+    }
     heading = undefined;
     buffer = [];
   };
@@ -164,16 +184,20 @@ export function parseBehaviorPolicy(markdown: string): BehaviorPolicy {
  * Each line is `<Heading>: <text>` so a substrate reading the flat advisory
  * list can still tell a scope rule from a verification rule.
  *
- * Bullets AND prose both render. In a principal-authored policy file the
- * difference between the two is formatting, not meaning: `behavior.md`'s
- * "Permission boundaries" and "External content" sections state their rules as
- * paragraphs, and dropping them for lacking a leading dash would be the same
- * silent truncation the wrapped-bullet fold exists to prevent. Rules come
- * first within a section, then prose, so an authored list keeps its order.
+ * Bullets AND prose both render, IN SOURCE ORDER. In a principal-authored
+ * policy file the difference between the two is formatting, not meaning:
+ * `behavior.md`'s "Permission boundaries" and "External content" sections state
+ * their rules as paragraphs, and dropping them for lacking a leading dash would
+ * be the same silent truncation the wrapped-bullet fold exists to prevent.
+ *
+ * Rendering from `entries` rather than concatenating `rules` then `prose`
+ * matters for the same reason: a section that opens with a paragraph and then
+ * lists bullets would otherwise project with its opening sentence moved to the
+ * end, silently reordering guidance the principal wrote in a deliberate order.
  */
 export function behaviorPolicyAdvisory(policy: BehaviorPolicy | undefined): string[] {
   if (policy === undefined) return [];
   return policy.sections.flatMap((section) =>
-    [...section.rules, ...section.prose].map((text) => `${section.heading}: ${text}`),
+    section.entries.map((entry) => `${section.heading}: ${entry.text}`),
   );
 }

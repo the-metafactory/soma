@@ -62,6 +62,24 @@ test("document preamble and non-rule sections are dropped", () => {
   expect(behaviorPolicyAdvisory({ sections }).join("\n")).not.toContain("Mined from PAI");
 });
 
+test("mixed sections project in source order, prose and bullets interleaved", () => {
+  // Sage #636 r1: rendering `[...rules, ...prose]` moved a section's opening
+  // paragraph to the end, silently reordering principal-authored guidance.
+  const mixed = parseBehaviorPolicy(
+    ["## Scope", "", "Analysis is read-only.", "", "- Only change what was requested.", "", "Ask when unsure.", ""].join("\n"),
+  );
+
+  expect(mixed.sections[0].entries.map((entry) => entry.kind)).toEqual(["prose", "rule", "prose"]);
+  expect(behaviorPolicyAdvisory(mixed)).toEqual([
+    "Scope: Analysis is read-only.",
+    "Scope: Only change what was requested.",
+    "Scope: Ask when unsure.",
+  ]);
+  // The convenience arrays stay filtered views of the same ordered sequence.
+  expect(mixed.sections[0].rules).toEqual(["Only change what was requested."]);
+  expect(mixed.sections[0].prose).toEqual(["Analysis is read-only.", "Ask when unsure."]);
+});
+
 test("advisory lines carry their section heading", () => {
   const lines = behaviorPolicyAdvisory(parseBehaviorPolicy(SAMPLE));
 
@@ -85,6 +103,7 @@ test("nested headings fold into their parent section rather than opening a sibli
   expect(sections[0].heading).toBe("Scope");
   expect(sections[0].rules).toEqual(["Read only."]);
   expect(sections[0].prose).toEqual(["Analysis:"]);
+  expect(sections[0].entries.map((entry) => entry.text)).toEqual(["Analysis:", "Read only."]);
 });
 
 test("the repo's shipped policy/behavior.md parses into rules", async () => {

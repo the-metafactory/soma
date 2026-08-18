@@ -111,6 +111,17 @@ function renderHomeExtension(somaHome: string): string {
     "// re-ran the whole session-start lifecycle — the bulk of the 2-6s freeze.",
     "let cachedStartupContext = \"\";",
     "",
+    "// The communication contract is static for the life of a session — it only",
+    "// changes on reproject — so it is read once and reused. `undefined` (not \"\")",
+    "// is the empty sentinel: a home with no contract legitimately yields \"\", and",
+    "// an `||` fallback would re-read the missing file on every single turn.",
+    "let cachedCommunication: string | undefined;",
+    "",
+    "function communicationContract(): string {",
+    "\tcachedCommunication ??= readOptional(`${PI_SOMA_HOME}/communication.md`);",
+    "\treturn cachedCommunication;",
+    "}",
+    "",
     `const SOMA_HOME = ${JSON.stringify(somaHome)};`,
     'const PI_SOMA_HOME = `${process.env.HOME}/.pi/agent/soma`;',
     'const PI_SKILLS_HOME = `${process.env.HOME}/.pi/agent/skills`;',
@@ -351,6 +362,7 @@ function renderHomeExtension(somaHome: string): string {
     '\tpi.on("session_start", async (_event, ctx) => {',
     "\t\t// Compute the startup context ONCE per session; before_agent_start reuses it.",
     "\t\tcachedStartupContext = await refreshStartupContext(sessionId(ctx));",
+    "\t\tcommunicationContract();",
     "\t\tscheduleWorkIndexRefresh();",
     '\t\tctx.ui?.setStatus?.("soma", "Soma ready");',
     "\t});",
@@ -366,8 +378,9 @@ function renderHomeExtension(somaHome: string): string {
     // The communication contract (Identity compartment) rides the system prompt
     // itself, which is Pi's native equivalent of `--append-system-prompt-file`:
     // how the assistant talks has to be present on every turn, not fetched on
-    // demand like the deeper identity surfaces below.
-    '\t\tconst communication = readOptional(`${PI_SOMA_HOME}/communication.md`);',
+    // demand like the deeper identity surfaces below. Cached at session_start —
+    // no synchronous file read on the message path (soma#475, sage #636 r1).
+    "\t\tconst communication = communicationContract();",
     "\t\t// Local, synchronous, and about THIS prompt.",
     "\t\tconst promptClassification = renderPromptClassificationContext(prompt);",
     '\t\tconst somaPrompt = `',
