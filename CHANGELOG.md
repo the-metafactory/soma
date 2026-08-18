@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Communication contract (Identity compartment).** `~/.soma/profile/communication.md`
+  governs how the assistant talks — positive/negative patterns, banned phrases,
+  reference codes, aliases, and authored do/don't examples. `soma init` ships a
+  generic starter; the file projects **verbatim** (no provenance header, no
+  re-render) into all six substrates, and Pi.dev additionally reads it into the
+  generated extension's system prompt, that substrate's native equivalent of an
+  appended system-prompt file. Absent file → nothing projected, never a
+  Soma-authored default.
+- **Behavioral policy is wired (Policy compartment).** `~/.soma/policy/behavior.md`
+  has existed since the 2026-07 PAI migration but nothing read it. It is now
+  parsed by `src/policy/behavior-policy.ts` and merged into every adapter's
+  policy-projection advisory list. The parser folds wrapped bullets and keeps
+  prose-only sections, because the previous `sectionBullets` helper would have
+  truncated every wrapped rule at its first line and dropped the two sections
+  that state their rules as paragraphs.
+- **Reference codes as run state.** `soma algorithm ref --code F1 --text ...` and
+  `soma algorithm resolve --code D1 --verdict kept` (plus `ref:`/`resolve:` batch
+  ops) make `keep D1` a write rather than a comment. `C` and `P` are reserved for
+  VSA criteria and plan steps and are refused; codes are unique within a run; `D`
+  codes mirror into the run's decisions log rather than opening a parallel
+  record. `AlgorithmRun.references` is additive and defaulted by the store — no
+  schema-version bump, and pre-existing runs load with an empty list.
+
 ### Changed
 
 ### Fixed

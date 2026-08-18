@@ -5,6 +5,7 @@ import type { Projection, ProjectionInput } from "../src/index";
 import { SECTION_NAME_MAP, renderCriteriaMarkdown } from "../src/vsa-accessors";
 import { listBundledSkills } from "../src/bundled-skills";
 import { VSA_SKILL_NAME } from "../src/vsa-skill-installer";
+import { parseCommunicationContract } from "../src/communication-contract";
 
 /**
  * Repo-bundled portable skills (`src/skills/*` except VSA — the-algorithm,
@@ -111,6 +112,24 @@ export const portableProjectionInput: ProjectionInput = {
         triggers: ["ledger", "status update"],
       },
     ],
+    // Every bootstrapped home has a communication contract (soma ships a
+    // starter), so the portable fixture carries one too — otherwise adapter
+    // tests would only ever exercise the absent-contract branch.
+    communication: parseCommunicationContract(
+      [
+        "# Communication Contract",
+        "",
+        "## Reference codes",
+        "",
+        "- F: findings",
+        "- D: decisions",
+        "",
+        "## Aliases",
+        "",
+        "- scr: Simplify, compress, and repeat your response.",
+        "",
+      ].join("\n"),
+    ),
   },
   activeVsa: {
     slug: "portable-context",

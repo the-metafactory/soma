@@ -6,6 +6,8 @@ import type {
   AlgorithmObservation,
   AlgorithmPhase,
   AlgorithmPlanStep,
+  AlgorithmReference,
+  AlgorithmReferenceVerdict,
   AlgorithmRun,
   AlgorithmRunInput,
   EvidenceKind,
@@ -23,6 +25,12 @@ import {
 // a `NodeState`. Type-only: no runtime dependency on the graph from this pure module.
 import type { BridgedNodeReport } from "./work-graph";
 import { classifyAlgorithmPrompt } from "./algorithm-classifier";
+import {
+  DECISION_REFERENCE_LETTER,
+  ReservedReferenceLetterError,
+  isReservedReferenceLetter,
+  parseReferenceCode,
+} from "./communication-contract";
 import { compactSmarterRun } from "./algorithm-reflection-digest";
 import {
   buildVsaArtifact,
@@ -285,6 +293,120 @@ export function recordAlgorithmDecision(run: AlgorithmRun, text: string, timesta
     updatedAt: entry.timestamp,
     decisions: [...run.decisions, entry],
   };
+}
+
+/**
+ * Record a conversational reference point (`F1`, `O2`, `D3`) against the run.
+ *
+ * Three rules, each closing a way the code space could stop meaning anything:
+ *  - The letter may not be `C` or `P` — those are VSA criteria and plan steps,
+ *    and an overloaded letter makes "keep C1" ambiguous between a criterion and
+ *    a chat finding.
+ *  - A code is unique within a run. Reusing `F1` for a second finding would
+ *    silently break the one property that makes the code usable: that it still
+ *    points at the same thing later in the conversation.
+ *  - A `D` code ALSO appends to `run.decisions`. Decisions already have a
+ *    durable home; a parallel one would let `soma algorithm show` disagree with
+ *    itself about what was decided.
+ */
+export function recordAlgorithmReference(
+  run: AlgorithmRun,
+  input: { code: string; text: string; label?: string },
+  timestamp = new Date().toISOString(),
+): AlgorithmRun {
+  assertNonEmpty(input.text, "reference text");
+
+  const parsed = parseReferenceCode(input.code);
+  if (parsed === undefined) {
+    throw new Error(`Algorithm reference code must be a letter followed by a positive ordinal (e.g. F1), got: ${input.code}`);
+  }
+  if (isReservedReferenceLetter(parsed.letter)) {
+    throw new ReservedReferenceLetterError(parsed.letter);
+  }
+
+  const code = `${parsed.letter}${parsed.ordinal}`;
+  const existing = getAlgorithmReferences(run);
+  if (existing.some((reference) => reference.code === code)) {
+    throw new Error(`Algorithm reference ${code} already exists in run ${run.id} — codes are stable within a run.`);
+  }
+
+  const reference: AlgorithmReference = {
+    code,
+    letter: parsed.letter,
+    ordinal: parsed.ordinal,
+    ...(input.label === undefined || input.label.trim() === "" ? {} : { label: input.label.trim() }),
+    text: input.text.trim(),
+    createdAt: timestamp,
+    phase: getRunPhase(run),
+  };
+
+  const withReference: AlgorithmRun = {
+    ...run,
+    updatedAt: timestamp,
+    references: [...existing, reference],
+  };
+
+  return parsed.letter === DECISION_REFERENCE_LETTER
+    ? recordAlgorithmDecision(withReference, `${code}: ${reference.text}`, timestamp)
+    : withReference;
+}
+
+/**
+ * Resolve a reference the principal addressed by code (`keep D1`,
+ * `reject O2`). Re-resolving is allowed and overwrites — a decision revisited
+ * later is a real event, and refusing it would push the correction back into
+ * prose where nothing can read it.
+ */
+export function resolveAlgorithmReference(
+  run: AlgorithmRun,
+  input: { code: string; verdict: AlgorithmReferenceVerdict; note?: string },
+  timestamp = new Date().toISOString(),
+): AlgorithmRun {
+  const parsed = parseReferenceCode(input.code);
+  if (parsed === undefined) {
+    throw new Error(`Algorithm reference code must be a letter followed by a positive ordinal (e.g. F1), got: ${input.code}`);
+  }
+
+  const code = `${parsed.letter}${parsed.ordinal}`;
+  const existing = getAlgorithmReferences(run);
+  const target = existing.find((reference) => reference.code === code);
+  if (target === undefined) {
+    throw new Error(`Algorithm reference ${code} does not exist in run ${run.id}.`);
+  }
+
+  const note = input.note?.trim();
+  // `verdictNote` is dropped before the new one is applied, not merged over:
+  // re-resolving `rejected -> kept` with no note must not leave the rejection's
+  // rationale attached to a verdict that now says the opposite.
+  const { verdictNote: _previousNote, ...withoutNote } = target;
+  void _previousNote;
+  const resolved: AlgorithmReference = {
+    ...withoutNote,
+    verdict: input.verdict,
+    ...(note === undefined || note === "" ? {} : { verdictNote: note }),
+    resolvedAt: timestamp,
+  };
+
+  const withResolution: AlgorithmRun = {
+    ...run,
+    updatedAt: timestamp,
+    references: existing.map((reference) => (reference.code === code ? resolved : reference)),
+  };
+
+  // A resolved decision is itself a decision — record the verdict so the
+  // decisions log carries the outcome, not only the proposal.
+  return parsed.letter === DECISION_REFERENCE_LETTER
+    ? recordAlgorithmDecision(
+        withResolution,
+        `${code} ${input.verdict}${note === undefined || note === "" ? "" : `: ${note}`}`,
+        timestamp,
+      )
+    : withResolution;
+}
+
+/** The run's reference points, `[]` for runs written before they existed. */
+export function getAlgorithmReferences(run: AlgorithmRun): AlgorithmReference[] {
+  return run.references ?? [];
 }
 
 export function recordAlgorithmObservation(
@@ -797,6 +919,10 @@ export function applyAlgorithmBatch(
     switch (operation.kind) {
       case "decision":
         return recordAlgorithmDecision(current, operation.text, timestamp);
+      case "ref":
+        return recordAlgorithmReference(current, { code: operation.code, label: operation.label, text: operation.text }, timestamp);
+      case "resolve":
+        return resolveAlgorithmReference(current, { code: operation.code, verdict: operation.verdict, note: operation.note }, timestamp);
       case "observe":
         return recordAlgorithmObservation(
           current,

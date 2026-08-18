@@ -5,11 +5,12 @@ import { defaultSomaRepoPath } from "../../repo-path";
 import { resolveBunExecutable } from "../../bun-probe";
 import { readCodexHookAsset, renderCodexPolicyHook, renderCodexPolicyTargets } from "./hooks/assets";
 import { renderFeedbackHookModule } from "../shared/feedback-helper";
-import { buildPortableSkillFiles, renderAlgorithmRenderingContract, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills, renderSubstrateInstructions, SELF_HEALING_DOCTRINE_ADVISORY, withProvenance } from "../shared";
+import { buildPortableSkillFiles, communicationContractFile, renderAlgorithmRenderingContract, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills, renderSubstrateInstructions, SELF_HEALING_DOCTRINE_ADVISORY, withProvenance } from "../shared";
 import { activeVsaBundleFile } from "../../adapter-active-vsa";
 import { somaPolicyPrivateMarkers } from "../../policy";
 import { somaMemoryPrivateRoots, somaProjectionPrivateRoots } from "../../projection-private-roots";
 import { defaultInboundContentSecurityConfig } from "../../inbound-security";
+import { behaviorPolicyAdvisory } from "../../policy/behavior-policy";
 
 export function isCodexSkillProjectionPath(path: string): boolean {
   return path.startsWith("skills/");
@@ -53,11 +54,12 @@ function codexLifecycleConfig(somaHome: string, homeDir?: string, somaRepoPath =
   };
 }
 
-function renderCodexPolicy(): string {
+function renderCodexPolicy(input: ProjectionInput): string {
   return renderPolicyProjection("codex", ["Filesystem sandbox and approval model when Codex exposes it"], [
     "Assistant behavior instructions",
     "Verification reporting",
     "Private context handling",
+    ...behaviorPolicyAdvisory(input.behavior),
     ...SELF_HEALING_DOCTRINE_ADVISORY,
   ]);
 }
@@ -360,8 +362,10 @@ export function projectCodex(input: ProjectionInput): Projection {
       },
       {
         path: ".codex/soma/policy.md",
-        content: renderCodexPolicy(),
+        content: renderCodexPolicy(input),
       },
+      // Communication contract — omitted when the home has none. Verbatim bytes.
+      ...communicationContractFile(input, ".codex/soma/communication.md"),
     ],
   };
 }
@@ -450,8 +454,10 @@ export function projectCodexHome(input: ProjectionInput, somaHome: string, homeD
       },
       {
         path: "memories/soma/policy.md",
-        content: withProvenance("codex", renderCodexPolicy()),
+        content: withProvenance("codex", renderCodexPolicy(input)),
       },
+      // Communication contract — omitted when the home has none. Verbatim bytes.
+      ...communicationContractFile(input, "memories/soma/communication.md"),
       // Tier-0 durable memory INDEX (M4 parity). OMITTED when no index exists yet.
       ...codexMemoryIndexFile(input),
       ...portableSkillFiles,

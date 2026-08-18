@@ -366,6 +366,40 @@ capability is a binding commitment until the agent either records invocation
 evidence or removes the selection with a reason; COMPLETE is rejected while
 structured selections remain unresolved.
 
+## Communication Contract And Behavioral Policy
+
+Two principal-authored surfaces reach every substrate through the adapters, and
+neither is adapter-owned.
+
+`~/.soma/profile/communication.md` (Identity) projects **verbatim** — no
+provenance header, no re-render — under each substrate's native rules path:
+
+| Substrate | Home path | Workspace path |
+| --- | --- | --- |
+| claude-code | `rules/soma/COMMUNICATION.md` | `.claude/soma/communication.md` |
+| codex | `memories/soma/communication.md` | `.codex/soma/communication.md` |
+| grok | `skills/soma/communication.md` | `.grok/rules/soma/communication.md` |
+| pi-dev | `agent/soma/communication.md` | `.pi/extensions/soma-core/communication.md` |
+| cursor | `.cursor/rules/soma/COMMUNICATION.md` | — |
+| anthropic-cowork | `soma/communication.md` | — |
+
+The file is conditional: a home with no contract projects nothing rather than a
+Soma-authored default. Pi.dev additionally reads it into the generated
+extension's system prompt, which is that substrate's native equivalent of an
+appended system-prompt file — how the assistant talks has to be present on every
+turn, not fetched on demand.
+
+`~/.soma/policy/behavior.md` (Policy) is parsed by
+`src/policy/behavior-policy.ts` and merged into each adapter's
+`renderPolicyProjection` advisory list as `<Heading>: <rule>` lines, ahead of
+the shipped SelfHealing doctrine. Adapters never restate a rule — a drift test
+edits the source and asserts every projection follows.
+
+The parser folds wrapped bullets and renders prose sections as rules. Both
+behaviors are required, not cosmetic: `sectionBullets` keeps only lines starting
+with `- `, so a rule that wraps would reach the substrate missing its second
+half, and two of `behavior.md`'s sections state their rules as paragraphs.
+
 ## Adapter Contract
 
 Adapters should be thin. They do not own identity, memory, VSA, skill schemas, or

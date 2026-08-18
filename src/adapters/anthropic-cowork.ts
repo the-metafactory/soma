@@ -11,6 +11,8 @@ import {
   renderPolicyProjection,
   renderSkills,
 } from "./shared";
+import { behaviorPolicyAdvisory } from "../policy/behavior-policy";
+import { communicationContractFile } from "./shared";
 
 export const ANTHROPIC_COWORK_ENTRYPOINT_PATH = "SOMA.md";
 export const ANTHROPIC_COWORK_README_PATH = "soma/README.md";
@@ -19,6 +21,7 @@ export const ANTHROPIC_COWORK_PROFILE_PATH = "soma/profile.md";
 export const ANTHROPIC_COWORK_PURPOSE_PATH = "soma/purpose.md";
 export const ANTHROPIC_COWORK_SKILLS_PATH = "soma/skills.md";
 export const ANTHROPIC_COWORK_POLICY_PATH = "soma/policy.md";
+export const ANTHROPIC_COWORK_COMMUNICATION_PATH = "soma/communication.md";
 export const ANTHROPIC_COWORK_MEMORY_SNAPSHOT_PATH = "soma/memory-snapshot.md";
 export const ANTHROPIC_COWORK_ACTIVE_VSA_PATH = activeVsaProjectionPath("anthropic-cowork");
 export const ANTHROPIC_COWORK_CAPTURE_README_PATH = "capture/README.md";
@@ -76,6 +79,7 @@ function renderReadme(): string {
     "- `purpose.md` - mission, goals, principles, and commitments",
     "- `skills.md` - discovered Soma skills",
     "- `policy.md` - advisory-only policy projection",
+    "- `communication.md` - how the assistant talks (omitted when the home has no contract)",
     "- `memory-snapshot.md` - projected memory readback snapshot",
     "- `active-vsa.md` - active VSA when one is set",
     "- `<projection-folder>/capture/` - candidate memory and session notes for later review outside Cowork",
@@ -123,7 +127,7 @@ function renderPurpose(input: ProjectionInput): string {
   ].join("\n");
 }
 
-function renderPolicy(): string {
+function renderPolicy(input: ProjectionInput): string {
   return renderPolicyProjection(
     "anthropic-cowork",
     [],
@@ -132,6 +136,7 @@ function renderPolicy(): string {
       "Verification reporting",
       "Policy inspection before capture ingestion outside Cowork",
       "Organization-managed Cowork controls outside Soma",
+      ...behaviorPolicyAdvisory(input.behavior),
       ...SELF_HEALING_DOCTRINE_ADVISORY,
     ],
   );
@@ -212,7 +217,7 @@ const ANTHROPIC_COWORK_STATIC_HOME_FILE_DESCRIPTORS = [
   },
   {
     path: ANTHROPIC_COWORK_POLICY_PATH,
-    render: () => renderPolicy(),
+    render: (input) => renderPolicy(input),
     marker: { text: SOMA_POLICY_PROJECTION_HEADING, match: "startsWith" },
   },
   {
@@ -229,6 +234,10 @@ const ANTHROPIC_COWORK_STATIC_HOME_FILE_DESCRIPTORS = [
 
 export const ANTHROPIC_COWORK_HOME_FILE_PATHS: readonly string[] = [
   ...ANTHROPIC_COWORK_STATIC_HOME_FILE_DESCRIPTORS.map((file) => file.path),
+  // Conditional and verbatim, so it has no marker-guarded static descriptor —
+  // but the planner must still list it, or install writes a file the plan never
+  // declared. Omitted at projection time when the home has no contract.
+  ANTHROPIC_COWORK_COMMUNICATION_PATH,
 ];
 
 export const ANTHROPIC_COWORK_GENERATED_HOME_FILE_MARKERS = ANTHROPIC_COWORK_STATIC_HOME_FILE_DESCRIPTORS.map((file) => ({
@@ -252,6 +261,10 @@ export function projectAnthropicCoworkHome(input: ProjectionInput): Projection {
         content: file.path === ANTHROPIC_COWORK_INSTRUCTIONS_PATH ? instructions : file.render(input),
       })),
       ...activeVsaFiles,
+      // Communication contract — omitted when the home has none. Verbatim bytes,
+      // so it is appended here rather than added to the marker-guarded static
+      // descriptors (like the active VSA, it carries the source's own heading).
+      ...communicationContractFile(input, ANTHROPIC_COWORK_COMMUNICATION_PATH),
     ],
   };
 }

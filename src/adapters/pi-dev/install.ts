@@ -19,6 +19,8 @@ export const PI_DEV_HOME_FILES = [
   "agent/soma/tools.md",
   "agent/soma/skills.md",
   "agent/soma/policy.md",
+  // Conditional: omitted when the home has no `profile/communication.md`.
+  "agent/soma/communication.md",
   "agent/soma/soma-repo.txt",
   "agent/skills/soma/SKILL.md",
 ] as const;

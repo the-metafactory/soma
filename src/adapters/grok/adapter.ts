@@ -29,6 +29,8 @@ import {
 } from "../shared";
 import { readGrokHookAsset } from "./hooks/assets";
 import { GROK_PRE_TOOL_USE_VERB } from "./hooks/grok-hook-verbs.mjs";
+import { behaviorPolicyAdvisory } from "../../policy/behavior-policy";
+import { communicationContractFile } from "../shared";
 
 export function isGrokSkillProjectionPath(path: string): boolean {
   return path.startsWith("skills/");
@@ -337,7 +339,7 @@ function renderInstructions(input: ProjectionInput): string {
   return renderSubstrateInstructions({ substrate: "Grok", runtimeLabel: "the Grok CLI" }, input);
 }
 
-function renderGrokPolicy(): string {
+function renderGrokPolicy(input: ProjectionInput): string {
   return renderPolicyProjection(
     "grok",
     ["Filesystem and tool-call policy when Grok hooks enforce it"],
@@ -345,6 +347,7 @@ function renderGrokPolicy(): string {
       "Assistant behavior instructions",
       "Verification reporting",
       "Private context handling",
+      ...behaviorPolicyAdvisory(input.behavior),
       ...SELF_HEALING_DOCTRINE_ADVISORY,
     ],
   );
@@ -559,7 +562,9 @@ export function projectGrok(input: ProjectionInput): Projection {
       { path: ".grok/rules/soma/context.md", content: instructions },
       { path: ".grok/rules/soma/memory-layout.md", content: renderMemoryLayout(input) },
       { path: ".grok/rules/soma/skills.md", content: renderSkills(input) },
-      { path: ".grok/rules/soma/policy.md", content: renderGrokPolicy() },
+      { path: ".grok/rules/soma/policy.md", content: renderGrokPolicy(input) },
+      // Communication contract — omitted when the home has none. Verbatim bytes.
+      ...communicationContractFile(input, ".grok/rules/soma/communication.md"),
     ],
   };
 }
@@ -599,7 +604,9 @@ export function projectGrokHome(input: ProjectionInput, somaHome: string, option
       { path: "skills/soma/context.md", content: withProvenance("grok", instructions) },
       { path: "skills/soma/memory-layout.md", content: withProvenance("grok", renderMemoryLayout(input)) },
       { path: "skills/soma/skills.md", content: withProvenance("grok", renderSkills(input)) },
-      { path: "skills/soma/policy.md", content: withProvenance("grok", renderGrokPolicy()) },
+      { path: "skills/soma/policy.md", content: withProvenance("grok", renderGrokPolicy(input)) },
+      // Communication contract — omitted when the home has none. Verbatim bytes.
+      ...communicationContractFile(input, "skills/soma/communication.md"),
       // JSON cannot carry comments; hooks registration stays unwrapped.
       { path: "hooks/soma-lifecycle.json", content: renderGrokHooksJson(grokHome, bunPath) },
       // Shipped verbatim; the install-time facts live in the colocated

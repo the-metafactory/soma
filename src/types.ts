@@ -1,4 +1,6 @@
 import type { InferenceBackend, InferenceLevel } from "./tools/inference/types";
+import type { BehaviorPolicy } from "./policy/behavior-policy";
+import type { CommunicationContract } from "./communication-contract";
 
 export type SubstrateId =
   | "codex"
@@ -260,6 +262,42 @@ export interface AlgorithmLogEntry {
   text: string;
 }
 
+/** What happened to a reference the principal addressed by code. */
+export type AlgorithmReferenceVerdict = "kept" | "rejected" | "answered" | "done" | "dropped";
+
+/**
+ * A conversational reference point (`F1`, `O2`, `D3`) recorded against a run.
+ *
+ * The point of storing these is that `keep D1` becomes a WRITE rather than an
+ * acknowledgement: the code the assistant printed in chat and the code the
+ * principal types back both resolve to the same durable row. Without that, a
+ * reference code is only display formatting.
+ *
+ * The letter space is shared with the Algorithm's own: `C` (VSA criteria) and
+ * `P` (plan steps) are reserved and rejected at write time, because `keep C1`
+ * must never be ambiguous between a criterion and a chat finding. `D`
+ * references additionally mirror into `AlgorithmRun.decisions` — decisions are
+ * the one family the Algorithm already has a durable home for, so a `D` code
+ * is a handle on that record, not a parallel one.
+ */
+export interface AlgorithmReference {
+  /** Normalized code, uppercase letter + ordinal, e.g. `F1`. Unique per run. */
+  code: string;
+  /** The code's letter, uppercase. */
+  letter: string;
+  /** The code's ordinal. */
+  ordinal: number;
+  /** What the code labels, from the communication contract (e.g. `findings`). */
+  label?: string;
+  /** The reference's content as presented. */
+  text: string;
+  createdAt: string;
+  phase: AlgorithmPhase;
+  verdict?: AlgorithmReferenceVerdict;
+  verdictNote?: string;
+  resolvedAt?: string;
+}
+
 /**
  * A current-state probe recorded during OBSERVE. The OBSERVE→THINK gate requires
  * at least one observation whose {@link EvidenceKind} is `probed` or `tested` —
@@ -453,6 +491,12 @@ export interface AlgorithmRun {
   capabilitySelections?: AlgorithmCapabilitySelection[];
   planSteps: AlgorithmPlanStep[];
   decisions: AlgorithmLogEntry[];
+  /**
+   * Conversational reference points addressable by code. Optional on disk:
+   * every run written before this shipped has none, and the store defaults it
+   * to `[]` rather than bumping the schema version. See {@link AlgorithmReference}.
+   */
+  references?: AlgorithmReference[];
   /** Current-state probes recorded during OBSERVE. See {@link AlgorithmObservation}. */
   observations: AlgorithmObservation[];
   changelog: AlgorithmLogEntry[];
@@ -506,6 +550,18 @@ export type AlgorithmBatchOperation =
   | {
       kind: "decision" | "change" | "learn";
       text: string;
+    }
+  | {
+      kind: "ref";
+      code: string;
+      label?: string;
+      text: string;
+    }
+  | {
+      kind: "resolve";
+      code: string;
+      verdict: AlgorithmReferenceVerdict;
+      note?: string;
     }
   | {
       kind: "observe";
@@ -638,6 +694,18 @@ export interface SomaProfile {
   purpose: Purpose;
   memory: SomaMemoryLayout;
   skills: SomaSkill[];
+  /**
+   * Parsed `profile/communication.md` — how the assistant talks. Under
+   * `profile` (not a sibling like `memory`/`behavior`) because the Identity
+   * compartment explicitly owns "voice, personality" (CONTEXT.md
+   * "compartment"), and voice is what this is. Conduct rules are the Policy
+   * compartment and live in `ProjectionInput.behavior` instead.
+   *
+   * Omitted when the home has no `profile/communication.md` — an older home
+   * predating the starter template, or one where the principal deleted it. The
+   * substrate then simply projects no contract.
+   */
+  communication?: CommunicationContract;
 }
 
 export interface ProjectionInput {
@@ -665,6 +733,18 @@ export interface ProjectionInput {
    * legacy all-except-VSA behavior) — install is the sole scope authority.
    */
   bundledSkillNames?: readonly string[];
+  /**
+   * Parsed `~/.soma/policy/behavior.md` — the principal's cross-substrate
+   * behavioral rules. A SIBLING of `profile`, not a field under it: behavior is
+   * the Policy compartment, `profile` is Identity, and the two are peers (same
+   * reasoning as `memory` above). Adapters merge
+   * `behaviorPolicyAdvisory(input.behavior)` into their
+   * `renderPolicyProjection` advisory list. Omitted when the home has no
+   * `policy/behavior.md`, in which case the projection simply carries no
+   * principal behavioral rules — never a default set, because inventing rules
+   * the principal did not write is worse than projecting none.
+   */
+  behavior?: BehaviorPolicy;
 }
 
 export interface Projection {

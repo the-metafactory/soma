@@ -163,7 +163,7 @@ test("installs soma source home and codex home projection", async () => {
     // rendering contract overwrites — double-written by design, grok/codex —
     // migrate-pai-purpose/SKILL.md ×1, and orienteer ×6: SKILL.md, two
     // Workflows, three references).
-    expect(result.substrateHome.files).toHaveLength(43);
+    expect(result.substrateHome.files).toHaveLength(44);
 
     const telos = await readFile(join(homeDir, ".soma/profile/purpose.md"), "utf8");
     const rules = await readFile(join(homeDir, ".codex/rules/soma.rules"), "utf8");
@@ -1623,7 +1623,7 @@ test("installs soma source home and pi.dev home projection", async () => {
     // + 22 bundled-skill projections (the-algorithm ×10 — SKILL.md, Workflows,
     // and eight references — Memory ×5, migrate-pai-purpose ×1,
     // orienteer ×6) = 35.
-    expect(result.substrateHome.files).toHaveLength(35);
+    expect(result.substrateHome.files).toHaveLength(36);
 
     const extension = await readFile(join(homeDir, ".pi/agent/extensions/soma.ts"), "utf8");
     const algorithmExtension = await readFile(join(homeDir, ".pi/agent/extensions/soma-algorithm.ts"), "utf8");

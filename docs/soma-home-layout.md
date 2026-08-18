@@ -15,6 +15,7 @@ re-projection rewrites.
 │   ├── assistant.md        # assistant identity (name, traits)
 │   ├── principal.md        # who the assistant works for
 │   ├── purpose.md            # mission, goals, principles, commitments
+│   ├── communication.md    # how the assistant talks (voice, reference codes, aliases)
 │   └── imports/            # provenance of migrated PAI/Claude identity
 ├── skills/                 # portable skill folders (<name>/SKILL.md)
 ├── memory/                 # Soma memory taxonomy (WORK, KNOWLEDGE, LEARNING, …)
@@ -25,10 +26,37 @@ re-projection rewrites.
 ├── isa/                    # Verification State Artifacts, one <slug>.md per project/task
 │   └── .templates/         # VSA scaffolding templates
 ├── policy/                 # substrate policy declarations
+│   ├── behavior.md         # cross-substrate behavioral rules (advisory, projected)
 │   └── probe-registry.json # work-graph probe authorisations (see docs/work-graph.md §2.2)
 ├── imports/                # migration manifests and portability reports
 └── projections/            # cached generated projections (codex, claude-code, …)
 ```
+
+## How the assistant talks, and what it may do
+
+Two principal-authored files govern conduct, and they are deliberately separate:
+
+- **`profile/communication.md`** — the *communication contract*: voice, positive
+  and negative patterns, the banned-phrase list, reference codes, and aliases.
+  It belongs to the Identity compartment, which owns voice and personality.
+  `soma init` writes a generic starter; edit it directly. Soma projects the file
+  **verbatim** into every substrate and parses only two sections for itself,
+  `## Reference codes` and `## Aliases`.
+- **`policy/behavior.md`** — the *behavioral policy*: scope discipline,
+  verification, permission boundaries, external-content handling. It belongs to
+  the Policy compartment. Its `## Heading` sections become advisory lines in
+  every substrate's policy projection, wrapped bullets folded back into whole
+  rules.
+
+One rule, one home: an operational boundary goes in `behavior.md`, a habit of
+speech goes in `communication.md`. Neither file is created with rules Soma
+invented — an absent file projects nothing rather than a default.
+
+Reference codes (`F1`, `O2`, `D3`) are addressable run state, not display
+formatting: `soma algorithm ref` records one and `soma algorithm resolve`
+closes it, so `keep D1` is a write. `C` and `P` are reserved for VSA criteria
+and Algorithm plan steps and are refused; `D` codes additionally mirror into
+the run's decisions log.
 
 `policy/probe-registry.json` is **not** created by `soma init`: it authorises
 `command` and `url` probes to run on this machine, and its absence is the

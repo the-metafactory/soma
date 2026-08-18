@@ -7,6 +7,8 @@ import { buildPiDevPortableSkillFiles } from "./skill-projection";
 import { projectableSkills, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills, SELF_HEALING_DOCTRINE_ADVISORY, withProvenance } from "../shared";
 import { activeVsaBundleFile } from "../../adapter-active-vsa";
 import { SOMA_VERSION } from "../../version";
+import { behaviorPolicyAdvisory } from "../../policy/behavior-policy";
+import { communicationContractFile } from "../shared";
 
 export function isPiDevSkillProjectionPath(path: string): boolean {
   return path.startsWith("agent/skills/");
@@ -361,6 +363,11 @@ function renderHomeExtension(somaHome: string): string {
     "\t\tconst startupContext = cachedStartupContext || readOptional(`${PI_SOMA_HOME}/startup-context.md`);",
     '\t\tconst paiImports = readOptional(`${PI_SOMA_HOME}/pai-imports.md`);',
     '\t\tconst context = readOptional(`${PI_SOMA_HOME}/context.md`);',
+    // The communication contract (Identity compartment) rides the system prompt
+    // itself, which is Pi's native equivalent of `--append-system-prompt-file`:
+    // how the assistant talks has to be present on every turn, not fetched on
+    // demand like the deeper identity surfaces below.
+    '\t\tconst communication = readOptional(`${PI_SOMA_HOME}/communication.md`);',
     "\t\t// Local, synchronous, and about THIS prompt.",
     "\t\tconst promptClassification = renderPromptClassificationContext(prompt);",
     '\t\tconst somaPrompt = `',
@@ -374,6 +381,8 @@ function renderHomeExtension(somaHome: string): string {
     "Pi has no SessionEnd digest hook: when wrapping up substantial work, author ONE session digest and run \\`cd $(cat ~/.pi/agent/soma/soma-repo.txt) && bun run soma memory digest --session <session-id> --body \"8-15 lines\"\\`. This capture is agent-invoked.",
     "",
     "${profile}",
+    "",
+    "${communication}",
     "",
     "${startupContext}",
     "",
@@ -553,6 +562,7 @@ export function projectPiDev(input: ProjectionInput): Projection {
           "Model-provider behavior",
           "Host permission prompts",
           "Verification reporting",
+          ...behaviorPolicyAdvisory(input.behavior),
           ...SELF_HEALING_DOCTRINE_ADVISORY,
         ]),
       },
@@ -560,6 +570,8 @@ export function projectPiDev(input: ProjectionInput): Projection {
         path: ".pi/extensions/soma-core/soma-path-guard.ts",
         content: renderPathGuardExtension(somaHome),
       },
+      // Communication contract — omitted when the home has none. Verbatim bytes.
+      ...communicationContractFile(input, ".pi/extensions/soma-core/communication.md"),
     ],
   };
 }
@@ -615,10 +627,13 @@ export function projectPiDevHome(input: ProjectionInput, somaHome: string): Proj
             "Model-provider behavior",
             "Host permission prompts",
             "Verification reporting",
+            ...behaviorPolicyAdvisory(input.behavior),
             ...SELF_HEALING_DOCTRINE_ADVISORY,
           ]),
         ),
       },
+      // Communication contract — omitted when the home has none. Verbatim bytes.
+      ...communicationContractFile(input, "agent/soma/communication.md"),
       {
         path: "agent/extensions/soma-path-guard.ts",
         content: renderPathGuardExtension(somaHome),

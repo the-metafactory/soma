@@ -33,6 +33,8 @@ export const GROK_STATIC_PROJECTION_FILES = [
   "skills/soma/memory-layout.md",
   "skills/soma/skills.md",
   "skills/soma/policy.md",
+  // Conditional: omitted when the home has no `profile/communication.md`.
+  "skills/soma/communication.md",
   "hooks/soma-lifecycle.json",
   "hooks/soma-lifecycle.mjs",
   "hooks/soma-lifecycle.config.json",
