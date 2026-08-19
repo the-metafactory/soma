@@ -39,6 +39,7 @@ function renderClaudeMd(input: ProjectionInput): string {
     "This file is generated context for Claude Code. The portable source of truth is Soma.",
     "",
     "Read `.claude/soma/context.md`, `.claude/soma/memory-layout.md`, `.claude/soma/skills.md`, and `.claude/soma/policy.md` before acting as the Soma assistant.",
+    "Read `.claude/soma/communication.md`, when present, for how to communicate: patterns, banned phrases, reference codes, and aliases.",
     "",
     input.prompt ? "## Current Prompt\n\n" + input.prompt : undefined,
   ]

@@ -199,6 +199,14 @@ test("soma init ships a starter that declares the code families and names the re
     // which letters are taken and why, since Soma refuses them at the write
     // path and the refusal would otherwise arrive as a surprise.
     expect(starter).toContain("`C` and `P` are reserved by the Algorithm");
+    // sage #636 r7 blocker: the starter used to assert that a chat-typed
+    // `keep D1` records a decision. Nothing binds it — `ref`/`resolve` both
+    // require an explicit --id and there is no active-run resolution — and this
+    // text reaches every model on every turn, so it must not promise a
+    // mechanism that does not exist.
+    expect(starter).not.toContain("keep D1` records a decision");
+    expect(starter).toContain("There is no implicit active run");
+    expect(starter).toContain("soma algorithm ref --id");
     for (const reserved of Object.keys(RESERVED_REFERENCE_LETTERS)) {
       expect(starter).not.toContain(`- ${reserved}: `);
     }
@@ -209,3 +217,30 @@ test("soma init ships a starter that declares the code families and names the re
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("every substrate is told to read the contract, not just handed the file", () => {
+  // sage #636 r7: the contract projected to ten surfaces while the files that
+  // tell each substrate what to read never mentioned it. On surfaces that are
+  // not auto-discovered that reproduces the unwired-file failure this whole
+  // change exists to fix — a projected file nothing is instructed to open.
+  const instructionSurfaces: { name: string; text: string }[] = [
+    { name: "claude-code (CLAUDE.md)", text: text(projectClaudeCode(withContract), "CLAUDE.md") },
+    { name: "claude-code (rules README)", text: text(projectClaudeCodeHome(withContract), "rules/soma/README.md") },
+    { name: "cursor (.cursorrules)", text: text(projectCursor(withContract), ".cursorrules") },
+    { name: "cursor (rules README)", text: text(projectCursor(withContract), ".cursor/rules/soma/README.md") },
+    { name: "anthropic-cowork (SOMA.md)", text: text(projectAnthropicCoworkHome(withContract), "SOMA.md") },
+    { name: "anthropic-cowork (README)", text: text(projectAnthropicCoworkHome(withContract), "soma/README.md") },
+    { name: "codex (home SKILL.md)", text: text(projectCodexHome(withContract, "/tmp/soma-home"), "skills/soma/SKILL.md") },
+    { name: "grok (home SKILL.md)", text: text(projectGrokHome(withContract, "/tmp/soma-home"), "skills/soma/SKILL.md") },
+    { name: "grok (rules README)", text: text(projectGrok(withContract), ".grok/rules/soma/README.md") },
+  ];
+
+  for (const { name, text: content } of instructionSurfaces) {
+    expect(content, `${name} projected no instruction file`).not.toBe("");
+    expect(content.toLowerCase(), `${name} never names the communication contract`).toContain("communication");
+  }
+});
+
+function text(projection: Projection, path: string): string {
+  return projection.files.find((file) => file.path === path)?.content ?? "";
+}

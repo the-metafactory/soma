@@ -80,7 +80,8 @@ interface MarkdownSection {
  * policy to a typo is far worse than projecting one stray code line as a rule:
  * the second is visible in the projection, the first is invisible everywhere.
  * The rule of this module is that a defect must never cost the principal a rule
- * they cannot see going missing.
+ * they cannot see going missing — which is also why a `#` inside an unterminated
+ * fence is treated as body text rather than a section break.
  */
 const FENCE = /^\s*(```+|~~~+)/;
 
@@ -130,8 +131,14 @@ function splitMarkdownSections(markdown: string): MarkdownSection[] {
       continue;
     }
 
+    // A lone `# ` closes a section ONLY when none is open. Inside a section it
+    // is body text: a document has one title, and a later `#` is far more
+    // likely a code comment — which is exactly what made the unbalanced-fence
+    // fallback still lose rules invisibly (sage #636 r7). Misreading a real
+    // second title costs one projected line, and that line is visible.
     if (/^#\s/.test(line)) {
-      flush();
+      if (heading === undefined) continue;
+      lines.push(line);
       continue;
     }
 

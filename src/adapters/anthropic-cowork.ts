@@ -58,6 +58,7 @@ function renderEntrypoint(input: ProjectionInput): string {
     "",
     "Read `soma/instructions.md` and `soma/memory-snapshot.md` before making durable claims about identity, memory, active work, or prior decisions.",
     "Use `soma/skills.md` for available Soma skills and `soma/policy.md` for policy limits.",
+    "Read `soma/communication.md`, when present, for how to communicate: patterns, banned phrases, reference codes, and aliases.",
     "Write candidate durable observations into `capture/`; do not claim they are saved to Soma memory unless a separately implemented, policy-checked process later admits them.",
     "",
     "`~/.soma` is authoritative. Do not assume it is mounted in the Cowork session; files in this folder are generated snapshots and may be overwritten by the next Soma install.",

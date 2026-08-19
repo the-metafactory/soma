@@ -175,6 +175,18 @@ test("an unbalanced fence must not swallow the rest of the policy", () => {
   expect(behaviorPolicyAdvisory({ sections })).toContain("Scope: Ask first.");
 });
 
+test("a `#` inside an unterminated fence does not eat the rest of the section", () => {
+  // sage #636 r7: with fence handling disabled by the imbalance, the `# ` branch
+  // still flushed the open section — the fallback traded one invisible loss for
+  // another. A `#` is only a delimiter when no section is open.
+  const { sections } = parseBehaviorPolicy(
+    ["## Verification", "", "- Probe first.", "", "```bash", "# a comment, not a heading", "bun test", "", "- Evidence beats assertion.", ""].join("\n"),
+  );
+
+  expect(sections.map((section) => section.heading)).toEqual(["Verification"]);
+  expect(textsOfKind(sections[0], "rule")).toContain("Evidence beats assertion.");
+});
+
 test("the three behaviours hold on real authored markdown, not just the sample", () => {
   // The repo ships no `policy/behavior.md` — it is principal-authored and lives
   // in the Soma home — so this exercises the parser against a hand-written file
@@ -210,7 +222,19 @@ test("the three behaviours hold on real authored markdown, not just the sample",
     text: "Analysis is read-only unless the request says otherwise.",
   });
 
-  // And the parser still handles the one authored-shape file the repo ships.
+  // And the same three behaviours hold on the one authored-shape file the repo
+  // ships — asserted against its actual content, not just its section count
+  // (sage #636 r7).
   const shipped = readFileSync(join(import.meta.dir, "..", "policy", "self-healing.md"), "utf8");
-  expect(parseBehaviorPolicy(shipped).sections.length).toBeGreaterThan(0);
+  const shippedSections = parseBehaviorPolicy(shipped).sections;
+  const shippedLines = behaviorPolicyAdvisory({ sections: shippedSections });
+
+  expect(shippedSections.length).toBeGreaterThan(0);
+  // Every rendered line carries a real heading and non-empty text...
+  for (const line of shippedLines) {
+    expect(line).toMatch(/^[^:]+: \S/);
+  }
+  // ...no line is a bare sub-heading, a fence, or a fragment ending mid-clause.
+  expect(shippedLines.some((line) => line.includes("```"))).toBe(false);
+  expect(shippedLines.some((line) => /: [A-Za-z ]+:$/.test(line))).toBe(false);
 });

@@ -141,6 +141,7 @@ function renderHomeSkill(input: ProjectionInput, somaHome: string): string {
     "- `cd $(cat ~/.codex/memories/soma/soma-repo.txt) && bun run soma memory promote --from-run <id> --store learning --title \"...\" --substrate codex --principal-authority` mints a principal-trust durable note from verified Algorithm work. Add `--principal-authority` ONLY on explicit principal request — it is a deliberate caller opt-in (soma can prove caller opt-in, not that the principal directed it), never from automated task steering. Without the flag, promotion refuses (fail-closed).",
     "- Do not assume a global `soma` binary exists; use lifecycle hooks or the `bun run soma` commands in `lifecycle.md`.",
     "- Read `~/.codex/memories/soma/memory-layout.md` before using persistent memory.",
+    "- Read `~/.codex/memories/soma/communication.md`, when present, for how to communicate: patterns, banned phrases, reference codes, and aliases.",
     "- Treat project-local `.codex/soma/` context as an overlay.",
     "",
     "## Current Projection",

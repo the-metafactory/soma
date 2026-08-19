@@ -50,12 +50,16 @@ export class ReservedReferenceLetterError extends Error {
   readonly letter: string;
 
   constructor(letter: string) {
+    // Normalized here, matching `isReservedReferenceLetter`: the two exports
+    // must agree on their input contract, or a lowercase `c` produces
+    // "reserved for undefined" (sage #636 r7).
+    const normalized = letter.toUpperCase();
     super(
-      `Reference letter ${letter} is reserved for ${RESERVED_REFERENCE_LETTERS[letter]} — ` +
+      `Reference letter ${normalized} is reserved for ${RESERVED_REFERENCE_LETTERS[normalized] ?? "the Algorithm"} — ` +
         `pick another letter for the conversational code family.`,
     );
     this.name = "ReservedReferenceLetterError";
-    this.letter = letter;
+    this.letter = normalized;
   }
 }
 

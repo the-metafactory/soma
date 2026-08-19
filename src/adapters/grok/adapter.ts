@@ -431,6 +431,7 @@ function renderGrokSomaExploreAgent(): string {
     "- Soma is the portable personal-assistant core. Its projection lives under `~/.grok/skills/soma/`.",
     "- Read `~/.grok/skills/soma/memory-layout.md` for the persistent memory tree before reasoning about durable facts.",
     "- Read `~/.grok/skills/soma/context.md` for assistant identity, principal, and purpose.",
+    "- Read `~/.grok/skills/soma/communication.md` for how to communicate — patterns, banned phrases, reference codes, aliases — when present.",
     "- Read `~/.grok/skills/soma/active-vsa.md` for the active VSA verification contract when present.",
     "- Use the `the-algorithm` skill when exploration should run under Soma Algorithm mode.",
     "",
@@ -511,6 +512,7 @@ function renderGrokHomeSkill(input: ProjectionInput, somaHome: string): string {
     "- Read `~/.grok/skills/soma/memory-layout.md` before using persistent memory.",
     "- Read `~/.grok/skills/soma/skills.md` for the declared Soma skills.",
     "- Read `~/.grok/skills/soma/policy.md` for the substrate policy projection.",
+    "- Read `~/.grok/skills/soma/communication.md` for how to communicate — patterns, banned phrases, reference codes, aliases — when that file is present.",
     "- Read `~/.grok/skills/soma/active-vsa.md` for the active VSA verification contract when that file is present.",
     "- Read `~/.grok/skills/soma/startup-context.md` for lifecycle-generated active work and recent learning context when present; the Soma session-start hook refreshes it.",
     "- Use the `the-algorithm` skill when work should run through Soma Algorithm mode.",
@@ -539,6 +541,7 @@ function renderGrokRulesReadme(): string {
     "- `memory-layout.md` — pointers into the Soma memory tree",
     "- `skills.md` — discovered Soma skills",
     "- `policy.md` — substrate policy projection",
+    "- `communication.md` — how the assistant talks (omitted when the home has no contract)",
     "",
     "Do not edit these files by hand; rerun `soma install grok --apply` after changing Soma source context.",
   ].join("\n");
