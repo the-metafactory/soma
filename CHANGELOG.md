@@ -22,7 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   section works by being read. Absent file → nothing projected, never a
   Soma-authored default.
 - **Behavioral policy is wired (Policy compartment).** `~/.soma/policy/behavior.md`
-  has existed since the 2026-07 PAI migration but nothing read it. It is now
+  has existed since the 2026-07 PAI migration and no code under `src/`,
+  `scripts/`, `test/`, or `docs/` referenced it — the file even carried its own
+  note that substrate instruction files were carrying its rules by hand. It is now
   parsed by `src/policy/behavior-policy.ts` and merged into every adapter's
   policy-projection advisory list. The parser folds wrapped bullets and keeps
   prose-only sections, because the previous `sectionBullets` helper would have
