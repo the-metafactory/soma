@@ -117,7 +117,10 @@ test("pi-dev appends the contract to the system prompt, and the extension still 
 
   // learning-pi-dev-generated-code-guards: this adapter emits TypeScript as
   // string literals, so a toContain assertion passes on syntactically broken
-  // output. Transpiling is the only check that proves the extension loads.
+  // output. Transpiling proves the emitted source PARSES — which is exactly the
+  // failure that shipped twice (soma#402, PR #476). It says nothing about
+  // imports resolving or the pi API being used correctly; only a live Pi
+  // session shows that, and this suite cannot run one.
   new Bun.Transpiler({ loader: "ts" }).transformSync(extension?.content ?? "");
 });
 
@@ -179,15 +182,18 @@ test("soma init ships a starter contract that parses and reserves C/P", async ()
       expect(starter).toContain(`- ${letter}: `);
     }
     expect(starter).toContain("- scr: Simplify, compress, and repeat your response.");
-    // The starter is a public template: no principal-specific voice in it.
-    expect(starter).not.toContain("Jens-Christian");
+    // The starter is a public template (AGENTS.md public/private boundary): no
+    // principal-specific voice in it.
+    expect(starter).not.toContain("Jens");
     // sage #636 r3 blocker: this text projects verbatim to ten surfaces, so a
     // claim in it about Soma's own parsing reaches every principal and model.
     // Soma parses nothing out of the contract — the text must not say it does.
     expect(starter).not.toContain("parses only");
     expect(starter).toContain("Soma parses nothing out");
-    // Attribution has to survive the merge in the shipped artifact.
-    expect(starter).not.toContain("Jens");
+    // sage #636 r4: attribution belongs in the SHIPPED artifact. A JSDoc comment
+    // and a CHANGELOG entry do not travel with the projected file, so anyone
+    // reading the contract on a substrate would have no way to recover it.
+    expect(starter).toContain("Structure adapted from disler/fixing-smartass-opus-5 (MIT).");
 
     const loaded = await loadSomaHome(somaHome);
     expect(loaded.profile.communication?.content).toBe(starter);

@@ -66,6 +66,8 @@ function renderCommunicationContract(): string {
     "This file projects verbatim into every substrate — Soma parses nothing out",
     "of it. Edit it directly; every section below works by being read.",
     "",
+    "Structure adapted from disler/fixing-smartass-opus-5 (MIT).",
+    "",
     "## Positive patterns",
     "",
     "- State each fact once.",

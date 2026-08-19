@@ -695,7 +695,8 @@ export interface SomaProfile {
   memory: SomaMemoryLayout;
   skills: SomaSkill[];
   /**
-   * Parsed `profile/communication.md` — how the assistant talks. Under
+   * `profile/communication.md` — how the assistant talks — carried verbatim.
+   * Nothing is parsed out of it; the file's own text is the whole payload. Under
    * `profile` (not a sibling like `memory`/`behavior`) because the Identity
    * compartment explicitly owns "voice, personality" (CONTEXT.md
    * "compartment"), and voice is what this is. Conduct rules are the Policy

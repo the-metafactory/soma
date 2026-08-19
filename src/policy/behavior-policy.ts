@@ -51,12 +51,6 @@ export interface BehaviorPolicy {
 /** An empty policy — what an absent or ruleless `behavior.md` parses to. */
 export const EMPTY_BEHAVIOR_POLICY: BehaviorPolicy = { sections: [] };
 
-/**
- * Sections whose content is preamble/provenance rather than behavioral rules.
- * Compared case-insensitively against the heading text.
- */
-const NON_RULE_HEADINGS: ReadonlySet<string> = new Set(["provenance", "source", "about", "readme"]);
-
 /** One `## Heading` block: the heading text and its raw body lines. */
 interface MarkdownSection {
   readonly heading: string;
@@ -190,8 +184,12 @@ function foldLines(lines: readonly string[]): BehaviorPolicyEntry[] {
 export function parseBehaviorPolicy(markdown: string): BehaviorPolicy {
   const sections: BehaviorPolicySection[] = [];
 
+  // Every `## ` section projects. There is deliberately no heading blacklist:
+  // provenance lives in the preamble before the first `## ` (which is dropped
+  // below), and silently discarding a section because of its NAME would be the
+  // fail-open-to-silence this module refuses everywhere else — the principal
+  // would have no way to tell a dropped rule from a projected one.
   for (const section of splitMarkdownSections(markdown)) {
-    if (NON_RULE_HEADINGS.has(section.heading.toLowerCase())) continue;
     const entries = foldLines(section.lines);
     if (entries.length > 0) sections.push({ heading: section.heading, entries });
   }

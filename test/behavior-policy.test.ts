@@ -31,7 +31,7 @@ code, modifying .env, any irreversible operation.
 
 ## Provenance
 
-- This section is dropped as non-rule content.
+- Provenance sections project like any other; only the preamble is dropped.
 `;
 
 test("wrapped bullets fold into one rule instead of truncating at the first line", () => {
@@ -60,11 +60,19 @@ test("prose-only sections keep their rules", () => {
   );
 });
 
-test("document preamble and non-rule sections are dropped", () => {
+test("only the preamble is dropped — no section is discarded for its name", () => {
   const { sections } = parseBehaviorPolicy(SAMPLE);
 
-  expect(sections.map((section) => section.heading)).toEqual(["Verification", "Permission boundaries"]);
-  expect(behaviorPolicyAdvisory({ sections }).join("\n")).not.toContain("dropped as non-rule content");
+  // sage #636 r4: an earlier revision blacklisted "provenance"/"source"/
+  // "about"/"readme" headings. Dropping a principal's section because of its
+  // NAME is unobservable to them, and the docs promised the opposite.
+  expect(sections.map((section) => section.heading)).toEqual([
+    "Verification",
+    "Permission boundaries",
+    "Provenance",
+  ]);
+  // Text before the first `## ` is still dropped: that is where provenance
+  // actually lives, and it is prose about the file, not a rule in it.
   expect(behaviorPolicyAdvisory({ sections }).join("\n")).not.toContain("Mined from PAI");
 });
 
@@ -122,9 +130,9 @@ test("numbered list items are rules too", () => {
 test("advisory lines carry their section heading", () => {
   const lines = behaviorPolicyAdvisory(parseBehaviorPolicy(SAMPLE));
 
-  expect(lines).toHaveLength(3);
+  expect(lines).toHaveLength(4);
   for (const line of lines) {
-    expect(line).toMatch(/^(Verification|Permission boundaries): /);
+    expect(line).toMatch(/^(Verification|Permission boundaries|Provenance): /);
   }
 });
 
