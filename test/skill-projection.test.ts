@@ -577,3 +577,62 @@ describe("soma#638: the registry is the curated set", () => {
     });
   });
 });
+
+describe("soma#638 review fixes", () => {
+  async function authorSkill(homeDir: string, dir: string, frontmatterName: string): Promise<void> {
+    const skillDir = join(homeDir, ".soma", "skills", dir);
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(join(skillDir, "SKILL.md"), `---\nname: ${frontmatterName}\n---\n# ${dir}\n`, "utf8");
+  }
+
+  test("a registry skill whose frontmatter name is VSA is skipped, not allowed to abort the install", async () => {
+    await withTempHome(async (homeDir) => {
+      // The loader slot is named from frontmatter, so excluding on the dir
+      // basename alone let this claim VSA's slot — a real dir owned by the
+      // dedicated installer — and ensureSymlink aborted the WHOLE install.
+      await authorSkill(homeDir, "renamed-vsa", "VSA");
+      await authorSkill(homeDir, "Real", "Real");
+
+      await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir]);
+
+      // Every other skill still projected...
+      expect((await lstat(join(homeDir, ".claude", "skills", "Real"))).isSymbolicLink()).toBe(true);
+      // ...and VSA's slot is still the dedicated installer's real directory.
+      expect((await lstat(join(homeDir, ".claude", "skills", "VSA"))).isSymbolicLink()).toBe(false);
+    });
+  });
+
+  test("reproject picks up a skill added to the registry since install", async () => {
+    await withTempHome(async (homeDir) => {
+      await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir]);
+      await authorSkill(homeDir, "Added", "Added");
+
+      await runSomaCli(["reproject", "claude-code", "--home-dir", homeDir]);
+
+      expect((await lstat(join(homeDir, ".claude", "skills", "Added"))).isSymbolicLink()).toBe(true);
+    });
+  });
+
+  test("the dry-run plan names the skills --apply will link, with no --skills passed", async () => {
+    await withTempHome(async (homeDir) => {
+      await authorSkill(homeDir, "Alpha", "Alpha");
+
+      const out = await runSomaCli(["install", "claude-code", "--home-dir", homeDir]);
+
+      expect(out).toContain("Skills to project (on --apply):");
+      expect(out).toContain("Alpha");
+      // A plan is a promise about what lands — it must not write anything.
+      await expect(lstat(join(homeDir, ".claude", "skills", "Alpha"))).rejects.toThrow();
+    });
+  });
+
+  test("a catalog substrate's plan stays silent about skills it will not project", async () => {
+    await withTempHome(async (homeDir) => {
+      await authorSkill(homeDir, "Alpha", "Alpha");
+
+      const out = await runSomaCli(["install", "cursor", "--home-dir", homeDir]);
+
+      expect(out).not.toContain("Skills to project (on --apply):");
+    });
+  });
+});

@@ -4,6 +4,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { isSkillStub, renderSkills, renderSkillStub, stripProvenance } from "./adapters/shared";
 import { buildSubstrateHomeProjection } from "./home-projection";
 import type { InstallSubstrate } from "./install-spec";
+import { pathExists } from "./fs-utils";
 import { installSpecFor } from "./install-spec-registry";
 import { writeProjection } from "./projection";
 import { extractSkillFrontmatter, SKILL_MD } from "./skill-frontmatter";
@@ -606,15 +607,24 @@ export async function listRegistrySkillDirs(somaHome: string): Promise<string[]>
   } catch {
     return [];
   }
-  const dirs: string[] = [];
-  for (const entry of entries) {
+  const candidates = entries.filter(
     // Symlinks count: a registry slot filled by `project-skill` from an external
     // source dir is as canonical as one authored in place.
-    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
-    if (entry.name === VSA_SKILL_NAME) continue;
-    const dir = join(root, entry.name);
-    if (!(await stat(join(dir, SKILL_MD)).catch(() => undefined))) continue;
-    dirs.push(dir);
-  }
-  return dirs.sort();
+    (entry) => (entry.isDirectory() || entry.isSymbolicLink()) && entry.name !== VSA_SKILL_NAME,
+  );
+  const resolved = await Promise.all(
+    candidates.map(async (entry) => {
+      const dir = join(root, entry.name);
+      if (!(await pathExists(join(dir, SKILL_MD)))) return undefined;
+      // Second VSA key. The loader slot is named from FRONTMATTER (readSkillName),
+      // so excluding on the dir basename alone lets a dir called anything with
+      // `name: VSA` inside claim the slot the dedicated installer already owns as a
+      // real directory — ensureSymlink then refuses it and the whole install
+      // aborts, not just that skill. projectableSkills guards the same case with
+      // the same two keys, for the same reason.
+      if ((await readSkillName(dir)) === VSA_SKILL_NAME) return undefined;
+      return dir;
+    }),
+  );
+  return resolved.filter((dir): dir is string => dir !== undefined).sort();
 }

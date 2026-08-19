@@ -99,8 +99,15 @@ export function buildPortableSkillFiles(
   skills: SomaSkill[],
   bundledNames: readonly string[] | undefined,
   substrate: SubstrateId,
-  options: { skillsDirPrefix?: string } = {},
+  options: { skillsDirPrefix?: string; discovery?: SkillsDiscoveryMode } = {},
 ): { path: string; content: string }[] {
+  // soma#638: a `loader` substrate takes its skills as symlinks to the canonical
+  // ~/.soma/skills entries, projected by install. Emitting copies too would put a
+  // real directory in the slot the symlink needs, and a copy — rewritten for the
+  // substrate, then never resynced — drifts from the source it was made from.
+  // Taken as a parameter rather than compared against the caller's `const`, which
+  // TypeScript would narrow to a literal and the check would read as dead code.
+  if (options.discovery === "loader") return [];
   const prefix = options.skillsDirPrefix ?? "skills/";
   return projectableSkills(skills, bundledNames).flatMap((skill) =>
     (skill.files ?? []).map((file) => ({
@@ -232,6 +239,24 @@ export function renderSkills(input: ProjectionInput): string {
 }
 
 /**
+ * The rules/projection files a substrate actually WRITES, given its discovery
+ * mode (soma#638): the declared set minus its catalog when the harness does its
+ * own discovery.
+ *
+ * Kept as a function so the substrate's declared mode reaches the comparison as a
+ * union-typed value. Inlining it against a `const` mode lets TypeScript narrow the
+ * check to a literal and the condition reads as dead code — which is exactly the
+ * coupling this indirection is meant to keep live.
+ */
+export function projectedRulesFiles<T extends string>(
+  files: readonly T[],
+  catalogPath: T,
+  discovery: SkillsDiscoveryMode,
+): T[] {
+  return files.filter((path) => !(path === catalogPath && discovery === "loader"));
+}
+
+/**
  * The eager skill catalog for one substrate, or `[]` when that substrate's own
  * loader already advertises its skills (soma#638).
  *
@@ -247,24 +272,6 @@ export function renderSkills(input: ProjectionInput): string {
  * and its install spec read — the same shape `CLAUDE_CODE_RULES_FILES` already
  * uses.
  */
-/**
- * The rules/projection files a substrate actually WRITES, given its discovery
- * mode (soma#638): the declared set minus its catalog when the harness does its
- * own discovery.
- *
- * Kept as a function so the substrate's declared mode reaches the comparison as a
- * union-typed value. Inlining it against a \`const\` mode lets TypeScript narrow the
- * check to a literal and the condition reads as dead code — which is exactly the
- * coupling this indirection is meant to keep live.
- */
-export function projectedRulesFiles<T extends string>(
-  files: readonly T[],
-  catalogPath: T,
-  discovery: SkillsDiscoveryMode,
-): T[] {
-  return files.filter((path) => !(path === catalogPath && discovery === "loader"));
-}
-
 export function skillCatalogFile(
   substrate: SubstrateId,
   input: ProjectionInput,

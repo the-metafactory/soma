@@ -307,16 +307,9 @@ export function projectClaudeCodeHome(input: ProjectionInput): Projection {
   // kept), same shape as codex/grok. The `skills/` dir is SHARED (principal-authored + PAI-migrated
   // skills), so it is NOT an owned subtree; removals round-trip via the install
   // manifest (installClaudeCodeHomeProjection), not the owned-subtree reconcile.
-  // soma#638: a `loader` substrate takes its skills as symlinks to the canonical
-  // ~/.soma/skills entries (projected by install), not as copies. Emitting copies
-  // too would put a real directory in the slot the symlink needs, and — since a
-  // copy is rewritten for the substrate and then never resynced — would drift
-  // from the source it was made from. The manifest reconcile removes copies an
-  // earlier install left behind.
-  const portableSkillFiles =
-    CLAUDE_CODE_SKILLS_DISCOVERY === "loader"
-      ? []
-      : buildPortableSkillFiles(input.profile.skills, input.bundledSkillNames, "claude-code");
+  const portableSkillFiles = buildPortableSkillFiles(input.profile.skills, input.bundledSkillNames, "claude-code", {
+    discovery: CLAUDE_CODE_SKILLS_DISCOVERY,
+  });
   return {
     substrate: "claude-code",
     instructions: renderInstructions(input),

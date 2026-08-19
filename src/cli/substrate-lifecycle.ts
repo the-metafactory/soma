@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { join as pathJoin, relative as pathRelative, resolve as pathResolve } from "node:path";
+import { basename, join as pathJoin, relative as pathRelative, resolve as pathResolve } from "node:path";
 import { cursorWorkspaceSubstrateHome } from "../adapters/cursor";
 import {
   buildAnthropicCoworkHomeProjection,
@@ -464,18 +464,48 @@ export async function runSubstrateLifecycleCli(parsed: ParsedSubstrateLifecycleA
     // projection; upgrade is reproject + future migration work
     // (#54: migration content is a follow-up). They always apply —
     // unlike `install`, the principal opted into the verb explicitly.
-    return formatInstallResult(await runInstall(parsed.substrate, parsed.options));
+    //
+    // soma#638: skills project here too. Once ~/.soma/skills is the curated set a
+    // loader substrate holds whole, "I added a skill, resync this home" is the
+    // main reason to reproject — a reproject that re-emitted the rules files but
+    // left the loader stale would silently do nothing about the one change the
+    // principal ran it for.
+    return withProjectedSkills(
+      formatInstallResult(await runInstall(parsed.substrate, parsed.options)),
+      parsed,
+    );
   }
 
   if (!parsed.apply) {
     const plan = formatPlan(planInstall(parsed.substrate, parsed.options));
-    return parsed.skills.length === 0
+    // Name the skills the apply will link. The plan is a promise about what lands
+    // (the greenfield install test enforces exactly that), and since soma#638 the
+    // skill projection is the largest thing --apply does — reporting it only when
+    // --skills was passed would leave a default install's plan describing a
+    // fraction of the work.
+    const skillDirs = await installSkillDirs(parsed.substrate, parsed.skills, parsed.options);
+    return skillDirs.length === 0
       ? plan
-      : `${plan}\n\nSkills to project (on --apply): ${parsed.skills.join(", ")}`;
+      : `${plan}\n\nSkills to project (on --apply): ${skillDirs.map((dir) => basename(dir)).join(", ")}`;
   }
 
-  const result = formatInstallResult(await runInstall(parsed.substrate, parsed.options));
-  const skillDirs = await installSkillDirs(parsed.substrate, parsed.skills, parsed.options);
+  return withProjectedSkills(
+    formatInstallResult(await runInstall(parsed.substrate, parsed.options)),
+    parsed,
+  );
+}
+
+/**
+ * Append the skill projection to an install/reproject result. Shared by both call
+ * sites so the two verbs cannot drift on which skills reach the loader.
+ */
+async function withProjectedSkills(
+  result: string,
+  // `skills` is absent on reproject/upgrade — neither verb takes --skills, so both
+  // always project the full curated registry.
+  parsed: { substrate: InstallSubstrate; skills?: string[]; options: SomaInstallOptions },
+): Promise<string> {
+  const skillDirs = await installSkillDirs(parsed.substrate, parsed.skills ?? [], parsed.options);
   if (skillDirs.length === 0) return result;
   // Project the skills now that the substrate home + catalog exist; reuses the
   // soma#354 slice-1 primitive.
