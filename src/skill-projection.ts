@@ -1,4 +1,4 @@
-import { lstat, mkdir, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { isSkillStub, renderSkills, renderSkillStub, stripProvenance } from "./adapters/shared";
@@ -8,6 +8,7 @@ import { installSpecFor } from "./install-spec-registry";
 import { writeProjection } from "./projection";
 import { extractSkillFrontmatter, SKILL_MD } from "./skill-frontmatter";
 import { loadSomaHome } from "./soma-home";
+import { VSA_SKILL_NAME } from "./vsa-skill-installer";
 import type { ProjectionInput, SomaHomeProjectionOptions } from "./types";
 
 /**
@@ -583,4 +584,37 @@ async function removeLink(linkPath: string, force: boolean): Promise<"removed" |
   }
   await rm(linkPath, { recursive: true, force: true });
   return "removed";
+}
+
+/**
+ * soma#638 — every skill in the Soma registry, as a projectable source dir.
+ *
+ * `~/.soma/skills` is the canonical, curated set: what is in it is what the
+ * principal wants a harness to be able to invoke. A substrate whose loader IS
+ * its discovery mechanism ({@link SkillsDiscoveryMode} `loader`) therefore has
+ * to hold all of it — a skill missing from the loader is not merely unlisted
+ * there, it is unreachable, because no catalog exists to name it.
+ *
+ * VSA is excluded: it has a dedicated drift-protected installer (ADR 0002) that
+ * owns its loader slot, and a symlink here would fight it for the same path.
+ */
+export async function listRegistrySkillDirs(somaHome: string): Promise<string[]> {
+  const root = registrySkillsDir(resolve(somaHome));
+  let entries;
+  try {
+    entries = await readdir(root, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const dirs: string[] = [];
+  for (const entry of entries) {
+    // Symlinks count: a registry slot filled by `project-skill` from an external
+    // source dir is as canonical as one authored in place.
+    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+    if (entry.name === VSA_SKILL_NAME) continue;
+    const dir = join(root, entry.name);
+    if (!(await stat(join(dir, SKILL_MD)).catch(() => undefined))) continue;
+    dirs.push(dir);
+  }
+  return dirs.sort();
 }

@@ -36,7 +36,7 @@ import type { ClaudeCodeInstallOptions } from "../adapters/claude-code/install-o
 import { projectVsaSkillBundleFiles } from "../vsa-skill-installer";
 import { defaultSubstrateHome, installSpecFor } from "../install-spec-registry";
 import { loadSomaHome } from "../soma-home";
-import { projectSkills } from "../skill-projection";
+import { listRegistrySkillDirs, projectSkills } from "../skill-projection";
 import type {
   InstallSubstrate,
   ProjectionInput,
@@ -475,22 +475,43 @@ export async function runSubstrateLifecycleCli(parsed: ParsedSubstrateLifecycleA
   }
 
   const result = formatInstallResult(await runInstall(parsed.substrate, parsed.options));
-  if (parsed.skills.length === 0) return result;
-  // Project the selected official skills now that the substrate home + catalog
-  // exist; reuses the soma#354 slice-1 primitive.
-  const projected = await projectInstallSkills(parsed.substrate, parsed.skills, parsed.options);
+  const skillDirs = await installSkillDirs(parsed.substrate, parsed.skills, parsed.options);
+  if (skillDirs.length === 0) return result;
+  // Project the skills now that the substrate home + catalog exist; reuses the
+  // soma#354 slice-1 primitive.
+  const projected = await projectInstallSkills(parsed.substrate, skillDirs, parsed.options);
   return `${result}\n\n${projected}`;
+}
+
+/**
+ * The skill source dirs this install should project.
+ *
+ * soma#638: `~/.soma/skills` is the curated set, so a substrate whose loader IS
+ * its discovery mechanism gets ALL of it by default — with no catalog to name an
+ * unprojected skill, anything left out of the loader is simply unreachable.
+ * `--skills` still narrows that to an explicit subset. A `catalog` substrate is
+ * unchanged: its catalog already advertises the whole registry, so its loader
+ * stays opt-in.
+ */
+async function installSkillDirs(
+  substrate: InstallSubstrate,
+  selected: string[],
+  options: SomaInstallOptions,
+): Promise<string[]> {
+  const somaHome = options.somaHome ?? defaultSomaHomePath(options.homeDir);
+  if (selected.length > 0) return selected.map((name) => resolveJoin(somaHome, "skills", name));
+  if (installSpecFor(substrate).skillsDiscovery !== "loader") return [];
+  return listRegistrySkillDirs(somaHome);
 }
 
 async function projectInstallSkills(
   substrate: InstallSubstrate,
-  skills: string[],
+  skillDirs: string[],
   options: SomaInstallOptions,
 ): Promise<string> {
-  const somaHome = options.somaHome ?? defaultSomaHomePath(options.homeDir);
   // soma#358: link every selected skill, then refresh the catalog ONCE.
   const { skills: projected } = await projectSkills({
-    skillDirs: skills.map((name) => resolveJoin(somaHome, "skills", name)),
+    skillDirs,
     substrates: [substrate],
     homeDir: options.homeDir,
     somaHome: options.somaHome,

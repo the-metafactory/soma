@@ -520,3 +520,60 @@ describe("soma#638: canonical source, projected discovery", () => {
     });
   });
 });
+
+describe("soma#638: the registry is the curated set", () => {
+  async function authorSkill(homeDir: string, name: string): Promise<void> {
+    const dir = join(homeDir, ".soma", "skills", name);
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "SKILL.md"), `---\nname: ${name}\ndescription: "x"\n---\n# ${name}\n`, "utf8");
+  }
+
+  test("install projects every registry skill into a loader substrate, with no --skills", async () => {
+    await withTempHome(async (homeDir) => {
+      await authorSkill(homeDir, "Alpha");
+      await authorSkill(homeDir, "Beta");
+
+      await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir]);
+
+      for (const name of ["Alpha", "Beta"]) {
+        expect((await lstat(join(homeDir, ".claude", "skills", name))).isSymbolicLink()).toBe(true);
+      }
+    });
+  });
+
+  test("--skills still narrows the projection to an explicit subset", async () => {
+    await withTempHome(async (homeDir) => {
+      await authorSkill(homeDir, "Alpha");
+      await authorSkill(homeDir, "Beta");
+
+      await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir, "--skills", "Alpha"]);
+
+      expect((await lstat(join(homeDir, ".claude", "skills", "Alpha"))).isSymbolicLink()).toBe(true);
+      await expect(lstat(join(homeDir, ".claude", "skills", "Beta"))).rejects.toThrow();
+    });
+  });
+
+  test("a catalog substrate keeps its opt-in loader — its catalog already names the registry", async () => {
+    await withTempHome(async (homeDir) => {
+      await authorSkill(homeDir, "Alpha");
+
+      await runSomaCli(["install", "cursor", "--apply", "--home-dir", homeDir]);
+
+      await expect(lstat(join(homeDir, ".cursor", "rules", "soma", "skills", "Alpha"))).rejects.toThrow();
+      const catalog = await readFile(join(homeDir, ".cursor", "rules", "soma", "SKILLS.md"), "utf8");
+      expect(catalog).toContain("**Alpha**");
+    });
+  });
+
+  test("VSA is left to its own installer, not symlinked over", async () => {
+    await withTempHome(async (homeDir) => {
+      await authorSkill(homeDir, "Alpha");
+
+      await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir]);
+
+      const vsa = join(homeDir, ".claude", "skills", "VSA");
+      expect((await lstat(vsa)).isSymbolicLink()).toBe(false);
+      expect(await readFile(join(vsa, "SKILL.md"), "utf8")).toContain("name:");
+    });
+  });
+});
