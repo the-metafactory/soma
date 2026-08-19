@@ -111,6 +111,24 @@ export const portableProjectionInput: ProjectionInput = {
         triggers: ["ledger", "status update"],
       },
     ],
+    // Every bootstrapped home has a communication contract (soma ships a
+    // starter), so the portable fixture carries one too — otherwise adapter
+    // tests would only ever exercise the absent-contract branch.
+    communication: {
+      content: [
+        "# Communication Contract",
+        "",
+        "## Reference codes",
+        "",
+        "- F: findings",
+        "- D: decisions",
+        "",
+        "## Aliases",
+        "",
+        "- scr: Simplify, compress, and repeat your response.",
+        "",
+      ].join("\n"),
+    },
   },
   activeVsa: {
     slug: "portable-context",

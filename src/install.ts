@@ -38,6 +38,7 @@ const SOMA_BOOTSTRAP_FILES = [
   "profile/assistant.md",
   "profile/principal.md",
   "profile/purpose.md",
+  "profile/communication.md",
   "policy/README.md",
   "skills/README.md",
   "projections/README.md",

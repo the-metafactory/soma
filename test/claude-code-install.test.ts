@@ -133,6 +133,7 @@ test("AC-1: projectClaudeCodeHome writes everything under rules/soma/", () => {
     "rules/soma/SKILLS.md",
     "rules/soma/POLICY.md",
     "rules/soma/ACTIVE_VSA.md",
+    "rules/soma/COMMUNICATION.md",
   ];
   expect(bundle.files.map((f) => f.path)).toEqual(expected);
 });
@@ -152,6 +153,7 @@ test("AC-2: planSomaForClaudeCodeInstall lists every file written", () => {
     "/tmp/test-home/.claude/rules/soma/POLICY.md",
     "/tmp/test-home/.claude/rules/soma/ACTIVE_VSA.md",
     "/tmp/test-home/.claude/rules/soma/MEMORY.md",
+    "/tmp/test-home/.claude/rules/soma/COMMUNICATION.md",
     "/tmp/test-home/.claude/hooks/soma/soma-claude-code-hook.mjs",
     "/tmp/test-home/.claude/hooks/soma/soma-claude-code-hook.config.json",
     "/tmp/test-home/.claude/settings.json",

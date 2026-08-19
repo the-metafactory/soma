@@ -4,6 +4,9 @@ import { allInstallSpecs } from "./install-spec-registry";
 import { migrateVsaStorageDir } from "./home-migration";
 import { SOMA_MEMORY_CATEGORIES, SOMA_MEMORY_CATEGORY_READMES } from "./memory-readmes";
 import { createPaths } from "./paths";
+import { parseBehaviorPolicy } from "./policy/behavior-policy";
+import type { CommunicationContract } from "./communication-contract";
+import type { BehaviorPolicy } from "./policy/behavior-policy";
 import type { ProjectionInput, SomaHomeBootstrapOptions, SomaHomeBootstrapResult, SomaSkill } from "./types";
 
 export interface LoadSomaHomeOptions {
@@ -31,6 +34,121 @@ function renderAssistantProfile(): string {
     "",
     "- portable: true",
     "- concise: true",
+  ].join("\n");
+}
+
+/**
+ * Starter `profile/communication.md` — how the assistant talks (Identity
+ * compartment). Deliberately generic: this is a public template, so it carries
+ * no principal-specific voice, and the banned-phrase list ships with only the
+ * few tics that are model-general. The principal grows it from there.
+ *
+ * Conduct rules (scope, permissions, evidence) belong in `policy/behavior.md`
+ * and are NOT restated here — one rule, one home.
+ *
+ * PROVENANCE: the section structure (positive/negative patterns, banned
+ * phrases, reference codes, aliases, authored examples) and several of the
+ * banned phrases are adapted from `disler/fixing-smartass-opus-5`
+ * (https://github.com/disler/fixing-smartass-opus-5, MIT). Adapted, not copied:
+ * that project's "never add a co-author to a commit message" rule is
+ * deliberately absent (it contradicts this repo's trailer convention), its
+ * "no decorative headings" rule is relaxed here because the VSA and Algorithm
+ * rendering contracts are heading-dense by design, and `C`/`P` are reserved
+ * from the reference-code space for VSA criteria and plan steps.
+ */
+function renderCommunicationContract(): string {
+  return [
+    "# Communication Contract",
+    "",
+    "How this assistant talks. Operational boundaries — scope, permissions,",
+    "evidence — live in `policy/behavior.md`, not here.",
+    "",
+    "This file projects verbatim into every substrate — Soma parses nothing out",
+    "of it. Edit it directly; every section below works by being read.",
+    "",
+    "Structure adapted from disler/fixing-smartass-opus-5 (MIT).",
+    "",
+    "## Positive patterns",
+    "",
+    "- State each fact once.",
+    "- Match the level of detail to the size of the request.",
+    "- Challenge an incorrect assumption directly, and say why.",
+    "- Prefer the simplest word that carries the idea.",
+    "- Use headings and lists where they aid navigation; drop them when the answer is short.",
+    "",
+    "## Negative patterns",
+    "",
+    "- Do not flatter, validate, or agree without a reason.",
+    "- Do not restate an idea already stated.",
+    "- Do not reach for an analogy when the thing itself is in front of us.",
+    "- Do not chain em dashes.",
+    "",
+    "## Banned phrases",
+    "",
+    "Owned by the principal. Add a phrase the first time it grates. This list is",
+    "model-specific and expected to churn — a new model brings new tics, and the",
+    "sections around it do not change.",
+    "",
+    "- load-bearing",
+    "- worth stating plainly",
+    "- here's the honest truth",
+    "- the real tension",
+    "",
+    "## Reference codes",
+    "",
+    "When presenting three or more findings, options, risks, questions, actions,",
+    "or decisions, give each one a short code. Codes stay stable for the whole",
+    "conversation, so a reply can be `keep D1, reject O2, answer Q1` instead of",
+    "re-quoting what it refers to.",
+    "",
+    "- F: findings",
+    "- O: options",
+    "- R: risks",
+    "- Q: questions",
+    "- A: actions",
+    "- D: decisions",
+    "",
+    "`C` and `P` are reserved by the Algorithm: `C1` is a VSA criterion and `P1`",
+    "a plan step. Recording a code under either letter is refused.",
+    "",
+    "A code becomes durable only when written to a run — `soma algorithm ref --id",
+    "<run-id> --code D1 --text ...`, and `soma algorithm resolve --id <run-id>",
+    "--code D1 --verdict kept` to close it. There is no implicit active run: a",
+    "code typed in chat is shorthand between us until one of those commands runs.",
+    "A recorded `D` code also appends to that run's decisions log.",
+    "",
+    "## Aliases",
+    "",
+    "Expand these only when the token stands alone, never inside a longer word.",
+    "",
+    "- scr: Simplify, compress, and repeat your response.",
+    "- eli: Explain this like I am 18. Simplify the language. Shorten it.",
+    "- foc: Focus on what matters most here. Boil it down to the one thing.",
+    "- ref: Rewrite the response with reference codes.",
+    "",
+    "## Examples",
+    "",
+    "Authored pairs beat authored rules: a model matches an example harder than",
+    "it follows an instruction. Paste a response you liked under `Do`, and the",
+    "bloated version under `Do not`.",
+    "",
+    "### Simple investigation",
+    "",
+    "User: `Is legacy-config.json still referenced?`",
+    "",
+    "Do:",
+    "",
+    "```text",
+    "No. The only match is the file itself.",
+    "```",
+    "",
+    "Do not:",
+    "",
+    "```text",
+    "Great question. Let me search the repository and determine whether this file",
+    "is still load-bearing. After a comprehensive review, the answer is no. I can",
+    "also remove it and inspect adjacent files if you would like.",
+    "```",
   ].join("\n");
 }
 
@@ -208,13 +326,45 @@ async function readPurposeProfile(paths: ReturnType<typeof createPaths>): Promis
   return readFile(paths.resolve("profile", "telos.md"), "utf8");
 }
 
+/**
+ * Read `profile/communication.md` — the assistant's communication contract
+ * (Identity compartment). The file projects verbatim, so reading it is the
+ * whole job; nothing is parsed out of its content.
+ *
+ * Absent file → `undefined`. Homes created before the starter template shipped
+ * do not have one, and `soma init`'s `flag: "wx"` writes never backfill an
+ * existing home, so absence is the normal case on an upgrade, not an error.
+ * Any other read error propagates: a file that exists but cannot be read must
+ * fail loudly rather than silently project nothing.
+ *
+ * Content is deliberately NOT validated here (sage #636 r3). This is a
+ * principal-authored prose file on the path every command takes to load the
+ * home, so a rejected character in it must not be able to fail `install`,
+ * `reproject`, or a hook. The one rule that needs enforcing — the reserved
+ * reference letters — is enforced at the write path in `algorithm.ts`, where a
+ * collision can actually occur.
+ */
+async function readCommunicationContract(paths: ReturnType<typeof createPaths>): Promise<CommunicationContract | undefined> {
+  try {
+    return { content: await readFile(paths.resolve("profile", "communication.md"), "utf8") };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
 export async function loadSomaProfile(somaHome: string): Promise<Omit<ProjectionInput["profile"], "skills">> {
   const paths = createPaths(somaHome);
-  const assistant = await readFile(paths.resolve("profile", "assistant.md"), "utf8");
-  const principal = await readFile(paths.resolve("profile", "principal.md"), "utf8");
-  // soma#329: the compartment is now `purpose`. Read the new `purpose.md`, but
-  // fall back to a legacy `telos.md` so homes created before the rename still load.
-  const purpose = await readPurposeProfile(paths);
+  // Four independent files. Serial awaits made them pay four round-trips on a
+  // path soma re-executes per subprocess invocation (sage #636 r2).
+  // soma#329: `readPurposeProfile` reads the renamed `purpose.md` and falls back
+  // to a legacy `telos.md`, so homes created before the rename still load.
+  const [assistant, principal, communication, purpose] = await Promise.all([
+    readFile(paths.resolve("profile", "assistant.md"), "utf8"),
+    readFile(paths.resolve("profile", "principal.md"), "utf8"),
+    readCommunicationContract(paths),
+    readPurposeProfile(paths),
+  ]);
 
   return {
     assistant: {
@@ -241,18 +391,45 @@ export async function loadSomaProfile(somaHome: string): Promise<Omit<Projection
       relationship: paths.relationship(),
       state: paths.state(),
     },
+    ...(communication === undefined ? {} : { communication }),
   };
 }
 
+/**
+ * Read and parse `policy/behavior.md` — the principal's cross-substrate
+ * behavioral rules (Policy compartment).
+ *
+ * Absent file → `undefined`, not a default rule set: the file is principal-
+ * authored, and a home that has not written one must project no behavioral
+ * rules rather than rules Soma invented. Any other read error propagates —
+ * a policy file that exists but cannot be read must fail loudly, never
+ * fail-open to silence.
+ */
+async function readBehaviorPolicy(paths: ReturnType<typeof createPaths>): Promise<BehaviorPolicy | undefined> {
+  try {
+    return parseBehaviorPolicy(await readFile(paths.resolve("policy", "behavior.md"), "utf8"));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
 export async function loadSomaHome(somaHome: string, options: LoadSomaHomeOptions = {}): Promise<ProjectionInput> {
-  const profile = await loadSomaProfile(somaHome);
-  const skills = options.includeSkills === false ? [] : await loadSomaSkills(somaHome);
+  // Independent of each other: the behavioral policy must not queue behind the
+  // skills directory walk (sage #636 r2).
+  const paths = createPaths(somaHome);
+  const [profile, skills, behavior] = await Promise.all([
+    loadSomaProfile(somaHome),
+    options.includeSkills === false ? Promise.resolve<SomaSkill[]>([]) : loadSomaSkills(somaHome),
+    readBehaviorPolicy(paths),
+  ]);
 
   return {
     profile: {
       ...profile,
       skills,
     },
+    ...(behavior === undefined ? {} : { behavior }),
   };
 }
 
@@ -276,6 +453,10 @@ export async function bootstrapSomaHome(options: SomaHomeBootstrapOptions = {}):
     {
       path: "profile/purpose.md",
       content: renderPurposeProfile(),
+    },
+    {
+      path: "profile/communication.md",
+      content: renderCommunicationContract(),
     },
     {
       path: "policy/README.md",

@@ -24,6 +24,8 @@ export const CODEX_HOME_FILES = [
   "memories/soma/pai-imports.md",
   "memories/soma/skills.md",
   "memories/soma/policy.md",
+  // Conditional: omitted when the home has no `profile/communication.md`.
+  "memories/soma/communication.md",
   "memories/soma/soma-repo.txt",
   "AGENTS.md",
   "config.toml",

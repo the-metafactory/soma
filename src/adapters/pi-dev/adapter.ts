@@ -4,9 +4,19 @@ import { renderFeedbackHookHelper } from "../shared/feedback-helper";
 import { renderPathGuardExtension } from "./path-guard";
 import { renderSomaAlgorithmExtension } from "./extensions/soma-algorithm";
 import { buildPiDevPortableSkillFiles } from "./skill-projection";
-import { projectableSkills, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills, SELF_HEALING_DOCTRINE_ADVISORY, withProvenance } from "../shared";
+import {
+  communicationContractFile,
+  projectableSkills,
+  renderAssistantCore,
+  renderMemoryLayout,
+  renderPolicyProjection,
+  renderSkills,
+  SELF_HEALING_DOCTRINE_ADVISORY,
+  withProvenance,
+} from "../shared";
 import { activeVsaBundleFile } from "../../adapter-active-vsa";
 import { SOMA_VERSION } from "../../version";
+import { behaviorPolicyAdvisory } from "../../policy/behavior-policy";
 
 export function isPiDevSkillProjectionPath(path: string): boolean {
   return path.startsWith("agent/skills/");
@@ -22,6 +32,7 @@ function renderInstructions(input: ProjectionInput): string {
     renderAssistantCore(input),
     "",
     "## Operating Rules",
+    "- Read `communication.md` beside this file, when present, for how to communicate: patterns, banned phrases, reference codes, and aliases. (In the home projection the Soma extension injects the same contract into the system prompt; this workspace overlay has no extension, so read it.)",
     "- Use Soma tools for VSA, memory, learning, and policy operations when available.",
     "- Keep model-provider settings outside the Soma core.",
     "- Prefer file-backed memory paths from the bundle over substrate-local hidden state.",
@@ -108,6 +119,22 @@ function renderHomeExtension(somaHome: string): string {
     "// before_agent_start in the session (soma#475). Recomputing it per message",
     "// re-ran the whole session-start lifecycle — the bulk of the 2-6s freeze.",
     "let cachedStartupContext = \"\";",
+    "",
+    "// The communication contract changes only on reproject, so it is read once",
+    "// per SESSION rather than per turn: session_start clears the cache, so a",
+    "// `soma install --apply` between sessions is picked up. The scope is the",
+    "// PROCESS, and session_start is what re-scopes it — a process that never",
+    "// fires session_start (a resumed one) holds the first read for its whole",
+    "// lifetime and will not see a reproject until it restarts.",
+    "// `undefined` (not \"\") is the empty sentinel: a home with no contract",
+    "// legitimately yields \"\", and an `||` fallback would re-read the missing",
+    "// file on every single turn — the cost this cache exists to avoid.",
+    "let cachedCommunication: string | undefined;",
+    "",
+    "function communicationContract(): string {",
+    "\tcachedCommunication ??= readOptional(`${PI_SOMA_HOME}/communication.md`);",
+    "\treturn cachedCommunication;",
+    "}",
     "",
     `const SOMA_HOME = ${JSON.stringify(somaHome)};`,
     'const PI_SOMA_HOME = `${process.env.HOME}/.pi/agent/soma`;',
@@ -349,6 +376,10 @@ function renderHomeExtension(somaHome: string): string {
     '\tpi.on("session_start", async (_event, ctx) => {',
     "\t\t// Compute the startup context ONCE per session; before_agent_start reuses it.",
     "\t\tcachedStartupContext = await refreshStartupContext(sessionId(ctx));",
+    "\t\t// Clear before warming: this is what scopes the contract cache to the",
+    "\t\t// session, so a reproject since the last session is actually picked up.",
+    "\t\tcachedCommunication = undefined;",
+    "\t\tcommunicationContract();",
     "\t\tscheduleWorkIndexRefresh();",
     '\t\tctx.ui?.setStatus?.("soma", "Soma ready");',
     "\t});",
@@ -361,6 +392,15 @@ function renderHomeExtension(somaHome: string): string {
     "\t\tconst startupContext = cachedStartupContext || readOptional(`${PI_SOMA_HOME}/startup-context.md`);",
     '\t\tconst paiImports = readOptional(`${PI_SOMA_HOME}/pai-imports.md`);',
     '\t\tconst context = readOptional(`${PI_SOMA_HOME}/context.md`);',
+    // The communication contract (Identity compartment) rides the system prompt
+    // itself, which is Pi's native equivalent of `--append-system-prompt-file`:
+    // how the assistant talks has to be present on every turn, not fetched on
+    // demand like the deeper identity surfaces below. Read once per session:
+    // session_start warms the cache, so the steady-state message path does no
+    // file I/O. A cold cache (no session_start, e.g. a resumed process) still
+    // reads once here — one read per session, not one per turn, which is the
+    // cost soma#475 was about.
+    "\t\tconst communication = communicationContract();",
     "\t\t// Local, synchronous, and about THIS prompt.",
     "\t\tconst promptClassification = renderPromptClassificationContext(prompt);",
     '\t\tconst somaPrompt = `',
@@ -374,6 +414,8 @@ function renderHomeExtension(somaHome: string): string {
     "Pi has no SessionEnd digest hook: when wrapping up substantial work, author ONE session digest and run \\`cd $(cat ~/.pi/agent/soma/soma-repo.txt) && bun run soma memory digest --session <session-id> --body \"8-15 lines\"\\`. This capture is agent-invoked.",
     "",
     "${profile}",
+    "",
+    "${communication}",
     "",
     "${startupContext}",
     "",
@@ -553,6 +595,7 @@ export function projectPiDev(input: ProjectionInput): Projection {
           "Model-provider behavior",
           "Host permission prompts",
           "Verification reporting",
+          ...behaviorPolicyAdvisory(input.behavior),
           ...SELF_HEALING_DOCTRINE_ADVISORY,
         ]),
       },
@@ -560,6 +603,8 @@ export function projectPiDev(input: ProjectionInput): Projection {
         path: ".pi/extensions/soma-core/soma-path-guard.ts",
         content: renderPathGuardExtension(somaHome),
       },
+      // Communication contract — omitted when the home has none. Verbatim bytes.
+      ...communicationContractFile(input, ".pi/extensions/soma-core/communication.md"),
     ],
   };
 }
@@ -615,10 +660,13 @@ export function projectPiDevHome(input: ProjectionInput, somaHome: string): Proj
             "Model-provider behavior",
             "Host permission prompts",
             "Verification reporting",
+            ...behaviorPolicyAdvisory(input.behavior),
             ...SELF_HEALING_DOCTRINE_ADVISORY,
           ]),
         ),
       },
+      // Communication contract — omitted when the home has none. Verbatim bytes.
+      ...communicationContractFile(input, "agent/soma/communication.md"),
       {
         path: "agent/extensions/soma-path-guard.ts",
         content: renderPathGuardExtension(somaHome),

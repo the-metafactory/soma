@@ -18,6 +18,7 @@ import { defaultSomaRepoPath } from "../../repo-path";
 import { renderFeedbackHookModule } from "../shared/feedback-helper";
 import {
   buildPortableSkillFiles,
+  communicationContractFile,
   renderAlgorithmRenderingContract,
   renderAssistantCore,
   renderMemoryLayout,
@@ -29,6 +30,7 @@ import {
 } from "../shared";
 import { readGrokHookAsset } from "./hooks/assets";
 import { GROK_PRE_TOOL_USE_VERB } from "./hooks/grok-hook-verbs.mjs";
+import { behaviorPolicyAdvisory } from "../../policy/behavior-policy";
 
 export function isGrokSkillProjectionPath(path: string): boolean {
   return path.startsWith("skills/");
@@ -337,7 +339,7 @@ function renderInstructions(input: ProjectionInput): string {
   return renderSubstrateInstructions({ substrate: "Grok", runtimeLabel: "the Grok CLI" }, input);
 }
 
-function renderGrokPolicy(): string {
+function renderGrokPolicy(input: ProjectionInput): string {
   return renderPolicyProjection(
     "grok",
     ["Filesystem and tool-call policy when Grok hooks enforce it"],
@@ -345,6 +347,7 @@ function renderGrokPolicy(): string {
       "Assistant behavior instructions",
       "Verification reporting",
       "Private context handling",
+      ...behaviorPolicyAdvisory(input.behavior),
       ...SELF_HEALING_DOCTRINE_ADVISORY,
     ],
   );
@@ -428,6 +431,7 @@ function renderGrokSomaExploreAgent(): string {
     "- Soma is the portable personal-assistant core. Its projection lives under `~/.grok/skills/soma/`.",
     "- Read `~/.grok/skills/soma/memory-layout.md` for the persistent memory tree before reasoning about durable facts.",
     "- Read `~/.grok/skills/soma/context.md` for assistant identity, principal, and purpose.",
+    "- Read `~/.grok/skills/soma/communication.md` for how to communicate — patterns, banned phrases, reference codes, aliases — when present.",
     "- Read `~/.grok/skills/soma/active-vsa.md` for the active VSA verification contract when present.",
     "- Use the `the-algorithm` skill when exploration should run under Soma Algorithm mode.",
     "",
@@ -508,6 +512,7 @@ function renderGrokHomeSkill(input: ProjectionInput, somaHome: string): string {
     "- Read `~/.grok/skills/soma/memory-layout.md` before using persistent memory.",
     "- Read `~/.grok/skills/soma/skills.md` for the declared Soma skills.",
     "- Read `~/.grok/skills/soma/policy.md` for the substrate policy projection.",
+    "- Read `~/.grok/skills/soma/communication.md` for how to communicate — patterns, banned phrases, reference codes, aliases — when that file is present.",
     "- Read `~/.grok/skills/soma/active-vsa.md` for the active VSA verification contract when that file is present.",
     "- Read `~/.grok/skills/soma/startup-context.md` for lifecycle-generated active work and recent learning context when present; the Soma session-start hook refreshes it.",
     "- Use the `the-algorithm` skill when work should run through Soma Algorithm mode.",
@@ -536,6 +541,7 @@ function renderGrokRulesReadme(): string {
     "- `memory-layout.md` — pointers into the Soma memory tree",
     "- `skills.md` — discovered Soma skills",
     "- `policy.md` — substrate policy projection",
+    "- `communication.md` — how the assistant talks (omitted when the home has no contract)",
     "",
     "Do not edit these files by hand; rerun `soma install grok --apply` after changing Soma source context.",
   ].join("\n");
@@ -559,7 +565,9 @@ export function projectGrok(input: ProjectionInput): Projection {
       { path: ".grok/rules/soma/context.md", content: instructions },
       { path: ".grok/rules/soma/memory-layout.md", content: renderMemoryLayout(input) },
       { path: ".grok/rules/soma/skills.md", content: renderSkills(input) },
-      { path: ".grok/rules/soma/policy.md", content: renderGrokPolicy() },
+      { path: ".grok/rules/soma/policy.md", content: renderGrokPolicy(input) },
+      // Communication contract — omitted when the home has none. Verbatim bytes.
+      ...communicationContractFile(input, ".grok/rules/soma/communication.md"),
     ],
   };
 }
@@ -599,7 +607,9 @@ export function projectGrokHome(input: ProjectionInput, somaHome: string, option
       { path: "skills/soma/context.md", content: withProvenance("grok", instructions) },
       { path: "skills/soma/memory-layout.md", content: withProvenance("grok", renderMemoryLayout(input)) },
       { path: "skills/soma/skills.md", content: withProvenance("grok", renderSkills(input)) },
-      { path: "skills/soma/policy.md", content: withProvenance("grok", renderGrokPolicy()) },
+      { path: "skills/soma/policy.md", content: withProvenance("grok", renderGrokPolicy(input)) },
+      // Communication contract — omitted when the home has none. Verbatim bytes.
+      ...communicationContractFile(input, "skills/soma/communication.md"),
       // JSON cannot carry comments; hooks registration stays unwrapped.
       { path: "hooks/soma-lifecycle.json", content: renderGrokHooksJson(grokHome, bunPath) },
       // Shipped verbatim; the install-time facts live in the colocated

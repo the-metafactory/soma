@@ -33,7 +33,7 @@ import type { BridgedNodeReport, ReflectionForDigest } from "../index";
 // from its defining module, deliberately NOT re-exported through the public
 // barrel (Sage review, PR #455): keeping it off ../index leaves the internal
 // error shape free to change without a public-API break.
-import { VerificationGateError } from "../algorithm";
+import { VerificationGateError, getAlgorithmReferences, recordAlgorithmReference, resolveAlgorithmReference } from "../algorithm";
 import { readFile } from "node:fs/promises";
 import { loadSomaHomeAlgorithmCapabilityRegistry, mergedAlgorithmCapabilityRegistry, registerSomaHomeAlgorithmCapabilities } from "../algorithm-capabilities";
 import type { SomaHomeAlgorithmCapabilityRegistry } from "../algorithm-capabilities";
@@ -52,6 +52,8 @@ import type {
   AlgorithmPhase,
   AlgorithmPlanStep,
   AlgorithmRun,
+  AlgorithmReference,
+  AlgorithmReferenceVerdict,
   AlgorithmRunInput,
   EvidenceKind,
   SubstrateId,
@@ -69,6 +71,8 @@ export const ALGORITHM_ACTIONS = [
   "observe",
   "decision",
   "change",
+  "ref",
+  "resolve",
   "step",
   "verify",
   "learn",
@@ -98,6 +102,11 @@ export const ALGORITHM_COMMAND_HELP: { usage: string; subcommands: Record<Algori
       "Usage: soma algorithm observe --id <run-id> --claim <text> --evidence <text> [--evidence-kind <probed|tested|specified>] [--substrate <id>] [--home-dir <dir>] [--soma-home <dir>] (kind defaults to specified; assert probed/tested to clear the OBSERVE floor)",
     decision: "Usage: soma algorithm decision --id <run-id> --text <text> [--home-dir <dir>] [--soma-home <dir>]",
     change: "Usage: soma algorithm change --id <run-id> --text <text> [--home-dir <dir>] [--soma-home <dir>]",
+    ref:
+      "Usage: soma algorithm ref --id <run-id> --code <F1> --text <text> [--label <what it labels>] [--home-dir <dir>] [--soma-home <dir>]. " +
+      "Records a conversational reference point so a later `keep D1` resolves to a durable row. `C` and `P` are reserved (VSA criteria, plan steps); `D` codes also append to the run's decisions.",
+    resolve:
+      "Usage: soma algorithm resolve --id <run-id> --code <F1> --verdict <kept|rejected|answered|done|dropped> [--note <text>] [--home-dir <dir>] [--soma-home <dir>]",
     step:
       "Usage: soma algorithm step --id <run-id> --step-id <id> (--status <open|done|blocked> [--evidence <text>] | (--node <node-id> | --sync) [--repo <owner/name>]). " +
       "--node bridges the step to a work-graph node and derives its status from it; --sync re-derives an already-bridged step. " +
@@ -144,6 +153,10 @@ interface AlgorithmCliOptions {
   repo?: string;
   criterionId?: string;
   criterionStatus?: "passed" | "failed" | "dropped" | "deferred-probe";
+  referenceCode?: string;
+  referenceLabel?: string;
+  referenceVerdict?: AlgorithmReferenceVerdict;
+  note?: string;
   evidence?: string;
   evidenceKind?: EvidenceKind;
   substrate?: SubstrateId;
@@ -257,6 +270,16 @@ function parsePlanStep(value: string): AlgorithmPlanStep {
   };
 }
 
+const REFERENCE_VERDICTS = ["kept", "rejected", "answered", "done", "dropped"] as const;
+
+function parseReferenceVerdict(value: string): AlgorithmReferenceVerdict {
+  const normalized = value.trim().toLowerCase();
+  if ((REFERENCE_VERDICTS as readonly string[]).includes(normalized)) {
+    return normalized as AlgorithmReferenceVerdict;
+  }
+  throw new Error(`--verdict must be one of ${REFERENCE_VERDICTS.join("|")}, got: ${value}`);
+}
+
 function parseBatchOperation(value: string): AlgorithmBatchOperation {
   const [kind, ...rest] = value.split(":");
   const payload = rest.join(":").trim();
@@ -264,6 +287,26 @@ function parseBatchOperation(value: string): AlgorithmBatchOperation {
   if (kind === "decision" || kind === "change" || kind === "learn") {
     if (!payload) throw new Error(`--op ${kind} requires text.`);
     return { kind, text: payload };
+  }
+
+  if (kind === "ref") {
+    // `ref:<code>:<text>` — the code cannot contain ':' (it is letter+digits),
+    // so everything after the first separator is the text.
+    const separator = payload.indexOf(":");
+    const code = separator === -1 ? "" : payload.slice(0, separator).trim();
+    const text = separator === -1 ? "" : payload.slice(separator + 1).trim();
+    if (!code || !text) throw new Error("--op ref requires ref:<code>:<text>.");
+    return { kind, code, text };
+  }
+
+  if (kind === "resolve") {
+    // `resolve:<code>:<verdict>[:<note>]`.
+    const parts = payload.split(":");
+    const code = (parts[0] ?? "").trim();
+    const verdict = (parts[1] ?? "").trim();
+    const note = parts.slice(2).join(":").trim();
+    if (!code || !verdict) throw new Error("--op resolve requires resolve:<code>:<verdict>[:<note>].");
+    return { kind, code, verdict: parseReferenceVerdict(verdict), ...(note === "" ? {} : { note }) };
   }
 
   if (kind === "observe") {
@@ -517,6 +560,26 @@ export function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
         options.criterionId = readOption(rest, index, arg);
         index += 1;
         break;
+      case "--code":
+        if (action !== "ref" && action !== "resolve") throw new Error("--code is only valid for ref or resolve.");
+        options.referenceCode = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--label":
+        if (action !== "ref") throw new Error("--label is only valid for ref.");
+        options.referenceLabel = readOption(rest, index, arg);
+        index += 1;
+        break;
+      case "--verdict":
+        if (action !== "resolve") throw new Error("--verdict is only valid for resolve.");
+        options.referenceVerdict = parseReferenceVerdict(readOption(rest, index, arg));
+        index += 1;
+        break;
+      case "--note":
+        if (action !== "resolve") throw new Error("--note is only valid for resolve.");
+        options.note = readOption(rest, index, arg);
+        index += 1;
+        break;
       case "--evidence":
         options.evidence = readOption(rest, index, arg);
         index += 1;
@@ -715,7 +778,29 @@ function formatAlgorithmRun(run: AlgorithmRun, path: string): string {
       : run.capabilities.length > 0
         ? run.capabilities.map((capability) => `- [legacy] ${capability}`)
         : ["- none"]),
+    ...formatAlgorithmReferences(run),
   ].join("\n");
+}
+
+/**
+ * Reference points, omitted entirely when the run has none — most runs never
+ * use them, and an always-present "References: - none" block would push the
+ * sections that matter further down every `show`.
+ */
+function formatAlgorithmReferences(run: AlgorithmRun): string[] {
+  const references = getAlgorithmReferences(run);
+  if (references.length === 0) return [];
+
+  return [
+    "",
+    "References:",
+    ...references.map((reference: AlgorithmReference) => {
+      const verdict = reference.verdict ?? "open";
+      const note = reference.verdictNote === undefined ? "" : ` | ${reference.verdictNote}`;
+      const label = reference.label === undefined ? "" : ` (${reference.label})`;
+      return `- [${verdict}] ${reference.code}${label}: ${reference.text}${note}`;
+    }),
+  ];
 }
 
 function requireAlgorithmId(options: AlgorithmCliOptions): string {
@@ -1034,6 +1119,22 @@ export async function runAlgorithmCli(
   if (parsed.action === "change") {
     const text = requireText(options);
     return updateAndReportAlgorithmRun(options, (run) => recordAlgorithmChange(run, text));
+  }
+
+  if (parsed.action === "ref") {
+    const text = requireText(options);
+    const code = options.referenceCode;
+    if (!code) throw new Error("--code is required.");
+    const label = options.referenceLabel;
+    return updateAndReportAlgorithmRun(options, (run) => recordAlgorithmReference(run, { code, text, label }));
+  }
+
+  if (parsed.action === "resolve") {
+    const code = options.referenceCode;
+    const verdict = options.referenceVerdict;
+    if (!code || !verdict) throw new Error("--code and --verdict are required.");
+    const note = options.note;
+    return updateAndReportAlgorithmRun(options, (run) => resolveAlgorithmReference(run, { code, verdict, note }));
   }
 
   if (parsed.action === "step") {

@@ -366,6 +366,65 @@ capability is a binding commitment until the agent either records invocation
 evidence or removes the selection with a reason; COMPLETE is rejected while
 structured selections remain unresolved.
 
+## Communication Contract And Behavioral Policy
+
+Two principal-authored surfaces reach every substrate through the adapters, and
+neither is adapter-owned.
+
+`~/.soma/profile/communication.md` (Identity) projects **verbatim** — no
+provenance header, no re-render — under each substrate's native rules path:
+
+| Substrate | Home path | Workspace path |
+| --- | --- | --- |
+| claude-code | `rules/soma/COMMUNICATION.md` | `.claude/soma/communication.md` |
+| codex | `memories/soma/communication.md` | `.codex/soma/communication.md` |
+| grok | `skills/soma/communication.md` | `.grok/rules/soma/communication.md` |
+| pi-dev | `agent/soma/communication.md` | `.pi/extensions/soma-core/communication.md` |
+| cursor | `.cursor/rules/soma/COMMUNICATION.md` | — |
+| anthropic-cowork | `soma/communication.md` | — |
+
+The file is conditional: a home with no contract projects nothing rather than a
+Soma-authored default. Pi.dev additionally reads it into the generated
+extension's system prompt, which is that substrate's native equivalent of an
+appended system-prompt file — how the assistant talks has to be present on every
+turn, not fetched on demand.
+
+`~/.soma/policy/behavior.md` (Policy) is parsed by
+`src/policy/behavior-policy.ts` and merged into each adapter's
+`renderPolicyProjection` advisory list as `<Heading>: <rule>` lines, ahead of
+the shipped SelfHealing doctrine. Adapters never restate a rule: a drift test
+uppercases *every* entry at the source — a total mutation, so the original is
+not a substring of the mutated text — then asserts each projection carries the
+mutated form and contains neither the original rendered line nor its bare rule
+text anywhere — so a hardcoded copy in an adapter's own advisory array, the
+realistic drift shape, fails it. The guard is bounded by its fixture: it proves
+no adapter restates *the rules it exercises*, not every rule a home might
+contain. What it does establish for all rules is the mechanism — each adapter
+renders from `behaviorPolicyAdvisory(input.behavior)` and nothing else.
+
+The parser folds wrapped bullets and renders prose sections as rules, in source
+order. All three behaviors are required, not cosmetic: `sectionBullets` keeps
+only lines starting with `- `, so a rule that wraps would reach the substrate
+missing its second half; two of `behavior.md`'s sections state their rules as
+paragraphs; and a section that opens with a paragraph before its bullets must
+not project with that paragraph moved to the end.
+
+Fenced blocks are dropped whole — markers and contents both. A `#` inside a
+fenced example must not close the section and discard the rules beneath it, and
+a code sample must not fold into an entry and project as an advisory rule. If
+the file's fences are unbalanced, fence handling is disabled for the whole file:
+one stray ``` would otherwise swallow every section below it, and losing rules
+to a typo is worse than projecting a stray code line, because only the second is
+visible in the projection.
+
+A `###`+ heading is dropped as structure while its body stays attached to the
+parent `##` section, so nested rules keep the heading that owns them and the
+advisory list carries no contentless `Scope: Analysis:` lines.
+
+`soma-home.ts`'s `sectionBullets` is a separate, older scanner for the identity
+files and is deliberately left alone — it serves a different format, and
+converting it is not part of this rail.
+
 ## Adapter Contract
 
 Adapters should be thin. They do not own identity, memory, VSA, skill schemas, or

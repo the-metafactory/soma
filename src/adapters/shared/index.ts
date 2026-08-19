@@ -181,6 +181,23 @@ export function renderAssistantCore(input: ProjectionInput): string {
     .join("\n");
 }
 
+/**
+ * The communication contract as a projected file, or `[]` when the home has
+ * none. Content is the VERBATIM authored markdown — no provenance header and
+ * no re-render, same contract as the memory INDEX and the active VSA: this is
+ * the principal's prose, and a renderer round-trip is how authored nuance dies.
+ *
+ * Callers pass the substrate-native path because every substrate names its
+ * rules surface differently (`rules/soma/COMMUNICATION.md`,
+ * `agent/soma/communication.md`, …); the content is identical everywhere,
+ * which is what makes the contract portable.
+ */
+export function communicationContractFile(input: ProjectionInput, path: string): { path: string; content: string }[] {
+  const content = input.profile.communication?.content;
+  if (content === undefined || content.trim().length === 0) return [];
+  return [{ path, content }];
+}
+
 export function renderMemoryLayout(input: ProjectionInput): string {
   const { memory } = input.profile;
 
@@ -250,6 +267,7 @@ export function renderSubstrateInstructions(
     "",
     "## Operating Rules",
     "- Use the active VSA as the verification contract when present.",
+    "- Read `communication.md` beside this file, when present, for how to communicate: patterns, banned phrases, reference codes, and aliases.",
     "- Read memory from the declared file layout before inventing persistent facts.",
     "- Keep personal context out of public templates unless explicitly requested.",
     "- Report verification performed and any substrate limitation encountered.",

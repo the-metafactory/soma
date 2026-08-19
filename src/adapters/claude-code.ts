@@ -1,6 +1,7 @@
 import type { SomaAdapter, Projection, ProjectionInput } from "../types";
-import { buildPortableSkillFiles, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills, SELF_HEALING_DOCTRINE_ADVISORY, withProvenance } from "./shared";
+import { buildPortableSkillFiles, communicationContractFile, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills, SELF_HEALING_DOCTRINE_ADVISORY, withProvenance } from "./shared";
 import { activeVsaBundleFile } from "../adapter-active-vsa";
+import { behaviorPolicyAdvisory } from "../policy/behavior-policy";
 
 // Every `skills/<name>/` file claude-code's home projection emits is a portable
 // bundled skill (the-algorithm, Memory, …). Unlike codex/grok, claude-code has
@@ -38,6 +39,7 @@ function renderClaudeMd(input: ProjectionInput): string {
     "This file is generated context for Claude Code. The portable source of truth is Soma.",
     "",
     "Read `.claude/soma/context.md`, `.claude/soma/memory-layout.md`, `.claude/soma/skills.md`, and `.claude/soma/policy.md` before acting as the Soma assistant.",
+    "Read `.claude/soma/communication.md`, when present, for how to communicate: patterns, banned phrases, reference codes, and aliases.",
     "",
     input.prompt ? "## Current Prompt\n\n" + input.prompt : undefined,
   ]
@@ -89,6 +91,7 @@ export function projectClaudeCode(input: ProjectionInput): Projection {
         content: renderPolicyProjection("claude-code", ["Hooks when installed", "Claude Code permission prompts"], [
           "Prompt-level behavior constraints",
           "Verification reporting when hooks are absent",
+          ...behaviorPolicyAdvisory(input.behavior),
           ...SELF_HEALING_DOCTRINE_ADVISORY,
         ]),
       },
@@ -99,6 +102,8 @@ export function projectClaudeCode(input: ProjectionInput): Projection {
       ...(input.activeVsa
         ? [{ path: ".claude/soma/active-vsa.md", content: activeVsaBundleFile("claude-code", input.activeVsa)[0].content }]
         : []),
+      // Communication contract — omitted when the home has none. Verbatim bytes.
+      ...communicationContractFile(input, ".claude/soma/communication.md"),
     ],
   };
 }
@@ -119,6 +124,7 @@ function renderClaudeRulesReadme(): string {
     "- `MEMORY_LAYOUT.md` — pointers into the soma memory tree",
     "- `SKILLS.md` — discovered Soma skills",
     "- `POLICY.md` — substrate policy projection",
+    "- `COMMUNICATION.md` — how the assistant talks (omitted when the home has no contract)",
     "- `ACTIVE_VSA.md` — current active VSA (omitted when none set)",
     "",
     "## Lifecycle",
@@ -166,7 +172,7 @@ function renderClaudePurpose(input: ProjectionInput): string {
   ].join("\n");
 }
 
-function renderClaudePolicy(): string {
+function renderClaudePolicy(input: ProjectionInput): string {
   return renderPolicyProjection(
     "claude-code",
     ["Hooks when installed (deferred to follow-up)", "Claude Code permission prompts"],
@@ -174,6 +180,7 @@ function renderClaudePolicy(): string {
       "Prompt-level behavior constraints",
       "Verification reporting when hooks are absent",
       "Treat the active VSA as the verification contract",
+      ...behaviorPolicyAdvisory(input.behavior),
       ...SELF_HEALING_DOCTRINE_ADVISORY,
     ],
   );
@@ -199,11 +206,17 @@ export const CLAUDE_CODE_RULES_FILES = [
   // doctor / owned-subtree reconcile) but excluded from the always-on builders
   // map below and appended by memoryIndexBundleFile.
   "rules/soma/MEMORY.md",
+  // Communication contract (Identity compartment). Conditional like
+  // ACTIVE_VSA/MEMORY — omitted when the home has no
+  // `profile/communication.md` — so it is declared here (for the planner /
+  // doctor / owned-subtree reconcile) but excluded from the always-on builders
+  // map below and appended by communicationContractFile.
+  "rules/soma/COMMUNICATION.md",
 ] as const;
 
-// The conditionally-projected rules files (ACTIVE_VSA + MEMORY): both are omitted
-// when their source is absent, so neither has an always-on content builder.
-type ConditionalRulesFile = "rules/soma/ACTIVE_VSA.md" | "rules/soma/MEMORY.md";
+// The conditionally-projected rules files (ACTIVE_VSA + MEMORY + COMMUNICATION):
+// each is omitted when its source is absent, so none has an always-on content builder.
+type ConditionalRulesFile = "rules/soma/ACTIVE_VSA.md" | "rules/soma/MEMORY.md" | "rules/soma/COMMUNICATION.md";
 
 const CLAUDE_RULES_CONTENT_BUILDERS: Record<
   Exclude<(typeof CLAUDE_CODE_RULES_FILES)[number], ConditionalRulesFile>,
@@ -215,7 +228,7 @@ const CLAUDE_RULES_CONTENT_BUILDERS: Record<
   "rules/soma/PURPOSE.md": (input) => renderClaudePurpose(input),
   "rules/soma/MEMORY_LAYOUT.md": (input) => renderMemoryLayout(input),
   "rules/soma/SKILLS.md": (input) => renderSkills(input),
-  "rules/soma/POLICY.md": () => renderClaudePolicy(),
+  "rules/soma/POLICY.md": (input) => renderClaudePolicy(input),
 };
 
 /**
@@ -277,6 +290,8 @@ export function projectClaudeCodeHome(input: ProjectionInput): Projection {
       ...activeVsaBundleFile("claude-code", input.activeVsa),
       // Memory index (M4) — omitted when memory disabled / no index. Verbatim bytes.
       ...memoryIndexBundleFile(input),
+      // Communication contract — omitted when the home has none. Verbatim bytes.
+      ...communicationContractFile(input, "rules/soma/COMMUNICATION.md"),
     ],
   };
 }

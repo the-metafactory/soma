@@ -35,6 +35,7 @@ function renderClaudeMdBody(input: ProjectionInput, overlayBody: string | null):
     "- `rules/soma/PURPOSE.md` — mission, goals, principles, commitments",
     "- `rules/soma/SKILLS.md` — available skills",
     "- `rules/soma/POLICY.md` — substrate policy",
+    "- `rules/soma/COMMUNICATION.md` — how to communicate: patterns, banned phrases, reference codes, aliases (when present)",
     "",
     // Regenerating CLAUDE.md needs the opt-in flag (writing is gated on it), so
     // the instruction names it explicitly (sage#378).

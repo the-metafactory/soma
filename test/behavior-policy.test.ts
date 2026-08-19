@@ -1,0 +1,251 @@
+import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import {
+  EMPTY_BEHAVIOR_POLICY,
+  behaviorPolicyAdvisory,
+  parseBehaviorPolicy,
+} from "../src/policy/behavior-policy";
+import type { BehaviorPolicySection } from "../src/policy/behavior-policy";
+
+/** Entry texts of one kind, in source order. `entries` is the only stored shape. */
+function textsOfKind(section: BehaviorPolicySection | undefined, kind: "rule" | "prose"): string[] {
+  return (section?.entries ?? []).filter((entry) => entry.kind === kind).map((entry) => entry.text);
+}
+
+const SAMPLE = `# Behavioral Policy (advisory)
+
+Source of truth for cross-substrate behavioral rules. Mined from PAI during
+the 2026-07 migration.
+
+## Verification
+
+- Never assert without verification. After changes, verify before claiming
+  success — evidence required (tests, output, diffs). "Should work" is not done.
+- Confidence requires source.
+
+## Permission boundaries
+
+Ask before: deleting files or branches, deploying to production, pushing
+code, modifying .env, any irreversible operation.
+
+## Provenance
+
+- Provenance sections project like any other; only the preamble is dropped.
+`;
+
+test("wrapped bullets fold into one rule instead of truncating at the first line", () => {
+  const { sections } = parseBehaviorPolicy(SAMPLE);
+  const verification = sections.find((section) => section.heading === "Verification");
+
+  expect(textsOfKind(verification, "rule")).toHaveLength(2);
+  // The regression this parser exists for: `sectionBullets` would have kept only
+  // "Never assert without verification. After changes, verify before claiming"
+  // and silently dropped the evidence requirement.
+  expect(textsOfKind(verification, "rule")[0]).toBe(
+    'Never assert without verification. After changes, verify before claiming success — evidence required (tests, output, diffs). "Should work" is not done.',
+  );
+  expect(textsOfKind(verification, "rule")[1]).toBe("Confidence requires source.");
+});
+
+test("prose-only sections keep their rules", () => {
+  const { sections } = parseBehaviorPolicy(SAMPLE);
+  const permissions = sections.find((section) => section.heading === "Permission boundaries");
+
+  expect(textsOfKind(permissions, "rule")).toHaveLength(0);
+  expect(textsOfKind(permissions, "prose")).toHaveLength(1);
+  expect(textsOfKind(permissions, "prose")[0]).toContain("any irreversible operation.");
+  expect(behaviorPolicyAdvisory({ sections })).toContain(
+    "Permission boundaries: Ask before: deleting files or branches, deploying to production, pushing code, modifying .env, any irreversible operation.",
+  );
+});
+
+test("only the preamble is dropped — no section is discarded for its name", () => {
+  const { sections } = parseBehaviorPolicy(SAMPLE);
+
+  // sage #636 r4: an earlier revision blacklisted "provenance"/"source"/
+  // "about"/"readme" headings. Dropping a principal's section because of its
+  // NAME is unobservable to them, and the docs promised the opposite.
+  expect(sections.map((section) => section.heading)).toEqual([
+    "Verification",
+    "Permission boundaries",
+    "Provenance",
+  ]);
+  // Text before the first `## ` is still dropped: that is where provenance
+  // actually lives, and it is prose about the file, not a rule in it.
+  expect(behaviorPolicyAdvisory({ sections }).join("\n")).not.toContain("Mined from PAI");
+});
+
+test("mixed sections project in source order, prose and bullets interleaved", () => {
+  // Sage #636 r1: rendering `[...rules, ...prose]` moved a section's opening
+  // paragraph to the end, silently reordering principal-authored guidance.
+  const mixed = parseBehaviorPolicy(
+    ["## Scope", "", "Analysis is read-only.", "", "- Only change what was requested.", "", "Ask when unsure.", ""].join("\n"),
+  );
+
+  expect(mixed.sections[0].entries.map((entry) => entry.kind)).toEqual(["prose", "rule", "prose"]);
+  expect(behaviorPolicyAdvisory(mixed)).toEqual([
+    "Scope: Analysis is read-only.",
+    "Scope: Only change what was requested.",
+    "Scope: Ask when unsure.",
+  ]);
+  // The convenience arrays stay filtered views of the same ordered sequence.
+  expect(textsOfKind(mixed.sections[0], "rule")).toEqual(["Only change what was requested."]);
+  expect(textsOfKind(mixed.sections[0], "prose")).toEqual(["Analysis is read-only.", "Ask when unsure."]);
+});
+
+test("a heading-like line inside a fence does not close the section", () => {
+  // sage #636 r3: without fence tracking, a `# ` line in a fenced example
+  // closed the open section and opened a bogus one, discarding every remaining
+  // rule beneath it.
+  const { sections } = parseBehaviorPolicy(
+    [
+      "## Verification",
+      "",
+      "- Run the suite before claiming done.",
+      "",
+      "```bash",
+      "# this comment is not a heading",
+      "## neither is this",
+      "bun test",
+      "```",
+      "",
+      "- Evidence beats assertion.",
+      "",
+    ].join("\n"),
+  );
+
+  expect(sections.map((section) => section.heading)).toEqual(["Verification"]);
+  expect(textsOfKind(sections[0], "rule")).toEqual([
+    "Run the suite before claiming done.",
+    "Evidence beats assertion.",
+  ]);
+  // sage #636 r5: fence tracking alone only stopped the `#` from closing the
+  // section — the code lines still folded into a prose entry and projected as
+  // advisory RULES. The block is dropped entirely.
+  expect(textsOfKind(sections[0], "prose")).toEqual([]);
+  expect(behaviorPolicyAdvisory({ sections }).join("\n")).not.toContain("bun test");
+  expect(behaviorPolicyAdvisory({ sections }).join("\n")).not.toContain("```");
+});
+
+test("numbered list items are rules too", () => {
+  const { sections } = parseBehaviorPolicy("## Scope\n\n1. Ask first.\n2) Then act.\n");
+  expect(textsOfKind(sections[0], "rule")).toEqual(["Ask first.", "Then act."]);
+});
+
+test("advisory lines carry their section heading", () => {
+  const lines = behaviorPolicyAdvisory(parseBehaviorPolicy(SAMPLE));
+
+  expect(lines).toHaveLength(4);
+  for (const line of lines) {
+    expect(line).toMatch(/^(Verification|Permission boundaries|Provenance): /);
+  }
+});
+
+test("an absent or empty policy renders no advisory lines", () => {
+  expect(behaviorPolicyAdvisory(undefined)).toEqual([]);
+  expect(behaviorPolicyAdvisory(EMPTY_BEHAVIOR_POLICY)).toEqual([]);
+  expect(parseBehaviorPolicy("")).toEqual(EMPTY_BEHAVIOR_POLICY);
+  expect(parseBehaviorPolicy("# Title only\n\nSome prose.\n")).toEqual(EMPTY_BEHAVIOR_POLICY);
+});
+
+test("a nested heading is structure — its body stays, its text does not", () => {
+  const { sections } = parseBehaviorPolicy("## Scope\n\n### Analysis\n\n- Read only.\n");
+
+  expect(sections).toHaveLength(1);
+  expect(sections[0].heading).toBe("Scope");
+  expect(textsOfKind(sections[0], "rule")).toEqual(["Read only."]);
+  // sage #636 r6: a `###` used to become its own prose entry, so the advisory
+  // list carried contentless lines like "Scope: Analysis:".
+  expect(textsOfKind(sections[0], "prose")).toEqual([]);
+  expect(behaviorPolicyAdvisory({ sections })).toEqual(["Scope: Read only."]);
+});
+
+test("an unbalanced fence must not swallow the rest of the policy", () => {
+  // sage #636 r6: `if (fence !== undefined) continue;` ran before the heading
+  // tests, so one stray ``` discarded every section below it — silently, in a
+  // module whose whole argument is that a rule must never go missing unseen.
+  // Losing half a policy to a typo is worse than projecting a stray code line:
+  // the second is visible in the projection, the first is invisible everywhere.
+  const { sections } = parseBehaviorPolicy(
+    ["## Verification", "", "- Probe before claiming.", "", "```bash", "bun test", "", "## Scope", "", "- Ask first.", ""].join("\n"),
+  );
+
+  expect(sections.map((section) => section.heading)).toEqual(["Verification", "Scope"]);
+  expect(behaviorPolicyAdvisory({ sections })).toContain("Scope: Ask first.");
+});
+
+test("a `#` inside an unterminated fence does not eat the rest of the section", () => {
+  // sage #636 r7: with fence handling disabled by the imbalance, the `# ` branch
+  // still flushed the open section — the fallback traded one invisible loss for
+  // another. A `#` is only a delimiter when no section is open.
+  const { sections } = parseBehaviorPolicy(
+    ["## Verification", "", "- Probe first.", "", "```bash", "# a comment, not a heading", "bun test", "", "- Evidence beats assertion.", ""].join("\n"),
+  );
+
+  expect(sections.map((section) => section.heading)).toEqual(["Verification"]);
+  expect(textsOfKind(sections[0], "rule")).toContain("Evidence beats assertion.");
+});
+
+test("the three behaviours hold on real authored markdown, not just the sample", () => {
+  // The repo ships no `policy/behavior.md` — it is principal-authored and lives
+  // in the Soma home — so this exercises the parser against a hand-written file
+  // that does exist, and asserts the three behaviours the module exists for
+  // rather than merely that it did not crash (sage #636 r3).
+  const authored = [
+    "# Behavioral Policy",
+    "",
+    "Preamble prose that is provenance, not a rule.",
+    "",
+    "## Verification",
+    "",
+    "Analysis is read-only unless the request says otherwise.",
+    "",
+    "- Never assert without verification. Evidence is required before",
+    "  claiming success, and \"should work\" is not done.",
+    "- Confidence requires source.",
+    "",
+  ].join("\n");
+
+  const { sections } = parseBehaviorPolicy(authored);
+  const verification = sections[0];
+
+  // (1) the preamble before the first `## ` is dropped
+  expect(sections.map((section) => section.heading)).toEqual(["Verification"]);
+  // (2) the wrapped rule folded whole
+  expect(textsOfKind(verification, "rule")[0]).toBe(
+    'Never assert without verification. Evidence is required before claiming success, and "should work" is not done.',
+  );
+  // (3) prose survived, and source order put it first
+  expect(verification.entries[0]).toEqual({
+    kind: "prose",
+    text: "Analysis is read-only unless the request says otherwise.",
+  });
+
+  // And the same three behaviours hold on the one authored-shape file the repo
+  // ships — asserted against its actual content, not just its section count
+  // (sage #636 r7).
+  const shipped = readFileSync(join(import.meta.dir, "..", "policy", "self-healing.md"), "utf8");
+  const shippedSections = parseBehaviorPolicy(shipped).sections;
+  const shippedLines = behaviorPolicyAdvisory({ sections: shippedSections });
+
+  expect(shippedSections.length).toBeGreaterThan(0);
+
+  // (1) folding — `## What it does` is one paragraph wrapped over six source
+  // lines. sage #636 r8: the previous assertions here (shape regexes, no fence,
+  // no trailing colon) all passed under a parser that truncated at the first
+  // line, which is the exact regression this module exists to prevent. Asserting
+  // that the paragraph's FIRST and LAST clauses land in one entry cannot.
+  const whatItDoes = shippedSections.find((section) => section.heading === "What it does");
+  const folded = textsOfKind(whatItDoes, "prose")[0] ?? "";
+  expect(folded.startsWith("It maps a recurring")).toBe(true);
+  expect(folded).toContain("read it there rather than a duplicated table here.");
+
+  // (2) prose survived at all, and (3) every line is a real heading + text.
+  expect(shippedLines.length).toBeGreaterThan(0);
+  for (const line of shippedLines) {
+    expect(line).toMatch(/^[^:]+: \S/);
+  }
+  // The fenced block in that file never becomes a rule.
+  expect(shippedLines.some((line) => line.includes("```"))).toBe(false);
+});

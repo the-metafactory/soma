@@ -112,6 +112,52 @@ single-fact, trust- and decay-tracked notes. Mechanics (paths, frontmatter, the
 
 ---
 
+## communication contract
+
+The [[compartment|Identity]] artifact that governs **how the assistant talks**: positive and negative patterns, the banned-phrase list, [[reference code]] families, and aliases. Lives at `~/.soma/profile/communication.md` and projects verbatim into every [[substrate]].
+
+Identity owns "voice, personality", which is exactly what this is. Its sibling is the [[behavioral policy]], which governs what the assistant may *do*. One rule, one home: a habit of speech goes here, an operational boundary goes there.
+
+**Not synonyms:**
+- `system prompt` — the substrate-side mechanism a contract may ride on (Pi's appended prompt, Claude Code's rules dir), not the artifact. Soma authors a contract; substrates carry it.
+- `style guide`, `tone` — informal glosses. The contract is a verbatim-projected artifact, not advice filed somewhere. How it arrives differs by [[substrate]]: Pi.dev injects it into the system prompt so it is present on every turn, auto-discovered rules directories load it as session context, and the rest carry a "read this when present" instruction. Soma parses nothing out of it either way: its sections work by being read.
+- [[behavioral policy]] — the Policy-compartment sibling. Distinct: conduct vs. speech.
+
+**Why:** the highest-leverage place to change how an assistant communicates is the surface present on every turn, and Soma already owns exactly one such surface per substrate. Making it a compartment artifact rather than per-substrate configuration is what makes the contract portable. Projection is verbatim because the file is the principal's prose and a renderer round-trip loses authored nuance.
+
+---
+
+## behavioral policy
+
+The [[compartment|Policy]] artifact holding cross-substrate rules for **what the assistant may do**: verification, scope discipline, permission boundaries, external-content handling. Lives at `~/.soma/policy/behavior.md`; its `## Heading` sections project as advisory lines into every substrate's policy projection.
+
+Principal-authored, and therefore the inverse of the SelfHealing doctrine, where the TypeScript module is authoritative and the markdown mirrors it. Here the markdown is the source and the module only reads it. `soma init` does not create the file: Soma projects conduct rules the principal wrote, or none.
+
+**Not synonyms:**
+- `runtime policy` / `policy enforcement level` — the mechanism-level surfaces that *enforce*. The behavioral policy is advisory and prompt-level.
+- [[communication contract]] — the Identity-compartment sibling. Distinct: speech vs. conduct.
+- `SelfHealing doctrine` — soma-shipped doctrine that also projects into the advisory list, but is owned by code, not the principal.
+
+**Why:** the file predates its wiring — it shipped in the 2026-07 PAI migration carrying its own note that "substrate instruction files carry them by hand" until an adapter read it. A principal-authored rule that no substrate receives is worse than no rule, because it reads as active.
+
+---
+
+## reference code
+
+A short code (`F1`, `O2`, `D3`) labelling one finding, option, risk, question, action, or decision, stable for the life of a conversation, so the principal can answer `keep D1, reject O2, answer Q1` instead of re-quoting. Families are declared in the [[communication contract]]; instances are recorded against an Algorithm run with `soma algorithm ref` and closed with `soma algorithm resolve`.
+
+`C` and `P` are **reserved** — `C1` is a [[checkpoint|criterion]] and `P1` an Algorithm plan step — and recording a code under either letter is refused. The refusal lives at the write path only: a [[communication contract]] that declares `C` is harmless, because a collision can only occur when a code is recorded, and a prose file on the home-load path must never be able to fail `install`. `D` codes additionally mirror into the run's decisions log rather than opening a parallel record.
+
+**Not synonyms:**
+- `criterion id` / `plan step id` — the reserved space. A reference code is conversational; those are VSA and plan structure.
+- `citation`, `footnote` — a reference code is addressable and writable, not a pointer to a source.
+- [[checkpoint]] **verdict** — a reference *verdict* (`kept`/`rejected`/`answered`/`done`/`dropped`) is an ungated conversational disposition: no evidence required, no completion gate, revisable at will. A checkpoint's verdict is evidence-gated verification. The words collide; the concepts do not, and `dropped` appearing in both spaces is coincidence, not shared meaning.
+- `soma graph close` — `soma algorithm resolve` records a disposition. Only a [[work graph]] node *closes*, and only through its attached checkpoint's completion gate.
+
+**Why:** without durable storage a reference code is display formatting. Storing it makes `keep D1` a write, which is the only version of the idea that survives past the current context window.
+
+---
+
 ## inbound security decision
 
 A [[Policy]] decision about whether externally sourced content may enter substrate context from an [[untrusted root]].

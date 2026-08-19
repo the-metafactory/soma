@@ -16,6 +16,8 @@ export type {
   AlgorithmLogEntry,
   AlgorithmMetaReflection,
   AlgorithmObservation,
+  AlgorithmReference,
+  AlgorithmReferenceVerdict,
   AlgorithmLoopExecutionContext,
   AlgorithmLoopExecutor,
   AlgorithmLoopIteration,
@@ -237,6 +239,7 @@ export {
   algorithmPhaseOrder,
   computeGatesFired,
   createAlgorithmRun,
+  getAlgorithmReferences,
   hasCurrentStateProbe,
   learnGateViolations,
   nextAlgorithmPhase,
@@ -245,6 +248,8 @@ export {
   recordAlgorithmLearning,
   recordAlgorithmMetaReflection,
   recordAlgorithmObservation,
+  recordAlgorithmReference,
+  resolveAlgorithmReference,
   deriveBridgedPlanStepStatus,
   requirePlanStep,
   setAlgorithmPlan,
@@ -254,6 +259,17 @@ export {
   verifyAlgorithmCriterion,
 } from "./algorithm";
 export type { BridgedNodeReport } from "./algorithm";
+// The two principal-authored compartment surfaces reach the barrel as TYPES
+// ONLY, because `ProjectionInput`/`SomaProfile` name them and a caller building
+// a projection input needs to spell them. Their parsers and helpers stay module-
+// local: every real consumer (six adapters, `soma-home.ts`, the tests) imports
+// from `./policy/behavior-policy` or `./communication-contract` directly, and
+// `BehaviorPolicyEntry` changed shape three times while this branch was in
+// review. This is the same call `src/policy/self-healing-doctrine.ts` already
+// makes — it exports nothing here — and the one this file makes for
+// `VerificationGateError`: off the barrel, free to change.
+export type { CommunicationContract } from "./communication-contract";
+export type { BehaviorPolicy } from "./policy/behavior-policy";
 // The planSteps bridge's READ half (§2.7), beside the write half on purpose: a
 // consumer that can reach `syncBridgedPlanStep` but not the reader must
 // re-implement repo resolution, becoming the second reader the bridge forbids.

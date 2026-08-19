@@ -9,6 +9,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Communication contract (Identity compartment).** Section structure and part
+  of the banned-phrase list are adapted (not copied) from
+  [disler/fixing-smartass-opus-5](https://github.com/disler/fixing-smartass-opus-5), MIT.
+  `~/.soma/profile/communication.md`
+  governs how the assistant talks — positive/negative patterns, banned phrases,
+  reference codes, aliases, and authored do/don't examples. `soma init` ships a
+  generic starter; the file projects **verbatim** (no provenance header, no
+  re-render) into all six substrates, and Pi.dev additionally reads it into the
+  generated extension's system prompt, that substrate's native equivalent of an
+  appended system-prompt file. Soma parses nothing out of the file: every
+  section works by being read. Absent file → nothing projected, never a
+  Soma-authored default.
+- **Behavioral policy is wired (Policy compartment).** `~/.soma/policy/behavior.md`
+  has existed since the 2026-07 PAI migration and no code under `src/`,
+  `scripts/`, `test/`, or `docs/` referenced it — the file even carried its own
+  note that substrate instruction files were carrying its rules by hand. It is now
+  parsed by `src/policy/behavior-policy.ts` and merged into every adapter's
+  policy-projection advisory list. The parser folds wrapped bullets and keeps
+  prose-only sections, because the previous `sectionBullets` helper would have
+  truncated every wrapped rule at its first line and dropped the two sections
+  that state their rules as paragraphs.
+- **Reference codes as run state.** `soma algorithm ref --code F1 --text ...` and
+  `soma algorithm resolve --code D1 --verdict kept` (plus `ref:`/`resolve:` batch
+  ops) make `keep D1` a write rather than a comment. `C` and `P` are reserved for
+  VSA criteria and plan steps and are refused; codes are unique within a run; `D`
+  codes mirror into the run's decisions log rather than opening a parallel
+  record. The reservation is enforced at the write path, not at contract-read
+  time — a prose file on the home-load path must never be able to fail
+  `install` or a hook. `AlgorithmRun.references` is additive and defaulted by the store — no
+  schema-version bump, and pre-existing runs load with an empty list.
+
 ### Changed
 
 ### Fixed
