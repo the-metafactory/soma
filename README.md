@@ -543,6 +543,44 @@ the PAI mode classifier entry while Soma owns that hook.
 
 ---
 
+## How the assistant talks, and what it may do
+
+Two principal-authored files in the Soma home govern conduct, and they reach
+every substrate:
+
+- **`profile/communication.md`** — the *communication contract*: voice, positive
+  and negative patterns, a banned-phrase list, reference codes, aliases, and
+  authored do/don't examples. Identity compartment. `soma init` writes a generic
+  starter; edit it directly. It projects **verbatim** into every substrate, and
+  Pi.dev injects it into the system prompt so it is present on every turn.
+  Soma parses nothing out of it — every section works by being read.
+- **`policy/behavior.md`** — the *behavioral policy*: verification, scope
+  discipline, permission boundaries, external-content handling. Policy
+  compartment. Its `## Heading` sections become advisory lines in every
+  substrate's policy projection. `soma init` does **not** create it: Soma
+  projects conduct rules you wrote, or none.
+
+One rule, one home. An absent file projects nothing rather than a default.
+
+### Reference codes
+
+When the assistant presents three or more findings, options, risks, questions,
+actions, or decisions, it labels each with a short code that stays stable for
+the conversation, so your reply collapses to `keep D1, reject O2, answer Q1`.
+
+`C` and `P` are reserved — `C1` is a VSA criterion and `P1` an Algorithm plan
+step — so recording a code under either is refused. A code becomes durable when
+written to a run, and a `D` code also lands in that run's decisions log:
+
+```bash
+soma algorithm ref     --id <run-id> --code D1 --text "Drop the co-author rule."
+soma algorithm resolve --id <run-id> --code D1 --verdict kept --note "Applied."
+```
+
+See [docs/communication-and-behavior.md](docs/communication-and-behavior.md).
+
+---
+
 ## Privacy and policy
 
 Soma's V0 policy guard blocks obvious movement of private Soma or projection
@@ -601,6 +639,7 @@ writeback boundaries as substrate sessions. See
 
 - [CONTEXT.md](CONTEXT.md), the shared Soma vocabulary used by docs, CLI, and VSA
 - [docs/soma-home-layout.md](docs/soma-home-layout.md), what `soma init` creates and where Algorithm/VSA state lives
+- [docs/communication-and-behavior.md](docs/communication-and-behavior.md), the communication contract, the behavioral policy, and reference codes
 - [docs/architecture.md](docs/architecture.md), the core/adapters/runtime model
 - [docs/boundaries.md](docs/boundaries.md), exactly what Soma owns and does not own
 - [docs/substrate-adapters.md](docs/substrate-adapters.md), adapter behavior by host

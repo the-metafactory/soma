@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Fixed
+
+## [0.17.0] - 2026-08-19
+
+### Added
+
 - **Communication contract (Identity compartment).** Section structure and part
   of the banned-phrase list are adapted (not copied) from
   [disler/fixing-smartass-opus-5](https://github.com/disler/fixing-smartass-opus-5), MIT.
@@ -39,10 +47,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   time — a prose file on the home-load path must never be able to fail
   `install` or a hook. `AlgorithmRun.references` is additive and defaulted by the store — no
   schema-version bump, and pre-existing runs load with an empty list.
-
-### Changed
-
-### Fixed
+- **Docs:** [docs/communication-and-behavior.md](docs/communication-and-behavior.md)
+  covers both files, how each reaches a substrate, the behavioral-policy
+  authoring rules, and the reference-code CLI.
 
 ## [0.16.1] - 2026-08-16
 
