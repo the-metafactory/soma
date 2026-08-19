@@ -486,3 +486,37 @@ describe("eager skill loading (soma#542)", () => {
     });
   });
 });
+
+describe("soma#638: canonical source, projected discovery", () => {
+  test("a skill edited in the soma registry is live in the substrate with no reprojection", async () => {
+    await withTempHome(async (homeDir) => {
+      const skillDir = join(homeDir, ".soma", "skills", "Widget");
+      await mkdir(skillDir, { recursive: true });
+      await writeFile(join(skillDir, "SKILL.md"), `---\nname: Widget\n---\n# v1\n`, "utf8");
+
+      await projectSkill({ skillDir, substrates: ["claude-code"], homeDir });
+      const loaderSkillMd = join(homeDir, ".claude", "skills", "Widget", "SKILL.md");
+      expect(await readFile(loaderSkillMd, "utf8")).toContain("# v1");
+
+      // Edit the canonical copy only — no install, no reproject.
+      await writeFile(join(skillDir, "SKILL.md"), `---\nname: Widget\n---\n# v2\n`, "utf8");
+      expect(await readFile(loaderSkillMd, "utf8")).toContain("# v2");
+    });
+  });
+
+  test("unprojecting removes the substrate slot but never the canonical skill", async () => {
+    await withTempHome(async (homeDir) => {
+      const skillDir = join(homeDir, ".soma", "skills", "Widget");
+      await mkdir(skillDir, { recursive: true });
+      await writeFile(join(skillDir, "SKILL.md"), `---\nname: Widget\n---\n# body\n`, "utf8");
+
+      await projectSkill({ skillDir, substrates: ["claude-code"], homeDir });
+      await unprojectSkill({ skill: "Widget", substrates: ["claude-code"], homeDir });
+
+      await expect(lstat(join(homeDir, ".claude", "skills", "Widget"))).rejects.toThrow();
+      // The canonical skill was authored in the registry, so it is the source —
+      // unprojecting a substrate must never reach through and delete it.
+      expect(await readFile(join(skillDir, "SKILL.md"), "utf8")).toContain("# body");
+    });
+  });
+});
