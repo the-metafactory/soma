@@ -259,15 +259,17 @@ export {
   verifyAlgorithmCriterion,
 } from "./algorithm";
 export type { BridgedNodeReport } from "./algorithm";
-// The behavioral policy (Policy compartment) — the parser adapters call and the
-// shape they render from. Kept narrow on purpose: the reference-code helpers in
-// `communication-contract.ts` have no downstream caller, and the argument this
-// file already makes for `VerificationGateError` applies to them too — leaving
-// them off the barrel keeps their shape free to change without a public-API
-// break. `CommunicationContract` is here only because `SomaProfile` names it.
+// The two principal-authored compartment surfaces reach the barrel as TYPES
+// ONLY, because `ProjectionInput`/`SomaProfile` name them and a caller building
+// a projection input needs to spell them. Their parsers and helpers stay module-
+// local: every real consumer (six adapters, `soma-home.ts`, the tests) imports
+// from `./policy/behavior-policy` or `./communication-contract` directly, and
+// `BehaviorPolicyEntry` changed shape three times while this branch was in
+// review. This is the same call `src/policy/self-healing-doctrine.ts` already
+// makes — it exports nothing here — and the one this file makes for
+// `VerificationGateError`: off the barrel, free to change.
 export type { CommunicationContract } from "./communication-contract";
-export { behaviorPolicyAdvisory, parseBehaviorPolicy } from "./policy/behavior-policy";
-export type { BehaviorPolicy, BehaviorPolicyEntry, BehaviorPolicySection } from "./policy/behavior-policy";
+export type { BehaviorPolicy } from "./policy/behavior-policy";
 // The planSteps bridge's READ half (§2.7), beside the write half on purpose: a
 // consumer that can reach `syncBridgedPlanStep` but not the reader must
 // re-implement repo resolution, becoming the second reader the bridge forbids.

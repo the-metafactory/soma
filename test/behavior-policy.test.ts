@@ -149,14 +149,30 @@ test("an absent or empty policy renders no advisory lines", () => {
   expect(parseBehaviorPolicy("# Title only\n\nSome prose.\n")).toEqual(EMPTY_BEHAVIOR_POLICY);
 });
 
-test("nested headings fold into their parent section rather than opening a sibling", () => {
+test("a nested heading is structure — its body stays, its text does not", () => {
   const { sections } = parseBehaviorPolicy("## Scope\n\n### Analysis\n\n- Read only.\n");
 
   expect(sections).toHaveLength(1);
   expect(sections[0].heading).toBe("Scope");
   expect(textsOfKind(sections[0], "rule")).toEqual(["Read only."]);
-  expect(textsOfKind(sections[0], "prose")).toEqual(["Analysis:"]);
-  expect(sections[0].entries.map((entry) => entry.text)).toEqual(["Analysis:", "Read only."]);
+  // sage #636 r6: a `###` used to become its own prose entry, so the advisory
+  // list carried contentless lines like "Scope: Analysis:".
+  expect(textsOfKind(sections[0], "prose")).toEqual([]);
+  expect(behaviorPolicyAdvisory({ sections })).toEqual(["Scope: Read only."]);
+});
+
+test("an unbalanced fence must not swallow the rest of the policy", () => {
+  // sage #636 r6: `if (fence !== undefined) continue;` ran before the heading
+  // tests, so one stray ``` discarded every section below it — silently, in a
+  // module whose whole argument is that a rule must never go missing unseen.
+  // Losing half a policy to a typo is worse than projecting a stray code line:
+  // the second is visible in the projection, the first is invisible everywhere.
+  const { sections } = parseBehaviorPolicy(
+    ["## Verification", "", "- Probe before claiming.", "", "```bash", "bun test", "", "## Scope", "", "- Ask first.", ""].join("\n"),
+  );
+
+  expect(sections.map((section) => section.heading)).toEqual(["Verification", "Scope"]);
+  expect(behaviorPolicyAdvisory({ sections })).toContain("Scope: Ask first.");
 });
 
 test("the three behaviours hold on real authored markdown, not just the sample", () => {

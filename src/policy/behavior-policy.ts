@@ -61,9 +61,9 @@ interface MarkdownSection {
  * Split `behavior.md` on `##` headings, in source order.
  *
  * Only `##` delimits: a leading `# Title` closes the current section and opens
- * nothing (a document title is not a section), and a deeper `### ` folds into
- * its parent as a `Heading:` body line rather than starting a sibling — so a
- * nested heading's rules stay attached to the section that owns them. Content
+ * nothing (a document title is not a section), and a deeper `### ` is dropped
+ * as structure while its body stays attached to the parent `##` section — so a
+ * nested heading's rules belong to the section that owns them. Content
  * before the first `## ` is the title and provenance preamble, never rules, and
  * is dropped.
  *
@@ -74,9 +74,33 @@ interface MarkdownSection {
  * into a prose entry and projects as an advisory RULE. A policy file that shows
  * a command is entirely plausible, and neither outcome is one the principal
  * could see from the source.
+ *
+ * An UNBALANCED fence disables fence handling for the whole file. A single
+ * stray ``` would otherwise swallow every section below it, and losing half a
+ * policy to a typo is far worse than projecting one stray code line as a rule:
+ * the second is visible in the projection, the first is invisible everywhere.
+ * The rule of this module is that a defect must never cost the principal a rule
+ * they cannot see going missing.
  */
+const FENCE = /^\s*(```+|~~~+)/;
+
+/** True when every fence in the document is closed. */
+function fencesAreBalanced(lines: readonly string[]): boolean {
+  let open: string | undefined;
+  for (const line of lines) {
+    const match = FENCE.exec(line);
+    if (match === null) continue;
+    const marker = match[1][0].repeat(3);
+    if (open === undefined) open = marker;
+    else if (marker === open) open = undefined;
+  }
+  return open === undefined;
+}
+
 function splitMarkdownSections(markdown: string): MarkdownSection[] {
   const sections: MarkdownSection[] = [];
+  const sourceLines = markdown.split("\n");
+  const honourFences = fencesAreBalanced(sourceLines);
 
   let heading: string | undefined;
   let lines: string[] = [];
@@ -88,8 +112,8 @@ function splitMarkdownSections(markdown: string): MarkdownSection[] {
     lines = [];
   };
 
-  for (const line of markdown.split("\n")) {
-    const fenceMatch = /^\s*(```+|~~~+)/.exec(line);
+  for (const line of sourceLines) {
+    const fenceMatch = honourFences ? FENCE.exec(line) : null;
     if (fenceMatch !== null) {
       const marker = fenceMatch[1][0].repeat(3);
       if (fence === undefined) fence = marker;
@@ -106,8 +130,6 @@ function splitMarkdownSections(markdown: string): MarkdownSection[] {
       continue;
     }
 
-    const text = line.replace(/^#{1,6}\s+/, "").trim();
-
     if (/^#\s/.test(line)) {
       flush();
       continue;
@@ -115,11 +137,13 @@ function splitMarkdownSections(markdown: string): MarkdownSection[] {
 
     if (/^##\s/.test(line)) {
       flush();
-      heading = text;
+      heading = line.replace(/^#{1,6}\s+/, "").trim();
       continue;
     }
 
-    if (heading !== undefined) lines.push(`${text}:`);
+    // A `###`+ heading is structure, not a rule. Its own text is dropped and its
+    // body stays attached to the parent `##` section — turning it into an entry
+    // produced contentless advisory lines like "Scope: Analysis:".
   }
 
   flush();

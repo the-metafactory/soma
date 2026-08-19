@@ -403,11 +403,21 @@ missing its second half; two of `behavior.md`'s sections state their rules as
 paragraphs; and a section that opens with a paragraph before its bullets must
 not project with that paragraph moved to the end.
 
-The splitter also tracks fenced blocks, so a `#` line inside a fenced example
-cannot close the section and discard the rules beneath it. `soma-home.ts`'s
-`sectionBullets` is a separate, older scanner for the identity files and is
-deliberately left alone — it serves a different format, and converting it is not
-part of this rail.
+Fenced blocks are dropped whole — markers and contents both. A `#` inside a
+fenced example must not close the section and discard the rules beneath it, and
+a code sample must not fold into an entry and project as an advisory rule. If
+the file's fences are unbalanced, fence handling is disabled for the whole file:
+one stray ``` would otherwise swallow every section below it, and losing rules
+to a typo is worse than projecting a stray code line, because only the second is
+visible in the projection.
+
+A `###`+ heading is dropped as structure while its body stays attached to the
+parent `##` section, so nested rules keep the heading that owns them and the
+advisory list carries no contentless `Scope: Analysis:` lines.
+
+`soma-home.ts`'s `sectionBullets` is a separate, older scanner for the identity
+files and is deliberately left alone — it serves a different format, and
+converting it is not part of this rail.
 
 ## Adapter Contract
 

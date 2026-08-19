@@ -170,7 +170,7 @@ test("reference codes split into letter and ordinal, and reject non-codes", () =
   expect(parseReferenceCode("F")).toBeUndefined();
 });
 
-test("soma init ships a starter contract that parses and reserves C/P", async () => {
+test("soma init ships a starter that declares the code families and names the reservation", async () => {
   const root = await mkdtemp(join(tmpdir(), "soma-contract-"));
   try {
     const somaHome = join(root, ".soma");
@@ -194,6 +194,14 @@ test("soma init ships a starter contract that parses and reserves C/P", async ()
     // and a CHANGELOG entry do not travel with the projected file, so anyone
     // reading the contract on a substrate would have no way to recover it.
     expect(starter).toContain("Structure adapted from disler/fixing-smartass-opus-5 (MIT).");
+    // sage #636 r6: the old name claimed this test covered the C/P reservation
+    // while nothing read that paragraph. The starter must tell the principal
+    // which letters are taken and why, since Soma refuses them at the write
+    // path and the refusal would otherwise arrive as a surprise.
+    expect(starter).toContain("`C` and `P` are reserved by the Algorithm");
+    for (const reserved of Object.keys(RESERVED_REFERENCE_LETTERS)) {
+      expect(starter).not.toContain(`- ${reserved}: `);
+    }
 
     const loaded = await loadSomaHome(somaHome);
     expect(loaded.profile.communication?.content).toBe(starter);
