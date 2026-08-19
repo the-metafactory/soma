@@ -1,4 +1,6 @@
 import { basename } from "node:path";
+import type { SkillsDiscoveryMode } from "../../install-spec";
+import { withProvenance as applyProvenance } from "./provenance";
 import type { ProjectionInput, SomaSkill, SubstrateId } from "../../types";
 import { getCriteria, getGoal } from "../../vsa-accessors";
 import { VSA_SKILL_NAME } from "../../vsa-skill-installer";
@@ -227,6 +229,51 @@ export function renderSkills(input: ProjectionInput): string {
   const skills = input.profile.skills.map(renderSkillRegistryEntry);
 
   return [SOMA_SKILLS_HEADING, "", skills.length === 0 ? "No Soma skills were declared." : skills.join("\n")].join("\n");
+}
+
+/**
+ * The eager skill catalog for one substrate, or `[]` when that substrate's own
+ * loader already advertises its skills (soma#638).
+ *
+ * Mirrors the other conditional projection files (ACTIVE_VSA / MEMORY /
+ * COMMUNICATION): a substrate in `loader` discovery mode emits no catalog file,
+ * and because its rules dir is an owned subtree, a catalog left by a previous
+ * install is reconciled away rather than surviving as a stale second list.
+ *
+ * `discovery` is passed in rather than read from the install-spec registry: the
+ * spec modules import their adapter's projection module (for the rules-file
+ * list), so a registry lookup here would close an import cycle. Each adapter
+ * therefore exports one `SkillsDiscoveryMode` constant that both its projection
+ * and its install spec read — the same shape `CLAUDE_CODE_RULES_FILES` already
+ * uses.
+ */
+/**
+ * The rules/projection files a substrate actually WRITES, given its discovery
+ * mode (soma#638): the declared set minus its catalog when the harness does its
+ * own discovery.
+ *
+ * Kept as a function so the substrate's declared mode reaches the comparison as a
+ * union-typed value. Inlining it against a \`const\` mode lets TypeScript narrow the
+ * check to a literal and the condition reads as dead code — which is exactly the
+ * coupling this indirection is meant to keep live.
+ */
+export function projectedRulesFiles<T extends string>(
+  files: readonly T[],
+  catalogPath: T,
+  discovery: SkillsDiscoveryMode,
+): T[] {
+  return files.filter((path) => !(path === catalogPath && discovery === "loader"));
+}
+
+export function skillCatalogFile(
+  substrate: SubstrateId,
+  input: ProjectionInput,
+  path: string,
+  options: { discovery: SkillsDiscoveryMode; provenance?: boolean },
+): { path: string; content: string }[] {
+  if (options.discovery === "loader") return [];
+  const content = renderSkills(input);
+  return [{ path, content: options.provenance === true ? applyProvenance(substrate, content) : content }];
 }
 
 export function renderPolicyProjection(substrate: string, enforceable: string[], advisory: string[]): string {

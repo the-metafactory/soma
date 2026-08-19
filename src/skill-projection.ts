@@ -423,6 +423,10 @@ async function refreshSkillCatalogs(
   const input = await loadSomaHome(somaHome);
   const catalogFiles: { substrate: InstallSubstrate; path: string }[] = [];
   for (const substrate of substrates) {
+    // soma#638: a `loader` substrate projects no catalog — its own loader
+    // advertises the skills we just linked — so there is nothing to refresh and
+    // a missing catalog file is expected, not drift.
+    if (installSpecFor(substrate).skillsDiscovery === "loader") continue;
     const substrateHome = resolveSubstrateHome(substrate, options);
     const projectionOptions: SomaHomeProjectionOptions = { homeDir: options.homeDir, somaHome, substrateHome };
     const catalog = findCatalogFile(substrate, input, projectionOptions);

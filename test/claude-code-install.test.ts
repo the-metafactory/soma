@@ -18,6 +18,10 @@ import {
   uninstallSomaForClaudeCode,
 } from "../src/index";
 import { unpatchClaudeCodeModeClassifierSettings } from "../src/adapters/claude-code/hooks";
+import { installSpecFor } from "../src/install-spec-registry";
+import type { InstallSubstrate, SkillsDiscoveryMode } from "../src/install-spec";
+import { SOMA_SKILLS_HEADING } from "../src/adapters/shared";
+import { stripProvenance } from "../src/adapters/shared/provenance";
 import { datePrefixSlug } from "../src/dated-slug";
 import { expectReprojectPrunesStaleTelos, portableProjectionInput } from "./fixtures";
 
@@ -130,7 +134,8 @@ test("AC-1: projectClaudeCodeHome writes everything under rules/soma/", () => {
     "rules/soma/PROFILE.md",
     "rules/soma/PURPOSE.md",
     "rules/soma/MEMORY_LAYOUT.md",
-    "rules/soma/SKILLS.md",
+    // soma#638: no "rules/soma/SKILLS.md" — Claude Code discovers skills through
+    // its own loader, so Soma projects no second catalog.
     "rules/soma/POLICY.md",
     "rules/soma/ACTIVE_VSA.md",
     "rules/soma/COMMUNICATION.md",
@@ -149,7 +154,6 @@ test("AC-2: planSomaForClaudeCodeInstall lists every file written", () => {
     "/tmp/test-home/.claude/rules/soma/PROFILE.md",
     "/tmp/test-home/.claude/rules/soma/PURPOSE.md",
     "/tmp/test-home/.claude/rules/soma/MEMORY_LAYOUT.md",
-    "/tmp/test-home/.claude/rules/soma/SKILLS.md",
     "/tmp/test-home/.claude/rules/soma/POLICY.md",
     "/tmp/test-home/.claude/rules/soma/ACTIVE_VSA.md",
     "/tmp/test-home/.claude/rules/soma/MEMORY.md",
@@ -758,5 +762,47 @@ test("hook bridge: a non-VSA file edit does not create any soma Algorithm run", 
       const entries = await readdir(runsDir);
       expect(entries.filter((e) => e.endsWith(".json"))).toEqual([]);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// soma#638 — skills canonical in ~/.soma, discovery per harness
+// ---------------------------------------------------------------------------
+
+test("soma#638: every substrate declares a skill-discovery mode, and only a loader substrate skips its catalog", () => {
+  // Pinned deliberately. Flipping a substrate to "loader" is a claim about that
+  // harness's own discovery, and silently dropping its catalog would lose
+  // routing signal — so the mode is asserted, not inferred.
+  const expected: Record<InstallSubstrate, SkillsDiscoveryMode> = {
+    "claude-code": "loader",
+    cursor: "catalog",
+    codex: "catalog",
+    grok: "catalog",
+    "pi-dev": "catalog",
+    "anthropic-cowork": "catalog",
+  };
+  for (const [substrate, mode] of Object.entries(expected) as [InstallSubstrate, SkillsDiscoveryMode][]) {
+    expect(installSpecFor(substrate).skillsDiscovery).toBe(mode);
+  }
+});
+
+test("soma#638: a loader substrate's home projection emits no skill catalog", () => {
+  const bundle = projectClaudeCodeHome(portableProjectionInput);
+  expect(bundle.files.some((f) => f.path === "rules/soma/SKILLS.md")).toBe(false);
+  // ...and nothing else silently became the catalog under a different name.
+  expect(bundle.files.some((f) => stripProvenance(f.content).startsWith(SOMA_SKILLS_HEADING))).toBe(false);
+});
+
+test("soma#638: reinstall reconciles away a SKILLS.md left by an older install", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForClaudeCode({ homeDir });
+    const stale = join(homeDir, ".claude", "rules", "soma", "SKILLS.md");
+    await writeFile(stale, "# Soma Skills\n\nleft by an older soma\n", "utf8");
+    await expect(stat(stale)).resolves.toBeDefined();
+
+    // rules/soma is an owned subtree: reconcile removes anything Soma no longer
+    // projects, so --apply does not merely skip the catalog, it cleans it up.
+    await installSomaForClaudeCode({ homeDir });
+    await expect(stat(stale)).rejects.toThrow();
   });
 });

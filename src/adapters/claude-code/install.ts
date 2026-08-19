@@ -2,7 +2,7 @@ import { skillsLoaderUnder, vsaSkillUnder, type SubstrateInstallSpec } from "../
 import { vsaSiblingPrunePrepare } from "../../legacy-skill-prune";
 import { defaultSomaHome } from "../../paths";
 import { removePortableSkillProjection } from "../shared/portable-skill-manifest";
-import { CLAUDE_CODE_RULES_FILES } from "../claude-code";
+import { CLAUDE_CODE_PROJECTED_RULES_FILES, CLAUDE_CODE_SKILLS_DISCOVERY } from "../claude-code";
 import {
   SOMA_CLAUDE_HOOK_CONFIG_RELATIVE_PATH,
   SOMA_CLAUDE_HOOK_RELATIVE_PATH,
@@ -26,7 +26,7 @@ export const claudeCodeInstallSpec: SubstrateInstallSpec<"claude-code"> = {
   substrate: "claude-code",
   defaultHome: ".claude",
   homeFiles: [
-    ...CLAUDE_CODE_RULES_FILES,
+    ...CLAUDE_CODE_PROJECTED_RULES_FILES,
     SOMA_CLAUDE_HOOK_RELATIVE_PATH,
     SOMA_CLAUDE_HOOK_CONFIG_RELATIVE_PATH,
     "settings.json",
@@ -59,6 +59,7 @@ export const claudeCodeInstallSpec: SubstrateInstallSpec<"claude-code"> = {
   ],
   skillsLoaderDir: skillsLoaderUnder(),
   skillsLoading: "on-demand",
+  skillsDiscovery: CLAUDE_CODE_SKILLS_DISCOVERY,
   vsaSkillProjection: {
     destinationDir: vsaSkillUnder(),
     // soma#329: before reprojecting VSA, prune a sibling renamed-away "ISA" skill

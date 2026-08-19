@@ -33,6 +33,7 @@ export const piDevInstallSpec: SubstrateInstallSpec<"pi-dev"> = {
   ownedSubtrees: ["agent/soma"],
   skillsLoaderDir: skillsLoaderUnder("agent"),
   skillsLoading: "eager",
+  skillsDiscovery: "catalog",
   vsaSkillProjection: {
     destinationDir: piDevVsaSkillDestinationDir,
     skillNameOverride: PI_DEV_VSA_SKILL_ID,
