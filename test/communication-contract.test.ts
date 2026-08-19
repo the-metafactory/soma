@@ -233,12 +233,22 @@ test("every substrate is told to read the contract, not just handed the file", (
     { name: "codex (home SKILL.md)", text: text(projectCodexHome(withContract, "/tmp/soma-home"), "skills/soma/SKILL.md") },
     { name: "grok (home SKILL.md)", text: text(projectGrokHome(withContract, "/tmp/soma-home"), "skills/soma/SKILL.md") },
     { name: "grok (rules README)", text: text(projectGrok(withContract), ".grok/rules/soma/README.md") },
+    // sage #636 r8: pi-dev was the one surface this guard skipped, and its
+    // workspace overlay has no extension to inject the contract — exactly the
+    // unwired-file case. The home projection is covered separately below.
+    { name: "pi-dev (workspace context)", text: text(projectPiDev(withContract), ".pi/extensions/soma-core/context.md") },
   ];
 
   for (const { name, text: content } of instructionSurfaces) {
     expect(content, `${name} projected no instruction file`).not.toBe("");
     expect(content.toLowerCase(), `${name} never names the communication contract`).toContain("communication");
   }
+
+  // pi-dev's HOME projection needs no instruction: the generated extension puts
+  // the contract in the system prompt itself, which is stronger than telling a
+  // reader to open a file. Asserted here so the omission stays deliberate.
+  const extension = text(projectPiDevHome(withContract, "/tmp/soma-home"), "agent/extensions/soma.ts");
+  expect(extension).toContain("const communication = communicationContract();");
 });
 
 function text(projection: Projection, path: string): string {

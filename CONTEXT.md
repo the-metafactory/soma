@@ -120,7 +120,7 @@ Identity owns "voice, personality", which is exactly what this is. Its sibling i
 
 **Not synonyms:**
 - `system prompt` — the substrate-side mechanism a contract may ride on (Pi's appended prompt, Claude Code's rules dir), not the artifact. Soma authors a contract; substrates carry it.
-- `style guide`, `tone` — informal glosses. The contract is a verbatim-projected artifact that reaches every substrate on every turn, not advice filed somewhere. Soma parses nothing out of it: its sections work by being read.
+- `style guide`, `tone` — informal glosses. The contract is a verbatim-projected artifact, not advice filed somewhere. How it arrives differs by [[substrate]]: Pi.dev injects it into the system prompt so it is present on every turn, auto-discovered rules directories load it as session context, and the rest carry a "read this when present" instruction. Soma parses nothing out of it either way: its sections work by being read.
 - [[behavioral policy]] — the Policy-compartment sibling. Distinct: conduct vs. speech.
 
 **Why:** the highest-leverage place to change how an assistant communicates is the surface present on every turn, and Soma already owns exactly one such surface per substrate. Making it a compartment artifact rather than per-substrate configuration is what makes the contract portable. Projection is verbatim because the file is the principal's prose and a renderer round-trip loses authored nuance.

@@ -32,6 +32,7 @@ function renderInstructions(input: ProjectionInput): string {
     renderAssistantCore(input),
     "",
     "## Operating Rules",
+    "- Read `communication.md` beside this file, when present, for how to communicate: patterns, banned phrases, reference codes, and aliases. (In the home projection the Soma extension injects the same contract into the system prompt; this workspace overlay has no extension, so read it.)",
     "- Use Soma tools for VSA, memory, learning, and policy operations when available.",
     "- Keep model-provider settings outside the Soma core.",
     "- Prefer file-backed memory paths from the bundle over substrate-local hidden state.",

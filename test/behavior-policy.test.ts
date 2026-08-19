@@ -230,11 +230,22 @@ test("the three behaviours hold on real authored markdown, not just the sample",
   const shippedLines = behaviorPolicyAdvisory({ sections: shippedSections });
 
   expect(shippedSections.length).toBeGreaterThan(0);
-  // Every rendered line carries a real heading and non-empty text...
+
+  // (1) folding — `## What it does` is one paragraph wrapped over six source
+  // lines. sage #636 r8: the previous assertions here (shape regexes, no fence,
+  // no trailing colon) all passed under a parser that truncated at the first
+  // line, which is the exact regression this module exists to prevent. Asserting
+  // that the paragraph's FIRST and LAST clauses land in one entry cannot.
+  const whatItDoes = shippedSections.find((section) => section.heading === "What it does");
+  const folded = textsOfKind(whatItDoes, "prose")[0] ?? "";
+  expect(folded.startsWith("It maps a recurring")).toBe(true);
+  expect(folded).toContain("read it there rather than a duplicated table here.");
+
+  // (2) prose survived at all, and (3) every line is a real heading + text.
+  expect(shippedLines.length).toBeGreaterThan(0);
   for (const line of shippedLines) {
     expect(line).toMatch(/^[^:]+: \S/);
   }
-  // ...no line is a bare sub-heading, a fence, or a fragment ending mid-clause.
+  // The fenced block in that file never becomes a rule.
   expect(shippedLines.some((line) => line.includes("```"))).toBe(false);
-  expect(shippedLines.some((line) => /: [A-Za-z ]+:$/.test(line))).toBe(false);
 });
