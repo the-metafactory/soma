@@ -685,3 +685,44 @@ describe("soma#638 re-review fixes", () => {
     });
   });
 });
+
+describe("soma#638 third-pass fixes", () => {
+  async function authorSkill(homeDir: string, dir: string, frontmatterName: string): Promise<void> {
+    const skillDir = join(homeDir, ".soma", "skills", dir);
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(join(skillDir, "SKILL.md"), `---\nname: ${frontmatterName}\n---\n# ${dir}\n`, "utf8");
+  }
+
+  test("uninstall removes the projected loader symlinks and leaves the canonical registry alone", async () => {
+    await withTempHome(async (homeDir) => {
+      await authorSkill(homeDir, "Mine", "Mine");
+      // A principal-authored skill sharing the loader dir must survive untouched:
+      // `skills/` is SHARED, not a Soma-owned subtree.
+      const userOwned = join(homeDir, ".claude", "skills", "UserOwned");
+      await mkdir(userOwned, { recursive: true });
+      await writeFile(join(userOwned, "SKILL.md"), `---\nname: UserOwned\n---\n# not soma\n`, "utf8");
+
+      await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir]);
+      expect((await lstat(join(homeDir, ".claude", "skills", "Mine"))).isSymbolicLink()).toBe(true);
+
+      await runSomaCli(["uninstall", "claude-code", "--home-dir", homeDir]);
+
+      await expect(lstat(join(homeDir, ".claude", "skills", "Mine"))).rejects.toThrow();
+      expect(await readFile(join(homeDir, ".soma", "skills", "Mine", "SKILL.md"), "utf8")).toContain("# Mine");
+      expect(await readFile(join(userOwned, "SKILL.md"), "utf8")).toContain("# not soma");
+    });
+  });
+
+  test("two registry dirs claiming one loader slot: first wins, the other is reported not dropped", async () => {
+    await withTempHome(async (homeDir) => {
+      await authorSkill(homeDir, "one", "Clash");
+      await authorSkill(homeDir, "two", "Clash");
+
+      const out = await runSomaCli(["install", "claude-code", "--home-dir", homeDir]);
+
+      expect(out).toContain("Skills to project (on --apply): Clash");
+      expect(out).toContain("Skipped (not projectable):");
+      expect(out).toContain('two: loader slot "Clash" is already claimed by one');
+    });
+  });
+});

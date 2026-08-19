@@ -1,6 +1,6 @@
 import { lstat, mkdir, readdir, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { isSkillStub, renderSkills, renderSkillStub, stripProvenance } from "./adapters/shared";
 import { buildSubstrateHomeProjection } from "./home-projection";
 import type { InstallSubstrate } from "./install-spec";
@@ -659,11 +659,70 @@ export async function scanRegistrySkills(somaHome: string): Promise<RegistrySkil
   );
   const skills: { dir: string; name: string }[] = [];
   const unprojectable: UnprojectableRegistrySkill[] = [];
-  for (const row of scanned) {
-    if (row.kind === "skill") skills.push({ dir: row.dir, name: row.name });
-    else if (row.kind === "unprojectable") unprojectable.push({ dir: row.dir, reason: row.reason });
+  // Two registry dirs can resolve to ONE loader slot (both declaring the same
+  // frontmatter name). Linking both would silently leave whichever lost the race
+  // out of the harness entirely — the exact failure the unprojectable list exists
+  // to surface — so the first by dir order keeps the slot and the rest are
+  // reported rather than quietly overwritten.
+  const claimedBy = new Map<string, string>();
+  for (const row of [...scanned].sort((a, b) => ("dir" in a ? a.dir : "").localeCompare("dir" in b ? b.dir : ""))) {
+    if (row.kind === "unprojectable") {
+      unprojectable.push({ dir: row.dir, reason: row.reason });
+      continue;
+    }
+    if (row.kind !== "skill") continue;
+    const winner = claimedBy.get(row.name);
+    if (winner !== undefined) {
+      unprojectable.push({
+        dir: row.dir,
+        reason: `loader slot "${row.name}" is already claimed by ${basename(winner)}`,
+      });
+      continue;
+    }
+    claimedBy.set(row.name, row.dir);
+    skills.push({ dir: row.dir, name: row.name });
   }
   skills.sort((a, b) => a.name.localeCompare(b.name));
   unprojectable.sort((a, b) => a.dir.localeCompare(b.dir));
   return { skills, unprojectable };
+}
+
+/**
+ * Remove the loader symlinks this substrate's install projected, leaving the
+ * canonical `~/.soma/skills` entries untouched.
+ *
+ * soma#638: before wholesale projection, a substrate's skills reached its loader
+ * as COPIES recorded in the portable-skill manifest, and uninstall consumed that
+ * manifest to round-trip them. Symlinks are created by the projection primitive,
+ * outside any manifest, so uninstall had nothing to consume and orphaned them.
+ *
+ * Identified by target rather than by manifest: a symlink in the loader pointing
+ * into the soma skills registry is unambiguously ours, which stays true even when
+ * a manifest is missing or stale. A real directory (principal-authored skill, or
+ * VSA's dedicated projection) and a symlink pointing anywhere else are both left
+ * alone.
+ */
+export async function removeProjectedSkillLinks(options: {
+  substrate: InstallSubstrate;
+  substrateHome: string;
+  somaHome: string;
+}): Promise<string[]> {
+  const loaderDir = substrateSkillsRoot(options.substrate, resolve(options.substrateHome));
+  const registryRoot = registrySkillsDir(resolve(options.somaHome));
+  let entries;
+  try {
+    entries = await readdir(loaderDir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const removed: string[] = [];
+  for (const entry of entries) {
+    if (!entry.isSymbolicLink()) continue;
+    const linkPath = join(loaderDir, entry.name);
+    const target = resolve(dirname(linkPath), await readlink(linkPath).catch(() => ""));
+    if (target !== registryRoot && !target.startsWith(`${registryRoot}${sep}`)) continue;
+    await rm(linkPath, { force: true });
+    removed.push(linkPath);
+  }
+  return removed;
 }
