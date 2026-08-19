@@ -127,16 +127,20 @@ test("adapters do not restate behavior rules — the home file is the only sourc
   }
 });
 
-test("the drift guard catches a bare hardcoded rule, not just a rendered one", () => {
-  // sage #636 r9: the guard used to check only `- <Heading>: <rule>\n`, so an
-  // adapter hardcoding the BARE rule text in its own advisory array — the
-  // realistic drift shape — passed. This asserts the widened check would bite:
-  // a projection carrying the bare pre-edit text anywhere fails it.
-  const ruleText = ADVISORY[0].slice(ADVISORY[0].indexOf(": ") + 2);
-  const driftedProjection = `# Soma Policy Projection\n\n## Advisory\n- ${ruleText}\n`;
-
-  expect(driftedProjection).toContain(ruleText);
-  expect(driftedProjection).not.toContain(ADVISORY[0]);
+test("the drift guard's absence assertion is not vacuous", () => {
+  // sage #636 r10: the previous version of this test built a string and
+  // asserted things about it — no adapter, no projection, no guard invoked, and
+  // it passed with the widened check deleted. What actually needs proving is
+  // that the drift guard's `not.toContain(ruleText)` CAN fail: on the
+  // unmutated source every real projection does carry that text, so the
+  // assertion is doing work rather than passing by construction.
+  for (const original of ADVISORY) {
+    const ruleText = original.slice(original.indexOf(": ") + 2);
+    for (const { name, content } of allPolicies(withBehavior)) {
+      expect(content, `${name} should carry the unmutated rule: ${ruleText}`).toContain(ruleText);
+      expect(content, `${name} should carry the unmutated rendered line`).toContain(original);
+    }
+  }
 });
 
 test("loadSomaHome reads policy/behavior.md, and tolerates its absence", async () => {

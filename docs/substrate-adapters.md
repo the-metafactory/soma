@@ -396,8 +396,11 @@ the shipped SelfHealing doctrine. Adapters never restate a rule: a drift test
 uppercases *every* entry at the source — a total mutation, so the original is
 not a substring of the mutated text — then asserts each projection carries the
 mutated form and contains neither the original rendered line nor its bare rule
-text anywhere. A hardcoded copy in an adapter's own advisory array, which is the
-realistic drift shape, fails it.
+text anywhere — so a hardcoded copy in an adapter's own advisory array, the
+realistic drift shape, fails it. The guard is bounded by its fixture: it proves
+no adapter restates *the rules it exercises*, not every rule a home might
+contain. What it does establish for all rules is the mechanism — each adapter
+renders from `behaviorPolicyAdvisory(input.behavior)` and nothing else.
 
 The parser folds wrapped bullets and renders prose sections as rules, in source
 order. All three behaviors are required, not cosmetic: `sectionBullets` keeps
