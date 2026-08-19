@@ -131,7 +131,7 @@ Identity owns "voice, personality", which is exactly what this is. Its sibling i
 
 The [[compartment|Policy]] artifact holding cross-substrate rules for **what the assistant may do**: verification, scope discipline, permission boundaries, external-content handling. Lives at `~/.soma/policy/behavior.md`; its `## Heading` sections project as advisory lines into every substrate's policy projection.
 
-Principal-authored, and therefore the inverse of the SelfHealing doctrine, where the TypeScript module is authoritative and the markdown mirrors it. Here the markdown is the source and the module only reads it.
+Principal-authored, and therefore the inverse of the SelfHealing doctrine, where the TypeScript module is authoritative and the markdown mirrors it. Here the markdown is the source and the module only reads it. `soma init` does not create the file: Soma projects conduct rules the principal wrote, or none.
 
 **Not synonyms:**
 - `runtime policy` / `policy enforcement level` — the mechanism-level surfaces that *enforce*. The behavioral policy is advisory and prompt-level.

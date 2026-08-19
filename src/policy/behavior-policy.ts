@@ -67,11 +67,13 @@ interface MarkdownSection {
  * before the first `## ` is the title and provenance preamble, never rules, and
  * is dropped.
  *
- * Fenced blocks are skipped wholesale. Without fence tracking a `# comment`
- * line inside a fenced example closes the open section and opens a bogus one,
- * discarding every remaining rule beneath it — the same silent truncation the
- * wrapped-bullet fold exists to prevent, and a plausible thing to write in a
- * policy file that shows a command.
+ * Fenced blocks are dropped entirely — neither their markers nor their contents
+ * reach `lines`. Two distinct failures need that. Without fence tracking a
+ * `# comment` inside a fenced example closes the open section and discards
+ * every rule beneath it; and without dropping the body, a code sample folds
+ * into a prose entry and projects as an advisory RULE. A policy file that shows
+ * a command is entirely plausible, and neither outcome is one the principal
+ * could see from the source.
  */
 function splitMarkdownSections(markdown: string): MarkdownSection[] {
   const sections: MarkdownSection[] = [];
@@ -92,11 +94,14 @@ function splitMarkdownSections(markdown: string): MarkdownSection[] {
       const marker = fenceMatch[1][0].repeat(3);
       if (fence === undefined) fence = marker;
       else if (marker === fence) fence = undefined;
-      if (heading !== undefined) lines.push(line);
+      // The marker line itself is dropped along with the block it delimits.
       continue;
     }
 
-    if (fence !== undefined || !/^#{1,6}\s/.test(line)) {
+    // Inside a fence: not a heading, and not a rule either.
+    if (fence !== undefined) continue;
+
+    if (!/^#{1,6}\s/.test(line)) {
       if (heading !== undefined) lines.push(line);
       continue;
     }
@@ -133,10 +138,12 @@ function bulletText(line: string): string {
 }
 
 /**
- * Fold a run of source lines into logical entries. A bullet opens an entry;
- * every following indented, non-bullet, non-blank line continues it. A blank
- * line closes the current entry. Non-bullet lines at column zero accumulate as
- * prose.
+ * Fold a run of source lines into logical entries. A bullet opens an entry and
+ * every following non-bullet, non-blank line continues it, indented or not —
+ * indentation is not checked, because a wrapped bullet in an authored file is
+ * as often flush-left as indented, and treating the flush-left case as a new
+ * prose entry would split one rule into two. A blank line closes the entry;
+ * a non-bullet line that opens an entry makes it prose.
  */
 function foldLines(lines: readonly string[]): BehaviorPolicyEntry[] {
   const entries: BehaviorPolicyEntry[] = [];

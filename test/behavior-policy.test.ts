@@ -120,6 +120,12 @@ test("a heading-like line inside a fence does not close the section", () => {
     "Run the suite before claiming done.",
     "Evidence beats assertion.",
   ]);
+  // sage #636 r5: fence tracking alone only stopped the `#` from closing the
+  // section — the code lines still folded into a prose entry and projected as
+  // advisory RULES. The block is dropped entirely.
+  expect(textsOfKind(sections[0], "prose")).toEqual([]);
+  expect(behaviorPolicyAdvisory({ sections }).join("\n")).not.toContain("bun test");
+  expect(behaviorPolicyAdvisory({ sections }).join("\n")).not.toContain("```");
 });
 
 test("numbered list items are rules too", () => {

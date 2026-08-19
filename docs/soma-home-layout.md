@@ -26,7 +26,7 @@ re-projection rewrites.
 ├── isa/                    # Verification State Artifacts, one <slug>.md per project/task
 │   └── .templates/         # VSA scaffolding templates
 ├── policy/                 # substrate policy declarations
-│   ├── behavior.md         # cross-substrate behavioral rules (advisory, projected)
+│   ├── behavior.md         # cross-substrate behavioral rules — NOT created by `soma init`
 │   └── probe-registry.json # work-graph probe authorisations (see docs/work-graph.md §2.2)
 ├── imports/                # migration manifests and portability reports
 └── projections/            # cached generated projections (codex, claude-code, …)
@@ -50,8 +50,20 @@ Two principal-authored files govern conduct, and they are deliberately separate:
   rules.
 
 One rule, one home: an operational boundary goes in `behavior.md`, a habit of
-speech goes in `communication.md`. Neither file is created with rules Soma
-invented — an absent file projects nothing rather than a default.
+speech goes in `communication.md`.
+
+The two files differ in how they come into existence, and the difference
+matters:
+
+- `communication.md` **is** written by `soma init`, and its starter states rules
+  Soma chose — "do not chain em dashes", a four-entry banned-phrase list, four
+  aliases. Treat them as defaults to edit, not as Soma's opinion of you.
+- `behavior.md` is **not** created by `soma init` (like `policy/probe-registry.json`
+  below). Homes that came through the 2026-07 PAI migration have one; a fresh
+  home does not, and the behavioural-policy rail simply projects nothing until
+  the principal writes the file. Soma never invents conduct rules.
+
+An absent file always projects nothing rather than a Soma-authored default.
 
 Reference codes (`F1`, `O2`, `D3`) are addressable run state, not display
 formatting: `soma algorithm ref` records one and `soma algorithm resolve`
