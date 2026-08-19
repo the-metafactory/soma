@@ -267,6 +267,7 @@ export function renderSubstrateInstructions(
     "",
     "## Operating Rules",
     "- Use the active VSA as the verification contract when present.",
+    "- Read `communication.md` beside this file, when present, for how to communicate: patterns, banned phrases, reference codes, and aliases.",
     "- Read memory from the declared file layout before inventing persistent facts.",
     "- Keep personal context out of public templates unless explicitly requested.",
     "- Report verification performed and any substrate limitation encountered.",

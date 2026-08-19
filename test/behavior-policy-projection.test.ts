@@ -95,26 +95,48 @@ test("adapters do not restate behavior rules — the home file is the only sourc
   // hardcoded, while the shipped doc claims adapters never restate ANY rule. So
   // every entry is mutated and every mutation checked — an adapter holding a
   // hardcoded copy of any single rule now fails here.
-  const marker = "DRIFT-SENTINEL";
+  // Uppercasing every rule body is a TOTAL mutation: the original text is not a
+  // substring of the mutated text, so "the original is absent" is a real check.
+  // Appending a sentinel (the earlier attempt) left the original as a prefix.
   const edited = parseBehaviorPolicy(
     BEHAVIOR_MD.split("\n")
-      .map((line) => (line.trim() === "" || line.startsWith("#") ? line : `${line} ${marker}`))
+      .map((line) => (line.trim() === "" || line.startsWith("#") ? line : line.toUpperCase()))
       .join("\n"),
   );
   const editedAdvisory = behaviorPolicyAdvisory(edited);
   const editedInput: ProjectionInput = { ...portableProjectionInput, behavior: edited };
 
   expect(editedAdvisory).toHaveLength(ADVISORY.length);
-  expect(editedAdvisory.every((line) => line.includes(marker))).toBe(true);
+  for (const [index, line] of editedAdvisory.entries()) {
+    expect(line).not.toBe(ADVISORY[index]);
+  }
 
   for (const { name, content } of allPolicies(editedInput)) {
     for (const original of ADVISORY) {
-      expect(content, `${name} kept a hardcoded copy of: ${original}`).not.toContain(`- ${original}\n`);
+      // sage #636 r9: checking only the rendered `- <Heading>: <rule>\n` form
+      // missed the realistic drift shape — an adapter hardcoding the bare rule
+      // text in its own advisory array. Assert the rule TEXT is absent, in any
+      // form, so a copy anywhere in the projection fails.
+      const ruleText = original.slice(original.indexOf(": ") + 2);
+      expect(content, `${name} kept a hardcoded copy of: ${ruleText}`).not.toContain(ruleText);
+      expect(content, `${name} kept the rendered original: ${original}`).not.toContain(original);
     }
     for (const line of editedAdvisory) {
       expect(content, `${name} did not pick up the edited rule: ${line}`).toContain(`- ${line}`);
     }
   }
+});
+
+test("the drift guard catches a bare hardcoded rule, not just a rendered one", () => {
+  // sage #636 r9: the guard used to check only `- <Heading>: <rule>\n`, so an
+  // adapter hardcoding the BARE rule text in its own advisory array — the
+  // realistic drift shape — passed. This asserts the widened check would bite:
+  // a projection carrying the bare pre-edit text anywhere fails it.
+  const ruleText = ADVISORY[0].slice(ADVISORY[0].indexOf(": ") + 2);
+  const driftedProjection = `# Soma Policy Projection\n\n## Advisory\n- ${ruleText}\n`;
+
+  expect(driftedProjection).toContain(ruleText);
+  expect(driftedProjection).not.toContain(ADVISORY[0]);
 });
 
 test("loadSomaHome reads policy/behavior.md, and tolerates its absence", async () => {

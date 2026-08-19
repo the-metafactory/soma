@@ -107,7 +107,11 @@ test("pi-dev appends the contract to the system prompt, and the extension still 
     (extension?.content ?? "").indexOf("const somaPrompt"),
   );
   expect(messagePath).toContain("const communication = communicationContract();");
-  expect(messagePath).not.toContain("communication.md");
+  // The message path calls the cached accessor rather than reading directly.
+  // sage #636 r9: this is a string check on a slice, not proof no read happens —
+  // a cold cache still reads once inside the accessor. The guarantee is one read
+  // per session, not zero, and the comment above the generated code says so.
+  expect(messagePath).not.toContain("readOptional(`${PI_SOMA_HOME}/communication.md`)");
   // `undefined` is the empty sentinel, not "": a home with no contract yields
   // "", and an `||` fallback would re-read the missing file every turn.
   expect(extension?.content).toContain("let cachedCommunication: string | undefined;");
@@ -233,11 +237,27 @@ test("every substrate is told to read the contract, not just handed the file", (
     { name: "codex (home SKILL.md)", text: text(projectCodexHome(withContract, "/tmp/soma-home"), "skills/soma/SKILL.md") },
     { name: "grok (home SKILL.md)", text: text(projectGrokHome(withContract, "/tmp/soma-home"), "skills/soma/SKILL.md") },
     { name: "grok (rules README)", text: text(projectGrok(withContract), ".grok/rules/soma/README.md") },
-    // sage #636 r8: pi-dev was the one surface this guard skipped, and its
-    // workspace overlay has no extension to inject the contract — exactly the
-    // unwired-file case. The home projection is covered separately below.
+    // Workspace overlays have no extension or auto-discovery to fall back on,
+    // so an unnamed file there is exactly the unwired-file case. r8 added
+    // pi-dev; r9 caught that codex and grok workspaces were still missing.
     { name: "pi-dev (workspace context)", text: text(projectPiDev(withContract), ".pi/extensions/soma-core/context.md") },
+    { name: "codex (workspace context)", text: text(projectCodex(withContract), ".codex/soma/context.md") },
+    { name: "grok (workspace context)", text: text(projectGrok(withContract), ".grok/rules/soma/context.md") },
   ];
+
+  // Every surface that PROJECTS the contract must appear above. Enumerating the
+  // guard by hand is what let pi-dev, then codex and grok, slip through it —
+  // the list is now derived from the projection itself, so a new surface fails
+  // here until someone tells its substrate to read the file.
+  const projecting = contractFiles(withContract)
+    .filter((entry) => entry.file !== undefined)
+    .map((entry) => entry.name.replace(/ \(.*/, ""));
+  for (const substrate of new Set(projecting)) {
+    expect(
+      instructionSurfaces.some((surface) => surface.name.startsWith(substrate)),
+      `${substrate} projects the contract but no instruction surface is checked for it`,
+    ).toBe(true);
+  }
 
   for (const { name, text: content } of instructionSurfaces) {
     expect(content, `${name} projected no instruction file`).not.toBe("");

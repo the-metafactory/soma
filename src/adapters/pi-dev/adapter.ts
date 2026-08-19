@@ -393,8 +393,11 @@ function renderHomeExtension(somaHome: string): string {
     // The communication contract (Identity compartment) rides the system prompt
     // itself, which is Pi's native equivalent of `--append-system-prompt-file`:
     // how the assistant talks has to be present on every turn, not fetched on
-    // demand like the deeper identity surfaces below. Cached at session_start —
-    // no synchronous file read on the message path (soma#475, sage #636 r1).
+    // demand like the deeper identity surfaces below. Read once per session:
+    // session_start warms the cache, so the steady-state message path does no
+    // file I/O. A cold cache (no session_start, e.g. a resumed process) still
+    // reads once here — one read per session, not one per turn, which is the
+    // cost soma#475 was about.
     "\t\tconst communication = communicationContract();",
     "\t\t// Local, synchronous, and about THIS prompt.",
     "\t\tconst promptClassification = renderPromptClassificationContext(prompt);",

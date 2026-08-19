@@ -392,9 +392,12 @@ turn, not fetched on demand.
 `~/.soma/policy/behavior.md` (Policy) is parsed by
 `src/policy/behavior-policy.ts` and merged into each adapter's
 `renderPolicyProjection` advisory list as `<Heading>: <rule>` lines, ahead of
-the shipped SelfHealing doctrine. Adapters never restate a rule — a drift test
-mutates *every* entry at the source and asserts each projection carries the
-mutated text and none of the originals.
+the shipped SelfHealing doctrine. Adapters never restate a rule: a drift test
+uppercases *every* entry at the source — a total mutation, so the original is
+not a substring of the mutated text — then asserts each projection carries the
+mutated form and contains neither the original rendered line nor its bare rule
+text anywhere. A hardcoded copy in an adapter's own advisory array, which is the
+realistic drift shape, fails it.
 
 The parser folds wrapped bullets and renders prose sections as rules, in source
 order. All three behaviors are required, not cosmetic: `sectionBullets` keeps
