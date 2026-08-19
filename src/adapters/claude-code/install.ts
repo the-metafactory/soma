@@ -2,7 +2,7 @@ import { skillsLoaderUnder, vsaSkillUnder, type SubstrateInstallSpec } from "../
 import { vsaSiblingPrunePrepare } from "../../legacy-skill-prune";
 import { defaultSomaHome } from "../../paths";
 import { removePortableSkillProjection } from "../shared/portable-skill-manifest";
-import { removeProjectedSkillLinks } from "../../skill-projection";
+import { removeProjectedSkillLinks } from "../../projected-skill-links";
 import { CLAUDE_CODE_PROJECTED_RULES_FILES, CLAUDE_CODE_SKILLS_DISCOVERY } from "../claude-code";
 import {
   SOMA_CLAUDE_HOOK_CONFIG_RELATIVE_PATH,
@@ -103,8 +103,7 @@ export const claudeCodeInstallSpec: SubstrateInstallSpec<"claude-code"> = {
       // orphaned Soma artifacts. The canonical registry entries are not touched.
       removed.push(
         ...(await removeProjectedSkillLinks({
-          substrate: "claude-code",
-          substrateHome: context.substrateHome,
+          loaderDir: claudeCodeInstallSpec.skillsLoaderDir(context.substrateHome),
           somaHome,
         })),
       );

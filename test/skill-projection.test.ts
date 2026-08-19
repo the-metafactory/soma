@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { lstat, mkdir, mkdtemp, readFile, readlink, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { planProjectSkill, planUnprojectSkill, projectSkill, projectSkills, unprojectSkill } from "../src/skill-projection";
@@ -723,6 +723,62 @@ describe("soma#638 third-pass fixes", () => {
       expect(out).toContain("Skills to project (on --apply): Clash");
       expect(out).toContain("Skipped (not projectable):");
       expect(out).toContain('two: loader slot "Clash" is already claimed by one');
+    });
+  });
+});
+
+describe("soma#638 fourth-pass fixes", () => {
+  test("a dangling registry symlink is reported; a plain dir with no SKILL.md stays quiet", async () => {
+    await withTempHome(async (homeDir) => {
+      const good = join(homeDir, ".soma", "skills", "Good");
+      await mkdir(good, { recursive: true });
+      await writeFile(join(good, "SKILL.md"), `---\nname: Good\n---\n# g\n`, "utf8");
+      // Scratch dir — not a skill, and reporting it every install would be noise.
+      await mkdir(join(homeDir, ".soma", "skills", "notes"), { recursive: true });
+      // Deliberately pointed somewhere, target gone: silence would leave a curated
+      // entry that never reaches the harness with no signal why.
+      await symlink(join(homeDir, "nowhere"), join(homeDir, ".soma", "skills", "Dangling"));
+
+      const out = await runSomaCli(["install", "claude-code", "--home-dir", homeDir]);
+
+      expect(out).toContain("Dangling: registry symlink points at a missing target");
+      expect(out).not.toContain("notes:");
+    });
+  });
+
+  test("grok uninstall removes a --skills symlink it projected", async () => {
+    await withTempHome(async (homeDir) => {
+      const dir = join(homeDir, ".soma", "skills", "G");
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, "SKILL.md"), `---\nname: G\n---\n# g\n`, "utf8");
+
+      await runSomaCli(["install", "grok", "--apply", "--home-dir", homeDir, "--skills", "G"]);
+      expect((await lstat(join(homeDir, ".grok", "skills", "G"))).isSymbolicLink()).toBe(true);
+
+      await runSomaCli(["uninstall", "grok", "--home-dir", homeDir]);
+
+      await expect(lstat(join(homeDir, ".grok", "skills", "G"))).rejects.toThrow();
+      expect(await readFile(join(dir, "SKILL.md"), "utf8")).toContain("# g");
+    });
+  });
+
+  test("a loader symlink pointing outside the skills registry is left alone", async () => {
+    await withTempHome(async (homeDir) => {
+      const mine = join(homeDir, ".soma", "skills", "Mine");
+      await mkdir(mine, { recursive: true });
+      await writeFile(join(mine, "SKILL.md"), `---\nname: Mine\n---\n# m\n`, "utf8");
+      const backup = join(homeDir, ".soma", "skills-backup", "Other");
+      await mkdir(backup, { recursive: true });
+      await writeFile(join(backup, "SKILL.md"), `---\nname: Other\n---\n# o\n`, "utf8");
+
+      await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir]);
+      // `skills-backup` must not read as inside `skills` — the separator guard.
+      await symlink(backup, join(homeDir, ".claude", "skills", "Other"));
+
+      await runSomaCli(["uninstall", "claude-code", "--home-dir", homeDir]);
+
+      await expect(lstat(join(homeDir, ".claude", "skills", "Mine"))).rejects.toThrow();
+      expect((await lstat(join(homeDir, ".claude", "skills", "Other"))).isSymbolicLink()).toBe(true);
     });
   });
 });
