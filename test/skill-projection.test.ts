@@ -636,3 +636,52 @@ describe("soma#638 review fixes", () => {
     });
   });
 });
+
+describe("soma#638 re-review fixes", () => {
+  async function authorSkill(homeDir: string, dir: string, frontmatterName: string): Promise<void> {
+    const skillDir = join(homeDir, ".soma", "skills", dir);
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(join(skillDir, "SKILL.md"), `---\nname: ${frontmatterName}\n---\n# ${dir}\n`, "utf8");
+  }
+
+  test("a malformed registry skill is reported, not thrown — the read-only plan still renders", async () => {
+    await withTempHome(async (homeDir) => {
+      await authorSkill(homeDir, "bad", "../escape");
+      await authorSkill(homeDir, "good", "Good");
+
+      // A plan DESCRIBES the registry; it must not fail on account of its contents.
+      const out = await runSomaCli(["install", "claude-code", "--home-dir", homeDir]);
+
+      expect(out).toContain("Skills to project (on --apply): Good");
+      // ...and the bad entry is surfaced rather than silently dropped, since a
+      // curated skill that never reaches the harness is the failure this prevents.
+      expect(out).toContain("Skipped (not projectable):");
+      expect(out).toContain("bad:");
+    });
+  });
+
+  test("one malformed skill does not stop the others from projecting on apply", async () => {
+    await withTempHome(async (homeDir) => {
+      await authorSkill(homeDir, "bad", "../escape");
+      await authorSkill(homeDir, "good", "Good");
+
+      await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir]);
+
+      expect((await lstat(join(homeDir, ".claude", "skills", "Good"))).isSymbolicLink()).toBe(true);
+    });
+  });
+
+  test("the plan names the loader slot (frontmatter), not the registry dir", async () => {
+    await withTempHome(async (homeDir) => {
+      await authorSkill(homeDir, "dir-name", "FrontmatterName");
+
+      const plan = await runSomaCli(["install", "claude-code", "--home-dir", homeDir]);
+      expect(plan).toContain("FrontmatterName");
+      expect(plan).not.toContain("dir-name");
+
+      // The promise the plan made is the path the apply creates.
+      await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir]);
+      expect((await lstat(join(homeDir, ".claude", "skills", "FrontmatterName"))).isSymbolicLink()).toBe(true);
+    });
+  });
+});

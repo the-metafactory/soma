@@ -587,6 +587,18 @@ async function removeLink(linkPath: string, force: boolean): Promise<"removed" |
   return "removed";
 }
 
+/** One registry entry the scan could not project, and why. */
+export interface UnprojectableRegistrySkill {
+  dir: string;
+  reason: string;
+}
+
+export interface RegistrySkillScan {
+  /** Projectable skills, with the loader slot name each will occupy. */
+  skills: { dir: string; name: string }[];
+  unprojectable: UnprojectableRegistrySkill[];
+}
+
 /**
  * soma#638 — every skill in the Soma registry, as a projectable source dir.
  *
@@ -596,35 +608,62 @@ async function removeLink(linkPath: string, force: boolean): Promise<"removed" |
  * to hold all of it — a skill missing from the loader is not merely unlisted
  * there, it is unreachable, because no catalog exists to name it.
  *
- * VSA is excluded: it has a dedicated drift-protected installer (ADR 0002) that
- * owns its loader slot, and a symlink here would fight it for the same path.
+ * Returns the resolved slot NAME beside each dir, because the two differ: the
+ * loader slot is named from frontmatter, so a dir `foo` holding `name: Bar`
+ * lands at `Bar`. A plan that printed the dir would promise a path the apply
+ * does not create.
+ *
+ * A malformed entry is collected in `unprojectable` rather than thrown, so one
+ * bad skill cannot abort the scan — and so the read-only plan, which merely
+ * DESCRIBES the registry, cannot fail on account of its contents. Callers
+ * surface the list; skipping silently would hide a curated skill that never
+ * reaches the harness.
+ *
+ * VSA is excluded on BOTH keys — dir basename and frontmatter name — because it
+ * has a dedicated drift-protected installer (ADR 0002) that owns its loader slot
+ * as a real directory. Excluding on the basename alone let a dir called anything
+ * with `name: VSA` inside resolve to that slot, where ensureSymlink refuses to
+ * replace a non-symlink and the whole install aborts. projectableSkills guards
+ * the same case with the same two keys.
  */
-export async function listRegistrySkillDirs(somaHome: string): Promise<string[]> {
+export async function scanRegistrySkills(somaHome: string): Promise<RegistrySkillScan> {
   const root = registrySkillsDir(resolve(somaHome));
   let entries;
   try {
     entries = await readdir(root, { withFileTypes: true });
   } catch {
-    return [];
+    return { skills: [], unprojectable: [] };
   }
   const candidates = entries.filter(
     // Symlinks count: a registry slot filled by `project-skill` from an external
     // source dir is as canonical as one authored in place.
     (entry) => (entry.isDirectory() || entry.isSymbolicLink()) && entry.name !== VSA_SKILL_NAME,
   );
-  const resolved = await Promise.all(
-    candidates.map(async (entry) => {
+  type ScanRow =
+    | { kind: "skip" }
+    | { kind: "skill"; dir: string; name: string }
+    | { kind: "unprojectable"; dir: string; reason: string };
+  const scanned: ScanRow[] = await Promise.all(
+    candidates.map(async (entry): Promise<ScanRow> => {
       const dir = join(root, entry.name);
-      if (!(await pathExists(join(dir, SKILL_MD)))) return undefined;
-      // Second VSA key. The loader slot is named from FRONTMATTER (readSkillName),
-      // so excluding on the dir basename alone lets a dir called anything with
-      // `name: VSA` inside claim the slot the dedicated installer already owns as a
-      // real directory — ensureSymlink then refuses it and the whole install
-      // aborts, not just that skill. projectableSkills guards the same case with
-      // the same two keys, for the same reason.
-      if ((await readSkillName(dir)) === VSA_SKILL_NAME) return undefined;
-      return dir;
+      if (!(await pathExists(join(dir, SKILL_MD)))) return { kind: "skip" };
+      let name: string;
+      try {
+        name = await readSkillName(dir);
+      } catch (error) {
+        return { kind: "unprojectable", dir, reason: error instanceof Error ? error.message : String(error) };
+      }
+      if (name === VSA_SKILL_NAME) return { kind: "skip" };
+      return { kind: "skill", dir, name };
     }),
   );
-  return resolved.filter((dir): dir is string => dir !== undefined).sort();
+  const skills: { dir: string; name: string }[] = [];
+  const unprojectable: UnprojectableRegistrySkill[] = [];
+  for (const row of scanned) {
+    if (row.kind === "skill") skills.push({ dir: row.dir, name: row.name });
+    else if (row.kind === "unprojectable") unprojectable.push({ dir: row.dir, reason: row.reason });
+  }
+  skills.sort((a, b) => a.name.localeCompare(b.name));
+  unprojectable.sort((a, b) => a.dir.localeCompare(b.dir));
+  return { skills, unprojectable };
 }

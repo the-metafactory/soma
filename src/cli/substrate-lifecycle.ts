@@ -36,7 +36,7 @@ import type { ClaudeCodeInstallOptions } from "../adapters/claude-code/install-o
 import { projectVsaSkillBundleFiles } from "../vsa-skill-installer";
 import { defaultSubstrateHome, installSpecFor } from "../install-spec-registry";
 import { loadSomaHome } from "../soma-home";
-import { listRegistrySkillDirs, projectSkills } from "../skill-projection";
+import { projectSkills, scanRegistrySkills, type UnprojectableRegistrySkill } from "../skill-projection";
 import type {
   InstallSubstrate,
   ProjectionInput,
@@ -483,10 +483,9 @@ export async function runSubstrateLifecycleCli(parsed: ParsedSubstrateLifecycleA
     // skill projection is the largest thing --apply does — reporting it only when
     // --skills was passed would leave a default install's plan describing a
     // fraction of the work.
-    const skillDirs = await installSkillDirs(parsed.substrate, parsed.skills, parsed.options);
-    return skillDirs.length === 0
-      ? plan
-      : `${plan}\n\nSkills to project (on --apply): ${skillDirs.map((dir) => basename(dir)).join(", ")}`;
+    const { names, unprojectable } = await installSkills(parsed.substrate, parsed.skills, parsed.options);
+    const skills = names.length === 0 ? "" : `\n\nSkills to project (on --apply): ${names.join(", ")}`;
+    return `${plan}${skills}${formatUnprojectable(unprojectable)}`;
   }
 
   return withProjectedSkills(
@@ -505,16 +504,17 @@ async function withProjectedSkills(
   // always project the full curated registry.
   parsed: { substrate: InstallSubstrate; skills?: string[]; options: SomaInstallOptions },
 ): Promise<string> {
-  const skillDirs = await installSkillDirs(parsed.substrate, parsed.skills ?? [], parsed.options);
-  if (skillDirs.length === 0) return result;
+  const { dirs, unprojectable } = await installSkills(parsed.substrate, parsed.skills ?? [], parsed.options);
+  const skipped = formatUnprojectable(unprojectable);
+  if (dirs.length === 0) return `${result}${skipped}`;
   // Project the skills now that the substrate home + catalog exist; reuses the
   // soma#354 slice-1 primitive.
-  const projected = await projectInstallSkills(parsed.substrate, skillDirs, parsed.options);
-  return `${result}\n\n${projected}`;
+  const projected = await projectInstallSkills(parsed.substrate, dirs, parsed.options);
+  return `${result}\n\n${projected}${skipped}`;
 }
 
 /**
- * The skill source dirs this install should project.
+ * The skills this install should project, plus any registry entry it could not.
  *
  * soma#638: `~/.soma/skills` is the curated set, so a substrate whose loader IS
  * its discovery mechanism gets ALL of it by default — with no catalog to name an
@@ -522,16 +522,48 @@ async function withProjectedSkills(
  * `--skills` still narrows that to an explicit subset. A `catalog` substrate is
  * unchanged: its catalog already advertises the whole registry, so its loader
  * stays opt-in.
+ *
+ * `names` are the LOADER SLOT names, resolved from frontmatter — not the dir
+ * basenames. A dir `foo` holding `name: Bar` lands at `Bar`, so a plan printed
+ * from basenames would promise a path the apply never creates.
  */
-async function installSkillDirs(
+async function installSkills(
   substrate: InstallSubstrate,
   selected: string[],
   options: SomaInstallOptions,
-): Promise<string[]> {
+): Promise<{ dirs: string[]; names: string[]; unprojectable: UnprojectableRegistrySkill[] }> {
   const somaHome = options.somaHome ?? defaultSomaHomePath(options.homeDir);
-  if (selected.length > 0) return selected.map((name) => resolveJoin(somaHome, "skills", name));
-  if (installSpecFor(substrate).skillsDiscovery !== "loader") return [];
-  return listRegistrySkillDirs(somaHome);
+  // An explicit --skills list is taken at face value: the principal named these
+  // dirs, so a typo should surface as a projection error rather than be silently
+  // dropped by a scan that skips what it cannot read.
+  if (selected.length > 0) {
+    return {
+      dirs: selected.map((name) => resolveJoin(somaHome, "skills", name)),
+      names: selected,
+      unprojectable: [],
+    };
+  }
+  if (installSpecFor(substrate).skillsDiscovery !== "loader") {
+    return { dirs: [], names: [], unprojectable: [] };
+  }
+  const scan = await scanRegistrySkills(somaHome);
+  return {
+    dirs: scan.skills.map((skill) => skill.dir),
+    names: scan.skills.map((skill) => skill.name),
+    unprojectable: scan.unprojectable,
+  };
+}
+
+/**
+ * Registry entries the scan could not project, rendered so they are never dropped
+ * silently — a curated skill that never reaches the harness is exactly the failure
+ * this whole feature exists to prevent.
+ */
+function formatUnprojectable(rows: UnprojectableRegistrySkill[]): string {
+  if (rows.length === 0) return "";
+  return ["", "", "Skipped (not projectable):", ...rows.map((row) => `- ${basename(row.dir)}: ${row.reason}`)].join(
+    "\n",
+  );
 }
 
 async function projectInstallSkills(
