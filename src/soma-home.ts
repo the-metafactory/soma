@@ -5,7 +5,6 @@ import { migrateVsaStorageDir } from "./home-migration";
 import { SOMA_MEMORY_CATEGORIES, SOMA_MEMORY_CATEGORY_READMES } from "./memory-readmes";
 import { createPaths } from "./paths";
 import { parseBehaviorPolicy } from "./policy/behavior-policy";
-import { parseCommunicationContract } from "./communication-contract";
 import type { CommunicationContract } from "./communication-contract";
 import type { BehaviorPolicy } from "./policy/behavior-policy";
 import type { ProjectionInput, SomaHomeBootstrapOptions, SomaHomeBootstrapResult, SomaSkill } from "./types";
@@ -64,8 +63,8 @@ function renderCommunicationContract(): string {
     "How this assistant talks. Operational boundaries — scope, permissions,",
     "evidence — live in `policy/behavior.md`, not here.",
     "",
-    "This file projects verbatim into every substrate. Edit it directly; Soma",
-    "parses only `## Reference codes` and `## Aliases`.",
+    "This file projects verbatim into every substrate — Soma parses nothing out",
+    "of it. Edit it directly; every section below works by being read.",
     "",
     "## Positive patterns",
     "",
@@ -320,19 +319,26 @@ async function readPurposeProfile(paths: ReturnType<typeof createPaths>): Promis
 }
 
 /**
- * Read and parse `profile/communication.md` — the assistant's communication
- * contract (Identity compartment).
+ * Read `profile/communication.md` — the assistant's communication contract
+ * (Identity compartment). The file projects verbatim, so reading it is the
+ * whole job; nothing is parsed out of its content.
  *
  * Absent file → `undefined`. Homes created before the starter template shipped
  * do not have one, and `soma init`'s `flag: "wx"` writes never backfill an
  * existing home, so absence is the normal case on an upgrade, not an error.
- * A malformed contract (a reserved reference letter) still throws: that is the
- * principal asking for something the Algorithm cannot honour, and swallowing it
- * would leave them believing `C` was adopted.
+ * Any other read error propagates: a file that exists but cannot be read must
+ * fail loudly rather than silently project nothing.
+ *
+ * Content is deliberately NOT validated here (sage #636 r3). This is a
+ * principal-authored prose file on the path every command takes to load the
+ * home, so a rejected character in it must not be able to fail `install`,
+ * `reproject`, or a hook. The one rule that needs enforcing — the reserved
+ * reference letters — is enforced at the write path in `algorithm.ts`, where a
+ * collision can actually occur.
  */
 async function readCommunicationContract(paths: ReturnType<typeof createPaths>): Promise<CommunicationContract | undefined> {
   try {
-    return parseCommunicationContract(await readFile(paths.resolve("profile", "communication.md"), "utf8"));
+    return { content: await readFile(paths.resolve("profile", "communication.md"), "utf8") };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
     throw error;
@@ -403,10 +409,11 @@ async function readBehaviorPolicy(paths: ReturnType<typeof createPaths>): Promis
 export async function loadSomaHome(somaHome: string, options: LoadSomaHomeOptions = {}): Promise<ProjectionInput> {
   // Independent of each other: the behavioral policy must not queue behind the
   // skills directory walk (sage #636 r2).
+  const paths = createPaths(somaHome);
   const [profile, skills, behavior] = await Promise.all([
     loadSomaProfile(somaHome),
     options.includeSkills === false ? Promise.resolve<SomaSkill[]>([]) : loadSomaSkills(somaHome),
-    readBehaviorPolicy(createPaths(somaHome)),
+    readBehaviorPolicy(paths),
   ]);
 
   return {

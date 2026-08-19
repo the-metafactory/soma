@@ -259,21 +259,14 @@ export {
   verifyAlgorithmCriterion,
 } from "./algorithm";
 export type { BridgedNodeReport } from "./algorithm";
-// The communication contract (Identity compartment) and the behavioral policy
-// (Policy compartment) — the two principal-authored surfaces that project into
-// every substrate. Exported so adapters, tests, and downstream tooling read the
-// same parsers Soma does rather than re-deriving the formats.
-export {
-  DECISION_REFERENCE_LETTER,
-  RESERVED_REFERENCE_LETTERS,
-  ReservedReferenceLetterError,
-  isReservedReferenceLetter,
-  parseCommunicationContract,
-  parseReferenceCode,
-  requireReferenceCode,
-} from "./communication-contract";
+// The behavioral policy (Policy compartment) — the parser adapters call and the
+// shape they render from. Kept narrow on purpose: the reference-code helpers in
+// `communication-contract.ts` have no downstream caller, and the argument this
+// file already makes for `VerificationGateError` applies to them too — leaving
+// them off the barrel keeps their shape free to change without a public-API
+// break. `CommunicationContract` is here only because `SomaProfile` names it.
 export type { CommunicationContract } from "./communication-contract";
-export { EMPTY_BEHAVIOR_POLICY, behaviorPolicyAdvisory, parseBehaviorPolicy } from "./policy/behavior-policy";
+export { behaviorPolicyAdvisory, parseBehaviorPolicy } from "./policy/behavior-policy";
 export type { BehaviorPolicy, BehaviorPolicyEntry, BehaviorPolicySection } from "./policy/behavior-policy";
 // The planSteps bridge's READ half (§2.7), beside the write half on purpose: a
 // consumer that can reach `syncBridgedPlanStep` but not the reader must

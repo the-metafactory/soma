@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -21,9 +21,7 @@ import { projectAnthropicCoworkHome } from "../src/adapters/anthropic-cowork";
 import {
   DECISION_REFERENCE_LETTER,
   RESERVED_REFERENCE_LETTERS,
-  ReservedReferenceLetterError,
   isReservedReferenceLetter,
-  parseCommunicationContract,
   parseReferenceCode,
 } from "../src/communication-contract";
 import { portableProjectionInput } from "./fixtures";
@@ -48,7 +46,7 @@ const CONTRACT = `# Communication Contract
 
 const withContract: ProjectionInput = {
   ...portableProjectionInput,
-  profile: { ...portableProjectionInput.profile, communication: parseCommunicationContract(CONTRACT) },
+  profile: { ...portableProjectionInput.profile, communication: { content: CONTRACT } },
 };
 
 const withoutContract: ProjectionInput = {
@@ -128,28 +126,36 @@ test("C and P stay reserved for the Algorithm's own code space", () => {
   expect(isReservedReferenceLetter("C")).toBe(true);
   expect(isReservedReferenceLetter("p")).toBe(true);
   expect(isReservedReferenceLetter("F")).toBe(false);
-
-  // A reserved letter throws rather than being skipped: silently dropping it
-  // would leave the principal believing `C` was adopted.
-  expect(() => parseCommunicationContract("## Reference codes\n\n- C: criteria\n")).toThrow(
-    ReservedReferenceLetterError,
-  );
-  expect(() => parseCommunicationContract("## Reference codes\n\n- P: phases\n")).toThrow(
-    ReservedReferenceLetterError,
-  );
 });
 
-test("only the declared reference letters are parsed — labels and aliases ride the verbatim projection", () => {
-  const parsed = parseCommunicationContract(CONTRACT);
+test("a reserved letter in the contract cannot break loading the home", async () => {
+  // sage #636 r3: an earlier revision parsed and validated the contract, so a
+  // principal typing `- C: criteria` into a prose file threw out of
+  // loadSomaHome and failed EVERY command that loads the home — install,
+  // reproject, hooks. The contract projects verbatim; nothing is parsed, so a
+  // content typo cannot brick the load path.
+  const root = await mkdtemp(join(tmpdir(), "soma-reserved-"));
+  try {
+    const somaHome = join(root, ".soma");
+    await bootstrapSomaHome({ somaHome });
+    await writeFile(
+      join(somaHome, "profile", "communication.md"),
+      "# Communication Contract\n\n## Reference codes\n\n- C: criteria\n",
+      "utf8",
+    );
 
-  expect(parsed.referenceCodes).toEqual(["F", "O", "D"]);
+    const loaded = await loadSomaHome(somaHome);
+    expect(loaded.profile.communication?.content).toContain("- C: criteria");
+    // ...and it still reaches the substrate verbatim, reserved letter and all.
+    expect(
+      projectClaudeCodeHome(loaded).files.find((file) => file.path === "rules/soma/COMMUNICATION.md")?.content,
+    ).toContain("- C: criteria");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+
+  // The rule is enforced where a collision can actually occur: the write path.
   expect(DECISION_REFERENCE_LETTER).toBe("D");
-  // sage #636 r2: labels and the `## Aliases` section reach the model through
-  // the verbatim content, so parsing them would add a representation with no
-  // reader. The content still carries them.
-  expect(parsed.content).toContain("- F: findings");
-  expect(parsed.content).toContain("- scr: Simplify, compress, and repeat your response.");
-  expect("aliases" in parsed).toBe(false);
 });
 
 test("reference codes split into letter and ordinal, and reject non-codes", () => {
@@ -168,12 +174,20 @@ test("soma init ships a starter contract that parses and reserves C/P", async ()
     await bootstrapSomaHome({ somaHome });
 
     const starter = await readFile(join(somaHome, "profile", "communication.md"), "utf8");
-    const parsed = parseCommunicationContract(starter);
 
-    expect(parsed.referenceCodes).toEqual(["F", "O", "R", "Q", "A", "D"]);
+    for (const letter of ["F", "O", "R", "Q", "A", "D"]) {
+      expect(starter).toContain(`- ${letter}: `);
+    }
     expect(starter).toContain("- scr: Simplify, compress, and repeat your response.");
     // The starter is a public template: no principal-specific voice in it.
     expect(starter).not.toContain("Jens-Christian");
+    // sage #636 r3 blocker: this text projects verbatim to ten surfaces, so a
+    // claim in it about Soma's own parsing reaches every principal and model.
+    // Soma parses nothing out of the contract — the text must not say it does.
+    expect(starter).not.toContain("parses only");
+    expect(starter).toContain("Soma parses nothing out");
+    // Attribution has to survive the merge in the shipped artifact.
+    expect(starter).not.toContain("Jens");
 
     const loaded = await loadSomaHome(somaHome);
     expect(loaded.profile.communication?.content).toBe(starter);

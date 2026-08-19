@@ -146,7 +146,7 @@ Principal-authored, and therefore the inverse of the SelfHealing doctrine, where
 
 A short code (`F1`, `O2`, `D3`) labelling one finding, option, risk, question, action, or decision, stable for the life of a conversation, so the principal can answer `keep D1, reject O2, answer Q1` instead of re-quoting. Families are declared in the [[communication contract]]; instances are recorded against an Algorithm run with `soma algorithm ref` and closed with `soma algorithm resolve`.
 
-`C` and `P` are **reserved** — `C1` is a [[checkpoint|criterion]] and `P1` an Algorithm plan step — and a contract or run that tries to claim either is refused. `D` codes additionally mirror into the run's decisions log rather than opening a parallel record.
+`C` and `P` are **reserved** — `C1` is a [[checkpoint|criterion]] and `P1` an Algorithm plan step — and recording a code under either letter is refused. The refusal lives at the write path only: a [[communication contract]] that declares `C` is harmless, because a collision can only occur when a code is recorded, and a prose file on the home-load path must never be able to fail `install`. `D` codes additionally mirror into the run's decisions log rather than opening a parallel record.
 
 **Not synonyms:**
 - `criterion id` / `plan step id` — the reserved space. A reference code is conversational; those are VSA and plan structure.

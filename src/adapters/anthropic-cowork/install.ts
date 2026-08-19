@@ -6,7 +6,6 @@ import { projectVsaSkillBundleFiles } from "../../vsa-skill-installer";
 import { anthropicCoworkProjectionPrivateRoots } from "../private-roots";
 import {
   ANTHROPIC_COWORK_ACTIVE_VSA_PATH,
-  ANTHROPIC_COWORK_COMMUNICATION_PATH,
   ANTHROPIC_COWORK_ACTIVE_VSA_MARKER,
   ANTHROPIC_COWORK_DEFAULT_HOME,
   ANTHROPIC_COWORK_ENTRYPOINT_PATH,
@@ -106,7 +105,6 @@ export const anthropicCoworkInstallSpec: SubstrateInstallSpec<"anthropic-cowork"
     remove: [
       ...ANTHROPIC_COWORK_HOME_FILE_PATHS.filter((path) => path !== ANTHROPIC_COWORK_ENTRYPOINT_PATH),
       ANTHROPIC_COWORK_ACTIVE_VSA_PATH,
-      ANTHROPIC_COWORK_COMMUNICATION_PATH,
       "skills/VSA",
       ANTHROPIC_COWORK_ENTRYPOINT_PATH,
     ],

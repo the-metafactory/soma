@@ -403,9 +403,11 @@ missing its second half; two of `behavior.md`'s sections state their rules as
 paragraphs; and a section that opens with a paragraph before its bullets must
 not project with that paragraph moved to the end.
 
-Both parsers split sections through the shared `splitMarkdownSections`
-(`src/markdown-sections.ts`) and keep only their own fold, so the heading format
-is defined once.
+The splitter also tracks fenced blocks, so a `#` line inside a fenced example
+cannot close the section and discard the rules beneath it. `soma-home.ts`'s
+`sectionBullets` is a separate, older scanner for the identity files and is
+deliberately left alone — it serves a different format, and converting it is not
+part of this rail.
 
 ## Adapter Contract
 

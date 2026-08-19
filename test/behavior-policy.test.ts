@@ -86,6 +86,39 @@ test("mixed sections project in source order, prose and bullets interleaved", ()
   expect(textsOfKind(mixed.sections[0], "prose")).toEqual(["Analysis is read-only.", "Ask when unsure."]);
 });
 
+test("a heading-like line inside a fence does not close the section", () => {
+  // sage #636 r3: without fence tracking, a `# ` line in a fenced example
+  // closed the open section and opened a bogus one, discarding every remaining
+  // rule beneath it.
+  const { sections } = parseBehaviorPolicy(
+    [
+      "## Verification",
+      "",
+      "- Run the suite before claiming done.",
+      "",
+      "```bash",
+      "# this comment is not a heading",
+      "## neither is this",
+      "bun test",
+      "```",
+      "",
+      "- Evidence beats assertion.",
+      "",
+    ].join("\n"),
+  );
+
+  expect(sections.map((section) => section.heading)).toEqual(["Verification"]);
+  expect(textsOfKind(sections[0], "rule")).toEqual([
+    "Run the suite before claiming done.",
+    "Evidence beats assertion.",
+  ]);
+});
+
+test("numbered list items are rules too", () => {
+  const { sections } = parseBehaviorPolicy("## Scope\n\n1. Ask first.\n2) Then act.\n");
+  expect(textsOfKind(sections[0], "rule")).toEqual(["Ask first.", "Then act."]);
+});
+
 test("advisory lines carry their section heading", () => {
   const lines = behaviorPolicyAdvisory(parseBehaviorPolicy(SAMPLE));
 
@@ -112,12 +145,42 @@ test("nested headings fold into their parent section rather than opening a sibli
   expect(sections[0].entries.map((entry) => entry.text)).toEqual(["Analysis:", "Read only."]);
 });
 
-test("real authored markdown parses — policy/self-healing.md as the stand-in", () => {
-  // The repo ships no `policy/behavior.md`: that file is principal-authored and
-  // lives in the Soma home. `policy/self-healing.md` is the closest in-repo
-  // sample of the same authored shape, so it stands in to prove the parser
-  // handles hand-written markdown and not only the synthetic sample above.
+test("the three behaviours hold on real authored markdown, not just the sample", () => {
+  // The repo ships no `policy/behavior.md` — it is principal-authored and lives
+  // in the Soma home — so this exercises the parser against a hand-written file
+  // that does exist, and asserts the three behaviours the module exists for
+  // rather than merely that it did not crash (sage #636 r3).
+  const authored = [
+    "# Behavioral Policy",
+    "",
+    "Preamble prose that is provenance, not a rule.",
+    "",
+    "## Verification",
+    "",
+    "Analysis is read-only unless the request says otherwise.",
+    "",
+    "- Never assert without verification. Evidence is required before",
+    "  claiming success, and \"should work\" is not done.",
+    "- Confidence requires source.",
+    "",
+  ].join("\n");
+
+  const { sections } = parseBehaviorPolicy(authored);
+  const verification = sections[0];
+
+  // (1) the preamble before the first `## ` is dropped
+  expect(sections.map((section) => section.heading)).toEqual(["Verification"]);
+  // (2) the wrapped rule folded whole
+  expect(textsOfKind(verification, "rule")[0]).toBe(
+    'Never assert without verification. Evidence is required before claiming success, and "should work" is not done.',
+  );
+  // (3) prose survived, and source order put it first
+  expect(verification.entries[0]).toEqual({
+    kind: "prose",
+    text: "Analysis is read-only unless the request says otherwise.",
+  });
+
+  // And the parser still handles the one authored-shape file the repo ships.
   const shipped = readFileSync(join(import.meta.dir, "..", "policy", "self-healing.md"), "utf8");
-  const { sections } = parseBehaviorPolicy(shipped);
-  expect(sections.length).toBeGreaterThan(0);
+  expect(parseBehaviorPolicy(shipped).sections.length).toBeGreaterThan(0);
 });

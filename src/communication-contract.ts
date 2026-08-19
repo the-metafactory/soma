@@ -5,29 +5,25 @@
  * Compartment placement (CONTEXT.md "compartment"): Identity owns "principal
  * profile, assistant profile, voice, personality", so the contract lives under
  * `profile/`. Operational boundaries — scope, permissions, evidence — are the
- * Policy compartment and live in `policy/behavior.md` instead. The split is
- * load-order-independent: a substrate reads both, but only one of them is a
- * rule about conduct.
+ * Policy compartment and live in `policy/behavior.md` instead.
  *
- * The file projects VERBATIM. Soma parses out only the two things code needs —
- * reference codes and aliases — and never re-renders the principal's prose,
- * because a lossy round-trip through a renderer is how authored nuance dies.
- * (Same contract as the memory INDEX, which also projects byte-for-byte.)
+ * The file projects VERBATIM and Soma parses NOTHING out of it. Everything it
+ * contains — patterns, banned phrases, reference-code families, aliases,
+ * examples — does its work by being in the model's context, which the verbatim
+ * projection already delivers. An earlier revision parsed the reference-code
+ * and alias sections; both were representations with no reader, and the
+ * reference-code parse additionally let a typo in a principal-authored prose
+ * file throw out of `loadSomaHome` and fail every command that loads the home.
+ *
+ * What DOES need code is the reference-code space below. The reserved letters
+ * are enforced where a collision can actually happen — the write path in
+ * `algorithm.ts` — not at read time on a file whose text reaches the model
+ * either way.
  */
 
-import { splitMarkdownSections } from "./markdown-sections";
-
+/** The contract as projected: the authored file, verbatim. */
 export interface CommunicationContract {
-  /** The authored file, verbatim. This is what projects. */
   readonly content: string;
-  /**
-   * The uppercase letters declared under `## Reference codes`. Only the letters
-   * are kept: their labels, and the whole `## Aliases` section, reach the model
-   * through the verbatim projection, so parsing them would add a representation
-   * with no reader. The letters are parsed because the reserved-letter check
-   * has a real effect — it refuses a contract that claims `C` or `P`.
-   */
-  readonly referenceCodes: readonly string[];
 }
 
 /**
@@ -35,8 +31,7 @@ export interface CommunicationContract {
  * reference code may not use these: `C1` is a VSA criterion and `P1` is a plan
  * step, both validated against each other in `algorithm.ts` (a plan step
  * naming an unknown criterion throws). Overloading either letter would make
- * "keep C1" ambiguous between a criterion and a chat finding — so the parser
- * rejects them at the source rather than letting the ambiguity reach a run.
+ * "keep C1" ambiguous between a criterion and a chat finding.
  */
 export const RESERVED_REFERENCE_LETTERS: Readonly<Record<string, string>> = {
   C: "VSA criteria",
@@ -92,39 +87,4 @@ export function requireReferenceCode(raw: string): { code: string; letter: strin
     throw new Error(`Algorithm reference code must be a letter followed by a positive ordinal (e.g. F1), got: ${raw}`);
   }
   return { code: `${parsed.letter}${parsed.ordinal}`, ...parsed };
-}
-
-function sectionBody(markdown: string, heading: string): readonly string[] {
-  const wanted = heading.toLowerCase();
-  return splitMarkdownSections(markdown).find((section) => section.heading.toLowerCase() === wanted)?.lines ?? [];
-}
-
-/** `- key: value` bullets in a section, in source order. */
-function keyedBullets(markdown: string, heading: string): { key: string; value: string }[] {
-  const entries: { key: string; value: string }[] = [];
-  for (const line of sectionBody(markdown, heading)) {
-    const match = /^\s*[-*]\s+`?([^`:]+)`?\s*[:=]\s*(.+)$/.exec(line);
-    if (match === null) continue;
-    entries.push({ key: match[1].trim(), value: match[2].trim() });
-  }
-  return entries;
-}
-
-/**
- * Parse the contract. Unknown sections are ignored — the file is the
- * principal's to shape, and Soma reads only the one section it acts on.
- *
- * A reserved letter in `## Reference codes` throws rather than being skipped:
- * silently dropping it would leave the principal believing `C` was adopted.
- */
-export function parseCommunicationContract(markdown: string): CommunicationContract {
-  const referenceCodes: string[] = [];
-  for (const { key } of keyedBullets(markdown, "Reference codes")) {
-    const letter = key.trim().toUpperCase();
-    if (!/^[A-Z]$/.test(letter)) continue;
-    if (isReservedReferenceLetter(letter)) throw new ReservedReferenceLetterError(letter);
-    referenceCodes.push(letter);
-  }
-
-  return { content: markdown, referenceCodes };
 }

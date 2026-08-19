@@ -13,14 +13,11 @@
  * (T2.3) carrying its own admission that "until adapter wiring lands,
  * substrate instruction files carry them by hand". This module is that wiring.
  *
- * Parsing is intentionally NOT `soma-home.ts`'s `sectionBullets`: that helper
- * keeps only lines starting with `- `, which silently truncates every wrapped
- * bullet in the file to its first line. A behavioral rule that loses its second
- * half is worse than one that never projected, so the fold below is required,
- * not cosmetic.
+ * Parsing is intentionally NOT `soma-home.ts`'s `sectionBullets`. Why the fold,
+ * the prose handling, and the source ordering are each required is argued once,
+ * in `docs/substrate-adapters.md` under "Communication Contract And Behavioral
+ * Policy" — not restated here.
  */
-
-import { splitMarkdownSections } from "../markdown-sections";
 
 /**
  * One folded entry under a heading: a bullet, or a paragraph of prose. Both are
@@ -60,12 +57,85 @@ export const EMPTY_BEHAVIOR_POLICY: BehaviorPolicy = { sections: [] };
  */
 const NON_RULE_HEADINGS: ReadonlySet<string> = new Set(["provenance", "source", "about", "readme"]);
 
+/** One `## Heading` block: the heading text and its raw body lines. */
+interface MarkdownSection {
+  readonly heading: string;
+  readonly lines: readonly string[];
+}
+
+/**
+ * Split `behavior.md` on `##` headings, in source order.
+ *
+ * Only `##` delimits: a leading `# Title` closes the current section and opens
+ * nothing (a document title is not a section), and a deeper `### ` folds into
+ * its parent as a `Heading:` body line rather than starting a sibling — so a
+ * nested heading's rules stay attached to the section that owns them. Content
+ * before the first `## ` is the title and provenance preamble, never rules, and
+ * is dropped.
+ *
+ * Fenced blocks are skipped wholesale. Without fence tracking a `# comment`
+ * line inside a fenced example closes the open section and opens a bogus one,
+ * discarding every remaining rule beneath it — the same silent truncation the
+ * wrapped-bullet fold exists to prevent, and a plausible thing to write in a
+ * policy file that shows a command.
+ */
+function splitMarkdownSections(markdown: string): MarkdownSection[] {
+  const sections: MarkdownSection[] = [];
+
+  let heading: string | undefined;
+  let lines: string[] = [];
+  let fence: string | undefined;
+
+  const flush = (): void => {
+    if (heading !== undefined) sections.push({ heading, lines });
+    heading = undefined;
+    lines = [];
+  };
+
+  for (const line of markdown.split("\n")) {
+    const fenceMatch = /^\s*(```+|~~~+)/.exec(line);
+    if (fenceMatch !== null) {
+      const marker = fenceMatch[1][0].repeat(3);
+      if (fence === undefined) fence = marker;
+      else if (marker === fence) fence = undefined;
+      if (heading !== undefined) lines.push(line);
+      continue;
+    }
+
+    if (fence !== undefined || !/^#{1,6}\s/.test(line)) {
+      if (heading !== undefined) lines.push(line);
+      continue;
+    }
+
+    const text = line.replace(/^#{1,6}\s+/, "").trim();
+
+    if (/^#\s/.test(line)) {
+      flush();
+      continue;
+    }
+
+    if (/^##\s/.test(line)) {
+      flush();
+      heading = text;
+      continue;
+    }
+
+    if (heading !== undefined) lines.push(`${text}:`);
+  }
+
+  flush();
+  return sections;
+}
+
+/** `- `, `* `, `1. `, and `1) ` all open a rule. */
+const BULLET = /^\s*(?:[-*]|\d+[.)])\s+/;
+
 function isBullet(line: string): boolean {
-  return /^\s*[-*]\s+/.test(line);
+  return BULLET.test(line);
 }
 
 function bulletText(line: string): string {
-  return line.replace(/^\s*[-*]\s+/, "").trim();
+  return line.replace(BULLET, "").trim();
 }
 
 /**

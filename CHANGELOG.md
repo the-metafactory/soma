@@ -18,7 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   generic starter; the file projects **verbatim** (no provenance header, no
   re-render) into all six substrates, and Pi.dev additionally reads it into the
   generated extension's system prompt, that substrate's native equivalent of an
-  appended system-prompt file. Absent file → nothing projected, never a
+  appended system-prompt file. Soma parses nothing out of the file: every
+  section works by being read. Absent file → nothing projected, never a
   Soma-authored default.
 - **Behavioral policy is wired (Policy compartment).** `~/.soma/policy/behavior.md`
   has existed since the 2026-07 PAI migration but nothing read it. It is now
@@ -32,7 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ops) make `keep D1` a write rather than a comment. `C` and `P` are reserved for
   VSA criteria and plan steps and are refused; codes are unique within a run; `D`
   codes mirror into the run's decisions log rather than opening a parallel
-  record. `AlgorithmRun.references` is additive and defaulted by the store — no
+  record. The reservation is enforced at the write path, not at contract-read
+  time — a prose file on the home-load path must never be able to fail
+  `install` or a hook. `AlgorithmRun.references` is additive and defaulted by the store — no
   schema-version bump, and pre-existing runs load with an empty list.
 
 ### Changed

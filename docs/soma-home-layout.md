@@ -40,10 +40,9 @@ Two principal-authored files govern conduct, and they are deliberately separate:
   and negative patterns, the banned-phrase list, reference codes, and aliases.
   It belongs to the Identity compartment, which owns voice and personality.
   `soma init` writes a generic starter; edit it directly. Soma projects the file
-  **verbatim** into every substrate and parses only `## Reference codes` for
-  itself, to refuse a contract that claims a reserved letter. Everything else —
-  aliases, labels, examples — reaches the model through the verbatim content,
-  so there is nothing else for Soma to extract.
+  **verbatim** into every substrate and parses nothing out of it — every section
+  does its work by being read, so there is nothing for Soma to extract, and a
+  typo in it can never fail a command that loads the home.
 - **`policy/behavior.md`** — the *behavioral policy*: scope discipline,
   verification, permission boundaries, external-content handling. It belongs to
   the Policy compartment. Its `## Heading` sections become advisory lines in
@@ -56,9 +55,11 @@ invented — an absent file projects nothing rather than a default.
 
 Reference codes (`F1`, `O2`, `D3`) are addressable run state, not display
 formatting: `soma algorithm ref` records one and `soma algorithm resolve`
-closes it, so `keep D1` is a write. `C` and `P` are reserved for VSA criteria
-and Algorithm plan steps and are refused; `D` codes additionally mirror into
-the run's decisions log.
+records a disposition on it, so `keep D1` is a write. `C` and `P` are reserved
+for VSA criteria and Algorithm plan steps and are refused **at the write path**
+— declaring one in the contract is harmless, since a collision can only happen
+when a code is recorded. `D` codes additionally mirror into the run's decisions
+log.
 
 `policy/probe-registry.json` is **not** created by `soma init`: it authorises
 `command` and `url` probes to run on this machine, and its absence is the
