@@ -1,24 +1,49 @@
 import { mkdir, appendFile, readFile, readdir, stat } from "node:fs/promises";
-import { basename, dirname, extname, join } from "node:path";
+import { basename, dirname, extname, join, sep } from "node:path";
 import { memoryTerms } from "./memory-terms";
 import { createPaths } from "./paths";
 import type {
   SomaMemoryEvent,
   SomaMemoryEventInput,
+  SomaMemorySearchMatch,
   SomaMemorySearchOptions,
   SomaMemorySearchResult,
+  SomaMemorySearchSourceClass,
 } from "./types";
+import { SOMA_MEMORY_NOTE_TYPES } from "./types";
 
-const SEARCH_ROOTS = [
-  "profile",
-  "memory/WORK",
-  "memory/KNOWLEDGE",
-  "memory/LEARNING",
-  "memory/WISDOM",
-  "memory/RELATIONSHIP",
-  "memory/STATE",
-  "identity",
-] as const;
+/**
+ * Roots outside `memory/` that search covers. Everything INSIDE `memory/` is
+ * discovered by reading the directory, not listed here.
+ *
+ * This used to be one flat whitelist naming eight paths, and it drifted: the
+ * curated durable notes in `memory/procedural` and `memory/semantic` were never
+ * in it, so 77 notes on this machine were unreachable by `soma memory search` at
+ * any `--limit` (#453). The reported symptom was bad ranking; the cause was that
+ * those directories were not searched at all.
+ *
+ * A whitelist fails silently every time the memory tree grows a directory.
+ * Discovery plus a named exclusion fails loudly instead — a new store is
+ * searched by default, and anything deliberately skipped has to be named here.
+ */
+const FIXED_SEARCH_ROOTS = ["profile", "identity"] as const;
+
+/**
+ * Directories under `memory/` that search skips by default. `STATE` is
+ * operational bookkeeping — the event log, work indices, import manifests —
+ * not memory content, and search appends its own `memory.recall` event to it.
+ */
+const OPERATIONAL_MEMORY_DIRS = new Set<string>(["STATE"]);
+
+/**
+ * Directories under `memory/` holding curated durable notes, which rank above
+ * everything else. `episodic` is deliberately absent: session digests and action
+ * logs are a record of what happened, not a distilled note, and they carry the
+ * same vocabulary as the archive they summarize.
+ */
+const CURATED_NOTE_DIRS = new Set<string>(
+  SOMA_MEMORY_NOTE_TYPES.filter((type) => type !== "episodic"),
+);
 
 const SEARCH_EXTENSIONS = new Set([".md", ".txt", ".json", ".jsonl", ".yaml", ".yml", ".toml"]);
 const SKIP_DIRECTORIES = new Set(["node_modules", ".git"]);
@@ -107,6 +132,38 @@ function scoreLine(line: string, terms: string[]): number {
   }, 0);
 }
 
+const SOURCE_CLASS_RANK: Record<SomaMemorySearchSourceClass, number> = {
+  note: 2,
+  archive: 1,
+  state: 0,
+};
+
+/**
+ * Every directory search should read: the fixed roots, plus each directory under
+ * `memory/` as it exists on disk.
+ */
+async function resolveSearchRoots(somaHome: string, includeState: boolean): Promise<string[]> {
+  const fixed = FIXED_SEARCH_ROOTS.map((root) => join(somaHome, root));
+  const memoryRoot = join(somaHome, "memory");
+  const entries = await readdir(memoryRoot, { withFileTypes: true }).catch(() => []);
+  const memoryDirs = entries
+    .filter((entry) => entry.isDirectory())
+    .filter((entry) => !SKIP_DIRECTORIES.has(entry.name))
+    .filter((entry) => includeState || !OPERATIONAL_MEMORY_DIRS.has(entry.name))
+    .map((entry) => join(memoryRoot, entry.name));
+  return [...fixed, ...memoryDirs];
+}
+
+/** Which corpus a file belongs to, from its first path segment under `memory/`. */
+function classifySearchSource(somaHome: string, path: string): SomaMemorySearchSourceClass {
+  const memoryPrefix = join(somaHome, "memory") + sep;
+  if (!path.startsWith(memoryPrefix)) return "archive";
+  const dir = path.slice(memoryPrefix.length).split(sep)[0] ?? "";
+  if (CURATED_NOTE_DIRS.has(dir)) return "note";
+  if (OPERATIONAL_MEMORY_DIRS.has(dir)) return "state";
+  return "archive";
+}
+
 export async function searchSomaMemory(options: SomaMemorySearchOptions): Promise<SomaMemorySearchResult> {
   assertNonEmpty(options.query, "search query");
 
@@ -123,13 +180,14 @@ export async function searchSomaMemory(options: SomaMemorySearchOptions): Promis
     return { query: options.query, somaHome, matches: [] };
   }
 
-  const roots = SEARCH_ROOTS.map((root) => join(somaHome, root));
+  const roots = await resolveSearchRoots(somaHome, options.includeState === true);
   const files = (await Promise.all(roots.map(collectSearchFiles))).flat();
-  const matches = [];
+  const matches: SomaMemorySearchMatch[] = [];
 
   for (const path of files) {
     const content = await readFile(path, "utf8").catch(() => "");
     const lines = content.split("\n");
+    const sourceClass = classifySearchSource(somaHome, path);
 
     for (const [index, line] of lines.entries()) {
       const score = scoreLine(line, terms);
@@ -140,11 +198,23 @@ export async function searchSomaMemory(options: SomaMemorySearchOptions): Promis
         line: index + 1,
         score,
         snippet: line.trim().slice(0, 240),
+        sourceClass,
       });
     }
   }
 
-  matches.sort((left, right) => right.score - left.score || left.path.localeCompare(right.path) || left.line - right.line);
+  // Class before score. Term score alone ties almost everything — a two-term
+  // query scores 2 on every line containing both — so whatever broke the tie
+  // decided the result, and that was `localeCompare` on the absolute path, i.e.
+  // alphabetical order of directory names. `LEARNING/` sorting before
+  // `procedural/` is not a relevance judgement (#453).
+  matches.sort(
+    (left, right) =>
+      SOURCE_CLASS_RANK[right.sourceClass] - SOURCE_CLASS_RANK[left.sourceClass] ||
+      right.score - left.score ||
+      left.path.localeCompare(right.path) ||
+      left.line - right.line,
+  );
 
   const result: SomaMemorySearchResult = { query: options.query, somaHome, matches: matches.slice(0, limit) };
   await appendSearchRecallEvent(somaHome, options, terms, result);

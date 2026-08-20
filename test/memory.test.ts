@@ -515,6 +515,96 @@ test("searches Soma memory and profile files with cited snippets", async () => {
   });
 });
 
+/**
+ * #453 — the reported symptom was that curated notes ranked below the raw
+ * archive. The cause was that `memory/procedural` and `memory/semantic` were
+ * not in the search whitelist at all, so no limit could reach them.
+ */
+test("searches the curated note stores, which the old root whitelist omitted entirely", async () => {
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    await mkdir(join(somaHome, "memory/procedural"), { recursive: true });
+    await writeFile(
+      join(somaHome, "memory/procedural/skill-doctrine.md"),
+      "# Doctrine\n\nQuokka telemetry drifts from the runtime registry.\n",
+      "utf8",
+    );
+
+    const result = await searchSomaMemory({ homeDir, query: "quokka", limit: 50 });
+
+    expect(result.matches.map((match) => match.path)).toContain(
+      join(somaHome, "memory/procedural/skill-doctrine.md"),
+    );
+  });
+});
+
+test("a curated note outranks the raw archive it was distilled from, at equal term score", async () => {
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    await mkdir(join(somaHome, "memory/procedural"), { recursive: true });
+    await mkdir(join(somaHome, "memory/LEARNING/ALGORITHM"), { recursive: true });
+    // Identical wording in both, so term score ties and only class can break it.
+    // `LEARNING` sorts before `procedural`, which is what used to decide it.
+    const line = "Quokka telemetry is preserved as contract metadata.\n";
+    await writeFile(join(somaHome, "memory/procedural/note.md"), line, "utf8");
+    await writeFile(join(somaHome, "memory/LEARNING/ALGORITHM/run.md"), line, "utf8");
+
+    const result = await searchSomaMemory({ homeDir, query: "quokka", limit: 50 });
+
+    expect(result.matches[0]?.sourceClass).toBe("note");
+    expect(result.matches[0]?.path).toEndWith("memory/procedural/note.md");
+    expect(result.matches[1]?.sourceClass).toBe("archive");
+  });
+});
+
+test("STATE is operational bookkeeping and stays out of search unless asked for", async () => {
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    await mkdir(join(somaHome, "memory/STATE"), { recursive: true });
+    await writeFile(
+      join(somaHome, "memory/STATE/work-index.json"),
+      '{"id": "quokka telemetry run"}\n',
+      "utf8",
+    );
+
+    const statePath = join(somaHome, "memory/STATE/work-index.json");
+
+    const excluded = await searchSomaMemory({ homeDir, query: "quokka", limit: 50 });
+    expect(excluded.matches.map((match) => match.path)).not.toContain(statePath);
+
+    const included = await searchSomaMemory({
+      homeDir,
+      query: "quokka",
+      limit: 50,
+      includeState: true,
+    });
+    const stateMatch = included.matches.find((match) => match.path === statePath);
+    expect(stateMatch?.sourceClass).toBe("state");
+  });
+});
+
+test("a memory directory nobody listed is still searched", async () => {
+  // The whitelist failed silently every time the tree grew a store. Discovery
+  // plus a named exclusion is what stops #453 recurring under a new name.
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    await mkdir(join(somaHome, "memory/INVENTED"), { recursive: true });
+    await writeFile(
+      join(somaHome, "memory/INVENTED/thing.md"),
+      "Quokka telemetry appears in a store added after the whitelist was written.\n",
+      "utf8",
+    );
+
+    const result = await searchSomaMemory({ homeDir, query: "quokka", limit: 50 });
+
+    const invented = result.matches.find((match) =>
+      match.path === join(somaHome, "memory/INVENTED/thing.md"),
+    );
+    expect(invented).toBeDefined();
+    expect(invented?.sourceClass).toBe("archive");
+  });
+});
+
 test("search appends one observational memory.recall event (read-path instrumentation)", async () => {
   await withTempHome(async (homeDir) => {
     const { somaHome } = await bootstrapSomaHome({ homeDir });

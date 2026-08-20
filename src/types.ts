@@ -2032,17 +2032,34 @@ export interface SomaMemorySearchOptions {
   somaHome?: string;
   query: string;
   limit?: number;
+  /**
+   * Include `memory/STATE` — the event log, work indices and import manifests.
+   * Off by default: that tree is operational bookkeeping, not memory content,
+   * and it is large enough to exhaust any limit on a common term. Search also
+   * appends its own `memory.recall` event there, so including it lets a search
+   * match the record of previous searches.
+   */
+  includeState?: boolean;
   /** Injected clock for the `memory.recall` event's timestamp. Defaults to now. */
   now?: Date;
   /** Substrate tag for the `memory.recall` event this call appends. Defaults to `"custom"`. */
   substrate?: SubstrateId;
 }
 
+/**
+ * What kind of file a match came from. Ranking is by class first and term score
+ * second, so a curated note always outranks the raw archive it was distilled
+ * from — the archive shares its vocabulary and vastly outnumbers it.
+ */
+export type SomaMemorySearchSourceClass = "note" | "archive" | "state";
+
 export interface SomaMemorySearchMatch {
   path: string;
   line: number;
   score: number;
   snippet: string;
+  /** Which corpus this line came from. Drives ranking; see the type. */
+  sourceClass: SomaMemorySearchSourceClass;
 }
 
 export interface SomaMemorySearchResult {
