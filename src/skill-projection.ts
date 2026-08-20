@@ -330,7 +330,8 @@ export async function projectSkill(options: ProjectSkillOptions): Promise<SkillP
  * catalog-rebuild cost a single time instead of per skill.
  */
 export async function projectSkills(options: {
-  skillDirs: string[];
+  /** Source dirs to link. Pass {dir, name} when the slot name is already resolved. */
+  skillDirs: (string | { dir: string; name: string })[];
   substrates: InstallSubstrate[];
   homeDir?: string;
   somaHome?: string;
@@ -344,8 +345,10 @@ export async function projectSkills(options: {
   const skills: LinkedSkillResult[] = [];
   let catalogFiles: { substrate: InstallSubstrate; path: string }[];
   try {
-    for (const dir of options.skillDirs) {
-      skills.push(await linkSkill(resolve(dir), somaHome, options.substrates, force, options));
+    for (const entry of options.skillDirs) {
+      const dir = typeof entry === "string" ? entry : entry.dir;
+      const name = typeof entry === "string" ? undefined : entry.name;
+      skills.push(await linkSkill(resolve(dir), somaHome, options.substrates, force, options, name));
     }
   } finally {
     // Refresh once, in a finally. linkSkill is all-or-nothing (it rolls back its
@@ -369,8 +372,12 @@ async function linkSkill(
   substrates: InstallSubstrate[],
   force: boolean,
   options: { homeDir?: string; substrateHome?: string },
+  // Pre-resolved slot name. scanRegistrySkills already read every SKILL.md to
+  // resolve it, so re-deriving here would read the whole registry a second time
+  // on every install and reproject.
+  resolvedName?: string,
 ): Promise<LinkedSkillResult> {
-  const name = await readSkillName(skillDir);
+  const name = resolvedName ?? (await readSkillName(skillDir));
   const slots = skillSlots(name, somaHome, substrates, options);
   const links: SkillLink[] = [];
   // Paths this call created or replaced — rolled back if a later link fails, so a

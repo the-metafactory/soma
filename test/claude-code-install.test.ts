@@ -12,6 +12,7 @@ import {
   bootstrapSomaHome,
   projectClaudeCodeHome,
   installSomaForClaudeCode,
+  installSomaForCursor,
   planSomaForClaudeCodeInstall,
   scaffoldVsa,
   setActiveVsa,
@@ -804,5 +805,34 @@ test("soma#638: reinstall reconciles away a SKILLS.md left by an older install",
     // projects, so --apply does not merely skip the catalog, it cleans it up.
     await installSomaForClaudeCode({ homeDir });
     await expect(stat(stale)).rejects.toThrow();
+  });
+});
+
+test("soma#638: the library install projects the registry, not just the CLI", async () => {
+  await withTempHome(async (homeDir) => {
+    const dir = join(homeDir, ".soma", "skills", "Lib");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "SKILL.md"), `---\nname: Lib\n---\n# lib\n`, "utf8");
+
+    // Sage caught this: the projection lived in src/cli/, so a programmatic
+    // install emitted neither the catalog (removed for a loader substrate) nor
+    // any loader symlink — a home with no discoverable skills at all.
+    const result = await installSomaForClaudeCode({ homeDir });
+
+    expect(result.projectedSkills.map((skill) => skill.skill)).toContain("Lib");
+    expect((await stat(join(homeDir, ".claude", "skills", "Lib", "SKILL.md"))).isFile()).toBe(true);
+  });
+});
+
+test("soma#638: a catalog substrate's library install links nothing and reports nothing", async () => {
+  await withTempHome(async (homeDir) => {
+    const dir = join(homeDir, ".soma", "skills", "Lib");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "SKILL.md"), `---\nname: Lib\n---\n# lib\n`, "utf8");
+
+    const result = await installSomaForCursor({ homeDir });
+
+    expect(result.projectedSkills).toEqual([]);
+    await expect(stat(join(homeDir, ".cursor", "rules", "soma", "skills", "Lib"))).rejects.toThrow();
   });
 });

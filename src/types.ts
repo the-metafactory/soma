@@ -803,12 +803,39 @@ export interface SomaInstallOptions {
   substrateHome?: string;
   somaRepoPath?: string;
   codeOnly?: boolean;
+  /**
+   * Narrow the registry→loader projection to these skill names (soma#638).
+   * Omitted → a `loader` substrate takes the whole curated registry. Lives on
+   * the install options, not the CLI, so a programmatic install projects the
+   * same skills a CLI install does.
+   */
+  skills?: string[];
+}
+
+/** A skill linked into a substrate's loader by install (soma#638). */
+export interface InstalledSkill {
+  skill: string;
+  path: string;
+  status: string;
+}
+
+/** A registry entry install could not project, and why (soma#638). */
+export interface UninstallableSkillReport {
+  dir: string;
+  reason: string;
 }
 
 export interface SomaInstallResult {
   substrate: InstallSubstrate;
   somaHome: SomaHomeBootstrapResult;
   substrateHome: WrittenProjection;
+  /**
+   * Registry skills linked into the substrate's loader, and registry entries
+   * that could not be (soma#638). Empty for a `catalog` substrate, whose
+   * projected catalog already advertises the registry.
+   */
+  projectedSkills: InstalledSkill[];
+  unprojectableSkills: UninstallableSkillReport[];
 }
 
 export interface SomaInstallPlan {
