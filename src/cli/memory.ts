@@ -583,7 +583,13 @@ function parseQueryCommandArgs(args: string[], commandLabel: string): QueryComma
 }
 
 function parseMemorySearchArgs(args: string[]): SomaMemorySearchOptions {
-  return parseQueryCommandArgs(args, "search");
+  // Handled here rather than in `parseQueryCommandArgs`, which `recall` shares:
+  // recall reads curated notes only, so a flag about the operational-state tree
+  // would be inert there and inert flags read as supported ones.
+  const includeState = args.includes("--include-state");
+  const rest = args.filter((arg) => arg !== "--include-state");
+  const options = parseQueryCommandArgs(rest, "search");
+  return includeState ? { ...options, includeState: true } : options;
 }
 
 function parseMemoryRecallArgs(args: string[]): SomaMemoryRecallOptions {
@@ -1155,7 +1161,10 @@ function formatMemorySearchResult(result: SomaMemorySearchResult): string {
     "",
     "Matches:",
     ...(result.matches.length > 0
-      ? result.matches.map((match) => `- ${match.path}:${match.line} [score ${match.score}] ${match.snippet}`)
+      ? result.matches.map(
+          (match) =>
+            `- ${match.path}:${match.line} [${match.sourceClass}] [score ${match.score}] ${match.snippet}`,
+        )
       : ["- none"]),
   ].join("\n");
 }
