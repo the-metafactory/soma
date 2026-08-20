@@ -552,8 +552,86 @@ test("a curated note outranks the raw archive it was distilled from, at equal te
     const result = await searchSomaMemory({ homeDir, query: "quokka", limit: 50 });
 
     expect(result.matches[0]?.sourceClass).toBe("note");
-    expect(result.matches[0]?.path).toEndWith("memory/procedural/note.md");
+    expect(result.matches[0]?.path).toBe(join(somaHome, "memory/procedural/note.md"));
     expect(result.matches[1]?.sourceClass).toBe("archive");
+  });
+});
+
+test("aged notes the maintenance pass retired do not come back through discovery", async () => {
+  // docs/architecture.md §Memory: `consolidate` moves aged notes into
+  // `memory/archive/` and "the move itself is the invalidation". Discovering
+  // every directory would re-admit them as ordinary results.
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    await mkdir(join(somaHome, "memory/archive/episodic"), { recursive: true });
+    await writeFile(
+      join(somaHome, "memory/archive/episodic/retired.md"),
+      "Quokka appears in a note consolidate already retired.\n",
+      "utf8",
+    );
+
+    const result = await searchSomaMemory({ homeDir, query: "quokka", limit: 50 });
+
+    expect(result.matches.map((match) => match.path)).not.toContain(
+      join(somaHome, "memory/archive/episodic/retired.md"),
+    );
+  });
+});
+
+test("private security traces are not ordinary search results", async () => {
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    await mkdir(join(somaHome, "memory/SECURITY/inbound-content"), { recursive: true });
+    await writeFile(
+      join(somaHome, "memory/SECURITY/inbound-content/trace.md"),
+      "Quokka appears in a private security trace.\n",
+      "utf8",
+    );
+
+    const result = await searchSomaMemory({ homeDir, query: "quokka", limit: 50 });
+
+    expect(result.matches.map((match) => match.path)).not.toContain(
+      join(somaHome, "memory/SECURITY/inbound-content/trace.md"),
+    );
+  });
+});
+
+test("term score outranks source class — a fuller match wins from the archive", async () => {
+  // Class breaks ties; it does not override relevance. Ranking class first put
+  // a one-term note above a three-term archive hit.
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    await mkdir(join(somaHome, "memory/procedural"), { recursive: true });
+    await mkdir(join(somaHome, "memory/LEARNING"), { recursive: true });
+    await writeFile(join(somaHome, "memory/procedural/thin.md"), "Quokka alone.\n", "utf8");
+    await writeFile(
+      join(somaHome, "memory/LEARNING/rich.md"),
+      "Quokka wombat bandicoot together.\n",
+      "utf8",
+    );
+
+    const result = await searchSomaMemory({
+      homeDir,
+      query: "quokka wombat bandicoot",
+      limit: 10,
+    });
+
+    expect(result.matches[0]?.path).toBe(join(somaHome, "memory/LEARNING/rich.md"));
+    expect(result.matches[0]?.score).toBe(3);
+    expect(result.matches[1]?.path).toBe(join(somaHome, "memory/procedural/thin.md"));
+  });
+});
+
+test("a file sitting directly in memory/ is reachable", async () => {
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    await writeFile(join(somaHome, "memory/INDEX.md"), "Quokka index entry.\n", "utf8");
+
+    const result = await searchSomaMemory({ homeDir, query: "quokka", limit: 50 });
+
+    expect(result.matches.map((match) => match.path)).toContain(
+      join(somaHome, "memory/INDEX.md"),
+    );
   });
 });
 

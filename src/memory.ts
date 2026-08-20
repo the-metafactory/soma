@@ -10,7 +10,6 @@ import type {
   SomaMemorySearchResult,
   SomaMemorySearchSourceClass,
 } from "./types";
-import { SOMA_MEMORY_NOTE_TYPES } from "./types";
 
 /**
  * Roots outside `memory/` that search covers. Everything INSIDE `memory/` is
@@ -18,32 +17,45 @@ import { SOMA_MEMORY_NOTE_TYPES } from "./types";
  *
  * This used to be one flat whitelist naming eight paths, and it drifted: the
  * curated durable notes in `memory/procedural` and `memory/semantic` were never
- * in it, so 77 notes on this machine were unreachable by `soma memory search` at
- * any `--limit` (#453). The reported symptom was bad ranking; the cause was that
- * those directories were not searched at all.
+ * in it, so they were unreachable by `soma memory search` at any `--limit`
+ * (#453). The reported symptom was bad ranking; the cause was that those
+ * directories were not searched at all.
  *
- * A whitelist fails silently every time the memory tree grows a directory.
- * Discovery plus a named exclusion fails loudly instead — a new store is
- * searched by default, and anything deliberately skipped has to be named here.
+ * Discovery removes the "new store is invisible" half of that failure. It does
+ * NOT remove the other half on its own: a newly-added store is read, but ranked
+ * as `archive` until someone names it in `CURATED_NOTE_DIRS`.
  */
 const FIXED_SEARCH_ROOTS = ["profile", "identity"] as const;
 
 /**
- * Directories under `memory/` that search skips by default. `STATE` is
- * operational bookkeeping — the event log, work indices, import manifests —
- * not memory content, and search appends its own `memory.recall` event to it.
+ * Directories under `memory/` that search skips, each for its own reason.
+ *
+ *   - `STATE` — operational bookkeeping: the event log, work indices, import
+ *     manifests. Search appends its own `memory.recall` event here, so
+ *     including it lets a search match the record of previous searches.
+ *     Reachable with `--include-state`.
+ *   - `archive` — where `consolidate` moves aged notes. Per
+ *     docs/architecture.md §Memory the move IS the invalidation ("no
+ *     `valid_until` field is stamped"), so surfacing these as ordinary results
+ *     would re-admit content the maintenance pass deliberately retired.
+ *   - `SECURITY` — private security traces (docs/inbound-content-security.md,
+ *     docs/governance-event-runtime-policy.md). A distinct-purpose store, not
+ *     memory content to rank alongside WORK/KNOWLEDGE.
  */
-const OPERATIONAL_MEMORY_DIRS = new Set<string>(["STATE"]);
+const STATE_MEMORY_DIR = "STATE";
+const EXCLUDED_MEMORY_DIRS = new Set<string>([STATE_MEMORY_DIR, "archive", "SECURITY"]);
 
 /**
  * Directories under `memory/` holding curated durable notes, which rank above
- * everything else. `episodic` is deliberately absent: session digests and action
- * logs are a record of what happened, not a distilled note, and they carry the
- * same vocabulary as the archive they summarize.
+ * the archive at equal term score.
+ *
+ * Listed positively rather than derived from `SOMA_MEMORY_NOTE_TYPES`, so a
+ * note type added later has to be ranked deliberately instead of becoming
+ * top-tier by silent inheritance. `episodic` is absent for that reason too:
+ * session digests record what happened rather than distilling it, and they
+ * carry the archive's vocabulary.
  */
-const CURATED_NOTE_DIRS = new Set<string>(
-  SOMA_MEMORY_NOTE_TYPES.filter((type) => type !== "episodic"),
-);
+const CURATED_NOTE_DIRS = new Set<string>(["semantic", "procedural"]);
 
 const SEARCH_EXTENSIONS = new Set([".md", ".txt", ".json", ".jsonl", ".yaml", ".yml", ".toml"]);
 const SKIP_DIRECTORIES = new Set(["node_modules", ".git"]);
@@ -145,22 +157,48 @@ const SOURCE_CLASS_RANK: Record<SomaMemorySearchSourceClass, number> = {
 async function resolveSearchRoots(somaHome: string, includeState: boolean): Promise<string[]> {
   const fixed = FIXED_SEARCH_ROOTS.map((root) => join(somaHome, root));
   const memoryRoot = join(somaHome, "memory");
-  const entries = await readdir(memoryRoot, { withFileTypes: true }).catch(() => []);
-  const memoryDirs = entries
+
+  let entries;
+  try {
+    entries = await readdir(memoryRoot, { withFileTypes: true });
+  } catch (err) {
+    // A missing memory tree is a legitimate state (fresh home). Anything else —
+    // EACCES, EIO — must surface: swallowing it would silently reduce search to
+    // two roots and report the empty result as an answer, which is the failure
+    // mode this whole change exists to remove.
+    if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") throw err;
+    return fixed;
+  }
+
+  const searchable = entries.filter((entry) => !SKIP_DIRECTORIES.has(entry.name));
+  const memoryDirs = searchable
     .filter((entry) => entry.isDirectory())
-    .filter((entry) => !SKIP_DIRECTORIES.has(entry.name))
-    .filter((entry) => includeState || !OPERATIONAL_MEMORY_DIRS.has(entry.name))
+    .filter((entry) => !isExcludedMemoryDir(entry.name, includeState))
     .map((entry) => join(memoryRoot, entry.name));
-  return [...fixed, ...memoryDirs];
+  // Files sitting directly in `memory/` — the generated INDEX.md among them —
+  // belong to no store and would otherwise be unreachable.
+  const memoryFiles = searchable
+    .filter((entry) => entry.isFile())
+    .map((entry) => join(memoryRoot, entry.name));
+
+  return [...fixed, ...memoryDirs, ...memoryFiles];
 }
 
-/** Which corpus a file belongs to, from its first path segment under `memory/`. */
+function isExcludedMemoryDir(name: string, includeState: boolean): boolean {
+  if (includeState && name === STATE_MEMORY_DIR) return false;
+  return EXCLUDED_MEMORY_DIRS.has(name);
+}
+
+/**
+ * Which corpus a file belongs to. `profile` and `identity` are curated by the
+ * principal, so they rank with the notes rather than with the raw archive.
+ */
 function classifySearchSource(somaHome: string, path: string): SomaMemorySearchSourceClass {
   const memoryPrefix = join(somaHome, "memory") + sep;
-  if (!path.startsWith(memoryPrefix)) return "archive";
+  if (!path.startsWith(memoryPrefix)) return "note";
   const dir = path.slice(memoryPrefix.length).split(sep)[0] ?? "";
   if (CURATED_NOTE_DIRS.has(dir)) return "note";
-  if (OPERATIONAL_MEMORY_DIRS.has(dir)) return "state";
+  if (dir === STATE_MEMORY_DIR) return "state";
   return "archive";
 }
 
@@ -203,15 +241,19 @@ export async function searchSomaMemory(options: SomaMemorySearchOptions): Promis
     }
   }
 
-  // Class before score. Term score alone ties almost everything — a two-term
-  // query scores 2 on every line containing both — so whatever broke the tie
-  // decided the result, and that was `localeCompare` on the absolute path, i.e.
-  // alphabetical order of directory names. `LEARNING/` sorting before
-  // `procedural/` is not a relevance judgement (#453).
+  // Score first, then class. Term score alone ties almost everything — a
+  // two-term query scores 2 on every line containing both — and whatever broke
+  // that tie decided the result, which was `localeCompare` on the absolute
+  // path: `LEARNING/` before `procedural/` is alphabetical order, not a
+  // relevance judgement (#453).
+  //
+  // Class breaks the tie rather than overriding the score. Ranking class first
+  // would put a note matching one of three query terms above an archive line
+  // matching all three, which is a different bug in the same place.
   matches.sort(
     (left, right) =>
-      SOURCE_CLASS_RANK[right.sourceClass] - SOURCE_CLASS_RANK[left.sourceClass] ||
       right.score - left.score ||
+      SOURCE_CLASS_RANK[right.sourceClass] - SOURCE_CLASS_RANK[left.sourceClass] ||
       left.path.localeCompare(right.path) ||
       left.line - right.line,
   );
