@@ -295,7 +295,7 @@ test("soma#329: cursor reproject removes a stale .cursor/rules/soma/TELOS.md", a
 });
 
 test("install spec registry has adapter-owned facts for every install substrate", () => {
-  const substrates = ["codex", "pi-dev", "claude-code", "cursor", "grok", "anthropic-cowork"] as const;
+  const substrates = ["codex", "pi-dev", "claude-code", "cursor", "grok", "dsh", "anthropic-cowork"] as const;
 
   expect(allInstallSpecs().map((spec) => spec.substrate).sort()).toEqual([...substrates].sort());
 
@@ -340,6 +340,7 @@ test("projection private roots aggregate adapter specs", () => {
     join(homeDir, ".pi/agent/soma"),
     join(homeDir, ".pi/agent/skills/soma"),
     join(homeDir, ".grok/skills/soma"),
+    join(homeDir, ".dsh/skills/soma"),
     join(homeDir, ".anthropic-cowork/soma"),
     join(homeDir, ".anthropic-cowork/capture"),
     join(homeDir, ".anthropic-cowork/skills/VSA"),

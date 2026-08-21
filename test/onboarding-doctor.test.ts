@@ -467,17 +467,18 @@ test("soma#370: soma doctor --substrate claude-code flags a hand-edited projecti
   });
 });
 
-test("soma#377: unmanaged-edit check covers non-CONTEXT skeleton files (e.g. SKILLS.md)", async () => {
+test("soma#377: unmanaged-edit check covers non-CONTEXT skeleton files (e.g. PROFILE.md)", async () => {
   await withTempHome(async (homeDir) => {
     await installSomaForClaudeCode({ homeDir }); // CONTEXT.md is header-managed
-    // A hand-replaced SKILLS.md with no header must be caught even though
-    // CONTEXT.md is healthy.
-    await writeFile(join(homeDir, ".claude/rules/soma/SKILLS.md"), "# Skills\n\nhand replaced\n", "utf8");
+    // A hand-replaced skeleton file with no header must be caught even though
+    // CONTEXT.md is healthy. (Was SKILLS.md until soma#638 stopped projecting a
+    // catalog for a loader substrate; PROFILE.md exercises the same path.)
+    await writeFile(join(homeDir, ".claude/rules/soma/PROFILE.md"), "# Profile\n\nhand replaced\n", "utf8");
 
     const diagnosis = await diagnoseSomaDoctor({ homeDir, substrate: "claude-code" });
     const unmanaged = diagnosis.findings.find((f) => f.id === "claude-code-projection-unmanaged-edit");
     expect(unmanaged).toBeDefined();
-    expect(unmanaged?.message).toContain("SKILLS.md");
+    expect(unmanaged?.message).toContain("PROFILE.md");
   });
 });
 
@@ -508,13 +509,13 @@ test("soma doctor --substrate cursor and pi-dev are no longer rejected as unsupp
 });
 
 test("DOCTOR_SUPPORTED_SUBSTRATES / isDoctorSubstrate still gate a genuinely unknown substrate", () => {
-  // Every SomaOnboardingSubstrate (codex/pi-dev/claude-code/cursor/grok) is
+  // Every SomaOnboardingSubstrate (codex/pi-dev/claude-code/cursor/grok/dsh) is
   // now doctor-supported, so `--substrate` can no longer surface
   // DOCTOR_UNSUPPORTED_SUBSTRATE_MESSAGE through the CLI parser (it rejects
   // anthropic-cowork and any other bogus value earlier, with a different
   // message) — this pins the underlying guard directly so the rejection
   // path itself stays covered.
-  expect(DOCTOR_SUPPORTED_SUBSTRATES).toEqual(["codex", "claude-code", "cursor", "grok", "pi-dev"]);
+  expect(DOCTOR_SUPPORTED_SUBSTRATES).toEqual(["codex", "claude-code", "cursor", "grok", "pi-dev", "dsh"]);
   expect(isDoctorSubstrate("anthropic-cowork")).toBe(false);
   expect(isDoctorSubstrate("bogus")).toBe(false);
 });

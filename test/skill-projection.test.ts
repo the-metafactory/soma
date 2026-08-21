@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { lstat, mkdir, mkdtemp, readFile, readlink, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { planProjectSkill, planUnprojectSkill, projectSkill, projectSkills, unprojectSkill } from "../src/skill-projection";
@@ -40,7 +40,7 @@ describe("projectSkill", () => {
     await withTempHome(async (homeDir) => {
       const skillDir = await writeSourceSkill(homeDir, "MyTool");
 
-      const result = await projectSkill({ skillDir, substrates: ["claude-code"], homeDir });
+      const result = await projectSkill({ skillDir, substrates: ["claude-code", "cursor"], homeDir });
 
       expect(result.skill).toBe("MyTool");
 
@@ -55,7 +55,7 @@ describe("projectSkill", () => {
       expect(await readlinkAbs(registryLink)).toBe(resolve(skillDir));
 
       // Catalog lists it (soma#371: compact registry entry, not a `## <name>` heading).
-      const catalog = await readFile(join(homeDir, ".claude", "rules", "soma", "SKILLS.md"), "utf8");
+      const catalog = await readFile(join(homeDir, ".cursor", "rules", "soma", "SKILLS.md"), "utf8");
       expect(catalog).toContain("**MyTool**");
     });
   });
@@ -142,15 +142,15 @@ describe("unprojectSkill", () => {
   test("removes the loader + registry symlinks and drops the skill from the catalog", async () => {
     await withTempHome(async (homeDir) => {
       const skillDir = await writeSourceSkill(homeDir, "MyTool");
-      await projectSkill({ skillDir, substrates: ["claude-code"], homeDir });
+      await projectSkill({ skillDir, substrates: ["claude-code", "cursor"], homeDir });
 
-      const result = await unprojectSkill({ skill: "MyTool", substrates: ["claude-code"], homeDir });
+      const result = await unprojectSkill({ skill: "MyTool", substrates: ["claude-code", "cursor"], homeDir });
       expect(result.registryRemoved).toBe(true);
 
       await expect(lstat(join(homeDir, ".claude", "skills", "MyTool"))).rejects.toThrow();
       await expect(lstat(join(homeDir, ".soma", "skills", "MyTool"))).rejects.toThrow();
 
-      const catalog = await readFile(join(homeDir, ".claude", "rules", "soma", "SKILLS.md"), "utf8");
+      const catalog = await readFile(join(homeDir, ".cursor", "rules", "soma", "SKILLS.md"), "utf8");
       expect(catalog).not.toContain("**MyTool**");
     });
   });
@@ -239,7 +239,7 @@ describe("projectSkills (batch)", () => {
 
       const result = await projectSkills({
         skillDirs: [join(homeDir, ".soma", "skills", "Alpha"), join(homeDir, ".soma", "skills", "Beta")],
-        substrates: ["claude-code"],
+        substrates: ["claude-code", "cursor"],
         homeDir,
       });
 
@@ -247,7 +247,7 @@ describe("projectSkills (batch)", () => {
       expect((await lstat(join(homeDir, ".claude", "skills", "Alpha"))).isSymbolicLink()).toBe(true);
       expect((await lstat(join(homeDir, ".claude", "skills", "Beta"))).isSymbolicLink()).toBe(true);
 
-      const catalog = await readFile(join(homeDir, ".claude", "rules", "soma", "SKILLS.md"), "utf8");
+      const catalog = await readFile(join(homeDir, ".cursor", "rules", "soma", "SKILLS.md"), "utf8");
       expect(catalog).toContain("**Alpha**");
       expect(catalog).toContain("**Beta**");
     });
@@ -261,12 +261,12 @@ describe("projectSkills (batch)", () => {
       const missingDir = join(homeDir, ".soma", "skills", "Missing"); // no SKILL.md
 
       await expect(
-        projectSkills({ skillDirs: [okDir, missingDir], substrates: ["claude-code"], homeDir }),
+        projectSkills({ skillDirs: [okDir, missingDir], substrates: ["claude-code", "cursor"], homeDir }),
       ).rejects.toThrow();
 
       // Ok was linked before the failure; the finally-refresh catalogued it.
       expect((await lstat(join(homeDir, ".claude", "skills", "Ok"))).isSymbolicLink()).toBe(true);
-      const catalog = await readFile(join(homeDir, ".claude", "rules", "soma", "SKILLS.md"), "utf8");
+      const catalog = await readFile(join(homeDir, ".cursor", "rules", "soma", "SKILLS.md"), "utf8");
       expect(catalog).toContain("**Ok**");
     });
   });
@@ -284,12 +284,12 @@ describe("projectSkills (batch)", () => {
       await writeFile(join(loaderSlot, "SKILL.md"), "user\n", "utf8");
 
       await expect(
-        projectSkills({ skillDirs: [srcDir], substrates: ["claude-code"], homeDir }),
+        projectSkills({ skillDirs: [srcDir], substrates: ["claude-code", "cursor"], homeDir }),
       ).rejects.toThrow(/non-symlink/);
 
       // Registry link rolled back → Solo is neither registered nor cataloged.
       await expect(lstat(join(homeDir, ".soma", "skills", "Solo"))).rejects.toThrow();
-      const catalog = await readFile(join(homeDir, ".claude", "rules", "soma", "SKILLS.md"), "utf8");
+      const catalog = await readFile(join(homeDir, ".cursor", "rules", "soma", "SKILLS.md"), "utf8");
       expect(catalog).not.toContain("**Solo**");
       // The user's real loader dir is untouched.
       expect((await lstat(loaderSlot)).isDirectory()).toBe(true);
@@ -304,7 +304,7 @@ describe("soma install --skills", () => {
     await writeFile(join(dir, "SKILL.md"), `---\nname: ${name}\ndescription: "x"\n---\n# ${name}\n`, "utf8");
   }
 
-  test("projects selected skills into the substrate loader + catalog on apply", async () => {
+  test("projects selected skills into the substrate loader on apply, and writes no catalog for a loader substrate", async () => {
     await withTempHome(async (homeDir) => {
       await authorRegistrySkill(homeDir, "Widget");
 
@@ -312,7 +312,19 @@ describe("soma install --skills", () => {
       expect(out).toContain("Projected skills:");
 
       expect((await lstat(join(homeDir, ".claude", "skills", "Widget"))).isSymbolicLink()).toBe(true);
-      const catalog = await readFile(join(homeDir, ".claude", "rules", "soma", "SKILLS.md"), "utf8");
+      // soma#638: Claude Code discovers Widget through its own loader, so the
+      // install writes no rules/soma/SKILLS.md to advertise it a second time.
+      await expect(stat(join(homeDir, ".claude", "rules", "soma", "SKILLS.md"))).rejects.toThrow();
+    });
+  });
+
+  test("soma#638: a catalog substrate still gets its catalog on apply", async () => {
+    await withTempHome(async (homeDir) => {
+      await authorRegistrySkill(homeDir, "Widget");
+
+      await runSomaCli(["install", "cursor", "--apply", "--home-dir", homeDir, "--skills", "Widget"]);
+
+      const catalog = await readFile(join(homeDir, ".cursor", "rules", "soma", "SKILLS.md"), "utf8");
       expect(catalog).toContain("**Widget**");
     });
   });
@@ -471,6 +483,302 @@ describe("eager skill loading (soma#542)", () => {
       expect(plan.links.find((link) => link.substrate === "pi-dev")?.kind).toBe("stub");
       expect(plan.links.find((link) => link.substrate === "claude-code")?.kind).toBe("symlink");
       expect(plan.links.find((link) => link.scope === "registry")?.kind).toBe("symlink");
+    });
+  });
+});
+
+describe("soma#638: canonical source, projected discovery", () => {
+  test("a skill edited in the soma registry is live in the substrate with no reprojection", async () => {
+    await withTempHome(async (homeDir) => {
+      const skillDir = join(homeDir, ".soma", "skills", "Widget");
+      await mkdir(skillDir, { recursive: true });
+      await writeFile(join(skillDir, "SKILL.md"), `---\nname: Widget\n---\n# v1\n`, "utf8");
+
+      await projectSkill({ skillDir, substrates: ["claude-code"], homeDir });
+      const loaderSkillMd = join(homeDir, ".claude", "skills", "Widget", "SKILL.md");
+      expect(await readFile(loaderSkillMd, "utf8")).toContain("# v1");
+
+      // Edit the canonical copy only — no install, no reproject.
+      await writeFile(join(skillDir, "SKILL.md"), `---\nname: Widget\n---\n# v2\n`, "utf8");
+      expect(await readFile(loaderSkillMd, "utf8")).toContain("# v2");
+    });
+  });
+
+  test("unprojecting removes the substrate slot but never the canonical skill", async () => {
+    await withTempHome(async (homeDir) => {
+      const skillDir = join(homeDir, ".soma", "skills", "Widget");
+      await mkdir(skillDir, { recursive: true });
+      await writeFile(join(skillDir, "SKILL.md"), `---\nname: Widget\n---\n# body\n`, "utf8");
+
+      await projectSkill({ skillDir, substrates: ["claude-code"], homeDir });
+      await unprojectSkill({ skill: "Widget", substrates: ["claude-code"], homeDir });
+
+      await expect(lstat(join(homeDir, ".claude", "skills", "Widget"))).rejects.toThrow();
+      // The canonical skill was authored in the registry, so it is the source —
+      // unprojecting a substrate must never reach through and delete it.
+      expect(await readFile(join(skillDir, "SKILL.md"), "utf8")).toContain("# body");
+    });
+  });
+});
+
+describe("soma#638: the registry is the curated set", () => {
+  async function authorSkill(homeDir: string, name: string): Promise<void> {
+    const dir = join(homeDir, ".soma", "skills", name);
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "SKILL.md"), `---\nname: ${name}\ndescription: "x"\n---\n# ${name}\n`, "utf8");
+  }
+
+  test("install projects every registry skill into a loader substrate, with no --skills", async () => {
+    await withTempHome(async (homeDir) => {
+      await authorSkill(homeDir, "Alpha");
+      await authorSkill(homeDir, "Beta");
+
+      await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir]);
+
+      for (const name of ["Alpha", "Beta"]) {
+        expect((await lstat(join(homeDir, ".claude", "skills", name))).isSymbolicLink()).toBe(true);
+      }
+    });
+  });
+
+  test("--skills still narrows the projection to an explicit subset", async () => {
+    await withTempHome(async (homeDir) => {
+      await authorSkill(homeDir, "Alpha");
+      await authorSkill(homeDir, "Beta");
+
+      await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir, "--skills", "Alpha"]);
+
+      expect((await lstat(join(homeDir, ".claude", "skills", "Alpha"))).isSymbolicLink()).toBe(true);
+      await expect(lstat(join(homeDir, ".claude", "skills", "Beta"))).rejects.toThrow();
+    });
+  });
+
+  test("a catalog substrate keeps its opt-in loader — its catalog already names the registry", async () => {
+    await withTempHome(async (homeDir) => {
+      await authorSkill(homeDir, "Alpha");
+
+      await runSomaCli(["install", "cursor", "--apply", "--home-dir", homeDir]);
+
+      await expect(lstat(join(homeDir, ".cursor", "rules", "soma", "skills", "Alpha"))).rejects.toThrow();
+      const catalog = await readFile(join(homeDir, ".cursor", "rules", "soma", "SKILLS.md"), "utf8");
+      expect(catalog).toContain("**Alpha**");
+    });
+  });
+
+  test("VSA is left to its own installer, not symlinked over", async () => {
+    await withTempHome(async (homeDir) => {
+      await authorSkill(homeDir, "Alpha");
+
+      await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir]);
+
+      const vsa = join(homeDir, ".claude", "skills", "VSA");
+      expect((await lstat(vsa)).isSymbolicLink()).toBe(false);
+      expect(await readFile(join(vsa, "SKILL.md"), "utf8")).toContain("name:");
+    });
+  });
+});
+
+describe("soma#638 review fixes", () => {
+  async function authorSkill(homeDir: string, dir: string, frontmatterName: string): Promise<void> {
+    const skillDir = join(homeDir, ".soma", "skills", dir);
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(join(skillDir, "SKILL.md"), `---\nname: ${frontmatterName}\n---\n# ${dir}\n`, "utf8");
+  }
+
+  test("a registry skill whose frontmatter name is VSA is skipped, not allowed to abort the install", async () => {
+    await withTempHome(async (homeDir) => {
+      // The loader slot is named from frontmatter, so excluding on the dir
+      // basename alone let this claim VSA's slot — a real dir owned by the
+      // dedicated installer — and ensureSymlink aborted the WHOLE install.
+      await authorSkill(homeDir, "renamed-vsa", "VSA");
+      await authorSkill(homeDir, "Real", "Real");
+
+      await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir]);
+
+      // Every other skill still projected...
+      expect((await lstat(join(homeDir, ".claude", "skills", "Real"))).isSymbolicLink()).toBe(true);
+      // ...and VSA's slot is still the dedicated installer's real directory.
+      expect((await lstat(join(homeDir, ".claude", "skills", "VSA"))).isSymbolicLink()).toBe(false);
+    });
+  });
+
+  test("reproject picks up a skill added to the registry since install", async () => {
+    await withTempHome(async (homeDir) => {
+      await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir]);
+      await authorSkill(homeDir, "Added", "Added");
+
+      await runSomaCli(["reproject", "claude-code", "--home-dir", homeDir]);
+
+      expect((await lstat(join(homeDir, ".claude", "skills", "Added"))).isSymbolicLink()).toBe(true);
+    });
+  });
+
+  test("the dry-run plan names the skills --apply will link, with no --skills passed", async () => {
+    await withTempHome(async (homeDir) => {
+      await authorSkill(homeDir, "Alpha", "Alpha");
+
+      const out = await runSomaCli(["install", "claude-code", "--home-dir", homeDir]);
+
+      expect(out).toContain("Skills to project (on --apply):");
+      expect(out).toContain("Alpha");
+      // A plan is a promise about what lands — it must not write anything.
+      await expect(lstat(join(homeDir, ".claude", "skills", "Alpha"))).rejects.toThrow();
+    });
+  });
+
+  test("a catalog substrate's plan stays silent about skills it will not project", async () => {
+    await withTempHome(async (homeDir) => {
+      await authorSkill(homeDir, "Alpha", "Alpha");
+
+      const out = await runSomaCli(["install", "cursor", "--home-dir", homeDir]);
+
+      expect(out).not.toContain("Skills to project (on --apply):");
+    });
+  });
+});
+
+describe("soma#638 re-review fixes", () => {
+  async function authorSkill(homeDir: string, dir: string, frontmatterName: string): Promise<void> {
+    const skillDir = join(homeDir, ".soma", "skills", dir);
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(join(skillDir, "SKILL.md"), `---\nname: ${frontmatterName}\n---\n# ${dir}\n`, "utf8");
+  }
+
+  test("a malformed registry skill is reported, not thrown — the read-only plan still renders", async () => {
+    await withTempHome(async (homeDir) => {
+      await authorSkill(homeDir, "bad", "../escape");
+      await authorSkill(homeDir, "good", "Good");
+
+      // A plan DESCRIBES the registry; it must not fail on account of its contents.
+      const out = await runSomaCli(["install", "claude-code", "--home-dir", homeDir]);
+
+      expect(out).toContain("Skills to project (on --apply): Good");
+      // ...and the bad entry is surfaced rather than silently dropped, since a
+      // curated skill that never reaches the harness is the failure this prevents.
+      expect(out).toContain("Skipped (not projectable):");
+      expect(out).toContain("bad:");
+    });
+  });
+
+  test("one malformed skill does not stop the others from projecting on apply", async () => {
+    await withTempHome(async (homeDir) => {
+      await authorSkill(homeDir, "bad", "../escape");
+      await authorSkill(homeDir, "good", "Good");
+
+      await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir]);
+
+      expect((await lstat(join(homeDir, ".claude", "skills", "Good"))).isSymbolicLink()).toBe(true);
+    });
+  });
+
+  test("the plan names the loader slot (frontmatter), not the registry dir", async () => {
+    await withTempHome(async (homeDir) => {
+      await authorSkill(homeDir, "dir-name", "FrontmatterName");
+
+      const plan = await runSomaCli(["install", "claude-code", "--home-dir", homeDir]);
+      expect(plan).toContain("FrontmatterName");
+      expect(plan).not.toContain("dir-name");
+
+      // The promise the plan made is the path the apply creates.
+      await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir]);
+      expect((await lstat(join(homeDir, ".claude", "skills", "FrontmatterName"))).isSymbolicLink()).toBe(true);
+    });
+  });
+});
+
+describe("soma#638 third-pass fixes", () => {
+  async function authorSkill(homeDir: string, dir: string, frontmatterName: string): Promise<void> {
+    const skillDir = join(homeDir, ".soma", "skills", dir);
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(join(skillDir, "SKILL.md"), `---\nname: ${frontmatterName}\n---\n# ${dir}\n`, "utf8");
+  }
+
+  test("uninstall removes the projected loader symlinks and leaves the canonical registry alone", async () => {
+    await withTempHome(async (homeDir) => {
+      await authorSkill(homeDir, "Mine", "Mine");
+      // A principal-authored skill sharing the loader dir must survive untouched:
+      // `skills/` is SHARED, not a Soma-owned subtree.
+      const userOwned = join(homeDir, ".claude", "skills", "UserOwned");
+      await mkdir(userOwned, { recursive: true });
+      await writeFile(join(userOwned, "SKILL.md"), `---\nname: UserOwned\n---\n# not soma\n`, "utf8");
+
+      await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir]);
+      expect((await lstat(join(homeDir, ".claude", "skills", "Mine"))).isSymbolicLink()).toBe(true);
+
+      await runSomaCli(["uninstall", "claude-code", "--home-dir", homeDir]);
+
+      await expect(lstat(join(homeDir, ".claude", "skills", "Mine"))).rejects.toThrow();
+      expect(await readFile(join(homeDir, ".soma", "skills", "Mine", "SKILL.md"), "utf8")).toContain("# Mine");
+      expect(await readFile(join(userOwned, "SKILL.md"), "utf8")).toContain("# not soma");
+    });
+  });
+
+  test("two registry dirs claiming one loader slot: first wins, the other is reported not dropped", async () => {
+    await withTempHome(async (homeDir) => {
+      await authorSkill(homeDir, "one", "Clash");
+      await authorSkill(homeDir, "two", "Clash");
+
+      const out = await runSomaCli(["install", "claude-code", "--home-dir", homeDir]);
+
+      expect(out).toContain("Skills to project (on --apply): Clash");
+      expect(out).toContain("Skipped (not projectable):");
+      expect(out).toContain('two: loader slot "Clash" is already claimed by one');
+    });
+  });
+});
+
+describe("soma#638 fourth-pass fixes", () => {
+  test("a dangling registry symlink is reported; a plain dir with no SKILL.md stays quiet", async () => {
+    await withTempHome(async (homeDir) => {
+      const good = join(homeDir, ".soma", "skills", "Good");
+      await mkdir(good, { recursive: true });
+      await writeFile(join(good, "SKILL.md"), `---\nname: Good\n---\n# g\n`, "utf8");
+      // Scratch dir — not a skill, and reporting it every install would be noise.
+      await mkdir(join(homeDir, ".soma", "skills", "notes"), { recursive: true });
+      // Deliberately pointed somewhere, target gone: silence would leave a curated
+      // entry that never reaches the harness with no signal why.
+      await symlink(join(homeDir, "nowhere"), join(homeDir, ".soma", "skills", "Dangling"));
+
+      const out = await runSomaCli(["install", "claude-code", "--home-dir", homeDir]);
+
+      expect(out).toContain("Dangling: registry symlink points at a missing target");
+      expect(out).not.toContain("notes:");
+    });
+  });
+
+  test("grok uninstall removes a --skills symlink it projected", async () => {
+    await withTempHome(async (homeDir) => {
+      const dir = join(homeDir, ".soma", "skills", "G");
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, "SKILL.md"), `---\nname: G\n---\n# g\n`, "utf8");
+
+      await runSomaCli(["install", "grok", "--apply", "--home-dir", homeDir, "--skills", "G"]);
+      expect((await lstat(join(homeDir, ".grok", "skills", "G"))).isSymbolicLink()).toBe(true);
+
+      await runSomaCli(["uninstall", "grok", "--home-dir", homeDir]);
+
+      await expect(lstat(join(homeDir, ".grok", "skills", "G"))).rejects.toThrow();
+      expect(await readFile(join(dir, "SKILL.md"), "utf8")).toContain("# g");
+    });
+  });
+
+  test("a loader symlink pointing outside the skills registry is left alone", async () => {
+    await withTempHome(async (homeDir) => {
+      const mine = join(homeDir, ".soma", "skills", "Mine");
+      await mkdir(mine, { recursive: true });
+      await writeFile(join(mine, "SKILL.md"), `---\nname: Mine\n---\n# m\n`, "utf8");
+      const backup = join(homeDir, ".soma", "skills-backup", "Other");
+      await mkdir(backup, { recursive: true });
+      await writeFile(join(backup, "SKILL.md"), `---\nname: Other\n---\n# o\n`, "utf8");
+
+      await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir]);
+      // `skills-backup` must not read as inside `skills` — the separator guard.
+      await symlink(backup, join(homeDir, ".claude", "skills", "Other"));
+
+      await runSomaCli(["uninstall", "claude-code", "--home-dir", homeDir]);
+
+      await expect(lstat(join(homeDir, ".claude", "skills", "Mine"))).rejects.toThrow();
+      expect((await lstat(join(homeDir, ".claude", "skills", "Other"))).isSymbolicLink()).toBe(true);
     });
   });
 });

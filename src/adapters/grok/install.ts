@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { isEnoent } from "../../fs-errors";
 import { skillsLoaderUnder, vsaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
+import { removeProjectedSkillLinks } from "../../projected-skill-links";
 import { GROK_DEFAULT_HOME, grokProjectionPrivateRoots } from "../private-roots";
 import {
   GROK_AGENT_MARKER,
@@ -179,6 +180,7 @@ export const grokInstallSpec: SubstrateInstallSpec<"grok"> = {
   validator: validateGrokInstallRuntime,
   skillsLoaderDir: skillsLoaderUnder(),
   skillsLoading: "on-demand",
+  skillsDiscovery: "catalog",
   vsaSkillProjection: {
     // Lands the versioned VSA skill at `~/.grok/skills/VSA` (same shape
     // as Codex's `vsaSkillUnder()` → `~/.codex/skills/VSA`).
@@ -240,12 +242,22 @@ export const grokInstallSpec: SubstrateInstallSpec<"grok"> = {
     ],
     shouldRemove: (target) => shouldRemoveGrokTarget(target),
     postRemove: async ({ homeDir, somaHome, substrateHome }) => {
+      const resolvedSomaHome = somaHome ?? resolve(homeDir ?? homedir(), ".soma");
       const removed: string[] = [
         // Portable skills round-trip through the install manifest (the
         // static removals above cannot name their dynamic paths).
         ...(await removeGrokPortableSkillProjection({
-          somaHome: somaHome ?? resolve(homeDir ?? homedir(), ".soma"),
+          somaHome: resolvedSomaHome,
           substrateHome,
+        })),
+        // soma#638: `install grok --skills X` links the loader slot through the
+        // projection primitive, which writes no manifest entry, so the symlink
+        // outlived uninstall as an orphan. Pre-dates the wholesale-projection
+        // work but is the same defect, and grok shares claude-code's shape: a
+        // SHARED skills dir the static remove list cannot enumerate.
+        ...(await removeProjectedSkillLinks({
+          loaderDir: skillsLoaderUnder()(substrateHome),
+          somaHome: resolvedSomaHome,
         })),
       ];
       for (const unpatch of [removeAgentsImportBlock, removeConfigPatchBlock]) {

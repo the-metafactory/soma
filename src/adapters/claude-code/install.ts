@@ -2,7 +2,8 @@ import { skillsLoaderUnder, vsaSkillUnder, type SubstrateInstallSpec } from "../
 import { vsaSiblingPrunePrepare } from "../../legacy-skill-prune";
 import { defaultSomaHome } from "../../paths";
 import { removePortableSkillProjection } from "../shared/portable-skill-manifest";
-import { CLAUDE_CODE_RULES_FILES } from "../claude-code";
+import { removeProjectedSkillLinks } from "../../projected-skill-links";
+import { CLAUDE_CODE_PROJECTED_RULES_FILES, CLAUDE_CODE_SKILLS_DISCOVERY } from "../claude-code";
 import {
   SOMA_CLAUDE_HOOK_CONFIG_RELATIVE_PATH,
   SOMA_CLAUDE_HOOK_RELATIVE_PATH,
@@ -26,7 +27,7 @@ export const claudeCodeInstallSpec: SubstrateInstallSpec<"claude-code"> = {
   substrate: "claude-code",
   defaultHome: ".claude",
   homeFiles: [
-    ...CLAUDE_CODE_RULES_FILES,
+    ...CLAUDE_CODE_PROJECTED_RULES_FILES,
     SOMA_CLAUDE_HOOK_RELATIVE_PATH,
     SOMA_CLAUDE_HOOK_CONFIG_RELATIVE_PATH,
     "settings.json",
@@ -59,6 +60,7 @@ export const claudeCodeInstallSpec: SubstrateInstallSpec<"claude-code"> = {
   ],
   skillsLoaderDir: skillsLoaderUnder(),
   skillsLoading: "on-demand",
+  skillsDiscovery: CLAUDE_CODE_SKILLS_DISCOVERY,
   vsaSkillProjection: {
     destinationDir: vsaSkillUnder(),
     // soma#329: before reprojecting VSA, prune a sibling renamed-away "ISA" skill
@@ -82,15 +84,27 @@ export const claudeCodeInstallSpec: SubstrateInstallSpec<"claude-code"> = {
     kind: "implemented",
     remove: ["rules/soma", "skills/VSA"],
     postRemove: async (context) => {
+      const somaHome = defaultSomaHome({ homeDir: context.homeDir, somaHome: context.somaHome });
       const removed = [...(await removeClaudeCodeSomaHookFiles(context.substrateHome))];
       // Portable bundled skills project under dynamic `skills/<name>/` paths the
       // static `remove` list cannot name; the install manifest records them so
-      // uninstall round-trips them (user-edited files preserved).
+      // uninstall round-trips them (user-edited files preserved). Still needed for
+      // a home installed before soma#638, whose loader holds copies.
       removed.push(
         ...(await removePortableSkillProjection({
-          somaHome: defaultSomaHome({ homeDir: context.homeDir, somaHome: context.somaHome }),
+          somaHome,
           substrate: "claude-code",
           substrateHome: context.substrateHome,
+        })),
+      );
+      // soma#638: skills now reach the loader as symlinks into ~/.soma/skills,
+      // created by the projection primitive rather than written by the projection,
+      // so the manifest never sees them. Without this they survived uninstall as
+      // orphaned Soma artifacts. The canonical registry entries are not touched.
+      removed.push(
+        ...(await removeProjectedSkillLinks({
+          loaderDir: claudeCodeInstallSpec.skillsLoaderDir(context.substrateHome),
+          somaHome,
         })),
       );
       return removed;

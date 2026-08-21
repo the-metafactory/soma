@@ -40,7 +40,7 @@ export type ParsedOnboardingArgs = ParsedInitArgs | ParsedDoctorArgs | ParsedAdo
 const ADOPT_CLAUDE_USAGE =
   "Usage: soma adopt claude [--dry-run] [--apply] [--uninstall] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
 const INIT_USAGE =
-  "Usage: soma init [--dry-run] [--apply] [--home-dir <dir>] [--soma-home <dir>] [--substrate <codex|pi-dev|claude-code|cursor|grok>]";
+  "Usage: soma init [--dry-run] [--apply] [--home-dir <dir>] [--soma-home <dir>] [--substrate <codex|pi-dev|claude-code|cursor|grok|dsh>]";
 const DOCTOR_USAGE =
   `Usage: soma doctor [--home-dir <dir>] [--soma-home <dir>] [--substrate <${DOCTOR_SUPPORTED_SUBSTRATES.join("|")}>]`;
 

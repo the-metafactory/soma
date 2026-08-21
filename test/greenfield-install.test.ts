@@ -44,6 +44,7 @@ import {
   planSomaForClaudeCodeInstall,
   planSomaForCodexInstall,
   planSomaForCursorInstall,
+  planSomaForDshInstall,
   planSomaForGrokInstall,
   planSomaForPiDevInstall,
   type SomaInstallOptions,
@@ -104,6 +105,7 @@ const SUBSTRATE_PLANNERS: Record<
   "claude-code": planSomaForClaudeCodeInstall,
   cursor: planSomaForCursorInstall,
   grok: planSomaForGrokInstall,
+  dsh: planSomaForDshInstall,
 };
 
 /**

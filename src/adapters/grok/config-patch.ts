@@ -1,4 +1,5 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { findMarkerBlock } from "../shared/marker-block";
 import { dirname, join } from "node:path";
 import { isEnoent } from "../../fs-errors";
 
@@ -44,39 +45,6 @@ function renderConfigPatchBlock(somaHome: string): string {
     `# Source of truth: ${somaHome}`,
     GROK_CONFIG_BLOCK_END,
   ].join("\n");
-}
-
-/** Offsets of `marker` where it starts a line (so an incidental mention of
- * the marker text inside prose or foreign content is ignored). */
-function lineStartOccurrences(content: string, marker: string): number[] {
-  const positions: number[] = [];
-  let index = content.indexOf(marker);
-  while (index !== -1) {
-    if (index === 0 || content[index - 1] === "\n") positions.push(index);
-    index = content.indexOf(marker, index + marker.length);
-  }
-  return positions;
-}
-
-/**
- * Locate Soma's marker block as the nearest well-formed begin/end pair:
- * a line-anchored begin whose first following end marker has no other
- * begin marker between them. This makes a foreign `…:begin` string
- * preceding the real block fall through to the real (inner) pair instead
- * of excising the foreign bytes between the stray begin and the real end.
- * A begin with no following end is foreign and yields null.
- */
-function findMarkerBlock(content: string, begin: string, end: string): { start: number; bodyEnd: number } | null {
-  const beginPositions = lineStartOccurrences(content, begin);
-  const endPositions = lineStartOccurrences(content, end);
-  for (const start of beginPositions) {
-    const endStart = endPositions.find((position) => position >= start + begin.length);
-    if (endStart === undefined) continue;
-    const nestedBegin = beginPositions.find((position) => position > start && position < endStart);
-    if (nestedBegin !== undefined) continue;
-    return { start, bodyEnd: endStart + end.length };
-  }
-  return null;
 }
 
 /**

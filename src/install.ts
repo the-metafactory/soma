@@ -6,6 +6,7 @@ import {
   installAnthropicCoworkHomeProjection,
   installCodexHomeProjection,
   installCursorHomeProjection,
+  installDshHomeProjection,
   installGrokHomeProjection,
   installPiDevHomeProjection,
 } from "./home-projection";
@@ -30,7 +31,16 @@ import {
   type UninstallContext,
 } from "./install-spec";
 import { allInstallSpecs, defaultSubstrateHome, installSpecFor } from "./install-spec-registry";
-import type { ProjectionInput, SomaInstallOptions, SomaInstallPlan, SomaInstallResult, SubstrateId } from "./types";
+import { projectSkills, scanRegistrySkills } from "./skill-projection";
+import type {
+  InstalledSkill,
+  ProjectionInput,
+  SomaInstallOptions,
+  SomaInstallPlan,
+  SomaInstallResult,
+  SubstrateId,
+  UninstallableSkillReport,
+} from "./types";
 
 export type { ClaudeCodeInstallOptions } from "./adapters/claude-code/install-options";
 
@@ -120,6 +130,10 @@ export function planSomaForGrokInstall(options: SomaInstallOptions = {}): SomaIn
 
 export function planSomaForAnthropicCoworkInstall(options: SomaInstallOptions = {}): SomaInstallPlan {
   return planSomaInstall("anthropic-cowork", options);
+}
+
+export function planSomaForDshInstall(options: SomaInstallOptions = {}): SomaInstallPlan {
+  return planSomaInstall("dsh", options);
 }
 
 async function installSomaForSubstrate(
@@ -247,6 +261,26 @@ async function installSomaForSubstrate(
   const allProjectedFiles = [...substrateHome.files, ...postProjectionFiles, ...lifecycleFiles];
   await reconcileOwnedSubtrees(spec, substrateHome.rootDir, allProjectedFiles);
 
+  // soma#638: link the curated registry into the substrate's loader. This lives
+  // in the install layer, not the CLI, because for a `loader` substrate the
+  // loader IS discovery — a programmatic install that skipped this produced a
+  // home with no discoverable skills at all, since the catalog is gone too.
+  //
+  // Runs AFTER reconcileOwnedSubtrees on purpose: the reconcile prunes an owned
+  // subtree to the projected FILE set, and a symlink is not in that set, so
+  // linking first would have the reconcile delete what install just created.
+  // (Only relevant if a `loader` substrate ever has its loader inside an owned
+  // subtree — ordering keeps that from being a silent trap.)
+  const { projectedSkills, unprojectableSkills } = codeOnly
+    ? { projectedSkills: [], unprojectableSkills: [] }
+    : await projectRegistrySkills(spec, {
+        substrate,
+        substrateRoot,
+        somaHome: somaHome.somaHome,
+        homeDir: options.homeDir,
+        selected: options.skills ?? [],
+      });
+
   return {
     substrate,
     somaHome,
@@ -254,6 +288,65 @@ async function installSomaForSubstrate(
       ...substrateHome,
       files: allProjectedFiles,
     },
+    projectedSkills,
+    unprojectableSkills,
+  };
+}
+
+/**
+ * Link the Soma skill registry into one substrate's loader.
+ *
+ * Only a `loader` substrate takes the whole registry: its own loader is how
+ * skills are discovered, so anything missing from it is unreachable. A `catalog`
+ * substrate's projected catalog already advertises the registry, so its loader
+ * stays opt-in via `--skills`.
+ */
+async function projectRegistrySkills(
+  spec: SubstrateInstallSpec,
+  context: {
+    substrate: InstallSubstrate;
+    substrateRoot: string;
+    somaHome: string;
+    homeDir?: string;
+    selected: string[];
+  },
+): Promise<{ projectedSkills: InstalledSkill[]; unprojectableSkills: UninstallableSkillReport[] }> {
+  const wholeRegistry = context.selected.length === 0;
+  if (wholeRegistry && spec.skillsDiscovery !== "loader") {
+    return { projectedSkills: [], unprojectableSkills: [] };
+  }
+
+  // An explicit selection is taken at face value: the principal named these
+  // dirs, so a name that does not resolve should surface as a projection error
+  // rather than be silently dropped by a scan that skips what it cannot read.
+  const scan = wholeRegistry ? await scanRegistrySkills(context.somaHome) : undefined;
+  // The scan already read every SKILL.md to resolve its slot name — pass those
+  // through rather than have linkSkill re-derive them, which read the whole
+  // registry twice per install.
+  const skillDirs: (string | { dir: string; name: string })[] = scan
+    ? scan.skills
+    : context.selected.map((name) => join(context.somaHome, "skills", name));
+  if (skillDirs.length === 0) {
+    return { projectedSkills: [], unprojectableSkills: scan?.unprojectable ?? [] };
+  }
+
+  const { skills } = await projectSkills({
+    skillDirs,
+    substrates: [context.substrate],
+    homeDir: context.homeDir,
+    somaHome: context.somaHome,
+    substrateHome: context.substrateRoot,
+  });
+  return {
+    projectedSkills: skills.map((result) => {
+      const loader = result.links.find((link) => link.scope === "substrate");
+      return {
+        skill: result.skill,
+        path: loader?.path ?? result.skillDir,
+        status: loader?.status ?? "linked",
+      };
+    }),
+    unprojectableSkills: scan?.unprojectable ?? [],
   };
 }
 
@@ -334,6 +427,8 @@ async function installHomeProjectionFor(
       return installCursorHomeProjection(context, options);
     case "grok":
       return installGrokHomeProjection(context, options);
+    case "dsh":
+      return installDshHomeProjection(context, options);
     case "anthropic-cowork":
       return installAnthropicCoworkHomeProjection(context, options);
   }
@@ -406,6 +501,10 @@ export async function installSomaForGrok(options: SomaInstallOptions = {}): Prom
 
 export async function installSomaForAnthropicCowork(options: SomaInstallOptions = {}): Promise<SomaInstallResult> {
   return installSomaForSubstrate("anthropic-cowork", options);
+}
+
+export async function installSomaForDsh(options: SomaInstallOptions = {}): Promise<SomaInstallResult> {
+  return installSomaForSubstrate("dsh", options);
 }
 
 /**

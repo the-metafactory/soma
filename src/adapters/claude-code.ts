@@ -1,5 +1,6 @@
+import type { SkillsDiscoveryMode } from "../install-spec";
 import type { SomaAdapter, Projection, ProjectionInput } from "../types";
-import { buildPortableSkillFiles, communicationContractFile, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills, SELF_HEALING_DOCTRINE_ADVISORY, withProvenance } from "./shared";
+import { buildPortableSkillFiles, communicationContractFile, projectedRulesFiles, skillCatalogFile, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills, SELF_HEALING_DOCTRINE_ADVISORY, withProvenance } from "./shared";
 import { activeVsaBundleFile } from "../adapter-active-vsa";
 import { behaviorPolicyAdvisory } from "../policy/behavior-policy";
 
@@ -122,10 +123,11 @@ function renderClaudeRulesReadme(): string {
     "- `PROFILE.md` — assistant + principal profile detail",
     "- `PURPOSE.md` — mission, goals, principles, commitments",
     "- `MEMORY_LAYOUT.md` — pointers into the soma memory tree",
-    "- `SKILLS.md` — discovered Soma skills",
     "- `POLICY.md` — substrate policy projection",
     "- `COMMUNICATION.md` — how the assistant talks (omitted when the home has no contract)",
     "- `ACTIVE_VSA.md` — current active VSA (omitted when none set)",
+    "",
+    "Skills are not listed here. Claude Code discovers them from `~/.claude/skills/`, where Soma projects each canonical `~/.soma/skills/<name>` (soma#638) — a second catalog would cost context every turn and name skills the Skill tool cannot resolve.",
     "",
     "## Lifecycle",
     "",
@@ -192,6 +194,16 @@ function renderClaudePolicy(input: ProjectionInput): string {
  * constant; the writer assembles content for each path via the
  * accessor map below. Adding a file = update the map AND this array.
  */
+/**
+ * soma#638: Claude Code discovers skills through its own loader — the Skill tool
+ * lists every `~/.claude/skills/<name>/SKILL.md` by name and description — so Soma
+ * projects no second catalog. Declared here (beside CLAUDE_CODE_RULES_FILES, the
+ * other constant the install spec reads back) so the projection and the install
+ * spec cannot drift, and so the spec module does not import a registry that
+ * imports it back.
+ */
+export const CLAUDE_CODE_SKILLS_DISCOVERY: SkillsDiscoveryMode = "loader";
+
 export const CLAUDE_CODE_RULES_FILES = [
   "rules/soma/README.md",
   "rules/soma/CONTEXT.md",
@@ -214,9 +226,32 @@ export const CLAUDE_CODE_RULES_FILES = [
   "rules/soma/COMMUNICATION.md",
 ] as const;
 
+/**
+ * The rules files this substrate actually WRITES, given its discovery mode
+ * (soma#638). `CLAUDE_CODE_RULES_FILES` stays the full declared set — doctor and
+ * the owned-subtree reconcile still need to know `rules/soma/SKILLS.md` is a
+ * path Soma owns, so a catalog from an older install is cleaned up rather than
+ * treated as a foreign file. The install PLAN, though, must promise only what
+ * lands: declaring a file the projection never emits turns every greenfield
+ * install into a "planned but never written" failure.
+ */
+export const CLAUDE_CODE_PROJECTED_RULES_FILES = projectedRulesFiles(
+  CLAUDE_CODE_RULES_FILES,
+  "rules/soma/SKILLS.md",
+  CLAUDE_CODE_SKILLS_DISCOVERY,
+);
+
 // The conditionally-projected rules files (ACTIVE_VSA + MEMORY + COMMUNICATION):
 // each is omitted when its source is absent, so none has an always-on content builder.
-type ConditionalRulesFile = "rules/soma/ACTIVE_VSA.md" | "rules/soma/MEMORY.md" | "rules/soma/COMMUNICATION.md";
+type ConditionalRulesFile =
+  | "rules/soma/ACTIVE_VSA.md"
+  | "rules/soma/MEMORY.md"
+  | "rules/soma/COMMUNICATION.md"
+  // soma#638: the skill catalog is conditional on discovery mode, not on source
+  // presence like the three above. Claude Code is a `loader` substrate — its Skill
+  // tool already advertises every ~/.claude/skills/*/SKILL.md — so no catalog is
+  // emitted and the owned-subtree reconcile removes any left by an older install.
+  | "rules/soma/SKILLS.md";
 
 const CLAUDE_RULES_CONTENT_BUILDERS: Record<
   Exclude<(typeof CLAUDE_CODE_RULES_FILES)[number], ConditionalRulesFile>,
@@ -227,7 +262,6 @@ const CLAUDE_RULES_CONTENT_BUILDERS: Record<
   "rules/soma/PROFILE.md": (input) => renderClaudeProfile(input),
   "rules/soma/PURPOSE.md": (input) => renderClaudePurpose(input),
   "rules/soma/MEMORY_LAYOUT.md": (input) => renderMemoryLayout(input),
-  "rules/soma/SKILLS.md": (input) => renderSkills(input),
   "rules/soma/POLICY.md": (input) => renderClaudePolicy(input),
 };
 
@@ -273,7 +307,9 @@ export function projectClaudeCodeHome(input: ProjectionInput): Projection {
   // kept), same shape as codex/grok. The `skills/` dir is SHARED (principal-authored + PAI-migrated
   // skills), so it is NOT an owned subtree; removals round-trip via the install
   // manifest (installClaudeCodeHomeProjection), not the owned-subtree reconcile.
-  const portableSkillFiles = buildPortableSkillFiles(input.profile.skills, input.bundledSkillNames, "claude-code");
+  const portableSkillFiles = buildPortableSkillFiles(input.profile.skills, input.bundledSkillNames, "claude-code", {
+    discovery: CLAUDE_CODE_SKILLS_DISCOVERY,
+  });
   return {
     substrate: "claude-code",
     instructions: renderInstructions(input),
@@ -290,6 +326,11 @@ export function projectClaudeCodeHome(input: ProjectionInput): Projection {
       ...activeVsaBundleFile("claude-code", input.activeVsa),
       // Memory index (M4) — omitted when memory disabled / no index. Verbatim bytes.
       ...memoryIndexBundleFile(input),
+      // Skill catalog — omitted for a `loader` substrate (soma#638).
+      ...skillCatalogFile("claude-code", input, "rules/soma/SKILLS.md", {
+        discovery: CLAUDE_CODE_SKILLS_DISCOVERY,
+        provenance: true,
+      }),
       // Communication contract — omitted when the home has none. Verbatim bytes.
       ...communicationContractFile(input, "rules/soma/COMMUNICATION.md"),
     ],

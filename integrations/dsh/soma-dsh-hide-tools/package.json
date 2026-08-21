@@ -1,0 +1,23 @@
+{
+  "name": "@metafactory/soma-dsh-hide-tools",
+  "version": "0.1.0",
+  "description": "DSH client plugin that hides tool-call rows from the chat flow (Soma substrate integration, P0). Tool calls stay in the durable session log.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web"
+    }
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "README.md"
+  ],
+  "license": "MIT"
+}

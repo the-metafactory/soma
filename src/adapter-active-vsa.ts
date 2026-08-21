@@ -57,6 +57,8 @@ export function renderActiveVsaFile(isa: VerificationStateArtifact): string {
  * | pi-dev       | agent/soma/active-vsa.md          |
  * | claude-code  | rules/soma/ACTIVE_VSA.md          |
  * | cursor       | .cursor/rules/soma/ACTIVE_VSA.md  |
+ * | grok         | skills/soma/active-vsa.md         |
+ * | dsh          | skills/soma/active-vsa.md         |
  * | anthropic-cowork | soma/active-vsa.md             |
  *
  * The Claude Code path moved from `PAI/ACTIVE_VSA.md` (the original
@@ -76,6 +78,8 @@ export function activeVsaProjectionPath(substrate: ProjectionSubstrate): string 
     case "cursor":
       return ".cursor/rules/soma/ACTIVE_VSA.md";
     case "grok":
+      return "skills/soma/active-vsa.md";
+    case "dsh":
       return "skills/soma/active-vsa.md";
     case "anthropic-cowork":
       return "soma/active-vsa.md";

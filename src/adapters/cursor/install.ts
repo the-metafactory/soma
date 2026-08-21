@@ -58,6 +58,7 @@ export const cursorInstallSpec: SubstrateInstallSpec<"cursor"> = {
   ownedSubtrees: [".cursor/rules/soma"],
   skillsLoaderDir: skillsLoaderUnder(".cursor/rules/soma"),
   skillsLoading: "on-demand",
+  skillsDiscovery: "catalog",
   vsaSkillProjection: {
     destinationDir: vsaSkillUnder(".cursor/rules/soma"),
   },

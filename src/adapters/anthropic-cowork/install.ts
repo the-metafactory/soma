@@ -94,6 +94,7 @@ export const anthropicCoworkInstallSpec: SubstrateInstallSpec<"anthropic-cowork"
   homeFiles: ANTHROPIC_COWORK_HOME_FILE_PATHS,
   skillsLoaderDir: skillsLoaderUnder(ANTHROPIC_COWORK_SKILLS_ROOT_PATH),
   skillsLoading: "on-demand",
+  skillsDiscovery: "catalog",
   vsaSkillProjection: {
     destinationDir: (substrateHome) => resolve(substrateHome, "skills", "VSA"),
   },

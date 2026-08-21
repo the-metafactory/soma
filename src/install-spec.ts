@@ -61,6 +61,28 @@ export function skillsLoaderUnder(...pathSegments: string[]): (substrateHome: st
  */
 export type SkillsLoadingMode = "on-demand" | "eager";
 
+/**
+ * How a substrate discovers *which* skills exist — distinct from
+ * {@link SkillsLoadingMode}, which is about when a discovered skill's BODY enters
+ * context.
+ *
+ * - `loader` — the harness advertises the contents of
+ *   {@link SubstrateInstallSpec.skillsLoaderDir} itself (Claude Code's Skill tool
+ *   lists every `~/.claude/skills/<name>/SKILL.md` by name + description). Soma emits
+ *   NO catalog: a second list is paid for on every turn, and — because the
+ *   catalog names skills by their `~/.soma/skills` dir while the harness
+ *   registers the loader dir name — it advertises names the harness cannot
+ *   resolve (`red-team` vs `RedTeam`).
+ * - `catalog` — the loader does not advertise what it holds, so the projected
+ *   catalog IS the discovery mechanism rather than a duplicate of one.
+ *
+ * soma#638: a property of the substrate's loader, like `skillsLoading`, so it
+ * lives on the adapter spec. Default to `catalog` for a substrate whose native
+ * discovery has not been verified — an extra list is wasteful, a missing one is
+ * a capability regression.
+ */
+export type SkillsDiscoveryMode = "loader" | "catalog";
+
 export type InstallValidator = (substrateRoot: string) => Promise<void>;
 
 export interface UninstallContext {
@@ -131,6 +153,12 @@ export interface SubstrateInstallSpec<S extends InstallSubstrate = InstallSubstr
    * `eager` writes a frontmatter-only stub pointing at it (soma#542).
    */
   skillsLoading: SkillsLoadingMode;
+  /**
+   * Whether this substrate needs Soma to project an eager skill catalog, or its
+   * own loader already advertises what it holds (soma#638). See
+   * {@link SkillsDiscoveryMode}.
+   */
+  skillsDiscovery: SkillsDiscoveryMode;
   validator?: InstallValidator;
   lifecycleProjection?: LifecycleProjectionSpec;
   postProjection?: readonly InstallPostProjectionStep[];

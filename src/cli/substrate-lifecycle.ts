@@ -1,11 +1,12 @@
 import { homedir } from "node:os";
-import { join as pathJoin, relative as pathRelative, resolve as pathResolve } from "node:path";
+import { basename, join as pathJoin, relative as pathRelative, resolve as pathResolve } from "node:path";
 import { cursorWorkspaceSubstrateHome } from "../adapters/cursor";
 import {
   buildAnthropicCoworkHomeProjection,
   buildClaudeCodeHomeProjection,
   buildCodexHomeProjection,
   buildCursorHomeProjection,
+  buildDshHomeProjection,
   buildGrokHomeProjection,
   buildPiDevHomeProjection,
 } from "../home-projection";
@@ -14,12 +15,14 @@ import {
   installSomaForClaudeCode,
   installSomaForCodex,
   installSomaForCursor,
+  installSomaForDsh,
   installSomaForGrok,
   installSomaForPiDev,
   planSomaForAnthropicCoworkInstall,
   planSomaForClaudeCodeInstall,
   planSomaForCodexInstall,
   planSomaForCursorInstall,
+  planSomaForDshInstall,
   planSomaForGrokInstall,
   planSomaForPiDevInstall,
   uninstallSomaForAnthropicCowork,
@@ -36,7 +39,7 @@ import type { ClaudeCodeInstallOptions } from "../adapters/claude-code/install-o
 import { projectVsaSkillBundleFiles } from "../vsa-skill-installer";
 import { defaultSubstrateHome, installSpecFor } from "../install-spec-registry";
 import { loadSomaHome } from "../soma-home";
-import { projectSkills } from "../skill-projection";
+import { scanRegistrySkills, type UnprojectableRegistrySkill } from "../skill-projection";
 import type {
   InstallSubstrate,
   ProjectionInput,
@@ -102,7 +105,7 @@ export type ParsedSubstrateLifecycleArgs =
   | ParsedExportArgs
   | ParsedDaemonArgs;
 
-export const PROJECTION_LIFECYCLE_SUBSTRATES = ["codex", "pi-dev", "claude-code", "cursor", "grok"] as const satisfies readonly ProjectionLifecycleSubstrate[];
+export const PROJECTION_LIFECYCLE_SUBSTRATES = ["codex", "pi-dev", "claude-code", "cursor", "grok", "dsh"] as const satisfies readonly ProjectionLifecycleSubstrate[];
 export const INSTALL_SUBSTRATES = [...PROJECTION_LIFECYCLE_SUBSTRATES, "anthropic-cowork"] as const satisfies readonly InstallSubstrate[];
 
 const substrateList = INSTALL_SUBSTRATES.join("|");
@@ -136,6 +139,7 @@ const installPlanners: Record<InstallSubstrate, (options: SomaInstallOptions) =>
   "claude-code": planSomaForClaudeCodeInstall,
   cursor: planSomaForCursorInstall,
   grok: planSomaForGrokInstall,
+  dsh: planSomaForDshInstall,
   "anthropic-cowork": planSomaForAnthropicCoworkInstall,
 };
 
@@ -145,6 +149,7 @@ const installers: Record<InstallSubstrate, (options: SomaInstallOptions) => Prom
   "claude-code": installSomaForClaudeCode,
   cursor: installSomaForCursor,
   grok: installSomaForGrok,
+  dsh: installSomaForDsh,
   "anthropic-cowork": installSomaForAnthropicCowork,
 };
 
@@ -157,6 +162,7 @@ const projectionBuilders: Record<
   "claude-code": (input, options) => buildClaudeCodeHomeProjection(input, options).bundle.files,
   cursor: (input, options) => buildCursorHomeProjection(input, options).bundle.files,
   grok: (input, options) => buildGrokHomeProjection(input, options).bundle.files,
+  dsh: (input, options) => buildDshHomeProjection(input, options).bundle.files,
   "anthropic-cowork": (input, options) => buildAnthropicCoworkHomeProjection(input, options).bundle.files,
 };
 
@@ -196,7 +202,7 @@ function isProjectionLifecycleSubstrate(value: string | undefined): value is Pro
 
 export function parseOnboardingSubstrate(value: string): InstallSubstrate {
   if (isInstallSubstrate(value)) return value;
-  throw new Error("--substrate must be one of codex, pi-dev, claude-code, cursor, grok, or anthropic-cowork.");
+  throw new Error("--substrate must be one of codex, pi-dev, claude-code, cursor, grok, dsh, or anthropic-cowork.");
 }
 
 function commandUsage(command: keyof typeof SUBSTRATE_LIFECYCLE_COMMAND_HELP): string {
@@ -212,7 +218,14 @@ function workspaceSubstrateHome(substrate: InstallSubstrate): string {
   // substrate can never silently fall through to another substrate's home.
   // Cursor is the one structural exception: its defaultHome is the home
   // root itself, so its workspace home has a dedicated resolver.
+  //
+  // dsh is the second exception, for a discovery reason rather than a
+  // collision one: DSH scans `<projectRoot>/.dsh/skills` natively, so the
+  // default `./.dsh/soma` convention would land skills where the loader
+  // never looks. Its workspace home is `<cwd>/.dsh` — the same root shape
+  // as the home projection, discovered by the same loader.
   if (substrate === "cursor") return cursorWorkspaceSubstrateHome();
+  if (substrate === "dsh") return resolveJoin(process.cwd(), defaultSubstrateHome("dsh"));
   return resolveJoin(process.cwd(), defaultSubstrateHome(substrate), "soma");
 }
 
@@ -464,46 +477,85 @@ export async function runSubstrateLifecycleCli(parsed: ParsedSubstrateLifecycleA
     // projection; upgrade is reproject + future migration work
     // (#54: migration content is a follow-up). They always apply —
     // unlike `install`, the principal opted into the verb explicitly.
-    return formatInstallResult(await runInstall(parsed.substrate, parsed.options));
+    //
+    // soma#638: skills project here too. Once ~/.soma/skills is the curated set a
+    // loader substrate holds whole, "I added a skill, resync this home" is the
+    // main reason to reproject — a reproject that re-emitted the rules files but
+    // left the loader stale would silently do nothing about the one change the
+    // principal ran it for. The install layer does the linking; this only renders
+    // what it reports.
+    return formatInstallWithSkills(await runInstall(parsed.substrate, parsed.options));
   }
 
   if (!parsed.apply) {
     const plan = formatPlan(planInstall(parsed.substrate, parsed.options));
-    return parsed.skills.length === 0
-      ? plan
-      : `${plan}\n\nSkills to project (on --apply): ${parsed.skills.join(", ")}`;
+    // Name the skills the apply will link. The plan is a promise about what lands
+    // (the greenfield install test enforces exactly that), and since soma#638 the
+    // skill projection is the largest thing --apply does — reporting it only when
+    // --skills was passed would leave a default install's plan describing a
+    // fraction of the work.
+    const { names, unprojectable } = await plannedSkills(parsed.substrate, parsed.skills, parsed.options);
+    const skills = names.length === 0 ? "" : `\n\nSkills to project (on --apply): ${names.join(", ")}`;
+    return `${plan}${skills}${formatUnprojectable(unprojectable)}`;
   }
 
-  const result = formatInstallResult(await runInstall(parsed.substrate, parsed.options));
-  if (parsed.skills.length === 0) return result;
-  // Project the selected official skills now that the substrate home + catalog
-  // exist; reuses the soma#354 slice-1 primitive.
-  const projected = await projectInstallSkills(parsed.substrate, parsed.skills, parsed.options);
-  return `${result}\n\n${projected}`;
+  return formatInstallWithSkills(
+    await runInstall(parsed.substrate, { ...parsed.options, skills: parsed.skills }),
+  );
 }
 
-async function projectInstallSkills(
-  substrate: InstallSubstrate,
-  skills: string[],
-  options: SomaInstallOptions,
-): Promise<string> {
-  const somaHome = options.somaHome ?? defaultSomaHomePath(options.homeDir);
-  // soma#358: link every selected skill, then refresh the catalog ONCE.
-  const { skills: projected } = await projectSkills({
-    skillDirs: skills.map((name) => resolveJoin(somaHome, "skills", name)),
-    substrates: [substrate],
-    homeDir: options.homeDir,
-    somaHome: options.somaHome,
-    substrateHome: options.substrateHome,
-  });
-  return [
+/** Render an install/reproject result plus whatever skills the install layer linked. */
+function formatInstallWithSkills(result: SomaInstallResult): string {
+  const base = formatInstallResult(result);
+  const skipped = formatUnprojectable(result.unprojectableSkills);
+  if (result.projectedSkills.length === 0) return `${base}${skipped}`;
+  const projected = [
     "Projected skills:",
-    ...projected.map((result) => {
-      const loader = result.links.find((link) => link.scope === "substrate");
-      return `- ${result.skill}: ${loader?.status ?? "linked"} ${loader?.path ?? result.skillDir}`;
-    }),
+    ...result.projectedSkills.map((skill) => `- ${skill.skill}: ${skill.status} ${skill.path}`),
   ].join("\n");
+  return `${base}\n\n${projected}${skipped}`;
 }
+
+/**
+ * What the apply will link, for the dry-run plan only — the install layer owns
+ * the projection itself (soma#638).
+ *
+ * `~/.soma/skills` is the curated set, so a substrate whose loader IS its
+ * discovery mechanism gets ALL of it by default: with no catalog to name an
+ * unprojected skill, anything left out of the loader is unreachable. `--skills`
+ * narrows that to an explicit subset. A `catalog` substrate is unchanged — its
+ * catalog already advertises the whole registry, so its loader stays opt-in.
+ *
+ * On the scan path `names` are the LOADER SLOT names, resolved from frontmatter,
+ * because a dir `foo` holding `name: Bar` lands at `Bar` and a plan printed from
+ * basenames would promise a path the apply never creates. On the `--skills` path
+ * they are the names the principal typed: install resolves those dirs directly
+ * and a name that does not resolve should surface as an error, not be silently
+ * renamed in the plan.
+ */
+async function plannedSkills(
+  substrate: InstallSubstrate,
+  selected: string[],
+  options: SomaInstallOptions,
+): Promise<{ names: string[]; unprojectable: UnprojectableRegistrySkill[] }> {
+  if (selected.length > 0) return { names: selected, unprojectable: [] };
+  if (installSpecFor(substrate).skillsDiscovery !== "loader") return { names: [], unprojectable: [] };
+  const scan = await scanRegistrySkills(options.somaHome ?? defaultSomaHomePath(options.homeDir));
+  return { names: scan.skills.map((skill) => skill.name), unprojectable: scan.unprojectable };
+}
+
+/**
+ * Registry entries the scan could not project, rendered so they are never dropped
+ * silently — a curated skill that never reaches the harness is exactly the failure
+ * this whole feature exists to prevent.
+ */
+function formatUnprojectable(rows: UnprojectableRegistrySkill[]): string {
+  if (rows.length === 0) return "";
+  return ["", "", "Skipped (not projectable):", ...rows.map((row) => `- ${basename(row.dir)}: ${row.reason}`)].join(
+    "\n",
+  );
+}
+
 
 function planInstall(substrate: InstallSubstrate, options: SomaInstallOptions): SomaInstallPlan {
   return installPlanners[substrate](options);
