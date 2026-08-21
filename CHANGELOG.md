@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **DeepSeek Harness (dsh) substrate adapter.** `soma install|export|doctor dsh`
+  projects Soma into `~/.dsh/`: the auto-discovered `soma` entry skill with
+  colocated memory-layout/policy/lifecycle reference files, a marker-guarded
+  pointer block in `~/.dsh/AGENTS.md`, lifecycle startup-context writeback, and
+  registry skills symlinked into DSH's native `~/.dsh/skills` loader (soma#638
+  loader mode; claude-code precedent). Workspace installs target
+  `<project>/.dsh/` directly. Uninstall is reserved. Design:
+  `docs/dsh-substrate.md`; plugins: `integrations/dsh/`.
+- **Installer-managed DSH host plugin.** `soma install dsh --apply` now owns
+  host-plugin activation: it copies `integrations/dsh/soma-host` from the
+  running soma installation into `<somaHome>/integrations/dsh/soma-host`,
+  adds it to the composed `web` profile via pnpm (`add -w file:…`), and
+  upserts a marker-guarded `- insert:` row into the profile's
+  `cordis.patch.yml`. The patch handles missing files / bare `[]` /
+  existing user rows, strips legacy hand-written rows instead of
+  double-inserting, and is skipped — with the row left untouched — when pnpm
+  fails or no composed profile exists (greenfield stays deterministic).
+
 ### Changed
 
 ### Fixed

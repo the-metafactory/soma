@@ -3,6 +3,7 @@ import {
   anthropicCoworkProjectionPrivateRoots,
   codexMemoryPrivateRoots,
   codexProjectionPrivateRoots,
+  dshProjectionPrivateRoots,
   grokProjectionPrivateRoots,
   piDevProjectionPrivateRoots,
 } from "./adapters/private-roots";
@@ -36,6 +37,7 @@ const PRIVATE_ROOT_BUILDERS: Record<
   "claude-code": {},
   cursor: {},
   grok: { projection: grokProjectionPrivateRoots },
+  dsh: { projection: dshProjectionPrivateRoots },
   "anthropic-cowork": { projection: anthropicCoworkProjectionPrivateRoots },
 };
 

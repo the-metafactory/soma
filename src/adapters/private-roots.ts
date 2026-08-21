@@ -31,6 +31,7 @@ export const CODEX_DEFAULT_HOME = ".codex";
 export const GROK_DEFAULT_HOME = ".grok";
 export const PI_DEV_DEFAULT_HOME = ".pi";
 export const ANTHROPIC_COWORK_DEFAULT_HOME = ".anthropic-cowork";
+export const DSH_DEFAULT_HOME = ".dsh";
 
 /**
  * The shared shape: a private root is `<homeDir>/<defaultHome>/<segments...>`,
@@ -61,6 +62,13 @@ export function grokProjectionPrivateRoots(options: PrivateRootOptions = {}): st
   // The projected identity/context surface (Soma never writes into
   // ~/.grok/memory/, so there is no separate memory private root).
   return substrateRoots(options, "grok", GROK_DEFAULT_HOME, [["skills", "soma"]]);
+}
+
+export function dshProjectionPrivateRoots(options: PrivateRootOptions = {}): string[] {
+  // Same shape as grok: the projected identity/context surface is the
+  // auto-discovered `soma` skill dir. Soma never writes into a DSH memory
+  // root, so there is no separate memory private root.
+  return substrateRoots(options, "dsh", DSH_DEFAULT_HOME, [["skills", "soma"]]);
 }
 
 export function piDevProjectionPrivateRoots(options: PrivateRootOptions = {}): string[] {

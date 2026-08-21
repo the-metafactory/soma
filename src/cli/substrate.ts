@@ -10,6 +10,7 @@ const SUBSTRATE_IDS = {
   "claude-code": true,
   cursor: true,
   grok: true,
+  dsh: true,
   cortex: true,
   custom: true,
   "anthropic-cowork": true,

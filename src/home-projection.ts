@@ -3,11 +3,12 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { dirname } from "node:path";
 import { CURSOR_RULES_BLOCK_BEGIN, CURSOR_RULES_BLOCK_END, CURSOR_RULES_PATH } from "./adapters/cursor";
-import { projectClaudeCodeHome, projectCodexHome, projectCursorHome, projectGrokHome, projectPiDevHome } from "./adapters";
+import { projectClaudeCodeHome, projectCodexHome, projectCursorHome, projectDshHome, projectGrokHome, projectPiDevHome } from "./adapters";
 import { isAnthropicCoworkSkillProjectionPath, projectAnthropicCoworkHome } from "./adapters/anthropic-cowork";
 import { isClaudeCodeSkillProjectionPath } from "./adapters/claude-code";
 import { isCodexSkillProjectionPath } from "./adapters/codex/adapter";
 import { isCursorSkillProjectionPath } from "./adapters/cursor";
+import { isDshSkillProjectionPath } from "./adapters/dsh/adapter";
 import { isGrokSkillProjectionPath } from "./adapters/grok/adapter";
 import { isGrokPortableSkillProjectionPath } from "./adapters/grok/install";
 import { reconcileGrokPortableSkillProjection, writeGrokInstallManifest } from "./adapters/grok/install-manifest";
@@ -18,7 +19,7 @@ import { defaultSomaRepoPath } from "./repo-path";
 import { defaultSubstrateHome } from "./install-spec-registry";
 import type { InstallSubstrate, Projection, ProjectionInput, ProjectionSubstrate, SomaHomeProjection, SomaHomeProjectionOptions, WrittenProjection } from "./types";
 
-const HOME_PROJECTION_INSTALL_SUBSTRATES = ["codex", "pi-dev", "claude-code", "cursor", "grok", "anthropic-cowork"] as const satisfies readonly InstallSubstrate[];
+const HOME_PROJECTION_INSTALL_SUBSTRATES = ["codex", "pi-dev", "claude-code", "cursor", "grok", "dsh", "anthropic-cowork"] as const satisfies readonly InstallSubstrate[];
 
 function isHomeProjectionInstallSubstrate(substrate: ProjectionSubstrate): substrate is InstallSubstrate {
   return (HOME_PROJECTION_INSTALL_SUBSTRATES as readonly ProjectionSubstrate[]).includes(substrate);
@@ -171,6 +172,27 @@ export function buildAnthropicCoworkHomeProjection(input: ProjectionInput, optio
   );
 }
 
+export function buildDshHomeProjection(input: ProjectionInput, options: SomaHomeProjectionOptions = {}): SomaHomeProjection {
+  const homeDir = resolve(options.homeDir ?? homedir());
+  const somaRepoPath = resolve(options.somaRepoPath ?? defaultSomaRepoPath());
+
+  return buildHomeProjectionFor("dsh", options, (paths) =>
+    maybeCodeOnlyProjection(projectDshHome(input, paths.somaHome, homeDir, somaRepoPath), options, isDshSkillProjectionPath),
+  );
+}
+
+export async function installDshHomeProjection(
+  input: ProjectionInput,
+  options: SomaHomeProjectionOptions = {},
+): Promise<WrittenProjection> {
+  const projection = buildDshHomeProjection(input, options);
+  // No portable-skill manifest here: DSH is a `loader` substrate, so the
+  // bundle carries no portable-skill copies for the manifest to track — the
+  // loader holds install-created registry symlinks instead (claude-code's
+  // removeProjectedSkillLinks owns those on uninstall).
+  return writeProjection(projection.bundle, projection.substrateHome);
+}
+
 /**
  * Central substrate → home-projection dispatcher. soma#356: a single owner of
  * the substrate-to-builder mapping so callers (e.g. `project-skill`'s catalog
@@ -192,6 +214,8 @@ export function buildSubstrateHomeProjection(
       return buildCursorHomeProjection(input, options);
     case "grok":
       return buildGrokHomeProjection(input, options);
+    case "dsh":
+      return buildDshHomeProjection(input, options);
     case "anthropic-cowork":
       return buildAnthropicCoworkHomeProjection(input, options);
   }

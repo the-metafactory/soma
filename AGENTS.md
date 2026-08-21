@@ -27,6 +27,8 @@ primitives (see `docs/substrate-adapters.md`):
 - **pi-dev** — `~/.pi/agent/` core extension + skills
 - **grok** — `~/.grok/` auto-loaded skills + `AGENTS.md` pointer, native
   subagent surfaces, and fail-closed `PreToolUse` hooks (Windows-verified)
+- **dsh** — `~/.dsh/` auto-discovered skills + `AGENTS.md` pointer (DeepSeek
+  Harness; loader-mode registry symlinks)
 
 ## Codex Bootstrap
 

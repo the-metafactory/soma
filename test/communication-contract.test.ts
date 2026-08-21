@@ -10,6 +10,8 @@ import {
   projectCodex,
   projectCodexHome,
   projectCursor,
+  projectDsh,
+  projectDshHome,
   projectGrok,
   projectGrokHome,
   projectPiDev,
@@ -71,6 +73,8 @@ function contractFiles(input: ProjectionInput): { name: string; file?: { path: s
     pick("codex (home)", projectCodexHome(input, "/tmp/soma-home"), "memories/soma/communication.md"),
     pick("grok (workspace)", projectGrok(input), ".grok/rules/soma/communication.md"),
     pick("grok (home)", projectGrokHome(input, "/tmp/soma-home"), "skills/soma/communication.md"),
+    pick("dsh (workspace)", projectDsh(input), ".dsh/soma/communication.md"),
+    pick("dsh (home)", projectDshHome(input, "/tmp/soma-home"), "skills/soma/communication.md"),
   ];
 }
 
@@ -243,6 +247,8 @@ test("every substrate is told to read the contract, not just handed the file", (
     { name: "pi-dev (workspace context)", text: text(projectPiDev(withContract), ".pi/extensions/soma-core/context.md") },
     { name: "codex (workspace context)", text: text(projectCodex(withContract), ".codex/soma/context.md") },
     { name: "grok (workspace context)", text: text(projectGrok(withContract), ".grok/rules/soma/context.md") },
+    { name: "dsh (home SKILL.md)", text: text(projectDshHome(withContract, "/tmp/soma-home"), "skills/soma/SKILL.md") },
+    { name: "dsh (workspace context)", text: text(projectDsh(withContract), ".dsh/soma/context.md") },
   ];
 
   // Every surface that PROJECTS the contract must appear above. Enumerating the

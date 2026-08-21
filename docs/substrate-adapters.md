@@ -234,6 +234,29 @@ It is not implemented yet. Copilot cloud agent support is intentionally scoped
 as a later, public-safe workspace/repository projection because cloud sessions
 cannot assume access to the principal's local Soma home.
 
+## DeepSeek Harness
+
+DeepSeek Harness (DSH) is a local, cordis-plugin coding agent (Web GUI +
+headless CLI) whose runtime is a pure event/plugin surface. It auto-loads
+`$DSH_HOME/AGENTS.md` (user-global) and per-project `AGENTS.md`/`CLAUDE.md`
+into every session, auto-discovers skills from `~/.dsh/skills`,
+`~/.agents/skills`, and project `.dsh/skills` (in the `SKILL.md` + frontmatter
+format Soma already ships), and composes per-session tools/prompts/skills
+through agent presets at `$DSH_HOME/.agent-presets/<id>/`. Its host plugin
+surface exposes session/turn/tool lifecycle events that map one-to-one onto
+Soma's SessionStart/SessionEnd/PostToolUse hooks.
+
+The dsh adapter is implemented (`src/adapters/dsh/`) as a **loader** substrate:
+DSH's own skill loader advertises its catalog, so the home projection emits the
+`soma` entry skill + colocated reference files under `~/.dsh/skills/soma/`,
+marker-guard-patches a pointer block into `~/.dsh/AGENTS.md`, and install links
+the curated `~/.soma/skills` registry into `~/.dsh/skills` as symlinks
+(claude-code precedent). Workspace installs target `<project>/.dsh/` directly —
+the native DSH discovery root — not the `soma`-suffixed subdir convention.
+Uninstall is reserved. The full design, including the DSH plugin pair that
+carries Soma identity/lifecycle/memory into live sessions, is specified in
+[dsh-substrate.md](./dsh-substrate.md).
+
 ## Anthropic Cowork
 
 The Soma scaffold uses the vendor-prefixed substrate id `anthropic-cowork` for

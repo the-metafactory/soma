@@ -509,13 +509,13 @@ test("soma doctor --substrate cursor and pi-dev are no longer rejected as unsupp
 });
 
 test("DOCTOR_SUPPORTED_SUBSTRATES / isDoctorSubstrate still gate a genuinely unknown substrate", () => {
-  // Every SomaOnboardingSubstrate (codex/pi-dev/claude-code/cursor/grok) is
+  // Every SomaOnboardingSubstrate (codex/pi-dev/claude-code/cursor/grok/dsh) is
   // now doctor-supported, so `--substrate` can no longer surface
   // DOCTOR_UNSUPPORTED_SUBSTRATE_MESSAGE through the CLI parser (it rejects
   // anthropic-cowork and any other bogus value earlier, with a different
   // message) — this pins the underlying guard directly so the rejection
   // path itself stays covered.
-  expect(DOCTOR_SUPPORTED_SUBSTRATES).toEqual(["codex", "claude-code", "cursor", "grok", "pi-dev"]);
+  expect(DOCTOR_SUPPORTED_SUBSTRATES).toEqual(["codex", "claude-code", "cursor", "grok", "pi-dev", "dsh"]);
   expect(isDoctorSubstrate("anthropic-cowork")).toBe(false);
   expect(isDoctorSubstrate("bogus")).toBe(false);
 });
