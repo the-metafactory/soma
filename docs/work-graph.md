@@ -946,8 +946,9 @@ sessions are the node executors, soma supplies the verbs.
   - *Phase 2 — gated on the bot identity existing:* a scheduled tick claims
     `auto`-class frontier nodes headlessly. Each claim is announced to Discord
     with a **60s 👎 veto window**; silence proceeds; terminal states never
-    auto-resume (operator verbs only). No autonomous ticking under the
-    principal's credentials, ever. The tick runs `command` and `url` probes
+    auto-resume (operator verbs only). No autonomous graph-mutation under the
+    principal's credentials, ever — read-only ticks may run under any
+    identity, token-gated read-only. The tick runs `command` and `url` probes
     under the **same** registry gate as an interactive session (§2.2) — the
     registry answers *whose code this is*, and headlessness changes who is
     watching, not what is authorised. A tick machine with no registry refuses
