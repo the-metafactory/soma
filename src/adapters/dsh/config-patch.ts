@@ -1,4 +1,5 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { findMarkerBlock } from "../shared/marker-block";
 import { dirname, join } from "node:path";
 import { isEnoent } from "../../fs-errors";
 
@@ -28,37 +29,6 @@ function renderAgentsPointerBlock(somaHome: string): string {
     `- Source of truth: ${somaHome} — this projection is generated; author changes there and rerun \`soma install dsh --apply\`.`,
     DSH_AGENTS_BLOCK_END,
   ].join("\n");
-}
-
-/** Offsets of `marker` where it starts a line (so an incidental mention of
- * the marker text inside prose or foreign content is ignored). */
-function lineStartOccurrences(content: string, marker: string): number[] {
-  const positions: number[] = [];
-  let index = content.indexOf(marker);
-  while (index !== -1) {
-    if (index === 0 || content[index - 1] === "\n") positions.push(index);
-    index = content.indexOf(marker, index + marker.length);
-  }
-  return positions;
-}
-
-/**
- * Locate Soma's marker block as the nearest well-formed begin/end pair:
- * a line-anchored begin whose first following end marker has no other
- * begin marker between them. A begin with no following end is foreign
- * and yields null. (Same contract as the grok config patch.)
- */
-function findMarkerBlock(content: string, begin: string, end: string): { start: number; bodyEnd: number } | null {
-  const beginPositions = lineStartOccurrences(content, begin);
-  const endPositions = lineStartOccurrences(content, end);
-  for (const start of beginPositions) {
-    const endStart = endPositions.find((position) => position >= start + begin.length);
-    if (endStart === undefined) continue;
-    const nestedBegin = beginPositions.find((position) => position > start && position < endStart);
-    if (nestedBegin !== undefined) continue;
-    return { start, bodyEnd: endStart + end.length };
-  }
-  return null;
 }
 
 /**
@@ -232,7 +202,12 @@ export async function configureDshCordisPatch(
   const located = findMarkerBlock(existing, DSH_CORDIS_PATCH_BEGIN, DSH_CORDIS_PATCH_END);
   if (!located && existing.includes(`id: ${patch.id}`)) {
     const stripped = stripLegacySomaHostInsertRow(existing, patch.id);
-    if (stripped === null) throw new Error(`refusing to patch ${target}: unrecognized structure around id ${patch.id}`);
+    if (stripped === null) {
+      // Loud, not silent: an unrecognized structure keeps the duplicate row
+      // and the loader would fail on it — surface why instead of degrading.
+      console.warn(`[dsh] ${target}: unrecognized structure around legacy id ${patch.id}; leaving file untouched`);
+      throw new Error(`refusing to patch ${target}: unrecognized structure around id ${patch.id}`);
+    }
     existing = stripped;
   }
 

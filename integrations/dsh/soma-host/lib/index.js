@@ -145,7 +145,15 @@ async function recordSessionEnd(ctx, somaPath, agent) {
   if (await table.get(key)) return; // already written this session
 
   const cwd = cwdOf(agent);
-  await runSoma(ctx, somaPath, ["lifecycle", "session-end", "--substrate", SOMA_SUBSTRATE, "--session-id", sessionId, "--cwd", cwd], cwd);
+  const outcome = await runSoma(ctx, somaPath, ["lifecycle", "session-end", "--substrate", SOMA_SUBSTRATE, "--session-id", sessionId, "--cwd", cwd], cwd);
+  // Only mark done on success: a failed spawn (soma missing, non-zero exit)
+  // must stay retryable — writing the dedup key here would permanently lose
+  // this session's writeback. `soma lifecycle session-end` is idempotent on
+  // its side, so a later idle re-firing is safe.
+  if (outcome.exitCode !== 0) {
+    console.warn(`[soma-host] session-end writeback failed (exit ${outcome.exitCode}); will retry on next idle`);
+    return;
+  }
   await table.put(key, { sessionId, writtenAt: Date.now() });
 }
 

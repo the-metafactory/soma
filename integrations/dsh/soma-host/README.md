@@ -27,13 +27,24 @@ projected as files by the soma `dsh` adapter and auto-discovered by DSH's
 The plugin declares its services (`export const inject = ["systemPrompt",
 "skills", "tools", "storageDomain", "subprocess"]` — cordis throws "cannot get
 property X without inject" otherwise; all five are mounted by the default
-`dsh-base` + `dsh-web-app` composition). A harness applying the plugin on the
-DSH checkout's own `vendor/cordis` confirmed: prompt section + skill + tool
-registration, and `lifecycle session-start` / `session-end` spawns with
-storageDomain dedup, all via the scoped `emitAgentEvent` dispatch. In a booted
-server the plugin has applied and fired session-start (the runtime skill is
-visible in the session catalog; `lifecycle.session_start` events land in the
-Soma event log); the session-end path has not yet been observed live.
+`dsh-base` + `dsh-web-app` composition).
+
+The executable evidence is checked in: [`tools/cordis-smoke.mts`](./tools/cordis-smoke.mts)
+applies the plugin on the DSH checkout's own cordis runtime with stub
+services, fires lifecycle events through DSH's real scoped `emitAgentEvent`
+dispatch, and asserts prompt-section/skill/tool registration, both lifecycle
+spawns with storageDomain dedup, and the failure path (a failed session-end
+spawn must not write the dedup key — it has to stay retryable):
+
+```bash
+DSH_CHECKOUT=/path/to/deepseek-harness \
+  node --import tsx/esm tools/cordis-smoke.mts
+```
+
+Run it from the DSH checkout (so `tsx` resolves). In a booted server the
+plugin has applied and fired session-start (the runtime skill is visible in
+the session catalog; `lifecycle.session_start` events land in the Soma event
+log); the session-end path has not yet been observed live.
 
 ## Install
 
