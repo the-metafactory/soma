@@ -1,11 +1,14 @@
 # DeepSeek Harness Substrate
 
-**Status:** Adapter implemented (`src/adapters/dsh/`, `soma install dsh`); the
-host plugin (`integrations/dsh/soma-host`) is installer-managed (install
-copies it from the running soma package, wires the profile dependency, and
-patches the composition row) and has applied inside a booted `dsh web` server
-(runtime skill + session-start events observed); its session-end path is
-smoke-tested against real cordis but not yet observed live. The client-side
+**Status:** Adapter implemented (`src/adapters/dsh/`, `soma install dsh`). The
+host plugin (`integrations/dsh/soma-host`) is installer-managed: install copies
+it from the running soma package, wires the profile dependency, and patches the
+composition row. Verification state — **known to work live:** plugin apply in
+a booted `dsh web` server, session-start writeback (runtime skill visible in
+the session catalog; `lifecycle.session_start` events in the Soma event log).
+**Not yet observed live:** session-end writeback and the `soma_memory` tool —
+both are exercised only by the checked-in cordis smoke harness
+(`integrations/dsh/soma-host/tools/cordis-smoke.mts`). The client-side
 `soma-dsh-hide-tools` remains a hand-installed prototype.
 
 This document specifies how Soma projects into **DeepSeek Harness (DSH)** as a

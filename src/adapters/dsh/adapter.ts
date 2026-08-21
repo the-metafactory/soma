@@ -15,6 +15,11 @@ import {
 } from "../shared";
 import { behaviorPolicyAdvisory } from "../../policy/behavior-policy";
 
+/** The repo-CLI invocation every projected command uses — one definition,
+ * interpolated by both the entry skill and the lifecycle projection, so a
+ * path or runner change is a single edit. */
+const DSH_SOMA_CLI = "cd $(cat ~/.dsh/skills/soma/soma-repo.txt) && bun run soma";
+
 /**
  * DeepSeek Harness (DSH) adapter. DSH is a cordis-plugin coding agent that
  * auto-loads `$DSH_HOME/AGENTS.md` into every session and auto-discovers
@@ -57,9 +62,6 @@ function renderInstructions(input: ProjectionInput): string {
  * substrate's loader reads one.
  */
 function renderDshEntrySkill(input: ProjectionInput, somaHome: string): string {
-  // One definition of the repo-CLI invocation; every command below interpolates
-  // it so a path or runner change is a single edit.
-  const somaCli = "cd $(cat ~/.dsh/skills/soma/soma-repo.txt) && bun run soma";
   return [
     "---",
     "name: soma",
@@ -84,7 +86,7 @@ function renderDshEntrySkill(input: ProjectionInput, somaHome: string): string {
     "- When present, read `~/.dsh/skills/soma/memory-index.md` for the durable memory INDEX (Tier-0 orientation). It is a snapshot written whenever the DSH bundle is projected (e.g. `soma install`) from the index at that moment, and only when durable notes exist — so it may be absent (no index yet) or lag the live store between projections.",
     "- Read `~/.dsh/skills/soma/startup-context.md` for lifecycle-generated active work and recent learning context when present.",
     "- Read `~/.dsh/skills/soma/lifecycle.md` for lifecycle refresh commands.",
-    `- Use ${somaCli} memory recall --query "..." before making durable claims that may depend on prior knowledge, learning, relationship, work, or imported context. This is note-aware retrieval; \`soma memory search\` remains as a legacy line-grep fallback.`,
+    `- Use ${DSH_SOMA_CLI} memory recall --query "..." before making durable claims that may depend on prior knowledge, learning, relationship, work, or imported context. This is note-aware retrieval; \`soma memory search\` remains as a legacy line-grep fallback.`,
     "- Do not assume a global `soma` binary exists; use lifecycle commands or the `bun run soma` commands in `lifecycle.md`.",
     "- Other skills in this loader (`the-algorithm`, `Memory`, `orienteer`, …) are Soma's canonical registry skills, linked in by `soma install dsh`.",
     "",
@@ -95,7 +97,6 @@ function renderDshEntrySkill(input: ProjectionInput, somaHome: string): string {
 }
 
 function renderDshLifecycleProjection(somaHome: string): string {
-  const somaCli = "cd $(cat ~/.dsh/skills/soma/soma-repo.txt) && bun run soma";
   return [
     "# Soma Lifecycle Projection",
     "",
@@ -105,11 +106,11 @@ function renderDshLifecycleProjection(somaHome: string): string {
     "",
     "Run from the Soma repo when lifecycle state should be refreshed:",
     "",
-    "- `" + somaCli + " lifecycle session-start --substrate dsh`",
-    "- `" + somaCli + " lifecycle algorithm-updated --substrate dsh`",
-    "- `" + somaCli + " lifecycle session-end --substrate dsh`",
-    "- `" + somaCli + " memory recall --query \"...\"` (note-aware; `soma memory search` is the legacy line-grep fallback)",
-    "- `" + somaCli + " memory digest --session <id> --body \"8-15 lines\"` when a manual correction or replacement digest is needed",
+    "- `" + DSH_SOMA_CLI + " lifecycle session-start --substrate dsh`",
+    "- `" + DSH_SOMA_CLI + " lifecycle algorithm-updated --substrate dsh`",
+    "- `" + DSH_SOMA_CLI + " lifecycle session-end --substrate dsh`",
+    "- `" + DSH_SOMA_CLI + " memory recall --query \"...\"` (note-aware; `soma memory search` is the legacy line-grep fallback)",
+    "- `" + DSH_SOMA_CLI + " memory digest --session <id> --body \"8-15 lines\"` when a manual correction or replacement digest is needed",
     "",
     "Do not use `command -v soma`; Soma is installed as a repo CLI, not a global binary.",
     "",
