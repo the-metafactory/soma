@@ -6,15 +6,15 @@ import type { ExecutorRegistry } from "../execution/registry";
 import type { ExecutionCapabilities } from "../execution/types";
 import type { SomaDoctorFinding, SubstrateId } from "../types";
 
-type DoctorSubstrate = Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor" | "grok">;
+type DoctorSubstrate = Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor" | "grok" | "dsh">;
 
 // Single source of truth for the substrates `soma doctor` can diagnose, and
 // the error strings shown when an unsupported one is requested. Shared so the
 // CLI parser, the diagnosis entrypoint, and this dispatcher stay in lockstep.
-// soma#370: extended to all 5 install substrates — content-compare drift
+// soma#370: extended to all install substrates — content-compare drift
 // (../content-compare-doctor.ts) is substrate-agnostic, so cursor and
 // pi-dev, which had no drift diagnosis at all before, are now covered too.
-export const DOCTOR_SUPPORTED_SUBSTRATES = ["codex", "claude-code", "cursor", "grok", "pi-dev"] as const satisfies readonly DoctorSubstrate[];
+export const DOCTOR_SUPPORTED_SUBSTRATES = ["codex", "claude-code", "cursor", "grok", "pi-dev", "dsh"] as const satisfies readonly DoctorSubstrate[];
 
 export type SupportedDoctorSubstrate = (typeof DOCTOR_SUPPORTED_SUBSTRATES)[number];
 

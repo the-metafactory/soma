@@ -4,6 +4,8 @@ import {
   projectClaudeCodeHome,
   projectCodex,
   projectCursor,
+  projectDsh,
+  projectDshHome,
   projectGrok,
   projectPiDev,
   projectPiDevHome,
@@ -42,6 +44,8 @@ const SUBSTRATE_POLICIES: readonly { name: string; content: string }[] = [
   { name: "pi-dev (home)", content: policyContent(projectPiDevHome(portableProjectionInput, "/tmp/soma-home")) },
   { name: "codex", content: policyContent(projectCodex(portableProjectionInput)) },
   { name: "grok", content: policyContent(projectGrok(portableProjectionInput)) },
+  { name: "dsh (workspace)", content: policyContent(projectDsh(portableProjectionInput)) },
+  { name: "dsh (home)", content: policyContent(projectDshHome(portableProjectionInput, "/tmp/soma-home")) },
 ];
 
 test("SelfHealing doctrine projects into every wired substrate's policy", () => {

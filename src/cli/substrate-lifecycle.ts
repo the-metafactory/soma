@@ -6,6 +6,7 @@ import {
   buildClaudeCodeHomeProjection,
   buildCodexHomeProjection,
   buildCursorHomeProjection,
+  buildDshHomeProjection,
   buildGrokHomeProjection,
   buildPiDevHomeProjection,
 } from "../home-projection";
@@ -14,12 +15,14 @@ import {
   installSomaForClaudeCode,
   installSomaForCodex,
   installSomaForCursor,
+  installSomaForDsh,
   installSomaForGrok,
   installSomaForPiDev,
   planSomaForAnthropicCoworkInstall,
   planSomaForClaudeCodeInstall,
   planSomaForCodexInstall,
   planSomaForCursorInstall,
+  planSomaForDshInstall,
   planSomaForGrokInstall,
   planSomaForPiDevInstall,
   uninstallSomaForAnthropicCowork,
@@ -102,7 +105,7 @@ export type ParsedSubstrateLifecycleArgs =
   | ParsedExportArgs
   | ParsedDaemonArgs;
 
-export const PROJECTION_LIFECYCLE_SUBSTRATES = ["codex", "pi-dev", "claude-code", "cursor", "grok"] as const satisfies readonly ProjectionLifecycleSubstrate[];
+export const PROJECTION_LIFECYCLE_SUBSTRATES = ["codex", "pi-dev", "claude-code", "cursor", "grok", "dsh"] as const satisfies readonly ProjectionLifecycleSubstrate[];
 export const INSTALL_SUBSTRATES = [...PROJECTION_LIFECYCLE_SUBSTRATES, "anthropic-cowork"] as const satisfies readonly InstallSubstrate[];
 
 const substrateList = INSTALL_SUBSTRATES.join("|");
@@ -136,6 +139,7 @@ const installPlanners: Record<InstallSubstrate, (options: SomaInstallOptions) =>
   "claude-code": planSomaForClaudeCodeInstall,
   cursor: planSomaForCursorInstall,
   grok: planSomaForGrokInstall,
+  dsh: planSomaForDshInstall,
   "anthropic-cowork": planSomaForAnthropicCoworkInstall,
 };
 
@@ -145,6 +149,7 @@ const installers: Record<InstallSubstrate, (options: SomaInstallOptions) => Prom
   "claude-code": installSomaForClaudeCode,
   cursor: installSomaForCursor,
   grok: installSomaForGrok,
+  dsh: installSomaForDsh,
   "anthropic-cowork": installSomaForAnthropicCowork,
 };
 
@@ -157,6 +162,7 @@ const projectionBuilders: Record<
   "claude-code": (input, options) => buildClaudeCodeHomeProjection(input, options).bundle.files,
   cursor: (input, options) => buildCursorHomeProjection(input, options).bundle.files,
   grok: (input, options) => buildGrokHomeProjection(input, options).bundle.files,
+  dsh: (input, options) => buildDshHomeProjection(input, options).bundle.files,
   "anthropic-cowork": (input, options) => buildAnthropicCoworkHomeProjection(input, options).bundle.files,
 };
 
@@ -196,7 +202,7 @@ function isProjectionLifecycleSubstrate(value: string | undefined): value is Pro
 
 export function parseOnboardingSubstrate(value: string): InstallSubstrate {
   if (isInstallSubstrate(value)) return value;
-  throw new Error("--substrate must be one of codex, pi-dev, claude-code, cursor, grok, or anthropic-cowork.");
+  throw new Error("--substrate must be one of codex, pi-dev, claude-code, cursor, grok, dsh, or anthropic-cowork.");
 }
 
 function commandUsage(command: keyof typeof SUBSTRATE_LIFECYCLE_COMMAND_HELP): string {
@@ -212,7 +218,14 @@ function workspaceSubstrateHome(substrate: InstallSubstrate): string {
   // substrate can never silently fall through to another substrate's home.
   // Cursor is the one structural exception: its defaultHome is the home
   // root itself, so its workspace home has a dedicated resolver.
+  //
+  // dsh is the second exception, for a discovery reason rather than a
+  // collision one: DSH scans `<projectRoot>/.dsh/skills` natively, so the
+  // default `./.dsh/soma` convention would land skills where the loader
+  // never looks. Its workspace home is `<cwd>/.dsh` — the same root shape
+  // as the home projection, discovered by the same loader.
   if (substrate === "cursor") return cursorWorkspaceSubstrateHome();
+  if (substrate === "dsh") return resolveJoin(process.cwd(), defaultSubstrateHome("dsh"));
   return resolveJoin(process.cwd(), defaultSubstrateHome(substrate), "soma");
 }
 

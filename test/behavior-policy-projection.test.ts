@@ -10,6 +10,8 @@ import {
   projectCodex,
   projectCodexHome,
   projectCursor,
+  projectDsh,
+  projectDshHome,
   projectGrok,
   projectGrokHome,
   projectPiDev,
@@ -58,6 +60,8 @@ function allPolicies(input: ProjectionInput): { name: string; content: string }[
     { name: "codex (home)", content: policyContent(projectCodexHome(input, "/tmp/soma-home")) },
     { name: "grok (workspace)", content: policyContent(projectGrok(input)) },
     { name: "grok (home)", content: policyContent(projectGrokHome(input, "/tmp/soma-home")) },
+    { name: "dsh (workspace)", content: policyContent(projectDsh(input)) },
+    { name: "dsh (home)", content: policyContent(projectDshHome(input, "/tmp/soma-home")) },
   ];
 }
 

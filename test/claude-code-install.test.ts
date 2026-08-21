@@ -780,6 +780,7 @@ test("soma#638: every substrate declares a skill-discovery mode, and only a load
     codex: "catalog",
     grok: "catalog",
     "pi-dev": "catalog",
+    dsh: "loader",
     "anthropic-cowork": "catalog",
   };
   for (const [substrate, mode] of Object.entries(expected) as [InstallSubstrate, SkillsDiscoveryMode][]) {

@@ -8,13 +8,14 @@ export type SubstrateId =
   | "claude-code"
   | "cursor"
   | "grok"
+  | "dsh"
   | "cortex"
   | "custom"
   | "anthropic-cowork";
 
 export type ExperimentalScaffoldSubstrate = "anthropic-cowork";
 export type ProjectionSubstrate = SubstrateId | ExperimentalScaffoldSubstrate;
-export type InstallSubstrate = Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor" | "grok"> | ExperimentalScaffoldSubstrate;
+export type InstallSubstrate = Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor" | "grok" | "dsh"> | ExperimentalScaffoldSubstrate;
 
 export interface AssistantIdentity {
   name: string;
@@ -1881,7 +1882,8 @@ export type SomaInitStepId =
   | "install-pi-dev"
   | "install-claude-code"
   | "install-cursor"
-  | "install-grok";
+  | "install-grok"
+  | "install-dsh";
 
 /**
  * The substrates `soma doctor` can diagnose — every `InstallSubstrate` except

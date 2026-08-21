@@ -2,7 +2,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { DOCTOR_UNSUPPORTED_DRIFT_MESSAGE, diagnoseProjectionDrift, isDoctorSubstrate } from "./adapters/doctor";
-import { installSomaForClaudeCode, installSomaForCodex, installSomaForCursor, installSomaForGrok, installSomaForPiDev } from "./install";
+import { installSomaForClaudeCode, installSomaForCodex, installSomaForCursor, installSomaForDsh, installSomaForGrok, installSomaForPiDev } from "./install";
 import { migrateClaudeSkills, probeClaudeSkillsSource } from "./claude-skills-migrator";
 import { bootstrapSomaHome } from "./soma-home";
 import { migratePai } from "./pai-migration";
@@ -44,6 +44,7 @@ const INSTALL_STEP_IDS = {
   "claude-code": "install-claude-code",
   cursor: "install-cursor",
   grok: "install-grok",
+  dsh: "install-dsh",
 } satisfies Record<InitSubstrate, SomaInitStepId>;
 
 function installStepId(substrate: InitSubstrate): SomaInitStepId {
@@ -206,6 +207,8 @@ async function installForSubstrate(substrate: InitSubstrate, options: { homeDir:
       return installSomaForCursor(options);
     case "grok":
       return installSomaForGrok(options);
+    case "dsh":
+      return installSomaForDsh(options);
   }
 }
 

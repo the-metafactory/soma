@@ -24,17 +24,17 @@ const CURSOR_LEGACY_FULL_FILE_HEADING = "# Soma Cursor Projection";
  * profile-mtime diagnosers and, for the first time, covers cursor and
  * pi-dev (neither had ANY drift diagnosis before).
  *
- * Covers ALL 5 install substrates, grok included: grok's projected
- * home files (skills/soma/*.md, hooks/*, personas/*, roles/*, agents/*) are a
- * pure function of ProjectionInput — exactly as deterministic as codex's — so
- * content-compare is meaningful for them. For grok this runs ALONGSIDE (not
- * instead of) the `grok inspect --json` oracle checks in `../grok/doctor.ts`:
+ * Covers ALL install substrates, grok and dsh included: their projected
+ * home files are a pure function of ProjectionInput — exactly as
+ * deterministic as codex's — so content-compare is meaningful for them. For
+ * grok this runs ALONGSIDE (not instead of) the `grok inspect --json`
+ * oracle checks in `../grok/doctor.ts`:
  * whether Grok's RUNTIME has actually loaded a file is a different,
  * complementary question from whether the file's BYTES match a fresh
  * projection. `../adapters/doctor.ts` composes the two for grok; see that
  * file for the composition and the investigation note behind it.
  */
-export type ContentCompareSubstrate = Extract<InstallSubstrate, "codex" | "pi-dev" | "claude-code" | "cursor" | "grok">;
+export type ContentCompareSubstrate = Extract<InstallSubstrate, "codex" | "pi-dev" | "claude-code" | "cursor" | "grok" | "dsh">;
 
 export interface ContentCompareDoctorOptions {
   substrate: ContentCompareSubstrate;
@@ -133,6 +133,7 @@ const SUBSTRATE_LABELS: Record<ContentCompareSubstrate, string> = {
   cursor: "Cursor",
   grok: "Grok",
   "pi-dev": "Pi.dev",
+  dsh: "DSH",
 };
 
 function buildFindings(substrate: ContentCompareSubstrate, totalFiles: number, buckets: DriftBuckets): SomaDoctorFinding[] {

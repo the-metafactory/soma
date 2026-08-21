@@ -6,6 +6,7 @@ import {
   installAnthropicCoworkHomeProjection,
   installCodexHomeProjection,
   installCursorHomeProjection,
+  installDshHomeProjection,
   installGrokHomeProjection,
   installPiDevHomeProjection,
 } from "./home-projection";
@@ -129,6 +130,10 @@ export function planSomaForGrokInstall(options: SomaInstallOptions = {}): SomaIn
 
 export function planSomaForAnthropicCoworkInstall(options: SomaInstallOptions = {}): SomaInstallPlan {
   return planSomaInstall("anthropic-cowork", options);
+}
+
+export function planSomaForDshInstall(options: SomaInstallOptions = {}): SomaInstallPlan {
+  return planSomaInstall("dsh", options);
 }
 
 async function installSomaForSubstrate(
@@ -422,6 +427,8 @@ async function installHomeProjectionFor(
       return installCursorHomeProjection(context, options);
     case "grok":
       return installGrokHomeProjection(context, options);
+    case "dsh":
+      return installDshHomeProjection(context, options);
     case "anthropic-cowork":
       return installAnthropicCoworkHomeProjection(context, options);
   }
@@ -494,6 +501,10 @@ export async function installSomaForGrok(options: SomaInstallOptions = {}): Prom
 
 export async function installSomaForAnthropicCowork(options: SomaInstallOptions = {}): Promise<SomaInstallResult> {
   return installSomaForSubstrate("anthropic-cowork", options);
+}
+
+export async function installSomaForDsh(options: SomaInstallOptions = {}): Promise<SomaInstallResult> {
+  return installSomaForSubstrate("dsh", options);
 }
 
 /**

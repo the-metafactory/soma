@@ -1,0 +1,24 @@
+{
+  "name": "@metafactory/soma-dsh-host",
+  "version": "0.1.0",
+  "description": "DSH host plugin carrying Soma into a live session: always-on identity/purpose/policy prompt section, session-start/turn-end lifecycle writeback to ~/.soma, runtime skills, and soma CLI tools (Soma substrate integration, P1).",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-tools": "^0.1.0-rc.8",
+    "@deepseek-ai/dsh-subprocess": "^0.1.0-rc.8",
+    "@deepseek-ai/dsh-storage-domain": "^0.1.0-rc.8",
+    "zod": "^3"
+  },
+  "files": [
+    "lib/index.js",
+    "README.md"
+  ],
+  "license": "MIT"
+}

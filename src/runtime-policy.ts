@@ -158,6 +158,11 @@ const SUBSTRATE_SECURITY_CONFIG_KEYS = {
   // actually honors. U9 (policy enforcement) refines these against the
   // live config schema; this is data, not an enforcement claim.
   grok: ["hooks", "mcp_servers", "permission", "plugins"],
+  // DSH config surfaces that are security-relevant to inspect: the profile's
+  // plugin-bundle composition (package.json `dsh.profile.bundles`), the
+  // cordis patch layers that can insert/disable rows, and the client-plugin
+  // service injection. This is data, not an enforcement claim.
+  dsh: ["bundles", "cordis.patch", "plugins", "inject", "permissions"],
   "anthropic-cowork": [],
   cortex: ["dispatcher", "artifactIngress", "taskRouting", "capabilities"],
   custom: [],
