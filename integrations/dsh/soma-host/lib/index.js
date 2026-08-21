@@ -10,8 +10,8 @@
 //
 // Status: smoke-tested against the DSH checkout's own cordis (apply registers
 // the section/skill/tool; scoped emitAgentEvent dispatch fires both lifecycle
-// spawns with storageDomain dedup). Pending: first exercise inside a booted
-// `dsh web` server.
+// spawns with storageDomain dedup). Applied in a booted `dsh web` server —
+// session-start observed live; session-end not yet observed in a live server.
 //
 // The plugin deliberately shells out to the `soma` CLI (via ctx.subprocess, no
 // shell interpolation) rather than re-implementing Soma logic — Soma stays the

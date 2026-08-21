@@ -7,7 +7,7 @@ Soma `dsh` substrate adapter spec live in
 
 | Package | Plane | What it does | Status |
 | --- | --- | --- | --- |
-| [`soma-host/`](./soma-host) | host | Always-on Soma prompt section, session-start/end lifecycle writeback to `~/.soma`, runtime digest skill, `soma_memory` tool. | live — installer-managed, smoke-tested against real cordis |
+| [`soma-host/`](./soma-host) | host | Always-on Soma prompt section, session-start/end lifecycle writeback to `~/.soma`, runtime digest skill, `soma_memory` tool. | installer-managed; applied in a booted `dsh web` server (runtime skill + session-start events observed); session-end verified against cordis, not yet observed live |
 | [`soma-dsh-hide-tools/`](./soma-dsh-hide-tools) | client | Hides tool-call rows from the chat flow (the "tool call spam"). Tool calls stay in the durable session log + Trajectory tab. | prototype (hand-authored bundle, hand-installed) |
 
 The `dsh` **adapter** (`soma install dsh` / `soma export dsh` /

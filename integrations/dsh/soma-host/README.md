@@ -23,15 +23,17 @@ projected as files by the soma `dsh` adapter and auto-discovered by DSH's
 
 ## Status
 
-**Smoke-tested against real cordis; pending first live boot.** The plugin now
-declares its services (`export const inject = ["systemPrompt", "skills",
-"tools", "storageDomain", "subprocess"]` — cordis throws "cannot get property X
-without inject" otherwise; all five are mounted by the default `dsh-base` +
-`dsh-web-app` composition). A harness applying the plugin on the DSH checkout's
-own `vendor/cordis` confirmed: prompt section + skill + tool registration, and
-`lifecycle session-start` / `session-end` spawns with storageDomain dedup, all
-via the scoped `emitAgentEvent` dispatch. Not yet exercised inside a booted
-`dsh web` server.
+**Smoke-tested against real cordis; applied in a booted `dsh web` server.**
+The plugin declares its services (`export const inject = ["systemPrompt",
+"skills", "tools", "storageDomain", "subprocess"]` — cordis throws "cannot get
+property X without inject" otherwise; all five are mounted by the default
+`dsh-base` + `dsh-web-app` composition). A harness applying the plugin on the
+DSH checkout's own `vendor/cordis` confirmed: prompt section + skill + tool
+registration, and `lifecycle session-start` / `session-end` spawns with
+storageDomain dedup, all via the scoped `emitAgentEvent` dispatch. In a booted
+server the plugin has applied and fired session-start (the runtime skill is
+visible in the session catalog; `lifecycle.session_start` events land in the
+Soma event log); the session-end path has not yet been observed live.
 
 ## Install
 

@@ -1,10 +1,12 @@
 # DeepSeek Harness Substrate
 
 **Status:** Adapter implemented (`src/adapters/dsh/`, `soma install dsh`); the
-host plugin (`integrations/dsh/soma-host`) is live: installer-managed (install
+host plugin (`integrations/dsh/soma-host`) is installer-managed (install
 copies it from the running soma package, wires the profile dependency, and
-patches the composition row) and smoke-tested against real cordis. The
-client-side `soma-dsh-hide-tools` remains a hand-installed prototype.
+patches the composition row) and has applied inside a booted `dsh web` server
+(runtime skill + session-start events observed); its session-end path is
+smoke-tested against real cordis but not yet observed live. The client-side
+`soma-dsh-hide-tools` remains a hand-installed prototype.
 
 This document specifies how Soma projects into **DeepSeek Harness (DSH)** as a
 new substrate, and how a set of DSH plugins carries Soma's algorithm, hooks,
