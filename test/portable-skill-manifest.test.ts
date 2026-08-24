@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
@@ -160,6 +160,60 @@ test("reconcile removes only files the current projection dropped, keeping the m
     expect(await gone(join(substrateHome, "skills/Gone"))).toBe(true);
     expect(await gone(join(substrateHome, "skills/Memory/SKILL.md"))).toBe(false);
     expect(await gone(portableSkillManifestPath(somaHome, "claude-code", substrateHome))).toBe(false);
+  });
+});
+
+test("reconcile removes a migrated symlink slot without touching its target (#652)", async () => {
+  await withDirs(async (somaHome, substrateHome) => {
+    const files = [
+      { path: "skills/the-algorithm/SKILL.md", content: "algorithm body\n" },
+      { path: "skills/the-algorithm/Workflows/Run.md", content: "workflow body\n" },
+      { path: "skills/gone/SKILL.md", content: "later stale skill\n" },
+    ];
+    await project(substrateHome, files);
+    await writePortableSkillManifest({ somaHome, substrate: "claude-code", substrateHome, files });
+
+    const slot = join(substrateHome, "skills/the-algorithm");
+    const registrySkill = join(substrateHome, "registry/the-algorithm");
+    await rm(slot, { recursive: true });
+    await project(substrateHome, files.map((file) => ({ ...file, path: file.path.replace("skills/", "registry/") })));
+    await symlink(registrySkill, slot);
+
+    const removed = await reconcilePortableSkillProjection({
+      somaHome,
+      substrate: "claude-code",
+      substrateHome,
+      currentPaths: [],
+    });
+
+    expect(removed).toContain(slot);
+    expect(removed).toContain(resolve(substrateHome, "skills/gone/SKILL.md"));
+    expect(await lstat(slot).then(() => false, () => true)).toBe(true);
+    expect(await gone(join(substrateHome, "skills/gone"))).toBe(true);
+    expect(await readFile(join(registrySkill, "SKILL.md"), "utf8")).toBe("algorithm body\n");
+    expect(await readFile(join(registrySkill, "Workflows/Run.md"), "utf8")).toBe("workflow body\n");
+  });
+});
+
+test("reconcile never unlinks a shared top-level directory symlink", async () => {
+  await withDirs(async (somaHome, substrateHome) => {
+    const files = [{ path: "skills/Memory/SKILL.md", content: "memory body\n" }];
+    const sharedSkills = join(substrateHome, "skills");
+    const externalSkills = join(substrateHome, "external-skills");
+    await project(substrateHome, files.map((file) => ({ ...file, path: file.path.replace("skills/", "external-skills/") })));
+    await symlink(externalSkills, sharedSkills);
+    await writePortableSkillManifest({ somaHome, substrate: "claude-code", substrateHome, files });
+
+    const removed = await reconcilePortableSkillProjection({
+      somaHome,
+      substrate: "claude-code",
+      substrateHome,
+      currentPaths: [],
+    });
+
+    expect(removed).not.toContain(sharedSkills);
+    expect((await lstat(sharedSkills)).isSymbolicLink()).toBe(true);
+    expect(await readFile(join(externalSkills, "Memory/SKILL.md"), "utf8")).toBe("memory body\n");
   });
 });
 
