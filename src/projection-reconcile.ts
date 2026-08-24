@@ -66,7 +66,7 @@ async function removeEmptyDirs(root: string, excludedAbs: readonly string[] = []
     await rmdir(root);
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
-    if (code !== "ENOENT" && code !== "ENOTEMPTY") throw error;
+    if (code !== "ENOENT" && code !== "ENOTEMPTY" && code !== "ENOTDIR") throw error;
   }
 }
 

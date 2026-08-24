@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { reconcileOwnedDir } from "../src/projection-reconcile";
@@ -53,6 +53,26 @@ test("keeps a desired nested file, removes a sibling stale file (both FS)", asyn
     expect(await exists(join(root, "sub", "keep.md"))).toBe(true);
     expect(await exists(join(root, "sub", "drop.md"))).toBe(false);
     expect(await exists(join(root, "sub"))).toBe(true);
+  });
+});
+
+test("removes a stale symlinked subtree without touching its target (#652)", async () => {
+  await withTempDir(async (root) => {
+    const target = `${root}-target`;
+    try {
+      await mkdir(target, { recursive: true });
+      await writeFile(join(target, "SKILL.md"), "registry content", "utf8");
+      await symlink(target, join(root, "stale-skill"));
+      await writeFile(join(root, "keep.md"), "keep", "utf8");
+
+      const result = await reconcileOwnedDir(root, ["keep.md"]);
+
+      expect(result.removed).toContain("stale-skill");
+      expect(await exists(join(root, "stale-skill"))).toBe(false);
+      expect(await readFile(join(target, "SKILL.md"), "utf8")).toBe("registry content");
+    } finally {
+      await rm(target, { recursive: true, force: true });
+    }
   });
 });
 

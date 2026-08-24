@@ -3,7 +3,7 @@
  * Minimal-correct scope: rules/soma/ skeleton + VSA skill projection +
  * lifecycle/writeback hooks + uninstaller.
  */
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readdir, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -22,6 +22,7 @@ import { unpatchClaudeCodeModeClassifierSettings } from "../src/adapters/claude-
 import { installSpecFor } from "../src/install-spec-registry";
 import type { InstallSubstrate, SkillsDiscoveryMode } from "../src/install-spec";
 import { SOMA_SKILLS_HEADING } from "../src/adapters/shared";
+import { writePortableSkillManifest } from "../src/adapters/shared/portable-skill-manifest";
 import { stripProvenance } from "../src/adapters/shared/provenance";
 import { datePrefixSlug } from "../src/dated-slug";
 import { expectReprojectPrunesStaleTelos, portableProjectionInput } from "./fixtures";
@@ -822,6 +823,43 @@ test("soma#638: the library install projects the registry, not just the CLI", as
 
     expect(result.projectedSkills.map((skill) => skill.skill)).toContain("Lib");
     expect((await stat(join(homeDir, ".claude", "skills", "Lib", "SKILL.md"))).isFile()).toBe(true);
+  });
+});
+
+test("#652: install replaces a migrated manifest slot and continues projecting later skills", async () => {
+  await withTempHome(async (homeDir) => {
+    const somaHome = join(homeDir, ".soma");
+    const substrateHome = join(homeDir, ".claude");
+    await bootstrapSomaHome({ homeDir });
+
+    const migratedContent = "---\nname: Migrated\n---\n# migrated\n";
+    const laterContent = "---\nname: Later\n---\n# later\n";
+    const migratedRegistry = join(somaHome, "skills", "Migrated");
+    const laterRegistry = join(somaHome, "skills", "Later");
+    await mkdir(migratedRegistry, { recursive: true });
+    await mkdir(laterRegistry, { recursive: true });
+    await writeFile(join(migratedRegistry, "SKILL.md"), migratedContent, "utf8");
+    await writeFile(join(laterRegistry, "SKILL.md"), laterContent, "utf8");
+
+    const migratedSlot = join(substrateHome, "skills", "Migrated");
+    await mkdir(join(substrateHome, "skills"), { recursive: true });
+    await symlink(migratedRegistry, migratedSlot);
+    await writePortableSkillManifest({
+      somaHome,
+      substrate: "claude-code",
+      substrateHome,
+      files: [{ path: "skills/Migrated/SKILL.md", content: migratedContent }],
+    });
+
+    const result = await installSomaForClaudeCode({ homeDir });
+    const laterSlot = join(substrateHome, "skills", "Later");
+
+    expect((await lstat(migratedSlot)).isSymbolicLink()).toBe(true);
+    expect((await lstat(laterSlot)).isSymbolicLink()).toBe(true);
+    expect(await readlink(migratedSlot)).toBe(migratedRegistry);
+    expect(await readlink(laterSlot)).toBe(laterRegistry);
+    expect(result.projectedSkills.map((skill) => skill.skill)).toContain("Later");
+    expect(await readFile(join(migratedRegistry, "SKILL.md"), "utf8")).toBe(migratedContent);
   });
 });
 
