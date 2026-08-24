@@ -320,36 +320,82 @@ interface HeredocOpener {
   quoted: boolean;
 }
 
+/** One shell operator found outside any quote span, with its offset in the line. */
+interface LineOperator {
+  index: number;
+  /** `|` alone. Only a pipe carries a heredoc body to another command. */
+  isPipe: boolean;
+}
+
+/** What a single quote-aware pass over one line yields. */
+interface LineScan {
+  opener: HeredocOpener | null;
+  operators: LineOperator[];
+  /**
+   * The line ends in an unquoted `\`, so the shell joins the NEXT line to this
+   * command. Whatever follows could be `| bash`, and this pass sees lines one at
+   * a time, so a continued line is never classified as data.
+   */
+  continued: boolean;
+  /**
+   * An unquoted `>(` or `<(`. Process substitution runs a command that can consume
+   * the body — `cat <<'EOF' > >(bash)` — and it is not a pipeline stage, so the
+   * operator walk below cannot see it.
+   */
+  processSubstitution: boolean;
+}
+
 /**
- * Find the first `<<` on this line that is genuinely a heredoc redirect.
+ * One quote-aware pass over a line, yielding everything the heredoc classifier
+ * needs: the first genuine `<<` redirect, the unquoted operator offsets, and the
+ * two shapes that make the line unsafe to classify at all.
  *
- * Two things disqualify a `<<`, and missing either one was a fail-open defect:
+ * Every consumer must share this pass. Splitting on a bare `/[|;&]/` elsewhere is
+ * what produced two fail-open defects and one false positive:
+ * `gh issue create --title "map & chart" <<'EOF'` resolved its owner to `chart"`,
+ * and `ssh host "echo hi ; cat -" <<'EOF'` resolved it to `cat` — a sink — so an
+ * interpreter's body was blanked.
  *
- * - **inside a quote span.** `echo "see <<EOF for details"` is prose. Treating it
- *   as an opener started a phantom, never-terminated heredoc that blanked every
- *   following line — so a real dump after it stopped being scanned at all. This
- *   scan runs before quote-stripping (it has to; the delimiter of a quoted
- *   heredoc is itself a quoted literal), which is exactly why it must do its own
- *   quote tracking.
- * - **`<<<`.** A here-string has no body and no terminator.
- *
- * Backslash escapes inside a quote span are not modelled, and the error runs both
- * ways: an escaped quote can end a span early (reporting an opener that is really
- * prose) or open a spurious span that swallows a real `<<` (missing an opener).
- * The missing direction is safe on its own — the body stays scanned. The
- * reporting direction is made safe by the data-body test below, which requires a
- * quoted delimiter and an all-sink pipeline before anything is blanked.
+ * Quoting follows bash: inside `'…'` nothing escapes and only `'` closes the span;
+ * inside `"…"` a backslash escapes the next character; outside, a backslash
+ * escapes the next character and both quote characters open a span.
  */
-function findHeredocOpener(line: string): HeredocOpener | null {
+function scanLine(line: string): LineScan {
+  const operators: LineOperator[] = [];
+  let opener: HeredocOpener | null = null;
+  let processSubstitution = false;
   let quote: '"' | "'" | null = null;
-  for (let index = 0; index < line.length; index += 1) {
+  let index = 0;
+
+  for (; index < line.length; index += 1) {
     const char = line[index];
-    if (quote) {
-      if (char === quote) quote = null;
+
+    if (quote === "'") {
+      if (char === "'") quote = null;
+      continue;
+    }
+    if (quote === '"') {
+      if (char === "\\") index += 1;
+      else if (char === '"') quote = null;
+      continue;
+    }
+    if (char === "\\") {
+      index += 1;
       continue;
     }
     if (char === '"' || char === "'") {
       quote = char;
+      continue;
+    }
+
+    if ((char === ">" || char === "<") && line[index + 1] === "(") {
+      processSubstitution = true;
+      continue;
+    }
+    if (char === "|" || char === ";" || char === "&") {
+      const doubled = line[index + 1] === char;
+      operators.push({ index, isPipe: char === "|" && !doubled });
+      if (doubled) index += 1;
       continue;
     }
     if (char !== "<" || line[index + 1] !== "<") continue;
@@ -357,47 +403,61 @@ function findHeredocOpener(line: string): HeredocOpener | null {
       index += 2; // here-string: no body, no terminator.
       continue;
     }
+    if (opener) continue; // only the first redirect on a line is tracked; see below.
     const match = /^(-?)\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\2/u.exec(line.slice(index + 2));
     if (!match) continue;
-    return { index, delimiter: match[3], stripTabs: match[1] === "-", quoted: match[2] !== "" };
+    opener = { index, delimiter: match[3], stripTabs: match[1] === "-", quoted: match[2] !== "" };
   }
-  return null;
+
+  // An unterminated quote span means the line was mis-parsed; treat it as continued
+  // so nothing on it is classified as data.
+  const continued = quote !== null || /(?<!\\)\\$/u.test(line);
+  return { opener, operators, continued, processSubstitution };
 }
 
-/** First word of a pipeline stage, as a bare command name. */
+/**
+ * First word of a pipeline stage, as a bare command name. Empty when the stage is
+ * blank or is nothing but env-assignment prefixes, which no allow-list contains —
+ * so an all-prefix stage fails the sink test rather than reaching a lookup.
+ */
 function stageCommandName(stage: string): string {
   const words = stage.trim().split(/\s+/u).filter(Boolean);
-  if (words.length === 0) return "";
-  return shellCommandName(words[skipCommandPrefixes(words)]);
+  const start = skipCommandPrefixes(words);
+  return start < words.length ? shellCommandName(words[start]) : "";
 }
 
 /**
  * True when this heredoc's body is inert data for every command that will see it.
  *
- * Three conditions, and dropping any one of them was a live fail-open defect:
+ * Each condition below was a live fail-open defect when it was missing:
  *
- * 1. **The delimiter is quoted.** `<<EOF` (unquoted) makes the shell expand the
- *    body, so `gh issue create --body-file - <<EOF` with a `$(printenv)` inside it
- *    runs the substitution. Only `<<'EOF'` / `<<"EOF"` is literal text.
- * 2. **The owning command is a sink.** Resolved by slicing at `opener.index`, not
- *    at the first `<<` in the line: in `echo "a << b" | bash <<'EOF'` the first
- *    `<<` sits inside a quoted argument and yields `echo` instead of `bash`.
- * 3. **Every downstream pipeline stage is a sink too.** `cat <<'EOF' | bash` has a
- *    sink for an owner and an interpreter for a consumer, and the body is executed.
- *    Only pipes carry the body onward — `;`, `&&` and `||` begin a command that
- *    never sees it, and demanding sink-ness of those would refuse
- *    `cat <<'EOF' > f ; curl -d @f url`, which is the shape #540 is about.
+ * 1. **The line is fully parsed and self-contained.** A trailing `\` joins the next
+ *    line (which may be `| bash`), an unclosed quote means the parse is unreliable,
+ *    and `>(`/`<(` runs a command this walk cannot see.
+ * 2. **The delimiter is quoted.** `<<EOF` makes the shell expand the body, so a
+ *    `$(printenv)` inside it really runs. Only `<<'EOF'` / `<<"EOF"` is literal.
+ * 3. **The owning command is a sink** — the stage between the last unquoted
+ *    operator before the redirect and the redirect itself.
+ * 4. **Every downstream pipe stage is a sink too.** `cat <<'EOF' | bash` has a sink
+ *    for an owner and an interpreter for a consumer. Only pipes carry the body
+ *    onward: `;`, `&&` and `||` begin a command that never sees it, and demanding
+ *    sink-ness of those would refuse `cat <<'EOF' > f ; curl -d @f url`, which is
+ *    the shape #540 is about.
  */
-function heredocBodyIsData(line: string, opener: HeredocOpener): boolean {
+function heredocBodyIsData(line: string, scan: LineScan, opener: HeredocOpener): boolean {
+  if (scan.continued || scan.processSubstitution) return false;
   if (!opener.quoted) return false;
 
-  const ownerStage = line.slice(0, opener.index).split(/\|\||&&|[|;&]/u).pop() ?? "";
+  const ownerStart = scan.operators.filter((op) => op.index < opener.index).pop();
+  const ownerStage = line.slice(ownerStart ? ownerStart.index + 1 : 0, opener.index);
   if (!HEREDOC_DATA_SINKS.has(stageCommandName(ownerStage))) return false;
 
-  // Split the tail on single pipes only; `||` is a boolean operator, not a pipe.
-  // Element 0 is the remainder of the owner's own stage, already judged above.
-  const downstream = line.slice(opener.index).split(/(?<!\|)\|(?!\|)/u).slice(1);
-  return downstream.every((stage) => HEREDOC_DATA_SINKS.has(stageCommandName(stage)));
+  const pipes = scan.operators.filter((op) => op.index > opener.index && op.isPipe);
+  return pipes.every((pipe, position) => {
+    const isLast = position + 1 === pipes.length;
+    const stage = line.slice(pipe.index + 1, isLast ? line.length : pipes[position + 1].index);
+    return HEREDOC_DATA_SINKS.has(stageCommandName(stage));
+  });
 }
 
 /**
@@ -425,6 +485,14 @@ function isHeredocTerminator(line: string, open: HeredocOpener): boolean {
  * Everything else keeps its body, because an unrecognised consumer may execute it.
  * An unterminated heredoc on a data sink blanks to end of input — once a body is
  * open the shell consumes the remaining lines as body too.
+ *
+ * Runs on the ORIGINAL command, never a lowercased copy: heredoc delimiters are
+ * case-sensitive, and comparing lowercased text let a body line `msg` terminate a
+ * `<<'MSG'` heredoc, putting the prose after it back into command-position scanning.
+ *
+ * Only the FIRST redirect on a line is tracked. `cat <<'A' > /tmp/a <<'B'` leaves
+ * the second body scanned, which costs a false positive and never a missed
+ * command — the same direction every other unmodelled case here fails in.
  */
 function stripDataHeredocBodies(command: string): string {
   if (!command.includes("<<")) return command;
@@ -441,8 +509,8 @@ function stripDataHeredocBodies(command: string): string {
     }
 
     out.push(line);
-    const opener = findHeredocOpener(line);
-    if (opener && heredocBodyIsData(line, opener)) open = opener;
+    const scan = scanLine(line);
+    if (scan.opener && heredocBodyIsData(line, scan, scan.opener)) open = scan.opener;
   }
 
   return out.join("\n");
@@ -560,7 +628,12 @@ function inspectToolCall(options: RuntimePolicyInspectOptions): RuntimePolicyFin
   // an argument being passed, never a command being run. Data-heredoc bodies go
   // before that (#540) — the delimiter of a `<<'EOF'` heredoc is itself a quoted
   // literal, so quote-stripping first would erase the marker the body-scan needs.
-  const unquoted = stripDataHeredocBodies(normalized).replace(/'[^']*'/gu, " '' ").replace(/"[^"]*"/gu, ' "" ');
+  // The heredoc pass reads `command`, not `normalized`: delimiters are
+  // case-sensitive, so it must run before the lowercasing.
+  const unquoted = stripDataHeredocBodies(command)
+    .toLowerCase()
+    .replace(/'[^']*'/gu, " '' ")
+    .replace(/"[^"]*"/gu, ' "" ');
   const hasEnvDump = /(?:^|[|;&]|\$\(|`|\n)\s*(?:printenv|env|export|set)\b/u.test(unquoted);
   // A credential term is only egress when a VALUE is attached to it
   // (`token=…`, `"password":…`, `api_key: …`). Naming the word is not egress —
