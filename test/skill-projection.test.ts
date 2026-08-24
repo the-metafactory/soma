@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { lstat, mkdir, mkdtemp, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readdir, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { planProjectSkill, planUnprojectSkill, projectSkill, projectSkills, unprojectSkill } from "../src/skill-projection";
+import { dirname, join, resolve } from "node:path";
+import { caseFoldedEntryName, ensureSymlink, isSameFilesystemEntry, planProjectSkill, planUnprojectSkill, projectSkill, projectSkills, unprojectSkill } from "../src/skill-projection";
 import { bootstrapSomaHome } from "../src/index";
 import { runSomaCli } from "../src/cli";
 
@@ -35,6 +35,34 @@ async function readlinkAbs(linkPath: string): Promise<string> {
   return resolve(linkPath, "..", target);
 }
 
+describe("case-folded loader slots", () => {
+  test("recognizes a stored slot whose case differs from the requested name", () => {
+    expect(caseFoldedEntryName(["Council", "Other"], "council")).toBe("Council");
+    expect(caseFoldedEntryName(["council"], "council")).toBeUndefined();
+    expect(caseFoldedEntryName(["Other"], "council")).toBeUndefined();
+    expect(isSameFilesystemEntry({ dev: 1, ino: 2 }, { dev: 1, ino: 2 })).toBe(true);
+    expect(isSameFilesystemEntry({ dev: 1, ino: 2 }, { dev: 1, ino: 3 })).toBe(false);
+  });
+});
+
+describe("ensureSymlink", () => {
+  test("replaces an equal-target slot when the stale-casing detector finds one", async () => {
+    await withTempHome(async (homeDir) => {
+      const target = await writeSourceSkill(homeDir, "council");
+      const link = join(homeDir, "loader", "council");
+      const stale = join(homeDir, "loader", "Council");
+      await mkdir(dirname(link), { recursive: true });
+      await symlink(target, link);
+
+      const result = await ensureSymlink(link, target, false, async () => stale);
+
+      expect(result).toEqual({ status: "replaced", recasedFrom: stale });
+      expect((await lstat(link)).isSymbolicLink()).toBe(true);
+      expect(await readlinkAbs(link)).toBe(resolve(target));
+    });
+  });
+});
+
 describe("projectSkill", () => {
   test("symlinks into the claude-code loader and the soma registry, and lists it in the catalog", async () => {
     await withTempHome(async (homeDir) => {
@@ -57,6 +85,33 @@ describe("projectSkill", () => {
       // Catalog lists it (soma#371: compact registry entry, not a `## <name>` heading).
       const catalog = await readFile(join(homeDir, ".cursor", "rules", "soma", "SKILLS.md"), "utf8");
       expect(catalog).toContain("**MyTool**");
+    });
+  });
+
+  test("recases folded slots and preserves case-distinct siblings", async () => {
+    await withTempHome(async (homeDir) => {
+      const skillDir = await writeSourceSkill(homeDir, "council");
+      const loader = join(homeDir, ".claude", "skills");
+      const requested = join(loader, "council");
+      const stale = join(loader, "Council");
+      await mkdir(loader, { recursive: true });
+      await symlink(skillDir, stale);
+      const foldsCase = await lstat(requested).then(() => true).catch(() => false);
+
+      const result = await projectSkill({ skillDir, substrates: ["claude-code"], homeDir });
+      const projected = result.links.find((link) => link.scope === "substrate");
+      const entries = await readdir(loader);
+      if (foldsCase) {
+        expect(projected?.status).toBe("replaced");
+        expect(projected?.recasedFrom).toBe(stale);
+        expect(entries).toContain("council");
+        expect(entries).not.toContain("Council");
+      } else {
+        expect(projected?.status).toBe("linked");
+        expect(projected?.recasedFrom).toBeUndefined();
+        expect(entries).toContain("council");
+        expect(entries).toContain("Council");
+      }
     });
   });
 
