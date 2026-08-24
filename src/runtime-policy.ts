@@ -312,6 +312,12 @@ interface HeredocOpener {
   delimiter: string;
   /** `<<-` strips leading TABS — only tabs, only for this form — from the terminator. */
   stripTabs: boolean;
+  /**
+   * `<<'EOF'` / `<<"EOF"` rather than `<<EOF`. Only a QUOTED delimiter makes the
+   * body literal. With an unquoted one the shell expands it, so `$(printenv)` in
+   * the body really runs — which is why an unquoted body is never treated as data.
+   */
+  quoted: boolean;
 }
 
 /**
@@ -327,9 +333,12 @@ interface HeredocOpener {
  *   quote tracking.
  * - **`<<<`.** A here-string has no body and no terminator.
  *
- * Backslash escapes inside a quote span are not modelled, so an escaped quote can
- * end a span early. That errs toward reporting an opener, which is then still
- * subject to the sink test — and an unrecognised consumer keeps its body.
+ * Backslash escapes inside a quote span are not modelled, and the error runs both
+ * ways: an escaped quote can end a span early (reporting an opener that is really
+ * prose) or open a spurious span that swallows a real `<<` (missing an opener).
+ * The missing direction is safe on its own — the body stays scanned. The
+ * reporting direction is made safe by the data-body test below, which requires a
+ * quoted delimiter and an all-sink pipeline before anything is blanked.
  */
 function findHeredocOpener(line: string): HeredocOpener | null {
   let quote: '"' | "'" | null = null;
@@ -350,40 +359,60 @@ function findHeredocOpener(line: string): HeredocOpener | null {
     }
     const match = /^(-?)\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\2/u.exec(line.slice(index + 2));
     if (!match) continue;
-    return { index, delimiter: match[3], stripTabs: match[1] === "-" };
+    return { index, delimiter: match[3], stripTabs: match[1] === "-", quoted: match[2] !== "" };
   }
   return null;
 }
 
+/** First word of a pipeline stage, as a bare command name. */
+function stageCommandName(stage: string): string {
+  const words = stage.trim().split(/\s+/u).filter(Boolean);
+  if (words.length === 0) return "";
+  return shellCommandName(words[skipCommandPrefixes(words)]);
+}
+
 /**
- * True when the command consuming the heredoc that opens at `openerIndex` is a
- * known data sink.
+ * True when this heredoc's body is inert data for every command that will see it.
  *
- * Slicing at `openerIndex` rather than at the first `<<` in the line matters: in
- * `echo "a << b" | bash <<'EOF'` the first `<<` sits inside a quoted argument, and
- * resolving the owner from it yields `echo` — so an interpreter body would have
- * been blanked.
+ * Three conditions, and dropping any one of them was a live fail-open defect:
+ *
+ * 1. **The delimiter is quoted.** `<<EOF` (unquoted) makes the shell expand the
+ *    body, so `gh issue create --body-file - <<EOF` with a `$(printenv)` inside it
+ *    runs the substitution. Only `<<'EOF'` / `<<"EOF"` is literal text.
+ * 2. **The owning command is a sink.** Resolved by slicing at `opener.index`, not
+ *    at the first `<<` in the line: in `echo "a << b" | bash <<'EOF'` the first
+ *    `<<` sits inside a quoted argument and yields `echo` instead of `bash`.
+ * 3. **Every downstream pipeline stage is a sink too.** `cat <<'EOF' | bash` has a
+ *    sink for an owner and an interpreter for a consumer, and the body is executed.
+ *    Only pipes carry the body onward — `;`, `&&` and `||` begin a command that
+ *    never sees it, and demanding sink-ness of those would refuse
+ *    `cat <<'EOF' > f ; curl -d @f url`, which is the shape #540 is about.
  */
-function heredocOwnerIsDataSink(line: string, openerIndex: number): boolean {
-  const beforeRedirect = line.slice(0, openerIndex);
-  const lastSegment = beforeRedirect.split(/\|\||&&|[|;&]/u).pop() ?? "";
-  const words = lastSegment.trim().split(/\s+/u).filter(Boolean);
-  if (words.length === 0) return false;
-  return HEREDOC_DATA_SINKS.has(shellCommandName(words[skipCommandPrefixes(words)]));
+function heredocBodyIsData(line: string, opener: HeredocOpener): boolean {
+  if (!opener.quoted) return false;
+
+  const ownerStage = line.slice(0, opener.index).split(/\|\||&&|[|;&]/u).pop() ?? "";
+  if (!HEREDOC_DATA_SINKS.has(stageCommandName(ownerStage))) return false;
+
+  // Split the tail on single pipes only; `||` is a boolean operator, not a pipe.
+  // Element 0 is the remainder of the owner's own stage, already judged above.
+  const downstream = line.slice(opener.index).split(/(?<!\|)\|(?!\|)/u).slice(1);
+  return downstream.every((stage) => HEREDOC_DATA_SINKS.has(stageCommandName(stage)));
 }
 
 /**
  * True when `line` terminates `open`.
  *
- * Bash accepts the delimiter only on a line of its own with no leading
- * whitespace; `<<-` relaxes that for tabs alone, never spaces. Comparing a
- * fully-trimmed line instead would end the body early on an indented `  EOF`, and
- * the prose after it would re-enter command-position scanning — reintroducing the
- * #540 false positive that this pass exists to remove.
+ * Bash accepts the delimiter only on a line of its own — unindented, with nothing
+ * after it. `<<-` relaxes the leading part for tabs alone, never spaces. Accepting
+ * a trimmed line instead ends the body early on `  EOF` or on `EOF   `, and the
+ * prose after it re-enters command-position scanning — reintroducing the #540
+ * false positive that this pass exists to remove. Only a trailing `\r` is
+ * tolerated, for CRLF input.
  */
 function isHeredocTerminator(line: string, open: HeredocOpener): boolean {
-  const candidate = open.stripTabs ? line.replace(/^\t+/u, "") : line;
-  return candidate.trimEnd() === open.delimiter;
+  const candidate = (open.stripTabs ? line.replace(/^\t+/u, "") : line).replace(/\r$/u, "");
+  return candidate === open.delimiter;
 }
 
 /**
@@ -413,7 +442,7 @@ function stripDataHeredocBodies(command: string): string {
 
     out.push(line);
     const opener = findHeredocOpener(line);
-    if (opener && heredocOwnerIsDataSink(line, opener.index)) open = opener;
+    if (opener && heredocBodyIsData(line, opener)) open = opener;
   }
 
   return out.join("\n");
