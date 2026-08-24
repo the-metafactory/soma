@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rm, rmdir, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, rm, rmdir, unlink, writeFile } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
 import { isEnoent } from "../../fs-errors";
 
@@ -115,6 +115,29 @@ function isInsideRoot(root: string, target: string): boolean {
   return target !== root && target.startsWith(rootPrefix);
 }
 
+interface SymlinkIdentity {
+  path: string;
+  dev: number;
+  ino: number;
+}
+
+/** Find a directory symlink above a manifest-recorded file without following it. */
+async function symlinkAncestor(root: string, target: string): Promise<SymlinkIdentity | undefined> {
+  for (let dir = dirname(target); isInsideRoot(root, dir); dir = dirname(dir)) {
+    try {
+      const entry = await lstat(dir);
+      if (entry.isSymbolicLink()) return { path: dir, dev: entry.dev, ino: entry.ino };
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      // A missing path or a non-directory ancestor can be the result of another
+      // manifest entry already removing the same migrated slot. Keep walking so
+      // a higher symlink ancestor can still be identified.
+      if (code !== "ENOENT" && code !== "ENOTDIR") throw error;
+    }
+  }
+  return undefined;
+}
+
 export async function readPortableSkillManifest(
   somaHome: string,
   substrate: PortableSkillManifestSubstrate,
@@ -147,6 +170,34 @@ async function removeListedProjectionFiles(
   for (const file of files) {
     const target = resolve(substrateHome, file.path);
     if (!isInsideRoot(substrateHome, target)) continue;
+
+    // Copy-era manifests name files below skill directories. Loader-mode
+    // migration may have replaced such a directory with a symlink. Reading the
+    // recorded file first would follow that link and rm() would delete registry
+    // content. Remove the slot link itself before touching any recorded child.
+    const linkedDir = await symlinkAncestor(substrateHome, target);
+    if (linkedDir !== undefined) {
+      // The substrate's top-level directories are shared surfaces, not
+      // manifest-owned skill slots. If one is itself a symlink, fail open for
+      // this entry rather than unlinking the whole shared loader root.
+      if (dirname(linkedDir.path) === substrateHome) continue;
+      try {
+        // Narrow the lstat→unlink race: only unlink the same symlink inode we
+        // classified. A swapped regular file or replacement link is user state,
+        // so this manifest entry fails open instead of deleting it.
+        const current = await lstat(linkedDir.path);
+        if (!current.isSymbolicLink() || current.dev !== linkedDir.dev || current.ino !== linkedDir.ino) continue;
+        await unlink(linkedDir.path);
+        removed.push(linkedDir.path);
+      } catch (error) {
+        if (!isEnoent(error)) throw error;
+      }
+      for (let dir = dirname(linkedDir.path); isInsideRoot(substrateHome, dir); dir = dirname(dir)) {
+        candidateDirs.add(dir);
+      }
+      continue;
+    }
+
     let content: string;
     try {
       content = await readFile(target, "utf8");
@@ -173,7 +224,7 @@ async function removeListedProjectionFiles(
       // (EACCES/EPERM/EBUSY/…) is a real filesystem fault and must surface,
       // not be silently masked as a keep.
       const code = (error as { code?: string } | null)?.code;
-      if (code !== "ENOTEMPTY" && code !== "ENOENT") throw error;
+      if (code !== "ENOTEMPTY" && code !== "ENOENT" && code !== "ENOTDIR") throw error;
     }
   }
   return removed;
