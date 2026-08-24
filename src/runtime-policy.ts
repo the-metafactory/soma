@@ -279,6 +279,88 @@ function skipCommandPrefixes(tokens: string[]): number {
   return index;
 }
 
+// A heredoc body is DATA fed to a command's stdin — UNLESS the command consuming
+// it is an interpreter, in which case the body is command text and must keep
+// being scanned. `bash <<EOF … EOF` is the case that makes blanket stripping
+// unsafe; `cat`/`gh`/`tee` are the cases that make no stripping a false-positive
+// factory (#540).
+const HEREDOC_INTERPRETERS = new Set([
+  "sh",
+  "bash",
+  "zsh",
+  "fish",
+  "dash",
+  "ksh",
+  "csh",
+  "tcsh",
+  "python",
+  "python2",
+  "python3",
+  "node",
+  "bun",
+  "deno",
+  "ruby",
+  "perl",
+  "php",
+]);
+
+/** Opener: `<<` or `<<-`, an optional quote, then the delimiter word. */
+const HEREDOC_OPENER = /<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/u;
+
+/**
+ * True when the command that owns a heredoc on this line is an interpreter, so
+ * the body it consumes is executable text rather than data. Reads the segment
+ * immediately before the `<<`, since that is the command the redirection binds to.
+ */
+function heredocOwnerIsInterpreter(line: string): boolean {
+  const beforeRedirect = line.slice(0, line.indexOf("<<"));
+  const lastSegment = beforeRedirect.split(/\|\||&&|[|;&]/u).pop() ?? "";
+  const tokens = lastSegment.trim().split(/\s+/u).filter(Boolean);
+  if (tokens.length === 0) return false;
+  return HEREDOC_INTERPRETERS.has(shellCommandName(tokens[skipCommandPrefixes(tokens)]));
+}
+
+/**
+ * Blank the bodies of heredocs whose consuming command is not an interpreter,
+ * so prose fed to `cat`/`gh`/`tee` stops being read as command position (#540):
+ * an issue body whose text wrapped onto a line beginning with "export" or "set"
+ * scored as `env-egress` at `critical`.
+ *
+ * Interpreter heredocs are left intact — their bodies really are commands.
+ * An unterminated heredoc blanks to the end of input, which is the conservative
+ * reading for a non-interpreter consumer: it is all data.
+ */
+function stripDataHeredocBodies(command: string): string {
+  if (!command.includes("<<")) return command;
+  const lines = command.split("\n");
+  const out: string[] = [];
+  let open: { delimiter: string; allowIndent: boolean; keepBody: boolean } | null = null;
+
+  for (const line of lines) {
+    if (open) {
+      const candidate = open.allowIndent ? line.replace(/^\t+/u, "") : line;
+      if (candidate.trim() === open.delimiter) {
+        out.push(line);
+        open = null;
+        continue;
+      }
+      out.push(open.keepBody ? line : "");
+      continue;
+    }
+
+    out.push(line);
+    const opener = HEREDOC_OPENER.exec(line);
+    if (!opener) continue;
+    open = {
+      delimiter: opener[2],
+      allowIndent: line.slice(0, opener.index + 3).endsWith("<<-"),
+      keepBody: heredocOwnerIsInterpreter(line),
+    };
+  }
+
+  return out.join("\n");
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
@@ -388,8 +470,10 @@ function inspectToolCall(options: RuntimePolicyInspectOptions): RuntimePolicyFin
   // Matching the bare word anywhere flagged ordinary English: a Discord post
   // containing "the same set" or "we export the data" scored as env-egress.
   // Quoted literals are stripped first, because a command name inside quotes is
-  // an argument being passed, never a command being run.
-  const unquoted = normalized.replace(/'[^']*'/gu, " '' ").replace(/"[^"]*"/gu, ' "" ');
+  // an argument being passed, never a command being run. Data-heredoc bodies go
+  // before that (#540) — the delimiter of a `<<'EOF'` heredoc is itself a quoted
+  // literal, so quote-stripping first would erase the marker the body-scan needs.
+  const unquoted = stripDataHeredocBodies(normalized).replace(/'[^']*'/gu, " '' ").replace(/"[^"]*"/gu, ' "" ');
   const hasEnvDump = /(?:^|[|;&]|\$\(|`|\n)\s*(?:printenv|env|export|set)\b/u.test(unquoted);
   // A credential term is only egress when a VALUE is attached to it
   // (`token=…`, `"password":…`, `api_key: …`). Naming the word is not egress —
