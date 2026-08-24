@@ -81,6 +81,8 @@ export interface SkillLink {
   path: string;
   target?: string;
   status: SkillLinkStatus;
+  /** Stored path replaced only to normalize its casing on a case-insensitive volume. */
+  recasedFrom?: string;
 }
 
 /** The registry + per-substrate loader symlinks created for one skill (no catalog). */
@@ -111,6 +113,8 @@ export interface SkillProjectionPlan {
      * stub.
      */
     kind: "symlink" | "stub";
+    /** Stored path that apply will replace solely to normalize casing. */
+    recasedFrom?: string;
   }[];
   catalogRefresh: InstallSubstrate[];
 }
@@ -187,21 +191,74 @@ function assertSingleSubstrateForHome(options: { substrates: InstallSubstrate[];
   }
 }
 
-async function ensureSymlink(
+/** @internal Returns the differently-cased stored name for a requested slot, if one exists. */
+export function caseFoldedEntryName(entries: readonly string[], requestedName: string): string | undefined {
+  const folded = requestedName.toLowerCase();
+  return entries.find((entry) => entry !== requestedName && entry.toLowerCase() === folded);
+}
+
+/**
+ * Return a stale casing only when both spellings address the same filesystem entry.
+ * Case-sensitive filesystems can hold case-distinct siblings, which must stay distinct.
+ */
+/** @internal True only when two spelling lookups reach one directory entry. */
+export function isSameFilesystemEntry(
+  first: Pick<Awaited<ReturnType<typeof lstat>>, "dev" | "ino">,
+  second: Pick<Awaited<ReturnType<typeof lstat>>, "dev" | "ino">,
+): boolean {
+  return first.dev === second.dev && first.ino === second.ino;
+}
+
+async function storedCaseVariant(linkPath: string, entry: Awaited<ReturnType<typeof lstat>>): Promise<string | undefined> {
+  const parent = dirname(linkPath);
+  const storedName = caseFoldedEntryName(await readdir(parent), basename(linkPath));
+  if (storedName === undefined) return undefined;
+  const storedPath = join(parent, storedName);
+  const storedEntry = await lstat(storedPath);
+  return isSameFilesystemEntry(storedEntry, entry) ? storedPath : undefined;
+}
+
+async function equalTargetStaleCaseVariant(linkPath: string, targetPath: string): Promise<string | undefined> {
+  try {
+    const entry = await lstat(linkPath);
+    if (!entry.isSymbolicLink()) return undefined;
+    const current = await readlink(linkPath);
+    if (resolve(dirname(linkPath), current) !== resolve(targetPath)) return undefined;
+    return await storedCaseVariant(linkPath, entry);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
+interface SymlinkWriteResult {
+  status: "linked" | "unchanged" | "replaced";
+  recasedFrom?: string;
+}
+
+type StaleCaseVariantFinder = (linkPath: string, targetPath: string) => Promise<string | undefined>;
+
+/** @internal Exported to exercise deterministic replacement without an APFS-only test. */
+export async function ensureSymlink(
   linkPath: string,
   targetPath: string,
   force: boolean,
-): Promise<"linked" | "unchanged" | "replaced"> {
+  findStaleCaseVariant: StaleCaseVariantFinder = equalTargetStaleCaseVariant,
+): Promise<SymlinkWriteResult> {
   const target = resolve(targetPath);
   await mkdir(dirname(linkPath), { recursive: true });
 
   let existed = false;
+  let recasedFrom: string | undefined;
   try {
     const stat = await lstat(linkPath);
     existed = true;
     if (stat.isSymbolicLink()) {
       const current = await readlink(linkPath);
-      if (resolve(dirname(linkPath), current) === target) return "unchanged";
+      if (resolve(dirname(linkPath), current) === target) {
+        recasedFrom = await findStaleCaseVariant(linkPath, target);
+        if (recasedFrom === undefined) return { status: "unchanged" };
+      }
       // Any symlink in the slot is replaced without a provenance check — including
       // a user-created one pointing elsewhere. This is intentional: project-skill
       // owns the `<skillsRoot>/<name>` slot, and replacing a link loses no data
@@ -223,7 +280,7 @@ async function ensureSymlink(
   }
 
   await symlink(target, linkPath);
-  return existed ? "replaced" : "linked";
+  return { status: existed ? "replaced" : "linked", recasedFrom };
 }
 
 /**
@@ -390,9 +447,9 @@ async function linkSkill(
     //    Skipped when the source already lives under the registry (authored in place).
     const sourceAlreadyInRegistry = dirname(skillDir) === resolve(registrySkillsDir(somaHome));
     if (!sourceAlreadyInRegistry) {
-      const status = await ensureSymlink(slots.registry, skillDir, force);
-      if (status !== "unchanged") created.push(slots.registry);
-      links.push({ scope: "registry", path: slots.registry, target: skillDir, status });
+      const written = await ensureSymlink(slots.registry, skillDir, force);
+      if (written.status !== "unchanged") created.push(slots.registry);
+      links.push({ scope: "registry", path: slots.registry, target: skillDir, ...written });
     }
 
     // 2. Loader entry in each substrate. An on-demand loader gets a symlink to
@@ -401,12 +458,12 @@ async function linkSkill(
     //    (soma#542). Rollback below treats both shapes identically — the created
     //    path is removed either way.
     for (const { substrate, path } of slots.substrates) {
-      const status =
+      const written =
         installSpecFor(substrate).skillsLoading === "eager"
-          ? await ensureSkillStub(path, skillDir, slots.registry, substrate, force)
+          ? { status: await ensureSkillStub(path, skillDir, slots.registry, substrate, force) }
           : await ensureSymlink(path, skillDir, force);
-      if (status !== "unchanged") created.push(path);
-      links.push({ scope: "substrate", substrate, path, target: skillDir, status });
+      if (written.status !== "unchanged") created.push(path);
+      links.push({ scope: "substrate", substrate, path, target: skillDir, ...written });
     }
   } catch (error) {
     // Best-effort rollback of this skill's partial links, then rethrow.
@@ -461,13 +518,26 @@ export async function planProjectSkill(options: ProjectSkillOptions): Promise<Sk
   const slots = skillSlots(name, somaHome, options.substrates, options);
   const links: SkillProjectionPlan["links"] = [];
   if (dirname(skillDir) !== resolve(registrySkillsDir(somaHome))) {
-    links.push({ scope: "registry", path: slots.registry, target: skillDir, kind: "symlink" });
+    links.push({
+      scope: "registry",
+      path: slots.registry,
+      target: skillDir,
+      kind: "symlink",
+      recasedFrom: await equalTargetStaleCaseVariant(slots.registry, skillDir),
+    });
   }
   for (const { substrate, path } of slots.substrates) {
     // Same branch apply takes in linkSkill, so plan and apply cannot disagree
     // on the shape written into a substrate slot.
     const kind = installSpecFor(substrate).skillsLoading === "eager" ? "stub" : "symlink";
-    links.push({ scope: "substrate", substrate, path, target: skillDir, kind });
+    links.push({
+      scope: "substrate",
+      substrate,
+      path,
+      target: skillDir,
+      kind,
+      recasedFrom: kind === "symlink" ? await equalTargetStaleCaseVariant(path, skillDir) : undefined,
+    });
   }
 
   return { skill: name, skillDir, links, catalogRefresh: [...options.substrates] };

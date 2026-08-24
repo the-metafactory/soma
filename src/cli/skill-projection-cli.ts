@@ -157,7 +157,8 @@ function formatPlan(verb: string, plan: SkillProjectionPlan, marker: string): st
         `- ${link.scope === "registry" ? "registry" : link.substrate} ${marker} ${link.path}` +
         // Name the shape only when it is not the symlink default, so existing
         // on-demand output is unchanged (soma#542).
-        (link.kind === "stub" ? " (stub: frontmatter only)" : ""),
+        (link.kind === "stub" ? " (stub: frontmatter only)" : "") +
+        (link.recasedFrom ? ` (recase from ${link.recasedFrom})` : ""),
     ),
     "",
     `Catalog refresh: ${plan.catalogRefresh.join(", ")}`,
@@ -173,7 +174,8 @@ function formatProjectionResult(title: string, result: SkillProjectionResult): s
     "",
     "Links:",
     ...result.links.map((link) =>
-      `- ${link.scope === "registry" ? "registry" : link.substrate}: ${link.status} ${link.path}`,
+      `- ${link.scope === "registry" ? "registry" : link.substrate}: ${link.status} ${link.path}` +
+        (link.recasedFrom ? ` (recased from ${link.recasedFrom})` : ""),
     ),
     "",
     "Catalog:",
