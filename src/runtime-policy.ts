@@ -279,83 +279,141 @@ function skipCommandPrefixes(tokens: string[]): number {
   return index;
 }
 
-// A heredoc body is DATA fed to a command's stdin — UNLESS the command consuming
-// it is an interpreter, in which case the body is command text and must keep
-// being scanned. `bash <<EOF … EOF` is the case that makes blanket stripping
-// unsafe; `cat`/`gh`/`tee` are the cases that make no stripping a false-positive
-// factory (#540).
-const HEREDOC_INTERPRETERS = new Set([
-  "sh",
-  "bash",
-  "zsh",
-  "fish",
-  "dash",
-  "ksh",
-  "csh",
-  "tcsh",
-  "python",
-  "python2",
-  "python3",
-  "node",
-  "bun",
-  "deno",
-  "ruby",
-  "perl",
-  "php",
+// A heredoc body is DATA fed to a command's stdin — but only when the consumer
+// can be NAMED as a data sink. The classification is an allow-list of sinks, not
+// a deny-list of interpreters: a deny-list has to be complete to be safe, and
+// `ssh host <<EOF`, `docker exec -i c sh <<EOF`, `awk -f - <<EOF`,
+// `/usr/bin/python3.11 <<EOF` and `psql <<EOF` all execute their bodies while
+// looking nothing like `bash`. Forgetting a sink costs a false positive;
+// forgetting an executor costs a missed egress. So an unrecognised consumer
+// keeps its body scanned, and this list stays easy to extend on evidence.
+const HEREDOC_DATA_SINKS = new Set([
+  "cat",
+  "tee",
+  "gh",
+  "glab",
+  "git",
+  "jq",
+  "wc",
+  "head",
+  "tail",
+  "sort",
+  "uniq",
+  "column",
+  "fold",
+  "pbcopy",
+  "mail",
+  "mailx",
 ]);
 
-/** Opener: `<<` or `<<-`, an optional quote, then the delimiter word. */
-const HEREDOC_OPENER = /<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/u;
-
-/**
- * True when the command that owns a heredoc on this line is an interpreter, so
- * the body it consumes is executable text rather than data. Reads the segment
- * immediately before the `<<`, since that is the command the redirection binds to.
- */
-function heredocOwnerIsInterpreter(line: string): boolean {
-  const beforeRedirect = line.slice(0, line.indexOf("<<"));
-  const lastSegment = beforeRedirect.split(/\|\||&&|[|;&]/u).pop() ?? "";
-  const tokens = lastSegment.trim().split(/\s+/u).filter(Boolean);
-  if (tokens.length === 0) return false;
-  return HEREDOC_INTERPRETERS.has(shellCommandName(tokens[skipCommandPrefixes(tokens)]));
+/** A heredoc redirect found on one line. */
+interface HeredocOpener {
+  index: number;
+  delimiter: string;
+  /** `<<-` strips leading TABS — only tabs, only for this form — from the terminator. */
+  stripTabs: boolean;
 }
 
 /**
- * Blank the bodies of heredocs whose consuming command is not an interpreter,
- * so prose fed to `cat`/`gh`/`tee` stops being read as command position (#540):
- * an issue body whose text wrapped onto a line beginning with "export" or "set"
- * scored as `env-egress` at `critical`.
+ * Find the first `<<` on this line that is genuinely a heredoc redirect.
  *
- * Interpreter heredocs are left intact — their bodies really are commands.
- * An unterminated heredoc blanks to the end of input, which is the conservative
- * reading for a non-interpreter consumer: it is all data.
+ * Two things disqualify a `<<`, and missing either one was a fail-open defect:
+ *
+ * - **inside a quote span.** `echo "see <<EOF for details"` is prose. Treating it
+ *   as an opener started a phantom, never-terminated heredoc that blanked every
+ *   following line — so a real dump after it stopped being scanned at all. This
+ *   scan runs before quote-stripping (it has to; the delimiter of a quoted
+ *   heredoc is itself a quoted literal), which is exactly why it must do its own
+ *   quote tracking.
+ * - **`<<<`.** A here-string has no body and no terminator.
+ *
+ * Backslash escapes inside a quote span are not modelled, so an escaped quote can
+ * end a span early. That errs toward reporting an opener, which is then still
+ * subject to the sink test — and an unrecognised consumer keeps its body.
+ */
+function findHeredocOpener(line: string): HeredocOpener | null {
+  let quote: '"' | "'" | null = null;
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    if (quote) {
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char !== "<" || line[index + 1] !== "<") continue;
+    if (line[index + 2] === "<") {
+      index += 2; // here-string: no body, no terminator.
+      continue;
+    }
+    const match = /^(-?)\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\2/u.exec(line.slice(index + 2));
+    if (!match) continue;
+    return { index, delimiter: match[3], stripTabs: match[1] === "-" };
+  }
+  return null;
+}
+
+/**
+ * True when the command consuming the heredoc that opens at `openerIndex` is a
+ * known data sink.
+ *
+ * Slicing at `openerIndex` rather than at the first `<<` in the line matters: in
+ * `echo "a << b" | bash <<'EOF'` the first `<<` sits inside a quoted argument, and
+ * resolving the owner from it yields `echo` — so an interpreter body would have
+ * been blanked.
+ */
+function heredocOwnerIsDataSink(line: string, openerIndex: number): boolean {
+  const beforeRedirect = line.slice(0, openerIndex);
+  const lastSegment = beforeRedirect.split(/\|\||&&|[|;&]/u).pop() ?? "";
+  const words = lastSegment.trim().split(/\s+/u).filter(Boolean);
+  if (words.length === 0) return false;
+  return HEREDOC_DATA_SINKS.has(shellCommandName(words[skipCommandPrefixes(words)]));
+}
+
+/**
+ * True when `line` terminates `open`.
+ *
+ * Bash accepts the delimiter only on a line of its own with no leading
+ * whitespace; `<<-` relaxes that for tabs alone, never spaces. Comparing a
+ * fully-trimmed line instead would end the body early on an indented `  EOF`, and
+ * the prose after it would re-enter command-position scanning — reintroducing the
+ * #540 false positive that this pass exists to remove.
+ */
+function isHeredocTerminator(line: string, open: HeredocOpener): boolean {
+  const candidate = open.stripTabs ? line.replace(/^\t+/u, "") : line;
+  return candidate.trimEnd() === open.delimiter;
+}
+
+/**
+ * Blank the bodies of heredocs consumed by a known data sink, so prose fed to
+ * `cat`/`gh`/`git` stops being read as command position (#540): an issue body
+ * whose text wrapped onto a line beginning with "export" or "set" scored
+ * `env-egress` at `critical`, and a markdown code span in a `git commit -F -`
+ * message did the same through the backtick anchor.
+ *
+ * Everything else keeps its body, because an unrecognised consumer may execute it.
+ * An unterminated heredoc on a data sink blanks to end of input — once a body is
+ * open the shell consumes the remaining lines as body too.
  */
 function stripDataHeredocBodies(command: string): string {
   if (!command.includes("<<")) return command;
   const lines = command.split("\n");
   const out: string[] = [];
-  let open: { delimiter: string; allowIndent: boolean; keepBody: boolean } | null = null;
+  let open: HeredocOpener | null = null;
 
   for (const line of lines) {
     if (open) {
-      const candidate = open.allowIndent ? line.replace(/^\t+/u, "") : line;
-      if (candidate.trim() === open.delimiter) {
-        out.push(line);
-        open = null;
-        continue;
-      }
-      out.push(open.keepBody ? line : "");
+      const terminates = isHeredocTerminator(line, open);
+      out.push(terminates ? line : "");
+      if (terminates) open = null;
       continue;
     }
 
     out.push(line);
-    const opener = HEREDOC_OPENER.exec(line);
-    if (!opener) continue;
-    open = {
-      delimiter: opener[2],
-      allowIndent: line.slice(0, opener.index + 3).endsWith("<<-"),
-      keepBody: heredocOwnerIsInterpreter(line),
-    };
+    const opener = findHeredocOpener(line);
+    if (opener && heredocOwnerIsDataSink(line, opener.index)) open = opener;
   }
 
   return out.join("\n");
