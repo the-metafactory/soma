@@ -577,7 +577,7 @@ class GitHubGraphStore implements GraphStore {
     const parentNumber = issue.parentNumber ?? (await this.fetchParentNumber(issue.number));
     const state = toNodeState(issue, await this.fetchBlockers(ref), parentNumber === undefined ? undefined : { id: String(parentNumber) });
     if (issue.status !== "closed") return state;
-    return { ...state, currentCloseReceipt: await this.hasCurrentCloseReceipt(ref) };
+    return { ...state, currentCloseReceipt: await this.hasCurrentCloseReceipt(ref, issue) };
   }
 
   /**
@@ -873,7 +873,9 @@ class GitHubGraphStore implements GraphStore {
   }
 
   /** Receipt authority is the current tracker closure interval, never a historical marker. */
-  private async hasCurrentCloseReceipt(ref: NodeRef): Promise<boolean> {
+  private async hasCurrentCloseReceipt(ref: NodeRef, issue: GitHubIssue): Promise<boolean> {
+    const checkpointId = nodeFromIssue(issue).node.checkpointId;
+    if (checkpointId === undefined) return false;
     const [comments, events] = await Promise.all([
       this.listComments(ref),
       this.transport({ method: "GET", path: `repos/${this.repo}/issues/${ref.id}/events`, paginate: true }),
@@ -882,15 +884,20 @@ class GitHubGraphStore implements GraphStore {
       const record = asRecord(entry, "issue event");
       const at = typeof record.created_at === "string" ? Date.parse(record.created_at) : NaN;
       const event = record.event;
-      return Number.isFinite(at) && (event === "closed" || event === "reopened") ? [{ event, at }] : [];
+      const actor = event === "closed" ? readLogin(record.actor) : undefined;
+      return Number.isFinite(at) && (event === "closed" || event === "reopened") ? [{ event, at, actor }] : [];
     }).sort((left, right) => left.at - right.at);
     const close = [...timeline].reverse().find((entry) => entry.event === "closed");
-    if (close === undefined) return false;
+    if (close === undefined || close.actor === undefined) return false;
     const reopened = [...timeline].reverse().find((entry) => entry.event === "reopened" && entry.at < close.at);
     const start = reopened?.at ?? Number.NEGATIVE_INFINITY;
     return comments.some((comment) => {
       const at = comment.createdAt === undefined ? NaN : Date.parse(comment.createdAt);
-      return Number.isFinite(at) && at >= start && at <= close.at && isStructurallyValidCloseReceipt(comment.body);
+      const receiptCheckpoint = /^- \*\*checkpoint:\*\* `([^`\n]+)`$/mu.exec(comment.body)?.[1];
+      return Number.isFinite(at) && at >= start && at <= close.at
+        && comment.author === close.actor
+        && receiptCheckpoint === checkpointId
+        && isStructurallyValidCloseReceipt(comment.body);
     });
   }
 

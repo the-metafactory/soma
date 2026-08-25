@@ -879,3 +879,29 @@ test("readNode ignores a receipt from before reopen and current reclose", async 
   const state = await createGitHubGraphStore({ repo: REPO, transport }).readNode({ id: "497" });
   expect(state.currentCloseReceipt).toBe(false);
 });
+
+function receiptBody(checkpointId: string, autonomy: "auto" | "propose" | "approve" = "approve"): string {
+  return ["## Close receipt", "", `- **checkpoint:** \`${checkpointId}\``, "- **closed by:** ivy", `- **autonomy:** \`${autonomy}\``, "- **at:** 2026-01-03T00:00:00.000Z", "- **attestation:** \`unverified\`", "", "### Evidence", ...(autonomy === "auto" ? ["", "- \`probed\` — test passed"] : [])].join("\n");
+}
+
+async function currentCloseReceipt(comment: { body: string; author: string }): Promise<boolean | undefined> {
+  const { transport } = fakeTransport({
+    [`GET repos/${REPO}/issues/497`]: issuePayload({ state: "closed", body: typedBody({ autonomy: "approve", checkpointId: "cp-497" }) }),
+    [`GET repos/${REPO}/issues/497/dependencies/blocked_by`]: [],
+    [`GET repos/${REPO}/issues/497/comments`]: [{ id: 1, body: comment.body, created_at: "2026-01-03T00:00:00.000Z", user: { login: comment.author } }],
+    [`GET repos/${REPO}/issues/497/events`]: [{ event: "closed", created_at: "2026-01-03T00:01:00.000Z", actor: { login: "ivy" } }],
+  });
+  return (await createGitHubGraphStore({ repo: REPO, transport }).readNode({ id: "497" })).currentCloseReceipt;
+}
+
+test("readNode rejects a current-close receipt forged by another author", async () => {
+  expect(await currentCloseReceipt({ body: receiptBody("cp-497"), author: "mallory" })).toBe(false);
+});
+
+test("readNode rejects a current-close receipt for another checkpoint", async () => {
+  expect(await currentCloseReceipt({ body: receiptBody("cp-other"), author: "ivy" })).toBe(false);
+});
+
+test("readNode accepts a valid propose receipt from the current close actor", async () => {
+  expect(await currentCloseReceipt({ body: receiptBody("cp-497", "propose"), author: "ivy" })).toBe(true);
+});

@@ -1027,7 +1027,7 @@ export interface ReceiptScan {
  * {@link renderCloseReceipt}'s exact output in tests, so the pair drifts loudly.
  */
 export function isStructurallyValidCloseReceipt(body: string): boolean {
-  const autonomy = /^- \*\*autonomy:\*\* `(auto|approve)`$/mu.exec(body)?.[1];
+  const autonomy = /^- \*\*autonomy:\*\* `(auto|propose|approve)`$/mu.exec(body)?.[1];
   const hasEvidence = /^- `[^`\n]+` — \S.+$/mu.test(body);
   return body.includes(CLOSE_RECEIPT_MARKER)
     && /^- \*\*checkpoint:\*\* `[^`\n]+`$/mu.test(body)
@@ -1036,7 +1036,7 @@ export function isStructurallyValidCloseReceipt(body: string): boolean {
     && /^- \*\*attestation:\*\* `(?:verified|unverified)`$/mu.test(body)
     && /^### Evidence$/mu.test(body)
     && autonomy !== undefined
-    && (autonomy === "approve" || hasEvidence);
+    && (autonomy !== "auto" || hasEvidence);
 }
 
 export function scanCommentsForReceipt(bodies: readonly string[]): ReceiptScan {
