@@ -666,3 +666,107 @@ test("resolvedProbePaths names every path a probe touches, and the field it came
   ]);
   expect(resolvedProbePaths({ type: "url", target: "https://example.test/", expectStatus: 200 }, "/repo")).toEqual([]);
 });
+
+// --- "could not reach the tree" is not "the artifact is absent" (#662) ------
+
+test("an artifact-exists atRef in a directory git cannot read says so, and names the directory", async () => {
+  // #662's reported symptom. The probe base was the install tree, `git cat-file`
+  // exited 128, and the receipt said `docs/x.md absent at main` — so the reporter
+  // went hunting for a file that was present in the tree they ran the close from.
+  // The two failures have different fixes, so they must read differently.
+  const unreadable = requireProbed(
+    await runProbe(
+      { type: "artifact-exists", path: "docs/x.md", atRef: "main" },
+      deps({
+        command: () => ({
+          exitCode: 128,
+          stdout: "",
+          stderr: "fatal: not a git repository (or any of the parent directories): .git\n",
+          timedOut: false,
+        }),
+      }),
+    ),
+  );
+
+  expect(unreadable.outcome).toBe("fail");
+  expect(unreadable.observed).toContain("could not reach main in /repo");
+  expect(unreadable.observed).toContain("git exited 128");
+  expect(unreadable.observed).toContain("not a git repository");
+  // The word that sent the reporter to the wrong place must not appear.
+  expect(unreadable.observed).not.toContain("absent");
+
+  // And the genuine answer still reads exactly as it did: exit 1 is git saying
+  // "I looked, it is not there", which is a real absence.
+  const absent = requireProbed(
+    await runProbe(
+      { type: "artifact-exists", path: "docs/x.md", atRef: "main" },
+      deps({ command: () => ({ exitCode: 1, stdout: "", stderr: "", timedOut: false }) }),
+    ),
+  );
+  expect(absent.outcome).toBe("fail");
+  expect(absent.observed).toBe("docs/x.md absent at main");
+});
+
+test("the reachability split covers the other two git probes, on both of git-merged-into's refs", async () => {
+  // Same helper, three call sites: `does not resolve in /repo` is a plausible
+  // way to say "this is not a repository", and `is not an ancestor of main` is a
+  // plausible way to say "there is no main here". Both would send a reader after
+  // the wrong defect.
+  const refExists = requireProbed(
+    await runProbe(
+      { type: "git-ref-exists", ref: "main" },
+      deps({ command: () => ({ exitCode: 128, stdout: "", stderr: "fatal: not a git repository\n", timedOut: false }) }),
+    ),
+  );
+  expect(refExists.outcome).toBe("fail");
+  expect(refExists.observed).toContain("could not reach main in /repo");
+  expect(refExists.observed).not.toContain("does not resolve");
+
+  // An `into` that does not resolve fails on the second git call, after the ref
+  // itself resolved fine.
+  const badInto = requireProbed(
+    await runProbe(
+      { type: "git-merged-into", ref: "feat/x", into: "main" },
+      deps({
+        command: (request) =>
+          request.argv?.includes("merge-base") === true
+            ? { exitCode: 128, stdout: "", stderr: "fatal: Not a valid object name main\n", timedOut: false }
+            : { exitCode: 0, stdout: "abc1234\n", stderr: "", timedOut: false },
+      }),
+    ),
+  );
+  expect(badInto.outcome).toBe("fail");
+  expect(badInto.observed).toContain("could not reach main in /repo");
+  expect(badInto.observed).not.toContain("is not an ancestor");
+
+  // Exit 1 on the same call is the honest "no", and keeps its message.
+  const notAncestor = requireProbed(
+    await runProbe(
+      { type: "git-merged-into", ref: "feat/x", into: "main" },
+      deps({
+        command: (request) =>
+          request.argv?.includes("merge-base") === true
+            ? { exitCode: 1, stdout: "", stderr: "", timedOut: false }
+            : { exitCode: 0, stdout: "abc1234\n", stderr: "", timedOut: false },
+      }),
+    ),
+  );
+  expect(notAncestor.observed).toContain("is not an ancestor of main");
+});
+
+test("a git probe killed by a timeout reads as unreachable, never as a confident answer", async () => {
+  // A killed spawn reports `exitCode: null`; before #662 that fell through the
+  // `exitCode === 0` comparison and rendered as `absent`, which is a claim about
+  // a question git never got to answer.
+  const result = requireProbed(
+    await runProbe(
+      { type: "artifact-exists", path: "docs/x.md", atRef: "main" },
+      deps({ command: () => ({ exitCode: null, stdout: "", stderr: "", timedOut: true }) }),
+    ),
+  );
+
+  expect(result.outcome).toBe("fail");
+  expect(result.observed).toContain("could not reach main in /repo");
+  expect(result.observed).toContain("git timed out (killed)");
+  expect(result.observed).not.toContain("absent");
+});

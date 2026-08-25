@@ -314,6 +314,41 @@ async function runGit(
 }
 
 /**
+ * Did this git command actually *answer the question*, or could it not look?
+ *
+ * Git plumbing says "no" with exit 1 and "I could not look" with 128, and before
+ * #662 the runner collapsed the two: `git cat-file -e HEAD:docs/x.md` in a
+ * directory that is not a repository exits 128, and the receipt read
+ * `docs/x.md absent at HEAD` — sending an operator to hunt for a file that was
+ * sitting, present, in the tree they ran the close from. The probe base being
+ * wrong is a *different defect* from the artifact being missing, and a receipt
+ * that cannot tell them apart makes the first one unfindable.
+ *
+ * **The exit code, not the stderr text.** Git's messages are localizable and
+ * have been reworded across versions; the 0/1-answered, everything-else-failed
+ * contract has not. Matching on "not a git repository" would be a probe that
+ * passes in English and misreports in German.
+ *
+ * A timeout is unreachable too — a killed spawn reports `exitCode: null`, which
+ * would otherwise render as a confident "absent" for a question nobody asked.
+ *
+ * Still a **fail** either way (§2.2's fail-closed rule): this changes what the
+ * receipt *says*, never what the close gate *does*. A new outcome would mean a
+ * new branch in {@link assertClosable}, and "could not reach the tree" is no more
+ * a pass than "not there" is.
+ */
+function gitUnreachable(outcome: CommandOutcome, cwd: string, target: string): string | undefined {
+  if (!outcome.timedOut && (outcome.exitCode === 0 || outcome.exitCode === 1)) return undefined;
+  const reason = outcome.timedOut ? "git timed out (killed)" : `git exited ${outcome.exitCode}`;
+  // The stderr tail carries the actual reason (`fatal: not a git repository`,
+  // `fatal: bad object`), and it is safe to echo *here specifically*: the three
+  // git probes are containment-checked before dispatch, so this directory is
+  // already inside the stated probe tree and already named on the line above.
+  const detail = boundObserved(outcome.stderr.trim().length > 0 ? outcome.stderr : outcome.stdout);
+  return `could not reach ${target} in ${cwd} — ${reason}${detail.length === 0 ? "" : `: ${detail}`}`;
+}
+
+/**
  * `repo` on the git/artifact probes is a **local working tree path**, defaulting
  * to the runner's cwd — the reading `artifact-exists`'s `path` + `atRef` pair
  * forces (`git cat-file -e <atRef>:<path>` needs a checkout, not an API).
@@ -562,6 +597,8 @@ export async function runProbe(probe: Probe, options: ProbeRunnerOptions): Promi
 
       case "git-ref-exists": {
         const outcome = await runGit(deps, resolvedCwd, ["rev-parse", "--verify", "--quiet", `${probe.ref}^{commit}`], options.remainingSec);
+        const unreachable = gitUnreachable(outcome, resolvedCwd, probe.ref);
+        if (unreachable !== undefined) return finish("fail", unreachable);
         const sha = outcome.stdout.trim();
         const passed = outcome.exitCode === 0 && sha.length > 0;
         return finish(passed ? "pass" : "fail", passed ? `${probe.ref} → ${sha}` : `${probe.ref} does not resolve in ${resolvedCwd}`);
@@ -569,11 +606,18 @@ export async function runProbe(probe: Probe, options: ProbeRunnerOptions): Promi
 
       case "git-merged-into": {
         const resolvedRef = await runGit(deps, resolvedCwd, ["rev-parse", "--verify", "--quiet", `${probe.ref}^{commit}`], options.remainingSec);
+        const refUnreachable = gitUnreachable(resolvedRef, resolvedCwd, probe.ref);
+        if (refUnreachable !== undefined) return finish("fail", refUnreachable);
         const sha = resolvedRef.stdout.trim();
         if (resolvedRef.exitCode !== 0 || sha.length === 0) {
           return finish("fail", `${probe.ref} does not resolve in ${resolvedCwd}`);
         }
         const ancestor = await runGit(deps, resolvedCwd, ["merge-base", "--is-ancestor", probe.ref, probe.into], options.remainingSec);
+        // Checked on `into` as well as on `ref`: `merge-base --is-ancestor` exits
+        // 128 for an `into` that does not resolve, and "is not an ancestor of
+        // main" is a plausible-sounding way to say "there is no main here".
+        const intoUnreachable = gitUnreachable(ancestor, resolvedCwd, probe.into);
+        if (intoUnreachable !== undefined) return finish("fail", intoUnreachable);
         const passed = ancestor.exitCode === 0;
         return finish(passed ? "pass" : "fail", `${probe.ref} (${sha}) ${passed ? "is" : "is not"} an ancestor of ${probe.into}`);
       }
@@ -586,6 +630,10 @@ export async function runProbe(probe: Probe, options: ProbeRunnerOptions): Promi
           return finish(passed ? "pass" : "fail", `${full} ${passed ? "exists" : "is absent"}`);
         }
         const outcome = await runGit(deps, resolvedCwd, ["cat-file", "-e", `${probe.atRef}:${probe.path}`], options.remainingSec);
+        // #662's reported symptom lives on this line: the probe base was the
+        // install tree, `cat-file` exited 128, and the receipt said `absent`.
+        const unreachable = gitUnreachable(outcome, resolvedCwd, probe.atRef);
+        if (unreachable !== undefined) return finish("fail", unreachable);
         const passed = outcome.exitCode === 0;
         return finish(passed ? "pass" : "fail", `${probe.path} ${passed ? "present" : "absent"} at ${probe.atRef}`);
       }

@@ -1,6 +1,9 @@
 import { join, resolve } from "node:path";
 import { expect, test } from "bun:test";
 import { createPaths, type SomaPaths } from "../src/index";
+// Not on the public barrel — a launcher-contract detail two CLI paths share,
+// so the test reaches for it where it lives.
+import { invocationCwd } from "../src/path-utils";
 
 test("createPaths defaults under a home directory", () => {
   const homeDir = "/tmp/soma-paths-home";
@@ -121,4 +124,30 @@ test("store accessors refuse to escape the Soma root", () => {
   expect(() => paths.episodic("sessions", "..", "..", "..", "..", "escape.md")).toThrow("escapes root");
   // `state()` prepends 2 segments ("memory","STATE"); 3 levels of ".." escapes.
   expect(() => paths.state("..", "..", "..", "escape.json")).toThrow("escapes root");
+});
+
+// --- the invocation cwd (#315, #662) ---------------------------------------
+
+test("invocationCwd prefers the launcher's absolute invocation directory over the process cwd", () => {
+  // The only falsifiable shape: the two directories must differ, because on a
+  // machine where soma is run directly they are the same value and a broken
+  // implementation passes. This is #662 — an arc shim `cd`s into the install
+  // tree, so process.cwd() is soma's own checkout and the exported variable is
+  // the only thing left that knows where the operator stood.
+  const invoked = "/work/tree-under-review";
+  expect(invoked).not.toBe(process.cwd());
+
+  expect(invocationCwd({ ARC_INVOCATION_CWD: invoked })).toBe(invoked);
+});
+
+test("invocationCwd falls back to the process cwd when the launcher states nothing usable", () => {
+  const here = resolve(process.cwd());
+
+  // Direct invocation: no shim, no variable, nothing moved.
+  expect(invocationCwd({})).toBe(here);
+  // A relative or empty value is not a statement of where the caller stood.
+  // Resolving it against process.cwd() would produce a third directory that is
+  // neither the caller's nor the install tree's, so it falls back instead.
+  expect(invocationCwd({ ARC_INVOCATION_CWD: "../elsewhere" })).toBe(here);
+  expect(invocationCwd({ ARC_INVOCATION_CWD: "" })).toBe(here);
 });

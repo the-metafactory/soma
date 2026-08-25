@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { SomaCliError } from "../src/cli/errors";
 import {
@@ -1632,5 +1635,121 @@ test("SomaCliError carries a non-zero exit for a lost claim", async () => {
   } catch (error) {
     expect(error).toBeInstanceOf(SomaCliError);
     expect((error as SomaCliError).exitCode).toBe(1);
+  }
+});
+
+// --- the probe tree is the tree soma was invoked from (#662) ----------------
+
+/**
+ * A real git repository, somewhere that is emphatically not soma's own tree,
+ * with one committed artifact.
+ *
+ * Real rather than stubbed because the failure being closed lives *inside* git:
+ * `git cat-file -e HEAD:<path>` run in the wrong directory exits 128, and a fake
+ * runner returning a chosen exit code would be asserting the fix on the way in.
+ */
+async function repoContaining(path: string): Promise<string> {
+  // `realpath` because $TMPDIR is a symlink on macOS and every comparison below
+  // is string equality against a path the CLI resolved lexically.
+  const dir = await realpath(await mkdtemp(join(tmpdir(), "soma-662-")));
+  await mkdir(join(dir, "docs"), { recursive: true });
+  await writeFile(join(dir, path), "the artifact the node claims\n", "utf8");
+  for (const argv of [
+    ["init", "--initial-branch=main"],
+    ["config", "user.email", "test@example.test"],
+    ["config", "user.name", "soma test"],
+    ["add", "."],
+    ["commit", "-m", "seed"],
+  ]) {
+    const proc = Bun.spawn(["git", "-C", dir, ...argv], { stdout: "pipe", stderr: "pipe" });
+    expect(await proc.exited).toBe(0);
+  }
+  return dir;
+}
+
+test("a close probes the repo it was invoked from, even when the launcher cd'd elsewhere (#662)", async () => {
+  // AC-2. The failure: an arc-generated shim `cd`s into soma's install tree
+  // before `exec`, so `process.cwd()` is that tree and every declared probe
+  // resolved against it — `git cat-file` reported the node's artifact "absent"
+  // while it sat, committed, in the checkout the operator ran the close from.
+  //
+  // Falsifiable by construction: `docs/only-here.md` exists in the temp repo and
+  // in no soma checkout, so a probe base that fell back to `process.cwd()` (this
+  // test file's own tree) fails the probe and the close refuses.
+  const repoDir = await repoContaining("docs/only-here.md");
+  const previous = process.env.ARC_INVOCATION_CWD;
+  process.env.ARC_INVOCATION_CWD = repoDir;
+
+  try {
+    const probe: Probe = { type: "artifact-exists", path: "docs/only-here.md", atRef: "HEAD" };
+    const store = new FakeStore()
+      .seed("495", { node: autoNode("495"), author: "jcfischer" })
+      .seed("520", { node: autoNode("520", { probes: [probe] }), parent: "495", author: "ivy-agent" });
+
+    // `probeCwd` and `describeProbeTree` are dropped rather than stubbed: the
+    // thing under test *is* the default `probeCwd`, and a test that injected one
+    // would pass against the broken code. Everything else stays hermetic.
+    const { probeCwd: _useTheDefault, describeProbeTree: _readTheRealTree, ...overrides } = deps(store, {
+      runProbes: async (probes, registry, cwd) => await runProbes(probes, { cwd, registry, deps: { now: () => AT } }),
+    });
+
+    const output = await runGraphCli(
+      parseGraphArgs(["graph", "close", "520", "--repo", REPO, ...RESOLUTION]),
+      overrides,
+    );
+
+    expect(output).toContain("Closed node 520");
+    const receipt = store.closed[0].receipt;
+    // Where it ran …
+    const [result] = receipt.probeResults;
+    if (result.state !== "probed") throw new Error("the runner returned a specified result — it must run the probe");
+    expect(result.outcome).toBe("pass");
+    expect(result.cwd).toBe(repoDir);
+    // … and what the receipt says about it, read from the real tree.
+    const [tree] = receipt.probeTrees ?? [];
+    expect(tree?.dir).toBe(repoDir);
+    expect(tree?.head).toMatch(/^[0-9a-f]{4,40}$/u);
+  } finally {
+    if (previous === undefined) delete process.env.ARC_INVOCATION_CWD;
+    else process.env.ARC_INVOCATION_CWD = previous;
+    await rm(repoDir, { recursive: true, force: true });
+  }
+});
+
+test("the same close, run from a directory that is not a repository, says so instead of 'absent' (#662)", async () => {
+  // AC-3 at the CLI seam. The half of #662 that cost the reporter the most time
+  // was not the wrong directory — it was the receipt describing the wrong
+  // directory in the vocabulary of a missing file.
+  const notARepo = await realpath(await mkdtemp(join(tmpdir(), "soma-662-bare-")));
+  const previous = process.env.ARC_INVOCATION_CWD;
+  process.env.ARC_INVOCATION_CWD = notARepo;
+
+  try {
+    const probe: Probe = { type: "artifact-exists", path: "docs/only-here.md", atRef: "HEAD" };
+    const store = new FakeStore()
+      .seed("495", { node: autoNode("495"), author: "jcfischer" })
+      .seed("520", { node: autoNode("520", { probes: [probe] }), parent: "495", author: "ivy-agent" });
+
+    const { probeCwd: _useTheDefault, ...overrides } = deps(store, {
+      runProbes: async (probes, registry, cwd) => await runProbes(probes, { cwd, registry, deps: { now: () => AT } }),
+    });
+
+    // `--dry-run` rather than the refusal: the refusal message summarises
+    // ("ran and failed"), and the string the operator actually reads their
+    // diagnosis out of is the rendered receipt.
+    const output = await runGraphCli(
+      parseGraphArgs(["graph", "close", "520", "--dry-run", "--repo", REPO]),
+      overrides,
+    );
+
+    expect(store.closed).toHaveLength(0);
+    expect(output).toContain("would be REFUSED");
+    expect(output).toContain(`could not reach HEAD in ${notARepo}`);
+    expect(output).toContain("not a git repository");
+    expect(output).not.toContain("absent");
+  } finally {
+    if (previous === undefined) delete process.env.ARC_INVOCATION_CWD;
+    else process.env.ARC_INVOCATION_CWD = previous;
+    await rm(notARepo, { recursive: true, force: true });
   }
 });
