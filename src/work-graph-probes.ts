@@ -335,9 +335,23 @@ async function runGit(
  * *says about* the read, and those are different questions.
  */
 function unreachable(cwd: string, target: string, reason: string, detail = ""): string {
-  const shown = detail.length === 0 ? "" : `: ${redactHome(boundObserved(detail))}`;
+  // Redact **then** bound, never the reverse (#662 review n1). The tail cut can
+  // land *inside* a home path, severing `/Users/` from `s/fischer/.ssh/…` — after
+  // which the prefix no longer matches and the account name survives redaction.
+  // Measured on a constructed boundary case, so this order is load-bearing rather
+  // than stylistic. Strictly better on content too: `~` is shorter than the path
+  // it replaces, so more of the message fits under the same bound.
+  const shown = detail.length === 0 ? "" : `: ${boundObserved(redactHome(detail))}`;
   return `could not reach ${target} in ${collapseHome(cwd)} — ${reason}${shown}`;
 }
+
+/**
+ * The exit codes `cat-file -e` uses to *answer*, measured on git 2.40.0: 0 for a
+ * resolvable object, 128 for a missing path in object-name form, and 1 for a raw
+ * sha that is not present. Every other code — a signal kill's 137/139 included —
+ * means the question went unanswered (#662 review mm1).
+ */
+const CAT_FILE_ANSWERS: ReadonlySet<number> = new Set([0, 1, 128]);
 
 /**
  * Did this git command actually *answer the question*, or could it not look?
@@ -687,20 +701,43 @@ export async function runProbe(probe: Probe, options: ProbeRunnerOptions): Promi
         //
         // `rev-parse --verify --quiet <ref>^{object}` *does* have the clean
         // boundary — 0 resolved, 1 unknown ref in a valid repo, 128 no repo — so
-        // reachability is established there, and after it every non-zero from
-        // `cat-file` is the path's answer rather than the tree's. Costs one extra
-        // spawn on this branch; a published attestation that states a falsehood
-        // costs more.
+        // reachability is established there.
         const ref = await runGit(deps, resolvedCwd, ["rev-parse", "--verify", "--quiet", `${probe.atRef}^{object}`], options.remainingSec);
         const treeUnreachable = gitUnreachable(ref, resolvedCwd, probe.atRef);
         if (treeUnreachable !== undefined) return finish("fail", treeUnreachable);
-        if (ref.exitCode !== 0) return finish("fail", `${probe.atRef} does not resolve in ${collapseHome(resolvedCwd)}`);
+        const sha = ref.stdout.trim();
+        if (ref.exitCode !== 0 || sha.length === 0) {
+          return finish("fail", `${probe.atRef} does not resolve in ${collapseHome(resolvedCwd)}`);
+        }
 
-        const outcome = await runGit(deps, resolvedCwd, ["cat-file", "-e", `${probe.atRef}:${probe.path}`], options.remainingSec);
-        // The ref resolved, so the only thing left that is not the path's answer
-        // is the deadline killing the spawn.
-        const killed = gitTimedOut(outcome, resolvedCwd, probe.atRef);
-        if (killed !== undefined) return finish("fail", killed);
+        // The lookup is bound to the **sha** `rev-parse` just printed, not to the
+        // ref name a second time. `rev-parse` already paid for the resolution, so
+        // this is free — and resolving one ref twice and trusting the answers to
+        // match is the two-equivalent-expressions shape this module refuses
+        // everywhere else ({@link probeDirectory}, {@link artifactFilePath}, the
+        // single `ranIn`). Verified equivalent to `<ref>:<path>` across every
+        // shape `^{object}` accepts — branch, lightweight tag, annotated tag,
+        // a tag pointing at a tree, and a bare tree-ish — for present and absent
+        // paths alike; git peels the tag object in `<object>:<path>` form.
+        // The message still names `probe.atRef`: the binding is an implementation
+        // guarantee, not something to make a reader decode a sha for.
+        const outcome = await runGit(deps, resolvedCwd, ["cat-file", "-e", `${sha}:${probe.path}`], options.remainingSec);
+
+        // The object resolved, so a *lookup answer* is 0 (present), or 1/128
+        // (absent — 128 is the object-name form, 1 the raw-sha form; both
+        // measured). Anything else did not answer, and `timedOut` is not the only
+        // way that happens: a child killed by an external signal reports a
+        // NUMBER — 137 for SIGKILL, 139 for SIGSEGV — which would sail through a
+        // null check into `passed = false` and publish a confident "absent"
+        // (#662 review mm1). That is B1's class re-opened one notch down, and it
+        // is exactly what an OOM killer or a cgroup limit produces on a loaded
+        // box. An allowlist rather than a denylist: a code this argv is not known
+        // to return is a code we cannot interpret, and fail-closed means saying
+        // so rather than guessing.
+        if (outcome.timedOut || !CAT_FILE_ANSWERS.has(outcome.exitCode ?? -1)) {
+          const reason = outcome.timedOut ? "git timed out (killed)" : `git exited ${outcome.exitCode}`;
+          return finish("fail", unreachable(resolvedCwd, probe.atRef, reason, outcome.stderr.trim().length > 0 ? outcome.stderr : outcome.stdout));
+        }
         const passed = outcome.exitCode === 0;
         return finish(passed ? "pass" : "fail", `${probe.path} ${passed ? "present" : "absent"} at ${probe.atRef}`);
       }

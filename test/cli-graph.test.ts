@@ -1809,8 +1809,16 @@ test("a probe failure never publishes the operator's home path, even when git na
   // arbitrary path, so `fatal: not a git repository: <that path>` names a
   // directory no probe was allowed to read — and it rides the close receipt onto
   // a tracker whose visibility soma cannot know.
-  const home = process.env.HOME;
-  if (home === undefined || home.length === 0) throw new Error("this test needs HOME set");
+  //
+  // `HOME` is pointed at a temp directory for the duration (#662 review n3):
+  // the fixture has to live *under* home for the redaction to have anything to
+  // do, and creating it in the operator's real home means an interrupted run
+  // leaves litter there. Nothing is weakened by this — `redactHome` reads `HOME`
+  // at call time through the same ambient default it uses in production, so the
+  // assertion still exercises the real lookup, and git is told nothing about it.
+  const previousHome = process.env.HOME;
+  const home = await realpath(await mkdtemp(join(tmpdir(), "soma-662-home-")));
+  process.env.HOME = home;
 
   const redirected = join(home, ".soma-662-b2-fixture");
   const probeTree = await realpath(await mkdtemp(join(tmpdir(), "soma-662-gitfile-")));
@@ -1832,7 +1840,9 @@ test("a probe failure never publishes the operator's home path, even when git na
     expect(result.observed).toContain("~/.soma-662-b2-fixture");
     expect(result.observed).toContain("could not reach HEAD");
   } finally {
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
     await rm(probeTree, { recursive: true, force: true });
-    await rm(redirected, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true });
   }
 });

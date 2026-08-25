@@ -468,6 +468,13 @@ export function collapseHome(dir: string, home: string | undefined = process.env
  * whitespace, and the punctuation git wraps paths in. Anything else after the
  * home prefix is treated as *continuing a directory name*, so `/Users/fischer`
  * is not redacted out of `/Users/fischerson/x`.
+ *
+ * **`.` `!` and `?` are omitted deliberately** (#662 review n2), even though a
+ * sentence can end `…: /Users/me.` — they are legal in a directory name, and
+ * adding `.` would rewrite `/Users/me.bak/x` to `~bak/x`: a different directory,
+ * silently corrupted, to redact an account name that a trailing separator already
+ * covers in every real message. Under-redacting a bare home at the end of a
+ * sentence is recoverable; corrupting a path a reader is trying to act on is not.
  */
 const PATH_TOKEN_DELIMITERS = new Set(["'", '"', "`", " ", "\t", "\n", "\r", ":", ",", ";", ")", "]", "}", ">", "<"]);
 

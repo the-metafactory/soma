@@ -211,9 +211,10 @@ test("artifact-exists checks the filesystem without atRef and the tree with it",
       },
     ),
   );
-  // Reachability first, then the path lookup.
+  // Reachability first, then the path lookup — bound to the sha the first call
+  // resolved rather than to the ref name a second time (#662 review, SHA binding).
   expect(seen[0].argv).toEqual(["git", "-C", "/repo", "rev-parse", "--verify", "--quiet", "main^{object}"]);
-  expect(seen[1].argv).toEqual(["git", "-C", "/repo", "cat-file", "-e", "main:src/work-graph.ts"]);
+  expect(seen[1].argv).toEqual(["git", "-C", "/repo", "cat-file", "-e", "abc1234:src/work-graph.ts"]);
   expect(atRef.outcome).toBe("fail");
   expect(atRef.observed).toBe("src/work-graph.ts absent at main");
 });
@@ -636,7 +637,8 @@ test("an atRef artifact-exists reads through git, so only its directory is conta
   expect(result.observed).not.toContain(PROBE_ESCAPED_PREFIX);
   // The path still reaches git verbatim as an object name — the reachability
   // call added in #662 review B1 runs ahead of it and does not touch `path`.
-  expect(seen[1].argv).toEqual(["git", "-C", "/repo", "cat-file", "-e", "main:/etc/passwd"]);
+  // Only the ref half is replaced by the resolved sha.
+  expect(seen[1].argv).toEqual(["git", "-C", "/repo", "cat-file", "-e", "abc1234:/etc/passwd"]);
   expect(result.outcome).toBe("fail");
 });
 
@@ -874,4 +876,112 @@ test("redactHome does not redact a different account whose name merely starts wi
   // different user's tree, and mangling it would corrupt the message without
   // protecting anything.
   expect(redactHome("/Users/testerson/x", "/Users/tester")).toBe("/Users/testerson/x");
+});
+
+test("a signal-killed git lookup is unreachable, not a confident absence (#662 review mm1)", async () => {
+  // The hairline B1 re-opened. `timedOut` is not the only non-answer: a child
+  // killed by an EXTERNAL signal reports a number, not null — measured, 137 for
+  // SIGKILL and 139 for SIGSEGV — so a guard narrowed to the timeout lets 137
+  // fall through to `passed = (137 === 0)` and publish `absent`. An OOM killer
+  // or a cgroup limit on a loaded box produces exactly this.
+  for (const exitCode of [137, 139]) {
+    const result = requireProbed(
+      await runProbe(
+        { type: "artifact-exists", path: "docs/x.md", atRef: "main" },
+        deps({
+          command: (request) =>
+            request.argv?.includes("cat-file") === true
+              ? { exitCode, stdout: "", stderr: "", timedOut: false }
+              : { exitCode: 0, stdout: "abc1234\n", stderr: "", timedOut: false },
+        }),
+      ),
+    );
+
+    expect(result.outcome).toBe("fail");
+    expect(result.observed).toContain("could not reach main in /repo");
+    expect(result.observed).toContain(`git exited ${exitCode}`);
+    expect(result.observed).not.toContain("absent");
+  }
+
+  // The codes `cat-file -e` genuinely answers with still read as answers: 128 is
+  // the object-name form of "missing path", 1 the raw-sha form.
+  for (const exitCode of [1, 128]) {
+    const result = requireProbed(
+      await runProbe(
+        { type: "artifact-exists", path: "docs/x.md", atRef: "main" },
+        deps({
+          command: (request) =>
+            request.argv?.includes("cat-file") === true
+              ? { exitCode, stdout: "", stderr: "", timedOut: false }
+              : { exitCode: 0, stdout: "abc1234\n", stderr: "", timedOut: false },
+        }),
+      ),
+    );
+    expect(result.observed).toBe("docs/x.md absent at main");
+  }
+});
+
+test("the artifact lookup is bound to the sha rev-parse resolved, not to the ref name twice", async () => {
+  // Resolving one ref twice and trusting the answers to agree is the shape this
+  // module refuses everywhere else (#579). `rev-parse` already printed the sha,
+  // so binding costs nothing.
+  const seen: CommandRequest[] = [];
+  await runProbe(
+    { type: "artifact-exists", path: "docs/x.md", atRef: "main" },
+    {
+      cwd: "/repo",
+      deps: {
+        runCommand: async (request) => {
+          seen.push(request);
+          return request.argv?.includes("cat-file") === true
+            ? { exitCode: 0, stdout: "", stderr: "", timedOut: false }
+            : { exitCode: 0, stdout: "fa70972eff31c0ffee\n", stderr: "", timedOut: false };
+        },
+        now: () => AT,
+      },
+    },
+  );
+
+  expect(seen[0].argv).toEqual(["git", "-C", "/repo", "rev-parse", "--verify", "--quiet", "main^{object}"]);
+  expect(seen[1].argv).toEqual(["git", "-C", "/repo", "cat-file", "-e", "fa70972eff31c0ffee:docs/x.md"]);
+});
+
+test("redaction runs before the tail bound, or a cut inside the home path defeats it (#662 review n1)", async () => {
+  // Constructed so the cut PROVABLY lands inside the home path rather than
+  // trusting a long blob to hit it: `boundObserved` keeps the last LIMIT chars,
+  // so the cut index is N - LIMIT, and the suffix is sized to put that index 5
+  // characters into the home prefix.
+  const home = "/Users/tester";
+  const LIMIT = 1_200;
+  const path = `${home}/.ssh/secret/.git`;
+  const suffix = "y".repeat(LIMIT + 5 - path.length);
+  const stderr = `${"x".repeat(50)}${path}${suffix}`;
+
+  const cut = stderr.length - LIMIT;
+  const at = stderr.indexOf(home);
+  expect(cut).toBeGreaterThan(at);
+  expect(cut).toBeLessThan(at + home.length);
+
+  // Composed the wrong way round, the cut severs `/Users/` from the prefix, so it
+  // no longer matches and the account name survives. This is the failure, pinned.
+  expect(redactHome(boundObserved(stderr), home)).toContain("tester");
+
+  // …and asserted through the RUNNER, not just as an expression. A test that
+  // only compared the two orderings would pass whichever one the call site used,
+  // which is a test that documents a rule without guarding it.
+  const previousHome = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    const result = requireProbed(
+      await runProbe(
+        { type: "artifact-exists", path: "docs/x.md", atRef: "main" },
+        deps({ command: () => ({ exitCode: 128, stdout: "", stderr, timedOut: false }) }),
+      ),
+    );
+    expect(result.outcome).toBe("fail");
+    expect(result.observed).not.toContain("tester");
+  } finally {
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+  }
 });
