@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cp, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
@@ -47,6 +47,10 @@ async function loadArtifact(entry: string): Promise<boolean> {
     });
     return result.status === 0;
   } finally {
+    // `cp` preserves read-only artifact modes; reopen the disposable probe copy
+    // solely so its temporary directories can be removed.
+    await chmod(join(probeRoot, "src"), 0o755).catch(() => undefined);
+    await chmod(join(probeRoot, "src", "cli.ts"), 0o644).catch(() => undefined);
     await rm(probeRoot, { recursive: true, force: true });
   }
 }
@@ -57,6 +61,22 @@ async function writeRuntimeArtifactState(somaHome: string, state: RuntimeArtifac
   const pending = statePath + ".tmp";
   await writeFile(pending, JSON.stringify(state, null, 2) + "\n", "utf8");
   await rename(pending, statePath);
+}
+
+async function sealArtifact(root: string): Promise<void> {
+  const entries = await readdir(root, { withFileTypes: true });
+  for (const entry of entries) {
+    const path = join(root, entry.name);
+    if (entry.isDirectory()) {
+      await sealArtifact(path);
+      // Keep directories writable so home cleanup and atomic replacement work;
+      // payload files themselves are read-only and hash-validated at install/doctor.
+      await chmod(path, 0o755);
+    } else if (entry.isFile()) {
+      await chmod(path, 0o444);
+    }
+  }
+  await chmod(root, 0o755);
 }
 
 async function sourceHash(sourceRoot: string): Promise<string> {
@@ -87,43 +107,37 @@ export async function readRuntimeArtifactState(somaHome: string): Promise<Runtim
 }
 
 /** Stages a source-complete, content-addressed policy runtime and atomically activates it. */
-export async function stageRuntimeArtifact(input: { somaHome: string; sourceRoot: string }): Promise<{ path: string; hash: string; previous?: string }> {
+export async function stageRuntimeArtifact(input: { somaHome: string; sourceRoot: string; afterCopy?: (staging: string) => Promise<void> }): Promise<{ path: string; hash: string; previous?: string }> {
   const hash = await sourceHash(input.sourceRoot);
   const root = runtimeArtifactRoot(input.somaHome);
   const target = join(root, hash);
-  const entry = join(target, "src", "cli.ts");
   const existingHash = await sourceHash(target).catch(() => undefined);
   if (existingHash !== hash) {
     const staging = join(root, ".staging-" + hash);
     const displaced = join(root, ".replaced-" + hash);
+    const targetExists = await stat(target).then(() => true).catch(() => false);
     await rm(staging, { recursive: true, force: true });
     await rm(displaced, { recursive: true, force: true });
     await mkdir(staging, { recursive: true });
     await cp(join(input.sourceRoot, "src"), join(staging, "src"), { recursive: true });
     await cp(join(input.sourceRoot, "package.json"), join(staging, "package.json"));
-    // Load the staged artifact before activation. This runs outside the editable
-    // checkout, so a syntactically valid but unloadable artifact never becomes active.
-    if (!(await loadArtifact(join(staging, "src", "cli.ts")))) {
-      throw new Error("runtime artifact load check failed");
-    }
-    // Replace a tampered same-hash directory only after its staged replacement loads.
-    // The stable current link remains an artifact path, never editable source.
-    if (existingHash !== undefined) await rename(target, displaced);
+    await input.afterCopy?.(staging);
+    if (await sourceHash(staging) !== hash) throw new Error("runtime artifact staging hash mismatch");
+    if (!(await loadArtifact(join(staging, "src", "cli.ts")))) throw new Error("runtime artifact load check failed");
+    await sealArtifact(staging);
+    if (targetExists) await rename(target, displaced);
     try {
       await rename(staging, target);
     } catch (error) {
-      if (existingHash !== undefined) await rename(displaced, target).catch(() => undefined);
+      if (targetExists) await rename(displaced, target).catch(() => undefined);
       throw error;
     }
     await rm(displaced, { recursive: true, force: true });
   }
   const current = await readRuntimeArtifactState(input.somaHome);
   const state: RuntimeArtifactState = { active: hash, ...(current?.active !== hash ? { previous: current?.active } : current?.previous ? { previous: current.previous } : {}) };
-  // The hook follows `current`; switch that atomically before publishing matching
-  // diagnostic state. A torn update is visible as a mismatch, never as ready.
   await activateRuntimeArtifact(input.somaHome, hash);
   await writeRuntimeArtifactState(input.somaHome, state);
-  // Hooks are configured with this stable pointer, never an editable checkout.
   return { path: runtimeArtifactActivePath(input.somaHome), hash, ...(state.previous ? { previous: state.previous } : {}) };
 }
 
@@ -150,8 +164,11 @@ export async function inspectRuntimeArtifact(somaHome: string): Promise<{ state?
 export async function rollbackRuntimeArtifact(somaHome: string): Promise<RuntimeArtifactState> {
   const current = await readRuntimeArtifactState(somaHome);
   if (!current?.previous) throw new Error("No previous runtime artifact is available for rollback.");
-  const priorPath = join(runtimeArtifactRoot(somaHome), current.previous, "src", "cli.ts");
-  await stat(priorPath);
+  const priorRoot = join(runtimeArtifactRoot(somaHome), current.previous);
+  const priorPath = join(priorRoot, "src", "cli.ts");
+  if (await sourceHash(priorRoot) !== current.previous || !(await loadArtifact(priorPath))) {
+    throw new Error("Retained runtime artifact failed integrity or load validation.");
+  }
   const next: RuntimeArtifactState = { active: current.previous, previous: current.active };
   await activateRuntimeArtifact(somaHome, next.active);
   await writeRuntimeArtifactState(somaHome, next);

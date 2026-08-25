@@ -316,6 +316,11 @@ test("the receipt scan rejects marker-only comments and accepts a rendered recei
   expect(scanCommentsForReceipt([renderCloseReceipt(receipt)])).toEqual({ hasReceipt: true });
 });
 
+test("the receipt scan accepts a rendered HITL receipt without evidence", () => {
+  const hitl: CloseReceipt = { checkpointId: "cp-hitl", closedBy: "jcfischer", at: "2026-08-24T12:00:00.000Z", attestation: "unverified", evidence: [], probeResults: [] };
+  expect(scanCommentsForReceipt([renderCloseReceipt(hitl)])).toEqual({ hasReceipt: true });
+});
+
 test("spliceSection replaces only the marked span, and refuses malformed markers", () => {
   const body = `above\n${DECISIONS_BEGIN}\nold\n${DECISIONS_END}\nbelow`;
   const spliced = spliceSection(body, "- new line");

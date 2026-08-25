@@ -1026,8 +1026,9 @@ function isStructurallyValidCloseReceipt(body: string): boolean {
     && /^- \*\*closed by:\*\* \S.+$/mu.test(body)
     && /^- \*\*at:\*\* \d{4}-\d{2}-\d{2}T[^\n]+$/mu.test(body)
     && /^- \*\*attestation:\*\* `(?:verified|unverified)`$/mu.test(body)
-    && /^### Evidence$/mu.test(body)
-    && /^- `[^`\n]+` — \S.+$/mu.test(body);
+    // HITL closes may legitimately carry no machine evidence. The heading is
+    // still required so a marker-shaped comment cannot pass as a receipt.
+    && /^### Evidence$/mu.test(body);
 }
 
 export function scanCommentsForReceipt(bodies: readonly string[]): ReceiptScan {
