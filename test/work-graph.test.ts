@@ -310,18 +310,10 @@ test("the receipt estimate counts the prose and the failing-case probe size", ()
   expect(RECEIPT_COMMENT_BUDGET).toBeLessThan(RECEIPT_COMMENT_LIMIT);
 });
 
-test("the last receipt wins the scan — a re-close supersedes (#588's reopen-and-close-properly)", () => {
-  const scan = scanCommentsForReceipt([
-    "just a discussion comment",
-    "## Close receipt\n\n- **gist:** the premature close",
-    "## Resolution\n\nredone\n\n## Close receipt\n\n- **gist:** the real close",
-  ]);
-  expect(scan.hasReceipt).toBe(true);
-  expect(scan.gist).toBe("the real close");
-
-  expect(scanCommentsForReceipt(["no receipt anywhere"]).hasReceipt).toBe(false);
-  // A receipt without a gist still counts as a receipt.
-  expect(scanCommentsForReceipt(["## Close receipt\n\n- **checkpoint:** `cp-x`"])).toEqual({ hasReceipt: true });
+test("the receipt scan rejects marker-only comments and accepts a rendered receipt", () => {
+  expect(scanCommentsForReceipt(["just a discussion comment", "## Close receipt\n\n- **checkpoint:** `cp-x`"])).toEqual({ hasReceipt: false });
+  const receipt: CloseReceipt = { checkpointId: "cp-x", closedBy: "ivy", at: "2026-08-24T12:00:00.000Z", attestation: "unverified", evidence: [{ kind: "probed", summary: "test passed" }], probeResults: [] };
+  expect(scanCommentsForReceipt([renderCloseReceipt(receipt)])).toEqual({ hasReceipt: true });
 });
 
 test("spliceSection replaces only the marked span, and refuses malformed markers", () => {

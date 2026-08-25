@@ -758,6 +758,7 @@ export function formatInstallResult(result: SomaInstallResult): string {
     `substrate: ${result.substrate}`,
     `somaHome: ${result.somaHome.somaHome}`,
     `substrateHome: ${result.substrateHome.rootDir}`,
+    ...(result.runtimeArtifact ? [`runtimeArtifact: ${result.runtimeArtifact.hash} (${result.runtimeArtifact.path})`, `runtimeRollback: soma runtime rollback --soma-home ${result.somaHome.somaHome}`] : []),
     "",
     "Soma files:",
     ...result.somaHome.files.map((path) => `- ${path}`),

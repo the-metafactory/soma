@@ -23,6 +23,7 @@ import { loadActiveVsaForBundle } from "./adapter-active-vsa";
 import { loadMemoryIndexForProjection } from "./memory-index";
 import { isUnderOrEqual, reconcileOwnedDir } from "./projection-reconcile";
 import { isEnoent } from "./fs-errors";
+import { stageRuntimeArtifact } from "./runtime-artifact";
 import {
   type ImplementedUninstallSpec,
   type InstallSubstrate,
@@ -155,6 +156,11 @@ async function installSomaForSubstrate(
     includeSkills: !codeOnly,
   });
   const somaRepoPath = options.somaRepoPath ?? defaultSomaRepoPath();
+  // Guarded substrates execute only the immutable artifact, never this editable checkout.
+  const guardedRuntime = (["claude-code", "codex", "grok"] as const).includes(substrate as "claude-code" | "codex" | "grok")
+    ? await stageRuntimeArtifact({ somaHome: somaHome.somaHome, sourceRoot: somaRepoPath })
+    : undefined;
+  const runtimeRepoPath = guardedRuntime?.path ?? somaRepoPath;
   let projectionContext = somaHome.context;
   // Repo-bundled skill dir names — set from installBundledSkillsIntoHome below
   // (non-codeOnly only) and reused to scope the portable-skill loop, avoiding a
@@ -201,7 +207,7 @@ async function installSomaForSubstrate(
     homeDir: options.homeDir,
     somaHome: options.somaHome,
     substrateHome: options.substrateHome,
-    somaRepoPath,
+    somaRepoPath: runtimeRepoPath,
     codeOnly,
   };
   // Per-substrate skill projection (#37 AC-3). Each substrate gets the
@@ -283,6 +289,7 @@ async function installSomaForSubstrate(
 
   return {
     substrate,
+    ...(guardedRuntime ? { runtimeArtifact: guardedRuntime } : {}),
     somaHome,
     substrateHome: {
       ...substrateHome,

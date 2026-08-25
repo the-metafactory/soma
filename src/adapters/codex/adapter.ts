@@ -39,9 +39,6 @@ function codexLifecycleConfig(somaHome: string, homeDir?: string, somaRepoPath =
   const privateRoots = [
     ...somaProjectionPrivateRoots({ homeDir, substrate: "codex" }),
     ...somaMemoryPrivateRoots({ homeDir, substrate: "codex" }),
-    join(home, ".claude", "memory"),
-    join(home, ".claude", "memories"),
-    join(home, ".claude", "PAI", "MEMORY"),
   ].map((path) => resolve(path));
   const policyMarkers = somaPolicyPrivateMarkers(somaHome, homeDir, privateRoots);
   return {

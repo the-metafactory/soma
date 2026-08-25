@@ -828,6 +828,8 @@ export interface UninstallableSkillReport {
 
 export interface SomaInstallResult {
   substrate: InstallSubstrate;
+  /** Present when a guarded substrate was projected against the frozen runtime. */
+  runtimeArtifact?: { path: string; hash: string; previous?: string };
   somaHome: SomaHomeBootstrapResult;
   substrateHome: WrittenProjection;
   /**
@@ -1934,7 +1936,9 @@ export type SomaDoctorFindingId =
   | "grok-hook-missing"
   | "grok-hook-files-incomplete"
   | "grok-hook-interpreter-missing"
-  | "grok-inspect-unavailable";
+  | "grok-inspect-unavailable"
+  | "runtime-artifact-missing"
+  | "runtime-artifact-unloadable";
 
 export type SomaOnboardingSubstrate = Exclude<InstallSubstrate, "anthropic-cowork">;
 

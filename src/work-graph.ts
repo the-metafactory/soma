@@ -191,7 +191,10 @@ export interface NodeState {
  * required — so a report missing the field type-checked and derived `open` on a
  * `blocked` node.
  */
-export type BridgedNodeReport = Pick<NodeState, "ref" | "status" | "blockedBy">;
+export type BridgedNodeReport = Pick<NodeState, "ref" | "status" | "blockedBy"> & {
+  /** Only a receipt-backed close is Soma-complete; tracker state alone is not a gate result. */
+  hasCloseReceipt: boolean;
+};
 
 /**
  * Outcome of a claim attempt after the store's post-write re-read (§2.4).
@@ -1017,10 +1020,20 @@ export interface ReceiptScan {
  * — there is no side table to consult. The parse is pinned to
  * {@link renderCloseReceipt}'s exact output in tests, so the pair drifts loudly.
  */
+function isStructurallyValidCloseReceipt(body: string): boolean {
+  return body.includes(CLOSE_RECEIPT_MARKER)
+    && /^- \*\*checkpoint:\*\* `[^`\n]+`$/mu.test(body)
+    && /^- \*\*closed by:\*\* \S.+$/mu.test(body)
+    && /^- \*\*at:\*\* \d{4}-\d{2}-\d{2}T[^\n]+$/mu.test(body)
+    && /^- \*\*attestation:\*\* `(?:verified|unverified)`$/mu.test(body)
+    && /^### Evidence$/mu.test(body)
+    && /^- `[^`\n]+` — \S.+$/mu.test(body);
+}
+
 export function scanCommentsForReceipt(bodies: readonly string[]): ReceiptScan {
   let found: string | undefined;
   for (const body of bodies) {
-    if (body.includes(CLOSE_RECEIPT_MARKER)) found = body;
+    if (isStructurallyValidCloseReceipt(body)) found = body;
   }
   if (found === undefined) return { hasReceipt: false };
   const gist = RECEIPT_GIST_LINE.exec(found)?.[1]?.trim();

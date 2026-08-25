@@ -41,6 +41,18 @@ const AT = new Date("2026-08-04T09:00:00.000Z");
 const PROBE_RUN = "bun test";
 const PROBE: Probe = { type: "command", run: PROBE_RUN, timeoutSec: 600, expectExit: 0 };
 const REGISTRY_PATH = "/home/.soma/policy/probe-registry.json";
+
+function validReceipt(checkpointId: string, gist?: string): string {
+  return renderCloseReceipt({
+    checkpointId,
+    closedBy: "ivy-agent",
+    at: "2026-08-04T09:00:00.000Z",
+    ...(gist === undefined ? {} : { gist }),
+    evidence: [{ kind: "tested", summary: "passed" }],
+    probeResults: [],
+    attestation: "unverified",
+  });
+}
 /** What a machine that has authorised this repo's one probe looks like (§2.2). */
 const DECLARED: ProbeRegistry = {
   status: "loaded",
@@ -1526,13 +1538,13 @@ test("audit flags a closed node with no receipt — the tracker closed it, the g
     });
   // 520 closed properly — its receipt comment is on the node. 521 was
   // auto-closed by the tracker: closed, no receipt anywhere.
-  await store.postComment({ id: "520" }, `## Resolution\n\nfine\n\n## Close receipt\n\n- **checkpoint:** \`cp-520\``);
+  await store.postComment({ id: "520" }, validReceipt("cp-520"));
 
   const output = await run(["graph", "audit", "495", "--repo", REPO], store);
 
   expect(output).toContain("Closed without a close receipt");
   expect(output).toContain("521");
-  expect(output).not.toMatch(/receipt[\s\S]*- 520 /u);
+  expect(output).not.toMatch(/^- 520 /mu);
   expect(output).toContain("Open with no checkpoint");
   expect(output).toContain("522");
   expect(output).toContain("Open and claimed");
@@ -1542,7 +1554,7 @@ test("a clean subtree audits clean", async () => {
   const store = new FakeStore()
     .seed("495", { node: autoNode("495"), children: ["520"] })
     .seed("520", { node: autoNode("520"), status: "closed", parent: "495" });
-  await store.postComment({ id: "520" }, `## Close receipt\n\n- **checkpoint:** \`cp-520\``);
+  await store.postComment({ id: "520" }, validReceipt("cp-520"));
 
   const output = await run(["graph", "audit", "495", "--repo", REPO], store);
 
@@ -1557,9 +1569,9 @@ test("decisions derives the index from receipts — gist when recorded, honest f
     .seed("522", { node: autoNode("522", { title: "auto-closed by the tracker" }), status: "closed", parent: "495" });
   await store.postComment(
     { id: "520" },
-    `## Close receipt\n\n- **checkpoint:** \`cp-520\`\n- **gist:** resolved paths must stay under the stated tree\n- **closed by:** ivy-agent`,
+    validReceipt("cp-520", "resolved paths must stay under the stated tree"),
   );
-  await store.postComment({ id: "521" }, `## Close receipt\n\n- **checkpoint:** \`cp-521\``);
+  await store.postComment({ id: "521" }, validReceipt("cp-521"));
 
   const output = await run(["graph", "decisions", "495", "--repo", REPO], store);
 
@@ -1577,7 +1589,7 @@ test("decisions --write splices between the markers and refuses without them", a
       rawBody: `# Map\n\nprose above\n\n<!-- soma:decisions:begin -->\nstale hand-written list\n<!-- soma:decisions:end -->\n\nprose below`,
     })
     .seed("520", { node: autoNode("520", { title: "a decision" }), status: "closed", parent: "495" });
-  await withMarkers.postComment({ id: "520" }, `## Close receipt\n\n- **gist:** the decided thing`);
+  await withMarkers.postComment({ id: "520" }, validReceipt("cp-520", "the decided thing"));
 
   await run(["graph", "decisions", "495", "--write", "--repo", REPO], withMarkers);
   const body = await withMarkers.readRawBody({ id: "495" });

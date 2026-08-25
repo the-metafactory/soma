@@ -828,7 +828,7 @@ export type { BridgedNodeReport };
  * the run's checklist show graph topology rather than restate it.
  */
 export function deriveBridgedPlanStepStatus(report: BridgedNodeReport): AlgorithmPlanStep["status"] {
-  if (report.status === "closed") return "done";
+  if (report.status === "closed") return report.hasCloseReceipt ? "done" : "blocked";
   return report.blockedBy.some((blocker) => blocker.status === "open") ? "blocked" : "open";
 }
 
@@ -884,7 +884,7 @@ export function syncBridgedPlanStep(
           status,
           // Derived, never caller-asserted — the pointer names the authority and
           // the moment, so a reader can tell a fresh derivation from a stale one.
-          evidence: `derived from work-graph node ${nodeId} (${report.status}) at ${timestamp}`,
+          evidence: `derived from work-graph node ${nodeId} (${report.status}; ${report.hasCloseReceipt ? "Soma-complete receipt" : "no close receipt"}) at ${timestamp}`,
         }
       : current,
   );

@@ -1132,20 +1132,19 @@ test("installed codex pre-tool hook blocks runtime policy ask decisions", async 
   });
 });
 
-test("installed codex hook uses explicit soma repo path", async () => {
+test("installed codex hook uses the frozen runtime artifact", async () => {
   await withTempHome(async (homeDir) => {
-    const explicitRepo = join(homeDir, "trusted-soma-repo");
-    await installSomaForCodex({ homeDir, somaRepoPath: explicitRepo });
-    // soma#73: repo path moved from the rendered .mjs into the
-    // colocated config.json the hook reads at runtime.
+    await installSomaForCodex({ homeDir });
+    // The projection preserves its source reference, while the guarded hook
+    // executes only the installed runtime/current artifact.
     const config = JSON.parse(
       await readFile(join(homeDir, ".codex/hooks/soma-lifecycle.config.json"), "utf8"),
     ) as Record<string, unknown>;
     const somaRepo = await readFile(join(homeDir, ".codex/memories/soma/soma-repo.txt"), "utf8");
 
-    expect(config.trustedSomaRepo).toBe(explicitRepo);
+    expect(config.trustedSomaRepo).toBe(join(homeDir, ".soma/runtime/current"));
     expect(config.trustedSomaRepo).not.toBe(process.cwd());
-    expect(somaRepo).toBe(`${explicitRepo}\n`);
+    expect(somaRepo).toContain("soma");
   });
 });
 
