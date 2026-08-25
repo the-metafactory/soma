@@ -33,7 +33,7 @@ import {
   type ProbeAuthorization,
   type ProbeRegistry,
 } from "./work-graph-probe-registry";
-import { collapseHome, type Probe, type ProbeResult } from "./work-graph";
+import { collapseHome, redactHome, type Probe, type ProbeResult } from "./work-graph";
 
 /**
  * How much of a *failing* command's output survives into the receipt (§2.2: a
@@ -318,19 +318,24 @@ async function runGit(
  * describe the same condition three ways.
  *
  * Both echoed values are **published**: an `observed` string rides the close
- * receipt onto a tracker whose visibility soma cannot know. So the directory is
- * home-collapsed for the reason {@link authorizeProbeTree} already collapses its
- * refusal paths — the account name is the one part that does not help a reader
- * tell one checkout from another — and git's own stderr is collapsed *as well as*
- * bounded. The stderr needs it more than the directory does: a directory whose
- * `.git` is a gitfile makes git name the path it was redirected to, which is not
- * the containment-checked tree and can sit anywhere on the machine
+ * receipt onto a tracker whose visibility soma cannot know. The account name is
+ * the one part of a path that does not help a reader tell one checkout from
+ * another, so it goes — but the two halves need *different* functions, which is
+ * the correction #662 review B2 made.
+ *
+ * The directory is a bare path, so {@link collapseHome} is exactly its contract.
+ * Git's stderr is a **sentence with a path inside it**, where `collapseHome` is
+ * prefix-only and therefore inert — measured, not assumed. It needs
+ * {@link redactHome}, which replaces home wherever it appears. The stderr needs
+ * it more than the directory does: a directory whose `.git` is a gitfile makes
+ * git name the path it was *redirected to*, which is not the containment-checked
+ * tree and can sit anywhere on the machine
  * (`fatal: not a git repository: /Users/<account>/…/.git`, reproduced on git
  * 2.40.0). Containment bounds where a probe *reads*; it does not bound what git
  * *says about* the read, and those are different questions.
  */
 function unreachable(cwd: string, target: string, reason: string, detail = ""): string {
-  const shown = detail.length === 0 ? "" : `: ${collapseHome(boundObserved(detail))}`;
+  const shown = detail.length === 0 ? "" : `: ${redactHome(boundObserved(detail))}`;
   return `could not reach ${target} in ${collapseHome(cwd)} — ${reason}${shown}`;
 }
 

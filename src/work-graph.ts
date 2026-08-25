@@ -464,6 +464,78 @@ export function collapseHome(dir: string, home: string | undefined = process.env
 }
 
 /**
+ * Characters that end a path token in the kind of text this redacts — quotes,
+ * whitespace, and the punctuation git wraps paths in. Anything else after the
+ * home prefix is treated as *continuing a directory name*, so `/Users/fischer`
+ * is not redacted out of `/Users/fischerson/x`.
+ */
+const PATH_TOKEN_DELIMITERS = new Set(["'", '"', "`", " ", "\t", "\n", "\r", ":", ",", ";", ")", "]", "}", ">", "<"]);
+
+/**
+ * {@link collapseHome}'s sibling, for text that *contains* paths rather than text
+ * that *is* one.
+ *
+ * `collapseHome` is prefix-only — it asks whether the whole string starts at
+ * home — which is exactly right for a `ProbeTree.dir` and inert on a sentence.
+ * Measured, because assuming otherwise is what made this a second finding
+ * (#662 review B2):
+ *
+ * ```
+ * collapseHome("/Users/me/secret/.git")                              → "~/secret/.git"
+ * collapseHome("fatal: not a git repository: /Users/me/secret/.git") → unchanged
+ * ```
+ *
+ * Subprocess output is the second shape, and git reaches paths containment never
+ * bounded: a `.git` *gitfile* redirects it anywhere on the machine, so
+ * `fatal: not a git repository: /Users/<account>/…/.git` is a published receipt
+ * naming a directory no probe was ever allowed to read. Hence a separate
+ * function rather than widening the first: `collapseHome` has callers whose
+ * contract is a bare path, and a global replace would change what they publish
+ * (`/Users/me/x/Users/me/y` collapses at the front but redacts twice).
+ *
+ * **No regex, deliberately.** A home directory is a *filesystem* string and may
+ * hold regex metacharacters; building a pattern from it means an escaping bug
+ * either corrupts the output or silently stops redacting, and a redaction that
+ * fails open is worse than none because the call site looks handled. Literal
+ * scanning cannot have that bug at all — the hazard is removed rather than
+ * managed.
+ *
+ * Separator-agnostic for the reason `collapseHome` argues: the runner has a
+ * `win32` branch, so both spellings of home are redacted.
+ *
+ * **Published text only.** Every value the runner *compares* — containment
+ * bases, resolved probe directories — stays absolute. A display convention must
+ * not become a comparison one.
+ */
+export function redactHome(text: string, home: string | undefined = process.env.HOME): string {
+  if (home === undefined || home.length === 0) return text;
+  const trimmed = home.replace(/[/\\]+$/u, "");
+  if (trimmed.length === 0) return text;
+  const spellings = new Set([trimmed, trimmed.replace(/\//gu, "\\"), trimmed.replace(/\\/gu, "/")]);
+  let out = text;
+  for (const spelling of spellings) out = redactAll(out, spelling);
+  return out;
+}
+
+/** Every boundaried occurrence of one home spelling, replaced by `~`. */
+function redactAll(text: string, root: string): string {
+  let out = "";
+  let from = 0;
+  for (;;) {
+    const at = text.indexOf(root, from);
+    if (at === -1) return out + text.slice(from);
+    const after = at + root.length;
+    // End-of-string tested by length rather than an `undefined` compare: without
+    // `noUncheckedIndexedAccess` the index signature claims `string`, so the
+    // compare reads as impossible to the linter while being live at runtime.
+    const next = after >= text.length ? "" : text.slice(after, after + 1);
+    const boundary = next === "" || next === "/" || next === "\\" || PATH_TOKEN_DELIMITERS.has(next);
+    out += text.slice(from, at) + (boundary ? "~" : root);
+    from = after;
+  }
+}
+
+/**
  * The store seam (§2.5): pure I/O, no contract logic. The tracker is the *sole*
  * authoritative store for topology, claims, and status; soma-home holds at most
  * a disposable derived cache and `nodeId` references, and no sync contract

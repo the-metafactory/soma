@@ -1799,3 +1799,40 @@ test("artifact-exists at a ref: the four outcomes, against real git (#662 review
     await rm(notARepo, { recursive: true, force: true });
   }
 });
+
+test("a probe failure never publishes the operator's home path, even when git names one (#662 review B2)", async () => {
+  // Real git, because this is the second finding where a helper was adopted for
+  // what its name implies rather than what it does to the input in hand. A stub
+  // would assert my model of git's stderr; only git produces the actual string.
+  //
+  // The shape that beats containment: a `.git` GITFILE redirects git to an
+  // arbitrary path, so `fatal: not a git repository: <that path>` names a
+  // directory no probe was allowed to read — and it rides the close receipt onto
+  // a tracker whose visibility soma cannot know.
+  const home = process.env.HOME;
+  if (home === undefined || home.length === 0) throw new Error("this test needs HOME set");
+
+  const redirected = join(home, ".soma-662-b2-fixture");
+  const probeTree = await realpath(await mkdtemp(join(tmpdir(), "soma-662-gitfile-")));
+  await mkdir(redirected, { recursive: true });
+  await writeFile(join(probeTree, ".git"), `gitdir: ${join(redirected, ".git")}\n`, "utf8");
+
+  try {
+    const result = await runProbe(
+      { type: "artifact-exists", path: "docs/x.md", atRef: "HEAD" },
+      { cwd: probeTree, deps: { now: () => AT } },
+    );
+    if (result.state !== "probed") throw new Error("the runner must always run the probe");
+
+    expect(result.outcome).toBe("fail");
+    // Asserted on the ABSENCE of the raw home prefix rather than on an exact
+    // string, so this keeps its meaning if the message wording changes.
+    expect(result.observed).not.toContain(home);
+    // …and it is still a useful message: the redirect is named, just wearing `~`.
+    expect(result.observed).toContain("~/.soma-662-b2-fixture");
+    expect(result.observed).toContain("could not reach HEAD");
+  } finally {
+    await rm(probeTree, { recursive: true, force: true });
+    await rm(redirected, { recursive: true, force: true });
+  }
+});

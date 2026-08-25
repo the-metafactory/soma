@@ -18,6 +18,9 @@ import {
   type ProbeRunnerOptions,
   type WorkGraphNode,
 } from "../src/index";
+// Not on the public barrel — publication-rendering helpers, reached for where
+// they live, the way `cli-graph.test.ts` reaches for the receipt internals.
+import { collapseHome, redactHome } from "../src/work-graph";
 
 const AT = new Date("2026-08-04T09:00:00.000Z");
 const REPO = "the-metafactory/soma";
@@ -823,4 +826,52 @@ test("a git probe killed by a timeout reads as unreachable, never as a confident
   expect(onLookup.observed).toContain("could not reach main in /repo");
   expect(onLookup.observed).toContain("git timed out (killed)");
   expect(onLookup.observed).not.toContain("absent");
+});
+
+// --- redaction of published subprocess text (#662 review B2) ----------------
+
+test("redactHome replaces home wherever it appears, which is where collapseHome does not", () => {
+  const home = "/Users/tester";
+
+  // The distinction the whole finding turns on, asserted side by side so the
+  // next reader cannot mistake one for the other. `collapseHome` asks whether
+  // the string STARTS at home; a sentence with a path inside it does not, and
+  // passes through untouched.
+  expect(collapseHome(`${home}/secret/.git`, home)).toBe("~/secret/.git");
+  expect(collapseHome(`fatal: not a git repository: ${home}/secret/.git`, home)).toBe(
+    `fatal: not a git repository: ${home}/secret/.git`,
+  );
+  expect(redactHome(`fatal: not a git repository: ${home}/secret/.git`, home)).toBe(
+    "fatal: not a git repository: ~/secret/.git",
+  );
+
+  // Prefix, several occurrences, and none at all.
+  expect(redactHome(`${home}/secret/.git`, home)).toBe("~/secret/.git");
+  expect(redactHome(`a ${home}/x and ${home}/y`, home)).toBe("a ~/x and ~/y");
+  expect(redactHome("nothing to see here", home)).toBe("nothing to see here");
+
+  // Bare home ending a quoted token — git writes this shape too.
+  expect(redactHome(`cannot change to '${home}': nope`, home)).toBe("cannot change to '~': nope");
+});
+
+test("redactHome is a no-op without a home, and cannot be broken by one containing regex metacharacters", () => {
+  expect(redactHome("fatal: /Users/tester/x", undefined)).toBe("fatal: /Users/tester/x");
+  expect(redactHome("fatal: /Users/tester/x", "")).toBe("fatal: /Users/tester/x");
+
+  // A home directory is a filesystem string and may hold `+ ( ) . *`. Building a
+  // pattern from it would either corrupt the output or silently stop redacting —
+  // a redaction that fails open is worse than none, because the call site looks
+  // handled. Literal scanning cannot have that bug; this pins it.
+  const spicy = "/Users/fisch+er(1).x";
+  expect(redactHome(`fatal: ${spicy}/secret`, spicy)).toBe("fatal: ~/secret");
+
+  // Separator-agnostic, for the reason collapseHome already argues.
+  expect(redactHome("fatal: C:\\Users\\tester\\secret", "C:\\Users\\tester")).toBe("fatal: ~\\secret");
+});
+
+test("redactHome does not redact a different account whose name merely starts with ours", () => {
+  // `/Users/tester` must not turn `/Users/testerson/x` into `~son/x` — that is a
+  // different user's tree, and mangling it would corrupt the message without
+  // protecting anything.
+  expect(redactHome("/Users/testerson/x", "/Users/tester")).toBe("/Users/testerson/x");
 });
