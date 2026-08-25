@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { lstat, mkdir, readFile, rm, rmdir, unlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, readlink, rm, rmdir, unlink, writeFile } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
 import { isEnoent } from "../../fs-errors";
 
@@ -138,6 +138,13 @@ async function symlinkAncestor(root: string, target: string): Promise<SymlinkIde
   return undefined;
 }
 
+/** A migrated loader slot is owned only when it still points into Soma's skill registry. */
+async function isSomaRegistryLink(linkPath: string, somaHome: string): Promise<boolean> {
+  const registryRoot = join(resolve(somaHome), "skills");
+  const target = resolve(dirname(linkPath), await readlink(linkPath));
+  return target !== registryRoot && target.startsWith(`${registryRoot}${sep}`);
+}
+
 export async function readPortableSkillManifest(
   somaHome: string,
   substrate: PortableSkillManifestSubstrate,
@@ -162,6 +169,7 @@ export async function readPortableSkillManifest(
  * a non-recursive rmdir, so principal-added files keep their dirs alive.
  */
 async function removeListedProjectionFiles(
+  somaHome: string,
   substrateHome: string,
   files: readonly { path: string; sha256: string }[],
 ): Promise<string[]> {
@@ -178,9 +186,9 @@ async function removeListedProjectionFiles(
     const linkedDir = await symlinkAncestor(substrateHome, target);
     if (linkedDir !== undefined) {
       // The substrate's top-level directories are shared surfaces, not
-      // manifest-owned skill slots. If one is itself a symlink, fail open for
-      // this entry rather than unlinking the whole shared loader root.
-      if (dirname(linkedDir.path) === substrateHome) continue;
+      // manifest-owned skill slots. A nested symlink is also principal state
+      // unless its target proves it is the loader link Soma projected.
+      if (dirname(linkedDir.path) === substrateHome || !(await isSomaRegistryLink(linkedDir.path, somaHome))) continue;
       try {
         // Narrow the lstat→unlink race: only unlink the same symlink inode we
         // classified. A swapped regular file or replacement link is user state,
@@ -250,7 +258,7 @@ export async function reconcilePortableSkillProjection(options: {
   if (resolve(manifest.substrateHome) !== substrateHome) return [];
   const current = new Set(options.currentPaths);
   const stale = manifest.files.filter((file) => !current.has(file.path));
-  return removeListedProjectionFiles(substrateHome, stale);
+  return removeListedProjectionFiles(options.somaHome, substrateHome, stale);
 }
 
 /**
@@ -278,7 +286,7 @@ export async function removePortableSkillProjection(options: {
   const substrateHome = resolve(options.substrateHome);
   if (resolve(manifest.substrateHome) !== substrateHome) return [];
 
-  const removed = await removeListedProjectionFiles(substrateHome, manifest.files);
+  const removed = await removeListedProjectionFiles(options.somaHome, substrateHome, manifest.files);
   const manifestPath = portableSkillManifestPath(options.somaHome, options.substrate, options.substrateHome);
   await rm(manifestPath, { force: true });
   removed.push(manifestPath);

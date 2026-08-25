@@ -336,12 +336,15 @@ async function ensureDigestTable(ctx) {
 
 /**
  * Run the soma CLI best-effort. Uses ctx.subprocess (raw argv, no shell) and
- * returns `{ exitCode, stdout }`; never throws for a non-zero exit.
+ * returns `{ exitCode, stdout, stderr }`; never throws for a non-zero exit.
  */
 async function runSomaChecked(ctx, somaPath, args, cwd) {
   const outcome = await runSoma(ctx, somaPath, args, cwd);
   if (outcome.exitCode !== 0) {
-    throw new Error(`Soma command failed (${outcome.exitCode ?? "could not start"}): ${[somaPath, ...args].join(" ")}`);
+    const stderr = outcome.stderr.trim();
+    throw new Error(
+      `Soma command failed (${outcome.exitCode ?? "could not start"}): ${[somaPath, ...args].join(" ")}${stderr ? `\n${stderr}` : ""}`,
+    );
   }
   return outcome.stdout;
 }
@@ -350,7 +353,7 @@ async function runSoma(ctx, somaPath, args, cwd) {
   const subprocess = ctx.subprocess;
   if (!subprocess) {
     console.warn("[soma-host] no subprocess provider mounted; skipping", args.join(" "));
-    return { exitCode: null, stdout: "" };
+    return { exitCode: null, stdout: "", stderr: "" };
   }
   const handle = subprocess.spawn({
     argv: [somaPath, ...args],
@@ -361,13 +364,13 @@ async function runSoma(ctx, somaPath, args, cwd) {
   try {
     const outcome = await handle.done;
     const stdout = handle.collected?.stdout?.readFrom?.(0)?.text ?? "";
+    const stderr = handle.collected?.stderr?.readFrom?.(0)?.text ?? "";
     if (outcome.exitCode !== 0) {
-      const stderr = handle.collected?.stderr?.readFrom?.(0)?.text ?? "";
       console.warn("[soma-host]", [somaPath, ...args].join(" "), "exited", outcome.exitCode, stderr.slice(0, 400));
     }
-    return { exitCode: outcome.exitCode, stdout };
+    return { exitCode: outcome.exitCode, stdout, stderr };
   } catch (error) {
     console.warn("[soma-host] spawn failed for", [somaPath, ...args].join(" "), error);
-    return { exitCode: null, stdout: "" };
+    return { exitCode: null, stdout: "", stderr: "" };
   }
 }

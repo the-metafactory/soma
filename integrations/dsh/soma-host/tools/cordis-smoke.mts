@@ -59,10 +59,10 @@ app.provide("subprocess", {
   spawn: (opts: any) => {
     calls.push(`spawn[${scenario}]:${opts.argv.join(" ")}`);
     return {
-      done: Promise.resolve({ exitCode: scenario === "failing" && opts.argv.includes("session-end") ? 1 : 0 }),
+      done: Promise.resolve({ exitCode: (scenario === "failing" && opts.argv.includes("session-end")) || (scenario === "cli-failing" && opts.argv.includes("graph")) ? 1 : 0 }),
       collected: {
         stdout: { readFrom: () => ({ text: "" }) },
-        stderr: { readFrom: () => ({ text: "" }) },
+        stderr: { readFrom: () => ({ text: scenario === "cli-failing" ? "graph close refused by declared probe\n" : "" }) },
       },
     };
   },
@@ -124,6 +124,12 @@ try {
   await rm(resolutionFile, { force: true });
   await rm(escapingLink, { force: true });
 }
+
+scenario = "cli-failing";
+await tools.get("soma_graph").execute({ action: "claim", arguments: ["42"] }, toolExec)
+  .then(() => { throw new Error("failed graph command should surface stderr"); })
+  .catch((error) => assert(String(error).includes("graph close refused by declared probe"), "CLI stderr reaches the tool caller"));
+scenario = "happy";
 
 assert(calls.some((c) => c.includes("lifecycle session-start") && c.startsWith("spawn[happy]")), "session-start fired");
 assert(calls.some((c) => c.includes("lifecycle session-end") && c.startsWith("spawn[happy]")), "session-end fired");
