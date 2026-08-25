@@ -1028,7 +1028,10 @@ export interface ReceiptScan {
  */
 export function isStructurallyValidCloseReceipt(body: string): boolean {
   const autonomy = /^- \*\*autonomy:\*\* `(auto|propose|approve)`$/mu.exec(body)?.[1];
-  const hasEvidence = /^- `[^`\n]+` — \S.+$/mu.test(body);
+  const evidenceMarker = "### Evidence\n";
+  const evidenceOffset = body.indexOf(evidenceMarker);
+  const evidence = evidenceOffset === -1 ? "" : body.slice(evidenceOffset + evidenceMarker.length);
+  const hasEvidence = /^- `[^`\n]+` — \S.+$/mu.test(evidence);
   return body.includes(CLOSE_RECEIPT_MARKER)
     && /^- \*\*checkpoint:\*\* `[^`\n]+`$/mu.test(body)
     && /^- \*\*closed by:\*\* \S.+$/mu.test(body)
