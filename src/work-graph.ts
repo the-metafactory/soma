@@ -513,6 +513,25 @@ const PATH_TOKEN_DELIMITERS = new Set(["'", '"', "`", " ", "\t", "\n", "\r", ":"
  * **Published text only.** Every value the runner *compares* — containment
  * bases, resolved probe directories — stays absolute. A display convention must
  * not become a comparison one.
+ *
+ * **The input is not pre-bounded.** Its caller in `work-graph-probes.ts` redacts
+ * *before* applying the tail bound, deliberately — a cut landing inside a home
+ * path severs the prefix and defeats redaction (#662 review n1) — so this is
+ * handed raw subprocess output of whatever size the child produced. That is safe
+ * because the scan is linear: `out +=` totals one copy of the input and `from`
+ * advances by at least `root.length` each iteration. Measured, best-of-7 across
+ * doublings on a dense worst case (a hit every ~17 chars): 1.7M chars 4.5ms,
+ * 3.4M 7.9ms, 6.8M 15.1ms, 13.6M 35.8ms — ratios 1.75x/1.93x/2.37x, the drift at
+ * the top being GC on the accumulating result rather than super-linear scanning.
+ * Anyone changing this algorithm should keep that property, because the bound no
+ * longer protects it.
+ *
+ * **Known limitation: matching is case-sensitive**, inherited from
+ * {@link collapseHome} and not introduced here — on a case-insensitive
+ * filesystem `/users/me/x` names the same directory as `/Users/me/x` and is not
+ * redacted. Deliberately left: a case-insensitive match has its own corruption
+ * risk on case-sensitive filesystems, where those genuinely are different
+ * directories, so it belongs in its own change rather than #662's.
  */
 export function redactHome(text: string, home: string | undefined = process.env.HOME): string {
   if (home === undefined || home.length === 0) return text;

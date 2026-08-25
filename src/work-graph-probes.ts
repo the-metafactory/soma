@@ -744,6 +744,17 @@ export async function runProbe(probe: Probe, options: ProbeRunnerOptions): Promi
     }
   } catch (error) {
     // Fail-closed: an unrunnable probe is a failed probe, never a skipped one.
+    //
+    // Unredacted, and checked rather than assumed (#662 review): this publishes a
+    // thrown message, and every way `runSpawned` throws names the *binary*, never
+    // a path from the environment — measured on Bun 1.3.6:
+    //   `Executable not found in $PATH: "definitely-not-a-real-binary-xyz"`
+    //   `ENOENT: no such file or directory, posix_spawn '/no/such/dir/git'`
+    // A cwd that does not exist throws the third form, naming `git` and not the
+    // cwd, so even a probe directory under `$HOME` discloses nothing here. If a
+    // future runtime starts echoing the cwd, this line needs {@link redactHome}
+    // — it is a publication site like the others, currently harmless by accident
+    // of the message format rather than by construction.
     return finish("fail", `probe runner error: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
