@@ -9,6 +9,11 @@ export interface RuntimeArtifactState {
   previous?: string;
 }
 
+const GUARDED_RUNTIME_SUBSTRATES = new Set(["claude-code", "codex", "grok"]);
+export function isGuardedRuntimeSubstrate(substrate: string): boolean {
+  return GUARDED_RUNTIME_SUBSTRATES.has(substrate);
+}
+
 export function runtimeArtifactRoot(somaHome: string): string {
   return resolve(somaHome, "runtime");
 }
@@ -107,7 +112,8 @@ export async function readRuntimeArtifactState(somaHome: string): Promise<Runtim
 }
 
 /** Stages a source-complete, content-addressed policy runtime and atomically activates it. */
-export async function stageRuntimeArtifact(input: { somaHome: string; sourceRoot: string; afterCopy?: (staging: string) => Promise<void> }): Promise<{ path: string; hash: string; previous?: string }> {
+/** Installer-internal staging seam; deliberately not exported from the public API. */
+export async function stageRuntimeArtifact(input: { somaHome: string; sourceRoot: string }): Promise<{ path: string; hash: string; previous?: string }> {
   const hash = await sourceHash(input.sourceRoot);
   const root = runtimeArtifactRoot(input.somaHome);
   const target = join(root, hash);
@@ -121,7 +127,6 @@ export async function stageRuntimeArtifact(input: { somaHome: string; sourceRoot
     await mkdir(staging, { recursive: true });
     await cp(join(input.sourceRoot, "src"), join(staging, "src"), { recursive: true });
     await cp(join(input.sourceRoot, "package.json"), join(staging, "package.json"));
-    await input.afterCopy?.(staging);
     if (await sourceHash(staging) !== hash) throw new Error("runtime artifact staging hash mismatch");
     if (!(await loadArtifact(join(staging, "src", "cli.ts")))) throw new Error("runtime artifact load check failed");
     await sealArtifact(staging);
@@ -153,20 +158,26 @@ export async function inspectRuntimeArtifact(somaHome: string): Promise<{ state?
     const activePath = await realpath(activeEntry);
     if (expectedPath !== activePath) return { state, status: "missing-active" };
     // Doctor hashes on demand; guarded hooks never hash on the tool-call path.
-    if (await sourceHash(join(runtimeArtifactRoot(somaHome), state.active)) !== state.active) return { state, status: "unloadable" };
-    if (!(await loadArtifact(entry))) return { state, status: "unloadable" };
+    if (!(await isValidArtifact(join(runtimeArtifactRoot(somaHome), state.active), state.active))) return { state, status: "unloadable" };
   } catch {
     return { state, status: "missing-active" };
   }
   return { state, status: "ready" };
 }
 
+async function isValidArtifact(root: string, expectedHash: string): Promise<boolean> {
+  try {
+    return await sourceHash(root) === expectedHash && await loadArtifact(join(root, "src", "cli.ts"));
+  } catch {
+    return false;
+  }
+}
+
 export async function rollbackRuntimeArtifact(somaHome: string): Promise<RuntimeArtifactState> {
   const current = await readRuntimeArtifactState(somaHome);
   if (!current?.previous) throw new Error("No previous runtime artifact is available for rollback.");
   const priorRoot = join(runtimeArtifactRoot(somaHome), current.previous);
-  const priorPath = join(priorRoot, "src", "cli.ts");
-  if (await sourceHash(priorRoot) !== current.previous || !(await loadArtifact(priorPath))) {
+  if (!(await isValidArtifact(priorRoot, current.previous))) {
     throw new Error("Retained runtime artifact failed integrity or load validation.");
   }
   const next: RuntimeArtifactState = { active: current.previous, previous: current.active };

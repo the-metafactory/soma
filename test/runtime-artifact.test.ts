@@ -69,21 +69,6 @@ test("detects and replaces valid-TypeScript artifact tampering", async () => {
   expect((await inspectRuntimeArtifact(home)).status).toBe("ready");
 });
 
-test("rejects an after-copy hash mismatch without changing the active artifact", async () => {
-  const { source, home } = await fixture();
-  const first = await stageRuntimeArtifact({ somaHome: home, sourceRoot: source });
-  await writeFile(join(source, "src", "cli.ts"), "export const cli = false;\n");
-
-  await expect(stageRuntimeArtifact({
-    somaHome: home,
-    sourceRoot: source,
-    afterCopy: async (staging) => await writeFile(join(staging, "src", "cli.ts"), "export const cli = true;\n"),
-  })).rejects.toThrow("staging hash mismatch");
-
-  expect((await readRuntimeArtifactState(home))?.active).toBe(first.hash);
-  expect(await readFile(join(home, "runtime/current/src/cli.ts"), "utf8")).toContain("cli = true");
-});
-
 test("replaces an incomplete existing target on reinstall", async () => {
   const { source, home } = await fixture();
   const staged = await stageRuntimeArtifact({ somaHome: home, sourceRoot: source });

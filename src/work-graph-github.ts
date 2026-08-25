@@ -20,6 +20,7 @@ import {
   WorkGraphError,
   parseNodeSpec,
   renderCloseReceipt,
+  isStructurallyValidCloseReceipt,
   resolveClaimRace,
   toNode,
   type AttestationCapability,
@@ -574,11 +575,9 @@ class GitHubGraphStore implements GraphStore {
   async readNode(ref: NodeRef): Promise<NodeState> {
     const issue = await this.fetchIssue(ref);
     const parentNumber = issue.parentNumber ?? (await this.fetchParentNumber(issue.number));
-    return toNodeState(
-      issue,
-      await this.fetchBlockers(ref),
-      parentNumber === undefined ? undefined : { id: String(parentNumber) },
-    );
+    const state = toNodeState(issue, await this.fetchBlockers(ref), parentNumber === undefined ? undefined : { id: String(parentNumber) });
+    if (issue.status !== "closed") return state;
+    return { ...state, currentCloseReceipt: await this.hasCurrentCloseReceipt(ref) };
   }
 
   /**
@@ -873,6 +872,28 @@ class GitHubGraphStore implements GraphStore {
     });
   }
 
+  /** Receipt authority is the current tracker closure interval, never a historical marker. */
+  private async hasCurrentCloseReceipt(ref: NodeRef): Promise<boolean> {
+    const [comments, events] = await Promise.all([
+      this.listComments(ref),
+      this.transport({ method: "GET", path: `repos/${this.repo}/issues/${ref.id}/events`, paginate: true }),
+    ]);
+    const timeline = asArray(events, "issue events").flatMap((entry) => {
+      const record = asRecord(entry, "issue event");
+      const at = typeof record.created_at === "string" ? Date.parse(record.created_at) : NaN;
+      const event = record.event;
+      return Number.isFinite(at) && (event === "closed" || event === "reopened") ? [{ event, at }] : [];
+    }).sort((left, right) => left.at - right.at);
+    const close = [...timeline].reverse().find((entry) => entry.event === "closed");
+    if (close === undefined) return false;
+    const reopened = [...timeline].reverse().find((entry) => entry.event === "reopened" && entry.at < close.at);
+    const start = reopened?.at ?? Number.NEGATIVE_INFINITY;
+    return comments.some((comment) => {
+      const at = comment.createdAt === undefined ? NaN : Date.parse(comment.createdAt);
+      return Number.isFinite(at) && at >= start && at <= close.at && isStructurallyValidCloseReceipt(comment.body);
+    });
+  }
+
   /** Bodies included — the read half of {@link postComment}. Paginated: receipts are often the last comment. */
   async listComments(ref: NodeRef): Promise<NodeComment[]> {
     const comments = asArray(
@@ -889,6 +910,7 @@ class GitHubGraphStore implements GraphStore {
         id: String(readNumber(record, "id", "listComments")),
         author: readLogin(record.user),
         body: typeof record.body === "string" ? record.body : "",
+        ...(typeof record.created_at === "string" ? { createdAt: record.created_at } : {}),
         ...(typeof record.html_url === "string" ? { url: record.html_url } : {}),
       };
     });

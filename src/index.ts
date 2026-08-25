@@ -506,7 +506,7 @@ export {
   type UninstallGrokOptions,
   type UninstallGrokResult,
 } from "./install";
-export { inspectRuntimeArtifact, readRuntimeArtifactState, rollbackRuntimeArtifact, runtimeArtifactActivePath, runtimeArtifactRoot, stageRuntimeArtifact } from "./runtime-artifact";
+export { inspectRuntimeArtifact, isGuardedRuntimeSubstrate, readRuntimeArtifactState, rollbackRuntimeArtifact, runtimeArtifactActivePath, runtimeArtifactRoot } from "./runtime-artifact";
 export * as experimentalAnthropicCowork from "./experimental/anthropic-cowork";
 export type { ClaudeCodeInstallOptions } from "./adapters/claude-code/install-options";
 // Adapter active-VSA projection helpers (#37).

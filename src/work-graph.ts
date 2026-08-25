@@ -175,6 +175,8 @@ export interface NodeState {
   typed: boolean;
   /** Set when a typed block was present but unreadable. Visible state, never a silent downgrade. */
   parseError?: string;
+  /** True only when the production store proved a receipt belongs to this current closure. */
+  currentCloseReceipt?: boolean;
 }
 
 /**
@@ -239,6 +241,8 @@ export interface NodeComment {
   id: string;
   author: string;
   body: string;
+  /** Tracker-authored creation timestamp, used to bind a receipt to one closure interval. */
+  createdAt?: string;
   url?: string;
 }
 
@@ -357,6 +361,8 @@ export interface CloseReceipt {
   /** Must match the node's attached checkpoint — one work item, one completion gate. */
   checkpointId: string;
   closedBy: string;
+  /** The node autonomy at the authoritative close write. */
+  autonomy?: WorkGraphAutonomy;
   /** ISO timestamp. */
   at: string;
   /**
@@ -1020,15 +1026,17 @@ export interface ReceiptScan {
  * — there is no side table to consult. The parse is pinned to
  * {@link renderCloseReceipt}'s exact output in tests, so the pair drifts loudly.
  */
-function isStructurallyValidCloseReceipt(body: string): boolean {
+export function isStructurallyValidCloseReceipt(body: string): boolean {
+  const autonomy = /^- \*\*autonomy:\*\* `(auto|approve)`$/mu.exec(body)?.[1];
+  const hasEvidence = /^- `[^`\n]+` — \S.+$/mu.test(body);
   return body.includes(CLOSE_RECEIPT_MARKER)
     && /^- \*\*checkpoint:\*\* `[^`\n]+`$/mu.test(body)
     && /^- \*\*closed by:\*\* \S.+$/mu.test(body)
     && /^- \*\*at:\*\* \d{4}-\d{2}-\d{2}T[^\n]+$/mu.test(body)
     && /^- \*\*attestation:\*\* `(?:verified|unverified)`$/mu.test(body)
-    // HITL closes may legitimately carry no machine evidence. The heading is
-    // still required so a marker-shaped comment cannot pass as a receipt.
-    && /^### Evidence$/mu.test(body);
+    && /^### Evidence$/mu.test(body)
+    && autonomy !== undefined
+    && (autonomy === "approve" || hasEvidence);
 }
 
 export function scanCommentsForReceipt(bodies: readonly string[]): ReceiptScan {
@@ -1084,6 +1092,7 @@ export function renderCloseReceipt(receipt: CloseReceipt): string {
     `- **checkpoint:** \`${receipt.checkpointId}\``,
     ...((receipt.gist ?? "").trim().length === 0 ? [] : [`- **gist:** ${(receipt.gist ?? "").trim()}`]),
     `- **closed by:** ${receipt.closedBy}`,
+    `- **autonomy:** \`${receipt.autonomy ?? "approve"}\``,
     ...((receipt.closedWith ?? "").length === 0 ? [] : [`- **closed with:** ${receipt.closedWith}`]),
     `- **at:** ${receipt.at}`,
     `- **attestation:** \`${receipt.attestation}\``,
@@ -1305,6 +1314,6 @@ export class WorkGraph {
       throw new WorkGraphError("node-closed", `node ${ref.id} is already closed`);
     }
     assertClosable(state.node, receipt);
-    await this.store.close(ref, receipt);
+    await this.store.close(ref, { ...receipt, autonomy: state.node.autonomy });
   }
 }

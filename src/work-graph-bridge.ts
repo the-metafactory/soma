@@ -10,7 +10,7 @@
  * `src/index.ts` — to re-implement repo resolution and become exactly that second
  * reader.
  */
-import { scanCommentsForReceipt, WorkGraph } from "./work-graph";
+import { WorkGraph } from "./work-graph";
 import type { BridgedNodeReport, GraphStore } from "./work-graph";
 import { createGitHubGraphStore } from "./work-graph-github";
 import { runCommand } from "./work-graph-probes";
@@ -58,8 +58,7 @@ export async function readNodeForBridge(nodeId: string, options: ReadNodeForBrid
   const repo = options.repo ?? (await (options.resolveRepo ?? resolveGraphRepo)());
   const store = createStore(repo);
   const state = await new WorkGraph(store).readNode({ id: nodeId });
-  const hasCloseReceipt = state.status === "closed"
-    ? scanCommentsForReceipt((await store.listComments(state.ref)).map((comment) => comment.body)).hasReceipt
-    : false;
-  return { ref: state.ref, status: state.status, blockedBy: state.blockedBy, hasCloseReceipt };
+  // The production GraphStore binds this to the current tracker close; bridge
+  // consumers never inspect comments and therefore cannot bless stale receipts.
+  return { ref: state.ref, status: state.status, blockedBy: state.blockedBy, hasCloseReceipt: state.currentCloseReceipt === true };
 }

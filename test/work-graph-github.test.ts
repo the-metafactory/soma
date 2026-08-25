@@ -863,3 +863,19 @@ test("a graph is bound to one owner/name repo", () => {
   expect(() => createGitHubGraphStore({ repo: "soma", transport })).toThrow(WorkGraphError);
   expect(() => createGitHubGraphStore({ repo: REPO, transport })).not.toThrow();
 });
+
+test("readNode ignores a receipt from before reopen and current reclose", async () => {
+  const receipt = "## Close receipt\n\n- **checkpoint:** `cp-497`\n- **closed by:** ivy\n- **autonomy:** `approve`\n- **at:** 2026-01-01T00:00:00.000Z\n- **attestation:** `unverified`\n\n### Evidence\n";
+  const { transport } = fakeTransport({
+    [`GET repos/${REPO}/issues/497`]: issuePayload({ state: "closed", body: typedBody({ autonomy: "approve", checkpointId: "cp-497" }) }),
+    [`GET repos/${REPO}/issues/497/dependencies/blocked_by`]: [],
+    [`GET repos/${REPO}/issues/497/comments`]: [{ id: 1, body: receipt, created_at: "2026-01-01T00:00:00.000Z", user: { login: "ivy" } }],
+    [`GET repos/${REPO}/issues/497/events`]: [
+      { event: "closed", created_at: "2026-01-01T01:00:00.000Z" },
+      { event: "reopened", created_at: "2026-01-02T00:00:00.000Z" },
+      { event: "closed", created_at: "2026-01-03T00:00:00.000Z" },
+    ],
+  });
+  const state = await createGitHubGraphStore({ repo: REPO, transport }).readNode({ id: "497" });
+  expect(state.currentCloseReceipt).toBe(false);
+});

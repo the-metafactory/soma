@@ -23,7 +23,7 @@ import { loadActiveVsaForBundle } from "./adapter-active-vsa";
 import { loadMemoryIndexForProjection } from "./memory-index";
 import { isUnderOrEqual, reconcileOwnedDir } from "./projection-reconcile";
 import { isEnoent } from "./fs-errors";
-import { stageRuntimeArtifact } from "./runtime-artifact";
+import { isGuardedRuntimeSubstrate, stageRuntimeArtifact } from "./runtime-artifact";
 import {
   type ImplementedUninstallSpec,
   type InstallSubstrate,
@@ -157,7 +157,7 @@ async function installSomaForSubstrate(
   });
   const somaRepoPath = options.somaRepoPath ?? defaultSomaRepoPath();
   // Guarded substrates execute only the immutable artifact, never this editable checkout.
-  const guardedRuntime = (["claude-code", "codex", "grok"] as const).includes(substrate as "claude-code" | "codex" | "grok")
+  const guardedRuntime = isGuardedRuntimeSubstrate(substrate)
     ? await stageRuntimeArtifact({ somaHome: somaHome.somaHome, sourceRoot: somaRepoPath })
     : undefined;
   const runtimeRepoPath = guardedRuntime?.path ?? somaRepoPath;
