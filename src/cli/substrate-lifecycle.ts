@@ -38,6 +38,7 @@ import {
 import type { ClaudeCodeInstallOptions } from "../adapters/claude-code/install-options";
 import { projectVsaSkillBundleFiles } from "../vsa-skill-installer";
 import { defaultSubstrateHome, installSpecFor } from "../install-spec-registry";
+import { invocationCwd } from "../path-utils";
 import { loadSomaHome } from "../soma-home";
 import { scanRegistrySkills, type UnprojectableRegistrySkill } from "../skill-projection";
 import type {
@@ -673,12 +674,11 @@ function resolveAbsolute(path: string): string {
   if (path.startsWith("/")) return path;
   // soma#315: when soma is launched through an arc-generated shim, the
   // shim `cd`s into the repo before exec, so process.cwd() is the repo
-  // root — not the directory the user ran `soma export` from. The shim
-  // exports the caller's directory as ARC_INVOCATION_CWD; resolve a
-  // relative --out against it, falling back to process.cwd() for direct
-  // (non-shim) invocations.
-  const base = process.env.ARC_INVOCATION_CWD ?? process.cwd();
-  return resolveJoin(base, path);
+  // root — not the directory the user ran `soma export` from. The rule
+  // for recovering the caller's directory lives in {@link invocationCwd},
+  // shared with `soma graph close`'s probe base since #662 — one
+  // expression, so the two cannot drift apart.
+  return resolveJoin(invocationCwd(), path);
 }
 
 async function writeProjectionExportFile(

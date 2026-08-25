@@ -86,6 +86,7 @@ import {
 // to re-implement it, becoming the second reader §2.7 forbids. No re-export — the
 // other importers point at core directly, so there is one path to each symbol.
 import { resolveGraphRepo } from "../work-graph-bridge";
+import { invocationCwd } from "../path-utils";
 import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";
 
@@ -508,16 +509,23 @@ export interface GraphCliDeps {
    * The directory the probes run in, resolved **once** per close and passed
    * everywhere it is needed — the runner, the registry match, and the receipt.
    *
-   * The default is still the process's cwd, and that is the honest limit of this
-   * fix: **soma cannot tell which tree you meant.** A launcher that `cd`s before
-   * `exec` still moves it, exactly as `~/bin/soma` did in #579 — which is why
-   * that launcher no longer carries a `cd`, and why nothing here can stop the
-   * next one that does. What changed is that the value is read *once* and
-   * *recorded*: a substituted tree now shows up in the receipt as a directory
-   * and a HEAD that are not the ones under review, where before it was silent.
-   * Detection, not prevention. Refusing a probe tree that does not contain the
-   * work is the prevention, and it needs to know which commit a node claims —
-   * #579 named it and left it out of scope.
+   * The default is the *invocation* cwd, not the process's ({@link invocationCwd}).
+   * #579 read `process.cwd()` here and called a `cd`-ing launcher an unfixable
+   * limit — "nothing here can stop the next one that does" — and #662 was that
+   * next one: arc regenerates its shim with a `cd` into the install tree, so
+   * every arc install silently reintroduced #579 no matter what a hand-edited
+   * launcher did. The premise was wrong rather than the reasoning. A shim that
+   * `cd`s exports where it came from first, and soma already read that value on
+   * another path (#315); reading it here is the difference between detecting a
+   * substituted tree in the receipt and never substituting one.
+   *
+   * What stays true: a launcher that `cd`s *without* exporting the caller's
+   * directory still moves this, and nothing here can tell. That case is still
+   * detection-only — the value is read once and recorded, so the substituted
+   * tree shows up in the receipt as a directory and a HEAD that are not the ones
+   * under review. Refusing a probe tree that does not contain the work is the
+   * prevention, and it needs to know which commit a node claims — #579 named it
+   * and left it out of scope.
    */
   probeCwd: () => string;
   /**
@@ -725,7 +733,7 @@ function defaultDeps(): GraphCliDeps {
         platform: process.platform,
         now: () => new Date(),
       }),
-    probeCwd: () => resolve(process.cwd()),
+    probeCwd: () => invocationCwd(),
     describeProbeTree: defaultDescribeProbeTree,
     readTextFile: async (path) => await Bun.file(path).text(),
     describeTool: defaultDescribeTool,

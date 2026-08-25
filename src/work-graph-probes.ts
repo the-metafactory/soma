@@ -33,7 +33,7 @@ import {
   type ProbeAuthorization,
   type ProbeRegistry,
 } from "./work-graph-probe-registry";
-import { collapseHome, type Probe, type ProbeResult } from "./work-graph";
+import { collapseHome, redactHome, type Probe, type ProbeResult } from "./work-graph";
 
 /**
  * How much of a *failing* command's output survives into the receipt (§2.2: a
@@ -314,6 +314,96 @@ async function runGit(
 }
 
 /**
+ * The one shape a "could not look" reads as, so the three git probes cannot
+ * describe the same condition three ways.
+ *
+ * Both echoed values are **published**: an `observed` string rides the close
+ * receipt onto a tracker whose visibility soma cannot know. The account name is
+ * the one part of a path that does not help a reader tell one checkout from
+ * another, so it goes — but the two halves need *different* functions, which is
+ * the correction #662 review B2 made.
+ *
+ * The directory is a bare path, so {@link collapseHome} is exactly its contract.
+ * Git's stderr is a **sentence with a path inside it**, where `collapseHome` is
+ * prefix-only and therefore inert — measured, not assumed. It needs
+ * {@link redactHome}, which replaces home wherever it appears. The stderr needs
+ * it more than the directory does: a directory whose `.git` is a gitfile makes
+ * git name the path it was *redirected to*, which is not the containment-checked
+ * tree and can sit anywhere on the machine
+ * (`fatal: not a git repository: /Users/<account>/…/.git`, reproduced on git
+ * 2.40.0). Containment bounds where a probe *reads*; it does not bound what git
+ * *says about* the read, and those are different questions.
+ */
+function unreachable(cwd: string, target: string, reason: string, detail = ""): string {
+  // Redact **then** bound, never the reverse (#662 review n1). The tail cut can
+  // land *inside* a home path, severing `/Users/` from `s/fischer/.ssh/…` — after
+  // which the prefix no longer matches and the account name survives redaction.
+  // Measured on a constructed boundary case, so this order is load-bearing rather
+  // than stylistic. Strictly better on content too: `~` is shorter than the path
+  // it replaces, so more of the message fits under the same bound.
+  const shown = detail.length === 0 ? "" : `: ${boundObserved(redactHome(detail))}`;
+  return `could not reach ${target} in ${collapseHome(cwd)} — ${reason}${shown}`;
+}
+
+/**
+ * The exit codes `cat-file -e` uses to *answer*, measured on git 2.40.0: 0 for a
+ * resolvable object, 128 for a missing path in object-name form, and 1 for a raw
+ * sha that is not present. Every other code — a signal kill's 137/139 included —
+ * means the question went unanswered (#662 review mm1).
+ */
+const CAT_FILE_ANSWERS: ReadonlySet<number> = new Set([0, 1, 128]);
+
+/**
+ * Did this git command actually *answer the question*, or could it not look?
+ *
+ * **Only for argv whose 1-vs-128 boundary is clean**, which is the correction
+ * #662's first fix needed. Two of git's plumbing commands answer "no" with exit
+ * 1 and report "I could not look" with 128, verified on 2.40.0:
+ *
+ * - `rev-parse --verify --quiet <ref>^{commit}` — 1 for an unknown ref in a valid
+ *   repository, 128 for a non-repository.
+ * - `merge-base --is-ancestor` — 1 for a genuine non-ancestor, 128 for a bad
+ *   object.
+ *
+ * `cat-file -e <ref>:<path>` does **not** belong here and calling it through this
+ * predicate is a defect: object-name syntax makes a genuinely missing path a
+ * *fatal*, so a plainly absent file exits 128 exactly like a missing tree does.
+ * That branch establishes reachability with a separate `rev-parse` first — see
+ * the `artifact-exists` case.
+ *
+ * **The exit code, not the stderr text.** Git's messages are localizable and have
+ * been reworded across versions; the exit-code contract has not. Matching on
+ * "not a git repository" would be a probe that passes in English and misreports
+ * in German.
+ *
+ * Still a **fail** either way (§2.2's fail-closed rule): this changes what the
+ * receipt *says*, never what the close gate *does*. A new outcome would mean a
+ * new branch in {@link assertClosable}, and "could not reach the tree" is no more
+ * a pass than "not there" is.
+ */
+function gitUnreachable(outcome: CommandOutcome, cwd: string, target: string): string | undefined {
+  const killed = gitTimedOut(outcome, cwd, target);
+  if (killed !== undefined) return killed;
+  if (outcome.exitCode === 0 || outcome.exitCode === 1) return undefined;
+  return unreachable(cwd, target, `git exited ${outcome.exitCode}`, outcome.stderr.trim().length > 0 ? outcome.stderr : outcome.stdout);
+}
+
+/**
+ * The timeout arm of {@link gitUnreachable}, on its own.
+ *
+ * A killed spawn reports `exitCode: null`, and every git branch has to rule that
+ * out before reading an exit code as an answer — otherwise a probe the deadline
+ * killed renders as a confident "absent" for a question git never got to. The
+ * `artifact-exists` branch needs *only* this half, because once its ref has been
+ * shown to resolve, every remaining non-zero exit is the path's answer rather
+ * than the tree's. Split rather than forced out of the wider helper with a
+ * non-null assertion: the narrower question has a narrower predicate.
+ */
+function gitTimedOut(outcome: CommandOutcome, cwd: string, target: string): string | undefined {
+  return outcome.timedOut ? unreachable(cwd, target, "git timed out (killed)") : undefined;
+}
+
+/**
  * `repo` on the git/artifact probes is a **local working tree path**, defaulting
  * to the runner's cwd — the reading `artifact-exists`'s `path` + `atRef` pair
  * forces (`git cat-file -e <atRef>:<path>` needs a checkout, not an API).
@@ -562,18 +652,27 @@ export async function runProbe(probe: Probe, options: ProbeRunnerOptions): Promi
 
       case "git-ref-exists": {
         const outcome = await runGit(deps, resolvedCwd, ["rev-parse", "--verify", "--quiet", `${probe.ref}^{commit}`], options.remainingSec);
+        const unreachable = gitUnreachable(outcome, resolvedCwd, probe.ref);
+        if (unreachable !== undefined) return finish("fail", unreachable);
         const sha = outcome.stdout.trim();
         const passed = outcome.exitCode === 0 && sha.length > 0;
-        return finish(passed ? "pass" : "fail", passed ? `${probe.ref} → ${sha}` : `${probe.ref} does not resolve in ${resolvedCwd}`);
+        return finish(passed ? "pass" : "fail", passed ? `${probe.ref} → ${sha}` : `${probe.ref} does not resolve in ${collapseHome(resolvedCwd)}`);
       }
 
       case "git-merged-into": {
         const resolvedRef = await runGit(deps, resolvedCwd, ["rev-parse", "--verify", "--quiet", `${probe.ref}^{commit}`], options.remainingSec);
+        const refUnreachable = gitUnreachable(resolvedRef, resolvedCwd, probe.ref);
+        if (refUnreachable !== undefined) return finish("fail", refUnreachable);
         const sha = resolvedRef.stdout.trim();
         if (resolvedRef.exitCode !== 0 || sha.length === 0) {
-          return finish("fail", `${probe.ref} does not resolve in ${resolvedCwd}`);
+          return finish("fail", `${probe.ref} does not resolve in ${collapseHome(resolvedCwd)}`);
         }
         const ancestor = await runGit(deps, resolvedCwd, ["merge-base", "--is-ancestor", probe.ref, probe.into], options.remainingSec);
+        // Checked on `into` as well as on `ref`: `merge-base --is-ancestor` exits
+        // 128 for an `into` that does not resolve, and "is not an ancestor of
+        // main" is a plausible-sounding way to say "there is no main here".
+        const intoUnreachable = gitUnreachable(ancestor, resolvedCwd, probe.into);
+        if (intoUnreachable !== undefined) return finish("fail", intoUnreachable);
         const passed = ancestor.exitCode === 0;
         return finish(passed ? "pass" : "fail", `${probe.ref} (${sha}) ${passed ? "is" : "is not"} an ancestor of ${probe.into}`);
       }
@@ -583,15 +682,79 @@ export async function runProbe(probe: Probe, options: ProbeRunnerOptions): Promi
           // Same expression the containment check used — see {@link artifactFilePath}.
           const full = artifactFilePath(probe.path, resolvedCwd);
           const passed = deps.pathExists(full);
-          return finish(passed ? "pass" : "fail", `${full} ${passed ? "exists" : "is absent"}`);
+          // Home-collapsed like every other published path in this switch (#662
+          // review m1). `full` itself stays absolute — it is what `pathExists`
+          // was handed, and a display convention must not become a comparison
+          // one, which is the rule {@link collapseHome} already states.
+          return finish(passed ? "pass" : "fail", `${collapseHome(full)} ${passed ? "exists" : "is absent"}`);
         }
-        const outcome = await runGit(deps, resolvedCwd, ["cat-file", "-e", `${probe.atRef}:${probe.path}`], options.remainingSec);
+        // Two commands, and the first one is the whole point. `cat-file -e` reads
+        // *object-name syntax*, where a missing path is a fatal rather than a
+        // "no": on git 2.40.0 an absent `docs/x.md` at a perfectly valid HEAD
+        // exits 128, byte-identical in exit code to a directory that is not a
+        // repository at all. So this branch cannot ask `cat-file` whether the
+        // tree was reachable — the answer is the same either way, and reading it
+        // as reachability makes every genuine absence claim the repo could not be
+        // reached (#662 review B1: the first fix had this inverted, and it shipped
+        // green because the tests asserted an exit code real git never returns
+        // for this argv).
+        //
+        // `rev-parse --verify --quiet <ref>^{object}` *does* have the clean
+        // boundary — 0 resolved, 1 unknown ref in a valid repo, 128 no repo — so
+        // reachability is established there.
+        const ref = await runGit(deps, resolvedCwd, ["rev-parse", "--verify", "--quiet", `${probe.atRef}^{object}`], options.remainingSec);
+        const treeUnreachable = gitUnreachable(ref, resolvedCwd, probe.atRef);
+        if (treeUnreachable !== undefined) return finish("fail", treeUnreachable);
+        const sha = ref.stdout.trim();
+        if (ref.exitCode !== 0 || sha.length === 0) {
+          return finish("fail", `${probe.atRef} does not resolve in ${collapseHome(resolvedCwd)}`);
+        }
+
+        // The lookup is bound to the **sha** `rev-parse` just printed, not to the
+        // ref name a second time. `rev-parse` already paid for the resolution, so
+        // this is free — and resolving one ref twice and trusting the answers to
+        // match is the two-equivalent-expressions shape this module refuses
+        // everywhere else ({@link probeDirectory}, {@link artifactFilePath}, the
+        // single `ranIn`). Verified equivalent to `<ref>:<path>` across every
+        // shape `^{object}` accepts — branch, lightweight tag, annotated tag,
+        // a tag pointing at a tree, and a bare tree-ish — for present and absent
+        // paths alike; git peels the tag object in `<object>:<path>` form.
+        // The message still names `probe.atRef`: the binding is an implementation
+        // guarantee, not something to make a reader decode a sha for.
+        const outcome = await runGit(deps, resolvedCwd, ["cat-file", "-e", `${sha}:${probe.path}`], options.remainingSec);
+
+        // The object resolved, so a *lookup answer* is 0 (present), or 1/128
+        // (absent — 128 is the object-name form, 1 the raw-sha form; both
+        // measured). Anything else did not answer, and `timedOut` is not the only
+        // way that happens: a child killed by an external signal reports a
+        // NUMBER — 137 for SIGKILL, 139 for SIGSEGV — which would sail through a
+        // null check into `passed = false` and publish a confident "absent"
+        // (#662 review mm1). That is B1's class re-opened one notch down, and it
+        // is exactly what an OOM killer or a cgroup limit produces on a loaded
+        // box. An allowlist rather than a denylist: a code this argv is not known
+        // to return is a code we cannot interpret, and fail-closed means saying
+        // so rather than guessing.
+        if (outcome.timedOut || !CAT_FILE_ANSWERS.has(outcome.exitCode ?? -1)) {
+          const reason = outcome.timedOut ? "git timed out (killed)" : `git exited ${outcome.exitCode}`;
+          return finish("fail", unreachable(resolvedCwd, probe.atRef, reason, outcome.stderr.trim().length > 0 ? outcome.stderr : outcome.stdout));
+        }
         const passed = outcome.exitCode === 0;
         return finish(passed ? "pass" : "fail", `${probe.path} ${passed ? "present" : "absent"} at ${probe.atRef}`);
       }
     }
   } catch (error) {
     // Fail-closed: an unrunnable probe is a failed probe, never a skipped one.
+    //
+    // Unredacted, and checked rather than assumed (#662 review): this publishes a
+    // thrown message, and every way `runSpawned` throws names the *binary*, never
+    // a path from the environment — measured on Bun 1.3.6:
+    //   `Executable not found in $PATH: "definitely-not-a-real-binary-xyz"`
+    //   `ENOENT: no such file or directory, posix_spawn '/no/such/dir/git'`
+    // A cwd that does not exist throws the third form, naming `git` and not the
+    // cwd, so even a probe directory under `$HOME` discloses nothing here. If a
+    // future runtime starts echoing the cwd, this line needs {@link redactHome}
+    // — it is a publication site like the others, currently harmless by accident
+    // of the message format rather than by construction.
     return finish("fail", `probe runner error: ${error instanceof Error ? error.message : String(error)}`);
   }
 }

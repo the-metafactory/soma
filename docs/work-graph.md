@@ -152,11 +152,50 @@ Runner semantics settled while implementing #498:
   wanted, a launcher that `cd`s made probes execute in the install tree, so
   `bun test` passed against a commit that did not contain the work and the
   receipt said only `HEAD <sha>` — a true fact about the wrong tree.
-  **This is detection, not prevention.** The stated value still originates as the
-  process's cwd, so a launcher that `cd`s still moves it; what the receipt buys
-  is that the substituted tree is now named rather than silent. Refusing a probe
-  tree that does not contain the work is the preventive version, and it needs to
-  know which commit a node claims — #579 named it and left it out of scope.
+  **The base is the *invocation* directory, not the process's cwd**
+  ([#662](https://github.com/the-metafactory/soma/issues/662)). #579 read
+  `process.cwd()` and called a `cd`-ing launcher an unfixable limit; arc then
+  regenerated its shim with a `cd` into the install tree, reintroducing #579 on
+  every arc install regardless of what a hand-edited launcher did. A shim that
+  `cd`s exports where it came from first, so the close resolves its base from
+  `ARC_INVOCATION_CWD` when that names an absolute directory and from
+  `process.cwd()` otherwise — one rule, shared with `soma export --out` (#315),
+  since two expressions of it is the drift #579 already cost this spec once. A
+  relative or empty value is *not* trusted: resolving it against the moved cwd
+  would name a third directory that is neither the caller's nor the install
+  tree's.
+  What is still **detection, not prevention**: a launcher that `cd`s without
+  exporting the caller's directory moves the base and nothing here can tell.
+  The receipt still buys that the substituted tree is named rather than silent.
+  Refusing a probe tree that does not contain the work is the preventive version,
+  and it needs to know which commit a node claims — #579 named it and left it out
+  of scope.
+- **"I could not look" is not "it is not there"** (#662). A runner that folds the
+  two together publishes `<path> absent at <ref>` for a directory that is not a
+  repository at all — the diagnosis a reader most needs is the one the message
+  hides. On the three git probes, a failure that means *the repository or ref
+  could not be reached* MUST say so and MUST name the resolved directory, rather
+  than assert absence or non-ancestry. It is still `outcome: "fail"` — fail-closed
+  is the runner's rule, and "could not reach the tree" is no more a pass than
+  "not there" is.
+
+  **Which exit code carries that distinction depends on the argv, and assuming
+  otherwise is a defect** (#662 review B1). Verified on git 2.40.0:
+  `rev-parse --verify --quiet <ref>^{commit}` and `merge-base --is-ancestor`
+  answer "no" with **1** and report failure with **128**, so for those two the
+  boundary is exactly 0/1-answered. `cat-file -e <ref>:<path>` does **not**:
+  object-name syntax makes a genuinely missing path a *fatal*, so an absent file
+  at a valid ref exits **128**, indistinguishable from a missing tree. An
+  `artifact-exists` probe with `atRef` MUST therefore establish reachability with
+  a separate ref resolution first, after which any non-zero from the path lookup
+  is the path's answer. One extra spawn; a published attestation that states a
+  falsehood costs more.
+
+  The classification reads the **exit code**, never the stderr text, which is
+  localizable and has been reworded across git versions. Any path echoed into
+  `observed` — the resolved directory and git's own stderr alike — is
+  home-collapsed before publication, because git names paths it was *redirected*
+  to (a `.git` gitfile) that containment never bounded.
   A **dirty** probe tree is likewise *recorded, never refused*: it is a fact
   about the evidence, and refusing it would change what closes an `auto` node.
   A close whose probes are **all `url`** records no tree at all — it tested a

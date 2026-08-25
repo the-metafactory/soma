@@ -18,6 +18,9 @@ import {
   type ProbeRunnerOptions,
   type WorkGraphNode,
 } from "../src/index";
+// Not on the public barrel — publication-rendering helpers, reached for where
+// they live, the way `cli-graph.test.ts` reaches for the receipt internals.
+import { collapseHome, redactHome } from "../src/work-graph";
 
 const AT = new Date("2026-08-04T09:00:00.000Z");
 const REPO = "the-metafactory/soma";
@@ -192,17 +195,28 @@ test("artifact-exists checks the filesystem without atRef and the tree with it",
       {
         cwd: "/repo",
         deps: {
+          // Real-git-shaped (#662 review m3): the ref resolves, and the absent
+          // path comes back 128, because `cat-file -e <ref>:<path>` reports a
+          // missing path as a fatal rather than as exit 1. This stub used to
+          // return 1 for both calls — a value real git never produces for this
+          // argv, which is how the inverted split shipped green.
           runCommand: async (request) => {
             seen.push(request);
-            return { exitCode: 1, stdout: "", stderr: "", timedOut: false };
+            return request.argv?.includes("cat-file") === true
+              ? { exitCode: 128, stdout: "", stderr: "fatal: path 'src/work-graph.ts' does not exist in 'main'\n", timedOut: false }
+              : { exitCode: 0, stdout: "abc1234\n", stderr: "", timedOut: false };
           },
           now: () => AT,
         },
       },
     ),
   );
-  expect(seen[0].argv).toEqual(["git", "-C", "/repo", "cat-file", "-e", "main:src/work-graph.ts"]);
+  // Reachability first, then the path lookup — bound to the sha the first call
+  // resolved rather than to the ref name a second time (#662 review, SHA binding).
+  expect(seen[0].argv).toEqual(["git", "-C", "/repo", "rev-parse", "--verify", "--quiet", "main^{object}"]);
+  expect(seen[1].argv).toEqual(["git", "-C", "/repo", "cat-file", "-e", "abc1234:src/work-graph.ts"]);
   expect(atRef.outcome).toBe("fail");
+  expect(atRef.observed).toBe("src/work-graph.ts absent at main");
 });
 
 test("runProbes runs every probe in order and allProbesPassed needs all of them", async () => {
@@ -606,9 +620,13 @@ test("an atRef artifact-exists reads through git, so only its directory is conta
       {
         cwd: "/repo",
         deps: {
+          // Real-git-shaped (#662 review m3): the ref resolves, the object name
+          // does not exist, and `cat-file -e` reports that with 128.
           runCommand: async (request) => {
             seen.push(request);
-            return { exitCode: 1, stdout: "", stderr: "", timedOut: false };
+            return request.argv?.includes("cat-file") === true
+              ? { exitCode: 128, stdout: "", stderr: "fatal: path '/etc/passwd' does not exist in 'main'\n", timedOut: false }
+              : { exitCode: 0, stdout: "abc1234\n", stderr: "", timedOut: false };
           },
           now: () => AT,
         },
@@ -617,7 +635,10 @@ test("an atRef artifact-exists reads through git, so only its directory is conta
   );
 
   expect(result.observed).not.toContain(PROBE_ESCAPED_PREFIX);
-  expect(seen[0].argv).toEqual(["git", "-C", "/repo", "cat-file", "-e", "main:/etc/passwd"]);
+  // The path still reaches git verbatim as an object name — the reachability
+  // call added in #662 review B1 runs ahead of it and does not touch `path`.
+  // Only the ref half is replaced by the resolved sha.
+  expect(seen[1].argv).toEqual(["git", "-C", "/repo", "cat-file", "-e", "abc1234:/etc/passwd"]);
   expect(result.outcome).toBe("fail");
 });
 
@@ -665,4 +686,302 @@ test("resolvedProbePaths names every path a probe touches, and the field it came
     { field: "path", value: "docs/x.md", resolved: "/repo/sub/docs/x.md" },
   ]);
   expect(resolvedProbePaths({ type: "url", target: "https://example.test/", expectStatus: 200 }, "/repo")).toEqual([]);
+});
+
+// --- "could not reach the tree" is not "the artifact is absent" (#662) ------
+
+test("an artifact-exists atRef in a directory git cannot read says so, and names the directory", async () => {
+  // #662's reported symptom. The probe base was the install tree, `git cat-file`
+  // exited 128, and the receipt said `docs/x.md absent at main` — so the reporter
+  // went hunting for a file that was present in the tree they ran the close from.
+  // The two failures have different fixes, so they must read differently.
+  const unreadable = requireProbed(
+    await runProbe(
+      { type: "artifact-exists", path: "docs/x.md", atRef: "main" },
+      deps({
+        command: () => ({
+          exitCode: 128,
+          stdout: "",
+          stderr: "fatal: not a git repository (or any of the parent directories): .git\n",
+          timedOut: false,
+        }),
+      }),
+    ),
+  );
+
+  expect(unreadable.outcome).toBe("fail");
+  expect(unreadable.observed).toContain("could not reach main in /repo");
+  expect(unreadable.observed).toContain("git exited 128");
+  expect(unreadable.observed).toContain("not a git repository");
+  // The word that sent the reporter to the wrong place must not appear.
+  expect(unreadable.observed).not.toContain("absent");
+
+  // And a genuine absence still reads as absence. `cat-file -e` reports a
+  // missing path with 128, the SAME code a missing tree gives, so this case is
+  // separated by the ref resolving first — never by the path lookup's own exit
+  // code (#662 review B1).
+  const absent = requireProbed(
+    await runProbe(
+      { type: "artifact-exists", path: "docs/x.md", atRef: "main" },
+      deps({
+        command: (request) =>
+          request.argv?.includes("cat-file") === true
+            ? { exitCode: 128, stdout: "", stderr: "fatal: path 'docs/x.md' does not exist in 'main'\n", timedOut: false }
+            : { exitCode: 0, stdout: "abc1234\n", stderr: "", timedOut: false },
+      }),
+    ),
+  );
+  expect(absent.outcome).toBe("fail");
+  expect(absent.observed).toBe("docs/x.md absent at main");
+
+  // A ref that does not resolve in a valid repository is a third thing again:
+  // not the tree being unreachable, not the path being absent.
+  const badRef = requireProbed(
+    await runProbe(
+      { type: "artifact-exists", path: "docs/x.md", atRef: "nosuchref" },
+      deps({ command: () => ({ exitCode: 1, stdout: "", stderr: "", timedOut: false }) }),
+    ),
+  );
+  expect(badRef.outcome).toBe("fail");
+  expect(badRef.observed).toBe("nosuchref does not resolve in /repo");
+});
+
+test("the reachability split covers the other two git probes, on both of git-merged-into's refs", async () => {
+  // Same helper, three call sites: `does not resolve in /repo` is a plausible
+  // way to say "this is not a repository", and `is not an ancestor of main` is a
+  // plausible way to say "there is no main here". Both would send a reader after
+  // the wrong defect.
+  const refExists = requireProbed(
+    await runProbe(
+      { type: "git-ref-exists", ref: "main" },
+      deps({ command: () => ({ exitCode: 128, stdout: "", stderr: "fatal: not a git repository\n", timedOut: false }) }),
+    ),
+  );
+  expect(refExists.outcome).toBe("fail");
+  expect(refExists.observed).toContain("could not reach main in /repo");
+  expect(refExists.observed).not.toContain("does not resolve");
+
+  // An `into` that does not resolve fails on the second git call, after the ref
+  // itself resolved fine.
+  const badInto = requireProbed(
+    await runProbe(
+      { type: "git-merged-into", ref: "feat/x", into: "main" },
+      deps({
+        command: (request) =>
+          request.argv?.includes("merge-base") === true
+            ? { exitCode: 128, stdout: "", stderr: "fatal: Not a valid object name main\n", timedOut: false }
+            : { exitCode: 0, stdout: "abc1234\n", stderr: "", timedOut: false },
+      }),
+    ),
+  );
+  expect(badInto.outcome).toBe("fail");
+  expect(badInto.observed).toContain("could not reach main in /repo");
+  expect(badInto.observed).not.toContain("is not an ancestor");
+
+  // Exit 1 on the same call is the honest "no", and keeps its message.
+  const notAncestor = requireProbed(
+    await runProbe(
+      { type: "git-merged-into", ref: "feat/x", into: "main" },
+      deps({
+        command: (request) =>
+          request.argv?.includes("merge-base") === true
+            ? { exitCode: 1, stdout: "", stderr: "", timedOut: false }
+            : { exitCode: 0, stdout: "abc1234\n", stderr: "", timedOut: false },
+      }),
+    ),
+  );
+  expect(notAncestor.observed).toContain("is not an ancestor of main");
+});
+
+test("a git probe killed by a timeout reads as unreachable, never as a confident answer", async () => {
+  // A killed spawn reports `exitCode: null`; before #662 that fell through the
+  // `exitCode === 0` comparison and rendered as `absent`, which is a claim about
+  // a question git never got to answer.
+  const onReachability = requireProbed(
+    await runProbe(
+      { type: "artifact-exists", path: "docs/x.md", atRef: "main" },
+      deps({ command: () => ({ exitCode: null, stdout: "", stderr: "", timedOut: true }) }),
+    ),
+  );
+
+  expect(onReachability.outcome).toBe("fail");
+  expect(onReachability.observed).toContain("could not reach main in /repo");
+  expect(onReachability.observed).toContain("git timed out (killed)");
+  expect(onReachability.observed).not.toContain("absent");
+
+  // The deadline can also land on the *second* call, after the ref has resolved.
+  // That path reads only the timeout — every other non-zero there is the path's
+  // answer — so it needs its own case or the narrower predicate goes untested.
+  const onLookup = requireProbed(
+    await runProbe(
+      { type: "artifact-exists", path: "docs/x.md", atRef: "main" },
+      deps({
+        command: (request) =>
+          request.argv?.includes("cat-file") === true
+            ? { exitCode: null, stdout: "", stderr: "", timedOut: true }
+            : { exitCode: 0, stdout: "abc1234\n", stderr: "", timedOut: false },
+      }),
+    ),
+  );
+
+  expect(onLookup.outcome).toBe("fail");
+  expect(onLookup.observed).toContain("could not reach main in /repo");
+  expect(onLookup.observed).toContain("git timed out (killed)");
+  expect(onLookup.observed).not.toContain("absent");
+});
+
+// --- redaction of published subprocess text (#662 review B2) ----------------
+
+test("redactHome replaces home wherever it appears, which is where collapseHome does not", () => {
+  const home = "/Users/tester";
+
+  // The distinction the whole finding turns on, asserted side by side so the
+  // next reader cannot mistake one for the other. `collapseHome` asks whether
+  // the string STARTS at home; a sentence with a path inside it does not, and
+  // passes through untouched.
+  expect(collapseHome(`${home}/secret/.git`, home)).toBe("~/secret/.git");
+  expect(collapseHome(`fatal: not a git repository: ${home}/secret/.git`, home)).toBe(
+    `fatal: not a git repository: ${home}/secret/.git`,
+  );
+  expect(redactHome(`fatal: not a git repository: ${home}/secret/.git`, home)).toBe(
+    "fatal: not a git repository: ~/secret/.git",
+  );
+
+  // Prefix, several occurrences, and none at all.
+  expect(redactHome(`${home}/secret/.git`, home)).toBe("~/secret/.git");
+  expect(redactHome(`a ${home}/x and ${home}/y`, home)).toBe("a ~/x and ~/y");
+  expect(redactHome("nothing to see here", home)).toBe("nothing to see here");
+
+  // Bare home ending a quoted token — git writes this shape too.
+  expect(redactHome(`cannot change to '${home}': nope`, home)).toBe("cannot change to '~': nope");
+});
+
+test("redactHome is a no-op without a home, and cannot be broken by one containing regex metacharacters", () => {
+  expect(redactHome("fatal: /Users/tester/x", undefined)).toBe("fatal: /Users/tester/x");
+  expect(redactHome("fatal: /Users/tester/x", "")).toBe("fatal: /Users/tester/x");
+
+  // A home directory is a filesystem string and may hold `+ ( ) . *`. Building a
+  // pattern from it would either corrupt the output or silently stop redacting —
+  // a redaction that fails open is worse than none, because the call site looks
+  // handled. Literal scanning cannot have that bug; this pins it.
+  const spicy = "/Users/fisch+er(1).x";
+  expect(redactHome(`fatal: ${spicy}/secret`, spicy)).toBe("fatal: ~/secret");
+
+  // Separator-agnostic, for the reason collapseHome already argues.
+  expect(redactHome("fatal: C:\\Users\\tester\\secret", "C:\\Users\\tester")).toBe("fatal: ~\\secret");
+});
+
+test("redactHome does not redact a different account whose name merely starts with ours", () => {
+  // `/Users/tester` must not turn `/Users/testerson/x` into `~son/x` — that is a
+  // different user's tree, and mangling it would corrupt the message without
+  // protecting anything.
+  expect(redactHome("/Users/testerson/x", "/Users/tester")).toBe("/Users/testerson/x");
+});
+
+test("a signal-killed git lookup is unreachable, not a confident absence (#662 review mm1)", async () => {
+  // The hairline B1 re-opened. `timedOut` is not the only non-answer: a child
+  // killed by an EXTERNAL signal reports a number, not null — measured, 137 for
+  // SIGKILL and 139 for SIGSEGV — so a guard narrowed to the timeout lets 137
+  // fall through to `passed = (137 === 0)` and publish `absent`. An OOM killer
+  // or a cgroup limit on a loaded box produces exactly this.
+  for (const exitCode of [137, 139]) {
+    const result = requireProbed(
+      await runProbe(
+        { type: "artifact-exists", path: "docs/x.md", atRef: "main" },
+        deps({
+          command: (request) =>
+            request.argv?.includes("cat-file") === true
+              ? { exitCode, stdout: "", stderr: "", timedOut: false }
+              : { exitCode: 0, stdout: "abc1234\n", stderr: "", timedOut: false },
+        }),
+      ),
+    );
+
+    expect(result.outcome).toBe("fail");
+    expect(result.observed).toContain("could not reach main in /repo");
+    expect(result.observed).toContain(`git exited ${exitCode}`);
+    expect(result.observed).not.toContain("absent");
+  }
+
+  // The codes `cat-file -e` genuinely answers with still read as answers: 128 is
+  // the object-name form of "missing path", 1 the raw-sha form.
+  for (const exitCode of [1, 128]) {
+    const result = requireProbed(
+      await runProbe(
+        { type: "artifact-exists", path: "docs/x.md", atRef: "main" },
+        deps({
+          command: (request) =>
+            request.argv?.includes("cat-file") === true
+              ? { exitCode, stdout: "", stderr: "", timedOut: false }
+              : { exitCode: 0, stdout: "abc1234\n", stderr: "", timedOut: false },
+        }),
+      ),
+    );
+    expect(result.observed).toBe("docs/x.md absent at main");
+  }
+});
+
+test("the artifact lookup is bound to the sha rev-parse resolved, not to the ref name twice", async () => {
+  // Resolving one ref twice and trusting the answers to agree is the shape this
+  // module refuses everywhere else (#579). `rev-parse` already printed the sha,
+  // so binding costs nothing.
+  const seen: CommandRequest[] = [];
+  await runProbe(
+    { type: "artifact-exists", path: "docs/x.md", atRef: "main" },
+    {
+      cwd: "/repo",
+      deps: {
+        runCommand: async (request) => {
+          seen.push(request);
+          return request.argv?.includes("cat-file") === true
+            ? { exitCode: 0, stdout: "", stderr: "", timedOut: false }
+            : { exitCode: 0, stdout: "fa70972eff31c0ffee\n", stderr: "", timedOut: false };
+        },
+        now: () => AT,
+      },
+    },
+  );
+
+  expect(seen[0].argv).toEqual(["git", "-C", "/repo", "rev-parse", "--verify", "--quiet", "main^{object}"]);
+  expect(seen[1].argv).toEqual(["git", "-C", "/repo", "cat-file", "-e", "fa70972eff31c0ffee:docs/x.md"]);
+});
+
+test("redaction runs before the tail bound, or a cut inside the home path defeats it (#662 review n1)", async () => {
+  // Constructed so the cut PROVABLY lands inside the home path rather than
+  // trusting a long blob to hit it: `boundObserved` keeps the last LIMIT chars,
+  // so the cut index is N - LIMIT, and the suffix is sized to put that index 5
+  // characters into the home prefix.
+  const home = "/Users/tester";
+  const LIMIT = 1_200;
+  const path = `${home}/.ssh/secret/.git`;
+  const suffix = "y".repeat(LIMIT + 5 - path.length);
+  const stderr = `${"x".repeat(50)}${path}${suffix}`;
+
+  const cut = stderr.length - LIMIT;
+  const at = stderr.indexOf(home);
+  expect(cut).toBeGreaterThan(at);
+  expect(cut).toBeLessThan(at + home.length);
+
+  // Composed the wrong way round, the cut severs `/Users/` from the prefix, so it
+  // no longer matches and the account name survives. This is the failure, pinned.
+  expect(redactHome(boundObserved(stderr), home)).toContain("tester");
+
+  // …and asserted through the RUNNER, not just as an expression. A test that
+  // only compared the two orderings would pass whichever one the call site used,
+  // which is a test that documents a rule without guarding it.
+  const previousHome = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    const result = requireProbed(
+      await runProbe(
+        { type: "artifact-exists", path: "docs/x.md", atRef: "main" },
+        deps({ command: () => ({ exitCode: 128, stdout: "", stderr, timedOut: false }) }),
+      ),
+    );
+    expect(result.outcome).toBe("fail");
+    expect(result.observed).not.toContain("tester");
+  } finally {
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+  }
 });
