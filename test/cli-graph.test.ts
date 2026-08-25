@@ -1746,7 +1746,12 @@ test("the same close, run from a directory that is not a repository, says so ins
     expect(store.closed).toHaveLength(0);
     expect(output).toContain("would be REFUSED");
     expect(output).toContain(`could not reach HEAD in ${notARepo}`);
-    expect(output).toContain("not a git repository");
+    // Our wording and a verified exit code, never git's prose. This line used to
+    // assert `not a git repository` — real git's phrasing, in a real-git test,
+    // which is the same assumption class that turned the B2 arm red on CI. It
+    // happens to hold on both platforms; it is still the wrong thing to depend
+    // on, since git reworders and localises its messages and we control neither.
+    expect(output).toContain("git exited 128");
     expect(output).not.toContain("absent");
   } finally {
     if (previous === undefined) delete process.env.ARC_INVOCATION_CWD;
@@ -1800,49 +1805,119 @@ test("artifact-exists at a ref: the four outcomes, against real git (#662 review
   }
 });
 
-test("a probe failure never publishes the operator's home path, even when git names one (#662 review B2)", async () => {
-  // Real git, because this is the second finding where a helper was adopted for
-  // what its name implies rather than what it does to the input in hand. A stub
-  // would assert my model of git's stderr; only git produces the actual string.
-  //
-  // The shape that beats containment: a `.git` GITFILE redirects git to an
-  // arbitrary path, so `fatal: not a git repository: <that path>` names a
-  // directory no probe was allowed to read — and it rides the close receipt onto
-  // a tracker whose visibility soma cannot know.
-  //
-  // `HOME` is pointed at a temp directory for the duration (#662 review n3):
-  // the fixture has to live *under* home for the redaction to have anything to
-  // do, and creating it in the operator's real home means an interrupted run
-  // leaves litter there. Nothing is weakened by this — `redactHome` reads `HOME`
-  // at call time through the same ambient default it uses in production, so the
-  // assertion still exercises the real lookup, and git is told nothing about it.
-  const previousHome = process.env.HOME;
-  const home = await realpath(await mkdtemp(join(tmpdir(), "soma-662-home-")));
+/** Run `body` with `HOME` pointed somewhere else, restoring it whatever happens. */
+async function withHome<T>(home: string, body: () => Promise<T>): Promise<T> {
+  const previous = process.env.HOME;
   process.env.HOME = home;
+  try {
+    return await body();
+  } finally {
+    if (previous === undefined) delete process.env.HOME;
+    else process.env.HOME = previous;
+  }
+}
 
+test("a probe failure never publishes the operator's home path — deterministic arm (#662 review B2)", async () => {
+  // THE POSITIVE PROOF LIVES HERE, on injected deps, because it is the only arm
+  // that behaves the same on every git.
+  //
+  // The first version of this test asserted `~/…` against REAL git's stderr and
+  // went red on CI: a gitfile whose target is missing makes Linux git say
+  // `fatal: not a git repository: (null)` while macOS git names the path. So
+  // there was nothing to redact there and the assertion waited for a string that
+  // could not appear. That is this branch's own lesson one layer out — I asserted
+  // a git MESSAGE FORMAT, having spent four rounds learning not to assume git's
+  // exit codes.
+  //
+  // A crafted stderr is honest here in a way it was not for B1: the unit under
+  // test is *our redaction of arbitrary subprocess text*, not git's phrasing, so
+  // the stub encodes no belief about git at all.
+  const home = "/Users/tester";
+  const leaked = `${home}/.ssh/secret/.git`;
+
+  const result = await withHome(home, async () =>
+    await runProbe(
+      { type: "artifact-exists", path: "docs/x.md", atRef: "HEAD" },
+      {
+        cwd: "/repo",
+        deps: {
+          runCommand: async () => ({
+            exitCode: 128,
+            stdout: "",
+            stderr: `fatal: not a git repository: ${leaked}\n`,
+            timedOut: false,
+          }),
+          now: () => AT,
+        },
+      },
+    ),
+  );
+  if (result.state !== "probed") throw new Error("the runner must always run the probe");
+
+  expect(result.outcome).toBe("fail");
+  // The negative — the property we actually care about.
+  expect(result.observed).not.toContain(home);
+  // …and the positive: the redirect is still named, wearing `~`, so the redaction
+  // is proved to have FIRED rather than the message merely having lost its path.
+  expect(result.observed).toContain("~/.ssh/secret/.git");
+});
+
+test("…and the same holds against real git, when this git names the path at all (#662 review B2)", async () => {
+  // The real-git arm, kept but made SELF-CHECKING rather than assuming.
+  //
+  // Kept, rather than dropped, because the gitfile redirect is the shape that
+  // beats containment — git reaching a path no probe was allowed to read — and
+  // retiring it would leave that scenario covered only by a string I wrote
+  // myself. Made conditional because whether git echoes the target is a message
+  // format, and this branch's whole subject is not assuming those.
+  //
+  // `HOME` points at a temp directory (#662 review n3) so an interrupted run
+  // cannot litter the operator's real home. `redactHome` reads `HOME` at call
+  // time through the same ambient default it uses in production, so the real
+  // lookup is still exercised; git is told nothing about the swap.
+  const home = await realpath(await mkdtemp(join(tmpdir(), "soma-662-home-")));
+  const elsewhere = await realpath(await mkdtemp(join(tmpdir(), "soma-662-notahome-")));
   const redirected = join(home, ".soma-662-b2-fixture");
   const probeTree = await realpath(await mkdtemp(join(tmpdir(), "soma-662-gitfile-")));
-  await mkdir(redirected, { recursive: true });
-  await writeFile(join(probeTree, ".git"), `gitdir: ${join(redirected, ".git")}\n`, "utf8");
 
   try {
-    const result = await runProbe(
-      { type: "artifact-exists", path: "docs/x.md", atRef: "HEAD" },
-      { cwd: probeTree, deps: { now: () => AT } },
-    );
-    if (result.state !== "probed") throw new Error("the runner must always run the probe");
+    await mkdir(redirected, { recursive: true });
+    await writeFile(join(probeTree, ".git"), `gitdir: ${join(redirected, ".git")}\n`, "utf8");
 
-    expect(result.outcome).toBe("fail");
-    // Asserted on the ABSENCE of the raw home prefix rather than on an exact
-    // string, so this keeps its meaning if the message wording changes.
-    expect(result.observed).not.toContain(home);
-    // …and it is still a useful message: the redirect is named, just wearing `~`.
-    expect(result.observed).toContain("~/.soma-662-b2-fixture");
-    expect(result.observed).toContain("could not reach HEAD");
+    const probe = async (): Promise<string> => {
+      const result = await runProbe(
+        { type: "artifact-exists", path: "docs/x.md", atRef: "HEAD" },
+        { cwd: probeTree, deps: { now: () => AT } },
+      );
+      if (result.state !== "probed") throw new Error("the runner must always run the probe");
+      expect(result.outcome).toBe("fail");
+      return result.observed;
+    };
+
+    // Control: HOME somewhere unrelated, so nothing is redacted and the raw
+    // message is visible. This is how we learn what THIS git says, instead of
+    // deciding in advance.
+    const control = await withHome(elsewhere, probe);
+    const namesThePath = control.includes(redirected);
+
+    const observed = await withHome(home, probe);
+
+    // Unconditional, true on every git: the raw home prefix is never published.
+    expect(observed).not.toContain(home);
+
+    if (namesThePath) {
+      // This git echoes the gitfile target, so redaction had something to do and
+      // must be seen to have done it.
+      expect(observed).toContain("~/.soma-662-b2-fixture");
+    } else {
+      // This git does not name the path (Linux says `(null)`), so there is
+      // nothing to redact. Assert the message is still the useful one rather than
+      // letting the test pass vacuously.
+      expect(observed).toContain("could not reach HEAD");
+    }
   } finally {
-    if (previousHome === undefined) delete process.env.HOME;
-    else process.env.HOME = previousHome;
     await rm(probeTree, { recursive: true, force: true });
     await rm(home, { recursive: true, force: true });
+    await rm(elsewhere, { recursive: true, force: true });
   }
 });
