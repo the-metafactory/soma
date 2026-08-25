@@ -170,17 +170,32 @@ Runner semantics settled while implementing #498:
   Refusing a probe tree that does not contain the work is the preventive version,
   and it needs to know which commit a node claims — #579 named it and left it out
   of scope.
-- **"I could not look" is not "it is not there"** (#662). Git plumbing answers a
-  question with exit 0 or 1 and reports that it could not answer with 128, and a
-  runner that folds the two together publishes `<path> absent at <ref>` for a
-  directory that is not a repository at all — the diagnosis a reader most needs
-  is the one the message hides. On the three git probes the `observed` for a
-  non-answering command (any exit but 0/1, a timeout included) MUST say the
-  repository or ref could not be reached and MUST name the resolved directory,
-  rather than assert absence or non-ancestry. It is still `outcome: "fail"` —
-  fail-closed is the runner's rule, and "could not reach the tree" is no more a
-  pass than "not there" is. The classification reads the **exit code**, never the
-  stderr text, which is localizable and has been reworded across git versions.
+- **"I could not look" is not "it is not there"** (#662). A runner that folds the
+  two together publishes `<path> absent at <ref>` for a directory that is not a
+  repository at all — the diagnosis a reader most needs is the one the message
+  hides. On the three git probes, a failure that means *the repository or ref
+  could not be reached* MUST say so and MUST name the resolved directory, rather
+  than assert absence or non-ancestry. It is still `outcome: "fail"` — fail-closed
+  is the runner's rule, and "could not reach the tree" is no more a pass than
+  "not there" is.
+
+  **Which exit code carries that distinction depends on the argv, and assuming
+  otherwise is a defect** (#662 review B1). Verified on git 2.40.0:
+  `rev-parse --verify --quiet <ref>^{commit}` and `merge-base --is-ancestor`
+  answer "no" with **1** and report failure with **128**, so for those two the
+  boundary is exactly 0/1-answered. `cat-file -e <ref>:<path>` does **not**:
+  object-name syntax makes a genuinely missing path a *fatal*, so an absent file
+  at a valid ref exits **128**, indistinguishable from a missing tree. An
+  `artifact-exists` probe with `atRef` MUST therefore establish reachability with
+  a separate ref resolution first, after which any non-zero from the path lookup
+  is the path's answer. One extra spawn; a published attestation that states a
+  falsehood costs more.
+
+  The classification reads the **exit code**, never the stderr text, which is
+  localizable and has been reworded across git versions. Any path echoed into
+  `observed` — the resolved directory and git's own stderr alike — is
+  home-collapsed before publication, because git names paths it was *redirected*
+  to (a `.git` gitfile) that containment never bounded.
   A **dirty** probe tree is likewise *recorded, never refused*: it is a fact
   about the evidence, and refusing it would change what closes an `auto` node.
   A close whose probes are **all `url`** records no tree at all — it tested a

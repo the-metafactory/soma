@@ -1,3 +1,5 @@
+import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { expect, test } from "bun:test";
 import { createPaths, type SomaPaths } from "../src/index";
@@ -128,19 +130,25 @@ test("store accessors refuse to escape the Soma root", () => {
 
 // --- the invocation cwd (#315, #662) ---------------------------------------
 
-test("invocationCwd prefers the launcher's absolute invocation directory over the process cwd", () => {
+test("invocationCwd prefers the launcher's absolute invocation directory over the process cwd", async () => {
   // The only falsifiable shape: the two directories must differ, because on a
   // machine where soma is run directly they are the same value and a broken
   // implementation passes. This is #662 — an arc shim `cd`s into the install
   // tree, so process.cwd() is soma's own checkout and the exported variable is
-  // the only thing left that knows where the operator stood.
-  const invoked = "/work/tree-under-review";
-  expect(invoked).not.toBe(process.cwd());
-
-  expect(invocationCwd({ ARC_INVOCATION_CWD: invoked })).toBe(invoked);
+  // where the operator stood.
+  //
+  // A real directory, not a plausible string: since #662 review m2 the value has
+  // to name one, so a fictional path would be testing the fallback.
+  const invoked = await realpath(await mkdtemp(join(tmpdir(), "soma-invocation-")));
+  try {
+    expect(invoked).not.toBe(process.cwd());
+    expect(invocationCwd({ ARC_INVOCATION_CWD: invoked })).toBe(invoked);
+  } finally {
+    await rm(invoked, { recursive: true, force: true });
+  }
 });
 
-test("invocationCwd falls back to the process cwd when the launcher states nothing usable", () => {
+test("invocationCwd falls back to the process cwd when the launcher states nothing usable", async () => {
   const here = resolve(process.cwd());
 
   // Direct invocation: no shim, no variable, nothing moved.
@@ -150,4 +158,19 @@ test("invocationCwd falls back to the process cwd when the launcher states nothi
   // neither the caller's nor the install tree's, so it falls back instead.
   expect(invocationCwd({ ARC_INVOCATION_CWD: "../elsewhere" })).toBe(here);
   expect(invocationCwd({ ARC_INVOCATION_CWD: "" })).toBe(here);
+
+  // #662 review m2: absolute is not enough. Under an arc install the probe base
+  // used to be pinned to the process cwd and is now environment-settable, so a
+  // value naming nothing — or naming a file — gets the floor rather than the
+  // benefit of the doubt. It would otherwise become the containment base for
+  // every ungated probe.
+  const dir = await realpath(await mkdtemp(join(tmpdir(), "soma-invocation-floor-")));
+  try {
+    const file = join(dir, "not-a-directory");
+    await writeFile(file, "x", "utf8");
+    expect(invocationCwd({ ARC_INVOCATION_CWD: join(dir, "no-such-subdir") })).toBe(here);
+    expect(invocationCwd({ ARC_INVOCATION_CWD: file })).toBe(here);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

@@ -16,10 +16,11 @@ import { parseRepoFromRemote } from "../src/work-graph-bridge";
 // Receipt-rendering helpers are deliberately not on the public barrel (sage on
 // #584): they are internals of `renderCloseReceipt`, so the test reaches for
 // them where they live.
-import { describeProbeTree } from "../src/work-graph";
+import { collapseHome, describeProbeTree } from "../src/work-graph";
 import {
   WorkGraphError,
   renderCloseReceipt,
+  runProbe,
   runProbes,
   scanCommentsForReceipt,
   type ClaimResult,
@@ -1750,6 +1751,51 @@ test("the same close, run from a directory that is not a repository, says so ins
   } finally {
     if (previous === undefined) delete process.env.ARC_INVOCATION_CWD;
     else process.env.ARC_INVOCATION_CWD = previous;
+    await rm(notARepo, { recursive: true, force: true });
+  }
+});
+
+test("artifact-exists at a ref: the four outcomes, against real git (#662 review B1/m3)", async () => {
+  // The test whose absence let B1 ship green. Every other assertion about this
+  // branch's exit codes runs against a stub, and the stub encoded a value real
+  // git never returns: `cat-file -e <ref>:<path>` reports a MISSING PATH as a
+  // fatal (128), not as exit 1 — the same code a missing repository gives. A
+  // split that read reachability off that call therefore called every genuine
+  // absence "unreachable". Only real git can hold this contract honest.
+  const repoDir = await repoContaining("docs/only-here.md");
+  const notARepo = await realpath(await mkdtemp(join(tmpdir(), "soma-662-nonrepo-")));
+
+  const run = async (dir: string, path: string, atRef: string) => {
+    const result = await runProbe({ type: "artifact-exists", path, atRef }, { cwd: dir, deps: { now: () => AT } });
+    if (result.state !== "probed") throw new Error("the runner must always run the probe");
+    return result;
+  };
+
+  try {
+    // 1. Present at a valid ref.
+    const present = await run(repoDir, "docs/only-here.md", "HEAD");
+    expect(present.outcome).toBe("pass");
+    expect(present.observed).toBe("docs/only-here.md present at HEAD");
+
+    // 2. Genuinely absent at a valid ref, in a reachable repo. This is the one
+    //    B1 broke: real git exits 128 here.
+    const absent = await run(repoDir, "docs/never-committed.md", "HEAD");
+    expect(absent.outcome).toBe("fail");
+    expect(absent.observed).toBe("docs/never-committed.md absent at HEAD");
+    expect(absent.observed).not.toContain("could not reach");
+
+    // 3. Reachable repo, ref that does not resolve.
+    const badRef = await run(repoDir, "docs/only-here.md", "nosuchref");
+    expect(badRef.outcome).toBe("fail");
+    expect(badRef.observed).toBe(`nosuchref does not resolve in ${collapseHome(repoDir)}`);
+
+    // 4. Not a repository at all — #662's reported symptom.
+    const unreachable = await run(notARepo, "docs/only-here.md", "HEAD");
+    expect(unreachable.outcome).toBe("fail");
+    expect(unreachable.observed).toContain(`could not reach HEAD in ${collapseHome(notARepo)}`);
+    expect(unreachable.observed).not.toContain("absent");
+  } finally {
+    await rm(repoDir, { recursive: true, force: true });
     await rm(notARepo, { recursive: true, force: true });
   }
 });

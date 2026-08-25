@@ -192,17 +192,27 @@ test("artifact-exists checks the filesystem without atRef and the tree with it",
       {
         cwd: "/repo",
         deps: {
+          // Real-git-shaped (#662 review m3): the ref resolves, and the absent
+          // path comes back 128, because `cat-file -e <ref>:<path>` reports a
+          // missing path as a fatal rather than as exit 1. This stub used to
+          // return 1 for both calls — a value real git never produces for this
+          // argv, which is how the inverted split shipped green.
           runCommand: async (request) => {
             seen.push(request);
-            return { exitCode: 1, stdout: "", stderr: "", timedOut: false };
+            return request.argv?.includes("cat-file") === true
+              ? { exitCode: 128, stdout: "", stderr: "fatal: path 'src/work-graph.ts' does not exist in 'main'\n", timedOut: false }
+              : { exitCode: 0, stdout: "abc1234\n", stderr: "", timedOut: false };
           },
           now: () => AT,
         },
       },
     ),
   );
-  expect(seen[0].argv).toEqual(["git", "-C", "/repo", "cat-file", "-e", "main:src/work-graph.ts"]);
+  // Reachability first, then the path lookup.
+  expect(seen[0].argv).toEqual(["git", "-C", "/repo", "rev-parse", "--verify", "--quiet", "main^{object}"]);
+  expect(seen[1].argv).toEqual(["git", "-C", "/repo", "cat-file", "-e", "main:src/work-graph.ts"]);
   expect(atRef.outcome).toBe("fail");
+  expect(atRef.observed).toBe("src/work-graph.ts absent at main");
 });
 
 test("runProbes runs every probe in order and allProbesPassed needs all of them", async () => {
@@ -606,9 +616,13 @@ test("an atRef artifact-exists reads through git, so only its directory is conta
       {
         cwd: "/repo",
         deps: {
+          // Real-git-shaped (#662 review m3): the ref resolves, the object name
+          // does not exist, and `cat-file -e` reports that with 128.
           runCommand: async (request) => {
             seen.push(request);
-            return { exitCode: 1, stdout: "", stderr: "", timedOut: false };
+            return request.argv?.includes("cat-file") === true
+              ? { exitCode: 128, stdout: "", stderr: "fatal: path '/etc/passwd' does not exist in 'main'\n", timedOut: false }
+              : { exitCode: 0, stdout: "abc1234\n", stderr: "", timedOut: false };
           },
           now: () => AT,
         },
@@ -617,7 +631,9 @@ test("an atRef artifact-exists reads through git, so only its directory is conta
   );
 
   expect(result.observed).not.toContain(PROBE_ESCAPED_PREFIX);
-  expect(seen[0].argv).toEqual(["git", "-C", "/repo", "cat-file", "-e", "main:/etc/passwd"]);
+  // The path still reaches git verbatim as an object name — the reachability
+  // call added in #662 review B1 runs ahead of it and does not touch `path`.
+  expect(seen[1].argv).toEqual(["git", "-C", "/repo", "cat-file", "-e", "main:/etc/passwd"]);
   expect(result.outcome).toBe("fail");
 });
 
@@ -695,16 +711,34 @@ test("an artifact-exists atRef in a directory git cannot read says so, and names
   // The word that sent the reporter to the wrong place must not appear.
   expect(unreadable.observed).not.toContain("absent");
 
-  // And the genuine answer still reads exactly as it did: exit 1 is git saying
-  // "I looked, it is not there", which is a real absence.
+  // And a genuine absence still reads as absence. `cat-file -e` reports a
+  // missing path with 128, the SAME code a missing tree gives, so this case is
+  // separated by the ref resolving first — never by the path lookup's own exit
+  // code (#662 review B1).
   const absent = requireProbed(
     await runProbe(
       { type: "artifact-exists", path: "docs/x.md", atRef: "main" },
-      deps({ command: () => ({ exitCode: 1, stdout: "", stderr: "", timedOut: false }) }),
+      deps({
+        command: (request) =>
+          request.argv?.includes("cat-file") === true
+            ? { exitCode: 128, stdout: "", stderr: "fatal: path 'docs/x.md' does not exist in 'main'\n", timedOut: false }
+            : { exitCode: 0, stdout: "abc1234\n", stderr: "", timedOut: false },
+      }),
     ),
   );
   expect(absent.outcome).toBe("fail");
   expect(absent.observed).toBe("docs/x.md absent at main");
+
+  // A ref that does not resolve in a valid repository is a third thing again:
+  // not the tree being unreachable, not the path being absent.
+  const badRef = requireProbed(
+    await runProbe(
+      { type: "artifact-exists", path: "docs/x.md", atRef: "nosuchref" },
+      deps({ command: () => ({ exitCode: 1, stdout: "", stderr: "", timedOut: false }) }),
+    ),
+  );
+  expect(badRef.outcome).toBe("fail");
+  expect(badRef.observed).toBe("nosuchref does not resolve in /repo");
 });
 
 test("the reachability split covers the other two git probes, on both of git-merged-into's refs", async () => {
@@ -758,15 +792,35 @@ test("a git probe killed by a timeout reads as unreachable, never as a confident
   // A killed spawn reports `exitCode: null`; before #662 that fell through the
   // `exitCode === 0` comparison and rendered as `absent`, which is a claim about
   // a question git never got to answer.
-  const result = requireProbed(
+  const onReachability = requireProbed(
     await runProbe(
       { type: "artifact-exists", path: "docs/x.md", atRef: "main" },
       deps({ command: () => ({ exitCode: null, stdout: "", stderr: "", timedOut: true }) }),
     ),
   );
 
-  expect(result.outcome).toBe("fail");
-  expect(result.observed).toContain("could not reach main in /repo");
-  expect(result.observed).toContain("git timed out (killed)");
-  expect(result.observed).not.toContain("absent");
+  expect(onReachability.outcome).toBe("fail");
+  expect(onReachability.observed).toContain("could not reach main in /repo");
+  expect(onReachability.observed).toContain("git timed out (killed)");
+  expect(onReachability.observed).not.toContain("absent");
+
+  // The deadline can also land on the *second* call, after the ref has resolved.
+  // That path reads only the timeout — every other non-zero there is the path's
+  // answer — so it needs its own case or the narrower predicate goes untested.
+  const onLookup = requireProbed(
+    await runProbe(
+      { type: "artifact-exists", path: "docs/x.md", atRef: "main" },
+      deps({
+        command: (request) =>
+          request.argv?.includes("cat-file") === true
+            ? { exitCode: null, stdout: "", stderr: "", timedOut: true }
+            : { exitCode: 0, stdout: "abc1234\n", stderr: "", timedOut: false },
+      }),
+    ),
+  );
+
+  expect(onLookup.outcome).toBe("fail");
+  expect(onLookup.observed).toContain("could not reach main in /repo");
+  expect(onLookup.observed).toContain("git timed out (killed)");
+  expect(onLookup.observed).not.toContain("absent");
 });
