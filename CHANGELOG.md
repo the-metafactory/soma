@@ -7,7 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Claude Code policy guard no longer type-loads the soma working tree
+  (#640).** Every guarded tool call spawned `bun src/cli.ts` with the git
+  worktree as cwd, so the few seconds a refactor of soma spends with a broken
+  import denied `Bash`, `Read`, `Edit` and `Write` — including the calls needed
+  to repair the break. Fail-closed was correct; what it failed closed *on* was
+  not. `soma install claude-code` now builds a self-contained CLI bundle into
+  `<somaHome>/runtime/soma-cli.mjs` (published by `rename`, after a `--version`
+  load probe) and freezes that absolute path into the hook configs as
+  `runtimeEntry`. A build that fails leaves the previously pinned runtime in
+  place, so the guard keeps enforcing the last known-good policy. Configs
+  without `runtimeEntry` fall back to the repo entry unchanged.
+
 ### Changed
+
+- **Guard-unavailable is now distinguishable from a policy denial (#640).** A
+  guard that could not run denies with `Soma policy guard UNAVAILABLE
+  (fail-closed — this is not a policy denial)` and names its recovery
+  (`soma install claude-code --apply`); a rule that fired still carries the
+  rule's own reason. The decision is `deny` in both cases.
+- **`soma doctor` probes the guard's runtime (#640).** It follows whatever the
+  installed config points at and reports
+  `claude-code-policy-guard-runtime-unloadable` (`error`) or
+  `claude-code-policy-guard-runtime-unpinned` (`warning`), so a broken guard is
+  caught at doctor time rather than at the next tool call.
 
 ## [0.18.1] - 2026-08-25
 

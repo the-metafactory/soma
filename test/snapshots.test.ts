@@ -80,6 +80,9 @@ test("snapshot bootstrap ignores the generated memory index (memory/INDEX.md)", 
     // it must never show up as tracked churn in the snapshot history.
     const gitignore = await readFile(join(somaHome, ".gitignore"), "utf8");
     expect(gitignore).toContain("memory/INDEX.md");
+    // soma#640: same category — `runtime/` is a 1.4 MB rebuildable CLI bundle
+    // `soma install` writes, not home state worth versioning.
+    expect(gitignore).toContain("runtime/");
   });
 });
 

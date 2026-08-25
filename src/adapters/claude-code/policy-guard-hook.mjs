@@ -19,6 +19,19 @@ function hookDir() {
   return dirname(fileURLToPath(import.meta.url));
 }
 
+// soma#640: the guard runs a PINNED runtime, not the soma working tree.
+// `soma install` builds a self-contained bundle under <somaHome>/runtime/ and
+// freezes its absolute path here, so the seconds a refactor spends with a
+// broken import in `src/` can no longer deny every tool in the session doing
+// the refactor — including the ones needed to repair it. A config written
+// before this (no `runtimeEntry`) falls back to the repo entry unchanged.
+function somaRuntime(config) {
+  if (typeof config.runtimeEntry === "string" && config.runtimeEntry.trim().length > 0) {
+    return { entry: config.runtimeEntry, cwd: dirname(config.runtimeEntry), pinned: true };
+  }
+  return { entry: join(config.trustedSomaRepo, "src", "cli.ts"), cwd: config.trustedSomaRepo, pinned: false };
+}
+
 function readConfig() {
   try {
     return JSON.parse(readFileSync(join(hookDir(), "soma-policy-guard.config.json"), "utf8"));
@@ -86,12 +99,13 @@ function blockPromptSubmit(reason) {
 // write-target private-context check + inbound content scan) so Claude Code
 // reaches full codex three-check parity from one CLI call.
 function runInspect(config, surface, payload) {
+  const runtime = somaRuntime(config);
   const env = { ...process.env };
   let args;
   if (surface === "prompt") {
     env.SOMA_RUNTIME_POLICY_PROMPT = payload.prompt || "";
     args = [
-      "src/cli.ts", "policy", "inspect",
+      runtime.entry, "policy", "inspect",
       "--soma-home", config.somaHome,
       "--substrate", "claude-code",
       "--surface", "prompt",
@@ -102,7 +116,7 @@ function runInspect(config, surface, payload) {
     const input = payload.input && typeof payload.input === "object" && !Array.isArray(payload.input) ? payload.input : { raw: String(payload.input ?? "") };
     env.SOMA_RUNTIME_POLICY_TOOL_INPUT = JSON.stringify(input);
     args = [
-      "src/cli.ts", "policy", "guard",
+      runtime.entry, "policy", "guard",
       "--soma-home", config.somaHome,
       "--substrate", "claude-code",
       "--tool-name", payload.toolName || "",
@@ -112,11 +126,23 @@ function runInspect(config, surface, payload) {
     if (payload.cwd) args.push("--cwd", payload.cwd);
   }
   return spawnSync(config.bunPath, args, {
-    cwd: config.trustedSomaRepo,
+    cwd: runtime.cwd,
     encoding: "utf8",
     timeout: 25000,
     env,
   });
+}
+
+// Two different operator problems wear the same denial today: "policy denied
+// this action" (working as designed — read the rule) and "the guard could not
+// run at all" (broken install — reinstall). soma#640 asks for them to be
+// distinguishable, and for the second to name its recovery.
+function guardUnavailable(config, detail) {
+  const runtime = somaRuntime(config);
+  const recovery = runtime.pinned
+    ? `Rebuild it with \`soma install claude-code --apply\`, or inspect ${runtime.entry}.`
+    : "This install has no pinned runtime — run `soma install claude-code --apply` to build one so a mid-edit working tree can no longer block tool calls (soma#640).";
+  return `Soma policy guard UNAVAILABLE (fail-closed — this is not a policy denial): ${detail}. ${recovery}`;
 }
 
 function parseInspection(output) {
@@ -146,7 +172,10 @@ function main() {
 
   const config = readConfig();
   if (config.error || typeof config.bunPath !== "string" || typeof config.trustedSomaRepo !== "string" || typeof config.somaHome !== "string") {
-    deny(`Soma policy guard failed closed: invalid config (${config.error || "missing fields"}).`);
+    deny(
+      `Soma policy guard UNAVAILABLE (fail-closed — this is not a policy denial): invalid config (${config.error || "missing fields"}). ` +
+        "Recovery: `soma install claude-code --apply`.",
+    );
     return;
   }
   if (input.__somaParseError) {
@@ -163,15 +192,16 @@ function main() {
       });
 
   const output = result.stdout || result.stderr || "";
-  if (result.status !== 0) {
-    deny(`Soma runtime policy inspection failed closed: ${output || "unknown error"}.`);
+  if (result.error || result.status !== 0) {
+    const detail = result.error ? String(result.error) : `exit ${result.status}${output ? `: ${output}` : ""}`;
+    deny(guardUnavailable(config, `the runtime did not produce a decision (${detail})`));
     return;
   }
   let inspection;
   try {
     inspection = parseInspection(output);
   } catch (error) {
-    deny(`Soma runtime policy inspection ${error instanceof Error ? error.message : String(error)}`);
+    deny(guardUnavailable(config, error instanceof Error ? error.message : String(error)));
     return;
   }
   if (shouldBlock(inspection.decision)) {

@@ -1,6 +1,7 @@
 import { chmod, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { resolveBunExecutable } from "../../bun-probe";
+import { pinSomaRuntime } from "../../runtime-pin";
 import { isEnoent } from "../../fs-errors";
 import { renderFeedbackHookHelper } from "../shared/feedback-helper";
 import { isClaudeCodeInstallOptions } from "./install-options";
@@ -731,10 +732,21 @@ export async function installClaudeCodeSomaHooks(context: {
   const hookPath = resolve(context.substrateHome, SOMA_CLAUDE_HOOK_RELATIVE_PATH);
   const configPath = resolve(context.substrateHome, SOMA_CLAUDE_HOOK_CONFIG_RELATIVE_PATH);
   const bunPath = resolveBunExecutable();
+  // soma#640: freeze a PINNED runtime into every hook config, not the working
+  // tree. `pinSomaRuntime` never throws and never blocks the install — a home
+  // with no pinnable runtime (compiled soma, broken tree, first install from a
+  // packaged copy) simply gets no `runtimeEntry`, and the hooks fall back to
+  // `trustedSomaRepo`/src/cli.ts exactly as they did before.
+  const runtime = await pinSomaRuntime({
+    somaHome: context.somaHome,
+    somaRepoPath: context.somaRepoPath,
+    bunPath,
+  });
   const config = {
     somaHome: context.somaHome,
     trustedSomaRepo: context.somaRepoPath,
     bunPath,
+    ...(runtime.entryPath ? { runtimeEntry: runtime.entryPath } : {}),
   };
 
   await installClaudeCodeHookAsset({

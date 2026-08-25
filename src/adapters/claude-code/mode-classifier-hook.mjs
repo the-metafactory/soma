@@ -36,9 +36,21 @@ function promptFromInput(input) {
   return "";
 }
 
+// soma#640: prefer the PINNED runtime `soma install` builds under
+// <somaHome>/runtime/ over the soma working tree, so a mid-refactor `src/`
+// cannot take this hook down. Configs written before soma#640 carry no
+// `runtimeEntry` and fall back to the repo entry unchanged.
+function somaRuntime(config) {
+  if (typeof config.runtimeEntry === "string" && config.runtimeEntry.trim().length > 0) {
+    return { entry: config.runtimeEntry, cwd: dirname(config.runtimeEntry) };
+  }
+  return { entry: join(config.trustedSomaRepo, "src", "cli.ts"), cwd: config.trustedSomaRepo };
+}
+
 function runSomaClassification(config, prompt) {
-  return spawnSync(config.bunPath, ["src/cli.ts", "algorithm", "classify", "--prompt", prompt || "", "--json"], {
-    cwd: config.trustedSomaRepo,
+  const runtime = somaRuntime(config);
+  return spawnSync(config.bunPath, [runtime.entry, "algorithm", "classify", "--prompt", prompt || "", "--json"], {
+    cwd: runtime.cwd,
     encoding: "utf8",
     timeout: 3000,
     env: process.env,

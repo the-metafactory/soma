@@ -49,7 +49,11 @@ const SNAPSHOT_GITIGNORE_RULES = [
 // snapshot has no reason to track its byte-for-byte churn (rebuilds re-stamp
 // "verified Nd ago" ages even when the underlying notes didn't change).
 const GENERATED_GITIGNORE_HEADER = "# Soma generated files";
-const GENERATED_GITIGNORE_RULES = ["memory/INDEX.md"] as const;
+// soma#640: `runtime/` is the pinned CLI bundle `soma install` builds — 1.4 MB
+// of rebuildable output that changes with every version bump. Same reasoning as
+// the memory index (deterministic projection, never a source), same reasoning
+// as the compiled skill binaries adopters already ignore by hand.
+const GENERATED_GITIGNORE_RULES = ["memory/INDEX.md", "runtime/"] as const;
 
 interface SnapshotMetadata {
   ignoredPaths: string[];

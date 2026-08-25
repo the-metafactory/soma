@@ -1931,6 +1931,12 @@ export type SomaDoctorFindingId =
   | "skill-stub-unreadable"
   | "claude-code-hook-missing"
   | "claude-code-settings-missing"
+  // soma#640: the policy guard's RUNTIME, as distinct from its hook files.
+  // Unloadable means every guarded tool call fails closed; unpinned means the
+  // guard still type-loads the soma working tree, so a mid-refactor `src/`
+  // can take the session down.
+  | "claude-code-policy-guard-runtime-unloadable"
+  | "claude-code-policy-guard-runtime-unpinned"
   | "grok-hook-missing"
   | "grok-hook-files-incomplete"
   | "grok-hook-interpreter-missing"

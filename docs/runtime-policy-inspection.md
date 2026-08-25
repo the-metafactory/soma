@@ -153,11 +153,60 @@ the DD-7 inbound-content scanner.
 | Agent execution guard behavior | deferred governance-event model | Tracked by #255; Cortex/Myelin dispatch is different from Claude subagents. |
 | `StopFailureHandler.hook.ts` | observability/recovery candidate | Not a runtime policy gate in this slice. |
 
+## The Pinned Runtime (soma#640)
+
+A fail-closed gate is only as safe as the code it loads to make the decision.
+The Claude Code guard used to spawn `bun src/cli.ts` with the soma **git
+working tree** as its cwd, which coupled the policy decision to the edit
+surface: while refactoring soma itself, the seconds `src/` spends with a broken
+import denied every `Bash`, `Read`, `Edit` and `Write` — including the calls
+needed to repair the break. Recovery took a human shell outside the agent.
+
+`soma install claude-code` now bundles the CLI into a single self-contained
+file and freezes its absolute path into every hook config:
+
+```text
+<somaHome>/runtime/
+├── soma-cli.mjs     # `bun build src/cli.ts --target=bun`, written via rename
+└── runtime.json     # { version, entry, builtFrom, sourceEntry }
+```
+
+- The build is its own load check: `bun build` followed by a `--version` probe.
+  A tree that cannot produce a loadable runtime fails the **build**, and the
+  previously pinned runtime stays in place — the guard keeps enforcing the last
+  known-good policy rather than publishing rubble.
+- The swap is a `rename`, so a hook that reads mid-install sees the old runtime
+  or the new one, never a truncated file.
+- `runtime.json` carries no timestamp: install must stay byte-idempotent.
+- A config with no `runtimeEntry` (an install predating this, or a home whose
+  build was skipped) falls back to `trustedSomaRepo`/`src/cli.ts` unchanged, so
+  no existing install breaks by omission.
+
+The pinned runtime is deliberately substrate-neutral — it lives under the Soma
+home, not a substrate home. Only the Claude Code hooks consume it today; the
+codex and grok hook entries still spawn `trustedSomaRepo` and carry the same
+exposure.
+
+`soma doctor` follows whatever the installed guard config points at and reports
+two distinct states: `claude-code-policy-guard-runtime-unloadable` (an `error`
+— every guarded tool call is being denied) and
+`claude-code-policy-guard-runtime-unpinned` (a `warning` — still loading the
+working tree). Both name `soma install claude-code --apply` as the fix.
+
 ## Failure Semantics
 
 Enforceable pre-action gates fail closed. That includes Codex prompt and tool
 hooks when the runtime policy CLI exits non-zero, returns invalid JSON, or
 returns a JSON value without a string `decision`.
+
+Fail-closed is not one message. Two different operator problems used to share
+one denial, so the Claude Code guard now separates them:
+
+- **A policy denial** carries the rule's own reason. The action was inspected
+  and refused.
+- **Guard unavailable** is prefixed `Soma policy guard UNAVAILABLE (fail-closed
+  — this is not a policy denial)` and names its recovery. Nothing was
+  inspected; the guard could not run. The decision is still `deny`.
 
 Advisory, audit, and recovery surfaces must fail soft when they are implemented.
 That rule is surface-specific; inspectors do not hide fail-open behavior.

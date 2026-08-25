@@ -47,9 +47,21 @@ function nonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0 ? value : undefined;
 }
 
+// soma#640: prefer the PINNED runtime `soma install` builds under
+// <somaHome>/runtime/ over the soma working tree, so a mid-refactor `src/`
+// cannot take this hook down. Configs written before soma#640 carry no
+// `runtimeEntry` and fall back to the repo entry unchanged.
+function somaRuntime(config) {
+  if (typeof config.runtimeEntry === "string" && config.runtimeEntry.trim().length > 0) {
+    return { entry: config.runtimeEntry, cwd: dirname(config.runtimeEntry) };
+  }
+  return { entry: join(config.trustedSomaRepo, "src", "cli.ts"), cwd: config.trustedSomaRepo };
+}
+
 function runSoma(config, args, timeout) {
-  return spawnSync(config.bunPath, ["src/cli.ts", ...args], {
-    cwd: config.trustedSomaRepo,
+  const runtime = somaRuntime(config);
+  return spawnSync(config.bunPath, [runtime.entry, ...args], {
+    cwd: runtime.cwd,
     encoding: "utf8",
     timeout,
     env: process.env,

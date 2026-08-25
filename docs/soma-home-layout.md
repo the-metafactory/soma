@@ -29,8 +29,16 @@ re-projection rewrites.
 │   ├── behavior.md         # cross-substrate behavioral rules — NOT created by `soma init`
 │   └── probe-registry.json # work-graph probe authorisations (see docs/work-graph.md §2.2)
 ├── imports/                # migration manifests and portability reports
+├── runtime/                # pinned soma CLI bundle substrate hooks run (soma#640)
 └── projections/            # cached generated projections (codex, claude-code, …)
 ```
+
+`runtime/` holds a single self-contained `soma-cli.mjs` built by `soma install`
+plus the `runtime.json` describing it. Substrate hooks run **that** rather than
+the soma git working tree, so a broken import mid-refactor can no longer take
+down the fail-closed policy guard in the session doing the refactor — see
+[`runtime-policy-inspection.md`](runtime-policy-inspection.md). It is a
+generated cache: delete it and the next install rebuilds it.
 
 ## How the assistant talks, and what it may do
 

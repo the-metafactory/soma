@@ -58,20 +58,41 @@ function spawnDetached(command, args, cwd, env = {}, onError = ignoreSpawnError)
   child.unref();
 }
 
+// soma#640: prefer the PINNED runtime `soma install` builds under
+// <somaHome>/runtime/ over the soma working tree, so a mid-refactor `src/`
+// cannot take this hook down. Configs written before soma#640 carry no
+// `runtimeEntry` and fall back to the repo entry unchanged.
+function somaRuntime(config) {
+  if (typeof config.runtimeEntry === "string" && config.runtimeEntry.trim().length > 0) {
+    return { entry: config.runtimeEntry, cwd: dirname(config.runtimeEntry) };
+  }
+  return { entry: join(config.trustedSomaRepo, "src", "cli.ts"), cwd: config.trustedSomaRepo };
+}
+
+/**
+ * Call sites pass the repo-relative `src/cli.ts` as args[0]; rewrite it to the
+ * resolved entry so one edit covers every soma invocation in this hook.
+ */
+function somaArgs(runtime, args) {
+  return args[0] === "src/cli.ts" ? [runtime.entry, ...args.slice(1)] : args;
+}
+
 function runSomaDetached(config, args, env = {}) {
-  spawnDetached(config.bunPath, args, config.trustedSomaRepo, env);
+  const runtime = somaRuntime(config);
+  spawnDetached(config.bunPath, somaArgs(runtime, args), runtime.cwd, env);
 }
 
 function runSomaBlocking(config, args) {
-  return spawnSync(config.bunPath, args, {
-    cwd: config.trustedSomaRepo,
+  const runtime = somaRuntime(config);
+  return spawnSync(config.bunPath, somaArgs(runtime, args), {
+    cwd: runtime.cwd,
     stdio: "ignore",
     env: process.env,
   });
 }
 
 function runHookDetached(config, args, onError = ignoreSpawnError) {
-  spawnDetached(config.bunPath, [fileURLToPath(import.meta.url), ...args], config.trustedSomaRepo, {}, onError);
+  spawnDetached(config.bunPath, [fileURLToPath(import.meta.url), ...args], somaRuntime(config).cwd, {}, onError);
 }
 
 function sessionId(input) {
