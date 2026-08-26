@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.3] - 2026-08-26
+
+### Fixed
+
+- **All work-graph probe observations redact the operator's home path.** Command
+  output is sanitized before receipt-tail truncation, and registry refusal
+  messages pass through the same publication boundary, so close receipts cannot
+  expose embedded local paths. ([#666])
+
 ## [0.18.2] - 2026-08-26
 
 ### Fixed
