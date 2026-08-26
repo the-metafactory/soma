@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmod, mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { inspectRuntimeArtifact, readRuntimeArtifactState, rollbackRuntimeArtifact, stageRuntimeArtifact } from "../src/runtime-artifact";
@@ -24,6 +24,24 @@ async function fixture(): Promise<{ root: string; source: string; home: string }
   await writeFile(join(source, "package.json"), "{}\n");
   return { root, source, home };
 }
+test("refuses a symlink in the runtime source tree before hashing or staging", async () => {
+  const { root, source, home } = await fixture();
+  const outside = join(root, "outside.ts");
+  await writeFile(outside, "export const escaped = true;\n");
+  await symlink(outside, join(source, "src", "escaped.ts"));
+  await expect(stageRuntimeArtifact({ somaHome: home, substrate: "codex", sourceRoot: source })).rejects.toThrow(/symlink/);
+  await expect(stat(join(home, "runtime"))).rejects.toThrow();
+});
+
+test("refuses a symlinked runtime package manifest before hashing or staging", async () => {
+  const { root, source, home } = await fixture();
+  const outside = join(root, "outside-package.json");
+  await writeFile(outside, "{}\n");
+  await rm(join(source, "package.json"));
+  await symlink(outside, join(source, "package.json"));
+  await expect(stageRuntimeArtifact({ somaHome: home, substrate: "codex", sourceRoot: source })).rejects.toThrow(/package.json must be a regular file/);
+});
+
 test("stages an immutable source-complete artifact and atomically activates it", async () => {
   const { source, home } = await fixture();
   const staged = await stageRuntimeArtifact({ somaHome: home, substrate: "codex", sourceRoot: source });

@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmod, cp, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, cp, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
@@ -97,7 +97,26 @@ async function sealArtifact(root: string): Promise<void> {
   await chmod(root, 0o555);
 }
 
+/** Refuse links and special files before hashing or copying an enforcement runtime. */
+async function assertRuntimeSourceTree(sourceRoot: string): Promise<void> {
+  const packagePath = join(sourceRoot, "package.json");
+  const packageStat = await lstat(packagePath);
+  if (packageStat.isSymbolicLink() || !packageStat.isFile()) {
+    throw new Error("runtime artifact source package.json must be a regular file");
+  }
+  async function visit(directory: string): Promise<void> {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isSymbolicLink()) throw new Error(`runtime artifact source contains symlink: ${path}`);
+      if (entry.isDirectory()) await visit(path);
+      else if (!entry.isFile()) throw new Error(`runtime artifact source contains unsupported entry: ${path}`);
+    }
+  }
+  await visit(join(sourceRoot, "src"));
+}
+
 async function sourceHash(sourceRoot: string): Promise<string> {
+  await assertRuntimeSourceTree(sourceRoot);
   const hash = createHash("sha256");
   async function visit(dir: string): Promise<void> {
     const entries = await readdir(dir, { withFileTypes: true });
