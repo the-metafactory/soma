@@ -894,7 +894,7 @@ async function currentCloseReceipt(completion?: CompletionFixture): Promise<bool
     [`GET repos/${REPO}/issues/497`]: issuePayload({ state: "closed", body: typedBody({ autonomy: "approve", checkpointId: "cp-497", ...(completion === undefined ? {} : { completion }) }) }),
     [`GET repos/${REPO}/issues/497/dependencies/blocked_by`]: [],
     [`GET repos/${REPO}/issues/comments/42`]: { id: 42, user: { login: "ivy" } },
-    [`GET repos/${REPO}/issues/497/comments`]: [{ id: 42, body: "## Close receipt\n\n- **checkpoint:** `cp-497`\n- **closed by:** ivy\n- **autonomy:** `approve`\n- **at:** 2026-01-03T00:00:00.000Z\n- **attestation:** `unverified`\n- **gated node hash:** `" + hashGatedNodeFields({ autonomy: "approve", checkpointId: "cp-497", probes: [] }) + "`\n\n### Evidence\n", created_at: "2026-01-03T00:00:00.000Z", user: { login: "ivy" } }],
+    [`GET repos/${REPO}/issues/497/comments`]: [{ id: 42, body: "## Close receipt\n\n- **checkpoint:** `cp-497`\n- **closed by:** ivy\n- **autonomy:** `approve`\n- **at:** 2026-01-03T00:00:00.000Z\n- **attestation:** `verified`\n- **gated node hash:** `" + hashGatedNodeFields({ autonomy: "approve", checkpointId: "cp-497", probes: [] }) + "`\n\n### Evidence\n", created_at: "2026-01-03T00:00:00.000Z", user: { login: "ivy" } }],
     [`GET repos/${REPO}/issues/497/events`]: [{ event: "closed", created_at: "2026-01-03T00:00:00.000Z", actor: { login: "ivy" } }],
   });
   return (await createGitHubGraphStore({ repo: REPO, transport }).readNode({ id: "497" })).currentCloseReceipt;

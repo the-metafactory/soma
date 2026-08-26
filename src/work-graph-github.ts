@@ -915,12 +915,13 @@ class GitHubGraphStore implements GraphStore {
     const checkpoint = /^- \*\*checkpoint:\*\* `([^`\n]+)`$/mu.exec(comment.body)?.[1];
     const autonomy = /^- \*\*autonomy:\*\* `([^`\n]+)`$/mu.exec(comment.body)?.[1];
     const receiptAt = /^- \*\*at:\*\* ([^\n]+)$/mu.exec(comment.body)?.[1];
+    const attestation = /^- \*\*attestation:\*\* `(verified|unverified)`$/mu.exec(comment.body)?.[1];
     const gatedNodeHash = /^- \*\*gated node hash:\*\* `([a-f0-9]{64})`$/mu.exec(comment.body)?.[1];
     return close.actor === completion.closer
       && Number.isFinite(commentAt) && Number.isFinite(boundAt)
       && commentAt <= close.at && (reopened === undefined || commentAt >= reopened.at)
       && checkpoint === completion.checkpointId && autonomy === completion.autonomy
-      && receiptAt === completion.closedAt && gatedNodeHash === completion.gatedNodeHash;
+      && receiptAt === completion.closedAt && attestation === "verified" && gatedNodeHash === completion.gatedNodeHash;
   }
 
   /** Bodies included — the read half of {@link postComment}. Paginated: receipts are often the last comment. */
