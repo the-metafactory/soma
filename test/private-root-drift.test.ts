@@ -35,6 +35,15 @@ test("guarded substrate private roots agree across install specs, hook configs, 
     ].map((path) => path.replace(/\\/g, "/"));
     const config = configuredRoots(substrate).map((path) => path.replace(/\\/g, "/"));
     expect(policy).toEqual(expected);
-    expect(config).toEqual(expected);
+    if (substrate === "codex") {
+      expect(config).toEqual([
+        ...expected,
+        `${homeDir}/.claude/memory`,
+        `${homeDir}/.claude/memories`,
+        `${homeDir}/.claude/PAI/MEMORY`,
+      ]);
+    } else {
+      expect(config).toEqual(expected);
+    }
   }
 });

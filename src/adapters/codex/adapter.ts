@@ -36,9 +36,16 @@ function codexLifecycleConfig(somaHome: string, homeDir?: string, somaRepoPath =
   };
 } {
   const home = resolve(homeDir ?? homedir());
+  // Codex's hook can operate over the principal's existing Claude/PAI
+  // memory as well as its own projection. These are intentionally local to
+  // the Codex hook config: they are not Codex projection roots and must not
+  // broaden other substrates' policy scope.
   const privateRoots = [
     ...somaProjectionPrivateRoots({ homeDir, substrate: "codex" }),
     ...somaMemoryPrivateRoots({ homeDir, substrate: "codex" }),
+    join(home, ".claude", "memory"),
+    join(home, ".claude", "memories"),
+    join(home, ".claude", "PAI", "MEMORY"),
   ].map((path) => resolve(path));
   const policyMarkers = somaPolicyPrivateMarkers(somaHome, homeDir, privateRoots);
   return {

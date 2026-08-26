@@ -4,7 +4,7 @@ import { CURSOR_RULES_BLOCK_BEGIN, buildSubstrateHomeProjection, mergeCursorRule
 import { SomaHomeNotLoadableError, loadProjectionInputForDoctor } from "../doctor-projection-input";
 import { defaultSomaRepoPath } from "../repo-path";
 import { isEnoent, pathExists } from "../fs-utils";
-import { runtimeArtifactActivePath } from "../runtime-artifact";
+import { runtimeArtifactActivePath, type GuardedRuntimeSubstrate } from "../runtime-artifact";
 import { CURSOR_RULES_PATH } from "./cursor";
 import { hasProvenanceHeader } from "./shared";
 import type { InstallSubstrate, SomaDoctorFinding } from "../types";
@@ -179,10 +179,10 @@ function buildFindings(substrate: ContentCompareSubstrate, totalFiles: number, b
 
 export async function diagnoseContentCompareDrift(options: ContentCompareDoctorOptions): Promise<SomaDoctorFinding[]> {
   const sourceRepoPath = options.somaRepoPath ?? defaultSomaRepoPath();
-  // Guarded hook configs intentionally point at the stable runtime/current
-  // symlink. Rebuild with the same target when it exists, otherwise retain the
+  // Guarded hook configs intentionally point at their stable substrate-scoped
+  // runtime pointer. Rebuild with the same target when it exists, otherwise retain the
   // source path so an uninstalled home remains diagnosable in the usual way.
-  const activeRuntime = runtimeArtifactActivePath(options.somaHome);
+  const activeRuntime = runtimeArtifactActivePath(options.somaHome, options.substrate as GuardedRuntimeSubstrate);
   const somaRepoPath = ["claude-code", "codex", "grok"].includes(options.substrate) && await pathExists(activeRuntime)
     ? activeRuntime
     : sourceRepoPath;

@@ -9,32 +9,48 @@ export interface RuntimeArtifactState {
   previous?: string;
 }
 
-const GUARDED_RUNTIME_SUBSTRATES = new Set(["claude-code", "codex", "grok"]);
-export function isGuardedRuntimeSubstrate(substrate: string): boolean {
-  return GUARDED_RUNTIME_SUBSTRATES.has(substrate);
+export const GUARDED_RUNTIME_SUBSTRATES = ["claude-code", "codex", "grok"] as const;
+export type GuardedRuntimeSubstrate = (typeof GUARDED_RUNTIME_SUBSTRATES)[number];
+export function isGuardedRuntimeSubstrate(substrate: string): substrate is GuardedRuntimeSubstrate {
+  return (GUARDED_RUNTIME_SUBSTRATES as readonly string[]).includes(substrate);
 }
 
 export function runtimeArtifactRoot(somaHome: string): string {
   return resolve(somaHome, "runtime");
 }
 
-export function runtimeArtifactStatePath(somaHome: string): string {
-  return join(runtimeArtifactRoot(somaHome), "active.json");
+function runtimeArtifactStoreRoot(somaHome: string): string {
+  return join(runtimeArtifactRoot(somaHome), "artifacts");
 }
 
-/** Stable hook target; it atomically resolves to the selected immutable artifact. */
-export function runtimeArtifactActivePath(somaHome: string): string {
-  return join(runtimeArtifactRoot(somaHome), "current");
+export function runtimeArtifactStatePath(somaHome: string, substrate: GuardedRuntimeSubstrate): string {
+  return join(runtimeArtifactRoot(somaHome), substrate, "active.json");
 }
 
-async function activateRuntimeArtifact(somaHome: string, hash: string): Promise<void> {
-  const root = runtimeArtifactRoot(somaHome);
-  const target = join(root, hash);
+/** Stable, substrate-scoped hook target; it atomically resolves to an immutable artifact. */
+export function runtimeArtifactActivePath(somaHome: string, substrate: GuardedRuntimeSubstrate): string {
+  return join(runtimeArtifactRoot(somaHome), substrate, "current");
+}
+
+async function activateRuntimeArtifact(somaHome: string, substrate: GuardedRuntimeSubstrate, hash: string): Promise<void> {
+  const lifecycleRoot = dirname(runtimeArtifactActivePath(somaHome, substrate));
+  const target = join(runtimeArtifactStoreRoot(somaHome), hash);
   await stat(join(target, "src", "cli.ts"));
-  const pending = join(root, ".current-next");
+  await mkdir(lifecycleRoot, { recursive: true });
+  const pending = join(lifecycleRoot, ".current-next");
   await rm(pending, { force: true });
-  await symlink(hash, pending);
-  await rename(pending, runtimeArtifactActivePath(somaHome));
+  await symlink(join("..", "artifacts", hash), pending);
+  await rename(pending, runtimeArtifactActivePath(somaHome, substrate));
+}
+
+async function makeWritable(path: string): Promise<void> {
+  await chmod(path, 0o755).catch(() => undefined);
+  for (const entry of await readdir(path, { withFileTypes: true }).catch(() => [])) {
+    const child = join(path, entry.name);
+    if (entry.isSymbolicLink()) continue;
+    if (entry.isDirectory()) await makeWritable(child);
+    else if (entry.isFile()) await chmod(child, 0o644).catch(() => undefined);
+  }
 }
 
 async function loadArtifact(entry: string): Promise<boolean> {
@@ -52,16 +68,15 @@ async function loadArtifact(entry: string): Promise<boolean> {
     });
     return result.status === 0;
   } finally {
-    // `cp` preserves read-only artifact modes; reopen the disposable probe copy
-    // solely so its temporary directories can be removed.
-    await chmod(join(probeRoot, "src"), 0o755).catch(() => undefined);
-    await chmod(join(probeRoot, "src", "cli.ts"), 0o644).catch(() => undefined);
+    // Copies preserve the artifact's read-only modes; reopen only this disposable
+    // probe tree so nested source directories never obstruct cleanup.
+    await makeWritable(probeRoot);
     await rm(probeRoot, { recursive: true, force: true });
   }
 }
 
-async function writeRuntimeArtifactState(somaHome: string, state: RuntimeArtifactState): Promise<void> {
-  const statePath = runtimeArtifactStatePath(somaHome);
+async function writeRuntimeArtifactState(somaHome: string, substrate: GuardedRuntimeSubstrate, state: RuntimeArtifactState): Promise<void> {
+  const statePath = runtimeArtifactStatePath(somaHome, substrate);
   await mkdir(dirname(statePath), { recursive: true });
   const pending = statePath + ".tmp";
   await writeFile(pending, JSON.stringify(state, null, 2) + "\n", "utf8");
@@ -74,14 +89,12 @@ async function sealArtifact(root: string): Promise<void> {
     const path = join(root, entry.name);
     if (entry.isDirectory()) {
       await sealArtifact(path);
-      // Keep directories writable so home cleanup and atomic replacement work;
-      // payload files themselves are read-only and hash-validated at install/doctor.
-      await chmod(path, 0o755);
+      await chmod(path, 0o555);
     } else if (entry.isFile()) {
       await chmod(path, 0o444);
     }
   }
-  await chmod(root, 0o755);
+  await chmod(root, 0o555);
 }
 
 async function sourceHash(sourceRoot: string): Promise<string> {
@@ -102,63 +115,70 @@ async function sourceHash(sourceRoot: string): Promise<string> {
   return hash.digest("hex");
 }
 
-export async function readRuntimeArtifactState(somaHome: string): Promise<RuntimeArtifactState | undefined> {
+export async function readRuntimeArtifactState(somaHome: string, substrate: GuardedRuntimeSubstrate): Promise<RuntimeArtifactState | undefined> {
   try {
-    const value: unknown = JSON.parse(await readFile(runtimeArtifactStatePath(somaHome), "utf8"));
+    const value: unknown = JSON.parse(await readFile(runtimeArtifactStatePath(somaHome, substrate), "utf8"));
     if (!value || typeof value !== "object" || typeof (value as { active?: unknown }).active !== "string") return undefined;
     const state = value as { active: string; previous?: unknown };
     return { active: state.active, ...(typeof state.previous === "string" ? { previous: state.previous } : {}) };
   } catch { return undefined; }
 }
 
-/** Stages a source-complete, content-addressed policy runtime and atomically activates it. */
-/** Installer-internal staging seam; deliberately not exported from the public API. */
-export async function stageRuntimeArtifact(input: { somaHome: string; sourceRoot: string }): Promise<{ path: string; hash: string; previous?: string }> {
+/** Stages a source-complete, content-addressed policy runtime and atomically activates one substrate. */
+export async function stageRuntimeArtifact(input: { somaHome: string; substrate: GuardedRuntimeSubstrate; sourceRoot: string }): Promise<{ path: string; hash: string; previous?: string }> {
   const hash = await sourceHash(input.sourceRoot);
-  const root = runtimeArtifactRoot(input.somaHome);
-  const target = join(root, hash);
-  const existingHash = await sourceHash(target).catch(() => undefined);
-  if (existingHash !== hash) {
-    const staging = join(root, ".staging-" + hash);
-    const displaced = join(root, ".replaced-" + hash);
-    const targetExists = await stat(target).then(() => true).catch(() => false);
-    await rm(staging, { recursive: true, force: true });
-    await rm(displaced, { recursive: true, force: true });
-    await mkdir(staging, { recursive: true });
-    await cp(join(input.sourceRoot, "src"), join(staging, "src"), { recursive: true });
-    await cp(join(input.sourceRoot, "package.json"), join(staging, "package.json"));
-    if (await sourceHash(staging) !== hash) throw new Error("runtime artifact staging hash mismatch");
-    if (!(await loadArtifact(join(staging, "src", "cli.ts")))) throw new Error("runtime artifact load check failed");
-    await sealArtifact(staging);
-    if (targetExists) await rename(target, displaced);
-    try {
-      await rename(staging, target);
-    } catch (error) {
-      if (targetExists) await rename(displaced, target).catch(() => undefined);
-      throw error;
+  const store = runtimeArtifactStoreRoot(input.somaHome);
+  const target = join(store, hash);
+  await mkdir(store, { recursive: true });
+  // Only installation mutates the shared artifact store. Hooks never hash it.
+  await chmod(store, 0o755);
+  try {
+    const existingHash = await sourceHash(target).catch(() => undefined);
+    if (existingHash !== hash) {
+      const staging = join(store, ".staging-" + hash);
+      const displaced = join(store, ".replaced-" + hash);
+      const targetExists = await stat(target).then(() => true).catch(() => false);
+      await rm(staging, { recursive: true, force: true });
+      await rm(displaced, { recursive: true, force: true });
+      await mkdir(staging, { recursive: true });
+      await cp(join(input.sourceRoot, "src"), join(staging, "src"), { recursive: true });
+      await cp(join(input.sourceRoot, "package.json"), join(staging, "package.json"));
+      if (await sourceHash(staging) !== hash) throw new Error("runtime artifact staging hash mismatch");
+      if (!(await loadArtifact(join(staging, "src", "cli.ts")))) throw new Error("runtime artifact load check failed");
+      await sealArtifact(staging);
+      if (targetExists) await rename(target, displaced);
+      try {
+        await rename(staging, target);
+      } catch (error) {
+        if (targetExists) await rename(displaced, target).catch(() => undefined);
+        throw error;
+      }
+      await rm(displaced, { recursive: true, force: true });
     }
-    await rm(displaced, { recursive: true, force: true });
+    const current = await readRuntimeArtifactState(input.somaHome, input.substrate);
+    const state: RuntimeArtifactState = { active: hash, ...(current?.active !== hash ? { previous: current?.active } : current?.previous ? { previous: current.previous } : {}) };
+    await activateRuntimeArtifact(input.somaHome, input.substrate, hash);
+    await writeRuntimeArtifactState(input.somaHome, input.substrate, state);
+    return { path: runtimeArtifactActivePath(input.somaHome, input.substrate), hash, ...(state.previous ? { previous: state.previous } : {}) };
+  } finally {
+    // Artifact directories are structurally immutable between installs; this
+    // preserves runtime integrity without a hash on every hook invocation.
+    await chmod(store, 0o555).catch(() => undefined);
   }
-  const current = await readRuntimeArtifactState(input.somaHome);
-  const state: RuntimeArtifactState = { active: hash, ...(current?.active !== hash ? { previous: current?.active } : current?.previous ? { previous: current.previous } : {}) };
-  await activateRuntimeArtifact(input.somaHome, hash);
-  await writeRuntimeArtifactState(input.somaHome, state);
-  return { path: runtimeArtifactActivePath(input.somaHome), hash, ...(state.previous ? { previous: state.previous } : {}) };
 }
 
-/** Explicit local recovery switch; it never fetches or rebuilds an artifact. */
-export async function inspectRuntimeArtifact(somaHome: string): Promise<{ state?: RuntimeArtifactState; status: "missing-state" | "missing-active" | "unloadable" | "ready" }> {
-  const state = await readRuntimeArtifactState(somaHome);
+/** Explicit local recovery inspection; it never fetches or rebuilds an artifact. */
+export async function inspectRuntimeArtifact(somaHome: string, substrate: GuardedRuntimeSubstrate): Promise<{ state?: RuntimeArtifactState; status: "missing-state" | "missing-active" | "unloadable" | "ready" }> {
+  const state = await readRuntimeArtifactState(somaHome, substrate);
   if (!state) return { status: "missing-state" };
-  const entry = join(runtimeArtifactRoot(somaHome), state.active, "src", "cli.ts");
-  const activeEntry = join(runtimeArtifactActivePath(somaHome), "src", "cli.ts");
+  const entry = join(runtimeArtifactStoreRoot(somaHome), state.active, "src", "cli.ts");
+  const activeEntry = join(runtimeArtifactActivePath(somaHome, substrate), "src", "cli.ts");
   try {
-    await readFile(join(runtimeArtifactRoot(somaHome), state.active, "package.json"), "utf8");
+    await readFile(join(runtimeArtifactStoreRoot(somaHome), state.active, "package.json"), "utf8");
     const expectedPath = await realpath(entry);
     const activePath = await realpath(activeEntry);
     if (expectedPath !== activePath) return { state, status: "missing-active" };
-    // Doctor hashes on demand; guarded hooks never hash on the tool-call path.
-    if (!(await isValidArtifact(join(runtimeArtifactRoot(somaHome), state.active), state.active))) return { state, status: "unloadable" };
+    if (!(await isValidArtifact(join(runtimeArtifactStoreRoot(somaHome), state.active), state.active))) return { state, status: "unloadable" };
   } catch {
     return { state, status: "missing-active" };
   }
@@ -173,15 +193,15 @@ async function isValidArtifact(root: string, expectedHash: string): Promise<bool
   }
 }
 
-export async function rollbackRuntimeArtifact(somaHome: string): Promise<RuntimeArtifactState> {
-  const current = await readRuntimeArtifactState(somaHome);
+export async function rollbackRuntimeArtifact(somaHome: string, substrate: GuardedRuntimeSubstrate): Promise<RuntimeArtifactState> {
+  const current = await readRuntimeArtifactState(somaHome, substrate);
   if (!current?.previous) throw new Error("No previous runtime artifact is available for rollback.");
-  const priorRoot = join(runtimeArtifactRoot(somaHome), current.previous);
+  const priorRoot = join(runtimeArtifactStoreRoot(somaHome), current.previous);
   if (!(await isValidArtifact(priorRoot, current.previous))) {
     throw new Error("Retained runtime artifact failed integrity or load validation.");
   }
   const next: RuntimeArtifactState = { active: current.previous, previous: current.active };
-  await activateRuntimeArtifact(somaHome, next.active);
-  await writeRuntimeArtifactState(somaHome, next);
+  await activateRuntimeArtifact(somaHome, substrate, next.active);
+  await writeRuntimeArtifactState(somaHome, substrate, next);
   return next;
 }

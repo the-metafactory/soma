@@ -5,7 +5,7 @@ import { DOCTOR_UNSUPPORTED_DRIFT_MESSAGE, diagnoseProjectionDrift, isDoctorSubs
 import { installSomaForClaudeCode, installSomaForCodex, installSomaForCursor, installSomaForDsh, installSomaForGrok, installSomaForPiDev } from "./install";
 import { migrateClaudeSkills, probeClaudeSkillsSource } from "./claude-skills-migrator";
 import { bootstrapSomaHome } from "./soma-home";
-import { inspectRuntimeArtifact } from "./runtime-artifact";
+import { inspectRuntimeArtifact, isGuardedRuntimeSubstrate } from "./runtime-artifact";
 import { migratePai } from "./pai-migration";
 import { isEnoent, pathExists } from "./fs-utils";
 import type {
@@ -304,14 +304,14 @@ export async function diagnoseSomaDoctor(options: SomaOnboardingOptions = {}): P
   const guardedHookConfig = guardedHookConfigs[substrate];
   const hasGuardedHook = guardedHookConfig !== undefined && await pathExists(guardedHookConfig);
   // An artifact is required only after this substrate has a guarded hook configured.
-  if (hasGuardedHook) {
-    const runtime = await inspectRuntimeArtifact(detected.somaHome);
+  if (hasGuardedHook && isGuardedRuntimeSubstrate(substrate)) {
+    const runtime = await inspectRuntimeArtifact(detected.somaHome, substrate);
     if (runtime.status !== "ready") {
       findings.push({
         id: runtime.status === "unloadable" ? "runtime-artifact-unloadable" : "runtime-artifact-missing",
         severity: "error",
         message: `Active enforcement artifact is ${runtime.status.replace(/-/g, " ")}; guarded hooks fail closed until it is restored.`,
-        action: `soma install ${substrate} --apply --home-dir ${shellQuote(detected.homeDir)} --soma-home ${shellQuote(detected.somaHome)}; if a retained artifact exists, run soma runtime rollback --soma-home ${shellQuote(detected.somaHome)}`,
+        action: `soma install ${substrate} --apply --home-dir ${shellQuote(detected.homeDir)} --soma-home ${shellQuote(detected.somaHome)}; if a retained artifact exists, run soma runtime rollback --substrate ${substrate} --soma-home ${shellQuote(detected.somaHome)}`,
       });
     }
   }

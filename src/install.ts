@@ -158,7 +158,7 @@ async function installSomaForSubstrate(
   const somaRepoPath = options.somaRepoPath ?? defaultSomaRepoPath();
   // Guarded substrates execute only the immutable artifact, never this editable checkout.
   const guardedRuntime = isGuardedRuntimeSubstrate(substrate)
-    ? await stageRuntimeArtifact({ somaHome: somaHome.somaHome, sourceRoot: somaRepoPath })
+    ? await stageRuntimeArtifact({ somaHome: somaHome.somaHome, substrate, sourceRoot: somaRepoPath })
     : undefined;
   const runtimeRepoPath = guardedRuntime?.path ?? somaRepoPath;
   let projectionContext = somaHome.context;
