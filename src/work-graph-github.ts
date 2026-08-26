@@ -467,6 +467,7 @@ export function encodeNodeBlock(spec: CreateNodeSpec): string {
   if (spec.checkpointId !== undefined) payload.checkpointId = spec.checkpointId;
   if (spec.budget !== undefined) payload.budget = spec.budget;
   if (spec.probes !== undefined && spec.probes.length > 0) payload.probes = spec.probes;
+  if (spec.completion !== undefined) payload.completion = spec.completion;
   return `${NODE_BLOCK_OPEN}\n${JSON.stringify(payload, null, 2)}\n${NODE_BLOCK_CLOSE}`;
 }
 
@@ -577,7 +578,8 @@ class GitHubGraphStore implements GraphStore {
     const parentNumber = issue.parentNumber ?? (await this.fetchParentNumber(issue.number));
     const state = toNodeState(issue, await this.fetchBlockers(ref), parentNumber === undefined ? undefined : { id: String(parentNumber) });
     if (issue.status !== "closed") return state;
-    return { ...state, currentCloseReceipt: await this.hasCurrentCloseReceipt(ref, issue) };
+    if (state.node.completion === undefined) return { ...state, currentCloseReceipt: false };
+    return { ...state, currentCloseReceipt: await this.hasCurrentCloseReceipt(ref, issue, state.node.completion) };
   }
 
   /**
@@ -872,12 +874,13 @@ class GitHubGraphStore implements GraphStore {
     });
   }
 
-  /** Receipt authority is the current tracker closure interval, never a historical marker. */
-  private async hasCurrentCloseReceipt(ref: NodeRef, issue: GitHubIssue): Promise<boolean> {
-    const checkpointId = nodeFromIssue(issue).node.checkpointId;
-    if (checkpointId === undefined) return false;
-    const [comments, events] = await Promise.all([
-      this.listComments(ref),
+  /** Completion is authority only when its persisted binding matches this closure. */
+  private async hasCurrentCloseReceipt(ref: NodeRef, issue: GitHubIssue, completion: NonNullable<WorkGraphNode["completion"]>): Promise<boolean> {
+    const node = nodeFromIssue(issue).node;
+    if (completion.checkpointId !== node.checkpointId || completion.autonomy !== node.autonomy) return false;
+    if (node.autonomy === "auto" && JSON.stringify(completion.autoProbeKeys ?? []) !== JSON.stringify((node.probes ?? []).map((probe) => JSON.stringify(probe)).sort())) return false;
+    const [comment, events] = await Promise.all([
+      this.readComment({ id: completion.receiptCommentId, nodeId: ref.id }),
       this.transport({ method: "GET", path: `repos/${this.repo}/issues/${ref.id}/events`, paginate: true }),
     ]);
     const timeline = asArray(events, "issue events").flatMap((entry) => {
@@ -889,16 +892,7 @@ class GitHubGraphStore implements GraphStore {
     }).sort((left, right) => left.at - right.at);
     const close = [...timeline].reverse().find((entry) => entry.event === "closed");
     if (close === undefined || close.actor === undefined) return false;
-    const reopened = [...timeline].reverse().find((entry) => entry.event === "reopened" && entry.at < close.at);
-    const start = reopened?.at ?? Number.NEGATIVE_INFINITY;
-    return comments.some((comment) => {
-      const at = comment.createdAt === undefined ? NaN : Date.parse(comment.createdAt);
-      const receiptCheckpoint = /^- \*\*checkpoint:\*\* `([^`\n]+)`$/mu.exec(comment.body)?.[1];
-      return Number.isFinite(at) && at >= start && at <= close.at
-        && comment.author === close.actor
-        && receiptCheckpoint === checkpointId
-        && isStructurallyValidCloseReceipt(comment.body);
-    });
+    return close.actor === completion.closer && comment.author === completion.closer;
   }
 
   /** Bodies included — the read half of {@link postComment}. Paginated: receipts are often the last comment. */
@@ -937,7 +931,25 @@ class GitHubGraphStore implements GraphStore {
 
   /** Receipt first, then the state change: a close that fails halfway leaves the evidence, not a bare closed issue. */
   async close(ref: NodeRef, receipt: CloseReceipt): Promise<void> {
-    await this.postComment(ref, renderCloseReceipt(receipt));
+    const issue = await this.fetchIssue(ref);
+    const decoded = nodeFromIssue(issue);
+    const posted = await this.postComment(ref, renderCloseReceipt(receipt));
+    const comment = await this.readComment(posted);
+    if (comment.author === undefined || comment.author.length === 0) {
+      throw new WorkGraphError("backend", "posted close receipt has no authenticated author");
+    }
+    const node = decoded.node;
+    const completion = {
+      receiptCommentId: comment.id,
+      checkpointId: receipt.checkpointId,
+      autonomy: receipt.autonomy ?? node.autonomy,
+      closer: comment.author,
+      closedAt: receipt.at,
+      ...(node.autonomy === "auto" ? { autoProbeKeys: (node.probes ?? []).map((probe) => JSON.stringify(probe)).sort() } : {}),
+    };
+    const body = [decoded.text, encodeNodeBlock({ ...node, title: issue.title, completion })]
+      .filter((part) => part.length > 0).join("\n\n");
+    await this.writeRawBody(ref, body);
     await this.transport({
       method: "PATCH",
       path: `repos/${this.repo}/issues/${ref.id}`,

@@ -82,10 +82,23 @@ export type ProbeResult =
       cwd?: string;
     };
 
+/** Receipt binding persisted by a backend after the gated close write. */
+export interface NodeCompletionBinding {
+  receiptCommentId: string;
+  checkpointId: string;
+  autonomy: WorkGraphAutonomy;
+  closer: string;
+  closedAt: string;
+  /** Canonical declared probe keys, recorded only for auto nodes. */
+  autoProbeKeys?: readonly string[];
+}
+
 export interface WorkGraphNodeBase {
   /** Backend-native identity (GitHub: issue number), assigned by the store — never caller-supplied. */
   id: string;
   title: string;
+  /** Backend-persisted close binding; absent until a gated close completes. */
+  completion?: NodeCompletionBinding;
   /**
    * Free-form doctrine tag (e.g. research, grilling). The runtime never
    * interprets its MEANING but normalizes its FORM at the store boundary:
@@ -778,6 +791,21 @@ export function parseNodeSpec(input: unknown): CreateNodeSpec {
     : requireString(asRecord(record.parent, "invalid-node", "node spec: parent"), "id", "invalid-node", "node spec: parent");
   const probes = parseProbes(record.probes);
   const labels = parseLabels(record.labels);
+  const completion = record.completion === undefined ? undefined : (() => {
+    const value = asRecord(record.completion, "invalid-node", "node completion");
+    const autoProbeKeys = value.autoProbeKeys === undefined ? undefined : value.autoProbeKeys;
+    if (autoProbeKeys !== undefined && (!Array.isArray(autoProbeKeys) || autoProbeKeys.some((key) => typeof key !== "string"))) {
+      throw new WorkGraphError("invalid-node", "node completion autoProbeKeys must be strings");
+    }
+    return {
+      receiptCommentId: requireString(value, "receiptCommentId", "invalid-node", "node completion"),
+      checkpointId: requireString(value, "checkpointId", "invalid-node", "node completion"),
+      autonomy: parseAutonomy(value.autonomy),
+      closer: requireString(value, "closer", "invalid-node", "node completion"),
+      closedAt: requireString(value, "closedAt", "invalid-node", "node completion"),
+      ...(autoProbeKeys === undefined ? {} : { autoProbeKeys }),
+    };
+  })();
 
   const base = {
     title,
@@ -787,6 +815,7 @@ export function parseNodeSpec(input: unknown): CreateNodeSpec {
     ...(body === undefined ? {} : { body }),
     ...(parentId === undefined ? {} : { parent: { id: parentId } }),
     ...(labels.length === 0 ? {} : { labels }),
+    ...(completion === undefined ? {} : { completion }),
   };
 
   if (autonomy === "auto") {

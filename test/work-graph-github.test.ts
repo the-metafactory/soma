@@ -832,7 +832,9 @@ test("reaction authors come from the API author field, never from body text", as
 
 test("close posts the receipt before flipping the state", async () => {
   const { transport, calls } = fakeTransport({
+    [`GET repos/${REPO}/issues/497`]: issuePayload({ body: typedBody({ autonomy: "auto", checkpointId: "cp-497", probes: [PROBE] }) }),
     [`POST repos/${REPO}/issues/497/comments`]: { id: 42, user: { login: "ivy-agent" } },
+    [`GET repos/${REPO}/issues/comments/42`]: { id: 42, user: { login: "ivy-agent" } },
     [`PATCH repos/${REPO}/issues/497`]: issuePayload({ state: "closed" }),
   });
 
@@ -849,11 +851,15 @@ test("close posts the receipt before flipping the state", async () => {
   );
 
   expect(calls.map((call) => call.key)).toEqual([
+    `GET repos/${REPO}/issues/497`,
     `POST repos/${REPO}/issues/497/comments`,
+    `GET repos/${REPO}/issues/comments/42`,
+    `PATCH repos/${REPO}/issues/497`,
     `PATCH repos/${REPO}/issues/497`,
   ]);
-  expect((calls[0]?.body as { body: string }).body).toContain("cp-497");
-  expect((calls[1]?.body as { state: string }).state).toBe("closed");
+  expect((calls[1]?.body as { body: string }).body).toContain("cp-497");
+  expect((calls[3]?.body as { body: string }).body).toContain("receiptCommentId");
+  expect((calls[4]?.body as { state: string }).state).toBe("closed");
 });
 
 // --- construction -----------------------------------------------------------
@@ -880,28 +886,21 @@ test("readNode ignores a receipt from before reopen and current reclose", async 
   expect(state.currentCloseReceipt).toBe(false);
 });
 
-function receiptBody(checkpointId: string, autonomy: "auto" | "propose" | "approve" = "approve"): string {
-  return ["## Close receipt", "", `- **checkpoint:** \`${checkpointId}\``, "- **closed by:** ivy", `- **autonomy:** \`${autonomy}\``, "- **at:** 2026-01-03T00:00:00.000Z", "- **attestation:** \`unverified\`", "", "### Evidence", ...(autonomy === "auto" ? ["", "- \`probed\` — test passed"] : [])].join("\n");
-}
+type CompletionFixture = { receiptCommentId: string; checkpointId: string; autonomy: "approve"; closer: string; closedAt: string };
 
-async function currentCloseReceipt(comment: { body: string; author: string }): Promise<boolean | undefined> {
+async function currentCloseReceipt(completion?: CompletionFixture): Promise<boolean | undefined> {
   const { transport } = fakeTransport({
-    [`GET repos/${REPO}/issues/497`]: issuePayload({ state: "closed", body: typedBody({ autonomy: "approve", checkpointId: "cp-497" }) }),
+    [`GET repos/${REPO}/issues/497`]: issuePayload({ state: "closed", body: typedBody({ autonomy: "approve", checkpointId: "cp-497", ...(completion === undefined ? {} : { completion }) }) }),
     [`GET repos/${REPO}/issues/497/dependencies/blocked_by`]: [],
-    [`GET repos/${REPO}/issues/497/comments`]: [{ id: 1, body: comment.body, created_at: "2026-01-03T00:00:00.000Z", user: { login: comment.author } }],
-    [`GET repos/${REPO}/issues/497/events`]: [{ event: "closed", created_at: "2026-01-03T00:01:00.000Z", actor: { login: "ivy" } }],
+    [`GET repos/${REPO}/issues/comments/42`]: { id: 42, user: { login: "ivy" } },
+    [`GET repos/${REPO}/issues/497/events`]: [{ event: "closed", created_at: "2026-01-03T00:00:00.000Z", actor: { login: "ivy" } }],
   });
   return (await createGitHubGraphStore({ repo: REPO, transport }).readNode({ id: "497" })).currentCloseReceipt;
 }
 
-test("readNode rejects a current-close receipt forged by another author", async () => {
-  expect(await currentCloseReceipt({ body: receiptBody("cp-497"), author: "mallory" })).toBe(false);
-});
+const validCompletion: CompletionFixture = { receiptCommentId: "42", checkpointId: "cp-497", autonomy: "approve", closer: "ivy", closedAt: "2026-01-03T00:00:00.000Z" };
 
-test("readNode rejects a current-close receipt for another checkpoint", async () => {
-  expect(await currentCloseReceipt({ body: receiptBody("cp-other"), author: "ivy" })).toBe(false);
-});
-
-test("readNode accepts a valid propose receipt from the current close actor", async () => {
-  expect(await currentCloseReceipt({ body: receiptBody("cp-497", "propose"), author: "ivy" })).toBe(true);
-});
+test("readNode rejects a missing completion binding", async () => { expect(await currentCloseReceipt()).toBe(false); });
+test("readNode rejects a stale completion binding", async () => { expect(await currentCloseReceipt({ ...validCompletion, checkpointId: "cp-stale" })).toBe(false); });
+test("readNode rejects a forged completion binding", async () => { expect(await currentCloseReceipt({ ...validCompletion, autonomy: "approve", closer: "mallory" })).toBe(false); });
+test("readNode accepts a valid persisted completion binding", async () => { expect(await currentCloseReceipt(validCompletion)).toBe(true); });
