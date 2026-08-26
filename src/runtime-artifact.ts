@@ -32,9 +32,23 @@ export function runtimeArtifactActivePath(somaHome: string, substrate: GuardedRu
   return join(runtimeArtifactRoot(somaHome), substrate, "current");
 }
 
+async function assertArtifactTargetRoot(path: string): Promise<boolean> {
+  try {
+    const info = await lstat(path);
+    if (info.isSymbolicLink() || !info.isDirectory()) {
+      throw new Error(`runtime artifact target must be a non-symlink directory: ${path}`);
+    }
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
+
 async function activateRuntimeArtifact(somaHome: string, substrate: GuardedRuntimeSubstrate, hash: string): Promise<void> {
   const lifecycleRoot = dirname(runtimeArtifactActivePath(somaHome, substrate));
   const target = join(runtimeArtifactStoreRoot(somaHome), hash);
+  if (!(await assertArtifactTargetRoot(target))) throw new Error(`runtime artifact target is missing: ${target}`);
   await stat(join(target, "src", "cli.ts"));
   await mkdir(lifecycleRoot, { recursive: true });
   const pending = join(lifecycleRoot, ".current-next");
@@ -180,11 +194,11 @@ export async function stageRuntimeArtifact(input: { somaHome: string; substrate:
   // Only installation mutates the shared artifact store. Hooks never hash it.
   await chmod(store, 0o755);
   try {
-    const existingHash = await sourceHash(target).catch(() => undefined);
+    const targetExists = await assertArtifactTargetRoot(target);
+    const existingHash = targetExists ? await sourceHash(target).catch(() => undefined) : undefined;
     if (existingHash !== hash) {
       const staging = join(store, ".staging-" + hash);
       const displaced = join(store, ".replaced-" + hash);
-      const targetExists = await stat(target).then(() => true).catch(() => false);
       await rm(staging, { recursive: true, force: true });
       await rm(displaced, { recursive: true, force: true });
       await mkdir(staging, { recursive: true });
