@@ -461,7 +461,7 @@ function readComment(value: unknown, context: string): GitHubComment {
 }
 
 /** The typed half of a node, as stored in the issue body. Title lives in the issue title; parent is a native edge. */
-export function encodeNodeBlock(spec: CreateNodeSpec): string {
+export function encodeNodeBlock(spec: CreateNodeSpec & { completion?: WorkGraphNode["completion"] }): string {
   const payload: Record<string, unknown> = { autonomy: spec.autonomy };
   if (spec.kind !== undefined) payload.kind = spec.kind;
   if (spec.checkpointId !== undefined) payload.checkpointId = spec.checkpointId;
@@ -506,8 +506,22 @@ function nodeFromIssue(issue: GitHubIssue): { node: WorkGraphNode; typed: boolea
   }
   try {
     const block = asRecord(JSON.parse(decoded.raw) as unknown, "node block");
+    const rawCompletion = block.completion;
+    delete block.completion;
     const spec = parseNodeSpec({ ...block, title: issue.title });
-    return { node: toNode(String(issue.number), spec), typed: true, text: decoded.text };
+    const node = toNode(String(issue.number), spec);
+    if (rawCompletion === undefined) return { node, typed: true, text: decoded.text };
+    const completion = asRecord(rawCompletion, "node completion");
+    const fields = ["receiptCommentId", "checkpointId", "closer", "closedAt"] as const;
+    if (fields.some((field) => typeof completion[field] !== "string")
+      || !["auto", "propose", "approve"].includes(String(completion.autonomy))) {
+      throw new WorkGraphError("invalid-node", "invalid persisted completion binding");
+    }
+    const autoProbeKeys = completion.autoProbeKeys;
+    if (autoProbeKeys !== undefined && (!Array.isArray(autoProbeKeys) || autoProbeKeys.some((key) => typeof key !== "string"))) {
+      throw new WorkGraphError("invalid-node", "invalid persisted completion probe keys");
+    }
+    return { node: { ...node, completion: { receiptCommentId: completion.receiptCommentId as string, checkpointId: completion.checkpointId as string, autonomy: completion.autonomy as WorkGraphNode["autonomy"], closer: completion.closer as string, closedAt: completion.closedAt as string, ...(autoProbeKeys === undefined ? {} : { autoProbeKeys: autoProbeKeys as string[] }) } }, typed: true, text: decoded.text };
   } catch (error) {
     // Visible state, never a silent downgrade: the node falls back to the
     // most-gated class AND says why.
@@ -879,10 +893,12 @@ class GitHubGraphStore implements GraphStore {
     const node = nodeFromIssue(issue).node;
     if (completion.checkpointId !== node.checkpointId || completion.autonomy !== node.autonomy) return false;
     if (node.autonomy === "auto" && JSON.stringify(completion.autoProbeKeys ?? []) !== JSON.stringify((node.probes ?? []).map((probe) => JSON.stringify(probe)).sort())) return false;
-    const [comment, events] = await Promise.all([
-      this.readComment({ id: completion.receiptCommentId, nodeId: ref.id }),
+    const [comments, events] = await Promise.all([
+      this.listComments(ref),
       this.transport({ method: "GET", path: `repos/${this.repo}/issues/${ref.id}/events`, paginate: true }),
     ]);
+    const comment = comments.find((entry) => entry.id === completion.receiptCommentId);
+    if (comment === undefined || comment.author !== completion.closer || !isStructurallyValidCloseReceipt(comment.body)) return false;
     const timeline = asArray(events, "issue events").flatMap((entry) => {
       const record = asRecord(entry, "issue event");
       const at = typeof record.created_at === "string" ? Date.parse(record.created_at) : NaN;
@@ -892,7 +908,15 @@ class GitHubGraphStore implements GraphStore {
     }).sort((left, right) => left.at - right.at);
     const close = [...timeline].reverse().find((entry) => entry.event === "closed");
     if (close === undefined || close.actor === undefined) return false;
-    return close.actor === completion.closer && comment.author === completion.closer;
+    const reopened = [...timeline].reverse().find((entry) => entry.event === "reopened" && entry.at < close.at);
+    const commentAt = comment.createdAt === undefined ? NaN : Date.parse(comment.createdAt);
+    const boundAt = Date.parse(completion.closedAt);
+    const checkpoint = /^- \*\*checkpoint:\*\* `([^`\n]+)`$/mu.exec(comment.body)?.[1];
+    const autonomy = /^- \*\*autonomy:\*\* `([^`\n]+)`$/mu.exec(comment.body)?.[1];
+    return close.actor === completion.closer
+      && Number.isFinite(commentAt) && Number.isFinite(boundAt)
+      && commentAt === boundAt && commentAt <= close.at && (reopened === undefined || commentAt > reopened.at)
+      && checkpoint === completion.checkpointId && autonomy === completion.autonomy;
   }
 
   /** Bodies included — the read half of {@link postComment}. Paginated: receipts are often the last comment. */

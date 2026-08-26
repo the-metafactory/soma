@@ -155,7 +155,7 @@ export interface NodeRef {
  *   what a verb decides. That is what keeps a second input from becoming a
  *   second authority. A backend with no index concept ignores them.
  */
-export type CreateNodeSpec = DistributiveOmit<WorkGraphNode, "id"> & {
+export type CreateNodeSpec = DistributiveOmit<WorkGraphNode, "id" | "completion"> & {
   body?: string;
   parent?: NodeRef;
   labels?: readonly string[];
@@ -776,6 +776,9 @@ function parseLabels(value: unknown): string[] {
  */
 export function parseNodeSpec(input: unknown): CreateNodeSpec {
   const record = asRecord(input, "invalid-node", "node spec");
+  if ("completion" in record) {
+    throw new WorkGraphError("invalid-node", "completion is backend-owned and cannot be supplied at creation");
+  }
   if ("id" in record && record.id !== undefined) {
     throw new WorkGraphError("invalid-node", `"id" is assigned by the store — never caller-supplied`);
   }
