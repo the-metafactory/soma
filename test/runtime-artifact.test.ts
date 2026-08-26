@@ -24,6 +24,15 @@ async function fixture(): Promise<{ root: string; source: string; home: string }
   await writeFile(join(source, "package.json"), "{}\n");
   return { root, source, home };
 }
+test("refuses a symlinked runtime src root before hashing or staging", async () => {
+  const { root, source, home } = await fixture();
+  const outside = join(root, "outside-src");
+  await mkdir(outside);
+  await rm(join(source, "src"), { recursive: true });
+  await symlink(outside, join(source, "src"));
+  await expect(stageRuntimeArtifact({ somaHome: home, substrate: "codex", sourceRoot: source })).rejects.toThrow(/src must be a non-symlink directory/);
+});
+
 test("refuses a symlink in the runtime source tree before hashing or staging", async () => {
   const { root, source, home } = await fixture();
   const outside = join(root, "outside.ts");

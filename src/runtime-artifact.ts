@@ -99,6 +99,11 @@ async function sealArtifact(root: string): Promise<void> {
 
 /** Refuse links and special files before hashing or copying an enforcement runtime. */
 async function assertRuntimeSourceTree(sourceRoot: string): Promise<void> {
+  const srcPath = join(sourceRoot, "src");
+  const srcStat = await lstat(srcPath);
+  if (srcStat.isSymbolicLink() || !srcStat.isDirectory()) {
+    throw new Error("runtime artifact source src must be a non-symlink directory");
+  }
   const packagePath = join(sourceRoot, "package.json");
   const packageStat = await lstat(packagePath);
   if (packageStat.isSymbolicLink() || !packageStat.isFile()) {
