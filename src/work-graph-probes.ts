@@ -284,9 +284,11 @@ function describeCommand(
       : `timed out after ${timeoutSec}s (killed)`;
   }
   const limit = passed ? OBSERVED_PASS_TAIL_LIMIT : OBSERVED_TAIL_LIMIT;
-  // Redact before bounding: a tail cut inside a home path would otherwise sever
-  // its prefix and make the later publication chokepoint unable to recognise it.
-  const tail = boundObserved(redactHome([outcome.stdout, outcome.stderr].filter((part) => part.trim().length > 0).join("\n")), limit);
+  // Sanitize before bounding: a tail cut inside a home path would otherwise sever
+  // its prefix and make the result-construction boundary unable to recognise it.
+  // `publishObserved` is idempotent, so `probed` applies the same boundary again
+  // when it constructs the result.
+  const tail = boundObserved(publishObserved([outcome.stdout, outcome.stderr].filter((part) => part.trim().length > 0).join("\n")), limit);
   return tail.length === 0 ? `exit ${outcome.exitCode}` : `exit ${outcome.exitCode}: ${tail}`;
 }
 
