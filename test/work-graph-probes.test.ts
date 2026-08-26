@@ -985,3 +985,64 @@ test("redaction runs before the tail bound, or a cut inside the home path defeat
     else process.env.HOME = previousHome;
   }
 });
+
+// --- published observation redaction (#666) ----------------------------------
+
+test("a real command subprocess cannot publish its home path in observed output", async () => {
+  const home = process.env.HOME;
+  if (home === undefined || home.length === 0) throw new Error("test requires HOME");
+  const cwd = process.cwd();
+  const run = "ls \"$HOME/.tmp-nonexistent-dir\"";
+
+  // Use the production command seam rather than a synthetic outcome: shell
+  // stderr is the data source that reaches a real close receipt.
+  const result = requireProbed(
+    await runProbe(
+      { type: "command", run, timeoutSec: 10, expectExit: 0 },
+      { cwd, registry: registry([{ run, cwd }]), deps: { now: () => AT } },
+    ),
+  );
+  expect(result.outcome).toBe("fail");
+  expect(result.observed).toContain("~/.tmp-nonexistent-dir");
+  expect(result.observed).not.toContain(home);
+});
+
+test("a real command redacts before its output tail can split a home path", async () => {
+  const home = process.env.HOME;
+  if (home === undefined || home.length === 0) throw new Error("test requires HOME");
+  const cwd = process.cwd();
+  // The output is 1,255 bytes: its 1,200-byte failure tail starts five bytes
+  // into the home path. A post-bound-only sanitizer cannot recognise that tail.
+  const run = "p=\"$HOME/.tmp-nonexistent-dir\"; printf '%050d%s' 0 \"$p\"; yes y | head -c $((1205 - ${#p})); false";
+  const result = requireProbed(
+    await runProbe(
+      { type: "command", run, timeoutSec: 10, expectExit: 0 },
+      { cwd, registry: registry([{ run, cwd }]), deps: { now: () => AT } },
+    ),
+  );
+  expect(result.outcome).toBe("fail");
+  expect(result.observed).toContain("~/.tmp-nonexistent-dir");
+  expect(result.observed).not.toContain(home);
+});
+
+test("the observation chokepoint redacts registry paths in refusal messages", async () => {
+  const home = process.env.HOME;
+  if (home === undefined || home.length === 0) throw new Error("test requires HOME");
+  const path = `${home}/.soma/policy/probe-registry.json`;
+  const registries: ProbeRegistry[] = [
+    { status: "absent", repo: REPO, path },
+    { status: "invalid", repo: REPO, path, reason: "is not valid JSON" },
+  ];
+
+  for (const registry of registries) {
+    const result = requireProbed(
+      await runProbe(
+        { type: "command", run: "bun test", timeoutSec: 10, expectExit: 0 },
+        { cwd: "/repo", registry, deps: { now: () => AT } },
+      ),
+    );
+    expect(result.outcome).toBe("fail");
+    expect(result.observed).toContain("~/.soma/policy/probe-registry.json");
+    expect(result.observed).not.toContain(home);
+  }
+});

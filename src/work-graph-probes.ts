@@ -245,6 +245,11 @@ function resolveDeps(options: ProbeRunnerOptions): ProbeRunnerDeps {
   };
 }
 
+/** The sole publication boundary for probe observations: close receipts use this value verbatim. */
+function publishObserved(observed: string): string {
+  return redactHome(observed);
+}
+
 function probed(
   probe: Probe,
   outcome: "pass" | "fail",
@@ -252,7 +257,7 @@ function probed(
   at: string,
   cwd?: string,
 ): ProbeResult {
-  return { probe, state: "probed", outcome, observed, at, ...(cwd === undefined ? {} : { cwd }) };
+  return { probe, state: "probed", outcome, observed: publishObserved(observed), at, ...(cwd === undefined ? {} : { cwd }) };
 }
 
 /**
@@ -279,7 +284,11 @@ function describeCommand(
       : `timed out after ${timeoutSec}s (killed)`;
   }
   const limit = passed ? OBSERVED_PASS_TAIL_LIMIT : OBSERVED_TAIL_LIMIT;
-  const tail = boundObserved([outcome.stdout, outcome.stderr].filter((part) => part.trim().length > 0).join("\n"), limit);
+  // Sanitize before bounding: a tail cut inside a home path would otherwise sever
+  // its prefix and make the result-construction boundary unable to recognise it.
+  // `publishObserved` is idempotent, so `probed` applies the same boundary again
+  // when it constructs the result.
+  const tail = boundObserved(publishObserved([outcome.stdout, outcome.stderr].filter((part) => part.trim().length > 0).join("\n")), limit);
   return tail.length === 0 ? `exit ${outcome.exitCode}` : `exit ${outcome.exitCode}: ${tail}`;
 }
 
@@ -611,7 +620,10 @@ export async function runProbe(probe: Probe, options: ProbeRunnerOptions): Promi
   // Every result carries the same probe, timestamp, and directory; only the
   // outcome and the observation differ. Binding them once keeps a branch from
   // quietly omitting one — which is how `cwd` would go missing on the path that
-  // needs it most.
+  // needs it most. `probed` is the sole publication chokepoint, so every
+  // result constructor redacts before its observation can reach a close receipt.
+  // `describeCommand` redacts earlier too, before its tail bound can split a
+  // home path and make it unrecognisable at that boundary.
   const finish = (outcome: "pass" | "fail", observed: string): ProbeResult =>
     probed(probe, outcome, observed, at, ranIn);
 
