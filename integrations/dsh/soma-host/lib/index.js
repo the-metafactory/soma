@@ -6,7 +6,7 @@
 //   1. an always-on Soma prompt section (identity / purpose / policy),
 //   2. lifecycle writeback to ~/.soma (session-start / session-end),
 //   3. a runtime digest skill,
-//   4. a `soma_memory` tool that shells out to the `soma` CLI.
+//   4. narrow host tools for Soma memory, Algorithm, and work-graph commands.
 //
 // Status: smoke-tested against the DSH checkout's own cordis (apply registers
 // the section/skill/tool; scoped emitAgentEvent dispatch fires both lifecycle
@@ -17,6 +17,9 @@
 // shell interpolation) rather than re-implementing Soma logic — Soma stays the
 // single source of truth.
 
+import { randomUUID } from "node:crypto";
+import { realpath, rm, writeFile } from "node:fs/promises";
+import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 
 const SOMA_SUBSTRATE = "dsh";
@@ -104,7 +107,11 @@ export function apply(ctx, config = {}) {
     });
   });
 
-  // ── 4. soma CLI tools ─────────────────────────────────────────────────────
+  // ── 4. Soma CLI tools ─────────────────────────────────────────────────────
+  // These run through the host's local subprocess provider, rather than the
+  // model-facing workspace sandbox. Keep the exposed verbs narrow: they may
+  // mutate the Soma home or the work graph, but cannot become an arbitrary
+  // host-shell or arbitrary-path capability.
   ctx.tools.register(
     defineTool({
       name: "soma_memory",
@@ -112,19 +119,164 @@ export function apply(ctx, config = {}) {
       parameters: {
         query: { type: "string", required: true, description: "Topic to recall from Soma memory." },
       },
-      output: {
-        schema: { type: "string" },
-        render: (_args, value) => [{ type: "text", text: value }],
-      },
+      output: textOutput(),
       async execute(args, exec) {
-        const { stdout } = await runSoma(ctx, somaPath, ["memory", "recall", "--query", args.query], cwdOf(exec));
-        return stdout;
+        return await runSomaChecked(ctx, somaPath, ["memory", "recall", "--query", args.query], cwdOf(exec));
+      },
+    }),
+  );
+
+  ctx.tools.register(
+    defineTool({
+      name: "soma_algorithm",
+      description:
+        "Read or update a durable Soma Algorithm run. This host tool writes through to the Soma home outside the workspace sandbox; use it instead of bash for `soma algorithm`.",
+      parameters: {
+        action: { type: "string", required: true, enum: ALGORITHM_ACTIONS, description: "The supported `soma algorithm` verb." },
+        arguments: { type: "array", required: true, items: { type: "string" }, description: "CLI arguments for the selected verb only, without `algorithm` or the action." },
+      },
+      output: textOutput(),
+      async execute(args, exec) {
+        const argv = algorithmArgv(args.action, args.arguments);
+        return await runSomaChecked(ctx, somaPath, argv, cwdOf(exec));
+      },
+    }),
+  );
+
+  ctx.tools.register(
+    defineTool({
+      name: "soma_graph",
+      description:
+        "Read or perform bounded work-graph operations through Soma. Use it instead of bash for graph frontier, claim, release, add, close, audit, or decisions. For close, provide resolution text or a workspace-relative resolutionFile; declared probes execute through the existing graph close gate.",
+      parameters: {
+        action: { type: "string", required: true, enum: GRAPH_ACTIONS, description: "The supported `soma graph` verb." },
+        arguments: { type: "array", required: true, items: { type: "string" }, description: "CLI arguments for the selected verb only, without `graph` or the action." },
+        resolution: { type: "string", description: "Close-resolution prose. The host writes it to a temporary file inside the current workspace, passes that file to the CLI, then removes it." },
+        resolutionFile: { type: "string", description: "Existing resolution prose file relative to the current workspace. Absolute paths, traversal, and symlink escapes are refused." },
+      },
+      output: textOutput(),
+      async execute(args, exec) {
+        const cwd = cwdOf(exec);
+        const prepared = await graphArgv(args, cwd);
+        try {
+          return await runSomaChecked(ctx, somaPath, prepared.argv, cwd);
+        } finally {
+          await prepared.dispose();
+        }
       },
     }),
   );
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────
+
+const ALGORITHM_ACTIONS = [
+  "new", "classify", "list", "show", "capabilities", "invoke", "remove-capability",
+  "plan", "observe", "decision", "change", "ref", "resolve", "step", "verify",
+  "learn", "reflect", "reflections", "batch", "advance", "resume",
+];
+const ALGORITHM_SUBSTRATE_ACTIONS = new Set([
+  "new", "capabilities", "invoke", "observe", "verify", "learn", "reflect", "batch", "advance", "resume",
+]);
+const GRAPH_ACTIONS = ["frontier", "node", "claim", "release", "add", "close", "audit", "decisions"];
+const FORBIDDEN_ARGUMENTS = new Set(["--home-dir", "--soma-home", "--isa", "--body-file", "--resolution-file"]);
+const TEMP_RESOLUTION_PREFIX = ".soma-graph-resolution-";
+
+function textOutput() {
+  return {
+    schema: { type: "string" },
+    render: (_args, value) => [{ type: "text", text: value }],
+  };
+}
+
+function validateArguments(action, args, forbidden = FORBIDDEN_ARGUMENTS) {
+  if (!Array.isArray(args) || !args.every((arg) => typeof arg === "string" && !arg.includes("\0"))) {
+    throw new Error(`${action}: arguments must be strings without NUL bytes.`);
+  }
+  for (const arg of args) {
+    if (forbidden.has(arg)) throw new Error(`${action}: ${arg} is not available through this host tool.`);
+  }
+}
+
+function algorithmArgv(action, args) {
+  validateArguments(`soma_algorithm ${action}`, args);
+  if (args.includes("--substrate")) {
+    throw new Error("soma_algorithm: --substrate is managed by the DSH host and must not be supplied.");
+  }
+  return ["algorithm", action, ...args, ...(ALGORITHM_SUBSTRATE_ACTIONS.has(action) ? ["--substrate", SOMA_SUBSTRATE] : [])];
+}
+
+async function graphArgv(input, cwd) {
+  const { action, arguments: args, resolution, resolutionFile } = input;
+  validateArguments(`soma_graph ${action}`, args);
+  if (action !== "close" && (resolution !== undefined || resolutionFile !== undefined)) {
+    throw new Error(`soma_graph ${action}: resolution inputs are available only for close.`);
+  }
+  if (resolution !== undefined && resolutionFile !== undefined) {
+    throw new Error("soma_graph close: supply either resolution or resolutionFile, not both.");
+  }
+  if (resolution !== undefined && (typeof resolution !== "string" || resolution.trim().length === 0)) {
+    throw new Error("soma_graph close: resolution must be non-empty prose.");
+  }
+  if (resolutionFile !== undefined && typeof resolutionFile !== "string") {
+    throw new Error("soma_graph close: resolutionFile must be a workspace-relative path.");
+  }
+
+  if (action !== "close") return { argv: ["graph", action, ...args], dispose: async () => {} };
+  if (args.includes("--propose") && (resolution !== undefined || resolutionFile !== undefined)) {
+    throw new Error("soma_graph close: resolution inputs cannot be combined with --propose; its body is the resolution.");
+  }
+
+  if (resolutionFile !== undefined) {
+    const path = await resolveWorkspaceFile(cwd, resolutionFile);
+    return { argv: ["graph", action, ...args, "--resolution-file", path], dispose: async () => {} };
+  }
+  if (resolution !== undefined) {
+    const path = await writeTemporaryResolution(cwd, resolution);
+    return {
+      argv: ["graph", action, ...args, "--resolution-file", path],
+      dispose: async () => { await rm(path, { force: true }); },
+    };
+  }
+  return { argv: ["graph", action, ...args], dispose: async () => {} };
+}
+
+async function resolveWorkspaceFile(cwd, file) {
+  if (file.trim().length === 0 || isAbsolute(file)) {
+    throw new Error("soma_graph close: resolutionFile must be a non-empty path relative to the current workspace.");
+  }
+  const workspace = await realpath(cwd);
+  const candidate = resolve(workspace, file);
+  if (!isWithin(workspace, candidate)) {
+    throw new Error("soma_graph close: resolutionFile must remain inside the current workspace.");
+  }
+  let resolved;
+  try {
+    resolved = await realpath(candidate);
+  } catch (error) {
+    throw new Error(`soma_graph close: resolutionFile could not be resolved: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (!isWithin(workspace, resolved)) {
+    throw new Error("soma_graph close: resolutionFile resolves outside the current workspace.");
+  }
+  return resolved;
+}
+
+function isWithin(workspace, candidate) {
+  const path = relative(workspace, candidate);
+  return path === "" || (!path.startsWith("..") && !isAbsolute(path));
+}
+
+async function writeTemporaryResolution(cwd, resolution) {
+  const workspace = await realpath(cwd);
+  const file = resolve(workspace, `${TEMP_RESOLUTION_PREFIX}${randomUUID()}.md`);
+  // The generated basename is fixed here; reject any unexpected path before write.
+  if (dirname(file) !== workspace || !basename(file).startsWith(TEMP_RESOLUTION_PREFIX)) {
+    throw new Error("soma_graph close: could not prepare the workspace resolution file.");
+  }
+  await writeFile(file, resolution, { encoding: "utf8", flag: "wx", mode: 0o600 });
+  return file;
+}
 
 function renderSomaEntry() {
   // Compact static fallback. The projected `~/.dsh/AGENTS.md` and
@@ -184,13 +336,24 @@ async function ensureDigestTable(ctx) {
 
 /**
  * Run the soma CLI best-effort. Uses ctx.subprocess (raw argv, no shell) and
- * returns `{ exitCode, stdout }`; never throws for a non-zero exit.
+ * returns `{ exitCode, stdout, stderr }`; never throws for a non-zero exit.
  */
+async function runSomaChecked(ctx, somaPath, args, cwd) {
+  const outcome = await runSoma(ctx, somaPath, args, cwd);
+  if (outcome.exitCode !== 0) {
+    const stderr = outcome.stderr.trim();
+    throw new Error(
+      `Soma command failed (${outcome.exitCode ?? "could not start"}): ${[somaPath, ...args].join(" ")}${stderr ? `\n${stderr}` : ""}`,
+    );
+  }
+  return outcome.stdout;
+}
+
 async function runSoma(ctx, somaPath, args, cwd) {
   const subprocess = ctx.subprocess;
   if (!subprocess) {
     console.warn("[soma-host] no subprocess provider mounted; skipping", args.join(" "));
-    return { exitCode: null, stdout: "" };
+    return { exitCode: null, stdout: "", stderr: "" };
   }
   const handle = subprocess.spawn({
     argv: [somaPath, ...args],
@@ -201,13 +364,13 @@ async function runSoma(ctx, somaPath, args, cwd) {
   try {
     const outcome = await handle.done;
     const stdout = handle.collected?.stdout?.readFrom?.(0)?.text ?? "";
+    const stderr = handle.collected?.stderr?.readFrom?.(0)?.text ?? "";
     if (outcome.exitCode !== 0) {
-      const stderr = handle.collected?.stderr?.readFrom?.(0)?.text ?? "";
       console.warn("[soma-host]", [somaPath, ...args].join(" "), "exited", outcome.exitCode, stderr.slice(0, 400));
     }
-    return { exitCode: outcome.exitCode, stdout };
+    return { exitCode: outcome.exitCode, stdout, stderr };
   } catch (error) {
     console.warn("[soma-host] spawn failed for", [somaPath, ...args].join(" "), error);
-    return { exitCode: null, stdout: "" };
+    return { exitCode: null, stdout: "", stderr: "" };
   }
 }

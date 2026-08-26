@@ -6,8 +6,9 @@ it from the running soma package, wires the profile dependency, and patches the
 composition row. Verification state — **known to work live:** plugin apply in
 a booted `dsh web` server, session-start writeback (runtime skill visible in
 the session catalog; `lifecycle.session_start` events in the Soma event log).
-**Not yet observed live:** session-end writeback and the `soma_memory` tool —
-both are exercised only by the checked-in cordis smoke harness
+**Not yet observed live:** session-end writeback and host CLI tool execution —
+the `soma_memory`, `soma_algorithm`, and `soma_graph` registrations are
+exercised by the checked-in Cordis smoke harness
 (`integrations/dsh/soma-host/tools/cordis-smoke.mts`). The client-side
 `soma-dsh-hide-tools` remains a hand-installed prototype.
 
@@ -56,7 +57,7 @@ only visible surface.
 | Feedback | durable `feedback/record{text}`; `ctx.messageFeedback` sidecar | `soma feedback capture` |
 | Goals | durable `goal/change`; `ctx.goals` verbs | Soma Algorithm runs / active VSA |
 | Persistence | `ctx.storageDomain` domain/table KV store under `~/.dsh/storages` | Soma idempotency/state for the plugin |
-| External process | `ctx.subprocess.spawn` / `ctx.shell.run` (providers: `dsh-subprocess-local`, `dsh-bash-local`) | invoke the `soma` CLI |
+| External process | `ctx.subprocess.spawn` / `ctx.shell.run` (providers: `dsh-subprocess-local`, `dsh-bash-local`) | invoke the `soma` CLI; host tools can write the Soma home outside the model-facing workspace sandbox |
 | Model-facing tool presentation | `ctx.tools.presentAs('native'|'code'|'both')` | **model**-facing only |
 | Browser tool-card rendering | `dsh-client-ui-tool` registers the `tool-call` chat node; `dsh-client-ui-trajectory` is the audit tab | **UI**-facing: hide via a client plugin |
 
@@ -340,12 +341,19 @@ surface (against `@deepseek-ai/dsh*` 0.1.0-rc.8):
    - **Goals** = durable `goal/change` + `ctx.goals` verbs → mirror active
      Soma Algorithm runs / VSAs (optional, later).
 
-3. **Memory** — register the Soma memory route as a runtime skill via
-   `ctx.skills.register({ name, description, whenToUse, content })`
-   (`dsh-skill`), and/or project the CLI-facing tools.
-   `ctx.subprocess.spawn({ argv, cwd, stdio, graceMs })` / `ctx.shell.run`
-   invoke the `soma` CLI for `soma memory …`, `soma graph …`,
-   `soma algorithm …`, `soma vsa …`.
+3. **Memory and durable verbs** — register the Soma memory route as a runtime
+   skill via `ctx.skills.register({ name, description, whenToUse, content })`
+   (`dsh-skill`), and expose narrow host tools for mutable Soma CLI surfaces.
+   `soma_algorithm` invokes supported Algorithm verbs through
+   `ctx.subprocess.spawn({ argv, cwd, stdio, graceMs })` and forces
+   `--substrate dsh`, so it can persist under `~/.soma` without the
+   model-facing workspace sandbox. `soma_graph` likewise exposes bounded graph
+   verbs, including `close` and `decisions --write`. A close can receive
+   resolution prose (materialized as a temporary, mode-0600 file inside the
+   session workspace) or a workspace-relative `resolutionFile`; absolute paths,
+   traversal, and symlink escapes are refused before the existing close gate
+   runs. `decisions --write` remains bounded by the CLI to the map's marked
+   derived-index section.
 
 4. **Algorithm / orienteer** — the `the-algorithm` and `orienteer` skills are
    projected as files (the adapter) and auto-discovered; the plugin can
