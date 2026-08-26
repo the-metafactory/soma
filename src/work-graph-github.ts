@@ -917,8 +917,8 @@ class GitHubGraphStore implements GraphStore {
     const receiptAt = /^- \*\*at:\*\* ([^\n]+)$/mu.exec(comment.body)?.[1];
     const gatedNodeHash = /^- \*\*gated node hash:\*\* `([a-f0-9]{64})`$/mu.exec(comment.body)?.[1];
     return close.actor === completion.closer
-      && Number.isFinite(commentAt)
-      && commentAt <= close.at && (reopened === undefined || commentAt > reopened.at)
+      && Number.isFinite(commentAt) && Number.isFinite(boundAt)
+      && commentAt <= close.at && (reopened === undefined || commentAt >= reopened.at)
       && checkpoint === completion.checkpointId && autonomy === completion.autonomy
       && receiptAt === completion.closedAt && gatedNodeHash === completion.gatedNodeHash;
   }
