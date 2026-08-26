@@ -1,4 +1,4 @@
-import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { isAbsolute, join, resolve } from "node:path";
 import { hostname, tmpdir } from "node:os";
@@ -41,13 +41,34 @@ const { renderStartupContextSummary } = (await import(
   pathToFileURL(join(hookEntryDir, "codex-hook-entry.mjs")).href
 )) as { renderStartupContextSummary: (context: string | undefined) => string };
 
+async function makeRuntimeArtifactsWritable(path: string): Promise<void> {
+  await chmod(path, 0o755).catch(() => undefined);
+  for (const entry of await readdir(path, { withFileTypes: true }).catch(() => [])) {
+    const child = join(path, entry.name);
+    if (entry.isSymbolicLink()) continue;
+    if (entry.isDirectory()) await makeRuntimeArtifactsWritable(child);
+    else if (entry.isFile()) await chmod(child, 0o644).catch(() => undefined);
+  }
+}
+
+async function unsealRuntimeArtifacts(path: string): Promise<void> {
+  for (const entry of await readdir(path, { withFileTypes: true }).catch(() => [])) {
+    if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+    const child = join(path, entry.name);
+    if (entry.name === "runtime") await makeRuntimeArtifactsWritable(child);
+    else await unsealRuntimeArtifacts(child);
+  }
+}
+
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-install-"));
-
 
   try {
     return await fn(homeDir);
   } finally {
+    // Test-only teardown reopens sealed artifacts after assertions; production
+    // installs retain their read-only runtime payload.
+    await unsealRuntimeArtifacts(homeDir);
     await rm(homeDir, { recursive: true, force: true });
   }
 }
@@ -1142,7 +1163,7 @@ test("installed codex hook uses the frozen runtime artifact", async () => {
     ) as Record<string, unknown>;
     const somaRepo = await readFile(join(homeDir, ".codex/memories/soma/soma-repo.txt"), "utf8");
 
-    expect(config.trustedSomaRepo).toBe(join(homeDir, ".soma/runtime/current"));
+    expect(config.trustedSomaRepo).toBe(join(homeDir, ".soma/runtime/codex/current"));
     expect(config.trustedSomaRepo).not.toBe(process.cwd());
     expect(somaRepo).toContain("soma");
   });
