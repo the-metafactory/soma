@@ -587,7 +587,7 @@ export interface GraphStore {
   readRawBody(ref: NodeRef): Promise<string>;
   /** Replace the node's raw body wholesale. Callers splice; the store writes. */
   writeRawBody(ref: NodeRef, body: string): Promise<void>;
-  close(ref: NodeRef, receipt: CloseReceipt): Promise<void>;
+  close(ref: NodeRef, receipt: CloseReceipt, expectedGatedNodeHash?: string): Promise<void>;
 }
 
 export type WorkGraphErrorCode =
@@ -1368,6 +1368,6 @@ export class WorkGraph {
       throw new WorkGraphError("node-closed", `node ${ref.id} is already closed`);
     }
     assertClosable(state.node, receipt);
-    await this.store.close(ref, { ...receipt, autonomy: state.node.autonomy });
+    await this.store.close(ref, { ...receipt, autonomy: state.node.autonomy }, hashGatedNodeFields(state.node));
   }
 }

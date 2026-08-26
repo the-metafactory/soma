@@ -3,6 +3,7 @@ import {
   WorkGraph,
   WorkGraphError,
   assertClosable,
+  hashGatedNodeFields,
   estimateReceiptChars,
   scanCommentsForReceipt,
   spliceSection,
@@ -367,7 +368,7 @@ class FakeStore implements GraphStore {
   readonly attestation = "verifiable" as const;
   readonly nodes = new Map<string, FakeNode>();
   readonly children = new Map<string, string[]>();
-  readonly closed: { ref: NodeRef; receipt: CloseReceipt }[] = [];
+  readonly closed: { ref: NodeRef; receipt: CloseReceipt; expectedGatedNodeHash?: string }[] = [];
   readonly created: CreateNodeSpec[] = [];
   readonly edges: [string, string][] = [];
   readonly claims: string[] = [];
@@ -451,8 +452,8 @@ class FakeStore implements GraphStore {
     // Nothing stores raw bodies in this fake; the CLI tests exercise the splice.
   }
 
-  async close(ref: NodeRef, closeReceipt: CloseReceipt): Promise<void> {
-    this.closed.push({ ref, receipt: closeReceipt });
+  async close(ref: NodeRef, closeReceipt: CloseReceipt, expectedGatedNodeHash?: string): Promise<void> {
+    this.closed.push({ ref, receipt: closeReceipt, expectedGatedNodeHash });
     const entry = this.nodes.get(ref.id);
     if (entry) entry.state = { ...entry.state, status: "closed" };
   }
@@ -550,6 +551,7 @@ test("the prose rule holds at the seam, not only in the CLI", async () => {
   await graph.close({ id: "497" }, receipt());
   expect(store.closed).toHaveLength(1);
   expect(store.closed[0].receipt.resolution).toContain("The seam ships");
+  expect(store.closed[0].expectedGatedNodeHash).toBe(hashGatedNodeFields(store.nodes.get("497")!.state.node));
 });
 
 test("close gates on the node as the store reports it, not on a caller-supplied copy", async () => {

@@ -958,11 +958,14 @@ class GitHubGraphStore implements GraphStore {
   }
 
   /** Receipt first, then the state change: a close that fails halfway leaves the evidence, not a bare closed issue. */
-  async close(ref: NodeRef, receipt: CloseReceipt): Promise<void> {
+  async close(ref: NodeRef, receipt: CloseReceipt, expectedGatedNodeHash?: string): Promise<void> {
     const issue = await this.fetchIssue(ref);
     const decoded = nodeFromIssue(issue);
     const node = decoded.node;
     const gatedNodeHash = hashGatedNodeFields(node);
+    if (expectedGatedNodeHash !== undefined && gatedNodeHash !== expectedGatedNodeHash) {
+      throw new WorkGraphError("invalid-node", `node ${ref.id} changed after close validation`);
+    }
     const boundReceipt = { ...receipt, autonomy: node.autonomy, gatedNodeHash };
     const posted = await this.postComment(ref, renderCloseReceipt(boundReceipt));
     const comment = await this.readComment(posted);
