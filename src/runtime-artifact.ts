@@ -147,6 +147,29 @@ export async function readRuntimeArtifactState(somaHome: string, substrate: Guar
     return { active: state.active, ...(typeof state.previous === "string" ? { previous: state.previous } : {}) };
   } catch { return undefined; }
 }
+/** Keep only artifacts referenced by any guarded substrate's active or predecessor state. */
+async function pruneUnreferencedArtifacts(somaHome: string): Promise<void> {
+  const store = runtimeArtifactStoreRoot(somaHome);
+  const retained = new Set<string>();
+  for (const substrate of GUARDED_RUNTIME_SUBSTRATES) {
+    const state = await readRuntimeArtifactState(somaHome, substrate);
+    if (state !== undefined) {
+      retained.add(state.active);
+      if (state.previous !== undefined) retained.add(state.previous);
+    }
+  }
+  for (const entry of await readdir(store, { withFileTypes: true })) {
+    if (entry.name.startsWith(".") || retained.has(entry.name)) continue;
+    const path = join(store, entry.name);
+    // Never traverse a link while pruning; remove the directory entry itself.
+    if (entry.isSymbolicLink()) {
+      await rm(path, { force: true });
+    } else if (entry.isDirectory()) {
+      await makeWritable(path);
+      await rm(path, { recursive: true, force: true });
+    }
+  }
+}
 
 /** Stages a source-complete, content-addressed policy runtime and atomically activates one substrate. */
 export async function stageRuntimeArtifact(input: { somaHome: string; substrate: GuardedRuntimeSubstrate; sourceRoot: string }): Promise<{ path: string; hash: string; previous?: string }> {
@@ -183,6 +206,7 @@ export async function stageRuntimeArtifact(input: { somaHome: string; substrate:
     const state: RuntimeArtifactState = { active: hash, ...(current?.active !== hash ? { previous: current?.active } : current?.previous ? { previous: current.previous } : {}) };
     await activateRuntimeArtifact(input.somaHome, input.substrate, hash);
     await writeRuntimeArtifactState(input.somaHome, input.substrate, state);
+    await pruneUnreferencedArtifacts(input.somaHome);
     return { path: runtimeArtifactActivePath(input.somaHome, input.substrate), hash, ...(state.previous ? { previous: state.previous } : {}) };
   } finally {
     // Artifact directories are structurally immutable between installs; this

@@ -132,3 +132,16 @@ test("refuses rollback to a corrupted predecessor and preserves the current poin
   expect((await readRuntimeArtifactState(home, "codex"))?.active).toBe(second.hash);
   expect(await readFile(join(home, "runtime/codex/current/src/cli.ts"), "utf8")).toBe(current);
 });
+
+test("prunes artifacts unreferenced by every guarded substrate state", async () => {
+  const { source, home } = await fixture();
+  const first = await stageRuntimeArtifact({ somaHome: home, substrate: "codex", sourceRoot: source });
+  await writeFile(join(source, "src", "cli.ts"), "export const cli = 'second';\n");
+  const second = await stageRuntimeArtifact({ somaHome: home, substrate: "codex", sourceRoot: source });
+  await writeFile(join(source, "src", "cli.ts"), "export const cli = 'third';\n");
+  const third = await stageRuntimeArtifact({ somaHome: home, substrate: "codex", sourceRoot: source });
+  const hashes = (await readdir(join(home, "runtime", "artifacts"), { withFileTypes: true }))
+    .filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
+  expect(hashes).toEqual([second.hash, third.hash].sort());
+  await expect(stat(join(home, "runtime", "artifacts", first.hash))).rejects.toThrow();
+});
