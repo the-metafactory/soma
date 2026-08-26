@@ -7,7 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
+## [0.18.2] - 2026-08-26
+
+### Fixed
+
+- **DSH graph closure is available through a bounded host tool.** `soma_graph`
+  now exposes `close` with resolution prose or a workspace-relative resolution
+  file; traversal and symlink escapes are refused before the existing graph
+  closure gate runs. The tool also surfaces CLI stderr when a graph command
+  fails, while `decisions --write` remains limited to the derived map index.
+- **Portable-skill reconciliation preserves principal-replaced links.** A stale
+  manifest may remove a migrated loader slot only when that slot targets its
+  exact matching `~/.soma/skills/<name>` registry entry; links to other
+  principal-owned locations, including another registry skill, remain intact.
 
 ## [0.18.1] - 2026-08-25
 
