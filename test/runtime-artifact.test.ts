@@ -51,6 +51,19 @@ test("refuses a symlinked runtime package manifest before hashing or staging", a
   await expect(stageRuntimeArtifact({ somaHome: home, substrate: "codex", sourceRoot: source })).rejects.toThrow(/package.json must be a regular file/);
 });
 
+test("framed runtime manifest distinguishes ambiguous path layouts", async () => {
+  const left = await fixture();
+  const right = await fixture();
+  await mkdir(join(left.source, "src", "a"));
+  await writeFile(join(left.source, "src", "a", "bc"), "same");
+  await mkdir(join(right.source, "src", "ab"));
+  await writeFile(join(right.source, "src", "ab", "c"), "same");
+  const first = await stageRuntimeArtifact({ somaHome: left.home, substrate: "codex", sourceRoot: left.source });
+  const second = await stageRuntimeArtifact({ somaHome: right.home, substrate: "codex", sourceRoot: right.source });
+  expect(first.hash).not.toBe(second.hash);
+});
+
+
 test("stages an immutable source-complete artifact and atomically activates it", async () => {
   const { source, home } = await fixture();
   const staged = await stageRuntimeArtifact({ somaHome: home, substrate: "codex", sourceRoot: source });

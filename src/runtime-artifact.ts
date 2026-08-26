@@ -137,19 +137,23 @@ async function assertRuntimeSourceTree(sourceRoot: string): Promise<void> {
 async function sourceHash(sourceRoot: string): Promise<string> {
   await assertRuntimeSourceTree(sourceRoot);
   const hash = createHash("sha256");
-  async function visit(dir: string): Promise<void> {
-    const entries = await readdir(dir, { withFileTypes: true });
-    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-      const path = join(dir, entry.name);
-      if (entry.isDirectory()) await visit(path);
-      else if (entry.isFile()) {
-        hash.update(path.slice(sourceRoot.length));
-        hash.update(await readFile(path));
-      }
+  const frame = (type: string, path: string, bytes: Uint8Array = new Uint8Array()): void => {
+    hash.update(`${type.length}:${type}${path.length}:${path}${bytes.byteLength}:`, "utf8");
+    hash.update(bytes);
+  };
+  async function visit(directory: string, relative: string): Promise<void> {
+    frame("dir", relative);
+    const entries = await readdir(directory, { withFileTypes: true });
+    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+      const path = join(directory, entry.name);
+      const child = relative.length === 0 ? entry.name : `${relative}/${entry.name}`;
+      if (entry.isDirectory()) await visit(path, child);
+      else if (entry.isFile()) frame("file", child, await readFile(path));
+      else throw new Error(`runtime artifact source contains unsupported entry: ${path}`);
     }
   }
-  await visit(join(sourceRoot, "src"));
-  hash.update(await readFile(join(sourceRoot, "package.json")));
+  await visit(join(sourceRoot, "src"), "src");
+  frame("file", "package.json", await readFile(join(sourceRoot, "package.json")));
   return hash.digest("hex");
 }
 
