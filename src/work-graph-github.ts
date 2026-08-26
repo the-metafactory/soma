@@ -21,6 +21,7 @@ import {
   parseNodeSpec,
   renderCloseReceipt,
   isStructurallyValidCloseReceipt,
+  hashGatedNodeFields,
   resolveClaimRace,
   toNode,
   type AttestationCapability,
@@ -512,7 +513,7 @@ function nodeFromIssue(issue: GitHubIssue): { node: WorkGraphNode; typed: boolea
     const node = toNode(String(issue.number), spec);
     if (rawCompletion === undefined) return { node, typed: true, text: decoded.text };
     const completion = asRecord(rawCompletion, "node completion");
-    const fields = ["receiptCommentId", "checkpointId", "closer", "closedAt"] as const;
+    const fields = ["receiptCommentId", "checkpointId", "closer", "closedAt", "gatedNodeHash"] as const;
     if (fields.some((field) => typeof completion[field] !== "string")
       || !["auto", "propose", "approve"].includes(String(completion.autonomy))) {
       throw new WorkGraphError("invalid-node", "invalid persisted completion binding");
@@ -521,7 +522,7 @@ function nodeFromIssue(issue: GitHubIssue): { node: WorkGraphNode; typed: boolea
     if (autoProbeKeys !== undefined && (!Array.isArray(autoProbeKeys) || autoProbeKeys.some((key) => typeof key !== "string"))) {
       throw new WorkGraphError("invalid-node", "invalid persisted completion probe keys");
     }
-    return { node: { ...node, completion: { receiptCommentId: completion.receiptCommentId as string, checkpointId: completion.checkpointId as string, autonomy: completion.autonomy as WorkGraphNode["autonomy"], closer: completion.closer as string, closedAt: completion.closedAt as string, ...(autoProbeKeys === undefined ? {} : { autoProbeKeys: autoProbeKeys as string[] }) } }, typed: true, text: decoded.text };
+    return { node: { ...node, completion: { receiptCommentId: completion.receiptCommentId as string, checkpointId: completion.checkpointId as string, autonomy: completion.autonomy as WorkGraphNode["autonomy"], closer: completion.closer as string, closedAt: completion.closedAt as string, gatedNodeHash: completion.gatedNodeHash as string, ...(autoProbeKeys === undefined ? {} : { autoProbeKeys: autoProbeKeys as string[] }) } }, typed: true, text: decoded.text };
   } catch (error) {
     // Visible state, never a silent downgrade: the node falls back to the
     // most-gated class AND says why.
@@ -892,7 +893,7 @@ class GitHubGraphStore implements GraphStore {
   private async hasCurrentCloseReceipt(ref: NodeRef, issue: GitHubIssue, completion: NonNullable<WorkGraphNode["completion"]>): Promise<boolean> {
     const node = nodeFromIssue(issue).node;
     if (completion.checkpointId !== node.checkpointId || completion.autonomy !== node.autonomy) return false;
-    if (node.autonomy === "auto" && JSON.stringify(completion.autoProbeKeys ?? []) !== JSON.stringify((node.probes ?? []).map((probe) => JSON.stringify(probe)).sort())) return false;
+    if (completion.gatedNodeHash !== hashGatedNodeFields(node)) return false;
     const [comments, events] = await Promise.all([
       this.listComments(ref),
       this.transport({ method: "GET", path: `repos/${this.repo}/issues/${ref.id}/events`, paginate: true }),
@@ -913,10 +914,13 @@ class GitHubGraphStore implements GraphStore {
     const boundAt = Date.parse(completion.closedAt);
     const checkpoint = /^- \*\*checkpoint:\*\* `([^`\n]+)`$/mu.exec(comment.body)?.[1];
     const autonomy = /^- \*\*autonomy:\*\* `([^`\n]+)`$/mu.exec(comment.body)?.[1];
+    const receiptAt = /^- \*\*at:\*\* ([^\n]+)$/mu.exec(comment.body)?.[1];
+    const gatedNodeHash = /^- \*\*gated node hash:\*\* `([a-f0-9]{64})`$/mu.exec(comment.body)?.[1];
     return close.actor === completion.closer
-      && Number.isFinite(commentAt) && Number.isFinite(boundAt)
-      && commentAt === boundAt && commentAt <= close.at && (reopened === undefined || commentAt > reopened.at)
-      && checkpoint === completion.checkpointId && autonomy === completion.autonomy;
+      && Number.isFinite(commentAt)
+      && commentAt <= close.at && (reopened === undefined || commentAt > reopened.at)
+      && checkpoint === completion.checkpointId && autonomy === completion.autonomy
+      && receiptAt === completion.closedAt && gatedNodeHash === completion.gatedNodeHash;
   }
 
   /** Bodies included — the read half of {@link postComment}. Paginated: receipts are often the last comment. */
@@ -957,18 +961,21 @@ class GitHubGraphStore implements GraphStore {
   async close(ref: NodeRef, receipt: CloseReceipt): Promise<void> {
     const issue = await this.fetchIssue(ref);
     const decoded = nodeFromIssue(issue);
-    const posted = await this.postComment(ref, renderCloseReceipt(receipt));
+    const node = decoded.node;
+    const gatedNodeHash = hashGatedNodeFields(node);
+    const boundReceipt = { ...receipt, autonomy: node.autonomy, gatedNodeHash };
+    const posted = await this.postComment(ref, renderCloseReceipt(boundReceipt));
     const comment = await this.readComment(posted);
     if (comment.author === undefined || comment.author.length === 0) {
       throw new WorkGraphError("backend", "posted close receipt has no authenticated author");
     }
-    const node = decoded.node;
     const completion = {
       receiptCommentId: comment.id,
       checkpointId: receipt.checkpointId,
       autonomy: receipt.autonomy ?? node.autonomy,
       closer: comment.author,
-      closedAt: receipt.at,
+      closedAt: boundReceipt.at,
+      gatedNodeHash,
       ...(node.autonomy === "auto" ? { autoProbeKeys: (node.probes ?? []).map((probe) => JSON.stringify(probe)).sort() } : {}),
     };
     const body = [decoded.text, encodeNodeBlock({ ...node, title: issue.title, completion })]

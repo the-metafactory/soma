@@ -8,6 +8,7 @@ import {
   encodeNodeBlock,
   estimateSubtreeQueryPrimaryRatePoints,
   ghApiArgs,
+  hashGatedNodeFields,
   parseGhApiOutput,
   parseNodeSpec,
   type GitHubApiRequest,
@@ -886,20 +887,20 @@ test("readNode ignores a receipt from before reopen and current reclose", async 
   expect(state.currentCloseReceipt).toBe(false);
 });
 
-type CompletionFixture = { receiptCommentId: string; checkpointId: string; autonomy: "approve"; closer: string; closedAt: string };
+type CompletionFixture = { receiptCommentId: string; checkpointId: string; autonomy: "approve"; closer: string; closedAt: string; gatedNodeHash: string };
 
 async function currentCloseReceipt(completion?: CompletionFixture): Promise<boolean | undefined> {
   const { transport } = fakeTransport({
     [`GET repos/${REPO}/issues/497`]: issuePayload({ state: "closed", body: typedBody({ autonomy: "approve", checkpointId: "cp-497", ...(completion === undefined ? {} : { completion }) }) }),
     [`GET repos/${REPO}/issues/497/dependencies/blocked_by`]: [],
     [`GET repos/${REPO}/issues/comments/42`]: { id: 42, user: { login: "ivy" } },
-    [`GET repos/${REPO}/issues/497/comments`]: [{ id: 42, body: "## Close receipt\n\n- **checkpoint:** `cp-497`\n- **closed by:** ivy\n- **autonomy:** `approve`\n- **at:** 2026-01-03T00:00:00.000Z\n- **attestation:** `unverified`\n\n### Evidence\n", created_at: "2026-01-03T00:00:00.000Z", user: { login: "ivy" } }],
+    [`GET repos/${REPO}/issues/497/comments`]: [{ id: 42, body: "## Close receipt\n\n- **checkpoint:** `cp-497`\n- **closed by:** ivy\n- **autonomy:** `approve`\n- **at:** 2026-01-03T00:00:00.000Z\n- **attestation:** `unverified`\n- **gated node hash:** `" + hashGatedNodeFields({ autonomy: "approve", checkpointId: "cp-497", probes: [] }) + "`\n\n### Evidence\n", created_at: "2026-01-03T00:00:00.000Z", user: { login: "ivy" } }],
     [`GET repos/${REPO}/issues/497/events`]: [{ event: "closed", created_at: "2026-01-03T00:00:00.000Z", actor: { login: "ivy" } }],
   });
   return (await createGitHubGraphStore({ repo: REPO, transport }).readNode({ id: "497" })).currentCloseReceipt;
 }
 
-const validCompletion: CompletionFixture = { receiptCommentId: "42", checkpointId: "cp-497", autonomy: "approve", closer: "ivy", closedAt: "2026-01-03T00:00:00.000Z" };
+const validCompletion: CompletionFixture = { receiptCommentId: "42", checkpointId: "cp-497", autonomy: "approve", closer: "ivy", closedAt: "2026-01-03T00:00:00.000Z", gatedNodeHash: hashGatedNodeFields({ autonomy: "approve", checkpointId: "cp-497", probes: [] }) };
 
 test("readNode rejects a missing completion binding", async () => { expect(await currentCloseReceipt()).toBe(false); });
 test("readNode rejects a stale completion binding", async () => { expect(await currentCloseReceipt({ ...validCompletion, checkpointId: "cp-stale" })).toBe(false); });

@@ -19,6 +19,7 @@
  * construction sites.
  */
 
+import { createHash } from "node:crypto";
 import type { EvidenceKind } from "./types";
 
 /**
@@ -89,6 +90,8 @@ export interface NodeCompletionBinding {
   autonomy: WorkGraphAutonomy;
   closer: string;
   closedAt: string;
+  /** Hash of the close-gated node fields, signed into the receipt comment. */
+  gatedNodeHash: string;
   /** Canonical declared probe keys, recorded only for auto nodes. */
   autoProbeKeys?: readonly string[];
 }
@@ -378,6 +381,8 @@ export interface CloseReceipt {
   autonomy?: WorkGraphAutonomy;
   /** ISO timestamp. */
   at: string;
+  /** Backend-derived hash of the close-gated node fields, rendered into the receipt. */
+  gatedNodeHash?: string;
   /**
    * The **human-readable half** of the close: why this node resolved the way it
    * did, in prose (#556).
@@ -1040,6 +1045,19 @@ export function estimateReceiptChars(input: { resolution?: string; probeCount: n
 /** The marker a receipt comment always carries — what `audit` and `decisions` key on. */
 export const CLOSE_RECEIPT_MARKER = "## Close receipt";
 
+/** Deterministic SHA-256 commitment to the fields that the close gate authorizes. */
+export function hashGatedNodeFields(node: Pick<WorkGraphNode, "checkpointId" | "autonomy" | "probes">): string {
+  const canonicalize = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(canonicalize);
+    if (value !== null && typeof value === "object") {
+      return Object.fromEntries(Object.entries(value as Record<string, unknown>).sort(([left], [right]) => left.localeCompare(right)).map(([key, child]) => [key, canonicalize(child)]));
+    }
+    return value;
+  };
+  const canonical = canonicalize({ checkpointId: node.checkpointId ?? null, autonomy: node.autonomy, probes: node.probes ?? [] });
+  return createHash("sha256").update(JSON.stringify(canonical), "utf8").digest("hex");
+}
+
 /** The gist line inside a rendered receipt. One renderer, one parser — pinned against each other in tests. */
 const RECEIPT_GIST_LINE = /^- \*\*gist:\*\* (.+)$/mu;
 
@@ -1130,6 +1148,7 @@ export function renderCloseReceipt(receipt: CloseReceipt): string {
     `- **autonomy:** \`${receipt.autonomy ?? "approve"}\``,
     ...((receipt.closedWith ?? "").length === 0 ? [] : [`- **closed with:** ${receipt.closedWith}`]),
     `- **at:** ${receipt.at}`,
+    ...(receipt.gatedNodeHash === undefined ? [] : [`- **gated node hash:** \`${receipt.gatedNodeHash}\``]),
     `- **attestation:** \`${receipt.attestation}\``,
     ``,
     `### Evidence`,
