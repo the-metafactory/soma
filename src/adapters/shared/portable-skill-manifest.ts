@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { lstat, mkdir, readFile, readlink, rm, rmdir, unlink, writeFile } from "node:fs/promises";
-import { dirname, join, resolve, sep } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { isEnoent } from "../../fs-errors";
 
 /**
@@ -140,9 +140,8 @@ async function symlinkAncestor(root: string, target: string): Promise<SymlinkIde
 
 /** A migrated loader slot is owned only when it still points into Soma's skill registry. */
 async function isSomaRegistryLink(linkPath: string, somaHome: string): Promise<boolean> {
-  const registryRoot = join(resolve(somaHome), "skills");
   const target = resolve(dirname(linkPath), await readlink(linkPath));
-  return target !== registryRoot && target.startsWith(`${registryRoot}${sep}`);
+  return target === join(resolve(somaHome), "skills", basename(linkPath));
 }
 
 export async function readPortableSkillManifest(

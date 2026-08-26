@@ -223,6 +223,32 @@ test("reconcile preserves a principal-replaced skill symlink", async () => {
   });
 });
 
+test("reconcile preserves a principal link to another Soma registry skill", async () => {
+  await withDirs(async (somaHome, substrateHome) => {
+    const files = [{ path: "skills/the-algorithm/SKILL.md", content: "algorithm body\n" }];
+    await project(substrateHome, files);
+    await writePortableSkillManifest({ somaHome, substrate: "claude-code", substrateHome, files });
+
+    const slot = join(substrateHome, "skills/the-algorithm");
+    const replacement = join(somaHome, "skills/principal-replacement");
+    await rm(slot, { recursive: true });
+    await mkdir(replacement, { recursive: true });
+    await writeFile(join(replacement, "SKILL.md"), "replacement body\n", "utf8");
+    await symlink(replacement, slot);
+
+    const removed = await reconcilePortableSkillProjection({
+      somaHome,
+      substrate: "claude-code",
+      substrateHome,
+      currentPaths: [],
+    });
+
+    expect(removed).not.toContain(slot);
+    expect((await lstat(slot)).isSymbolicLink()).toBe(true);
+    expect(await readFile(join(slot, "SKILL.md"), "utf8")).toBe("replacement body\n");
+  });
+});
+
 test("reconcile never unlinks a shared top-level directory symlink", async () => {
   await withDirs(async (somaHome, substrateHome) => {
     const files = [{ path: "skills/Memory/SKILL.md", content: "memory body\n" }];

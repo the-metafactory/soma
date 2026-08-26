@@ -81,6 +81,13 @@ function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(`FAIL (${scenario}): ${message}`);
 }
 
+async function assertRejects(promise: Promise<unknown>, expectedText: string, message: string): Promise<void> {
+  await promise.then(
+    () => { throw new Error(`expected rejection containing ${expectedText}`); },
+    (error) => assert(String(error).includes(expectedText), message),
+  );
+}
+
 assert(calls.some((c) => c.startsWith("section:soma:core")), "prompt section registered");
 assert(calls.some((c) => c.startsWith("skill:soma-digest")), "runtime skill registered");
 assert(calls.some((c) => c.startsWith("tool:soma_memory")), "memory tool registered");
@@ -114,21 +121,27 @@ try {
   await tools.get("soma_graph").execute({ action: "close", arguments: ["42", "--dry-run"], resolutionFile: "soma-host-smoke-resolution.md" }, toolExec);
   const resolvedResolutionFile = await realpath(resolutionFile);
   assert(calls.some((c) => c.includes(`graph close 42 --dry-run --resolution-file ${resolvedResolutionFile}`)), "workspace-relative resolution file is accepted");
-  await tools.get("soma_graph").execute({ action: "close", arguments: ["42"], resolutionFile: "../etc/passwd" }, toolExec)
-    .then(() => { throw new Error("escaping resolution file should be refused"); })
-    .catch((error) => assert(String(error).includes("must remain inside"), "escaping path is refused"));
-  await tools.get("soma_graph").execute({ action: "close", arguments: ["42"], resolutionFile: "soma-host-smoke-escape.md" }, toolExec)
-    .then(() => { throw new Error("symlink escape should be refused"); })
-    .catch((error) => assert(String(error).includes("resolves outside"), "symlink escape is refused"));
+  await assertRejects(
+    tools.get("soma_graph").execute({ action: "close", arguments: ["42"], resolutionFile: "../etc/passwd" }, toolExec),
+    "must remain inside",
+    "escaping path is refused",
+  );
+  await assertRejects(
+    tools.get("soma_graph").execute({ action: "close", arguments: ["42"], resolutionFile: "soma-host-smoke-escape.md" }, toolExec),
+    "resolves outside",
+    "symlink escape is refused",
+  );
 } finally {
   await rm(resolutionFile, { force: true });
   await rm(escapingLink, { force: true });
 }
 
 scenario = "cli-failing";
-await tools.get("soma_graph").execute({ action: "claim", arguments: ["42"] }, toolExec)
-  .then(() => { throw new Error("failed graph command should surface stderr"); })
-  .catch((error) => assert(String(error).includes("graph close refused by declared probe"), "CLI stderr reaches the tool caller"));
+await assertRejects(
+  tools.get("soma_graph").execute({ action: "claim", arguments: ["42"] }, toolExec),
+  "graph close refused by declared probe",
+  "CLI stderr reaches the tool caller",
+);
 scenario = "happy";
 
 assert(calls.some((c) => c.includes("lifecycle session-start") && c.startsWith("spawn[happy]")), "session-start fired");
