@@ -7,7 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
+## [0.18.3] - 2026-08-26
+
+### Fixed
+
+- **All work-graph probe observations redact the operator's home path.** Command
+  output is sanitized before receipt-tail truncation, and registry refusal
+  messages pass through the same publication boundary, so close receipts cannot
+  expose embedded local paths. ([#666])
+
+## [0.18.2] - 2026-08-26
+
+### Fixed
+
+- **DSH graph closure is available through a bounded host tool.** `soma_graph`
+  now exposes `close` with resolution prose or a workspace-relative resolution
+  file; traversal and symlink escapes are refused before the existing graph
+  closure gate runs. The tool also surfaces CLI stderr when a graph command
+  fails, while `decisions --write` remains limited to the derived map index.
+- **Portable-skill reconciliation preserves principal-replaced links.** A stale
+  manifest may remove a migrated loader slot only when that slot targets its
+  exact matching `~/.soma/skills/<name>` registry entry; links to other
+  principal-owned locations, including another registry skill, remain intact.
+
+## [0.18.1] - 2026-08-25
+
+### Fixed
+
+- **`soma graph close` runs probes in the tree the operator invoked from.** The
+  probe base directory was resolved from `process.cwd()`, but an arc-generated
+  launcher shim `cd`s into the install tree before `exec`, so every declared
+  probe ran against soma's own clone and a close receipt named a checkout the
+  operator had never opened. The base now resolves through `invocationCwd()`,
+  which honours `ARC_INVOCATION_CWD` (absolute, existing directories only) —
+  the same rule `soma export --out` has followed since [#315]. ([#662])
+- **`artifact-exists` distinguishes an unreachable repository from an absent
+  artifact.** `git cat-file -e <ref>:<path>` takes an object name, so a missing
+  path is a fatal (128), not a "no" (1); every failure therefore rendered as
+  `absent`, sending readers after files that were present. Reachability is now
+  established separately and only the exit codes that argv actually returns are
+  read as answers, so a signal-killed or unreachable lookup can no longer be
+  published as a confident absence. ([#662])
+- **Probe failures no longer publish the operator's home path.** Git's stderr is
+  echoed into close receipts, which land on trackers of unknown visibility.
+  Paths embedded in that text are now home-collapsed before the output bound is
+  applied. ([#662])
+- **Migrated skill symlink slots reconcile safely**, and stale projected
+  symlinks are recased rather than left dangling. ([#654], [#659])
+- **A heredoc body is treated as data, not command position**, in runtime policy
+  inspection. ([#658])
+
+[#315]: https://github.com/the-metafactory/soma/issues/315
+[#654]: https://github.com/the-metafactory/soma/issues/654
+[#658]: https://github.com/the-metafactory/soma/issues/658
+[#659]: https://github.com/the-metafactory/soma/issues/659
+[#662]: https://github.com/the-metafactory/soma/issues/662
 
 ## [0.18.0] - 2026-08-21
 

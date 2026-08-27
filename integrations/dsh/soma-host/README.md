@@ -13,7 +13,10 @@ It gives every live session:
    goes idle (deduped per session via `ctx.storageDomain`);
 3. a **runtime digest skill** (`soma-digest`) routing session wrap-up to
    `soma memory digest`;
-4. a **`soma_memory` tool** that shells out to `soma memory recall`.
+4. host CLI tools: **`soma_memory`** for recall, **`soma_algorithm`** for
+   durable Algorithm run reads/mutations, and **`soma_graph`** for bounded
+   work-graph reads/mutations. The latter two avoid the model-facing workspace
+   sandbox, which cannot write `~/.soma`.
 
 The plugin shells out to the `soma` CLI (raw `ctx.subprocess` argv, no shell
 interpolation) rather than re-implementing Soma — Soma stays the single source
@@ -88,6 +91,14 @@ preset get it; rows that publish a *service* must sit inside a
    `session_end`) rows with `substrate: dsh`.
 3. The system prompt contains the "You run on Soma" anchor.
 4. Ask the model to recall memory — it can use the `soma_memory` tool.
+5. Start or update an Algorithm run — the model uses `soma_algorithm`, not a
+   sandboxed shell command, and the run is written under `~/.soma`.
+6. Close a graph node with `soma_graph`: pass `resolution` prose or a
+   workspace-relative `resolutionFile`. The host rejects absolute paths,
+   traversal, and symlink escapes; direct prose is written as a temporary,
+   mode-0600 workspace file and removed after the CLI returns. `decisions
+   --write` is available because the CLI updates only the map's marker-bounded
+   derived index.
 
 ## License
 

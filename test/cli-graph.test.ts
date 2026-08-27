@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { SomaCliError } from "../src/cli/errors";
 import {
@@ -13,10 +16,11 @@ import { parseRepoFromRemote } from "../src/work-graph-bridge";
 // Receipt-rendering helpers are deliberately not on the public barrel (sage on
 // #584): they are internals of `renderCloseReceipt`, so the test reaches for
 // them where they live.
-import { describeProbeTree } from "../src/work-graph";
+import { collapseHome, describeProbeTree } from "../src/work-graph";
 import {
   WorkGraphError,
   renderCloseReceipt,
+  runProbe,
   runProbes,
   scanCommentsForReceipt,
   type ClaimResult,
@@ -1654,5 +1658,288 @@ test("SomaCliError carries a non-zero exit for a lost claim", async () => {
   } catch (error) {
     expect(error).toBeInstanceOf(SomaCliError);
     expect((error as SomaCliError).exitCode).toBe(1);
+  }
+});
+
+// --- the probe tree is the tree soma was invoked from (#662) ----------------
+
+/**
+ * A real git repository, somewhere that is emphatically not soma's own tree,
+ * with one committed artifact.
+ *
+ * Real rather than stubbed because the failure being closed lives *inside* git:
+ * `git cat-file -e HEAD:<path>` run in the wrong directory exits 128, and a fake
+ * runner returning a chosen exit code would be asserting the fix on the way in.
+ */
+async function repoContaining(path: string): Promise<string> {
+  // `realpath` because $TMPDIR is a symlink on macOS and every comparison below
+  // is string equality against a path the CLI resolved lexically.
+  const dir = await realpath(await mkdtemp(join(tmpdir(), "soma-662-")));
+  await mkdir(join(dir, "docs"), { recursive: true });
+  await writeFile(join(dir, path), "the artifact the node claims\n", "utf8");
+  for (const argv of [
+    ["init", "--initial-branch=main"],
+    ["config", "user.email", "test@example.test"],
+    ["config", "user.name", "soma test"],
+    ["add", "."],
+    ["commit", "-m", "seed"],
+  ]) {
+    const proc = Bun.spawn(["git", "-C", dir, ...argv], { stdout: "pipe", stderr: "pipe" });
+    expect(await proc.exited).toBe(0);
+  }
+  return dir;
+}
+
+test("a close probes the repo it was invoked from, even when the launcher cd'd elsewhere (#662)", async () => {
+  // AC-2. The failure: an arc-generated shim `cd`s into soma's install tree
+  // before `exec`, so `process.cwd()` is that tree and every declared probe
+  // resolved against it — `git cat-file` reported the node's artifact "absent"
+  // while it sat, committed, in the checkout the operator ran the close from.
+  //
+  // Falsifiable by construction: `docs/only-here.md` exists in the temp repo and
+  // in no soma checkout, so a probe base that fell back to `process.cwd()` (this
+  // test file's own tree) fails the probe and the close refuses.
+  const repoDir = await repoContaining("docs/only-here.md");
+  const previous = process.env.ARC_INVOCATION_CWD;
+  process.env.ARC_INVOCATION_CWD = repoDir;
+
+  try {
+    const probe: Probe = { type: "artifact-exists", path: "docs/only-here.md", atRef: "HEAD" };
+    const store = new FakeStore()
+      .seed("495", { node: autoNode("495"), author: "jcfischer" })
+      .seed("520", { node: autoNode("520", { probes: [probe] }), parent: "495", author: "ivy-agent" });
+
+    // `probeCwd` and `describeProbeTree` are dropped rather than stubbed: the
+    // thing under test *is* the default `probeCwd`, and a test that injected one
+    // would pass against the broken code. Everything else stays hermetic.
+    const { probeCwd: _useTheDefault, describeProbeTree: _readTheRealTree, ...overrides } = deps(store, {
+      runProbes: async (probes, registry, cwd) => await runProbes(probes, { cwd, registry, deps: { now: () => AT } }),
+    });
+
+    const output = await runGraphCli(
+      parseGraphArgs(["graph", "close", "520", "--repo", REPO, ...RESOLUTION]),
+      overrides,
+    );
+
+    expect(output).toContain("Closed node 520");
+    const receipt = store.closed[0].receipt;
+    // Where it ran …
+    const [result] = receipt.probeResults;
+    if (result.state !== "probed") throw new Error("the runner returned a specified result — it must run the probe");
+    expect(result.outcome).toBe("pass");
+    expect(result.cwd).toBe(repoDir);
+    // … and what the receipt says about it, read from the real tree.
+    const [tree] = receipt.probeTrees ?? [];
+    expect(tree?.dir).toBe(repoDir);
+    expect(tree?.head).toMatch(/^[0-9a-f]{4,40}$/u);
+  } finally {
+    if (previous === undefined) delete process.env.ARC_INVOCATION_CWD;
+    else process.env.ARC_INVOCATION_CWD = previous;
+    await rm(repoDir, { recursive: true, force: true });
+  }
+});
+
+test("the same close, run from a directory that is not a repository, says so instead of 'absent' (#662)", async () => {
+  // AC-3 at the CLI seam. The half of #662 that cost the reporter the most time
+  // was not the wrong directory — it was the receipt describing the wrong
+  // directory in the vocabulary of a missing file.
+  const notARepo = await realpath(await mkdtemp(join(tmpdir(), "soma-662-bare-")));
+  const previous = process.env.ARC_INVOCATION_CWD;
+  process.env.ARC_INVOCATION_CWD = notARepo;
+
+  try {
+    const probe: Probe = { type: "artifact-exists", path: "docs/only-here.md", atRef: "HEAD" };
+    const store = new FakeStore()
+      .seed("495", { node: autoNode("495"), author: "jcfischer" })
+      .seed("520", { node: autoNode("520", { probes: [probe] }), parent: "495", author: "ivy-agent" });
+
+    const { probeCwd: _useTheDefault, ...overrides } = deps(store, {
+      runProbes: async (probes, registry, cwd) => await runProbes(probes, { cwd, registry, deps: { now: () => AT } }),
+    });
+
+    // `--dry-run` rather than the refusal: the refusal message summarises
+    // ("ran and failed"), and the string the operator actually reads their
+    // diagnosis out of is the rendered receipt.
+    const output = await runGraphCli(
+      parseGraphArgs(["graph", "close", "520", "--dry-run", "--repo", REPO]),
+      overrides,
+    );
+
+    expect(store.closed).toHaveLength(0);
+    expect(output).toContain("would be REFUSED");
+    expect(output).toContain(`could not reach HEAD in ${notARepo}`);
+    // Our wording and a verified exit code, never git's prose. This line used to
+    // assert `not a git repository` — real git's phrasing, in a real-git test,
+    // which is the same assumption class that turned the B2 arm red on CI. It
+    // happens to hold on both platforms; it is still the wrong thing to depend
+    // on, since git reworders and localises its messages and we control neither.
+    expect(output).toContain("git exited 128");
+    expect(output).not.toContain("absent");
+  } finally {
+    if (previous === undefined) delete process.env.ARC_INVOCATION_CWD;
+    else process.env.ARC_INVOCATION_CWD = previous;
+    await rm(notARepo, { recursive: true, force: true });
+  }
+});
+
+test("artifact-exists at a ref: the four outcomes, against real git (#662 review B1/m3)", async () => {
+  // The test whose absence let B1 ship green. Every other assertion about this
+  // branch's exit codes runs against a stub, and the stub encoded a value real
+  // git never returns: `cat-file -e <ref>:<path>` reports a MISSING PATH as a
+  // fatal (128), not as exit 1 — the same code a missing repository gives. A
+  // split that read reachability off that call therefore called every genuine
+  // absence "unreachable". Only real git can hold this contract honest.
+  const repoDir = await repoContaining("docs/only-here.md");
+  const notARepo = await realpath(await mkdtemp(join(tmpdir(), "soma-662-nonrepo-")));
+
+  const run = async (dir: string, path: string, atRef: string) => {
+    const result = await runProbe({ type: "artifact-exists", path, atRef }, { cwd: dir, deps: { now: () => AT } });
+    if (result.state !== "probed") throw new Error("the runner must always run the probe");
+    return result;
+  };
+
+  try {
+    // 1. Present at a valid ref.
+    const present = await run(repoDir, "docs/only-here.md", "HEAD");
+    expect(present.outcome).toBe("pass");
+    expect(present.observed).toBe("docs/only-here.md present at HEAD");
+
+    // 2. Genuinely absent at a valid ref, in a reachable repo. This is the one
+    //    B1 broke: real git exits 128 here.
+    const absent = await run(repoDir, "docs/never-committed.md", "HEAD");
+    expect(absent.outcome).toBe("fail");
+    expect(absent.observed).toBe("docs/never-committed.md absent at HEAD");
+    expect(absent.observed).not.toContain("could not reach");
+
+    // 3. Reachable repo, ref that does not resolve.
+    const badRef = await run(repoDir, "docs/only-here.md", "nosuchref");
+    expect(badRef.outcome).toBe("fail");
+    expect(badRef.observed).toBe(`nosuchref does not resolve in ${collapseHome(repoDir)}`);
+
+    // 4. Not a repository at all — #662's reported symptom.
+    const unreachable = await run(notARepo, "docs/only-here.md", "HEAD");
+    expect(unreachable.outcome).toBe("fail");
+    expect(unreachable.observed).toContain(`could not reach HEAD in ${collapseHome(notARepo)}`);
+    expect(unreachable.observed).not.toContain("absent");
+  } finally {
+    await rm(repoDir, { recursive: true, force: true });
+    await rm(notARepo, { recursive: true, force: true });
+  }
+});
+
+/** Run `body` with `HOME` pointed somewhere else, restoring it whatever happens. */
+async function withHome<T>(home: string, body: () => Promise<T>): Promise<T> {
+  const previous = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    return await body();
+  } finally {
+    if (previous === undefined) delete process.env.HOME;
+    else process.env.HOME = previous;
+  }
+}
+
+test("a probe failure never publishes the operator's home path — deterministic arm (#662 review B2)", async () => {
+  // THE POSITIVE PROOF LIVES HERE, on injected deps, because it is the only arm
+  // that behaves the same on every git.
+  //
+  // The first version of this test asserted `~/…` against REAL git's stderr and
+  // went red on CI: a gitfile whose target is missing makes Linux git say
+  // `fatal: not a git repository: (null)` while macOS git names the path. So
+  // there was nothing to redact there and the assertion waited for a string that
+  // could not appear. That is this branch's own lesson one layer out — I asserted
+  // a git MESSAGE FORMAT, having spent four rounds learning not to assume git's
+  // exit codes.
+  //
+  // A crafted stderr is honest here in a way it was not for B1: the unit under
+  // test is *our redaction of arbitrary subprocess text*, not git's phrasing, so
+  // the stub encodes no belief about git at all.
+  const home = "/Users/tester";
+  const leaked = `${home}/.ssh/secret/.git`;
+
+  const result = await withHome(home, async () =>
+    await runProbe(
+      { type: "artifact-exists", path: "docs/x.md", atRef: "HEAD" },
+      {
+        cwd: "/repo",
+        deps: {
+          runCommand: async () => ({
+            exitCode: 128,
+            stdout: "",
+            stderr: `fatal: not a git repository: ${leaked}\n`,
+            timedOut: false,
+          }),
+          now: () => AT,
+        },
+      },
+    ),
+  );
+  if (result.state !== "probed") throw new Error("the runner must always run the probe");
+
+  expect(result.outcome).toBe("fail");
+  // The negative — the property we actually care about.
+  expect(result.observed).not.toContain(home);
+  // …and the positive: the redirect is still named, wearing `~`, so the redaction
+  // is proved to have FIRED rather than the message merely having lost its path.
+  expect(result.observed).toContain("~/.ssh/secret/.git");
+});
+
+test("…and the same holds against real git, when this git names the path at all (#662 review B2)", async () => {
+  // The real-git arm, kept but made SELF-CHECKING rather than assuming.
+  //
+  // Kept, rather than dropped, because the gitfile redirect is the shape that
+  // beats containment — git reaching a path no probe was allowed to read — and
+  // retiring it would leave that scenario covered only by a string I wrote
+  // myself. Made conditional because whether git echoes the target is a message
+  // format, and this branch's whole subject is not assuming those.
+  //
+  // `HOME` points at a temp directory (#662 review n3) so an interrupted run
+  // cannot litter the operator's real home. `redactHome` reads `HOME` at call
+  // time through the same ambient default it uses in production, so the real
+  // lookup is still exercised; git is told nothing about the swap.
+  const home = await realpath(await mkdtemp(join(tmpdir(), "soma-662-home-")));
+  const elsewhere = await realpath(await mkdtemp(join(tmpdir(), "soma-662-notahome-")));
+  const redirected = join(home, ".soma-662-b2-fixture");
+  const probeTree = await realpath(await mkdtemp(join(tmpdir(), "soma-662-gitfile-")));
+
+  try {
+    await mkdir(redirected, { recursive: true });
+    await writeFile(join(probeTree, ".git"), `gitdir: ${join(redirected, ".git")}\n`, "utf8");
+
+    const probe = async (): Promise<string> => {
+      const result = await runProbe(
+        { type: "artifact-exists", path: "docs/x.md", atRef: "HEAD" },
+        { cwd: probeTree, deps: { now: () => AT } },
+      );
+      if (result.state !== "probed") throw new Error("the runner must always run the probe");
+      expect(result.outcome).toBe("fail");
+      return result.observed;
+    };
+
+    // Control: HOME somewhere unrelated, so nothing is redacted and the raw
+    // message is visible. This is how we learn what THIS git says, instead of
+    // deciding in advance.
+    const control = await withHome(elsewhere, probe);
+    const namesThePath = control.includes(redirected);
+
+    const observed = await withHome(home, probe);
+
+    // Unconditional, true on every git: the raw home prefix is never published.
+    expect(observed).not.toContain(home);
+
+    if (namesThePath) {
+      // This git echoes the gitfile target, so redaction had something to do and
+      // must be seen to have done it.
+      expect(observed).toContain("~/.soma-662-b2-fixture");
+    } else {
+      // This git does not name the path (Linux says `(null)`), so there is
+      // nothing to redact. Assert the message is still the useful one rather than
+      // letting the test pass vacuously.
+      expect(observed).toContain("could not reach HEAD");
+    }
+  } finally {
+    await rm(probeTree, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true });
+    await rm(elsewhere, { recursive: true, force: true });
   }
 });

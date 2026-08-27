@@ -1,6 +1,6 @@
 {
   "name": "soma",
-  "version": "0.18.0",
+  "version": "0.18.3",
   "private": true,
   "type": "module",
   "description": "Substrate-portable Personal AI Assistant core.",
