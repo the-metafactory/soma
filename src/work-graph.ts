@@ -94,7 +94,7 @@ export interface NodeCompletionBinding {
   gatedNodeHash: string;
   /** Canonical declared probe keys, recorded only for auto nodes. */
   autoProbeKeys?: readonly string[];
-  /** Forge-proof CI check run cited at close, recorded only for auto nodes. */
+  /** CI check run cited at close, recorded only for auto nodes (§3.1: detection, not prevention). */
   ciCheckRunId?: string;
   ciHeadSha?: string;
 }
@@ -427,10 +427,16 @@ export interface CloseReceipt {
    */
   closedWith?: string;
   /**
-   * Forge-proof completion evidence for `auto` nodes: a GitHub check run whose
-   * `success` conclusion only a GitHub App (GitHub Actions) can create — an
-   * issue editor with a user token cannot mint or edit it, so citing it moves
+   * CI evidence for `auto` nodes: a GitHub check run whose `success` conclusion
+   * only a GitHub App (GitHub Actions) can create. An issue editor who holds no
+   * push/CI-trigger authority cannot mint or edit such a run, so citing one moves
    * completion from self-authored markdown to an immutable, API-verifiable fact.
+   *
+   * **Detection, not prevention.** Both the run id and the head SHA are supplied
+   * by the closer, so a collaborator who *can* push and trigger CI can still mint
+   * a passing run on a trivial commit and cite it. The binding refuses the
+   * fabricated-run forgery (the common, issue-only-editor case); it does not
+   * replace checkpoint-owned verification of what the probes actually ran against.
    */
   ci?: { checkRunId: string; headSha: string };
   evidence: readonly CloseEvidence[];
