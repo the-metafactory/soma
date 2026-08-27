@@ -564,7 +564,7 @@ test("an open BRIDGED plan step caps the sync at EXECUTE instead of discarding t
       syncBridgedPlanStep(
         created,
         stepId,
-        { ref: { id: "501" }, status: "open", blockedBy: [] },
+        { ref: { id: "501" }, status: "open", blockedBy: [], hasCloseReceipt: false },
         { bind: true },
         "2026-08-06T10:01:00.000Z",
       ),

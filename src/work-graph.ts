@@ -19,6 +19,7 @@
  * construction sites.
  */
 
+import { createHash } from "node:crypto";
 import type { EvidenceKind } from "./types";
 
 /**
@@ -82,10 +83,28 @@ export type ProbeResult =
       cwd?: string;
     };
 
+/** Receipt binding persisted by a backend after the gated close write. */
+export interface NodeCompletionBinding {
+  receiptCommentId: string;
+  checkpointId: string;
+  autonomy: WorkGraphAutonomy;
+  closer: string;
+  closedAt: string;
+  /** Hash of the close-gated node fields, signed into the receipt comment. */
+  gatedNodeHash: string;
+  /** Canonical declared probe keys, recorded only for auto nodes. */
+  autoProbeKeys?: readonly string[];
+  /** CI check run cited at close, recorded only for auto nodes (§3.1: detection, not prevention). */
+  ciCheckRunId?: string;
+  ciHeadSha?: string;
+}
+
 export interface WorkGraphNodeBase {
   /** Backend-native identity (GitHub: issue number), assigned by the store — never caller-supplied. */
   id: string;
   title: string;
+  /** Backend-persisted close binding; absent until a gated close completes. */
+  completion?: NodeCompletionBinding;
   /**
    * Free-form doctrine tag (e.g. research, grilling). The runtime never
    * interprets its MEANING but normalizes its FORM at the store boundary:
@@ -142,7 +161,7 @@ export interface NodeRef {
  *   what a verb decides. That is what keeps a second input from becoming a
  *   second authority. A backend with no index concept ignores them.
  */
-export type CreateNodeSpec = DistributiveOmit<WorkGraphNode, "id"> & {
+export type CreateNodeSpec = DistributiveOmit<WorkGraphNode, "id" | "completion"> & {
   body?: string;
   parent?: NodeRef;
   labels?: readonly string[];
@@ -175,6 +194,8 @@ export interface NodeState {
   typed: boolean;
   /** Set when a typed block was present but unreadable. Visible state, never a silent downgrade. */
   parseError?: string;
+  /** True only when the production store proved a receipt belongs to this current closure. */
+  currentCloseReceipt?: boolean;
 }
 
 /**
@@ -191,7 +212,10 @@ export interface NodeState {
  * required — so a report missing the field type-checked and derived `open` on a
  * `blocked` node.
  */
-export type BridgedNodeReport = Pick<NodeState, "ref" | "status" | "blockedBy">;
+export type BridgedNodeReport = Pick<NodeState, "ref" | "status" | "blockedBy"> & {
+  /** Only a receipt-backed close is Soma-complete; tracker state alone is not a gate result. */
+  hasCloseReceipt: boolean;
+};
 
 /**
  * Outcome of a claim attempt after the store's post-write re-read (§2.4).
@@ -236,6 +260,8 @@ export interface NodeComment {
   id: string;
   author: string;
   body: string;
+  /** Tracker-authored creation timestamp, used to bind a receipt to one closure interval. */
+  createdAt?: string;
   url?: string;
 }
 
@@ -354,8 +380,12 @@ export interface CloseReceipt {
   /** Must match the node's attached checkpoint — one work item, one completion gate. */
   checkpointId: string;
   closedBy: string;
+  /** The node autonomy at the authoritative close write. */
+  autonomy?: WorkGraphAutonomy;
   /** ISO timestamp. */
   at: string;
+  /** Backend-derived hash of the close-gated node fields, rendered into the receipt. */
+  gatedNodeHash?: string;
   /**
    * The **human-readable half** of the close: why this node resolved the way it
    * did, in prose (#556).
@@ -396,6 +426,19 @@ export interface CloseReceipt {
    * beats a stale tool refusing to say so.
    */
   closedWith?: string;
+  /**
+   * CI evidence for `auto` nodes: a GitHub check run whose `success` conclusion
+   * only a GitHub App (GitHub Actions) can create. An issue editor who holds no
+   * push/CI-trigger authority cannot mint or edit such a run, so citing one moves
+   * completion from self-authored markdown to an immutable, API-verifiable fact.
+   *
+   * **Detection, not prevention.** Both the run id and the head SHA are supplied
+   * by the closer, so a collaborator who *can* push and trigger CI can still mint
+   * a passing run on a trivial commit and cite it. The binding refuses the
+   * fabricated-run forgery (the common, issue-only-editor case); it does not
+   * replace checkpoint-owned verification of what the probes actually ran against.
+   */
+  ci?: { checkRunId: string; headSha: string };
   evidence: readonly CloseEvidence[];
   probeResults: readonly ProbeResult[];
   /**
@@ -658,7 +701,7 @@ export interface GraphStore {
   readRawBody(ref: NodeRef): Promise<string>;
   /** Replace the node's raw body wholesale. Callers splice; the store writes. */
   writeRawBody(ref: NodeRef, body: string): Promise<void>;
-  close(ref: NodeRef, receipt: CloseReceipt): Promise<void>;
+  close(ref: NodeRef, receipt: CloseReceipt, expectedGatedNodeHash?: string): Promise<void>;
 }
 
 export type WorkGraphErrorCode =
@@ -852,6 +895,9 @@ function parseLabels(value: unknown): string[] {
  */
 export function parseNodeSpec(input: unknown): CreateNodeSpec {
   const record = asRecord(input, "invalid-node", "node spec");
+  if ("completion" in record) {
+    throw new WorkGraphError("invalid-node", "completion is backend-owned and cannot be supplied at creation");
+  }
   if ("id" in record && record.id !== undefined) {
     throw new WorkGraphError("invalid-node", `"id" is assigned by the store — never caller-supplied`);
   }
@@ -867,6 +913,21 @@ export function parseNodeSpec(input: unknown): CreateNodeSpec {
     : requireString(asRecord(record.parent, "invalid-node", "node spec: parent"), "id", "invalid-node", "node spec: parent");
   const probes = parseProbes(record.probes);
   const labels = parseLabels(record.labels);
+  const completion = record.completion === undefined ? undefined : (() => {
+    const value = asRecord(record.completion, "invalid-node", "node completion");
+    const autoProbeKeys = value.autoProbeKeys === undefined ? undefined : value.autoProbeKeys;
+    if (autoProbeKeys !== undefined && (!Array.isArray(autoProbeKeys) || autoProbeKeys.some((key) => typeof key !== "string"))) {
+      throw new WorkGraphError("invalid-node", "node completion autoProbeKeys must be strings");
+    }
+    return {
+      receiptCommentId: requireString(value, "receiptCommentId", "invalid-node", "node completion"),
+      checkpointId: requireString(value, "checkpointId", "invalid-node", "node completion"),
+      autonomy: parseAutonomy(value.autonomy),
+      closer: requireString(value, "closer", "invalid-node", "node completion"),
+      closedAt: requireString(value, "closedAt", "invalid-node", "node completion"),
+      ...(autoProbeKeys === undefined ? {} : { autoProbeKeys }),
+    };
+  })();
 
   const base = {
     title,
@@ -876,6 +937,7 @@ export function parseNodeSpec(input: unknown): CreateNodeSpec {
     ...(body === undefined ? {} : { body }),
     ...(parentId === undefined ? {} : { parent: { id: parentId } }),
     ...(labels.length === 0 ? {} : { labels }),
+    ...(completion === undefined ? {} : { completion }),
   };
 
   if (autonomy === "auto") {
@@ -1051,6 +1113,17 @@ export function assertClosable(node: WorkGraphNode, receipt: CloseReceipt): void
       `node ${node.id} (${node.autonomy}) needs at least one ${admissible.join(" or ")} evidence entry with an externally checkable pointer`,
     );
   }
+
+  // An `auto` node must cite a successful CI check run — the one fact about
+  // "the probes actually ran and passed" that an issue editor cannot author,
+  // because check-run conclusions are written only by a GitHub App. Without it
+  // the receipt is self-consistent markdown and no completion can be forged-proof.
+  if ((receipt.ci?.checkRunId ?? "").trim().length === 0 || (receipt.ci?.headSha ?? "").trim().length === 0) {
+    throw new WorkGraphError(
+      "close-refused",
+      `node ${node.id} (${node.autonomy}) must cite a successful CI check run (checkRunId and headSha) to close`,
+    );
+  }
 }
 
 /**
@@ -1097,6 +1170,19 @@ export function estimateReceiptChars(input: { resolution?: string; probeCount: n
 /** The marker a receipt comment always carries — what `audit` and `decisions` key on. */
 export const CLOSE_RECEIPT_MARKER = "## Close receipt";
 
+/** Deterministic SHA-256 commitment to the fields that the close gate authorizes. */
+export function hashGatedNodeFields(node: Pick<WorkGraphNode, "checkpointId" | "autonomy" | "probes">): string {
+  const canonicalize = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(canonicalize);
+    if (value !== null && typeof value === "object") {
+      return Object.fromEntries(Object.entries(value as Record<string, unknown>).sort(([left], [right]) => left.localeCompare(right)).map(([key, child]) => [key, canonicalize(child)]));
+    }
+    return value;
+  };
+  const canonical = canonicalize({ checkpointId: node.checkpointId ?? null, autonomy: node.autonomy, probes: node.probes ?? [] });
+  return createHash("sha256").update(JSON.stringify(canonical), "utf8").digest("hex");
+}
+
 /** The gist line inside a rendered receipt. One renderer, one parser — pinned against each other in tests. */
 const RECEIPT_GIST_LINE = /^- \*\*gist:\*\* (.+)$/mu;
 
@@ -1115,10 +1201,26 @@ export interface ReceiptScan {
  * — there is no side table to consult. The parse is pinned to
  * {@link renderCloseReceipt}'s exact output in tests, so the pair drifts loudly.
  */
+export function isStructurallyValidCloseReceipt(body: string): boolean {
+  const autonomy = /^- \*\*autonomy:\*\* `(auto|propose|approve)`$/mu.exec(body)?.[1];
+  const evidenceMarker = "### Evidence\n";
+  const evidenceOffset = body.indexOf(evidenceMarker);
+  const evidence = evidenceOffset === -1 ? "" : body.slice(evidenceOffset + evidenceMarker.length);
+  const hasEvidence = /^- `[^`\n]+` — \S.+$/mu.test(evidence);
+  return body.includes(CLOSE_RECEIPT_MARKER)
+    && /^- \*\*checkpoint:\*\* `[^`\n]+`$/mu.test(body)
+    && /^- \*\*closed by:\*\* \S.+$/mu.test(body)
+    && /^- \*\*at:\*\* \d{4}-\d{2}-\d{2}T[^\n]+$/mu.test(body)
+    && /^- \*\*attestation:\*\* `(?:verified|unverified)`$/mu.test(body)
+    && /^### Evidence$/mu.test(body)
+    && autonomy !== undefined
+    && (autonomy !== "auto" || hasEvidence);
+}
+
 export function scanCommentsForReceipt(bodies: readonly string[]): ReceiptScan {
   let found: string | undefined;
   for (const body of bodies) {
-    if (body.includes(CLOSE_RECEIPT_MARKER)) found = body;
+    if (isStructurallyValidCloseReceipt(body)) found = body;
   }
   if (found === undefined) return { hasReceipt: false };
   const gist = RECEIPT_GIST_LINE.exec(found)?.[1]?.trim();
@@ -1168,8 +1270,11 @@ export function renderCloseReceipt(receipt: CloseReceipt): string {
     `- **checkpoint:** \`${receipt.checkpointId}\``,
     ...((receipt.gist ?? "").trim().length === 0 ? [] : [`- **gist:** ${(receipt.gist ?? "").trim()}`]),
     `- **closed by:** ${receipt.closedBy}`,
+    `- **autonomy:** \`${receipt.autonomy ?? "approve"}\``,
     ...((receipt.closedWith ?? "").length === 0 ? [] : [`- **closed with:** ${receipt.closedWith}`]),
     `- **at:** ${receipt.at}`,
+    ...(receipt.gatedNodeHash === undefined ? [] : [`- **gated node hash:** \`${receipt.gatedNodeHash}\``]),
+    ...(receipt.ci === undefined ? [] : [`- **ci:** \`${receipt.ci.checkRunId}@${receipt.ci.headSha}\``]),
     `- **attestation:** \`${receipt.attestation}\``,
     ``,
     `### Evidence`,
@@ -1389,6 +1494,6 @@ export class WorkGraph {
       throw new WorkGraphError("node-closed", `node ${ref.id} is already closed`);
     }
     assertClosable(state.node, receipt);
-    await this.store.close(ref, receipt);
+    await this.store.close(ref, { ...receipt, autonomy: state.node.autonomy }, hashGatedNodeFields(state.node));
   }
 }

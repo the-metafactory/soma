@@ -105,7 +105,7 @@ export const GRAPH_COMMAND_HELP: { usage: string; subcommands: Record<GraphActio
       "Usage: soma graph release <id> [--identity <login>] [--repo <owner/name>] [--json] — identity-bound self-release: abandon your own claim (only ever unassigns the acting identity)",
     add: "Usage: soma graph add <root> --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--kind <k>] [--label <name>]... [--body <text>|--body-file <path>] [--probe <json>]... [--blocked-by <id>]... [--budget-tokens <n>] [--budget-invocations <n>] [--budget-minutes <n>] [--repo <owner/name>] [--json]",
     close:
-      "Usage: soma graph close <id> --resolution-file <path> [--gist <one line>] [--propose --body <text>|--body-file <path>] [--proposal-comment <id>] [--checkpoint <id>] [--evidence <json>]... [--identity <login>] [--dry-run] [--repo <owner/name>]",
+      "Usage: soma graph close <id> --resolution-file <path> [--gist <one line>] [--ci <checkRunId>@<headSha>] [--propose --body <text>|--body-file <path>] [--proposal-comment <id>] [--checkpoint <id>] [--evidence <json>]... [--identity <login>] [--dry-run] [--repo <owner/name>]",
     audit: "Usage: soma graph audit <root> [--repo <owner/name>] [--json]",
     decisions: "Usage: soma graph decisions <root> [--write] [--repo <owner/name>] [--json]",
   },
@@ -169,6 +169,7 @@ export interface ParsedGraphCloseArgs {
     gist?: string;
     proposalComment?: string;
     checkpointId?: string;
+    ci?: { checkRunId: string; headSha: string };
     identity?: string;
     dryRun?: boolean;
     evidence: CloseEvidence[];
@@ -406,6 +407,16 @@ function parseCloseArgs(target: string, rest: string[]): ParsedGraphCloseArgs {
         options.checkpointId = readOption(rest, index, arg);
         index += 1;
         break;
+      case "--ci": {
+        const value = readOption(rest, index, arg);
+        const at = value.lastIndexOf("@");
+        if (at <= 0 || at === value.length - 1) {
+          throw new Error("--ci must be <checkRunId>@<headSha>");
+        }
+        options.ci = { checkRunId: value.slice(0, at), headSha: value.slice(at + 1) };
+        index += 1;
+        break;
+      }
       case "--identity":
         options.identity = readOption(rest, index, arg);
         index += 1;
@@ -1267,6 +1278,7 @@ async function runClose(
     at: deps.now().toISOString(),
     ...(resolution === undefined ? {} : { resolution }),
     ...(parsed.options.gist === undefined ? {} : { gist: parsed.options.gist }),
+    ...(parsed.options.ci === undefined ? {} : { ci: parsed.options.ci }),
     evidence,
     probeResults,
     ...(probeTrees.length === 0 ? {} : { probeTrees }),

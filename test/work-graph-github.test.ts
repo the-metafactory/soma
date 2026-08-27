@@ -8,6 +8,7 @@ import {
   encodeNodeBlock,
   estimateSubtreeQueryPrimaryRatePoints,
   ghApiArgs,
+  hashGatedNodeFields,
   parseGhApiOutput,
   parseNodeSpec,
   type GitHubApiRequest,
@@ -832,6 +833,7 @@ test("reaction authors come from the API author field, never from body text", as
 
 test("close posts the receipt before flipping the state", async () => {
   const { transport, calls } = fakeTransport({
+    [`GET repos/${REPO}/issues/497`]: issuePayload({ body: typedBody({ autonomy: "auto", checkpointId: "cp-497", probes: [PROBE] }) }),
     [`POST repos/${REPO}/issues/497/comments`]: { id: 42, user: { login: "ivy-agent" } },
     [`PATCH repos/${REPO}/issues/497`]: issuePayload({ state: "closed" }),
   });
@@ -849,11 +851,14 @@ test("close posts the receipt before flipping the state", async () => {
   );
 
   expect(calls.map((call) => call.key)).toEqual([
+    `GET repos/${REPO}/issues/497`,
     `POST repos/${REPO}/issues/497/comments`,
     `PATCH repos/${REPO}/issues/497`,
   ]);
-  expect((calls[0]?.body as { body: string }).body).toContain("cp-497");
-  expect((calls[1]?.body as { state: string }).state).toBe("closed");
+  expect((calls[1]?.body as { body: string }).body).toContain("cp-497");
+  const closeWrite = calls[2]?.body as { body: string; state: string };
+  expect(closeWrite.body).toContain("receiptCommentId");
+  expect(closeWrite.state).toBe("closed");
 });
 
 // --- construction -----------------------------------------------------------
@@ -862,4 +867,84 @@ test("a graph is bound to one owner/name repo", () => {
   const { transport } = fakeTransport({});
   expect(() => createGitHubGraphStore({ repo: "soma", transport })).toThrow(WorkGraphError);
   expect(() => createGitHubGraphStore({ repo: REPO, transport })).not.toThrow();
+});
+
+test("readNode ignores a receipt from before reopen and current reclose", async () => {
+  const receipt = "## Close receipt\n\n- **checkpoint:** `cp-497`\n- **closed by:** ivy\n- **autonomy:** `approve`\n- **at:** 2026-01-01T00:00:00.000Z\n- **attestation:** `unverified`\n\n### Evidence\n";
+  const { transport } = fakeTransport({
+    [`GET repos/${REPO}/issues/497`]: issuePayload({ state: "closed", body: typedBody({ autonomy: "approve", checkpointId: "cp-497" }) }),
+    [`GET repos/${REPO}/issues/497/dependencies/blocked_by`]: [],
+    [`GET repos/${REPO}/issues/497/comments`]: [{ id: 1, body: receipt, created_at: "2026-01-01T00:00:00.000Z", user: { login: "ivy" } }],
+    [`GET repos/${REPO}/issues/497/events`]: [
+      { event: "closed", created_at: "2026-01-01T01:00:00.000Z" },
+      { event: "reopened", created_at: "2026-01-02T00:00:00.000Z" },
+      { event: "closed", created_at: "2026-01-03T00:00:00.000Z" },
+    ],
+  });
+  const state = await createGitHubGraphStore({ repo: REPO, transport }).readNode({ id: "497" });
+  expect(state.currentCloseReceipt).toBe(false);
+});
+
+type CompletionFixture = { receiptCommentId: string; checkpointId: string; autonomy: "approve"; closer: string; closedAt: string; gatedNodeHash: string };
+
+async function currentCloseReceipt(completion?: CompletionFixture): Promise<boolean | undefined> {
+  const { transport } = fakeTransport({
+    [`GET repos/${REPO}/issues/497`]: issuePayload({ state: "closed", body: typedBody({ autonomy: "approve", checkpointId: "cp-497", ...(completion === undefined ? {} : { completion }) }) }),
+    [`GET repos/${REPO}/issues/497/dependencies/blocked_by`]: [],
+    [`GET repos/${REPO}/issues/comments/42`]: { id: 42, user: { login: "ivy" } },
+    [`GET repos/${REPO}/issues/497/comments`]: [{ id: 42, body: "## Close receipt\n\n- **checkpoint:** `cp-497`\n- **closed by:** ivy\n- **autonomy:** `approve`\n- **at:** 2026-01-03T00:00:00.000Z\n- **attestation:** `verified`\n- **gated node hash:** `" + hashGatedNodeFields({ autonomy: "approve", checkpointId: "cp-497", probes: [] }) + "`\n\n### Evidence\n", created_at: "2026-01-03T00:00:00.000Z", user: { login: "ivy" } }],
+    [`GET repos/${REPO}/issues/497/events`]: [{ event: "closed", created_at: "2026-01-03T00:00:00.000Z", actor: { login: "ivy" } }],
+  });
+  return (await createGitHubGraphStore({ repo: REPO, transport }).readNode({ id: "497" })).currentCloseReceipt;
+}
+
+const validCompletion: CompletionFixture = { receiptCommentId: "42", checkpointId: "cp-497", autonomy: "approve", closer: "ivy", closedAt: "2026-01-03T00:00:00.000Z", gatedNodeHash: hashGatedNodeFields({ autonomy: "approve", checkpointId: "cp-497", probes: [] }) };
+
+test("readNode rejects a missing completion binding", async () => { expect(await currentCloseReceipt()).toBe(false); });
+test("readNode rejects a stale completion binding", async () => { expect(await currentCloseReceipt({ ...validCompletion, checkpointId: "cp-stale" })).toBe(false); });
+test("readNode rejects a forged completion binding", async () => { expect(await currentCloseReceipt({ ...validCompletion, autonomy: "approve", closer: "mallory" })).toBe(false); });
+test("readNode accepts a valid persisted completion binding", async () => { expect(await currentCloseReceipt(validCompletion)).toBe(true); });
+
+// Auto completion is forge-proof only through its cited CI check run: an issue
+// editor can write the receipt, the binding, and the close, but not a check-run
+// `success` conclusion (Checks API is GitHub-App-only). Pin the rejection.
+function autoCompletion(): Record<string, unknown> {
+  return {
+    receiptCommentId: "42",
+    checkpointId: "cp-497",
+    autonomy: "auto",
+    closer: "ivy",
+    closedAt: "2026-01-03T00:00:00.000Z",
+    gatedNodeHash: hashGatedNodeFields({ autonomy: "auto", checkpointId: "cp-497", probes: [PROBE] }),
+    autoProbeKeys: [JSON.stringify(PROBE)],
+    ciCheckRunId: "98765",
+    ciHeadSha: "deadbeef",
+  };
+}
+
+async function autoCurrentCloseReceipt(checkRun: Record<string, unknown>): Promise<boolean | undefined> {
+  const completion = autoCompletion();
+  const receiptBody =
+    "## Close receipt\n\n- **checkpoint:** `cp-497`\n- **closed by:** ivy\n- **autonomy:** `auto`\n- **at:** 2026-01-03T00:00:00.000Z\n- **gated node hash:** `" + completion.gatedNodeHash +
+    "`\n- **ci:** `98765@deadbeef`\n- **attestation:** `unverified`\n\n### Evidence\n\n- `probed` — bun test exit 0 (https://example.test/run/1)\n";
+  const { transport } = fakeTransport({
+    [`GET repos/${REPO}/issues/497`]: issuePayload({ state: "closed", body: typedBody({ autonomy: "auto", checkpointId: "cp-497", probes: [PROBE], completion }) }),
+    [`GET repos/${REPO}/issues/497/dependencies/blocked_by`]: [],
+    [`GET repos/${REPO}/issues/497/comments`]: [{ id: 42, body: receiptBody, created_at: "2026-01-03T00:00:00.000Z", user: { login: "ivy" } }],
+    [`GET repos/${REPO}/issues/497/events`]: [{ event: "closed", created_at: "2026-01-03T00:00:00.000Z", actor: { login: "ivy" } }],
+    [`GET repos/${REPO}/check-runs/98765`]: checkRun,
+  });
+  return (await createGitHubGraphStore({ repo: REPO, transport }).readNode({ id: "497" })).currentCloseReceipt;
+}
+
+test("readNode rejects an auto completion citing a failed CI check run", async () => {
+  expect(await autoCurrentCloseReceipt({ conclusion: "failure", head_sha: "deadbeef" })).toBe(false);
+});
+
+test("readNode rejects an auto completion citing a check run for another commit", async () => {
+  expect(await autoCurrentCloseReceipt({ conclusion: "success", head_sha: "another-sha" })).toBe(false);
+});
+
+test("readNode accepts an auto completion citing a successful CI check run", async () => {
+  expect(await autoCurrentCloseReceipt({ conclusion: "success", head_sha: "deadbeef" })).toBe(true);
 });

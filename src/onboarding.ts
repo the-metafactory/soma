@@ -5,6 +5,7 @@ import { DOCTOR_UNSUPPORTED_DRIFT_MESSAGE, diagnoseProjectionDrift, isDoctorSubs
 import { installSomaForClaudeCode, installSomaForCodex, installSomaForCursor, installSomaForDsh, installSomaForGrok, installSomaForPiDev } from "./install";
 import { migrateClaudeSkills, probeClaudeSkillsSource } from "./claude-skills-migrator";
 import { bootstrapSomaHome } from "./soma-home";
+import { inspectRuntimeArtifact, isGuardedRuntimeSubstrate } from "./runtime-artifact";
 import { migratePai } from "./pai-migration";
 import { isEnoent, pathExists } from "./fs-utils";
 import type {
@@ -293,6 +294,26 @@ export async function diagnoseSomaDoctor(options: SomaOnboardingOptions = {}): P
       message: "PAI source exists, but Soma has no PAI migration manifest.",
       action: `soma migrate pai --pai-install ${shellQuote(detected.detected.paiInstall)} --apply ${sharedPathFlags(detected)}`,
     });
+  }
+
+  const guardedHookConfigs: Partial<Record<InitSubstrate, string>> = {
+    "claude-code": join(detected.homeDir, ".claude", "hooks/soma/soma-policy-guard.config.json"),
+    codex: join(detected.homeDir, ".codex", "hooks/soma-lifecycle.config.json"),
+    grok: join(detected.homeDir, ".grok", "hooks/soma-lifecycle.config.json"),
+  };
+  const guardedHookConfig = guardedHookConfigs[substrate];
+  const hasGuardedHook = guardedHookConfig !== undefined && await pathExists(guardedHookConfig);
+  // An artifact is required only after this substrate has a guarded hook configured.
+  if (hasGuardedHook && isGuardedRuntimeSubstrate(substrate)) {
+    const runtime = await inspectRuntimeArtifact(detected.somaHome, substrate);
+    if (runtime.status !== "ready") {
+      findings.push({
+        id: runtime.status === "unloadable" ? "runtime-artifact-unloadable" : "runtime-artifact-missing",
+        severity: "error",
+        message: `Active enforcement artifact is ${runtime.status.replace(/-/g, " ")}; guarded hooks fail closed until it is restored.`,
+        action: `soma install ${substrate} --apply --home-dir ${shellQuote(detected.homeDir)} --soma-home ${shellQuote(detected.somaHome)}; if a retained artifact exists, run soma runtime rollback --substrate ${substrate} --soma-home ${shellQuote(detected.somaHome)}`,
+      });
+    }
   }
 
   findings.push(...await diagnoseProjectionDrift({

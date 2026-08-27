@@ -20,6 +20,8 @@ import {
   WorkGraphError,
   parseNodeSpec,
   renderCloseReceipt,
+  isStructurallyValidCloseReceipt,
+  hashGatedNodeFields,
   resolveClaimRace,
   toNode,
   type AttestationCapability,
@@ -460,12 +462,13 @@ function readComment(value: unknown, context: string): GitHubComment {
 }
 
 /** The typed half of a node, as stored in the issue body. Title lives in the issue title; parent is a native edge. */
-export function encodeNodeBlock(spec: CreateNodeSpec): string {
+export function encodeNodeBlock(spec: CreateNodeSpec & { completion?: WorkGraphNode["completion"] }): string {
   const payload: Record<string, unknown> = { autonomy: spec.autonomy };
   if (spec.kind !== undefined) payload.kind = spec.kind;
   if (spec.checkpointId !== undefined) payload.checkpointId = spec.checkpointId;
   if (spec.budget !== undefined) payload.budget = spec.budget;
   if (spec.probes !== undefined && spec.probes.length > 0) payload.probes = spec.probes;
+  if (spec.completion !== undefined) payload.completion = spec.completion;
   return `${NODE_BLOCK_OPEN}\n${JSON.stringify(payload, null, 2)}\n${NODE_BLOCK_CLOSE}`;
 }
 
@@ -504,8 +507,27 @@ function nodeFromIssue(issue: GitHubIssue): { node: WorkGraphNode; typed: boolea
   }
   try {
     const block = asRecord(JSON.parse(decoded.raw) as unknown, "node block");
+    const rawCompletion = block.completion;
+    delete block.completion;
     const spec = parseNodeSpec({ ...block, title: issue.title });
-    return { node: toNode(String(issue.number), spec), typed: true, text: decoded.text };
+    const node = toNode(String(issue.number), spec);
+    if (rawCompletion === undefined) return { node, typed: true, text: decoded.text };
+    const completion = asRecord(rawCompletion, "node completion");
+    const fields = ["receiptCommentId", "checkpointId", "closer", "closedAt", "gatedNodeHash"] as const;
+    if (fields.some((field) => typeof completion[field] !== "string")
+      || !["auto", "propose", "approve"].includes(String(completion.autonomy))) {
+      throw new WorkGraphError("invalid-node", "invalid persisted completion binding");
+    }
+    const autoProbeKeys = completion.autoProbeKeys;
+    if (autoProbeKeys !== undefined && (!Array.isArray(autoProbeKeys) || autoProbeKeys.some((key) => typeof key !== "string"))) {
+      throw new WorkGraphError("invalid-node", "invalid persisted completion probe keys");
+    }
+    const ciCheckRunId = completion.ciCheckRunId;
+    const ciHeadSha = completion.ciHeadSha;
+    if ((ciCheckRunId !== undefined && typeof ciCheckRunId !== "string") || (ciHeadSha !== undefined && typeof ciHeadSha !== "string")) {
+      throw new WorkGraphError("invalid-node", "invalid persisted completion CI binding");
+    }
+    return { node: { ...node, completion: { receiptCommentId: completion.receiptCommentId as string, checkpointId: completion.checkpointId as string, autonomy: completion.autonomy as WorkGraphNode["autonomy"], closer: completion.closer as string, closedAt: completion.closedAt as string, gatedNodeHash: completion.gatedNodeHash as string, ...(autoProbeKeys === undefined ? {} : { autoProbeKeys: autoProbeKeys as string[] }), ...(ciCheckRunId === undefined ? {} : { ciCheckRunId: ciCheckRunId as string, ciHeadSha: ciHeadSha as string }) } }, typed: true, text: decoded.text };
   } catch (error) {
     // Visible state, never a silent downgrade: the node falls back to the
     // most-gated class AND says why.
@@ -574,11 +596,10 @@ class GitHubGraphStore implements GraphStore {
   async readNode(ref: NodeRef): Promise<NodeState> {
     const issue = await this.fetchIssue(ref);
     const parentNumber = issue.parentNumber ?? (await this.fetchParentNumber(issue.number));
-    return toNodeState(
-      issue,
-      await this.fetchBlockers(ref),
-      parentNumber === undefined ? undefined : { id: String(parentNumber) },
-    );
+    const state = toNodeState(issue, await this.fetchBlockers(ref), parentNumber === undefined ? undefined : { id: String(parentNumber) });
+    if (issue.status !== "closed") return state;
+    if (state.node.completion === undefined) return { ...state, currentCloseReceipt: false };
+    return { ...state, currentCloseReceipt: await this.hasCurrentCloseReceipt(ref, issue, state.node.completion) };
   }
 
   /**
@@ -873,6 +894,63 @@ class GitHubGraphStore implements GraphStore {
     });
   }
 
+  /** Completion is authority only when its persisted binding matches this closure. */
+  private async hasCurrentCloseReceipt(ref: NodeRef, issue: GitHubIssue, completion: NonNullable<WorkGraphNode["completion"]>): Promise<boolean> {
+    const node = nodeFromIssue(issue).node;
+    if (completion.checkpointId !== node.checkpointId || completion.autonomy !== node.autonomy) return false;
+    if (completion.gatedNodeHash !== hashGatedNodeFields(node)) return false;
+    const [comments, events] = await Promise.all([
+      this.listComments(ref),
+      this.transport({ method: "GET", path: `repos/${this.repo}/issues/${ref.id}/events`, paginate: true }),
+    ]);
+    const comment = comments.find((entry) => entry.id === completion.receiptCommentId);
+    if (comment === undefined || comment.author !== completion.closer || !isStructurallyValidCloseReceipt(comment.body)) return false;
+    const timeline = asArray(events, "issue events").flatMap((entry) => {
+      const record = asRecord(entry, "issue event");
+      const at = typeof record.created_at === "string" ? Date.parse(record.created_at) : NaN;
+      const event = record.event;
+      const actor = event === "closed" ? readLogin(record.actor) : undefined;
+      return Number.isFinite(at) && (event === "closed" || event === "reopened") ? [{ event, at, actor }] : [];
+    }).sort((left, right) => left.at - right.at);
+    const close = [...timeline].reverse().find((entry) => entry.event === "closed");
+    if (close === undefined || close.actor === undefined) return false;
+    const reopened = [...timeline].reverse().find((entry) => entry.event === "reopened" && entry.at < close.at);
+    const commentAt = comment.createdAt === undefined ? NaN : Date.parse(comment.createdAt);
+    const boundAt = Date.parse(completion.closedAt);
+    const checkpoint = /^- \*\*checkpoint:\*\* `([^`\n]+)`$/mu.exec(comment.body)?.[1];
+    const autonomy = /^- \*\*autonomy:\*\* `([^`\n]+)`$/mu.exec(comment.body)?.[1];
+    const receiptAt = /^- \*\*at:\*\* ([^\n]+)$/mu.exec(comment.body)?.[1];
+    const gatedNodeHash = /^- \*\*gated node hash:\*\* `([a-f0-9]{64})`$/mu.exec(comment.body)?.[1];
+    if (close.actor !== completion.closer
+      || !Number.isFinite(commentAt) || !Number.isFinite(boundAt)
+      || commentAt > close.at || (reopened !== undefined && commentAt < reopened.at)
+      || checkpoint !== completion.checkpointId || autonomy !== completion.autonomy
+      || receiptAt !== completion.closedAt || gatedNodeHash !== completion.gatedNodeHash) {
+      return false;
+    }
+    // Auto completion is only as strong as the CI run it cites: a check-run
+    // `success` conclusion is written by a GitHub App, not an issue editor, so
+    // it is the one completion fact a tracker-writer cannot forge. Verify it live.
+    if (node.autonomy === "auto") {
+      if (completion.ciCheckRunId === undefined || completion.ciHeadSha === undefined) return false;
+      const run = await this.fetchCheckRun(completion.ciCheckRunId);
+      if (run.conclusion !== "success" || run.headSha !== completion.ciHeadSha) return false;
+    }
+    return true;
+  }
+
+  /** The one immutable completion fact an issue editor cannot mint: a GitHub check-run conclusion. */
+  private async fetchCheckRun(checkRunId: string): Promise<{ conclusion: string; headSha: string }> {
+    const record = asRecord(
+      await this.transport({ method: "GET", path: `repos/${this.repo}/check-runs/${checkRunId}` }),
+      "check run",
+    );
+    return {
+      conclusion: typeof record.conclusion === "string" ? record.conclusion : "",
+      headSha: typeof record.head_sha === "string" ? record.head_sha : "",
+    };
+  }
+
   /** Bodies included — the read half of {@link postComment}. Paginated: receipts are often the last comment. */
   async listComments(ref: NodeRef): Promise<NodeComment[]> {
     const comments = asArray(
@@ -889,6 +967,7 @@ class GitHubGraphStore implements GraphStore {
         id: String(readNumber(record, "id", "listComments")),
         author: readLogin(record.user),
         body: typeof record.body === "string" ? record.body : "",
+        ...(typeof record.created_at === "string" ? { createdAt: record.created_at } : {}),
         ...(typeof record.html_url === "string" ? { url: record.html_url } : {}),
       };
     });
@@ -907,12 +986,35 @@ class GitHubGraphStore implements GraphStore {
   }
 
   /** Receipt first, then the state change: a close that fails halfway leaves the evidence, not a bare closed issue. */
-  async close(ref: NodeRef, receipt: CloseReceipt): Promise<void> {
-    await this.postComment(ref, renderCloseReceipt(receipt));
+  async close(ref: NodeRef, receipt: CloseReceipt, expectedGatedNodeHash?: string): Promise<void> {
+    const issue = await this.fetchIssue(ref);
+    const decoded = nodeFromIssue(issue);
+    const node = decoded.node;
+    const gatedNodeHash = hashGatedNodeFields(node);
+    if (expectedGatedNodeHash !== undefined && gatedNodeHash !== expectedGatedNodeHash) {
+      throw new WorkGraphError("invalid-node", `node ${ref.id} changed after close validation`);
+    }
+    const boundReceipt = { ...receipt, autonomy: node.autonomy, gatedNodeHash };
+    const posted = await this.postComment(ref, renderCloseReceipt(boundReceipt));
+    if (posted.author === undefined || posted.author.length === 0) {
+      throw new WorkGraphError("backend", "posted close receipt has no authenticated author");
+    }
+    const completion = {
+      receiptCommentId: posted.id,
+      checkpointId: receipt.checkpointId,
+      autonomy: receipt.autonomy ?? node.autonomy,
+      closer: posted.author,
+      closedAt: boundReceipt.at,
+      gatedNodeHash,
+      ...(node.autonomy === "auto" ? { autoProbeKeys: (node.probes ?? []).map((probe) => JSON.stringify(probe)).sort() } : {}),
+      ...(receipt.ci === undefined ? {} : { ciCheckRunId: receipt.ci.checkRunId, ciHeadSha: receipt.ci.headSha }),
+    };
+    const body = [decoded.text, encodeNodeBlock({ ...node, title: issue.title, completion })]
+      .filter((part) => part.length > 0).join("\n\n");
     await this.transport({
       method: "PATCH",
       path: `repos/${this.repo}/issues/${ref.id}`,
-      body: { state: "closed", state_reason: "completed" },
+      body: { body, state: "closed", state_reason: "completed" },
     });
   }
 

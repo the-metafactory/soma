@@ -11,7 +11,7 @@
  * reader.
  */
 import { WorkGraph } from "./work-graph";
-import type { GraphStore, NodeState } from "./work-graph";
+import type { BridgedNodeReport, GraphStore } from "./work-graph";
 import { createGitHubGraphStore } from "./work-graph-github";
 import { runCommand } from "./work-graph-probes";
 
@@ -53,8 +53,12 @@ export interface ReadNodeForBridgeOptions {
  * Read one node for a bridge consumer — the same `WorkGraph.readNode` the
  * `soma graph node` verb calls, over the same repo resolution.
  */
-export async function readNodeForBridge(nodeId: string, options: ReadNodeForBridgeOptions = {}): Promise<NodeState> {
+export async function readNodeForBridge(nodeId: string, options: ReadNodeForBridgeOptions = {}): Promise<BridgedNodeReport> {
   const createStore = options.createStore ?? ((repo: string) => createGitHubGraphStore({ repo }));
   const repo = options.repo ?? (await (options.resolveRepo ?? resolveGraphRepo)());
-  return await new WorkGraph(createStore(repo)).readNode({ id: nodeId });
+  const store = createStore(repo);
+  const state = await new WorkGraph(store).readNode({ id: nodeId });
+  // The production GraphStore binds this to the current tracker close; bridge
+  // consumers never inspect comments and therefore cannot bless stale receipts.
+  return { ref: state.ref, status: state.status, blockedBy: state.blockedBy, hasCloseReceipt: state.currentCloseReceipt === true };
 }

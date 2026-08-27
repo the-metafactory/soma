@@ -164,7 +164,7 @@ function main() {
 
   const output = result.stdout || result.stderr || "";
   if (result.status !== 0) {
-    deny(`Soma runtime policy inspection failed closed: ${output || "unknown error"}.`);
+    deny(`Soma runtime policy inspection failed closed: ${output || "unknown error"}. Reinstall the active enforcement artifact with soma install claude-code --apply, or run soma runtime rollback.`);
     return;
   }
   let inspection;

@@ -3,6 +3,7 @@ import {
   WorkGraph,
   WorkGraphError,
   assertClosable,
+  hashGatedNodeFields,
   estimateReceiptChars,
   scanCommentsForReceipt,
   spliceSection,
@@ -171,6 +172,9 @@ function receipt(overrides: Partial<CloseReceipt> = {}): CloseReceipt {
       { probe: PASSING_PROBE, state: "probed", outcome: "pass", observed: "exit 0", at: "2026-08-04T09:59:00.000Z" },
     ],
     attestation: "unverified",
+    // `auto` closes must cite a successful CI check run (§3.1) — defaulted here
+    // so the tests about the other conjuncts stay about them.
+    ci: { checkRunId: "12345", headSha: "abc123def456" },
     ...overrides,
   };
 }
@@ -310,18 +314,15 @@ test("the receipt estimate counts the prose and the failing-case probe size", ()
   expect(RECEIPT_COMMENT_BUDGET).toBeLessThan(RECEIPT_COMMENT_LIMIT);
 });
 
-test("the last receipt wins the scan — a re-close supersedes (#588's reopen-and-close-properly)", () => {
-  const scan = scanCommentsForReceipt([
-    "just a discussion comment",
-    "## Close receipt\n\n- **gist:** the premature close",
-    "## Resolution\n\nredone\n\n## Close receipt\n\n- **gist:** the real close",
-  ]);
-  expect(scan.hasReceipt).toBe(true);
-  expect(scan.gist).toBe("the real close");
+test("the receipt scan rejects marker-only comments and accepts a rendered receipt", () => {
+  expect(scanCommentsForReceipt(["just a discussion comment", "## Close receipt\n\n- **checkpoint:** `cp-x`"])).toEqual({ hasReceipt: false });
+  const receipt: CloseReceipt = { checkpointId: "cp-x", closedBy: "ivy", at: "2026-08-24T12:00:00.000Z", attestation: "unverified", evidence: [{ kind: "probed", summary: "test passed" }], probeResults: [] };
+  expect(scanCommentsForReceipt([renderCloseReceipt(receipt)])).toEqual({ hasReceipt: true });
+});
 
-  expect(scanCommentsForReceipt(["no receipt anywhere"]).hasReceipt).toBe(false);
-  // A receipt without a gist still counts as a receipt.
-  expect(scanCommentsForReceipt(["## Close receipt\n\n- **checkpoint:** `cp-x`"])).toEqual({ hasReceipt: true });
+test("the receipt scan accepts a rendered HITL receipt without evidence", () => {
+  const hitl: CloseReceipt = { checkpointId: "cp-hitl", closedBy: "jcfischer", at: "2026-08-24T12:00:00.000Z", attestation: "unverified", evidence: [], probeResults: [] };
+  expect(scanCommentsForReceipt([renderCloseReceipt(hitl)])).toEqual({ hasReceipt: true });
 });
 
 test("spliceSection replaces only the marked span, and refuses malformed markers", () => {
@@ -370,7 +371,7 @@ class FakeStore implements GraphStore {
   readonly attestation = "verifiable" as const;
   readonly nodes = new Map<string, FakeNode>();
   readonly children = new Map<string, string[]>();
-  readonly closed: { ref: NodeRef; receipt: CloseReceipt }[] = [];
+  readonly closed: { ref: NodeRef; receipt: CloseReceipt; expectedGatedNodeHash?: string }[] = [];
   readonly created: CreateNodeSpec[] = [];
   readonly edges: [string, string][] = [];
   readonly claims: string[] = [];
@@ -454,8 +455,8 @@ class FakeStore implements GraphStore {
     // Nothing stores raw bodies in this fake; the CLI tests exercise the splice.
   }
 
-  async close(ref: NodeRef, closeReceipt: CloseReceipt): Promise<void> {
-    this.closed.push({ ref, receipt: closeReceipt });
+  async close(ref: NodeRef, closeReceipt: CloseReceipt, expectedGatedNodeHash?: string): Promise<void> {
+    this.closed.push({ ref, receipt: closeReceipt, expectedGatedNodeHash });
     const entry = this.nodes.get(ref.id);
     if (entry) entry.state = { ...entry.state, status: "closed" };
   }
@@ -553,6 +554,7 @@ test("the prose rule holds at the seam, not only in the CLI", async () => {
   await graph.close({ id: "497" }, receipt());
   expect(store.closed).toHaveLength(1);
   expect(store.closed[0].receipt.resolution).toContain("The seam ships");
+  expect(store.closed[0].expectedGatedNodeHash).toBe(hashGatedNodeFields(store.nodes.get("497")!.state.node));
 });
 
 test("close gates on the node as the store reports it, not on a caller-supplied copy", async () => {

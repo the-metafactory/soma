@@ -506,6 +506,7 @@ export {
   type UninstallGrokOptions,
   type UninstallGrokResult,
 } from "./install";
+export { inspectRuntimeArtifact, rollbackRuntimeArtifact } from "./runtime-artifact";
 export * as experimentalAnthropicCowork from "./experimental/anthropic-cowork";
 export type { ClaudeCodeInstallOptions } from "./adapters/claude-code/install-options";
 // Adapter active-VSA projection helpers (#37).
@@ -725,6 +726,7 @@ export {
   WorkGraphError,
   agentExternalEvidenceKinds,
   assertClosable,
+  hashGatedNodeFields,
   normalizeKind,
   parseNodeSpec,
   parseProbe,

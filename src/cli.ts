@@ -119,6 +119,7 @@ import {
   runPreCompactCli,
   type ParsedPreCompactArgs,
 } from "./cli/precompact";
+import { RUNTIME_COMMAND_HELP, parseRuntimeArgs, runRuntimeCli, type ParsedRuntimeArgs } from "./cli/runtime";
 import {
   GRAPH_COMMAND_HELP,
   parseGraphArgs,
@@ -170,7 +171,8 @@ type ParsedArgs =
   | ParsedWritebackArgs
   | ParsedVsaArgs
   | ParsedSnapshotCommandArgs
-  | ParsedToolArgs;
+  | ParsedToolArgs
+  | ParsedRuntimeArgs;
 
 const TOP_LEVEL_COMMANDS = [
   "adopt",
@@ -200,6 +202,7 @@ const TOP_LEVEL_COMMANDS = [
   "reproject",
   "unproject-skill",
   "result",
+  "runtime",
   "rollback",
   "session",
   "stats",
@@ -237,6 +240,7 @@ const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string,
   import: IMPORT_COMMAND_HELP,
   migrate: MIGRATE_COMMAND_HELP,
   ...SNAPSHOT_COMMAND_HELP,
+  runtime: RUNTIME_COMMAND_HELP,
   adopt: ONBOARDING_COMMAND_HELP.adopt,
   vsa: {
     // Single source of truth lives in `./cli-vsa.ts` (Sage round-1 dedup).
@@ -369,6 +373,10 @@ function parseArgs(args: string[]): ParsedArgs {
 
   if (args[0] === "migrate") {
     return parseMigrateArgs(args);
+  }
+
+  if (args[0] === "runtime") {
+    return parseRuntimeArgs(args);
   }
 
   if (args[0] === "snapshot") {
@@ -568,6 +576,10 @@ export async function runSomaCli(args: string[]): Promise<string> {
 
   if (parsed.command === "migrate") {
     return runMigrateCli(parsed);
+  }
+
+  if (parsed.command === "runtime") {
+    return runRuntimeCli(parsed);
   }
 
   if (parsed.command === "snapshot" || parsed.command === "history" || parsed.command === "rollback") {

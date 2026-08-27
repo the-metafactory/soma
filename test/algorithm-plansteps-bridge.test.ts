@@ -45,7 +45,7 @@ function freshRun(): AlgorithmRun {
 }
 
 function report(overrides: Partial<BridgedNodeReport> = {}): BridgedNodeReport {
-  return { ref: { id: "501" }, status: "open", blockedBy: [], ...overrides };
+  return { ref: { id: "501" }, status: "open", blockedBy: [], hasCloseReceipt: false, ...overrides };
 }
 
 /**
@@ -148,8 +148,9 @@ test("the batch `step` operation is refused on a bridged step too — one contra
 
 // --- the derivation --------------------------------------------------------
 
-test("a closed node is the only `done`", () => {
-  expect(deriveBridgedPlanStepStatus(report({ status: "closed" }))).toBe("done");
+test("only a receipt-backed closed node is Soma-complete", () => {
+  expect(deriveBridgedPlanStepStatus(report({ status: "closed", hasCloseReceipt: true }))).toBe("done");
+  expect(deriveBridgedPlanStepStatus(report({ status: "closed" }))).toBe("blocked");
   expect(deriveBridgedPlanStepStatus(report({ status: "open" }))).toBe("open");
 });
 
@@ -171,7 +172,7 @@ test("sync records WHICH node it derived from and when — a derived status must
   const run = syncBridgedPlanStep(
     freshRun(),
     "P1",
-    report({ status: "closed" }),
+    report({ status: "closed", hasCloseReceipt: true }),
     { bind: true },
     "2026-08-06T10:02:00.000Z",
   );
@@ -179,7 +180,7 @@ test("sync records WHICH node it derived from and when — a derived status must
   expect(stepOf(run, "P1")).toMatchObject({
     nodeId: "501",
     status: "done",
-    evidence: "derived from work-graph node 501 (closed) at 2026-08-06T10:02:00.000Z",
+    evidence: "derived from work-graph node 501 (closed; Soma-complete receipt) at 2026-08-06T10:02:00.000Z",
   });
   expect(run.updatedAt).toBe("2026-08-06T10:02:00.000Z");
 });
@@ -198,7 +199,7 @@ test("syncing a bridged step from a DIFFERENT node's report is refused", () => {
   const bridged = syncBridgedPlanStep(freshRun(), "P1", report(), { bind: true }, "2026-08-06T10:02:00.000Z");
 
   expect(() =>
-    syncBridgedPlanStep(bridged, "P1", report({ ref: { id: "502" }, status: "closed" })),
+    syncBridgedPlanStep(bridged, "P1", report({ ref: { id: "502" }, status: "closed", hasCloseReceipt: true })),
   ).toThrow(/bridged to work-graph node 501, but the reported node is 502/u);
 });
 
@@ -226,7 +227,7 @@ test("`bind` does not license re-homing an already-bridged step", () => {
 
 test("re-binding a step to the SAME node is a plain re-derive, not a re-home", () => {
   let run = syncBridgedPlanStep(freshRun(), "P1", report(), { bind: true }, "2026-08-06T10:02:00.000Z");
-  run = syncBridgedPlanStep(run, "P1", report({ status: "closed" }), { bind: true }, "2026-08-06T10:03:00.000Z");
+  run = syncBridgedPlanStep(run, "P1", report({ status: "closed", hasCloseReceipt: true }), { bind: true }, "2026-08-06T10:03:00.000Z");
 
   expect(stepOf(run, "P1").status).toBe("done");
 });
@@ -302,15 +303,16 @@ test("the un-bridge refusal is a speed bump, not a seal — remove-then-re-add r
   expect(stepOf(written, "P1").status).toBe("done");
 });
 
-test("a real NodeState is accepted verbatim as a BridgedNodeReport", () => {
-  // The type claims `NodeState` satisfies it; this is the claim being exercised
-  // with a value rather than restated in a comment.
+test("the bridge augments a NodeState with receipt evidence before derivation", () => {
   const state = realNodeState({ status: "closed" });
-  const run = syncBridgedPlanStep(freshRun(), "P1", state, { bind: true }, "2026-08-06T10:02:00.000Z");
+  const closed = { ref: state.ref, status: state.status, blockedBy: state.blockedBy, hasCloseReceipt: true };
+  const run = syncBridgedPlanStep(freshRun(), "P1", closed, { bind: true }, "2026-08-06T10:02:00.000Z");
 
   expect(stepOf(run, "P1")).toMatchObject({ nodeId: "501", status: "done" });
-  expect(deriveBridgedPlanStepStatus(realNodeState({ blockedBy: [{ id: "499", status: "open" }] }))).toBe("blocked");
-  expect(deriveBridgedPlanStepStatus(realNodeState())).toBe("open");
+  const open = realNodeState({ blockedBy: [{ id: "499", status: "open" }] });
+  expect(deriveBridgedPlanStepStatus({ ref: open.ref, status: open.status, blockedBy: open.blockedBy, hasCloseReceipt: false })).toBe("blocked");
+  const plain = realNodeState();
+  expect(deriveBridgedPlanStepStatus({ ref: plain.ref, status: plain.status, blockedBy: plain.blockedBy, hasCloseReceipt: false })).toBe("open");
 });
 
 // --- the other write path: the VSA sync's bulk flip ------------------------
@@ -338,7 +340,7 @@ test("an OPEN bridged step really does hold the run short of the VERIFY gate", (
   expect(() => advanceAlgorithmRun(run, "2026-08-06T10:08:00.000Z")).toThrow(/every plan step is done or blocked/u);
 
   // …and closing the node releases it. The cost is real and it is bounded.
-  const closed = syncBridgedPlanStep(run, "P1", report({ status: "closed" }), {}, "2026-08-06T10:09:00.000Z");
+  const closed = syncBridgedPlanStep(run, "P1", report({ status: "closed", hasCloseReceipt: true }), {}, "2026-08-06T10:09:00.000Z");
   expect(getRunPhase(advanceAlgorithmRun(closed, "2026-08-06T10:10:00.000Z"))).toBe("verify");
 });
 
@@ -348,7 +350,7 @@ test("the VERIFY sweep skips bridged steps rather than forging `done`", () => {
 
   expect(swept.find((step) => step.id === "P1")).toMatchObject({
     status: "open",
-    evidence: "derived from work-graph node 501 (open) at 2026-08-06T10:02:00.000Z",
+    evidence: "derived from work-graph node 501 (open; no close receipt) at 2026-08-06T10:02:00.000Z",
   });
   expect(swept.find((step) => step.id === "P2")).toMatchObject({ status: "done", evidence: "synced from VSA" });
 });
@@ -399,7 +401,7 @@ test("`step --node` bridges through the graph read path, and `--status` is then 
     const deps = {
       readNode: async (nodeId: string, options: { repo?: string }) => {
         reads.push({ nodeId, repo: options.repo });
-        return report({ ref: { id: nodeId }, status: "closed" as const });
+        return report({ ref: { id: nodeId }, status: "closed" as const, hasCloseReceipt: true });
       },
     };
 
@@ -461,7 +463,7 @@ test("`step --sync` re-derives from the step's OWN node — the node id comes of
       {
         readNode: async (nodeId: string) => {
           reads.push(nodeId);
-          return report({ ref: { id: nodeId }, status: "closed" as const });
+          return report({ ref: { id: nodeId }, status: "closed" as const, hasCloseReceipt: true });
         },
       },
     );
@@ -494,7 +496,7 @@ test("a concurrent re-bind between the two reads fails CLOSED, not silently", as
               syncBridgedPlanStep(freshRun(), "P1", report({ ref: { id: "777" } }), { bind: true }, "2026-08-06T10:03:00.000Z"),
               { homeDir },
             );
-            return report({ ref: { id: nodeId }, status: "closed" });
+            return report({ ref: { id: nodeId }, status: "closed", hasCloseReceipt: true });
           },
         },
       ),
