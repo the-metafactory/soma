@@ -94,6 +94,9 @@ export interface NodeCompletionBinding {
   gatedNodeHash: string;
   /** Canonical declared probe keys, recorded only for auto nodes. */
   autoProbeKeys?: readonly string[];
+  /** Forge-proof CI check run cited at close, recorded only for auto nodes. */
+  ciCheckRunId?: string;
+  ciHeadSha?: string;
 }
 
 export interface WorkGraphNodeBase {
@@ -423,6 +426,13 @@ export interface CloseReceipt {
    * beats a stale tool refusing to say so.
    */
   closedWith?: string;
+  /**
+   * Forge-proof completion evidence for `auto` nodes: a GitHub check run whose
+   * `success` conclusion only a GitHub App (GitHub Actions) can create — an
+   * issue editor with a user token cannot mint or edit it, so citing it moves
+   * completion from self-authored markdown to an immutable, API-verifiable fact.
+   */
+  ci?: { checkRunId: string; headSha: string };
   evidence: readonly CloseEvidence[];
   probeResults: readonly ProbeResult[];
   /**
@@ -999,6 +1009,17 @@ export function assertClosable(node: WorkGraphNode, receipt: CloseReceipt): void
       `node ${node.id} (${node.autonomy}) needs at least one ${admissible.join(" or ")} evidence entry with an externally checkable pointer`,
     );
   }
+
+  // An `auto` node must cite a successful CI check run — the one fact about
+  // "the probes actually ran and passed" that an issue editor cannot author,
+  // because check-run conclusions are written only by a GitHub App. Without it
+  // the receipt is self-consistent markdown and no completion can be forged-proof.
+  if ((receipt.ci?.checkRunId ?? "").trim().length === 0 || (receipt.ci?.headSha ?? "").trim().length === 0) {
+    throw new WorkGraphError(
+      "close-refused",
+      `node ${node.id} (${node.autonomy}) must cite a successful CI check run (checkRunId and headSha) to close`,
+    );
+  }
 }
 
 /**
@@ -1149,6 +1170,7 @@ export function renderCloseReceipt(receipt: CloseReceipt): string {
     ...((receipt.closedWith ?? "").length === 0 ? [] : [`- **closed with:** ${receipt.closedWith}`]),
     `- **at:** ${receipt.at}`,
     ...(receipt.gatedNodeHash === undefined ? [] : [`- **gated node hash:** \`${receipt.gatedNodeHash}\``]),
+    ...(receipt.ci === undefined ? [] : [`- **ci:** \`${receipt.ci.checkRunId}@${receipt.ci.headSha}\``]),
     `- **attestation:** \`${receipt.attestation}\``,
     ``,
     `### Evidence`,

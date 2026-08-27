@@ -522,7 +522,12 @@ function nodeFromIssue(issue: GitHubIssue): { node: WorkGraphNode; typed: boolea
     if (autoProbeKeys !== undefined && (!Array.isArray(autoProbeKeys) || autoProbeKeys.some((key) => typeof key !== "string"))) {
       throw new WorkGraphError("invalid-node", "invalid persisted completion probe keys");
     }
-    return { node: { ...node, completion: { receiptCommentId: completion.receiptCommentId as string, checkpointId: completion.checkpointId as string, autonomy: completion.autonomy as WorkGraphNode["autonomy"], closer: completion.closer as string, closedAt: completion.closedAt as string, gatedNodeHash: completion.gatedNodeHash as string, ...(autoProbeKeys === undefined ? {} : { autoProbeKeys: autoProbeKeys as string[] }) } }, typed: true, text: decoded.text };
+    const ciCheckRunId = completion.ciCheckRunId;
+    const ciHeadSha = completion.ciHeadSha;
+    if ((ciCheckRunId !== undefined && typeof ciCheckRunId !== "string") || (ciHeadSha !== undefined && typeof ciHeadSha !== "string")) {
+      throw new WorkGraphError("invalid-node", "invalid persisted completion CI binding");
+    }
+    return { node: { ...node, completion: { receiptCommentId: completion.receiptCommentId as string, checkpointId: completion.checkpointId as string, autonomy: completion.autonomy as WorkGraphNode["autonomy"], closer: completion.closer as string, closedAt: completion.closedAt as string, gatedNodeHash: completion.gatedNodeHash as string, ...(autoProbeKeys === undefined ? {} : { autoProbeKeys: autoProbeKeys as string[] }), ...(ciCheckRunId === undefined ? {} : { ciCheckRunId: ciCheckRunId as string, ciHeadSha: ciHeadSha as string }) } }, typed: true, text: decoded.text };
   } catch (error) {
     // Visible state, never a silent downgrade: the node falls back to the
     // most-gated class AND says why.
@@ -915,13 +920,35 @@ class GitHubGraphStore implements GraphStore {
     const checkpoint = /^- \*\*checkpoint:\*\* `([^`\n]+)`$/mu.exec(comment.body)?.[1];
     const autonomy = /^- \*\*autonomy:\*\* `([^`\n]+)`$/mu.exec(comment.body)?.[1];
     const receiptAt = /^- \*\*at:\*\* ([^\n]+)$/mu.exec(comment.body)?.[1];
-    const attestation = /^- \*\*attestation:\*\* `(verified|unverified)`$/mu.exec(comment.body)?.[1];
     const gatedNodeHash = /^- \*\*gated node hash:\*\* `([a-f0-9]{64})`$/mu.exec(comment.body)?.[1];
-    return close.actor === completion.closer
-      && Number.isFinite(commentAt) && Number.isFinite(boundAt)
-      && commentAt <= close.at && (reopened === undefined || commentAt >= reopened.at)
-      && checkpoint === completion.checkpointId && autonomy === completion.autonomy
-      && receiptAt === completion.closedAt && attestation === "verified" && gatedNodeHash === completion.gatedNodeHash;
+    if (close.actor !== completion.closer
+      || !Number.isFinite(commentAt) || !Number.isFinite(boundAt)
+      || commentAt > close.at || (reopened !== undefined && commentAt < reopened.at)
+      || checkpoint !== completion.checkpointId || autonomy !== completion.autonomy
+      || receiptAt !== completion.closedAt || gatedNodeHash !== completion.gatedNodeHash) {
+      return false;
+    }
+    // Auto completion is only as strong as the CI run it cites: a check-run
+    // `success` conclusion is written by a GitHub App, not an issue editor, so
+    // it is the one completion fact a tracker-writer cannot forge. Verify it live.
+    if (node.autonomy === "auto") {
+      if (completion.ciCheckRunId === undefined || completion.ciHeadSha === undefined) return false;
+      const run = await this.fetchCheckRun(completion.ciCheckRunId);
+      if (run.conclusion !== "success" || run.headSha !== completion.ciHeadSha) return false;
+    }
+    return true;
+  }
+
+  /** The one immutable completion fact an issue editor cannot mint: a GitHub check-run conclusion. */
+  private async fetchCheckRun(checkRunId: string): Promise<{ conclusion: string; headSha: string }> {
+    const record = asRecord(
+      await this.transport({ method: "GET", path: `repos/${this.repo}/check-runs/${checkRunId}` }),
+      "check run",
+    );
+    return {
+      conclusion: typeof record.conclusion === "string" ? record.conclusion : "",
+      headSha: typeof record.head_sha === "string" ? record.head_sha : "",
+    };
   }
 
   /** Bodies included — the read half of {@link postComment}. Paginated: receipts are often the last comment. */
@@ -969,26 +996,25 @@ class GitHubGraphStore implements GraphStore {
     }
     const boundReceipt = { ...receipt, autonomy: node.autonomy, gatedNodeHash };
     const posted = await this.postComment(ref, renderCloseReceipt(boundReceipt));
-    const comment = await this.readComment(posted);
-    if (comment.author === undefined || comment.author.length === 0) {
+    if (posted.author === undefined || posted.author.length === 0) {
       throw new WorkGraphError("backend", "posted close receipt has no authenticated author");
     }
     const completion = {
-      receiptCommentId: comment.id,
+      receiptCommentId: posted.id,
       checkpointId: receipt.checkpointId,
       autonomy: receipt.autonomy ?? node.autonomy,
-      closer: comment.author,
+      closer: posted.author,
       closedAt: boundReceipt.at,
       gatedNodeHash,
       ...(node.autonomy === "auto" ? { autoProbeKeys: (node.probes ?? []).map((probe) => JSON.stringify(probe)).sort() } : {}),
+      ...(receipt.ci === undefined ? {} : { ciCheckRunId: receipt.ci.checkRunId, ciHeadSha: receipt.ci.headSha }),
     };
     const body = [decoded.text, encodeNodeBlock({ ...node, title: issue.title, completion })]
       .filter((part) => part.length > 0).join("\n\n");
-    await this.writeRawBody(ref, body);
     await this.transport({
       method: "PATCH",
       path: `repos/${this.repo}/issues/${ref.id}`,
-      body: { state: "closed", state_reason: "completed" },
+      body: { body, state: "closed", state_reason: "completed" },
     });
   }
 

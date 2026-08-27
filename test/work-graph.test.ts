@@ -172,6 +172,9 @@ function receipt(overrides: Partial<CloseReceipt> = {}): CloseReceipt {
       { probe: PASSING_PROBE, state: "probed", outcome: "pass", observed: "exit 0", at: "2026-08-04T09:59:00.000Z" },
     ],
     attestation: "unverified",
+    // `auto` closes must cite a successful CI check run (§3.1) — defaulted here
+    // so the tests about the other conjuncts stay about them.
+    ci: { checkRunId: "12345", headSha: "abc123def456" },
     ...overrides,
   };
 }

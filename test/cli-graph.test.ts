@@ -207,8 +207,18 @@ function deps(store: FakeStore, overrides: Partial<GraphCliDeps> = {}): Partial<
  */
 const RESOLUTION = ["--resolution-file", "resolution.md"] as const;
 
+// Auto closes must cite a CI check run (§3.1). Inject one into the argv for
+// auto-node close tests so they exercise the real gate rather than a stub that
+// quietly satisfies it; HITL closes are left untouched (no CI required).
+function injectAutoCi(args: string[], store: FakeStore): string[] {
+  if (args[0] !== "graph" || args[1] !== "close") return args;
+  const target = args[2];
+  if (target === undefined || store.nodes.get(target)?.node.autonomy !== "auto") return args;
+  return [args[0], args[1], target, "--ci", "98765@deadbeef", ...args.slice(3)];
+}
+
 async function run(args: string[], store: FakeStore, overrides: Partial<GraphCliDeps> = {}): Promise<string> {
-  return await runGraphCli(parseGraphArgs(args), deps(store, overrides));
+  return await runGraphCli(parseGraphArgs(injectAutoCi(args, store)), deps(store, overrides));
 }
 
 async function failure(args: string[], store: FakeStore, overrides: Partial<GraphCliDeps> = {}): Promise<string> {

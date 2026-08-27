@@ -835,7 +835,6 @@ test("close posts the receipt before flipping the state", async () => {
   const { transport, calls } = fakeTransport({
     [`GET repos/${REPO}/issues/497`]: issuePayload({ body: typedBody({ autonomy: "auto", checkpointId: "cp-497", probes: [PROBE] }) }),
     [`POST repos/${REPO}/issues/497/comments`]: { id: 42, user: { login: "ivy-agent" } },
-    [`GET repos/${REPO}/issues/comments/42`]: { id: 42, user: { login: "ivy-agent" } },
     [`PATCH repos/${REPO}/issues/497`]: issuePayload({ state: "closed" }),
   });
 
@@ -854,13 +853,12 @@ test("close posts the receipt before flipping the state", async () => {
   expect(calls.map((call) => call.key)).toEqual([
     `GET repos/${REPO}/issues/497`,
     `POST repos/${REPO}/issues/497/comments`,
-    `GET repos/${REPO}/issues/comments/42`,
-    `PATCH repos/${REPO}/issues/497`,
     `PATCH repos/${REPO}/issues/497`,
   ]);
   expect((calls[1]?.body as { body: string }).body).toContain("cp-497");
-  expect((calls[3]?.body as { body: string }).body).toContain("receiptCommentId");
-  expect((calls[4]?.body as { state: string }).state).toBe("closed");
+  const closeWrite = calls[2]?.body as { body: string; state: string };
+  expect(closeWrite.body).toContain("receiptCommentId");
+  expect(closeWrite.state).toBe("closed");
 });
 
 // --- construction -----------------------------------------------------------
@@ -906,3 +904,47 @@ test("readNode rejects a missing completion binding", async () => { expect(await
 test("readNode rejects a stale completion binding", async () => { expect(await currentCloseReceipt({ ...validCompletion, checkpointId: "cp-stale" })).toBe(false); });
 test("readNode rejects a forged completion binding", async () => { expect(await currentCloseReceipt({ ...validCompletion, autonomy: "approve", closer: "mallory" })).toBe(false); });
 test("readNode accepts a valid persisted completion binding", async () => { expect(await currentCloseReceipt(validCompletion)).toBe(true); });
+
+// Auto completion is forge-proof only through its cited CI check run: an issue
+// editor can write the receipt, the binding, and the close, but not a check-run
+// `success` conclusion (Checks API is GitHub-App-only). Pin the rejection.
+function autoCompletion(): Record<string, unknown> {
+  return {
+    receiptCommentId: "42",
+    checkpointId: "cp-497",
+    autonomy: "auto",
+    closer: "ivy",
+    closedAt: "2026-01-03T00:00:00.000Z",
+    gatedNodeHash: hashGatedNodeFields({ autonomy: "auto", checkpointId: "cp-497", probes: [PROBE] }),
+    autoProbeKeys: [JSON.stringify(PROBE)],
+    ciCheckRunId: "98765",
+    ciHeadSha: "deadbeef",
+  };
+}
+
+async function autoCurrentCloseReceipt(checkRun: Record<string, unknown>): Promise<boolean | undefined> {
+  const completion = autoCompletion();
+  const receiptBody =
+    "## Close receipt\n\n- **checkpoint:** `cp-497`\n- **closed by:** ivy\n- **autonomy:** `auto`\n- **at:** 2026-01-03T00:00:00.000Z\n- **gated node hash:** `" + completion.gatedNodeHash +
+    "`\n- **ci:** `98765@deadbeef`\n- **attestation:** `unverified`\n\n### Evidence\n\n- `probed` — bun test exit 0 (https://example.test/run/1)\n";
+  const { transport } = fakeTransport({
+    [`GET repos/${REPO}/issues/497`]: issuePayload({ state: "closed", body: typedBody({ autonomy: "auto", checkpointId: "cp-497", probes: [PROBE], completion }) }),
+    [`GET repos/${REPO}/issues/497/dependencies/blocked_by`]: [],
+    [`GET repos/${REPO}/issues/497/comments`]: [{ id: 42, body: receiptBody, created_at: "2026-01-03T00:00:00.000Z", user: { login: "ivy" } }],
+    [`GET repos/${REPO}/issues/497/events`]: [{ event: "closed", created_at: "2026-01-03T00:00:00.000Z", actor: { login: "ivy" } }],
+    [`GET repos/${REPO}/check-runs/98765`]: checkRun,
+  });
+  return (await createGitHubGraphStore({ repo: REPO, transport }).readNode({ id: "497" })).currentCloseReceipt;
+}
+
+test("readNode rejects an auto completion citing a failed CI check run", async () => {
+  expect(await autoCurrentCloseReceipt({ conclusion: "failure", head_sha: "deadbeef" })).toBe(false);
+});
+
+test("readNode rejects an auto completion citing a check run for another commit", async () => {
+  expect(await autoCurrentCloseReceipt({ conclusion: "success", head_sha: "another-sha" })).toBe(false);
+});
+
+test("readNode accepts an auto completion citing a successful CI check run", async () => {
+  expect(await autoCurrentCloseReceipt({ conclusion: "success", head_sha: "deadbeef" })).toBe(true);
+});
