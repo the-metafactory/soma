@@ -27,7 +27,7 @@ export function runtimeArtifactStatePath(somaHome: string, substrate: GuardedRun
   return join(runtimeArtifactRoot(somaHome), substrate, "active.json");
 }
 
-/** Stable, substrate-scoped hook target; it atomically resolves to an immutable artifact. */
+/** Stable, substrate-scoped hook target; it atomically resolves to a read-only deployment snapshot. */
 export function runtimeArtifactActivePath(somaHome: string, substrate: GuardedRuntimeSubstrate): string {
   return join(runtimeArtifactRoot(somaHome), substrate, "current");
 }
@@ -227,8 +227,9 @@ export async function stageRuntimeArtifact(input: { somaHome: string; substrate:
     await pruneUnreferencedArtifacts(input.somaHome);
     return { path: runtimeArtifactActivePath(input.somaHome, input.substrate), hash, ...(state.previous ? { previous: state.previous } : {}) };
   } finally {
-    // Artifact directories are structurally immutable between installs; this
-    // preserves runtime integrity without a hash on every hook invocation.
+    // Artifact directories are read-only deployment snapshots between installs.
+    // Same-UID filesystem permissions are best-effort hardening, not a
+    // tamper-proof boundary; W1 intentionally does not hash on every hook invocation.
     await chmod(store, 0o555).catch(() => undefined);
   }
 }
