@@ -121,13 +121,18 @@ test("replaces an incomplete existing target on reinstall", async () => {
   expect(await readFile(join(restored.path, "package.json"), "utf8")).toBe("{}\n");
   expect((await inspectRuntimeArtifact(home, "codex")).status).toBe("ready");
 });
-test("seals artifact directories and payload files read-only", async () => {
+test("seals payload files read-only and keeps directories writable", async () => {
   const { source, home } = await fixture();
   await mkdir(join(source, "src", "nested"), { recursive: true });
   await writeFile(join(source, "src", "nested", "extra.ts"), "export const nested = true;\n");
   const staged = await stageRuntimeArtifact({ somaHome: home, substrate: "codex", sourceRoot: source });
-  for (const path of [staged.path, join(staged.path, "src"), join(staged.path, "src", "nested"), join(staged.path, "src", "cli.ts"), join(staged.path, "package.json")]) {
+  // Payload files are read-only; directories stay writable so cleanup and atomic
+  // replacement work. Same-UID permissions are detection, not prevention.
+  for (const path of [join(staged.path, "src", "cli.ts"), join(staged.path, "package.json")]) {
     expect((await stat(path)).mode & 0o222).toBe(0);
+  }
+  for (const path of [staged.path, join(staged.path, "src"), join(staged.path, "src", "nested")]) {
+    expect((await stat(path)).mode & 0o200).not.toBe(0);
   }
   expect((await inspectRuntimeArtifact(home, "codex")).status).toBe("ready");
 });

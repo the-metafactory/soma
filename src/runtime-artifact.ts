@@ -103,12 +103,15 @@ async function sealArtifact(root: string): Promise<void> {
     const path = join(root, entry.name);
     if (entry.isDirectory()) {
       await sealArtifact(path);
-      await chmod(path, 0o555);
+      // Directories stay writable so home cleanup and atomic replacement work;
+      // payload files are read-only. Same-UID permissions are best-effort
+      // hardening, not a tamper-proof boundary (detection, not prevention).
+      await chmod(path, 0o755);
     } else if (entry.isFile()) {
       await chmod(path, 0o444);
     }
   }
-  await chmod(root, 0o555);
+  await chmod(root, 0o755);
 }
 
 /** Refuse links and special files before hashing or copying an enforcement runtime. */
@@ -227,10 +230,10 @@ export async function stageRuntimeArtifact(input: { somaHome: string; substrate:
     await pruneUnreferencedArtifacts(input.somaHome);
     return { path: runtimeArtifactActivePath(input.somaHome, input.substrate), hash, ...(state.previous ? { previous: state.previous } : {}) };
   } finally {
-    // Artifact directories are read-only deployment snapshots between installs.
-    // Same-UID filesystem permissions are best-effort hardening, not a
+    // The shared store stays writable between installs; individual payload files
+    // are read-only. Same-UID permissions are best-effort hardening, not a
     // tamper-proof boundary; W1 intentionally does not hash on every hook invocation.
-    await chmod(store, 0o555).catch(() => undefined);
+    await chmod(store, 0o755).catch(() => undefined);
   }
 }
 
