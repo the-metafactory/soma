@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-08-27
+
+### Added
+
+- **Frozen, content-addressed runtime enforcement artifacts.** Guarded
+  substrates (`claude-code`, `codex`, `grok`) execute their policy hooks from a
+  sealed snapshot under `~/.soma/runtime/artifacts/<hash>`, atomically activated
+  per substrate via `runtime/<substrate>/current`, with `soma runtime status` and
+  `soma runtime rollback --substrate <name>`. Staged sources refuse symlinks,
+  payload files are read-only, and unreferenced artifacts are pruned. Read-only
+  permissions are best-effort hardening, not a tamper-proof boundary. ([#657])
+
+### Changed
+
+- **`auto` work-graph closes cite a CI check run.** `soma graph close` requires
+  `--ci <checkRunId>@<headSha>` for `auto` nodes, and the store verifies
+  `conclusion: success` at that SHA before the bridge reports completion — moving
+  completion from self-authored markdown to an immutable, API-verifiable fact.
+  Detection, not prevention: a collaborator who can push and trigger CI can still
+  mint a passing run. ([#661])
+
 ## [0.18.3] - 2026-08-26
 
 ### Fixed

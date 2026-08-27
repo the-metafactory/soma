@@ -29,8 +29,35 @@ re-projection rewrites.
 │   ├── behavior.md         # cross-substrate behavioral rules — NOT created by `soma init`
 │   └── probe-registry.json # work-graph probe authorisations (see docs/work-graph.md §2.2)
 ├── imports/                # migration manifests and portability reports
+├── runtime/                # frozen enforcement artifacts for guarded substrates
 └── projections/            # cached generated projections (codex, claude-code, …)
 ```
+
+### Frozen enforcement artifacts (`runtime/`)
+
+Guarded substrates (`claude-code`, `codex`, `grok`) execute their policy hooks
+from a **frozen, content-addressed runtime snapshot** rather than from the
+source tree:
+
+```text
+~/.soma/runtime/
+├── artifacts/<hash>/                # content-addressed frozen source snapshot
+└── <substrate>/
+    ├── current -> ../artifacts/<hash>  # atomic symlink the hook resolves
+    └── active.json                  # { active, previous } — active + rollback target
+```
+
+Installing a guarded substrate stages the snapshot under `artifacts/<hash>`,
+seals its payload files read-only, and atomically repoints
+`<substrate>/current`; `soma runtime rollback --substrate <name>` swaps back to
+the retained predecessor, and `soma runtime status` inspects the active state.
+Symlinked or special files in the staged source are refused, and unreferenced
+artifacts are pruned so the store does not grow without bound.
+
+Read-only payload permissions are **best-effort hardening, not a tamper-proof
+boundary** — a same-UID actor can `chmod` them back, and no hash runs on the
+hook path by design. They pin the snapshot against incidental edits, not
+against an actor who sets out to modify it.
 
 ## How the assistant talks, and what it may do
 

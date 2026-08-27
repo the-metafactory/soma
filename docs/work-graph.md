@@ -806,6 +806,18 @@ never suffices alone. The receipt proves *existence + probe passage, not
 quality* — sound because `auto` work sits below the irreversibility line;
 quality ratifies when a downstream HITL node consumes the artifact (#485).
 
+An `auto` close must also cite a **successful CI check run** (`--ci
+<checkRunId>@<headSha>`): the receipt records the run, and the store verifies
+`conclusion: success` at the cited SHA when the bridge reads the node back.
+Check-run conclusions are written only by a GitHub App (GitHub Actions), so an
+issue editor who holds no push/CI-trigger authority cannot fabricate one.
+
+**Detection, not prevention.** Both the run id and the SHA are supplied by the
+closer, so a collaborator who *can* push and trigger CI can still mint a passing
+run on a trivial commit and cite it. The binding refuses the fabricated-run
+forgery (the common, issue-only-editor case); it does not replace
+checkpoint-owned verification of what the probes actually ran against.
+
 ### 3.2 HITL (`propose` / `approve`)
 
 A HITL node **closes on the closing session's say-so**. The human in the loop is
