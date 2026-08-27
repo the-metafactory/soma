@@ -1717,7 +1717,7 @@ test("a close probes the repo it was invoked from, even when the launcher cd'd e
     });
 
     const output = await runGraphCli(
-      parseGraphArgs(["graph", "close", "520", "--repo", REPO, ...RESOLUTION]),
+      parseGraphArgs(["graph", "close", "520", "--repo", REPO, "--ci", "98765@deadbeef", ...RESOLUTION]),
       overrides,
     );
 
