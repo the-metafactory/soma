@@ -1,6 +1,6 @@
 import { chmod, copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
-import { isAbsolute, join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { hostname, tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { expect, test } from "bun:test";
@@ -71,6 +71,17 @@ async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> 
     await unsealRuntimeArtifacts(homeDir);
     await rm(homeDir, { recursive: true, force: true });
   }
+}
+
+async function readProjectionSnapshot(root: string, files: readonly string[]): Promise<Record<string, string>> {
+  return Object.fromEntries(
+    await Promise.all(
+      files.map(async (file) => {
+        const path = isAbsolute(file) ? file : join(root, file);
+        return [relative(root, path), await readFile(path, "utf8")] as const;
+      }),
+    ),
+  );
 }
 
 function coworkPath(homeDir: string, path = ""): string {
@@ -242,9 +253,11 @@ test("a failed lifecycle projection reports completed projection evidence and co
 
     await rm(blockedStartupContext, { recursive: true, force: true });
     const recovered = await installSomaForCodex({ homeDir });
+    const recoveredSnapshot = await readProjectionSnapshot(recovered.substrateHome.rootDir, recovered.substrateHome.files);
+    const converged = await installSomaForCodex({ homeDir });
 
-    expect(recovered.substrateHome.files).toContain(join(homeDir, ".codex/memories/soma/startup-context.md"));
-    await expect(readFile(join(homeDir, ".codex/memories/soma/startup-context.md"), "utf8")).resolves.toContain("Soma");
+    expect([...converged.substrateHome.files].sort()).toEqual([...recovered.substrateHome.files].sort());
+    expect(await readProjectionSnapshot(converged.substrateHome.rootDir, converged.substrateHome.files)).toEqual(recoveredSnapshot);
   });
 });
 
