@@ -1,5 +1,13 @@
 import { resolve } from "node:path";
-import type { InstallSubstrate, ProjectionSubstrate } from "./types";
+import type {
+  InstallSubstrate,
+  Projection,
+  ProjectionInput,
+  ProjectionSubstrate,
+  SomaHomeProjection,
+  SomaHomeProjectionOptions,
+  WrittenProjection,
+} from "./types";
 
 export type { InstallSubstrate } from "./types";
 
@@ -25,6 +33,22 @@ export interface VsaSkillProjectionSpec {
   destinationDir(substrateHome: string): string;
   skillNameOverride?: string;
   prepare?(substrateHome: string): Promise<void>;
+}
+
+/** Resolved values an adapter needs to build its native home projection. */
+export interface HomeProjectionBuildContext<S extends InstallSubstrate = InstallSubstrate> {
+  substrate: S;
+  homeDir: string;
+  somaHome: string;
+  substrateHome: string;
+  somaRepoPath: string;
+}
+
+/** Adapter-owned native projection facts; the installer retains orchestration. */
+export interface HomeProjectionSpec<S extends InstallSubstrate = InstallSubstrate> {
+  build(input: ProjectionInput, context: HomeProjectionBuildContext<S>): Projection;
+  isSkillProjectionPath(path: string): boolean;
+  write?(projection: SomaHomeProjection, options: SomaHomeProjectionOptions): Promise<WrittenProjection>;
 }
 
 export function vsaSkillUnder(...pathSegments: string[]): (substrateHome: string) => string {
@@ -121,6 +145,7 @@ export interface SubstrateInstallSpec<S extends InstallSubstrate = InstallSubstr
   substrate: S;
   defaultHome: string;
   homeFiles: readonly string[];
+  homeProjection: HomeProjectionSpec<S>;
   /**
    * Files this substrate used to manage but no longer writes (e.g. a renamed
    * projection). Removed under the substrate home on every install/reproject/

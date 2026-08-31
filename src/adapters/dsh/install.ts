@@ -2,6 +2,7 @@ import { skillsLoaderUnder, vsaSkillUnder, type SubstrateInstallSpec } from "../
 import { DSH_DEFAULT_HOME } from "../private-roots";
 import { configureDshAgentsPointer } from "./config-patch";
 import { DSH_HOST_PLUGIN_ID, installDshHostPlugin } from "./plugin";
+import { isDshSkillProjectionPath, projectDshHome } from "./adapter";
 
 /**
  * Static file set emitted by `projectDshHome`, relative to `~/.dsh` — the
@@ -58,6 +59,10 @@ export const dshInstallSpec: SubstrateInstallSpec<"dsh"> = {
   substrate: "dsh",
   defaultHome: DSH_DEFAULT_HOME,
   homeFiles: DSH_HOME_FILES,
+  homeProjection: {
+    build: (input, context) => projectDshHome(input, context.somaHome, context.homeDir, context.somaRepoPath),
+    isSkillProjectionPath: isDshSkillProjectionPath,
+  },
   // Soma-exclusive dir under the DSH home. `skills/` itself is SHARED (the
   // loader holds registry symlinks + the principal's own skills), so only the
   // soma skill dir is owned — the reconcile prunes it to the projected set

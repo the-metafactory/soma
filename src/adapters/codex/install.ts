@@ -4,6 +4,7 @@ import { configureCodexInstall } from "./config";
 import { skillsLoaderUnder, vsaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
 import { vsaSiblingPrunePrepare } from "../../legacy-skill-prune";
 import { CODEX_DEFAULT_HOME, codexMemoryPrivateRoots, codexProjectionPrivateRoots } from "../private-roots";
+import { isCodexSkillProjectionPath, projectCodexHome } from "./adapter";
 
 export const CODEX_HOME_FILES = [
   "rules/soma.rules",
@@ -52,6 +53,10 @@ export const codexInstallSpec: SubstrateInstallSpec<"codex"> = {
   substrate: "codex",
   defaultHome: CODEX_DEFAULT_HOME,
   homeFiles: CODEX_HOME_FILES,
+  homeProjection: {
+    build: (input, context) => projectCodexHome(input, context.somaHome, context.homeDir, context.somaRepoPath),
+    isSkillProjectionPath: isCodexSkillProjectionPath,
+  },
   // Owned (Soma-exclusive) dir — see ownedSubtrees JSDoc. (hooks/ + skills/ are shared.)
   ownedSubtrees: ["memories/soma"],
   skillsLoaderDir: skillsLoaderUnder(),

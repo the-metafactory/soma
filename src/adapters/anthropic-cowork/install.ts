@@ -13,6 +13,7 @@ import {
   ANTHROPIC_COWORK_HOME_FILE_PATHS,
   ANTHROPIC_COWORK_SKILLS_ROOT_PATH,
 } from "../anthropic-cowork";
+import { isAnthropicCoworkSkillProjectionPath, projectAnthropicCoworkHome } from "../anthropic-cowork";
 
 type CoworkRemovalTargetKind = "entrypoint" | "projection-file" | "vsa-skill";
 
@@ -92,6 +93,10 @@ export const anthropicCoworkInstallSpec: SubstrateInstallSpec<"anthropic-cowork"
   substrate: "anthropic-cowork",
   defaultHome: ANTHROPIC_COWORK_DEFAULT_HOME,
   homeFiles: ANTHROPIC_COWORK_HOME_FILE_PATHS,
+  homeProjection: {
+    build: (input) => projectAnthropicCoworkHome(input),
+    isSkillProjectionPath: isAnthropicCoworkSkillProjectionPath,
+  },
   skillsLoaderDir: skillsLoaderUnder(ANTHROPIC_COWORK_SKILLS_ROOT_PATH),
   skillsLoading: "on-demand",
   skillsDiscovery: "catalog",
