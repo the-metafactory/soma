@@ -37,35 +37,24 @@ interface SomaInstallExecutionRecord {
  * SubstrateInstallSpec; this records completed-operation evidence at the installer seam.
  */
 export class SomaInstallExecution {
-  private partial: SomaPartialInstallResult;
-  private somaHome?: SomaHomeBootstrapResult;
-  private substrateHome?: WrittenProjection;
-  private runtimeArtifact?: { path: string; hash: string; previous?: string };
-  private projectedSkills?: InstalledSkill[];
-  private unprojectableSkills?: UninstallableSkillReport[];
+  private completed: SomaInstallExecutionRecord = {};
 
-  constructor(substrate: InstallSubstrate) {
-    this.partial = { substrate };
-  }
+  constructor(private readonly substrate: InstallSubstrate) {}
 
   record(result: SomaInstallExecutionRecord): void {
-    if (result.somaHome) this.somaHome = result.somaHome;
-    if (result.substrateHome) this.substrateHome = result.substrateHome;
-    if (result.runtimeArtifact) this.runtimeArtifact = result.runtimeArtifact;
-    if (result.projectedSkills) this.projectedSkills = result.projectedSkills;
-    if (result.unprojectableSkills) this.unprojectableSkills = result.unprojectableSkills;
-    this.partial = {
-      ...this.partial,
-      ...(result.runtimeArtifact ? { runtimeArtifact: { hash: result.runtimeArtifact.hash, replacedPrevious: result.runtimeArtifact.previous !== undefined } } : {}),
-      ...(result.somaHome ? { somaHome: { filesWritten: result.somaHome.files.length } } : {}),
-      ...(result.substrateHome ? { substrateHome: { filesWritten: result.substrateHome.files.length } } : {}),
-      ...(result.projectedSkills ? { projectedSkillCount: result.projectedSkills.length } : {}),
-      ...(result.unprojectableSkills ? { unprojectableSkillCount: result.unprojectableSkills.length } : {}),
-    };
+    this.completed = { ...this.completed, ...result };
   }
 
   snapshot(): SomaPartialInstallResult {
-    return snapshotSomaPartialInstallResult(this.partial);
+    const { runtimeArtifact, somaHome, substrateHome, projectedSkills, unprojectableSkills } = this.completed;
+    return snapshotSomaPartialInstallResult({
+      substrate: this.substrate,
+      ...(runtimeArtifact ? { runtimeArtifact: { hash: runtimeArtifact.hash, replacedPrevious: runtimeArtifact.previous !== undefined } } : {}),
+      ...(somaHome ? { somaHome: { filesWritten: somaHome.files.length } } : {}),
+      ...(substrateHome ? { substrateHome: { filesWritten: substrateHome.files.length } } : {}),
+      ...(projectedSkills ? { projectedSkillCount: projectedSkills.length } : {}),
+      ...(unprojectableSkills ? { unprojectableSkillCount: unprojectableSkills.length } : {}),
+    });
   }
 
   async run<T>(operation: SomaInstallOperation, work: () => Promise<T> | T): Promise<T> {
@@ -78,16 +67,13 @@ export class SomaInstallExecution {
   }
 
   result(): SomaInstallResult {
-    const somaHome = this.somaHome;
-    const substrateHome = this.substrateHome;
-    const projectedSkills = this.projectedSkills;
-    const unprojectableSkills = this.unprojectableSkills;
+    const { runtimeArtifact, somaHome, substrateHome, projectedSkills, unprojectableSkills } = this.completed;
     if (!somaHome || !substrateHome || !projectedSkills || !unprojectableSkills) {
       throw new Error("Soma installation result is incomplete.");
     }
     return {
-      substrate: this.partial.substrate,
-      ...(this.runtimeArtifact ? { runtimeArtifact: { ...this.runtimeArtifact } } : {}),
+      substrate: this.substrate,
+      ...(runtimeArtifact ? { runtimeArtifact: { ...runtimeArtifact } } : {}),
       somaHome,
       substrateHome: { ...substrateHome, files: [...substrateHome.files] },
       projectedSkills: projectedSkills.map((skill) => ({ ...skill })),
