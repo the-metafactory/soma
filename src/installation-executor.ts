@@ -1,27 +1,28 @@
 import { SomaInstallError, snapshotSomaPartialInstallResult, type SomaInstallStage, type SomaPartialInstallResult } from "./installation-execution";
 import type { InstallSubstrate, SomaHomeBootstrapResult, SomaInstallResult, WrittenProjection } from "./types";
 
-export const SOMA_INSTALL_OPERATIONS = [
-  "require-bun",
-  "bootstrap-soma-home",
-  "stage-runtime-artifact",
-  "prune-legacy-vsa-skill",
-  "install-soma-home-vsa-skill",
-  "install-bundled-skills",
-  "reload-soma-home-context",
-  "validate-substrate",
-  "prepare-substrate-vsa-skill",
-  "install-substrate-vsa-skill",
-  "build-projection-input",
-  "write-home-projection",
-  "remove-obsolete-home-files",
-  "run-post-projection",
-  "install-lifecycle-projection",
-  "reconcile-owned-subtrees",
-  "project-registry-skills",
-] as const;
+export const SOMA_INSTALL_OPERATION_STAGES = {
+  "require-bun": "environment",
+  "bootstrap-soma-home": "soma-home",
+  "stage-runtime-artifact": "environment",
+  "prune-legacy-vsa-skill": "soma-home",
+  "install-soma-home-vsa-skill": "soma-home",
+  "install-bundled-skills": "soma-home",
+  "reload-soma-home-context": "soma-home",
+  "validate-substrate": "substrate",
+  "prepare-substrate-vsa-skill": "substrate",
+  "install-substrate-vsa-skill": "substrate",
+  "build-projection-input": "projection",
+  "write-home-projection": "projection",
+  "remove-obsolete-home-files": "projection",
+  "run-post-projection": "projection",
+  "install-lifecycle-projection": "projection",
+  "reconcile-owned-subtrees": "projection",
+  "project-registry-skills": "skills",
+} as const satisfies Record<string, SomaInstallStage>;
 
-type SomaInstallOperation = typeof SOMA_INSTALL_OPERATIONS[number];
+type SomaInstallOperation = keyof typeof SOMA_INSTALL_OPERATION_STAGES;
+export const SOMA_INSTALL_OPERATIONS = Object.keys(SOMA_INSTALL_OPERATION_STAGES) as SomaInstallOperation[];
 
 type SomaInstallExecutionRecord = Omit<Partial<SomaPartialInstallResult>, "substrate" | "somaHome"> & {
   somaHome?: SomaHomeBootstrapResult;
@@ -30,7 +31,7 @@ type SomaInstallExecutionRecord = Omit<Partial<SomaPartialInstallResult>, "subst
 
 /**
  * Internal substrate-neutral installer coordinator. Adapter facts stay in
- * SubstrateInstallSpec; this records the durable prefix at the installer seam.
+ * SubstrateInstallSpec; this records completed-operation evidence at the installer seam.
  */
 export class SomaInstallExecution {
   private partial: SomaPartialInstallResult;
@@ -83,9 +84,5 @@ export class SomaInstallExecution {
 }
 
 function stageFor(operation: SomaInstallOperation): SomaInstallStage {
-  if (operation === "require-bun" || operation === "stage-runtime-artifact") return "environment";
-  if (operation === "bootstrap-soma-home" || operation.includes("soma-home")) return "soma-home";
-  if (operation === "validate-substrate" || operation.includes("substrate-vsa")) return "substrate";
-  if (operation === "project-registry-skills") return "skills";
-  return "projection";
+  return SOMA_INSTALL_OPERATION_STAGES[operation];
 }
