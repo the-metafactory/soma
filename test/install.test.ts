@@ -233,13 +233,12 @@ test("a failed lifecycle projection reports completed projection evidence and co
     expect(failure).toMatchObject({
       operation: "install-lifecycle-projection",
       stage: "projection",
-      partial: {
-        substrate: "codex",
-        substrateHome: {
-          files: expect.arrayContaining([join(homeDir, ".codex/AGENTS.md")]),
-        },
-      },
+      partial: { substrate: "codex" },
     });
+    const receipt = (failure as SomaInstallError).partial.substrateHome;
+    expect(typeof receipt?.filesWritten).toBe("number");
+    expect(receipt?.filesWritten).toBeGreaterThan(0);
+    expect(Object.keys(receipt ?? {})).toEqual(["filesWritten"]);
 
     await rm(blockedStartupContext, { recursive: true, force: true });
     const recovered = await installSomaForCodex({ homeDir });

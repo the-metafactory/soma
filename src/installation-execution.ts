@@ -1,18 +1,22 @@
-import type { InstalledSkill, InstallSubstrate, UninstallableSkillReport } from "./types";
+import type { InstallSubstrate } from "./types";
 
 /** Stable category for an installation failure. */
 export type SomaInstallStage = "environment" | "soma-home" | "substrate" | "projection" | "skills";
 
 /** Safe-to-report details of a completed Soma-home bootstrap. */
 export interface SomaHomeInstallReceipt {
-  readonly somaHome: string;
-  readonly files: readonly string[];
+  readonly filesWritten: number;
 }
 
 /** Safe-to-report details of a completed substrate projection. */
 export interface SomaSubstrateInstallReceipt {
-  readonly rootDir: string;
-  readonly files: readonly string[];
+  readonly filesWritten: number;
+}
+
+/** Safe-to-report details of a completed guarded runtime update. */
+export interface SomaRuntimeArtifactReceipt {
+  readonly hash: string;
+  readonly replacedPrevious: boolean;
 }
 
 /**
@@ -22,11 +26,11 @@ export interface SomaSubstrateInstallReceipt {
  */
 export interface SomaPartialInstallResult {
   readonly substrate: InstallSubstrate;
-  readonly runtimeArtifact?: Readonly<{ path: string; hash: string; previous?: string }>;
+  readonly runtimeArtifact?: SomaRuntimeArtifactReceipt;
   readonly somaHome?: SomaHomeInstallReceipt;
   readonly substrateHome?: SomaSubstrateInstallReceipt;
-  readonly projectedSkills?: readonly InstalledSkill[];
-  readonly unprojectableSkills?: readonly UninstallableSkillReport[];
+  readonly projectedSkillCount?: number;
+  readonly unprojectableSkillCount?: number;
 }
 
 /** Return an immutable, safe-to-report copy of completed-operation evidence. */
@@ -35,14 +39,10 @@ export function snapshotSomaPartialInstallResult(result: SomaPartialInstallResul
     ...result,
     runtimeArtifact: result.runtimeArtifact ? Object.freeze({ ...result.runtimeArtifact }) : undefined,
     somaHome: result.somaHome
-      ? Object.freeze({ somaHome: result.somaHome.somaHome, files: Object.freeze([...result.somaHome.files]) })
+      ? Object.freeze({ filesWritten: result.somaHome.filesWritten })
       : undefined,
     substrateHome: result.substrateHome
-      ? Object.freeze({ ...result.substrateHome, files: Object.freeze([...result.substrateHome.files]) })
-      : undefined,
-    projectedSkills: result.projectedSkills ? Object.freeze(result.projectedSkills.map((skill) => Object.freeze({ ...skill }))) : undefined,
-    unprojectableSkills: result.unprojectableSkills
-      ? Object.freeze(result.unprojectableSkills.map((report) => Object.freeze({ ...report })))
+      ? Object.freeze({ filesWritten: result.substrateHome.filesWritten })
       : undefined,
   });
 }
