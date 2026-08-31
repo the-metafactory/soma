@@ -222,7 +222,7 @@ test("installs soma source home and codex home projection", async () => {
   });
 });
 
-test("a failed lifecycle projection reports its durable prefix and converges on re-run", async () => {
+test("a failed lifecycle projection reports completed projection evidence and converges on re-run", async () => {
   await withTempHome(async (homeDir) => {
     const blockedStartupContext = join(homeDir, ".codex/memories/soma/startup-context.md");
     await mkdir(blockedStartupContext, { recursive: true });
@@ -232,6 +232,7 @@ test("a failed lifecycle projection reports its durable prefix and converges on 
     expect(failure).toBeInstanceOf(SomaInstallError);
     expect(failure).toMatchObject({
       operation: "install-lifecycle-projection",
+      stage: "projection",
       partial: {
         substrate: "codex",
         substrateHome: {

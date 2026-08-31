@@ -1,41 +1,34 @@
-import type { InstallSubstrate, SomaHomeBootstrapResult, WrittenProjection } from "./types";
-import type { InstalledSkill, UninstallableSkillReport } from "./types";
+import type { InstalledSkill, InstallSubstrate, UninstallableSkillReport, WrittenProjection } from "./types";
 
-/** Exact ordered operation currently performed by the substrate-neutral installer. */
-export type SomaInstallOperation =
-  | "require-bun"
-  | "bootstrap-soma-home"
-  | "stage-runtime-artifact"
-  | "prune-legacy-vsa-skill"
-  | "install-soma-home-vsa-skill"
-  | "install-bundled-skills"
-  | "reload-soma-home-context"
-  | "validate-substrate"
-  | "prepare-substrate-vsa-skill"
-  | "install-substrate-vsa-skill"
-  | "build-projection-input"
-  | "write-home-projection"
-  | "remove-obsolete-home-files"
-  | "run-post-projection"
-  | "install-lifecycle-projection"
-  | "reconcile-owned-subtrees"
-  | "project-registry-skills";
+/** Stable category for an installation failure. */
+export type SomaInstallStage = "environment" | "soma-home" | "substrate" | "projection" | "skills";
 
-/** Durable prefix of an installation, suitable for safe re-run recovery. */
+/** Safe-to-report details of a completed Soma-home bootstrap. */
+export interface SomaHomeInstallReceipt {
+  somaHome: string;
+  files: string[];
+}
+
+/**
+ * Safe-to-report evidence from operations completed before an installation
+ * failure. It intentionally does not claim to inventory writes from the
+ * operation that threw; installations converge by safe re-run instead.
+ */
 export interface SomaPartialInstallResult {
   substrate: InstallSubstrate;
   runtimeArtifact?: { path: string; hash: string; previous?: string };
-  somaHome?: SomaHomeBootstrapResult;
+  somaHome?: SomaHomeInstallReceipt;
   substrateHome?: WrittenProjection;
   projectedSkills?: InstalledSkill[];
   unprojectableSkills?: UninstallableSkillReport[];
 }
 
-function snapshotPartial(result: SomaPartialInstallResult): SomaPartialInstallResult {
+/** Return an immutable, safe-to-report copy of completed-operation evidence. */
+export function snapshotSomaPartialInstallResult(result: SomaPartialInstallResult): SomaPartialInstallResult {
   return {
     ...result,
     runtimeArtifact: result.runtimeArtifact ? { ...result.runtimeArtifact } : undefined,
-    somaHome: result.somaHome ? { ...result.somaHome, files: [...result.somaHome.files] } : undefined,
+    somaHome: result.somaHome ? { somaHome: result.somaHome.somaHome, files: [...result.somaHome.files] } : undefined,
     substrateHome: result.substrateHome ? { ...result.substrateHome, files: [...result.substrateHome.files] } : undefined,
     projectedSkills: result.projectedSkills?.map((skill) => ({ ...skill })),
     unprojectableSkills: result.unprojectableSkills?.map((report) => ({ ...report })),
@@ -43,19 +36,23 @@ function snapshotPartial(result: SomaPartialInstallResult): SomaPartialInstallRe
 }
 
 /**
- * An installation failed after an earlier operation made state durable. The
- * partial result is intentionally a recovery receipt, not a rollback promise:
- * callers can inspect it, report it, and safely re-run installation.
+ * An installation failed after earlier operations completed. The partial result
+ * is completed-operation evidence, not a rollback promise or an inventory of
+ * failed-operation writes. Callers can report it and safely re-run the
+ * convergent installation.
  */
 export class SomaInstallError extends Error {
-  readonly operation: SomaInstallOperation;
+  /** Exact internal label for diagnosis; intentionally not a public enum. */
+  readonly operation: string;
+  readonly stage: SomaInstallStage;
   readonly partial: SomaPartialInstallResult;
 
-  constructor(input: { operation: SomaInstallOperation; partial: SomaPartialInstallResult; cause: unknown }) {
+  constructor(input: { operation: string; stage: SomaInstallStage; partial: SomaPartialInstallResult; cause: unknown }) {
     const detail = input.cause instanceof Error && input.cause.message.length > 0 ? ` ${input.cause.message}` : "";
     super(`Soma install failed during ${input.operation}.${detail}`, { cause: input.cause });
     this.name = "SomaInstallError";
     this.operation = input.operation;
-    this.partial = snapshotPartial(input.partial);
+    this.stage = input.stage;
+    this.partial = snapshotSomaPartialInstallResult(input.partial);
   }
 }

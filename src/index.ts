@@ -385,7 +385,7 @@ export {
 // directly from the substrate path.
 export { writeProjection } from "./projection";
 export { SomaInstallError } from "./installation-execution";
-export type { SomaInstallOperation, SomaPartialInstallResult } from "./installation-execution";
+export type { SomaHomeInstallReceipt, SomaInstallStage, SomaPartialInstallResult } from "./installation-execution";
 export { createPaths, type SomaPathsOptions } from "./paths";
 export {
   advisor,
