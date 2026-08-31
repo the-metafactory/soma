@@ -4,7 +4,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import { hostname, tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { expect, test } from "bun:test";
-import { bootstrapSomaHome, experimentalAnthropicCowork, installSomaForClaudeCode, installSomaForCodex, installSomaForCursor, installSomaForPiDev, planSomaForCodexInstall, planSomaForPiDevInstall, somaWorkRegistryPaths } from "../src/index";
+import { bootstrapSomaHome, experimentalAnthropicCowork, installSomaForClaudeCode, installSomaForCodex, installSomaForCursor, installSomaForPiDev, planSomaForCodexInstall, planSomaForPiDevInstall, SomaInstallError, somaWorkRegistryPaths } from "../src/index";
 import { codexInstallSpec } from "../src/adapters/codex/install";
 import { ANTHROPIC_COWORK_ACTIVE_VSA_MARKER, isAnthropicCoworkSkillProjectionPath } from "../src/adapters/anthropic-cowork";
 import { removeLegacyPiDevVsaSkillProjection } from "../src/adapters/pi-dev/skill-projection";
@@ -219,6 +219,32 @@ test("installs soma source home and codex home projection", async () => {
     expect(algorithmSkill).toContain("Start with `Workflows/RunAlgorithm.md`");
     expect(algorithmSkill).toContain("The harness is mutable run state");
     expect(startupContext).toContain("Soma Startup Context");
+  });
+});
+
+test("a failed lifecycle projection reports its durable prefix and converges on re-run", async () => {
+  await withTempHome(async (homeDir) => {
+    const blockedStartupContext = join(homeDir, ".codex/memories/soma/startup-context.md");
+    await mkdir(blockedStartupContext, { recursive: true });
+
+    const failure = await installSomaForCodex({ homeDir }).catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(SomaInstallError);
+    expect(failure).toMatchObject({
+      operation: "install-lifecycle-projection",
+      partial: {
+        substrate: "codex",
+        substrateHome: {
+          files: expect.arrayContaining([join(homeDir, ".codex/AGENTS.md")]),
+        },
+      },
+    });
+
+    await rm(blockedStartupContext, { recursive: true, force: true });
+    const recovered = await installSomaForCodex({ homeDir });
+
+    expect(recovered.substrateHome.files).toContain(join(homeDir, ".codex/memories/soma/startup-context.md"));
+    await expect(readFile(join(homeDir, ".codex/memories/soma/startup-context.md"), "utf8")).resolves.toContain("Soma");
   });
 });
 

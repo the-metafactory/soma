@@ -384,7 +384,7 @@ export {
 // runtime shape in the follow-up PR. Tests can import the helpers
 // directly from the substrate path.
 export { writeProjection } from "./projection";
-export { SomaInstallError, SomaInstallExecution } from "./installation-execution";
+export { SomaInstallError } from "./installation-execution";
 export type { SomaInstallOperation, SomaPartialInstallResult } from "./installation-execution";
 export { createPaths, type SomaPathsOptions } from "./paths";
 export {

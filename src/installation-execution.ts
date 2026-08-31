@@ -1,4 +1,4 @@
-import type { InstallSubstrate, SomaHomeBootstrapResult, SomaInstallResult, WrittenProjection } from "./types";
+import type { InstallSubstrate, SomaHomeBootstrapResult, WrittenProjection } from "./types";
 import type { InstalledSkill, UninstallableSkillReport } from "./types";
 
 /** Exact ordered operation currently performed by the substrate-neutral installer. */
@@ -6,9 +6,13 @@ export type SomaInstallOperation =
   | "require-bun"
   | "bootstrap-soma-home"
   | "stage-runtime-artifact"
-  | "prepare-soma-home-skills"
+  | "prune-legacy-vsa-skill"
+  | "install-soma-home-vsa-skill"
+  | "install-bundled-skills"
+  | "reload-soma-home-context"
   | "validate-substrate"
-  | "install-vsa-skill"
+  | "prepare-substrate-vsa-skill"
+  | "install-substrate-vsa-skill"
   | "build-projection-input"
   | "write-home-projection"
   | "remove-obsolete-home-files"
@@ -31,6 +35,7 @@ function snapshotPartial(result: SomaPartialInstallResult): SomaPartialInstallRe
   return {
     ...result,
     runtimeArtifact: result.runtimeArtifact ? { ...result.runtimeArtifact } : undefined,
+    somaHome: result.somaHome ? { ...result.somaHome, files: [...result.somaHome.files] } : undefined,
     substrateHome: result.substrateHome ? { ...result.substrateHome, files: [...result.substrateHome.files] } : undefined,
     projectedSkills: result.projectedSkills?.map((skill) => ({ ...skill })),
     unprojectableSkills: result.unprojectableSkills?.map((report) => ({ ...report })),
@@ -52,50 +57,5 @@ export class SomaInstallError extends Error {
     this.name = "SomaInstallError";
     this.operation = input.operation;
     this.partial = snapshotPartial(input.partial);
-  }
-}
-
-/**
- * Substrate-neutral installation execution. Adapter facts stay in each
- * SubstrateInstallSpec; this module owns ordered operations and their failure
- * receipt at the installer seam.
- */
-export class SomaInstallExecution {
-  private partial: SomaPartialInstallResult;
-
-  constructor(substrate: InstallSubstrate) {
-    this.partial = { substrate };
-  }
-
-  record(result: Omit<Partial<SomaPartialInstallResult>, "substrate">): void {
-    this.partial = { ...this.partial, ...result };
-  }
-
-  snapshot(): SomaPartialInstallResult {
-    return snapshotPartial(this.partial);
-  }
-
-  async run<T>(operation: SomaInstallOperation, work: () => Promise<T> | T): Promise<T> {
-    try {
-      return await work();
-    } catch (error) {
-      if (error instanceof SomaInstallError) throw error;
-      throw new SomaInstallError({ operation, partial: this.snapshot(), cause: error });
-    }
-  }
-
-  result(): SomaInstallResult {
-    const { somaHome, substrateHome, projectedSkills, unprojectableSkills } = this.partial;
-    if (!somaHome || !substrateHome || !projectedSkills || !unprojectableSkills) {
-      throw new Error("Soma installation result is incomplete.");
-    }
-    return {
-      substrate: this.partial.substrate,
-      ...(this.partial.runtimeArtifact ? { runtimeArtifact: { ...this.partial.runtimeArtifact } } : {}),
-      somaHome,
-      substrateHome: { ...substrateHome, files: [...substrateHome.files] },
-      projectedSkills: projectedSkills.map((skill) => ({ ...skill })),
-      unprojectableSkills: unprojectableSkills.map((report) => ({ ...report })),
-    };
   }
 }

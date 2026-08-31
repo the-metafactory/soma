@@ -24,7 +24,7 @@ import { loadMemoryIndexForProjection } from "./memory-index";
 import { isUnderOrEqual, reconcileOwnedDir } from "./projection-reconcile";
 import { isEnoent } from "./fs-errors";
 import { isGuardedRuntimeSubstrate, stageRuntimeArtifact } from "./runtime-artifact";
-import { SomaInstallExecution } from "./installation-execution";
+import { SomaInstallExecution } from "./installation-executor";
 import {
   type ImplementedUninstallSpec,
   type InstallSubstrate,
@@ -180,10 +180,10 @@ async function installSomaForSubstrate(
     // stale ISA here would re-propagate to every substrate on each install. Cheap +
     // idempotent (a no-op readdir+gate once ISA is gone). Provenance-gated
     // (frontmatter name: ISA + identity marker) — a user "ISA" skill is preserved.
-    await execution.run("prepare-soma-home-skills", () => pruneLegacyVsaSkill(createPaths(somaHome.somaHome).skills()));
+    await execution.run("prune-legacy-vsa-skill", () => pruneLegacyVsaSkill(createPaths(somaHome.somaHome).skills()));
     // Install VSA skill into Soma home (canonical baseline) so other
     // tooling reading <somaHome>/skills/VSA continues to work.
-    await execution.run("prepare-soma-home-skills", () => installVsaSkillProjection({
+    await execution.run("install-soma-home-vsa-skill", () => installVsaSkillProjection({
       homeDir: options.homeDir,
       somaHome: somaHome.somaHome,
       somaRepoPath,
@@ -195,7 +195,7 @@ async function installSomaForSubstrate(
     // installer above owns its baseline). Placed before the loadSomaHome reload
     // below so install #1 already lists + projects them. Idempotent + byte-for-
     // byte from the repo source; user-added files under a skill dir survive.
-    bundledSkillNames = (await execution.run("prepare-soma-home-skills", () => installBundledSkillsIntoHome({
+    bundledSkillNames = (await execution.run("install-bundled-skills", () => installBundledSkillsIntoHome({
       homeDir: options.homeDir,
       somaHome: somaHome.somaHome,
       somaRepoPath,
@@ -207,7 +207,7 @@ async function installSomaForSubstrate(
     // were declared." and only the second install converges. Reloading makes
     // the very first projection already list the VSA skill — install #1 is
     // correct and byte-identical to every re-run.
-    projectionContext = await execution.run("prepare-soma-home-skills", () => loadSomaHome(somaHome.somaHome));
+    projectionContext = await execution.run("reload-soma-home-context", () => loadSomaHome(somaHome.somaHome));
   }
   const projectionOptions = {
     homeDir: options.homeDir,
@@ -224,8 +224,8 @@ async function installSomaForSubstrate(
   const substrateRoot = resolve(options.substrateHome ?? join(resolvedHomeDir, spec.defaultHome));
   await execution.run("validate-substrate", () => spec.validator?.(substrateRoot));
   if (!codeOnly) {
-    await execution.run("install-vsa-skill", () => spec.vsaSkillProjection.prepare?.(substrateRoot));
-    await execution.run("install-vsa-skill", () => installVsaSkillProjection({
+    await execution.run("prepare-substrate-vsa-skill", () => spec.vsaSkillProjection.prepare?.(substrateRoot));
+    await execution.run("install-substrate-vsa-skill", () => installVsaSkillProjection({
       homeDir: options.homeDir,
       somaHome: somaHome.somaHome,
       somaRepoPath,
@@ -263,6 +263,8 @@ async function installSomaForSubstrate(
     substrateHome: substrateHome.rootDir,
     options,
   }));
+  substrateHome = { ...substrateHome, files: [...substrateHome.files, ...postProjectionFiles] };
+  execution.record({ substrateHome });
   const lifecycleSpec = spec.lifecycleProjection;
   const lifecycleFiles = lifecycleSpec
     ? await execution.run("install-lifecycle-projection", () => installLifecycleProjection(lifecycleSpec, substrateHome.rootDir, {
@@ -273,7 +275,7 @@ async function installSomaForSubstrate(
       }))
     : [];
 
-  const allProjectedFiles = [...substrateHome.files, ...postProjectionFiles, ...lifecycleFiles];
+  const allProjectedFiles = [...substrateHome.files, ...lifecycleFiles];
   substrateHome = { ...substrateHome, files: allProjectedFiles };
   execution.record({ substrateHome });
   await execution.run("reconcile-owned-subtrees", () => reconcileOwnedSubtrees(spec, substrateHome.rootDir, allProjectedFiles));
