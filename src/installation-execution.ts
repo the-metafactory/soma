@@ -60,8 +60,7 @@ export class SomaInstallError extends Error {
   readonly partial: SomaPartialInstallResult;
 
   constructor(input: { operation: string; stage: SomaInstallStage; partial: SomaPartialInstallResult; cause: unknown }) {
-    const detail = input.cause instanceof Error && input.cause.message.length > 0 ? ` ${input.cause.message}` : "";
-    super(`Soma install failed during ${input.operation}.${detail}`, { cause: input.cause });
+    super(`Soma install failed during ${input.operation}.`);
     this.name = "SomaInstallError";
     this.operation = input.operation;
     this.stage = input.stage;
