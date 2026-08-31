@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { CURSOR_RULES_BLOCK_BEGIN, buildSubstrateHomeProjection, mergeCursorRulesContent } from "../home-projection";
+import { buildSubstrateHomeProjection } from "../home-projection";
+import { CURSOR_RULES_BLOCK_BEGIN } from "./cursor";
+import { mergeCursorRulesContent } from "./cursor/install";
 import { SomaHomeNotLoadableError, loadProjectionInputForDoctor } from "../doctor-projection-input";
 import { defaultSomaRepoPath } from "../repo-path";
 import { isEnoent, pathExists } from "../fs-utils";

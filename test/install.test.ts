@@ -319,12 +319,19 @@ test("install spec registry has adapter-owned facts for every install substrate"
   const substrates = ["codex", "pi-dev", "claude-code", "cursor", "grok", "dsh", "anthropic-cowork"] as const;
 
   expect(allInstallSpecs().map((spec) => spec.substrate).sort()).toEqual([...substrates].sort());
+  expect(allInstallSpecs().flatMap((spec) => spec.homeProjection.write ? [spec.substrate] : []).sort()).toEqual([
+    "claude-code",
+    "cursor",
+    "grok",
+  ]);
 
   for (const substrate of substrates) {
     const spec = installSpecFor(substrate);
     expect(spec.substrate).toBe(substrate);
     expect(spec.defaultHome.length).toBeGreaterThan(0);
     expect(spec.homeFiles.length).toBeGreaterThan(0);
+    expect(spec.homeProjection.build).toBeDefined();
+    expect(spec.homeProjection.isSkillProjectionPath).toBeDefined();
     expect(spec.vsaSkillProjection.destinationDir("/tmp/substrate-home")).toContain("/tmp/substrate-home");
     expect(spec.uninstall.kind).toMatch(/implemented|reserved/);
   }

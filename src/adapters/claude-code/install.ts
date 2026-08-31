@@ -22,6 +22,9 @@ import {
 } from "./hooks";
 import { CLAUDE_CODE_CLAUDE_MD_RELATIVE_PATH, installClaudeCodeClaudeMd } from "./claude-md";
 import { isClaudeCodeInstallOptions } from "./install-options";
+import { projectClaudeCodeHome, isClaudeCodeSkillProjectionPath } from "../claude-code";
+import { reconcilePortableSkillProjection, writePortableSkillManifest } from "../shared/portable-skill-manifest";
+import { writeProjection } from "../../projection";
 
 export const claudeCodeInstallSpec: SubstrateInstallSpec<"claude-code"> = {
   substrate: "claude-code",
@@ -32,6 +35,28 @@ export const claudeCodeInstallSpec: SubstrateInstallSpec<"claude-code"> = {
     SOMA_CLAUDE_HOOK_CONFIG_RELATIVE_PATH,
     "settings.json",
   ],
+  homeProjection: {
+    build: (input) => projectClaudeCodeHome(input),
+    isSkillProjectionPath: isClaudeCodeSkillProjectionPath,
+    write: async (projection, options) => {
+      const portableFiles = projection.bundle.files.filter((file) => isClaudeCodeSkillProjectionPath(file.path));
+      const written = await writeProjection(projection.bundle, projection.substrateHome);
+      if (options.codeOnly === true) return written;
+      await reconcilePortableSkillProjection({
+        somaHome: projection.somaHome,
+        substrate: "claude-code",
+        substrateHome: projection.substrateHome,
+        currentPaths: portableFiles.map((file) => file.path),
+      });
+      await writePortableSkillManifest({
+        somaHome: projection.somaHome,
+        substrate: "claude-code",
+        substrateHome: projection.substrateHome,
+        files: portableFiles,
+      });
+      return written;
+    },
+  },
   // Owned (Soma-exclusive) dirs — see ownedSubtrees JSDoc. Subsumes the former
   // obsoleteHomeFiles for TELOS.md/ACTIVE_ISA.md, which live under rules/soma.
   ownedSubtrees: ["rules/soma", "hooks/soma"],

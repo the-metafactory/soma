@@ -21,6 +21,9 @@ import {
 import { smokeTestInstalledGrokHookCommand } from "./hook-smoke";
 import { removeGrokPortableSkillProjection } from "./install-manifest";
 import { validateGrokInstallRuntime } from "./version";
+import { isGrokSkillProjectionPath, projectGrokHome } from "./adapter";
+import { reconcileGrokPortableSkillProjection, writeGrokInstallManifest } from "./install-manifest";
+import { writeProjection } from "../../projection";
 
 /**
  * Static file set emitted by `projectGrokHome`, relative to `~/.grok` —
@@ -172,6 +175,30 @@ export const grokInstallSpec: SubstrateInstallSpec<"grok"> = {
   substrate: "grok",
   defaultHome: GROK_DEFAULT_HOME,
   homeFiles: GROK_HOME_FILES,
+  homeProjection: {
+    build: (input, context) => projectGrokHome(input, context.somaHome, {
+      homeDir: context.homeDir,
+      somaRepoPath: context.somaRepoPath,
+      grokHome: context.substrateHome,
+    }),
+    isSkillProjectionPath: isGrokSkillProjectionPath,
+    write: async (projection, options) => {
+      const portableFiles = projection.bundle.files.filter((file) => isGrokPortableSkillProjectionPath(file.path));
+      const written = await writeProjection(projection.bundle, projection.substrateHome);
+      if (options.codeOnly === true) return written;
+      await reconcileGrokPortableSkillProjection({
+        somaHome: projection.somaHome,
+        substrateHome: projection.substrateHome,
+        currentPaths: portableFiles.map((file) => file.path),
+      });
+      await writeGrokInstallManifest({
+        somaHome: projection.somaHome,
+        substrateHome: projection.substrateHome,
+        files: portableFiles,
+      });
+      return written;
+    },
+  },
   // refuse to install against an unsupported Grok runtime —
   // the whole adapter is a set of version-pinned assumptions (doctor
   // inspect shape, hook event set, enumerated tool names). Reads

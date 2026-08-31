@@ -6,6 +6,7 @@ import {
   removeLegacyPiDevVsaSkillProjection,
 } from "./skill-projection";
 import { validatePiDevInstallRuntime } from "./version";
+import { isPiDevSkillProjectionPath, projectPiDevHome } from "./adapter";
 
 export const PI_DEV_HOME_FILES = [
   "agent/extensions/soma.ts",
@@ -29,6 +30,10 @@ export const piDevInstallSpec: SubstrateInstallSpec<"pi-dev"> = {
   substrate: "pi-dev",
   defaultHome: PI_DEV_DEFAULT_HOME,
   homeFiles: PI_DEV_HOME_FILES,
+  homeProjection: {
+    build: (input, context) => projectPiDevHome(input, context.somaHome),
+    isSkillProjectionPath: isPiDevSkillProjectionPath,
+  },
   // Owned (Soma-exclusive) dir — see ownedSubtrees JSDoc. (agent/extensions + agent/skills shared.)
   ownedSubtrees: ["agent/soma"],
   skillsLoaderDir: skillsLoaderUnder("agent"),
