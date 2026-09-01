@@ -1728,7 +1728,12 @@ test("#85: pi.dev install refuses explicitly unsupported runtime versions", asyn
     await mkdir(agentDir, { recursive: true });
     await writeFile(join(agentDir, "package.json"), JSON.stringify({ version: "0.0.1" }), "utf8");
 
-    await expect(installSomaForPiDev({ homeDir })).rejects.toThrow("Unsupported pi.dev version 0.0.1");
+    await expect(installSomaForPiDev({ homeDir })).rejects.toMatchObject({
+      name: "SomaInstallError",
+      operation: "validate-substrate",
+      stage: "substrate",
+      message: "Soma install failed during validate-substrate.",
+    });
   });
 });
 
@@ -1738,7 +1743,12 @@ test("#85: pi.dev install refuses prerelease versions at the stable minimum", as
     await mkdir(agentDir, { recursive: true });
     await writeFile(join(agentDir, "package.json"), JSON.stringify({ version: "0.10.0-beta.1" }), "utf8");
 
-    await expect(installSomaForPiDev({ homeDir })).rejects.toThrow("Unsupported pi.dev version 0.10.0-beta.1");
+    await expect(installSomaForPiDev({ homeDir })).rejects.toMatchObject({
+      name: "SomaInstallError",
+      operation: "validate-substrate",
+      stage: "substrate",
+      message: "Soma install failed during validate-substrate.",
+    });
   });
 });
 
@@ -1748,7 +1758,12 @@ test("#85: pi.dev install refuses malformed runtime versions as invalid metadata
     await mkdir(agentDir, { recursive: true });
     await writeFile(join(agentDir, "package.json"), JSON.stringify({ version: "banana" }), "utf8");
 
-    await expect(installSomaForPiDev({ homeDir })).rejects.toThrow("Unable to read pi.dev version");
+    await expect(installSomaForPiDev({ homeDir })).rejects.toMatchObject({
+      name: "SomaInstallError",
+      operation: "validate-substrate",
+      stage: "substrate",
+      message: "Soma install failed during validate-substrate.",
+    });
   });
 });
 
@@ -1758,7 +1773,12 @@ test("#85: pi.dev install refuses partial runtime versions as invalid metadata",
     await mkdir(agentDir, { recursive: true });
     await writeFile(join(agentDir, "package.json"), JSON.stringify({ version: "1" }), "utf8");
 
-    await expect(installSomaForPiDev({ homeDir })).rejects.toThrow("Unable to read pi.dev version");
+    await expect(installSomaForPiDev({ homeDir })).rejects.toMatchObject({
+      name: "SomaInstallError",
+      operation: "validate-substrate",
+      stage: "substrate",
+      message: "Soma install failed during validate-substrate.",
+    });
   });
 });
 

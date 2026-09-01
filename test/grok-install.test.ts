@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { bootstrapSomaHome, installSomaForGrok, planSomaForGrokInstall, projectGrokHome, activeVsaProjectionPath } from "../src/index";
+import { bootstrapSomaHome, installSomaForGrok, planSomaForGrokInstall, projectGrokHome, activeVsaProjectionPath, SomaInstallError } from "../src/index";
 import { smokeTestInstalledGrokHookCommand } from "../src/adapters/grok/hook-smoke";
 import { GROK_INSTALL_MANIFEST_SCHEMA, grokInstallManifestPath } from "../src/adapters/grok/install-manifest";
 import { allInstallSpecs, installSpecFor } from "../src/install-spec-registry";
@@ -303,8 +303,12 @@ test("grok install refuses a runtime below the minimum with upgrade guidance", a
     await mkdir(grokHome, { recursive: true });
     await writeFile(join(grokHome, "version.json"), JSON.stringify({ version: "0.2.10" }), "utf8");
 
-    await expect(installSomaForGrok({ homeDir })).rejects.toThrow("Unsupported grok version 0.2.10");
-    await expect(installSomaForGrok({ homeDir })).rejects.toThrow("0.2.38");
+    await expect(installSomaForGrok({ homeDir })).rejects.toMatchObject({
+      name: "SomaInstallError",
+      operation: "validate-substrate",
+      stage: "substrate",
+      message: "Soma install failed during validate-substrate.",
+    });
   });
 });
 
@@ -314,7 +318,12 @@ test("grok install refuses a prerelease runtime", async () => {
     await mkdir(grokHome, { recursive: true });
     await writeFile(join(grokHome, "version.json"), JSON.stringify({ version: "0.2.40-rc.1" }), "utf8");
 
-    await expect(installSomaForGrok({ homeDir })).rejects.toThrow("Unsupported grok version 0.2.40-rc.1");
+    await expect(installSomaForGrok({ homeDir })).rejects.toMatchObject({
+      name: "SomaInstallError",
+      operation: "validate-substrate",
+      stage: "substrate",
+      message: "Soma install failed during validate-substrate.",
+    });
   });
 });
 
@@ -324,7 +333,12 @@ test("grok install refuses malformed version metadata", async () => {
     await mkdir(grokHome, { recursive: true });
     await writeFile(join(grokHome, "version.json"), JSON.stringify({ version: "banana" }), "utf8");
 
-    await expect(installSomaForGrok({ homeDir })).rejects.toThrow("Unable to read grok version");
+    await expect(installSomaForGrok({ homeDir })).rejects.toMatchObject({
+      name: "SomaInstallError",
+      operation: "validate-substrate",
+      stage: "substrate",
+      message: "Soma install failed during validate-substrate.",
+    });
   });
 });
 
@@ -464,7 +478,12 @@ test("grok install never emits a whitespace hook command for a spaced home (8.3 
       await installSomaForGrok({ homeDir });
     } catch (err) {
       installed = false;
-      expect(String(err)).toMatch(/whitespace in the (grok hooks path|bun path)/i);
+      expect(err).toBeInstanceOf(SomaInstallError);
+      expect(err).toMatchObject({
+        operation: "write-home-projection",
+        stage: "projection",
+        message: "Soma install failed during write-home-projection.",
+      });
     }
 
     if (installed) {
