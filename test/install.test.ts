@@ -1,10 +1,10 @@
 import { chmod, copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
-import { isAbsolute, join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { hostname, tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { expect, test } from "bun:test";
-import { bootstrapSomaHome, experimentalAnthropicCowork, installSomaForClaudeCode, installSomaForCodex, installSomaForCursor, installSomaForPiDev, planSomaForCodexInstall, planSomaForPiDevInstall, somaWorkRegistryPaths } from "../src/index";
+import { bootstrapSomaHome, experimentalAnthropicCowork, installSomaForClaudeCode, installSomaForCodex, installSomaForCursor, installSomaForPiDev, planSomaForCodexInstall, planSomaForPiDevInstall, SomaInstallError, somaWorkRegistryPaths } from "../src/index";
 import { codexInstallSpec } from "../src/adapters/codex/install";
 import { ANTHROPIC_COWORK_ACTIVE_VSA_MARKER, isAnthropicCoworkSkillProjectionPath } from "../src/adapters/anthropic-cowork";
 import { removeLegacyPiDevVsaSkillProjection } from "../src/adapters/pi-dev/skill-projection";
@@ -71,6 +71,17 @@ async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> 
     await unsealRuntimeArtifacts(homeDir);
     await rm(homeDir, { recursive: true, force: true });
   }
+}
+
+async function readProjectionSnapshot(root: string, files: readonly string[]): Promise<Record<string, string>> {
+  return Object.fromEntries(
+    await Promise.all(
+      files.map(async (file) => {
+        const path = isAbsolute(file) ? file : join(root, file);
+        return [relative(root, path), await readFile(path, "utf8")] as const;
+      }),
+    ),
+  );
 }
 
 function coworkPath(homeDir: string, path = ""): string {
@@ -219,6 +230,34 @@ test("installs soma source home and codex home projection", async () => {
     expect(algorithmSkill).toContain("Start with `Workflows/RunAlgorithm.md`");
     expect(algorithmSkill).toContain("The harness is mutable run state");
     expect(startupContext).toContain("Soma Startup Context");
+  });
+});
+
+test("a failed lifecycle projection reports completed projection evidence and converges on re-run", async () => {
+  await withTempHome(async (homeDir) => {
+    const blockedStartupContext = join(homeDir, ".codex/memories/soma/startup-context.md");
+    await mkdir(blockedStartupContext, { recursive: true });
+
+    const failure = await installSomaForCodex({ homeDir }).catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(SomaInstallError);
+    expect(failure).toMatchObject({
+      operation: "install-lifecycle-projection",
+      stage: "projection",
+      partial: { substrate: "codex" },
+    });
+    const receipt = (failure as SomaInstallError).partial.substrateHome;
+    expect(typeof receipt?.filesWritten).toBe("number");
+    expect(receipt?.filesWritten).toBeGreaterThan(0);
+    expect(Object.keys(receipt ?? {})).toEqual(["filesWritten"]);
+
+    await rm(blockedStartupContext, { recursive: true, force: true });
+    const recovered = await installSomaForCodex({ homeDir });
+    const recoveredSnapshot = await readProjectionSnapshot(recovered.substrateHome.rootDir, recovered.substrateHome.files);
+    const converged = await installSomaForCodex({ homeDir });
+
+    expect([...converged.substrateHome.files].sort()).toEqual([...recovered.substrateHome.files].sort());
+    expect(await readProjectionSnapshot(converged.substrateHome.rootDir, converged.substrateHome.files)).toEqual(recoveredSnapshot);
   });
 });
 
@@ -1689,7 +1728,12 @@ test("#85: pi.dev install refuses explicitly unsupported runtime versions", asyn
     await mkdir(agentDir, { recursive: true });
     await writeFile(join(agentDir, "package.json"), JSON.stringify({ version: "0.0.1" }), "utf8");
 
-    await expect(installSomaForPiDev({ homeDir })).rejects.toThrow("Unsupported pi.dev version 0.0.1");
+    await expect(installSomaForPiDev({ homeDir })).rejects.toMatchObject({
+      name: "SomaInstallError",
+      operation: "validate-substrate",
+      stage: "substrate",
+      message: "Soma install failed during validate-substrate.",
+    });
   });
 });
 
@@ -1699,7 +1743,12 @@ test("#85: pi.dev install refuses prerelease versions at the stable minimum", as
     await mkdir(agentDir, { recursive: true });
     await writeFile(join(agentDir, "package.json"), JSON.stringify({ version: "0.10.0-beta.1" }), "utf8");
 
-    await expect(installSomaForPiDev({ homeDir })).rejects.toThrow("Unsupported pi.dev version 0.10.0-beta.1");
+    await expect(installSomaForPiDev({ homeDir })).rejects.toMatchObject({
+      name: "SomaInstallError",
+      operation: "validate-substrate",
+      stage: "substrate",
+      message: "Soma install failed during validate-substrate.",
+    });
   });
 });
 
@@ -1709,7 +1758,12 @@ test("#85: pi.dev install refuses malformed runtime versions as invalid metadata
     await mkdir(agentDir, { recursive: true });
     await writeFile(join(agentDir, "package.json"), JSON.stringify({ version: "banana" }), "utf8");
 
-    await expect(installSomaForPiDev({ homeDir })).rejects.toThrow("Unable to read pi.dev version");
+    await expect(installSomaForPiDev({ homeDir })).rejects.toMatchObject({
+      name: "SomaInstallError",
+      operation: "validate-substrate",
+      stage: "substrate",
+      message: "Soma install failed during validate-substrate.",
+    });
   });
 });
 
@@ -1719,7 +1773,12 @@ test("#85: pi.dev install refuses partial runtime versions as invalid metadata",
     await mkdir(agentDir, { recursive: true });
     await writeFile(join(agentDir, "package.json"), JSON.stringify({ version: "1" }), "utf8");
 
-    await expect(installSomaForPiDev({ homeDir })).rejects.toThrow("Unable to read pi.dev version");
+    await expect(installSomaForPiDev({ homeDir })).rejects.toMatchObject({
+      name: "SomaInstallError",
+      operation: "validate-substrate",
+      stage: "substrate",
+      message: "Soma install failed during validate-substrate.",
+    });
   });
 });
 

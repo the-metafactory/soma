@@ -24,6 +24,7 @@ import { loadMemoryIndexForProjection } from "./memory-index";
 import { isUnderOrEqual, reconcileOwnedDir } from "./projection-reconcile";
 import { isEnoent } from "./fs-errors";
 import { isGuardedRuntimeSubstrate, stageRuntimeArtifact } from "./runtime-artifact";
+import { SomaInstallExecution } from "./installation-executor";
 import {
   type ImplementedUninstallSpec,
   type InstallSubstrate,
@@ -141,6 +142,7 @@ async function installSomaForSubstrate(
   substrate: InstallSubstrate,
   options: SomaInstallOptions = {},
 ): Promise<SomaInstallResult> {
+  const execution = new SomaInstallExecution(substrate);
   const spec = installSpecFor(substrate);
   // soma#73 pre-flight: every soma substrate hook now runs under Bun
   // (#!/usr/bin/env bun shebang). The adopter rejects loud + early
@@ -148,18 +150,22 @@ async function installSomaForSubstrate(
   // that fails at hook fire time. Always probes `which bun` — sage
   // r1 caught a bypass that trusted `process.versions.bun`, which
   // doesn't prove anything about the hook's later spawn environment.
-  requireBunInPath();
+  await execution.run("require-bun", () => {
+    requireBunInPath();
+  });
   const codeOnly = options.codeOnly === true;
-  const somaHome = await bootstrapSomaHome({
+  const somaHome = await execution.run("bootstrap-soma-home", () => bootstrapSomaHome({
     homeDir: options.homeDir,
     somaHome: options.somaHome,
     includeSkills: !codeOnly,
-  });
+  }));
+  execution.record({ somaHome });
   const somaRepoPath = options.somaRepoPath ?? defaultSomaRepoPath();
   // Guarded substrates execute only the immutable artifact, never this editable checkout.
   const guardedRuntime = isGuardedRuntimeSubstrate(substrate)
-    ? await stageRuntimeArtifact({ somaHome: somaHome.somaHome, substrate, sourceRoot: somaRepoPath })
+    ? await execution.run("stage-runtime-artifact", () => stageRuntimeArtifact({ somaHome: somaHome.somaHome, substrate, sourceRoot: somaRepoPath }))
     : undefined;
+  if (guardedRuntime) execution.record({ runtimeArtifact: guardedRuntime });
   const runtimeRepoPath = guardedRuntime?.path ?? somaRepoPath;
   let projectionContext = somaHome.context;
   // Repo-bundled skill dir names — set from installBundledSkillsIntoHome below
@@ -174,14 +180,14 @@ async function installSomaForSubstrate(
     // stale ISA here would re-propagate to every substrate on each install. Cheap +
     // idempotent (a no-op readdir+gate once ISA is gone). Provenance-gated
     // (frontmatter name: ISA + identity marker) — a user "ISA" skill is preserved.
-    await pruneLegacyVsaSkill(createPaths(somaHome.somaHome).skills());
+    await execution.run("prune-legacy-vsa-skill", () => pruneLegacyVsaSkill(createPaths(somaHome.somaHome).skills()));
     // Install VSA skill into Soma home (canonical baseline) so other
     // tooling reading <somaHome>/skills/VSA continues to work.
-    await installVsaSkillProjection({
+    await execution.run("install-soma-home-vsa-skill", () => installVsaSkillProjection({
       homeDir: options.homeDir,
       somaHome: somaHome.somaHome,
       somaRepoPath,
-    });
+    }));
     // Copy the repo-bundled skills (src/skills/* except VSA — the-algorithm,
     // Memory) into <somaHome>/skills so they enter the Soma catalog (SKILLS.md)
     // and profile.skills, and therefore project to every substrate through the
@@ -189,11 +195,11 @@ async function installSomaForSubstrate(
     // installer above owns its baseline). Placed before the loadSomaHome reload
     // below so install #1 already lists + projects them. Idempotent + byte-for-
     // byte from the repo source; user-added files under a skill dir survive.
-    bundledSkillNames = (await installBundledSkillsIntoHome({
+    bundledSkillNames = (await execution.run("install-bundled-skills", () => installBundledSkillsIntoHome({
       homeDir: options.homeDir,
       somaHome: somaHome.somaHome,
       somaRepoPath,
-    })).names;
+    }))).names;
     // bootstrapSomaHome captured its context snapshot BEFORE the VSA skill
     // baseline above existed, so its skill list is empty on a first install.
     // Re-read the Soma home now that <somaHome>/skills/VSA is on disk: without
@@ -201,7 +207,7 @@ async function installSomaForSubstrate(
     // were declared." and only the second install converges. Reloading makes
     // the very first projection already list the VSA skill — install #1 is
     // correct and byte-identical to every re-run.
-    projectionContext = await loadSomaHome(somaHome.somaHome);
+    projectionContext = await execution.run("reload-soma-home-context", () => loadSomaHome(somaHome.somaHome));
   }
   const projectionOptions = {
     homeDir: options.homeDir,
@@ -216,56 +222,63 @@ async function installSomaForSubstrate(
   // inherits installVsaSkill's local-edits-preserved contract.
   const resolvedHomeDir = resolve(options.homeDir ?? homedir());
   const substrateRoot = resolve(options.substrateHome ?? join(resolvedHomeDir, spec.defaultHome));
-  await spec.validator?.(substrateRoot);
+  await execution.run("validate-substrate", () => spec.validator?.(substrateRoot));
   if (!codeOnly) {
-    await spec.vsaSkillProjection.prepare?.(substrateRoot);
-    await installVsaSkillProjection({
+    await execution.run("prepare-substrate-vsa-skill", () => spec.vsaSkillProjection.prepare?.(substrateRoot));
+    await execution.run("install-substrate-vsa-skill", () => installVsaSkillProjection({
       homeDir: options.homeDir,
       somaHome: somaHome.somaHome,
       somaRepoPath,
       skillDestinationDir: spec.vsaSkillProjection.destinationDir(substrateRoot),
       skillNameOverride: spec.vsaSkillProjection.skillNameOverride,
       projectionSubstrate: substrate,
-    });
+    }));
   }
   // Populate the projection input with the active VSA so each substrate writes its
   // `active-vsa.md` file (#37 AC-1/AC-2), and with the memory index (M4) so
   // memory-aware substrates project their always-loaded memory file. Both are
   // soft: absent source → the file is simply omitted.
-  const memoryIndexContent = await loadMemoryIndexForProjection({ somaHome: somaHome.somaHome });
-  const contextWithActiveVsa: ProjectionInput = {
-    ...projectionContext,
-    activeVsa: (await loadActiveVsaForBundle({ somaHome: somaHome.somaHome })) ?? undefined,
-    memory: memoryIndexContent !== undefined ? { indexContent: memoryIndexContent } : undefined,
+  const contextWithActiveVsa: ProjectionInput = await execution.run("build-projection-input", async () => {
+    const memoryIndexContent = await loadMemoryIndexForProjection({ somaHome: somaHome.somaHome });
+    return {
+      ...projectionContext,
+      activeVsa: (await loadActiveVsaForBundle({ somaHome: somaHome.somaHome })) ?? undefined,
+      memory: memoryIndexContent !== undefined ? { indexContent: memoryIndexContent } : undefined,
     // The repo-bundled skills (src/skills/*) copied into the home above scope
     // the portable-skill loop: only these project as invocable dirs, so a
     // 100-skill migrated home projects the bundle, not everything, and never
     // collides with the `--skills` selective symlink flow. Captured from the
     // home-copy step above (undefined under codeOnly — no copy, profile.skills
     // is empty, so this list is inert).
-    bundledSkillNames,
-  };
-  const substrateHome = await installHomeProjectionFor(substrate, contextWithActiveVsa, projectionOptions);
-  await removeObsoleteHomeFiles(spec, substrateHome.rootDir);
-  const postProjectionFiles = await runPostProjectionSteps(spec, {
+      bundledSkillNames,
+    };
+  });
+  let substrateHome = await execution.run("write-home-projection", () => installHomeProjectionFor(substrate, contextWithActiveVsa, projectionOptions));
+  execution.record({ substrateHome });
+  await execution.run("remove-obsolete-home-files", () => removeObsoleteHomeFiles(spec, substrateHome.rootDir));
+  const postProjectionFiles = await execution.run("run-post-projection", () => runPostProjectionSteps(spec, {
     homeDir: options.homeDir,
     somaHome: somaHome.somaHome,
     somaRepoPath: projectionOptions.somaRepoPath,
     substrateHome: substrateHome.rootDir,
     options,
-  });
+  }));
+  substrateHome = { ...substrateHome, files: [...substrateHome.files, ...postProjectionFiles] };
+  execution.record({ substrateHome });
   const lifecycleSpec = spec.lifecycleProjection;
   const lifecycleFiles = lifecycleSpec
-    ? await installLifecycleProjection(lifecycleSpec, substrateHome.rootDir, {
+    ? await execution.run("install-lifecycle-projection", () => installLifecycleProjection(lifecycleSpec, substrateHome.rootDir, {
         homeDir: options.homeDir,
         somaHome: somaHome.somaHome,
         somaRepoPath: projectionOptions.somaRepoPath,
-        substrate: substrate as SubstrateId,
-      })
+        substrate,
+      }))
     : [];
 
-  const allProjectedFiles = [...substrateHome.files, ...postProjectionFiles, ...lifecycleFiles];
-  await reconcileOwnedSubtrees(spec, substrateHome.rootDir, allProjectedFiles);
+  const allProjectedFiles = [...substrateHome.files, ...lifecycleFiles];
+  substrateHome = { ...substrateHome, files: allProjectedFiles };
+  execution.record({ substrateHome });
+  await execution.run("reconcile-owned-subtrees", () => reconcileOwnedSubtrees(spec, substrateHome.rootDir, allProjectedFiles));
 
   // soma#638: link the curated registry into the substrate's loader. This lives
   // in the install layer, not the CLI, because for a `loader` substrate the
@@ -279,25 +292,16 @@ async function installSomaForSubstrate(
   // subtree — ordering keeps that from being a silent trap.)
   const { projectedSkills, unprojectableSkills } = codeOnly
     ? { projectedSkills: [], unprojectableSkills: [] }
-    : await projectRegistrySkills(spec, {
+    : await execution.run("project-registry-skills", () => projectRegistrySkills(spec, {
         substrate,
         substrateRoot,
         somaHome: somaHome.somaHome,
         homeDir: options.homeDir,
         selected: options.skills ?? [],
-      });
+      }));
+  execution.record({ projectedSkills, unprojectableSkills });
 
-  return {
-    substrate,
-    ...(guardedRuntime ? { runtimeArtifact: guardedRuntime } : {}),
-    somaHome,
-    substrateHome: {
-      ...substrateHome,
-      files: allProjectedFiles,
-    },
-    projectedSkills,
-    unprojectableSkills,
-  };
+  return execution.result();
 }
 
 /**
