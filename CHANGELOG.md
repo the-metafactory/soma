@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A guard that cannot run says so, distinctly from a rule that fired.** Every
+  non-policy failure path in the Claude Code policy guard (unreadable config,
+  malformed hook input, non-zero inspection exit, unparseable output) now denies
+  with `Soma policy guard UNAVAILABLE (fail-closed — this is not a policy
+  denial)` and names its recovery. A rule that fired still carries the rule's own
+  reason. Both still deny; fail-closed is unchanged. ([#640])
+- **The soma#640 symptom is covered by regression tests.** `soma install` has
+  pinned guarded substrates to a frozen artifact since #657, but nothing
+  asserted the behaviour that motivated it: a guarded tool call against a broken
+  source checkout. `test/claude-code-policy-guard-runtime.test.ts` now pins the
+  allow (artifact) and deny (unpinned config) paths side by side. ([#640])
+- **A guard that crashes now denies instead of dying.** Two shapes reached a
+  throw before any decision was emitted: a config parsing to literal `null`
+  (`JSON.parse` succeeds on every JSON scalar, so the parse-error branch never
+  saw it, and reading `config.error` off `null` threw), and a `bunPath` of `""`,
+  which satisfies a `typeof` check and then throws inside spawn. `readConfig`
+  now rejects any parse result that is not an object, config paths must be
+  non-empty, and — because enumerating throw sites is a losing game — the
+  surface is chosen first and every remaining path fails closed onto it. An
+  operator gets a decision and a recovery where they previously got a stack
+  trace. ([#640])
+
 ## [0.19.1] - 2026-09-05
 
 ### Fixed
@@ -88,6 +112,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inspection. ([#658])
 
 [#315]: https://github.com/the-metafactory/soma/issues/315
+[#543]: https://github.com/the-metafactory/soma/issues/543
+[#640]: https://github.com/the-metafactory/soma/issues/640
 [#654]: https://github.com/the-metafactory/soma/issues/654
 [#658]: https://github.com/the-metafactory/soma/issues/658
 [#659]: https://github.com/the-metafactory/soma/issues/659

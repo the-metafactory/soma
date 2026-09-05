@@ -21,7 +21,11 @@ function hookDir() {
 
 function readConfig() {
   try {
-    return JSON.parse(readFileSync(join(hookDir(), "soma-policy-guard.config.json"), "utf8"));
+    const parsed = JSON.parse(readFileSync(join(hookDir(), "soma-policy-guard.config.json"), "utf8"));
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { error: `config is ${Array.isArray(parsed) ? "an array" : parsed === null ? "null" : typeof parsed}, not an object` };
+    }
+    return parsed;
   } catch (error) {
     return { error: error instanceof Error ? error.message : String(error) };
   }
@@ -79,6 +83,17 @@ function blockPromptSubmit(reason) {
       reason,
     },
   });
+}
+
+// "A rule fired" and "the guard could not run" are different operator problems:
+// only the second has a recovery, and only the first is a judgement about the
+// action. Both still deny — fail-closed is unchanged — but an operator reading
+// the denial must be able to tell them apart without re-deriving it from the
+// error text. soma#640.
+const GUARD_UNAVAILABLE = "Soma policy guard UNAVAILABLE (fail-closed — this is not a policy denial)";
+
+function unavailable(detail) {
+  return `${GUARD_UNAVAILABLE}: ${detail} Recover with: soma install claude-code --apply, or soma runtime rollback --substrate claude-code.`;
 }
 
 // Prompt surface → runtime-policy inspection (prompt injection, etc.).
@@ -139,18 +154,18 @@ function shouldBlock(decision) {
   return decision === "deny" || decision === "ask";
 }
 
-function main() {
-  const input = readHookInput();
-  const surfaceEvent = eventName(input);
-  const deny = surfaceEvent === "UserPromptSubmit" ? blockPromptSubmit : denyPreToolUse;
+function isUsablePath(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
 
+function guard(input, surfaceEvent, deny) {
   const config = readConfig();
-  if (config.error || typeof config.bunPath !== "string" || typeof config.trustedSomaRepo !== "string" || typeof config.somaHome !== "string") {
-    deny(`Soma policy guard failed closed: invalid config (${config.error || "missing fields"}).`);
+  if (config.error || !isUsablePath(config.bunPath) || !isUsablePath(config.trustedSomaRepo) || !isUsablePath(config.somaHome)) {
+    deny(unavailable(`invalid config (${config.error || "missing or empty fields"}).`));
     return;
   }
   if (input.__somaParseError) {
-    deny(`Soma policy guard failed closed: ${input.__somaParseError}.`);
+    deny(unavailable(`${input.__somaParseError}.`));
     return;
   }
 
@@ -164,14 +179,14 @@ function main() {
 
   const output = result.stdout || result.stderr || "";
   if (result.status !== 0) {
-    deny(`Soma runtime policy inspection failed closed: ${output || "unknown error"}. Reinstall the active enforcement artifact with soma install claude-code --apply, or run soma runtime rollback.`);
+    deny(unavailable(`runtime policy inspection failed: ${output || "unknown error"}.`));
     return;
   }
   let inspection;
   try {
     inspection = parseInspection(output);
   } catch (error) {
-    deny(`Soma runtime policy inspection ${error instanceof Error ? error.message : String(error)}`);
+    deny(unavailable(`runtime policy inspection ${error instanceof Error ? error.message : String(error)}.`));
     return;
   }
   if (shouldBlock(inspection.decision)) {
@@ -180,6 +195,26 @@ function main() {
   }
 
   emitAndExit({ continue: true });
+}
+
+/**
+ * Fail closed on ANY unexpected throw, not just the paths enumerated above.
+ * Two exceptions were found by review after the fact — a config parsing to
+ * `null`, and a `bunPath` of `""` that passes a typeof check and then throws
+ * inside spawn. Both crashed the guard, which is the one outcome worse than
+ * denying: an operator sees a stack trace where a decision belongs. Enumerating
+ * throw sites is a losing game, so the surface is chosen first and every
+ * remaining path lands on it.
+ */
+function main() {
+  const input = readHookInput();
+  const surfaceEvent = eventName(input);
+  const deny = surfaceEvent === "UserPromptSubmit" ? blockPromptSubmit : denyPreToolUse;
+  try {
+    guard(input, surfaceEvent, deny);
+  } catch (error) {
+    deny(unavailable(`guard failed unexpectedly: ${error instanceof Error ? error.message : String(error)}.`));
+  }
 }
 
 main();
