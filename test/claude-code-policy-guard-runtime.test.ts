@@ -192,3 +192,24 @@ test("soma#640: the original failure reproduces on the unpinned config shape", a
     expect(decisionOf(runGuard(homeDir, BENIGN).stdout)).toBe("deny");
   });
 });
+
+test("soma#640: a config that parses to a non-object is a guard failure, not a crash", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForClaudeCode({ homeDir, policyGuard: true });
+
+    // `JSON.parse` succeeds on every JSON scalar, so the parse-error branch
+    // never sees these. `null` is the sharp one: reading `.error` off it threw
+    // before any denial was emitted, so the guard died instead of failing
+    // closed — the one non-policy path the UNAVAILABLE wording did not cover.
+    for (const raw of ["null", "[]", '"a string"', "42"]) {
+      await writeFile(join(homeDir, GUARD_CONFIG_REL), raw, "utf8");
+
+      const out = runGuard(homeDir, BENIGN);
+      expect(out.status).toBe(0);
+      expect(decisionOf(out.stdout)).toBe("deny");
+      const reason = reasonOf(out.stdout);
+      expect(reason).toContain("UNAVAILABLE");
+      expect(reason).toContain("soma install claude-code --apply");
+    }
+  });
+});

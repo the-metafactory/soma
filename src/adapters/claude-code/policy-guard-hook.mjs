@@ -21,7 +21,11 @@ function hookDir() {
 
 function readConfig() {
   try {
-    return JSON.parse(readFileSync(join(hookDir(), "soma-policy-guard.config.json"), "utf8"));
+    const parsed = JSON.parse(readFileSync(join(hookDir(), "soma-policy-guard.config.json"), "utf8"));
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { error: `config is ${Array.isArray(parsed) ? "an array" : parsed === null ? "null" : typeof parsed}, not an object` };
+    }
+    return parsed;
   } catch (error) {
     return { error: error instanceof Error ? error.message : String(error) };
   }
