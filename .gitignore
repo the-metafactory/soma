@@ -10,3 +10,4 @@ dist/
 .pi/
 .claude/
 .specflow/
+*.bun-build
