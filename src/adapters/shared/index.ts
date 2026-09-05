@@ -191,6 +191,22 @@ export function renderAssistantCore(input: ProjectionInput): string {
 }
 
 /**
+ * Profiles are an explicit, on-demand orientation surface. They must not carry
+ * the assistant core because several substrates load their context and profile
+ * files into the same prompt.
+ */
+export function renderProfilePointer(input: ProjectionInput, contextPath: string): string {
+  return [
+    "# Soma Profile Projection",
+    "",
+    "This profile is an on-demand pointer and intentionally does not repeat the assistant core.",
+    `Assistant Name: ${input.profile.assistant.name}`,
+    `Principal Name: ${input.profile.principal.name}`,
+    `Read \`${contextPath}\` for the projected assistant identity, principal, purpose, and active VSA.`,
+  ].join("\n");
+}
+
+/**
  * The communication contract as a projected file, or `[]` when the home has
  * none. Content is the VERBATIM authored markdown — no provenance header and
  * no re-render, same contract as the memory INDEX and the active VSA: this is

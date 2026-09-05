@@ -1,6 +1,6 @@
 import type { SkillsDiscoveryMode } from "../install-spec";
 import type { SomaAdapter, Projection, ProjectionInput } from "../types";
-import { buildPortableSkillFiles, communicationContractFile, projectedRulesFiles, skillCatalogFile, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills, SELF_HEALING_DOCTRINE_ADVISORY, withProvenance } from "./shared";
+import { buildPortableSkillFiles, communicationContractFile, projectedRulesFiles, skillCatalogFile, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderProfilePointer, renderSkills, SELF_HEALING_DOCTRINE_ADVISORY, withProvenance } from "./shared";
 import { activeVsaBundleFile } from "../adapter-active-vsa";
 import { behaviorPolicyAdvisory } from "../policy/behavior-policy";
 
@@ -150,7 +150,7 @@ function renderClaudeRulesContext(input: ProjectionInput): string {
 }
 
 function renderClaudeProfile(input: ProjectionInput): string {
-  return ["# Soma Profile Projection", "", renderAssistantCore(input)].join("\n");
+  return renderProfilePointer(input, "CONTEXT.md beside this file");
 }
 
 function renderClaudePurpose(input: ProjectionInput): string {

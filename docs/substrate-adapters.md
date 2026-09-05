@@ -4,6 +4,13 @@ Soma treats execution environments as substrates. One adapter per substrate
 projects the same Soma into different substrate-native primitives. See
 [CONTEXT.md](../CONTEXT.md) for glossary.
 
+The Claude Code, Cursor, Anthropic Cowork, Pi.dev, and Codex projections use
+one eager assistant-core context artifact. Their profile files are on-demand
+pointers with only assistant and principal names for fast orientation; they do
+not repeat assistant-core sections. This prevents two independently generated
+copies of the core from reaching a prompt when those substrates discover both
+files.
+
 ## Codex
 
 Codex is a coding-agent substrate. The Codex projection should carry:

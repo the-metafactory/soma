@@ -18,6 +18,7 @@ export const CODEX_HOME_FILES = [
   "hooks/policy-marker.mjs",
   "skills/soma/SKILL.md",
   "skills/the-algorithm/SKILL.md",
+  "memories/soma/context.md",
   "memories/soma/profile.md",
   "memories/soma/startup-context.md",
   "memories/soma/lifecycle.md",
@@ -32,7 +33,7 @@ export const CODEX_HOME_FILES = [
   "config.toml",
 ] as const;
 
-export const CODEX_AGENTS_IMPORTS = ["@./skills/the-algorithm/SKILL.md", "@./memories/soma/startup-context.md"] as const;
+export const CODEX_AGENTS_IMPORTS = ["@./memories/soma/context.md", "@./skills/the-algorithm/SKILL.md", "@./memories/soma/startup-context.md"] as const;
 
 export async function configureCodexAgentsImport(codexHome: string): Promise<string[]> {
   const path = join(codexHome, "AGENTS.md");

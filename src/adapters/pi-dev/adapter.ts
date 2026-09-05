@@ -10,6 +10,7 @@ import {
   renderAssistantCore,
   renderMemoryLayout,
   renderPolicyProjection,
+  renderProfilePointer,
   renderSkills,
   SELF_HEALING_DOCTRINE_ADVISORY,
   withProvenance,
@@ -387,7 +388,6 @@ function renderHomeExtension(somaHome: string): string {
     '\tpi.on("before_agent_start", async (event) => {',
     "\t\tconst prompt = promptFromEvent(event);",
     "\t\tcaptureSomaFeedback(prompt);",
-    '\t\tconst profile = readOptional(`${PI_SOMA_HOME}/profile.md`);',
     "\t\t// Cached at session_start — no Soma subprocess on the message path.",
     "\t\tconst startupContext = cachedStartupContext || readOptional(`${PI_SOMA_HOME}/startup-context.md`);",
     '\t\tconst paiImports = readOptional(`${PI_SOMA_HOME}/pai-imports.md`);',
@@ -412,8 +412,6 @@ function renderHomeExtension(somaHome: string): string {
     "Use the soma_context tool or read paths listed below when deeper migrated PAI identity, values, goals, strategies, or decision context matters.",
     "Before durable claims that may depend on prior work, call soma_context action=memory_recall (note-aware), and action=memory_index for the durable INDEX.",
     "Pi has no SessionEnd digest hook: when wrapping up substantial work, author ONE session digest and run \\`cd $(cat ~/.pi/agent/soma/soma-repo.txt) && bun run soma memory digest --session <session-id> --body \"8-15 lines\"\\`. This capture is agent-invoked.",
-    "",
-    "${profile}",
     "",
     "${communication}",
     "",
@@ -634,7 +632,7 @@ export function projectPiDevHome(input: ProjectionInput, somaHome: string): Proj
       },
       {
         path: "agent/soma/profile.md",
-        content: withProvenance("pi-dev", ["# Soma Profile Projection", "", renderAssistantCore(input)].join("\n")),
+        content: withProvenance("pi-dev", renderProfilePointer(input, "context.md")),
       },
       {
         path: "agent/soma/memory-layout.md",
