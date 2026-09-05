@@ -74,6 +74,7 @@ test("builds codex home projection bundle for default availability", () => {
     "hooks/codex-policy-targets.mjs",
     "hooks/policy-marker.mjs",
     "skills/soma/SKILL.md",
+    "memories/soma/context.md",
     "memories/soma/profile.md",
     "memories/soma/memory-layout.md",
     "memories/soma/pai-imports.md",
@@ -415,7 +416,7 @@ test("installs codex home projection into a substrate home", async () => {
 
     expect(result.substrate).toBe("codex");
     expect(result.rootDir).toBe(join(homeDir, ".codex"));
-    expect(result.files).toHaveLength(19);
+    expect(result.files).toHaveLength(20);
 
     const rules = await readFile(join(homeDir, ".codex/rules/soma.rules"), "utf8");
     const hooks = await readFile(join(homeDir, ".codex/hooks.json"), "utf8");
@@ -426,6 +427,7 @@ test("installs codex home projection into a substrate home", async () => {
     const policyTargets = await readFile(join(homeDir, ".codex/hooks/codex-policy-targets.mjs"), "utf8");
     const skill = await readFile(join(homeDir, ".codex/skills/soma/SKILL.md"), "utf8");
     const algorithmSkill = await readFile(join(homeDir, ".codex/skills/the-algorithm/SKILL.md"), "utf8");
+    const context = await readFile(join(homeDir, ".codex/memories/soma/context.md"), "utf8");
     const profile = await readFile(join(homeDir, ".codex/memories/soma/profile.md"), "utf8");
     const paiImports = await readFile(join(homeDir, ".codex/memories/soma/pai-imports.md"), "utf8");
     const lifecycle = await readFile(join(homeDir, ".codex/memories/soma/lifecycle.md"), "utf8");
@@ -476,7 +478,7 @@ test("installs codex home projection into a substrate home", async () => {
     expect(algorithmSkill).toContain("━━━ 📃 SUMMARY ━━━ 7/7");
     expect(profile).toContain("on-demand pointer");
     expect(profile).toContain("Assistant Name: soma");
-    expect(skill).toContain("ISC-PORTABLE-1");
+    expect(context).toContain("ISC-PORTABLE-1");
     expect(paiImports).toContain(`${homeDir}/.soma/profile/imports/claude/DA_IDENTITY.md`);
     expect(lifecycle).toContain("Soma Lifecycle Projection");
     expect(lifecycle).toContain("soma-repo.txt");

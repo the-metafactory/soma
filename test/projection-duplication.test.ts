@@ -40,7 +40,7 @@ test("profiles point to context without repeating assistant-core sections", () =
     {
       name: "codex",
       files: projectCodexHome(portableProjectionInput, "/tmp/soma-home").files,
-      contextPath: "skills/soma/SKILL.md",
+      contextPath: "memories/soma/context.md",
       profilePath: "memories/soma/profile.md",
     },
   ];
@@ -61,6 +61,17 @@ test("Claude profile points to its sibling context file", () => {
   const profile = contentAt(projectClaudeCodeHome(portableProjectionInput).files, "rules/soma/PROFILE.md");
 
   expect(profile).toContain("Read `CONTEXT.md beside this file`");
+});
+
+test("Codex keeps assistant core in its eager context artifact", () => {
+  const files = projectCodexHome(portableProjectionInput, "/tmp/soma-home").files;
+  const skill = contentAt(files, "skills/soma/SKILL.md");
+  const profile = contentAt(files, "memories/soma/profile.md");
+
+  for (const heading of ASSISTANT_CORE_HEADINGS) {
+    expect(skill).not.toContain(heading);
+  }
+  expect(profile).toContain("Read `context.md beside this file`");
 });
 
 test("pi.dev loads context, not profile, on each agent turn", () => {

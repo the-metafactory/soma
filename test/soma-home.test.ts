@@ -92,7 +92,9 @@ test("bootstrapped soma home feeds codex home projection", async () => {
 
     expect(projection.somaHome).toBe(somaHome);
     expect(projection.bundle.instructions).toContain("Soma source of truth");
-    expect(projection.bundle.instructions).toContain("Establish Soma as the durable personal assistant home.");
+    expect(projection.bundle.files.find((file) => file.path === "memories/soma/context.md")?.content).toContain(
+      "Establish Soma as the durable personal assistant home.",
+    );
   });
 });
 

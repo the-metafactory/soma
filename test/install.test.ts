@@ -188,14 +188,14 @@ test("installs soma source home and codex home projection", async () => {
     expect(result.substrate).toBe("codex");
     expect(result.somaHome.somaHome).toBe(join(homeDir, ".soma"));
     expect(result.substrateHome.rootDir).toBe(join(homeDir, ".codex"));
-    // 21 static + 22 bundled-skill projections (Memory ×5, the-algorithm
+    // 22 static + 22 bundled-skill projections (Memory ×5, the-algorithm
     // Workflows ×1 and its eight references — algorithm, capabilities,
     // eval-guide, ideate-loop, mode-detection, optimize-loop, parameter-schema,
     // target-types — the portable the-algorithm/SKILL.md that the static
     // rendering contract overwrites — double-written by design, grok/codex —
     // migrate-pai-purpose/SKILL.md ×1, and orienteer ×6: SKILL.md, two
     // Workflows, three references).
-    expect(result.substrateHome.files).toHaveLength(44);
+    expect(result.substrateHome.files).toHaveLength(45);
 
     const telos = await readFile(join(homeDir, ".soma/profile/purpose.md"), "utf8");
     const rules = await readFile(join(homeDir, ".codex/rules/soma.rules"), "utf8");
@@ -222,6 +222,7 @@ test("installs soma source home and codex home projection", async () => {
     expect(hookEntry).not.toContain("__SOMA_FEEDBACK_TRIGGER_PATTERN_SOURCE__");
     expect(hookEntry).not.toContain("__SOMA_FEEDBACK_CAPTURE_HELPER__");
     expect(somaRepo).toContain("soma");
+    expect(agents).toContain("@./memories/soma/context.md");
     expect(agents).toContain("@./skills/the-algorithm/SKILL.md");
     expect(agents).toContain("@./memories/soma/startup-context.md");
     expect(skill).toContain("name: soma");

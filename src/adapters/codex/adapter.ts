@@ -90,15 +90,13 @@ export function codexMemoryIndexFile(input: ProjectionInput): { path: string; co
   return [{ path: "memories/soma/memory-index.md", content: indexContent }];
 }
 
-function renderHomeRules(input: ProjectionInput, somaHome: string): string {
+function renderHomeRules(somaHome: string): string {
   const contextLines = [
     "# Soma default availability",
     "",
     "Use Soma as the portable personal assistant context when the task involves identity, purpose, VSA, skills, memory, policy, or assistant continuity.",
     `Soma source of truth: ${somaHome}`,
     "This Codex home projection is generated from Soma and should not become the source of truth.",
-    "",
-    renderAssistantCore(input),
     "",
     "## Codex Home Rules",
     "- Prefer the Soma source files for durable identity, purpose, memory, and skill context.",
@@ -112,13 +110,13 @@ function renderHomeRules(input: ProjectionInput, somaHome: string): string {
   return [
     "# This file is parsed by Codex as Starlark permission rules.",
     "# Soma keeps it comment-only so it can mark the projection without changing permissions.",
-    "# The actual assistant context lives in ~/.codex/skills/soma/SKILL.md and ~/.codex/memories/soma/.",
+    "# The actual assistant context lives in ~/.codex/memories/soma/context.md.",
     "",
     ...context.split("\n").map((line) => (line === "" ? "#" : `# ${line}`)),
   ].join("\n");
 }
 
-function renderHomeSkill(input: ProjectionInput, somaHome: string): string {
+function renderHomeSkill(somaHome: string): string {
   return [
     "---",
     "name: soma",
@@ -147,10 +145,6 @@ function renderHomeSkill(input: ProjectionInput, somaHome: string): string {
     "- Read `~/.codex/memories/soma/memory-layout.md` before using persistent memory.",
     "- Read `~/.codex/memories/soma/communication.md`, when present, for how to communicate: patterns, banned phrases, reference codes, and aliases.",
     "- Treat project-local `.codex/soma/` context as an overlay.",
-    "",
-    "## Current Projection",
-    "",
-    renderAssistantCore(input),
   ].join("\n");
 }
 
@@ -376,7 +370,7 @@ export function projectCodex(input: ProjectionInput): Projection {
 }
 
 export function projectCodexHome(input: ProjectionInput, somaHome: string, homeDir?: string, somaRepoPath = defaultSomaRepoPath()): Projection {
-  const instructions = renderHomeRules(input, somaHome);
+  const instructions = renderHomeRules(somaHome);
   const portableSkillFiles = buildPortableSkillFiles(input.profile.skills, input.bundledSkillNames, "codex");
 
   return {
@@ -432,14 +426,18 @@ export function projectCodexHome(input: ProjectionInput, somaHome: string, homeD
         // investigation). Both already carry their own generated-by-Soma
         // notice in-band.
         path: "skills/soma/SKILL.md",
-        content: renderHomeSkill(input, somaHome),
+        content: renderHomeSkill(somaHome),
+      },
+      {
+        path: "memories/soma/context.md",
+        content: withProvenance("codex", renderAssistantCore(input)),
       },
       {
         // soma#370: plain markdown narrative files carry the byte-stable
         // provenance header so `soma doctor` can distinguish a managed
         // projection from a hand-replaced one.
         path: "memories/soma/profile.md",
-        content: withProvenance("codex", renderProfilePointer(input, "skills/soma/SKILL.md")),
+        content: withProvenance("codex", renderProfilePointer(input, "context.md beside this file")),
       },
       {
         path: "memories/soma/memory-layout.md",
