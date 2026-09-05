@@ -7,6 +7,7 @@ import {
   communicationContractFile,
   renderAssistantCore,
   renderPolicyProjection,
+  renderProfilePointer,
   renderSkills,
   SELF_HEALING_DOCTRINE_ADVISORY,
   SOMA_POLICY_PROJECTION_HEADING,
@@ -159,7 +160,7 @@ function renderMemorySnapshot(input: ProjectionInput): string {
 }
 
 function renderProfile(input: ProjectionInput): string {
-  return [COWORK_PROFILE_HEADING, "", renderAssistantCore(input)].join("\n");
+  return renderProfilePointer(input, ANTHROPIC_COWORK_INSTRUCTIONS_PATH);
 }
 
 function renderCaptureReadme(): string {

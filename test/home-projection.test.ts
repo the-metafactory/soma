@@ -474,7 +474,9 @@ test("installs codex home projection into a substrate home", async () => {
     expect(skill).toContain("Do not assume a global `soma` binary exists");
     expect(algorithmSkill).toContain("━━━ ✅ VERIFY ━━━ 6/7");
     expect(algorithmSkill).toContain("━━━ 📃 SUMMARY ━━━ 7/7");
-    expect(profile).toContain("ISC-PORTABLE-1");
+    expect(profile).toContain("on-demand pointer");
+    expect(profile).toContain("Assistant Name: soma");
+    expect(skill).toContain("ISC-PORTABLE-1");
     expect(paiImports).toContain(`${homeDir}/.soma/profile/imports/claude/DA_IDENTITY.md`);
     expect(lifecycle).toContain("Soma Lifecycle Projection");
     expect(lifecycle).toContain("soma-repo.txt");
@@ -537,6 +539,7 @@ test("installs pi.dev home projection into a substrate home", async () => {
 
     const extension = await readFile(join(homeDir, ".pi/agent/extensions/soma.ts"), "utf8");
     const algorithmExtension = await readFile(join(homeDir, ".pi/agent/extensions/soma-algorithm.ts"), "utf8");
+    const context = await readFile(join(homeDir, ".pi/agent/soma/context.md"), "utf8");
     const profile = await readFile(join(homeDir, ".pi/agent/soma/profile.md"), "utf8");
     const paiImports = await readFile(join(homeDir, ".pi/agent/soma/pai-imports.md"), "utf8");
     const skill = await readFile(join(homeDir, ".pi/agent/skills/soma/SKILL.md"), "utf8");
@@ -554,7 +557,9 @@ test("installs pi.dev home projection into a substrate home", async () => {
     expect(extension).not.toContain('"memory_promote"');
     expect(extension).toContain("session_shutdown");
     expect(extension).toContain("resources_discover");
-    expect(profile).toContain("ISC-PORTABLE-1");
+    expect(profile).toContain("on-demand pointer");
+    expect(profile).toContain("Assistant Name: soma");
+    expect(context).toContain("ISC-PORTABLE-1");
     expect(paiImports).toContain(`${homeDir}/.soma/profile/imports/claude/DA_IDENTITY.md`);
     expect(skill).toContain("Do not assume a global `soma` binary exists");
     expect(skill).toContain("name: soma");

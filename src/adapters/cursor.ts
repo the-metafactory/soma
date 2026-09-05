@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import type { SomaAdapter, Projection, ProjectionInput } from "../types";
 import { activeVsaBundleFile } from "../adapter-active-vsa";
-import { buildPortableSkillFiles, communicationContractFile, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills, SELF_HEALING_DOCTRINE_ADVISORY, withProvenance } from "./shared";
+import { buildPortableSkillFiles, communicationContractFile, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderProfilePointer, renderSkills, SELF_HEALING_DOCTRINE_ADVISORY, withProvenance } from "./shared";
 import { behaviorPolicyAdvisory } from "../policy/behavior-policy";
 
 export const CURSOR_RULES_PATH = ".cursorrules";
@@ -102,7 +102,7 @@ function renderCursorRulesReadme(): string {
 }
 
 function renderCursorProfile(input: ProjectionInput): string {
-  return ["# Soma Profile Projection", "", renderAssistantCore(input)].join("\n");
+  return renderProfilePointer(input, CURSOR_CONTEXT_PATH);
 }
 
 function renderCursorPurpose(input: ProjectionInput): string {

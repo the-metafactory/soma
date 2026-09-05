@@ -5,7 +5,7 @@ import { defaultSomaRepoPath } from "../../repo-path";
 import { resolveBunExecutable } from "../../bun-probe";
 import { readCodexHookAsset, renderCodexPolicyHook, renderCodexPolicyTargets } from "./hooks/assets";
 import { renderFeedbackHookModule } from "../shared/feedback-helper";
-import { buildPortableSkillFiles, communicationContractFile, renderAlgorithmRenderingContract, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills, renderSubstrateInstructions, SELF_HEALING_DOCTRINE_ADVISORY, withProvenance } from "../shared";
+import { buildPortableSkillFiles, communicationContractFile, renderAlgorithmRenderingContract, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderProfilePointer, renderSkills, renderSubstrateInstructions, SELF_HEALING_DOCTRINE_ADVISORY, withProvenance } from "../shared";
 import { activeVsaBundleFile } from "../../adapter-active-vsa";
 import { somaPolicyPrivateMarkers } from "../../policy";
 import { somaMemoryPrivateRoots, somaProjectionPrivateRoots } from "../../projection-private-roots";
@@ -439,7 +439,7 @@ export function projectCodexHome(input: ProjectionInput, somaHome: string, homeD
         // provenance header so `soma doctor` can distinguish a managed
         // projection from a hand-replaced one.
         path: "memories/soma/profile.md",
-        content: withProvenance("codex", ["# Soma Profile Projection", "", renderAssistantCore(input)].join("\n")),
+        content: withProvenance("codex", renderProfilePointer(input, "skills/soma/SKILL.md")),
       },
       {
         path: "memories/soma/memory-layout.md",
