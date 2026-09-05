@@ -20,11 +20,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   asserted the behaviour that motivated it: a guarded tool call against a broken
   source checkout. `test/claude-code-policy-guard-runtime.test.ts` now pins the
   allow (artifact) and deny (unpinned config) paths side by side. ([#640])
-- **A guard config that parses to a non-object fails closed instead of
-  crashing.** `JSON.parse` succeeds on every JSON scalar, so a config file of
-  literal `null` reached the field check and threw on `config.error` before any
-  denial was emitted — the one non-policy path the wording above did not in fact
-  cover. `readConfig` now rejects any parse result that is not an object. ([#640])
+- **A guard that crashes now denies instead of dying.** Two shapes reached a
+  throw before any decision was emitted: a config parsing to literal `null`
+  (`JSON.parse` succeeds on every JSON scalar, so the parse-error branch never
+  saw it, and reading `config.error` off `null` threw), and a `bunPath` of `""`,
+  which satisfies a `typeof` check and then throws inside spawn. `readConfig`
+  now rejects any parse result that is not an object, config paths must be
+  non-empty, and — because enumerating throw sites is a losing game — the
+  surface is chosen first and every remaining path fails closed onto it. An
+  operator gets a decision and a recovery where they previously got a stack
+  trace. ([#640])
 
 ## [0.19.1] - 2026-09-05
 

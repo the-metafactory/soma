@@ -154,14 +154,14 @@ function shouldBlock(decision) {
   return decision === "deny" || decision === "ask";
 }
 
-function main() {
-  const input = readHookInput();
-  const surfaceEvent = eventName(input);
-  const deny = surfaceEvent === "UserPromptSubmit" ? blockPromptSubmit : denyPreToolUse;
+function isUsablePath(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
 
+function guard(input, surfaceEvent, deny) {
   const config = readConfig();
-  if (config.error || typeof config.bunPath !== "string" || typeof config.trustedSomaRepo !== "string" || typeof config.somaHome !== "string") {
-    deny(unavailable(`invalid config (${config.error || "missing fields"}).`));
+  if (config.error || !isUsablePath(config.bunPath) || !isUsablePath(config.trustedSomaRepo) || !isUsablePath(config.somaHome)) {
+    deny(unavailable(`invalid config (${config.error || "missing or empty fields"}).`));
     return;
   }
   if (input.__somaParseError) {
@@ -195,6 +195,26 @@ function main() {
   }
 
   emitAndExit({ continue: true });
+}
+
+/**
+ * Fail closed on ANY unexpected throw, not just the paths enumerated above.
+ * Two exceptions were found by review after the fact — a config parsing to
+ * `null`, and a `bunPath` of `""` that passes a typeof check and then throws
+ * inside spawn. Both crashed the guard, which is the one outcome worse than
+ * denying: an operator sees a stack trace where a decision belongs. Enumerating
+ * throw sites is a losing game, so the surface is chosen first and every
+ * remaining path lands on it.
+ */
+function main() {
+  const input = readHookInput();
+  const surfaceEvent = eventName(input);
+  const deny = surfaceEvent === "UserPromptSubmit" ? blockPromptSubmit : denyPreToolUse;
+  try {
+    guard(input, surfaceEvent, deny);
+  } catch (error) {
+    deny(unavailable(`guard failed unexpectedly: ${error instanceof Error ? error.message : String(error)}.`));
+  }
 }
 
 main();

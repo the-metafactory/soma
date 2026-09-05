@@ -213,3 +213,22 @@ test("soma#640: a config that parses to a non-object is a guard failure, not a c
     }
   });
 });
+
+test("soma#640: a config field that is present but unusable fails closed", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForClaudeCode({ homeDir, policyGuard: true });
+    const base = await readGuardConfig(homeDir);
+
+    // `""` passes a `typeof x === "string"` check and then throws inside spawn,
+    // so the guard died before emitting a decision. A bogus-but-real path is
+    // the control: it always reached the fail-closed denial.
+    for (const bunPath of ["", "   ", "/definitely/not/here/bun"]) {
+      await writeGuardConfig(homeDir, { ...base, bunPath });
+
+      const out = runGuard(homeDir, BENIGN);
+      expect(out.status).toBe(0);
+      expect(decisionOf(out.stdout)).toBe("deny");
+      expect(reasonOf(out.stdout)).toContain("UNAVAILABLE");
+    }
+  });
+});
