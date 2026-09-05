@@ -57,6 +57,12 @@ test("profiles point to context without repeating assistant-core sections", () =
   }
 });
 
+test("Claude profile points to its sibling context file", () => {
+  const profile = contentAt(projectClaudeCodeHome(portableProjectionInput).files, "rules/soma/PROFILE.md");
+
+  expect(profile).toContain("Read `CONTEXT.md beside this file`");
+});
+
 test("pi.dev loads context, not profile, on each agent turn", () => {
   const extension = contentAt(projectPiDevHome(portableProjectionInput, "/tmp/soma-home").files, "agent/extensions/soma.ts");
 

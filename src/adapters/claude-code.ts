@@ -150,7 +150,7 @@ function renderClaudeRulesContext(input: ProjectionInput): string {
 }
 
 function renderClaudeProfile(input: ProjectionInput): string {
-  return renderProfilePointer(input, "rules/soma/CONTEXT.md");
+  return renderProfilePointer(input, "CONTEXT.md beside this file");
 }
 
 function renderClaudePurpose(input: ProjectionInput): string {

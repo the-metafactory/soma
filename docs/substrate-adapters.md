@@ -4,11 +4,12 @@ Soma treats execution environments as substrates. One adapter per substrate
 projects the same Soma into different substrate-native primitives. See
 [CONTEXT.md](../CONTEXT.md) for glossary.
 
-Every projection has one eager assistant-core context artifact. A profile file
-is an on-demand pointer to that context with only assistant and principal names
-for fast orientation; it does not repeat assistant-core sections. This prevents
-two independently generated copies of the core from reaching a prompt when a
-substrate discovers both files.
+The Claude Code, Cursor, Anthropic Cowork, Pi.dev, and Codex projections use
+one eager assistant-core context artifact. Their profile files are on-demand
+pointers with only assistant and principal names for fast orientation; they do
+not repeat assistant-core sections. This prevents two independently generated
+copies of the core from reaching a prompt when those substrates discover both
+files.
 
 ## Codex
 
