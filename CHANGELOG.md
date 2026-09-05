@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.1] - 2026-09-05
+
+### Fixed
+
+- **Assistant core projections no longer duplicate profile content.** Claude
+  Code, Cursor, Anthropic Cowork, Pi.dev, and Codex now keep assistant core in
+  one context artifact; profiles are concise pointers. Codex imports its eager
+  context through `AGENTS.md`, leaving the `soma` skill capability-only. ([#543])
+
 ## [0.19.0] - 2026-08-27
 
 ### Added
