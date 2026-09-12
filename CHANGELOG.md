@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A burst of headless Claude Code sessions no longer piles up lifecycle
+  processes.** The Claude Code lifecycle hook starts nothing for an SDK-driven
+  session (`CLAUDE_CODE_ENTRYPOINT` `sdk-cli`, `sdk-ts`, `sdk-py`). One parallel
+  `sage` review started 27 `claude -p` sessions in 30 s; each detached
+  `soma lifecycle session-start`, 54 of them queued on the work-registry lock at
+  1.3–1.9 GB apiece, and the host hit a kernel watchdog panic.
+- **Claude Code lifecycle hooks wait 1 s for the work-registry lock, not 30 s.**
+  Both `session-start` and `session-end` pass `--work-registry-lock-timeout-ms`,
+  as the Codex adapter's session-end already did, so a burst fails fast as
+  `registry-write-failed` instead of holding every process's memory while it
+  queues.
+- **Reinstalling under a different Bun replaces Soma's hook entries instead of
+  doubling them.** Install recognised its own entries only by the exact command
+  for the Bun it resolved, so a host whose interactive and login shells find
+  different Bun installs ended up with every Soma hook registered twice. Entries
+  that reference a Soma hook script under another Bun are now removed before the
+  current one is added, for all five hook scripts.
+
 - **A guard that cannot run says so, distinctly from a rule that fired.** Every
   non-policy failure path in the Claude Code policy guard (unreadable config,
   malformed hook input, non-zero inspection exit, unparseable output) now denies

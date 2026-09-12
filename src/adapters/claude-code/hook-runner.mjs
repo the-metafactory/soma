@@ -78,8 +78,28 @@ function sessionId(input) {
   return typeof input.session_id === "string" && input.session_id.trim().length > 0 ? input.session_id : undefined;
 }
 
+// A short work-registry lock wait for both lifecycle events. The default is 30 s,
+// and a detached lifecycle process holds its whole footprint while it waits: a
+// burst of sessions (27 `claude -p` runs from one parallel sage review) queued 54
+// processes on the lock at 1.3–1.9 GB each and exhausted the host. The Codex
+// adapter's session-end already uses 1 s; a writeback that loses the race is
+// logged as `registry-write-failed`, which is the right failure for a burst.
+const CLAUDE_LIFECYCLE_WORK_REGISTRY_LOCK_TIMEOUT_MS = 1_000;
+
+// SDK-driven runs (`claude -p` and the TypeScript/Python SDKs) are tool
+// invocations, not sessions a person resumes, and they arrive in bursts. Claude
+// Code names them in `CLAUDE_CODE_ENTRYPOINT` (`sdk-cli`, `sdk-ts`, `sdk-py`).
+function isSdkEntrypoint(env = process.env) {
+  const entrypoint = typeof env.CLAUDE_CODE_ENTRYPOINT === "string" ? env.CLAUDE_CODE_ENTRYPOINT : "";
+  return entrypoint.startsWith("sdk-");
+}
+
 function lifecycle(config, event, input) {
-  const args = ["src/cli.ts", "lifecycle", event, "--soma-home", config.somaHome, "--substrate", "claude-code"];
+  if (isSdkEntrypoint()) return;
+  const args = [
+    "src/cli.ts", "lifecycle", event, "--soma-home", config.somaHome, "--substrate", "claude-code",
+    "--work-registry-lock-timeout-ms", String(CLAUDE_LIFECYCLE_WORK_REGISTRY_LOCK_TIMEOUT_MS),
+  ];
   const id = sessionId(input);
   if (id) args.push("--session-id", id);
   const cwd = typeof input.cwd === "string" && input.cwd.trim().length > 0 ? input.cwd : undefined;
