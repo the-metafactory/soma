@@ -8,7 +8,7 @@
 # Exit codes, one per outcome, so a broken gate never reads as a red one (#681):
 #   0  ok           — measured, harness-eval printed its OK verdict
 #   1  regressed    — measured, harness-eval printed its REGRESSION verdict
-#   2  could-not-run — no verdict (missing script, crash, bad baseline)
+#   2  could-not-run — no verdict (missing script, crash, bad baseline, git error)
 #   3  guard        — baseline differs from HEAD, the check was not attempted
 # Each run logs one `RESULT <outcome>` line so the log states which it was.
 #
@@ -43,7 +43,21 @@ cd "${REPO_DIR}" || { printf "%s FATAL cannot cd %s\nRESULT could-not-run\n\n" "
 # committed to a local unpushed branch is still git-reviewable, which is the
 # bar the objective doc claims.)
 BASELINE_REL="scripts/harness-eval-baseline.json"
-if ! git -C "${REPO_DIR}" diff --quiet HEAD -- "${BASELINE_REL}" 2>/dev/null; then
+# Confirm HEAD resolves first: outside a repo `git diff --quiet HEAD` also exits
+# 1, the same code as a real difference, so a git failure would read as a guard.
+if ! git -C "${REPO_DIR}" rev-parse --verify -q HEAD >/dev/null 2>&1; then
+  printf '%s FATAL cannot resolve git HEAD in %s\nRESULT could-not-run\n\n' "${STAMP}" "${REPO_DIR}" >>"${LOG_FILE}"
+  osascript -e "display notification \"cannot resolve git HEAD, baseline integrity unchecked\" with title \"Soma harness gate: COULD NOT RUN\"" 2>/dev/null || true
+  exit 2
+fi
+git -C "${REPO_DIR}" diff --quiet HEAD -- "${BASELINE_REL}" 2>/dev/null
+DIFF_STATUS=$?
+if [ "${DIFF_STATUS}" -gt 1 ]; then
+  printf '%s FATAL git diff exited %s checking %s\nRESULT could-not-run\n\n' "${STAMP}" "${DIFF_STATUS}" "${BASELINE_REL}" >>"${LOG_FILE}"
+  osascript -e "display notification \"git diff failed, baseline integrity unchecked\" with title \"Soma harness gate: COULD NOT RUN\"" 2>/dev/null || true
+  exit 2
+fi
+if [ "${DIFF_STATUS}" -eq 1 ]; then
   MSG="baseline ${BASELINE_REL} differs from committed HEAD — a green check cannot be trusted (possible uncommitted re-baseline). Commit or restore it."
   printf '%s GUARD baseline-not-committed: %s\nRESULT guard\n\n' "${STAMP}" "${MSG}" >>"${LOG_FILE}"
   osascript -e "display notification \"${MSG}\" with title \"Soma harness gate: baseline not committed\"" 2>/dev/null || true

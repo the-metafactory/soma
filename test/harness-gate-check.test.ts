@@ -28,9 +28,10 @@ function git(cwd: string, ...args: string[]) {
  * A throwaway repo shaped like soma for the wrapper: its own copy of the
  * wrapper, a committed baseline, and a package.json whose `harness-eval` script
  * is a stub. `stub` null means no such script at all, the #681 state.
- * `dirtyBaseline` edits the committed baseline so the guard refuses.
+ * `dirtyBaseline` edits the committed baseline so the guard refuses; `repo`
+ * false skips `git init`, so the guard's git calls fail.
  */
-function runGate(stub: string | null, { dirtyBaseline = false } = {}) {
+function runGate(stub: string | null, { dirtyBaseline = false, repo = true } = {}) {
   const root = mkdtempSync(join(tmpdir(), "harness-gate-"));
   temps.push(root);
   mkdirSync(join(root, "scripts"));
@@ -39,9 +40,11 @@ function runGate(stub: string | null, { dirtyBaseline = false } = {}) {
   const scripts = stub === null ? {} : { "harness-eval": "bun stub.ts" };
   writeFileSync(join(root, "package.json"), JSON.stringify({ name: "gate-fixture", scripts }));
   if (stub !== null) writeFileSync(join(root, "stub.ts"), stub);
-  git(root, "init", "-q");
-  git(root, "add", ".");
-  git(root, "commit", "-q", "-m", "fixture");
+  if (repo) {
+    git(root, "init", "-q");
+    git(root, "add", ".");
+    git(root, "commit", "-q", "-m", "fixture");
+  }
   if (dirtyBaseline) writeFileSync(join(root, "scripts", "harness-eval-baseline.json"), "{\"lowered\":true}\n");
 
   // HOME points into the fixture so the log lands there and no real ~/.bun/bin
@@ -53,7 +56,8 @@ function runGate(stub: string | null, { dirtyBaseline = false } = {}) {
   writeFileSync(join(shims, "osascript"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
   const proc = Bun.spawnSync(["bash", join(root, "scripts", "harness-gate-check.sh")], {
     cwd: root,
-    env: { HOME: home, PATH: `${dirname(process.execPath)}:/usr/bin:/bin` },
+    // The ceiling stops git from finding an enclosing repo above the fixture.
+    env: { HOME: home, PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, GIT_CEILING_DIRECTORIES: dirname(root) },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -108,6 +112,13 @@ describe("harness gate wrapper", () => {
     const { code, log } = runGate(`console.log("\\nOK: no regressions vs baseline");`, { dirtyBaseline: true });
     expect(code).toBe(3);
     expect(log).toContain("RESULT guard");
+  });
+
+  test("a git failure in the guard is could-not-run, not guard", () => {
+    const { code, log } = runGate(`console.log("\\nOK: no regressions vs baseline");`, { repo: false });
+    expect(code).toBe(2);
+    expect(log).toContain("RESULT could-not-run");
+    expect(log).not.toContain("RESULT guard");
   });
 
   test("harness-eval's own load failure (exit 2) is could-not-run", () => {
