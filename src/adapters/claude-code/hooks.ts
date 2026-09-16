@@ -219,12 +219,14 @@ function appendSomaPolicyGuardHookGroups(settings: JsonObject, substrateHome: st
     matcher: SOMA_CLAUDE_POLICY_GUARD_MATCHER,
     entry: somaPolicyGuardEntry(substrateHome, bunPath),
     knownCommands,
+    scriptPath: resolve(substrateHome, SOMA_CLAUDE_POLICY_GUARD_RELATIVE_PATH),
   });
   const prompt = appendCommandHookGroup(settings, {
     event: "UserPromptSubmit",
     description: "Soma: Enforce runtime policy on prompts (fail-closed)",
     entry: somaPolicyGuardEntry(substrateHome, bunPath),
     knownCommands,
+    scriptPath: resolve(substrateHome, SOMA_CLAUDE_POLICY_GUARD_RELATIVE_PATH),
   });
   return preTool || prompt;
 }
@@ -310,12 +312,14 @@ function appendSomaPreCompactHookGroups(settings: JsonObject, substrateHome: str
     description: "Soma: Capture a pre-compaction handover of active work-state",
     entry: somaPreCompactEntry(substrateHome, bunPath, "capture", 30),
     knownCommands,
+    scriptPath: resolve(substrateHome, SOMA_CLAUDE_PRECOMPACT_RELATIVE_PATH),
   });
   const resurface = appendCommandHookGroup(settings, {
     event: "UserPromptSubmit",
     description: "Soma: Resurface the pre-compaction handover after compaction",
     entry: somaPreCompactEntry(substrateHome, bunPath, "resurface", 15),
     knownCommands,
+    scriptPath: resolve(substrateHome, SOMA_CLAUDE_PRECOMPACT_RELATIVE_PATH),
   });
   return capture || resurface;
 }
@@ -356,6 +360,7 @@ function appendSomaFeedbackCaptureHookGroup(settings: JsonObject, substrateHome:
       timeout: 10,
     },
     knownCommands: somaFeedbackCaptureCommands(substrateHome, bunPath),
+    scriptPath: resolve(substrateHome, SOMA_CLAUDE_FEEDBACK_RELATIVE_PATH),
   });
 }
 
@@ -377,16 +382,48 @@ function removeSomaFeedbackCaptureFromSettings(settings: JsonObject, substrateHo
 
 function appendCommandHookGroup(
   settings: JsonObject,
-  input: { event: string; description: string; matcher?: string; entry: JsonObject; knownCommands: Set<string> },
+  input: {
+    event: string;
+    description: string;
+    matcher?: string;
+    entry: JsonObject;
+    knownCommands: Set<string>;
+    /**
+     * The Soma-owned script this group runs. An entry in this event that
+     * references it but is not one of `knownCommands` was written by an install
+     * that resolved a different Bun, and is replaced rather than kept beside
+     * the new one. Matching only the exact command for the current Bun is what
+     * left every Soma hook registered twice on a host with two Bun installs —
+     * which doubled every lifecycle process a burst of sessions started.
+     */
+    scriptPath: string;
+  },
 ): boolean {
   const hooks = isObject(settings.hooks) ? settings.hooks : {};
-  const eventGroups = Array.isArray(hooks[input.event]) ? hooks[input.event] as unknown[] : [];
+  let eventGroups = Array.isArray(hooks[input.event]) ? hooks[input.event] as unknown[] : [];
+
+  let removedStale = false;
+  const keptGroups: unknown[] = [];
+  for (const group of eventGroups) {
+    const stale = new Set(
+      groupCommands(group).filter((command) => command.includes(input.scriptPath) && !input.knownCommands.has(command)),
+    );
+    if (stale.size === 0) {
+      keptGroups.push(group);
+      continue;
+    }
+    const result = removeSomaCommandsFromGroup(group, stale);
+    removedStale = result.changed || removedStale;
+    if (result.group) keptGroups.push(result.group);
+  }
+  eventGroups = keptGroups;
+  if (removedStale) hooks[input.event] = eventGroups;
 
   for (const group of eventGroups) {
     if (!isObject(group) || !Array.isArray(group.hooks)) continue;
     if (group.hooks.some((hook) => isObject(hook) && typeof hook.command === "string" && input.knownCommands.has(hook.command))) {
       settings.hooks = hooks;
-      return false;
+      return removedStale;
     }
   }
 
@@ -407,6 +444,7 @@ function appendSomaHookGroup(settings: JsonObject, input: (typeof SOMA_CLAUDE_HO
     ...("matcher" in input ? { matcher: input.matcher } : {}),
     entry: somaHookEntry(substrateHome, bunPath, input.commandEvent),
     knownCommands: somaHookCommands(substrateHome, bunPath),
+    scriptPath: resolve(substrateHome, SOMA_CLAUDE_HOOK_RELATIVE_PATH),
   });
 }
 
@@ -416,6 +454,7 @@ function appendSomaModeClassifierHookGroup(settings: JsonObject, substrateHome: 
     description: "Soma: Classify prompts into MINIMAL, NATIVE, or ALGORITHM mode",
     entry: somaModeClassifierEntry(substrateHome, bunPath),
     knownCommands: somaModeClassifierCommands(substrateHome, bunPath),
+    scriptPath: resolve(substrateHome, SOMA_CLAUDE_MODE_CLASSIFIER_RELATIVE_PATH),
   });
 }
 

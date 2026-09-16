@@ -185,13 +185,23 @@ Current home install behavior:
 - It patches `<claude-home>/settings.json` with Soma-owned hook entries for
   `SessionStart`, `SessionEnd`, `PostToolUse`, `SubagentStart`, and
   `SubagentStop`. Re-running install is idempotent and preserves existing
-  user, project, PAI, and non-Soma hook entries.
+  user, project, PAI, and non-Soma hook entries. An install that resolves a
+  different Bun than the previous one **replaces** that install's Soma entries
+  rather than adding a second set: on a host with two Bun installs, matching
+  only the exact command for the current Bun left every Soma hook registered
+  twice.
 - `soma install claude-code --mode-classifier --apply` additionally installs
   an opt-in `UserPromptSubmit` mode-classifier hook. The hook calls
   `soma algorithm classify --json`, injects a concise MODE context block, and
   temporarily disables any detected PAI `ModeClassifier.hook.*` entry. Uninstall
   removes Soma's classifier hook and restores the disabled PAI entry.
-- Lifecycle hooks call Soma lifecycle APIs with `--substrate claude-code`.
+- Lifecycle hooks call Soma lifecycle APIs with `--substrate claude-code` and a
+  1 s work-registry lock timeout, as the Codex adapter's session-end does. They
+  start nothing for an SDK-driven session (`CLAUDE_CODE_ENTRYPOINT` of `sdk-cli`,
+  `sdk-ts` or `sdk-py`): those are tool runs, not sessions a person resumes, and
+  they arrive in bursts — one parallel `sage` review started 27 of them in 30 s,
+  and 54 detached lifecycle processes waiting 30 s each on the lock at 1.3–1.9 GB
+  apiece exhausted the host.
   Tool and subagent hooks emit metadata-only events through the Soma writeback
   gate; they do not mirror full raw transcripts or prompt text.
 - `soma uninstall claude-code` removes only the generated `rules/soma/`
