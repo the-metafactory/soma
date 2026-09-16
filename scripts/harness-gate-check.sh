@@ -6,9 +6,9 @@
 # soma-home data CI does not have, and alerts on a nonzero exit.
 #
 # Exit codes, one per outcome, so a broken gate never reads as a red one (#681):
-#   0  ok           — measured, no regression vs the committed baseline
+#   0  ok           — measured, harness-eval printed its OK verdict
 #   1  regressed    — measured, harness-eval printed its REGRESSION verdict
-#   2  could-not-run — nothing was measured (missing script, crash, bad baseline)
+#   2  could-not-run — no verdict (missing script, crash, bad baseline)
 #   3  guard        — baseline differs from HEAD, the check was not attempted
 # Each run logs one `RESULT <outcome>` line so the log states which it was.
 #
@@ -45,18 +45,22 @@ cd "${REPO_DIR}" || { printf "%s FATAL cannot cd %s\nRESULT could-not-run\n\n" "
 BASELINE_REL="scripts/harness-eval-baseline.json"
 if ! git -C "${REPO_DIR}" diff --quiet HEAD -- "${BASELINE_REL}" 2>/dev/null; then
   MSG="baseline ${BASELINE_REL} differs from committed HEAD — a green check cannot be trusted (possible uncommitted re-baseline). Commit or restore it."
-  printf '%s GUARD baseline-not-committed: %s\n\n' "${STAMP}" "${MSG}" >>"${LOG_FILE}"
+  printf '%s GUARD baseline-not-committed: %s\nRESULT guard\n\n' "${STAMP}" "${MSG}" >>"${LOG_FILE}"
   osascript -e "display notification \"${MSG}\" with title \"Soma harness gate: baseline not committed\"" 2>/dev/null || true
   exit 3
 fi
 
-OUTPUT="$(bun run harness-eval --check 2>&1)"
+# The package.json script the gate runs. test/harness-gate-check.test.ts reads
+# this assignment and checks package.json still defines it (#681).
+EVAL_SCRIPT="harness-eval"
+OUTPUT="$(bun run "${EVAL_SCRIPT}" --check 2>&1)"
 STATUS=$?
 
 # Classify on harness-eval's own verdict, not on the exit code alone: `bun run`
-# of a missing script, an uncaught throw, and a real regression all exit 1.
-# Only the script's "REGRESSION:" line means something was measured and degraded.
-if [ "${STATUS}" -eq 0 ]; then
+# of a missing script, an uncaught throw, and a real regression all exit 1, and
+# an exit 0 alone does not prove anything was measured. Only the script's "OK:"
+# or "REGRESSION:" line is a verdict.
+if [ "${STATUS}" -eq 0 ] && grep -q '^OK:' <<<"${OUTPUT}"; then
   RESULT="ok"; CODE=0
 elif [ "${STATUS}" -eq 1 ] && grep -q '^REGRESSION:' <<<"${OUTPUT}"; then
   RESULT="regressed"; CODE=1

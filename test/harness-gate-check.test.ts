@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 // The weekly harness gate wrapper (scripts/harness-gate-check.sh). #681: the
 // package.json script it runs was renamed, every scheduled run exited 1 without
 // measuring anything, and exit 1 is also what a real regression looks like.
-// These tests pin the wrapper's name to package.json and its three outcomes.
+// These tests pin the wrapper's script name to package.json and each outcome.
 
 const REPO = join(import.meta.dir, "..");
 const WRAPPER = join(REPO, "scripts", "harness-gate-check.sh");
@@ -27,9 +27,10 @@ function git(cwd: string, ...args: string[]) {
 /**
  * A throwaway repo shaped like soma for the wrapper: its own copy of the
  * wrapper, a committed baseline, and a package.json whose `harness-eval` script
- * is a stub. `scripts` null means no such script at all, the #681 state.
+ * is a stub. `stub` null means no such script at all, the #681 state.
+ * `dirtyBaseline` edits the committed baseline so the guard refuses.
  */
-function runGate(stub: string | null) {
+function runGate(stub: string | null, { dirtyBaseline = false } = {}) {
   const root = mkdtempSync(join(tmpdir(), "harness-gate-"));
   temps.push(root);
   mkdirSync(join(root, "scripts"));
@@ -41,6 +42,7 @@ function runGate(stub: string | null) {
   git(root, "init", "-q");
   git(root, "add", ".");
   git(root, "commit", "-q", "-m", "fixture");
+  if (dirtyBaseline) writeFileSync(join(root, "scripts", "harness-eval-baseline.json"), "{\"lowered\":true}\n");
 
   // HOME points into the fixture so the log lands there and no real ~/.bun/bin
   // shadows PATH. The wrapper puts $HOME/.bun/bin first, so a no-op osascript
@@ -62,14 +64,14 @@ function runGate(stub: string | null) {
 describe("harness gate wrapper", () => {
   test("runs a package.json script that exists and points at harness-eval.ts", () => {
     const wrapper = readFileSync(WRAPPER, "utf8");
-    const invoked = /^OUTPUT="\$\(bun run (\S+) --check/m.exec(wrapper)?.[1];
+    const invoked = /^EVAL_SCRIPT="([^"]+)"$/m.exec(wrapper)?.[1];
     expect(invoked).toBeDefined();
     const pkg = JSON.parse(readFileSync(join(REPO, "package.json"), "utf8"));
     expect(pkg.scripts[invoked!]).toBe("bun scripts/harness-eval.ts");
   });
 
   test("a clean check exits 0 and logs ok", () => {
-    const { code, log } = runGate(`console.log("OK: no regressions vs baseline");`);
+    const { code, log } = runGate(`console.log("\\nOK: no regressions vs baseline");`);
     expect(code).toBe(0);
     expect(log).toContain("RESULT ok");
   });
@@ -93,6 +95,19 @@ describe("harness gate wrapper", () => {
     const { code, log } = runGate(`throw new Error("boom");`);
     expect(code).toBe(2);
     expect(log).toContain("RESULT could-not-run");
+  });
+
+  test("an exit 0 without harness-eval's OK verdict is could-not-run, not ok", () => {
+    const { code, log } = runGate(`console.log("measured nothing");`);
+    expect(code).toBe(2);
+    expect(log).toContain("RESULT could-not-run");
+    expect(log).not.toContain("RESULT ok");
+  });
+
+  test("a baseline that differs from HEAD exits 3 and logs guard", () => {
+    const { code, log } = runGate(`console.log("\\nOK: no regressions vs baseline");`, { dirtyBaseline: true });
+    expect(code).toBe(3);
+    expect(log).toContain("RESULT guard");
   });
 
   test("harness-eval's own load failure (exit 2) is could-not-run", () => {
