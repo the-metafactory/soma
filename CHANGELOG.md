@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The weekly harness regression gate runs again, and a broken run no longer
+  reads as a regression.** The `package.json` script had been renamed to
+  `objective-eval`, so every scheduled `scripts/harness-gate-check.sh` run since
+  2026-07-30 failed with `Script not found "harness-eval"` and exit 1, the same
+  code as a real regression. The script is `harness-eval` again, as the wrapper
+  and `docs/harness-objective-function.md` name it. The wrapper now exits 1 only
+  when harness-eval printed its `REGRESSION:` verdict, exits 2 when nothing was
+  measured, and logs `RESULT ok|regressed|could-not-run` per run. A test pins the
+  wrapper's script name to `package.json`. (#681)
 - **A burst of headless Claude Code sessions no longer piles up lifecycle
   processes.** The Claude Code lifecycle hook starts nothing for an SDK-driven
   session (`CLAUDE_CODE_ENTRYPOINT` `sdk-cli`, `sdk-ts`, `sdk-py`). One parallel
