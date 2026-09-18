@@ -17,6 +17,7 @@ import { WorkGraph, WorkGraphError } from "./work-graph";
 import type { BridgedNodeReport, GraphStore } from "./work-graph";
 import { createGitHubGraphStore } from "./work-graph-github";
 import { runCommand } from "./work-graph-probes";
+import { invocationCwd } from "./path-utils";
 import {
   GITHUB_DOTCOM,
   formatRepoRef,
@@ -73,8 +74,15 @@ export interface RepoResolutionDeps {
   classifyHost: (host: string) => Promise<Forge | undefined>;
 }
 
+/**
+ * Read in the **invocation** tree, not the process's. The installed launcher
+ * `cd`s into soma's own install tree before exec (#662), so a bare `git remote`
+ * there answers "soma on github.com" from inside any checkout — harmless while
+ * every store was GitHub, and wrong the moment the remote picks the forge
+ * (#535 D4): `soma graph node 12` in a GitLab checkout would read soma#12.
+ */
 async function defaultOriginRemote(): Promise<string | undefined> {
-  const remote = await runCommand({ argv: ["git", "remote", "get-url", "origin"], timeoutSec: 30 });
+  const remote = await runCommand({ argv: ["git", "remote", "get-url", "origin"], timeoutSec: 30, cwd: invocationCwd() });
   return remote.exitCode === 0 ? remote.stdout.trim() : undefined;
 }
 

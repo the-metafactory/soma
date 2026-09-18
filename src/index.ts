@@ -281,6 +281,10 @@ export type { BehaviorPolicy } from "./policy/behavior-policy";
 // `markUnbridgedPlanStepsDone`: one production consumer, which imports it directly.
 export { readNodeForBridge } from "./work-graph-bridge";
 export type { ReadNodeForBridgeOptions } from "./work-graph-bridge";
+// The ref grammar is contract (#536 D1) — `ReadNodeForBridgeOptions` and
+// `GraphCliDeps` take a `RepoRef` — so it is on the barrel; the remote parser is not.
+export { FORGES, formatQualifiedNodeRef, formatRepoRef, parseQualifiedNodeRef, parseRepoRef } from "./work-graph-ref";
+export type { Forge, QualifiedNodeRef, RepoRef } from "./work-graph-ref";
 export {
   assertAlgorithmCapabilitiesSatisfied,
   getAlgorithmCapabilityDefinition,
