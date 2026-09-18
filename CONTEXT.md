@@ -733,7 +733,7 @@ A bounded structured event that records substrate activity for monitoring and co
 
 The typed primitive for cross-session effort topology: **nodes** of work joined by two distinct edge kinds, stored authoritatively on an issue tracker, walked by agent sessions, and closed only through an attached [[checkpoint]]'s completion gate.
 
-**Where a graph lives:** a **ref** names the tracker by **forge** (`github`, `gitlab`), host and path — `github:github.com/owner/name#N`, `gitlab:<host>/<group>&N` — and the ref selects the **store**, the backend that forge needs (#535, #536). The tracker is the place; the store is soma's I/O to it. One GitHub store is one repository; one GitLab store is one host, since an epic lives in a group and its nodes in the group's projects — so `gitlab:h/csoc/a` and `gitlab:h/csoc/b#3` are the same store.
+**Where a graph lives:** a **ref** names the tracker by **forge** (`github`, `gitlab`), host and path — `github:github.com/owner/name#N`, `gitlab:<host>/<group>&N` — and the ref selects the **graph store** (`GraphStore`), the backend that forge needs (#535, #536) — not a Memory store. The tracker is the place; the graph store is soma's I/O to it. One GitHub graph store is one repository; one GitLab graph store is one host, since an epic lives in a group and its nodes in the group's projects — so `gitlab:h/csoc/a` and `gitlab:h/csoc/b#3` are the same store.
 
 **Two relations, and conflating them is the classic error:**
 

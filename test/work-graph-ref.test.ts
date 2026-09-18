@@ -48,7 +48,9 @@ test("malformed hosts and paths refuse", () => {
   expect(() => parseRepoRef("gitlab:bad_host/a/b")).toThrow(/not a hostname/);
   expect(() => parseRepoRef("gitlab:gitlab.example.com/a//b")).toThrow(/malformed segment/);
   expect(() => parseRepoRef("gitlab:gitlab.example.com/a/../b")).toThrow(/malformed segment/);
-  expect(() => parseRepoRef("gitlab:gitlab.example.com/.hidden/b")).toThrow(/malformed segment/);
+  expect(() => parseRepoRef("gitlab:gitlab.example.com/a/./b")).toThrow(/malformed segment/);
+  // A leading dot is a real name (`.github`), not traversal.
+  expect(parseRepoRef("github:github.com/the-metafactory/.github").path).toBe("the-metafactory/.github");
 });
 
 test("a GitHub path is exactly owner/name; a GitLab namespace nests", () => {

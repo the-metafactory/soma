@@ -188,10 +188,12 @@ test("a qualified target opens its own store and yields the store's id", async (
   expect(await resolveNodeTarget("github:github.com/the-metafactory/arc#498", undefined, noRemote)).toEqual({
     repo: { ...SOMA, path: "the-metafactory/arc" },
     id: "498",
+    canonical: "github:github.com/the-metafactory/arc#498",
   });
   expect(await resolveNodeTarget("gitlab:gitlab-int.switch.ch/csoc/soc-reporter#12", undefined, noRemote)).toEqual({
     repo: { forge: "gitlab", host: "gitlab-int.switch.ch", path: "csoc/soc-reporter" },
     id: "csoc/soc-reporter#12",
+    canonical: "gitlab:gitlab-int.switch.ch/csoc/soc-reporter#12",
   });
 });
 
@@ -199,6 +201,7 @@ test("a bare --repo beside a qualified target takes the target's forge and host,
   expect(await resolveNodeTarget("github:github.com/the-metafactory/soma#1", "the-metafactory/soma", noRemote)).toEqual({
     repo: SOMA,
     id: "1",
+    canonical: "github:github.com/the-metafactory/soma#1",
   });
   expect(resolveNodeTarget("github:github.com/the-metafactory/soma#1", "the-metafactory/arc", noRemote)).rejects.toThrow(
     /never spans two stores/,
@@ -214,7 +217,7 @@ test("a bare target still resolves the repo through the caller's resolver", asyn
     seen.push(explicit);
     return SOMA;
   });
-  expect(result).toEqual({ repo: SOMA, id: "501" });
+  expect(result).toEqual({ repo: SOMA, id: "501", canonical: "github:github.com/the-metafactory/soma#501" });
   expect(seen).toEqual(["the-metafactory/soma"]);
 });
 
@@ -257,4 +260,13 @@ test("on a GitLab store a bare id carries the repo's project, matching the quali
   );
   // GitHub ids stay bare, exactly as before.
   expect((await resolveNodeTarget("12", undefined, async () => SOMA)).id).toBe("12");
+});
+
+test("GitLab ids come back as canonical refs — issue, bare, and epic alike", async () => {
+  const reporter: RepoRef = { forge: "gitlab", host: "gitlab-int.switch.ch", path: "csoc/soc-reporter" };
+  const resolve = async (): Promise<RepoRef> => reporter;
+  expect((await resolveNodeTarget("12", undefined, resolve)).canonical).toBe("gitlab:gitlab-int.switch.ch/csoc/soc-reporter#12");
+  expect((await resolveNodeTarget("csoc&5", undefined, resolve)).canonical).toBe("gitlab:gitlab-int.switch.ch/csoc&5");
+  // A non-numeric id (a test double's root) has no canonical form and is reported as the store gave it.
+  expect((await resolveNodeTarget("root", undefined, async () => SOMA)).canonical).toBeUndefined();
 });

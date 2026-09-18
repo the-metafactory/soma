@@ -27,8 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a `RepoRef`, and `resolveRepo` takes the explicit `--repo` and returns one.
 - **The `gh` confinement probe set moved into the GitHub backend** and is
   exported as `checkGitHubConfinement` (with `parseAuthStatusLogins`) from
-  `work-graph-github`. `checkConfinement` is no longer on the barrel, and
-  `work-graph-attestation` keeps only the forge-neutral pieces. Every `gh` call
+  `work-graph-github`; `work-graph-attestation` keeps only the forge-neutral
+  pieces. Every `gh` call
   the store makes, the probes included, now passes `--hostname`, github.com
   included, so an ambient `GH_HOST` cannot redirect a read, a write or the
   check. Receipt probe records name the host they probed
@@ -36,13 +36,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Qualified node refs resolve in one place** (`resolveNodeTarget` in
   `work-graph-bridge`): the graph verbs and the planSteps bridge share it, so a
   qualified step node id opens its own store rather than reaching the origin
-  repo's store as a raw id. The bridge reports a qualified target back
-  qualified, so a step binds the full location and a later `--sync` reads the
-  same repo rather than the origin's issue of the same number.
+  repo's store as a raw id. The bridge reports **every** node back qualified,
+  however it was named, so a step binds its full location and a later `--sync`
+  reads the same repo, whichever checkout it runs in. **A step bound before
+  this** stored a bare number: its next sync now refuses on the id check
+  (`bridged to 501, but the reported node is github:…#501`) instead of reading
+  whatever repo that checkout's origin names. Re-plan the step to re-bind it.
 - **GitHub stores open on github.com only.** A `github:<other host>` ref refuses
-  before any `gh` runs: a ref's host is untrusted text, and `gh --hostname`
+  in the store's own constructor (so the exported `createGitHubGraphStore`
+  cannot skip it), before any `gh` runs: a ref's host is untrusted text, and `gh --hostname`
   would send that host the session's `GH_ENTERPRISE_TOKEN`. GitHub Enterprise
   waits for an explicit allow-list of hosts.
+
+### Removed
+
+- **`checkConfinement` from the barrel.** The `gh` probe set is
+  `checkGitHubConfinement` in `work-graph-github` now; each graph store runs its
+  own forge's set (#537 D2).
 
 ### Fixed
 

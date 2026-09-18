@@ -43,7 +43,7 @@ export interface QualifiedNodeRef {
 
 const FORGE_PREFIX = new RegExp(`^(${FORGES.join("|")}):`, "u");
 const HOST = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*$/u;
-const SEGMENT = /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/u;
+const SEGMENT = /^[A-Za-z0-9_.][A-Za-z0-9_.-]*$/u;
 
 export const GITHUB_DOTCOM = "github.com";
 
@@ -61,13 +61,15 @@ function refError(text: string, why: string): WorkGraphError {
 
 /**
  * The one rule for what a path is, shared by the ref grammar and the remote
- * parser so the two cannot drift: `/`-separated segments that each start with a
- * word character — so `.`, `..` and dot-prefixed names never reach a URL or a
- * registry key — and at least `minDepth` of them.
+ * parser so the two cannot drift: `/`-separated, non-empty segments of word
+ * characters, dots and dashes, and at least `minDepth` of them. A leading dot
+ * is legal (`the-metafactory/.github` is a real repo); the traversal segments
+ * `.` and `..` are not, so no path can climb out of a `repos/…` API route.
  */
 function validPath(path: string, minDepth: number): string | undefined {
   const segments = path.split("/");
-  if (segments.length < minDepth || segments.some((segment) => !SEGMENT.test(segment))) return undefined;
+  const bad = (segment: string): boolean => !SEGMENT.test(segment) || segment === "." || segment === "..";
+  if (segments.length < minDepth || segments.some(bad)) return undefined;
   return segments.join("/");
 }
 

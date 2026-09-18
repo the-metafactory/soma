@@ -378,7 +378,8 @@ test("readNodeForBridge returns a report the derivation accepts, through the rea
   // step, which is the whole claim of `Pick`ing the report type from `NodeState`.
   expect(deriveBridgedPlanStepStatus(state)).toBe("blocked");
   const run = syncBridgedPlanStep(freshRun(), "P1", state, { bind: true }, "2026-08-06T10:02:00.000Z");
-  expect(stepOf(run, "P1")).toMatchObject({ nodeId: "501", status: "blocked" });
+  // Bound qualified however it was named, so a later sync cannot re-resolve it elsewhere.
+  expect(stepOf(run, "P1")).toMatchObject({ nodeId: "github:github.com/the-metafactory/soma#501", status: "blocked" });
 });
 
 test("a step bound to a qualified node keeps its location, so a later sync reads the same repo — not the origin's", async () => {
@@ -620,4 +621,15 @@ test("the `--status`-required message names the flag that is actually missing", 
       ),
     ).rejects.toThrow("--status is required (or use --node/--sync for a bridged step).");
   });
+});
+
+test("a step bound bare before refs were qualified fails its sync loudly instead of misreading", () => {
+  // Bound under the old bridge, which stored `501`. The bridge now reports every
+  // node qualified, so a sync from any checkout meets the id check and refuses —
+  // it can no longer read another repo's #501 in silence.
+  const legacy = syncBridgedPlanStep(freshRun(), "P1", report(), { bind: true }, "2026-08-06T10:02:00.000Z");
+  expect(stepOf(legacy, "P1").nodeId).toBe("501");
+  expect(() =>
+    syncBridgedPlanStep(legacy, "P1", report({ ref: { id: "github:github.com/the-metafactory/arc#501" } }), {}),
+  ).toThrow(/bridged to work-graph node 501, but the reported node is github:github.com\/the-metafactory\/arc#501/u);
 });

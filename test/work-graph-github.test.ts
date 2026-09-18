@@ -3,6 +3,7 @@ import {
   WorkGraph,
   WorkGraphError,
   SUBTREE_QUERY_PRIMARY_RATE_POINTS,
+  checkGitHubConfinement,
   createGitHubGraphStore,
   decodeNodeBlock,
   encodeNodeBlock,
@@ -999,10 +1000,9 @@ test("on github.com every gh probe names github.com — an ambient GH_HOST canno
   expect(result.checked).toBe(true);
 });
 
-test("on a GitHub Enterprise host every probe is scoped to that host", async () => {
+test("the gh probe set scopes every probe to the host it is given", async () => {
   const { argv, deps } = recordingConfinement();
-  const { transport } = fakeTransport({});
-  await createGitHubGraphStore({ repo: REPO, host: "ghe.example.com", transport, confinement: deps }).checkConfinement();
+  await checkGitHubConfinement(deps, "ghe.example.com");
 
   expect(argv).toEqual([
     ["gh", "auth", "status", "--hostname", "ghe.example.com"],
@@ -1013,11 +1013,24 @@ test("on a GitHub Enterprise host every probe is scoped to that host", async () 
 
 test("each gh probe record names the host it probed, so a receipt shows what actually ran", async () => {
   const { deps } = recordingConfinement();
-  const { transport } = fakeTransport({});
-  const result = await createGitHubGraphStore({ repo: REPO, host: "ghe.example.com", transport, confinement: deps }).checkConfinement();
+  const result = await checkGitHubConfinement(deps, "ghe.example.com");
   expect(result.probes.map((probe) => probe.name)).toEqual([
     "gh auth status --hostname ghe.example.com (token env stripped)",
     "gh auth token --hostname ghe.example.com (token env stripped)",
     "security find-generic-password -s gh:ghe.example.com",
   ]);
+});
+
+test("the store itself refuses any host but github.com — the exported constructor cannot skip the guard", () => {
+  const { transport } = fakeTransport({});
+  for (const host of ["ghe.example.com", "attacker.example"]) {
+    expect(() => createGitHubGraphStore({ repo: REPO, host, transport })).toThrow(/github.com only/);
+  }
+  expect(() => createGitHubGraphStore({ repo: REPO, host: "GitHub.com", transport })).not.toThrow();
+});
+
+test("a dot-prefixed repo name is a real repo; a traversal segment is not", () => {
+  const { transport } = fakeTransport({});
+  expect(() => createGitHubGraphStore({ repo: "the-metafactory/.github", transport })).not.toThrow();
+  expect(() => createGitHubGraphStore({ repo: "../soma", transport })).toThrow(WorkGraphError);
 });

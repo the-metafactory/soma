@@ -147,7 +147,7 @@ function isMissingRestResource(error: unknown): boolean {
 export interface GitHubGraphStoreOptions {
   /** `owner/name`. A graph records its backend at creation and lives there forever (§2.5). */
   repo: string;
-  /** The GitHub host (#536 D1). Defaults to `github.com`; any other host is GitHub Enterprise, named explicitly. */
+  /** The GitHub host (#536 D1). Defaults to `github.com`, and must be it: any other host refuses (GHES is out of scope until a host allow-list exists). */
   host?: string;
   transport?: GitHubApiTransport;
   /** Conjunct 2's environment, injectable so a test never probes the developer's real credentials. */
@@ -642,9 +642,22 @@ class GitHubGraphStore implements GraphStore {
   private readonly confinement: ConfinementDeps;
 
   constructor(options: GitHubGraphStoreOptions) {
-    // The ref grammar's own path rule, not a looser local one: `../x` or
-    // `.hidden/b` must never reach a `repos/…` API path.
+    // The ref grammar's own path rule, not a looser local one: `../x` must
+    // never reach a `repos/…` API path.
     const checked = validateRepoRef({ forge: "github", host: options.host ?? GITHUB_DOTCOM, path: options.repo });
+    // **github.com only**, enforced here so no entry point can skip it — the
+    // barrel exports this constructor. A host is caller- and tracker-supplied
+    // text, and `gh --hostname <host>` hands any non-github.com host the
+    // session's `GH_ENTERPRISE_TOKEN` / `GITHUB_ENTERPRISE_TOKEN`: a
+    // `github:attacker.example/x/y#1` pasted from an issue body would ship that
+    // token to the attacker's `/api/v3`. GitHub Enterprise is out of scope until
+    // an adopter-declared host allow-list exists (map #533).
+    if (checked.host !== GITHUB_DOTCOM) {
+      throw new WorkGraphError(
+        "backend",
+        `github:${checked.host}/${checked.path} names a GitHub Enterprise host. soma opens GitHub stores on github.com only until GHES hosts have an allow-list: a ref's host is untrusted text, and gh would send it the enterprise token.`,
+      );
+    }
     this.repo = checked.path;
     this.host = checked.host;
     this.transport = options.transport ?? createGhCliTransport({ hostname: this.host });

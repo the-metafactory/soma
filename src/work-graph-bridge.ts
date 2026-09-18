@@ -146,7 +146,7 @@ export async function resolveGraphRepo(explicit?: string, deps: RepoResolutionDe
     if (remote === undefined) {
       throw new WorkGraphError(
         "backend",
-        `"${configured}" names no forge or host, and there is no origin remote to take them from. ${QUALIFIED_HINT}`,
+        `"${configured}" names no forge or host, and there is no origin remote with a parseable host to take them from. ${QUALIFIED_HINT}`,
       );
     }
     return await classifyOrRefuse({ host: remote.host, path: configured }, deps);
@@ -178,23 +178,12 @@ export function probeRegistryKey(repo: RepoRef): string {
  * never opens a GitLab graph. The GitLab backend is not built yet (#539's slice 3);
  * until it is, a GitLab ref refuses here rather than being read by the wrong store.
  *
- * **A GitHub store opens on github.com only.** A ref's host is caller- and
- * tracker-supplied text, and `gh --hostname <host>` hands any non-github.com
- * host the session's `GH_ENTERPRISE_TOKEN` / `GITHUB_ENTERPRISE_TOKEN` — so a
- * `github:attacker.example/x/y#1` pasted from an issue body would ship that
- * token to the attacker's `/api/v3`. GitHub Enterprise needs an explicit
- * allow-list of hosts the adopter vouches for, which nothing declares yet;
- * until one exists, every other GitHub host refuses here, before any `gh` runs.
+ * A GitHub ref on any host but github.com refuses in the GitHub store's own
+ * constructor (see `createGitHubGraphStore`), so no entry point can skip it.
  */
 export function createGraphStore(repo: RepoRef): GraphStore {
   switch (repo.forge) {
     case "github":
-      if (!isGitHubDotcom(repo)) {
-        throw new WorkGraphError(
-          "backend",
-          `${formatRepoRef(repo)} names a GitHub Enterprise host. soma opens GitHub stores on github.com only until GHES hosts have an allow-list: a ref's host is untrusted text, and gh would send it the enterprise token.`,
-        );
-      }
       return createGitHubGraphStore({ repo: repo.path, host: repo.host });
     case "gitlab":
       throw new WorkGraphError(
@@ -214,9 +203,9 @@ export function localNodeId(text: string, repo: RepoRef): string {
   if (!isQualifiedRef(text)) {
     // A GitLab store is host-scoped and its ids carry their project
     // (`storeNodeId`), so a bare `12` or `#12` is read in the repo's own path —
-    // one id shape per store, whichever way the node was named.
+    // one id shape per store, whichever way the node was named, built in one place.
     const bare = /^#?([1-9]\d*)$/u.exec(text.trim());
-    return repo.forge === "gitlab" && bare !== null ? `${repo.path}#${bare[1]}` : text;
+    return repo.forge === "gitlab" && bare !== null ? storeNodeId({ repo, sigil: "#", iid: Number(bare[1]) }) : text;
   }
   const qualified = parseQualifiedNodeRef(text);
   if (!sameStore(qualified.repo, repo)) {
@@ -244,20 +233,45 @@ export async function resolveNodeTarget(
   target: string,
   explicitRepo: string | undefined,
   resolveRepo: (explicit?: string) => Promise<RepoRef> = resolveGraphRepo,
-): Promise<{ repo: RepoRef; id: string }> {
+): Promise<{ repo: RepoRef; id: string; canonical?: string }> {
   if (!isQualifiedRef(target)) {
     const repo = await resolveRepo(explicitRepo);
-    return { repo, id: localNodeId(target, repo) };
+    const id = localNodeId(target, repo);
+    return { repo, id, ...optionalCanonical(qualifyStoreId(repo, id)) };
   }
-  const named = parseQualifiedNodeRef(target).repo;
+  const qualified = parseQualifiedNodeRef(target);
   const explicit = explicitRepo?.trim();
   const repo =
     explicit === undefined || explicit.length === 0
-      ? named
+      ? qualified.repo
       : isQualifiedRef(explicit)
         ? parseRepoRef(explicit)
-        : validateRepoRef({ forge: named.forge, host: named.host, path: explicit });
-  return { repo, id: localNodeId(target, repo) };
+        : validateRepoRef({ forge: qualified.repo.forge, host: qualified.repo.host, path: explicit });
+  return { repo, id: localNodeId(target, repo), canonical: formatQualifiedNodeRef(qualified) };
+}
+
+function optionalCanonical(canonical: string | undefined): { canonical?: string } {
+  return canonical === undefined ? {} : { canonical };
+}
+
+/**
+ * The canonical qualified ref for a store-local id, or undefined when the id is
+ * not a node number (a test double's `root`, say). The inverse of
+ * {@link storeNodeId}: a GitHub id is the bare number in the store's repo; a
+ * GitLab id carries its own path and sigil.
+ */
+function qualifyStoreId(repo: RepoRef, id: string): string | undefined {
+  if (repo.forge === "github") {
+    const bare = /^#?([1-9]\d*)$/u.exec(id.trim());
+    return bare === null ? undefined : formatQualifiedNodeRef({ repo, sigil: "#", iid: Number(bare[1]) });
+  }
+  const located = /^(.+)([#&])([1-9]\d*)$/u.exec(id.trim());
+  if (located === null) return undefined;
+  return formatQualifiedNodeRef({
+    repo: validateRepoRef({ ...repo, path: located[1] }),
+    sigil: located[2] as "#" | "&",
+    iid: Number(located[3]),
+  });
 }
 
 export interface ReadNodeForBridgeOptions {
@@ -278,15 +292,17 @@ export interface ReadNodeForBridgeOptions {
  */
 export async function readNodeForBridge(nodeId: string, options: ReadNodeForBridgeOptions = {}): Promise<BridgedNodeReport> {
   const createStore = options.createStore ?? createGraphStore;
-  const { repo, id } = await resolveNodeTarget(nodeId, options.repo, options.resolveRepo);
+  const { repo, id, canonical } = await resolveNodeTarget(nodeId, options.repo, options.resolveRepo);
   const store = createStore(repo);
   const state = await new WorkGraph(store).readNode({ id });
-  // A qualified target is reported back qualified (canonical form), because the
-  // consumer *stores* this id: a step bound to `github:…/arc#498` that kept only
-  // `498` would, on its next sync, resolve through the origin remote and read a
-  // different repo's #498 without complaint. The location has to survive the
-  // round trip, so the next read takes the qualified path again.
-  const ref = isQualifiedRef(nodeId) ? { id: formatQualifiedNodeRef(parseQualifiedNodeRef(nodeId)) } : state.ref;
+  // Every node is reported back **qualified** (canonical form), however it was
+  // named, because the consumer *stores* this id. A bound step that kept only
+  // `498` would, on its next sync, resolve through whatever origin remote the
+  // sync runs under and read that repo's #498 without complaint. Stored
+  // qualified, the location survives the round trip; and a step bound bare
+  // before this existed now fails the sync's id check loudly instead of
+  // misreading.
+  const ref = canonical === undefined ? state.ref : { id: canonical };
   // The production GraphStore binds this to the current tracker close; bridge
   // consumers never inspect comments and therefore cannot bless stale receipts.
   return { ref, status: state.status, blockedBy: state.blockedBy, hasCloseReceipt: state.currentCloseReceipt === true };
