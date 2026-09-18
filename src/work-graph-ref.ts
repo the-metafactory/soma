@@ -10,7 +10,7 @@
  * github:github.com/the-metafactory/soma           repo (the --repo / SOMA_GRAPH_REPO form)
  * github:github.com/the-metafactory/soma#536       issue
  * gitlab:gitlab-int.switch.ch/csoc/soc-reporter#12 issue or task
- * gitlab:gitlab-int.switch.ch/csoc&5               epic (a GitLab map root)
+ * gitlab:gitlab-int.switch.ch/csoc&5               epic (a GitLab graph root)
  * ```
  *
  * After the host comes the forge's own reference syntax — `#` for an issue,
@@ -60,15 +60,21 @@ function refError(text: string, why: string): WorkGraphError {
 }
 
 /**
- * A path is `/`-separated segments that each start with a word character, so
- * `.`, `..` and dot-prefixed names never reach a URL or a registry key.
+ * The one rule for what a path is, shared by the ref grammar and the remote
+ * parser so the two cannot drift: `/`-separated segments that each start with a
+ * word character — so `.`, `..` and dot-prefixed names never reach a URL or a
+ * registry key — and at least `minDepth` of them.
  */
-function parsePath(text: string, path: string): string {
+function validPath(path: string, minDepth: number): string | undefined {
   const segments = path.split("/");
-  if (segments.length === 0 || segments.some((segment) => !SEGMENT.test(segment))) {
-    throw refError(text, `path "${path}" has an empty or malformed segment`);
-  }
+  if (segments.length < minDepth || segments.some((segment) => !SEGMENT.test(segment))) return undefined;
   return segments.join("/");
+}
+
+function parsePath(text: string, path: string): string {
+  const valid = validPath(path, 1);
+  if (valid === undefined) throw refError(text, `path "${path}" has an empty or malformed segment`);
+  return valid;
 }
 
 /** GitHub repos are exactly `owner/name`; GitLab namespaces nest arbitrarily. */
@@ -143,7 +149,12 @@ export function storeNodeId(ref: QualifiedNodeRef): string {
  * prints qualified, since a bare path there would not say where it lives.
  */
 export function displayRepo(repo: RepoRef): string {
-  return repo.forge === "github" && repo.host === GITHUB_DOTCOM ? repo.path : formatRepoRef(repo);
+  return isGitHubDotcom(repo) ? repo.path : formatRepoRef(repo);
+}
+
+/** A repo on github.com itself — the one host a host-less name ever meant. */
+export function isGitHubDotcom(repo: RepoRef): boolean {
+  return repo.forge === "github" && repo.host === GITHUB_DOTCOM;
 }
 
 /** Where a git remote points: host and full path, forge still unknown. */
@@ -155,10 +166,7 @@ export interface RemoteLocation {
 const URL_SCHEMES = new Set(["https:", "http:", "ssh:", "git:", "git+ssh:", "ssh+git:"]);
 
 function cleanRemotePath(path: string): string | undefined {
-  const stripped = path.replace(/^\/+/u, "").replace(/\/+$/u, "").replace(/\.git$/u, "");
-  const segments = stripped.split("/");
-  if (segments.length < 2 || segments.some((segment) => !SEGMENT.test(segment))) return undefined;
-  return segments.join("/");
+  return validPath(path.replace(/^\/+/u, "").replace(/\/+$/u, "").replace(/\.git$/u, ""), 2);
 }
 
 /**
@@ -185,7 +193,14 @@ export function parseRemoteUrl(remote: string): RemoteLocation | undefined {
     if (!URL_SCHEMES.has(url.protocol)) return undefined;
     const host = url.hostname.toLowerCase();
     if (!HOST.test(host)) return undefined;
-    const path = cleanRemotePath(decodeURIComponent(url.pathname));
+    let pathname: string;
+    try {
+      pathname = decodeURIComponent(url.pathname);
+    } catch {
+      // A malformed %-escape is not a remote this parser can name.
+      return undefined;
+    }
+    const path = cleanRemotePath(pathname);
     return path === undefined ? undefined : { host, path };
   }
 

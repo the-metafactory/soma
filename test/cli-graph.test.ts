@@ -12,7 +12,7 @@ import {
   selectRatification,
   type GraphCliDeps,
 } from "../src/cli/graph";
-import type { ConfinementResult } from "../src/work-graph-attestation";
+import type { ConfinementResult } from "../src/work-graph";
 import type { RepoRef } from "../src/work-graph-ref";
 // Receipt-rendering helpers are deliberately not on the public barrel (sage on
 // #584): they are internals of `renderCloseReceipt`, so the test reaches for
@@ -82,12 +82,12 @@ interface SeedNode {
 
 class FakeStore implements GraphStore {
   readonly attestation = "verifiable" as const;
-  // Never reached: `deps()` overrides both hooks, and a test that means to
-  // exercise the store's own answer says so by dropping the override.
-  actingIdentity = async (): Promise<string> => "store-identity";
+  // The verbs ask the store (#537 D2). The default is an isolated session acting
+  // as ivy-agent; a test about either answer reassigns it.
+  actingIdentity = async (): Promise<string> => "ivy-agent";
   checkConfinement = async (): Promise<ConfinementResult> => ({
-    checked: false,
-    reachableIdentities: [],
+    checked: true,
+    reachableIdentities: ["ivy-agent"],
     at: AT.toISOString(),
     probes: [],
   });
@@ -185,7 +185,6 @@ function deps(store: FakeStore, overrides: Partial<GraphCliDeps> = {}): Partial<
   return {
     createStore: () => store,
     resolveRepo: async () => REPO_REF,
-    resolveIdentity: async () => "ivy-agent",
     // Hermetic: the default would read the developer's own ~/.soma.
     loadProbeRegistry: async () => DECLARED,
     runProbes: async (probes) =>
@@ -196,12 +195,6 @@ function deps(store: FakeStore, overrides: Partial<GraphCliDeps> = {}): Partial<
         observed: "exit 0",
         at: AT.toISOString(),
       })),
-    checkConfinement: async () => ({
-      checked: true,
-      reachableIdentities: ["ivy-agent"],
-      at: AT.toISOString(),
-      probes: [],
-    }),
     probeCwd: () => "/repo",
     describeProbeTree: async (dir) => ({ dir, head: "abc1234", dirty: false }),
     readTextFile: async () => "proposal body",
@@ -407,15 +400,14 @@ test("--blocked-by takes a qualified ref in the same store, and refuses one from
   expect(store.created).toHaveLength(1);
 });
 
-test("by default the store names the acting identity (#537 D2)", async () => {
+test("the store names the acting identity (#537 D2)", async () => {
   const store = new FakeStore().seed("498", { node: autoNode("498") });
-  const { resolveIdentity: _identity, ...rest } = deps(store);
+  store.actingIdentity = async () => "store-identity";
 
-  const output = await runGraphCli(parseGraphArgs(["graph", "claim", "498", "--repo", REPO]), rest);
-  expect(output).toContain("Claimed node 498 as store-identity");
+  expect(await run(["graph", "claim", "498", "--repo", REPO], store)).toContain("Claimed node 498 as store-identity");
 });
 
-test("by default the store runs conjunct 2, and its answer lands in the receipt (#537 D2)", async () => {
+test("the store runs conjunct 2, and its answer lands in the receipt (#537 D2)", async () => {
   const store = new FakeStore()
     .seed("495", { node: autoNode("495"), author: "jcfischer" })
     .seed("530", { node: { id: "530", title: "hitl", autonomy: "approve", checkpointId: "cp-530" }, parent: "495" });
@@ -425,9 +417,8 @@ test("by default the store runs conjunct 2, and its answer lands in the receipt 
     at: AT.toISOString(),
     probes: [{ name: "the store's own probe", observed: "reachable" }],
   });
-  const { checkConfinement: _confinement, ...rest } = deps(store);
 
-  await runGraphCli(parseGraphArgs(["graph", "close", "530", "--repo", REPO, ...RESOLUTION]), rest);
+  await run(["graph", "close", "530", "--repo", REPO, ...RESOLUTION], store);
 
   const facts = store.closed[0].receipt.attestationFacts;
   expect(facts?.confinement?.probes).toEqual([{ name: "the store's own probe", observed: "reachable" }]);
@@ -648,14 +639,13 @@ test("the same reaction with the principal's credential reachable is unverified 
   await run(["graph", "close", "530", "--propose", "--body", "the resolution", "--repo", REPO], store);
   store.reactions.set("c1", [{ id: "r1", content: "+1", author: "jcfischer" }]);
 
-  await run(["graph", "close", "530", "--proposal-comment", "c1", "--repo", REPO], store, {
-    checkConfinement: async () => ({
-      checked: true,
-      reachableIdentities: ["ivy-agent", "jcfischer"],
-      at: AT.toISOString(),
-      probes: [],
-    }),
+  store.checkConfinement = async () => ({
+    checked: true,
+    reachableIdentities: ["ivy-agent", "jcfischer"],
+    at: AT.toISOString(),
+    probes: [],
   });
+  await run(["graph", "close", "530", "--proposal-comment", "c1", "--repo", REPO], store);
 
   expect(store.closed[0].receipt.attestation).toBe("unverified");
 });

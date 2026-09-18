@@ -752,6 +752,7 @@ export {
   type AttestationState,
   type BlockingRef,
   type ConfinementProbeRecord,
+  type ConfinementResult,
   type ClaimResult,
   type ReleaseResult,
   type CloseEvidence,
@@ -778,8 +779,10 @@ export {
   type WorkGraphNodeBase,
 } from "./work-graph";
 export {
+  checkGitHubConfinement,
   createGhCliTransport,
   createGitHubGraphStore,
+  parseAuthStatusLogins,
   decodeNodeBlock,
   encodeNodeBlock,
   estimateSubtreeQueryPrimaryRatePoints,
@@ -827,14 +830,12 @@ export {
   type ProbeRegistryHomeOptions,
 } from "./work-graph-probe-registry";
 export {
-  checkConfinement,
   deriveAttestation,
+  envWithoutTokens,
   findGraphRoot,
-  parseAuthStatusLogins,
   type AttestationInputs,
   type AttestationOutcome,
   type ConfinementDeps,
-  type ConfinementResult,
 } from "./work-graph-attestation";
 
 export { SOMA_VERSION } from "./version";

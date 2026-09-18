@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import {
-  checkConfinement,
+  checkGitHubConfinement,
   deriveAttestation,
   findGraphRoot,
   parseAuthStatusLogins,
@@ -128,7 +128,7 @@ function confinementDeps(
   responses: (request: CommandRequest) => CommandOutcome,
   env: Record<string, string | undefined> = { GH_TOKEN: "agent-pat", PATH: "/usr/bin" },
   platform = "darwin",
-): { deps: Parameters<typeof checkConfinement>[0]; seen: CommandRequest[] } {
+): { deps: Parameters<typeof checkGitHubConfinement>[0]; seen: CommandRequest[] } {
   const seen: CommandRequest[] = [];
   return {
     seen,
@@ -146,7 +146,7 @@ function confinementDeps(
 
 test("the confinement check strips the token env before probing what is reachable", async () => {
   const { deps, seen } = confinementDeps(() => ({ exitCode: 1, stdout: "", stderr: "", timedOut: false }));
-  await checkConfinement(deps);
+  await checkGitHubConfinement(deps);
 
   expect(seen.length).toBeGreaterThan(0);
   for (const request of seen) {
@@ -157,16 +157,16 @@ test("the confinement check strips the token env before probing what is reachabl
 
 test("a reachable keychain item and a foreign login both land in reachableIdentities", async () => {
   const { deps } = confinementDeps((request) => {
-    if (request.argv?.join(" ") === "gh auth status") {
+    if (request.argv?.join(" ") === "gh auth status --hostname github.com") {
       return { exitCode: 0, stdout: "", stderr: "✓ Logged in to github.com account jcfischer (keyring)", timedOut: false };
     }
-    if (request.argv?.join(" ") === "gh auth token") {
+    if (request.argv?.join(" ") === "gh auth token --hostname github.com") {
       return { exitCode: 0, stdout: "gho_xxx\n", stderr: "", timedOut: false };
     }
     return { exitCode: 0, stdout: "", stderr: "", timedOut: false };
   });
 
-  const result = await checkConfinement(deps);
+  const result = await checkGitHubConfinement(deps);
   expect(result.checked).toBe(true);
   expect(result.reachableIdentities).toContain("jcfischer");
   expect(result.reachableIdentities).toContain("keychain:gh:github.com");
@@ -175,12 +175,12 @@ test("a reachable keychain item and a foreign login both land in reachableIdenti
 
 test("a credential that prints but names no login still counts as reachable", async () => {
   const { deps } = confinementDeps((request) =>
-    request.argv?.join(" ") === "gh auth token"
+    request.argv?.join(" ") === "gh auth token --hostname github.com"
       ? { exitCode: 0, stdout: "gho_xxx\n", stderr: "", timedOut: false }
       : { exitCode: 1, stdout: "", stderr: "", timedOut: false },
   );
 
-  const result = await checkConfinement(deps);
+  const result = await checkGitHubConfinement(deps);
   expect(result.reachableIdentities).toContain("unidentified-credential");
 });
 
@@ -191,7 +191,7 @@ test("an isolated session reaches nothing", async () => {
     "linux",
   );
 
-  const result = await checkConfinement(deps);
+  const result = await checkGitHubConfinement(deps);
   expect(result.reachableIdentities).toEqual([]);
   expect(result.probes).toHaveLength(2);
 });

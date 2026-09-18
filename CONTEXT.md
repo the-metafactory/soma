@@ -732,6 +732,8 @@ A bounded structured event that records substrate activity for monitoring and co
 
 The typed primitive for cross-session effort topology: **nodes** of work joined by two distinct edge kinds, stored authoritatively on an issue tracker, walked by agent sessions, and closed only through an attached [[checkpoint]]'s completion gate.
 
+**Where a graph lives:** a **ref** names the tracker by **forge** (`github`, `gitlab`), host and path — `github:github.com/owner/name#N`, `gitlab:<host>/<group>&N` — and the ref selects the **store**, the backend that forge needs (#535, #536). The tracker is the place; the store is soma's I/O to it.
+
 **Two relations, and conflating them is the classic error:**
 
 - A **blocking edge** says *this must close before that is takeable*. It gates. The frontier reads it.

@@ -38,9 +38,10 @@ import {
   type Reaction,
   type ReleaseResult,
   type WorkGraphNode,
+  type ConfinementProbeRecord,
   type ConfinementResult,
 } from "./work-graph";
-import { checkConfinement, type ConfinementDeps } from "./work-graph-attestation";
+import { envWithoutTokens, type ConfinementDeps } from "./work-graph-attestation";
 import { runCommand } from "./work-graph-probes";
 import { GITHUB_DOTCOM } from "./work-graph-ref";
 
@@ -61,14 +62,18 @@ export type GitHubApiTransport = (request: GitHubApiRequest) => Promise<unknown>
 export interface GhCliTransportOptions {
   binary?: string;
   cwd?: string;
-  /** A GitHub Enterprise host. Absent or `github.com` leaves `gh`'s own default in charge. */
+  /**
+   * The GitHub host every call names. The store always sets it, github.com
+   * included: unnamed, `gh` falls back to an ambient `GH_HOST`, and the store
+   * would write to a different host than the ref and the receipt name.
+   */
   hostname?: string;
 }
 
 /** Build the `gh api` argv once so pagination semantics are unit-testable. */
 export function ghApiArgs(request: GitHubApiRequest, hostname?: string): string[] {
   const args = ["api", "--method", request.method, request.path];
-  if (hostname !== undefined && hostname !== GITHUB_DOTCOM) args.push("--hostname", hostname);
+  if (hostname !== undefined) args.push("--hostname", hostname);
   if (request.paginate === true) args.push("--paginate", "--slurp");
   if (request.body !== undefined) args.push("--input", "-");
   return args;
@@ -145,15 +150,84 @@ export interface GitHubGraphStoreOptions {
   /** The GitHub host (#536 D1). Defaults to `github.com`; any other host is GitHub Enterprise, named explicitly. */
   host?: string;
   transport?: GitHubApiTransport;
-  /**
-   * Conjunct 2's environment, injectable so a test never probes the developer's
-   * real credentials. The host is the store's own and is filled in here.
-   */
-  confinement?: Omit<ConfinementDeps, "host">;
+  /** Conjunct 2's environment, injectable so a test never probes the developer's real credentials. */
+  confinement?: ConfinementDeps;
 }
 
-function defaultConfinementDeps(): Omit<ConfinementDeps, "host"> {
+function defaultConfinementDeps(): ConfinementDeps {
   return { runCommand, env: process.env, platform: process.platform, now: () => new Date() };
+}
+
+/** Credential-bearing environment variables the `gh` probe set strips before probing. */
+const GH_TOKEN_ENV_KEYS = ["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"] as const;
+
+/**
+ * Logins `gh auth status` reports. Both output shapes are matched — `account
+ * <login>` (current) and `as <login>` (older) — because a parser that silently
+ * matches neither reports an empty reachable set, which reads as *isolated* and
+ * would raise attestation on a parse failure.
+ */
+export function parseAuthStatusLogins(output: string): string[] {
+  const logins = new Set<string>();
+  for (const match of output.matchAll(/(?:account|as)\s+([A-Za-z0-9][A-Za-z0-9-]*)/gu)) {
+    logins.add(match[1]);
+  }
+  return [...logins].sort();
+}
+
+/**
+ * GitHub's conjunct-2 probe set (§3.2), run with the token env stripped: `gh
+ * auth status`, `gh auth token`, and (on darwin) a direct read of the `gh`
+ * keychain item — the three ways #496's own probe script reached the principal's
+ * credential.
+ *
+ * Every probe names the store's host, github.com included. Left unnamed, `gh`
+ * falls back to an ambient `GH_HOST`, so the check could answer for a different
+ * host than the one the store writes to.
+ */
+export async function checkGitHubConfinement(deps: ConfinementDeps, host: string = GITHUB_DOTCOM): Promise<ConfinementResult> {
+  const env = envWithoutTokens(deps.env, GH_TOKEN_ENV_KEYS);
+  const at = deps.now().toISOString();
+  const probes: ConfinementProbeRecord[] = [];
+  const reachable = new Set<string>();
+  const keychainService = `gh:${host}`;
+
+  const status = await deps.runCommand({ argv: ["gh", "auth", "status", "--hostname", host], timeoutSec: 30, env });
+  const statusOutput = `${status.stdout}\n${status.stderr}`;
+  const logins = parseAuthStatusLogins(statusOutput);
+  for (const login of logins) reachable.add(login);
+  probes.push({
+    name: "gh auth status (token env stripped)",
+    observed: `exit ${status.exitCode}; identities: ${logins.length > 0 ? logins.join(", ") : "none"}`,
+  });
+
+  const token = await deps.runCommand({ argv: ["gh", "auth", "token", "--hostname", host], timeoutSec: 30, env });
+  const tokenReachable = token.exitCode === 0 && token.stdout.trim().length > 0;
+  if (tokenReachable && logins.length === 0) {
+    // A credential is reachable but unnamed — it still counts, and it must not
+    // be swallowed just because the status parse came back empty.
+    reachable.add("unidentified-credential");
+  }
+  probes.push({
+    name: "gh auth token (token env stripped)",
+    observed: tokenReachable ? "printed a credential" : `refused (exit ${token.exitCode})`,
+  });
+
+  if (deps.platform === "darwin") {
+    const keychain = await deps.runCommand({
+      argv: ["security", "find-generic-password", "-s", keychainService],
+      timeoutSec: 30,
+      env,
+    });
+    const keychainReachable = keychain.exitCode === 0;
+    if (keychainReachable) reachable.add(`keychain:${keychainService}`);
+    probes.push({
+      name: `security find-generic-password -s ${keychainService}`,
+      observed: keychainReachable ? "keychain item readable" : `refused (exit ${keychain.exitCode})`,
+    });
+  }
+
+  return { checked: true, reachableIdentities: [...reachable].sort(), at, probes };
 }
 
 interface GitHubIssue {
@@ -565,7 +639,7 @@ class GitHubGraphStore implements GraphStore {
   private readonly repo: string;
   private readonly host: string;
   private readonly transport: GitHubApiTransport;
-  private readonly confinement: Omit<ConfinementDeps, "host">;
+  private readonly confinement: ConfinementDeps;
 
   constructor(options: GitHubGraphStoreOptions) {
     if (!/^[^/\s]+\/[^/\s]+$/.test(options.repo)) {
@@ -589,7 +663,7 @@ class GitHubGraphStore implements GraphStore {
 
   /** The `gh` probe set (§3.2 conjunct 2), scoped to this store's host. */
   async checkConfinement(): Promise<ConfinementResult> {
-    return await checkConfinement({ ...this.confinement, host: this.host });
+    return await checkGitHubConfinement(this.confinement, this.host);
   }
 
   async createNode(spec: CreateNodeSpec): Promise<NodeRef> {

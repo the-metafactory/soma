@@ -25,7 +25,6 @@ import type {
   AttestationCapability,
   AttestationFacts,
   AttestationState,
-  ConfinementProbeRecord,
   ConfinementResult,
   NodeRef,
   NodeState,
@@ -33,102 +32,37 @@ import type {
 } from "./work-graph";
 import type { CommandOutcome, CommandRequest } from "./work-graph-probes";
 
-/** Credential-bearing environment variables the confinement check must strip before probing. */
-const TOKEN_ENV_KEYS = ["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"] as const;
-
 /** Depth cap on the root walk — a graph deeper than this is malformed, not deep. */
 const MAX_ROOT_WALK = 64;
 
-export type { ConfinementResult } from "./work-graph";
-
+/**
+ * What a store's conjunct-2 probe set runs against — forge-neutral on purpose.
+ * The probe sets themselves live with their forge's store (#537 D2): the `gh`
+ * set in `work-graph-github.ts`, so no forge's check sits here under a name
+ * that reads as if it applied to every forge.
+ */
 export interface ConfinementDeps {
   runCommand: (request: CommandRequest) => Promise<CommandOutcome>;
   env: Readonly<Record<string, string | undefined>>;
   platform: string;
   now: () => Date;
-  /**
-   * The GitHub host the store talks to. Absent or `github.com` runs the probe
-   * set exactly as it ran before stores owned it; any other host scopes each
-   * probe to that host (`--hostname`, keychain service `gh:<host>`).
-   */
-  host?: string;
 }
 
-/** Strip the token env: conjunct 2 asks what the session can *reach*, not which identity `gh` prefers. */
-function envWithoutTokens(env: Readonly<Record<string, string | undefined>>): Record<string, string> {
+/**
+ * Strip the named token variables: conjunct 2 asks what the session can
+ * *reach*, not which identity a forge CLI prefers. Each forge names its own.
+ */
+export function envWithoutTokens(
+  env: Readonly<Record<string, string | undefined>>,
+  tokenKeys: readonly string[],
+): Record<string, string> {
   const stripped: Record<string, string> = {};
   for (const [key, value] of Object.entries(env)) {
     if (value === undefined) continue;
-    if ((TOKEN_ENV_KEYS as readonly string[]).includes(key)) continue;
+    if (tokenKeys.includes(key)) continue;
     stripped[key] = value;
   }
   return stripped;
-}
-
-/**
- * Logins `gh auth status` reports. Both output shapes are matched — `account
- * <login>` (current) and `as <login>` (older) — because a parser that silently
- * matches neither reports an empty reachable set, which reads as *isolated* and
- * would raise attestation on a parse failure.
- */
-export function parseAuthStatusLogins(output: string): string[] {
-  const logins = new Set<string>();
-  for (const match of output.matchAll(/(?:account|as)\s+([A-Za-z0-9][A-Za-z0-9-]*)/gu)) {
-    logins.add(match[1]);
-  }
-  return [...logins].sort();
-}
-
-/**
- * Run the confinement probe set with the token env stripped: `gh auth status`,
- * `gh auth token`, and (on darwin) a direct read of the `gh` keychain item —
- * the three ways #496's own probe script reached the principal's credential.
- */
-export async function checkConfinement(deps: ConfinementDeps): Promise<ConfinementResult> {
-  const env = envWithoutTokens(deps.env);
-  const at = deps.now().toISOString();
-  const probes: ConfinementProbeRecord[] = [];
-  const reachable = new Set<string>();
-  const host = deps.host ?? "github.com";
-  const scoped = host === "github.com" ? [] : ["--hostname", host];
-  const keychainService = `gh:${host}`;
-
-  const status = await deps.runCommand({ argv: ["gh", "auth", "status", ...scoped], timeoutSec: 30, env });
-  const statusOutput = `${status.stdout}\n${status.stderr}`;
-  const logins = parseAuthStatusLogins(statusOutput);
-  for (const login of logins) reachable.add(login);
-  probes.push({
-    name: "gh auth status (token env stripped)",
-    observed: `exit ${status.exitCode}; identities: ${logins.length > 0 ? logins.join(", ") : "none"}`,
-  });
-
-  const token = await deps.runCommand({ argv: ["gh", "auth", "token", ...scoped], timeoutSec: 30, env });
-  const tokenReachable = token.exitCode === 0 && token.stdout.trim().length > 0;
-  if (tokenReachable && logins.length === 0) {
-    // A credential is reachable but unnamed — it still counts, and it must not
-    // be swallowed just because the status parse came back empty.
-    reachable.add("unidentified-credential");
-  }
-  probes.push({
-    name: "gh auth token (token env stripped)",
-    observed: tokenReachable ? "printed a credential" : `refused (exit ${token.exitCode})`,
-  });
-
-  if (deps.platform === "darwin") {
-    const keychain = await deps.runCommand({
-      argv: ["security", "find-generic-password", "-s", keychainService],
-      timeoutSec: 30,
-      env,
-    });
-    const keychainReachable = keychain.exitCode === 0;
-    if (keychainReachable) reachable.add(`keychain:${keychainService}`);
-    probes.push({
-      name: `security find-generic-password -s ${keychainService}`,
-      observed: keychainReachable ? "keychain item readable" : `refused (exit ${keychain.exitCode})`,
-    });
-  }
-
-  return { checked: true, reachableIdentities: [...reachable].sort(), at, probes };
 }
 
 export interface AttestationInputs {

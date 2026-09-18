@@ -131,3 +131,7 @@ test("local paths, drives and one-segment paths are not remotes", () => {
   expect(parseRemoteUrl("git@github.com:soma.git")).toBeUndefined();
   expect(parseRemoteUrl("https://github.com/a/../b")).toBeUndefined();
 });
+
+test("a malformed %-escape is not a remote — undefined, never a thrown URIError", () => {
+  expect(parseRemoteUrl("https://gitlab.example.com/a%zz/b.git")).toBeUndefined();
+});

@@ -61,7 +61,7 @@ import {
   type ReceiptScan,
   type WorkGraphEvidenceKind,
 } from "../work-graph";
-import { deriveAttestation, findGraphRoot, type ConfinementResult } from "../work-graph-attestation";
+import { deriveAttestation, findGraphRoot } from "../work-graph-attestation";
 import {
   displayRepo,
   formatRepoRef,
@@ -506,8 +506,6 @@ export interface GraphCliDeps {
   createStore: (repo: RepoRef) => GraphStore;
   /** `explicit` is `--repo` as typed; see {@link resolveGraphRepo} for the order. */
   resolveRepo: (explicit?: string) => Promise<RepoRef>;
-  /** The acting identity on the store's forge (#537 D2): the store names it. */
-  resolveIdentity: (store: GraphStore) => Promise<string>;
   /**
    * The registry is loaded per close and handed to the runner rather than read
    * inside it: one place decides which repo's declarations apply, and the
@@ -521,8 +519,6 @@ export interface GraphCliDeps {
    */
   loadProbeRegistry: (repo: RepoRef) => Promise<ProbeRegistry>;
   runProbes: (probes: readonly Probe[], registry: ProbeRegistry, cwd: string) => Promise<ProbeResult[]>;
-  /** §3.2 conjunct 2, run by the store for its own forge (#537 D2). */
-  checkConfinement: (store: GraphStore) => Promise<ConfinementResult>;
   /**
    * The directory the probes run in, resolved **once** per close and passed
    * everywhere it is needed — the runner, the registry match, and the receipt.
@@ -733,10 +729,8 @@ function defaultDeps(): GraphCliDeps {
   return {
     createStore: createGraphStore,
     resolveRepo: async (explicit) => await resolveGraphRepo(explicit),
-    resolveIdentity: async (store) => await store.actingIdentity(),
     loadProbeRegistry: async (repo) => await defaultLoadProbeRegistry({ repo: probeRegistryKey(repo) }),
     runProbes: async (probes, registry, cwd) => await defaultRunProbes(probes, { registry, cwd }),
-    checkConfinement: async (store) => await store.checkConfinement(),
     probeCwd: () => invocationCwd(),
     describeProbeTree: defaultDescribeProbeTree,
     readTextFile: async (path) => await Bun.file(path).text(),
@@ -852,9 +846,8 @@ async function runClaim(
   graph: WorkGraph,
   store: GraphStore,
   repo: string,
-  deps: GraphCliDeps,
 ): Promise<string> {
-  const identity = parsed.options.identity ?? (await deps.resolveIdentity(store));
+  const identity = parsed.options.identity ?? (await store.actingIdentity());
   const result = await graph.claim({ id: parsed.target }, identity);
 
   if (parsed.options.json === true) {
@@ -884,9 +877,8 @@ async function runRelease(
   graph: WorkGraph,
   store: GraphStore,
   repo: string,
-  deps: GraphCliDeps,
 ): Promise<string> {
-  const identity = parsed.options.identity ?? (await deps.resolveIdentity(store));
+  const identity = parsed.options.identity ?? (await store.actingIdentity());
   const result = await graph.release({ id: parsed.target }, identity);
 
   if (parsed.options.json === true) {
@@ -1143,7 +1135,7 @@ async function runClose(
     );
   }
 
-  const identity = parsed.options.identity ?? (await deps.resolveIdentity(store));
+  const identity = parsed.options.identity ?? (await store.actingIdentity());
   const probes = state.node.probes ?? [];
   const registry = await deps.loadProbeRegistry(repoRef);
   const { probeDir, probeTrees } = await prepareProbeTrees(probes, deps);
@@ -1257,7 +1249,7 @@ async function runClose(
     }
   }
 
-  const confinement = await deps.checkConfinement(store);
+  const confinement = await store.checkConfinement();
   const { attestation, facts } = deriveAttestation({
     backendCapability: store.attestation,
     actingIdentity: identity,
@@ -1521,9 +1513,9 @@ export async function runGraphCli(input: ParsedGraphArgs, overrides: Partial<Gra
     case "node":
       return await runNode(parsed, graph, repo);
     case "claim":
-      return await runClaim(parsed, graph, store, repo, deps);
+      return await runClaim(parsed, graph, store, repo);
     case "release":
-      return await runRelease(parsed, graph, store, repo, deps);
+      return await runRelease(parsed, graph, store, repo);
     case "add":
       return await runAdd(parsed, graph, repo, deps);
     case "close":

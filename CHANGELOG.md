@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **A work-graph ref names its forge, and the ref selects the store** (#535,
+  #536; slice 1 of #539). Refs read `github:github.com/owner/name#N`, and
+  `--repo` / `SOMA_GRAPH_REPO` take the qualified `github:github.com/owner/name`.
+  A qualified target opens its own store, and a `--repo` that disagrees with it
+  refuses. **Behaviour change:** a bare `--repo owner/name` (or bare
+  `SOMA_GRAPH_REPO`) now takes its host from the origin remote. Outside a
+  checkout it refuses instead of assuming github.com, and inside a checkout on
+  another host it resolves to that host. A remote whose host is neither
+  github.com nor a GitLab that answers `GET /api/v4/version` refuses, and soma
+  never assumes GitHub Enterprise. The origin remote is now read in the tree
+  soma was invoked from, not in the install tree the launcher `cd`s into.
+- **`GraphStore` gains two required methods** (#537 D2): `actingIdentity()` and
+  `checkConfinement()`. Each store names who the session is on its forge and
+  runs its own forge's conjunct-2 probe set. An external `GraphStore`
+  implementation must add both. `ReadNodeForBridgeOptions.createStore` now takes
+  a `RepoRef`, and `resolveRepo` takes the explicit `--repo` and returns one.
+- **The `gh` confinement probe set moved into the GitHub backend** and is
+  exported as `checkGitHubConfinement` (with `parseAuthStatusLogins`) from
+  `work-graph-github`. `checkConfinement` is no longer on the barrel, and
+  `work-graph-attestation` keeps only the forge-neutral pieces. Every `gh` call
+  the store makes, the probes included, now passes `--hostname`, github.com
+  included, so an ambient `GH_HOST` cannot redirect a read, a write or the
+  check.
+
 ### Fixed
 
 - **The weekly harness gate wrapper finds its script again, and a broken run no

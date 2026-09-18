@@ -20,6 +20,7 @@ import { runCommand } from "./work-graph-probes";
 import { invocationCwd } from "./path-utils";
 import {
   GITHUB_DOTCOM,
+  isGitHubDotcom,
   formatRepoRef,
   isQualifiedRef,
   parseRemoteUrl,
@@ -49,7 +50,7 @@ export type FetchLike = (url: string, init: { method: string; redirect: "manual"
  * GitLab's — is **undefined**, and the caller refuses (#536 D4). Nothing here
  * assumes GitHub Enterprise: a GHES user names the forge in the ref.
  */
-export async function classifyHost(host: string, fetchImpl: FetchLike = fetch as unknown as FetchLike): Promise<Forge | undefined> {
+export async function classifyHost(host: string, fetchImpl: FetchLike = fetch): Promise<Forge | undefined> {
   if (host === GITHUB_DOTCOM) return "github";
   try {
     const response = await fetchImpl(`https://${host}/api/v4/version`, {
@@ -147,7 +148,7 @@ export async function resolveGraphRepo(explicit?: string, deps: RepoResolutionDe
  * GitLab project of the same path (#536 D2). Host-qualified keys are registry v2.
  */
 export function probeRegistryKey(repo: RepoRef): string {
-  if (repo.forge === "github" && repo.host === GITHUB_DOTCOM) return repo.path;
+  if (isGitHubDotcom(repo)) return repo.path;
   throw new WorkGraphError(
     "backend",
     `The probe registry keys repos without a host, so it can only authorise github.com repos; ${formatRepoRef(repo)} is not one.`,
@@ -156,7 +157,7 @@ export function probeRegistryKey(repo: RepoRef): string {
 
 /**
  * The store for a ref (#535 D1). The forge in the ref decides, so a GitHub store
- * never opens a GitLab map. The GitLab backend is not built yet (#539's slice 3);
+ * never opens a GitLab graph. The GitLab backend is not built yet (#539's slice 3);
  * until it is, a GitLab ref refuses here rather than being read by the wrong store.
  */
 export function createGraphStore(repo: RepoRef): GraphStore {

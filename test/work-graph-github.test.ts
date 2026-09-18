@@ -12,6 +12,7 @@ import {
   parseGhApiOutput,
   parseNodeSpec,
   type GitHubApiRequest,
+  type ConfinementDeps,
   type GitHubApiTransport,
   type Probe,
 } from "../src/index";
@@ -951,10 +952,10 @@ test("readNode accepts an auto completion citing a successful CI check run", asy
 
 // --- the store owns identity and conjunct 2 (#537 D2) ------------------------
 
-test("--hostname rides only off github.com, so the dotcom argv is unchanged", () => {
+test("ghApiArgs names the host it is given, so an ambient GH_HOST cannot redirect a call", () => {
   const request: GitHubApiRequest = { method: "GET", path: "user" };
   expect(ghApiArgs(request)).toEqual(["api", "--method", "GET", "user"]);
-  expect(ghApiArgs(request, "github.com")).toEqual(["api", "--method", "GET", "user"]);
+  expect(ghApiArgs(request, "github.com")).toEqual(["api", "--method", "GET", "user", "--hostname", "github.com"]);
   expect(ghApiArgs(request, "ghe.example.com")).toEqual(["api", "--method", "GET", "user", "--hostname", "ghe.example.com"]);
 });
 
@@ -969,7 +970,7 @@ test("a /user answer with no login is a backend error, not an empty identity", a
   expect(createGitHubGraphStore({ repo: REPO, transport }).actingIdentity()).rejects.toThrow(/no login/);
 });
 
-function recordingConfinement(): { argv: string[][]; deps: NonNullable<Parameters<typeof createGitHubGraphStore>[0]["confinement"]> } {
+function recordingConfinement(): { argv: string[][]; deps: ConfinementDeps } {
   const argv: string[][] = [];
   return {
     argv,
@@ -978,21 +979,21 @@ function recordingConfinement(): { argv: string[][]; deps: NonNullable<Parameter
         argv.push([...(request.argv ?? [])]);
         return { exitCode: 1, stdout: "", stderr: "", timedOut: false };
       },
-      env: { PATH: "/usr/bin" },
+      env: { PATH: "/usr/bin", GH_HOST: "elsewhere.example.com" },
       platform: "darwin",
       now: () => new Date("2026-09-18T00:00:00.000Z"),
     },
   };
 }
 
-test("on github.com the store runs the gh probe set exactly as the CLI did before it owned it", async () => {
+test("on github.com every gh probe names github.com — an ambient GH_HOST cannot move the check", async () => {
   const { argv, deps } = recordingConfinement();
   const { transport } = fakeTransport({});
   const result = await createGitHubGraphStore({ repo: REPO, transport, confinement: deps }).checkConfinement();
 
   expect(argv).toEqual([
-    ["gh", "auth", "status"],
-    ["gh", "auth", "token"],
+    ["gh", "auth", "status", "--hostname", "github.com"],
+    ["gh", "auth", "token", "--hostname", "github.com"],
     ["security", "find-generic-password", "-s", "gh:github.com"],
   ]);
   expect(result.checked).toBe(true);
