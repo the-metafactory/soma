@@ -555,6 +555,8 @@ computation, claim semantics, close gating) from store I/O (#491):
 interface GraphStore {
   attestation: "verifiable" | "unverified";  // backend capability: CAN receipts
                                              // be independently attested here?
+  actingIdentity(): Promise<string>;         // who this session is on this forge (#537)
+  checkConfinement(): Promise<ConfinementResult>; // §3.2 conjunct 2, this forge's probes
   createNode(spec: Omit<WorkGraphNode, "id">): Promise<NodeRef>; // store assigns id
   addBlockingEdge(blocker: NodeRef, blocked: NodeRef): Promise<void>;
   readNode(ref: NodeRef): Promise<NodeState>;
@@ -574,6 +576,17 @@ interface GraphStore {
 - **Per-graph backend binding:** a graph records its backend at creation and
   lives there forever; moving is a one-way export into a fresh graph.
   (Orienteer doctrine calls a graph instance a *map*; the seam does not.)
+- **The ref selects the store** (#535 D1, #536 D1): a ref names forge, host and
+  path — `github:github.com/owner/name#N`, `gitlab:<host>/<group>/<project>#N`,
+  `gitlab:<host>/<group>&N` for an epic — and the store is built from the forge
+  it names. A bare ref resolves through `--repo`, `SOMA_GRAPH_REPO`, then the
+  origin remote; a bare `owner/name` takes the remote's host, and a host other
+  than `github.com` is classified by `GET /api/v4/version` or refused, never
+  assumed to be GitHub Enterprise.
+- **Identity and confinement are the store's** (#537 D2): one session can be a
+  different login on each forge, and a credential for one forge cannot forge an
+  award on the other, so each store names its acting identity and runs its own
+  forge's conjunct-2 probe set, scoped to its host.
 - Day-one backend: **GitHub** (attestation capability: `verifiable` — the
   backend can attest reaction/comment authorship via its API). Backend
   capability is necessary, not sufficient: a *receipt* is marked verified

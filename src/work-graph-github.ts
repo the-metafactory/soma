@@ -38,7 +38,11 @@ import {
   type Reaction,
   type ReleaseResult,
   type WorkGraphNode,
+  type ConfinementResult,
 } from "./work-graph";
+import { checkConfinement, type ConfinementDeps } from "./work-graph-attestation";
+import { runCommand } from "./work-graph-probes";
+import { GITHUB_DOTCOM } from "./work-graph-ref";
 
 const NODE_BLOCK_OPEN = "<!-- soma:work-graph-node";
 const NODE_BLOCK_CLOSE = "-->";
@@ -57,11 +61,14 @@ export type GitHubApiTransport = (request: GitHubApiRequest) => Promise<unknown>
 export interface GhCliTransportOptions {
   binary?: string;
   cwd?: string;
+  /** A GitHub Enterprise host. Absent or `github.com` leaves `gh`'s own default in charge. */
+  hostname?: string;
 }
 
 /** Build the `gh api` argv once so pagination semantics are unit-testable. */
-export function ghApiArgs(request: GitHubApiRequest): string[] {
+export function ghApiArgs(request: GitHubApiRequest, hostname?: string): string[] {
   const args = ["api", "--method", request.method, request.path];
+  if (hostname !== undefined && hostname !== GITHUB_DOTCOM) args.push("--hostname", hostname);
   if (request.paginate === true) args.push("--paginate", "--slurp");
   if (request.body !== undefined) args.push("--input", "-");
   return args;
@@ -93,7 +100,7 @@ export function parseGhApiOutput(stdout: string, request: GitHubApiRequest): unk
 export function createGhCliTransport(options: GhCliTransportOptions = {}): GitHubApiTransport {
   const binary = options.binary ?? "gh";
   return async (request: GitHubApiRequest): Promise<unknown> => {
-    const args = ghApiArgs(request);
+    const args = ghApiArgs(request, options.hostname);
 
     const proc = Bun.spawn([binary, ...args], {
       stdin: request.body === undefined ? "ignore" : new TextEncoder().encode(JSON.stringify(request.body)),
@@ -135,7 +142,18 @@ function isMissingRestResource(error: unknown): boolean {
 export interface GitHubGraphStoreOptions {
   /** `owner/name`. A graph records its backend at creation and lives there forever (§2.5). */
   repo: string;
+  /** The GitHub host (#536 D1). Defaults to `github.com`; any other host is GitHub Enterprise, named explicitly. */
+  host?: string;
   transport?: GitHubApiTransport;
+  /**
+   * Conjunct 2's environment, injectable so a test never probes the developer's
+   * real credentials. The host is the store's own and is filled in here.
+   */
+  confinement?: Omit<ConfinementDeps, "host">;
+}
+
+function defaultConfinementDeps(): Omit<ConfinementDeps, "host"> {
+  return { runCommand, env: process.env, platform: process.platform, now: () => new Date() };
 }
 
 interface GitHubIssue {
@@ -545,14 +563,33 @@ class GitHubGraphStore implements GraphStore {
   readonly attestation: AttestationCapability = "verifiable";
 
   private readonly repo: string;
+  private readonly host: string;
   private readonly transport: GitHubApiTransport;
+  private readonly confinement: Omit<ConfinementDeps, "host">;
 
   constructor(options: GitHubGraphStoreOptions) {
     if (!/^[^/\s]+\/[^/\s]+$/.test(options.repo)) {
       throw new WorkGraphError("backend", `repo must be "owner/name", got ${JSON.stringify(options.repo)}`);
     }
     this.repo = options.repo;
-    this.transport = options.transport ?? createGhCliTransport();
+    this.host = options.host ?? GITHUB_DOTCOM;
+    this.transport = options.transport ?? createGhCliTransport({ hostname: this.host });
+    this.confinement = options.confinement ?? defaultConfinementDeps();
+  }
+
+  /** `GET /user` — the login `gh` authenticates as, the same call `gh api user` made before the store owned it. */
+  async actingIdentity(): Promise<string> {
+    const user = asRecord(await this.transport({ method: "GET", path: "user" }), "actingIdentity");
+    const login = user.login;
+    if (typeof login !== "string" || login.length === 0) {
+      throw new WorkGraphError("backend", "actingIdentity: GET /user returned no login");
+    }
+    return login;
+  }
+
+  /** The `gh` probe set (§3.2 conjunct 2), scoped to this store's host. */
+  async checkConfinement(): Promise<ConfinementResult> {
+    return await checkConfinement({ ...this.confinement, host: this.host });
   }
 
   async createNode(spec: CreateNodeSpec): Promise<NodeRef> {

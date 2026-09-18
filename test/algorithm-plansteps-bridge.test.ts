@@ -19,6 +19,7 @@ import type { AlgorithmRun, BridgedNodeReport } from "../src/index";
 import { markUnbridgedPlanStepsDone } from "../src/algorithm";
 import type { GraphStore, NodeRef, NodeState } from "../src/work-graph";
 import { readNodeForBridge } from "../src/work-graph-bridge";
+import type { RepoRef } from "../src/work-graph-ref";
 import { parseAlgorithmArgs, runAlgorithmCli } from "../src/cli/algorithm";
 
 // docs/work-graph.md §2.7 — planSteps bridge. A bridged step's status is the
@@ -84,6 +85,8 @@ function realNodeState(overrides: Partial<NodeState> = {}): NodeState {
 function stubStore(readNode: (ref: NodeRef) => NodeState): GraphStore {
   return {
     attestation: "unverified",
+    actingIdentity: async () => "jcfischer",
+    checkConfinement: async () => ({ checked: false, reachableIdentities: [], at: "", probes: [] }),
     createNode: async () => ({ id: "unused" }),
     addBlockingEdge: async () => {},
     readNode: async (ref) => readNode(ref),
@@ -379,16 +382,22 @@ test("readNodeForBridge returns a report the derivation accepts, through the rea
 });
 
 test("readNodeForBridge resolves the repo when none is passed", async () => {
-  const repos: string[] = [];
+  const soma: RepoRef = { forge: "github", host: "github.com", path: "the-metafactory/soma" };
+  const repos: RepoRef[] = [];
+  const explicit: (string | undefined)[] = [];
   await readNodeForBridge("501", {
-    resolveRepo: async () => "the-metafactory/soma",
-    createStore: (repo: string) => {
+    resolveRepo: async (given) => {
+      explicit.push(given);
+      return soma;
+    },
+    createStore: (repo) => {
       repos.push(repo);
       return stubStore((ref) => realNodeState({ ref }));
     },
   });
 
-  expect(repos).toEqual(["the-metafactory/soma"]);
+  expect(explicit).toEqual([undefined]);
+  expect(repos).toEqual([soma]);
 });
 
 // --- the CLI surface ------------------------------------------------------

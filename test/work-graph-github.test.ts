@@ -948,3 +948,64 @@ test("readNode rejects an auto completion citing a check run for another commit"
 test("readNode accepts an auto completion citing a successful CI check run", async () => {
   expect(await autoCurrentCloseReceipt({ conclusion: "success", head_sha: "deadbeef" })).toBe(true);
 });
+
+// --- the store owns identity and conjunct 2 (#537 D2) ------------------------
+
+test("--hostname rides only off github.com, so the dotcom argv is unchanged", () => {
+  const request: GitHubApiRequest = { method: "GET", path: "user" };
+  expect(ghApiArgs(request)).toEqual(["api", "--method", "GET", "user"]);
+  expect(ghApiArgs(request, "github.com")).toEqual(["api", "--method", "GET", "user"]);
+  expect(ghApiArgs(request, "ghe.example.com")).toEqual(["api", "--method", "GET", "user", "--hostname", "ghe.example.com"]);
+});
+
+test("the acting identity is the login GET /user returns", async () => {
+  const { transport, calls } = fakeTransport({ "GET user": { login: "ivy-agent", id: 1 } });
+  expect(await createGitHubGraphStore({ repo: REPO, transport }).actingIdentity()).toBe("ivy-agent");
+  expect(calls.map((call) => call.key)).toEqual(["GET user"]);
+});
+
+test("a /user answer with no login is a backend error, not an empty identity", async () => {
+  const { transport } = fakeTransport({ "GET user": { id: 1 } });
+  expect(createGitHubGraphStore({ repo: REPO, transport }).actingIdentity()).rejects.toThrow(/no login/);
+});
+
+function recordingConfinement(): { argv: string[][]; deps: NonNullable<Parameters<typeof createGitHubGraphStore>[0]["confinement"]> } {
+  const argv: string[][] = [];
+  return {
+    argv,
+    deps: {
+      runCommand: async (request) => {
+        argv.push([...(request.argv ?? [])]);
+        return { exitCode: 1, stdout: "", stderr: "", timedOut: false };
+      },
+      env: { PATH: "/usr/bin" },
+      platform: "darwin",
+      now: () => new Date("2026-09-18T00:00:00.000Z"),
+    },
+  };
+}
+
+test("on github.com the store runs the gh probe set exactly as the CLI did before it owned it", async () => {
+  const { argv, deps } = recordingConfinement();
+  const { transport } = fakeTransport({});
+  const result = await createGitHubGraphStore({ repo: REPO, transport, confinement: deps }).checkConfinement();
+
+  expect(argv).toEqual([
+    ["gh", "auth", "status"],
+    ["gh", "auth", "token"],
+    ["security", "find-generic-password", "-s", "gh:github.com"],
+  ]);
+  expect(result.checked).toBe(true);
+});
+
+test("on a GitHub Enterprise host every probe is scoped to that host", async () => {
+  const { argv, deps } = recordingConfinement();
+  const { transport } = fakeTransport({});
+  await createGitHubGraphStore({ repo: REPO, host: "ghe.example.com", transport, confinement: deps }).checkConfinement();
+
+  expect(argv).toEqual([
+    ["gh", "auth", "status", "--hostname", "ghe.example.com"],
+    ["gh", "auth", "token", "--hostname", "ghe.example.com"],
+    ["security", "find-generic-password", "-s", "gh:ghe.example.com"],
+  ]);
+});

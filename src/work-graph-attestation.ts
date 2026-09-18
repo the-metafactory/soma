@@ -26,6 +26,7 @@ import type {
   AttestationFacts,
   AttestationState,
   ConfinementProbeRecord,
+  ConfinementResult,
   NodeRef,
   NodeState,
   Ratification,
@@ -38,19 +39,19 @@ const TOKEN_ENV_KEYS = ["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITH
 /** Depth cap on the root walk — a graph deeper than this is malformed, not deep. */
 const MAX_ROOT_WALK = 64;
 
-export interface ConfinementResult {
-  checked: boolean;
-  /** Every GitHub identity the session could reach with the token env stripped. */
-  reachableIdentities: string[];
-  at: string;
-  probes: ConfinementProbeRecord[];
-}
+export type { ConfinementResult } from "./work-graph";
 
 export interface ConfinementDeps {
   runCommand: (request: CommandRequest) => Promise<CommandOutcome>;
   env: Readonly<Record<string, string | undefined>>;
   platform: string;
   now: () => Date;
+  /**
+   * The GitHub host the store talks to. Absent or `github.com` runs the probe
+   * set exactly as it ran before stores owned it; any other host scopes each
+   * probe to that host (`--hostname`, keychain service `gh:<host>`).
+   */
+  host?: string;
 }
 
 /** Strip the token env: conjunct 2 asks what the session can *reach*, not which identity `gh` prefers. */
@@ -88,8 +89,11 @@ export async function checkConfinement(deps: ConfinementDeps): Promise<Confineme
   const at = deps.now().toISOString();
   const probes: ConfinementProbeRecord[] = [];
   const reachable = new Set<string>();
+  const host = deps.host ?? "github.com";
+  const scoped = host === "github.com" ? [] : ["--hostname", host];
+  const keychainService = `gh:${host}`;
 
-  const status = await deps.runCommand({ argv: ["gh", "auth", "status"], timeoutSec: 30, env });
+  const status = await deps.runCommand({ argv: ["gh", "auth", "status", ...scoped], timeoutSec: 30, env });
   const statusOutput = `${status.stdout}\n${status.stderr}`;
   const logins = parseAuthStatusLogins(statusOutput);
   for (const login of logins) reachable.add(login);
@@ -98,7 +102,7 @@ export async function checkConfinement(deps: ConfinementDeps): Promise<Confineme
     observed: `exit ${status.exitCode}; identities: ${logins.length > 0 ? logins.join(", ") : "none"}`,
   });
 
-  const token = await deps.runCommand({ argv: ["gh", "auth", "token"], timeoutSec: 30, env });
+  const token = await deps.runCommand({ argv: ["gh", "auth", "token", ...scoped], timeoutSec: 30, env });
   const tokenReachable = token.exitCode === 0 && token.stdout.trim().length > 0;
   if (tokenReachable && logins.length === 0) {
     // A credential is reachable but unnamed — it still counts, and it must not
@@ -112,14 +116,14 @@ export async function checkConfinement(deps: ConfinementDeps): Promise<Confineme
 
   if (deps.platform === "darwin") {
     const keychain = await deps.runCommand({
-      argv: ["security", "find-generic-password", "-s", "gh:github.com"],
+      argv: ["security", "find-generic-password", "-s", keychainService],
       timeoutSec: 30,
       env,
     });
     const keychainReachable = keychain.exitCode === 0;
-    if (keychainReachable) reachable.add("keychain:gh:github.com");
+    if (keychainReachable) reachable.add(`keychain:${keychainService}`);
     probes.push({
-      name: "security find-generic-password -s gh:github.com",
+      name: `security find-generic-password -s ${keychainService}`,
       observed: keychainReachable ? "keychain item readable" : `refused (exit ${keychain.exitCode})`,
     });
   }

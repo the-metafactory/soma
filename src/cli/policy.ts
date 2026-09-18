@@ -11,7 +11,7 @@ import type {
   SomaPolicyCheckResult,
 } from "../types";
 import { loadProbeRegistry, type ProbeRegistry } from "../work-graph-probe-registry";
-import { resolveGraphRepo } from "../work-graph-bridge";
+import { probeRegistryKey, resolveGraphRepo } from "../work-graph-bridge";
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
 
@@ -315,7 +315,7 @@ function parsePolicyProbesArgs(command: "policy", action: "probes", rest: string
 
 export async function runPolicyCli(parsed: ParsedPolicyArgs): Promise<string> {
   if (parsed.action === "probes") {
-    const repo = parsed.options.repo ?? (await resolveGraphRepo());
+    const repo = probeRegistryKey(await resolveGraphRepo(parsed.options.repo));
     const registry = await loadProbeRegistry({
       repo,
       ...(parsed.options.homeDir === undefined ? {} : { homeDir: parsed.options.homeDir }),
