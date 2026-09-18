@@ -103,6 +103,18 @@ export function parseRepoRef(text: string): RepoRef {
   return checkForgePath(trimmed, { forge, host, path });
 }
 
+/**
+ * Check a `RepoRef` assembled from parts (a remote's host, a bare `--repo` path)
+ * by the same rules {@link parseRepoRef} applies to a string: a hostname, a
+ * well-formed path, and `owner/name` depth on GitHub.
+ */
+export function validateRepoRef(repo: RepoRef): RepoRef {
+  const text = formatRepoRef(repo);
+  const host = repo.host.toLowerCase();
+  if (!HOST.test(host)) throw refError(text, `"${repo.host}" is not a hostname`);
+  return checkForgePath(text, { forge: repo.forge, host, path: parsePath(text, repo.path) });
+}
+
 /** The canonical string form: what `--repo` and `SOMA_GRAPH_REPO` take. */
 export function formatRepoRef(repo: RepoRef): string {
   return `${repo.forge}:${repo.host}/${repo.path}`;

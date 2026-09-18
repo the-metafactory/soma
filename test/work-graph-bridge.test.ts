@@ -1,10 +1,15 @@
+import { tmpdir } from "node:os";
+import { resolve } from "node:path";
 import { expect, test } from "bun:test";
 import { WorkGraphError } from "../src/work-graph";
 import {
   classifyHost,
   createGraphStore,
+  originRemoteRequest,
   probeRegistryKey,
+  readNodeForBridge,
   resolveGraphRepo,
+  resolveNodeTarget,
   type FetchLike,
   type RepoResolutionDeps,
 } from "../src/work-graph-bridge";
@@ -156,4 +161,80 @@ test("the v1 probe registry authorises github.com repos only — no host-less lo
   expect(() => probeRegistryKey({ forge: "gitlab", host: "gitlab-int.switch.ch", path: "the-metafactory/soma" })).toThrow(
     /only authorise github.com/,
   );
+});
+
+test("the X-Gitlab-Meta header counts only on GitLab's own two answers, never on a redirect or an error", async () => {
+  for (const status of [302, 404, 500, 503]) {
+    expect(await classifyHost("proxy.example.com", fakeFetch({ status, headers: { "X-Gitlab-Meta": "{}" } }).fetch)).toBeUndefined();
+  }
+});
+
+// --- the invocation tree picks the remote (#535 D4) -------------------------
+
+test("the origin remote is read in the invocation tree, not the process's", () => {
+  const request = originRemoteRequest({ ARC_INVOCATION_CWD: tmpdir() });
+  expect(request.argv).toEqual(["git", "remote", "get-url", "origin"]);
+  expect(request.cwd).toBe(resolve(tmpdir()));
+  expect(request.cwd).not.toBe(resolve(process.cwd()));
+});
+
+// --- one resolution for verbs and the bridge ----------------------------------
+
+const noRemote = async (): Promise<RepoRef> => {
+  throw new Error("a qualified target must not fall back to repo resolution");
+};
+
+test("a qualified target opens its own store and yields the store's id", async () => {
+  expect(await resolveNodeTarget("github:github.com/the-metafactory/arc#498", undefined, noRemote)).toEqual({
+    repo: { ...SOMA, path: "the-metafactory/arc" },
+    id: "498",
+  });
+  expect(await resolveNodeTarget("gitlab:gitlab-int.switch.ch/csoc/soc-reporter#12", undefined, noRemote)).toEqual({
+    repo: { forge: "gitlab", host: "gitlab-int.switch.ch", path: "csoc/soc-reporter" },
+    id: "csoc/soc-reporter#12",
+  });
+});
+
+test("a bare --repo beside a qualified target takes the target's forge and host, not the origin remote", async () => {
+  expect(await resolveNodeTarget("github:github.com/the-metafactory/soma#1", "the-metafactory/soma", noRemote)).toEqual({
+    repo: SOMA,
+    id: "1",
+  });
+  expect(resolveNodeTarget("github:github.com/the-metafactory/soma#1", "the-metafactory/arc", noRemote)).rejects.toThrow(
+    /never spans two stores/,
+  );
+  expect(
+    resolveNodeTarget("github:github.com/the-metafactory/soma#1", "gitlab:gitlab-int.switch.ch/the-metafactory/soma", noRemote),
+  ).rejects.toThrow(/never spans two stores/);
+});
+
+test("a bare target still resolves the repo through the caller's resolver", async () => {
+  const seen: (string | undefined)[] = [];
+  const result = await resolveNodeTarget("501", "the-metafactory/soma", async (explicit) => {
+    seen.push(explicit);
+    return SOMA;
+  });
+  expect(result).toEqual({ repo: SOMA, id: "501" });
+  expect(seen).toEqual(["the-metafactory/soma"]);
+});
+
+test("the bridge reader resolves a qualified step node the way the verbs do", async () => {
+  const opened: RepoRef[] = [];
+  const read: string[] = [];
+  const report = await readNodeForBridge("github:github.com/the-metafactory/arc#498", {
+    resolveRepo: noRemote,
+    createStore: (repo) => {
+      opened.push(repo);
+      return {
+        readNode: async (ref: { id: string }) => {
+          read.push(ref.id);
+          throw new WorkGraphError("backend", "stop after the read");
+        },
+      } as unknown as ReturnType<typeof createGraphStore>;
+    },
+  }).catch((error: unknown) => error);
+
+  expect(opened).toEqual([{ ...SOMA, path: "the-metafactory/arc" }]);
+  expect(read).toEqual(["498"]);
+  expect(String(report)).toContain("stop after the read");
 });

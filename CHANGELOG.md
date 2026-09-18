@@ -31,7 +31,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `work-graph-attestation` keeps only the forge-neutral pieces. Every `gh` call
   the store makes, the probes included, now passes `--hostname`, github.com
   included, so an ambient `GH_HOST` cannot redirect a read, a write or the
-  check.
+  check. Receipt probe records name the host they probed
+  (`gh auth status --hostname github.com (token env stripped)`).
+- **Qualified node refs resolve in one place** (`resolveNodeTarget` in
+  `work-graph-bridge`): the graph verbs and the planSteps bridge share it, so a
+  qualified step node id opens its own store rather than reaching the origin
+  repo's store as a raw id.
 
 ### Fixed
 

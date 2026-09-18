@@ -197,7 +197,7 @@ export async function checkGitHubConfinement(deps: ConfinementDeps, host: string
   const logins = parseAuthStatusLogins(statusOutput);
   for (const login of logins) reachable.add(login);
   probes.push({
-    name: "gh auth status (token env stripped)",
+    name: `gh auth status --hostname ${host} (token env stripped)`,
     observed: `exit ${status.exitCode}; identities: ${logins.length > 0 ? logins.join(", ") : "none"}`,
   });
 
@@ -209,7 +209,7 @@ export async function checkGitHubConfinement(deps: ConfinementDeps, host: string
     reachable.add("unidentified-credential");
   }
   probes.push({
-    name: "gh auth token (token env stripped)",
+    name: `gh auth token --hostname ${host} (token env stripped)`,
     observed: tokenReachable ? "printed a credential" : `refused (exit ${token.exitCode})`,
   });
 

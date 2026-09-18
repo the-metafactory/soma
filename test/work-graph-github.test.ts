@@ -1010,3 +1010,14 @@ test("on a GitHub Enterprise host every probe is scoped to that host", async () 
     ["security", "find-generic-password", "-s", "gh:ghe.example.com"],
   ]);
 });
+
+test("each gh probe record names the host it probed, so a receipt shows what actually ran", async () => {
+  const { deps } = recordingConfinement();
+  const { transport } = fakeTransport({});
+  const result = await createGitHubGraphStore({ repo: REPO, host: "ghe.example.com", transport, confinement: deps }).checkConfinement();
+  expect(result.probes.map((probe) => probe.name)).toEqual([
+    "gh auth status --hostname ghe.example.com (token env stripped)",
+    "gh auth token --hostname ghe.example.com (token env stripped)",
+    "security find-generic-password -s gh:ghe.example.com",
+  ]);
+});

@@ -62,15 +62,7 @@ import {
   type WorkGraphEvidenceKind,
 } from "../work-graph";
 import { deriveAttestation, findGraphRoot } from "../work-graph-attestation";
-import {
-  displayRepo,
-  formatRepoRef,
-  isQualifiedRef,
-  parseQualifiedNodeRef,
-  sameStore,
-  storeNodeId,
-  type RepoRef,
-} from "../work-graph-ref";
+import { displayRepo, type RepoRef } from "../work-graph-ref";
 import {
   isProbeRefusal,
   loadProbeRegistry as defaultLoadProbeRegistry,
@@ -88,7 +80,7 @@ import {
 // not here: a seam only `src/cli/` can import forces a library/MCP/daemon consumer
 // to re-implement it, becoming the second reader §2.7 forbids. No re-export — the
 // other importers point at core directly, so there is one path to each symbol.
-import { createGraphStore, probeRegistryKey, resolveGraphRepo } from "../work-graph-bridge";
+import { createGraphStore, localNodeId, probeRegistryKey, resolveGraphRepo, resolveNodeTarget } from "../work-graph-bridge";
 import { invocationCwd } from "../path-utils";
 import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";
@@ -1465,39 +1457,24 @@ async function runDecisions(parsed: ParsedGraphDecisionsArgs, graph: WorkGraph, 
 }
 
 /**
- * A node named in full, reduced to the id its store reads — refusing one that
- * lives in a different store from `repo`. An edge or a target cannot cross
- * stores: each backend is the sole authority for its own topology (#491).
- */
-function localNodeId(text: string, repo: RepoRef): string {
-  if (!isQualifiedRef(text)) return text;
-  const qualified = parseQualifiedNodeRef(text);
-  if (!sameStore(qualified.repo, repo)) {
-    throw new SomaCliError(
-      `${text} lives in ${formatRepoRef(qualified.repo)}, not in this graph's store (${formatRepoRef(repo)}). A work graph never spans two stores.`,
-      1,
-    );
-  }
-  return storeNodeId(qualified);
-}
-
-/**
  * Which store the verb opens, and the target and edge ids as that store reads
- * them. **The ref selects the store** (#535 D1): a qualified target names its own
- * forge, host and path, and a `--repo` that disagrees with it refuses rather
- * than choosing. A bare target resolves the repo the way it always has.
+ * them — through the bridge's {@link resolveNodeTarget}, so a verb and a
+ * bridged plan step can never resolve one ref two ways. A cross-store target or
+ * edge refuses as a usage error.
  */
 async function resolveGraphTarget(
   parsed: ParsedGraphArgs,
   deps: GraphCliDeps,
 ): Promise<{ repo: RepoRef; parsed: ParsedGraphArgs }> {
-  const named = isQualifiedRef(parsed.target) ? parseQualifiedNodeRef(parsed.target).repo : undefined;
-  const repo =
-    named !== undefined && parsed.options.repo === undefined ? named : await deps.resolveRepo(parsed.options.repo);
-  const target = localNodeId(parsed.target, repo);
-  if (parsed.action !== "add") return { repo, parsed: { ...parsed, target } };
-  const blockedBy = parsed.options.blockedBy.map((id) => localNodeId(id, repo));
-  return { repo, parsed: { ...parsed, target, options: { ...parsed.options, blockedBy } } };
+  try {
+    const { repo, id: target } = await resolveNodeTarget(parsed.target, parsed.options.repo, deps.resolveRepo);
+    if (parsed.action !== "add") return { repo, parsed: { ...parsed, target } };
+    const blockedBy = parsed.options.blockedBy.map((id) => localNodeId(id, repo));
+    return { repo, parsed: { ...parsed, target, options: { ...parsed.options, blockedBy } } };
+  } catch (error) {
+    if (error instanceof WorkGraphError && error.code === "invalid-node") throw new SomaCliError(error.message, 1);
+    throw error;
+  }
 }
 
 export async function runGraphCli(input: ParsedGraphArgs, overrides: Partial<GraphCliDeps> = {}): Promise<string> {

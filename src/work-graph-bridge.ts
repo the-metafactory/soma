@@ -16,22 +16,33 @@
 import { WorkGraph, WorkGraphError } from "./work-graph";
 import type { BridgedNodeReport, GraphStore } from "./work-graph";
 import { createGitHubGraphStore } from "./work-graph-github";
-import { runCommand } from "./work-graph-probes";
+import { runCommand, type CommandRequest } from "./work-graph-probes";
 import { invocationCwd } from "./path-utils";
 import {
   GITHUB_DOTCOM,
   isGitHubDotcom,
   formatRepoRef,
   isQualifiedRef,
+  parseQualifiedNodeRef,
   parseRemoteUrl,
   parseRepoRef,
+  sameStore,
+  storeNodeId,
+  validateRepoRef,
   type Forge,
   type RemoteLocation,
   type RepoRef,
 } from "./work-graph-ref";
 
-/** Wall-clock cap on the host probe: a host that does not answer is unclassified, not slow. */
-const HOST_PROBE_TIMEOUT_MS = 10_000;
+/**
+ * Wall-clock cap on the host probe: a host that does not answer is
+ * unclassified, not slow. A live GitLab answers the version endpoint in well
+ * under a second, so this bounds the stall a dead host costs every command.
+ */
+const HOST_PROBE_TIMEOUT_MS = 5_000;
+
+/** The two answers GitLab gives `/api/v4/version`: anonymous (401) and authenticated (200). */
+const GITLAB_VERSION_STATUSES = new Set([200, 401]);
 
 export type FetchLike = (url: string, init: { method: string; redirect: "manual"; signal: AbortSignal }) => Promise<{
   status: number;
@@ -46,9 +57,10 @@ export type FetchLike = (url: string, init: { method: string; redirect: "manual"
  * header when not, which is how `gitlab-int.switch.ch` answers an anonymous
  * probe. Either is GitLab speaking.
  *
- * Anything else — a 404, a network failure, a timeout, a body that is not
- * GitLab's — is **undefined**, and the caller refuses (#536 D4). Nothing here
- * assumes GitHub Enterprise: a GHES user names the forge in the ref.
+ * Anything else — any other status even with the header (a redirect, a 404, a
+ * 5xx from whatever sits in front), a network failure, a timeout, a body that
+ * is not GitLab's — is **undefined**, and the caller refuses (#536 D4). Nothing
+ * here assumes GitHub Enterprise: a GHES user names the forge in the ref.
  */
 export async function classifyHost(host: string, fetchImpl: FetchLike = fetch): Promise<Forge | undefined> {
   if (host === GITHUB_DOTCOM) return "github";
@@ -58,6 +70,7 @@ export async function classifyHost(host: string, fetchImpl: FetchLike = fetch): 
       redirect: "manual",
       signal: AbortSignal.timeout(HOST_PROBE_TIMEOUT_MS),
     });
+    if (!GITLAB_VERSION_STATUSES.has(response.status)) return undefined;
     if (response.headers.get("x-gitlab-meta") !== null) return "gitlab";
     if (response.status !== 200) return undefined;
     const body = JSON.parse(await response.text()) as unknown;
@@ -82,8 +95,12 @@ export interface RepoResolutionDeps {
  * every store was GitHub, and wrong the moment the remote picks the forge
  * (#535 D4): `soma graph node 12` in a GitLab checkout would read soma#12.
  */
+export function originRemoteRequest(env: Readonly<Record<string, string | undefined>> = process.env): CommandRequest {
+  return { argv: ["git", "remote", "get-url", "origin"], timeoutSec: 30, cwd: invocationCwd(env) };
+}
+
 async function defaultOriginRemote(): Promise<string | undefined> {
-  const remote = await runCommand({ argv: ["git", "remote", "get-url", "origin"], timeoutSec: 30, cwd: invocationCwd() });
+  const remote = await runCommand(originRemoteRequest());
   return remote.exitCode === 0 ? remote.stdout.trim() : undefined;
 }
 
@@ -102,7 +119,7 @@ async function classifyOrRefuse(location: RemoteLocation, deps: RepoResolutionDe
         `soma never assumes GitHub Enterprise. Pass --repo gitlab:${location.host}/${location.path} or --repo github:${location.host}/${location.path}.`,
     );
   }
-  return parseRepoRef(formatRepoRef({ forge, host: location.host, path: location.path }));
+  return validateRepoRef({ forge, host: location.host, path: location.path });
 }
 
 /**
@@ -172,8 +189,61 @@ export function createGraphStore(repo: RepoRef): GraphStore {
   }
 }
 
+/**
+ * A node named in full, reduced to the id its store reads — refusing one that
+ * lives in a different store from `repo`. An edge or a target cannot cross
+ * stores: each backend is the sole authority for its own topology (#491). A
+ * bare id passes through unchanged.
+ */
+export function localNodeId(text: string, repo: RepoRef): string {
+  if (!isQualifiedRef(text)) return text;
+  const qualified = parseQualifiedNodeRef(text);
+  if (!sameStore(qualified.repo, repo)) {
+    throw new WorkGraphError(
+      "invalid-node",
+      `${text} lives in ${formatRepoRef(qualified.repo)}, not in this graph's store (${formatRepoRef(repo)}). A work graph never spans two stores.`,
+    );
+  }
+  return storeNodeId(qualified);
+}
+
+/**
+ * Which store a node target opens, and the id that store reads (#535 D1). The
+ * one path from "what the caller typed" to "which store, which id" — the graph
+ * verbs and {@link readNodeForBridge} both come through here, so a qualified
+ * step node id and a qualified verb target cannot resolve differently.
+ *
+ * - A qualified target names its own store. An explicit `--repo` must agree
+ *   with it or the target refuses; a bare `--repo` path is read on the
+ *   target's forge and host, never through the origin remote, since the target
+ *   already says where it lives.
+ * - A bare target resolves the repo through `resolveRepo` as it always has.
+ */
+export async function resolveNodeTarget(
+  target: string,
+  explicitRepo: string | undefined,
+  resolveRepo: (explicit?: string) => Promise<RepoRef> = resolveGraphRepo,
+): Promise<{ repo: RepoRef; id: string }> {
+  if (!isQualifiedRef(target)) {
+    const repo = await resolveRepo(explicitRepo);
+    return { repo, id: target };
+  }
+  const named = parseQualifiedNodeRef(target).repo;
+  const explicit = explicitRepo?.trim();
+  const repo =
+    explicit === undefined || explicit.length === 0
+      ? named
+      : isQualifiedRef(explicit)
+        ? parseRepoRef(explicit)
+        : validateRepoRef({ forge: named.forge, host: named.host, path: explicit });
+  return { repo, id: localNodeId(target, repo) };
+}
+
 export interface ReadNodeForBridgeOptions {
-  /** Explicit repo ref; falls back to {@link resolveGraphRepo}. */
+  /**
+   * Explicit `--repo` value: a qualified ref, or a bare `owner/name` that takes
+   * the origin remote's host. See {@link resolveNodeTarget}.
+   */
   repo?: string;
   /** Injectable so a consumer can supply its own backend or a test double. */
   createStore?: (repo: RepoRef) => GraphStore;
@@ -182,13 +252,14 @@ export interface ReadNodeForBridgeOptions {
 
 /**
  * Read one node for a bridge consumer — the same `WorkGraph.readNode` the
- * `soma graph node` verb calls, over the same repo resolution.
+ * `soma graph node` verb calls, over the same target resolution
+ * ({@link resolveNodeTarget}), so a qualified step node id opens its own store.
  */
 export async function readNodeForBridge(nodeId: string, options: ReadNodeForBridgeOptions = {}): Promise<BridgedNodeReport> {
   const createStore = options.createStore ?? createGraphStore;
-  const repo = await (options.resolveRepo ?? resolveGraphRepo)(options.repo);
+  const { repo, id } = await resolveNodeTarget(nodeId, options.repo, options.resolveRepo);
   const store = createStore(repo);
-  const state = await new WorkGraph(store).readNode({ id: nodeId });
+  const state = await new WorkGraph(store).readNode({ id });
   // The production GraphStore binds this to the current tracker close; bridge
   // consumers never inspect comments and therefore cannot bless stale receipts.
   return { ref: state.ref, status: state.status, blockedBy: state.blockedBy, hasCloseReceipt: state.currentCloseReceipt === true };

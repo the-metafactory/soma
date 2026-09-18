@@ -831,7 +831,6 @@ export {
 } from "./work-graph-probe-registry";
 export {
   deriveAttestation,
-  envWithoutTokens,
   findGraphRoot,
   type AttestationInputs,
   type AttestationOutcome,
