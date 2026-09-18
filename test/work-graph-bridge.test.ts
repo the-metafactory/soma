@@ -133,12 +133,12 @@ test("no --repo, no env and no remote refuses", async () => {
   );
 });
 
-test("a host that is neither github.com nor GitLab refuses with both qualified spellings (#536 D4)", async () => {
+test("a host that is neither github.com nor GitLab refuses and names the GitLab spelling (#536 D4)", async () => {
   const { deps } = resolution({ remote: "git@ghe.example.com:acme/widgets.git" });
   const error = String(await resolveGraphRepo(undefined, deps).catch((caught: unknown) => caught));
   expect(error).toContain("never assumes GitHub Enterprise");
   expect(error).toContain("--repo gitlab:ghe.example.com/acme/widgets");
-  expect(error).toContain("--repo github:ghe.example.com/acme/widgets");
+  expect(error).not.toContain("--repo github:");
 });
 
 test("a GitLab remote's nested path survives resolution", async () => {
@@ -237,4 +237,24 @@ test("the bridge reader resolves a qualified step node the way the verbs do", as
   expect(opened).toEqual([{ ...SOMA, path: "the-metafactory/arc" }]);
   expect(read).toEqual(["498"]);
   expect(String(report)).toContain("stop after the read");
+});
+
+// --- round 3: untrusted hosts, GitLab id shape ---------------------------------
+
+test("a GitHub ref on any host but github.com refuses before gh runs — the enterprise token never leaves", () => {
+  for (const host of ["ghe.example.com", "attacker.example"]) {
+    expect(() => createGraphStore({ ...SOMA, host })).toThrow(/github.com only/);
+  }
+});
+
+test("on a GitLab store a bare id carries the repo's project, matching the qualified form's id", async () => {
+  const reporter: RepoRef = { forge: "gitlab", host: "gitlab-int.switch.ch", path: "csoc/soc-reporter" };
+  const resolve = async (): Promise<RepoRef> => reporter;
+  expect((await resolveNodeTarget("12", undefined, resolve)).id).toBe("csoc/soc-reporter#12");
+  expect((await resolveNodeTarget("#12", undefined, resolve)).id).toBe("csoc/soc-reporter#12");
+  expect((await resolveNodeTarget("gitlab:gitlab-int.switch.ch/csoc/soc-reporter#12", undefined, noRemote)).id).toBe(
+    "csoc/soc-reporter#12",
+  );
+  // GitHub ids stay bare, exactly as before.
+  expect((await resolveNodeTarget("12", undefined, async () => SOMA)).id).toBe("12");
 });

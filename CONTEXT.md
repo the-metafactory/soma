@@ -153,6 +153,7 @@ A short code (`F1`, `O2`, `D3`) labelling one finding, option, risk, question, a
 - `citation`, `footnote` — a reference code is addressable and writable, not a pointer to a source.
 - [[checkpoint]] **verdict** — a reference *verdict* (`kept`/`rejected`/`answered`/`done`/`dropped`) is an ungated conversational disposition: no evidence required, no completion gate, revisable at will. A checkpoint's verdict is evidence-gated verification. The words collide; the concepts do not, and `dropped` appearing in both spaces is coincidence, not shared meaning.
 - `soma graph close` — `soma algorithm resolve` records a disposition. Only a [[work graph]] node *closes*, and only through its attached checkpoint's completion gate.
+- work-graph **ref** (`forge:host/path#N`) — a node's location on a tracker. `soma algorithm ref` names a reference code; the words collide, the concepts do not.
 
 **Why:** without durable storage a reference code is display formatting. Storing it makes `keep D1` a write, which is the only version of the idea that survives past the current context window.
 
@@ -732,7 +733,7 @@ A bounded structured event that records substrate activity for monitoring and co
 
 The typed primitive for cross-session effort topology: **nodes** of work joined by two distinct edge kinds, stored authoritatively on an issue tracker, walked by agent sessions, and closed only through an attached [[checkpoint]]'s completion gate.
 
-**Where a graph lives:** a **ref** names the tracker by **forge** (`github`, `gitlab`), host and path — `github:github.com/owner/name#N`, `gitlab:<host>/<group>&N` — and the ref selects the **store**, the backend that forge needs (#535, #536). The tracker is the place; the store is soma's I/O to it.
+**Where a graph lives:** a **ref** names the tracker by **forge** (`github`, `gitlab`), host and path — `github:github.com/owner/name#N`, `gitlab:<host>/<group>&N` — and the ref selects the **store**, the backend that forge needs (#535, #536). The tracker is the place; the store is soma's I/O to it. One GitHub store is one repository; one GitLab store is one host, since an epic lives in a group and its nodes in the group's projects — so `gitlab:h/csoc/a` and `gitlab:h/csoc/b#3` are the same store.
 
 **Two relations, and conflating them is the classic error:**
 

@@ -586,7 +586,9 @@ interface GraphStore {
   it names. A bare ref resolves through `--repo`, `SOMA_GRAPH_REPO`, then the
   origin remote; a bare `owner/name` takes the remote's host, and a host other
   than `github.com` is classified by `GET /api/v4/version` or refused, never
-  assumed to be GitHub Enterprise.
+  assumed to be GitHub Enterprise. A GitHub store opens on `github.com` only: a
+  ref's host is untrusted text, and `gh --hostname` would hand any other host
+  the session's enterprise token, so GHES waits for an explicit host allow-list.
 - **Identity and confinement are the store's** (#537 D2): one session can be a
   different login on each forge, and a credential for one forge cannot forge an
   award on the other, so each store names its acting identity and runs its own

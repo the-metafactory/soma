@@ -36,7 +36,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Qualified node refs resolve in one place** (`resolveNodeTarget` in
   `work-graph-bridge`): the graph verbs and the planSteps bridge share it, so a
   qualified step node id opens its own store rather than reaching the origin
-  repo's store as a raw id.
+  repo's store as a raw id. The bridge reports a qualified target back
+  qualified, so a step binds the full location and a later `--sync` reads the
+  same repo rather than the origin's issue of the same number.
+- **GitHub stores open on github.com only.** A `github:<other host>` ref refuses
+  before any `gh` runs: a ref's host is untrusted text, and `gh --hostname`
+  would send that host the session's `GH_ENTERPRISE_TOKEN`. GitHub Enterprise
+  waits for an explicit allow-list of hosts.
 
 ### Fixed
 

@@ -381,6 +381,46 @@ test("readNodeForBridge returns a report the derivation accepts, through the rea
   expect(stepOf(run, "P1")).toMatchObject({ nodeId: "501", status: "blocked" });
 });
 
+test("a step bound to a qualified node keeps its location, so a later sync reads the same repo — not the origin's", async () => {
+  // The #695 round-3 blocker: binding stored the bare `498`, and a sync with no
+  // --repo then resolved it through the origin remote and read soma#498 as if it
+  // were arc#498 — the stored id and the returned ref matched, so nothing refused.
+  const arc: RepoRef = { forge: "github", host: "github.com", path: "the-metafactory/arc" };
+  const opened: RepoRef[] = [];
+  const reads: string[] = [];
+  const options = {
+    resolveRepo: async (): Promise<RepoRef> => {
+      throw new Error("a qualified step must never resolve through the origin remote");
+    },
+    createStore: (repo: RepoRef) => {
+      opened.push(repo);
+      return stubStore((ref) => {
+        reads.push(ref.id);
+        return realNodeState({ ref, status: "open", blockedBy: [] });
+      });
+    },
+  };
+
+  const bound = syncBridgedPlanStep(
+    freshRun(),
+    "P1",
+    await readNodeForBridge("github:github.com/The-Metafactory/arc#498", options),
+    { bind: true },
+    "2026-08-06T10:02:00.000Z",
+  );
+  const nodeId = stepOf(bound, "P1").nodeId;
+  expect(nodeId).toBe("github:github.com/The-Metafactory/arc#498");
+
+  // The sync path: the stored id goes back through the bridge exactly as
+  // `soma algorithm step --sync` sends it, with no --repo.
+  if (nodeId === undefined) throw new Error("bind stored no node id");
+  const synced = syncBridgedPlanStep(bound, "P1", await readNodeForBridge(nodeId, options), {}, "2026-08-06T10:03:00.000Z");
+
+  expect(opened).toEqual([{ ...arc, path: "The-Metafactory/arc" }, { ...arc, path: "The-Metafactory/arc" }]);
+  expect(reads).toEqual(["498", "498"]);
+  expect(stepOf(synced, "P1").status).toBe("open");
+});
+
 test("readNodeForBridge resolves the repo when none is passed", async () => {
   const soma: RepoRef = { forge: "github", host: "github.com", path: "the-metafactory/soma" };
   const repos: RepoRef[] = [];

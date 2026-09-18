@@ -41,7 +41,7 @@ export interface QualifiedNodeRef {
   iid: number;
 }
 
-const FORGE_PREFIX = /^(github|gitlab):/u;
+const FORGE_PREFIX = new RegExp(`^(${FORGES.join("|")}):`, "u");
 const HOST = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*$/u;
 const SEGMENT = /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/u;
 

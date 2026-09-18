@@ -21,6 +21,7 @@ import { invocationCwd } from "./path-utils";
 import {
   GITHUB_DOTCOM,
   isGitHubDotcom,
+  formatQualifiedNodeRef,
   formatRepoRef,
   isQualifiedRef,
   parseQualifiedNodeRef,
@@ -116,7 +117,7 @@ async function classifyOrRefuse(location: RemoteLocation, deps: RepoResolutionDe
     throw new WorkGraphError(
       "backend",
       `Cannot tell which forge ${location.host} runs: it is not github.com, and it did not answer GET /api/v4/version as GitLab. ` +
-        `soma never assumes GitHub Enterprise. Pass --repo gitlab:${location.host}/${location.path} or --repo github:${location.host}/${location.path}.`,
+        `soma never assumes GitHub Enterprise. If it is GitLab, pass --repo gitlab:${location.host}/${location.path}.`,
     );
   }
   return validateRepoRef({ forge, host: location.host, path: location.path });
@@ -176,10 +177,24 @@ export function probeRegistryKey(repo: RepoRef): string {
  * The store for a ref (#535 D1). The forge in the ref decides, so a GitHub store
  * never opens a GitLab graph. The GitLab backend is not built yet (#539's slice 3);
  * until it is, a GitLab ref refuses here rather than being read by the wrong store.
+ *
+ * **A GitHub store opens on github.com only.** A ref's host is caller- and
+ * tracker-supplied text, and `gh --hostname <host>` hands any non-github.com
+ * host the session's `GH_ENTERPRISE_TOKEN` / `GITHUB_ENTERPRISE_TOKEN` — so a
+ * `github:attacker.example/x/y#1` pasted from an issue body would ship that
+ * token to the attacker's `/api/v3`. GitHub Enterprise needs an explicit
+ * allow-list of hosts the adopter vouches for, which nothing declares yet;
+ * until one exists, every other GitHub host refuses here, before any `gh` runs.
  */
 export function createGraphStore(repo: RepoRef): GraphStore {
   switch (repo.forge) {
     case "github":
+      if (!isGitHubDotcom(repo)) {
+        throw new WorkGraphError(
+          "backend",
+          `${formatRepoRef(repo)} names a GitHub Enterprise host. soma opens GitHub stores on github.com only until GHES hosts have an allow-list: a ref's host is untrusted text, and gh would send it the enterprise token.`,
+        );
+      }
       return createGitHubGraphStore({ repo: repo.path, host: repo.host });
     case "gitlab":
       throw new WorkGraphError(
@@ -196,7 +211,13 @@ export function createGraphStore(repo: RepoRef): GraphStore {
  * bare id passes through unchanged.
  */
 export function localNodeId(text: string, repo: RepoRef): string {
-  if (!isQualifiedRef(text)) return text;
+  if (!isQualifiedRef(text)) {
+    // A GitLab store is host-scoped and its ids carry their project
+    // (`storeNodeId`), so a bare `12` or `#12` is read in the repo's own path —
+    // one id shape per store, whichever way the node was named.
+    const bare = /^#?([1-9]\d*)$/u.exec(text.trim());
+    return repo.forge === "gitlab" && bare !== null ? `${repo.path}#${bare[1]}` : text;
+  }
   const qualified = parseQualifiedNodeRef(text);
   if (!sameStore(qualified.repo, repo)) {
     throw new WorkGraphError(
@@ -226,7 +247,7 @@ export async function resolveNodeTarget(
 ): Promise<{ repo: RepoRef; id: string }> {
   if (!isQualifiedRef(target)) {
     const repo = await resolveRepo(explicitRepo);
-    return { repo, id: target };
+    return { repo, id: localNodeId(target, repo) };
   }
   const named = parseQualifiedNodeRef(target).repo;
   const explicit = explicitRepo?.trim();
@@ -260,7 +281,13 @@ export async function readNodeForBridge(nodeId: string, options: ReadNodeForBrid
   const { repo, id } = await resolveNodeTarget(nodeId, options.repo, options.resolveRepo);
   const store = createStore(repo);
   const state = await new WorkGraph(store).readNode({ id });
+  // A qualified target is reported back qualified (canonical form), because the
+  // consumer *stores* this id: a step bound to `github:…/arc#498` that kept only
+  // `498` would, on its next sync, resolve through the origin remote and read a
+  // different repo's #498 without complaint. The location has to survive the
+  // round trip, so the next read takes the qualified path again.
+  const ref = isQualifiedRef(nodeId) ? { id: formatQualifiedNodeRef(parseQualifiedNodeRef(nodeId)) } : state.ref;
   // The production GraphStore binds this to the current tracker close; bridge
   // consumers never inspect comments and therefore cannot bless stale receipts.
-  return { ref: state.ref, status: state.status, blockedBy: state.blockedBy, hasCloseReceipt: state.currentCloseReceipt === true };
+  return { ref, status: state.status, blockedBy: state.blockedBy, hasCloseReceipt: state.currentCloseReceipt === true };
 }

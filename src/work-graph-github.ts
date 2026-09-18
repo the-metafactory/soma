@@ -43,7 +43,7 @@ import {
 } from "./work-graph";
 import { envWithoutTokens, type ConfinementDeps } from "./work-graph-attestation";
 import { runCommand } from "./work-graph-probes";
-import { GITHUB_DOTCOM } from "./work-graph-ref";
+import { GITHUB_DOTCOM, validateRepoRef } from "./work-graph-ref";
 
 const NODE_BLOCK_OPEN = "<!-- soma:work-graph-node";
 const NODE_BLOCK_CLOSE = "-->";
@@ -642,11 +642,11 @@ class GitHubGraphStore implements GraphStore {
   private readonly confinement: ConfinementDeps;
 
   constructor(options: GitHubGraphStoreOptions) {
-    if (!/^[^/\s]+\/[^/\s]+$/.test(options.repo)) {
-      throw new WorkGraphError("backend", `repo must be "owner/name", got ${JSON.stringify(options.repo)}`);
-    }
-    this.repo = options.repo;
-    this.host = options.host ?? GITHUB_DOTCOM;
+    // The ref grammar's own path rule, not a looser local one: `../x` or
+    // `.hidden/b` must never reach a `repos/…` API path.
+    const checked = validateRepoRef({ forge: "github", host: options.host ?? GITHUB_DOTCOM, path: options.repo });
+    this.repo = checked.path;
+    this.host = checked.host;
     this.transport = options.transport ?? createGhCliTransport({ hostname: this.host });
     this.confinement = options.confinement ?? defaultConfinementDeps();
   }
