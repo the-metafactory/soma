@@ -66,8 +66,9 @@ this doctrine tracker-agnostic by construction.
 | `soma graph audit <root>` | what the gates cannot see: closed-without-receipt, can-never-close, claimed-in-flight |
 | `soma graph decisions <root> [--write]` | the map's decision index, derived from receipts; `--write` splices it into the map body |
 
-`--repo <owner/name>` (or `SOMA_GRAPH_REPO`) picks the backing repository; it
-defaults to the origin remote of the working tree.
+`--repo github:github.com/<owner/name>` (or `SOMA_GRAPH_REPO`) picks the store;
+it defaults to the origin remote, and a node named in full (`…#N`) picks its own.
+A bare `owner/name` takes the remote's host, and refuses outside a checkout.
 
 ## Invariants
 

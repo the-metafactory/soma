@@ -21,6 +21,7 @@ import {
   type CloseReceipt,
   type CommentRef,
   type CreateNodeSpec,
+  type ConfinementResult,
   type GraphStore,
   type NodeRef,
   type NodeState,
@@ -369,6 +370,8 @@ interface FakeNode {
 
 class FakeStore implements GraphStore {
   readonly attestation = "verifiable" as const;
+  actingIdentity = async (): Promise<string> => "ivy-agent";
+  checkConfinement = async (): Promise<ConfinementResult> => ({ checked: false, reachableIdentities: [], at: "", probes: [] });
   readonly nodes = new Map<string, FakeNode>();
   readonly children = new Map<string, string[]>();
   readonly closed: { ref: NodeRef; receipt: CloseReceipt; expectedGatedNodeHash?: string }[] = [];

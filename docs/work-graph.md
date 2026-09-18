@@ -401,6 +401,10 @@ Declaration rules, all deny-by-default:
 - `urlHosts` are bare hostnames — no scheme, port, path, or wildcard. A declared
   host authorises any port on it; a non-http(s) target is refused outright,
   since a `file:` or `data:` URL has no host for a host set to authorise.
+- Registry v1 keys are host-less `owner/name`, so they authorise **github.com
+  repos only**: a close or `soma policy probes` on any other host (GHES,
+  GitLab) refuses rather than look its path up host-less, until registry v2
+  carries the host in every key (#536 D2, #692).
 - Repository keys are compared case-insensitively. The **whole document** is
   validated, not just the entry being read: in an authorisation list a
   silently-ignored typo is what makes an adopter believe something is declared
@@ -555,6 +559,8 @@ computation, claim semantics, close gating) from store I/O (#491):
 interface GraphStore {
   attestation: "verifiable" | "unverified";  // backend capability: CAN receipts
                                              // be independently attested here?
+  actingIdentity(): Promise<string>;         // who this session is on this forge (#537)
+  checkConfinement(): Promise<ConfinementResult>; // §3.2 conjunct 2, this forge's probes
   createNode(spec: Omit<WorkGraphNode, "id">): Promise<NodeRef>; // store assigns id
   addBlockingEdge(blocker: NodeRef, blocked: NodeRef): Promise<void>;
   readNode(ref: NodeRef): Promise<NodeState>;
@@ -574,6 +580,19 @@ interface GraphStore {
 - **Per-graph backend binding:** a graph records its backend at creation and
   lives there forever; moving is a one-way export into a fresh graph.
   (Orienteer doctrine calls a graph instance a *map*; the seam does not.)
+- **The ref selects the store** (#535 D1, #536 D1): a ref names forge, host and
+  path — `github:github.com/owner/name#N`, `gitlab:<host>/<group>/<project>#N`,
+  `gitlab:<host>/<group>&N` for an epic — and the store is built from the forge
+  it names. A bare ref resolves through `--repo`, `SOMA_GRAPH_REPO`, then the
+  origin remote; a bare `owner/name` takes the remote's host, and a host other
+  than `github.com` is classified by `GET /api/v4/version` or refused, never
+  assumed to be GitHub Enterprise. A GitHub store opens on `github.com` only: a
+  ref's host is untrusted text, and `gh --hostname` would hand any other host
+  the session's enterprise token, so GHES waits for an explicit host allow-list.
+- **Identity and confinement are the store's** (#537 D2): one session can be a
+  different login on each forge, and a credential for one forge cannot forge an
+  award on the other, so each store names its acting identity and runs its own
+  forge's conjunct-2 probe set, scoped to its host.
 - Day-one backend: **GitHub** (attestation capability: `verifiable` — the
   backend can attest reaction/comment authorship via its API). Backend
   capability is necessary, not sufficient: a *receipt* is marked verified
@@ -883,9 +902,13 @@ derived over declared). Soma ships the rule, not the provisioning recipe.
 ratified this* — not merely that two logins appear. All four must hold:
 
 1. **Backend attests** — `GraphStore.attestation === "verifiable"` (§2.5).
-2. **Confinement** — the close path finds no GitHub credential other than the
-   acting agent identity reachable from the session (`GH_TOKEN` unset →
-   `gh auth status`, `gh auth token`, OS keychain item). **Downgrade-only:**
+2. **Confinement** — the store's own probe set (`GraphStore.checkConfinement`,
+   §2.5) finds no credential on that store's forge other than the acting
+   identity reachable from the session. On GitHub: the token env stripped
+   (`GH_TOKEN` and friends), then `gh auth status --hostname <host>`,
+   `gh auth token --hostname <host>` and the `gh:<host>` OS keychain item. Each
+   forge supplies its own set (#537 D2); a set shaped for one forge never runs
+   against another. **Downgrade-only:**
    reachability forces `unverified`; non-reachability never manufactures a
    `verified` by itself.
 3. **Distinct authorship** — ratifier author ≠ proposal comment author, both

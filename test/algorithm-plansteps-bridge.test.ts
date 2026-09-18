@@ -19,6 +19,7 @@ import type { AlgorithmRun, BridgedNodeReport } from "../src/index";
 import { markUnbridgedPlanStepsDone } from "../src/algorithm";
 import type { GraphStore, NodeRef, NodeState } from "../src/work-graph";
 import { readNodeForBridge } from "../src/work-graph-bridge";
+import type { RepoRef } from "../src/work-graph-ref";
 import { parseAlgorithmArgs, runAlgorithmCli } from "../src/cli/algorithm";
 
 // docs/work-graph.md §2.7 — planSteps bridge. A bridged step's status is the
@@ -84,6 +85,8 @@ function realNodeState(overrides: Partial<NodeState> = {}): NodeState {
 function stubStore(readNode: (ref: NodeRef) => NodeState): GraphStore {
   return {
     attestation: "unverified",
+    actingIdentity: async () => "jcfischer",
+    checkConfinement: async () => ({ checked: false, reachableIdentities: [], at: "", probes: [] }),
     createNode: async () => ({ id: "unused" }),
     addBlockingEdge: async () => {},
     readNode: async (ref) => readNode(ref),
@@ -375,20 +378,67 @@ test("readNodeForBridge returns a report the derivation accepts, through the rea
   // step, which is the whole claim of `Pick`ing the report type from `NodeState`.
   expect(deriveBridgedPlanStepStatus(state)).toBe("blocked");
   const run = syncBridgedPlanStep(freshRun(), "P1", state, { bind: true }, "2026-08-06T10:02:00.000Z");
-  expect(stepOf(run, "P1")).toMatchObject({ nodeId: "501", status: "blocked" });
+  // Bound qualified however it was named, so a later sync cannot re-resolve it elsewhere.
+  expect(stepOf(run, "P1")).toMatchObject({ nodeId: "github:github.com/the-metafactory/soma#501", status: "blocked" });
+});
+
+test("a step bound to a qualified node keeps its location, so a later sync reads the same repo — not the origin's", async () => {
+  // The #695 round-3 blocker: binding stored the bare `498`, and a sync with no
+  // --repo then resolved it through the origin remote and read soma#498 as if it
+  // were arc#498 — the stored id and the returned ref matched, so nothing refused.
+  const arc: RepoRef = { forge: "github", host: "github.com", path: "the-metafactory/arc" };
+  const opened: RepoRef[] = [];
+  const reads: string[] = [];
+  const options = {
+    resolveRepo: async (): Promise<RepoRef> => {
+      throw new Error("a qualified step must never resolve through the origin remote");
+    },
+    createStore: (repo: RepoRef) => {
+      opened.push(repo);
+      return stubStore((ref) => {
+        reads.push(ref.id);
+        return realNodeState({ ref, status: "open", blockedBy: [] });
+      });
+    },
+  };
+
+  const bound = syncBridgedPlanStep(
+    freshRun(),
+    "P1",
+    await readNodeForBridge("github:github.com/The-Metafactory/arc#498", options),
+    { bind: true },
+    "2026-08-06T10:02:00.000Z",
+  );
+  const nodeId = stepOf(bound, "P1").nodeId;
+  expect(nodeId).toBe("github:github.com/The-Metafactory/arc#498");
+
+  // The sync path: the stored id goes back through the bridge exactly as
+  // `soma algorithm step --sync` sends it, with no --repo.
+  if (nodeId === undefined) throw new Error("bind stored no node id");
+  const synced = syncBridgedPlanStep(bound, "P1", await readNodeForBridge(nodeId, options), {}, "2026-08-06T10:03:00.000Z");
+
+  expect(opened).toEqual([{ ...arc, path: "The-Metafactory/arc" }, { ...arc, path: "The-Metafactory/arc" }]);
+  expect(reads).toEqual(["498", "498"]);
+  expect(stepOf(synced, "P1").status).toBe("open");
 });
 
 test("readNodeForBridge resolves the repo when none is passed", async () => {
-  const repos: string[] = [];
+  const soma: RepoRef = { forge: "github", host: "github.com", path: "the-metafactory/soma" };
+  const repos: RepoRef[] = [];
+  const explicit: (string | undefined)[] = [];
   await readNodeForBridge("501", {
-    resolveRepo: async () => "the-metafactory/soma",
-    createStore: (repo: string) => {
+    resolveRepo: async (given) => {
+      explicit.push(given);
+      return soma;
+    },
+    createStore: (repo) => {
       repos.push(repo);
       return stubStore((ref) => realNodeState({ ref }));
     },
   });
 
-  expect(repos).toEqual(["the-metafactory/soma"]);
+  expect(explicit).toEqual([undefined]);
+  expect(repos).toEqual([soma]);
 });
 
 // --- the CLI surface ------------------------------------------------------
@@ -571,4 +621,15 @@ test("the `--status`-required message names the flag that is actually missing", 
       ),
     ).rejects.toThrow("--status is required (or use --node/--sync for a bridged step).");
   });
+});
+
+test("a step bound bare before refs were qualified fails its sync loudly instead of misreading", () => {
+  // Bound under the old bridge, which stored `501`. The bridge now reports every
+  // node qualified, so a sync from any checkout meets the id check and refuses —
+  // it can no longer read another repo's #501 in silence.
+  const legacy = syncBridgedPlanStep(freshRun(), "P1", report(), { bind: true }, "2026-08-06T10:02:00.000Z");
+  expect(stepOf(legacy, "P1").nodeId).toBe("501");
+  expect(() =>
+    syncBridgedPlanStep(legacy, "P1", report({ ref: { id: "github:github.com/the-metafactory/arc#501" } }), {}),
+  ).toThrow(/bridged to work-graph node 501, but the reported node is github:github.com\/the-metafactory\/arc#501/u);
 });

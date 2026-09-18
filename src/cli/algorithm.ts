@@ -149,7 +149,11 @@ interface AlgorithmCliOptions {
   stepNodeId?: string;
   /** Re-derive an already-bridged step's status from its node. */
   stepSync?: boolean;
-  /** Which repository backs the graph, when the bridge cannot infer it. */
+  /**
+   * Which repository backs the graph, when the bridge cannot infer it. Qualified
+   * (`github:github.com/owner/name`) works anywhere; a bare `owner/name` takes the
+   * origin remote's host, so outside a checkout it refuses (#536).
+   */
   repo?: string;
   criterionId?: string;
   criterionStatus?: "passed" | "failed" | "dropped" | "deferred-probe";

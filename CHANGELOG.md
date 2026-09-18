@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **A work-graph ref names its forge, and the ref selects the store** (#535,
+  #536; slice 1 of #539). Refs read `github:github.com/owner/name#N`, and
+  `--repo` / `SOMA_GRAPH_REPO` take the qualified `github:github.com/owner/name`.
+  A qualified target opens its own store, and a `--repo` that disagrees with it
+  refuses. **Behaviour change:** a bare `--repo owner/name` (or bare
+  `SOMA_GRAPH_REPO`) now takes its host from the origin remote. Outside a
+  checkout it refuses instead of assuming github.com, and inside a checkout on
+  another host it resolves to that host. A remote whose host is neither
+  github.com nor a GitLab that answers `GET /api/v4/version` refuses, and soma
+  never assumes GitHub Enterprise. The origin remote is now read in the tree
+  soma was invoked from, not in the install tree the launcher `cd`s into.
+- **`GraphStore` gains two required methods** (#537 D2): `actingIdentity()` and
+  `checkConfinement()`. Each store names who the session is on its forge and
+  runs its own forge's conjunct-2 probe set. An external `GraphStore`
+  implementation must add both. `ReadNodeForBridgeOptions.createStore` now takes
+  a `RepoRef`, and `resolveRepo` takes the explicit `--repo` and returns one.
+- **The `gh` confinement probe set moved into the GitHub backend** and is
+  exported as `checkGitHubConfinement` (with `parseAuthStatusLogins`) from
+  `work-graph-github`; `work-graph-attestation` keeps only the forge-neutral
+  pieces. Every `gh` call
+  the store makes, the probes included, now passes `--hostname`, github.com
+  included, so an ambient `GH_HOST` cannot redirect a read, a write or the
+  check. (Probed against gh 2.95.0: with `GH_HOST=example.invalid`,
+  `gh api user` fails connecting to example.invalid, while `gh api --hostname
+  github.com user` answers from github.com.) Receipt probe records name the host they probed
+  (`gh auth status --hostname github.com (token env stripped)`).
+- **Qualified node refs resolve in one place** (`resolveNodeTarget` in
+  `work-graph-bridge`): the graph verbs and the planSteps bridge share it, so a
+  qualified step node id opens its own store rather than reaching the origin
+  repo's store as a raw id. The bridge reports **every** node back qualified,
+  however it was named, so a step binds its full location and a later `--sync`
+  reads the same repo, whichever checkout it runs in. **A step bound before
+  this** stored a bare number: its next sync now refuses on the id check
+  (`bridged to 501, but the reported node is github:…#501`) instead of reading
+  whatever repo that checkout's origin names. Re-plan the step to re-bind it.
+- **GitHub stores open on github.com only.** A `github:<other host>` ref refuses
+  in the store's own constructor (so the exported `createGitHubGraphStore`
+  cannot skip it), before any `gh` runs: a ref's host is untrusted text, and `gh --hostname`
+  would send that host the session's `GH_ENTERPRISE_TOKEN`. GitHub Enterprise
+  waits for an explicit allow-list of hosts.
+
+### Removed
+
+- **`checkConfinement` from the barrel.** The `gh` probe set is
+  `checkGitHubConfinement` in `work-graph-github` now; each graph store runs its
+  own forge's set (#537 D2).
+
 ### Fixed
 
 - **The weekly harness gate wrapper finds its script again, and a broken run no

@@ -3,6 +3,7 @@ import {
   WorkGraph,
   WorkGraphError,
   SUBTREE_QUERY_PRIMARY_RATE_POINTS,
+  checkGitHubConfinement,
   createGitHubGraphStore,
   decodeNodeBlock,
   encodeNodeBlock,
@@ -12,6 +13,7 @@ import {
   parseGhApiOutput,
   parseNodeSpec,
   type GitHubApiRequest,
+  type ConfinementDeps,
   type GitHubApiTransport,
   type Probe,
 } from "../src/index";
@@ -947,4 +949,88 @@ test("readNode rejects an auto completion citing a check run for another commit"
 
 test("readNode accepts an auto completion citing a successful CI check run", async () => {
   expect(await autoCurrentCloseReceipt({ conclusion: "success", head_sha: "deadbeef" })).toBe(true);
+});
+
+// --- the store owns identity and conjunct 2 (#537 D2) ------------------------
+
+test("ghApiArgs names the host it is given, so an ambient GH_HOST cannot redirect a call", () => {
+  const request: GitHubApiRequest = { method: "GET", path: "user" };
+  expect(ghApiArgs(request)).toEqual(["api", "--method", "GET", "user"]);
+  expect(ghApiArgs(request, "github.com")).toEqual(["api", "--method", "GET", "user", "--hostname", "github.com"]);
+  expect(ghApiArgs(request, "ghe.example.com")).toEqual(["api", "--method", "GET", "user", "--hostname", "ghe.example.com"]);
+});
+
+test("the acting identity is the login GET /user returns", async () => {
+  const { transport, calls } = fakeTransport({ "GET user": { login: "ivy-agent", id: 1 } });
+  expect(await createGitHubGraphStore({ repo: REPO, transport }).actingIdentity()).toBe("ivy-agent");
+  expect(calls.map((call) => call.key)).toEqual(["GET user"]);
+});
+
+test("a /user answer with no login is a backend error, not an empty identity", async () => {
+  const { transport } = fakeTransport({ "GET user": { id: 1 } });
+  expect(createGitHubGraphStore({ repo: REPO, transport }).actingIdentity()).rejects.toThrow(/no login/);
+});
+
+function recordingConfinement(): { argv: string[][]; deps: ConfinementDeps } {
+  const argv: string[][] = [];
+  return {
+    argv,
+    deps: {
+      runCommand: async (request) => {
+        argv.push([...(request.argv ?? [])]);
+        return { exitCode: 1, stdout: "", stderr: "", timedOut: false };
+      },
+      env: { PATH: "/usr/bin", GH_HOST: "elsewhere.example.com" },
+      platform: "darwin",
+      now: () => new Date("2026-09-18T00:00:00.000Z"),
+    },
+  };
+}
+
+test("on github.com every gh probe names github.com — an ambient GH_HOST cannot move the check", async () => {
+  const { argv, deps } = recordingConfinement();
+  const { transport } = fakeTransport({});
+  const result = await createGitHubGraphStore({ repo: REPO, transport, confinement: deps }).checkConfinement();
+
+  expect(argv).toEqual([
+    ["gh", "auth", "status", "--hostname", "github.com"],
+    ["gh", "auth", "token", "--hostname", "github.com"],
+    ["security", "find-generic-password", "-s", "gh:github.com"],
+  ]);
+  expect(result.checked).toBe(true);
+});
+
+test("the gh probe set scopes every probe to the host it is given", async () => {
+  const { argv, deps } = recordingConfinement();
+  await checkGitHubConfinement(deps, "ghe.example.com");
+
+  expect(argv).toEqual([
+    ["gh", "auth", "status", "--hostname", "ghe.example.com"],
+    ["gh", "auth", "token", "--hostname", "ghe.example.com"],
+    ["security", "find-generic-password", "-s", "gh:ghe.example.com"],
+  ]);
+});
+
+test("each gh probe record names the host it probed, so a receipt shows what actually ran", async () => {
+  const { deps } = recordingConfinement();
+  const result = await checkGitHubConfinement(deps, "ghe.example.com");
+  expect(result.probes.map((probe) => probe.name)).toEqual([
+    "gh auth status --hostname ghe.example.com (token env stripped)",
+    "gh auth token --hostname ghe.example.com (token env stripped)",
+    "security find-generic-password -s gh:ghe.example.com",
+  ]);
+});
+
+test("the store itself refuses any host but github.com — the exported constructor cannot skip the guard", () => {
+  const { transport } = fakeTransport({});
+  for (const host of ["ghe.example.com", "attacker.example"]) {
+    expect(() => createGitHubGraphStore({ repo: REPO, host, transport })).toThrow(/github.com only/);
+  }
+  expect(() => createGitHubGraphStore({ repo: REPO, host: "GitHub.com", transport })).not.toThrow();
+});
+
+test("a dot-prefixed repo name is a real repo; a traversal segment is not", () => {
+  const { transport } = fakeTransport({});
+  expect(() => createGitHubGraphStore({ repo: "the-metafactory/.github", transport })).not.toThrow();
+  expect(() => createGitHubGraphStore({ repo: "../soma", transport })).toThrow(WorkGraphError);
 });

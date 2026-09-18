@@ -12,7 +12,8 @@ import {
   selectRatification,
   type GraphCliDeps,
 } from "../src/cli/graph";
-import { parseRepoFromRemote } from "../src/work-graph-bridge";
+import type { ConfinementResult } from "../src/work-graph";
+import type { RepoRef } from "../src/work-graph-ref";
 // Receipt-rendering helpers are deliberately not on the public barrel (sage on
 // #584): they are internals of `renderCloseReceipt`, so the test reaches for
 // them where they live.
@@ -41,6 +42,7 @@ import {
 import { walkFakeSubtree } from "./fixtures/work-graph-fixtures";
 
 const REPO = "the-metafactory/soma";
+const REPO_REF: RepoRef = { forge: "github", host: "github.com", path: REPO };
 const AT = new Date("2026-08-04T09:00:00.000Z");
 const PROBE_RUN = "bun test";
 const PROBE: Probe = { type: "command", run: PROBE_RUN, timeoutSec: 600, expectExit: 0 };
@@ -80,6 +82,15 @@ interface SeedNode {
 
 class FakeStore implements GraphStore {
   readonly attestation = "verifiable" as const;
+  // The verbs ask the store (#537 D2). The default is an isolated session acting
+  // as ivy-agent; a test about either answer reassigns it.
+  actingIdentity = async (): Promise<string> => "ivy-agent";
+  checkConfinement = async (): Promise<ConfinementResult> => ({
+    checked: true,
+    reachableIdentities: ["ivy-agent"],
+    at: AT.toISOString(),
+    probes: [],
+  });
   readonly nodes = new Map<string, SeedNode>();
   readonly comments = new Map<string, { author: string; body: string; nodeId: string }>();
   readonly reactions = new Map<string, Reaction[]>();
@@ -173,8 +184,7 @@ class FakeStore implements GraphStore {
 function deps(store: FakeStore, overrides: Partial<GraphCliDeps> = {}): Partial<GraphCliDeps> {
   return {
     createStore: () => store,
-    resolveRepo: async () => REPO,
-    resolveIdentity: async () => "ivy-agent",
+    resolveRepo: async () => REPO_REF,
     // Hermetic: the default would read the developer's own ~/.soma.
     loadProbeRegistry: async () => DECLARED,
     runProbes: async (probes) =>
@@ -185,12 +195,6 @@ function deps(store: FakeStore, overrides: Partial<GraphCliDeps> = {}): Partial<
         observed: "exit 0",
         at: AT.toISOString(),
       })),
-    checkConfinement: async () => ({
-      checked: true,
-      reachableIdentities: ["ivy-agent"],
-      at: AT.toISOString(),
-      probes: [],
-    }),
     probeCwd: () => "/repo",
     describeProbeTree: async (dir) => ({ dir, head: "abc1234", dirty: false }),
     readTextFile: async () => "proposal body",
@@ -279,13 +283,6 @@ test("--evidence is typed at the boundary", () => {
   ]);
 });
 
-test("the repo is derived from any remote URL shape", () => {
-  expect(parseRepoFromRemote("git@github.com:the-metafactory/soma.git")).toBe(REPO);
-  expect(parseRepoFromRemote("https://github.com/the-metafactory/soma.git")).toBe(REPO);
-  expect(parseRepoFromRemote("https://github.com/the-metafactory/soma")).toBe(REPO);
-  expect(parseRepoFromRemote("https://gitlab.com/x/y.git")).toBeUndefined();
-});
-
 // --- frontier ---------------------------------------------------------------
 
 test("frontier reports open, unassigned, unblocked children and says it is advisory", async () => {
@@ -338,6 +335,97 @@ test("node renders a hand-authored ticket as the fail-safe class it reports", as
   expect(output).toContain("probes: none declared");
   expect(output).toContain("blocked by: 497 (closed)");
   expect(output).toContain("parent: 495");
+});
+
+// --- the ref selects the store (#535 D1, #536 D1) -----------------------------
+
+test("a qualified target names its own store — no repo resolution runs", async () => {
+  const store = new FakeStore().seed("498", { node: autoNode("498") });
+  const opened: RepoRef[] = [];
+
+  const output = await run(["graph", "node", "github:github.com/the-metafactory/arc#498"], store, {
+    resolveRepo: async () => {
+      throw new Error("a qualified target must not fall back to repo resolution");
+    },
+    createStore: (repo) => {
+      opened.push(repo);
+      return store;
+    },
+  });
+
+  expect(opened).toEqual([{ forge: "github", host: "github.com", path: "the-metafactory/arc" }]);
+  expect(output).toContain("Work graph node 498 (the-metafactory/arc)");
+});
+
+test("a --repo that disagrees with a qualified target refuses rather than choosing", async () => {
+  const store = new FakeStore().seed("498", { node: autoNode("498") });
+  const message = await failure(["graph", "node", "github:github.com/the-metafactory/arc#498", "--repo", REPO], store);
+  expect(message).toContain("never spans two stores");
+});
+
+test("a GitLab target never reaches a GitHub store", async () => {
+  const store = new FakeStore();
+  const opened: RepoRef[] = [];
+  await failure(["graph", "node", "gitlab:gitlab-int.switch.ch/csoc/soc-reporter#12"], store, {
+    createStore: (repo) => {
+      opened.push(repo);
+      throw new Error("no GitLab backend in this fake");
+    },
+  });
+  expect(opened).toEqual([{ forge: "gitlab", host: "gitlab-int.switch.ch", path: "csoc/soc-reporter" }]);
+});
+
+test("--blocked-by takes a qualified ref in the same store, and refuses one from another", async () => {
+  const store = new FakeStore().seed("495", { node: autoNode("495") }).seed("498", { node: autoNode("498") });
+  const add = (blocker: string): string[] => [
+    "graph",
+    "add",
+    "495",
+    "--title",
+    "t",
+    "--autonomy",
+    "approve",
+    "--checkpoint",
+    "cp-1",
+    "--blocked-by",
+    blocker,
+    "--repo",
+    REPO,
+  ];
+
+  await run(add("github:github.com/the-metafactory/soma#498"), store);
+  expect(store.edges).toEqual([["498", "900"]]);
+
+  await run(add("#498"), store);
+  expect(store.edges).toEqual([["498", "900"], ["498", "901"]]);
+
+  expect(await failure(add("github:github.com/the-metafactory/arc#498"), store)).toContain("never spans two stores");
+  expect(store.created).toHaveLength(2);
+});
+
+test("the store names the acting identity (#537 D2)", async () => {
+  const store = new FakeStore().seed("498", { node: autoNode("498") });
+  store.actingIdentity = async () => "store-identity";
+
+  expect(await run(["graph", "claim", "498", "--repo", REPO], store)).toContain("Claimed node 498 as store-identity");
+});
+
+test("the store runs conjunct 2, and its answer lands in the receipt (#537 D2)", async () => {
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495"), author: "jcfischer" })
+    .seed("530", { node: { id: "530", title: "hitl", autonomy: "approve", checkpointId: "cp-530" }, parent: "495" });
+  store.checkConfinement = async () => ({
+    checked: true,
+    reachableIdentities: ["ivy-agent", "file:store-probe"],
+    at: AT.toISOString(),
+    probes: [{ name: "the store's own probe", observed: "reachable" }],
+  });
+
+  await run(["graph", "close", "530", "--repo", REPO, ...RESOLUTION], store);
+
+  const facts = store.closed[0].receipt.attestationFacts;
+  expect(facts?.confinement?.probes).toEqual([{ name: "the store's own probe", observed: "reachable" }]);
+  expect(facts?.reasons?.join(" ")).toContain("file:store-probe");
 });
 
 // --- claim ------------------------------------------------------------------
@@ -554,14 +642,13 @@ test("the same reaction with the principal's credential reachable is unverified 
   await run(["graph", "close", "530", "--propose", "--body", "the resolution", "--repo", REPO], store);
   store.reactions.set("c1", [{ id: "r1", content: "+1", author: "jcfischer" }]);
 
-  await run(["graph", "close", "530", "--proposal-comment", "c1", "--repo", REPO], store, {
-    checkConfinement: async () => ({
-      checked: true,
-      reachableIdentities: ["ivy-agent", "jcfischer"],
-      at: AT.toISOString(),
-      probes: [],
-    }),
+  store.checkConfinement = async () => ({
+    checked: true,
+    reachableIdentities: ["ivy-agent", "jcfischer"],
+    at: AT.toISOString(),
+    probes: [],
   });
+  await run(["graph", "close", "530", "--proposal-comment", "c1", "--repo", REPO], store);
 
   expect(store.closed[0].receipt.attestation).toBe("unverified");
 });

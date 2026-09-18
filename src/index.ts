@@ -274,13 +274,17 @@ export type { BehaviorPolicy } from "./policy/behavior-policy";
 // consumer that can reach `syncBridgedPlanStep` but not the reader must
 // re-implement repo resolution, becoming the second reader the bridge forbids.
 //
-// Only the reader. `resolveGraphRepo` and `parseRepoFromRemote` stay off the
-// barrel — a remote-URL regex is not part of the bridge contract, and putting
+// Only the reader. `resolveGraphRepo` and `parseRemoteUrl` stay off the
+// barrel — a remote-URL parser is not part of the bridge contract, and putting
 // them here would drag a GitHub-shaped transport concern into the import graph of
 // every consumer of the pure algorithm functions. Same reasoning excludes
 // `markUnbridgedPlanStepsDone`: one production consumer, which imports it directly.
 export { readNodeForBridge } from "./work-graph-bridge";
 export type { ReadNodeForBridgeOptions } from "./work-graph-bridge";
+// The ref grammar is contract (#536 D1) — `ReadNodeForBridgeOptions` and
+// `GraphCliDeps` take a `RepoRef` — so it is on the barrel; the remote parser is not.
+export { FORGES, formatQualifiedNodeRef, formatRepoRef, parseQualifiedNodeRef, parseRepoRef } from "./work-graph-ref";
+export type { Forge, QualifiedNodeRef, RepoRef } from "./work-graph-ref";
 export {
   assertAlgorithmCapabilitiesSatisfied,
   getAlgorithmCapabilityDefinition,
@@ -748,6 +752,7 @@ export {
   type AttestationState,
   type BlockingRef,
   type ConfinementProbeRecord,
+  type ConfinementResult,
   type ClaimResult,
   type ReleaseResult,
   type CloseEvidence,
@@ -774,8 +779,10 @@ export {
   type WorkGraphNodeBase,
 } from "./work-graph";
 export {
+  checkGitHubConfinement,
   createGhCliTransport,
   createGitHubGraphStore,
+  parseAuthStatusLogins,
   decodeNodeBlock,
   encodeNodeBlock,
   estimateSubtreeQueryPrimaryRatePoints,
@@ -823,14 +830,11 @@ export {
   type ProbeRegistryHomeOptions,
 } from "./work-graph-probe-registry";
 export {
-  checkConfinement,
   deriveAttestation,
   findGraphRoot,
-  parseAuthStatusLogins,
   type AttestationInputs,
   type AttestationOutcome,
   type ConfinementDeps,
-  type ConfinementResult,
 } from "./work-graph-attestation";
 
 export { SOMA_VERSION } from "./version";

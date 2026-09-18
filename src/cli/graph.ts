@@ -61,13 +61,8 @@ import {
   type ReceiptScan,
   type WorkGraphEvidenceKind,
 } from "../work-graph";
-import {
-  checkConfinement as defaultCheckConfinement,
-  deriveAttestation,
-  findGraphRoot,
-  type ConfinementResult,
-} from "../work-graph-attestation";
-import { createGitHubGraphStore } from "../work-graph-github";
+import { deriveAttestation, findGraphRoot } from "../work-graph-attestation";
+import { displayRepo, type RepoRef } from "../work-graph-ref";
 import {
   isProbeRefusal,
   loadProbeRegistry as defaultLoadProbeRegistry,
@@ -85,7 +80,7 @@ import {
 // not here: a seam only `src/cli/` can import forces a library/MCP/daemon consumer
 // to re-implement it, becoming the second reader §2.7 forbids. No re-export — the
 // other importers point at core directly, so there is one path to each symbol.
-import { resolveGraphRepo } from "../work-graph-bridge";
+import { createGraphStore, localNodeId, probeRegistryKey, resolveGraphRepo, resolveNodeTarget } from "../work-graph-bridge";
 import { invocationCwd } from "../path-utils";
 import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";
@@ -499,9 +494,10 @@ export function parseGraphArgs(args: string[]): ParsedGraphArgs {
 // ---------------------------------------------------------------------------
 
 export interface GraphCliDeps {
-  createStore: (repo: string) => GraphStore;
-  resolveRepo: () => Promise<string>;
-  resolveIdentity: () => Promise<string>;
+  /** The store for a resolved ref (#535 D1) — the ref's forge decides the backend. */
+  createStore: (repo: RepoRef) => GraphStore;
+  /** `explicit` is `--repo` as typed; see {@link resolveGraphRepo} for the order. */
+  resolveRepo: (explicit?: string) => Promise<RepoRef>;
   /**
    * The registry is loaded per close and handed to the runner rather than read
    * inside it: one place decides which repo's declarations apply, and the
@@ -513,9 +509,8 @@ export interface GraphCliDeps {
    * adopter whose soma home is not `~/.soma` configures that for the environment,
    * never per invocation.
    */
-  loadProbeRegistry: (repo: string) => Promise<ProbeRegistry>;
+  loadProbeRegistry: (repo: RepoRef) => Promise<ProbeRegistry>;
   runProbes: (probes: readonly Probe[], registry: ProbeRegistry, cwd: string) => Promise<ProbeResult[]>;
-  checkConfinement: () => Promise<ConfinementResult>;
   /**
    * The directory the probes run in, resolved **once** per close and passed
    * everywhere it is needed — the runner, the registry match, and the receipt.
@@ -556,14 +551,6 @@ export interface GraphCliDeps {
   warn: (message: string) => void;
   /** True when the running CLI is the dev tree rather than the installed binary (§1 clause 5). */
   fromDevTree: boolean;
-}
-
-async function gh(args: string[]): Promise<string> {
-  const outcome = await runCommand({ argv: ["gh", ...args], timeoutSec: 60 });
-  if (outcome.exitCode !== 0) {
-    throw new SomaCliError(`gh ${args.join(" ")} failed (exit ${outcome.exitCode}): ${outcome.stderr.trim()}`, 1);
-  }
-  return outcome.stdout.trim();
 }
 
 /**
@@ -732,18 +719,10 @@ async function defaultDescribeProbeTree(dir: string): Promise<ProbeTree> {
 
 function defaultDeps(): GraphCliDeps {
   return {
-    createStore: (repo) => createGitHubGraphStore({ repo }),
-    resolveRepo: resolveGraphRepo,
-    resolveIdentity: async () => await gh(["api", "user", "--jq", ".login"]),
-    loadProbeRegistry: async (repo) => await defaultLoadProbeRegistry({ repo }),
+    createStore: createGraphStore,
+    resolveRepo: async (explicit) => await resolveGraphRepo(explicit),
+    loadProbeRegistry: async (repo) => await defaultLoadProbeRegistry({ repo: probeRegistryKey(repo) }),
     runProbes: async (probes, registry, cwd) => await defaultRunProbes(probes, { registry, cwd }),
-    checkConfinement: async () =>
-      await defaultCheckConfinement({
-        runCommand,
-        env: process.env,
-        platform: process.platform,
-        now: () => new Date(),
-      }),
     probeCwd: () => invocationCwd(),
     describeProbeTree: defaultDescribeProbeTree,
     readTextFile: async (path) => await Bun.file(path).text(),
@@ -857,10 +836,10 @@ async function runNode(parsed: ParsedGraphNodeArgs, graph: WorkGraph, repo: stri
 async function runClaim(
   parsed: ParsedGraphClaimArgs,
   graph: WorkGraph,
+  store: GraphStore,
   repo: string,
-  deps: GraphCliDeps,
 ): Promise<string> {
-  const identity = parsed.options.identity ?? (await deps.resolveIdentity());
+  const identity = parsed.options.identity ?? (await store.actingIdentity());
   const result = await graph.claim({ id: parsed.target }, identity);
 
   if (parsed.options.json === true) {
@@ -888,10 +867,10 @@ async function runClaim(
 async function runRelease(
   parsed: ParsedGraphReleaseArgs,
   graph: WorkGraph,
+  store: GraphStore,
   repo: string,
-  deps: GraphCliDeps,
 ): Promise<string> {
-  const identity = parsed.options.identity ?? (await deps.resolveIdentity());
+  const identity = parsed.options.identity ?? (await store.actingIdentity());
   const result = await graph.release({ id: parsed.target }, identity);
 
   if (parsed.options.json === true) {
@@ -998,9 +977,10 @@ async function runClose(
   parsed: ParsedGraphCloseArgs,
   graph: WorkGraph,
   store: GraphStore,
-  repo: string,
+  repoRef: RepoRef,
   deps: GraphCliDeps,
 ): Promise<string> {
+  const repo = displayRepo(repoRef);
   const ref: NodeRef = { id: parsed.target };
   const state = await graph.readNode(ref);
 
@@ -1147,9 +1127,9 @@ async function runClose(
     );
   }
 
-  const identity = parsed.options.identity ?? (await deps.resolveIdentity());
+  const identity = parsed.options.identity ?? (await store.actingIdentity());
   const probes = state.node.probes ?? [];
-  const registry = await deps.loadProbeRegistry(repo);
+  const registry = await deps.loadProbeRegistry(repoRef);
   const { probeDir, probeTrees } = await prepareProbeTrees(probes, deps);
 
   const probeResults = await deps.runProbes(probes, registry, probeDir);
@@ -1261,7 +1241,7 @@ async function runClose(
     }
   }
 
-  const confinement = await deps.checkConfinement();
+  const confinement = await store.checkConfinement();
   const { attestation, facts } = deriveAttestation({
     backendCapability: store.attestation,
     actingIdentity: identity,
@@ -1476,11 +1456,33 @@ async function runDecisions(parsed: ParsedGraphDecisionsArgs, graph: WorkGraph, 
   return [`Decisions — root ${parsed.target} (${repo}), derived from close receipts`, "", rendered].join("\n");
 }
 
-export async function runGraphCli(parsed: ParsedGraphArgs, overrides: Partial<GraphCliDeps> = {}): Promise<string> {
+/**
+ * Which store the verb opens, and the target and edge ids as that store reads
+ * them — through the bridge's {@link resolveNodeTarget}, so a verb and a
+ * bridged plan step can never resolve one ref two ways. A cross-store target or
+ * edge refuses as a usage error.
+ */
+async function resolveGraphTarget(
+  parsed: ParsedGraphArgs,
+  deps: GraphCliDeps,
+): Promise<{ repo: RepoRef; parsed: ParsedGraphArgs }> {
+  try {
+    const { repo, id: target } = await resolveNodeTarget(parsed.target, parsed.options.repo, deps.resolveRepo);
+    if (parsed.action !== "add") return { repo, parsed: { ...parsed, target } };
+    const blockedBy = parsed.options.blockedBy.map((id) => localNodeId(id, repo));
+    return { repo, parsed: { ...parsed, target, options: { ...parsed.options, blockedBy } } };
+  } catch (error) {
+    if (error instanceof WorkGraphError && error.code === "invalid-node") throw new SomaCliError(error.message, 1);
+    throw error;
+  }
+}
+
+export async function runGraphCli(input: ParsedGraphArgs, overrides: Partial<GraphCliDeps> = {}): Promise<string> {
   const deps: GraphCliDeps = { ...defaultDeps(), ...overrides };
-  const repo = parsed.options.repo ?? (await deps.resolveRepo());
-  const store = deps.createStore(repo);
+  const { repo: repoRef, parsed } = await resolveGraphTarget(input, deps);
+  const store = deps.createStore(repoRef);
   const graph = new WorkGraph(store);
+  const repo = displayRepo(repoRef);
 
   switch (parsed.action) {
     case "frontier":
@@ -1488,13 +1490,13 @@ export async function runGraphCli(parsed: ParsedGraphArgs, overrides: Partial<Gr
     case "node":
       return await runNode(parsed, graph, repo);
     case "claim":
-      return await runClaim(parsed, graph, repo, deps);
+      return await runClaim(parsed, graph, store, repo);
     case "release":
-      return await runRelease(parsed, graph, repo, deps);
+      return await runRelease(parsed, graph, store, repo);
     case "add":
       return await runAdd(parsed, graph, repo, deps);
     case "close":
-      return await runClose(parsed, graph, store, repo, deps);
+      return await runClose(parsed, graph, store, repoRef, deps);
     case "audit":
       return await runAudit(parsed, graph, repo);
     case "decisions":

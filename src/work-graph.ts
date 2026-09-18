@@ -308,6 +308,15 @@ export interface ConfinementProbeRecord {
   observed: string;
 }
 
+/** What a store's confinement check reports (§3.2 conjunct 2) — see {@link GraphStore.checkConfinement}. */
+export interface ConfinementResult {
+  checked: boolean;
+  /** Every identity on the store's forge the session could reach with the token env stripped. */
+  reachableIdentities: string[];
+  at: string;
+  probes: ConfinementProbeRecord[];
+}
+
 /**
  * A ratification recorded on a close receipt.
  *
@@ -616,6 +625,24 @@ function redactAll(text: string, root: string): string {
 export interface GraphStore {
   /** Backend capability, not a per-receipt verdict — see {@link AttestationCapability}. */
   readonly attestation: AttestationCapability;
+  /**
+   * The identity this session acts as **on this store's forge** (#537 D2). One
+   * session can be `jcfischer` on GitHub and `jens-christian.fischer` on GitLab,
+   * so the identity is the store's to name, never a process-wide fact.
+   */
+  actingIdentity(): Promise<string>;
+  /**
+   * §3.2 conjunct 2, **per backend** (#537 D2): the store runs its own forge's
+   * probe set, scoped to its host. A GitHub token cannot forge a GitLab award, so
+   * a close on one forge never probes the other's credentials — and a check
+   * shaped for one forge must never run against the other, where it would find
+   * nothing and report clean while the real credential sits somewhere it did not
+   * look.
+   *
+   * May lower `attestation`, never raise it on its own. A store that cannot
+   * check reports `checked: false`, which reads as unconfined.
+   */
+  checkConfinement(): Promise<ConfinementResult>;
   /** Store assigns the id. Callers reach this through {@link WorkGraph.createNode}, which validates first. */
   createNode(spec: CreateNodeSpec): Promise<NodeRef>;
   addBlockingEdge(blocker: NodeRef, blocked: NodeRef): Promise<void>;
