@@ -122,15 +122,31 @@ export function formatRepoRef(repo: RepoRef): string {
   return `${repo.forge}:${repo.host}/${repo.path}`;
 }
 
+/** A node number: positive, no leading zero. The one definition every id parser uses. */
+const NODE_NUMBER = "([1-9]\\d*)";
+const BARE_NODE = new RegExp(`^#?${NODE_NUMBER}$`, "u");
+const LOCATED_NODE = new RegExp(`^(.+)([#&])${NODE_NUMBER}$`, "u");
+
+/** A bare node number, `12` or `#12`, as its iid; undefined for anything else. */
+export function parseBareNodeNumber(text: string): number | undefined {
+  const match = BARE_NODE.exec(text.trim());
+  return match === null ? undefined : Number(match[1]);
+}
+
+/** `<path><#|&><iid>` — a GitLab store-local id, or the tail of a qualified ref. */
+export function parseLocatedNodeId(text: string): { path: string; sigil: "#" | "&"; iid: number } | undefined {
+  const match = LOCATED_NODE.exec(text.trim());
+  return match === null ? undefined : { path: match[1], sigil: match[2] as "#" | "&", iid: Number(match[3]) };
+}
+
 /** Parse a qualified node ref (`forge:host/path#N` or, on GitLab, `forge:host/group&N`). */
 export function parseQualifiedNodeRef(text: string): QualifiedNodeRef {
   const trimmed = text.trim();
-  const match = /^(.*)([#&])([1-9]\d*)$/u.exec(trimmed);
-  if (match === null) throw refError(trimmed, "a node ref ends in #<number> (or &<number> for a GitLab epic)");
-  const repo = parseRepoRef(match[1]);
-  const sigil = match[2] as "#" | "&";
-  if (sigil === "&" && repo.forge !== "gitlab") throw refError(trimmed, "only GitLab has epics (&N)");
-  return { repo, sigil, iid: Number(match[3]) };
+  const located = parseLocatedNodeId(trimmed);
+  if (located === undefined) throw refError(trimmed, "a node ref ends in #<number> (or &<number> for a GitLab epic)");
+  const repo = parseRepoRef(located.path);
+  if (located.sigil === "&" && repo.forge !== "gitlab") throw refError(trimmed, "only GitLab has epics (&N)");
+  return { repo, sigil: located.sigil, iid: located.iid };
 }
 
 export function formatQualifiedNodeRef(ref: QualifiedNodeRef): string {

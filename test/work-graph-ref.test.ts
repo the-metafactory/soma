@@ -5,6 +5,8 @@ import {
   formatQualifiedNodeRef,
   formatRepoRef,
   isQualifiedRef,
+  parseBareNodeNumber,
+  parseLocatedNodeId,
   parseQualifiedNodeRef,
   parseRemoteUrl,
   parseRepoRef,
@@ -136,4 +138,14 @@ test("local paths, drives and one-segment paths are not remotes", () => {
 
 test("a malformed %-escape is not a remote — undefined, never a thrown URIError", () => {
   expect(parseRemoteUrl("https://gitlab.example.com/a%zz/b.git")).toBeUndefined();
+});
+
+test("one grammar for node numbers: bare and located ids", () => {
+  expect(parseBareNodeNumber("12")).toBe(12);
+  expect(parseBareNodeNumber(" #12 ")).toBe(12);
+  expect(parseBareNodeNumber("012")).toBeUndefined();
+  expect(parseBareNodeNumber("root")).toBeUndefined();
+  expect(parseLocatedNodeId("csoc/soc-reporter#12")).toEqual({ path: "csoc/soc-reporter", sigil: "#", iid: 12 });
+  expect(parseLocatedNodeId("csoc&5")).toEqual({ path: "csoc", sigil: "&", iid: 5 });
+  expect(parseLocatedNodeId("#12")).toBeUndefined();
 });

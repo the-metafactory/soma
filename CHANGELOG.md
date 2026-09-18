@@ -31,7 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pieces. Every `gh` call
   the store makes, the probes included, now passes `--hostname`, github.com
   included, so an ambient `GH_HOST` cannot redirect a read, a write or the
-  check. Receipt probe records name the host they probed
+  check. (Probed against gh 2.95.0: with `GH_HOST=example.invalid`,
+  `gh api user` fails connecting to example.invalid, while `gh api --hostname
+  github.com user` answers from github.com.) Receipt probe records name the host they probed
   (`gh auth status --hostname github.com (token env stripped)`).
 - **Qualified node refs resolve in one place** (`resolveNodeTarget` in
   `work-graph-bridge`): the graph verbs and the planSteps bridge share it, so a

@@ -24,6 +24,8 @@ import {
   formatQualifiedNodeRef,
   formatRepoRef,
   isQualifiedRef,
+  parseBareNodeNumber,
+  parseLocatedNodeId,
   parseQualifiedNodeRef,
   parseRemoteUrl,
   parseRepoRef,
@@ -204,8 +206,9 @@ export function localNodeId(text: string, repo: RepoRef): string {
     // A GitLab store is host-scoped and its ids carry their project
     // (`storeNodeId`), so a bare `12` or `#12` is read in the repo's own path —
     // one id shape per store, whichever way the node was named, built in one place.
-    const bare = /^#?([1-9]\d*)$/u.exec(text.trim());
-    return repo.forge === "gitlab" && bare !== null ? storeNodeId({ repo, sigil: "#", iid: Number(bare[1]) }) : text;
+    // On GitHub the same `#12` is just `12`: the store's id is the bare number.
+    const iid = parseBareNodeNumber(text);
+    return iid === undefined ? text : storeNodeId({ repo, sigil: "#", iid });
   }
   const qualified = parseQualifiedNodeRef(text);
   if (!sameStore(qualified.repo, repo)) {
@@ -262,16 +265,12 @@ function optionalCanonical(canonical: string | undefined): { canonical?: string 
  */
 function qualifyStoreId(repo: RepoRef, id: string): string | undefined {
   if (repo.forge === "github") {
-    const bare = /^#?([1-9]\d*)$/u.exec(id.trim());
-    return bare === null ? undefined : formatQualifiedNodeRef({ repo, sigil: "#", iid: Number(bare[1]) });
+    const iid = parseBareNodeNumber(id);
+    return iid === undefined ? undefined : formatQualifiedNodeRef({ repo, sigil: "#", iid });
   }
-  const located = /^(.+)([#&])([1-9]\d*)$/u.exec(id.trim());
-  if (located === null) return undefined;
-  return formatQualifiedNodeRef({
-    repo: validateRepoRef({ ...repo, path: located[1] }),
-    sigil: located[2] as "#" | "&",
-    iid: Number(located[3]),
-  });
+  const located = parseLocatedNodeId(id);
+  if (located === undefined) return undefined;
+  return formatQualifiedNodeRef({ repo: validateRepoRef({ ...repo, path: located.path }), sigil: located.sigil, iid: located.iid });
 }
 
 export interface ReadNodeForBridgeOptions {

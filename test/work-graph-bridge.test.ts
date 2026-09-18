@@ -270,3 +270,8 @@ test("GitLab ids come back as canonical refs — issue, bare, and epic alike", a
   // A non-numeric id (a test double's root) has no canonical form and is reported as the store gave it.
   expect((await resolveNodeTarget("root", undefined, async () => SOMA)).canonical).toBeUndefined();
 });
+
+test("on GitHub a #-prefixed id is the bare number the store reads", async () => {
+  expect((await resolveNodeTarget("#498", undefined, async () => SOMA)).id).toBe("498");
+  expect((await resolveNodeTarget("#498", undefined, async () => SOMA)).canonical).toBe("github:github.com/the-metafactory/soma#498");
+});

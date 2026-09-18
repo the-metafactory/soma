@@ -396,8 +396,11 @@ test("--blocked-by takes a qualified ref in the same store, and refuses one from
   await run(add("github:github.com/the-metafactory/soma#498"), store);
   expect(store.edges).toEqual([["498", "900"]]);
 
+  await run(add("#498"), store);
+  expect(store.edges).toEqual([["498", "900"], ["498", "901"]]);
+
   expect(await failure(add("github:github.com/the-metafactory/arc#498"), store)).toContain("never spans two stores");
-  expect(store.created).toHaveLength(1);
+  expect(store.created).toHaveLength(2);
 });
 
 test("the store names the acting identity (#537 D2)", async () => {
