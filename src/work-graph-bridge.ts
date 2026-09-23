@@ -162,6 +162,9 @@ export async function resolveGraphRepo(explicit?: string, deps: RepoResolutionDe
 /**
  * The probe-registry key for a repo. Registry v2 keys include the host, so a
  * same-path GitHub declaration cannot authorise a GitLab project (#536 D2).
+ * GitHub stores are github.com-only and GitLab stores never use github.com, so
+ * the supported backends give each host/path one forge identity. GitHub
+ * Enterprise is intentionally out of scope for this registry version (#533).
  */
 export function probeRegistryKey(repo: RepoRef): string {
   if (repo.forge === "github" && repo.host !== GITHUB_DOTCOM) {

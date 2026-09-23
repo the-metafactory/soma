@@ -406,7 +406,9 @@ Declaration rules, all deny-by-default:
   hosts cannot use this registry. A v1 registry refuses with migration guidance:
   prefix each existing key with `github.com/`, then set `version` to 2. A
   same-path GitHub declaration therefore cannot authorise a GitLab project
-  (#536 D2, #692).
+  (#536 D2, #692). That prefix migration applies to v1's github.com-only keys;
+  a new GitLab declaration uses its actual GitLab hostname. GitHub Enterprise
+  is out of scope for this registry version.
 - Repository keys are compared case-insensitively. The **whole document** is
   validated, not just the entry being read: in an authorisation list a
   silently-ignored typo is what makes an adopter believe something is declared
