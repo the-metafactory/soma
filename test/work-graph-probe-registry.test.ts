@@ -14,7 +14,7 @@ import {
 
 const REPO = "github.com/the-metafactory/soma";
 const GITLAB_REPO = "gitlab-int.switch.ch/the-metafactory/soma";
-const POLICY_REPO = "github:github.com/the-metafactory/soma";
+const POLICY_REPO = `github:${REPO}`;
 const PATH = "/home/.soma/policy/probe-registry.json";
 
 function parse(raw: string, repo = REPO, homeDir?: string): ProbeRegistry {
@@ -114,9 +114,18 @@ test("malformed documents refuse with a reason that names the fix", () => {
   expect(invalidReason(parse(JSON.stringify({ version: 2, repos: { "github.com/a/b": { commands: [{ run: "x", cwd: "/x", timeout: 5 }] } } })))).toContain("unknown key");
 });
 
-test("v1 and host-less v2 keys refuse with the explicit github.com migration", () => {
+test("v1 and malformed v2 keys refuse with explicit migration guidance", () => {
   expect(invalidReason(parse(JSON.stringify({ version: 1, repos: { "the-metafactory/soma": {} } })))).toContain('prefix every key with "github.com/"');
-  expect(invalidReason(parse(JSON.stringify({ version: 2, repos: { "the-metafactory/soma": {} } })))).toContain("host-qualified");
+  expect(invalidReason(parse(JSON.stringify({ version: 2, repos: { "the-metafactory": {} } })))).toContain("host-qualified");
+});
+
+test("registry keys use the ref grammar, including single-label hosts and no port or userinfo", () => {
+  const local = loaded(parse(JSON.stringify({ version: 2, repos: { "gitlab/csoc/reporter": { commands: [] } } }), "gitlab/csoc/reporter"));
+  expect(local.commands).toEqual([]);
+
+  for (const key of ["github.com:8443/owner/repo", "you@github.com/owner/repo"]) {
+    expect(invalidReason(parse(JSON.stringify({ version: 2, repos: { [key]: {} } })))).toContain("host-qualified");
+  }
 });
 
 test("same-path GitHub and GitLab entries remain distinct", () => {

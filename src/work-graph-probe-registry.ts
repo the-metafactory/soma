@@ -53,6 +53,7 @@
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import type { Probe, ProbeResult } from "./work-graph";
+import { parseHostPath } from "./work-graph-ref";
 
 /** Where the registry sits inside soma-home. */
 export const PROBE_REGISTRY_RELATIVE_PATH = "policy/probe-registry.json";
@@ -189,7 +190,7 @@ export function parseProbeRegistry(input: ParseProbeRegistryInput): ProbeRegistr
   }
   if (document.version === 1) {
     return invalid(
-      'uses registry version 1, whose host-less keys are no longer safe. Rewrite every repos key: prefix every key with "github.com/", then set "version" to 2.',
+      `uses registry version 1, whose host-less keys are no longer safe. Rewrite every repos key: prefix every key with "github.com/", then set "version" to ${PROBE_REGISTRY_VERSION}.`,
     );
   }
   if (document.version !== PROBE_REGISTRY_VERSION) {
@@ -469,20 +470,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function normalizeRegistryRepoKey(repo: string): string | undefined {
-  const trimmed = repo.trim();
-  const slash = trimmed.indexOf("/");
-  if (slash <= 0 || slash === trimmed.length - 1) return undefined;
-
-  const host = normalizeHost(trimmed.slice(0, slash));
-  const path = trimmed.slice(slash + 1);
-  if (host === undefined || !host.includes(".") || !isRepositoryPath(path)) return undefined;
-
-  return `${host}/${path.toLowerCase()}`;
-}
-
-function isRepositoryPath(path: string): boolean {
-  const segments = path.split("/");
-  return segments.length > 0 && segments.every((segment) => /^[A-Za-z0-9_.][A-Za-z0-9_.-]*$/u.test(segment) && segment !== "." && segment !== "..");
+  const parsed = parseHostPath(repo);
+  return parsed === undefined ? undefined : `${parsed.host}/${parsed.path.toLowerCase()}`;
 }
 
 /** `example.com` → `example.com`; anything carrying a scheme, port, path or userinfo → `undefined`. */
