@@ -119,13 +119,11 @@ test("v1 and malformed v2 keys refuse with explicit migration guidance", () => {
   expect(invalidReason(parse(JSON.stringify({ version: 2, repos: { "the-metafactory": {} } })))).toContain("host-qualified");
 });
 
-test("registry keys use the ref grammar, including single-label hosts and no port or userinfo", () => {
-  const local = loaded(parse(JSON.stringify({ version: 2, repos: { "gitlab/csoc/reporter": { commands: [] } } }), "gitlab/csoc/reporter"));
-  expect(local.commands).toEqual([]);
-
+test("registry keys use the ref grammar and require a dotted host to disambiguate legacy keys", () => {
   for (const key of ["github.com:8443/owner/repo", "you@github.com/owner/repo"]) {
     expect(invalidReason(parse(JSON.stringify({ version: 2, repos: { [key]: {} } })))).toContain("host-qualified");
   }
+  expect(invalidReason(parse(JSON.stringify({ version: 2, repos: { "gitlab/csoc/reporter": {} } })))).toContain("host-qualified");
 });
 
 test("same-path GitHub and GitLab entries remain distinct", () => {

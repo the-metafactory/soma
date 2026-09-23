@@ -471,7 +471,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function normalizeRegistryRepoKey(repo: string): string | undefined {
   const parsed = parseHostPath(repo);
-  return parsed === undefined ? undefined : `${parsed.host}/${parsed.path.toLowerCase()}`;
+  return parsed === undefined || !parsed.host.includes(".") ? undefined : `${parsed.host}/${parsed.path.toLowerCase()}`;
 }
 
 /** `example.com` → `example.com`; anything carrying a scheme, port, path or userinfo → `undefined`. */

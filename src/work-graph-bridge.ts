@@ -164,6 +164,18 @@ export async function resolveGraphRepo(explicit?: string, deps: RepoResolutionDe
  * same-path GitHub declaration cannot authorise a GitLab project (#536 D2).
  */
 export function probeRegistryKey(repo: RepoRef): string {
+  if (repo.forge === "github" && repo.host !== GITHUB_DOTCOM) {
+    throw new WorkGraphError("backend", `GitHub probe registry keys support github.com only; ${formatRepoRef(repo)} is not one.`);
+  }
+  if (repo.forge === "gitlab" && repo.host === GITHUB_DOTCOM) {
+    throw new WorkGraphError("backend", `github.com is not a GitLab probe registry host.`);
+  }
+  if (!repo.host.includes(".")) {
+    throw new WorkGraphError(
+      "backend",
+      `Probe registry keys require a dotted forge hostname to distinguish them from legacy owner/name keys; ${formatRepoRef(repo)} is not one.`,
+    );
+  }
   return `${repo.host}/${repo.path}`;
 }
 
