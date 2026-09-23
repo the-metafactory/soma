@@ -85,13 +85,13 @@ import { invocationCwd } from "../path-utils";
 import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";
 
-const GRAPH_ACTIONS = ["frontier", "node", "claim", "release", "add", "close", "audit", "decisions"] as const;
+const GRAPH_ACTIONS = ["frontier", "node", "claim", "release", "add", "chart", "close", "audit", "decisions"] as const;
 type GraphAction = (typeof GRAPH_ACTIONS)[number];
 
 const EVIDENCE_KINDS: readonly WorkGraphEvidenceKind[] = ["specified", "probed", "tested", "judged", "approved"];
 
 export const GRAPH_COMMAND_HELP: { usage: string; subcommands: Record<GraphAction, string> } = {
-  usage: "Usage: soma graph <frontier|node|claim|release|add|close|audit|decisions> ...",
+  usage: "Usage: soma graph <frontier|node|claim|release|add|chart|close|audit|decisions> ...",
   subcommands: {
     frontier: "Usage: soma graph frontier <root> [--repo <owner/name>] [--json]",
     node: "Usage: soma graph node <id> [--repo <owner/name>] [--json]",
@@ -99,6 +99,7 @@ export const GRAPH_COMMAND_HELP: { usage: string; subcommands: Record<GraphActio
     release:
       "Usage: soma graph release <id> [--identity <login>] [--repo <owner/name>] [--json] — identity-bound self-release: abandon your own claim (only ever unassigns the acting identity)",
     add: "Usage: soma graph add <root> --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--kind <k>] [--label <name>]... [--body <text>|--body-file <path>] [--probe <json>]... [--blocked-by <id>]... [--budget-tokens <n>] [--budget-invocations <n>] [--budget-minutes <n>] [--repo <owner/name>] [--json]",
+    chart: "Usage: soma graph chart --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--home <group/project>] [--body <text>|--body-file <path>] [--repo <forge:host/path>] [--json]",
     close:
       "Usage: soma graph close <id> --resolution-file <path> [--gist <one line>] [--ci <checkRunId>@<headSha>] [--propose --body <text>|--body-file <path>] [--proposal-comment <id>] [--checkpoint <id>] [--evidence <json>]... [--identity <login>] [--dry-run] [--repo <owner/name>]",
     audit: "Usage: soma graph audit <root> [--repo <owner/name>] [--json]",
@@ -150,6 +151,12 @@ export interface ParsedGraphAddArgs {
   };
 }
 
+export interface ParsedGraphChartArgs {
+  command: "graph";
+  action: "chart";
+  options: GraphSharedOptions & { spec: Record<string, unknown> };
+}
+
 export interface ParsedGraphCloseArgs {
   command: "graph";
   action: "close";
@@ -194,6 +201,7 @@ export type ParsedGraphArgs =
   | ParsedGraphClaimArgs
   | ParsedGraphReleaseArgs
   | ParsedGraphAddArgs
+  | ParsedGraphChartArgs
   | ParsedGraphCloseArgs
   | ParsedGraphAuditArgs
   | ParsedGraphDecisionsArgs;
@@ -294,6 +302,10 @@ function parseAddArgs(target: string, rest: string[]): ParsedGraphAddArgs {
         options.spec.kind = readOption(rest, index, arg);
         index += 1;
         break;
+      case "--home":
+        options.spec.home = readOption(rest, index, arg);
+        index += 1;
+        break;
       case "--body":
         options.spec.body = readOption(rest, index, arg);
         index += 1;
@@ -356,6 +368,12 @@ function parseAddArgs(target: string, rest: string[]): ParsedGraphAddArgs {
   }
 
   return { command: "graph", action: "add", target, options };
+}
+
+function parseChartArgs(rest: string[]): ParsedGraphChartArgs {
+  const parsed = parseAddArgs("__chart__", rest);
+  const { blockedBy: _blockedBy, ...options } = parsed.options;
+  return { command: "graph", action: "chart", options };
 }
 
 function parseCloseArgs(target: string, rest: string[]): ParsedGraphCloseArgs {
@@ -457,6 +475,8 @@ export function parseGraphArgs(args: string[]): ParsedGraphArgs {
   if (command !== "graph" || !isGraphAction(action)) {
     throw new Error(GRAPH_COMMAND_HELP.usage);
   }
+
+  if (action === "chart") return parseChartArgs([target, ...rest]);
 
   const resolvedTarget = requireTarget(action, target);
 
@@ -937,13 +957,22 @@ async function runAdd(
   }
 
   if (parsed.options.json === true) {
-    return JSON.stringify({ repo, node: created.id, parent: parsed.target, blockedBy: parsed.options.blockedBy }, null, 2);
+    return JSON.stringify({ repo, node: created.id, parent: parsed.target, blockedBy: parsed.options.blockedBy, ...(created.rehomedFrom === undefined ? {} : { rehomedFrom: created.rehomedFrom.id, rehomedTo: created.rehomedTo?.id }) }, null, 2);
   }
 
   return [
-    `Created node ${created.id} under ${parsed.target} (${repo}).`,
+    `Created node ${created.id} under ${created.rehomedTo?.id ?? parsed.target} (${repo}).`,
+    ...(created.rehomedFrom === undefined ? [] : [`Re-homed from Task ${created.rehomedFrom.id}: GitLab Tasks require an Issue parent; linked with relates_to.`]),
     ...(edges.length > 0 ? ["", "Blocking edges:", ...edges.map((edge) => `- ${edge}`)] : []),
   ].join("\n");
+}
+
+async function runChart(parsed: ParsedGraphChartArgs, graph: WorkGraph, repo: string, deps: GraphCliDeps): Promise<string> {
+  const { bodyFile, ...rest } = parsed.options.spec;
+  const body = await resolveBody(deps, typeof rest.body === "string" ? rest.body : undefined, typeof bodyFile === "string" ? bodyFile : undefined);
+  const created = await graph.createNode({ ...rest, ...(body === undefined ? {} : { body }) });
+  if (parsed.options.json === true) return JSON.stringify({ repo, node: created.id }, null, 2);
+  return `Created typed graph root ${created.id} (${repo}).`;
 }
 
 /**
@@ -1467,6 +1496,7 @@ async function resolveGraphTarget(
   deps: GraphCliDeps,
 ): Promise<{ repo: RepoRef; parsed: ParsedGraphArgs }> {
   try {
+    if (parsed.action === "chart") return { repo: await deps.resolveRepo(parsed.options.repo), parsed };
     const { repo, id: target } = await resolveNodeTarget(parsed.target, parsed.options.repo, deps.resolveRepo);
     if (parsed.action !== "add") return { repo, parsed: { ...parsed, target } };
     const blockedBy = parsed.options.blockedBy.map((id) => localNodeId(id, repo));
@@ -1495,6 +1525,8 @@ export async function runGraphCli(input: ParsedGraphArgs, overrides: Partial<Gra
       return await runRelease(parsed, graph, store, repo);
     case "add":
       return await runAdd(parsed, graph, repo, deps);
+    case "chart":
+      return await runChart(parsed, graph, repo, deps);
     case "close":
       return await runClose(parsed, graph, store, repoRef, deps);
     case "audit":

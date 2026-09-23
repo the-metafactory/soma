@@ -796,6 +796,17 @@ export {
   type GitHubGraphStoreOptions,
 } from "./work-graph-github";
 export {
+  checkGitLabConfinement,
+  createGlabCliTransport,
+  createGitLabGraphStore,
+  glabApiArgs,
+  parseGlabApiOutput,
+  type GitLabApiRequest,
+  type GitLabApiTransport,
+  type GitLabGraphStoreOptions,
+  type GlabCliTransportOptions,
+} from "./work-graph-gitlab";
+export {
   allProbesPassed,
   authorizeProbeTree,
   boundObserved,

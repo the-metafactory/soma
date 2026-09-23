@@ -358,14 +358,16 @@ walked one node at a time, closed only through a checkpoint gate.
 soma graph frontier <root>   # open, unassigned, unblocked nodes — anywhere in the subtree
 soma graph node <id>         # its state and body
 soma graph claim <id>        # take it
+soma graph chart --title "…" --autonomy approve --checkpoint <id>  # create a typed map root
 soma graph add <root> --title "…" --autonomy approve --checkpoint <id>
 soma graph close <id> --resolution-file <path>
 soma graph audit <root>      # what the gates cannot see
 soma graph decisions <root>  # the map's resolutions, collected
 ```
 
-The store is a seam; the shipping backend is your GitHub issue tracker, which
-stays the sole authoritative record — Soma keeps no parallel copy of the graph.
+The store is a seam; GitHub and GitLab work items are supported, and the
+tracker stays the sole authoritative record — Soma keeps no parallel copy of
+the graph.
 
 **A node closes only through its gate.** Each carries an autonomy class
 (`auto` / `propose` / `approve`), a checkpoint, and — for anything machine-closable

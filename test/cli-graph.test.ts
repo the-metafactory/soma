@@ -109,7 +109,7 @@ class FakeStore implements GraphStore {
   async createNode(spec: CreateNodeSpec): Promise<NodeRef> {
     this.created.push(spec);
     const id = String(this.nextId++);
-    this.nodes.set(id, { node: { ...spec, id } as WorkGraphNode });
+    this.nodes.set(id, { node: { ...spec, id } });
     return { id };
   }
 
@@ -244,17 +244,17 @@ function autoNode(id: string, overrides: Partial<WorkGraphNode> = {}): WorkGraph
 
 // --- parsing ---------------------------------------------------------------
 
-test("the parser accepts exactly the verbs of §2.6, release included", () => {
-  for (const action of ["frontier", "node", "claim", "release", "add", "close", "audit", "decisions"]) {
+test("the parser accepts exactly the verbs of §2.6, including chart", () => {
+  for (const action of ["frontier", "node", "claim", "release", "add", "chart", "close", "audit", "decisions"]) {
     const parsed = parseGraphArgs(
-      action === "add"
-        ? ["graph", action, "495", "--title", "t", "--autonomy", "approve", "--checkpoint", "cp-t"]
+      action === "add" || action === "chart"
+        ? ["graph", action, ...(action === "add" ? ["495"] : []), "--title", "t", "--autonomy", "approve", "--checkpoint", "cp-t"]
         : ["graph", action, "495"],
     );
     expect(parsed.action).toBe(action as never);
   }
   expect(() => parseGraphArgs(["graph", "delete", "495"])).toThrow(
-    /frontier\|node\|claim\|release\|add\|close\|audit\|decisions/u,
+    /frontier\|node\|claim\|release\|add\|chart\|close\|audit\|decisions/u,
   );
 });
 

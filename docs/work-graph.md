@@ -593,6 +593,11 @@ interface GraphStore {
   different login on each forge, and a credential for one forge cannot forge an
   award on the other, so each store names its acting identity and runs its own
   forge's conjunct-2 probe set, scoped to its host.
+- **GitLab maps are Epic → Issue → Task** (#534). `soma graph chart` creates a
+  typed root; a GitLab root must declare `home: <group/project>`, under its
+  Epic group. New route nodes go to that home project and scaffolds inherit
+  their Issue's project. At the Task floor, `add` re-homes to the nearest Issue
+  and records a native `relates_to` provenance edge.
 - Day-one backend: **GitHub** (attestation capability: `verifiable` — the
   backend can attest reaction/comment authorship via its API). Backend
   capability is necessary, not sufficient: a *receipt* is marked verified
@@ -618,6 +623,8 @@ soma graph add <root> ...          # create node (+ edges) — additive, structu
                                    # validated; --checkpoint is REQUIRED, since a
                                    # node without one can never close and no verb
                                    # attaches one later
+soma graph chart ...               # create a typed map root; GitLab requires
+                                   # --home <group/project>
 soma graph close <node>            # runs declared probes; refuses a hollow close;
                                    # --gist records the map index's one-line entry
 soma graph audit <root>            # what the gates cannot see: closed nodes with

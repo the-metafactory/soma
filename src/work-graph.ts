@@ -119,6 +119,8 @@ export interface WorkGraphNodeBase {
    */
   checkpointId?: string;
   budget?: NodeBudget;
+  /** GitLab Epic maps declare their one creation project (#535 D5). */
+  home?: string;
 }
 
 /**
@@ -184,6 +186,8 @@ export interface NodeState {
   /** Read from the backend's API author field, never from body text (§3.2 conjunct 3). */
   author: string;
   parent?: NodeRef;
+  /** Native work-item type, supplied by stores for capability routing only. */
+  trackerType?: string;
   body?: string;
   url?: string;
   /**
@@ -626,6 +630,12 @@ export interface GraphStore {
   /** Backend capability, not a per-receipt verdict — see {@link AttestationCapability}. */
   readonly attestation: AttestationCapability;
   /**
+   * Native tracker types this store can parent a newly-created Task under.
+   * The contract layer owns any re-home decision; the store only reports its
+   * transport capability (#534 D2).
+   */
+  readonly allowedParentTypes?: readonly string[];
+  /**
    * The identity this session acts as **on this store's forge** (#537 D2). One
    * session can be `jcfischer` on GitHub and `jens-christian.fischer` on GitLab,
    * so the identity is the store's to name, never a process-wide fact.
@@ -645,6 +655,8 @@ export interface GraphStore {
   checkConfinement(): Promise<ConfinementResult>;
   /** Store assigns the id. Callers reach this through {@link WorkGraph.createNode}, which validates first. */
   createNode(spec: CreateNodeSpec): Promise<NodeRef>;
+  /** Native provenance edge used when a backend's hierarchy reaches its floor. */
+  addRelatedEdge?(source: NodeRef, related: NodeRef): Promise<void>;
   addBlockingEdge(blocker: NodeRef, blocked: NodeRef): Promise<void>;
   readNode(ref: NodeRef): Promise<NodeState>;
   /**
@@ -933,6 +945,7 @@ export function parseNodeSpec(input: unknown): CreateNodeSpec {
   const autonomy = parseAutonomy(record.autonomy);
   const kind = normalizeKind(record.kind);
   const checkpointId = optionalString(record, "checkpointId", "invalid-node", "node spec");
+  const home = optionalString(record, "home", "invalid-node", "node spec");
   const budget = record.budget === undefined || record.budget === null ? undefined : parseBudget(record.budget);
   const body = optionalString(record, "body", "invalid-node", "node spec");
   const parentId = record.parent === undefined || record.parent === null
@@ -960,6 +973,7 @@ export function parseNodeSpec(input: unknown): CreateNodeSpec {
     title,
     ...(kind === undefined ? {} : { kind }),
     ...(checkpointId === undefined ? {} : { checkpointId }),
+    ...(home === undefined ? {} : { home }),
     ...(budget === undefined ? {} : { budget }),
     ...(body === undefined ? {} : { body }),
     ...(parentId === undefined ? {} : { parent: { id: parentId } }),
@@ -1363,8 +1377,27 @@ export class WorkGraph {
   }
 
   /** Validate at the boundary, then create. Additive mutation — free after structural validation (§1 clause 2). */
-  async createNode(spec: unknown): Promise<NodeRef> {
-    return await this.store.createNode(parseNodeSpec(spec));
+  async createNode(spec: unknown): Promise<NodeRef & { rehomedFrom?: NodeRef; rehomedTo?: NodeRef }> {
+    const parsed = parseNodeSpec(spec);
+    if (parsed.parent === undefined || this.store.allowedParentTypes === undefined) return await this.store.createNode(parsed);
+
+    const requested = await this.store.readNode(parsed.parent);
+    // Epic → Issue is legal. The fixed hierarchy floor is only reached when the
+    // requested parent is already a Task; then create the sibling Task beneath
+    // the nearest Issue and retain the caller's intent as a native relation.
+    if (requested.trackerType !== "Task") return await this.store.createNode(parsed);
+    let parent = requested.parent;
+    while (parent !== undefined) {
+      const candidate = await this.store.readNode(parent);
+      if (candidate.trackerType !== undefined && this.store.allowedParentTypes.includes(candidate.trackerType)) {
+        if (this.store.addRelatedEdge === undefined) throw new WorkGraphError("backend", "store declares Task-parent limits but cannot write the required relates_to provenance edge");
+        const created = await this.store.createNode({ ...parsed, parent: candidate.ref });
+        await this.store.addRelatedEdge(requested.ref, created);
+        return { ...created, rehomedFrom: requested.ref, rehomedTo: candidate.ref };
+      }
+      parent = candidate.parent;
+    }
+    throw new WorkGraphError("invalid-node", `cannot re-home Task parent ${requested.ref.id}: no allowed ancestor`);
   }
 
   async readNode(ref: NodeRef): Promise<NodeState> {

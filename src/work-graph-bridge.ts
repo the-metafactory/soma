@@ -16,6 +16,7 @@
 import { WorkGraph, WorkGraphError } from "./work-graph";
 import type { BridgedNodeReport, GraphStore } from "./work-graph";
 import { createGitHubGraphStore } from "./work-graph-github";
+import { createGitLabGraphStore } from "./work-graph-gitlab";
 import { runCommand, type CommandRequest } from "./work-graph-probes";
 import { invocationCwd } from "./path-utils";
 import {
@@ -177,8 +178,8 @@ export function probeRegistryKey(repo: RepoRef): string {
 
 /**
  * The store for a ref (#535 D1). The forge in the ref decides, so a GitHub store
- * never opens a GitLab graph. The GitLab backend is not built yet (#539's slice 3);
- * until it is, a GitLab ref refuses here rather than being read by the wrong store.
+ * never opens a GitLab graph. Each backend receives only the host named in the
+ * ref, never an ambient CLI host.
  *
  * A GitHub ref on any host but github.com refuses in the GitHub store's own
  * constructor (see `createGitHubGraphStore`), so no entry point can skip it.
@@ -188,10 +189,7 @@ export function createGraphStore(repo: RepoRef): GraphStore {
     case "github":
       return createGitHubGraphStore({ repo: repo.path, host: repo.host });
     case "gitlab":
-      throw new WorkGraphError(
-        "backend",
-        `${formatRepoRef(repo)} is a GitLab store, and this soma has no GitLab work-graph backend yet.`,
-      );
+      return createGitLabGraphStore({ host: repo.host, scope: repo.path });
   }
 }
 

@@ -377,6 +377,7 @@ class FakeStore implements GraphStore {
   readonly closed: { ref: NodeRef; receipt: CloseReceipt; expectedGatedNodeHash?: string }[] = [];
   readonly created: CreateNodeSpec[] = [];
   readonly edges: [string, string][] = [];
+  readonly related: [string, string][] = [];
   readonly claims: string[] = [];
   private nextId = 1000;
 
@@ -408,6 +409,10 @@ class FakeStore implements GraphStore {
     this.edges.push([blocker.id, blocked.id]);
     const entry = this.nodes.get(blocked.id);
     if (entry) entry.blockers.push(blocker.id);
+  }
+
+  async addRelatedEdge(source: NodeRef, related: NodeRef): Promise<void> {
+    this.related.push([source.id, related.id]);
   }
 
   async readNode(ref: NodeRef): Promise<NodeState> {
@@ -473,6 +478,18 @@ test("createNode validates before the store is ever touched", async () => {
 
   await graph.createNode({ title: "t", autonomy: "auto", probes: [PASSING_PROBE] });
   expect(store.created).toHaveLength(1);
+});
+
+test("a Task parent re-homes to its nearest Issue and retains native provenance", async () => {
+  const store = new FakeStore();
+  Object.defineProperty(store, "allowedParentTypes", { value: ["Issue"] });
+  store.add("issue", { trackerType: "Issue" });
+  store.add("task", { trackerType: "Task", parent: { id: "issue" } });
+  const created = await new WorkGraph(store).createNode({ title: "scaffold", autonomy: "approve", checkpointId: "cp", parent: { id: "task" } });
+  expect(store.created[0]?.parent).toEqual({ id: "issue" });
+  expect(store.related).toEqual([["task", created.id]]);
+  expect(created.rehomedFrom).toEqual({ id: "task" });
+  expect(created.rehomedTo).toEqual({ id: "issue" });
 });
 
 test("a node cannot block itself", async () => {
