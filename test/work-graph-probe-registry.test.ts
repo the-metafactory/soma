@@ -12,7 +12,9 @@ import {
   type ProbeRegistry,
 } from "../src/index";
 
-const REPO = "the-metafactory/soma";
+const REPO = "github.com/the-metafactory/soma";
+const GITLAB_REPO = "gitlab-int.switch.ch/the-metafactory/soma";
+const POLICY_REPO = `github:${REPO}`;
 const PATH = "/home/.soma/policy/probe-registry.json";
 
 function parse(raw: string, repo = REPO, homeDir?: string): ProbeRegistry {
@@ -30,9 +32,9 @@ function loaded(registry: ProbeRegistry): Extract<ProbeRegistry, { status: "load
 }
 
 const GOOD = JSON.stringify({
-  version: 1,
+  version: 2,
   repos: {
-    "the-metafactory/soma": {
+    [REPO]: {
       commands: [{ run: "bun test", cwd: "/repo" }],
       urlHosts: ["status.example.test"],
     },
@@ -45,10 +47,10 @@ const GOOD = JSON.stringify({
 
 test("a well-formed document yields the declarations for the requested repo only", () => {
   const raw = JSON.stringify({
-    version: 1,
+    version: 2,
     repos: {
-      "the-metafactory/soma": { commands: [{ run: "bun test", cwd: "/repo" }], urlHosts: ["a.example.test"] },
-      "someone/else": { commands: [{ run: "rm -rf /", cwd: "/elsewhere" }], urlHosts: ["b.example.test"] },
+      [REPO]: { commands: [{ run: "bun test", cwd: "/repo" }], urlHosts: ["a.example.test"] },
+      "github.com/someone/else": { commands: [{ run: "rm -rf /", cwd: "/elsewhere" }], urlHosts: ["b.example.test"] },
     },
   });
 
@@ -56,25 +58,25 @@ test("a well-formed document yields the declarations for the requested repo only
   expect(mine.commands).toEqual([{ run: "bun test", cwd: "/repo" }]);
   expect(mine.urlHosts).toEqual(["a.example.test"]);
 
-  const theirs = loaded(parse(raw, "someone/else"));
+  const theirs = loaded(parse(raw, "github.com/someone/else"));
   expect(theirs.commands).toEqual([{ run: "rm -rf /", cwd: "/elsewhere" }]);
 });
 
 test("repository keys match case-insensitively, and a duplicate key is refused rather than resolved", () => {
-  const mixedCase = loaded(parse(JSON.stringify({ version: 1, repos: { "The-MetaFactory/Soma": { commands: [{ run: "bun test", cwd: "/repo" }] } } })));
+  const mixedCase = loaded(parse(JSON.stringify({ version: 2, repos: { "GitHub.Com/The-MetaFactory/Soma": { commands: [{ run: "bun test", cwd: "/repo" }] } } })));
   expect(mixedCase.commands).toHaveLength(1);
 
   const duplicate = parse(
     JSON.stringify({
-      version: 1,
-      repos: { "the-metafactory/soma": { commands: [] }, "The-Metafactory/Soma": { commands: [{ run: "x", cwd: "/repo" }] } },
+      version: 2,
+      repos: { [REPO]: { commands: [] }, "GitHub.Com/The-Metafactory/Soma": { commands: [{ run: "x", cwd: "/repo" }] } },
     }),
   );
   expect(invalidReason(duplicate)).toContain("more than once");
 });
 
 test("a repo with no entry loads empty rather than erroring — same refusal, different message", () => {
-  const registry = loaded(parse(GOOD, "someone/unknown"));
+  const registry = loaded(parse(GOOD, "github.com/someone/unknown"));
   expect(registry.commands).toEqual([]);
   expect(registry.urlHosts).toEqual([]);
 
@@ -89,10 +91,10 @@ test("the whole document is validated, not just the entry being asked for", () =
   // something is declared when it is not.
   const registry = parse(
     JSON.stringify({
-      version: 1,
+      version: 2,
       repos: {
-        "the-metafactory/soma": { commands: [{ run: "bun test", cwd: "/repo" }] },
-        "someone/else": { comands: [] },
+        [REPO]: { commands: [{ run: "bun test", cwd: "/repo" }] },
+        "github.com/someone/else": { comands: [] },
       },
     }),
   );
@@ -102,31 +104,56 @@ test("the whole document is validated, not just the entry being asked for", () =
 test("malformed documents refuse with a reason that names the fix", () => {
   expect(invalidReason(parse("{"))).toContain("not valid JSON");
   expect(invalidReason(parse("[]"))).toContain("must be a JSON object");
-  expect(invalidReason(parse(JSON.stringify({ version: 2, repos: {} })))).toContain(`must declare "version": 1`);
-  expect(invalidReason(parse(JSON.stringify({ repos: {} })))).toContain(`must declare "version": 1`);
-  expect(invalidReason(parse(JSON.stringify({ version: 1, repos: [] })))).toContain(`"repos" must be an object`);
-  expect(invalidReason(parse(JSON.stringify({ version: 1, repos: {}, allow: true })))).toContain("unknown top-level key");
-  expect(invalidReason(parse(JSON.stringify({ version: 1, repos: { "a/b": { commands: {} } } })))).toContain("must be an array");
-  expect(invalidReason(parse(JSON.stringify({ version: 1, repos: { "a/b": { commands: [{ run: "x" }] } } })))).toContain("cwd must be a non-empty string");
-  expect(invalidReason(parse(JSON.stringify({ version: 1, repos: { "a/b": { commands: [{ cwd: "/x" }] } } })))).toContain("run must be a non-empty string");
-  expect(invalidReason(parse(JSON.stringify({ version: 1, repos: { "a/b": { commands: [{ run: "x", cwd: "/x", timeout: 5 }] } } })))).toContain("unknown key");
+  expect(invalidReason(parse(JSON.stringify({ version: 3, repos: {} })))).toContain(`must declare "version": 2`);
+  expect(invalidReason(parse(JSON.stringify({ repos: {} })))).toContain(`must declare "version": 2`);
+  expect(invalidReason(parse(JSON.stringify({ version: 2, repos: [] })))).toContain(`"repos" must be an object`);
+  expect(invalidReason(parse(JSON.stringify({ version: 2, repos: {}, allow: true })))).toContain("unknown top-level key");
+  expect(invalidReason(parse(JSON.stringify({ version: 2, repos: { "github.com/a/b": { commands: {} } } })))).toContain("must be an array");
+  expect(invalidReason(parse(JSON.stringify({ version: 2, repos: { "github.com/a/b": { commands: [{ run: "x" }] } } })))).toContain("cwd must be a non-empty string");
+  expect(invalidReason(parse(JSON.stringify({ version: 2, repos: { "github.com/a/b": { commands: [{ cwd: "/x" }] } } })))).toContain("run must be a non-empty string");
+  expect(invalidReason(parse(JSON.stringify({ version: 2, repos: { "github.com/a/b": { commands: [{ run: "x", cwd: "/x", timeout: 5 }] } } })))).toContain("unknown key");
+});
+
+test("v1 and malformed v2 keys refuse with explicit migration guidance", () => {
+  expect(invalidReason(parse(JSON.stringify({ version: 1, repos: { "the-metafactory/soma": {} } })))).toContain('prefix every key with "github.com/"');
+  expect(invalidReason(parse(JSON.stringify({ version: 2, repos: { "the-metafactory": {} } })))).toContain("host-qualified");
+});
+
+test("registry keys use the ref grammar and require a dotted host to disambiguate legacy keys", () => {
+  for (const key of ["github.com:8443/owner/repo", "you@github.com/owner/repo"]) {
+    expect(invalidReason(parse(JSON.stringify({ version: 2, repos: { [key]: {} } })))).toContain("host-qualified");
+  }
+  expect(invalidReason(parse(JSON.stringify({ version: 2, repos: { "gitlab/csoc/reporter": {} } })))).toContain("host-qualified");
+});
+
+test("same-path GitHub and GitLab entries remain distinct", () => {
+  const raw = JSON.stringify({
+    version: 2,
+    repos: {
+      [REPO]: { commands: [{ run: "bun test", cwd: "/github" }] },
+      [GITLAB_REPO]: { commands: [{ run: "bun test", cwd: "/gitlab" }] },
+    },
+  });
+
+  expect(loaded(parse(raw, REPO)).commands).toEqual([{ run: "bun test", cwd: "/github" }]);
+  expect(loaded(parse(raw, GITLAB_REPO)).commands).toEqual([{ run: "bun test", cwd: "/gitlab" }]);
 });
 
 test("a relative declared cwd is refused — it would authorise a different directory per invocation", () => {
-  const registry = parse(JSON.stringify({ version: 1, repos: { "a/b": { commands: [{ run: "bun test", cwd: "./repo" }] } } }));
+  const registry = parse(JSON.stringify({ version: 2, repos: { "github.com/a/b": { commands: [{ run: "bun test", cwd: "./repo" }] } } }));
   expect(invalidReason(registry)).toContain("must be an absolute path");
 });
 
 test("a declared cwd may use ~, and normalises to an absolute path", () => {
   const registry = loaded(
-    parse(JSON.stringify({ version: 1, repos: { [REPO]: { commands: [{ run: "bun test", cwd: "~/work/soma/" }] } } }), REPO, "/home/jc"),
+    parse(JSON.stringify({ version: 2, repos: { [REPO]: { commands: [{ run: "bun test", cwd: "~/work/soma/" }] } } }), REPO, "/home/jc"),
   );
   expect(registry.commands).toEqual([{ run: "bun test", cwd: "/home/jc/work/soma" }]);
 });
 
 test("declared hosts are bare hostnames — no scheme, port, path, or wildcard", () => {
   const host = (value: unknown): ProbeRegistry =>
-    parse(JSON.stringify({ version: 1, repos: { "a/b": { urlHosts: [value] } } }));
+    parse(JSON.stringify({ version: 2, repos: { "github.com/a/b": { urlHosts: [value] } } }));
 
   expect(invalidReason(host("https://example.test"))).toContain("bare hostname");
   expect(invalidReason(host("example.test:8080"))).toContain("bare hostname");
@@ -135,7 +162,7 @@ test("declared hosts are bare hostnames — no scheme, port, path, or wildcard",
   expect(invalidReason(host("*.example.test"))).toContain(`may not contain "*"`);
   expect(invalidReason(host(""))).toContain("non-empty string");
 
-  const ok = loaded(parse(JSON.stringify({ version: 1, repos: { [REPO]: { urlHosts: ["Example.Test", "[::1]"] } } })));
+  const ok = loaded(parse(JSON.stringify({ version: 2, repos: { [REPO]: { urlHosts: ["Example.Test", "[::1]"] } } })));
   expect(ok.urlHosts).toEqual(["example.test", "[::1]"]);
 });
 
@@ -207,7 +234,7 @@ test("`soma policy probes` shows the adopter what is declared and where to edit 
   await mkdir(join(home, ".soma", "policy"), { recursive: true });
 
   const show = async (): Promise<string> =>
-    await runPolicyCli(parsePolicyArgs(["policy", "probes", "--repo", REPO, "--home-dir", home]));
+    await runPolicyCli(parsePolicyArgs(["policy", "probes", "--repo", POLICY_REPO, "--home-dir", home]));
 
   const absent = await show();
   expect(absent).toContain("status: absent");

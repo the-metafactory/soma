@@ -96,6 +96,20 @@ function splitHostAndPath(text: string, rest: string): { host: string; path: str
   return { host, path: parsePath(text, rest.slice(slash + 1)) };
 }
 
+/**
+ * Parse an unqualified `host/path` key. It shares the hostname and path grammar
+ * with forge refs, while leaving forge-specific path depth to the caller.
+ */
+export function parseHostPath(text: string): { host: string; path: string } | undefined {
+  const trimmed = text.trim();
+  const slash = trimmed.indexOf("/");
+  if (slash <= 0 || slash === trimmed.length - 1) return undefined;
+
+  const host = trimmed.slice(0, slash).toLowerCase();
+  const path = validPath(trimmed.slice(slash + 1), 1);
+  return HOST.test(host) && path !== undefined ? { host, path } : undefined;
+}
+
 /** Parse a qualified repo ref (`forge:host/path`). Refuses anything without the forge word. */
 export function parseRepoRef(text: string): RepoRef {
   const trimmed = text.trim();

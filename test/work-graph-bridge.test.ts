@@ -155,12 +155,14 @@ test("the ref's forge picks the store; a GitLab ref refuses until the backend ex
   );
 });
 
-test("the v1 probe registry authorises github.com repos only — no host-less lookup for any other host", () => {
-  expect(probeRegistryKey(SOMA)).toBe("the-metafactory/soma");
-  expect(() => probeRegistryKey({ ...SOMA, host: "ghe.example.com" })).toThrow(/only authorise github.com/);
-  expect(() => probeRegistryKey({ forge: "gitlab", host: "gitlab-int.switch.ch", path: "the-metafactory/soma" })).toThrow(
-    /only authorise github.com/,
+test("the v2 probe registry key keeps same-path repos on different hosts separate", () => {
+  expect(probeRegistryKey(SOMA)).toBe("github.com/the-metafactory/soma");
+  expect(probeRegistryKey({ forge: "gitlab", host: "gitlab-int.switch.ch", path: "the-metafactory/soma" })).toBe(
+    "gitlab-int.switch.ch/the-metafactory/soma",
   );
+  expect(() => probeRegistryKey({ ...SOMA, host: "ghe.example.com" })).toThrow(/github.com only/);
+  expect(() => probeRegistryKey({ forge: "gitlab", host: "github.com", path: "the-metafactory/soma" })).toThrow(/not a GitLab/);
+  expect(() => probeRegistryKey({ forge: "gitlab", host: "gitlab", path: "csoc/reporter" })).toThrow(/dotted forge hostname/);
 });
 
 test("the X-Gitlab-Meta header counts only on GitLab's own two answers, never on a redirect or an error", async () => {

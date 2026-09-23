@@ -10,7 +10,7 @@ The substrate that Soma projects into. Examples: Claude Code, OpenAI Codex, Pi.d
 
 Each substrate exposes its own primitives (system prompt, hooks, extensions, instruction files, tool surfaces). Soma is substrate-neutral; adapters translate Soma into substrate-native shape.
 
-**Not synonyms:** Do not use `harness`, `host`, `runtime`, `platform`, `agent runtime` in Soma docs or code. `substrate` is the only word.
+**Not synonyms:** Do not use `harness`, `host`, `runtime`, `platform`, `agent runtime` in Soma docs or code. `substrate` is the only word. `host` remains allowed only for a network hostname, such as a forge host in a ref or probe-registry key.
 
 **Why:** Coheres with the biological metaphor (Soma = cell body, substrate = medium it lives in). Already entrenched in `docs/architecture.md`, `docs/boundaries.md`, `docs/substrate-adapters.md`, and TypeScript types (`SomaAdapter`, `buildClaudeCodeContext`). `harness` implies strap-in/constraint; `substrate` implies a medium Soma inhabits, not a strapped-in process.
 

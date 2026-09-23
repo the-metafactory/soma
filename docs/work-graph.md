@@ -379,9 +379,9 @@ for the environment, never per invocation.
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "repos": {
-    "the-metafactory/soma": {
+    "github.com/the-metafactory/soma": {
       "commands": [{ "run": "bun test", "cwd": "/Users/you/work/soma" }],
       "urlHosts": ["status.example.com"]
     }
@@ -401,10 +401,14 @@ Declaration rules, all deny-by-default:
 - `urlHosts` are bare hostnames — no scheme, port, path, or wildcard. A declared
   host authorises any port on it; a non-http(s) target is refused outright,
   since a `file:` or `data:` URL has no host for a host set to authorise.
-- Registry v1 keys are host-less `owner/name`, so they authorise **github.com
-  repos only**: a close or `soma policy probes` on any other host (GHES,
-  GitLab) refuses rather than look its path up host-less, until registry v2
-  carries the host in every key (#536 D2, #692).
+- Registry v2 keys are host-qualified `host/path`, with a dotted hostname. The
+  dot disambiguates the key from a legacy `owner/name` entry; single-label forge
+  hosts cannot use this registry. A v1 registry refuses with migration guidance:
+  prefix each existing key with `github.com/`, then set `version` to 2. A
+  same-path GitHub declaration therefore cannot authorise a GitLab project
+  (#536 D2, #692). That prefix migration applies to v1's github.com-only keys;
+  a new GitLab declaration uses its actual GitLab hostname. GitHub Enterprise
+  is out of scope for this registry version.
 - Repository keys are compared case-insensitively. The **whole document** is
   validated, not just the entry being read: in an authorisation list a
   silently-ignored typo is what makes an adopter believe something is declared
