@@ -65,7 +65,7 @@ export const PROBE_REGISTRY_RELATIVE_PATH = "policy/probe-registry.json";
 export const PROBE_REFUSED_PREFIX = "probe refused by the probe registry (DD-16 Amendment A):";
 
 /** Only version this binary understands. An unknown version refuses rather than guessing. */
-export const PROBE_REGISTRY_VERSION = 1;
+export const PROBE_REGISTRY_VERSION = 2;
 
 /** Tracker-supplied strings are echoed into refusal messages; bound what an author can inject there. */
 const ECHO_LIMIT = 200;
@@ -187,20 +187,30 @@ export function parseProbeRegistry(input: ParseProbeRegistryInput): ProbeRegistr
   if (unknownKeys.length > 0) {
     return invalid(`has unknown top-level key(s): ${unknownKeys.join(", ")} — expected only "version" and "repos"`);
   }
+  if (document.version === 1) {
+    return invalid(
+      'uses registry version 1, whose host-less keys are no longer safe. Rewrite every repos key: prefix every key with "github.com/", then set "version" to 2.',
+    );
+  }
   if (document.version !== PROBE_REGISTRY_VERSION) {
     return invalid(`must declare "version": ${PROBE_REGISTRY_VERSION} (found ${JSON.stringify(document.version)})`);
   }
   if (!isRecord(document.repos)) {
-    return invalid(`"repos" must be an object keyed by "owner/name"`);
+    return invalid(`"repos" must be an object keyed by "host/path" (for example "github.com/owner/name")`);
   }
 
-  const wanted = normalizeRepo(input.repo);
+  const wanted = normalizeRegistryRepoKey(input.repo);
+  if (wanted === undefined) return invalid(`requested repository ${JSON.stringify(input.repo)} is not a host-qualified key`);
   const seen = new Set<string>();
   let match: RepoEntry | undefined;
 
   for (const [key, value] of Object.entries(document.repos)) {
-    const normalized = normalizeRepo(key);
-    if (normalized.length === 0) return invalid(`"repos" has an empty repository key`);
+    const normalized = normalizeRegistryRepoKey(key);
+    if (normalized === undefined) {
+      return invalid(
+        `"repos" key ${JSON.stringify(key)} must be host-qualified as "host/path" (for example "github.com/owner/name"); bare owner/name keys are invalid`,
+      );
+    }
     if (seen.has(normalized)) {
       return invalid(`"repos" declares ${normalized} more than once — repository keys are compared case-insensitively`);
     }
@@ -458,8 +468,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function normalizeRepo(repo: string): string {
-  return repo.trim().toLowerCase();
+function normalizeRegistryRepoKey(repo: string): string | undefined {
+  const trimmed = repo.trim();
+  const slash = trimmed.indexOf("/");
+  if (slash <= 0 || slash === trimmed.length - 1) return undefined;
+
+  const host = normalizeHost(trimmed.slice(0, slash));
+  const path = trimmed.slice(slash + 1);
+  if (host === undefined || !host.includes(".") || !isRepositoryPath(path)) return undefined;
+
+  return `${host}/${path.toLowerCase()}`;
+}
+
+function isRepositoryPath(path: string): boolean {
+  const segments = path.split("/");
+  return segments.length > 0 && segments.every((segment) => /^[A-Za-z0-9_.][A-Za-z0-9_.-]*$/u.test(segment) && segment !== "." && segment !== "..");
 }
 
 /** `example.com` → `example.com`; anything carrying a scheme, port, path or userinfo → `undefined`. */

@@ -155,11 +155,11 @@ test("the ref's forge picks the store; a GitLab ref refuses until the backend ex
   );
 });
 
-test("the v1 probe registry authorises github.com repos only — no host-less lookup for any other host", () => {
-  expect(probeRegistryKey(SOMA)).toBe("the-metafactory/soma");
-  expect(() => probeRegistryKey({ ...SOMA, host: "ghe.example.com" })).toThrow(/only authorise github.com/);
-  expect(() => probeRegistryKey({ forge: "gitlab", host: "gitlab-int.switch.ch", path: "the-metafactory/soma" })).toThrow(
-    /only authorise github.com/,
+test("the v2 probe registry key keeps same-path repos on different hosts separate", () => {
+  expect(probeRegistryKey(SOMA)).toBe("github.com/the-metafactory/soma");
+  expect(probeRegistryKey({ ...SOMA, host: "ghe.example.com" })).toBe("ghe.example.com/the-metafactory/soma");
+  expect(probeRegistryKey({ forge: "gitlab", host: "gitlab-int.switch.ch", path: "the-metafactory/soma" })).toBe(
+    "gitlab-int.switch.ch/the-metafactory/soma",
   );
 });
 

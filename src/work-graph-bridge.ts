@@ -20,7 +20,6 @@ import { runCommand, type CommandRequest } from "./work-graph-probes";
 import { invocationCwd } from "./path-utils";
 import {
   GITHUB_DOTCOM,
-  isGitHubDotcom,
   formatQualifiedNodeRef,
   formatRepoRef,
   isQualifiedRef,
@@ -161,18 +160,11 @@ export async function resolveGraphRepo(explicit?: string, deps: RepoResolutionDe
 }
 
 /**
- * The probe-registry key for a repo. Registry v1 keys are host-less `owner/name`,
- * which can only ever have meant github.com — so that is the only host this
- * resolves for. Any other host refuses rather than look up its path host-less,
- * where a `csoc/reporter` declared for GitHub would authorise closes on the
- * GitLab project of the same path (#536 D2). Host-qualified keys are registry v2.
+ * The probe-registry key for a repo. Registry v2 keys include the host, so a
+ * same-path GitHub declaration cannot authorise a GitLab project (#536 D2).
  */
 export function probeRegistryKey(repo: RepoRef): string {
-  if (isGitHubDotcom(repo)) return repo.path;
-  throw new WorkGraphError(
-    "backend",
-    `The probe registry keys repos without a host, so it can only authorise github.com repos; ${formatRepoRef(repo)} is not one.`,
-  );
+  return `${repo.host}/${repo.path}`;
 }
 
 /**

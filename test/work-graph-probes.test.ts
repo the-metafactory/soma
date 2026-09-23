@@ -23,7 +23,7 @@ import {
 import { collapseHome, redactHome } from "../src/work-graph";
 
 const AT = new Date("2026-08-04T09:00:00.000Z");
-const REPO = "the-metafactory/soma";
+const REPO = "github.com/the-metafactory/soma";
 const REGISTRY_PATH = "/home/.soma/policy/probe-registry.json";
 
 /**
@@ -329,7 +329,7 @@ test("a machine with no registry refuses command and url probes but still runs t
   );
   expect(command.outcome).toBe("fail");
   expect(command.observed).toContain("no registry exists at");
-  expect(command.observed).toContain(`"version": 1`); // the starter document to create
+  expect(command.observed).toContain(`"version": 2`); // the starter document to create
 
   const url = requireProbed(
     await runProbe({ type: "url", target: "https://example.test/", expectStatus: 200 }, deps({ registry: absent })),
