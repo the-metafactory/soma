@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   WorkGraphError,
+  WorkGraph,
   checkGitLabConfinement,
   createGitLabGraphStore,
   type GitLabApiRequest,
@@ -41,12 +42,39 @@ test("GitLab exposes Issue as its only Task-parent capability", () => {
   expect(store.selectRehomeParent).toBeTypeOf("function");
 });
 
+test("GitLab re-home reuses the Task and Issue reads for creation", async () => {
+  const calls: GitLabApiRequest[] = [];
+  const issue = { id: "gid://gitlab/WorkItem/2", iid: "2", workItemType: "Issue", namespace: { fullPath: REPO }, title: "issue", description: "", state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
+  const task = { id: "gid://gitlab/WorkItem/3", iid: "3", workItemType: "Task", namespace: { fullPath: REPO }, title: "task", description: "", state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", parent: { iid: "2", namespace: { fullPath: REPO }, workItemType: { name: "Issue" } }, children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
+  const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport: async (request) => {
+    calls.push(request);
+    const query = String(request.body?.query);
+    if (query.includes("workItemTypes")) return { data: { namespace: { workItemTypes: { nodes: [{ id: "gid://gitlab/WorkItems::Type/instance-task", name: "Task" }] } } } };
+    if (query.includes("workItemCreate")) return { data: { workItemCreate: { workItem: { iid: "4", workItemType: { name: "Task" }, namespace: { fullPath: REPO } }, errors: [] } } };
+    return { data: { namespace: { workItem: calls.filter((call) => String(call.body?.query).includes("workItem(iid")).length === 1 ? task : issue } } };
+  } });
+  const created = await new WorkGraph(store).createNode({ title: "scaffold", autonomy: "approve", checkpointId: "cp", parent: { id: `${REPO}#3` } });
+  expect(created).toMatchObject({ id: `${REPO}#4`, rehomedFrom: { id: `${REPO}#3` }, rehomedTo: { id: `${REPO}#2` } });
+  expect(calls.filter((call) => String(call.body?.query).includes("workItem(iid"))).toHaveLength(2);
+});
+
 test("GitLab claim and release refuse an identity other than the authenticated account", async () => {
   const calls: GitLabApiRequest[] = [];
   const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch", repo: REPO, transport: async (request) => { calls.push(request); return { username: "jc" }; } });
   await expect(store.claim(REF, "ivy")).rejects.toThrow(/does not match the authenticated GitLab identity/u);
   await expect(store.release(REF, "ivy")).rejects.toThrow(/does not match the authenticated GitLab identity/u);
   expect(calls).toEqual([{ method: "GET", path: "user" }, { method: "GET", path: "user" }]);
+});
+
+test("GitLab release reports the assignees GitLab actually returned", async () => {
+  const issue = { id: "gid://gitlab/WorkItem/12", iid: "12", workItemType: "Issue", namespace: { fullPath: REPO }, title: "task", description: "", state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [{ username: "jc" }] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
+  const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport: async (request) => {
+    if (request.path === "user") return { username: "jc" };
+    if (String(request.body?.query).includes("issueSetAssignees")) return { data: { issueSetAssignees: { errors: [] } } };
+    if (request.path === "graphql") return { data: { namespace: { workItem: issue } } };
+    return {};
+  } });
+  await expect(store.release(REF, "jc")).resolves.toEqual({ released: false, identity: "jc", assignees: ["jc"] });
 });
 
 test("GitLab creates an Issue in an Epic root's declared home project", async () => {
@@ -116,7 +144,7 @@ test("GitLab batches every subtree hierarchy level", async () => {
 test("close writes the receipt note before one description-and-state PUT", async () => {
   const calls: string[] = [];
   let closeBody: Record<string, unknown> | undefined;
-  const item = { id: "gid://gitlab/WorkItem/12", iid: "12", namespace: { fullPath: "saca/secacademy" }, title: "task", description: "body", state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
+  const item = { id: "gid://gitlab/WorkItem/12", iid: "12", namespace: { fullPath: "saca/secacademy" }, title: "task", description: "body\n\n<!-- soma:work-graph-node\n{\"autonomy\":\"approve\"}\n-->", state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
   const transport = async (request: GitLabApiRequest): Promise<unknown> => {
     calls.push(`${request.method} ${request.path}`);
     if (request.path === "graphql") return { data: { namespace: { workItem: item } } };
@@ -129,6 +157,7 @@ test("close writes the receipt note before one description-and-state PUT", async
   expect(calls.slice(-3)).toEqual(["POST graphql", "POST projects/saca%2Fsecacademy/issues/12/notes", "PUT projects/saca%2Fsecacademy/issues/12"]);
   expect(String(closeBody?.description)).toContain('"receiptCommentId": "9"');
   expect(String(closeBody?.description)).toContain('"closer": "ivy"');
+  expect(String(closeBody?.description)).toContain('"autonomy": "approve"');
 });
 
 test("GitLab route metadata never appears in a node body", async () => {

@@ -923,14 +923,16 @@ async function resolveBody(
 async function runAdd(
   parsed: ParsedGraphAddArgs,
   graph: WorkGraph,
-  repo: string,
+  repo: RepoRef,
   deps: GraphCliDeps,
 ): Promise<string> {
   const { bodyFile, ...rest } = parsed.options.spec;
   const body = await resolveBody(deps, typeof rest.body === "string" ? rest.body : undefined, typeof bodyFile === "string" ? bodyFile : undefined);
 
+  const storeData = repo.forge !== "gitlab" ? rest.storeData : { ...(rest.storeData !== undefined && typeof rest.storeData === "object" ? rest.storeData as Record<string, unknown> : {}), scopeProject: repo.path };
   const created = await graph.createNode({
     ...rest,
+    ...(storeData === undefined ? {} : { storeData }),
     ...(body === undefined ? {} : { body }),
     parent: { id: parsed.target },
   });
@@ -958,23 +960,23 @@ async function runAdd(
   }
 
   if (parsed.options.json === true) {
-    return JSON.stringify({ repo, node: created.id, parent: parsed.target, blockedBy: parsed.options.blockedBy, ...(created.rehomedFrom === undefined ? {} : { rehomedFrom: created.rehomedFrom.id, rehomedTo: created.rehomedTo?.id }) }, null, 2);
+    return JSON.stringify({ repo: displayRepo(repo), node: created.id, parent: parsed.target, blockedBy: parsed.options.blockedBy, ...(created.rehomedFrom === undefined ? {} : { rehomedFrom: created.rehomedFrom.id, rehomedTo: created.rehomedTo?.id }) }, null, 2);
   }
 
   return [
-    `Created node ${created.id} under ${created.rehomedTo?.id ?? parsed.target} (${repo}).`,
+    `Created node ${created.id} under ${created.rehomedTo?.id ?? parsed.target} (${displayRepo(repo)}).`,
     ...(created.rehomedFrom === undefined ? [] : [`Re-homed from Task ${created.rehomedFrom.id}: GitLab Tasks require an Issue parent; linked with relates_to.`]),
     ...(edges.length > 0 ? ["", "Blocking edges:", ...edges.map((edge) => `- ${edge}`)] : []),
   ].join("\n");
 }
 
-async function runChart(parsed: ParsedGraphChartArgs, graph: WorkGraph, repo: string, deps: GraphCliDeps): Promise<string> {
+async function runChart(parsed: ParsedGraphChartArgs, graph: WorkGraph, repo: RepoRef, deps: GraphCliDeps): Promise<string> {
   const { bodyFile, ...rest } = parsed.options.spec;
   const body = await resolveBody(deps, typeof rest.body === "string" ? rest.body : undefined, typeof bodyFile === "string" ? bodyFile : undefined);
-  const storeData = rest.storeData === undefined || typeof rest.storeData !== "object" ? rest.storeData : { ...(rest.storeData as Record<string, unknown>), scopeProject: repo };
+  const storeData = repo.forge !== "gitlab" || rest.storeData === undefined || typeof rest.storeData !== "object" ? rest.storeData : { ...(rest.storeData as Record<string, unknown>), scopeProject: repo.path };
   const created = await graph.createNode({ ...rest, ...(storeData === undefined ? {} : { storeData }), ...(body === undefined ? {} : { body }) });
-  if (parsed.options.json === true) return JSON.stringify({ repo, node: created.id }, null, 2);
-  return `Created typed graph root ${created.id} (${repo}).`;
+  if (parsed.options.json === true) return JSON.stringify({ repo: displayRepo(repo), node: created.id }, null, 2);
+  return `Created typed graph root ${created.id} (${displayRepo(repo)}).`;
 }
 
 /**
@@ -1526,9 +1528,9 @@ export async function runGraphCli(input: ParsedGraphArgs, overrides: Partial<Gra
     case "release":
       return await runRelease(parsed, graph, store, repo);
     case "add":
-      return await runAdd(parsed, graph, repo, deps);
+      return await runAdd(parsed, graph, repoRef, deps);
     case "chart":
-      return await runChart(parsed, graph, repo, deps);
+      return await runChart(parsed, graph, repoRef, deps);
     case "close":
       return await runClose(parsed, graph, store, repoRef, deps);
     case "audit":

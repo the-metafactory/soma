@@ -634,11 +634,18 @@ function redactAll(text: string, root: string): string {
  * A graph records its backend at creation and lives there forever; moving is a
  * one-way export into a fresh graph.
  */
+export interface RehomeSelection {
+  readonly parent: NodeRef;
+  readonly relatedTo: NodeRef;
+  /** Store-private, operation-scoped hydration. Never persisted or user input. */
+  readonly context?: unknown;
+}
+
 export interface GraphStore<TStoreData extends StoreCreationData = StoreCreationData> {
   /** Backend capability, not a per-receipt verdict — see {@link AttestationCapability}. */
   readonly attestation: AttestationCapability;
   /** Store-native re-home policy. The core only applies the selected parent. */
-  selectRehomeParent?(requested: NodeState): Promise<NodeRef | undefined>;
+  selectRehomeParent?(requested: NodeState): Promise<RehomeSelection | undefined>;
   /**
    * The identity this session acts as **on this store's forge** (#537 D2). One
    * session can be `jcfischer` on GitHub and `jens-christian.fischer` on GitLab,
@@ -660,7 +667,7 @@ export interface GraphStore<TStoreData extends StoreCreationData = StoreCreation
   /** Parse this store's optional creation capability from untrusted CLI/API input. */
   parseCreateData?(value: unknown): TStoreData;
   /** Store assigns the id. Callers reach this through {@link WorkGraph.createNode}, which validates first. */
-  createNode(spec: CreateNodeSpec<TStoreData>): Promise<NodeRef>;
+  createNode(spec: CreateNodeSpec<TStoreData>, rehome?: RehomeSelection): Promise<NodeRef>;
   addBlockingEdge(blocker: NodeRef, blocked: NodeRef): Promise<void>;
   readNode(ref: NodeRef): Promise<NodeState>;
   /**
@@ -1392,10 +1399,10 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
     const parsed = parseNodeSpec(spec, this.store.parseCreateData?.bind(this.store));
     if (parsed.parent === undefined || this.store.selectRehomeParent === undefined) return await this.store.createNode(parsed);
     const requested = await this.store.readNode(parsed.parent);
-    const rehomedParent = await this.store.selectRehomeParent(requested);
-    if (rehomedParent === undefined) return await this.store.createNode(parsed);
-    const created = await this.store.createNode({ ...parsed, parent: rehomedParent, relatedTo: requested.ref });
-    return { ...created, rehomedFrom: requested.ref, rehomedTo: rehomedParent };
+    const rehome = await this.store.selectRehomeParent(requested);
+    if (rehome === undefined) return await this.store.createNode(parsed);
+    const created = await this.store.createNode({ ...parsed, parent: rehome.parent, relatedTo: rehome.relatedTo }, rehome);
+    return { ...created, rehomedFrom: requested.ref, rehomedTo: rehome.parent };
   }
 
   async readNode(ref: NodeRef): Promise<NodeState> {

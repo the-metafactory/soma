@@ -477,7 +477,7 @@ test("createNode validates before the store is ever touched", async () => {
 
 test("a Task parent re-homes to its nearest Issue and retains native provenance", async () => {
   const store = new FakeStore();
-  Object.defineProperty(store, "selectRehomeParent", { value: async (requested: NodeState) => requested.trackerType === "Task" ? { id: "issue" } : undefined });
+  Object.defineProperty(store, "selectRehomeParent", { value: async (requested: NodeState) => requested.trackerType === "Task" ? { parent: { id: "issue" }, relatedTo: requested.ref } : undefined });
   store.add("issue", { trackerType: "Issue" });
   store.add("task", { trackerType: "Task", parent: { id: "issue" } });
   const created = await new WorkGraph(store).createNode({ title: "scaffold", autonomy: "approve", checkpointId: "cp", parent: { id: "task" } });

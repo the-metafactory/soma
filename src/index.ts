@@ -771,6 +771,7 @@ export {
   type ProbeType,
   type Ratification,
   type Reaction,
+  type RehomeSelection,
   type ReceiptScan,
   type WorkGraphAutonomy,
   type WorkGraphErrorCode,
