@@ -637,12 +637,8 @@ function redactAll(text: string, root: string): string {
 export interface GraphStore<TStoreData extends StoreCreationData = StoreCreationData> {
   /** Backend capability, not a per-receipt verdict — see {@link AttestationCapability}. */
   readonly attestation: AttestationCapability;
-  /**
-   * Native tracker types this store can parent a newly-created Task under.
-   * The contract layer owns any re-home decision; the store only reports its
-   * transport capability (#534 D2).
-   */
-  readonly allowedParentTypes?: readonly string[];
+  /** Store-native re-home policy. The core only applies the selected parent. */
+  selectRehomeParent?(requested: NodeState): Promise<NodeRef | undefined>;
   /**
    * The identity this session acts as **on this store's forge** (#537 D2). One
    * session can be `jcfischer` on GitHub and `jens-christian.fischer` on GitLab,
@@ -1394,19 +1390,12 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
   /** Validate at the boundary, then create. Additive mutation — free after structural validation (§1 clause 2). */
   async createNode(spec: unknown): Promise<NodeRef & { rehomedFrom?: NodeRef; rehomedTo?: NodeRef }> {
     const parsed = parseNodeSpec(spec, this.store.parseCreateData?.bind(this.store));
-    if (parsed.parent === undefined || this.store.allowedParentTypes === undefined) return await this.store.createNode(parsed);
+    if (parsed.parent === undefined || this.store.selectRehomeParent === undefined) return await this.store.createNode(parsed);
     const requested = await this.store.readNode(parsed.parent);
-    if (requested.trackerType !== "Task") return await this.store.createNode(parsed);
-    let parent = requested.parent;
-    while (parent !== undefined) {
-      const candidate = await this.store.readNode(parent);
-      if (candidate.trackerType !== undefined && this.store.allowedParentTypes.includes(candidate.trackerType)) {
-        const created = await this.store.createNode({ ...parsed, parent: candidate.ref, relatedTo: requested.ref });
-        return { ...created, rehomedFrom: requested.ref, rehomedTo: candidate.ref };
-      }
-      parent = candidate.parent;
-    }
-    throw new WorkGraphError("invalid-node", `cannot re-home parent ${requested.ref.id}: no allowed ancestor`);
+    const rehomedParent = await this.store.selectRehomeParent(requested);
+    if (rehomedParent === undefined) return await this.store.createNode(parsed);
+    const created = await this.store.createNode({ ...parsed, parent: rehomedParent, relatedTo: requested.ref });
+    return { ...created, rehomedFrom: requested.ref, rehomedTo: rehomedParent };
   }
 
   async readNode(ref: NodeRef): Promise<NodeState> {

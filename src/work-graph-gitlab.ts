@@ -22,6 +22,7 @@ import {
   type Reaction,
   type ReleaseResult,
   type StoreCreationData,
+  type WorkGraphNode,
 } from "./work-graph";
 import { envWithoutTokens, type ConfinementDeps } from "./work-graph-attestation";
 import { decodeNodeBlock, encodeNodeBlock } from "./work-graph-node-block";
@@ -72,7 +73,7 @@ export function createGlabCliTransport(options: GlabCliTransportOptions): GitLab
   };
 }
 
-export interface GitLabGraphStoreOptions { host: string; transport?: GitLabApiTransport; confinement?: ConfinementDeps; }
+export interface GitLabGraphStoreOptions { host: string; repo: string; transport?: GitLabApiTransport; confinement?: ConfinementDeps; }
 export interface GitLabCreateData extends StoreCreationData { readonly capability: "gitlab"; readonly homeProject: string; }
 interface Parts { path: string; iid: number; sigil: "#" | "&"; }
 interface Item { id: string; iid: number; path: string; type: string; title: string; description: string; status: NodeStatus; author: string; assignees: string[]; homeProject?: string; parent?: NodeRef; blockers: BlockingRef[]; children: NodeRef[]; childrenTruncated: boolean; linksTruncated: boolean; }
@@ -138,10 +139,18 @@ function itemFrom(value: unknown, context: string, fallbackPath: string): Item {
   const linksTruncated = linkedRecord?.pageInfo !== undefined && rec(linkedRecord.pageInfo, `${context} linked page`).hasNextPage === true;
   return { id: str(item, "id", context), iid, path, type, title, description, status: item.state === "CLOSED" ? "closed" : "open", author: username(item.author), assignees, ...(route.homeProject === undefined ? {} : { homeProject: route.homeProject }), ...(parent === undefined ? {} : { parent }), blockers: blocked, children: childNodes, childrenTruncated, linksTruncated };
 }
+function withPersistedCompletion(node: WorkGraphNode, value: unknown): WorkGraphNode {
+  const completion = rec(value, "node completion"); const fields = ["receiptCommentId", "checkpointId", "closer", "closedAt", "gatedNodeHash"] as const;
+  if (fields.some((field) => typeof completion[field] !== "string") || !["auto", "propose", "approve"].includes(String(completion.autonomy))) throw new WorkGraphError("invalid-node", "invalid persisted completion binding");
+  const autoProbeKeys = completion.autoProbeKeys; if (autoProbeKeys !== undefined && (!Array.isArray(autoProbeKeys) || autoProbeKeys.some((key) => typeof key !== "string"))) throw new WorkGraphError("invalid-node", "invalid persisted completion probe keys");
+  const ciCheckRunId = completion.ciCheckRunId; const ciHeadSha = completion.ciHeadSha; if ((ciCheckRunId !== undefined && typeof ciCheckRunId !== "string") || (ciHeadSha !== undefined && typeof ciHeadSha !== "string")) throw new WorkGraphError("invalid-node", "invalid persisted completion CI binding");
+  return { ...node, completion: { receiptCommentId: completion.receiptCommentId as string, checkpointId: completion.checkpointId as string, autonomy: completion.autonomy as WorkGraphNode["autonomy"], closer: completion.closer as string, closedAt: completion.closedAt as string, gatedNodeHash: completion.gatedNodeHash as string, ...(autoProbeKeys === undefined ? {} : { autoProbeKeys: autoProbeKeys as string[] }), ...(ciCheckRunId === undefined ? {} : { ciCheckRunId: ciCheckRunId as string, ciHeadSha: ciHeadSha as string }) } };
+}
+
 function stateFrom(item: Item): NodeState {
   const decoded = decodeNodeBlock(item.description);
   const ref = nodeId(item.path, item.iid, item.type === "Epic" ? "&" : "#");
-  try { const raw = decoded.raw === undefined ? undefined : rec(JSON.parse(decoded.raw) as unknown, "node block"); const node = raw === undefined ? { id: ref.id, title: item.title, autonomy: "approve" as const } : toNode(ref.id, parseNodeSpec({ ...raw, title: item.title })); return { ref, node, typed: raw !== undefined, status: item.status, author: item.author, assignees: item.assignees, body: decoded.text, blockedBy: item.blockers, trackerType: item.type, ...(item.parent === undefined ? {} : { parent: item.parent }) }; }
+  try { const raw = decoded.raw === undefined ? undefined : rec(JSON.parse(decoded.raw) as unknown, "node block"); const completion = raw?.completion; if (raw !== undefined) delete raw.completion; const parsed = raw === undefined ? { id: ref.id, title: item.title, autonomy: "approve" as const } : toNode(ref.id, parseNodeSpec({ ...raw, title: item.title })); const node = completion === undefined ? parsed : withPersistedCompletion(parsed, completion); return { ref, node, typed: raw !== undefined, status: item.status, author: item.author, assignees: item.assignees, body: decoded.text, blockedBy: item.blockers, trackerType: item.type, ...(item.parent === undefined ? {} : { parent: item.parent }) }; }
   catch (error) { return { ref, node: { id: ref.id, title: item.title, autonomy: "approve" }, typed: false, parseError: error instanceof Error ? error.message : String(error), status: item.status, author: item.author, assignees: item.assignees, body: decoded.text, blockedBy: item.blockers, trackerType: item.type, ...(item.parent === undefined ? {} : { parent: item.parent }) }; }
 }
 
@@ -171,11 +180,9 @@ export async function checkGitLabConfinement(deps: ConfinementDeps, host: string
 
 class GitLabGraphStore implements GraphStore<GitLabCreateData> {
   readonly attestation: AttestationCapability = "verifiable";
-  /** GitLab Tasks can only be parented by Issues; WorkGraph applies re-home. */
-  readonly allowedParentTypes = ["Issue"] as const;
   readonly parseCreateData = parseGitLabCreateData;
-  private readonly host: string; private readonly transport: GitLabApiTransport; private readonly confinement: ConfinementDeps; private readonly workItemTypeIds = new Map<string, Promise<string>>();
-  constructor(options: GitLabGraphStoreOptions) { this.host = validateRepoRef({ forge: "gitlab", host: options.host, path: "group" }).host; this.transport = options.transport ?? createGlabCliTransport({ hostname: this.host }); this.confinement = options.confinement ?? defaultConfinement(); }
+  private readonly host: string; private readonly repo: string; private readonly transport: GitLabApiTransport; private readonly confinement: ConfinementDeps; private readonly workItemTypeIds = new Map<string, Promise<string>>();
+  constructor(options: GitLabGraphStoreOptions) { const checked = validateRepoRef({ forge: "gitlab", host: options.host, path: options.repo }); this.host = checked.host; this.repo = checked.path; this.transport = options.transport ?? createGlabCliTransport({ hostname: this.host }); this.confinement = options.confinement ?? defaultConfinement(); }
   async actingIdentity(): Promise<string> { const user = rec(await this.transport({ method: "GET", path: "user" }), "GitLab user"); return str(user, "username", "GitLab user"); }
   async checkConfinement(): Promise<ConfinementResult> { return await checkGitLabConfinement(this.confinement, this.host); }
   private async workItemTypeId(namespacePath: string, name: "Epic" | "Issue" | "Task"): Promise<string> { const key = `${namespacePath}\u0000${name}`; let cached = this.workItemTypeIds.get(key); if (cached === undefined) { cached = (async () => { const response = await this.transport({ method: "POST", path: "graphql", body: { query: `query($fullPath:ID!){namespace(fullPath:$fullPath){workItemTypes(name:${typeEnum(name)}){nodes{id name}}}}`, variables: { fullPath: namespacePath } } }); const namespace = rec(gqlValue(response, "namespace"), "work item type namespace"); const types = rec(namespace.workItemTypes, "work item types"); const found = arr(types.nodes, "work item types").map((value) => rec(value, "work item type")).find((type) => typeName(type) === name); if (found === undefined) throw new WorkGraphError("backend", `GitLab namespace ${namespacePath} has no ${name} work-item type`); return str(found, "id", `${name} work item type`); })(); this.workItemTypeIds.set(key, cached); } return await cached; }
@@ -194,6 +201,7 @@ class GitLabGraphStore implements GraphStore<GitLabCreateData> {
       if (homeProject === undefined) throw new WorkGraphError("invalid-node", "GitLab graph roots require --home-project <group/project>");
       const separator = homeProject.lastIndexOf("/"); const group = homeProject.slice(0, separator); const project = homeProject.slice(separator + 1);
       if (group.length === 0 || project.length === 0) throw new WorkGraphError("invalid-node", "GitLab homeProject must name both a group and project");
+      if (homeProject !== this.repo) throw new WorkGraphError("invalid-node", `GitLab homeProject ${homeProject} must match the selected repository ${this.repo}`);
       input = { namespacePath: group, workItemTypeId: await this.workItemTypeId(group, "Epic"), title: spec.title, descriptionWidget: { description } };
     } else {
       const type = parent.type === "Epic" ? "Issue" : parent.type === "Issue" ? "Task" : undefined;
@@ -208,6 +216,7 @@ class GitLabGraphStore implements GraphStore<GitLabCreateData> {
   }
   private async addLinkedEdge(source: NodeRef, related: NodeRef, linkType: "BLOCKS" | "RELATES_TO"): Promise<void> { const [left, right] = await Promise.all([this.item(source), this.item(related)]); mutation(await this.transport({ method: "POST", path: "graphql", body: { query: `mutation($source:WorkItemID!,$target:WorkItemID!,$linkType:WorkItemLinkType!){workItemAddLinkedItems(input:{workItemId:$source,workItemIds:[$target],linkType:$linkType}){errors}}`, variables: { source: left.id, target: right.id, linkType } } }), "workItemAddLinkedItems"); }
   async addBlockingEdge(blocker: NodeRef, blocked: NodeRef): Promise<void> { await this.addLinkedEdge(blocker, blocked, "BLOCKS"); }
+  async selectRehomeParent(requested: NodeState): Promise<NodeRef | undefined> { if (requested.trackerType !== "Task") return undefined; let parent = requested.parent; while (parent !== undefined) { const candidate = await this.readNode(parent); if (candidate.trackerType === "Issue") return candidate.ref; parent = candidate.parent; } throw new WorkGraphError("invalid-node", `cannot re-home parent ${requested.ref.id}: no allowed ancestor`); }
   async readSubtree(root: NodeRef): Promise<NodeState[]> { const seen = new Set<string>([root.id]); const records = new Map<string, { item: Item; parent?: NodeRef }>(); const bounded = limitConcurrency(8); let frontier: { ref: NodeRef; parent?: NodeRef }[] = [{ ref: root }]; while (frontier.length > 0) { const current = frontier; frontier = []; const batches = Array.from({ length: Math.ceil(current.length / 50) }, (_, index) => current.slice(index * 50, (index + 1) * 50)); const items = (await Promise.all(batches.map((batch) => bounded(async () => await this.items(batch.map((entry) => entry.ref), true))))).flat(); for (const [index, item] of items.entries()) { const entry = current[index]!; if (item.childrenTruncated) throw new WorkGraphError("backend", `GitLab subtree ${entry.ref.id} is paginated; refusing a partial membership walk`); records.set(entry.ref.id, { item, ...(entry.parent === undefined ? {} : { parent: entry.parent }) }); for (const child of item.children) if (!seen.has(child.id)) { seen.add(child.id); frontier.push({ ref: child, parent: entry.ref }); } } }
     const result: NodeState[] = []; const visit = (ref: NodeRef): void => { const record = records.get(ref.id); if (record === undefined) return; for (const child of record.item.children) { const childRecord = records.get(child.id); if (childRecord?.parent?.id !== ref.id) continue; result.push({ ...stateFrom(childRecord.item), parent: ref }); visit(child); } }; visit(root); return result; }
   private async requireActingIdentity(identity: string): Promise<void> {
