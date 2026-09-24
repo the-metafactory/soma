@@ -52,8 +52,8 @@ charting surfaces no fog, say so and stop.
 Every graph operation is a `soma graph` verb. **Never reach past them to the
 tracker's own CLI** — the verbs carry the rules (structural validation, cycle
 rejection, claim tie-break, the hollow-close refusal), and a raw tracker write is
-those rules not running. The backend hides behind the CLI, which is what makes
-this doctrine tracker-agnostic by construction.
+those rules not running. The backend hides behind the CLI; creation flags still
+reflect each forge's capabilities.
 
 | Verb | What it does |
 | --- | --- |

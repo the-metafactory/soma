@@ -128,7 +128,7 @@ test("GitLab resolves the Epic type in the target group before creating a graph 
   expect((calls[1]?.body?.variables as { input: Record<string, unknown> }).input).toMatchObject({ namespacePath: "saca", workItemTypeId: "gid://gitlab/WorkItems::Type/instance-epic" });
   const description = ((calls[1]?.body?.variables as { input: { descriptionWidget: { description: string } } }).input).descriptionWidget.description;
   expect(description).toContain('"home": "saca/secacademy"');
-  expect(description).not.toContain("soma:gitlab-work-graph-route");
+  expect(description).toContain("soma:gitlab-work-graph-route");
 });
 
 test("GitLab rejects an Epic without home before a transport call", async () => {
@@ -145,8 +145,22 @@ test("GitLab refuses an Epic home outside its group before creating a child", as
   const epic = { id: "gid://gitlab/WorkItem/1", iid: "1", workItemType: "Epic", namespace: { fullPath: "saca" }, title: "map", description: '<!-- soma:work-graph-node\n{"autonomy":"approve","home":"elsewhere/project"}\n-->', state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
   let calls = 0;
   const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport: async () => { calls += 1; return { data: { namespace: { workItem: epic } } }; } });
-  await expect(store.createNode(parseNodeSpec({ title: "route", autonomy: "approve", checkpointId: "cp", parent: { id: "saca&1" } }))).rejects.toThrow(/no valid home project/u);
+  await expect(store.createNode(parseNodeSpec({ title: "route", autonomy: "approve", checkpointId: "cp", parent: { id: "saca&1" } }))).rejects.toThrow(/outside Epic group/u);
   expect(calls).toBe(1);
+});
+
+test("GitLab rejects traversal in a typed Epic home before child creation", async () => {
+  const epic = { id: "gid://gitlab/WorkItem/1", iid: "1", workItemType: "Epic", namespace: { fullPath: "saca" }, title: "map", description: '<!-- soma:work-graph-node\n{"autonomy":"approve","home":"saca/../../other"}\n-->', state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
+  let calls = 0;
+  const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport: async () => { calls += 1; return { data: { namespace: { workItem: epic } } }; } });
+  await expect(store.createNode(parseNodeSpec({ title: "route", autonomy: "approve", checkpointId: "cp", parent: { id: "saca&1" } }))).rejects.toThrow(/invalid path/u);
+  expect(calls).toBe(1);
+});
+
+test("GitLab refuses conflicting typed and legacy home bindings", async () => {
+  const epic = { id: "gid://gitlab/WorkItem/1", iid: "1", workItemType: "Epic", namespace: { fullPath: "saca" }, title: "map", description: '<!-- soma:work-graph-node\n{"autonomy":"approve","home":"saca/one"}\n-->\n<!-- soma:gitlab-work-graph-route\n{"homeProject":"saca/two"}\n-->', state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
+  const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport: async () => ({ data: { namespace: { workItem: epic } } }) });
+  await expect(store.readNode({ id: "saca&1" })).rejects.toThrow(/conflicting typed and route home/u);
 });
 
 test("GitLab creates a Task in its Issue parent's project", async () => {
@@ -160,12 +174,17 @@ test("GitLab creates a Task in its Issue parent's project", async () => {
 
 test("GitLab refuses a homeProject without a project segment", async () => {
   const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch",  transport: async () => { throw new Error("must not call GitLab"); } });
-  await expect(store.createNode(parseNodeSpec({ title: "map", autonomy: "approve", checkpointId: "cp", storeData: { homeProject: "saca/" } }, parseGitLabCreateData))).rejects.toThrow(/both a group and project/u);
+  await expect(store.createNode(parseNodeSpec({ title: "map", autonomy: "approve", checkpointId: "cp", storeData: { homeProject: "saca/" } }, parseGitLabCreateData))).rejects.toThrow(/invalid path/u);
 });
 
 test("GitLab root creation cannot route outside the selected repository", async () => {
   const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch",  transport: async () => { throw new Error("must not call GitLab"); } });
   await expect(store.createNode(parseNodeSpec({ title: "map", autonomy: "approve", checkpointId: "cp", storeData: { homeProject: "other/project", scopeProject: REPO } }, parseGitLabCreateData))).rejects.toThrow(/must match the selected repository/u);
+});
+
+test("GitLab rejects conflicting home values at creation", async () => {
+  const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport: async () => { throw new Error("transport must not run"); } });
+  await expect(store.createNode(parseNodeSpec({ title: "map", autonomy: "approve", home: "saca/one", storeData: { homeProject: "saca/two" } }, parseGitLabCreateData))).rejects.toThrow(/typed home conflicts/u);
 });
 
 test("GitLab preserves an Epic blocker id", async () => {
@@ -213,10 +232,10 @@ test("GitLab route metadata never appears in a node body", async () => {
   expect((await store.readNode({ id: "saca&1" })).node.home).toBe("saca/secacademy");
 });
 
-test("GitLab Epic close preserves a legacy route and does not add one to typed-home roots", async () => {
+test("GitLab Epic close preserves a legacy route and restores it on typed-only roots", async () => {
   const homes = [
-    { name: "legacy", description: '<!-- soma:work-graph-node\n{"autonomy":"approve"}\n-->\n\n<!-- soma:gitlab-work-graph-route\n{"homeProject":"saca/secacademy"}\n-->', route: true },
-    { name: "typed", description: '<!-- soma:work-graph-node\n{"autonomy":"approve","home":"saca/secacademy"}\n-->', route: false },
+    { description: '<!-- soma:work-graph-node\n{"autonomy":"approve"}\n-->\n\n<!-- soma:gitlab-work-graph-route\n{"homeProject":"saca/secacademy"}\n-->' },
+    { description: '<!-- soma:work-graph-node\n{"autonomy":"approve","home":"saca/secacademy"}\n-->' },
   ];
   for (const fixture of homes) {
     const epic = { id: "gid://gitlab/WorkItem/1", iid: "1", workItemType: "Epic", namespace: { fullPath: "saca" }, title: "map", description: fixture.description, state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
@@ -228,7 +247,7 @@ test("GitLab Epic close preserves a legacy route and does not add one to typed-h
       return { data: { namespace: { workItem: epic } } };
     } });
     await store.close({ id: "saca&1" }, { checkpointId: "cp", autonomy: "approve", closedBy: "ivy", at: "2026-09-24T00:00:00.000Z", evidence: [], probeResults: [], attestation: "unverified" });
-    expect(written.includes("soma:gitlab-work-graph-route")).toBe(fixture.route);
+    expect(written).toContain("soma:gitlab-work-graph-route");
     expect(written.match(/"home": "saca\/secacademy"/gu)).toHaveLength(1);
   }
 });

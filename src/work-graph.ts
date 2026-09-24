@@ -103,7 +103,7 @@ export interface WorkGraphNodeBase {
   /** Backend-native identity (GitHub: issue number), assigned by the store — never caller-supplied. */
   id: string;
   title: string;
-  /** GitLab map root's project binding; absent for other nodes and stores. */
+  /** GitLab map root's project binding; store routing metadata, distinct from Soma home. */
   home?: string;
   /** Backend-persisted close binding; absent until a gated close completes. */
   completion?: NodeCompletionBinding;
@@ -1228,7 +1228,7 @@ export function estimateReceiptChars(input: { resolution?: string; probeCount: n
 export const CLOSE_RECEIPT_MARKER = "## Close receipt";
 
 /** Deterministic SHA-256 commitment to the fields that the close gate authorizes. */
-export function hashGatedNodeFields(node: Pick<WorkGraphNode, "checkpointId" | "autonomy" | "probes">): string {
+export function hashGatedNodeFields(node: Pick<WorkGraphNode, "checkpointId" | "autonomy" | "probes" | "home">): string {
   const canonicalize = (value: unknown): unknown => {
     if (Array.isArray(value)) return value.map(canonicalize);
     if (value !== null && typeof value === "object") {
@@ -1236,7 +1236,7 @@ export function hashGatedNodeFields(node: Pick<WorkGraphNode, "checkpointId" | "
     }
     return value;
   };
-  const canonical = canonicalize({ checkpointId: node.checkpointId ?? null, autonomy: node.autonomy, probes: node.probes ?? [] });
+  const canonical = canonicalize({ checkpointId: node.checkpointId ?? null, autonomy: node.autonomy, probes: node.probes ?? [], ...(node.home === undefined ? {} : { home: node.home }) });
   return createHash("sha256").update(JSON.stringify(canonical), "utf8").digest("hex");
 }
 

@@ -45,6 +45,7 @@ interface WorkGraphNodeBase {
   id: string;            // backend-native identity (GitHub: issue number),
                          // assigned by the store — never caller-supplied
   title: string;
+  home?: string;        // GitLab Epic root's project binding; distinct from Soma home
   kind?: string;         // free-form doctrine tag (e.g. research, grilling);
                          // the runtime never interprets its MEANING but
                          // normalizes its FORM in createNode validation:
@@ -608,7 +609,8 @@ interface GraphStore {
   intended for fake-transport coverage; live GitLab Task-floor re-home behavior
   remains unverified. Roots created before the typed `home` field still read their
   route comment; close preserves it and writes `home` into the typed block.
-  New roots omit the route comment, so older clients do not read their binding.
+  New roots write both fields for older clients; a mismatch refuses rather than
+  silently choosing one. The route comment is a compatibility mirror of `home`.
   GitLab's current creation path refuses labels; navigate maps by Epic ref.
 - Day-one backend: **GitHub** (attestation capability: `verifiable` — the
   backend can attest reaction/comment authorship via its API). Backend

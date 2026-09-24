@@ -108,9 +108,10 @@ lines:
 soma graph add <root> \
   --title "…" --autonomy propose --kind grilling \
   --checkpoint <id> --body-file <path> \
-  --label orienteer:grilling \
   --blocked-by <id> --blocked-by <id>
 ```
+
+On GitHub, also pass `--label orienteer:grilling`.
 
 A node is **unblocked** when every blocker is closed, and the **frontier** is
 the open, unblocked, unclaimed children — the edge of the known. The graph is a
@@ -129,8 +130,9 @@ resolving a node are linked from the issue, not pasted in.
 
 ## Labels: the human index
 
-**Always label a node you create.** `--label orienteer:<kind>` on every node,
-`orienteer:map` on the root.
+**On GitHub, label every node you create.** Pass `--label orienteer:<kind>`
+for nodes and `--label orienteer:map` for the root. GitLab refuses labels;
+retain the Epic and child refs returned by the graph verbs.
 
 No pre-step is needed on GitHub: creating an issue with a label that does not
 exist **creates the label**. The hazard runs the other way — a typo does not
